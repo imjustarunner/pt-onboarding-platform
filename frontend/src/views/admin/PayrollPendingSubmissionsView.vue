@@ -1105,6 +1105,8 @@ const timeTypeLabel = (c) => {
   if (t === 'indirect_time') {
     const cat = String(c?.payload?.categoryLabel || '').trim();
     if (cat) return `Log Time / ${cat}`;
+    const code = String(c?.payload?.activityCode || '').trim();
+    if (code) return `Log Time / ${code}`;
     const bucket = String(c?.payload?.bucket || c?.bucket || '').trim().toLowerCase();
     return bucket === 'other_1' ? 'Log Time (Other 1)' : 'Log Time';
   }

@@ -291,7 +291,7 @@
                   <span class="itl-type-icon" aria-hidden="true">
                     <IndirectTimeIcon :name="t.iconKey" :size="22" :stroke-width="1.75" />
                   </span>
-                  <span class="itl-type-label">{{ t.label }}</span>
+                  <span class="itl-type-label">{{ activityCardLabel(t) }}</span>
                 </label>
               </div>
               <p class="itl-disclaimer">
@@ -324,7 +324,7 @@
                   <span class="itl-type-icon" aria-hidden="true">
                     <IndirectTimeIcon :name="t.iconKey" :size="22" :stroke-width="1.75" />
                   </span>
-                  <span class="itl-type-label">{{ t.label }}</span>
+                  <span class="itl-type-label">{{ activityCardLabel(t) }}</span>
                 </label>
               </div>
               <p class="itl-disclaimer">
@@ -359,7 +359,7 @@
                   <span class="itl-type-icon" aria-hidden="true">
                     <IndirectTimeIcon :name="t.iconKey" :size="22" :stroke-width="1.75" />
                   </span>
-                  <span class="itl-type-label">{{ t.label }}</span>
+                  <span class="itl-type-label">{{ activityCardLabel(t) }}</span>
                 </label>
               </div>
               <p class="itl-disclaimer">
@@ -369,7 +369,7 @@
             </div>
           </div>
           <p v-if="selectedTypeIds.size === 1" class="itl-step-hint itl-step-hint--activities">
-            Select at least one more activity — allocation opens after you choose two or more.
+            All {{ formatHm(sessionTotalMinutes) }} will be submitted for {{ singleSelectedActivityLabel }}.
           </p>
         </section>
 
@@ -379,9 +379,18 @@
           class="itl-card itl-step-card itl-step-card--allocate"
           aria-labelledby="itl-allocate-heading"
         >
-          <h3 id="itl-allocate-heading" class="itl-section-title">Step 4 — Allocate your time</h3>
+          <h3 id="itl-allocate-heading" class="itl-section-title">
+            {{ selectedTypeIds.size === 1 ? 'Step 4 — Review and submit' : 'Step 4 — Allocate your time' }}
+          </h3>
+
+          <p v-if="selectedTypeIds.size === 1" class="itl-single-alloc-summary">
+            One independent time claim for <strong>{{ singleSelectedActivityLabel }}</strong>
+            ({{ formatHm(sessionTotalMinutes) }}).
+            Enter who approved this time below, certify accuracy, and submit.
+          </p>
 
           <IndirectTimeAllocationPanel
+            v-if="selectedTypeIds.size > 1"
             ref="allocationPanelRef"
             :total-minutes="sessionTotalMinutes"
             :session-start-hm="sessionBoundsHm.start"
@@ -472,9 +481,13 @@
                 <span class="itl-sub-mins">{{ formatHm(submissionMinutes(s)) }}</span>
                 <span class="itl-sub-status" :data-status="s.status">{{ submissionStatusLabel(s.status) }}</span>
               </div>
+              <div
+                v-if="submissionMetaLine(s)"
+                class="itl-sub-meta"
+              >{{ submissionMetaLine(s) }}</div>
               <ul v-if="(s.payload?.allocations || []).length" class="itl-sub-allocs">
                 <li v-for="(a, idx) in (s.payload?.allocations || [])" :key="idx">
-                  {{ a.serviceTypeLabel }}
+                  {{ allocationDisplayLabel(a) }}
                   <template v-if="a.startTime && a.endTime"> — {{ a.startTime }}–{{ a.endTime }}</template>
                   — {{ formatHm(Number(a.minutes || 0)) }}
                   <template v-if="a.percent != null"> ({{ a.percent }}%)</template>
@@ -519,7 +532,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -544,6 +557,11 @@ import {
   serviceCodeForCategoryGroup
 } from '../../utils/hourlyDualRateContract.js';
 import { isSupervisor } from '../../utils/helpers';
+import {
+  activityCodeForTypeKey,
+  enrichAllocationWithActivityCode,
+  formatLogTimeActivityLabel
+} from '../../utils/logTimeActivityCodes';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },
@@ -559,7 +577,7 @@ const indirectSessionStore = useIndirectTimeSessionStore();
 const router = useRouter();
 const route = useRoute();
 
-const EXCLUDED_INDIRECT_TYPE_KEYS = new Set(['other_indirect']);
+const EXCLUDED_INDIRECT_TYPE_KEYS = new Set(['other_indirect', 'billing_correction']);
 
 /** Categories that often overlap with auto-submitted meeting/training claims. */
 const AUTO_CLAIM_WARN_TYPE_KEYS = new Set([
@@ -980,8 +998,15 @@ const canShowActivityStep = computed(() => {
 });
 
 const canShowAllocateStep = computed(
-  () => canShowActivityStep.value && selectedTypeIds.value.size >= 2
+  () => canShowActivityStep.value && selectedTypeIds.value.size >= 1
 );
+
+const singleSelectedActivityLabel = computed(() => {
+  if (selectedTypeIds.value.size !== 1) return '';
+  const id = [...selectedTypeIds.value][0];
+  const typeRec = findServiceTypeById(id);
+  return typeRec ? activityCardLabel(typeRec) : 'selected activity';
+});
 
 const displayClaimDateYmd = computed(() => {
   if (entryMethod.value === 'manual') return String(claimDate.value || '').slice(0, 10);
@@ -1006,14 +1031,14 @@ function stepClass(n) {
   const done =
     n === 1 ? hasChosenEntryMethod.value
     : n === 2 ? step2Done
-    : n === 3 ? sel >= 2
-    : n === 4 ? allocationValid.value && attestation.value
+    : n === 3 ? sel >= 1
+    : n === 4 ? (sel === 1 ? attestation.value : allocationValid.value && attestation.value)
     : false;
   const active =
     n === 1 ? !hasChosenEntryMethod.value
     : n === 2 ? hasChosenEntryMethod.value && !step2Done
-    : n === 3 ? step2Done && sel < 2
-    : n === 4 ? sel >= 2 && (!allocationValid.value || !attestation.value)
+    : n === 3 ? step2Done && sel < 1
+    : n === 4 ? sel >= 1 && (sel === 1 ? !attestation.value : !allocationValid.value || !attestation.value)
     : false;
   return { done, active };
 }
@@ -1064,7 +1089,8 @@ const canSubmit = computed(() => {
   if (!attestation.value) return false;
   if (entryMethod.value === 'manual' && !/^\d{4}-\d{2}-\d{2}$/.test(String(claimDate.value || ''))) return false;
   if (!(sessionTotalMinutes.value >= 1)) return false;
-  if (!selectedTypeIds.value.size || selectedTypeIds.value.size < 2) return false;
+  if (!selectedTypeIds.value.size) return false;
+  if (selectedTypeIds.value.size === 1) return true;
   return !!allocationValid.value;
 });
 
@@ -1152,11 +1178,102 @@ function formatDisplayDate(ymd) {
   }
 }
 
+function activityCardLabel(typeRec) {
+  return formatLogTimeActivityLabel(typeRec);
+}
+
+function allocationDisplayLabel(alloc) {
+  return formatLogTimeActivityLabel(
+    {
+      typeKey: alloc?.serviceTypeKey || alloc?.typeKey || alloc?.type_key,
+      label: alloc?.serviceTypeLabel || alloc?.label
+    },
+    alloc?.serviceTypeLabel || alloc?.label || 'Activity'
+  );
+}
+
+function entryMethodLabel(method) {
+  const m = String(method || '').trim().toLowerCase();
+  if (m === 'clock') return 'Clock in / out';
+  if (m === 'manual') return 'Manual start & end';
+  return '';
+}
+
+function findServiceTypeById(typeId) {
+  return (serviceTypes.value || []).find((x) => Number(x.id) === Number(typeId)) || null;
+}
+
+function buildSingleActivityAllocation() {
+  const id = [...selectedTypeIds.value][0];
+  const typeRec = findServiceTypeById(id);
+  if (!typeRec) return null;
+  const mins = Number(sessionTotalMinutes.value || 0);
+  if (!Number.isFinite(mins) || mins < 1) return null;
+  const startTime = sessionBoundsHm.value.start || manualStart.value || null;
+  const endTime = sessionBoundsHm.value.end || manualEnd.value || null;
+  return enrichAllocationWithActivityCode({
+    serviceTypeId: Number(typeRec.id),
+    serviceTypeKey: typeKeyOf(typeRec),
+    serviceTypeLabel: typeRec.label,
+    minutes: mins,
+    startTime,
+    endTime,
+    note: ''
+  });
+}
+
+function getSubmitAllocations() {
+  if (selectedTypeIds.value.size === 1) {
+    const single = buildSingleActivityAllocation();
+    return single ? [single] : [];
+  }
+  return allocationPanelRef.value?.getAllocationsForSubmit?.() || [];
+}
+
+function mergeAllocationsByType(allocations) {
+  const merged = new Map();
+  for (const raw of allocations) {
+    const id = Number(raw?.serviceTypeId);
+    if (!id) continue;
+    const mins = Number(raw.minutes || 0);
+    if (!Number.isFinite(mins) || mins < 1) continue;
+    const prev = merged.get(id);
+    if (prev) {
+      prev.minutes = Number(prev.minutes || 0) + mins;
+      const note = String(raw.note || '').trim();
+      if (note) {
+        const existing = String(prev.note || '').trim();
+        prev.note = existing ? `${existing}; ${note}` : note;
+      }
+    } else {
+      merged.set(id, { ...raw, minutes: mins });
+    }
+  }
+  return [...merged.values()];
+}
+
+function submissionMetaLine(s) {
+  if (isAutoSubmittedClaim(s)) return '';
+  const p = s?.payload || {};
+  const parts = [];
+  if (p.startTime && p.endTime) parts.push(`${p.startTime}–${p.endTime}`);
+  const method = entryMethodLabel(p.entryMethod);
+  if (method) parts.push(method);
+  if (p.approvedBy) parts.push(`Approved by ${p.approvedBy}`);
+  return parts.join(' · ');
+}
+
 function toggleType(t) {
   const next = new Set(selectedTypeIds.value);
   if (next.has(t.id)) next.delete(t.id);
   else next.add(t.id);
   selectedTypeIds.value = next;
+  persistSelectedTypes();
+  nextTick(() => {
+    if (canShowAllocateStep.value) {
+      allocationPanelRef.value?.tryEvenDistribute?.();
+    }
+  });
 }
 
 function selectAllTypes() {
@@ -1291,6 +1408,15 @@ watch(sessionTotalMinutes, (n, prev) => {
   }
 });
 
+watch(selectedTypeIds, () => {
+  persistSelectedTypes();
+  nextTick(() => {
+    if (selectedTypeIds.value.size > 1 && canShowAllocateStep.value) {
+      allocationPanelRef.value?.tryEvenDistribute?.();
+    }
+  });
+});
+
 async function loadTypes() {
   if (!agencyId.value) return;
   typesLoading.value = true;
@@ -1410,6 +1536,9 @@ async function postIndirectTimeClaim({
   allocations,
   payBucket,
   categoryGroup,
+  categoryLabel,
+  activityCode,
+  activityLabel,
   startTime,
   endTime,
   allocationMode,
@@ -1417,10 +1546,14 @@ async function postIndirectTimeClaim({
 }) {
   const group = categoryGroup || categoryGroupFromPayBucket(payBucket);
   const serviceCode = serviceCodeForCategoryGroup(group);
-  const tagged = (allocations || []).map((a) => ({
-    ...a,
-    payBucket: payBucket || normalizePayBucket(a.payBucket)
-  }));
+  const tagged = (allocations || []).map((a) =>
+    enrichAllocationWithActivityCode({
+      ...a,
+      payBucket: payBucket || normalizePayBucket(a.payBucket)
+    })
+  );
+  const displayLabel = activityLabel || categoryLabel || categoryGroupLabel(group);
+  const resolvedCode = activityCode || tagged[0]?.activityCode || null;
   return await api.post('/payroll/me/time-claims', {
     agencyId: agencyId.value,
     claimType: 'indirect_time',
@@ -1433,7 +1566,8 @@ async function postIndirectTimeClaim({
       totalMinutes,
       allocations: tagged,
       categoryGroup: group,
-      categoryLabel: categoryGroupLabel(group),
+      categoryLabel: displayLabel,
+      activityCode: resolvedCode,
       bucket: 'indirect',
       ...(serviceCode ? { serviceCode } : {}),
       sessionId: session.value?.id || null,
@@ -1452,7 +1586,7 @@ async function postIndirectTimeClaim({
 async function submitTime() {
   if (!canSubmit.value || !agencyId.value) return;
   const panel = allocationPanelRef.value;
-  const emptyNotes = panel?.getEmptyNoteLabels?.() || [];
+  const emptyNotes = selectedTypeIds.value.size > 1 ? (panel?.getEmptyNoteLabels?.() || []) : [];
   if (emptyNotes.length) {
     const list = emptyNotes.slice(0, 6).join(', ') + (emptyNotes.length > 6 ? '…' : '');
     const ok = window.confirm(
@@ -1482,45 +1616,47 @@ async function submitTime() {
     if (entryMethod.value === 'clock' && isClockedIn.value) {
       await clockOut();
     }
-    const allocations = panel?.getAllocationsForSubmit?.() || [];
+    const allocations = mergeAllocationsByType(getSubmitAllocations());
     const startTime = sessionBoundsHm.value.start || manualStart.value;
     const endTime = sessionBoundsHm.value.end || manualEnd.value;
     const usedNoteAid = !!indirectSessionStore.noteAidUsedDuringSession;
-    const allocationMode = unrefAllocationMode(panel);
+    const allocationMode = selectedTypeIds.value.size === 1
+      ? 'duration'
+      : unrefAllocationMode(panel);
     const createdIds = [];
-    const byGroup = {
-      indirect_service: [],
-      support_activity: [],
-      supervision_note: []
-    };
-    for (const a of allocations) {
-      const bucket = typePayBucket(a.serviceTypeId);
-      const group = categoryGroupFromPayBucket(bucket);
-      if (!byGroup[group]) byGroup[group] = [];
-      byGroup[group].push({ ...a, payBucket: bucket });
-    }
     const parts = [];
-    for (const group of ['indirect_service', 'support_activity', 'supervision_note']) {
-      const allocs = byGroup[group] || [];
-      const mins = allocs.reduce((s, a) => s + Number(a.minutes || 0), 0);
+    for (const alloc of allocations) {
+      const typeId = Number(alloc.serviceTypeId);
+      const typeRec = findServiceTypeById(typeId);
+      const typeKey = typeKeyOf(typeRec) || String(alloc.serviceTypeKey || '').toLowerCase();
+      const payBucket = typePayBucket(typeId);
+      const group = categoryGroupFromPayBucket(payBucket);
+      const activityCode = activityCodeForTypeKey(typeKey);
+      const activityLabel = formatLogTimeActivityLabel(
+        typeRec || { typeKey, label: alloc.serviceTypeLabel }
+      );
+      const mins = Number(alloc.minutes || 0);
       if (mins < 1) continue;
-      const payBucket = group === 'support_activity'
-        ? 'support'
-        : group === 'supervision_note'
-          ? 'supervision_note'
-          : 'indirect';
       const created = await postIndirectTimeClaim({
         totalMinutes: mins,
-        allocations: allocs,
+        allocations: [enrichAllocationWithActivityCode({
+          ...alloc,
+          serviceTypeKey: typeKey,
+          serviceTypeLabel: typeRec?.label || alloc.serviceTypeLabel,
+          payBucket
+        })],
         payBucket,
         categoryGroup: group,
+        categoryLabel: activityLabel,
+        activityCode,
+        activityLabel,
         startTime,
         endTime,
         allocationMode,
         usedNoteAid
       });
       if (created?.id) createdIds.push(Number(created.id));
-      parts.push(`${formatHm(mins)} ${categoryGroupLabel(group)}`);
+      parts.push(`${formatHm(mins)} ${activityLabel}`);
     }
     if (!parts.length) {
       throw new Error('Allocate minutes to at least one activity type');
@@ -2560,6 +2696,20 @@ onUnmounted(() => stopTick());
   margin-top: 2px;
   color: #4b5563;
   font-style: italic;
+}
+.itl-sub-meta {
+  margin-top: 4px;
+  font-size: 0.82rem;
+  color: var(--itl-muted);
+}
+.itl-single-alloc-summary {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  background: #f9fafb;
+  border: 1px solid var(--itl-border);
+  border-radius: 10px;
+  font-size: 0.92rem;
+  color: #374151;
 }
 .itl-danger-text { color: #dc2626; }
 .sr-only {

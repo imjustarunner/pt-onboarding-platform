@@ -227,6 +227,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { VueDraggableNext as draggable } from 'vue-draggable-next';
+import { enrichAllocationWithActivityCode, formatLogTimeActivityLabel } from '../../utils/logTimeActivityCodes';
 
 const props = defineProps({
   totalMinutes: { type: Number, default: 0 },
@@ -294,8 +295,8 @@ function makeRow(t, extras = {}) {
   return {
     id: `ar-${rowSeq++}`,
     typeId: t.id,
-    typeKey: t.typeKey,
-    label: t.label,
+    typeKey: t.typeKey || t.type_key,
+    label: formatLogTimeActivityLabel(t),
     startTime: extras.startTime || props.sessionStartHm || '09:00',
     endTime: extras.endTime || props.sessionEndHm || '17:00',
     hhmm: extras.hhmm || '00:00',
@@ -744,7 +745,7 @@ function getAllocationsForSubmit() {
     : rows.value.map((r) => rowMinutes(r));
   return rows.value.map((r, i) => {
     const note = String(r.note || '').trim();
-    return {
+    return enrichAllocationWithActivityCode({
       serviceTypeId: r.typeId,
       serviceTypeKey: r.typeKey,
       serviceTypeLabel: r.label,
@@ -754,7 +755,7 @@ function getAllocationsForSubmit() {
       percent: Number(r.percent) || null,
       sortOrder: i + 1,
       ...(note ? { note: note.slice(0, 1000) } : {})
-    };
+    });
   });
 }
 

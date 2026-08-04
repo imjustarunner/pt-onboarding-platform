@@ -9,8 +9,7 @@ export const DEFAULT_INDIRECT_SERVICE_TYPES = [
   { typeKey: 'client_communication', label: 'Client Communication', description: 'Client or guardian communication', iconKey: 'phone', payBucket: 'indirect', sortOrder: 40 },
   { typeKey: 'client_record_review', label: 'Client Record Review', description: 'Review client records and charts', iconKey: 'book', payBucket: 'indirect', sortOrder: 50 },
   { typeKey: 'scheduling_follow_up', label: 'Scheduling & Follow-up', description: 'Scheduling and follow-up activities', iconKey: 'calendar', payBucket: 'indirect', sortOrder: 60 },
-  { typeKey: 'billing_correction', label: 'Billing Correction / Claim Resolution', description: 'Billing corrections and claim resolution', iconKey: 'monitor', payBucket: 'indirect', sortOrder: 70 },
-  { typeKey: 'outreach_activities', label: 'Outreach Activities', description: 'Approved outreach activities', iconKey: 'megaphone', payBucket: 'indirect', sortOrder: 80 },
+  { typeKey: 'outreach_activities', label: 'Outreach Activities', description: 'Approved outreach activities', iconKey: 'megaphone', payBucket: 'indirect', sortOrder: 70 },
   // Support Activity Time (everyone) — paid at MEETING
   { typeKey: 'staff_meeting', label: 'Staff Meeting', description: 'Staff meeting (non-auto-logged)', iconKey: 'users', payBucket: 'support', sortOrder: 210 },
   { typeKey: 'required_training', label: 'Required Training', description: 'Required training when not auto-logged', iconKey: 'book', payBucket: 'support', sortOrder: 220 },
