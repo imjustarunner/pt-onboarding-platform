@@ -2356,7 +2356,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, unref, nextTick } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, unref, nextTick, provide } from 'vue';
 import { Capacitor } from '@capacitor/core';
 const isNative = Capacitor.isNativePlatform();
 import { useAuthStore } from './store/auth';
@@ -2472,6 +2472,7 @@ const currentAgencyIdForAddon = computed(() => agencyStore.currentAgency?.id ?? 
 const { momentumListEnabled } = useMomentumListAddon(currentAgencyIdForAddon);
 const focusMusicUserId = computed(() => authStore.user?.id ?? null);
 const focusMusic = useFocusMusicPlayer({ userIdRef: focusMusicUserId });
+provide('focusMusic', focusMusic);
 const showFocusMusicNav = computed(() => {
   if (!isAuthenticated.value) return false;
   // Not for SSTC / school staff / guardians / clients

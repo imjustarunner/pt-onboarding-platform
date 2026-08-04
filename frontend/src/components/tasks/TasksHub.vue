@@ -1917,24 +1917,35 @@ async function quickAssignToBlock() {
 async function openFocusSession(block) {
   const count = Number(block?.assignment_count || (block?.assignments || []).length || 0);
   if (count < 1) {
-    // Prefer assign first — open the block sheet instead of an empty Focus session.
     await onSelectBlock(block);
     return;
   }
-  focusBlock.value = block;
   selectedBlock.value = null;
-  try {
-    const day = timelineRef.value?.dayYmd?.value;
-    if (day) {
+  const dayRef = timelineRef.value?.dayYmd;
+  const day = dayRef?.value ?? dayRef ?? null;
+  let blocks = [];
+  if (day) {
+    try {
       const { data } = await api.get('/schedule-block-assignments/day', {
         params: { day },
         skipGlobalLoading: true
       });
-      focusDayBlocks.value = Array.isArray(data) ? data : [];
+      blocks = Array.isArray(data) ? data : [];
+    } catch {
+      blocks = [];
     }
-  } catch {
-    focusDayBlocks.value = [block];
   }
+  const bid = Number(block?.id);
+  if (bid && !blocks.some((b) => Number(b.id) === bid)) {
+    blocks = [...blocks, block];
+  }
+  blocks.sort((a, b) => {
+    const as = new Date(a.start_at || a.startAt || 0).getTime();
+    const bs = new Date(b.start_at || b.startAt || 0).getTime();
+    return as - bs;
+  });
+  focusDayBlocks.value = blocks.length ? blocks : (block ? [block] : []);
+  focusBlock.value = focusDayBlocks.value.find((b) => Number(b.id) === bid) || block;
 }
 
 watch([activeTab, filters], () => refresh(), { deep: true });

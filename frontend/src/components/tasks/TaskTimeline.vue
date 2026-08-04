@@ -94,10 +94,7 @@
     <div v-if="showCreateSheet" class="create-sheet">
       <h3>New schedule block</h3>
       <p class="muted">{{ createLabel }}</p>
-      <label class="field">
-        <span>Title</span>
-        <input v-model="createTitle" class="form-control" type="text" placeholder="Focus Time" />
-      </label>
+      <HoldReasonField v-model="createTitle" label="Block reason" />
       <label class="check">
         <input v-model="createFocus" type="checkbox" />
         Enable Focus Session
@@ -130,6 +127,8 @@ import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { parseScheduleInstant } from '../../utils/parseScheduleInstant';
+import { holdReasonLabelToCode } from '../../constants/scheduleHoldReasons.js';
+import HoldReasonField from './HoldReasonField.vue';
 
 const props = defineProps({
   agencyId: { type: Number, default: null },
@@ -518,7 +517,7 @@ async function confirmCreate() {
       allDay: false,
       startAt,
       endAt,
-      reasonCode: 'FOCUS_TIME',
+      reasonCode: holdReasonLabelToCode(createTitle.value),
       focusSessionEnabled: !!createFocus.value,
       isPrivate: false,
       allowLocalOnly: true
