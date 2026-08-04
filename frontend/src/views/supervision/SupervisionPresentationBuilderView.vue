@@ -201,9 +201,15 @@ function applyFormat(command) {
   draft.bodyHtml = el.innerHTML || '';
 }
 
-function selectSlide(id) {
-  selectedSlideId.value = id;
-  const slide = slides.value.find((s) => Number(s.id) === Number(id));
+/** Auto-save the section being left so unsaved edits are never silently discarded. */
+async function selectSlide(id) {
+  const target = Number(id || 0);
+  if (!target || target === Number(selectedSlideId.value)) return;
+  if (selectedSlide.value) {
+    await saveSlide();
+  }
+  selectedSlideId.value = target;
+  const slide = slides.value.find((s) => Number(s.id) === target);
   if (!slide) return;
   draft.title = slide.title || '';
   draft.bodyHtml = slide.body_html || '';

@@ -2463,6 +2463,7 @@ export const getSupervisionLiveAttendance = async (req, res, next) => {
         role: att.participant_role || att.participantRole || '',
         isHost: uid === Number(row.supervisor_user_id || 0)
           || uid === Number(row.co_facilitator_user_id || 0),
+        isRequired: att.is_required == null ? true : !!Number(att.is_required),
         totalSeconds: 0,
         segmentCount: 0
       });
@@ -2477,7 +2478,8 @@ export const getSupervisionLiveAttendance = async (req, res, next) => {
         email: '',
         role: '',
         isHost: uid === Number(row.supervisor_user_id || 0)
-          || uid === Number(row.co_facilitator_user_id || 0)
+          || uid === Number(row.co_facilitator_user_id || 0),
+        isRequired: true
       };
       existing.totalSeconds = Number(r.total_seconds || 0);
       existing.segmentCount = Number(r.segment_count || 0);
@@ -2532,6 +2534,7 @@ export const getSupervisionLiveAttendance = async (req, res, next) => {
         email: p.email,
         role: p.role,
         isHost: !!p.isHost,
+        isRequired: p.isRequired !== false,
         totalSeconds: Number(p.totalSeconds || 0),
         totalMinutes,
         waitSeconds,
@@ -2545,7 +2548,11 @@ export const getSupervisionLiveAttendance = async (req, res, next) => {
         presenceStatus: presence.isPresent ? 'active' : (presence.leftAt ? 'left' : 'away')
       };
     }).sort((a, b) => {
+      // Host first, then who's actually in the room, then required/mandatory
+      // attendees, then everyone else — alphabetical within each bucket.
       if (a.isHost !== b.isHost) return a.isHost ? -1 : 1;
+      if (a.isPresent !== b.isPresent) return a.isPresent ? -1 : 1;
+      if (a.isRequired !== b.isRequired) return a.isRequired ? -1 : 1;
       return String(a.name).localeCompare(String(b.name));
     });
 
@@ -2655,8 +2662,9 @@ export const getSupervisionVideoToken = async (req, res, next) => {
     const displayName = displayNameFromUser(actorProfile || req.user) || identity;
     const profilePhotoUrl = await profilePhotoUrlForUserId(actorUserId);
 
-    // Host always bypasses waiting room; mark admitted so presence/attendance can accrue.
-    if (isSupervisor) {
+    // Host and assigned presenters always bypass the waiting room so their presence/attendance
+    // accrues immediately — a presenter should never be missing from the attendance list.
+    if (isSupervisor || isPresenter) {
       try {
         await admitSupervisionJoinIdentity({
           sessionId: id,
@@ -2668,15 +2676,16 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       }
     }
 
-    const admitted = isSupervisor
+    const admitted = isSupervisor || isPresenter
       || await isUserAdmittedToSupervision({ sessionId: id, userId: actorUserId, joinIdentity: identity });
 
-    // Hosts always main. Non-hosts wait in lobby when waiting room is on (unless already admitted).
+    // Hosts and presenters always main. Everyone else waits in lobby when waiting room is on
+    // (unless already admitted).
     const forceMain = roomParam === 'main';
     const forceLobby = roomParam === 'lobby';
-    const useLobby = !isSupervisor && waitingRoomOn && (forceLobby || (!forceMain && !admitted));
+    const useLobby = !isSupervisor && !isPresenter && waitingRoomOn && (forceLobby || (!forceMain && !admitted));
 
-    if (forceMain && !isSupervisor && waitingRoomOn && !admitted) {
+    if (forceMain && !isSupervisor && !isPresenter && waitingRoomOn && !admitted) {
       return res.status(403).json({ error: { message: 'Not admitted yet. Wait in the lobby.' } });
     }
 
@@ -2901,11 +2910,16 @@ export const admitToMainRoom = async (req, res, next) => {
         'SELECT 1 FROM supervision_session_attendees WHERE session_id = ? AND user_id = ? LIMIT 1',
         [id, userIdNum]
       );
+      const [presenterRows] = await pool.execute(
+        'SELECT 1 FROM supervision_session_presenters WHERE session_id = ? AND user_id = ? LIMIT 1',
+        [id, userIdNum]
+      );
       const isParticipant =
         userIdNum === Number(row.supervisee_user_id)
         || userIdNum === Number(row.supervisor_user_id)
         || userIdNum === Number(row.co_facilitator_user_id || 0)
         || !!(attendeeRows?.length)
+        || !!(presenterRows?.length)
         || await userMatchesSupervisionOpenAudience({ sessionRow: row, userId: userIdNum });
       if (!isParticipant) {
         return res.status(400).json({ error: { message: 'User is not a participant in this session' } });

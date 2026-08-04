@@ -9,5 +9,5 @@ export const SUPERVISION_PRESENTATION_TEMPLATE = [
   { sectionKey: 'treatment_goals', title: 'Treatment Goals' },
   { sectionKey: 'intervention_plan', title: 'Intervention Plan' },
   { sectionKey: 'prognosis', title: 'Prognosis' },
-  { sectionKey: 'engagement_questions', title: 'Engagement with Questions' }
+  { sectionKey: 'engagement_questions', title: 'Questions' }
 ];

@@ -34,6 +34,8 @@
         <span class="map__name">
           {{ p.name }}
           <span v-if="p.isHost" class="map__host">Host</span>
+          <span v-else-if="p.isRequired === false" class="map__optional">Optional</span>
+          <span v-else class="map__required">Mandatory</span>
           <span v-if="participantHasRaisedHand(p)" class="map__hand-hint" title="Hand raised">✋</span>
           <span v-if="participantIsMuted(p)" class="map__mute-hint" title="Muted">Muted</span>
           <span v-if="p.isPresent" class="map__status map__status--active">In room</span>
@@ -325,6 +327,28 @@ defineExpose({ load });
   font-weight: 700;
   text-transform: uppercase;
   color: #0f766e;
+}
+.map__required {
+  margin-left: 6px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #9a3412;
+  background: #ffedd5;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.map__optional {
+  margin-left: 6px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #64748b;
+  background: #f1f5f9;
+  border-radius: 999px;
+  padding: 1px 7px;
 }
 .map__mins { font-variant-numeric: tabular-nums; color: #475569; flex-shrink: 0; }
 .map__copied { margin: 0; font-size: 0.8rem; color: #15803d; }

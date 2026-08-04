@@ -202,15 +202,49 @@
                 <span v-if="caseSummary.duration"><strong>Duration</strong> {{ caseSummary.duration }}</span>
                 <span v-if="caseSummary.setting"><strong>Setting</strong> {{ caseSummary.setting }}</span>
               </div>
-              <div class="gsl__slide-body" v-html="slideBodyHtml" />
+              <div v-if="!editingSlide" class="gsl__slide-body" v-html="slideBodyHtml" />
+              <div v-else class="gsl__slide-editor">
+                <div class="gsl__slide-toolbar" role="toolbar" aria-label="Text formatting">
+                  <button type="button" class="gsl__tool" title="Bold" @mousedown.prevent="applySlideFormat('bold')"><strong>B</strong></button>
+                  <button type="button" class="gsl__tool" title="Italic" @mousedown.prevent="applySlideFormat('italic')"><em>I</em></button>
+                  <button type="button" class="gsl__tool" title="Bullet list" @mousedown.prevent="applySlideFormat('insertUnorderedList')">• List</button>
+                </div>
+                <div
+                  ref="slideEditor"
+                  class="gsl__slide-richtext"
+                  contenteditable="true"
+                  role="textbox"
+                  aria-multiline="true"
+                  data-placeholder="Write your case content for this section…"
+                  @input="onSlideBodyInput"
+                />
+                <label class="gsl__slide-notes-field">
+                  <span>Presenter notes <em>(only you see these)</em></span>
+                  <textarea v-model="slideEditDraft.presenterNotes" rows="2" />
+                </label>
+              </div>
             </div>
           </template>
           <div v-else class="gsl__stage-empty">Presentation will appear here</div>
           <div class="gsl__stage-controls">
             <span>{{ slidePositionLabel }}</span>
-            <div v-if="canControlSlides" class="gsl__stage-nav">
-              <button type="button" class="btn btn-secondary btn-sm" @click="prevSlide">←</button>
-              <button type="button" class="btn btn-secondary btn-sm" @click="nextSlide">→</button>
+            <div class="gsl__stage-nav">
+              <template v-if="editingSlide">
+                <span v-if="slideEditSaveStatus" class="gsl__slide-save-status">{{ slideEditSaveStatus }}</span>
+                <button type="button" class="btn btn-primary btn-sm" :disabled="slideEditSaving" @click="saveSlideEdits">
+                  {{ slideEditSaving ? 'Saving…' : 'Save section' }}
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="slideEditSaving" @click="closeSlideEditor">
+                  Done
+                </button>
+              </template>
+              <template v-else>
+                <button v-if="canControlSlides" type="button" class="btn btn-secondary btn-sm" @click="prevSlide">←</button>
+                <button v-if="canControlSlides" type="button" class="btn btn-secondary btn-sm" @click="nextSlide">→</button>
+                <button v-if="canEditCurrentSlide" type="button" class="btn btn-secondary btn-sm" @click="openSlideEditor">Edit section</button>
+                <button v-if="canPresentMyDeck" type="button" class="btn btn-primary btn-sm" @click="presentMyDeck">Present</button>
+                <button v-if="canStopPresenting" type="button" class="btn btn-secondary btn-sm" @click="stopPresenting">Stop presenting</button>
+              </template>
             </div>
           </div>
         </div>
@@ -224,50 +258,71 @@
       </section>
 
       <aside class="gsl__workspace">
-        <section class="gsl__workspace-section gsl__workspace-section--agenda">
-          <MeetingAgendaPanel
-            meeting-type="supervision_session"
-            :meeting-id="numericSessionId || supervisionSessionId"
-            :can-add-item="canEditAgenda"
-            :embedded="true"
-            :live="true"
-            :live-sidebar="true"
-            theme="dark"
-          />
+        <section class="gsl__workspace-section" :class="{ 'gsl__workspace-section--collapsed': !agendaOpen }">
+          <button type="button" class="gsl__section-head" @click="agendaOpen = !agendaOpen">
+            <span>Agenda</span>
+            <span class="gsl__section-chevron" :class="{ 'gsl__section-chevron--open': agendaOpen }">▾</span>
+          </button>
+          <div v-show="agendaOpen" class="gsl__section-body">
+            <MeetingAgendaPanel
+              meeting-type="supervision_session"
+              :meeting-id="numericSessionId || supervisionSessionId"
+              :can-add-item="canEditAgenda"
+              :embedded="true"
+              :live="true"
+              :live-sidebar="true"
+              theme="dark"
+            />
+          </div>
         </section>
-        <section v-if="canFacilitate" class="gsl__workspace-section gsl__workspace-section--attendance">
-          <MeetingAttendancePanel
-            ref="attendancePanelRef"
-            meeting-kind="supervision"
-            :event-id="numericSessionId || supervisionSessionId"
-            :live-poll="true"
-            :raised-hands="raisedHandCount"
-            :raised-hand-names="raisedHandNames"
-            :muted-names="mutedParticipantNames"
-          />
+        <section v-if="canFacilitate" class="gsl__workspace-section" :class="{ 'gsl__workspace-section--collapsed': !attendanceOpen }">
+          <button type="button" class="gsl__section-head" @click="attendanceOpen = !attendanceOpen">
+            <span>Attendance</span>
+            <span class="gsl__section-chevron" :class="{ 'gsl__section-chevron--open': attendanceOpen }">▾</span>
+          </button>
+          <div v-show="attendanceOpen" class="gsl__section-body gsl__section-body--attendance">
+            <MeetingAttendancePanel
+              ref="attendancePanelRef"
+              meeting-kind="supervision"
+              :event-id="numericSessionId || supervisionSessionId"
+              :live-poll="true"
+              :raised-hands="raisedHandCount"
+              :raised-hand-names="raisedHandNames"
+              :muted-names="mutedParticipantNames"
+            />
+          </div>
         </section>
-        <section class="gsl__workspace-section gsl__workspace-section--transcript">
-          <h3 class="gsl__workspace-title">Transcript</h3>
-          <p v-if="transcriptHint" class="gsl__transcript-hint">{{ transcriptHint }}</p>
-          <pre v-if="transcriptCombined" class="gsl__transcript">{{ transcriptCombined }}</pre>
-          <p v-else class="gsl__transcript-empty">Transcript will appear here once speech is detected.</p>
-        </section>
-        <section class="gsl__workspace-section gsl__workspace-section--activity">
-          <MeetingLiveActivityPanel
-            :session-id="numericSessionId || supervisionSessionId"
-            :join-token="joinToken"
-            :join-identity="joinIdentity"
-            :guest-display-name="localDisplayName"
-            :is-host="canFacilitate"
-            :can-create-polls="canFacilitate"
-            :can-answer-questions="canFacilitate"
-            :start-open="true"
-            :below-video="true"
-            theme="dark"
-            @activity-notice="onLiveActivityNotice"
-          />
+        <section class="gsl__workspace-section" :class="{ 'gsl__workspace-section--collapsed': !transcriptOpen }">
+          <button type="button" class="gsl__section-head" @click="transcriptOpen = !transcriptOpen">
+            <span>Transcript</span>
+            <span class="gsl__section-chevron" :class="{ 'gsl__section-chevron--open': transcriptOpen }">▾</span>
+          </button>
+          <div v-show="transcriptOpen" class="gsl__section-body">
+            <p v-if="transcriptHint" class="gsl__transcript-hint">{{ transcriptHint }}</p>
+            <pre v-if="transcriptCombined" class="gsl__transcript">{{ transcriptCombined }}</pre>
+            <p v-else class="gsl__transcript-empty">Transcript will appear here once speech is detected.</p>
+          </div>
         </section>
       </aside>
+    </div>
+
+    <div
+      v-if="!videoFullscreen && !showWaitingRoomStage"
+      class="gsl__chat-bar"
+    >
+      <MeetingLiveActivityPanel
+        :session-id="numericSessionId || supervisionSessionId"
+        :join-token="joinToken"
+        :join-identity="joinIdentity"
+        :guest-display-name="localDisplayName"
+        :is-host="canFacilitate"
+        :can-create-polls="canFacilitate"
+        :can-answer-questions="canFacilitate"
+        :start-open="true"
+        :below-video="true"
+        theme="dark"
+        @activity-notice="onLiveActivityNotice"
+      />
     </div>
 
     <div
@@ -300,7 +355,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import BrandingLogo from '../BrandingLogo.vue';
@@ -336,6 +391,9 @@ const endingBusy = ref(false);
 const inviteBusy = ref(false);
 const inviteCopied = ref(false);
 let inviteCopiedTimer = null;
+const agendaOpen = ref(true);
+const attendanceOpen = ref(true);
+const transcriptOpen = ref(true);
 
 const videoStripCollapsed = computed(() => (
   !videoFullscreen.value && tileFocus.value === 'collapsed'
@@ -372,6 +430,13 @@ const {
   currentSlide,
   canControlSlides,
   showPresenterNotes,
+  isMyDeckActive,
+  canPresentMyDeck,
+  canStopPresenting,
+  canEditCurrentSlide,
+  presentMyDeck,
+  stopPresenting,
+  saveCurrentSlideContent,
   caseSummary,
   slidePositionLabel,
   slideBodyHtml,
@@ -380,6 +445,62 @@ const {
   prevSlide,
   nextSlide
 } = useSupervisionLiveSession(props, emit, { enablePresentation: true, enableActivityFeed: false });
+
+const editingSlide = ref(false);
+const slideEditDraft = reactive({ bodyHtml: '', presenterNotes: '' });
+const slideEditSaving = ref(false);
+const slideEditSaveStatus = ref('');
+const slideEditor = ref(null);
+
+function syncSlideEditor() {
+  const el = slideEditor.value;
+  if (!el) return;
+  const html = String(slideEditDraft.bodyHtml || '');
+  if (el.innerHTML !== html) el.innerHTML = html;
+}
+
+function openSlideEditor() {
+  if (!canEditCurrentSlide.value) return;
+  slideEditDraft.bodyHtml = String(currentSlide.value?.body_html || '');
+  slideEditDraft.presenterNotes = String(currentSlide.value?.presenter_notes || '');
+  editingSlide.value = true;
+  slideEditSaveStatus.value = '';
+  nextTick(syncSlideEditor);
+}
+
+function closeSlideEditor() {
+  editingSlide.value = false;
+}
+
+function onSlideBodyInput() {
+  slideEditDraft.bodyHtml = slideEditor.value?.innerHTML || '';
+}
+
+function applySlideFormat(command) {
+  const el = slideEditor.value;
+  if (!el || slideEditSaving.value) return;
+  el.focus();
+  try { document.execCommand(command, false, null); } catch { /* ignore */ }
+  slideEditDraft.bodyHtml = el.innerHTML || '';
+}
+
+async function saveSlideEdits() {
+  if (slideEditSaving.value) return;
+  onSlideBodyInput();
+  slideEditSaving.value = true;
+  slideEditSaveStatus.value = '';
+  const ok = await saveCurrentSlideContent({
+    bodyHtml: slideEditDraft.bodyHtml,
+    presenterNotes: slideEditDraft.presenterNotes
+  });
+  slideEditSaving.value = false;
+  slideEditSaveStatus.value = ok ? `Saved ${new Date().toLocaleTimeString()}` : 'Could not save — try again.';
+}
+
+// Reset the local editor whenever navigation moves to a different slide.
+watch(() => currentSlide.value?.id, () => {
+  if (editingSlide.value) closeSlideEditor();
+});
 
 const displayTitle = computed(() => 'Group Supervision');
 const presenterSubtitle = computed(() => {
@@ -569,12 +690,13 @@ defineExpose({
 
 <style scoped>
 .gsl {
-  height: 100vh;
-  height: 100dvh;
-  max-height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  /* Scroll the whole shell rather than clipping content — small screens (iPad)
+     need a reliable way to reach everything, especially chat. */
+  overflow-y: auto;
   background: linear-gradient(180deg, color-mix(in srgb, var(--agency-secondary-color, #1d2633) 88%, #000), #0c1018);
   color: #eef2f8;
   padding: 12px 16px 16px;
@@ -651,9 +773,9 @@ defineExpose({
   font-size: 0.9rem;
 }
 .gsl__video-strip {
-  flex: 0 1 22%;
-  min-height: min(18vh, 168px);
-  max-height: min(28vh, 260px);
+  flex: 0 1 36%;
+  min-height: min(32vh, 340px);
+  max-height: min(46vh, 480px);
   margin-bottom: 10px;
   position: relative;
   border-radius: 14px;
@@ -664,8 +786,8 @@ defineExpose({
   z-index: 6;
 }
 .gsl__video-strip--featured {
-  min-height: min(26vh, 240px);
-  max-height: min(36vh, 340px);
+  min-height: min(40vh, 420px);
+  max-height: min(52vh, 560px);
 }
 .gsl__video-strip--collapsed {
   flex: 0 0 auto;
@@ -683,20 +805,29 @@ defineExpose({
 .gsl__video-strip :deep(.vsr__stage) {
   min-height: 0;
   height: 100%;
+  place-content: center;
 }
+/* Square, evenly-sized tiles instead of a thin horizontal strip — prioritize
+   video size and avoid dead space around each tile. */
 .gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--solo .vsr__tile),
 .gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--duo .vsr__tile),
 .gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--grid .vsr__tile) {
-  min-height: 96px;
+  aspect-ratio: 1 / 1;
+  min-height: 0;
+  max-height: 100%;
+  max-width: 100%;
 }
-.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--grid) {
-  gap: 4px;
+.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--grid),
+.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--duo) {
+  gap: 6px;
+  justify-content: center;
+  align-content: center;
 }
 .gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--count-3),
 .gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--count-4),
 .gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--count-5),
 .gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--count-6) {
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 .gsl__video-strip--lobby {
   overflow: hidden;
@@ -877,119 +1008,80 @@ defineExpose({
   padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 4px;
   min-height: 0;
-  height: 100%;
-  max-height: 100%;
-  overflow: hidden;
-}
-.gsl__workspace-section--agenda {
-  flex: 0 1 22%;
-  min-height: 110px;
-  max-height: 28%;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  z-index: 1;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  padding-bottom: 8px;
-}
-.gsl__workspace-section--agenda :deep(.agenda-item),
-.gsl__workspace-section--agenda :deep(.map__row),
-.gsl__workspace-section--agenda :deep(.agenda-items li) {
-  font-size: 0.9rem;
-  line-height: 1.35;
-}
-.gsl__workspace-section--agenda :deep(.meeting-agenda-panel) {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.gsl__workspace-section--agenda :deep(.agenda-section) {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.gsl__workspace-section--agenda :deep(.agenda-items) {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
 }
 .gsl__workspace--lobby {
   max-height: none;
 }
+/* Collapsible sections: auto-height when expanded, header-only when collapsed —
+   siblings actually reflow into the freed space instead of leaving a gap. */
 .gsl__workspace-section {
-  flex-shrink: 1;
-  min-height: 0;
+  flex: 0 0 auto;
   position: relative;
   z-index: 1;
   isolation: isolate;
-}
-.gsl__workspace-section--activity {
-  flex: 1 1 42%;
-  overflow: hidden;
-  min-height: 200px;
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  padding-top: 8px;
-  order: 4;
-}
-.gsl__workspace-section--activity :deep(.mlap),
-.gsl__workspace-section--activity :deep(.mlap--below-video) {
-  flex: 1 1 auto;
-  min-height: 0 !important;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.gsl__workspace-section--activity :deep(.mlap__panel),
-.gsl__workspace-section--activity :deep(.mlap--below-video .mlap__panel) {
-  flex: 1 1 auto;
-  min-height: 0 !important;
-  max-height: none !important;
-  overflow: auto;
-}
-.gsl__workspace-section--attendance {
-  flex: 0 1 18%;
-  min-height: 96px;
-  max-height: 22%;
-  overflow: auto;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  padding-bottom: 8px;
+  padding-bottom: 6px;
 }
-.gsl__workspace-section--attendance :deep(.map) {
-  min-height: 0;
+.gsl__workspace-section:last-child {
+  border-bottom: 0;
 }
-.gsl__workspace-section--attendance :deep(.map__list) {
-  overflow: visible;
-}
-.gsl__workspace-section--transcript {
-  flex: 0 1 18%;
-  min-height: 100px;
-  max-height: 24%;
+.gsl__section-head {
+  width: 100%;
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.gsl__workspace-title {
-  margin: 0 0 6px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: transparent;
+  border: 0;
+  color: #f8fafc;
   font-size: 0.92rem;
   font-weight: 700;
+  padding: 4px 2px;
+  cursor: pointer;
+}
+.gsl__section-chevron {
+  color: #94a3b8;
+  transition: transform 0.15s ease;
+  transform: rotate(-90deg);
+}
+.gsl__section-chevron--open {
+  transform: rotate(0deg);
+}
+.gsl__section-body {
+  margin-top: 4px;
+  max-height: 34vh;
+  overflow: auto;
+}
+.gsl__section-body--attendance {
+  max-height: 42vh;
+}
+.gsl__section-body :deep(.agenda-item),
+.gsl__section-body :deep(.agenda-items li) {
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+.gsl__section-body :deep(.map) {
   color: #e8edf5;
-  flex: 0 0 auto;
+}
+.gsl__section-body :deep(.map__head h4) {
+  color: #f8fafc;
+}
+.gsl__section-body :deep(.map__mins) {
+  color: #cbd5e1 !important;
+}
+.gsl__section-body :deep(.map__name) {
+  color: #e8edf5;
+}
+.gsl__section-body :deep(.map__list) {
+  overflow: visible;
 }
 .gsl__transcript-hint {
   margin: 0 0 6px;
   font-size: 0.8rem;
   color: #93a0b8;
-  flex: 0 0 auto;
 }
 .gsl__transcript {
   margin: 0;
@@ -997,10 +1089,6 @@ defineExpose({
   font-size: 0.78rem;
   line-height: 1.35;
   color: #d5deea;
-  flex: 1 1 auto;
-  min-height: 0;
-  max-height: 100%;
-  overflow: auto;
 }
 .gsl__transcript-empty {
   margin: 0;
@@ -1022,18 +1110,22 @@ defineExpose({
 }
 .gsl__main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
   gap: 12px;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
-  overflow: hidden;
-}
-.gsl__main > .gsl__workspace {
-  min-height: 0;
-  overflow: hidden;
 }
 .gsl__main--lobby {
   grid-template-columns: minmax(0, 1fr);
+}
+/* Full-width chat/polls/Q&A bar under everything — the tabs stay horizontal and
+   the whole thing is far easier to reach on a tablet than a buried side column. */
+.gsl__chat-bar {
+  flex: 0 0 auto;
+  margin-top: 10px;
+}
+.gsl__chat-bar :deep(.mlap--below-video) {
+  max-height: min(44vh, 480px);
 }
 .gsl__stage {
   position: relative;
@@ -1041,19 +1133,84 @@ defineExpose({
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
   min-height: 160px;
-  max-height: min(30vh, 300px);
+  max-height: min(30vh, 320px);
   padding: 14px 16px;
   overflow: auto;
 }
 .gsl__slide h2 {
   margin: 0 0 10px;
   font-size: 1.15rem;
+  color: #f8fafc;
 }
 .gsl__stage-empty {
   color: #8893a8;
   display: grid;
   place-items: center;
   min-height: 140px;
+}
+.gsl__slide-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.gsl__slide-toolbar {
+  display: flex;
+  gap: 6px;
+}
+.gsl__tool {
+  min-width: 32px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e8edf5;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.gsl__slide-richtext {
+  min-height: 140px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 10px 12px;
+  color: #f3f6fb;
+  line-height: 1.45;
+  overflow: auto;
+}
+.gsl__slide-richtext:empty::before {
+  content: attr(data-placeholder);
+  color: #8893a8;
+}
+.gsl__slide-richtext:focus {
+  outline: 2px solid #60a5fa;
+  outline-offset: 1px;
+}
+.gsl__slide-notes-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #cbd5e1;
+}
+.gsl__slide-notes-field em {
+  font-weight: 500;
+  color: #8893a8;
+}
+.gsl__slide-notes-field textarea {
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: #f3f6fb;
+  padding: 8px 10px;
+  font-family: inherit;
+  resize: vertical;
+}
+.gsl__slide-save-status {
+  font-size: 0.78rem;
+  color: #86efac;
+  font-weight: 600;
 }
 .gsl__embed {
   width: 100%;
@@ -1105,10 +1262,12 @@ defineExpose({
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 16px;
   color: #a8b3c7;
 }
-.gsl__stage-nav { display: flex; gap: 8px; }
+.gsl__stage-nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .gsl__below {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -16,14 +16,25 @@
     <div v-else class="spc-body">
       <p v-if="saveStatus" class="spc-save muted">{{ saveStatus }}</p>
 
-      <label class="spc-field">
-        <span>Section</span>
-        <select v-model.number="slideId" class="input" :disabled="saving" @change="onSlideChange">
-          <option v-for="slide in slides" :key="slide.id" :value="Number(slide.id)">
-            {{ slide.title }}
-          </option>
-        </select>
-      </label>
+      <div class="spc-slide-list" role="tablist" aria-label="Case presentation sections">
+        <button
+          v-for="(slide, idx) in slides"
+          :key="slide.id"
+          type="button"
+          role="tab"
+          class="spc-slide-chip"
+          :class="{ on: Number(slide.id) === Number(slideId) }"
+          :aria-selected="Number(slide.id) === Number(slideId)"
+          @click="goToSlide(slide.id)"
+        >
+          {{ idx + 1 }}. {{ slide.title }}
+        </button>
+      </div>
+      <div class="spc-nav">
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="saving || slideIndex <= 0" @click="goToAdjacentSlide(-1)">← Previous section</button>
+        <span class="muted">Section {{ slideIndex + 1 }} of {{ slides.length }}</span>
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="saving || slideIndex >= slides.length - 1" @click="goToAdjacentSlide(1)">Next section →</button>
+      </div>
 
       <div class="spc-field">
         <span>Section content</span>
@@ -59,8 +70,8 @@
         <button type="button" class="btn btn-primary btn-sm" :disabled="saving" @click="saveSlide">
           {{ saving ? 'Saving…' : 'Save section' }}
         </button>
-        <button type="button" class="btn btn-secondary btn-sm" :disabled="saving" @click="$emit('open-full-builder')">
-          Open full slide builder
+        <button type="button" class="btn btn-outline-primary btn-sm" :disabled="saving" @click="openFullBuilder">
+          Open full slide builder →
         </button>
       </div>
     </div>
@@ -68,13 +79,13 @@
 </template>
 
 <script setup>
-import { nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
   sessionId: { type: [Number, String], default: 0 }
 });
-defineEmits(['open-full-builder']);
+const emit = defineEmits(['open-full-builder']);
 
 const loading = ref(false);
 const saving = ref(false);
@@ -88,6 +99,7 @@ const draft = reactive({
   bodyHtml: '',
   presenterNotes: ''
 });
+const slideIndex = computed(() => slides.value.findIndex((s) => Number(s.id) === Number(slideId.value)));
 
 function syncBodyEditor() {
   const el = bodyEditor.value;
@@ -120,8 +132,28 @@ function loadSlideDraft(id) {
   nextTick(syncBodyEditor);
 }
 
-function onSlideChange() {
-  loadSlideDraft(slideId.value);
+/** Auto-save the section being left so unsaved edits are never silently discarded. */
+async function goToSlide(id) {
+  const target = Number(id || 0);
+  if (!target || target === Number(slideId.value)) return;
+  if (presentationId.value && slideId.value) {
+    await saveSlide();
+  }
+  slideId.value = target;
+  loadSlideDraft(target);
+}
+
+function goToAdjacentSlide(delta) {
+  const idx = slideIndex.value;
+  const target = slides.value[idx + delta];
+  if (target) void goToSlide(target.id);
+}
+
+async function openFullBuilder() {
+  if (presentationId.value && slideId.value) {
+    await saveSlide();
+  }
+  emit('open-full-builder');
 }
 
 async function load() {
@@ -158,13 +190,17 @@ async function saveSlide() {
   error.value = '';
   try {
     const slide = slides.value.find((s) => Number(s.id) === Number(slideId.value));
-    await api.patch(`/supervision/presentation-slides/${slideId.value}`, {
+    const { data } = await api.patch(`/supervision/presentation-slides/${slideId.value}`, {
       title: slide?.title,
       bodyHtml: draft.bodyHtml,
       presenterNotes: draft.presenterNotes,
       layout: 'text',
       background: null
     });
+    // Merge the saved copy back into local state so switching sections (or opening
+    // the full builder right after) never shows stale/blank content.
+    const updated = data?.slide || { ...slide, body_html: draft.bodyHtml, presenter_notes: draft.presenterNotes };
+    slides.value = slides.value.map((s) => (Number(s.id) === Number(slideId.value) ? { ...s, ...updated } : s));
     saveStatus.value = `Saved ${new Date().toLocaleTimeString()}`;
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to save section';
@@ -231,6 +267,44 @@ onMounted(() => { void load(); });
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+.spc-slide-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.spc-slide-chip {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.spc-slide-chip.on {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+.spc-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+}
+.btn-outline-primary {
+  background: #fff;
+  border: 1.5px solid #1d4ed8;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+.btn-outline-primary:hover:not(:disabled) {
+  background: #eff6ff;
 }
 .error { color: #b91c1c; font-size: 0.85rem; }
 .muted { color: #64748b; }

@@ -114,7 +114,7 @@
               v-if="canGrantScreenShare && r.connectionId && !shareGrantedFor(r.connectionId)"
               type="button"
               class="vsr__share-grant"
-              title="Allow this participant to share their screen"
+              title="Screen sharing is limited to the host and presenter in this session — let this participant share their screen too"
               @click.stop="grantScreenShare(r, true)"
             >
               Allow screen
@@ -123,7 +123,7 @@
               v-else-if="canGrantScreenShare && r.connectionId && shareGrantedFor(r.connectionId)"
               type="button"
               class="vsr__share-grant vsr__share-grant--on"
-              title="Revoke screen share permission"
+              title="Take back this participant's screen-share permission"
               @click.stop="grantScreenShare(r, false)"
             >
               Revoke screen
@@ -246,7 +246,7 @@
                 v-if="entry.kind === 'remote' && canGrantScreenShare && entry.connectionId && !shareGrantedFor(entry.connectionId)"
                 type="button"
                 class="vsr__share-grant"
-                title="Allow this participant to share their screen"
+                title="Screen sharing is limited to the host and presenter in this session — let this participant share their screen too"
                 @click.stop="grantScreenShare(entry.remote || entry, true)"
               >
                 Allow screen
@@ -255,7 +255,7 @@
                 v-else-if="entry.kind === 'remote' && canGrantScreenShare && entry.connectionId && shareGrantedFor(entry.connectionId)"
                 type="button"
                 class="vsr__share-grant vsr__share-grant--on"
-                title="Revoke screen share permission"
+                title="Take back this participant's screen-share permission"
                 @click.stop="grantScreenShare(entry.remote || entry, false)"
               >
                 Revoke screen
@@ -393,17 +393,23 @@
         </div>
         <div v-if="allowTileFocus || showLayoutControls" class="vsr__layout-wrap">
           <button
+            ref="layoutMenuButton"
             type="button"
             class="vsr__ctrl"
             :class="{ 'vsr__ctrl--active': layoutMenuOpen || videoFullscreen }"
             title="Video layout"
             aria-haspopup="menu"
             :aria-expanded="layoutMenuOpen"
-            @click="layoutMenuOpen = !layoutMenuOpen"
+            @click="toggleLayoutMenu"
           >
             Layout
           </button>
-          <div v-if="layoutMenuOpen" class="vsr__layout-menu" role="menu">
+          <div
+            v-if="layoutMenuOpen"
+            class="vsr__layout-menu"
+            :class="{ 'vsr__layout-menu--up': layoutMenuOpensUp }"
+            role="menu"
+          >
             <button
               v-for="opt in layoutMenuOptions"
               :key="opt.id"
@@ -572,6 +578,23 @@ let reactionSeq = 0;
 
 const hasRemote = computed(() => remotes.value.length > 0);
 const layoutMenuOpen = ref(false);
+const layoutMenuOpensUp = ref(false);
+const layoutMenuButton = ref(null);
+
+/** Flip the menu upward when there isn't enough room below the trigger (e.g. fullscreen
+ * controls docked near the bottom of the screen) so it never renders off-viewport. */
+function toggleLayoutMenu() {
+  const next = !layoutMenuOpen.value;
+  layoutMenuOpen.value = next;
+  if (!next) return;
+  nextTick(() => {
+    const rect = layoutMenuButton.value?.getBoundingClientRect?.();
+    if (!rect) return;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const estimatedMenuHeight = 320;
+    layoutMenuOpensUp.value = spaceBelow < estimatedMenuHeight && rect.top > spaceBelow;
+  });
+}
 const lastSpeakerStreamId = ref('');
 const layoutMenuOptions = [
   { id: 'equal', label: 'Equal tiles', kind: 'focus' },
@@ -3210,6 +3233,12 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+/* Fullscreen controls dock near the bottom of the screen — open upward there
+   so the menu never renders past the bottom of the viewport. */
+.vsr__layout-menu--up {
+  top: auto;
+  bottom: calc(100% + 6px);
 }
 .vsr__layout-item {
   display: flex;

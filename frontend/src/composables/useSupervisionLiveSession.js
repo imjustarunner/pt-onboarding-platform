@@ -21,6 +21,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   const presentation = ref(null);
   const slides = ref([]);
   const currentSlide = ref(null);
+  const myPresentation = ref(null);
   const activity = ref([]);
   const pollTimer = ref(null);
   const lifecyclePosted = ref(false);
@@ -90,6 +91,31 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     && !viewAsAttendee.value
     && (props.isPresenter || props.isSupervisor)
   );
+  const isMyDeckActive = computed(() => (
+    !!myPresentation.value?.id
+    && Number(presentation.value?.id) === Number(myPresentation.value.id)
+  ));
+  const canPresentMyDeck = computed(() => (
+    enablePresentation
+    && !viewAsAttendee.value
+    && props.isPresenter
+    && !!myPresentation.value?.id
+    && !isMyDeckActive.value
+  ));
+  const canStopPresenting = computed(() => (
+    enablePresentation
+    && !viewAsAttendee.value
+    && props.isPresenter
+    && isMyDeckActive.value
+  ));
+  /** Only the assigned presenter may edit their own slide, and only while it's the live deck. */
+  const canEditCurrentSlide = computed(() => (
+    enablePresentation
+    && !viewAsAttendee.value
+    && props.isPresenter
+    && isMyDeckActive.value
+    && !!currentSlide.value
+  ));
   const caseSummary = computed(() => presentation.value?.caseSummary || {});
   const slidePositionLabel = computed(() => {
     if (!slides.value.length) return '0 / 0';
@@ -322,6 +348,81 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     }
   }
 
+  /** Load (or lazily create) the current user's own presenter deck, separate from
+   *  whichever deck is currently live on everyone's screen. */
+  async function refreshMyPresentation() {
+    if (!enablePresentation || !props.isPresenter) return;
+    const sid = props.supervisionSessionId;
+    if (!sid || props.isInLobby) return;
+    try {
+      const { data } = await api.get(`/supervision/sessions/${sid}/presentations/mine`, {
+        skipGlobalLoading: true,
+        skipAuthRedirect: true
+      });
+      myPresentation.value = data?.presentation || null;
+    } catch {
+      /* presenter may not be assigned yet */
+    }
+  }
+
+  /** Make my own deck the one everyone sees, starting from its first slide. */
+  async function presentMyDeck() {
+    if (!myPresentation.value?.id) return;
+    const firstSlide = (myPresentation.value.slides || [])[0] || null;
+    try {
+      await api.put(`/supervision/sessions/${props.supervisionSessionId}/presentation-state`, {
+        activePresentationId: myPresentation.value.id,
+        currentSlideId: firstSlide?.id || null,
+        currentSlideOrder: 0
+      }, { skipGlobalLoading: true });
+      await refreshPresentation();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Clear the shared stage so another presenter can take over. */
+  async function stopPresenting() {
+    try {
+      await api.put(`/supervision/sessions/${props.supervisionSessionId}/presentation-state`, {
+        activePresentationId: null,
+        currentSlideId: null,
+        currentSlideOrder: 0
+      }, { skipGlobalLoading: true });
+      await refreshPresentation();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Save the currently-displayed slide's content in place (presenter editing their own live deck). */
+  async function saveCurrentSlideContent({ bodyHtml, presenterNotes } = {}) {
+    const slide = currentSlide.value;
+    if (!slide || !canEditCurrentSlide.value) return false;
+    try {
+      const { data } = await api.patch(`/supervision/presentation-slides/${slide.id}`, {
+        title: slide.title,
+        bodyHtml,
+        presenterNotes,
+        layout: slide.layout || 'text',
+        background: slide.background || null
+      });
+      const updated = data?.slide || {};
+      const merged = { ...slide, ...updated, body_html: bodyHtml, presenter_notes: presenterNotes };
+      currentSlide.value = merged;
+      slides.value = slides.value.map((s) => (Number(s.id) === Number(slide.id) ? merged : s));
+      if (myPresentation.value?.slides) {
+        myPresentation.value = {
+          ...myPresentation.value,
+          slides: myPresentation.value.slides.map((s) => (Number(s.id) === Number(slide.id) ? merged : s))
+        };
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function refreshActivity() {
     if (!enableActivityFeed) return;
     const sid = numericSessionId.value || props.supervisionSessionId;
@@ -472,12 +573,16 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     if (inLobby) stopLiveTranscriptCapture();
     refreshActivity();
     loadSessionTranscript();
-    if (!inLobby) refreshPresentation();
+    if (!inLobby) {
+      refreshPresentation();
+      refreshMyPresentation();
+    }
   });
 
   onMounted(async () => {
     suspendInactivityTimeout();
     await refreshPresentation();
+    await refreshMyPresentation();
     if (enableActivityFeed) await refreshActivity();
     await loadSessionTranscript();
     pollTimer.value = setInterval(() => {
@@ -525,8 +630,16 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     presentation,
     slides,
     currentSlide,
+    myPresentation,
     canControlSlides,
     showPresenterNotes,
+    isMyDeckActive,
+    canPresentMyDeck,
+    canStopPresenting,
+    canEditCurrentSlide,
+    presentMyDeck,
+    stopPresenting,
+    saveCurrentSlideContent,
     caseSummary,
     slidePositionLabel,
     slideBodyHtml,
