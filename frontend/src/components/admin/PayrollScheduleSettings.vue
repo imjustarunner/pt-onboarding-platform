@@ -216,7 +216,7 @@
     <div v-else-if="payrollTab === 'indirect_types'" class="card">
       <h3 style="margin:0 0 4px 0;">Log Time activity types</h3>
       <p class="hint" style="margin:0 0 14px 0;">
-        Types shown on Log Time. Pay bucket: Indirect Service (hourly), Support Activity (everyone, paid at MEETING),
+        Types shown on Log Time. Pay bucket: Indirect Service (hourly), Support Activity (everyone, paid at Support Activity rate),
         or Supervision Note (supervisors, paid at Admin Time). Deactivate instead of deleting if used historically.
       </p>
       <div v-if="indirectTypesError" class="warn">{{ indirectTypesError }}</div>

@@ -24,6 +24,7 @@
     </div>
 
     <div v-if="pageError" class="pps-error">{{ pageError }}</div>
+    <div v-if="actionSuccess" class="pps-success" role="status">{{ actionSuccess }}</div>
 
     <div class="pps-toolbar card">
       <div class="field">
@@ -269,6 +270,7 @@
             <h2>Event Times</h2>
             <p class="hint">
               Skill Builders / program event kiosk check-in/out with direct and indirect hour split.
+              Includes submitted and deferred rows (same queue as Payroll Stage), including auto clock-outs that need verify.
               Each session appears as two rows (direct + indirect). Approving posts to the selected pay period.
             </p>
           </div>
@@ -766,6 +768,7 @@ const loading = ref(false);
 const bootstrapped = ref(false);
 const pageError = ref('');
 const actionError = ref('');
+const actionSuccess = ref('');
 const busyId = ref(null);
 
 const periods = ref([]);
@@ -1133,34 +1136,63 @@ const timeClaimApproveBucket = (c) => {
   return 'indirect';
 };
 
+const timePayEstimateHours = (c) => {
+  const overrideHrs = Number(timeHoursOverrideById[c.id]);
+  if (Number.isFinite(overrideHrs) && overrideHrs >= 0) return overrideHrs;
+  return claimHoursValue(c);
+};
+
 const timePayEstimateMoney = (c) => {
-  const est = Number(c?.payEstimate?.amount);
-  if (Number.isFinite(est)) {
-    // Scale estimate if admin changed hours in the UI.
-    const baseHrs = claimHoursValue(c);
-    const overrideHrs = Number(timeHoursOverrideById[c.id]);
-    const hrs = Number.isFinite(overrideHrs) && overrideHrs >= 0 ? overrideHrs : baseHrs;
-    if (baseHrs > 0 && hrs >= 0 && Math.abs(hrs - baseHrs) > 0.001) {
-      return `$${((est * hrs) / baseHrs).toFixed(2)}`;
-    }
-    return `$${est.toFixed(2)}`;
+  const hrs = timePayEstimateHours(c);
+  if (!(Number.isFinite(hrs) && hrs > 0)) return '—';
+
+  const bucket = timeClaimApproveBucket(c);
+  const pe = c?.payEstimate || {};
+  const t = String(c?.claim_type || '').toLowerCase();
+  const baseHrs = claimHoursValue(c);
+  const baseAmount = Number(pe.amount);
+  const directRate = Number(pe.directRate || 0);
+  const indirectRate = Number(pe.indirectRate || 0);
+  const other1Rate = Number(pe.other1Rate || 0);
+
+  // Live preview: hours × selected bucket rate (so Direct vs Indirect updates immediately).
+  if (bucket === 'direct' && directRate > 0) {
+    return `$${(hrs * directRate).toFixed(2)}`;
   }
+  if (bucket === 'other_1' && other1Rate > 0) {
+    return `$${(hrs * other1Rate).toFixed(2)}`;
+  }
+  if (bucket === 'indirect') {
+    const code = String(pe.serviceCode || c?.payload?.serviceCode || '').trim();
+    // Support Activity / meeting codes: scale the server estimate (MEETING rate) by hours.
+    if (code && Number.isFinite(baseAmount) && baseHrs > 0) {
+      return `$${((baseAmount * hrs) / baseHrs).toFixed(2)}`;
+    }
+    if (indirectRate > 0) return `$${(hrs * indirectRate).toFixed(2)}`;
+  }
+
+  // Meeting / auto claims (and fallbacks): scale original estimate by hour override.
+  if (Number.isFinite(baseAmount) && baseHrs > 0) {
+    return `$${((baseAmount * hrs) / baseHrs).toFixed(2)}`;
+  }
+  if (Number.isFinite(baseAmount)) return `$${baseAmount.toFixed(2)}`;
+  if (t === 'indirect_time' && indirectRate > 0) return `$${(hrs * indirectRate).toFixed(2)}`;
   return '—';
 };
 
 const timePayEstimateRateLabel = (c) => {
   const t = String(c?.claim_type || '').toLowerCase();
-  if (t === 'meeting_training' || t === 'mentor_cpa_meeting') {
-    const code = String(c?.payEstimate?.serviceCode || c?.payload?.serviceCode || '').trim();
-    if (code) return `${code} rate`;
-    const mt = String(c?.payload?.meetingType || '').trim();
-    if (mt) return 'MEETING rate';
-    return String(c?.payEstimate?.rateLabel || 'MEETING rate');
-  }
   const bucket = timeClaimApproveBucket(c);
   if (bucket === 'direct') return 'Direct rate';
   if (bucket === 'other_1') return 'Other 1 rate';
+  if (t === 'meeting_training' || t === 'mentor_cpa_meeting') {
+    return 'Support Activity rate';
+  }
+  const group = String(c?.payload?.categoryGroup || '').trim().toLowerCase();
+  const code = String(c?.payEstimate?.serviceCode || c?.payload?.serviceCode || '').trim();
+  if (group === 'support_activity' || code === 'MEETING') return 'Support Activity rate';
   const label = String(c?.payEstimate?.rateLabel || '').trim();
+  if (label && /meeting/i.test(label)) return 'Support Activity rate';
   if (label) return label;
   return 'Indirect rate';
 };
@@ -1356,7 +1388,9 @@ const loadEventTimeSubmissions = async () => {
     const resp = await api.get('/payroll/event-time-submissions', {
       params: {
         agencyId: agencyId.value,
-        status: eventTimeShowApproved.value ? 'submitted,approved,rejected,deferred' : 'submitted'
+        // Match Payroll Stage: deferred event times stay in the pending queue
+        // (e.g. auto clock-out / send-back), not only freshly submitted ones.
+        status: eventTimeShowApproved.value ? 'submitted,approved,rejected,deferred' : 'submitted,deferred'
       }
     });
     const submissions = Array.isArray(resp.data?.submissions) ? resp.data.submissions : [];
@@ -1415,6 +1449,7 @@ const withBusy = async (id, fn, reloadFn) => {
   try {
     busyId.value = id;
     actionError.value = '';
+    actionSuccess.value = '';
     await fn();
     await reloadFn();
   } catch (e) {
@@ -1548,25 +1583,46 @@ const mileagePreapprovedLabel = (c) => {
   return '—';
 };
 
-const approveTime = (c) => {
+const approveTime = async (c) => {
   const targetPayrollPeriodId = Number(claimTargetByKey[`time-${c.id}`] || 0);
   if (!isValidOpenPeriod(targetPayrollPeriodId)) return;
   const overrideHrs = Number(timeHoursOverrideById[c.id]);
   const hours = (Number.isFinite(overrideHrs) && overrideHrs >= 0)
     ? overrideHrs
     : claimHoursValue(c);
-  return withBusy(
+  const bucket = timeClaimApproveBucket(c);
+  const payPreview = timePayEstimateMoney(c);
+  const periodLabel = periodLabelForId(targetPayrollPeriodId);
+  const claimYmd = String(c?.claim_date || '').slice(0, 10);
+  const period = (periods.value || []).find((p) => Number(p.id) === Number(targetPayrollPeriodId));
+  const ps = String(period?.period_start || '').slice(0, 10);
+  const pe = String(period?.period_end || '').slice(0, 10);
+  if (claimYmd && ps && pe && (claimYmd < ps || claimYmd > pe)) {
+    const ok = window.confirm(
+      `This claim is dated ${claimYmd}, but you are posting it to ${periodLabel}.\n\n` +
+      'It will leave Pending Submissions and appear under Approved Time Claims for that period (or Payroll Stage for that period).\n\nApprove anyway?'
+    );
+    if (!ok) return;
+  }
+  await withBusy(
     `time-${c.id}`,
     (override = {}) =>
       api.patch(`/payroll/time-claims/${c.id}`, {
         action: 'approve',
         targetPayrollPeriodId,
-        bucket: timeClaimApproveBucket(c),
+        bucket,
         ...(Number.isFinite(hours) && hours >= 0 ? { creditsHours: hours } : {}),
         ...override
       }),
     loadClaims
   );
+  if (!actionError.value) {
+    const bucketLabel = bucket === 'direct' ? 'Direct' : bucket === 'other_1' ? 'Other 1' : 'Indirect';
+    const hrsLabel = Number.isFinite(hours) ? Number(hours).toFixed(2) : '—';
+    actionSuccess.value =
+      `Approved ${claimName(c)} — ${bucketLabel} · ${hrsLabel} hrs · ${payPreview} ` +
+      `posted to ${periodLabel}. It left this queue; open that pay period’s Approved Time Claims / Payroll Stage to review.`;
+  }
 };
 
 const returnTime = (c) => {
@@ -1881,6 +1937,14 @@ onMounted(async () => {
   background: #fef2f2;
   border: 1px solid #fecaca;
   color: #991b1b;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.pps-success {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
   padding: 10px 12px;
   border-radius: 8px;
   margin-bottom: 12px;

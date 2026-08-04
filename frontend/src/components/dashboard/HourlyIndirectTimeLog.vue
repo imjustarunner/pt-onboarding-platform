@@ -224,7 +224,7 @@
             <div class="itl-dual-col itl-dual-col--support">
               <div class="itl-dual-head">
                 <span class="itl-dual-badge itl-dual-badge--support">Support Activity Time</span>
-                <span class="itl-dual-sub">Paid at Meeting rate · counts toward indirect / PTO</span>
+                <span class="itl-dual-sub">Paid at Support Activity rate · counts toward indirect / PTO</span>
               </div>
               <div class="itl-type-grid" role="group" aria-label="Support Activity Time">
                 <label
@@ -249,7 +249,7 @@
               <p class="itl-disclaimer">
                 Virtual meetings are auto-logged and submitted via this application — duplicate submissions are not
                 required. This includes supervision, training, and onboarding meetings. If a meeting was not
-                auto-submitted, submit it here, verify with your supervisor, or check your Submit history for those
+                auto-submitted, submit it here, verify with your supervisor, or check My Submissions for those
                 auto submissions. Peer-to-peer meetings are never compensable unless at the direction of administrative staff.
               </p>
             </div>
@@ -302,6 +302,15 @@
           @validity="allocationValid = $event"
         />
 
+        <div v-if="selectedCategoryWarnings.length" class="itl-category-warnings" role="status">
+          <p v-for="(w, idx) in selectedCategoryWarnings" :key="idx" class="itl-category-warning">
+            {{ w }}
+          </p>
+        </div>
+        <div v-if="duplicateWarning" class="itl-category-warnings itl-category-warnings--dup" role="status">
+          <p class="itl-category-warning">{{ duplicateWarning }}</p>
+        </div>
+
         <div class="itl-submit-wrap">
           <div class="itl-attest-card" :class="{ 'itl-attest-card--on': attestation }">
             <div class="itl-attest-head">
@@ -339,21 +348,28 @@
             <span>Showing the submission you just sent.</span>
             <button type="button" class="itl-link-btn" @click="showAllSubmissions">View all submissions</button>
           </div>
+          <p class="itl-subs-intro hint">
+            Manual Log Time and auto-submitted meeting/training claims appear here so you can avoid duplicates.
+          </p>
           <div v-if="subsLoading" class="itl-muted">Loading submissions…</div>
-          <div v-else-if="!displaySubmissions.length" class="itl-muted">No indirect time submissions yet.</div>
+          <div v-else-if="!displaySubmissions.length" class="itl-muted">No time submissions yet.</div>
           <ul v-else class="itl-subs">
             <li v-for="s in displaySubmissions" :key="s.id" class="itl-sub">
               <div class="itl-sub-main">
                 <strong>{{ formatDisplayDate(s.claim_date) }}</strong>
                 <span
+                  v-if="isAutoSubmittedClaim(s)"
+                  class="itl-sub-category itl-sub-category--auto"
+                >Auto</span>
+                <span
                   v-if="submissionCategoryLabel(s)"
                   class="itl-sub-category"
-                  :data-category="s.payload?.categoryGroup || ''"
+                  :data-category="s.payload?.categoryGroup || claimTypeCategory(s)"
                 >{{ submissionCategoryLabel(s) }}</span>
-                <span class="itl-sub-mins">{{ formatHm(Number(s.payload?.totalMinutes || 0)) }}</span>
+                <span class="itl-sub-mins">{{ formatHm(submissionMinutes(s)) }}</span>
                 <span class="itl-sub-status" :data-status="s.status">{{ submissionStatusLabel(s.status) }}</span>
               </div>
-              <ul class="itl-sub-allocs">
+              <ul v-if="(s.payload?.allocations || []).length" class="itl-sub-allocs">
                 <li v-for="(a, idx) in (s.payload?.allocations || [])" :key="idx">
                   {{ a.serviceTypeLabel }}
                   <template v-if="a.startTime && a.endTime"> — {{ a.startTime }}–{{ a.endTime }}</template>
@@ -362,6 +378,7 @@
                   <span v-if="a.note" class="itl-sub-note"> — {{ a.note }}</span>
                 </li>
               </ul>
+              <p v-else-if="autoClaimDetail(s)" class="itl-sub-auto-detail">{{ autoClaimDetail(s) }}</p>
               <div class="itl-sub-actions">
                 <button
                   v-if="canEditSubmission(s)"
@@ -441,9 +458,30 @@ const route = useRoute();
 
 const EXCLUDED_INDIRECT_TYPE_KEYS = new Set(['other_indirect']);
 
+/** Categories that often overlap with auto-submitted meeting/training claims. */
+const AUTO_CLAIM_WARN_TYPE_KEYS = new Set([
+  'outreach_activities',
+  'staff_meeting',
+  'onboarding_sa',
+  'required_training',
+  'clinical_supervision_sa'
+]);
+
+/** Categories that may already be billable as direct service. */
+const BILLABLE_WARN_TYPE_KEYS = new Set([
+  'care_coordination',
+  'client_communication'
+]);
+
+const AUTO_CLAIM_TYPES = new Set(['meeting_training', 'mentor_cpa_meeting']);
+
 function isExcludedIndirectType(t) {
   const key = String(t?.typeKey || t?.type_key || '').toLowerCase();
   return EXCLUDED_INDIRECT_TYPE_KEYS.has(key);
+}
+
+function typeKeyOf(t) {
+  return String(t?.typeKey || t?.type_key || '').toLowerCase();
 }
 
 const isHourlyUser = computed(() => {
@@ -683,6 +721,57 @@ const displaySubmissions = computed(() => {
   return submissions.value;
 });
 
+const selectedTypeRecords = computed(() =>
+  (serviceTypes.value || []).filter((t) => selectedTypeIds.value.has(t.id))
+);
+
+const selectedCategoryWarnings = computed(() => {
+  const keys = new Set(selectedTypeRecords.value.map(typeKeyOf));
+  const out = [];
+  if ([...keys].some((k) => AUTO_CLAIM_WARN_TYPE_KEYS.has(k))) {
+    out.push(
+      'Please ensure you do not have a current time claim auto-submitted prior to manually submitting. Check My Submissions for Auto claims first.'
+    );
+  }
+  if ([...keys].some((k) => BILLABLE_WARN_TYPE_KEYS.has(k))) {
+    out.push(
+      'Please ensure this service does not satisfy a billable direct service prior to submitting this manual submission.'
+    );
+  }
+  return out;
+});
+
+const claimDateForDuplicateCheck = computed(() => {
+  if (entryMethod.value === 'manual') return String(claimDate.value || '').slice(0, 10);
+  const iso = session.value?.clockedInAt || session.value?.clocked_in_at;
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleDateString('en-CA', { timeZone: displayTimeZone.value });
+  } catch {
+    return String(iso).slice(0, 10);
+  }
+});
+
+const duplicateWarning = computed(() => {
+  const ymd = claimDateForDuplicateCheck.value;
+  if (!ymd || !selectedTypeIds.value.size) return '';
+  const keys = selectedTypeRecords.value.map(typeKeyOf);
+  const wantsAutoOverlap = keys.some((k) => AUTO_CLAIM_WARN_TYPE_KEYS.has(k));
+  if (!wantsAutoOverlap) return '';
+  const sameDayAuto = (submissions.value || []).filter((s) => {
+    if (!isAutoSubmittedClaim(s)) return false;
+    const st = String(s.status || '').toLowerCase();
+    if (!['submitted', 'approved', 'deferred'].includes(st)) return false;
+    return String(s.claim_date || '').slice(0, 10) === ymd;
+  });
+  if (!sameDayAuto.length) return '';
+  const labels = sameDayAuto
+    .slice(0, 3)
+    .map((s) => autoClaimDetail(s) || submissionCategoryLabel(s) || 'Auto claim')
+    .join('; ');
+  return `Possible duplicate: ${sameDayAuto.length} auto-submitted claim(s) already on ${formatDisplayDate(ymd)} (${labels}). Review My Submissions before submitting.`;
+});
+
 function openSubmissionsTab() {
   if (submissionViewMode.value !== 'recent') {
     submissionViewMode.value = 'all';
@@ -907,7 +996,38 @@ function ensureWritingNotesSelected() {
   selectedTypeIds.value = next;
 }
 
+function isAutoSubmittedClaim(s) {
+  return AUTO_CLAIM_TYPES.has(String(s?.claim_type || '').toLowerCase());
+}
+
+function claimTypeCategory(s) {
+  if (isAutoSubmittedClaim(s)) return 'support_activity';
+  return String(s?.payload?.categoryGroup || '');
+}
+
+function submissionMinutes(s) {
+  const mins = Number(s?.payload?.totalMinutes || 0);
+  if (Number.isFinite(mins) && mins > 0) return mins;
+  const hrs = Number(s?.credits_hours || s?.creditsHours || 0);
+  if (Number.isFinite(hrs) && hrs > 0) return Math.round(hrs * 60);
+  return 0;
+}
+
+function autoClaimDetail(s) {
+  if (!isAutoSubmittedClaim(s)) return '';
+  const p = s?.payload || {};
+  const mt = String(p.meetingType || p.title || p.eventTitle || '').trim();
+  const code = String(p.serviceCode || '').trim();
+  if (mt && code) return `${mt} (${code})`;
+  if (mt) return mt;
+  if (code) return code;
+  return 'Auto-submitted meeting / training';
+}
+
 function submissionCategoryLabel(s) {
+  if (isAutoSubmittedClaim(s)) {
+    return autoClaimDetail(s) || 'Support Activity (auto)';
+  }
   const payload = s?.payload || {};
   if (payload.categoryLabel) return String(payload.categoryLabel);
   if (payload.categoryGroup) return categoryGroupLabel(payload.categoryGroup);
@@ -1165,7 +1285,18 @@ async function submitTime() {
     );
     if (!ok) return;
   }
-  submitting.value = true;
+  if (duplicateWarning.value) {
+    const okDup = window.confirm(
+      `${duplicateWarning.value}\n\nSubmit this manual time anyway?`
+    );
+    if (!okDup) return;
+  } else if (selectedCategoryWarnings.value.length) {
+    const okWarn = window.confirm(
+      `${selectedCategoryWarnings.value.join('\n\n')}\n\nContinue with submission?`
+    );
+    if (!okWarn) return;
+  }
+  submitting.value = true
   error.value = '';
   success.value = '';
   try {
@@ -1254,16 +1385,19 @@ function submissionStatusLabel(status) {
 }
 
 function canEditSubmission(s) {
+  if (isAutoSubmittedClaim(s)) return false;
   const st = String(s?.status || '').toLowerCase();
   return ['submitted', 'deferred', 'rejected', 'withdrawn'].includes(st);
 }
 
 function canWithdrawSubmission(s) {
+  if (isAutoSubmittedClaim(s)) return false;
   const st = String(s?.status || '').toLowerCase();
   return ['submitted', 'deferred', 'rejected'].includes(st);
 }
 
 function canDeleteSubmission(s) {
+  if (isAutoSubmittedClaim(s)) return false;
   const st = String(s?.status || '').toLowerCase();
   return ['withdrawn', 'deferred', 'rejected'].includes(st);
 }
@@ -1333,7 +1467,14 @@ async function loadSubmissions() {
   try {
     const resp = await api.get('/payroll/me/time-claims', { params: { agencyId: agencyId.value } });
     const rows = Array.isArray(resp.data) ? resp.data : (resp.data?.claims || resp.data?.rows || []);
-    submissions.value = rows.filter((c) => String(c?.claim_type || '').toLowerCase() === 'indirect_time');
+    const allowed = new Set(['indirect_time', 'meeting_training', 'mentor_cpa_meeting']);
+    submissions.value = rows
+      .filter((c) => allowed.has(String(c?.claim_type || '').toLowerCase()))
+      .sort((a, b) => {
+        const da = String(b?.claim_date || '').localeCompare(String(a?.claim_date || ''));
+        if (da) return da;
+        return Number(b?.id || 0) - Number(a?.id || 0);
+      });
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load submissions';
   } finally {
@@ -1357,7 +1498,7 @@ function stopTick() {
 
 async function bootstrap() {
   if (!props.enabled || !agencyId.value) return;
-  await Promise.all([loadTypes(), loadSession(), loadRatioHint()]);
+  await Promise.all([loadTypes(), loadSession(), loadRatioHint(), loadSubmissions()]);
   startTick();
 }
 
@@ -1762,6 +1903,40 @@ onUnmounted(() => stopTick());
   background: rgba(255, 255, 255, 0.65);
   border-radius: 8px;
   padding: 8px 10px;
+}
+.itl-category-warnings {
+  margin: 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.itl-category-warning {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.itl-category-warnings--dup .itl-category-warning {
+  color: #9a3412;
+  background: #fff7ed;
+  border-color: #fdba74;
+}
+.itl-subs-intro {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+}
+.itl-sub-auto-detail {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  color: var(--itl-muted, #6b7280);
+}
+.itl-sub-category--auto {
+  background: #dbeafe !important;
+  color: #1d4ed8 !important;
 }
 .itl-sub-category {
   display: inline-block;

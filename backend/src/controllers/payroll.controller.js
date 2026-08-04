@@ -18010,16 +18010,28 @@ export const listTimeClaims = async (req, res, next) => {
         let rateLabel = 'Indirect rate';
         const code = String(payload.serviceCode || '').trim();
         const mt = String(payload.meetingType || '').trim();
-        if (code) rateLabel = `${code} rate`;
-        else if (mt) rateLabel = 'MEETING rate (inferred)';
-        else if (bucketHint === 'direct') rateLabel = 'Direct rate';
-        else if (bucketHint === 'other_1') rateLabel = 'Other 1 rate';
+        const categoryGroup = String(payload.categoryGroup || '').trim().toLowerCase();
+        if (categoryGroup === 'support_activity' || code === 'MEETING') {
+          rateLabel = 'Support Activity rate';
+        } else if (code) {
+          rateLabel = `${code} rate`;
+        } else if (mt) {
+          rateLabel = 'Support Activity rate';
+        } else if (bucketHint === 'direct') {
+          rateLabel = 'Direct rate';
+        } else if (bucketHint === 'other_1') {
+          rateLabel = 'Other 1 rate';
+        }
         withEstimates.push({
           ...row,
           payEstimate: {
             amount: Number.isFinite(amount) ? amount : null,
             rateLabel,
-            serviceCode: code || null
+            serviceCode: code || null,
+            // Rates for live Pending Submissions preview when admin changes bucket/hours.
+            directRate: Number(rateCard?.direct_rate || 0) || 0,
+            indirectRate: Number(rateCard?.indirect_rate || 0) || 0,
+            other1Rate: Number(rateCard?.other_rate_1 || 0) || 0
           }
         });
       } catch {
