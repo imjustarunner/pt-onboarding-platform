@@ -12,11 +12,14 @@ class PayrollTodoTemplate {
 
   static async listForAgency({ agencyId, includeInactive = true }) {
     const [rows] = await pool.execute(
-      `SELECT *
-       FROM payroll_todo_templates
-       WHERE agency_id = ?
-         ${includeInactive ? '' : 'AND is_active = 1'}
-       ORDER BY is_active DESC, id DESC`,
+      `SELECT ptt.*,
+              tu.first_name AS target_user_first_name,
+              tu.last_name AS target_user_last_name
+       FROM payroll_todo_templates ptt
+       LEFT JOIN users tu ON tu.id = ptt.target_user_id AND ptt.target_user_id > 0
+       WHERE ptt.agency_id = ?
+         ${includeInactive ? '' : 'AND ptt.is_active = 1'}
+       ORDER BY ptt.is_active DESC, ptt.id DESC`,
       [agencyId]
     );
     return rows || [];

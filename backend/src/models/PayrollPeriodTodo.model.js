@@ -6,9 +6,12 @@ class PayrollPeriodTodo {
     const [rows] = await pool.execute(
       `SELECT ppt.*,
               u.first_name AS done_by_first_name,
-              u.last_name AS done_by_last_name
+              u.last_name AS done_by_last_name,
+              tu.first_name AS target_user_first_name,
+              tu.last_name AS target_user_last_name
        FROM payroll_period_todos ppt
        LEFT JOIN users u ON ppt.done_by_user_id = u.id
+       LEFT JOIN users tu ON tu.id = ppt.target_user_id AND ppt.target_user_id > 0
        WHERE ppt.payroll_period_id = ? AND ppt.agency_id = ?
        ORDER BY (ppt.status = 'pending') DESC, ppt.id ASC`,
       [payrollPeriodId, agencyId]

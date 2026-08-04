@@ -1289,14 +1289,58 @@ async function finalizeSupervisionSession({
   const finalizedAt = mysqlNowDateTime();
   const normalizedSource = String(source || 'manual_submit').trim().toLowerCase();
 
-  await SupervisionSession.markAttendanceRollupsFinalized(sid, true);
-  const updated = await SupervisionSession.setStatus(sid, finalizeAsMissed ? 'MISSED' : 'FINALIZED', {
-    finalizedAt,
-    finalizedByUserId: actorUserId ? Number(actorUserId) : null,
-    finalizeSource: normalizedSource,
-    finalTotalSeconds: finalizeAsMissed ? 0 : totalSeconds,
-    supersededBySessionId: null
-  });
+  const conn = await pool.getConnection();
+  let updated = null;
+  try {
+    await conn.beginTransaction();
+    const [lockedRows] = await conn.execute(
+      `SELECT id, status
+       FROM supervision_sessions
+       WHERE id = ?
+       LIMIT 1
+       FOR UPDATE`,
+      [sid]
+    );
+    const lockedStatus = String(lockedRows?.[0]?.status || '').trim().toUpperCase();
+    if (lockedStatus === 'FINALIZED' || lockedStatus === 'MISSED') {
+      await conn.rollback();
+      return { skipped: true, reason: 'already_finalized', session: row };
+    }
+    if (lockedStatus === 'CANCELLED' || lockedStatus === 'RESCHEDULED') {
+      await conn.rollback();
+      return { skipped: true, reason: 'not_finalizable', session: row };
+    }
+
+    await SupervisionSession.markAttendanceRollupsFinalized(sid, true);
+    const nextStatus = finalizeAsMissed ? 'MISSED' : 'FINALIZED';
+    await conn.execute(
+      `UPDATE supervision_sessions
+       SET status = ?,
+           finalized_at = ?,
+           finalized_by_user_id = ?,
+           finalize_source = ?,
+           final_total_seconds = ?,
+           superseded_by_session_id = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+       LIMIT 1`,
+      [
+        nextStatus,
+        finalizedAt,
+        actorUserId ? Number(actorUserId) : null,
+        normalizedSource,
+        finalizeAsMissed ? 0 : totalSeconds,
+        sid
+      ]
+    );
+    await conn.commit();
+    updated = await SupervisionSession.findById(sid);
+  } catch (e) {
+    try { await conn.rollback(); } catch { /* ignore */ }
+    throw e;
+  } finally {
+    conn.release();
+  }
 
   let pipeline = null;
   if (!finalizeAsMissed) {

@@ -418,7 +418,7 @@
                       </td>
                       <td class="muted">
                         <div v-if="editingPeriodTodoId !== t.id">
-                          <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0)) }}</span>
+                          <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0), t) }}</span>
                           <span v-else>Agency-wide</span>
                         </div>
                         <div v-else>
@@ -549,7 +549,7 @@
                       <td>
                         <div><strong>{{ t.title }}</strong></div>
                         <div class="muted" style="margin-top: 4px;">
-                          <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0)) }}</span>
+                          <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0), t) }}</span>
                           <span v-else>Agency-wide</span>
                         </div>
                         <div v-if="t.description" class="muted" style="margin-top: 4px;">{{ t.description }}</div>
@@ -2534,7 +2534,7 @@
                         <div v-if="t.description" class="muted" style="margin-top: 4px;">{{ t.description }}</div>
                       </td>
                       <td class="muted">
-                        <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0)) }}</span>
+                        <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0), t) }}</span>
                         <span v-else>Agency-wide</span>
                       </td>
                     </tr>
@@ -5818,7 +5818,7 @@
                           <div v-if="t.description" class="muted" style="margin-top: 4px;">{{ t.description }}</div>
                         </td>
                         <td class="muted">
-                          <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0)) }}</span>
+                          <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0), t) }}</span>
                           <span v-else>Agency-wide</span>
                         </td>
                       </tr>
@@ -5906,7 +5906,7 @@
                         <td>
                           <div><strong>{{ t.title }}</strong></div>
                           <div class="muted" style="margin-top: 4px;">
-                            <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0)) }}</span>
+                            <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0), t) }}</span>
                             <span v-else>Agency-wide</span>
                           </div>
                           <div v-if="t.description" class="muted" style="margin-top: 4px;">{{ t.description }}</div>
@@ -10782,8 +10782,11 @@ const fmtInt = (v) => {
   return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 };
 
-const nameForUserId = (uid) => {
+const nameForUserId = (uid, row = null) => {
   const id = Number(uid || 0);
+  const fn = String(row?.target_user_first_name || '').trim();
+  const ln = String(row?.target_user_last_name || '').trim();
+  if (fn || ln) return `${fn} ${ln}`.trim();
   const u = (agencyUsers.value || []).find((x) => Number(x.id) === id) || null;
   if (!u) return `User #${id}`;
   return `${u.first_name || ''} ${u.last_name || ''}`.trim();

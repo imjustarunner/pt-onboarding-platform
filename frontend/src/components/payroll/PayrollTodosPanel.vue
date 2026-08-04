@@ -108,7 +108,7 @@
               </td>
               <td class="ptp-muted">
                 <div v-if="editingId !== t.id">
-                  <span v-if="String(t.scope || 'agency') === 'provider'">Provider: {{ nameFor(t.target_user_id) }}</span>
+                  <span v-if="String(t.scope || 'agency') === 'provider'">Provider: {{ nameFor(t.target_user_id, t) }}</span>
                   <span v-else>Agency-wide</span>
                   <div v-if="t.template_id" class="ptp-pill">From template</div>
                 </div>
@@ -239,7 +239,7 @@
                 <div v-if="editingTemplateId !== t.id">
                   <div><strong>{{ t.title }}</strong></div>
                   <div class="ptp-muted" style="margin-top: 4px;">
-                    <span v-if="String(t.scope || 'agency') === 'provider'">Provider: {{ nameFor(t.target_user_id) }}</span>
+                    <span v-if="String(t.scope || 'agency') === 'provider'">Provider: {{ nameFor(t.target_user_id, t) }}</span>
                     <span v-else>Agency-wide</span>
                   </div>
                   <div v-if="t.description" class="ptp-muted" style="margin-top: 4px;">{{ t.description }}</div>
@@ -405,9 +405,12 @@ const canSaveTemplateEdit = computed(() => {
   return true;
 });
 
-const nameFor = (userId) => {
+const nameFor = (userId, row = null) => {
+  const fn = String(row?.target_user_first_name || '').trim();
+  const ln = String(row?.target_user_last_name || '').trim();
+  if (fn || ln) return `${ln}${ln && fn ? ', ' : ''}${fn}`;
   const u = (users.value || []).find((x) => Number(x.id) === Number(userId));
-  if (!u) return userId ? `User #${userId}` : '—';
+  if (!u) return Number(userId) > 0 ? `User #${userId}` : '—';
   return `${u.last_name || ''}, ${u.first_name || ''}`.replace(/^,\s*|,\s*$/g, '') || `User #${userId}`;
 };
 

@@ -394,6 +394,48 @@ export async function resyncFinalizedSessionHourCredits({ sessionId, actorUserId
   });
 }
 
+async function findExistingSupervisorClaimForSession(executor, {
+  agencyId,
+  supervisorId,
+  sessionId,
+  linkedClaimId = 0
+} = {}) {
+  const aId = Number(agencyId || 0);
+  const uid = Number(supervisorId || 0);
+  const sid = Number(sessionId || 0);
+  if (!aId || !uid || !sid) return 0;
+
+  const linkedId = Number(linkedClaimId || 0);
+  if (linkedId > 0) {
+    const existing = await PayrollTimeClaim.findById(linkedId);
+    const st = String(existing?.status || '').toLowerCase();
+    if (existing && st && st !== 'withdrawn' && st !== 'rejected') {
+      return linkedId;
+    }
+  }
+
+  const noteLike = `Supervision session #${sid} (%`;
+  const [dupRows] = await executor.execute(
+    `SELECT id
+     FROM payroll_time_claims
+     WHERE agency_id = ?
+       AND user_id = ?
+       AND claim_type = 'indirect_time'
+       AND status IN ('submitted', 'needs_changes', 'approved', 'deferred', 'paid')
+       AND (
+         CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.supervisionSessionId')) AS UNSIGNED) = ?
+         OR (
+           JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.source')) = 'supervision_session_finalize'
+           AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.allocations[0].note')) LIKE ?
+         )
+       )
+     ORDER BY id DESC
+     LIMIT 1`,
+    [aId, uid, sid, noteLike]
+  );
+  return Number(dupRows?.[0]?.id || 0);
+}
+
 export async function createSupervisorSupervisionTimeClaim({
   session,
   rollups = [],
@@ -420,36 +462,6 @@ export async function createSupervisorSupervisionTimeClaim({
       `[supervisionFinalize] supervisor claim skipped session=${sid} user=${supervisorId}: ${eligibility.reason || 'not_eligible_for_claim'}`
     );
     return { ok: true, skipped: true, reason: eligibility.reason || 'not_eligible_for_claim' };
-  }
-
-  const existingClaimId = Number(session?.supervisor_time_claim_id || 0);
-  if (existingClaimId > 0) {
-    const existing = await PayrollTimeClaim.findById(existingClaimId);
-    if (existing && String(existing.status || '').toLowerCase() !== 'withdrawn') {
-      return { ok: true, skipped: true, claimId: existingClaimId, reason: 'already_linked' };
-    }
-  }
-
-  // Idempotency: find any submitted claim already tagged with this session.
-  const [dupRows] = await pool.execute(
-    `SELECT id
-     FROM payroll_time_claims
-     WHERE agency_id = ?
-       AND user_id = ?
-       AND claim_type = 'indirect_time'
-       AND status = 'submitted'
-       AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.supervisionSessionId')) AS UNSIGNED) = ?
-     ORDER BY id DESC
-     LIMIT 1`,
-    [agencyId, supervisorId, sid]
-  );
-  const dupId = Number(dupRows?.[0]?.id || 0);
-  if (dupId > 0) {
-    await pool.execute(
-      'UPDATE supervision_sessions SET supervisor_time_claim_id = ? WHERE id = ? LIMIT 1',
-      [dupId, sid]
-    );
-    return { ok: true, skipped: true, claimId: dupId, reason: 'duplicate_found' };
   }
 
   const supervisorSeconds = Math.max(
@@ -509,34 +521,76 @@ export async function createSupervisorSupervisionTimeClaim({
     ]
   };
 
-  const claim = await PayrollTimeClaim.create({
-    agencyId,
-    userId: supervisorId,
-    submittedByUserId: Number(actorUserId || supervisorId) || supervisorId,
-    status: 'submitted',
-    claimType: 'indirect_time',
-    claimDate,
-    payload,
-    suggestedPayrollPeriodId: win.suggestedPayrollPeriodId || null
-  });
-
-  const claimId = Number(claim?.id || 0);
-  if (claimId > 0) {
-    const hours = Math.round((minutes / 60) * 100) / 100;
-    await pool.execute(
-      `UPDATE payroll_time_claims
-       SET bucket = 'indirect', credits_hours = ?
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [sessRows] = await conn.execute(
+      `SELECT id, agency_id, supervisor_user_id, supervisor_time_claim_id, session_type, start_at, end_at
+       FROM supervision_sessions
        WHERE id = ?
-       LIMIT 1`,
-      [hours, claimId]
+       LIMIT 1
+       FOR UPDATE`,
+      [sid]
     );
-    await pool.execute(
-      'UPDATE supervision_sessions SET supervisor_time_claim_id = ? WHERE id = ? LIMIT 1',
-      [claimId, sid]
-    );
-  }
+    const lockedSession = sessRows?.[0] || null;
+    if (!lockedSession) {
+      await conn.rollback();
+      return { ok: false, skipped: true, reason: 'missing_session' };
+    }
 
-  return { ok: true, claimId: claimId || null, created: true, minutes };
+    const dupId = await findExistingSupervisorClaimForSession(conn, {
+      agencyId,
+      supervisorId,
+      sessionId: sid,
+      linkedClaimId: Number(lockedSession.supervisor_time_claim_id || 0)
+    });
+    if (dupId > 0) {
+      await conn.execute(
+        'UPDATE supervision_sessions SET supervisor_time_claim_id = ? WHERE id = ? LIMIT 1',
+        [dupId, sid]
+      );
+      await conn.commit();
+      return { ok: true, skipped: true, claimId: dupId, reason: 'duplicate_found' };
+    }
+
+    const payloadJson = JSON.stringify(payload || {});
+    const submittedBy = Number(actorUserId || supervisorId) || supervisorId;
+    const [insertRes] = await conn.execute(
+      `INSERT INTO payroll_time_claims
+       (agency_id, user_id, submitted_by_user_id, status, claim_type, claim_date, payload_json, suggested_payroll_period_id)
+       VALUES (?, ?, ?, 'submitted', 'indirect_time', ?, ?, ?)`,
+      [
+        agencyId,
+        supervisorId,
+        submittedBy,
+        claimDate,
+        payloadJson,
+        win.suggestedPayrollPeriodId || null
+      ]
+    );
+    const claimId = Number(insertRes?.insertId || 0);
+    if (claimId > 0) {
+      const hours = Math.round((minutes / 60) * 100) / 100;
+      await conn.execute(
+        `UPDATE payroll_time_claims
+         SET bucket = 'indirect', credits_hours = ?
+         WHERE id = ?
+         LIMIT 1`,
+        [hours, claimId]
+      );
+      await conn.execute(
+        'UPDATE supervision_sessions SET supervisor_time_claim_id = ? WHERE id = ? LIMIT 1',
+        [claimId, sid]
+      );
+    }
+    await conn.commit();
+    return { ok: true, claimId: claimId || null, created: true, minutes };
+  } catch (e) {
+    try { await conn.rollback(); } catch { /* ignore */ }
+    throw e;
+  } finally {
+    conn.release();
+  }
 }
 
 /**
