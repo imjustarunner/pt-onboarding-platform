@@ -5100,6 +5100,44 @@ export const getSessionAttendees = async (req, res, next) => {
   }
 };
 
+/** PATCH /supervision/sessions/:id/attendees/:userId — flip mandatory/optional for an already-invited attendee. */
+export const setSupervisionAttendeeRequired = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const userId = parseInt(req.params.userId, 10);
+    if (!id || !userId) return res.status(400).json({ error: { message: 'Invalid session or user id' } });
+
+    const row = await SupervisionSession.findById(id);
+    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
+
+    const actorUserId = Number(req.user?.id || 0);
+    const role = String(req.user?.role || '').toLowerCase();
+    const isFacilitator = actorUserId === Number(row.supervisor_user_id || 0)
+      || actorUserId === Number(row.co_facilitator_user_id || 0);
+    const isPrivileged = isAdminLikeRole(role) || ['support', 'staff', 'clinical_practice_assistant'].includes(role);
+    if (!isFacilitator && !isPrivileged) {
+      return res.status(403).json({ error: { message: 'Only the facilitator or authorized staff can change attendee status.' } });
+    }
+
+    const ok = await canScheduleSession(req, {
+      agencyId: row.agency_id,
+      supervisorUserId: row.supervisor_user_id,
+      superviseeUserId: row.supervisee_user_id,
+      sessionId: id
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const isRequired = req.body?.isRequired !== false;
+    const updated = await SupervisionSession.setAttendeeRequired(id, userId, isRequired);
+    if (!updated) {
+      return res.status(404).json({ error: { message: 'This person is not an invited attendee on this session.' } });
+    }
+    res.json({ ok: true, userId, isRequired });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const getSessionPresenters = async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);

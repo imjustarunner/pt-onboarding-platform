@@ -1189,6 +1189,20 @@ function forceMuteRemote(remote) {
   });
 }
 
+/** Mute every currently-unmuted remote except the given connection ids (e.g. presenters). */
+function muteAllExcept(excludeConnectionIds = []) {
+  if (!canMuteOthers.value) return 0;
+  const exclude = new Set((excludeConnectionIds || []).map((id) => String(id || '').trim()).filter(Boolean));
+  let count = 0;
+  for (const remote of remotes.value) {
+    if (!remote?.connectionId || exclude.has(String(remote.connectionId))) continue;
+    if (remote.hasAudio === false) continue;
+    forceMuteRemote(remote);
+    count += 1;
+  }
+  return count;
+}
+
 function isLayoutOptionActive(opt) {
   if (!opt) return false;
   if (opt.kind === 'fullscreen') return !!props.videoFullscreen;
@@ -2491,7 +2505,9 @@ defineExpose({
   sharingScreen,
   hideSelfView,
   localHandRaised,
-  handByConnection
+  handByConnection,
+  muteAllExcept,
+  get remotes() { return remotes.value; }
 });
 </script>
 

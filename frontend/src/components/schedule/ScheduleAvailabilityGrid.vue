@@ -2106,7 +2106,10 @@
               :roster-mode="showSupervisionParticipantsRoster"
               :participants="supvParticipantHoursRows"
               :roster-loading="supvParticipantHoursLoading"
-              :roster-error="supvParticipantHoursError"
+              :roster-error="supvParticipantHoursError || supvParticipantRequiredError"
+              :can-edit-required="canSaveSelectedSupvSession"
+              :required-busy-id="supvParticipantRequiredBusyId"
+              @toggle-required="toggleSupvParticipantRequired"
             />
             <p v-else class="muted">Supervisee progress is available for supervision sessions.</p>
           </div>
@@ -21816,7 +21819,8 @@ const loadSupvParticipantHoursRoster = async () => {
     .map((row) => ({
       id: Number(row?.userId || 0),
       name: String(row?.name || '').trim(),
-      isPresenter: !!row?.isPresenter
+      isPresenter: !!row?.isPresenter,
+      isRequired: row?.isRequired !== false
     }))
     .filter((row) => row.id > 0);
   if (!supervisees.length) {
@@ -21868,6 +21872,31 @@ const loadSupvParticipantHoursRoster = async () => {
     supvParticipantHoursError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load participant hours';
   } finally {
     supvParticipantHoursLoading.value = false;
+  }
+};
+
+const supvParticipantRequiredBusyId = ref(0);
+const supvParticipantRequiredError = ref('');
+
+/** Flip mandatory/optional for an already-invited participant without touching who's invited. */
+const toggleSupvParticipantRequired = async (userId, nextRequired) => {
+  const sid = Number(selectedSupvSessionId.value || 0);
+  const uid = Number(userId || 0);
+  if (!sid || !uid || supvParticipantRequiredBusyId.value) return;
+  const prevRows = supvParticipantHoursRows.value;
+  supvParticipantRequiredBusyId.value = uid;
+  supvParticipantRequiredError.value = '';
+  // Optimistic update — revert if the request fails.
+  supvParticipantHoursRows.value = prevRows.map((row) => (
+    Number(row.id) === uid ? { ...row, isRequired: nextRequired } : row
+  ));
+  try {
+    await api.patch(`/supervision/sessions/${sid}/attendees/${uid}`, { isRequired: nextRequired });
+  } catch (e) {
+    supvParticipantHoursRows.value = prevRows;
+    supvParticipantRequiredError.value = e?.response?.data?.error?.message || e?.message || 'Failed to update attendee status';
+  } finally {
+    supvParticipantRequiredBusyId.value = 0;
   }
 };
 

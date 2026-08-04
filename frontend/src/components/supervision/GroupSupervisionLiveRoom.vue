@@ -30,6 +30,15 @@
         >
           {{ inviteCopied ? 'Link copied' : 'Invite / share link' }}
         </button>
+        <button
+          v-if="isSupervisor"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          title="Mute everyone except the assigned presenter(s)"
+          @click="muteAllExceptPresenters"
+        >
+          Mute all except presenters
+        </button>
         <span class="gsl__count" title="Participants">{{ participantHint }}</span>
         <button type="button" class="btn btn-danger btn-sm" @click="onLeaveClick">
           {{ isSupervisor ? 'Leave / End session' : 'Leave session' }}
@@ -38,7 +47,7 @@
     </header>
 
     <div
-      v-if="isGuestSession && !videoFullscreen"
+      v-if="isGuestSession && !guestBannerDismissed && !videoFullscreen"
       class="gsl__guest-banner"
       role="status"
     >
@@ -46,9 +55,18 @@
         You’re joined as a guest. To count attendance and log time, sign in with your account —
         you’ll return to this same session.
       </p>
-      <button type="button" class="btn btn-primary btn-sm" @click="$emit('guest-login')">
-        Log in to claim attendance
-      </button>
+      <div class="gsl__guest-banner-actions">
+        <button type="button" class="btn btn-danger btn-sm gsl__guest-login-btn" @click="$emit('guest-login')">
+          Log in to claim attendance
+        </button>
+        <button
+          type="button"
+          class="gsl__guest-banner-x"
+          aria-label="Dismiss guest sign-in reminder"
+          title="Dismiss"
+          @click="guestBannerDismissed = true"
+        >×</button>
+      </div>
     </div>
 
     <div
@@ -394,6 +412,7 @@ let inviteCopiedTimer = null;
 const agendaOpen = ref(true);
 const attendanceOpen = ref(true);
 const transcriptOpen = ref(true);
+const guestBannerDismissed = ref(false);
 
 const videoStripCollapsed = computed(() => (
   !videoFullscreen.value && tileFocus.value === 'collapsed'
@@ -616,6 +635,18 @@ async function copyInviteLink() {
   }
 }
 
+/** Presenter remotes are labeled "Presenter · Name" from the server-issued token role. */
+function muteAllExceptPresenters() {
+  const room = videoRoomRef.value;
+  if (!room?.muteAllExcept) return;
+  const list = room.remotes || [];
+  const presenterConnectionIds = list
+    .filter((r) => /^presenter\b/i.test(String(r?.name || '').trim()))
+    .map((r) => r.connectionId)
+    .filter(Boolean);
+  room.muteAllExcept(presenterConnectionIds);
+}
+
 const attendancePanelRef = ref(null);
 const raisedHandCount = ref(0);
 const raisedHandNames = ref([]);
@@ -808,25 +839,27 @@ defineExpose({
   place-content: center;
 }
 /* Square, evenly-sized tiles instead of a thin horizontal strip — prioritize
-   video size and avoid dead space around each tile. */
-.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--solo .vsr__tile),
-.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--duo .vsr__tile),
-.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--grid .vsr__tile) {
+   video size and avoid dead space around each tile. Scoped away from the
+   waiting-room self-preview (main stage AND the small corner pip), which needs
+   its own natural sizing, not a forced square. */
+.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--solo .vsr__tile),
+.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--duo .vsr__tile),
+.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--grid .vsr__tile) {
   aspect-ratio: 1 / 1;
   min-height: 0;
   max-height: 100%;
   max-width: 100%;
 }
-.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--grid),
-.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--duo) {
+.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--grid),
+.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--duo) {
   gap: 6px;
   justify-content: center;
   align-content: center;
 }
-.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--count-3),
-.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--count-4),
-.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--count-5),
-.gsl__video-strip:not(.gsl__video-strip--collapsed) :deep(.vsr__stage--count-6) {
+.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--count-3),
+.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--count-4),
+.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--count-5),
+.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--count-6) {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 .gsl__video-strip--lobby {
@@ -953,9 +986,9 @@ defineExpose({
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  background: rgba(30, 58, 138, 0.35);
-  border: 1px solid rgba(147, 197, 253, 0.5);
-  color: #dbeafe;
+  background: rgba(127, 29, 29, 0.35);
+  border: 1px solid rgba(248, 113, 113, 0.6);
+  color: #fee2e2;
   border-radius: 10px;
   padding: 10px 12px;
   margin-bottom: 12px;
@@ -965,6 +998,36 @@ defineExpose({
   flex: 1;
   line-height: 1.4;
   font-size: 0.9rem;
+}
+.gsl__guest-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.gsl__guest-login-btn {
+  animation: gsl-guest-pulse 1.8s ease-in-out infinite;
+}
+@keyframes gsl-guest-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55); }
+  50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gsl__guest-login-btn { animation: none; }
+}
+.gsl__guest-banner-x {
+  border: 0;
+  background: transparent;
+  color: #fecaca;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.gsl__guest-banner-x:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 .gsl__transcript-banner {
   display: flex;

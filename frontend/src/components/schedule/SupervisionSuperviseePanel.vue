@@ -18,7 +18,27 @@
         >
           <div class="ssp-person-head">
             <div class="ssp-person-name">{{ row.name || `User #${row.id}` }}</div>
-            <span v-if="row.isPresenter" class="ssp-presenter-badge">PRESENTER</span>
+            <span class="ssp-badges">
+              <span v-if="row.isPresenter" class="ssp-presenter-badge">PRESENTER</span>
+              <button
+                v-if="canEditRequired"
+                type="button"
+                class="ssp-required-badge"
+                :class="row.isRequired === false ? 'ssp-required-badge--optional' : 'ssp-required-badge--mandatory'"
+                :disabled="requiredBusyId === row.id"
+                :title="row.isRequired === false ? 'Optional — click to make mandatory' : 'Mandatory — click to make optional'"
+                @click="$emit('toggle-required', row.id, row.isRequired === false)"
+              >
+                {{ requiredBusyId === row.id ? '…' : (row.isRequired === false ? 'OPTIONAL' : 'MANDATORY') }}
+              </button>
+              <span
+                v-else
+                class="ssp-required-badge"
+                :class="row.isRequired === false ? 'ssp-required-badge--optional' : 'ssp-required-badge--mandatory'"
+              >
+                {{ row.isRequired === false ? 'OPTIONAL' : 'MANDATORY' }}
+              </span>
+            </span>
           </div>
           <div v-if="row.loading" class="muted ssp-person-meta">Loading hours…</div>
           <div v-else-if="row.error" class="error ssp-person-meta">{{ row.error }}</div>
@@ -93,8 +113,13 @@ const props = defineProps({
   participants: { type: Array, default: () => [] },
   rosterMode: { type: Boolean, default: false },
   rosterLoading: { type: Boolean, default: false },
-  rosterError: { type: String, default: '' }
+  rosterError: { type: String, default: '' },
+  /** Facilitator/admin may toggle mandatory vs optional for already-invited participants. */
+  canEditRequired: { type: Boolean, default: false },
+  requiredBusyId: { type: Number, default: 0 }
 });
+
+defineEmits(['toggle-required']);
 
 const hasRoster = computed(() => !!props.rosterMode);
 const title = computed(() => (hasRoster.value ? 'Participants' : 'Supervisee'));
@@ -195,6 +220,40 @@ function remaining(have, need) {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+.ssp-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ssp-required-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+}
+button.ssp-required-badge {
+  cursor: pointer;
+}
+button.ssp-required-badge:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.ssp-required-badge--mandatory {
+  background: #ffedd5;
+  color: #9a3412;
+  border-color: #fdba74;
+}
+.ssp-required-badge--optional {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #cbd5e1;
 }
 .ssp-person-name {
   font-size: 0.95rem;

@@ -6,7 +6,8 @@
       'mlap--open': panelOpen,
       'mlap--chrome-less': hideChrome,
       'mlap--below-video': belowVideo,
-      'mlap--dark': theme === 'dark'
+      'mlap--dark': theme === 'dark',
+      [`mlap--size-${panelSize}`]: belowVideo
     }"
   >
     <div v-if="toastText" class="mlap__toast" role="status">{{ toastText }}</div>
@@ -31,6 +32,11 @@
       >
         Refresh
       </button>
+      <div v-if="panelOpen && belowVideo" class="mlap__size-group" role="group" aria-label="Chat panel size">
+        <button type="button" class="mlap__size-btn" :class="{ on: panelSize === 's' }" title="Small" @click="panelSize = 's'">S</button>
+        <button type="button" class="mlap__size-btn" :class="{ on: panelSize === 'm' }" title="Medium" @click="panelSize = 'm'">M</button>
+        <button type="button" class="mlap__size-btn" :class="{ on: panelSize === 'l' }" title="Large" @click="panelSize = 'l'">L</button>
+      </div>
     </div>
 
     <div v-if="panelOpen" class="mlap__panel">
@@ -281,6 +287,8 @@ const props = defineProps({
 const emit = defineEmits(['update:open', 'activity-notice']);
 const authStore = useAuthStore();
 const panelOpen = ref(!!props.startOpen);
+/** s | m | l — only meaningful for the full-width below-video bar. */
+const panelSize = ref('m');
 const tab = ref('chat');
 const loading = ref(false);
 const sending = ref(false);
@@ -975,6 +983,50 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   min-height: 340px;
   max-height: min(52vh, 560px);
   flex: 1;
+}
+/* Size presets for the full-width below-video bar — bigger sizes push the rest
+   of the page down (or make it scroll) rather than squeezing chat into a sliver. */
+.mlap--below-video.mlap--size-s .mlap__panel {
+  min-height: 200px;
+  max-height: min(26vh, 280px);
+}
+.mlap--below-video.mlap--size-m .mlap__panel {
+  min-height: 340px;
+  max-height: min(52vh, 560px);
+}
+.mlap--below-video.mlap--size-l .mlap__panel {
+  min-height: 480px;
+  max-height: min(78vh, 840px);
+}
+.mlap__size-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 8px;
+  padding: 2px;
+}
+.mlap__size-btn {
+  min-width: 26px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.mlap__size-btn.on {
+  background: #2563eb;
+  color: #fff;
+}
+.mlap--dark .mlap__size-group {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.mlap--dark .mlap__size-btn {
+  color: #cbd5e1;
 }
 .mlap--embedded .mlap__toggle {
   background: #ecfdf5;

@@ -1496,11 +1496,26 @@ watch(
   }
 );
 
+/** Same-origin post-login destination (e.g. a meeting join link) to carry through Google SSO. */
+function ssoNextParam() {
+  const redirectPath = route.query?.redirect;
+  const safe = typeof redirectPath === 'string' && redirectPath.startsWith('/') && !redirectPath.startsWith('//');
+  return safe ? `&next=${encodeURIComponent(redirectPath)}` : '';
+}
+
+/** Append our captured `next` redirect onto a backend-issued Google start URL. */
+function withSsoNext(path) {
+  const p = String(path || '').trim();
+  const nextParam = ssoNextParam();
+  if (!p || !nextParam) return p;
+  return `${p}${p.includes('?') ? '&' : '?'}${nextParam.replace(/^&/, '')}`;
+}
+
 const continueWithGoogle = () => {
   if (isIOSNative) return;
   if (!loginSlug.value) return;
   const base = getBackendBaseUrl();
-  window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(String(loginSlug.value).trim().toLowerCase())}`;
+  window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(String(loginSlug.value).trim().toLowerCase())}${ssoNextParam()}`;
 };
 
 const startRememberedGoogleLogin = () => {
@@ -1508,7 +1523,7 @@ const startRememberedGoogleLogin = () => {
   const rememberedOrg = String(rememberedGoogleLogin.value?.orgSlug || '').trim().toLowerCase();
   if (!rememberedOrg) return;
   const base = getBackendBaseUrl();
-  window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(rememberedOrg)}`;
+  window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(rememberedOrg)}${ssoNextParam()}`;
 };
 
 const onUsernameInput = () => {
@@ -1697,7 +1712,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
         showPassword.value = true;
         return;
       }
-      const path = String(data?.login?.googleStartUrl || '').trim();
+      const path = withSsoNext(String(data?.login?.googleStartUrl || '').trim());
       if (path) {
         const base = getBackendBaseUrl();
         window.location.href = `${base}${path.startsWith('/') ? '' : '/'}${path}`;
@@ -1982,7 +1997,7 @@ const submitCurrentEmployeeRescue = async () => {
         recoveryError.value = 'Google sign-in is only available on the web. Use reset password to set a password you can use in this app.';
         return;
       }
-      const path = String(resp?.data?.login?.googleStartUrl || '').trim();
+      const path = withSsoNext(String(resp?.data?.login?.googleStartUrl || '').trim());
       if (path) {
         const base = getBackendBaseUrl();
         window.location.href = `${base}${path.startsWith('/') ? '' : '/'}${path}`;

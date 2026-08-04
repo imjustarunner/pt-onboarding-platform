@@ -295,6 +295,20 @@ class SupervisionSession {
     );
   }
 
+  /** Toggle mandatory/optional for one already-invited attendee without touching their role or status. */
+  static async setAttendeeRequired(sessionId, userId, isRequired) {
+    const sid = parseInt(sessionId, 10);
+    const uid = parseInt(userId, 10);
+    if (!sid || !uid) return false;
+    const [result] = await pool.execute(
+      `UPDATE supervision_session_attendees
+       SET is_required = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE session_id = ? AND user_id = ?`,
+      [isRequired ? 1 : 0, sid, uid]
+    );
+    return result.affectedRows > 0;
+  }
+
   static async listAttendees(sessionId) {
     const sid = parseInt(sessionId, 10);
     if (!sid) return [];

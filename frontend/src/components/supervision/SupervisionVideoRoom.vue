@@ -178,6 +178,8 @@ defineExpose({
   sendReaction: (...args) => videoRoomRef.value?.sendReaction?.(...args),
   signalTranscriptControl: (...args) => videoRoomRef.value?.signalTranscriptControl?.(...args),
   disconnect: (...args) => videoRoomRef.value?.disconnect?.(...args),
+  muteAllExcept: (...args) => videoRoomRef.value?.muteAllExcept?.(...args),
+  get remotes() { return videoRoomRef.value?.remotes || []; },
   get publishAudio() { return videoRoomRef.value?.publishAudio; },
   get publishVideo() { return videoRoomRef.value?.publishVideo; },
   get sharingScreen() { return videoRoomRef.value?.sharingScreen; },

@@ -1733,8 +1733,15 @@ export const googleOAuthStart = async (req, res, next) => {
       return res.status(404).send('Organization not found');
     }
 
+    // Carry a same-origin post-login destination through the OAuth round trip
+    // (e.g. a meeting join link) so SSO doesn't strand people on their role dashboard.
+    const nextRaw = String(req.query?.next || '').trim();
+    const next = (nextRaw.startsWith('/') && !nextRaw.startsWith('//') && !nextRaw.startsWith('/\\') && nextRaw.length < 1000)
+      ? nextRaw
+      : null;
+
     const redirectUri = buildOAuthRedirectUriForRequest();
-    const state = createGoogleState({ orgSlug, redirectUri });
+    const state = createGoogleState({ orgSlug, redirectUri, next });
     const payload = verifyGoogleState(state);
     const nonce = payload?.nonce || null;
 
@@ -1930,10 +1937,22 @@ export const googleOAuthCallback = async (req, res, next) => {
       }
     }, 0);
 
+    // A caller-supplied same-origin destination (e.g. a meeting join link) wins over the
+    // role dashboard default — SSO should return people to what they were trying to do.
+    const nextPath = String(verified?.next || '').trim();
+    const hasSafeNext = nextPath.startsWith('/') && !nextPath.startsWith('//') && !nextPath.startsWith('/\\');
+
     const url = new URL(frontendBase || config.frontendUrl);
-    // Super admins should land on the platform command center (same as password login → /admin),
-    // not a tenant personal dashboard. Pass ssoOrg so the frontend can still remember quick-login.
-    if (userRole === 'super_admin' || userRole === 'superadmin') {
+    if (hasSafeNext) {
+      const nextUrl = new URL(nextPath, frontendBase || config.frontendUrl);
+      url.pathname = nextUrl.pathname;
+      url.search = nextUrl.search;
+      url.hash = nextUrl.hash;
+      url.searchParams.set('sso', '1');
+      if (orgSlug) url.searchParams.set('ssoOrg', orgSlug);
+    } else if (userRole === 'super_admin' || userRole === 'superadmin') {
+      // Super admins should land on the platform command center (same as password login → /admin),
+      // not a tenant personal dashboard. Pass ssoOrg so the frontend can still remember quick-login.
       url.pathname = '/admin';
       url.searchParams.set('sso', '1');
       if (orgSlug) url.searchParams.set('ssoOrg', orgSlug);
