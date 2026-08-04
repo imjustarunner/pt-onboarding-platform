@@ -5,26 +5,6 @@
       <div class="itl-total-chip">Total Time: {{ formatHm(totalMinutes) }}</div>
     </div>
 
-    <!-- Direct / indirect goal reminder -->
-    <aside class="iap-ratio" :data-kind="ratioKind" aria-label="Direct to indirect time goals">
-      <div class="iap-ratio-title">Direct ↔ indirect goals</div>
-      <p class="iap-ratio-body">
-        Aim for <strong>≤{{ GREEN_PCT }}%</strong> indirect relative to direct
-        (≤{{ GREEN_MIN }} min indirect per hour of direct).
-        Flagged at <strong>≥{{ RED_PCT }}%</strong>
-        (≥{{ RED_MIN }} min per hour).
-      </p>
-      <p v-if="totalMinutes > 0" class="iap-ratio-calc">
-        For this block ({{ formatHm(totalMinutes) }} indirect), plan about
-        <strong>{{ formatHm(directForGreen) }}</strong> of direct time to stay in goal,
-        or at least <strong>{{ formatHm(directForAvoidRed) }}</strong> to stay under the red band.
-      </p>
-      <p v-if="recentRatioLabel" class="iap-ratio-recent">
-        Your recent ratio: <strong :data-kind="ratioKind">{{ recentRatioLabel }}</strong>
-        <span v-if="recentPeriodLabel"> ({{ recentPeriodLabel }})</span>
-      </p>
-    </aside>
-
     <!-- This-or-that entry mode -->
     <div class="iap-modes" role="radiogroup" aria-label="How to enter allocation time">
       <button
@@ -219,14 +199,6 @@
     </div>
 
     <div class="iap-footer">
-      <button
-        v-if="addableTypes.length"
-        type="button"
-        class="itl-link-btn"
-        @click="showAddPicker = !showAddPicker"
-      >
-        + Add Another Service Type
-      </button>
       <div class="iap-totals">
         <span v-if="allocationMode === 'percent'">
           Allocated:
@@ -246,18 +218,6 @@
       </div>
     </div>
 
-    <div v-if="showAddPicker && addableTypes.length" class="iap-add-picker">
-      <button
-        v-for="t in addableTypes"
-        :key="t.id"
-        type="button"
-        class="iap-chip"
-        @click="addType(t); showAddPicker = false"
-      >
-        {{ t.label }}
-      </button>
-    </div>
-
     <ul v-if="validationMessages.length" class="iap-alerts" role="alert">
       <li v-for="(msg, i) in validationMessages" :key="i">{{ msg }}</li>
     </ul>
@@ -267,16 +227,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { VueDraggableNext as draggable } from 'vue-draggable-next';
-import IndirectTimeIcon from './IndirectTimeIcon.vue';
-import {
-  DIRECT_INDIRECT_GREEN_MAX_MINUTES,
-  DIRECT_INDIRECT_RED_MIN_MINUTES,
-  DIRECT_INDIRECT_GREEN_MAX_PCT,
-  DIRECT_INDIRECT_RED_MIN_PCT,
-  directMinutesForGreen,
-  directMinutesForAvoidRed,
-  directIndirectRatioKindFromRatio
-} from '../../utils/directIndirectRatioBands.js';
 
 const props = defineProps({
   totalMinutes: { type: Number, default: 0 },
@@ -288,31 +238,14 @@ const props = defineProps({
   sessionEndIsLive: { type: Boolean, default: false },
   serviceTypes: { type: Array, default: () => [] },
   /** Selected type ids from the type grid (adds missing rows, removes types fully unchecked) */
-  selectedTypeIds: { type: Array, default: () => [] },
-  /** Optional recent ratio from dashboard-summary (indirect/direct) */
-  recentRatio: { type: Number, default: null },
-  recentPeriodLabel: { type: String, default: '' }
+  selectedTypeIds: { type: Array, default: () => [] }
 });
 
 const emit = defineEmits(['update:selectedTypeIds', 'validity']);
 
-const GREEN_MIN = DIRECT_INDIRECT_GREEN_MAX_MINUTES;
-const RED_MIN = DIRECT_INDIRECT_RED_MIN_MINUTES;
-const GREEN_PCT = DIRECT_INDIRECT_GREEN_MAX_PCT;
-const RED_PCT = DIRECT_INDIRECT_RED_MIN_PCT;
-
 const allocationMode = ref('duration');
 const rows = ref([]);
-const showAddPicker = ref(false);
 let rowSeq = 1;
-
-const directForGreen = computed(() => directMinutesForGreen(props.totalMinutes));
-const directForAvoidRed = computed(() => directMinutesForAvoidRed(props.totalMinutes));
-const ratioKind = computed(() => directIndirectRatioKindFromRatio(props.recentRatio));
-const recentRatioLabel = computed(() => {
-  if (props.recentRatio == null || !Number.isFinite(props.recentRatio)) return '';
-  return `${Math.round(props.recentRatio * 1000) / 10}%`;
-});
 
 function formatHm(mins) {
   const m = Math.max(0, Math.floor(Number(mins) || 0));
@@ -401,8 +334,6 @@ const totalsMatch = computed(() => {
   if (allocationMode.value === 'percent') return allocatedPercent.value === 100;
   return allocatedMinutes.value === props.totalMinutes;
 });
-
-const addableTypes = computed(() => props.serviceTypes || []);
 
 function percentDerivedMinutes() {
   const total = Math.max(0, props.totalMinutes);
@@ -630,13 +561,6 @@ function duplicateRow(index) {
 
 function removeRow(index) {
   rows.value.splice(index, 1);
-  if (allocationMode.value === 'start_end') applyAnchors();
-  syncSelectedFromRows();
-  emitValidity();
-}
-
-function addType(t) {
-  rows.value.push(makeRow(t, { hhmm: '00:00', percent: 0 }));
   if (allocationMode.value === 'start_end') applyAnchors();
   syncSelectedFromRows();
   emitValidity();
@@ -873,43 +797,6 @@ defineExpose({
   flex-wrap: wrap;
   margin-bottom: 12px;
 }
-.iap-ratio {
-  border-radius: 10px;
-  padding: 12px 14px;
-  margin-bottom: 14px;
-  border: 1px solid #bbf7d0;
-  background: #f0fdf4;
-  color: #14532d;
-}
-.iap-ratio[data-kind='yellow'] {
-  border-color: #fde68a;
-  background: #fffbeb;
-  color: #92400e;
-}
-.iap-ratio[data-kind='red'] {
-  border-color: #fecaca;
-  background: #fef2f2;
-  color: #991b1b;
-}
-.iap-ratio-title {
-  font-weight: 800;
-  font-size: 0.85rem;
-  margin-bottom: 4px;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-.iap-ratio-body,
-.iap-ratio-calc,
-.iap-ratio-recent {
-  margin: 0 0 6px;
-  font-size: 0.86rem;
-  line-height: 1.45;
-}
-.iap-ratio-recent { margin-bottom: 0; }
-.iap-ratio-recent strong[data-kind='green'] { color: #166534; }
-.iap-ratio-recent strong[data-kind='yellow'] { color: #b45309; }
-.iap-ratio-recent strong[data-kind='red'] { color: #b91c1c; }
-
 .iap-modes {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1168,25 +1055,6 @@ defineExpose({
 .iap-bad { color: #dc2626; }
 .iap-ok { color: #166534; }
 .iap-remain { color: #6b7280; }
-.iap-add-picker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-.iap-chip {
-  border: 1px solid #d1d5db;
-  background: #fff;
-  border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-.iap-chip:hover {
-  border-color: #166534;
-  color: #166534;
-}
 .iap-alerts {
   list-style: none;
   margin: 12px 0 0;

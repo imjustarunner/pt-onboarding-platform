@@ -8,10 +8,6 @@
         <h2 class="itl-title">Time Submission</h2>
       </div>
       <div class="itl-top-right">
-        <div v-if="entryMethod !== 'manual'" class="itl-date" aria-label="Submission date">
-          <IndirectTimeIcon name="calendar" :size="16" />
-          <input v-model="claimDate" type="date" class="itl-date-input" :max="todayYmd" />
-        </div>
         <div class="itl-user" v-if="displayName">
           <span class="itl-avatar" aria-hidden="true">{{ initials }}</span>
           <span class="itl-user-name">{{ displayName }}</span>
@@ -20,85 +16,6 @@
     </header>
 
     <div class="itl-body">
-      <!-- Current session -->
-      <section class="itl-card itl-session" aria-labelledby="itl-session-heading">
-        <div class="itl-session-left">
-          <div class="itl-status-row">
-            <span class="itl-badge" :class="sessionBadgeClass">{{ sessionBadgeLabel }}</span>
-          </div>
-          <p id="itl-session-heading" class="itl-session-meta">{{ sessionMetaText }}</p>
-          <div v-if="canAdjustClockOut" class="itl-adjust-out">
-            <label class="itl-adjust-out-label">
-              <span>Adjust clock-out (earlier only)</span>
-              <input
-                v-model="adjustClockOutLocal"
-                type="time"
-                class="itl-adjust-out-input"
-                :min="clockInTimeLocal"
-                :max="originalClockOutTimeLocal"
-                @change="applyClockOutAdjust"
-              />
-            </label>
-            <p class="itl-adjust-out-hint">
-              If you forgot to clock out earlier, move this back. Cannot be before clock-in or after {{ formatTimeOfDay(originalClockOutAt) }}.
-            </p>
-          </div>
-        </div>
-        <div class="itl-session-center">
-          <div class="itl-timer" aria-live="polite">{{ formattedElapsed }}</div>
-          <div class="itl-timer-label">HH:MM:SS</div>
-        </div>
-        <div class="itl-session-actions">
-          <button
-            v-if="!isClockedIn && !canAdjustClockOut"
-            type="button"
-            class="itl-btn itl-btn-primary"
-            :disabled="sessionBusy || !agencyId"
-            @click="clockIn"
-          >
-            <IndirectTimeIcon name="play" :size="16" />
-            Clock In
-          </button>
-          <template v-else-if="isClockedIn">
-            <button
-              v-if="canUseNoteAid"
-              type="button"
-              class="itl-btn itl-btn-notes"
-              :disabled="sessionBusy"
-              @click="openDoMyNotes"
-            >
-              <IndirectTimeIcon name="file-text" :size="16" />
-              Do my notes
-            </button>
-            <button
-              type="button"
-              class="itl-btn itl-btn-ghost"
-              :disabled="sessionBusy"
-              @click="toggleBreak"
-            >
-              <IndirectTimeIcon :name="isOnBreak ? 'play' : 'pause'" :size="16" />
-              {{ isOnBreak ? 'Resume' : 'Take a Break' }}
-            </button>
-            <button
-              type="button"
-              class="itl-btn itl-btn-danger"
-              :disabled="sessionBusy"
-              @click="clockOut"
-            >
-              <IndirectTimeIcon name="stop" :size="16" />
-              Clock Out
-            </button>
-          </template>
-          <p v-else-if="canAdjustClockOut" class="itl-adjust-done-hint">
-            Clocked out — allocate time below, then submit.
-          </p>
-        </div>
-        <p v-if="isClockedIn && noteAidUsedDuringSession" class="itl-notes-session-hint">
-          Note Aid (Tools &amp; Aids → AI Tools) is part of this clocked session — your timer keeps running.
-          When you allocate time, include <strong>Clinical Documentation</strong> for documentation work.
-        </p>
-      </section>
-
       <div class="itl-tabs" role="tablist" aria-label="Time log sections">
         <button
           type="button"
@@ -128,14 +45,22 @@
       <div v-if="success" class="itl-success" role="status">{{ success }}</div>
 
       <template v-if="mainTab === 'enter'">
-        <section class="itl-card" aria-labelledby="itl-method-heading">
-          <h3 id="itl-method-heading" class="itl-section-title">How would you like to enter your time?</h3>
+        <ol class="itl-stepper" aria-label="Time entry steps">
+          <li :class="stepClass(1)"><span class="itl-step-n">1</span> How to enter</li>
+          <li :class="stepClass(2)"><span class="itl-step-n">2</span> Your time</li>
+          <li :class="stepClass(3)"><span class="itl-step-n">3</span> Activities</li>
+          <li :class="stepClass(4)"><span class="itl-step-n">4</span> Allocate &amp; submit</li>
+        </ol>
+
+        <!-- Step 1: entry method -->
+        <section class="itl-card itl-step-card" aria-labelledby="itl-method-heading">
+          <h3 id="itl-method-heading" class="itl-section-title">Step 1 — How would you like to enter your time?</h3>
           <div class="itl-method-grid">
             <button
               type="button"
               class="itl-method"
               :class="{ selected: entryMethod === 'clock' }"
-              @click="entryMethod = 'clock'"
+              @click="chooseEntryMethod('clock')"
             >
               <span class="itl-method-icon" aria-hidden="true">
                 <IndirectTimeIcon name="clock" :size="28" :stroke-width="1.75" />
@@ -147,7 +72,7 @@
               type="button"
               class="itl-method"
               :class="{ selected: entryMethod === 'manual' }"
-              @click="entryMethod = 'manual'"
+              @click="chooseEntryMethod('manual')"
             >
               <span class="itl-method-icon itl-method-icon--alt" aria-hidden="true">
                 <IndirectTimeIcon name="calendar" :size="28" :stroke-width="1.75" />
@@ -155,33 +80,149 @@
               <span class="itl-method-label">Post Start &amp; End Time</span>
             </button>
           </div>
-
-          <div v-if="entryMethod === 'manual'" class="itl-manual-times">
-            <label class="itl-field">
-              <span>Date worked</span>
-              <input v-model="claimDate" type="date" :max="todayYmd" required />
-            </label>
-            <label class="itl-field">
-              <span>Start time</span>
-              <input v-model="manualStart" type="time" />
-            </label>
-            <label class="itl-field">
-              <span>End time</span>
-              <input v-model="manualEnd" type="time" />
-            </label>
-            <div class="itl-manual-total">
-              Session total: <strong>{{ formatHm(manualTotalMinutes) }}</strong>
-            </div>
-          </div>
-          <p v-else class="itl-hint">
-            Use Clock In / Clock Out above, then allocate that worked time across service types below.
-            {{ clockTotalMinutes > 0 ? ` Worked: ${formatHm(clockTotalMinutes)}.` : '' }}
-          </p>
         </section>
 
-        <section class="itl-card" aria-labelledby="itl-types-heading">
+        <!-- Step 2: establish time -->
+        <section
+          v-if="hasChosenEntryMethod"
+          class="itl-card itl-step-card"
+          aria-labelledby="itl-time-heading"
+        >
+          <h3 id="itl-time-heading" class="itl-section-title">Step 2 — Your worked time</h3>
+
+          <template v-if="entryMethod === 'clock'">
+            <div class="itl-session itl-session--step">
+              <div class="itl-session-left">
+                <div class="itl-status-row">
+                  <span class="itl-badge" :class="sessionBadgeClass">{{ sessionBadgeLabel }}</span>
+                </div>
+                <p class="itl-session-meta">{{ sessionMetaText }}</p>
+                <div v-if="canAdjustClockOut" class="itl-adjust-out">
+                  <label class="itl-adjust-out-label">
+                    <span>Adjust clock-out (earlier only)</span>
+                    <input
+                      v-model="adjustClockOutLocal"
+                      type="time"
+                      class="itl-adjust-out-input"
+                      :min="clockInTimeLocal"
+                      :max="originalClockOutTimeLocal"
+                      @change="applyClockOutAdjust"
+                    />
+                  </label>
+                  <p class="itl-adjust-out-hint">
+                    If you forgot to clock out earlier, move this back. Cannot be before clock-in or after {{ formatTimeOfDay(originalClockOutAt) }}.
+                  </p>
+                </div>
+              </div>
+              <div class="itl-session-center">
+                <div class="itl-timer" aria-live="polite">{{ formattedElapsed }}</div>
+                <div class="itl-timer-label">HH:MM:SS</div>
+              </div>
+              <div class="itl-session-actions">
+                <button
+                  v-if="!isClockedIn && !canAdjustClockOut"
+                  type="button"
+                  class="itl-btn itl-btn-primary"
+                  :disabled="sessionBusy || !agencyId"
+                  @click="clockIn"
+                >
+                  <IndirectTimeIcon name="play" :size="16" />
+                  Clock In
+                </button>
+                <template v-else-if="isClockedIn">
+                  <button
+                    v-if="canUseNoteAid"
+                    type="button"
+                    class="itl-btn itl-btn-notes"
+                    :disabled="sessionBusy"
+                    @click="openDoMyNotes"
+                  >
+                    <IndirectTimeIcon name="file-text" :size="16" />
+                    Do my notes
+                  </button>
+                  <button
+                    type="button"
+                    class="itl-btn itl-btn-ghost"
+                    :disabled="sessionBusy"
+                    @click="toggleBreak"
+                  >
+                    <IndirectTimeIcon :name="isOnBreak ? 'play' : 'pause'" :size="16" />
+                    {{ isOnBreak ? 'Resume' : 'Take a Break' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="itl-btn itl-btn-danger"
+                    :disabled="sessionBusy"
+                    @click="clockOut"
+                  >
+                    <IndirectTimeIcon name="stop" :size="16" />
+                    Clock Out
+                  </button>
+                </template>
+              </div>
+              <p v-if="isClockedIn && noteAidUsedDuringSession" class="itl-notes-session-hint">
+                Note Aid (Tools &amp; Aids → AI Tools) is part of this clocked session — your timer keeps running.
+                When you allocate time, include <strong>Clinical Documentation</strong> for documentation work.
+              </p>
+            </div>
+            <p v-if="!hasEstablishedTime" class="itl-step-hint">
+              Clock in to start. After you clock out (or while clocked in), your date and times appear below and you can select activities.
+            </p>
+          </template>
+
+          <template v-else-if="entryMethod === 'manual'">
+            <div class="itl-manual-times itl-manual-times--prominent">
+              <label class="itl-field">
+                <span>Date worked</span>
+                <input v-model="claimDate" type="date" :max="todayYmd" required />
+              </label>
+              <label class="itl-field">
+                <span>Start time</span>
+                <input v-model="manualStart" type="time" />
+              </label>
+              <label class="itl-field">
+                <span>End time</span>
+                <input v-model="manualEnd" type="time" />
+              </label>
+            </div>
+            <p v-if="!hasEstablishedTime" class="itl-step-hint">
+              Enter a valid date, start, and end time (at least 1 minute) to continue.
+            </p>
+          </template>
+
+          <div v-if="hasEstablishedTime" class="itl-time-hero" aria-label="Session summary">
+            <div class="itl-time-hero-grid">
+              <div class="itl-time-hero-cell">
+                <span class="itl-time-hero-label">Date</span>
+                <strong class="itl-time-hero-value">{{ displayClaimDateLabel }}</strong>
+              </div>
+              <div class="itl-time-hero-cell">
+                <span class="itl-time-hero-label">Start</span>
+                <strong class="itl-time-hero-value">{{ sessionBoundsHm.start || '—' }}</strong>
+              </div>
+              <div class="itl-time-hero-cell">
+                <span class="itl-time-hero-label">End</span>
+                <strong class="itl-time-hero-value">{{ sessionBoundsHm.end || '—' }}</strong>
+              </div>
+              <div class="itl-time-hero-cell itl-time-hero-cell--total">
+                <span class="itl-time-hero-label">Total time</span>
+                <strong class="itl-time-hero-value itl-time-hero-total">{{ formatHm(sessionTotalMinutes) }}</strong>
+              </div>
+            </div>
+            <p class="itl-time-hero-tz">
+              Times in {{ timezoneAbbrevAt(new Date(), displayTimeZone) || displayTimeZone }}
+            </p>
+          </div>
+        </section>
+
+        <!-- Step 3: activity types -->
+        <section
+          v-if="canShowActivityStep"
+          class="itl-card itl-step-card"
+          aria-labelledby="itl-types-heading"
+        >
           <div class="itl-section-head">
-            <h3 id="itl-types-heading" class="itl-section-title">Select activity type(s)</h3>
+            <h3 id="itl-types-heading" class="itl-section-title">Step 3 — Select activity type(s)</h3>
             <div class="itl-section-actions">
               <button type="button" class="itl-link-btn" @click="selectAllTypes">Select All</button>
               <button type="button" class="itl-link-btn" @click="clearAllTypes">Clear All</button>
@@ -201,13 +242,15 @@
                   :key="t.id"
                   class="itl-type-card"
                   :class="{ selected: selectedTypeIds.has(t.id) }"
+                  @mousedown.prevent
+                  @click.prevent="toggleType(t)"
                 >
                   <input
                     type="checkbox"
                     class="itl-type-check"
                     :checked="selectedTypeIds.has(t.id)"
                     :aria-label="t.label"
-                    @change="toggleType(t)"
+                    tabindex="-1"
                   />
                   <span class="itl-type-icon" aria-hidden="true">
                     <IndirectTimeIcon :name="t.iconKey" :size="22" :stroke-width="1.75" />
@@ -232,13 +275,15 @@
                   :key="t.id"
                   class="itl-type-card"
                   :class="{ selected: selectedTypeIds.has(t.id) }"
+                  @mousedown.prevent
+                  @click.prevent="toggleType(t)"
                 >
                   <input
                     type="checkbox"
                     class="itl-type-check"
                     :checked="selectedTypeIds.has(t.id)"
                     :aria-label="t.label"
-                    @change="toggleType(t)"
+                    tabindex="-1"
                   />
                   <span class="itl-type-icon" aria-hidden="true">
                     <IndirectTimeIcon :name="t.iconKey" :size="22" :stroke-width="1.75" />
@@ -265,13 +310,15 @@
                   :key="t.id"
                   class="itl-type-card"
                   :class="{ selected: selectedTypeIds.has(t.id) }"
+                  @mousedown.prevent
+                  @click.prevent="toggleType(t)"
                 >
                   <input
                     type="checkbox"
                     class="itl-type-check"
                     :checked="selectedTypeIds.has(t.id)"
                     :aria-label="t.label"
-                    @change="toggleType(t)"
+                    tabindex="-1"
                   />
                   <span class="itl-type-icon" aria-hidden="true">
                     <IndirectTimeIcon :name="t.iconKey" :size="22" :stroke-width="1.75" />
@@ -287,31 +334,36 @@
           </div>
         </section>
 
-        <IndirectTimeAllocationPanel
-          v-if="selectedTypeIds.size"
-          ref="allocationPanelRef"
-          :total-minutes="sessionTotalMinutes"
-          :session-start-hm="sessionBoundsHm.start"
-          :session-end-hm="sessionBoundsHm.end"
-          :session-end-is-live="sessionEndIsLive"
-          :service-types="visibleServiceTypes"
-          :selected-type-ids="selectedTypeIdList"
-          :recent-ratio="recentIndirectRatio"
-          :recent-period-label="recentRatioPeriodLabel"
-          @update:selected-type-ids="onAllocationSelectedIds"
-          @validity="allocationValid = $event"
-        />
+        <!-- Step 4: allocate & submit -->
+        <section
+          v-if="canShowAllocateStep"
+          class="itl-card itl-step-card itl-step-card--allocate"
+          aria-labelledby="itl-allocate-heading"
+        >
+          <h3 id="itl-allocate-heading" class="itl-section-title">Step 4 — Allocate your time</h3>
 
-        <div v-if="selectedCategoryWarnings.length" class="itl-category-warnings" role="status">
-          <p v-for="(w, idx) in selectedCategoryWarnings" :key="idx" class="itl-category-warning">
-            {{ w }}
-          </p>
-        </div>
-        <div v-if="duplicateWarning" class="itl-category-warnings itl-category-warnings--dup" role="status">
-          <p class="itl-category-warning">{{ duplicateWarning }}</p>
-        </div>
+          <IndirectTimeAllocationPanel
+            ref="allocationPanelRef"
+            :total-minutes="sessionTotalMinutes"
+            :session-start-hm="sessionBoundsHm.start"
+            :session-end-hm="sessionBoundsHm.end"
+            :session-end-is-live="sessionEndIsLive"
+            :service-types="visibleServiceTypes"
+            :selected-type-ids="selectedTypeIdList"
+            @update:selected-type-ids="onAllocationSelectedIds"
+            @validity="allocationValid = $event"
+          />
 
-        <div class="itl-submit-wrap">
+          <div v-if="selectedCategoryWarnings.length" class="itl-category-warnings" role="status">
+            <p v-for="(w, idx) in selectedCategoryWarnings" :key="idx" class="itl-category-warning">
+              {{ w }}
+            </p>
+          </div>
+          <div v-if="duplicateWarning" class="itl-category-warnings itl-category-warnings--dup" role="status">
+            <p class="itl-category-warning">{{ duplicateWarning }}</p>
+          </div>
+
+          <div class="itl-submit-wrap">
           <div class="itl-attest-card" :class="{ 'itl-attest-card--on': attestation }">
             <div class="itl-attest-head">
               <strong>I certify this time is accurate</strong>
@@ -337,6 +389,7 @@
             Your time is saved securely. Submit when you're ready.
           </p>
         </div>
+        </section>
       </template>
 
       <template v-else>
@@ -542,7 +595,7 @@ const displayTimeZone = computed(() => {
 const todayYmd = new Date().toISOString().slice(0, 10);
 
 const mainTab = ref('enter');
-const entryMethod = ref('clock');
+const entryMethod = ref(null);
 const claimDate = ref(todayYmd);
 const manualStart = ref('09:00');
 const manualEnd = ref('11:30');
@@ -552,8 +605,6 @@ const typesLoading = ref(false);
 const selectedTypeIds = ref(new Set());
 const allocationPanelRef = ref(null);
 const allocationValid = ref(false);
-const recentIndirectRatio = ref(null);
-const recentRatioPeriodLabel = ref('');
 /** Local copy for form state; synced with global nav store when open. */
 const session = ref(null);
 /** Server clock-out at moment of stop (max for earlier adjustment). */
@@ -741,16 +792,7 @@ const selectedCategoryWarnings = computed(() => {
   return out;
 });
 
-const claimDateForDuplicateCheck = computed(() => {
-  if (entryMethod.value === 'manual') return String(claimDate.value || '').slice(0, 10);
-  const iso = session.value?.clockedInAt || session.value?.clocked_in_at;
-  if (!iso) return '';
-  try {
-    return new Date(iso).toLocaleDateString('en-CA', { timeZone: displayTimeZone.value });
-  } catch {
-    return String(iso).slice(0, 10);
-  }
-});
+const claimDateForDuplicateCheck = computed(() => displayClaimDateYmd.value);
 
 const duplicateWarning = computed(() => {
   const ymd = claimDateForDuplicateCheck.value;
@@ -859,8 +901,68 @@ const manualTotalMinutes = computed(() => minutesBetween(manualStart.value, manu
 
 const sessionTotalMinutes = computed(() => {
   if (entryMethod.value === 'manual') return manualTotalMinutes.value;
-  return clockTotalMinutes.value;
+  if (entryMethod.value === 'clock') return clockTotalMinutes.value;
+  return 0;
 });
+
+const hasChosenEntryMethod = computed(() => entryMethod.value === 'clock' || entryMethod.value === 'manual');
+
+const hasEstablishedTime = computed(() => {
+  if (entryMethod.value === 'manual') {
+    return (
+      /^\d{4}-\d{2}-\d{2}$/.test(String(claimDate.value || '')) &&
+      manualTotalMinutes.value >= 1
+    );
+  }
+  if (entryMethod.value === 'clock') {
+    return isClockedIn.value || (session.value?.clockedInAt && sessionTotalMinutes.value >= 1);
+  }
+  return false;
+});
+
+const canShowActivityStep = computed(() => hasChosenEntryMethod.value && hasEstablishedTime.value);
+
+const canShowAllocateStep = computed(
+  () => canShowActivityStep.value && selectedTypeIds.value.size > 0
+);
+
+const displayClaimDateYmd = computed(() => {
+  if (entryMethod.value === 'manual') return String(claimDate.value || '').slice(0, 10);
+  if (session.value?.clockedInAt) {
+    try {
+      const d = new Date(session.value.clockedInAt);
+      return d.toLocaleDateString('en-CA', { timeZone: displayTimeZone.value });
+    } catch {
+      return String(session.value.clockedInAt).slice(0, 10);
+    }
+  }
+  return String(claimDate.value || todayYmd).slice(0, 10);
+});
+
+const displayClaimDateLabel = computed(() => formatDisplayDate(displayClaimDateYmd.value));
+
+function stepClass(n) {
+  const done =
+    n === 1 ? hasChosenEntryMethod.value
+    : n === 2 ? hasEstablishedTime.value
+    : n === 3 ? selectedTypeIds.value.size > 0
+    : n === 4 ? allocationValid.value && attestation.value
+    : false;
+  const active =
+    n === 1 ? !hasChosenEntryMethod.value
+    : n === 2 ? hasChosenEntryMethod.value && !hasEstablishedTime.value
+    : n === 3 ? hasEstablishedTime.value && !selectedTypeIds.value.size
+    : n === 4 ? selectedTypeIds.value.size > 0
+    : false;
+  return { done, active };
+}
+
+function chooseEntryMethod(method) {
+  if (entryMethod.value === method) return;
+  entryMethod.value = method;
+  clearAllTypes();
+  attestation.value = false;
+}
 
 const selectedTypeIdList = computed(() => [...selectedTypeIds.value]);
 
@@ -890,6 +992,7 @@ const sessionEndIsLive = computed(() => {
 
 const canSubmit = computed(() => {
   if (!props.enabled || !agencyId.value) return false;
+  if (!hasChosenEntryMethod.value || !hasEstablishedTime.value) return false;
   if (!attestation.value) return false;
   if (entryMethod.value === 'manual' && !/^\d{4}-\d{2}-\d{2}$/.test(String(claimDate.value || ''))) return false;
   if (!(sessionTotalMinutes.value >= 1)) return false;
@@ -1091,8 +1194,12 @@ function onAllocationSelectedIds(ids) {
   selectedTypeIds.value = new Set((ids || []).map(Number));
 }
 
+watch(hasEstablishedTime, (ok) => {
+  if (!ok) clearAllTypes();
+});
+
 watch(sessionTotalMinutes, (n, prev) => {
-  if (n > 0 && selectedTypeIds.value.size && (!prev || prev === 0)) {
+  if (n > 0 && selectedTypeIds.value.size && canShowAllocateStep.value && (!prev || prev === 0)) {
     allocationPanelRef.value?.tryEvenDistribute?.();
   }
 });
@@ -1134,6 +1241,9 @@ async function loadSession() {
   try {
     const resp = await api.get('/payroll/me/indirect-time-session', { params: { agencyId: agencyId.value } });
     publishSession(resp.data?.session || null);
+    if (session.value?.clockedInAt) {
+      entryMethod.value = 'clock';
+    }
   } catch (e) {
     // Non-fatal on initial load
     if (e.response?.status !== 403) {
@@ -1144,6 +1254,7 @@ async function loadSession() {
 
 async function clockIn() {
   if (!agencyId.value) return;
+  entryMethod.value = 'clock';
   sessionBusy.value = true;
   error.value = '';
   try {
@@ -1196,31 +1307,6 @@ async function clockOut() {
   }
 }
 
-async function loadRatioHint() {
-  if (!agencyId.value) return;
-  try {
-    const resp = await api.get('/payroll/me/dashboard-summary', {
-      params: { agencyId: agencyId.value },
-      skipGlobalLoading: true
-    });
-    const di = resp.data?.directIndirect;
-    if (!di || di.disabled) {
-      recentIndirectRatio.value = null;
-      recentRatioPeriodLabel.value = '';
-      return;
-    }
-    const last = di.last || di.avg90 || null;
-    const ratio = last?.ratio;
-    recentIndirectRatio.value = Number.isFinite(Number(ratio)) ? Number(ratio) : null;
-    recentRatioPeriodLabel.value = di.last?.ratio != null
-      ? 'last pay period'
-      : (di.avg90?.ratio != null ? '90-day average' : '');
-  } catch {
-    recentIndirectRatio.value = null;
-    recentRatioPeriodLabel.value = '';
-  }
-}
-
 function unrefAllocationMode(panel) {
   const m = panel?.allocationMode;
   if (m && typeof m === 'object' && 'value' in m) return m.value || 'duration';
@@ -1251,7 +1337,7 @@ async function postIndirectTimeClaim({
   return await api.post('/payroll/me/time-claims', {
     agencyId: agencyId.value,
     claimType: 'indirect_time',
-    claimDate: claimDate.value,
+    claimDate: displayClaimDateYmd.value,
     payload: {
       entryMethod: entryMethod.value,
       allocationMode,
@@ -1498,7 +1584,7 @@ function stopTick() {
 
 async function bootstrap() {
   if (!props.enabled || !agencyId.value) return;
-  await Promise.all([loadTypes(), loadSession(), loadRatioHint(), loadSubmissions()]);
+  await Promise.all([loadTypes(), loadSession(), loadSubmissions()]);
   startTick();
 }
 
@@ -1602,6 +1688,94 @@ onUnmounted(() => stopTick());
 }
 .itl-user-name { font-size: 0.9rem; font-weight: 600; }
 .itl-body { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.itl-stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.itl-stepper li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--itl-muted);
+}
+.itl-stepper li.done { color: #166534; }
+.itl-stepper li.active { color: #111827; font-weight: 700; }
+.itl-step-n {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.itl-stepper li.done .itl-step-n,
+.itl-stepper li.active .itl-step-n {
+  background: #166534;
+  color: #fff;
+}
+.itl-step-card { scroll-margin-top: 12px; }
+.itl-step-hint {
+  margin: 12px 0 0;
+  font-size: 0.88rem;
+  color: var(--itl-muted);
+  line-height: 1.4;
+}
+.itl-time-hero {
+  margin-top: 16px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+  border: 2px solid #bbf7d0;
+}
+.itl-time-hero-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 640px) {
+  .itl-time-hero-grid { grid-template-columns: repeat(2, 1fr); }
+}
+.itl-time-hero-label {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.itl-time-hero-value {
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+  color: #111827;
+}
+.itl-time-hero-total { font-size: 1.6rem; color: #166534; }
+.itl-time-hero-tz {
+  margin: 10px 0 0;
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+.itl-manual-times--prominent {
+  margin-top: 4px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #f9fafb;
+  border: 1px solid var(--itl-border);
+}
+.itl-session--step {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+.itl-type-card { cursor: pointer; }
 .itl-card {
   background: #fff;
   border: 1px solid var(--itl-border);
