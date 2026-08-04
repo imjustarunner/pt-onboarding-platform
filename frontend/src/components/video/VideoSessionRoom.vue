@@ -495,7 +495,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { updateRemoteVideoState } from './remoteVideoState.js';
-import { nativeAudioConstraints } from './nativeAudioCapture.js';
+import { nativeAudioConstraints, enhancePublishedAudioTrack } from './nativeAudioCapture.js';
 import { attachPublisherAudioDevice, silenceLocalPublisherMedia } from './localPublisherMedia.js';
 import {
   parseConnectionIdentity,
@@ -763,7 +763,7 @@ function applyScreenShareGrantLocal(granted) {
 
 const voiceIsolationLabel = computed(() => {
   if (voiceIsolationStatus.value === 'device') return 'Voice isolation verified';
-  if (voiceIsolationStatus.value === 'on') return 'Voice isolation on';
+  if (voiceIsolationStatus.value === 'on') return 'Advanced noise suppression';
   if (voiceIsolationStatus.value === 'processing') return 'Enhancing mic…';
   if (voiceIsolationStatus.value === 'browser') return 'Native noise reduction on';
   if (voiceIsolationStatus.value === 'unavailable') return 'Standard mic';
@@ -775,19 +775,19 @@ const voiceIsolationTitle = computed(() => {
     return 'The published microphone track reports Voice Isolation enabled. Native echo cancellation, noise suppression, and automatic gain control were also requested.';
   }
   if (voiceIsolationStatus.value === 'on') {
-    return 'Advanced microphone noise suppression is active.';
+    return 'Vonage advanced noise suppression is active. This is not the same as Apple Voice Isolation.';
   }
   if (voiceIsolationStatus.value === 'processing') {
     return 'Opening and verifying the native-processed microphone track…';
   }
   if (voiceIsolationStatus.value === 'browser') {
-    return 'The exact published track reports native noise reduction. System Voice Isolation may be active but Chrome does not expose that setting for verification.';
+    return 'The published track reports browser noise suppression, but Voice Isolation is not enabled on this track. Use headphones for spoken meetings, and set Mac Mic Mode to Voice Isolation if available.';
   }
   if (voiceIsolationStatus.value === 'unavailable') {
-    return 'This microphone track did not report noise reduction. Check the browser input and the device Mic Mode.';
+    return 'This microphone track did not report noise reduction. Check the browser input and the device Mic Mode. Headphones are recommended for spoken meetings.';
   }
   if (voiceIsolationStatus.value === 'unsupported') {
-    return 'This browser cannot report mic processing. Your system may still apply voice isolation.';
+    return 'This browser cannot report mic processing. Your system may still apply voice isolation. Headphones are recommended for spoken meetings.';
   }
   return '';
 });
@@ -805,40 +805,69 @@ const lobbyMicButtonTitle = computed(() => {
   return publishAudio.value ? 'Join muted' : 'Test microphone and join with it on';
 });
 
+function resolvePublisherAudioTrack(pub = publisher) {
+  const source = publisherAudioTrack || pub?.getAudioSource?.() || pub?.stream || null;
+  if (!source) return null;
+  if (source.kind === 'audio') return source;
+  if (typeof source.getAudioTracks === 'function') {
+    return source.getAudioTracks()?.[0] || null;
+  }
+  if (typeof source.getTracks === 'function') {
+    return source.getTracks().find((t) => t?.kind === 'audio') || null;
+  }
+  return null;
+}
+
 function trackAudioEnhancementStatus(track) {
   if (!track || typeof track.getSettings !== 'function') return '';
   try {
     const settings = track.getSettings() || {};
-    const vi = String(settings.voiceIsolation || '').toLowerCase();
-    if (vi && vi !== 'off' && vi !== 'false' && vi !== '0') return 'device';
+    const vi = settings.voiceIsolation;
+    if (vi === true) return 'device';
+    const viRaw = String(vi ?? '').toLowerCase();
+    if (viRaw && viRaw !== 'off' && viRaw !== 'false' && viRaw !== '0') return 'device';
     if (settings.noiseSuppression === true) return 'browser';
   } catch { /* ignore */ }
   return '';
 }
 
-function refreshAudioEnhancementStatus(publisher) {
+function refreshAudioEnhancementStatus(pub = publisher) {
+  // Prefer the live published track settings — only claim Voice Isolation when
+  // getSettings().voiceIsolation is actually enabled.
   try {
-    const filter = publisher?.getAudioFilter?.();
-    if (filter?.type === 'advancedNoiseSuppression') {
-      voiceIsolationStatus.value = 'on';
-      return;
-    }
-  } catch { /* ignore */ }
-  try {
-    const source = publisherAudioTrack || publisher?.getAudioSource?.() || publisher?.stream || null;
-    const track = source?.kind === 'audio'
-      ? source
-      : (source?.getAudioTracks?.()?.[0]
-        || (typeof source?.getTracks === 'function'
-          ? source.getTracks().find((t) => t?.kind === 'audio')
-          : null));
+    const track = resolvePublisherAudioTrack(pub);
     const status = trackAudioEnhancementStatus(track);
     if (status) {
       voiceIsolationStatus.value = status;
       return;
     }
   } catch { /* ignore */ }
+  try {
+    const filter = pub?.getAudioFilter?.();
+    if (filter?.type === 'advancedNoiseSuppression') {
+      voiceIsolationStatus.value = 'on';
+      return;
+    }
+  } catch { /* ignore */ }
   voiceIsolationStatus.value = 'unavailable';
+}
+
+async function enhanceLocalPublisherAudio(reason = 'enhance') {
+  const track = resolvePublisherAudioTrack(publisher);
+  if (!track) {
+    refreshAudioEnhancementStatus(publisher);
+    return null;
+  }
+  publisherAudioTrack = track;
+  const result = await enhancePublishedAudioTrack(track);
+  refreshAudioEnhancementStatus(publisher);
+  logAudioDiagnostics('mic_enhance', {
+    reason: String(reason || 'enhance'),
+    applied: !!result?.applied,
+    voiceIsolation: !!result?.voiceIsolation,
+    settings: result?.settings || null
+  });
+  return result;
 }
 
 function playJoinChime() {
@@ -2125,6 +2154,7 @@ async function connect() {
 
     const buildPublisherOpts = (withAudio, captureAudio) => {
       const mainRoom = !props.lobbyMode;
+      const audioProcessing = nativeAudioConstraints();
       const opts = {
         insertMode: 'append',
         width: '100%',
@@ -2138,7 +2168,8 @@ async function connect() {
         echoCancellation: true,
         autoGainControl: true,
         noiseSuppression: true,
-        disableAudioProcessing: false
+        disableAudioProcessing: false,
+        ...audioProcessing
       };
       // In the main room, omit audioSource so Vonage and the browser own one
       // native capture track (the same path used by mature meeting clients).
@@ -2219,7 +2250,15 @@ async function connect() {
     }
     attachPublisherAudioLevel();
     voiceIsolationStatus.value = props.lobbyMode ? '' : 'processing';
-    refreshAudioEnhancementStatus(publisher);
+    if (!props.lobbyMode) {
+      await enhanceLocalPublisherAudio('publisher_created');
+      // Chrome sometimes finalizes Voice Isolation shortly after capture starts.
+      setTimeout(() => {
+        void enhanceLocalPublisherAudio('publisher_created_retry');
+      }, 750);
+    } else {
+      refreshAudioEnhancementStatus(publisher);
+    }
     await syncLocalVideoPresentation();
     if (!props.lobbyMode) logAudioDiagnostics('publisher_created');
 
@@ -2439,7 +2478,7 @@ async function addPublisherAudioWithoutRestartingCamera() {
   publisherAudioStream = null;
   publisherAudioTrack = publisher?.getAudioSource?.() || null;
   needsAudioSourceAttach.value = false;
-  refreshAudioEnhancementStatus(publisher);
+  await enhanceLocalPublisherAudio('mic_source_attached');
   await syncLocalVideoPresentation();
   logAudioDiagnostics('mic_source_attached', {
     deviceId: microphone?.deviceId || 'default'
@@ -2529,6 +2568,8 @@ async function toggleMic() {
   try {
     if (next && needsAudioSourceAttach.value) {
       await addPublisherAudioWithoutRestartingCamera();
+    } else if (next) {
+      await enhanceLocalPublisherAudio('mic_unmute');
     }
     publisher.publishAudio(next);
     broadcastMicState(next);
