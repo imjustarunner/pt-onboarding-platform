@@ -113,6 +113,7 @@ export function useDashboardOverview(opts = {}) {
     const s = scheduleSummary.value || {};
     const ymd = todayYmd.value;
     const now = Date.now();
+    const viewerId = Number(resolve(opts.userId) || 0);
     const items = [];
 
     for (const e of s.officeEvents || []) {
@@ -167,7 +168,12 @@ export function useDashboardOverview(opts = {}) {
         schoolLogoUrl: String(e.schoolLogoUrl || '').trim() || null,
         locationAddress: String(e.locationAddress || '').trim() || null,
         mapsUrl: String(e.mapsUrl || '').trim() || null,
-        modality: isBookedVisit ? modality : null
+        modality: isBookedVisit ? modality : null,
+        joinUrl: (() => {
+          const isHost = e.isHost === true
+            || (viewerId > 0 && Number(e.createdByUserId || 0) === viewerId);
+          return String((isHost ? e.hostJoinUrl : null) || e.appJoinUrl || e.participantJoinUrl || '').trim() || null;
+        })()
       });
     }
 
@@ -186,7 +192,13 @@ export function useDashboardOverview(opts = {}) {
         endMs,
         timeLabel: formatTimeRange(startMs, endMs),
         status: statusForWindow(startMs, endMs, now),
-        joinUrl: e.joinUrl || e.meetingUrl || null,
+        joinUrl: String(
+          ((String(e.role || '').toLowerCase() === 'supervisor' || e.isSupervisor === true) ? e.hostJoinUrl : null)
+          || e.joinUrl
+          || e.participantJoinUrl
+          || e.meetingUrl
+          || ''
+        ).trim() || null,
         modality: e.modality || null,
         sessionType
       });

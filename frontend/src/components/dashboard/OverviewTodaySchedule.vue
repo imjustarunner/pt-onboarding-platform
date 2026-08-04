@@ -137,8 +137,7 @@ const itemLogo = (item) => {
 
 const canJoinItem = (item) => {
   if (!String(item?.joinUrl || '').trim()) return false;
-  // Supervision join links work as guest tokens — show Join whenever a link exists.
-  return String(item?.kind || '').toLowerCase() === 'supervision';
+  return String(item?.status || '').toLowerCase() !== 'completed';
 };
 
 const statusLabel = (s) => {

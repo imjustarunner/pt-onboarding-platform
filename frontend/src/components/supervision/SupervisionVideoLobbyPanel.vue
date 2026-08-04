@@ -23,7 +23,7 @@
           title="Admit everyone waiting and let later arrivals join without waiting"
           @click="openWaitingRoom"
         >
-          {{ disablingWaitingRoom ? 'Opening…' : 'Let everyone in' }}
+          {{ disablingWaitingRoom ? 'Opening meeting…' : 'Let everyone in' }}
         </button>
       </div>
     </div>

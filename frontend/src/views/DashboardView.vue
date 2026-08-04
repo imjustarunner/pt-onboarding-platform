@@ -4203,11 +4203,9 @@ const onOverviewSubmitAction = ({ event, tab } = {}) => {
 const onOverviewJoinEvent = (ev) => {
   const url = String(ev?.joinUrl || '').trim();
   if (!url) return;
-  try {
-    window.open(url, '_blank', 'noopener,noreferrer');
-  } catch {
-    window.location.href = url;
-  }
+  // Same-tab navigation is significantly more reliable on iPad and preserves
+  // the authenticated portal context for in-app meeting routes.
+  window.location.assign(url);
 };
 
 const setMyTab = (tab) => {

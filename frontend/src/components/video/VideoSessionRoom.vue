@@ -290,7 +290,7 @@
             <path d="M19 11a7 7 0 0 1-14 0M12 18v3M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>
         </span>
-        <span class="vsr__muted-banner-text">{{ forceMutedByHost ? 'Muted by host — you cannot unmute yourself' : 'You are muted — others cannot hear you' }}</span>
+        <span class="vsr__muted-banner-text">{{ lobbyMode ? 'Microphone off — test it or join muted' : (forceMutedByHost ? 'Muted by host — you cannot unmute yourself' : 'You are muted — others cannot hear you') }}</span>
       </div>
       <div v-if="micActionHint" class="vsr__mic-hint" role="alert">{{ micActionHint }}</div>
       <div v-if="connectionNotice" class="vsr__connection-hint" role="status" aria-live="polite">
@@ -304,11 +304,11 @@
           class="vsr__ctrl vsr__ctrl--mic"
           :class="{ 'vsr__ctrl--danger': !publishAudio, 'vsr__ctrl--mic-muted': !publishAudio }"
           :aria-pressed="!publishAudio"
-          :title="publishAudio ? 'Mute microphone' : (canSelfUnmute ? 'Unmute microphone' : 'Muted by host')"
+          :title="lobbyMode ? (publishAudio ? 'Join muted' : 'Test microphone and join with it on') : (publishAudio ? 'Mute microphone' : (canSelfUnmute ? 'Unmute microphone' : 'Muted by host'))"
           @click.stop.prevent="toggleMic"
         >
           <span class="vsr__ctrl-mic-row">
-            <span>{{ publishAudio ? 'Mic' : (canSelfUnmute ? 'Unmute' : 'Muted') }}</span>
+            <span>{{ lobbyMode ? (publishAudio ? 'Mic ready' : 'Test mic') : (publishAudio ? 'Mic' : (canSelfUnmute ? 'Unmute' : 'Muted')) }}</span>
             <span
               v-if="publishAudio"
               class="vsr__mic-meter"
@@ -522,9 +522,12 @@ const screenEl = ref(null);
 const connecting = ref(false);
 const errorMessage = ref('');
 const errorMeta = ref(null);
-const publishAudio = ref(!props.startMuted);
+// A lobby only needs a camera preview. Acquiring the microphone there and then
+// replacing the publisher on admission is unreliable on iOS (and needlessly
+// runs audio processing twice on desktop). The main-room publisher acquires it.
+const publishAudio = ref(!props.startMuted && !props.lobbyMode);
 const publishVideo = ref(true);
-const automuteNoticeVisible = ref(!!props.startMuted);
+const automuteNoticeVisible = ref(!!props.startMuted && !props.lobbyMode);
 /** Set when a host/co-host force-mutes this participant — self-unmute is blocked. */
 const forceMutedByHost = ref(false);
 const canSelfUnmute = computed(() => !forceMutedByHost.value);
@@ -705,7 +708,7 @@ const voiceIsolationTitle = computed(() => {
     return 'Starting advanced noise suppression…';
   }
   if (voiceIsolationStatus.value === 'browser') {
-    return 'Your browser or device is applying noise reduction / voice isolation (for example Chrome or iOS Voice Isolation). Echo cancellation is also active.';
+    return 'Native browser/device noise reduction and voice isolation are requested. Echo cancellation and automatic gain control are also active.';
   }
   if (voiceIsolationStatus.value === 'unavailable') {
     return 'Vonage advanced isolation is not available here. Your browser may still apply echo cancellation or system voice isolation separately.';
@@ -716,12 +719,18 @@ const voiceIsolationTitle = computed(() => {
   return '';
 });
 
-function vonageSupportsAdvancedNoiseSuppression(OT) {
+function nativeAudioConstraints() {
+  const constraints = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true
+  };
   try {
-    return typeof OT?.hasMediaProcessorSupport === 'function' && OT.hasMediaProcessorSupport('audio');
-  } catch {
-    return false;
-  }
+    const supported = navigator?.mediaDevices?.getSupportedConstraints?.() || {};
+    // Safari/WebKit exposes this when the device capture mode can be requested.
+    if (supported.voiceIsolation) constraints.voiceIsolation = true;
+  } catch { /* use the broadly-supported native constraints above */ }
+  return constraints;
 }
 
 function trackHasBrowserNoiseReduction(track) {
@@ -759,19 +768,6 @@ function refreshAudioEnhancementStatus(publisher) {
     voiceIsolationStatus.value = 'browser';
   } else if (!voiceIsolationStatus.value) {
     voiceIsolationStatus.value = 'browser';
-  }
-}
-
-async function ensureAdvancedNoiseSuppression(publisher) {
-  if (!publisher) return false;
-  try {
-    const existing = publisher.getAudioFilter?.();
-    if (existing?.type === 'advancedNoiseSuppression') return true;
-    await publisher.applyAudioFilter({ type: 'advancedNoiseSuppression' });
-    return publisher.getAudioFilter?.()?.type === 'advancedNoiseSuppression';
-  } catch (e) {
-    console.warn('[VideoSessionRoom] advancedNoiseSuppression failed', e?.message || e);
-    return false;
   }
 }
 
@@ -1810,28 +1806,32 @@ async function connect() {
     await nextTick();
     const publisherMountEl = localMediaStageEl.value || localPublisherHostEl.value;
     if (publisherMountEl) publisherMountEl.innerHTML = '';
-    const useVonageNoiseSuppression = vonageSupportsAdvancedNoiseSuppression(OT);
-    voiceIsolationStatus.value = useVonageNoiseSuppression ? 'processing' : 'browser';
+    // Keep processing in the native capture stack. The additional Vonage media
+    // processor caused a second WASM/audio pipeline during lobby -> room handoff,
+    // which can exhaust/crash Chrome renderers. Native Voice Isolation remains
+    // available and echo/noise/AGC constraints stay enabled below.
+    voiceIsolationStatus.value = props.lobbyMode ? '' : 'browser';
 
     const buildPublisherOpts = (withAudio) => {
+      const acquireAudio = !!withAudio && !props.lobbyMode;
       const opts = {
         insertMode: 'append',
         width: '100%',
         height: '100%',
         fitMode: 'cover',
-        publishAudio: !!withAudio,
+        publishAudio: acquireAudio,
         publishVideo: publishVideo.value,
         name: props.localName,
         mirror: true,
         style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' },
         echoCancellation: true,
         autoGainControl: true,
-        // Vonage advanced filter replaces browser noise suppression when available.
-        noiseSuppression: !useVonageNoiseSuppression
+        noiseSuppression: true,
+        disableAudioProcessing: false
       };
-      if (withAudio && useVonageNoiseSuppression) {
-        opts.audioFilter = { type: 'advancedNoiseSuppression' };
-      }
+      // publishAudio:false only mutes an acquired track. audioSource:null avoids
+      // opening the microphone at all (critical for iPad lobby handoff/retry).
+      if (!acquireAudio) opts.audioSource = null;
       return opts;
     };
 
@@ -1869,6 +1869,9 @@ async function connect() {
 
     try {
       publisher = await publishLocal(publishAudio.value);
+      // A main-room publisher created with audioSource:null has no track for
+      // publishAudio(true) to unmute. Rebuild it on the first Unmute tap.
+      needsAudioPublisherRebuild.value = !props.lobbyMode && !publishAudio.value;
     } catch (publishErr) {
       // iOS often fails when another tab/app holds the mic — join muted instead of hard-failing.
       if (publishAudio.value && isMicAccessError(publishErr)) {
@@ -1884,12 +1887,7 @@ async function connect() {
       }
     }
     attachPublisherAudioLevel();
-    if (publishAudio.value && useVonageNoiseSuppression) {
-      const applied = await ensureAdvancedNoiseSuppression(publisher);
-      voiceIsolationStatus.value = applied ? 'on' : 'browser';
-    } else {
-      voiceIsolationStatus.value = 'browser';
-    }
+    voiceIsolationStatus.value = props.lobbyMode ? '' : 'browser';
     refreshAudioEnhancementStatus(publisher);
     await syncLocalVideoPresentation();
 
@@ -2093,7 +2091,6 @@ async function rebuildPublisherWithAudio() {
   }
   const publisherMountEl = localPublisherHostEl.value;
   if (!publisherMountEl) throw new Error('Microphone UI is not ready.');
-  const useVonageNoiseSuppression = vonageSupportsAdvancedNoiseSuppression(OTApi);
   const old = publisher;
   publisher = null;
   if (old) {
@@ -2113,11 +2110,9 @@ async function rebuildPublisherWithAudio() {
     style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' },
     echoCancellation: true,
     autoGainControl: true,
-    noiseSuppression: !useVonageNoiseSuppression
+    noiseSuppression: true,
+    disableAudioProcessing: false
   };
-  if (useVonageNoiseSuppression) {
-    opts.audioFilter = { type: 'advancedNoiseSuppression' };
-  }
   const pub = await new Promise((resolve, reject) => {
     const nextPub = OTApi.initPublisher(publisherMountEl, opts, (err) => {
       if (err) {
@@ -2143,13 +2138,45 @@ async function rebuildPublisherWithAudio() {
   needsAudioPublisherRebuild.value = false;
   attachPublisherAudioLevel();
   await syncLocalVideoPresentation();
-  if (useVonageNoiseSuppression) {
-    const applied = await ensureAdvancedNoiseSuppression(publisher);
-    voiceIsolationStatus.value = applied ? 'on' : 'browser';
-  }
+  voiceIsolationStatus.value = 'browser';
+  refreshAudioEnhancementStatus(publisher);
 }
 
 async function toggleMic() {
+  if (props.lobbyMode) {
+    const next = !publishAudio.value;
+    if (!next) {
+      publishAudio.value = false;
+      showMicHint('You will join muted.');
+      return;
+    }
+    try {
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        throw new Error('Microphone testing is not supported in this browser.');
+      }
+      // Test permission/device capture, then release immediately. The preference
+      // is retained and the main-room publisher opens a fresh native-processed
+      // track only after admission.
+      const testStream = await navigator.mediaDevices.getUserMedia({
+        audio: nativeAudioConstraints(),
+        video: false
+      });
+      const testTrack = testStream?.getAudioTracks?.()?.[0] || null;
+      if (trackHasBrowserNoiseReduction(testTrack)) voiceIsolationStatus.value = 'browser';
+      for (const track of testStream?.getTracks?.() || []) {
+        try { track.stop(); } catch { /* ignore */ }
+      }
+      publishAudio.value = true;
+      automuteNoticeVisible.value = false;
+      voiceIsolationStatus.value = 'browser';
+      showMicHint('Microphone ready — you will join with it on.');
+    } catch (e) {
+      publishAudio.value = false;
+      const friendly = sanitizeVideoError(e);
+      showMicHint(friendly.message || 'Could not test the microphone. You will join muted.');
+    }
+    return;
+  }
   const next = !publishAudio.value;
   if (next && forceMutedByHost.value) {
     showMicHint('Muted by host — you cannot unmute yourself.');
@@ -2219,6 +2246,20 @@ function retryConnect() {
 function retryWithNewRoom() {
   emit('request-recreate-room');
 }
+
+watch(
+  () => props.lobbyMode,
+  (inLobby, wasInLobby) => {
+    if (!wasInLobby || inLobby) return;
+    // Group attendees remain host-automuted even if they tested the microphone.
+    // Other meetings retain the explicit pre-entry mic preference.
+    if (props.startMuted) {
+      publishAudio.value = false;
+      automuteNoticeVisible.value = true;
+    }
+  },
+  { flush: 'sync' }
+);
 
 watch(
   () => [props.applicationId, props.apiKey, props.sessionId, props.token],

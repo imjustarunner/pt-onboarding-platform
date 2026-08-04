@@ -11021,6 +11021,27 @@ const cellBlockKindLabel = (block) => {
 
 const buildCellBlockStackItem = (block, dayName, hour, minute = 0) => {
   const kind = String(block?.kind || '');
+  if (kind === 'sevt') {
+    const eventId = Number(block?.eventId || 0);
+    const eventKind = String(block?.eventKind || '').trim().toUpperCase();
+    const events = scheduleEventsInCell(dayName, hour, minute);
+    const event = events.find((ev) => (
+      Number(ev?.id || 0) === eventId
+      && (!eventKind || String(ev?.kind || '').trim().toUpperCase() === eventKind)
+    )) || events.find((ev) => Number(ev?.id || 0) === eventId);
+    if (event) {
+      return {
+        ...buildScheduleStackItemFromEvent(event, {
+          appJoinUrl: String(block?.appJoinUrl || event?.appJoinUrl || '').trim() || '',
+          providerId: resolveBookedProviderIdForEvent(event)
+        }),
+        cellBlock: block,
+        dayName,
+        hour,
+        minute
+      };
+    }
+  }
   let label = String(block?.shortLabel || block?.officeRoomLabel || block?.title || '').trim()
     || cellBlockKindLabel(block);
   let subLabel = '';
@@ -12543,7 +12564,15 @@ const editorVirtualLink = computed(() => {
   }
   if (editorIsMeeting.value) {
     const item = editingScheduleStackItem.value;
-    return String(item?.appJoinUrl || item?.platformVideoLink || '').trim();
+    const viewerId = Number(authStore.user?.id || 0);
+    const useHostLink = item?.isHost === true
+      || (viewerId > 0 && Number(item?.createdByUserId || 0) === viewerId);
+    return String(
+      (useHostLink ? item?.hostJoinUrl : null)
+      || item?.appJoinUrl
+      || item?.platformVideoLink
+      || ''
+    ).trim();
   }
   if (editorIsClinical.value) {
     const item = editingScheduleStackItem.value;
@@ -23860,6 +23889,7 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     agencyId: Number(ev?.agencyId || ev?._agencyId || 0) || null,
     clientId: clientId || null,
     providerId: Number(ev?.providerId || ev?.provider_id || props.userId || 0) || null,
+    createdByUserId: Number(ev?.createdByUserId || ev?.created_by_user_id || 0) || null,
     isHost: ev?.isHost !== undefined ? !!ev.isHost : null,
     hostFirstName: String(ev?.hostFirstName || '').trim() || null,
     hostLastName: String(ev?.hostLastName || '').trim() || null,
@@ -23890,6 +23920,7 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     endAt: ev?.endAt || null,
     link: String(ev?.htmlLink || '').trim() || '',
     appJoinUrl: isScheduleMeetingJoinable(ev) ? (String(ev?.appJoinUrl || '').trim() || '') : '',
+    hostJoinUrl: isScheduleMeetingJoinable(ev) ? (String(ev?.hostJoinUrl || '').trim() || '') : '',
     meetLink: cancelled ? '' : (String(ev?.meetLink || '').trim() || ''),
     eventId: Number(ev?.id || 0) || null,
     eventKind: targetKind,
@@ -24148,16 +24179,6 @@ const openInAppJoinUrl = (url) => {
 };
 
 const openStackDetailsItem = (item) => {
-  if (item?.cellBlock) {
-    closeStackDetailsModal();
-    dispatchCellBlockAction(
-      item.cellBlock,
-      String(item?.dayName || stackDetailsDayName.value || ''),
-      Number(item?.hour ?? stackDetailsHour.value ?? 0),
-      Number(item?.minute ?? stackDetailsMinute.value ?? 0)
-    );
-    return;
-  }
   // Pure Google Calendar row (no app event id).
   if (item?.googleEvent && !Number(item?.eventId || 0)) {
     closeStackDetailsModal();
@@ -24166,6 +24187,17 @@ const openStackDetailsItem = (item) => {
       hour: stackDetailsHour.value,
       minute: stackDetailsMinute.value
     });
+    return;
+  }
+  // Legacy cell-backed rows that could not be resolved to an app-native item.
+  if (item?.cellBlock) {
+    closeStackDetailsModal();
+    dispatchCellBlockAction(
+      item.cellBlock,
+      String(item?.dayName || stackDetailsDayName.value || ''),
+      Number(item?.hour ?? stackDetailsHour.value ?? 0),
+      Number(item?.minute ?? stackDetailsMinute.value ?? 0)
+    );
     return;
   }
   // App-native schedule / meeting / supervision → open in-app editor (not Google).
@@ -28811,4 +28843,3 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   color: #b91c1c;
 }
 </style>
-

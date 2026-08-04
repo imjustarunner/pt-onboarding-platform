@@ -3753,7 +3753,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
     if (!provider) return res.status(404).json({ error: { message: 'User not found' } });
 
     // Resolve agency context (used for access checks + scoping)
-    const includeAllAgencies = String(req.query.includeAllAgencies || '').toLowerCase() === 'true'
+    const includeAllAgenciesRaw = String(req.query.includeAllAgencies || '').trim().toLowerCase();
+    const includeAllAgencies = includeAllAgenciesRaw === 'true'
+      || includeAllAgenciesRaw === '1'
       || String(req.query.agencyId || '').trim().toLowerCase() === 'all';
     let agencyId = (!includeAllAgencies && req.query.agencyId) ? parseInt(req.query.agencyId, 10) : null;
     if (!agencyId) {
@@ -11689,4 +11691,3 @@ export const getProfileOverview = async (req, res, next) => {
     next(err);
   }
 };
-
