@@ -265,6 +265,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import { isPayrollServiceCodeKey } from '../../utils/payrollBreakdownDisplay.js';
 
 const props = defineProps({
   period: { type: Object, required: true },
@@ -336,7 +337,7 @@ const splitBreakdownForDisplay = (b) => {
   const out = [];
   if (!b || typeof b !== 'object') return out;
   for (const [code, vRaw] of Object.entries(b)) {
-    if (String(code).startsWith('_')) continue;
+    if (!isPayrollServiceCodeKey(code)) continue;
     const v = vRaw || {};
     const finalizedUnits = Number(v.finalizedUnits ?? v.units ?? 0);
     const rateAmount = Number(v.rateAmount || 0);

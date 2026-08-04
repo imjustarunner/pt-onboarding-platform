@@ -644,6 +644,19 @@ const showPreviewPanel = ref(false);
 const downloadingExport = ref(false);
 const runningPayroll = ref(false);
 const postingPayroll = ref(false);
+const restagingPeriod = ref(false);
+
+const isPeriodPosted = computed(() => {
+  const st = periodStatus.value;
+  return st === 'posted' || st === 'finalized';
+});
+
+const isPeriodRan = computed(() => periodStatus.value === 'ran');
+
+const canSeeRunResults = computed(() => {
+  const st = periodStatus.value;
+  return st === 'ran' || st === 'posted' || st === 'finalized' || (summaries.value || []).length > 0;
+});
 
 const showInlinePanel = computed(() =>
   showRawPanel.value ||
@@ -1014,6 +1027,7 @@ const steps = [
     ],
     actions: [
       { id: 'open_stage_inline', label: 'Edit Manual Pay & Adjustments', primary: true, open: 'stage_inline' },
+      { id: 'restage_payroll', label: 'Restage (clear run)', primary: false, restage: true },
       { id: 'open_todos', label: 'Manage To-Dos', primary: false, open: 'todos_inline' },
       { id: 'open_stage', label: 'Open full Stage on Payroll page', primary: false, open: 'stage' },
       { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
@@ -1028,6 +1042,7 @@ const steps = [
     checklist: ['Confirm stage is complete', 'Click Run Payroll', 'Download ADP export if needed', 'Review totals'],
     actions: [
       { id: 'run_payroll', label: 'Run Payroll', primary: true, runPayroll: true },
+      { id: 'restage_payroll', label: 'Restage (clear run)', primary: false, restage: true },
       { id: 'download_adp', label: 'Download ADP / Payroll Export CSV', primary: false, downloadAdp: true },
       { id: 'done', label: 'Already ran — continue', primary: false, complete: true }
     ],
@@ -1229,7 +1244,10 @@ const actionDisabled = (action) => {
   }
   if (action?.runPayroll) {
     const st = periodStatus.value;
-    return runningPayroll.value || postingPayroll.value || st === 'posted' || st === 'finalized';
+    return runningPayroll.value || postingPayroll.value || restagingPeriod.value || st === 'posted' || st === 'finalized';
+  }
+  if (action?.restage) {
+    return restagingPeriod.value || runningPayroll.value || postingPayroll.value || isPeriodPosted.value || !isPeriodRan.value;
   }
   if (action?.postPayroll) {
     const st = periodStatus.value;
@@ -1241,8 +1259,10 @@ const actionDisabled = (action) => {
 
 const actionButtonLabel = (action) => {
   if (action?.runPayroll && runningPayroll.value) return 'Running…';
+  if (action?.runPayroll && canSeeRunResults.value && !isPeriodPosted.value) return 'Re-run Payroll';
   if (action?.postPayroll && postingPayroll.value) return 'Posting…';
   if (action?.downloadAdp && downloadingExport.value) return 'Downloading…';
+  if (action?.restage && restagingPeriod.value) return 'Restaging…';
   return action?.label || 'Continue';
 };
 
@@ -1482,9 +1502,50 @@ const runPayrollRequest = async (params = {}) => {
     actionMessage.value =
       `Payroll ran successfully. ${leftCount} skipped claim(s) were left for the next period — approve them there when ready.`;
   } else {
-    actionMessage.value = 'Payroll ran successfully. You can download the ADP export or continue to Preview Post.';
+    actionMessage.value = canSeeRunResults.value
+      ? 'Payroll re-ran successfully. Review totals or download the ADP export.'
+      : 'Payroll ran successfully. You can download the ADP export or continue to Preview Post.';
   }
   await markStepComplete('run');
+};
+
+const restagePeriodInWizard = async () => {
+  if (!selectedPeriodId.value) {
+    actionError.value = true;
+    actionMessage.value = 'Select a pay period first.';
+    return;
+  }
+  if (isPeriodPosted.value) {
+    actionError.value = true;
+    actionMessage.value = 'This pay period is posted. Unpost first if you need to restage.';
+    return;
+  }
+  if (!isPeriodRan.value) {
+    actionError.value = true;
+    actionMessage.value = 'Nothing to restage — payroll has not been run yet for this period.';
+    return;
+  }
+  const ok = window.confirm(
+    'Restage this pay period?\n\nThis clears Run Payroll results and returns the period to Staged. Imports and staging edits are kept.'
+  );
+  if (!ok) return;
+  restagingPeriod.value = true;
+  actionError.value = false;
+  actionMessage.value = '';
+  try {
+    await api.post(`/payroll/periods/${selectedPeriodId.value}/restage`);
+    await loadPeriods();
+    await loadPeriodDetails();
+    actionMessage.value = 'Pay period restaged. Make your changes, then Run Payroll again.';
+    const stageIdx = steps.findIndex((s) => s.key === 'stage');
+    if (stageIdx >= 0) stepIdx.value = stageIdx;
+    await saveProgress();
+  } catch (e) {
+    actionError.value = true;
+    actionMessage.value = e?.response?.data?.error?.message || e?.message || 'Failed to restage pay period';
+  } finally {
+    restagingPeriod.value = false;
+  }
 };
 
 const runPayrollInWizard = async () => {
@@ -1704,6 +1765,10 @@ const runStepAction = async (action) => {
     }
     if (action.runPayroll) {
       await runPayrollInWizard();
+      return;
+    }
+    if (action.restage) {
+      await restagePeriodInWizard();
       return;
     }
     if (action.postPayroll) {

@@ -6463,6 +6463,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import { isPayrollServiceCodeKey } from '../../utils/payrollBreakdownDisplay.js';
 import { useAgencyStore } from '../../store/agency';
 import { useOrganizationStore } from '../../store/organization';
 import { useAuthStore } from '../../store/auth';
@@ -11244,7 +11245,7 @@ const splitBreakdownForDisplay = (breakdown) => {
   const out = [];
   if (!breakdown || typeof breakdown !== 'object') return out;
   for (const [code, vRaw] of Object.entries(breakdown)) {
-    if (String(code).startsWith('_')) continue;
+    if (!isPayrollServiceCodeKey(code)) continue;
     const v = vRaw || {};
     const finalizedUnits = Number(v.finalizedUnits ?? v.units ?? 0);
     const rateAmount = Number(v.rateAmount || 0);

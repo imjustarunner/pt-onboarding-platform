@@ -146,6 +146,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api.js';
+import { isPayrollServiceCodeKey } from '../../utils/payrollBreakdownDisplay.js';
 
 const props = defineProps({
   periodId: { type: [Number, String], required: true },
@@ -211,7 +212,7 @@ const serviceLines = computed(() => {
   const b = summary.value?.breakdown;
   if (!b || typeof b !== 'object') return [];
   return Object.entries(b)
-    .filter(([code]) => !String(code).startsWith('_') && !String(code).startsWith('__'))
+    .filter(([code]) => isPayrollServiceCodeKey(code))
     .map(([code, v]) => ({ code, ...(v && typeof v === 'object' ? v : {}) }))
     .sort((a, b) => String(a.code).localeCompare(String(b.code)));
 });
@@ -226,7 +227,7 @@ const payTotals = computed(() => {
   const b = summary.value?.breakdown;
   if (!b || typeof b !== 'object') return out;
   for (const [code, v] of Object.entries(b)) {
-    if (String(code).startsWith('_')) continue;
+    if (!isPayrollServiceCodeKey(code)) continue;
     const amt = Number(v?.amount || 0);
     const bucket = String(v?.bucket || v?.category || 'direct').toLowerCase();
     if (bucket === 'indirect') out.indirectAmount += amt;
