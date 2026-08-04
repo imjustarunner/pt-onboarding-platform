@@ -373,6 +373,17 @@
           {{ voiceIsolationLabel }}
         </span>
         <button
+          v-if="isHostOrCohost && !lobbyMode"
+          type="button"
+          class="vsr__ctrl"
+          :class="{ 'vsr__ctrl--active': audioDebugOpen }"
+          :aria-pressed="audioDebugOpen"
+          title="Open audio/media diagnostics (host only)"
+          @click="toggleAudioDebugPanel"
+        >
+          Audio debug
+        </button>
+        <button
           type="button"
           class="vsr__ctrl"
           :class="{ 'vsr__ctrl--active': localHandRaised }"
@@ -435,6 +446,48 @@
           <span class="vsr__fs-notice-hint">Tap to exit &amp; read</span>
         </button>
       </div>
+      <aside
+        v-if="audioDebugOpen && isHostOrCohost && audioDebugSnapshot"
+        class="vsr__audio-debug"
+        role="dialog"
+        aria-label="Audio diagnostics"
+      >
+        <header class="vsr__audio-debug-head">
+          <strong>Audio diagnostics</strong>
+          <button type="button" class="vsr__audio-debug-x" aria-label="Close audio diagnostics" @click="closeAudioDebugPanel">×</button>
+        </header>
+        <div v-if="audioDebugSnapshot.duplicateIdentities?.length" class="vsr__audio-debug-warn" role="alert">
+          Duplicate identity: {{ audioDebugSnapshot.duplicateIdentities.map((d) => d.identity).join(', ') }}
+        </div>
+        <div v-if="audioDebugSnapshot.orphanMedia?.length" class="vsr__audio-debug-warn" role="alert">
+          Orphan media elements: {{ audioDebugSnapshot.orphanMedia.length }}
+        </div>
+        <dl class="vsr__audio-debug-counts">
+          <div><dt>Publishers</dt><dd>{{ audioDebugSnapshot.counts.localPublishers }}/{{ audioDebugSnapshot.counts.screenPublishers }} screen</dd></div>
+          <div><dt>Subscribers</dt><dd>{{ audioDebugSnapshot.counts.cameraSubscribers }} cam / {{ audioDebugSnapshot.counts.screenSubscribers }} screen</dd></div>
+          <div><dt>Media</dt><dd>{{ audioDebugSnapshot.counts.audioElements }} audio / {{ audioDebugSnapshot.counts.videoElements }} video</dd></div>
+        </dl>
+        <section class="vsr__audio-debug-section">
+          <h4>Local mic</h4>
+          <pre>{{ formatLocalMicDebug(audioDebugSnapshot.local) }}</pre>
+        </section>
+        <section class="vsr__audio-debug-section">
+          <h4>Remotes ({{ audioDebugSnapshot.remotes.length }})</h4>
+          <ul class="vsr__audio-debug-remotes">
+            <li v-for="row in audioDebugSnapshot.remotes" :key="row.streamId || row.connectionId">
+              <strong>{{ row.displayName || row.identity || 'Participant' }}</strong>
+              <span>{{ row.identity || '—' }} · {{ row.connectionId || '—' }}</span>
+              <span>{{ row.streamId || '—' }} · a:{{ row.hasAudio ? 'on' : 'off' }} v:{{ row.hasVideo ? 'on' : 'off' }}{{ row.isScreen ? ' · screen' : '' }}</span>
+            </li>
+          </ul>
+        </section>
+        <div class="vsr__audio-debug-actions">
+          <button type="button" class="vsr__btn vsr__btn--primary" @click="copyAudioDiagnostics">
+            {{ audioDebugCopied ? 'Copied' : 'Copy diagnostics JSON' }}
+          </button>
+          <button type="button" class="vsr__btn" @click="refreshAudioDebugSnapshot">Refresh</button>
+        </div>
+      </aside>
     </template>
   </div>
 </template>
@@ -444,6 +497,11 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { updateRemoteVideoState } from './remoteVideoState.js';
 import { nativeAudioConstraints } from './nativeAudioCapture.js';
 import { attachPublisherAudioDevice, silenceLocalPublisherMedia } from './localPublisherMedia.js';
+import {
+  parseConnectionIdentity,
+  buildAudioDiagnosticsSnapshot,
+  detectDuplicateIdentities
+} from './audioDiagnostics.js';
 
 const props = defineProps({
   /** Vonage Application ID (preferred) or legacy OpenTok project API key */
@@ -546,6 +604,12 @@ const needsAudioSourceAttach = ref(false);
 const hideSelfView = ref(false);
 /** on | processing | unavailable | unsupported */
 const voiceIsolationStatus = ref('');
+/** Host-only audio/media diagnostics panel (read-only instrumentation). */
+const audioDebugOpen = ref(false);
+const audioDebugSnapshot = ref(null);
+const audioDebugCopied = ref(false);
+let audioDebugInterval = null;
+let audioDebugCopiedTimer = null;
 /** @type {import('vue').Ref<Array<{ streamId: string, connectionId: string, name: string, hasVideo: boolean, hasAudio: boolean, profilePhotoUrl: string }>>} */
 const remotes = ref([]);
 const sharingScreen = ref(false);
@@ -1322,6 +1386,8 @@ let publisherAudioTrack = null;
 const intentionallyDisconnectedSessions = new WeakSet();
 let OTApi = null;
 const subscribers = new Map();
+/** streamId -> { streamId, connectionId, identity, userId, displayName, hasAudio, hasVideo, isScreen } */
+const remoteDiagnostics = new Map();
 let screenSubscriber = null;
 
 function releasePublisherAudioSource() {
@@ -1374,8 +1440,202 @@ function clearRemote() {
     try { session?.unsubscribe(sub); } catch { /* ignore */ }
   });
   subscribers.clear();
+  remoteDiagnostics.clear();
   remotes.value = [];
   remoteMediaEls.clear();
+}
+
+function rememberRemoteDiagnostics(stream, { isScreen = false } = {}) {
+  const streamId = String(stream?.streamId || '').trim();
+  if (!streamId) return null;
+  const parsed = parseConnectionIdentity(stream?.connection);
+  const meta = remoteMetaFromStream(stream);
+  const row = {
+    streamId,
+    connectionId: parsed.connectionId || meta.connectionId || '',
+    identity: parsed.identity || '',
+    userId: parsed.userId,
+    displayName: parsed.displayName || meta.name || '',
+    hasAudio: stream?.hasAudio !== false,
+    hasVideo: stream?.hasVideo !== false,
+    isScreen: !!isScreen
+  };
+  remoteDiagnostics.set(streamId, row);
+  return row;
+}
+
+function forgetRemoteDiagnostics(streamId) {
+  const id = String(streamId || '').trim();
+  if (!id) return;
+  remoteDiagnostics.delete(id);
+}
+
+function captureAudioDiagnosticsSnapshot() {
+  const localParsed = parseConnectionIdentity(session?.connection);
+  const remoteRows = [];
+  for (const [streamId, row] of remoteDiagnostics.entries()) {
+    const live = remotes.value.find((r) => r.streamId === streamId);
+    remoteRows.push({
+      ...row,
+      hasAudio: live ? live.hasAudio !== false : row.hasAudio !== false,
+      hasVideo: live ? live.hasVideo !== false : row.hasVideo !== false,
+      displayName: live?.name || row.displayName || ''
+    });
+  }
+  if (screenSubscriber) {
+    const sid = String(screenSubscriber.streamId || screenSubscriber.stream?.streamId || '').trim();
+    if (sid && !remoteRows.some((r) => r.streamId === sid)) {
+      const remembered = remoteDiagnostics.get(sid);
+      remoteRows.push(remembered || {
+        streamId: sid,
+        connectionId: '',
+        identity: '',
+        userId: null,
+        displayName: screenShareLabel.value || 'Screen share',
+        hasAudio: true,
+        hasVideo: true,
+        isScreen: true
+      });
+    }
+  }
+  const containers = [
+    localPublisherHostEl.value,
+    localMediaStageEl.value,
+    screenEl.value,
+    ...remoteMediaEls.values()
+  ].filter(Boolean);
+  return buildAudioDiagnosticsSnapshot({
+    localPublisher: publisher,
+    localAudioTrack: publisherAudioTrack || publisher?.getAudioSource?.() || null,
+    localPublishAudio: publishAudio.value,
+    localPublishVideo: publishVideo.value,
+    localConnectionId: localConnectionId() || localParsed.connectionId,
+    localIdentity: localParsed.identity,
+    remotes: remoteRows,
+    screenSubscriber,
+    screenPublisher,
+    containers
+  });
+}
+
+function logAudioDiagnostics(event, extra = {}) {
+  const snapshot = captureAudioDiagnosticsSnapshot();
+  const payload = {
+    tag: '[AudioDiag]',
+    event: String(event || 'snapshot'),
+    ...extra,
+    counts: snapshot.counts,
+    local: {
+      connectionId: snapshot.local.connectionId,
+      identity: snapshot.local.identity,
+      publishAudio: snapshot.local.publishAudio,
+      streamId: snapshot.local.streamId,
+      audioTrack: snapshot.local.audioTrack
+        ? {
+          label: snapshot.local.audioTrack.label,
+          deviceId: snapshot.local.audioTrack.deviceId,
+          readyState: snapshot.local.audioTrack.readyState,
+          settings: snapshot.local.audioTrack.settings,
+          constraints: snapshot.local.audioTrack.constraints
+        }
+        : null
+    },
+    remotes: snapshot.remotes,
+    duplicateIdentities: snapshot.duplicateIdentities,
+    orphanMediaCount: snapshot.orphanMedia.length
+  };
+  if (snapshot.duplicateIdentities.length) {
+    console.warn(payload.tag, { ...payload, event: `${payload.event}:duplicate_identity` });
+  } else {
+    console.info(payload.tag, payload);
+  }
+  return snapshot;
+}
+
+function refreshAudioDebugSnapshot() {
+  audioDebugSnapshot.value = captureAudioDiagnosticsSnapshot();
+  const dupes = detectDuplicateIdentities(audioDebugSnapshot.value.remotes || []);
+  if (dupes.length) {
+    console.warn('[AudioDiag]', {
+      tag: '[AudioDiag]',
+      event: 'duplicate_identity_detected',
+      duplicateIdentities: dupes
+    });
+  }
+}
+
+function stopAudioDebugInterval() {
+  if (audioDebugInterval) {
+    clearInterval(audioDebugInterval);
+    audioDebugInterval = null;
+  }
+}
+
+function closeAudioDebugPanel() {
+  audioDebugOpen.value = false;
+  stopAudioDebugInterval();
+}
+
+function toggleAudioDebugPanel() {
+  if (!props.isHostOrCohost) return;
+  audioDebugOpen.value = !audioDebugOpen.value;
+  if (!audioDebugOpen.value) {
+    stopAudioDebugInterval();
+    return;
+  }
+  refreshAudioDebugSnapshot();
+  logAudioDiagnostics('panel_opened');
+  stopAudioDebugInterval();
+  audioDebugInterval = setInterval(() => {
+    if (!audioDebugOpen.value || !props.isHostOrCohost) {
+      stopAudioDebugInterval();
+      return;
+    }
+    refreshAudioDebugSnapshot();
+  }, 3000);
+}
+
+function formatLocalMicDebug(local) {
+  const track = local?.audioTrack;
+  if (!track) {
+    return [
+      `publishAudio: ${local?.publishAudio ? 'on' : 'off'}`,
+      `identity: ${local?.identity || '—'}`,
+      `connectionId: ${local?.connectionId || '—'}`,
+      'audioTrack: none'
+    ].join('\n');
+  }
+  const settings = track.settings || {};
+  return [
+    `publishAudio: ${local?.publishAudio ? 'on' : 'off'}`,
+    `identity: ${local?.identity || '—'}`,
+    `connectionId: ${local?.connectionId || '—'}`,
+    `label: ${track.label || '—'}`,
+    `deviceId: ${track.deviceId || '—'}`,
+    `readyState: ${track.readyState || '—'}`,
+    `echoCancellation: ${settings.echoCancellation}`,
+    `noiseSuppression: ${settings.noiseSuppression}`,
+    `autoGainControl: ${settings.autoGainControl}`,
+    `voiceIsolation: ${settings.voiceIsolation ?? 'n/a'}`
+  ].join('\n');
+}
+
+async function copyAudioDiagnostics() {
+  const snapshot = captureAudioDiagnosticsSnapshot();
+  audioDebugSnapshot.value = snapshot;
+  const text = JSON.stringify(snapshot, null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    audioDebugCopied.value = true;
+    if (audioDebugCopiedTimer) clearTimeout(audioDebugCopiedTimer);
+    audioDebugCopiedTimer = setTimeout(() => {
+      audioDebugCopied.value = false;
+      audioDebugCopiedTimer = null;
+    }, 2000);
+  } catch (e) {
+    console.warn('[AudioDiag] clipboard write failed', e?.message || e);
+    console.info('[AudioDiag]', snapshot);
+  }
 }
 
 async function subscribeToStream(stream) {
@@ -1416,6 +1676,8 @@ async function subscribeToStream(stream) {
     screenSubscriber = sub;
     hasScreenShare.value = true;
     screenShareLabel.value = String(stream?.name || 'Screen share');
+    rememberRemoteDiagnostics(stream, { isScreen: true });
+    logAudioDiagnostics('subscribe_screen', { streamId });
     return;
   }
 
@@ -1435,6 +1697,7 @@ async function subscribeToStream(stream) {
       subscribers.delete(remote.streamId);
     }
     remoteMediaEls.delete(remote.streamId);
+    forgetRemoteDiagnostics(remote.streamId);
   }
   if (superseded.length) {
     const supersededIds = new Set(superseded.map((remote) => remote.streamId));
@@ -1504,6 +1767,7 @@ async function subscribeToStream(stream) {
   );
 
   subscribers.set(streamId, sub);
+  rememberRemoteDiagnostics(stream, { isScreen: false });
   attachSubscriberAudioLevel(sub, streamId);
   // Authoritative snapshot after subscribe — don't wait for a later property event.
   setRemoteAudioState({
@@ -1535,6 +1799,7 @@ async function subscribeToStream(stream) {
   sub.on?.('audioDisabled', () => {
     setRemoteAudioState({ streamId, hasAudio: false });
   });
+  logAudioDiagnostics('subscribe', { streamId, connectionId });
   playJoinChime();
 }
 
@@ -1542,8 +1807,10 @@ function clearScreenShareTile() {
   hasScreenShare.value = false;
   screenShareLabel.value = '';
   if (screenSubscriber) {
+    const screenId = String(screenSubscriber.streamId || screenSubscriber.stream?.streamId || '').trim();
     try { session?.unsubscribe(screenSubscriber); } catch { /* ignore */ }
     screenSubscriber = null;
+    if (screenId) forgetRemoteDiagnostics(screenId);
   }
   if (screenEl.value) screenEl.value.innerHTML = '';
 }
@@ -1727,6 +1994,8 @@ async function connect() {
         const gone = remotes.value.find((r) => r.streamId === streamId);
         remotes.value = remotes.value.filter((r) => r.streamId !== streamId);
         remoteMediaEls.delete(streamId);
+        forgetRemoteDiagnostics(streamId);
+        logAudioDiagnostics('stream_destroyed', { streamId, connectionId: gone?.connectionId || '' });
         if (gone?.connectionId) setHandState(gone.connectionId, false);
         if (gone) {
           playLeaveChime();
@@ -1952,6 +2221,7 @@ async function connect() {
     voiceIsolationStatus.value = props.lobbyMode ? '' : 'processing';
     refreshAudioEnhancementStatus(publisher);
     await syncLocalVideoPresentation();
+    if (!props.lobbyMode) logAudioDiagnostics('publisher_created');
 
     // Catch streams that were already in the session before our listener ran.
     // Never subscribe to our own published stream (that caused “two of me”).
@@ -2076,6 +2346,13 @@ function disconnect(emitEvent = true) {
     stopScreenShare();
     clearScreenShareTile();
     sessionReady.value = false;
+    closeAudioDebugPanel();
+    audioDebugSnapshot.value = null;
+    if (audioDebugCopiedTimer) {
+      clearTimeout(audioDebugCopiedTimer);
+      audioDebugCopiedTimer = null;
+    }
+    audioDebugCopied.value = false;
     if (publisher) {
       try {
         session?.unpublish(publisher);
@@ -2098,6 +2375,7 @@ function disconnect(emitEvent = true) {
       }
     });
     subscribers.clear();
+    remoteDiagnostics.clear();
     if (session) {
       try {
         intentionallyDisconnectedSessions.add(session);
@@ -2163,6 +2441,9 @@ async function addPublisherAudioWithoutRestartingCamera() {
   needsAudioSourceAttach.value = false;
   refreshAudioEnhancementStatus(publisher);
   await syncLocalVideoPresentation();
+  logAudioDiagnostics('mic_source_attached', {
+    deviceId: microphone?.deviceId || 'default'
+  });
 }
 
 async function toggleMic() {
@@ -2251,6 +2532,7 @@ async function toggleMic() {
     }
     publisher.publishAudio(next);
     broadcastMicState(next);
+    logAudioDiagnostics('mic_toggle', { publishAudio: next });
     // Peers sometimes miss the first signal right as streams settle.
     if (next) {
       setTimeout(() => broadcastMicState(true), 250);
@@ -2359,7 +2641,8 @@ defineExpose({
   sharingScreen,
   hideSelfView,
   localHandRaised,
-  handByConnection
+  handByConnection,
+  getAudioDiagnosticsSnapshot: captureAudioDiagnosticsSnapshot
 });
 </script>
 
@@ -3438,5 +3721,120 @@ defineExpose({
   to {
     transform: rotate(360deg);
   }
+}
+.vsr__audio-debug {
+  position: absolute;
+  right: 10px;
+  bottom: 72px;
+  z-index: 55;
+  width: min(360px, calc(100% - 20px));
+  max-height: min(60vh, 480px);
+  overflow: auto;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid #334155;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  color: #e2e8f0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+.vsr__audio-debug-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.vsr__audio-debug-head strong {
+  font-size: 0.9rem;
+  color: #f8fafc;
+}
+.vsr__audio-debug-x {
+  border: none;
+  background: transparent;
+  color: #cbd5e1;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.vsr__audio-debug-x:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.vsr__audio-debug-warn {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #422006;
+  border: 1px solid #f59e0b;
+  color: #fef3c7;
+}
+.vsr__audio-debug-counts {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+.vsr__audio-debug-counts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.vsr__audio-debug-counts dt {
+  color: #94a3b8;
+  font-weight: 500;
+}
+.vsr__audio-debug-counts dd {
+  margin: 0;
+  color: #f1f5f9;
+  text-align: right;
+}
+.vsr__audio-debug-section {
+  margin: 0 0 10px;
+}
+.vsr__audio-debug-section h4 {
+  margin: 0 0 4px;
+  font-size: 0.8rem;
+  color: #cbd5e1;
+}
+.vsr__audio-debug-section pre {
+  margin: 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #e2e8f0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.72rem;
+}
+.vsr__audio-debug-remotes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.vsr__audio-debug-remotes li {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+}
+.vsr__audio-debug-remotes strong {
+  color: #f8fafc;
+}
+.vsr__audio-debug-remotes span {
+  color: #94a3b8;
+  word-break: break-all;
+}
+.vsr__audio-debug-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 </style>
