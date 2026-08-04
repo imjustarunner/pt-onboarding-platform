@@ -40,12 +40,20 @@ export async function syncMeetingActionTasks({
   const eid = Number(eventId || 0);
   if (!eid) return { upserted: 0, completed: 0, removed: 0 };
 
+  let TaskActionItem = null;
+  try {
+    TaskActionItem = (await import('../models/TaskActionItem.model.js')).default;
+  } catch {
+    TaskActionItem = null;
+  }
+
   const items = (Array.isArray(actionItems) ? actionItems : [])
     .map((a, i) => ({
       id: String(a?.id || `a-${i}`),
       text: String(a?.text || '').trim(),
       done: !!a?.done,
-      assigneeUserId: Number(a?.assigneeUserId || a?.assignee_user_id || 0) || null
+      assigneeUserId: Number(a?.assigneeUserId || a?.assignee_user_id || 0) || null,
+      notes: a?.notes != null ? String(a.notes) : null
     }))
     .filter((a) => a.text);
 
@@ -93,11 +101,28 @@ export async function syncMeetingActionTasks({
       }
       params.push(existing.id);
       await pool.execute(`UPDATE tasks SET ${parts.join(', ')} WHERE id = ?`, params);
+      if (TaskActionItem) {
+        try {
+          await TaskActionItem.upsertFromMeeting({
+            meetingEventId: eid,
+            meetingActionKey: item.id,
+            title: item.text.slice(0, 500),
+            notes: item.notes,
+            assigneeUserId: assignee,
+            createdByUserId: actorUserId || assignee,
+            agencyId: resolvedAgency,
+            done: item.done,
+            hubTaskId: existing.id
+          });
+        } catch (e) {
+          console.warn('[taskHubSync] action item upsert failed', e?.message);
+        }
+      }
       if (status === 'completed') completed += 1;
       else upserted += 1;
     } else if (assignee) {
       const byUser = actorUserId || assignee;
-      await Task.create({
+      const createdTask = await Task.create({
         taskType: 'meeting_action',
         title: item.text.slice(0, 255),
         description: 'Meeting action item',
@@ -109,6 +134,23 @@ export async function syncMeetingActionTasks({
         sourceRefId,
         linkedScheduleEventId: eid
       });
+      if (TaskActionItem) {
+        try {
+          await TaskActionItem.upsertFromMeeting({
+            meetingEventId: eid,
+            meetingActionKey: item.id,
+            title: item.text.slice(0, 500),
+            notes: item.notes,
+            assigneeUserId: assignee,
+            createdByUserId: byUser,
+            agencyId: resolvedAgency,
+            done: item.done,
+            hubTaskId: createdTask?.id || null
+          });
+        } catch (e) {
+          console.warn('[taskHubSync] action item upsert failed', e?.message);
+        }
+      }
       if (status === 'completed') {
         const created = await findBySource('meeting_action', sourceRefId);
         if (created) await Task.markComplete(created.id, assignee);

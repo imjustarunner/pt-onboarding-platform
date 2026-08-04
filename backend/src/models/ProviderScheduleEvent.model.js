@@ -32,7 +32,8 @@ class ProviderScheduleEvent {
     isTrainingPayEligible = false,
     waitingRoomEnabled = true,
     meetingSubtype = 'general',
-    notifyParticipants = true
+    notifyParticipants = true,
+    focusSessionEnabled = false
   }) {
     const kindUpper = String(kind || '').trim().toUpperCase();
     const needsJoinToken = ['TEAM_MEETING', 'HUDDLE'].includes(kindUpper) && !!platformVideoLink;
@@ -54,11 +55,11 @@ class ProviderScheduleEvent {
         `INSERT INTO provider_schedule_events
           (join_token, host_join_token, participant_join_token, waiting_room_enabled, notify_participants,
            agency_id, provider_id, client_id, entitlement_id, package_payment_id, session_index,
-           kind, title, description, reason_code, is_private, all_day, start_at, end_at, start_date, end_date, status,
+           kind, title, description, reason_code, is_private, focus_session_enabled, all_day, start_at, end_at, start_date, end_date, status,
            recurrence_series_id, recurrence_frequency, recurrence_policy, recurrence_index,
            google_event_id, google_html_link, google_meet_link, platform_video_link,
            is_training_pay_eligible, meeting_subtype, attendance_tracking_enabled, created_by_user_id, updated_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           participantToken,
           hostToken,
@@ -76,6 +77,7 @@ class ProviderScheduleEvent {
           description ? String(description) : null,
           reasonCode ? String(reasonCode).trim().toUpperCase() : null,
           isPrivate ? 1 : 0,
+          focusSessionEnabled ? 1 : 0,
           allDay ? 1 : 0,
           startAt || null,
           endAt || null,

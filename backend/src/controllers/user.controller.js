@@ -5649,6 +5649,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
       }
     }
     const isPrivate = req.body?.isPrivate === true;
+    const focusSessionEnabled = req.body?.focusSessionEnabled === true || req.body?.focus_session_enabled === true;
 
     const allDay = req.body?.allDay === true;
     const startAt = allDay ? null : toMysqlDateTimeWall(req.body?.startAt);
@@ -5906,6 +5907,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
         description,
         reasonCode,
         isPrivate,
+        focusSessionEnabled: kind === 'SCHEDULE_HOLD' ? focusSessionEnabled : false,
         allDay,
         startAt: storedStartAt,
         endAt: storedEndAt,

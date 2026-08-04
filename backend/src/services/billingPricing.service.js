@@ -229,12 +229,23 @@ const DEFAULT_FEATURE_CATALOG = {
     'Access to the mental health games platform and enabled game titles.',
     { featureFlagKey: 'gamesPlatformEnabled', perUserBillable: true }
   ),
+  focusPackage: createFeatureCatalogEntry(
+    'focusPackage',
+    'Focus Package',
+    'Focus Music playlists plus Focus Session (timeline focus mode, quote images, and session audio).',
+    {
+      tenantMonthlyCents: 8000,
+      featureFlagKey: 'focusPackageEnabled',
+      defaultAvailable: true
+    }
+  ),
+  /** Legacy alias — kept so older entitlement rows still resolve; prefer focusPackage. */
   focusMusic: createFeatureCatalogEntry(
     'focusMusic',
-    'Focus Music',
-    'Ambient focus playlists for staff concentration during work.',
+    'Focus Music (legacy)',
+    'Legacy Focus Music add-on; superseded by Focus Package.',
     {
-      tenantMonthlyCents: 4000,
+      tenantMonthlyCents: 0,
       featureFlagKey: 'focusMusicEnabled',
       defaultAvailable: true
     }

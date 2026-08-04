@@ -49,7 +49,11 @@ class Task {
       departmentId,
       sourceRefType,
       sourceRefId,
-      linkedScheduleEventId
+      linkedScheduleEventId,
+      workTypeId,
+      workTypeIconKey,
+      isPrivate,
+      projectId
     } = taskData;
 
     console.log('Task.create: Creating task with data', {
@@ -90,37 +94,89 @@ class Task {
       isRequired ? 1 : 0
     ];
     let result;
+    const isPrivateVal = isPrivate ? 1 : 0;
     try {
       [result] = await pool.execute(
         `INSERT INTO tasks (
           task_type, document_action_type, title, description, assigned_to_user_id, 
           assigned_to_role, assigned_to_agency_id, assigned_by_user_id, 
           due_date, reference_id, metadata,
-          task_list_id, urgency, is_recurring, recurring_rule, typical_day_of_week, typical_time,
-          department_id, source_ref_type, source_ref_id, linked_schedule_event_id,
-          target_count, is_required
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          task_list_id, project_id, urgency, is_recurring, recurring_rule, typical_day_of_week, typical_time,
+          department_id, work_type_id, work_type_icon_key, source_ref_type, source_ref_id, linked_schedule_event_id,
+          target_count, is_required, is_private
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          ...baseParams.slice(0, 17),
+          ...baseParams.slice(0, 12),
+          projectId != null ? parseInt(projectId, 10) || null : null,
+          ...baseParams.slice(12, 17),
           departmentId != null ? parseInt(departmentId, 10) || null : null,
+          workTypeId != null ? parseInt(workTypeId, 10) || null : null,
+          workTypeIconKey != null ? String(workTypeIconKey) : null,
           sourceRefType ?? null,
           sourceRefId != null ? String(sourceRefId) : null,
           linkedScheduleEventId != null ? parseInt(linkedScheduleEventId, 10) || null : null,
-          ...baseParams.slice(17)
+          ...baseParams.slice(17),
+          isPrivateVal
         ]
       );
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD') throw e;
-      // Migration 1105 not applied yet — fall back to legacy columns.
-      [result] = await pool.execute(
-        `INSERT INTO tasks (
-          task_type, document_action_type, title, description, assigned_to_user_id, 
-          assigned_to_role, assigned_to_agency_id, assigned_by_user_id, 
-          due_date, reference_id, metadata,
-          task_list_id, urgency, is_recurring, recurring_rule, typical_day_of_week, typical_time, target_count, is_required
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        baseParams
-      );
+      // Migration 1115/1105/1120 not applied yet — fall back without newer columns.
+      try {
+        [result] = await pool.execute(
+          `INSERT INTO tasks (
+            task_type, document_action_type, title, description, assigned_to_user_id, 
+            assigned_to_role, assigned_to_agency_id, assigned_by_user_id, 
+            due_date, reference_id, metadata,
+            task_list_id, urgency, is_recurring, recurring_rule, typical_day_of_week, typical_time,
+            department_id, work_type_id, work_type_icon_key, source_ref_type, source_ref_id, linked_schedule_event_id,
+            target_count, is_required
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            ...baseParams.slice(0, 17),
+            departmentId != null ? parseInt(departmentId, 10) || null : null,
+            workTypeId != null ? parseInt(workTypeId, 10) || null : null,
+            workTypeIconKey != null ? String(workTypeIconKey) : null,
+            sourceRefType ?? null,
+            sourceRefId != null ? String(sourceRefId) : null,
+            linkedScheduleEventId != null ? parseInt(linkedScheduleEventId, 10) || null : null,
+            ...baseParams.slice(17)
+          ]
+        );
+      } catch (e2) {
+        if (e2?.code !== 'ER_BAD_FIELD_ERROR' && e2?.code !== 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD') throw e2;
+        try {
+          [result] = await pool.execute(
+            `INSERT INTO tasks (
+              task_type, document_action_type, title, description, assigned_to_user_id, 
+              assigned_to_role, assigned_to_agency_id, assigned_by_user_id, 
+              due_date, reference_id, metadata,
+              task_list_id, urgency, is_recurring, recurring_rule, typical_day_of_week, typical_time,
+              department_id, source_ref_type, source_ref_id, linked_schedule_event_id,
+              target_count, is_required
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              ...baseParams.slice(0, 17),
+              departmentId != null ? parseInt(departmentId, 10) || null : null,
+              sourceRefType ?? null,
+              sourceRefId != null ? String(sourceRefId) : null,
+              linkedScheduleEventId != null ? parseInt(linkedScheduleEventId, 10) || null : null,
+              ...baseParams.slice(17)
+            ]
+          );
+        } catch (e3) {
+          if (e3?.code !== 'ER_BAD_FIELD_ERROR' && e3?.code !== 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD') throw e3;
+          [result] = await pool.execute(
+            `INSERT INTO tasks (
+              task_type, document_action_type, title, description, assigned_to_user_id, 
+              assigned_to_role, assigned_to_agency_id, assigned_by_user_id, 
+              due_date, reference_id, metadata,
+              task_list_id, urgency, is_recurring, recurring_rule, typical_day_of_week, typical_time, target_count, is_required
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            baseParams
+          );
+        }
+      }
     }
 
     const insertId = result.insertId;
@@ -225,10 +281,89 @@ class Task {
     return { query: q, params: p };
   }
 
+  /** Private tasks are only visible to owner (assignee / creator / multi-assignee). */
+  static _privateVisibleSql(alias = 't') {
+    return `(
+      COALESCE(${alias}.is_private, 0) = 0
+      OR ${alias}.assigned_to_user_id = ?
+      OR ${alias}.assigned_by_user_id = ?
+      OR EXISTS (
+        SELECT 1 FROM task_assignees ta
+        WHERE ta.task_id = ${alias}.id AND ta.user_id = ?
+      )
+    )`;
+  }
+
+  /**
+   * Shared WHERE for Team Tasks list + counts.
+   * Includes list/project-affiliated tasks; excludes private unless viewer is owner.
+   */
+  static _buildTeamTasksWhere(uid, agencyId, filters = {}) {
+    const aid = parseInt(agencyId, 10);
+    let where = `
+      WHERE ${this._privateVisibleSql('t')}
+        AND (
+          t.assigned_to_agency_id = ?
+          OR (t.task_list_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM task_lists tl2 WHERE tl2.id = t.task_list_id AND tl2.agency_id = ?
+          ))
+          OR (t.project_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM task_projects tp2 WHERE tp2.id = t.project_id AND tp2.agency_id = ?
+          ))
+          OR (
+            t.assigned_to_agency_id IS NULL
+            AND t.assigned_to_user_id IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM user_agencies ua
+              WHERE ua.user_id = t.assigned_to_user_id AND ua.agency_id = ?
+            )
+          )
+        )
+    `;
+    const params = [uid, uid, uid, aid, aid, aid, aid];
+
+    const hidden = Array.isArray(filters.hiddenAgencyIds)
+      ? filters.hiddenAgencyIds.map((n) => parseInt(n, 10)).filter((n) => n > 0)
+      : [];
+    if (hidden.length) {
+      where += ` AND (t.assigned_to_agency_id IS NULL OR t.assigned_to_agency_id NOT IN (${hidden.map(() => '?').join(',')}))`;
+      params.push(...hidden);
+    }
+    if (filters.assignedToUserId) {
+      const auid = parseInt(filters.assignedToUserId, 10);
+      where += ` AND (
+        t.assigned_to_user_id = ?
+        OR EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = ?)
+      )`;
+      params.push(auid, auid);
+    }
+    if (filters.taskListId) {
+      where += ' AND t.task_list_id = ?';
+      params.push(parseInt(filters.taskListId, 10));
+    }
+    if (filters.projectId) {
+      where += ' AND t.project_id = ?';
+      params.push(parseInt(filters.projectId, 10));
+    }
+    if (filters.agencyIdFilter && parseInt(filters.agencyIdFilter, 10) > 0) {
+      // Additional tenant filter when browsing across agencies (superadmin)
+      const fa = parseInt(filters.agencyIdFilter, 10);
+      where += ` AND (
+        t.assigned_to_agency_id = ?
+        OR EXISTS (SELECT 1 FROM task_lists tl3 WHERE tl3.id = t.task_list_id AND tl3.agency_id = ?)
+        OR EXISTS (SELECT 1 FROM task_projects tp3 WHERE tp3.id = t.project_id AND tp3.agency_id = ?)
+      )`;
+      params.push(fa, fa, fa);
+    }
+    return { where, params };
+  }
+
   static async findByUser(userId, filters = {}) {
+    const uid = parseInt(userId, 10);
     let query = `
       SELECT t.*,
         tl.name as task_list_name,
+        tp.name as project_name,
         ad.name as department_name,
         assignee.first_name as assignee_first_name,
         assignee.last_name as assignee_last_name,
@@ -240,10 +375,13 @@ class Task {
         END as assignment_type
       FROM tasks t
       LEFT JOIN task_lists tl ON tl.id = t.task_list_id
+      LEFT JOIN task_projects tp ON tp.id = t.project_id
       LEFT JOIN agency_departments ad ON ad.id = t.department_id
       LEFT JOIN users assignee ON assignee.id = t.assigned_to_user_id
-      WHERE (
+      WHERE ${this._privateVisibleSql('t')}
+        AND (
         t.assigned_to_user_id = ?
+        OR EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = ?)
         OR (t.assigned_to_role IS NOT NULL AND t.assigned_to_user_id IS NULL AND EXISTS (
           SELECT 1 FROM users u 
           JOIN user_agencies ua ON u.id = ua.user_id
@@ -260,7 +398,8 @@ class Task {
         ))
       )
     `;
-    let params = [userId, userId, userId, userId, userId];
+    // CASE uid + privateVisible (3) + WHERE access (5) = 9
+    let params = [uid, uid, uid, uid, uid, uid, uid, uid, uid];
 
     if (filters.taskType) {
       query += ' AND t.task_type = ?';
@@ -357,20 +496,24 @@ class Task {
     const hubFilters = { ...filters, userId: uid };
 
     if (view === 'all' && filters.agencyId) {
+      const { where, params: whereParams } = this._buildTeamTasksWhere(uid, filters.agencyId, filters);
       let query = `
         SELECT t.*,
           tl.name as task_list_name,
+          tp.name as project_name,
           ad.name as department_name,
           assignee.first_name as assignee_first_name,
           assignee.last_name as assignee_last_name,
           'agency' as assignment_type
         FROM tasks t
         LEFT JOIN task_lists tl ON tl.id = t.task_list_id
+        LEFT JOIN task_projects tp ON tp.id = t.project_id
         LEFT JOIN agency_departments ad ON ad.id = t.department_id
         LEFT JOIN users assignee ON assignee.id = t.assigned_to_user_id
-        WHERE t.assigned_to_agency_id = ?
+        ${where}
       `;
-      let params = [parseInt(filters.agencyId, 10)];
+      let params = [...whereParams];
+
       if (filters.taskType) {
         query += ' AND t.task_type = ?';
         params.push(filters.taskType);
@@ -388,19 +531,77 @@ class Task {
         (t.due_date IS NULL), t.due_date ASC,
         t.created_at DESC`;
       if (filters.limit != null) {
-        const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 50, 1), 200);
+        const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 50, 1), 500);
         const offset = Math.max(parseInt(filters.offset, 10) || 0, 0);
         query += ' LIMIT ? OFFSET ?';
         params.push(limit, offset);
       }
-      const [rows] = await pool.execute(query, params);
-      return rows.map((row) => ({ ...row, metadata: this.parseMetadata(row.metadata) }));
+      try {
+        const [rows] = await pool.execute(query, params);
+        return rows.map((row) => ({ ...row, metadata: this.parseMetadata(row.metadata) }));
+      } catch (e) {
+        if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+        // Schema lag: retry without project/assignee privacy joins
+        const aid = parseInt(filters.agencyId, 10);
+        const [rows] = await pool.execute(
+          `SELECT t.*, tl.name as task_list_name, ad.name as department_name,
+                  assignee.first_name as assignee_first_name, assignee.last_name as assignee_last_name,
+                  'agency' as assignment_type
+           FROM tasks t
+           LEFT JOIN task_lists tl ON tl.id = t.task_list_id
+           LEFT JOIN agency_departments ad ON ad.id = t.department_id
+           LEFT JOIN users assignee ON assignee.id = t.assigned_to_user_id
+           WHERE t.assigned_to_agency_id = ?
+           ORDER BY (t.due_date IS NULL), t.due_date ASC
+           LIMIT 500`,
+          [aid]
+        );
+        return rows.map((row) => ({ ...row, metadata: this.parseMetadata(row.metadata) }));
+      }
     }
 
     return this.findByUser(uid, hubFilters);
   }
 
-  static async getHubCounts(userId, { agencyId = null, canViewAll = false } = {}) {
+  static async countTeamTasks(userId, { agencyId, hiddenAgencyIds = [], assignedToUserId, taskListId, projectId, agencyIdFilter } = {}) {
+    const uid = parseInt(userId, 10);
+    const { where, params } = this._buildTeamTasksWhere(uid, agencyId, {
+      hiddenAgencyIds,
+      assignedToUserId,
+      taskListId,
+      projectId,
+      agencyIdFilter
+    });
+    try {
+      const [rows] = await pool.execute(
+        `SELECT
+           SUM(CASE WHEN t.status NOT IN ('completed','overridden') THEN 1 ELSE 0 END) AS open_count,
+           SUM(CASE WHEN t.status NOT IN ('completed','overridden') AND t.due_date IS NOT NULL AND t.due_date < NOW() THEN 1 ELSE 0 END) AS overdue_count,
+           COUNT(*) AS total_count
+         FROM tasks t
+         ${where}`,
+        params
+      );
+      return {
+        open: Number(rows?.[0]?.open_count || 0),
+        overdue: Number(rows?.[0]?.overdue_count || 0),
+        total: Number(rows?.[0]?.total_count || 0)
+      };
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      return { open: 0, overdue: 0, total: 0 };
+    }
+  }
+
+  static async getHubCounts(userId, {
+    agencyId = null,
+    canViewAll = false,
+    hiddenAgencyIds = [],
+    assignedToUserId = null,
+    taskListId = null,
+    projectId = null,
+    agencyIdFilter = null
+  } = {}) {
     const uid = parseInt(userId, 10);
     const tasks = await this.findByUser(uid, {});
     const open = (t) => t.status !== 'completed' && t.status !== 'overridden';
@@ -418,24 +619,73 @@ class Task {
         open(t)
     );
 
+    let sharedLists = 0;
+    try {
+      const [listRows] = await pool.execute(
+        `SELECT COUNT(DISTINCT tl.id) AS c
+         FROM task_lists tl
+         LEFT JOIN task_list_members tlm ON tlm.task_list_id = tl.id AND tlm.user_id = ?
+         WHERE tlm.user_id IS NOT NULL OR tl.created_by_user_id = ?`,
+        [uid, uid]
+      );
+      sharedLists = Number(listRows?.[0]?.c || 0);
+    } catch {
+      sharedLists = 0;
+    }
+
+    let projectsCount = 0;
+    try {
+      const [pRows] = await pool.execute(
+        `SELECT COUNT(DISTINCT tp.id) AS c
+         FROM task_projects tp
+         LEFT JOIN task_project_members tpm ON tpm.project_id = tp.id AND tpm.user_id = ?
+         WHERE (tpm.user_id IS NOT NULL OR tp.created_by_user_id = ?) AND tp.status != 'archived'`,
+        [uid, uid]
+      );
+      projectsCount = Number(pRows?.[0]?.c || 0);
+    } catch {
+      projectsCount = 0;
+    }
+
     let allOpen = 0;
     let allOverdue = 0;
+    let allTotal = 0;
     if (canViewAll && agencyId) {
-      const [rows] = await pool.execute(
-        `SELECT
-           SUM(CASE WHEN status NOT IN ('completed','overridden') THEN 1 ELSE 0 END) AS open_count,
-           SUM(CASE WHEN status NOT IN ('completed','overridden') AND due_date IS NOT NULL AND due_date < NOW() THEN 1 ELSE 0 END) AS overdue_count
-         FROM tasks WHERE assigned_to_agency_id = ?`,
-        [parseInt(agencyId, 10)]
+      const team = await this.countTeamTasks(uid, {
+        agencyId,
+        hiddenAgencyIds,
+        assignedToUserId,
+        taskListId,
+        projectId,
+        agencyIdFilter
+      });
+      allOpen = team.open;
+      allOverdue = team.overdue;
+      allTotal = team.total;
+    } else if (canViewAll && !agencyId) {
+      allOpen = tasks.filter(open).length;
+      allTotal = tasks.length;
+    }
+
+    let actionItemsOpen = 0;
+    try {
+      const [aiRows] = await pool.execute(
+        `SELECT COUNT(*) AS c FROM task_action_items
+         WHERE (assignee_user_id = ? OR created_by_user_id = ?)
+           AND status NOT IN ('completed', 'cancelled')
+           AND (COALESCE(is_private, 0) = 0 OR assignee_user_id = ? OR created_by_user_id = ?)`,
+        [uid, uid, uid, uid]
       );
-      allOpen = Number(rows?.[0]?.open_count || 0);
-      allOverdue = Number(rows?.[0]?.overdue_count || 0);
+      actionItemsOpen = Number(aiRows?.[0]?.c || 0);
+    } catch {
+      actionItemsOpen = tasks.filter((t) => t.task_type === 'meeting_action' && open(t)).length;
     }
 
     const pending = tasks.filter((t) => t.status === 'pending').length;
     const inProgress = tasks.filter((t) => t.status === 'in_progress').length;
     const completed = tasks.filter((t) => t.status === 'completed').length;
     const overdueCount = tasks.filter(overdue).length;
+    const personalOpen = tasks.filter(open).length;
 
     return {
       training: await this.getTrainingTaskCount(uid),
@@ -443,12 +693,16 @@ class Task {
       assigned: assigned.filter(open).length,
       mine: mine.filter(open).length,
       watchlist: watchlist.length,
-      all: canViewAll ? allOpen : tasks.filter(open).length,
+      action_items: actionItemsOpen,
+      shared_lists: sharedLists,
+      projects: projectsCount,
+      all: canViewAll ? allOpen : personalOpen,
+      all_total: canViewAll ? allTotal : tasks.length,
       pending,
       in_progress: inProgress,
       completed,
       overdue: overdueCount,
-      open: tasks.filter(open).length,
+      open: personalOpen,
       agency_overdue: allOverdue
     };
   }
@@ -550,7 +804,9 @@ class Task {
     typicalDayOfWeek,
     typicalTime,
     targetCount,
-    metadata
+    metadata,
+    isPrivate,
+    projectId
   }) {
     const parts = [];
     const params = [];
@@ -602,12 +858,34 @@ class Task {
       parts.push('metadata = ?');
       params.push(typeof metadata === 'string' ? metadata : JSON.stringify(metadata));
     }
+    if (isPrivate !== undefined) {
+      parts.push('is_private = ?');
+      params.push(isPrivate ? 1 : 0);
+    }
+    if (projectId !== undefined) {
+      parts.push('project_id = ?');
+      params.push(projectId != null ? parseInt(projectId, 10) || null : null);
+    }
     if (parts.length === 0) return this.findById(taskId);
     params.push(parseInt(taskId, 10));
-    await pool.execute(
-      `UPDATE tasks SET ${parts.join(', ')} WHERE id = ?`,
-      params
-    );
+    try {
+      await pool.execute(
+        `UPDATE tasks SET ${parts.join(', ')} WHERE id = ?`,
+        params
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR' || isPrivate === undefined) throw e;
+      const idx = parts.indexOf('is_private = ?');
+      if (idx >= 0) {
+        parts.splice(idx, 1);
+        params.splice(idx, 1);
+      }
+      if (parts.length === 0) return this.findById(taskId);
+      await pool.execute(
+        `UPDATE tasks SET ${parts.join(', ')} WHERE id = ?`,
+        params
+      );
+    }
     return this.findById(taskId);
   }
 
@@ -774,6 +1052,148 @@ class Task {
       ...row,
       metadata: this.parseMetadata(row.metadata)
     }));
+  }
+
+  /**
+   * Cross-entity search candidates for hub fuzzy ranking.
+   */
+  static async searchHub(userId, q, { agencyId = null, canViewAll = false } = {}) {
+    const uid = parseInt(userId, 10);
+    const needle = `%${String(q || '').trim().slice(0, 120)}%`;
+    if (!String(q || '').trim()) return [];
+
+    const results = [];
+    try {
+      const personal = await this.findByUser(uid, { q: String(q).trim(), limit: 40 });
+      for (const t of personal) {
+        results.push({
+          entity_type: 'task',
+          entity_id: t.id,
+          title: t.title,
+          subtitle: t.task_list_name || t.project_name || t.task_type,
+          view: Number(t.assigned_to_user_id) === uid ? 'assigned' : (t.task_list_id ? 'shared' : 'mine'),
+          status: t.status,
+          task: t
+        });
+      }
+    } catch { /* ignore */ }
+
+    if (canViewAll && agencyId) {
+      try {
+        const team = await this.findForHub(uid, {
+          view: 'all',
+          agencyId,
+          q: String(q).trim(),
+          limit: 40
+        });
+        for (const t of team) {
+          if (results.some((r) => r.entity_type === 'task' && Number(r.entity_id) === Number(t.id))) continue;
+          results.push({
+            entity_type: 'task',
+            entity_id: t.id,
+            title: t.title,
+            subtitle: t.task_list_name || t.project_name || 'Team',
+            view: 'all',
+            status: t.status,
+            task: t
+          });
+        }
+      } catch { /* ignore */ }
+    }
+
+    try {
+      const [aiRows] = await pool.execute(
+        `SELECT tai.*, e.title AS meeting_title
+         FROM task_action_items tai
+         LEFT JOIN provider_schedule_events e ON e.id = tai.meeting_event_id
+         WHERE (tai.assignee_user_id = ? OR tai.created_by_user_id = ?)
+           AND tai.status != 'cancelled'
+           AND (COALESCE(tai.is_private, 0) = 0 OR tai.assignee_user_id = ? OR tai.created_by_user_id = ?)
+           AND (tai.title LIKE ? OR tai.notes LIKE ?)
+         ORDER BY tai.updated_at DESC
+         LIMIT 30`,
+        [uid, uid, uid, uid, needle, needle]
+      );
+      for (const a of aiRows || []) {
+        results.push({
+          entity_type: 'action_item',
+          entity_id: a.id,
+          title: a.title,
+          subtitle: a.meeting_title || 'Action Item',
+          view: 'action_items',
+          status: a.status,
+          action_item: a
+        });
+      }
+    } catch { /* ignore */ }
+
+    try {
+      const [listRows] = await pool.execute(
+        `SELECT tl.* FROM task_lists tl
+         LEFT JOIN task_list_members tlm ON tlm.task_list_id = tl.id AND tlm.user_id = ?
+         WHERE (tlm.user_id IS NOT NULL OR tl.created_by_user_id = ?)
+           AND tl.name LIKE ?
+         LIMIT 20`,
+        [uid, uid, needle]
+      );
+      for (const l of listRows || []) {
+        results.push({
+          entity_type: 'shared_list',
+          entity_id: l.id,
+          title: l.name,
+          subtitle: 'Shared List',
+          view: 'shared',
+          status: null
+        });
+      }
+    } catch { /* ignore */ }
+
+    if (canViewAll && agencyId) {
+      try {
+        const [teamLists] = await pool.execute(
+          `SELECT tl.* FROM task_lists tl
+           WHERE tl.agency_id = ? AND tl.name LIKE ?
+           LIMIT 20`,
+          [parseInt(agencyId, 10), needle]
+        );
+        for (const l of teamLists || []) {
+          if (results.some((r) => r.entity_type === 'shared_list' && Number(r.entity_id) === Number(l.id))) continue;
+          results.push({
+            entity_type: 'shared_list',
+            entity_id: l.id,
+            title: l.name,
+            subtitle: 'Team Shared List',
+            view: 'all',
+            team_mode: 'lists',
+            status: null
+          });
+        }
+      } catch { /* ignore */ }
+    }
+
+    try {
+      const [projRows] = await pool.execute(
+        `SELECT tp.* FROM task_projects tp
+         LEFT JOIN task_project_members tpm ON tpm.project_id = tp.id AND tpm.user_id = ?
+         WHERE (tpm.user_id IS NOT NULL OR tp.created_by_user_id = ? OR (? AND tp.agency_id = ?))
+           AND tp.status != 'archived'
+           AND (tp.name LIKE ? OR tp.description LIKE ?)
+         LIMIT 20`,
+        [uid, uid, canViewAll ? 1 : 0, agencyId ? parseInt(agencyId, 10) : 0, needle, needle]
+      );
+      for (const p of projRows || []) {
+        results.push({
+          entity_type: 'project',
+          entity_id: p.id,
+          title: p.name,
+          subtitle: 'Project',
+          view: 'projects',
+          status: p.status
+        });
+      }
+    } catch { /* ignore */ }
+
+    return results;
   }
 
   static parseMetadata(metadata) {

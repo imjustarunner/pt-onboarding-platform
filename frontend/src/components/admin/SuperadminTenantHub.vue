@@ -196,6 +196,7 @@ const router = useRouter();
 /** Maps Company Profile feature_flags keys to billing featureCatalog keys (best-effort; extend in billing catalog over time). */
 const FLAG_KEY_TO_BILLING_CATALOG = {
   momentumListEnabled: 'momentumList',
+  focusPackageEnabled: 'focusPackage',
   focusMusicEnabled: 'focusMusic',
   noteAidEnabled: 'geminiNoteAid',
   payrollEnabled: 'payrollWorkspace',

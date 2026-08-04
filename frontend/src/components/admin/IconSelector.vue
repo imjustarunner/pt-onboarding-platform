@@ -107,7 +107,7 @@
             <div
               v-for="icon in filteredIcons"
               :key="icon.id"
-              :class="['icon-item', { selected: tempSelectedIcon?.id === icon.id || (props.modelValue && icon.id === props.modelValue) }]"
+              :class="['icon-item', { selected: tempSelectedIcon?.id === icon.id || iconIdsMatch(props.modelValue, icon.id) }]"
               @click="selectIcon(icon)"
             >
               <img :src="getIconUrl(icon)" :alt="icon.name" class="icon-img" />
@@ -130,7 +130,7 @@
             </div>
           </div>
           <!-- Show selected icon even if not in filtered list -->
-          <div v-if="props.modelValue && !filteredIcons.find(i => i.id === props.modelValue) && selectedIcon" class="icon-item selected" style="border: 2px solid var(--primary);">
+          <div v-if="normalizeIconId(props.modelValue) && !filteredIcons.find((i) => iconIdsMatch(i.id, props.modelValue)) && selectedIcon" class="icon-item selected" style="border: 2px solid var(--primary);">
             <img :src="getIconUrl(selectedIcon)" :alt="selectedIcon.name" class="icon-img" />
             <span class="icon-label">{{ selectedIcon.name }}</span>
             <small style="color: var(--text-secondary); font-size: 11px;">Currently Selected</small>
@@ -157,7 +157,7 @@ import { getBackendBaseUrl, toUploadsUrl } from '../../utils/uploadsUrl';
 
 const props = defineProps({
   modelValue: {
-    type: Number,
+    type: [Number, String],
     default: null
   },
   defaultAgencyId: {
@@ -208,6 +208,18 @@ const clubDetailsMap = ref({});
 const clubDetailsTimers = ref({});
 
 const SUMMIT_SCOPE_ORDER = { club: 0, tenant: 1, platform: 2 };
+
+const normalizeIconId = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+const iconIdsMatch = (a, b) => {
+  const left = normalizeIconId(a);
+  const right = normalizeIconId(b);
+  return left != null && right != null && left === right;
+};
 
 // ── sessionStorage state persistence ────────────────────────────
 
@@ -390,20 +402,23 @@ const fetchIcons = async () => {
         agency_id: i.agency_id ?? null,
         scope: i.scope || 'platform'
       }));
-      if (props.modelValue && !selectedIcon.value) {
-        const foundIcon = icons.value.find((i) => i.id === props.modelValue);
+      if (normalizeIconId(props.modelValue) && !selectedIcon.value) {
+        const foundIcon = icons.value.find((i) => iconIdsMatch(i.id, props.modelValue));
         if (foundIcon) {
           selectedIcon.value = foundIcon;
           tempSelectedIcon.value = foundIcon;
-        } else if (props.modelValue) {
+        } else {
+          const iconId = normalizeIconId(props.modelValue);
+          if (iconId) {
           try {
-            const iconResponse = await api.get(`/icons/${props.modelValue}`);
+            const iconResponse = await api.get(`/icons/${iconId}`, { skipGlobalLoading: true });
             if (iconResponse.data) {
               selectedIcon.value = iconResponse.data;
               tempSelectedIcon.value = iconResponse.data;
             }
           } catch (err) {
             console.error('Failed to fetch selected icon:', err);
+          }
           }
         }
       }
@@ -436,31 +451,31 @@ const fetchIcons = async () => {
 
     // After fetching, try to find the selected icon if modelValue is set
     // But don't add it to the list if it doesn't match the current filter
-    if (props.modelValue && !selectedIcon.value) {
-      const foundIcon = icons.value.find(i => i.id === props.modelValue);
+    if (normalizeIconId(props.modelValue) && !selectedIcon.value) {
+      const foundIcon = icons.value.find((i) => iconIdsMatch(i.id, props.modelValue));
       if (foundIcon) {
         selectedIcon.value = foundIcon;
         tempSelectedIcon.value = foundIcon;
-      } else if (props.modelValue) {
-        // Icon not in filtered list, fetch it individually for display purposes only
-        // Don't add it to the main icons list if it doesn't match the current filter
-        try {
-          const iconResponse = await api.get(`/icons/${props.modelValue}`);
-          if (iconResponse.data) {
-            selectedIcon.value = iconResponse.data;
-            tempSelectedIcon.value = iconResponse.data;
-            // Only add to icons list if it matches the current filter
-            const matchesFilter = 
-              (!selectedAgency.value || selectedAgency.value === '') || // All agencies selected
-              (selectedAgency.value === 'null' && iconResponse.data.agency_id === null) || // Platform selected and icon is platform
-              (selectedAgency.value && selectedAgency.value !== 'null' && iconResponse.data.agency_id === parseInt(selectedAgency.value)); // Agency selected and icon matches
-            
-            if (matchesFilter && !icons.value.find(i => i.id === iconResponse.data.id)) {
-              icons.value.push(iconResponse.data);
+      } else {
+        const iconId = normalizeIconId(props.modelValue);
+        if (iconId) {
+          try {
+            const iconResponse = await api.get(`/icons/${iconId}`, { skipGlobalLoading: true });
+            if (iconResponse.data) {
+              selectedIcon.value = iconResponse.data;
+              tempSelectedIcon.value = iconResponse.data;
+              const matchesFilter =
+                (!selectedAgency.value || selectedAgency.value === '') ||
+                (selectedAgency.value === 'null' && iconResponse.data.agency_id === null) ||
+                (selectedAgency.value && selectedAgency.value !== 'null' && iconResponse.data.agency_id === parseInt(selectedAgency.value));
+
+              if (matchesFilter && !icons.value.find((i) => iconIdsMatch(i.id, iconResponse.data.id))) {
+                icons.value.push(iconResponse.data);
+              }
             }
+          } catch (err) {
+            console.error('Failed to fetch selected icon:', err);
           }
-        } catch (err) {
-          console.error('Failed to fetch selected icon:', err);
         }
       }
     }
@@ -516,7 +531,7 @@ const selectIcon = (icon) => {
 const confirmSelection = () => {
   if (tempSelectedIcon.value) {
     selectedIcon.value = tempSelectedIcon.value;
-    emit('update:modelValue', tempSelectedIcon.value.id);
+    emit('update:modelValue', normalizeIconId(tempSelectedIcon.value.id));
     if (useSummitClubIcons.value) clearPickerState();
     closeModal();
   }
@@ -575,14 +590,15 @@ const closeModal = () => {
 };
 
 watch(() => props.modelValue, async (newValue) => {
-  if (!newValue) {
+  const iconId = normalizeIconId(newValue);
+  if (!iconId) {
     selectedIcon.value = null;
     tempSelectedIcon.value = null;
     selectedIconLoading.value = false;
     return;
   }
 
-  const foundIcon = icons.value.find(i => i.id === newValue);
+  const foundIcon = icons.value.find((i) => iconIdsMatch(i.id, iconId));
   if (foundIcon) {
     selectedIcon.value = foundIcon;
     tempSelectedIcon.value = foundIcon;
@@ -593,7 +609,7 @@ watch(() => props.modelValue, async (newValue) => {
   // Icon not in current list (or list not loaded); fetch it for preview.
   try {
     selectedIconLoading.value = true;
-    const iconResponse = await api.get(`/icons/${newValue}`);
+    const iconResponse = await api.get(`/icons/${iconId}`, { skipGlobalLoading: true });
     if (iconResponse.data) {
       selectedIcon.value = iconResponse.data;
       tempSelectedIcon.value = iconResponse.data;
@@ -603,7 +619,7 @@ watch(() => props.modelValue, async (newValue) => {
         (selectedAgency.value === 'null' && iconResponse.data.agency_id === null) || // Platform selected and icon is platform
         (selectedAgency.value && selectedAgency.value !== 'null' && iconResponse.data.agency_id === parseInt(selectedAgency.value)); // Agency selected and icon matches
 
-      if (matchesFilter && !icons.value.find(i => i.id === iconResponse.data.id)) {
+      if (matchesFilter && !icons.value.find((i) => iconIdsMatch(i.id, iconResponse.data.id))) {
         icons.value.push(iconResponse.data);
       }
     } else {
@@ -620,9 +636,10 @@ watch(() => props.modelValue, async (newValue) => {
 }, { immediate: true });
 
 watch(() => icons.value, (newIcons) => {
+  const iconId = normalizeIconId(props.modelValue);
   // When icons are loaded, try to find the selected one
-  if (props.modelValue && newIcons.length > 0) {
-    const foundIcon = newIcons.find(i => i.id === props.modelValue);
+  if (iconId && newIcons.length > 0) {
+    const foundIcon = newIcons.find((i) => iconIdsMatch(i.id, iconId));
     if (foundIcon) {
       selectedIcon.value = foundIcon;
       tempSelectedIcon.value = foundIcon;

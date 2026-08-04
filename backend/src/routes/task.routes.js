@@ -4,6 +4,7 @@ import {
   getTask,
   getUserTasks,
   getTaskCounts,
+  searchTasksHub,
   assignTask,
   bulkAssignTasks,
   completeTask,
@@ -37,6 +38,7 @@ const validateDueDate = [
 // User routes
 router.get('/', authenticate, getUserTasks);
 router.get('/counts', authenticate, getTaskCounts);
+router.get('/search', authenticate, searchTasksHub);
 router.put('/:id/complete', authenticate, completeTask);
 router.put('/:id/incomplete', authenticate, incompleteTask);
 router.get('/:id/render', authenticate, renderTaskDocumentHtml);

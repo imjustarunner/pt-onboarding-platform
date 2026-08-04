@@ -5,7 +5,7 @@
       <button
         type="button"
         class="btn btn-primary btn-sm"
-        :disabled="creating"
+        :disabled="creating || !agencyId"
         @click="showCreateForm = true"
       >
         {{ creating ? '…' : 'New list' }}
@@ -35,9 +35,13 @@
     <ul v-else class="shared-lists-list">
       <li v-for="list in lists" :key="list.id" class="shared-list-item">
         <div class="shared-list-info">
-          <span class="shared-list-name">{{ list.name }}</span>
+          <div class="shared-list-name-row">
+            <span class="shared-list-badge" title="Shared list">Shared list</span>
+            <span class="shared-list-name">{{ list.name }}</span>
+          </div>
           <span class="shared-list-meta">
-            {{ list.task_count ?? 0 }} tasks
+            {{ list.task_count ?? 0 }} open task{{ Number(list.task_count || 0) === 1 ? '' : 's' }}
+            <span class="shared-with">· Shared with {{ list.shared_with_label || 'you' }}</span>
             <span v-if="list.my_role" class="role-badge">{{ list.my_role }}</span>
           </span>
         </div>
@@ -72,12 +76,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, onUnmounted } from 'vue';
+import { ref, onMounted, watch, onUnmounted } from 'vue';
 import api from '../../services/api';
 import TaskListView from './TaskListView.vue';
 import TaskListMemberManager from './TaskListMemberManager.vue';
 
 const props = defineProps({
+  /** Used for creating new lists; listing always uses membership (all agencies). */
   agencyId: { type: Number, default: null }
 });
 
@@ -91,28 +96,24 @@ const lists = ref([]);
 const selectedList = ref(null);
 const manageList = ref(null);
 
-const POLL_INTERVAL_MS = 25000; // Poll every 25s to pick up new list memberships without refresh
+const POLL_INTERVAL_MS = 25000;
 let pollTimer = null;
 
 const canManage = (list) => list.my_role === 'admin' || list.my_role === 'editor';
 
 const fetchLists = async (opts = {}) => {
   const { emitTaskChanged = true } = typeof opts === 'object' && opts !== null ? opts : {};
-  if (!props.agencyId) {
-    lists.value = [];
-    loading.value = false;
-    return;
-  }
   loading.value = true;
   try {
-    const res = await api.get('/task-lists', { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
+    // Always load by membership across agencies so lists don't disappear when org context differs.
+    const res = await api.get('/task-lists', { skipGlobalLoading: true });
     lists.value = Array.isArray(res.data) ? res.data : [];
     const totalTasks = lists.value.reduce((s, l) => s + (l.task_count ?? 0), 0);
     const lastActivity = lists.value.reduce((latest, l) => {
       const at = l.last_activity_at ? new Date(l.last_activity_at).getTime() : 0;
       return at > latest ? at : latest;
     }, 0);
-    const hasRecentActivity = lastActivity > 0 && Date.now() - lastActivity < 24 * 60 * 60 * 1000; // last 24h
+    const hasRecentActivity = lastActivity > 0 && Date.now() - lastActivity < 24 * 60 * 60 * 1000;
     emit('summary', {
       listCount: lists.value.length,
       totalTasks,
@@ -130,7 +131,11 @@ const fetchLists = async (opts = {}) => {
 
 const createList = async () => {
   const name = String(newListName.value || '').trim();
-  if (!name || !props.agencyId) return;
+  if (!name) return;
+  if (!props.agencyId) {
+    console.error('Cannot create shared list without an agency context');
+    return;
+  }
   creating.value = true;
   try {
     await api.post('/task-lists', { agencyId: props.agencyId, name }, { skipGlobalLoading: true });
@@ -160,7 +165,7 @@ const openManage = (list) => {
 const startPolling = () => {
   if (pollTimer) return;
   pollTimer = setInterval(() => {
-    if (props.agencyId && !loading.value) fetchLists({ emitTaskChanged: false });
+    if (!loading.value) fetchLists({ emitTaskChanged: false });
   }, POLL_INTERVAL_MS);
 };
 
@@ -176,7 +181,10 @@ onMounted(() => {
   startPolling();
 });
 onUnmounted(stopPolling);
-watch(() => props.agencyId, () => fetchLists());
+watch(() => props.agencyId, () => {
+  // Agency change only affects create context; still refresh memberships.
+  fetchLists();
+});
 </script>
 
 <style scoped>
@@ -196,27 +204,23 @@ watch(() => props.agencyId, () => fetchLists());
 
 .shared-lists-title {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 1rem;
+  font-weight: 700;
 }
 
 .shared-lists-loading,
 .shared-lists-empty {
-  color: #6b7280;
-  font-size: 14px;
-  padding: 12px 0;
+  padding: 24px 12px;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
 }
 
 .create-list-form {
-  margin-bottom: 16px;
-  padding: 12px;
-  background: #f9fafb;
-  border-radius: 8px;
-}
-
-.create-list-form input {
-  width: 100%;
-  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .create-list-actions {
@@ -234,38 +238,73 @@ watch(() => props.agencyId, () => fetchLists());
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px;
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 8px;
-  margin-bottom: 8px;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #f1f5f9;
 }
 
-.shared-list-info {
+.shared-list-item:last-child {
+  border-bottom: 0;
+}
+
+.shared-list-name-row {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.shared-list-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #0f766e;
+  background: #ccfbf1;
+  border-radius: 4px;
+  padding: 2px 6px;
 }
 
 .shared-list-name {
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
 }
 
 .shared-list-meta {
+  display: block;
+  margin-top: 4px;
   font-size: 12px;
-  color: #6b7280;
+  color: #64748b;
+}
+
+.shared-with {
+  color: #475569;
 }
 
 .role-badge {
-  margin-left: 8px;
-  padding: 2px 6px;
-  background: #e5e7eb;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #64748b;
+  background: #f1f5f9;
   border-radius: 4px;
-  font-size: 11px;
+  padding: 1px 5px;
 }
 
 .shared-list-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.form-control {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font: inherit;
 }
 </style>

@@ -46,6 +46,9 @@
           >
             Staff schedules
           </router-link>
+          <router-link class="btn btn-secondary btn-sm" :to="tasksTo" title="Open Tasks hub and Task Timeline">
+            Tasks
+          </router-link>
           <router-link class="btn btn-secondary btn-sm" :to="dashboardTo" title="Return to your personal dashboard">
             My Dashboard
           </router-link>
@@ -95,6 +98,7 @@ const canOpenProviderManagement = computed(() => {
 });
 const staffSchedulesTo = computed(() => orgTo('/schedule/staff'));
 const dashboardTo = computed(() => orgTo('/dashboard'));
+const tasksTo = computed(() => orgTo('/tasks'));
 const officeApprovalsTo = computed(() => orgTo('/admin/office-approvals'));
 const canApproveOfficeRequests = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();

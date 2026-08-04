@@ -8,6 +8,8 @@ import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import TaskDeletionLog from '../models/TaskDeletionLog.model.js';
 import TaskListMember from '../models/TaskListMember.model.js';
 import TaskList from '../models/TaskList.model.js';
+import TaskAssignee from '../models/TaskAssignee.model.js';
+import TaskLink from '../models/TaskLink.model.js';
 
 function ensureCustomTaskOwnedByUser(task, userId) {
   if (!task) return false;
@@ -16,13 +18,20 @@ function ensureCustomTaskOwnedByUser(task, userId) {
   return true;
 }
 
-async function canUpdateOrDeleteTask(task, userId) {
-  if (!task || String(task.task_type) !== 'custom') return false;
-  if (task.task_list_id) {
-    const membership = await TaskListMember.findByListAndUser(task.task_list_id, userId);
-    return membership && TaskListMember.canEdit(membership.role);
+async function canUpdateOrDeleteTask(task, userId, role = '') {
+  if (!task) return false;
+  const r = String(role || '').toLowerCase();
+  if (['admin', 'super_admin', 'support', 'supervisor'].includes(r)) return true;
+  if (String(task.task_type) === 'custom') {
+    if (task.task_list_id) {
+      const membership = await TaskListMember.findByListAndUser(task.task_list_id, userId);
+      return membership && TaskListMember.canEdit(membership.role);
+    }
+    return ensureCustomTaskOwnedByUser(task, userId);
   }
-  return ensureCustomTaskOwnedByUser(task, userId);
+  // Assignees may update list/project/private/notes on their own tasks
+  return Number(task.assigned_to_user_id) === Number(userId)
+    || Number(task.assigned_by_user_id) === Number(userId);
 }
 
 export const createCustomTask = async (req, res, next) => {
@@ -63,12 +72,19 @@ export const createCustomTask = async (req, res, next) => {
         ? { ...metadataIn, createdVia: 'me_tasks' }
         : { source: 'momentum_user_request', createdVia: 'me_tasks' };
 
+    let resolvedAgencyId = agencyId != null ? parseInt(agencyId, 10) || null : null;
+    if (!resolvedAgencyId && resolvedListId) {
+      const list = await TaskList.findById(resolvedListId);
+      resolvedAgencyId = list?.agency_id ? Number(list.agency_id) : null;
+    }
+
     const task = await Task.create({
       taskType: 'custom',
       title: titleStr,
       description: description ? String(description).trim() || null : null,
       assignedToUserId: userId,
       assignedByUserId: userId,
+      assignedToAgencyId: resolvedAgencyId,
       dueDate: dueDate || null,
       referenceId: null,
       taskListId: resolvedListId,
@@ -78,7 +94,11 @@ export const createCustomTask = async (req, res, next) => {
       typicalDayOfWeek: typical_day_of_week ?? null,
       typicalTime: typical_time || null,
       targetCount: target_count ?? null,
-      metadata: meta
+      metadata: meta,
+      workTypeId: req.body?.work_type_id ?? metadataIn?.work_type_id ?? null,
+      workTypeIconKey: req.body?.work_type_icon_key ?? null,
+      isPrivate: !!(req.body?.isPrivate ?? req.body?.is_private),
+      projectId: req.body?.project_id ?? req.body?.projectId ?? null
     });
 
     await TaskAuditLog.logAction({
@@ -118,7 +138,7 @@ export const updateCustomTask = async (req, res, next) => {
 
     const task = await Task.findById(taskId);
     if (!task) return res.status(404).json({ error: { message: 'Task not found' } });
-    const canModify = await canUpdateOrDeleteTask(task, userId);
+    const canModify = await canUpdateOrDeleteTask(task, userId, req.user?.role);
     if (!canModify) {
       return res.status(403).json({ error: { message: 'You can only update your own custom tasks or tasks in lists where you have editor access' } });
     }
@@ -139,6 +159,15 @@ export const updateCustomTask = async (req, res, next) => {
     if (typical_day_of_week !== undefined) updates.typicalDayOfWeek = typical_day_of_week ?? null;
     if (typical_time !== undefined) updates.typicalTime = typical_time || null;
     if (target_count !== undefined) updates.targetCount = target_count != null ? Math.max(0, parseInt(target_count, 10) || 0) : null;
+    if (body.isPrivate !== undefined || body.is_private !== undefined) {
+      updates.isPrivate = !!(body.isPrivate ?? body.is_private);
+    }
+    if (body.project_id !== undefined || body.projectId !== undefined) {
+      updates.projectId = body.project_id ?? body.projectId ?? null;
+    }
+    if (body.task_list_id !== undefined || body.taskListId !== undefined) {
+      updates.taskListId = body.task_list_id ?? body.taskListId ?? null;
+    }
 
     if (metadata !== undefined || subtasks !== undefined) {
       const existing = typeof task.metadata === 'object' ? task.metadata : Task.parseMetadata(task.metadata);
@@ -221,6 +250,94 @@ export const deleteCustomTask = async (req, res, next) => {
     });
     await Task.deleteById(taskId);
 
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+};
+
+async function canViewTaskDetails(task, userId, role) {
+  if (!task) return false;
+  if (Number(task.is_private) === 1) {
+    return (
+      Number(task.assigned_to_user_id) === Number(userId)
+      || Number(task.assigned_by_user_id) === Number(userId)
+    );
+  }
+  if (['admin', 'super_admin', 'support', 'supervisor'].includes(String(role || '').toLowerCase())) {
+    return true;
+  }
+  if (Number(task.assigned_to_user_id) === Number(userId)) return true;
+  if (Number(task.assigned_by_user_id) === Number(userId)) return true;
+  if (task.task_list_id) {
+    const membership = await TaskListMember.findByListAndUser(task.task_list_id, userId);
+    if (membership) return true;
+  }
+  return false;
+}
+
+export const getTaskAssignees = async (req, res, next) => {
+  try {
+    const task = await Task.findById(parseInt(req.params.id, 10));
+    if (!(await canViewTaskDetails(task, req.user.id, req.user.role))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    res.json(await TaskAssignee.listForTask(task.id));
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const setTaskAssignees = async (req, res, next) => {
+  try {
+    const task = await Task.findById(parseInt(req.params.id, 10));
+    if (!(await canViewTaskDetails(task, req.user.id, req.user.role))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const userIds = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
+    const primaryUserId = req.body?.primaryUserId ?? userIds[0] ?? null;
+    res.json(await TaskAssignee.setForTask(task.id, userIds, primaryUserId));
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getTaskLinks = async (req, res, next) => {
+  try {
+    const task = await Task.findById(parseInt(req.params.id, 10));
+    if (!(await canViewTaskDetails(task, req.user.id, req.user.role))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    res.json(await TaskLink.listForTask(task.id));
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const addTaskLink = async (req, res, next) => {
+  try {
+    const task = await Task.findById(parseInt(req.params.id, 10));
+    if (!(await canViewTaskDetails(task, req.user.id, req.user.role))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const url = String(req.body?.url || '').trim();
+    if (!url) return res.status(400).json({ error: { message: 'url is required' } });
+    const link = await TaskLink.create({
+      taskId: task.id,
+      url,
+      label: req.body?.label || null,
+      createdByUserId: req.user.id
+    });
+    res.status(201).json(link);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const deleteTaskLink = async (req, res, next) => {
+  try {
+    const ok = await TaskLink.delete(parseInt(req.params.linkId, 10));
+    if (!ok) return res.status(404).json({ error: { message: 'Not found' } });
     res.status(204).send();
   } catch (err) {
     next(err);

@@ -38,14 +38,28 @@ export async function requireTaskAccess(req, res, next) {
   }
   const task = await Task.findById(taskId);
   if (!task) return res.status(404).json({ error: { message: 'Task not found' } });
-  if (String(task.task_type) !== 'custom') {
-    return res.status(400).json({ error: { message: 'Attachments only supported for custom tasks' } });
-  }
-  if (task.task_list_id) {
+
+  // Private: only owners
+  if (Number(task.is_private) === 1) {
+    const isOwner =
+      Number(task.assigned_to_user_id) === Number(userId)
+      || Number(task.assigned_by_user_id) === Number(userId);
+    if (!isOwner) return res.status(403).json({ error: { message: 'Access denied' } });
+  } else if (task.task_list_id) {
     const membership = await TaskListMember.findByListAndUser(task.task_list_id, userId);
-    if (!membership) return res.status(403).json({ error: { message: 'You must be a list member' } });
+    const isAssignee = Number(task.assigned_to_user_id) === Number(userId);
+    const role = String(req.user?.role || '').toLowerCase();
+    const isManager = ['admin', 'super_admin', 'support', 'supervisor'].includes(role);
+    if (!membership && !isAssignee && !isManager) {
+      return res.status(403).json({ error: { message: 'You must be a list member' } });
+    }
   } else {
-    if (Number(task.assigned_to_user_id) !== Number(userId)) {
+    const isAssignee =
+      Number(task.assigned_to_user_id) === Number(userId)
+      || Number(task.assigned_by_user_id) === Number(userId);
+    const role = String(req.user?.role || '').toLowerCase();
+    const isManager = ['admin', 'super_admin', 'support', 'supervisor'].includes(role);
+    if (!isAssignee && !isManager) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
   }

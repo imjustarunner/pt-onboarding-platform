@@ -3537,19 +3537,21 @@
               </select>
             </div>
 
-            <label class="lbl" :class="{ 'lbl--required-missing': isScheduleEventTitleMissing }" style="margin-top: 10px;">
-              Event title <span aria-hidden="true">*</span>
-            </label>
-            <input
-              v-model="scheduleEventTitle"
-              class="input"
-              :class="{ 'input--required-missing': isScheduleEventTitleMissing }"
-              type="text"
-              :placeholder="scheduleEventTitlePlaceholder"
-              maxlength="200"
-              @input="personalEventTitleTouched = true"
-            />
-            <div v-if="isScheduleEventTitleMissing" class="nr-required-hint">Title is required before you can schedule.</div>
+            <template v-if="requestType !== 'schedule_hold' && requestType !== 'schedule_hold_all_day'">
+              <label class="lbl" :class="{ 'lbl--required-missing': isScheduleEventTitleMissing }" style="margin-top: 10px;">
+                Event title <span aria-hidden="true">*</span>
+              </label>
+              <input
+                v-model="scheduleEventTitle"
+                class="input"
+                :class="{ 'input--required-missing': isScheduleEventTitleMissing }"
+                type="text"
+                :placeholder="scheduleEventTitlePlaceholder"
+                maxlength="200"
+                @input="personalEventTitleTouched = true"
+              />
+              <div v-if="isScheduleEventTitleMissing" class="nr-required-hint">Title is required before you can schedule.</div>
+            </template>
 
             <div v-if="showScheduleEventOrgPicker" style="margin-top: 10px;">
               <label class="lbl">Organization</label>
@@ -3569,7 +3571,10 @@
             </div>
 
             <div v-if="requestType === 'schedule_hold' || requestType === 'schedule_hold_all_day'" style="margin-top: 10px;">
-              <label class="lbl">Block reason</label>
+              <label class="lbl">Block reason <span aria-hidden="true">*</span></label>
+              <p class="muted nr-help" style="margin: 4px 0 8px;">
+                The block reason is the title coworkers may see on shared calendars.
+              </p>
               <div class="hold-reason-box">
                 <div class="hold-reason-row">
                   <input
@@ -3587,10 +3592,20 @@
                     type="button"
                     class="btn btn-secondary btn-sm"
                     :disabled="!canSaveHoldReasonDraft"
-                    title="Save this reason for next time"
+                    title="Save this reason for yourself"
                     @click="commitHoldReasonDraft"
                   >
                     Save
+                  </button>
+                  <button
+                    v-if="canSaveHoldReasonToAgency"
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    :disabled="!String(scheduleHoldReasonDraft || '').trim()"
+                    title="Save and add to agency catalog"
+                    @click="saveHoldReasonToAgency"
+                  >
+                    Save &amp; add to agency
                   </button>
                 </div>
                 <datalist id="hold-reason-suggestions">
@@ -3619,9 +3634,13 @@
                   </button>
                 </div>
                 <div class="muted nr-help" style="margin-top: 4px;">
-                  Type a new reason and hit Save to keep it. Use × to remove a saved custom reason.
+                  Type a new reason and hit Save to keep it. Use × to remove a reason you don’t want to see.
                 </div>
               </div>
+              <label class="sched-toggle" style="margin-top: 12px;">
+                <input v-model="scheduleHoldFocusSession" type="checkbox" />
+                <span>Enable Focus Session for this block</span>
+              </label>
             </div>
 
             <label
@@ -11117,12 +11136,54 @@ const officeSlotStatusLabel = (rawState) => {
   return st.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
 };
 const BUILTIN_HOLD_REASON_OPTIONS = [
+  { code: 'OFFICE_WORK', label: 'Office Work', custom: false },
+  { code: 'ADMINISTRATIVE_WORK', label: 'Administrative Work', custom: false },
   { code: 'DOCUMENTATION', label: 'Documentation', custom: false },
-  { code: 'TEAM_MEETING', label: 'Team meeting', custom: false },
-  { code: 'TRAINING', label: 'Training', custom: false },
-  { code: 'ADMIN', label: 'Administrative time', custom: false },
-  { code: 'CLINICAL_PREP', label: 'Clinical prep', custom: false },
-  { code: 'CHARTING', label: 'Charting', custom: false }
+  { code: 'RESEARCH', label: 'Research', custom: false },
+  { code: 'EMAIL_MANAGEMENT', label: 'Email Management', custom: false },
+  { code: 'PROJECT_PLANNING', label: 'Project Planning', custom: false },
+  { code: 'STRATEGIC_PLANNING', label: 'Strategic Planning', custom: false },
+  { code: 'DEEP_WORK', label: 'Deep Work', custom: false },
+  { code: 'FOCUS_TIME', label: 'Focus Time', custom: false },
+  { code: 'PROJECT_MANAGEMENT', label: 'Project Management', custom: false },
+  { code: 'CUSTOMER_SUPPORT', label: 'Customer Support', custom: false },
+  { code: 'SALES', label: 'Sales', custom: false },
+  { code: 'BUDGET_PLANNING', label: 'Budget Planning', custom: false },
+  { code: 'FINANCIAL_REVIEW', label: 'Financial Review', custom: false },
+  { code: 'CONTRACT_REVIEW', label: 'Contract Review', custom: false },
+  { code: 'POLICY_REVIEW', label: 'Policy Review', custom: false },
+  { code: 'LEGAL_REVIEW', label: 'Legal Review', custom: false },
+  { code: 'RISK_ASSESSMENT', label: 'Risk Assessment', custom: false },
+  { code: 'QUALITY_ASSURANCE', label: 'Quality Assurance', custom: false },
+  { code: 'SOFTWARE_DEVELOPMENT', label: 'Software Development', custom: false },
+  { code: 'SYSTEM_MAINTENANCE', label: 'System Maintenance', custom: false },
+  { code: 'IT_SUPPORT', label: 'IT Support', custom: false },
+  { code: 'PRODUCT_DEVELOPMENT', label: 'Product Development', custom: false },
+  { code: 'DESIGN_WORK', label: 'Design Work', custom: false },
+  { code: 'CONTENT_CREATION', label: 'Content Creation', custom: false },
+  { code: 'MARKETING', label: 'Marketing', custom: false },
+  { code: 'WEBSITE_MANAGEMENT', label: 'Website Management', custom: false },
+  { code: 'KNOWLEDGE_BASE_MANAGEMENT', label: 'Knowledge Base Management', custom: false },
+  { code: 'TRAVEL', label: 'Travel', custom: false },
+  { code: 'FIELD_WORK', label: 'Field Work', custom: false },
+  { code: 'PHONE_CALLS', label: 'Phone Calls', custom: false },
+  { code: 'BUSINESS_DEVELOPMENT', label: 'Business Development', custom: false },
+  { code: 'ACCOUNT_MANAGEMENT', label: 'Account Management', custom: false },
+  { code: 'PERFORMANCE_REVIEW', label: 'Performance Review', custom: false },
+  { code: 'DECISION_MAKING', label: 'Decision Making', custom: false },
+  { code: 'PROBLEM_SOLVING', label: 'Problem Solving', custom: false },
+  { code: 'DOCUMENT_REVIEW', label: 'Document Review', custom: false },
+  { code: 'FILE_ORGANIZATION', label: 'File Organization', custom: false },
+  { code: 'INBOX_MANAGEMENT', label: 'Inbox Management', custom: false },
+  { code: 'FOLLOW_UP', label: 'Follow-up', custom: false },
+  { code: 'STUDY_TIME', label: 'Study Time', custom: false },
+  { code: 'OPERATIONAL_PLANNING', label: 'Operational Planning', custom: false },
+  { code: 'INNOVATION', label: 'Innovation', custom: false },
+  { code: 'MARKET_RESEARCH', label: 'Market Research', custom: false },
+  { code: 'COMPLIANCE', label: 'Compliance', custom: false },
+  { code: 'END_OF_DAY_WRAP_UP', label: 'End-of-Day Wrap-up', custom: false },
+  { code: 'WEEKLY_REVIEW', label: 'Weekly Review', custom: false },
+  { code: 'MONTHLY_REVIEW', label: 'Monthly Review', custom: false }
 ];
 const PERSONAL_EVENT_TYPE_OPTIONS = [
   { code: 'PERSONAL', label: 'Personal event', title: 'Personal Event' },
@@ -11150,6 +11211,11 @@ const supervisionOccurrenceCount = ref(6);
 const scheduleHoldReasonCode = ref('DOCUMENTATION');
 const scheduleHoldCustomReason = ref('');
 const scheduleHoldReasonDraft = ref('Documentation');
+const scheduleHoldFocusSession = ref(false);
+const canSaveHoldReasonToAgency = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return ['admin', 'super_admin', 'support'].includes(r);
+});
 const personalEventTypeCode = ref('PERSONAL');
 const personalEventTitleTouched = ref(false);
 const normalizeCodeValue = (value) => String(value || '')
@@ -11329,6 +11395,9 @@ function selectHoldReasonOption(opt) {
   const code = String(opt?.code || '').toUpperCase();
   const label = String(opt?.label || '').trim();
   if (!code) return;
+  // Schedule hold title is always the block reason (no separate event title).
+  scheduleEventTitle.value = label || code;
+  scheduleHoldReasonDraft.value = label || code;
   if (opt?.custom) {
     scheduleHoldReasonCode.value = 'CUSTOM';
     scheduleHoldCustomReason.value = label;
@@ -11349,6 +11418,24 @@ function onHoldReasonDraftChange() {
   else {
     scheduleHoldReasonCode.value = 'CUSTOM';
     scheduleHoldCustomReason.value = label;
+    scheduleEventTitle.value = label;
+  }
+}
+
+async function saveHoldReasonToAgency() {
+  const label = String(scheduleHoldReasonDraft.value || '').trim();
+  if (!label || !canSaveHoldReasonToAgency.value) return;
+  const agencyId = Number(effectiveAgencyId.value || scheduleEventAgencyScope.value || 0);
+  if (!agencyId) {
+    window.alert('Select an organization before saving a reason to the agency catalog.');
+    return;
+  }
+  try {
+    await api.post('/schedule-hold-reasons/agency', { agencyId, label }, { skipGlobalLoading: true });
+    commitHoldReasonDraft();
+  } catch (e) {
+    console.error(e);
+    window.alert(e?.response?.data?.error?.message || 'Could not save reason to agency');
   }
 }
 
@@ -11499,10 +11586,17 @@ const scheduleEventTitlePlaceholder = computed(() => {
   if (kind === 'indirect_services') return 'Indirect services';
   return 'Personal event';
 });
-const scheduleEventCanSubmit = computed(() => String(scheduleEventTitle.value || '').trim().length > 0);
+const scheduleEventCanSubmit = computed(() => {
+  const rt = String(requestType.value || '');
+  if (rt === 'schedule_hold' || rt === 'schedule_hold_all_day') {
+    return String(scheduleHoldReasonDraft.value || scheduleEventTitle.value || '').trim().length > 0;
+  }
+  return String(scheduleEventTitle.value || '').trim().length > 0;
+});
 const isScheduleEventTitleMissing = computed(() => (
   isScheduleEventRequestType.value
   && !!String(requestType.value || '').trim()
+  && !['schedule_hold', 'schedule_hold_all_day'].includes(String(requestType.value || ''))
   && !scheduleEventCanSubmit.value
 ));
 const isMeetingTitleMissing = computed(() => {
@@ -19567,11 +19661,18 @@ const submitRequest = async () => {
       if ((normalizedAction === 'agency_meeting' || normalizedAction === 'huddle') && !String(scheduleEventTitle.value || '').trim()) {
         throw new Error('Add a title before scheduling this meeting.');
       }
-      const title = String(scheduleEventTitle.value || '').trim() || defaultScheduleEventTitleForAction(normalizedAction);
       // Persist hold reason codes; for personal events store the selected type.
       const reasonCode = eventKind === 'SCHEDULE_HOLD'
         ? effectiveScheduleHoldReason()
         : (eventKind === 'PERSONAL_EVENT' ? effectivePersonalEventTypeCode() : null);
+      let title = String(scheduleEventTitle.value || '').trim() || defaultScheduleEventTitleForAction(normalizedAction);
+      if (eventKind === 'SCHEDULE_HOLD') {
+        const reasonLabel = String(scheduleHoldReasonDraft.value || scheduleHoldCustomReason.value || '').trim()
+          || scheduleHoldReasonOptions.value.find((o) => o.code === String(reasonCode || '').toUpperCase())?.label
+          || 'Schedule block';
+        title = reasonLabel;
+        scheduleEventTitle.value = reasonLabel;
+      }
       const isPrivate = !!scheduleEventPrivate.value;
       const meetingTimeZone = (normalizedAction === 'agency_meeting' || normalizedAction === 'huddle')
         ? scheduleMeetingTimeZone()
@@ -19626,6 +19727,7 @@ const submitRequest = async () => {
             endDate,
             reasonCode,
             isPrivate,
+            focusSessionEnabled: eventKind === 'SCHEDULE_HOLD' ? !!scheduleHoldFocusSession.value : undefined,
             ...(isMeetingAction
               ? {
                   attendeeUserIds: meetingAttendeeUserIds,
@@ -19675,6 +19777,7 @@ const submitRequest = async () => {
               endAt,
               reasonCode,
               isPrivate,
+              focusSessionEnabled: eventKind === 'SCHEDULE_HOLD' ? !!scheduleHoldFocusSession.value : undefined,
               ...(isMeetingAction
                 ? {
                     attendeeUserIds: meetingAttendeeUserIds,
@@ -19706,6 +19809,28 @@ const submitRequest = async () => {
       if (createdScheduleEvents.length) {
         refreshInBackground = true;
         if (eventAgencyId) ensureScheduleAgencyVisible(eventAgencyId);
+        if (eventKind === 'SCHEDULE_HOLD') {
+          const firstId = createdScheduleEvents[0]?.providerScheduleEventId
+            ?? createdScheduleEvents[0]?.id
+            ?? null;
+          const slug = String(
+            route.params?.organizationSlug
+              || agencyStore?.currentAgency?.slug
+              || agencyStore?.currentAgency?.portal_url
+              || ''
+          ).trim();
+          const tasksPath = slug
+            ? `/${slug}/tasks?tab=assigned&blockEventId=${firstId || ''}`
+            : `/tasks?tab=assigned&blockEventId=${firstId || ''}`;
+          // Soft CTA: offer to assign tasks on the Tasks hub timeline
+          try {
+            if (window.confirm('Schedule block created. Assign tasks to this block now?')) {
+              closeModal();
+              await router.push(tasksPath);
+              return;
+            }
+          } catch { /* ignore */ }
+        }
         if ((requestType.value === 'agency_meeting' || requestType.value === 'huddle') && createAgendaDraftItems.value.length) {
           const items = [...createAgendaDraftItems.value];
           for (const ev of createdScheduleEvents) {

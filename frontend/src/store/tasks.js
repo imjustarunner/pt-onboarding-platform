@@ -10,6 +10,7 @@ export const useTasksStore = defineStore('tasks', () => {
     assigned: 0,
     mine: 0,
     watchlist: 0,
+    action_items: 0,
     all: 0,
     pending: 0,
     in_progress: 0,
@@ -37,6 +38,13 @@ export const useTasksStore = defineStore('tasks', () => {
       if (filters.limit != null) params.append('limit', String(filters.limit));
       if (filters.offset != null) params.append('offset', String(filters.offset));
       if (filters.agencyId) params.append('agencyId', String(filters.agencyId));
+      if (filters.hiddenAgencyIds?.length) {
+        params.append('hiddenAgencyIds', filters.hiddenAgencyIds.join(','));
+      }
+      if (filters.assignedToUserId) params.append('assignedToUserId', String(filters.assignedToUserId));
+      if (filters.taskListId) params.append('taskListId', String(filters.taskListId));
+      if (filters.projectId) params.append('projectId', String(filters.projectId));
+      if (filters.tenantId) params.append('tenantId', String(filters.tenantId));
 
       const qs = params.toString();
       const response = await api.get(`/tasks${qs ? `?${qs}` : ''}`);
@@ -49,10 +57,15 @@ export const useTasksStore = defineStore('tasks', () => {
     }
   };
 
-  const fetchTaskCounts = async (agencyId = null) => {
+  const fetchTaskCounts = async (agencyId = null, hiddenAgencyIds = [], extra = {}) => {
     try {
       const params = new URLSearchParams();
       if (agencyId) params.append('agencyId', String(agencyId));
+      if (hiddenAgencyIds?.length) params.append('hiddenAgencyIds', hiddenAgencyIds.join(','));
+      if (extra.tenantId) params.append('tenantId', String(extra.tenantId));
+      if (extra.assignedToUserId) params.append('assignedToUserId', String(extra.assignedToUserId));
+      if (extra.taskListId) params.append('taskListId', String(extra.taskListId));
+      if (extra.projectId) params.append('projectId', String(extra.projectId));
       const qs = params.toString();
       const response = await api.get(`/tasks/counts${qs ? `?${qs}` : ''}`);
       taskCounts.value = { ...taskCounts.value, ...(response.data || {}) };

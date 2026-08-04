@@ -30,10 +30,14 @@ class TaskListMember {
   }
 
   static async add(taskListId, userId, role = 'viewer') {
-    const [result] = await pool.execute(
-      'INSERT INTO task_list_members (task_list_id, user_id, role) VALUES (?, ?, ?)',
-      [taskListId, userId, role]
-    );
+    try {
+      await pool.execute(
+        'INSERT INTO task_list_members (task_list_id, user_id, role) VALUES (?, ?, ?)',
+        [taskListId, userId, role]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_DUP_ENTRY') throw e;
+    }
     return this.findByListAndUser(taskListId, userId);
   }
 

@@ -445,7 +445,8 @@ const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
 const organizationStore = useOrganizationStore();
 const normalizeSettingsSlug = (value) => String(value || '').trim().toLowerCase();
-const pickOrgSettingsSlug = (org) => normalizeSettingsSlug(org?.portal_url || org?.portalUrl || org?.slug || '');
+// Prefer canonical route slug; portal_url can differ or be empty on list rows.
+const pickOrgSettingsSlug = (org) => normalizeSettingsSlug(org?.slug || org?.portal_url || org?.portalUrl || '');
 const currentRouteSettingsSlug = computed(() => normalizeSettingsSlug(route.params?.organizationSlug));
 
 const showTenantContextUi = computed(() => {
@@ -1786,6 +1787,7 @@ const buildSettingsLocation = ({ org = null, category = 'platform', item = null 
   const params = new URLSearchParams();
   if (category) params.set('category', String(category));
   if (item) params.set('item', String(item));
+  if (org?.id) params.set('agencyId', String(org.id));
   const query = params.toString();
   return query ? `${path}?${query}` : path;
 };
@@ -1808,9 +1810,32 @@ const syncAgencyIdToRoute = () => {
   router.replace({ query: q });
 };
 
+const TENANT_SETTINGS_ROUTE_ITEMS = new Set([
+  'tenant-ws-home',
+  'tenant-ws-org-directory',
+  'tenant-ws-global-platform',
+  'tenant-overview',
+  'agency-platform'
+]);
+
 const syncAgencyContextFromRouteSlug = async () => {
   const routeSlug = currentRouteSettingsSlug.value;
   if (!routeSlug) {
+    const agencyIdParam = route.query?.agencyId;
+    if (agencyIdParam) {
+      await applySelectedAgencyFromIdString(agencyIdParam);
+      selectedAgencyId.value = String(agencyStore.currentAgency?.id || agencyIdParam);
+      if (agencyStore.currentAgency?.id) {
+        brandingStore.syncDocumentThemeFromSelectedAgency({ skipRouteSlugGuard: true });
+      }
+      return;
+    }
+    const routeItem = String(route.query?.item || '');
+    if (agencyStore.currentAgency?.id && TENANT_SETTINGS_ROUTE_ITEMS.has(routeItem)) {
+      selectedAgencyId.value = String(agencyStore.currentAgency.id);
+      brandingStore.syncDocumentThemeFromSelectedAgency({ skipRouteSlugGuard: true });
+      return;
+    }
     if (isSuperAdmin.value && showTenantContextUi.value && !route.query?.agencyId) {
       agencyStore.setPlatformMode();
       void brandingStore.syncDocumentThemeFromPlatformBranding();
@@ -1844,13 +1869,18 @@ const navigateToTenantWorkspaceAfterPick = () => {
   }
 };
 
-const selectTenantFromPicker = (a) => {
+const selectTenantFromPicker = async (a) => {
   if (!a?.id) return;
   const pickId = Number(a.id);
+  let org = a;
+  if (isSuperAdmin.value) {
+    const hydrated = await agencyStore.hydrateAgencyById(a.id);
+    if (hydrated) org = hydrated;
+  }
   /** True when re-selecting the tenant that was already active before this handler runs. */
   const wasAlreadyThisTenant = Number(agencyStore.currentAgency?.id) === pickId;
   const routeSlug = currentRouteSettingsSlug.value;
-  const targetSlug = pickOrgSettingsSlug(a);
+  const targetSlug = pickOrgSettingsSlug(org);
   const shouldHardNavigate =
     showTenantContextUi.value &&
     !props.disableRouteSync &&
@@ -1862,20 +1892,20 @@ const selectTenantFromPicker = (a) => {
         selectedCategory.value === 'platform' && selectedItem.value === 'tenant-ws-home';
       if (refsOnTenantHub) return;
     }
-    agencyStore.setCurrentAgency(a);
-    selectedAgencyId.value = String(a.id);
+    agencyStore.setCurrentAgency(org);
+    selectedAgencyId.value = String(org.id);
     brandingStore.syncDocumentThemeFromSelectedAgency({ skipRouteSlugGuard: true });
-    navigateToSettingsLocation({ org: a, category: 'platform', item: 'tenant-ws-home' });
+    navigateToSettingsLocation({ org, category: 'platform', item: 'tenant-ws-home' });
     return;
   }
 
-  agencyStore.setCurrentAgency(a);
-  selectedAgencyId.value = String(a.id);
+  agencyStore.setCurrentAgency(org);
+  selectedAgencyId.value = String(org.id);
   const r = String(authStore.user?.role || '').toLowerCase();
   if (showTenantContextUi.value && (r === 'super_admin' || r === 'admin')) {
     const nextQuery = {
       ...route.query,
-      agencyId: String(a.id),
+      agencyId: String(org.id),
       category: 'platform',
       item: 'tenant-ws-home'
     };
@@ -2256,18 +2286,18 @@ watch(() => route.query, (newQuery) => {
     return;
   }
   if (newQuery.item) {
-    if (
-      platformSettingsCardHubActive.value &&
-      newQuery.category === 'platform' &&
-      ['tenant-ws-home', 'tenant-ws-org-directory', 'agency-platform', 'tenant-overview'].includes(
-        newQuery.item
-      )
-    ) {
-      const q = { ...newQuery, category: 'platform', item: 'platform-ws-home' };
-      delete q.agencyId;
-      router.replace({ query: q });
-      return;
-    }
+  if (
+    platformSettingsCardHubActive.value &&
+    newQuery.category === 'platform' &&
+    TENANT_SETTINGS_ROUTE_ITEMS.has(String(newQuery.item || '')) &&
+    !newQuery.agencyId &&
+    !agencyStore.currentAgency?.id
+  ) {
+    const q = { ...newQuery, category: 'platform', item: 'platform-ws-home' };
+    delete q.agencyId;
+    router.replace({ query: q });
+    return;
+  }
     resolveSelection(newQuery.category, newQuery.item, { deepLink: true });
   }
 

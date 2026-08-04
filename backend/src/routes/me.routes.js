@@ -2,7 +2,17 @@ import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { downloadCompanyEventIcsForMe, listMyCompanyEvents, listMyCompanyEventsCalendar, respondToMyCompanyEvent } from '../controllers/companyEvents.controller.js';
 import { sendReminderSms } from '../controllers/reminderSms.controller.js';
-import { createCustomTask, updateCustomTask, deleteCustomTask, claimTask } from '../controllers/meTasks.controller.js';
+import {
+  createCustomTask,
+  updateCustomTask,
+  deleteCustomTask,
+  claimTask,
+  getTaskAssignees,
+  setTaskAssignees,
+  getTaskLinks,
+  addTaskLink,
+  deleteTaskLink
+} from '../controllers/meTasks.controller.js';
 import {
   requireTaskAccess,
   uploadMiddleware,
@@ -32,6 +42,11 @@ router.post('/tasks', authenticate, createCustomTask);
 router.put('/tasks/:id', authenticate, updateCustomTask);
 router.post('/tasks/:id/claim', authenticate, claimTask);
 router.delete('/tasks/:id', authenticate, deleteCustomTask);
+router.get('/tasks/:id/assignees', authenticate, getTaskAssignees);
+router.put('/tasks/:id/assignees', authenticate, setTaskAssignees);
+router.get('/tasks/:id/links', authenticate, getTaskLinks);
+router.post('/tasks/:id/links', authenticate, addTaskLink);
+router.delete('/tasks/:id/links/:linkId', authenticate, deleteTaskLink);
 router.get('/tasks/:id/attachments', authenticate, requireTaskAccess, listAttachments);
 router.post('/tasks/:id/attachments', authenticate, requireTaskAccess, uploadMiddleware, uploadAttachment);
 router.delete('/tasks/:id/attachments/:attachmentId', authenticate, requireTaskAccess, deleteAttachment);

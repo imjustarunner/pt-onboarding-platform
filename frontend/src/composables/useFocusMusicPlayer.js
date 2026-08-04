@@ -454,6 +454,22 @@ export function useFocusMusicPlayer({ userIdRef } = {}) {
     getAudio()?.pause();
   };
 
+  /** Fully stop playback and clear toast (prevents background streaming). */
+  const endSession = () => {
+    const audio = getAudio();
+    if (audio) {
+      audio.pause();
+      try { audio.currentTime = 0; } catch { /* ignore */ }
+      try { audio.removeAttribute('src'); audio.load(); } catch { /* ignore */ }
+    }
+    playing.value = false;
+    currentTrackId.value = null;
+    currentTime.value = 0;
+    duration.value = 0;
+    prefs.value = { ...prefs.value, currentTrackId: null };
+    persistPrefs();
+  };
+
   const playNext = async () => {
     const pool = getPlayPool();
     if (!pool.length) return;
@@ -794,6 +810,8 @@ export function useFocusMusicPlayer({ userIdRef } = {}) {
     playTrack,
     togglePlay,
     pause,
+    endSession,
+    isPlaying: playing,
     playNext,
     playPrev,
     toggleLoopTrack,

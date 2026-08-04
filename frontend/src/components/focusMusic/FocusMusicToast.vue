@@ -17,6 +17,7 @@
         {{ playing ? '⏸' : '▶' }}
       </button>
       <button type="button" title="Next track" @click.stop="$emit('next')">⏭</button>
+      <button type="button" title="End focus music" class="end-btn" @click.stop="$emit('end')">■</button>
       <button type="button" title="Open Focus Music" @click.stop="$emit('open-modal')">⋯</button>
     </div>
   </div>
@@ -33,7 +34,7 @@ const props = defineProps({
   playing: { type: Boolean, default: false }
 });
 
-defineEmits(['toggle-play', 'next', 'open-modal']);
+defineEmits(['toggle-play', 'next', 'open-modal', 'end']);
 
 const subtitle = computed(() => props.playlistName || trackSubtitle(props.track));
 </script>
@@ -87,6 +88,7 @@ const subtitle = computed(() => props.playlistName || trackSubtitle(props.track)
   font-size: 0.78rem;
 }
 
+.end-btn { color: #fca5a5 !important; }
 .focus-music-toast-controls {
   display: flex;
   gap: 4px;

@@ -291,6 +291,11 @@ async function handleTimeout() {
   if (timeoutInFlight) return;
   timeoutInFlight = true;
 
+  // Pause ambient audio before logout to avoid orphaned streaming costs
+  try {
+    window.dispatchEvent(new CustomEvent('pt:pause-focus-audio', { detail: { reason: 'timeout' } }));
+  } catch { /* ignore */ }
+
   const authStore = useAuthStore();
   const agencyStore = useAgencyStore();
 

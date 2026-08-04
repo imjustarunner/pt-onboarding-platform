@@ -10,19 +10,43 @@ class TaskList {
     return rows[0] || null;
   }
 
+  /**
+   * Lists the user can see: explicit membership OR lists they created.
+   * Agency filter is optional; when omitted, returns all memberships across orgs.
+   * Self-heals missing creator membership rows.
+   */
   static async listByUserMembership(userId, { agencyId = null } = {}) {
+    const uid = parseInt(userId, 10);
     let query = `
-      SELECT tl.*, tlm.role
+      SELECT tl.*,
+        COALESCE(tlm.role, 'admin') AS role,
+        tlm.user_id AS member_user_id
       FROM task_lists tl
-      JOIN task_list_members tlm ON tlm.task_list_id = tl.id AND tlm.user_id = ?
+      LEFT JOIN task_list_members tlm
+        ON tlm.task_list_id = tl.id AND tlm.user_id = ?
+      WHERE (tlm.user_id IS NOT NULL OR tl.created_by_user_id = ?)
     `;
-    const params = [userId];
+    const params = [uid, uid];
     if (agencyId) {
-      query += ' WHERE tl.agency_id = ?';
-      params.push(agencyId);
+      query += ' AND tl.agency_id = ?';
+      params.push(parseInt(agencyId, 10));
     }
     query += ' ORDER BY tl.name ASC';
     const [rows] = await pool.execute(query, params);
+
+    // Ensure creators always have a membership row so future lookups stay consistent.
+    await Promise.all(
+      rows
+        .filter((r) => !r.member_user_id && Number(r.created_by_user_id) === uid)
+        .map(async (r) => {
+          try {
+            await TaskListMember.add(r.id, uid, 'admin');
+          } catch {
+            // ignore duplicate / race
+          }
+        })
+    );
+
     return rows.map((r) => ({
       id: r.id,
       agency_id: r.agency_id,

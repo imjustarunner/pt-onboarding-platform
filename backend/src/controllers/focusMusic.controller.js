@@ -33,6 +33,8 @@ async function isFocusMusicEnabledForAgency(agencyId) {
   const agency = await Agency.findById(agencyId);
   if (!agency) return false;
   const flags = parseFlags(agency?.feature_flags);
+  if (flags.focusPackageEnabled === true) return true;
+  if (flags.focusPackageEnabled === false && flags.focusMusicEnabled === false) return false;
   return flags.focusMusicEnabled !== false;
 }
 

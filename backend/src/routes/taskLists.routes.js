@@ -1,6 +1,7 @@
 import express from 'express';
 import {
   listTaskLists,
+  listTeamTaskLists,
   createTaskList,
   getTaskList,
   updateTaskList,
@@ -8,6 +9,7 @@ import {
   addMember,
   removeMember,
   listTasks,
+  listTeamListTasks,
   createTaskInList,
   listAgencyUsers
 } from '../controllers/taskLists.controller.js';
@@ -48,6 +50,8 @@ function requireAdmin(req, res, next) {
 }
 
 router.get('/task-lists', ...withAuth, listTaskLists);
+router.get('/task-lists/team', ...withAuth, listTeamTaskLists);
+router.get('/task-lists/:id/team-tasks', ...withAuth, listTeamListTasks);
 router.post('/task-lists', ...withAuth, createTaskList);
 
 router.get(

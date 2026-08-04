@@ -43,16 +43,72 @@ async function ensureUserInAgency(userId, agencyId) {
   return (agencies || []).some((a) => Number(a?.id) === Number(agencyId));
 }
 
+/** Manager/superadmin: all shared lists for a tenant (membership not required). */
+export const listTeamTaskLists = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
+    const role = String(req.user?.role || '').toLowerCase();
+    const canViewAll =
+      ['admin', 'super_admin', 'support', 'supervisor'].includes(role)
+      || !!req.user?.capabilities?.canManageHiring;
+    if (!canViewAll) return res.status(403).json({ error: { message: 'Forbidden' } });
+
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    const [rows] = await pool.execute(
+      `SELECT tl.*,
+        (SELECT COUNT(*) FROM tasks t
+          WHERE t.task_list_id = tl.id AND t.status NOT IN ('completed','overridden')
+            AND (COALESCE(t.is_private, 0) = 0 OR t.assigned_to_user_id = ? OR t.assigned_by_user_id = ?)) AS task_count,
+        (SELECT COUNT(*) FROM task_list_members tlm WHERE tlm.task_list_id = tl.id) AS member_count
+       FROM task_lists tl
+       WHERE tl.agency_id = ?
+       ORDER BY tl.name ASC`,
+      [userId, userId, agencyId]
+    );
+    const withMembers = await Promise.all(
+      (rows || []).map(async (l) => {
+        const members = await TaskListMember.listByTaskList(l.id).catch(() => []);
+        const memberNames = members.map((m) =>
+          `${m.first_name || ''} ${m.last_name || ''}`.trim() || m.email || 'Member'
+        );
+        return {
+          ...l,
+          task_count: Number(l.task_count || 0),
+          member_count: Number(l.member_count || 0),
+          members,
+          member_names: memberNames,
+          shared_with_label: memberNames.length
+            ? memberNames.slice(0, 4).join(', ') + (memberNames.length > 4 ? ` +${memberNames.length - 4}` : '')
+            : 'No members',
+          team_browse: true
+        };
+      })
+    );
+    res.json(withMembers);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const listTaskLists = async (req, res, next) => {
   try {
     const userId = req.user?.id;
-    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    // Default: all memberships for this user (across agencies). Pass agencyId only when explicitly scoping.
+    const agencyId =
+      req.query.agencyId != null && String(req.query.agencyId).trim() !== ''
+        ? parseInt(req.query.agencyId, 10)
+        : null;
     if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
 
-    const lists = await TaskList.listByUserMembership(userId, { agencyId });
+    const lists = await TaskList.listByUserMembership(userId, {
+      agencyId: Number.isFinite(agencyId) && agencyId > 0 ? agencyId : null
+    });
     const withCounts = await Promise.all(
       lists.map(async (l) => {
-        const [[countRow], [activityRow]] = await Promise.all([
+        const [[countRow], [activityRow], members] = await Promise.all([
           pool.execute(
             'SELECT COUNT(*) as c FROM tasks WHERE task_list_id = ? AND status NOT IN (?, ?)',
             [l.id, 'completed', 'overridden']
@@ -61,13 +117,22 @@ export const listTaskLists = async (req, res, next) => {
             `SELECT MAX(COALESCE(t.completed_at, t.updated_at)) as last_activity
              FROM tasks t WHERE t.task_list_id = ?`,
             [l.id]
-          ).catch(() => [[{ last_activity: null }]])
+          ).catch(() => [[{ last_activity: null }]]),
+          TaskListMember.listByTaskList(l.id).catch(() => [])
         ]);
         const lastActivity = activityRow[0]?.last_activity;
+        const memberNames = (members || []).map((m) =>
+          `${m.first_name || ''} ${m.last_name || ''}`.trim() || m.email || 'Member'
+        );
         return {
           ...l,
           task_count: countRow?.c ?? 0,
-          last_activity_at: lastActivity && lastActivity !== '0' ? lastActivity : null
+          last_activity_at: lastActivity && lastActivity !== '0' ? lastActivity : null,
+          members: members || [],
+          member_names: memberNames,
+          shared_with_label: memberNames.length
+            ? memberNames.slice(0, 4).join(', ') + (memberNames.length > 4 ? ` +${memberNames.length - 4}` : '')
+            : 'Only you'
         };
       })
     );
@@ -186,6 +251,23 @@ export const removeMember = async (req, res, next) => {
   }
 };
 
+/** Manager browse of a list's tasks without membership. */
+export const listTeamListTasks = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const role = String(req.user?.role || '').toLowerCase();
+    const canViewAll =
+      ['admin', 'super_admin', 'support', 'supervisor'].includes(role)
+      || !!req.user?.capabilities?.canManageHiring;
+    if (!canViewAll) return res.status(403).json({ error: { message: 'Forbidden' } });
+    const listId = parseInt(req.params.id, 10);
+    req.taskListId = listId;
+    return listTasks(req, res, next);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const listTasks = async (req, res, next) => {
   try {
     const listId = req.taskListId;
@@ -193,8 +275,10 @@ export const listTasks = async (req, res, next) => {
     const includeCompleted = statusFilter === 'completed' || statusFilter === 'all';
     const completedOnly = statusFilter === 'completed';
 
-    let whereClause = 't.task_list_id = ?';
-    const params = [listId];
+    const userId = req.user?.id;
+    let whereClause = `t.task_list_id = ?
+      AND (COALESCE(t.is_private, 0) = 0 OR t.assigned_to_user_id = ? OR t.assigned_by_user_id = ?)`;
+    const params = [listId, userId, userId];
     if (completedOnly) {
       whereClause += " AND t.status IN ('completed', 'overridden')";
     } else if (!includeCompleted) {
@@ -260,6 +344,7 @@ export const createTaskInList = async (req, res, next) => {
       description: description ? String(description).trim() || null : null,
       assignedToUserId: resolvedAssignee,
       assignedByUserId: userId,
+      assignedToAgencyId: list.agency_id || null,
       dueDate: due_date || null,
       referenceId: null,
       taskListId: listId,

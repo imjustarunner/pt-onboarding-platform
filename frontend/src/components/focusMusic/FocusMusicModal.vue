@@ -274,6 +274,7 @@
             🔀
           </button>
           <button type="button" title="Previous" @click="$emit('prev')">⏮</button>
+          <button type="button" title="End music" @click="$emit('end')">■ End</button>
           <button type="button" class="focus-music-play-btn" :title="playing ? 'Pause' : 'Play'" @click="$emit('toggle-play')">
             {{ playing ? '⏸' : '▶' }}
           </button>
@@ -357,7 +358,8 @@ const emit = defineEmits([
   'toggle-play',
   'prev',
   'next',
-  'set-volume'
+  'set-volume',
+  'end'
 ]);
 
 const loopCount = computed(() => props.loopTrackIds.length);

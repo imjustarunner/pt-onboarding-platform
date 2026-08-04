@@ -388,16 +388,17 @@
                 Messages
               </router-link>
               </template>
-              <router-link
+              <button
                 v-if="canShowAdminDashboardIcon"
-                :to="adminDashboardNavTo"
+                type="button"
                 class="nav-icon-btn"
-                title="Admin dashboard"
+                :title="adminDashboardIconTitle"
                 aria-label="Admin dashboard"
+                @click="onAdminDashboardIconClick"
               >
                 <img v-if="adminDashboardIconUrl" :src="adminDashboardIconUrl" alt="" class="nav-icon-img" />
                 <span v-else aria-hidden="true">🏢</span>
-              </router-link>
+              </button>
               <!-- Portal navigation (admins must see this even if ACTIVE_EMPLOYEE) -->
               <template v-if="canSeePortalNav && canSeeFullPortalNav">
 
@@ -976,9 +977,9 @@
                     </router-link>
                     <router-link
                       v-if="canShowScheduleTopNav && !isSscSstcTenant"
-                      :to="scheduleNavLink"
+                      :to="myScheduleNavLink"
                     >
-                      <span>Schedule</span>
+                      <span>My Schedule</span>
                       <span
                         v-if="showBuildingsPendingBadge && buildingsPendingCount > 0"
                         class="nav-badge"
@@ -1146,10 +1147,10 @@
                 <WeatherChip />
                 <router-link
                   v-if="canShowScheduleIcon && !isSscSstcTenant"
-                  :to="scheduleNavLink"
+                  :to="myScheduleNavLink"
                   class="nav-icon-btn"
-                  title="Schedule hub — My Schedule, staff compare, buildings, and approvals"
-                  aria-label="Schedule"
+                  title="My Schedule"
+                  aria-label="My Schedule"
                 >
                   <img v-if="scheduleIconUrl" :src="scheduleIconUrl" alt="" class="nav-icon-img" />
                   <span v-else aria-hidden="true">📅</span>
@@ -1181,30 +1182,6 @@
                   aria-label="Notifications"
                 >
                   {{ notificationsUnreadCount }}
-                </router-link>
-                <router-link
-                  v-if="!isSummitStatsChallengeChrome"
-                  :to="mySettingsNavTo"
-                  class="nav-icon-btn nav-my-settings-btn"
-                  title="My Settings — appearance, menus, notifications"
-                  aria-label="My Settings"
-                >
-                  <span class="nav-my-settings-label" aria-hidden="true">Me</span>
-                </router-link>
-                <router-link
-                  v-if="!isSummitStatsChallengeChrome"
-                  :to="myAccountNavTo"
-                  class="nav-icon-btn nav-account-btn"
-                  title="My Account"
-                  aria-label="My Account"
-                >
-                  <UserAvatar
-                    class="nav-account-avatar"
-                    :photo-path="navAccountPhotoPath"
-                    :first-name="user?.firstName || user?.first_name || ''"
-                    :last-name="user?.lastName || user?.last_name || ''"
-                    size="xs"
-                  />
                 </router-link>
                 <LogoutStatusSplit
                   class="nav-logout-split"
@@ -2008,8 +1985,8 @@
                     <span>Tickets</span>
                     <span class="mobile-obnoxious-badge" v-if="communicationsOpenTicketsCount > 0">{{ communicationsOpenTicketsCount }}</span>
                   </router-link>
-                  <router-link v-if="canShowScheduleTopNav && !isSscSstcTenant" :to="scheduleNavLink" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
-                    <span>Schedule</span>
+                  <router-link v-if="canShowScheduleTopNav && !isSscSstcTenant" :to="myScheduleNavLink" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">
+                    <span>My Schedule</span>
                     <span v-if="showBuildingsPendingBadge && buildingsPendingCount > 0" class="nav-badge" style="margin-left: 8px;" :title="availabilityPendingTitle">{{ buildingsPendingCount }}</span>
                   </router-link>
                   <router-link v-if="user?.role === 'supervisor'" :to="orgTo('/supervisor/availability-lab')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Find Providers</router-link>
@@ -2361,6 +2338,7 @@
         @prev="focusMusic.playPrev()"
         @next="focusMusic.playNext()"
         @set-volume="focusMusic.setVolume($event)"
+        @end="focusMusic.endSession()"
       />
       <FocusMusicToast
         v-if="showFocusMusicNav && focusMusic.showToast.value"
@@ -2369,6 +2347,7 @@
         :playing="focusMusic.playing.value"
         @toggle-play="focusMusic.togglePlay()"
         @next="focusMusic.playNext()"
+        @end="focusMusic.endSession()"
         @open-modal="openFocusMusic()"
       />
       </div>
@@ -2441,7 +2420,6 @@ import AwaySessionOverlay from './components/AwaySessionOverlay.vue';
 import LogoutStatusSplit from './components/LogoutStatusSplit.vue';
 import LoginSplashModal from './components/LoginSplashModal.vue';
 import PrivilegedLoginBriefingModal from './components/admin/PrivilegedLoginBriefingModal.vue';
-import UserAvatar from './components/common/UserAvatar.vue';
 import { usePresenceSessionStore } from './store/presenceSession';
 import { availabilityBandForPerson } from './utils/presenceStatus';
 import { getStatusPromptMode, subscribeStatusPrompt } from './utils/statusPromptBridge';
@@ -2496,12 +2474,40 @@ const focusMusicUserId = computed(() => authStore.user?.id ?? null);
 const focusMusic = useFocusMusicPlayer({ userIdRef: focusMusicUserId });
 const showFocusMusicNav = computed(() => {
   if (!isAuthenticated.value) return false;
+  // Not for SSTC / school staff / guardians / clients
+  if (isSscSstcTenant.value || isSummitStatsChallengeChrome.value) return false;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (
+    role === 'school_staff'
+    || role === 'guardian'
+    || role === 'client'
+    || role === 'client_guardian'
+    || role === 'kiosk'
+  ) {
+    return false;
+  }
   if (!agencyStore.currentAgency?.id) return false;
-  return currentAgencyFeatureFlags.value?.focusMusicEnabled !== false;
+  const flags = currentAgencyFeatureFlags.value || {};
+  // Focus Package supersedes Focus Music; either flag keeps access for grandfathered tenants
+  if (flags.focusPackageEnabled === true) return true;
+  if (flags.focusPackageEnabled === false && flags.focusMusicEnabled === false) return false;
+  return flags.focusMusicEnabled !== false;
 });
 const openFocusMusic = () => {
   focusMusic.openModal();
 };
+const onPauseFocusAudio = () => {
+  try { focusMusic.endSession(); } catch { /* ignore */ }
+};
+const onVisibilityPauseMusic = () => {
+  if (document.visibilityState === 'hidden') {
+    try { focusMusic.pause(); } catch { /* ignore */ }
+  }
+};
+if (typeof window !== 'undefined') {
+  window.addEventListener('pt:pause-focus-audio', onPauseFocusAudio);
+  document.addEventListener('visibilitychange', onVisibilityPauseMusic);
+}
 const userIdForSnooze = computed(() => authStore.user?.id ?? null);
 const sessionIdForDefer = computed(() => {
   try {
@@ -5223,6 +5229,18 @@ const canShowAdminDashboardIcon = computed(() => {
   return isTrueAdmin.value && !isSscSstcTenant.value;
 });
 
+const isOnTenantAdminDashboard = computed(() => {
+  const p = String(route.path || '');
+  return /\/admin-dashboard(\/|$)/i.test(p) || /\/[^/]+\/admin(\/|$)/i.test(p) && !/\/admin\//i.test(p);
+});
+
+const isOnPlatformAdminDashboard = computed(() => {
+  const p = String(route.path || '');
+  const slug = String(route.params?.organizationSlug || '').trim();
+  if (slug) return false;
+  return p === '/admin' || p === '/admin-dashboard' || route.meta?.platformCommandCenter === true;
+});
+
 /** Summit club managers (and assistant managers) use a dedicated route (not global /admin). */
 const adminDashboardNavTo = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -5242,6 +5260,92 @@ const adminDashboardNavTo = computed(() => {
   }
   return '/admin';
 });
+
+const adminDashboardIconTitle = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  const isSuper = role === 'super_admin' || role === 'superadmin';
+  if (isSuper && (isOnTenantAdminDashboard.value || isOnPlatformAdminDashboard.value)) {
+    return isOnPlatformAdminDashboard.value
+      ? 'Open tenant admin dashboard'
+      : 'Open superadmin dashboard';
+  }
+  if (!isSuper && isOnTenantAdminDashboard.value) {
+    return 'Switch to next tenant dashboard';
+  }
+  return 'Admin dashboard';
+});
+
+function agencySlugOf(a) {
+  return String(a?.slug || a?.portal_url || '').trim();
+}
+
+function cycleableTenantAgencies() {
+  const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  return list.filter((a) => {
+    if (!a?.id || !agencySlugOf(a)) return false;
+    const t = String(a.organization_type || a.organizationType || '').toLowerCase();
+    // Prefer real agency tenants (skip pure affiliations / schools if nested under agency)
+    if (t === 'affiliation' || t === 'school' || t === 'program') return false;
+    return true;
+  });
+}
+
+async function goToTenantAdminDashboard(agency) {
+  if (!agency) return;
+  const slug = agencySlugOf(agency);
+  if (!slug) return;
+  try {
+    agencyStore.setCurrentAgency(agency);
+    brandingStore.setActiveRouteSlug(slug.toLowerCase());
+    brandingStore.syncDocumentThemeFromSelectedAgency({ skipRouteSlugGuard: true });
+  } catch { /* ignore */ }
+  await router.push(`/${slug}/admin-dashboard`).catch(() => {});
+}
+
+async function onAdminDashboardIconClick() {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  const isSuper = role === 'super_admin' || role === 'superadmin';
+
+  if (isSuper) {
+    // On tenant admin → platform superadmin HQ.
+    if (isOnTenantAdminDashboard.value && !isOnPlatformAdminDashboard.value) {
+      try {
+        agencyStore.setPlatformMode();
+        brandingStore.setActiveRouteSlug('');
+        await brandingStore.syncDocumentThemeFromPlatformBranding();
+      } catch { /* ignore */ }
+      await router.push('/admin').catch(() => {});
+      return;
+    }
+    // From platform HQ (or elsewhere) → that tenant's admin dashboard.
+    const current = agencyStore.currentAgency;
+    if (current?.id && agencySlugOf(current)) {
+      await goToTenantAdminDashboard(current);
+      return;
+    }
+    const tenants = cycleableTenantAgencies();
+    if (tenants[0]) {
+      await goToTenantAdminDashboard(tenants[0]);
+      return;
+    }
+    await router.push(adminDashboardNavTo.value).catch(() => {});
+    return;
+  }
+
+  // Non-superadmin: if already on a tenant admin dashboard, cycle to the next tenant.
+  if (isOnTenantAdminDashboard.value) {
+    const tenants = cycleableTenantAgencies();
+    if (tenants.length > 1) {
+      const currentId = Number(agencyStore.currentAgency?.id || 0);
+      const idx = Math.max(0, tenants.findIndex((a) => Number(a.id) === currentId));
+      const next = tenants[(idx + 1) % tenants.length];
+      await goToTenantAdminDashboard(next);
+      return;
+    }
+  }
+
+  await router.push(adminDashboardNavTo.value).catch(() => {});
+}
 
 const adminDashboardIconUrl = computed(() => {
   try {
@@ -5419,10 +5523,6 @@ const sstcMemberShowClubEvents = computed(() => {
 
 const ticketsNavLink = computed(() => orgTo('/tickets'));
 
-const scheduleNavLink = computed(() => {
-  return orgTo('/schedule');
-});
-
 const schoolAvailabilityRequestsNavLink = computed(() => ({
   path: orgTo('/admin/school-approvals'),
   query: {
@@ -5478,12 +5578,6 @@ const myAccountNavTo = computed(() => {
   const t = myDashboardTo.value;
   const path = typeof t === 'string' ? t : (t?.path || '/dashboard');
   return { path, query: { tab: 'my' } };
-});
-
-/** Top-bar My Account avatar — keep a fixed box so photos never collapse to a sliver. */
-const navAccountPhotoPath = computed(() => {
-  const u = user.value || authStore.user || {};
-  return String(u.profile_photo_url || u.profilePhotoUrl || u.profile_photo_path || '').trim() || null;
 });
 
 /** Personal My Settings (appearance, hover menus, notifications) inside My Account. */

@@ -1,0 +1,26 @@
+-- Migration 1116: First-class action items (meeting-linked and/or nested under tasks)
+CREATE TABLE IF NOT EXISTS task_action_items (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  parent_task_id INT NULL COMMENT 'Optional parent custom task',
+  meeting_event_id INT NULL COMMENT 'Admin/team meeting provider_schedule_events.id',
+  meeting_action_key VARCHAR(64) NULL COMMENT 'Stable key from action_items_json.id',
+  title VARCHAR(500) NOT NULL,
+  notes TEXT NULL,
+  assignee_user_id INT NULL,
+  created_by_user_id INT NOT NULL,
+  agency_id INT NULL,
+  status ENUM('pending', 'in_progress', 'completed', 'cancelled') NOT NULL DEFAULT 'pending',
+  completed_at DATETIME NULL,
+  hub_task_id INT NULL COMMENT 'Projected tasks.id when synced to hub',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_tai_assignee (assignee_user_id, status),
+  INDEX idx_tai_meeting (meeting_event_id),
+  INDEX idx_tai_parent (parent_task_id),
+  INDEX idx_tai_hub_task (hub_task_id),
+  UNIQUE KEY uq_tai_meeting_key (meeting_event_id, meeting_action_key),
+  FOREIGN KEY (parent_task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+  FOREIGN KEY (assignee_user_id) REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (agency_id) REFERENCES agencies(id) ON DELETE SET NULL
+);

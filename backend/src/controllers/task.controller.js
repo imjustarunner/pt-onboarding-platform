@@ -317,7 +317,12 @@ export const getUserTasks = async (req, res, next) => {
       q,
       limit,
       offset,
-      agencyId: agencyIdRaw
+      agencyId: agencyIdRaw,
+      hiddenAgencyIds: hiddenAgencyIdsRaw,
+      assignedToUserId,
+      taskListId,
+      projectId,
+      tenantId
     } = req.query;
 
     const role = String(req.user.role || '').toLowerCase();
@@ -336,6 +341,13 @@ export const getUserTasks = async (req, res, next) => {
     if (!agencyId && Array.isArray(req.user.agencies) && req.user.agencies[0]) {
       agencyId = req.user.agencies[0].id || req.user.agencies[0].agency_id || null;
     }
+    const tenantFilter = tenantId != null ? parseInt(tenantId, 10) : null;
+    if (canViewAll && tenantFilter) agencyId = tenantFilter;
+
+    const hiddenAgencyIds = String(hiddenAgencyIdsRaw || '')
+      .split(',')
+      .map((n) => parseInt(n, 10))
+      .filter((n) => n > 0);
 
     const filters = {
       taskType: taskType || undefined,
@@ -347,7 +359,12 @@ export const getUserTasks = async (req, res, next) => {
       q: q || undefined,
       limit: limit != null ? limit : undefined,
       offset: offset != null ? offset : undefined,
-      agencyId: canViewAll && requestedView === 'all' ? agencyId : undefined
+      agencyId: canViewAll && requestedView === 'all' ? agencyId : undefined,
+      hiddenAgencyIds: canViewAll && requestedView === 'all' ? hiddenAgencyIds : undefined,
+      assignedToUserId: canViewAll && assignedToUserId ? parseInt(assignedToUserId, 10) : undefined,
+      taskListId: taskListId ? parseInt(taskListId, 10) : undefined,
+      projectId: projectId ? parseInt(projectId, 10) : undefined,
+      agencyIdFilter: tenantFilter || undefined
     };
 
     if (requestedView === 'all' && !canViewAll) {
@@ -361,6 +378,56 @@ export const getUserTasks = async (req, res, next) => {
       tasks = await enrichDocumentTasks(tasks);
     }
     res.json(tasks);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const searchTasksHub = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const q = String(req.query.q || '').trim();
+    if (!q) return res.json([]);
+
+    const role = String(req.user.role || '').toLowerCase();
+    const canViewAll =
+      role === 'admin' ||
+      role === 'super_admin' ||
+      role === 'support' ||
+      role === 'supervisor' ||
+      !!req.user?.capabilities?.canManageHiring;
+
+    let agencyId = req.query.agencyId != null ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) {
+      agencyId = req.user.agency_id || req.user.primary_agency_id || null;
+    }
+    if (req.query.tenantId) agencyId = parseInt(req.query.tenantId, 10);
+
+    const results = await Task.searchHub(userId, q, { agencyId, canViewAll });
+
+    // Lightweight fuzzy score: subsequence + letter coverage
+    const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const qn = norm(q);
+    const score = (title) => {
+      const t = norm(title);
+      if (!t || !qn) return 0;
+      if (t.includes(qn)) return 100 + (100 - Math.min(t.length, 100));
+      let qi = 0;
+      for (let i = 0; i < t.length && qi < qn.length; i++) {
+        if (t[i] === qn[qi]) qi++;
+      }
+      const sub = (qi / qn.length) * 70;
+      const letters = [...new Set(qn)].filter((c) => t.includes(c)).length / Math.max([...new Set(qn)].length, 1);
+      return sub + letters * 30;
+    };
+
+    const ranked = results
+      .map((r) => ({ ...r, relevance: score(r.title) }))
+      .filter((r) => r.relevance >= 25)
+      .sort((a, b) => b.relevance - a.relevance)
+      .slice(0, 40);
+
+    res.json(ranked);
   } catch (error) {
     next(error);
   }
@@ -385,9 +452,22 @@ export const getTaskCounts = async (req, res, next) => {
       agencyId = req.user.agencies[0].id || req.user.agencies[0].agency_id || null;
     }
 
+    const hiddenAgencyIds = String(req.query.hiddenAgencyIds || '')
+      .split(',')
+      .map((n) => parseInt(n, 10))
+      .filter((n) => n > 0);
+
+    const tenantFilter = req.query.tenantId != null ? parseInt(req.query.tenantId, 10) : null;
+    if (canViewAll && tenantFilter) agencyId = tenantFilter;
+
     const counts = await Task.getHubCounts(userId, {
       agencyId,
-      canViewAll
+      canViewAll,
+      hiddenAgencyIds,
+      assignedToUserId: req.query.assignedToUserId ? parseInt(req.query.assignedToUserId, 10) : null,
+      taskListId: req.query.taskListId ? parseInt(req.query.taskListId, 10) : null,
+      projectId: req.query.projectId ? parseInt(req.query.projectId, 10) : null,
+      agencyIdFilter: tenantFilter
     });
     res.json(counts);
   } catch (error) {
