@@ -2566,7 +2566,7 @@ const goToIndirectLogTime = () => {
 function syncIndirectTimeSessionPolling() {
   if (
     authStore.isAuthenticated &&
-    indirectTimeSessionStore.isHourlyWorker &&
+    indirectTimeSessionStore.canUseLogTime &&
     indirectTimeSessionStore.agencyId
   ) {
     indirectTimeSessionStore.startPolling();
@@ -2578,8 +2578,6 @@ function syncIndirectTimeSessionPolling() {
 watch(
   () => [
     authStore.isAuthenticated,
-    authStore.user?.isHourlyWorker,
-    authStore.user?.is_hourly_worker,
     agencyStore.currentAgency?.id
   ],
   syncIndirectTimeSessionPolling

@@ -9902,6 +9902,24 @@ const periodsForSelect = computed(() => {
   // Fallback: if no periods have the flag set yet, show everything
   if (!aligned.length) aligned = source.slice();
 
+  // Fill chronological gaps between aligned periods (e.g. missing Jul 18–31 between
+  // Jul 4–17 and Aug 1–14) so periods that exist but were mis-tagged still appear.
+  if (aligned.length && source.length) {
+    const starts = aligned.map((p) => String(p.period_start || '')).filter(Boolean).sort();
+    const ends = aligned.map((p) => String(p.period_end || '')).filter(Boolean).sort();
+    const minStart = starts[0];
+    const maxEnd = ends[ends.length - 1];
+    if (minStart && maxEnd) {
+      const byId = new Map(aligned.map((p) => [Number(p.id), p]));
+      for (const p of source) {
+        const s = String(p?.period_start || '');
+        const e = String(p?.period_end || '');
+        if (s && e && s >= minStart && e <= maxEnd) byId.set(Number(p.id), p);
+      }
+      aligned = [...byId.values()];
+    }
+  }
+
   // Sort newest first
   aligned.sort((a, b) => {
     const ae = String(a?.period_end || '');
@@ -12443,7 +12461,7 @@ const loadPeriods = async () => {
     try {
       await api.post(
         '/payroll/periods/ensure-future',
-        { months: 6, pastPeriods: 2 },
+        { months: 6, pastPeriods: 4 },
         { params: { agencyId: agencyId.value } }
       );
     } catch (ensureErr) {

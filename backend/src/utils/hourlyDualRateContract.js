@@ -26,14 +26,43 @@ export function isHourlyDualRateEnabled(userOrRow) {
   return flag === true || flag === 1 || flag === '1';
 }
 
+/** Service-type pay bucket / Log Time category group. */
 export function normalizePayBucket(raw) {
   const b = String(raw || '').trim().toLowerCase();
-  return b === 'other_1' ? 'other_1' : 'indirect';
+  if (b === 'other_1') return 'other_1';
+  if (b === 'support' || b === 'support_activity') return 'support';
+  if (b === 'supervision_note' || b === 'supervision_note_time') return 'supervision_note';
+  return 'indirect';
+}
+
+/** Map service-type pay_bucket → claim categoryGroup + pay serviceCode. */
+export function categoryGroupFromPayBucket(payBucket) {
+  const b = normalizePayBucket(payBucket);
+  if (b === 'support') return 'support_activity';
+  if (b === 'supervision_note') return 'supervision_note';
+  if (b === 'other_1') return 'support_activity'; // legacy Other 1 → support semantics
+  return 'indirect_service';
+}
+
+export function serviceCodeForCategoryGroup(categoryGroup) {
+  const g = String(categoryGroup || '').trim().toLowerCase();
+  if (g === 'support_activity') return 'MEETING';
+  if (g === 'supervision_note') return 'Admin Time';
+  return null;
+}
+
+export function categoryGroupLabel(categoryGroup) {
+  const g = String(categoryGroup || '').trim().toLowerCase();
+  if (g === 'support_activity') return 'Support Activity';
+  if (g === 'supervision_note') return 'Supervision Note Time';
+  if (g === 'indirect_service') return 'Indirect Service';
+  return 'Indirect Service';
 }
 
 export function normalizeTimeClaimBucket(raw) {
   const b = String(raw || 'indirect').trim().toLowerCase();
   if (b === 'direct') return 'direct';
+  // Legacy Other 1 claims retain other_1; new Support Activity uses indirect for PTO.
   if (b === 'other_1') return 'other_1';
   return 'indirect';
 }

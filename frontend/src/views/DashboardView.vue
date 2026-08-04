@@ -368,7 +368,7 @@
               :show-payroll="overviewFlags.showPayroll"
               :show-notes="overviewFlags.showNotes"
               :show-claims="overviewFlags.showClaims"
-              :show-log-time="isHourlyWorkerUser"
+              :show-log-time="true"
               :show-supervision="overviewFlags.showSupervision"
               :show-my-supervision="overviewFlags.showMySupervision"
               :show-chats="overviewFlags.showChats"
@@ -388,7 +388,7 @@
           </div>
 
           <div
-            v-if="!previewMode && isOnboardingComplete && !isClubContext && isHourlyWorkerUser && activeTab === 'log_time'"
+            v-if="!previewMode && isOnboardingComplete && !isClubContext && activeTab === 'log_time'"
             class="my-panel my-panel--log-time"
             data-tour="dash-log-time-panel"
           >
@@ -4234,7 +4234,7 @@ const syncFromQuery = () => {
   }
 
   if (typeof qTab === 'string') {
-    if (qTab === 'log_time' && isHourlyWorkerUser.value) {
+    if (qTab === 'log_time') {
       activeTab.value = 'log_time';
       previousContentTab.value = 'log_time';
       selectedRailCardId.value = 'submit';
@@ -4359,7 +4359,7 @@ const submitPanelFlags = computed(() => ({
   budgetExpenses: canShowBudgetSubmitExpenses.value,
   companyCar: Boolean(authStore.user?.companyCarSubmitAccess || authStore.user?.companyCarManageAccess),
   inSchoolGroup: inSchoolEnabled.value && hasAssignedSchools.value,
-  hourlyLogTime: isHourlyWorkerUser.value,
+  hourlyLogTime: true,
   timeExcess: timeClaimExcessEnabled.value,
   timeCorrection: timeClaimServiceCorrectionEnabled.value,
   hasSchools: hasAssignedSchools.value,
@@ -5110,9 +5110,12 @@ watch(isDarkMode, () => {
 });
 
 // If available cards change (role/status), keep activeTab on a valid content card.
+// Preserve special tabs (log_time, program workspace) that are not rail card IDs.
+const PRESERVED_SPECIAL_TABS = new Set(['log_time', PROGRAM_WORKSPACE_TAB]);
 watch(dashboardCards, () => {
   const cards = dashboardCards.value || [];
   const activeId = String(activeTab.value || '');
+  if (PRESERVED_SPECIAL_TABS.has(activeId)) return;
   const activeCard = cards.find((c) => String(c.id) === activeId) || null;
   if (activeCard && activeCard.kind === 'content') return;
   const firstContent = cards.find((c) => c.kind === 'content') || null;

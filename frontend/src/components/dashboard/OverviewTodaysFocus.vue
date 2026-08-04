@@ -1,50 +1,91 @@
 <template>
-  <section class="todays-focus" aria-label="Today's Focus">
+  <section v-if="!dismissed" class="todays-focus" :class="{ 'todays-focus--collapsed': collapsed }" aria-label="Today's Focus">
     <div class="todays-focus__main">
       <header class="todays-focus__head">
-        <div>
-          <h3 class="todays-focus__title">
-            Today’s Focus
-            <span class="todays-focus__count">{{ visibleItems.length }} items</span>
-          </h3>
-          <p class="todays-focus__sub">Your personalized momentum for the day.</p>
+        <button
+          type="button"
+          class="todays-focus__head-toggle"
+          :aria-expanded="!collapsed"
+          @click="collapsed = !collapsed"
+        >
+          <svg
+            class="todays-focus__chevron"
+            :class="{ 'todays-focus__chevron--open': !collapsed }"
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            aria-hidden="true"
+          >
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+          <div>
+            <h3 class="todays-focus__title">
+              Today’s Focus
+              <span v-if="visibleItems.length" class="todays-focus__count">{{ visibleItems.length }} items</span>
+            </h3>
+            <p v-if="!collapsed" class="todays-focus__sub">Your personalized momentum for the day.</p>
+          </div>
+        </button>
+        <div class="todays-focus__head-actions">
+          <button
+            type="button"
+            class="todays-focus__icon-btn"
+            aria-label="Dismiss Today's Focus"
+            title="Dismiss for now"
+            @click="dismiss"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
         </div>
       </header>
 
-      <div v-if="loading" class="todays-focus__loading">Loading focus…</div>
-      <ul v-else-if="visibleItems.length" class="todays-focus__list">
-        <li v-for="(item, idx) in visibleItems" :key="`${item.label}-${idx}`" class="todays-focus__item">
-          <input type="checkbox" :checked="!!item._done" disabled />
-          <div class="todays-focus__body">
-            <div class="todays-focus__label">{{ item.label }}</div>
-            <div class="todays-focus__tags">
-              <span v-for="tag in item.tags || ['Today']" :key="tag" class="tag">{{ tag }}</span>
+      <template v-if="!collapsed">
+        <div v-if="loading" class="todays-focus__loading">Loading focus…</div>
+        <ul v-else-if="displayItems.length" class="todays-focus__list">
+          <li v-for="(item, idx) in displayItems" :key="`${item.label}-${idx}`" class="todays-focus__item">
+            <input type="checkbox" :checked="!!item._done" disabled />
+            <div class="todays-focus__body">
+              <div class="todays-focus__label">{{ item.label }}</div>
+              <div class="todays-focus__tags">
+                <span v-for="tag in item.tags || ['Today']" :key="tag" class="tag">{{ tag }}</span>
+              </div>
             </div>
-          </div>
-          <div class="todays-focus__actions">
-            <button
-              v-if="canAct(item)"
-              type="button"
-              class="btn btn-primary btn-xs"
-              :disabled="actingKey === item.label"
-              @click="act(item)"
-            >
-              {{ actingKey === item.label ? '…' : 'Done' }}
-            </button>
-            <button type="button" class="btn btn-secondary btn-xs" @click="snooze(item.label)">Snooze</button>
-          </div>
-        </li>
-      </ul>
-      <p v-else class="todays-focus__empty">All clear for now.</p>
+            <div class="todays-focus__actions">
+              <button
+                v-if="canAct(item)"
+                type="button"
+                class="btn btn-primary btn-xs"
+                :disabled="actingKey === item.label"
+                @click="act(item)"
+              >
+                {{ actingKey === item.label ? '…' : 'Done' }}
+              </button>
+              <button type="button" class="btn btn-secondary btn-xs" @click="snooze(item.label)">Snooze</button>
+            </div>
+          </li>
+        </ul>
+        <p v-else class="todays-focus__empty">All clear for now.</p>
 
-      <div class="todays-focus__footer">
-        <button type="button" class="link-btn" @click="$emit('add-sticky')">+ Add Momentum Sticky</button>
-        <button type="button" class="btn btn-secondary btn-sm" @click="$emit('view-momentum')">
-          View All Momentum ↗
-        </button>
-      </div>
+        <div v-if="moreCount > 0" class="todays-focus__more">
+          <button type="button" class="link-btn" @click="$emit('view-momentum')">
+            {{ moreCount }} more item{{ moreCount === 1 ? '' : 's' }} in Momentum ↗
+          </button>
+        </div>
+
+        <div class="todays-focus__footer">
+          <button type="button" class="link-btn" @click="$emit('add-sticky')">+ Add Momentum Sticky</button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="$emit('view-momentum')">
+            View All Momentum ↗
+          </button>
+        </div>
+      </template>
     </div>
-    <div class="todays-focus__ring" aria-hidden="true">
+    <div v-if="!collapsed" class="todays-focus__ring" aria-hidden="true">
       <svg viewBox="0 0 36 36">
         <path
           class="ring-bg"
@@ -62,12 +103,18 @@
       </div>
     </div>
   </section>
+  <div v-else class="todays-focus-dismissed">
+    <button type="button" class="link-btn" @click="restore">Show Today’s Focus</button>
+  </div>
 </template>
 
 <script setup>
-import { onMounted, toRef, watch } from 'vue';
+import { onMounted, ref, toRef, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import { useMomentumDigestFocus } from '../../composables/useMomentumDigestFocus';
+
+const COLLAPSED_KEY = 'overview_focus_collapsed';
+const DISMISSED_KEY = 'overview_focus_dismissed';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null }
@@ -76,9 +123,14 @@ const props = defineProps({
 defineEmits(['view-momentum', 'add-sticky']);
 
 const authStore = useAuthStore();
+const collapsed = ref(sessionStorage.getItem(COLLAPSED_KEY) === '1');
+const dismissed = ref(sessionStorage.getItem(DISMISSED_KEY) === '1');
+
 const {
   loading,
   visibleItems,
+  displayItems,
+  moreCount,
   progressPct,
   actingKey,
   snooze,
@@ -90,6 +142,20 @@ const {
   agencyId: toRef(props, 'agencyId')
 });
 
+function dismiss() {
+  dismissed.value = true;
+  sessionStorage.setItem(DISMISSED_KEY, '1');
+}
+
+function restore() {
+  dismissed.value = false;
+  sessionStorage.removeItem(DISMISSED_KEY);
+}
+
+watch(collapsed, (val) => {
+  sessionStorage.setItem(COLLAPSED_KEY, val ? '1' : '0');
+});
+
 onMounted(fetch);
 watch(() => props.agencyId, fetch);
 </script>
@@ -97,69 +163,122 @@ watch(() => props.agencyId, fetch);
 <style scoped>
 .todays-focus {
   display: grid;
-  grid-template-columns: 1fr 140px;
-  gap: 16px;
+  grid-template-columns: 1fr 100px;
+  gap: 12px;
   background: linear-gradient(135deg, #fef9c3 0%, #fef08a 40%, #fde68a 100%);
   border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 16px;
-  padding: 18px 20px;
-  margin-bottom: 18px;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.todays-focus--collapsed {
+  grid-template-columns: 1fr;
+  padding: 10px 14px;
+}
+.todays-focus__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 0;
+}
+.todays-focus__head-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  flex: 1;
+  min-width: 0;
+}
+.todays-focus__chevron {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: rgba(0, 0, 0, 0.45);
+  transition: transform 0.15s ease;
+}
+.todays-focus__chevron--open {
+  transform: rotate(180deg);
+}
+.todays-focus__head-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.todays-focus__icon-btn {
+  border: 0;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 6px;
+  padding: 4px;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.45);
+  line-height: 0;
+}
+.todays-focus__icon-btn:hover {
+  background: rgba(255, 255, 255, 0.8);
+  color: rgba(0, 0, 0, 0.7);
 }
 .todays-focus__title {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: 1rem;
   font-weight: 800;
   color: #1a1a1a;
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 8px;
 }
 .todays-focus__count {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  color: rgba(0, 0, 0, 0.55);
+  color: rgba(0, 0, 0, 0.5);
 }
 .todays-focus__sub {
-  margin: 4px 0 12px;
-  font-size: 13px;
-  color: rgba(0, 0, 0, 0.55);
+  margin: 2px 0 8px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.5);
 }
 .todays-focus__list {
   list-style: none;
-  margin: 0;
+  margin: 8px 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 .todays-focus__item {
   display: grid;
-  grid-template-columns: 20px 1fr auto;
-  gap: 10px;
+  grid-template-columns: 18px 1fr auto;
+  gap: 8px;
   align-items: start;
   background: rgba(255, 255, 255, 0.55);
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 8px;
+  padding: 8px 10px;
 }
-.todays-focus__label { font-size: 13px; font-weight: 600; color: #1a1a1a; }
-.todays-focus__tags { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+.todays-focus__label { font-size: 12px; font-weight: 600; color: #1a1a1a; line-height: 1.35; }
+.todays-focus__tags { display: flex; gap: 4px; margin-top: 3px; flex-wrap: wrap; }
 .tag {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.02em;
   background: rgba(255, 255, 255, 0.8);
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 1px 6px;
   color: #57534e;
 }
-.todays-focus__actions { display: flex; gap: 6px; }
+.todays-focus__actions { display: flex; gap: 4px; }
+.todays-focus__more {
+  margin-top: 6px;
+}
 .todays-focus__footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 12px;
-  gap: 10px;
+  margin-top: 8px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 .link-btn {
@@ -168,7 +287,7 @@ watch(() => props.agencyId, fetch);
   color: #166534;
   font-weight: 700;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
 }
 .todays-focus__ring {
   position: relative;
@@ -177,8 +296,8 @@ watch(() => props.agencyId, fetch);
   justify-content: center;
 }
 .todays-focus__ring svg {
-  width: 120px;
-  height: 120px;
+  width: 88px;
+  height: 88px;
   transform: rotate(-90deg);
 }
 .ring-bg {
@@ -201,10 +320,13 @@ watch(() => props.agencyId, fetch);
   justify-content: center;
   text-align: center;
 }
-.ring-label strong { font-size: 1.1rem; color: #166534; }
-.ring-label span { font-size: 10px; color: #57534e; font-weight: 600; }
+.ring-label strong { font-size: 0.95rem; color: #166534; }
+.ring-label span { font-size: 9px; color: #57534e; font-weight: 600; }
 .todays-focus__loading,
-.todays-focus__empty { font-size: 13px; color: rgba(0, 0, 0, 0.55); }
+.todays-focus__empty { font-size: 12px; color: rgba(0, 0, 0, 0.5); margin-top: 8px; }
+.todays-focus-dismissed {
+  margin-bottom: 10px;
+}
 @media (max-width: 700px) {
   .todays-focus { grid-template-columns: 1fr; }
   .todays-focus__ring { justify-content: flex-start; }

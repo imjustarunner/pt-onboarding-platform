@@ -2,6 +2,7 @@ import { ref, computed } from 'vue';
 import api from '../services/api';
 
 const DIGEST_SNOOZED_KEY = 'momentum_digest_snoozed';
+const MAX_FOCUS_ITEMS = 5;
 
 /**
  * Lightweight Today’s Focus digest for Overview (and reusable snooze/act helpers).
@@ -14,6 +15,12 @@ export function useMomentumDigestFocus({ userId, agencyId } = {}) {
 
   const visibleItems = computed(() =>
     (items.value || []).filter((i) => i?.label && !snoozed.value.has(i.label))
+  );
+
+  const displayItems = computed(() => visibleItems.value.slice(0, MAX_FOCUS_ITEMS));
+
+  const moreCount = computed(() =>
+    Math.max(0, visibleItems.value.length - MAX_FOCUS_ITEMS)
   );
 
   const progressPct = computed(() => {
@@ -91,7 +98,7 @@ export function useMomentumDigestFocus({ userId, agencyId } = {}) {
       const tasks = Array.isArray(tasksRes.data) ? tasksRes.data : [];
       for (const t of tasks) {
         if (t.status === 'completed' || t.status === 'overridden') continue;
-        if (out.length >= 8) break;
+        if (out.length >= MAX_FOCUS_ITEMS) break;
         const label = t.title || 'Task';
         if (out.some((i) => i.label === label)) continue;
         out.push({
@@ -107,7 +114,7 @@ export function useMomentumDigestFocus({ userId, agencyId } = {}) {
       for (const s of stickies) {
         for (const e of s.entries || s.Entries || []) {
           if (e.is_checked || e.isChecked) continue;
-          if (out.length >= 8) break;
+          if (out.length >= MAX_FOCUS_ITEMS) break;
           const label = e.text || e.content || e.title;
           if (!label || out.some((i) => i.label === label)) continue;
           out.push({
@@ -120,7 +127,7 @@ export function useMomentumDigestFocus({ userId, agencyId } = {}) {
         }
       }
 
-      items.value = out.slice(0, 8);
+      items.value = out.slice(0, MAX_FOCUS_ITEMS);
     } finally {
       loading.value = false;
     }
@@ -130,6 +137,8 @@ export function useMomentumDigestFocus({ userId, agencyId } = {}) {
     loading,
     items,
     visibleItems,
+    displayItems,
+    moreCount,
     progressPct,
     actingKey,
     snooze,

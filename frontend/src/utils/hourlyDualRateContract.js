@@ -1,5 +1,6 @@
 /**
- * Helpers for dual-rate hourly contracts (Indirect + Other 1 Log Time split).
+ * Helpers for Log Time category groups (Indirect Service / Support Activity / Supervision Note).
+ * Legacy dual-rate Other 1 helpers retained for older claims.
  */
 
 /** Canonical employee number for Jacquelyne / EMP-0485 dual-rate pilot. */
@@ -34,5 +35,30 @@ export function isHourlyDualRateEnabled(user) {
 
 export function normalizePayBucket(raw) {
   const b = String(raw || '').trim().toLowerCase();
-  return b === 'other_1' ? 'other_1' : 'indirect';
+  if (b === 'other_1') return 'other_1';
+  if (b === 'support' || b === 'support_activity') return 'support';
+  if (b === 'supervision_note' || b === 'supervision_note_time') return 'supervision_note';
+  return 'indirect';
+}
+
+export function categoryGroupFromPayBucket(payBucket) {
+  const b = normalizePayBucket(payBucket);
+  if (b === 'support' || b === 'other_1') return 'support_activity';
+  if (b === 'supervision_note') return 'supervision_note';
+  return 'indirect_service';
+}
+
+export function serviceCodeForCategoryGroup(categoryGroup) {
+  const g = String(categoryGroup || '').trim().toLowerCase();
+  if (g === 'support_activity') return 'MEETING';
+  if (g === 'supervision_note') return 'Admin Time';
+  return null;
+}
+
+export function categoryGroupLabel(categoryGroup) {
+  const g = String(categoryGroup || '').trim().toLowerCase();
+  if (g === 'support_activity') return 'Support Activity';
+  if (g === 'supervision_note') return 'Supervision Note Time';
+  if (g === 'indirect_service') return 'Indirect Service';
+  return 'Indirect Service';
 }

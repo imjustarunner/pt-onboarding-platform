@@ -4107,7 +4107,14 @@ const fmtShortDateTime = (iso, timezone) => {
 
 const timeClaimTypeLabel = (c) => {
   const t = String(c?.claim_type || '').toLowerCase();
-  if (t === 'meeting_training') return 'Meeting/Training/Outreach';
+  if (t === 'meeting_training') {
+    const code = String(c?.payload?.serviceCode || '').trim();
+    const cat = String(c?.payload?.categoryLabel || '').trim();
+    if (cat) return cat;
+    if (code === 'Admin Time') return 'Admin Meeting (Supervisor)';
+    if (String(c?.payload?.source || '') === 'meeting_compensation_auto') return 'Auto meeting';
+    return 'Meeting (auto)';
+  }
   if (t === 'mentor_cpa_meeting') return 'Mentor/CPA Meeting';
   if (t === 'excess_holiday') return 'Excess time';
   if (t === 'service_correction') return 'Service correction';
@@ -4115,7 +4122,15 @@ const timeClaimTypeLabel = (c) => {
   if (t === 'holiday_pay') return 'Holiday pay';
   if (t === 'jury_duty') return 'Jury Duty';
   if (t === 'skill_builder_event') return 'Event time';
-  if (t === 'indirect_time') return 'Indirect time';
+  if (t === 'indirect_time') {
+    const cat = String(c?.payload?.categoryLabel || c?.payload?.categoryGroup || '').trim();
+    if (cat === 'support_activity' || cat === 'Support Activity') return 'Support Activity';
+    if (cat === 'supervision_note' || cat === 'Supervision Note Time') return 'Supervision Note Time';
+    if (cat === 'indirect_service' || cat === 'Indirect Service') return 'Indirect Service';
+    if (cat) return cat;
+    const first = c?.payload?.allocations?.[0]?.serviceTypeLabel;
+    return first ? `Log Time — ${first}` : 'Log Time';
+  }
   return t ? t.replace(/_/g, ' ') : 'Time';
 };
 

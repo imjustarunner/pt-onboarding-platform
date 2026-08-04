@@ -3,7 +3,10 @@ import {
   isDualRateContractPilotUser,
   isHourlyDualRateEnabled,
   normalizeEmployeeNumber,
-  normalizePayBucket
+  normalizePayBucket,
+  categoryGroupFromPayBucket,
+  serviceCodeForCategoryGroup,
+  categoryGroupLabel
 } from '../hourlyDualRateContract.js';
 
 describe('hourlyDualRateContract', () => {
@@ -30,6 +33,16 @@ describe('hourlyDualRateContract', () => {
     expect(normalizePayBucket('other_1')).toBe('other_1');
     expect(normalizePayBucket('OTHER_1')).toBe('other_1');
     expect(normalizePayBucket('indirect')).toBe('indirect');
+    expect(normalizePayBucket('support')).toBe('support');
+    expect(normalizePayBucket('supervision_note')).toBe('supervision_note');
     expect(normalizePayBucket('')).toBe('indirect');
+  });
+
+  it('maps category groups to pay codes and labels', () => {
+    expect(categoryGroupFromPayBucket('support')).toBe('support_activity');
+    expect(categoryGroupFromPayBucket('supervision_note')).toBe('supervision_note');
+    expect(serviceCodeForCategoryGroup('support_activity')).toBe('MEETING');
+    expect(serviceCodeForCategoryGroup('supervision_note')).toBe('Admin Time');
+    expect(categoryGroupLabel('support_activity')).toBe('Support Activity');
   });
 });

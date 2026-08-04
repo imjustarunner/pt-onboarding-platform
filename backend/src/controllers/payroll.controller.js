@@ -52,7 +52,10 @@ import {
   isDualRateContractPilotUser,
   isHourlyDualRateEnabled,
   normalizePayBucket,
-  normalizeTimeClaimBucket
+  normalizeTimeClaimBucket,
+  categoryGroupFromPayBucket,
+  serviceCodeForCategoryGroup,
+  categoryGroupLabel
 } from '../utils/hourlyDualRateContract.js';
 import PayrollPtoAccount from '../models/PayrollPtoAccount.model.js';
 import PayrollPtoLedger from '../models/PayrollPtoLedger.model.js';
@@ -3195,7 +3198,55 @@ export const ensureFuturePayrollPeriods = async (req, res, next) => {
         if (ensuredCurrent && futureCount >= minFutureDrafts) break;
       }
 
-      return res.json({ ok: true, agencyId, schedule: { ...sched, minFutureDrafts }, created, checked, futureCount, ensuredCurrent });
+      // Also ensure recent past schedule-aligned periods exist (fills gaps like a missing
+      // Jul 18–31 between Jul 4–17 and Aug 1–14). pastPeriods defaults from request body.
+      let pastCreated = 0;
+      if (pastPeriods > 0 && cur?.periodStart && cur?.periodEnd) {
+        let pStart = addDaysUtc(ymdToDateUtc(cur.periodStart), -14);
+        let pEnd = addDaysUtc(ymdToDateUtc(cur.periodEnd), -14);
+        for (let i = 0; i < pastPeriods; i++) {
+          const periodStart = formatYmd(pStart);
+          const periodEnd = formatYmd(pEnd);
+          const key = `${periodStart}|${periodEnd}`;
+          if (!existing.has(key)) {
+            const label = `${periodStart} to ${periodEnd}`;
+            try {
+              const createdPeriod = await PayrollPeriod.create({
+                agencyId,
+                label,
+                periodStart,
+                periodEnd,
+                createdByUserId: req.user?.id
+              });
+              existing.add(key);
+              try {
+                await PayrollPeriodTodo.ensureMaterializedForPeriod({
+                  payrollPeriodId: createdPeriod?.id,
+                  agencyId
+                });
+              } catch { /* ignore */ }
+              created += 1;
+              pastCreated += 1;
+            } catch (e) {
+              if (e?.code === 'ER_DUP_ENTRY') existing.add(key);
+              else throw e;
+            }
+          }
+          pStart = addDaysUtc(pStart, -14);
+          pEnd = addDaysUtc(pEnd, -14);
+        }
+      }
+
+      return res.json({
+        ok: true,
+        agencyId,
+        schedule: { ...sched, minFutureDrafts },
+        created,
+        checked,
+        futureCount,
+        ensuredCurrent,
+        pastCreated
+      });
     }
 
     // Sat→Fri biweekly: end on the most recent Friday on/before today, start 13 days earlier.
@@ -6396,8 +6447,19 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
           const dateStr = String(c?.claim_date || payload?.clockInAt || '').slice(0, 10);
           const bucketLabel = b === 'direct' ? 'Direct' : (b === 'other_1' ? 'Other 1' : 'Indirect');
           lineLabel = `${evTitle}${dateStr ? ` (${dateStr})` : ''} — ${bucketLabel}`;
-        } else if (claimType === 'indirect_time' && b === 'other_1') {
-          lineLabel = 'Time claim (indirect time — Other 1)';
+        } else if (claimType === 'indirect_time') {
+          const catLabel = String(payload?.categoryLabel || '').trim();
+          const activity = String(payload?.allocations?.[0]?.serviceTypeLabel || '').trim();
+          if (catLabel && activity) lineLabel = `${catLabel} — ${activity}`;
+          else if (catLabel) lineLabel = catLabel;
+          else if (b === 'other_1') lineLabel = 'Support Activity (legacy Other 1)';
+          else lineLabel = activity ? `Log Time — ${activity}` : 'Log Time';
+        } else if (claimType === 'meeting_training') {
+          const catLabel = String(payload?.categoryLabel || '').trim();
+          const mt = String(payload?.meetingType || '').trim();
+          if (catLabel) lineLabel = catLabel;
+          else if (mt) lineLabel = `Meeting — ${mt}`;
+          else lineLabel = 'Meeting (auto)';
         } else {
           const typeLabel = claimType ? claimType.replace(/_/g, ' ') : 'time claim';
           lineLabel = `Time claim (${typeLabel})`;
@@ -17383,38 +17445,13 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
 
     // Light validation per type (keep payload flexible for iteration).
     if (claimType === 'meeting_training' || claimType === 'mentor_cpa_meeting') {
-      let totalMinutes = toMinutes(payload?.totalMinutes);
-      if (!(totalMinutes >= 1)) {
-        const derivedMinutes = minutesBetweenTimeHm(payload?.startTime, payload?.endTime);
-        if (derivedMinutes >= 1) {
-          totalMinutes = derivedMinutes;
-          payload = { ...payload, totalMinutes };
+      // Manual meeting / training / outreach claims are retired — use Log Time (Support Activity).
+      // Auto sources call PayrollTimeClaim.create directly and never hit this handler.
+      return res.status(403).json({
+        error: {
+          message: 'Meeting, training, and outreach time is logged via Log Time (Support Activity) or auto-submitted from virtual meetings. Manual meeting claims are no longer accepted.'
         }
-      }
-      if (!(totalMinutes >= 1)) return res.status(400).json({ error: { message: 'totalMinutes is required' } });
-      if (claimType === 'meeting_training' && !String(payload?.meetingType || '').trim()) {
-        return res.status(400).json({ error: { message: 'meetingType is required' } });
-      }
-      const isOutreach = String(payload?.meetingType || '').trim().toLowerCase() === 'outreach';
-      if (isOutreach) {
-        if (!String(payload?.approvedBy || '').trim()) {
-          return res.status(400).json({ error: { message: 'approvedBy is required for outreach claims' } });
-        }
-        if (!String(payload?.outreachLocations || '').trim()) {
-          return res.status(400).json({ error: { message: 'outreachLocations is required for outreach claims' } });
-        }
-        if (!parseTimeHm(payload?.startTime) || !parseTimeHm(payload?.endTime)) {
-          return res.status(400).json({ error: { message: 'startTime and endTime are required for outreach claims' } });
-        }
-      }
-      if (!String(payload?.platform || '').trim()) return res.status(400).json({ error: { message: 'platform is required' } });
-      if (!String(payload?.summary || '').trim()) return res.status(400).json({ error: { message: 'summary is required' } });
-      if (claimType === 'mentor_cpa_meeting') {
-        const role = String(payload?.mentorRole || '').trim().toLowerCase();
-        if (!(role === 'intern_mentor' || role === 'clinical_practice_assistant')) {
-          return res.status(400).json({ error: { message: 'mentorRole must be intern_mentor or clinical_practice_assistant' } });
-        }
-      }
+      });
     } else if (claimType === 'excess_holiday') {
       const items = Array.isArray(payload?.items) ? payload.items : [];
       const hasItems = items.some(
@@ -17481,58 +17518,51 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       const saved = await StorageService.savePtoProof(req.file.buffer, req.file.originalname, req.file.mimetype, userId);
       payload = { ...payload, proofFilePath: saved.path, proofOriginalName: req.file.originalname, proofMimeType: req.file.mimetype };
     } else if (claimType === 'indirect_time') {
-      // Hourly employee indirect time log — minutes allocated across admin-managed service types.
+      // Log Time — Indirect Service / Support Activity / Supervision Note (role-gated).
       const [hwRows] = await pool.execute(
-        'SELECT is_hourly_worker, hourly_dual_rate_enabled FROM users WHERE id = ? LIMIT 1',
+        `SELECT is_hourly_worker, hourly_dual_rate_enabled, has_supervisor_privileges, role
+         FROM users WHERE id = ? LIMIT 1`,
         [userId]
       );
       const hw = hwRows?.[0] || {};
       const isHourly = hw.is_hourly_worker === 1
         || hw.is_hourly_worker === true
         || hw.is_hourly_worker === '1';
-      // TEMP (testing): salaried staff with a supervision rate (99415/99416) on their
-      // compensation schedule may also submit supervision-related indirect time claims.
-      // Revert this exception once salary + supervision payroll testing is complete.
+      const isSupervisorUser = hw.has_supervisor_privileges === 1
+        || hw.has_supervisor_privileges === true
+        || hw.has_supervisor_privileges === '1'
+        || String(hw.role || '').toLowerCase() === 'supervisor';
+
+      // Auto supervision finalize (99415/99416) may still create via API for salaried supervisors.
       const supervisionCode = String(payload?.serviceCode || '').trim().toUpperCase();
       const allocKey = String(payload?.allocations?.[0]?.serviceTypeKey || '').trim().toLowerCase();
-      const isSupervisionRelated = ['99415', '99416'].includes(supervisionCode)
-        || String(payload?.source || '').trim() === 'supervision_session_finalize'
+      const isSupervisionFinalize = String(payload?.source || '').trim() === 'supervision_session_finalize'
+        || ['99415', '99416'].includes(supervisionCode)
         || allocKey === 'supervision';
-      let hasSupervisionCompensationRate = false;
-      if (!isHourly && isSupervisionRelated) {
-        const codesToCheck = ['99415', '99416'].includes(supervisionCode)
-          ? [supervisionCode]
-          : ['99415', '99416'];
-        for (const code of codesToCheck) {
-          try {
-            // eslint-disable-next-line no-await-in-loop
-            const rateRow = await PayrollRate.findBestRate({
-              agencyId,
-              userId,
-              serviceCode: code,
-              asOf: String(claimDate || '').slice(0, 10) || null
-            });
-            if (Number(rateRow?.rate_amount || 0) > 0) {
-              hasSupervisionCompensationRate = true;
-              break;
-            }
-          } catch {
-            /* keep false */
-          }
-        }
+
+      const requestedCategory = String(payload?.categoryGroup || '').trim().toLowerCase();
+      let categoryGroup = ['indirect_service', 'support_activity', 'supervision_note'].includes(requestedCategory)
+        ? requestedCategory
+        : null;
+
+      // Infer category from pay bucket hint when not explicit (legacy clients).
+      if (!categoryGroup) {
+        const hint = normalizePayBucket(payload?.bucket || payload?.payBucket || 'indirect');
+        categoryGroup = categoryGroupFromPayBucket(hint);
+        if (hint === 'other_1') categoryGroup = 'support_activity';
       }
-      const allowSalariedSupervisionClaim = !isHourly && isSupervisionRelated && hasSupervisionCompensationRate;
-      if (!isHourly && !isAdminRole(req.user?.role) && !allowSalariedSupervisionClaim) {
-        return res.status(403).json({ error: { message: 'Indirect time logging is for hourly employees only' } });
-      }
-      const dualRate = isHourlyDualRateEnabled(hw);
-      const requestedBucket = normalizePayBucket(payload?.bucket || 'indirect');
-      if (requestedBucket === 'other_1' && !dualRate && !isAdminRole(req.user?.role)) {
+
+      if (categoryGroup === 'indirect_service' && !isHourly && !isAdminRole(req.user?.role) && !isSupervisionFinalize) {
         return res.status(403).json({
-          error: { message: 'Other 1 Log Time claims require a dual-rate hourly contract' }
+          error: { message: 'Indirect Service Time is for hourly employees only. Use Support Activity Time instead.' }
         });
       }
-      const claimBucket = requestedBucket === 'other_1' ? 'other_1' : 'indirect';
+      if (categoryGroup === 'supervision_note' && !isSupervisorUser && !isAdminRole(req.user?.role)) {
+        return res.status(403).json({
+          error: { message: 'Supervision Note Time is for supervisors only' }
+        });
+      }
+
       const allocations = Array.isArray(payload?.allocations) ? payload.allocations : [];
       const cleaned = [];
       let allocatedSum = 0;
@@ -17550,7 +17580,11 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
         const percentRaw = Number(row?.percent);
         const sortOrder = Number(row?.sortOrder);
         const noteRaw = String(row?.note || row?.activityNote || '').trim();
-        const rowBucket = normalizePayBucket(row?.payBucket || row?.pay_bucket || claimBucket);
+        const rowBucket = normalizePayBucket(row?.payBucket || row?.pay_bucket || (
+          categoryGroup === 'support_activity' ? 'support'
+            : categoryGroup === 'supervision_note' ? 'supervision_note'
+              : 'indirect'
+        ));
         cleaned.push({
           serviceTypeId: Number.isFinite(typeId) && typeId > 0 ? typeId : null,
           serviceTypeKey: typeKey || null,
@@ -17567,23 +17601,32 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       if (!cleaned.length) {
         return res.status(400).json({ error: { message: 'At least one service type allocation with minutes is required' } });
       }
-      // When dual-rate, ensure allocation service types match the claim bucket.
-      if (dualRate || claimBucket === 'other_1') {
+
+      // Ensure allocation service types match the claim category group.
+      if (typeIds.length && !isSupervisionFinalize) {
         const types = await PayrollIndirectServiceType.findByIds(typeIds);
         const byId = new Map(types.map((t) => [Number(t.id), t]));
+        const expectedBucket = categoryGroup === 'support_activity'
+          ? 'support'
+          : categoryGroup === 'supervision_note'
+            ? 'supervision_note'
+            : 'indirect';
         for (const row of cleaned) {
           const t = row.serviceTypeId ? byId.get(Number(row.serviceTypeId)) : null;
           const typeBucket = t ? normalizePayBucket(t.payBucket) : normalizePayBucket(row.payBucket);
-          if (typeBucket !== claimBucket) {
+          const ok = typeBucket === expectedBucket
+            || (expectedBucket === 'support' && typeBucket === 'other_1');
+          if (!ok) {
             return res.status(400).json({
               error: {
-                message: `Allocation "${row.serviceTypeLabel}" is ${typeBucket === 'other_1' ? 'Other 1' : 'Indirect'} and cannot be submitted on a ${claimBucket === 'other_1' ? 'Other 1' : 'Indirect'} claim`
+                message: `Allocation "${row.serviceTypeLabel}" belongs to ${categoryGroupLabel(categoryGroupFromPayBucket(typeBucket))} and cannot be submitted on a ${categoryGroupLabel(categoryGroup)} claim`
               }
             });
           }
-          row.payBucket = claimBucket;
+          row.payBucket = expectedBucket === 'support' && typeBucket === 'other_1' ? 'other_1' : expectedBucket;
         }
       }
+
       let totalMinutes = toMinutes(payload?.totalMinutes);
       if (!(totalMinutes >= 1)) totalMinutes = allocatedSum;
       if (allocatedSum !== totalMinutes) {
@@ -17601,17 +17644,33 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       const noteAidUsed = payload?.noteAidUsedDuringSession === true
         || payload?.noteAidUsedDuringSession === 1
         || String(payload?.noteAidUsedDuringSession || '').toLowerCase() === 'true';
+
+      // Pay code: Support → MEETING; Supervision Note → Admin Time; Indirect → rate card.
+      // Preserve explicit serviceCode for supervision finalize (99415/99416).
+      let serviceCode = String(payload?.serviceCode || '').trim() || null;
+      if (!isSupervisionFinalize || !serviceCode) {
+        serviceCode = serviceCodeForCategoryGroup(categoryGroup);
+      }
+
+      // Always credit as indirect for PTO (Support Activity included).
+      const claimBucket = 'indirect';
+      const creditsHours = Math.round((totalMinutes / 60) * 10000) / 10000;
+
       payload = {
         ...payload,
         entryMethod,
         allocationMode,
         totalMinutes,
         allocations: cleaned,
+        categoryGroup,
+        categoryLabel: categoryGroupLabel(categoryGroup),
         bucket: claimBucket,
+        ...(serviceCode ? { serviceCode } : {}),
         noteAidUsedDuringSession: !!noteAidUsed,
         ...(noteAidUsed && payload?.noteAidOpenedAt
           ? { noteAidOpenedAt: String(payload.noteAidOpenedAt).slice(0, 40) }
-          : {})
+          : {}),
+        creditsHours
       };
     }
 
@@ -17648,6 +17707,26 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       payload,
       suggestedPayrollPeriodId
     });
+
+    // Log Time: credit hours toward indirect (PTO) immediately on submit.
+    if (claimType === 'indirect_time' && claim?.id) {
+      const mins = Number(payload?.totalMinutes || 0);
+      const hours = Number.isFinite(mins) && mins > 0
+        ? Math.round((mins / 60) * 10000) / 10000
+        : null;
+      if (hours != null) {
+        await pool.execute(
+          `UPDATE payroll_time_claims
+           SET bucket = 'indirect', credits_hours = ?
+           WHERE id = ?
+           LIMIT 1`,
+          [hours, Number(claim.id)]
+        );
+        claim.bucket = 'indirect';
+        claim.credits_hours = hours;
+        claim.creditsHours = hours;
+      }
+    }
 
     res.status(201).json(claim);
   } catch (e) {
@@ -17844,6 +17923,10 @@ export const updateMyTimeClaim = async (req, res, next) => {
       fromStatus: s
     });
 
+    const categoryGroup = String(payloadIn.categoryGroup || prevPayload.categoryGroup || 'indirect_service').trim();
+    const serviceCode = serviceCodeForCategoryGroup(categoryGroup)
+      || String(payloadIn.serviceCode || prevPayload.serviceCode || '').trim()
+      || null;
     const nextPayload = {
       ...prevPayload,
       ...payloadIn,
@@ -17851,6 +17934,9 @@ export const updateMyTimeClaim = async (req, res, next) => {
       totalMinutes,
       attestation: true,
       bucket: 'indirect',
+      categoryGroup,
+      categoryLabel: categoryGroupLabel(categoryGroup),
+      ...(serviceCode ? { serviceCode } : {}),
       editReason,
       editHistory: history.slice(-20)
     };
@@ -17866,6 +17952,11 @@ export const updateMyTimeClaim = async (req, res, next) => {
       claimDate,
       payload: nextPayload
     });
+    const hours = Math.round((totalMinutes / 60) * 10000) / 10000;
+    await pool.execute(
+      `UPDATE payroll_time_claims SET bucket = 'indirect', credits_hours = ? WHERE id = ? LIMIT 1`,
+      [hours, id]
+    );
     res.json({ claim: updated });
   } catch (e) {
     next(e);
@@ -17895,7 +17986,48 @@ export const listTimeClaims = async (req, res, next) => {
     const filtered = (hydrated || []).filter(
       (r) => String(r?.claim_type || '').toLowerCase() !== 'skill_builder_event'
     );
-    res.json(filtered);
+
+    // Attach pay estimate (rate source + $) for pending review UIs.
+    const withEstimates = [];
+    for (const row of filtered) {
+      const st = String(row?.status || '').toLowerCase();
+      if (st !== 'submitted' && st !== 'deferred') {
+        withEstimates.push(row);
+        continue;
+      }
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const rateCard = await PayrollRateCard.findForUser(agencyId, row.user_id);
+        const bucketHint = String(row?.payload?.bucket || row?.bucket || 'indirect').toLowerCase();
+        // eslint-disable-next-line no-await-in-loop
+        const amount = await computeDefaultAppliedAmountForTimeClaim({
+          claim: row,
+          rateCard,
+          approveBucket: bucketHint,
+          approveCreditsHours: null
+        });
+        const payload = row?.payload || {};
+        let rateLabel = 'Indirect rate';
+        const code = String(payload.serviceCode || '').trim();
+        const mt = String(payload.meetingType || '').trim();
+        if (code) rateLabel = `${code} rate`;
+        else if (mt) rateLabel = 'MEETING rate (inferred)';
+        else if (bucketHint === 'direct') rateLabel = 'Direct rate';
+        else if (bucketHint === 'other_1') rateLabel = 'Other 1 rate';
+        withEstimates.push({
+          ...row,
+          payEstimate: {
+            amount: Number.isFinite(amount) ? amount : null,
+            rateLabel,
+            serviceCode: code || null
+          }
+        });
+      } catch {
+        withEstimates.push(row);
+      }
+    }
+
+    res.json(withEstimates);
   } catch (e) {
     next(e);
   }
@@ -18034,18 +18166,46 @@ async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approv
   }
 
   if (type === 'meeting_training' || type === 'mentor_cpa_meeting' || type === 'indirect_time') {
-    const mins = Number(payload?.totalMinutes || 0);
-    if (!(Number.isFinite(mins) && mins > 0)) return null;
+    // Prefer admin hour override on approve; fall back to payload minutes.
+    let hrs = Number(approveCreditsHours);
+    if (!Number.isFinite(hrs) || hrs < 0) {
+      const storedHrs = Number(claim?.credits_hours);
+      if (Number.isFinite(storedHrs) && storedHrs >= 0) hrs = storedHrs;
+    }
+    if (!Number.isFinite(hrs) || hrs <= 0) {
+      const mins = Number(payload?.totalMinutes || 0);
+      if (Number.isFinite(mins) && mins > 0) hrs = mins / 60;
+    }
+    if (!(Number.isFinite(hrs) && hrs > 0)) return null;
+
     const claimBucket = normalizeTimeClaimBucket(
       approveBucket || claim?.bucket || payload?.bucket || 'indirect'
     );
-    if (type === 'indirect_time' && claimBucket === 'other_1') {
-      const other1 = Number(rateCard?.other_rate_1 || 0);
-      if (other1 > 0) return Math.round(((mins / 60) * other1) * 100) / 100;
-      return null;
+
+    // Log Time: honor Direct / Other 1 / Indirect bucket for rate-card pay.
+    if (type === 'indirect_time') {
+      if (claimBucket === 'direct' && directRate > 0) {
+        return Math.round(hrs * directRate * 100) / 100;
+      }
+      if (claimBucket === 'other_1') {
+        const other1 = Number(rateCard?.other_rate_1 || 0);
+        if (other1 > 0) return Math.round(hrs * other1 * 100) / 100;
+      }
     }
-    // Prefer per-code rate from compensation schedule (Admin Time, MEETING, Individual Meeting, etc.).
-    const serviceCode = String(payload?.serviceCode || '').trim();
+
+    // Prefer per-code rate (MEETING, Admin Time, Individual Meeting, etc.).
+    // Infer MEETING for Town Hall / Admin Meeting / Huddle when serviceCode is missing.
+    let serviceCode = String(payload?.serviceCode || '').trim();
+    if (!serviceCode && (type === 'meeting_training' || type === 'mentor_cpa_meeting')) {
+      const mt = String(payload?.meetingType || '').trim().toLowerCase();
+      if (mt === 'town hall' || mt === 'admin meeting' || mt === 'huddle' || mt.includes('town hall')) {
+        serviceCode = 'MEETING';
+      } else if (mt.includes('mentor') || mt.includes('individual meeting')) {
+        serviceCode = 'Individual Meeting';
+      } else if (mt) {
+        serviceCode = 'MEETING';
+      }
+    }
     if (serviceCode && claim?.agency_id && claim?.user_id) {
       try {
         const PayrollRate = (await import('../models/PayrollRate.model.js')).default;
@@ -18056,11 +18216,16 @@ async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approv
           asOf: claim.claim_date || null
         });
         const codeRate = Number(best?.rate_amount ?? best?.rate ?? 0);
-        if (codeRate > 0) return Math.round(((mins / 60) * codeRate) * 100) / 100;
-      } catch { /* fall through to rate-card indirect */ }
+        if (codeRate > 0) return Math.round(hrs * codeRate * 100) / 100;
+      } catch { /* fall through to rate-card */ }
+    }
+
+    // Indirect_time without a service code: rate-card indirect (or direct already handled).
+    if (type === 'indirect_time' && claimBucket === 'direct' && directRate > 0) {
+      return Math.round(hrs * directRate * 100) / 100;
     }
     if (indirectRate > 0) {
-      return Math.round(((mins / 60) * indirectRate) * 100) / 100;
+      return Math.round(hrs * indirectRate * 100) / 100;
     }
   }
   if (type === 'holiday_pay') {
@@ -18210,6 +18375,28 @@ export const patchTimeClaim = async (req, res, next) => {
         creditsHours: creditsHoursRaw
       });
 
+      // Keep payload in sync with admin hour/bucket overrides so recompute / display match pay.
+      try {
+        const prevPayload = (claim.payload && typeof claim.payload === 'object') ? claim.payload : {};
+        const nextPayload = { ...prevPayload, bucket };
+        if (Number.isFinite(creditsHoursRaw) && creditsHoursRaw >= 0) {
+          nextPayload.totalMinutes = Math.round(creditsHoursRaw * 60);
+          nextPayload.creditsHours = creditsHoursRaw;
+        }
+        // Infer/persist MEETING serviceCode for Town Hall / Admin Meeting when missing.
+        if (!String(nextPayload.serviceCode || '').trim()) {
+          const mt = String(nextPayload.meetingType || '').trim().toLowerCase();
+          if (mt === 'town hall' || mt === 'admin meeting' || mt === 'huddle' || mt.includes('town hall')) {
+            nextPayload.serviceCode = 'MEETING';
+            nextPayload.payRateSource = nextPayload.payRateSource || 'meeting';
+          }
+        }
+        await pool.execute(
+          `UPDATE payroll_time_claims SET payload_json = ? WHERE id = ? LIMIT 1`,
+          [JSON.stringify(nextPayload), id]
+        );
+      } catch { /* best-effort */ }
+
       try {
         const period = await PayrollPeriod.findById(targetPayrollPeriodId);
         const st = String(period?.status || '').toLowerCase();
@@ -18223,7 +18410,7 @@ export const patchTimeClaim = async (req, res, next) => {
         }
       } catch { /* best-effort */ }
 
-      return res.json({ claim: updated });
+      return res.json({ claim: await PayrollTimeClaim.findById(id) || updated });
     }
 
     if (action === 'reject') {

@@ -214,10 +214,10 @@
     </div>
 
     <div v-else-if="payrollTab === 'indirect_types'" class="card">
-      <h3 style="margin:0 0 4px 0;">Indirect service types</h3>
+      <h3 style="margin:0 0 4px 0;">Log Time activity types</h3>
       <p class="hint" style="margin:0 0 14px 0;">
-        Types shown on the hourly employee Log Time screen. Pay bucket controls dual-rate contracts:
-        Indirect (Type 1, left) vs Other 1 (Type 2, right). Add new types anytime; deactivate instead of deleting if they were used historically.
+        Types shown on Log Time. Pay bucket: Indirect Service (hourly), Support Activity (everyone, paid at MEETING),
+        or Supervision Note (supervisors, paid at Admin Time). Deactivate instead of deleting if used historically.
       </p>
       <div v-if="indirectTypesError" class="warn">{{ indirectTypesError }}</div>
       <div v-if="indirectTypesLoading" class="muted">Loading…</div>
@@ -240,8 +240,10 @@
           <div class="filters-group">
             <label class="filters-label">Pay bucket</label>
             <select v-model="indirectTypeDraft.payBucket" class="filters-input" :disabled="indirectTypesSaving">
-              <option value="indirect">Indirect (Type 1)</option>
-              <option value="other_1">Other 1 (Type 2)</option>
+              <option value="indirect">Indirect Service</option>
+              <option value="support">Support Activity</option>
+              <option value="supervision_note">Supervision Note</option>
+              <option value="other_1">Other 1 (legacy)</option>
             </select>
           </div>
           <div class="filters-group">
@@ -278,8 +280,10 @@
                 <td><code>{{ t.typeKey }}</code></td>
                 <td>
                   <select v-model="t.payBucket" :disabled="indirectTypesSaving" @change="saveIndirectType(t)">
-                    <option value="indirect">Indirect</option>
-                    <option value="other_1">Other 1</option>
+                    <option value="indirect">Indirect Service</option>
+                    <option value="support">Support Activity</option>
+                    <option value="supervision_note">Supervision Note</option>
+                    <option value="other_1">Other 1 (legacy)</option>
                   </select>
                 </td>
                 <td>

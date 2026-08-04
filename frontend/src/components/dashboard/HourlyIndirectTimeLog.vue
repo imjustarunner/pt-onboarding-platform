@@ -95,7 +95,7 @@
         </div>
         <p v-if="isClockedIn && noteAidUsedDuringSession" class="itl-notes-session-hint">
           Note Aid (Tools &amp; Aids → AI Tools) is part of this clocked session — your timer keeps running.
-          When you allocate time, include <strong>Writing Notes</strong> for documentation work.
+          When you allocate time, include <strong>Clinical Documentation</strong> for documentation work.
         </p>
       </section>
 
@@ -181,23 +181,21 @@
 
         <section class="itl-card" aria-labelledby="itl-types-heading">
           <div class="itl-section-head">
-            <h3 id="itl-types-heading" class="itl-section-title">
-              {{ dualRateEnabled ? 'Select Service Type(s)' : 'Select Indirect Service Type(s)' }}
-            </h3>
+            <h3 id="itl-types-heading" class="itl-section-title">Select activity type(s)</h3>
             <div class="itl-section-actions">
               <button type="button" class="itl-link-btn" @click="selectAllTypes">Select All</button>
               <button type="button" class="itl-link-btn" @click="clearAllTypes">Clear All</button>
             </div>
           </div>
-          <div v-if="typesLoading" class="itl-muted">Loading service types…</div>
-          <div v-else-if="!serviceTypes.length" class="itl-muted">No indirect service types are configured yet. Ask an admin to add them in Payroll Settings.</div>
-          <div v-else-if="dualRateEnabled" class="itl-dual-cols">
-            <div class="itl-dual-col itl-dual-col--indirect">
+          <div v-if="typesLoading" class="itl-muted">Loading activity types…</div>
+          <div v-else-if="!visibleServiceTypes.length" class="itl-muted">No Log Time categories are available for your role yet.</div>
+          <div v-else class="itl-dual-cols" :class="{ 'itl-dual-cols--three': showThreeColumns }">
+            <div v-if="showIndirectColumn" class="itl-dual-col itl-dual-col--indirect">
               <div class="itl-dual-head">
-                <span class="itl-dual-badge itl-dual-badge--indirect">Type 1 – Indirect</span>
-                <span class="itl-dual-sub">Paid at Indirect rate</span>
+                <span class="itl-dual-badge itl-dual-badge--indirect">Indirect Service Time</span>
+                <span class="itl-dual-sub">Paid at Indirect rate · counts toward PTO</span>
               </div>
-              <div class="itl-type-grid" role="group" aria-label="Indirect service types">
+              <div class="itl-type-grid" role="group" aria-label="Indirect Service Time">
                 <label
                   v-for="t in indirectServiceTypes"
                   :key="t.id"
@@ -215,18 +213,22 @@
                     <IndirectTimeIcon :name="t.iconKey" :size="22" :stroke-width="1.75" />
                   </span>
                   <span class="itl-type-label">{{ t.label }}</span>
-                  <span v-if="t.description" class="itl-type-desc">{{ t.description }}</span>
                 </label>
               </div>
+              <p class="itl-disclaimer">
+                If you performed work outside these categories, ask management whether it belongs in an existing
+                category or whether the Agency should add a new category in a future update.
+              </p>
             </div>
-            <div class="itl-dual-col itl-dual-col--other1">
+
+            <div class="itl-dual-col itl-dual-col--support">
               <div class="itl-dual-head">
-                <span class="itl-dual-badge itl-dual-badge--other1">Type 2 – Other 1</span>
-                <span class="itl-dual-sub">Paid at Other 1 rate</span>
+                <span class="itl-dual-badge itl-dual-badge--support">Support Activity Time</span>
+                <span class="itl-dual-sub">Paid at Meeting rate · counts toward indirect / PTO</span>
               </div>
-              <div class="itl-type-grid" role="group" aria-label="Other 1 service types">
+              <div class="itl-type-grid" role="group" aria-label="Support Activity Time">
                 <label
-                  v-for="t in other1ServiceTypes"
+                  v-for="t in supportServiceTypes"
                   :key="t.id"
                   class="itl-type-card"
                   :class="{ selected: selectedTypeIds.has(t.id) }"
@@ -242,31 +244,46 @@
                     <IndirectTimeIcon :name="t.iconKey" :size="22" :stroke-width="1.75" />
                   </span>
                   <span class="itl-type-label">{{ t.label }}</span>
-                  <span v-if="t.description" class="itl-type-desc">{{ t.description }}</span>
                 </label>
               </div>
+              <p class="itl-disclaimer">
+                Virtual meetings are auto-logged and submitted via this application — duplicate submissions are not
+                required. This includes supervision, training, and onboarding meetings. If a meeting was not
+                auto-submitted, submit it here, verify with your supervisor, or check your Submit history for those
+                auto submissions. Peer-to-peer meetings are never compensable unless at the direction of administrative staff.
+              </p>
             </div>
-          </div>
-          <div v-else class="itl-type-grid" role="group" aria-label="Indirect service types">
-            <label
-              v-for="t in visibleServiceTypes"
-              :key="t.id"
-              class="itl-type-card"
-              :class="{ selected: selectedTypeIds.has(t.id) }"
-            >
-              <input
-                type="checkbox"
-                class="itl-type-check"
-                :checked="selectedTypeIds.has(t.id)"
-                :aria-label="t.label"
-                @change="toggleType(t)"
-              />
-              <span class="itl-type-icon" aria-hidden="true">
-                <IndirectTimeIcon :name="t.iconKey" :size="22" :stroke-width="1.75" />
-              </span>
-              <span class="itl-type-label">{{ t.label }}</span>
-              <span v-if="t.description" class="itl-type-desc">{{ t.description }}</span>
-            </label>
+
+            <div v-if="showSupervisionColumn" class="itl-dual-col itl-dual-col--supervision">
+              <div class="itl-dual-head">
+                <span class="itl-dual-badge itl-dual-badge--supervision">Supervision Note Time</span>
+                <span class="itl-dual-sub">Paid at Admin Time rate · counts toward indirect / PTO</span>
+              </div>
+              <div class="itl-type-grid" role="group" aria-label="Supervision Note Time">
+                <label
+                  v-for="t in supervisionNoteTypes"
+                  :key="t.id"
+                  class="itl-type-card"
+                  :class="{ selected: selectedTypeIds.has(t.id) }"
+                >
+                  <input
+                    type="checkbox"
+                    class="itl-type-check"
+                    :checked="selectedTypeIds.has(t.id)"
+                    :aria-label="t.label"
+                    @change="toggleType(t)"
+                  />
+                  <span class="itl-type-icon" aria-hidden="true">
+                    <IndirectTimeIcon :name="t.iconKey" :size="22" :stroke-width="1.75" />
+                  </span>
+                  <span class="itl-type-label">{{ t.label }}</span>
+                </label>
+              </div>
+              <p class="itl-disclaimer">
+                Use this for writing supervision notes and related admin after sessions. Supervisor attendance at
+                Admin Meetings is auto-submitted and paid at your Admin Time rate — do not duplicate those claims.
+              </p>
+            </div>
           </div>
         </section>
 
@@ -277,7 +294,7 @@
           :session-start-hm="sessionBoundsHm.start"
           :session-end-hm="sessionBoundsHm.end"
           :session-end-is-live="sessionEndIsLive"
-          :service-types="serviceTypes"
+          :service-types="visibleServiceTypes"
           :selected-type-ids="selectedTypeIdList"
           :recent-ratio="recentIndirectRatio"
           :recent-period-label="recentRatioPeriodLabel"
@@ -328,6 +345,11 @@
             <li v-for="s in displaySubmissions" :key="s.id" class="itl-sub">
               <div class="itl-sub-main">
                 <strong>{{ formatDisplayDate(s.claim_date) }}</strong>
+                <span
+                  v-if="submissionCategoryLabel(s)"
+                  class="itl-sub-category"
+                  :data-category="s.payload?.categoryGroup || ''"
+                >{{ submissionCategoryLabel(s) }}</span>
                 <span class="itl-sub-mins">{{ formatHm(Number(s.payload?.totalMinutes || 0)) }}</span>
                 <span class="itl-sub-status" :data-status="s.status">{{ submissionStatusLabel(s.status) }}</span>
               </div>
@@ -396,9 +418,12 @@ import {
   isNoteAidEnabledForAgencyFlags
 } from '../../config/noteAidAccess';
 import {
-  isHourlyDualRateEnabled,
-  normalizePayBucket
+  normalizePayBucket,
+  categoryGroupFromPayBucket,
+  categoryGroupLabel,
+  serviceCodeForCategoryGroup
 } from '../../utils/hourlyDualRateContract.js';
+import { isSupervisor } from '../../utils/helpers';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },
@@ -421,21 +446,39 @@ function isExcludedIndirectType(t) {
   return EXCLUDED_INDIRECT_TYPE_KEYS.has(key);
 }
 
-const dualRateEnabled = computed(() => isHourlyDualRateEnabled(authStore.user));
+const isHourlyUser = computed(() => {
+  const u = authStore.user || {};
+  const raw = u.isHourlyWorker ?? u.is_hourly_worker;
+  return raw === true || raw === 1 || raw === '1';
+});
+const isSupervisorUser = computed(() => isSupervisor(authStore.user));
+const showIndirectColumn = computed(() => isHourlyUser.value);
+const showSupervisionColumn = computed(() => isSupervisorUser.value);
+const showThreeColumns = computed(() => showIndirectColumn.value && showSupervisionColumn.value);
+
 const indirectServiceTypes = computed(() =>
   (serviceTypes.value || []).filter(
     (t) => normalizePayBucket(t.payBucket || t.pay_bucket) === 'indirect' && !isExcludedIndirectType(t)
   )
 );
-const other1ServiceTypes = computed(() =>
-  (serviceTypes.value || []).filter((t) => normalizePayBucket(t.payBucket || t.pay_bucket) === 'other_1')
+const supportServiceTypes = computed(() =>
+  (serviceTypes.value || []).filter((t) => {
+    const b = normalizePayBucket(t.payBucket || t.pay_bucket);
+    return b === 'support' || b === 'other_1';
+  })
 );
-/** Non dual-rate workers only see Indirect types (Other 1 is dual-contract only). */
-const visibleServiceTypes = computed(() =>
-  dualRateEnabled.value
-    ? (serviceTypes.value || []).filter((t) => !isExcludedIndirectType(t))
-    : indirectServiceTypes.value
+const supervisionNoteTypes = computed(() =>
+  (serviceTypes.value || []).filter(
+    (t) => normalizePayBucket(t.payBucket || t.pay_bucket) === 'supervision_note'
+  )
 );
+const visibleServiceTypes = computed(() => {
+  const out = [];
+  if (showIndirectColumn.value) out.push(...indirectServiceTypes.value);
+  out.push(...supportServiceTypes.value);
+  if (showSupervisionColumn.value) out.push(...supervisionNoteTypes.value);
+  return out;
+});
 
 const noteAidUsedDuringSession = computed(() => !!indirectSessionStore.noteAidUsedDuringSession);
 
@@ -853,14 +896,22 @@ function clearAllTypes() {
 }
 
 function ensureWritingNotesSelected() {
-  const writing = (serviceTypes.value || []).find(
-    (t) => String(t.typeKey || '').toLowerCase() === 'writing_notes'
-  );
+  const writing = (serviceTypes.value || []).find((t) => {
+    const key = String(t.typeKey || t.type_key || '').toLowerCase();
+    return key === 'clinical_documentation' || key === 'writing_notes';
+  });
   if (!writing?.id) return;
   if (selectedTypeIds.value.has(writing.id)) return;
   const next = new Set(selectedTypeIds.value);
   next.add(writing.id);
   selectedTypeIds.value = next;
+}
+
+function submissionCategoryLabel(s) {
+  const payload = s?.payload || {};
+  if (payload.categoryLabel) return String(payload.categoryLabel);
+  if (payload.categoryGroup) return categoryGroupLabel(payload.categoryGroup);
+  return categoryGroupLabel(categoryGroupFromPayBucket(payload.bucket || payload.payBucket));
 }
 
 function selectionStorageKey() {
@@ -1061,12 +1112,23 @@ function typePayBucket(typeId) {
   return normalizePayBucket(t?.payBucket || t?.pay_bucket || 'indirect');
 }
 
-async function postIndirectTimeClaim({ totalMinutes, allocations, bucket, startTime, endTime, allocationMode, usedNoteAid }) {
+async function postIndirectTimeClaim({
+  totalMinutes,
+  allocations,
+  payBucket,
+  categoryGroup,
+  startTime,
+  endTime,
+  allocationMode,
+  usedNoteAid
+}) {
+  const group = categoryGroup || categoryGroupFromPayBucket(payBucket);
+  const serviceCode = serviceCodeForCategoryGroup(group);
   const tagged = (allocations || []).map((a) => ({
     ...a,
-    payBucket: bucket
+    payBucket: payBucket || normalizePayBucket(a.payBucket)
   }));
-  await api.post('/payroll/me/time-claims', {
+  return await api.post('/payroll/me/time-claims', {
     agencyId: agencyId.value,
     claimType: 'indirect_time',
     claimDate: claimDate.value,
@@ -1077,7 +1139,10 @@ async function postIndirectTimeClaim({ totalMinutes, allocations, bucket, startT
       endTime,
       totalMinutes,
       allocations: tagged,
-      bucket,
+      categoryGroup: group,
+      categoryLabel: categoryGroupLabel(group),
+      bucket: 'indirect',
+      ...(serviceCode ? { serviceCode } : {}),
       sessionId: session.value?.id || null,
       noteAidUsedDuringSession: usedNoteAid,
       ...(usedNoteAid && indirectSessionStore.noteAidOpenedAt
@@ -1116,62 +1181,44 @@ async function submitTime() {
     const usedNoteAid = !!indirectSessionStore.noteAidUsedDuringSession;
     const allocationMode = unrefAllocationMode(panel);
     const createdIds = [];
-
-    if (dualRateEnabled.value) {
-      const indirectAlloc = [];
-      const other1Alloc = [];
-      for (const a of allocations) {
-        const bucket = typePayBucket(a.serviceTypeId);
-        if (bucket === 'other_1') other1Alloc.push(a);
-        else indirectAlloc.push(a);
-      }
-      const indirectMins = indirectAlloc.reduce((s, a) => s + Number(a.minutes || 0), 0);
-      const other1Mins = other1Alloc.reduce((s, a) => s + Number(a.minutes || 0), 0);
-      if (indirectMins < 1 && other1Mins < 1) {
-        throw new Error('Allocate minutes to at least one service type');
-      }
-      if (indirectMins >= 1) {
-        const created = await postIndirectTimeClaim({
-          totalMinutes: indirectMins,
-          allocations: indirectAlloc,
-          bucket: 'indirect',
-          startTime,
-          endTime,
-          allocationMode,
-          usedNoteAid
-        });
-        if (created?.id) createdIds.push(Number(created.id));
-      }
-      if (other1Mins >= 1) {
-        const created = await postIndirectTimeClaim({
-          totalMinutes: other1Mins,
-          allocations: other1Alloc,
-          bucket: 'other_1',
-          startTime,
-          endTime,
-          allocationMode,
-          usedNoteAid
-        });
-        if (created?.id) createdIds.push(Number(created.id));
-      }
-      const parts = [];
-      if (indirectMins >= 1) parts.push(`${formatHm(indirectMins)} Indirect`);
-      if (other1Mins >= 1) parts.push(`${formatHm(other1Mins)} Other 1`);
-      success.value = `Submitted ${parts.join(' + ')} for payroll review.`;
-    } else {
-      const totalMinutes = sessionTotalMinutes.value;
+    const byGroup = {
+      indirect_service: [],
+      support_activity: [],
+      supervision_note: []
+    };
+    for (const a of allocations) {
+      const bucket = typePayBucket(a.serviceTypeId);
+      const group = categoryGroupFromPayBucket(bucket);
+      if (!byGroup[group]) byGroup[group] = [];
+      byGroup[group].push({ ...a, payBucket: bucket });
+    }
+    const parts = [];
+    for (const group of ['indirect_service', 'support_activity', 'supervision_note']) {
+      const allocs = byGroup[group] || [];
+      const mins = allocs.reduce((s, a) => s + Number(a.minutes || 0), 0);
+      if (mins < 1) continue;
+      const payBucket = group === 'support_activity'
+        ? 'support'
+        : group === 'supervision_note'
+          ? 'supervision_note'
+          : 'indirect';
       const created = await postIndirectTimeClaim({
-        totalMinutes,
-        allocations,
-        bucket: 'indirect',
+        totalMinutes: mins,
+        allocations: allocs,
+        payBucket,
+        categoryGroup: group,
         startTime,
         endTime,
         allocationMode,
         usedNoteAid
       });
       if (created?.id) createdIds.push(Number(created.id));
-      success.value = 'Time submitted for payroll review. Use Edit in My Payroll if you need to change it (a reason is required).';
+      parts.push(`${formatHm(mins)} ${categoryGroupLabel(group)}`);
     }
+    if (!parts.length) {
+      throw new Error('Allocate minutes to at least one activity type');
+    }
+    success.value = `Submitted ${parts.join(' + ')} for payroll review.`;
 
     attestation.value = false;
     clearAllTypes();
@@ -1659,8 +1706,15 @@ onUnmounted(() => stopTick());
   grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
+.itl-dual-cols--three {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+@media (max-width: 1100px) {
+  .itl-dual-cols--three { grid-template-columns: 1fr 1fr; }
+}
 @media (max-width: 900px) {
-  .itl-dual-cols { grid-template-columns: 1fr; }
+  .itl-dual-cols,
+  .itl-dual-cols--three { grid-template-columns: 1fr; }
 }
 .itl-dual-col {
   border: 1px solid var(--itl-border);
@@ -1672,9 +1726,13 @@ onUnmounted(() => stopTick());
   border-color: #86efac;
   background: #f0fdf4;
 }
-.itl-dual-col--other1 {
+.itl-dual-col--support {
   border-color: #93c5fd;
   background: #eff6ff;
+}
+.itl-dual-col--supervision {
+  border-color: #c4b5fd;
+  background: #f5f3ff;
 }
 .itl-dual-head {
   display: flex;
@@ -1693,8 +1751,32 @@ onUnmounted(() => stopTick());
   border-radius: 6px;
 }
 .itl-dual-badge--indirect { background: #166534; color: #fff; }
-.itl-dual-badge--other1 { background: #1d4ed8; color: #fff; }
+.itl-dual-badge--support { background: #1d4ed8; color: #fff; }
+.itl-dual-badge--supervision { background: #6d28d9; color: #fff; }
 .itl-dual-sub { font-size: 0.8rem; color: var(--itl-muted); }
+.itl-disclaimer {
+  margin: 12px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #4b5563;
+  background: rgba(255, 255, 255, 0.65);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.itl-sub-category {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  color: #374151;
+}
+.itl-sub-category[data-category="support_activity"] { background: #dbeafe; color: #1e40af; }
+.itl-sub-category[data-category="supervision_note"] { background: #ede9fe; color: #5b21b6; }
+.itl-sub-category[data-category="indirect_service"] { background: #dcfce7; color: #166534; }
 .itl-type-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import PayrollIndirectServiceType from '../models/PayrollIndirectServiceType.model.js';
 import PayrollIndirectTimeSession from '../models/PayrollIndirectTimeSession.model.js';
+import { normalizePayBucket } from '../utils/hourlyDualRateContract.js';
 
 const isAdminRole = (role) => {
   const r = String(role || '').trim().toLowerCase();
@@ -31,18 +32,32 @@ async function assertAgencyMembership(req, res, agencyId) {
   return true;
 }
 
-async function assertHourlyWorker(req, res) {
-  if (isAdminRole(req.user?.role)) return true;
+async function loadLogTimeCapabilities(userId) {
   const [rows] = await pool.execute(
-    'SELECT is_hourly_worker FROM users WHERE id = ? LIMIT 1',
-    [req.user.id]
+    `SELECT is_hourly_worker, hourly_dual_rate_enabled, has_supervisor_privileges, role
+     FROM users WHERE id = ? LIMIT 1`,
+    [Number(userId)]
   );
-  const flag = rows?.[0]?.is_hourly_worker;
-  if (!(flag === 1 || flag === true || flag === '1')) {
-    res.status(403).json({ error: { message: 'Indirect time logging is for hourly employees only' } });
+  const u = rows?.[0] || {};
+  const isHourly = u.is_hourly_worker === 1 || u.is_hourly_worker === true || u.is_hourly_worker === '1';
+  const isSupervisor =
+    u.has_supervisor_privileges === 1
+    || u.has_supervisor_privileges === true
+    || u.has_supervisor_privileges === '1'
+    || String(u.role || '').toLowerCase() === 'supervisor';
+  return { isHourly, isSupervisor, userRow: u };
+}
+
+/** Role-gate which Log Time category columns a user may select. */
+export function filterServiceTypesForUser(types, { isHourly, isSupervisor }) {
+  const list = Array.isArray(types) ? types : [];
+  return list.filter((t) => {
+    const bucket = normalizePayBucket(t?.payBucket || t?.pay_bucket);
+    if (bucket === 'indirect') return !!isHourly;
+    if (bucket === 'support' || bucket === 'other_1') return true;
+    if (bucket === 'supervision_note') return !!isSupervisor;
     return false;
-  }
-  return true;
+  });
 }
 
 function withLiveElapsed(session) {
@@ -59,9 +74,21 @@ export const listMyIndirectServiceTypes = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);
     if (!(await assertAgencyMembership(req, res, agencyId))) return;
-    if (!(await assertHourlyWorker(req, res))) return;
+    const caps = await loadLogTimeCapabilities(req.user.id);
     const types = await PayrollIndirectServiceType.listForAgency({ agencyId, activeOnly: true });
-    res.json({ types });
+    const filtered = isAdminRole(req.user?.role)
+      ? types
+      : filterServiceTypesForUser(types, caps);
+    res.json({
+      types: filtered,
+      capabilities: {
+        isHourly: caps.isHourly,
+        isSupervisor: caps.isSupervisor,
+        showIndirectService: caps.isHourly,
+        showSupportActivity: true,
+        showSupervisionNote: caps.isSupervisor
+      }
+    });
   } catch (e) {
     next(e);
   }
@@ -155,7 +182,6 @@ export const getMyIndirectTimeSession = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);
     if (!(await assertAgencyMembership(req, res, agencyId))) return;
-    if (!(await assertHourlyWorker(req, res))) return;
     const session = await PayrollIndirectTimeSession.findOpenForUser({
       agencyId,
       userId: req.user.id
@@ -170,7 +196,6 @@ export const clockInIndirectTime = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);
     if (!(await assertAgencyMembership(req, res, agencyId))) return;
-    if (!(await assertHourlyWorker(req, res))) return;
     const session = await PayrollIndirectTimeSession.clockIn({
       agencyId,
       userId: req.user.id
@@ -185,7 +210,6 @@ export const breakIndirectTime = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);
     if (!(await assertAgencyMembership(req, res, agencyId))) return;
-    if (!(await assertHourlyWorker(req, res))) return;
     const action = String(req.body?.action || 'start').trim().toLowerCase();
     let session = await PayrollIndirectTimeSession.findOpenForUser({
       agencyId,
@@ -207,7 +231,6 @@ export const clockOutIndirectTime = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);
     if (!(await assertAgencyMembership(req, res, agencyId))) return;
-    if (!(await assertHourlyWorker(req, res))) return;
     const open = await PayrollIndirectTimeSession.findOpenForUser({
       agencyId,
       userId: req.user.id
@@ -225,7 +248,6 @@ export const adjustIndirectTimeClockOut = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);
     if (!(await assertAgencyMembership(req, res, agencyId))) return;
-    if (!(await assertHourlyWorker(req, res))) return;
     const sessionId = Number(req.params?.id || req.body?.sessionId);
     if (!Number.isFinite(sessionId) || sessionId <= 0) {
       return res.status(400).json({ error: { message: 'session id is required' } });

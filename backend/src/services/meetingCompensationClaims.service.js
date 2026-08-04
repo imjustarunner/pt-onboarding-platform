@@ -4,7 +4,8 @@
  * - Huddle host → Individual Meeting
  * - Huddle attendees → MEETING
  * - Admin Meeting / Town Hall participants (host + attendees) → MEETING
- * - admin / super_admin / support: only if they have MEETING rate > 0
+ * - Supervisors on Admin Meetings → Admin Time (admin compensation rate)
+ * - admin / super_admin / support: only if they have MEETING (or Admin Time) rate > 0
  */
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
 import PayrollRate from '../models/PayrollRate.model.js';
@@ -16,6 +17,7 @@ import pool from '../config/database.js';
 export const COMP_CLAIM_SOURCE = 'meeting_compensation_auto';
 export const HUDDLE_HOST_SERVICE_CODE = 'Individual Meeting';
 export const MEETING_SERVICE_CODE = 'MEETING';
+export const ADMIN_TIME_SERVICE_CODE = 'Admin Time';
 export const ADMIN_SALARY_ROLES = new Set(['admin', 'super_admin', 'superadmin', 'support']);
 
 function wallPartsFromMysqlDateTime(raw) {
@@ -125,6 +127,20 @@ async function loadUserRole(userId) {
   return String(rows?.[0]?.role || '').trim().toLowerCase();
 }
 
+async function loadUserIsSupervisor(userId) {
+  const uid = Number(userId || 0);
+  if (!uid) return false;
+  const [rows] = await pool.execute(
+    `SELECT has_supervisor_privileges, role FROM users WHERE id = ? LIMIT 1`,
+    [uid]
+  );
+  const u = rows?.[0] || {};
+  if (u.has_supervisor_privileges === 1 || u.has_supervisor_privileges === true || u.has_supervisor_privileges === '1') {
+    return true;
+  }
+  return String(u.role || '').trim().toLowerCase() === 'supervisor';
+}
+
 async function hasUsableRate({ agencyId, userId, serviceCode, asOf }) {
   try {
     const best = await PayrollRate.findBestRate({
@@ -174,7 +190,9 @@ function buildPayload({
   meetingType,
   serviceCode,
   payRateSource,
-  totalMinutes
+  totalMinutes,
+  categoryLabel = null,
+  compensationNote = null
 }) {
   const title = String(event?.title || meetingType).trim() || meetingType;
   const startParts = wallPartsFromMysqlDateTime(event?.start_at);
@@ -189,6 +207,8 @@ function buildPayload({
     attestation: true,
     source: COMP_CLAIM_SOURCE,
     totalMinutes: Math.max(1, Math.round(Number(totalMinutes) || 0)),
+    ...(categoryLabel ? { categoryLabel } : {}),
+    ...(compensationNote ? { compensationNote } : {}),
     ...(startParts?.hm ? { startTime: startParts.hm } : {}),
     ...(endParts?.hm ? { endTime: endParts.hm } : {})
   };
@@ -314,11 +334,14 @@ export async function syncCompensationClaimsForEvent({
       return { ok: true, skipped: true, error: 'waiting_for_attendance_or_end', results: [] };
     }
 
+    const meetingSubtype = normalizeMeetingSubtype(row.meeting_subtype ?? row.meetingSubtype);
     const results = [];
     for (const uid of participantIds) {
       const isHost = uid === hostId;
       let serviceCode = MEETING_SERVICE_CODE;
       let payRateSource = 'meeting';
+      let categoryLabel = null;
+      let compensationNote = null;
       if (kind === 'HUDDLE' && isHost) {
         serviceCode = HUDDLE_HOST_SERVICE_CODE;
         payRateSource = 'individual_meeting';
@@ -328,6 +351,17 @@ export async function syncCompensationClaimsForEvent({
         ? String(row.host_role || '').trim().toLowerCase()
         : await loadUserRole(uid);
 
+      // Supervisors present in Admin Meetings are paid at Admin Time (not MEETING).
+      if (kind === 'TEAM_MEETING' && meetingSubtype === 'admin') {
+        const isSupervisor = await loadUserIsSupervisor(uid);
+        if (isSupervisor) {
+          serviceCode = ADMIN_TIME_SERVICE_CODE;
+          payRateSource = 'admin_time';
+          categoryLabel = 'Admin Meeting (Supervisor)';
+          compensationNote = 'Supervisor Admin Meeting attendance is compensated at the Admin Time rate on the compensation schedule.';
+        }
+      }
+
       const mins = minutesByUser.has(uid)
         ? Number(minutesByUser.get(uid))
         : (useScheduledFallback && meetingEnded ? scheduledMinutes : 0);
@@ -336,10 +370,11 @@ export async function syncCompensationClaimsForEvent({
         continue;
       }
 
-      // Admin/support/superadmin: require usable MEETING rate (even for huddle host path
-      // they would use Individual Meeting if hosting a huddle — those roles shouldn't host huddles).
+      // Admin/support/superadmin: require usable rate for the code they will be paid under.
       if (ADMIN_SALARY_ROLES.has(role)) {
-        const gateCode = serviceCode === HUDDLE_HOST_SERVICE_CODE ? serviceCode : MEETING_SERVICE_CODE;
+        const gateCode = serviceCode === HUDDLE_HOST_SERVICE_CODE || serviceCode === ADMIN_TIME_SERVICE_CODE
+          ? serviceCode
+          : MEETING_SERVICE_CODE;
         const okRate = await hasUsableRate({
           agencyId,
           userId: uid,
@@ -368,7 +403,9 @@ export async function syncCompensationClaimsForEvent({
         meetingType,
         serviceCode,
         payRateSource,
-        totalMinutes: mins
+        totalMinutes: mins,
+        categoryLabel,
+        compensationNote
       });
       // eslint-disable-next-line no-await-in-loop
       const res = await upsertClaim({

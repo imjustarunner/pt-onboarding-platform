@@ -197,7 +197,9 @@
                 <th>Provider</th>
                 <th>Date</th>
                 <th>Type</th>
+                <th>Bucket</th>
                 <th class="right">Hours</th>
+                <th class="right">Rate / Pay</th>
                 <th>Post to</th>
                 <th class="right">Actions</th>
               </tr>
@@ -210,20 +212,35 @@
                   <div>{{ timeTypeLabel(c) }}</div>
                   <div v-if="logTimeSummary(c)" class="hint" style="margin-top: 4px; max-width: 280px;">{{ logTimeSummary(c) }}</div>
                 </td>
+                <td>
+                  <select
+                    v-model="timeBucketById[c.id]"
+                    :disabled="busyId === `time-${c.id}`"
+                    style="min-width: 100px;"
+                  >
+                    <option value="indirect">Indirect</option>
+                    <option value="direct">Direct</option>
+                    <option value="other_1">Other 1</option>
+                  </select>
+                </td>
                 <td class="right">
                   <input
-                    v-if="claimHoursValue(c) <= 0"
                     class="input"
                     type="number"
                     step="0.01"
                     min="0"
-                    style="width: 80px; text-align: right;"
-                    :value="timeHoursOverrideById[c.id] ?? ''"
+                    style="width: 88px; text-align: right;"
+                    :value="timeHoursOverrideById[c.id] ?? claimHoursValue(c) ?? ''"
                     placeholder="hrs"
                     :disabled="busyId === `time-${c.id}`"
                     @input="timeHoursOverrideById[c.id] = $event.target.value"
                   />
-                  <template v-else>{{ fmtHours(c) }}</template>
+                </td>
+                <td class="right">
+                  <div class="pps-pay-estimate">
+                    <strong>{{ timePayEstimateMoney(c) }}</strong>
+                    <div class="hint" style="margin-top: 2px;">{{ timePayEstimateRateLabel(c) }}</div>
+                  </div>
                 </td>
                 <td>
                   <select v-model="claimTargetByKey[`time-${c.id}`]" :disabled="busyId === `time-${c.id}`">
@@ -769,6 +786,7 @@ const reimbClaims = ref([]);
 const medClaims = ref([]);
 const claimTargetByKey = reactive({});
 const timeHoursOverrideById = reactive({});
+const timeBucketById = reactive({});
 const timeClaimViewOpen = ref(false);
 const reviewedTimeClaim = ref(null);
 const mileageClaimViewOpen = ref(false);
@@ -790,6 +808,22 @@ const periodsForSelect = computed(() => {
   const source = periods.value || [];
   let aligned = source.filter((p) => Number(p.schedule_aligned) === 1);
   if (!aligned.length) aligned = source.slice();
+  // Fill gaps between aligned periods so missing mid-sequence periods still appear.
+  if (aligned.length && source.length) {
+    const starts = aligned.map((p) => String(p.period_start || '')).filter(Boolean).sort();
+    const ends = aligned.map((p) => String(p.period_end || '')).filter(Boolean).sort();
+    const minStart = starts[0];
+    const maxEnd = ends[ends.length - 1];
+    if (minStart && maxEnd) {
+      const byId = new Map(aligned.map((p) => [Number(p.id), p]));
+      for (const p of source) {
+        const s = String(p?.period_start || '');
+        const e = String(p?.period_end || '');
+        if (s && e && s >= minStart && e <= maxEnd) byId.set(Number(p.id), p);
+      }
+      aligned = [...byId.values()];
+    }
+  }
   aligned.sort((a, b) => String(b?.period_end || '').localeCompare(String(a?.period_end || '')));
   return aligned;
 });
@@ -1066,8 +1100,17 @@ const timeTypeLabel = (c) => {
   const t = String(c.claim_type || c.type || c.time_type || '').trim().toLowerCase();
   if (!t) return 'Time';
   if (t === 'indirect_time') {
+    const cat = String(c?.payload?.categoryLabel || '').trim();
+    if (cat) return `Log Time / ${cat}`;
     const bucket = String(c?.payload?.bucket || c?.bucket || '').trim().toLowerCase();
     return bucket === 'other_1' ? 'Log Time (Other 1)' : 'Log Time';
+  }
+  if (t === 'meeting_training') {
+    const mt = String(c?.payload?.meetingType || '').trim();
+    const code = String(c?.payload?.serviceCode || c?.payEstimate?.serviceCode || '').trim();
+    if (mt && code) return `${mt} (${code})`;
+    if (mt) return mt;
+    return 'Meeting (auto)';
   }
   if (t === 'training_focus_completion') return 'Training Focus Completion';
   return t.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
@@ -1079,6 +1122,8 @@ const logTimeSummary = (c) => {
 };
 
 const timeClaimApproveBucket = (c) => {
+  const fromUi = String(timeBucketById[c.id] || '').trim().toLowerCase();
+  if (fromUi === 'other_1' || fromUi === 'direct' || fromUi === 'indirect') return fromUi;
   const payloadBucket = String(c?.payload?.bucket || '').trim().toLowerCase();
   if (payloadBucket === 'other_1' || payloadBucket === 'direct' || payloadBucket === 'indirect') {
     return payloadBucket;
@@ -1086,6 +1131,38 @@ const timeClaimApproveBucket = (c) => {
   const stored = String(c?.bucket || '').trim().toLowerCase();
   if (stored === 'other_1' || stored === 'direct' || stored === 'indirect') return stored;
   return 'indirect';
+};
+
+const timePayEstimateMoney = (c) => {
+  const est = Number(c?.payEstimate?.amount);
+  if (Number.isFinite(est)) {
+    // Scale estimate if admin changed hours in the UI.
+    const baseHrs = claimHoursValue(c);
+    const overrideHrs = Number(timeHoursOverrideById[c.id]);
+    const hrs = Number.isFinite(overrideHrs) && overrideHrs >= 0 ? overrideHrs : baseHrs;
+    if (baseHrs > 0 && hrs >= 0 && Math.abs(hrs - baseHrs) > 0.001) {
+      return `$${((est * hrs) / baseHrs).toFixed(2)}`;
+    }
+    return `$${est.toFixed(2)}`;
+  }
+  return '—';
+};
+
+const timePayEstimateRateLabel = (c) => {
+  const t = String(c?.claim_type || '').toLowerCase();
+  if (t === 'meeting_training' || t === 'mentor_cpa_meeting') {
+    const code = String(c?.payEstimate?.serviceCode || c?.payload?.serviceCode || '').trim();
+    if (code) return `${code} rate`;
+    const mt = String(c?.payload?.meetingType || '').trim();
+    if (mt) return 'MEETING rate';
+    return String(c?.payEstimate?.rateLabel || 'MEETING rate');
+  }
+  const bucket = timeClaimApproveBucket(c);
+  if (bucket === 'direct') return 'Direct rate';
+  if (bucket === 'other_1') return 'Other 1 rate';
+  const label = String(c?.payEstimate?.rateLabel || '').trim();
+  if (label) return label;
+  return 'Indirect rate';
 };
 
 const statusLabel = (st) => {
@@ -1189,7 +1266,16 @@ const seedClaimTargets = (prefix, list) => {
 
 const loadPeriods = async () => {
   if (!agencyId.value) return;
-  const resp = await api.get('/payroll/periods', { params: { agencyId: agencyId.value } });
+  try {
+    await api.post(
+      '/payroll/periods/ensure-future',
+      { months: 6, pastPeriods: 4 },
+      { params: { agencyId: agencyId.value } }
+    );
+  } catch { /* best-effort gap fill */ }
+  const resp = await api.get('/payroll/periods', {
+    params: { agencyId: agencyId.value, alignedOnly: 'false' }
+  });
   periods.value = resp.data || [];
   if (!defaultTargetPeriodId.value) {
     defaultTargetPeriodId.value = pickDefaultOpenPeriod();
@@ -1252,6 +1338,15 @@ const loadClaims = async () => {
   seedClaimTargets('mileage', mileageClaims.value);
   seedClaimTargets('reimb', reimbClaims.value);
   seedClaimTargets('med', medClaims.value);
+  for (const c of timeClaims.value || []) {
+    if (timeBucketById[c.id] == null) {
+      timeBucketById[c.id] = timeClaimApproveBucket(c);
+    }
+    if (timeHoursOverrideById[c.id] == null || timeHoursOverrideById[c.id] === '') {
+      const h = claimHoursValue(c);
+      if (h > 0) timeHoursOverrideById[c.id] = String(h);
+    }
+  }
 };
 
 const loadEventTimeSubmissions = async () => {
@@ -1457,7 +1552,9 @@ const approveTime = (c) => {
   const targetPayrollPeriodId = Number(claimTargetByKey[`time-${c.id}`] || 0);
   if (!isValidOpenPeriod(targetPayrollPeriodId)) return;
   const overrideHrs = Number(timeHoursOverrideById[c.id]);
-  const hours = (Number.isFinite(overrideHrs) && overrideHrs > 0) ? overrideHrs : claimHoursValue(c);
+  const hours = (Number.isFinite(overrideHrs) && overrideHrs >= 0)
+    ? overrideHrs
+    : claimHoursValue(c);
   return withBusy(
     `time-${c.id}`,
     (override = {}) =>
@@ -1465,7 +1562,7 @@ const approveTime = (c) => {
         action: 'approve',
         targetPayrollPeriodId,
         bucket: timeClaimApproveBucket(c),
-        ...(hours > 0 ? { creditsHours: hours } : {}),
+        ...(Number.isFinite(hours) && hours >= 0 ? { creditsHours: hours } : {}),
         ...override
       }),
     loadClaims
@@ -1974,6 +2071,11 @@ onMounted(async () => {
   padding: 8px 10px;
   font-size: 13px;
 }
+.pps-pay-estimate {
+  min-width: 96px;
+  font-size: 0.9rem;
+}
+.pps-pay-estimate strong { color: #14532d; }
 @media (max-width: 900px) {
   .pps-toolbar { grid-template-columns: 1fr; }
   .pps-toolbar-stats { justify-content: flex-start; }

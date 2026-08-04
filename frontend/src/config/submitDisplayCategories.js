@@ -45,13 +45,12 @@ export const SUBMIT_ROOT_GROUPS = [
       {
         id: 'log_time',
         title: 'Log Time',
-        description: 'Clock in/out and allocate indirect time for payroll.',
+        description: 'Clock in/out and allocate Indirect Service, Support Activity, or Supervision Note time.',
         event: 'log-time',
         icon: 'clock',
-        visibleKey: 'hourlyLogTime',
         featured: true
       },
-      { id: 'time_menu', title: 'Time claims', description: 'Meeting, excess time, corrections, overtime.', event: 'open-time', icon: 'clock' },
+      { id: 'time_menu', title: 'Time claims', description: 'Excess time, corrections, and overtime.', event: 'open-time', icon: 'clock' },
       { id: 'availability', title: 'Additional school hours', description: 'Request additional weekday school hours for staff to review.', event: 'availability', icon: 'calendar' },
       { id: 'virtual_hours', title: 'Virtual working hours', description: 'Weekly virtual hours (not tied to a room).', event: 'virtual-hours', icon: 'video' },
     ],
@@ -97,7 +96,7 @@ export const SUBMIT_ROOT_GROUPS = [
 ];
 
 export const SUBMIT_TIME_ACTIONS = [
-  { id: 'meeting', title: 'Meeting / training / outreach', description: 'Log meeting, training, or outreach minutes.', event: 'time-meeting', icon: 'users' },
+  // Meeting / training / outreach removed — use Log Time (Support Activity) or auto-submit from virtual meetings.
   { id: 'excess', title: 'Excess time', description: 'Service codes and direct/indirect minutes beyond included span.', event: 'time-excess', icon: 'clock', visibleKey: 'timeExcess' },
   { id: 'correction', title: 'Service correction', description: 'Request correction review for a service.', event: 'time-correction', icon: 'clipboard', visibleKey: 'timeCorrection' },
   { id: 'overtime', title: 'Overtime evaluation', description: 'Overtime details and optional holiday pay.', event: 'time-overtime', icon: 'clock', titleKey: 'overtimeTitle', descKey: 'overtimeDesc' },

@@ -2,25 +2,24 @@ import pool from '../config/database.js';
 import { normalizePayBucket } from '../utils/hourlyDualRateContract.js';
 
 export const DEFAULT_INDIRECT_SERVICE_TYPES = [
-  { typeKey: 'preparing_for_sessions', label: 'Preparing for Sessions', description: 'Prep materials and plan for upcoming sessions', iconKey: 'book', payBucket: 'indirect', sortOrder: 10 },
-  { typeKey: 'supervision', label: 'Supervision', description: 'Supervision meeting time', iconKey: 'users', payBucket: 'indirect', sortOrder: 15 },
-  { typeKey: 'writing_notes', label: 'Writing Notes', description: 'Write clinical or session documentation', iconKey: 'file-text', payBucket: 'indirect', sortOrder: 20 },
-  { typeKey: 'non_billable_contacts', label: 'Non-Billable Contacts', description: 'Phone and outreach contacts that are not billable', iconKey: 'phone', payBucket: 'indirect', sortOrder: 30 },
-  { typeKey: 'prep_for_outreach', label: 'Prep or attendance of outreach', description: 'Prepare for or attend community/outreach activities', iconKey: 'megaphone', payBucket: 'indirect', sortOrder: 40 },
-  { typeKey: 'travel_for_outreach', label: 'Travel for Outreach Events', description: 'Travel time related to outreach events', iconKey: 'car', payBucket: 'indirect', sortOrder: 50 },
-  { typeKey: 'virtual_outreach', label: 'Virtual Outreach', description: 'Virtual outreach and community engagement', iconKey: 'laptop', payBucket: 'indirect', sortOrder: 60 },
-  { typeKey: 'treatment_planning', label: 'Treatment Planning (Non-Billable)', description: 'Non-billable treatment planning work', iconKey: 'clipboard', payBucket: 'indirect', sortOrder: 70 },
-  { typeKey: 'case_consultations', label: 'Case Consultations (Non-Billable)', description: 'Non-billable case consultation time', iconKey: 'users', payBucket: 'indirect', sortOrder: 80 },
-  { typeKey: 'documentation_emr', label: 'Documentation / EMR (Non-Billable)', description: 'Non-billable EMR and chart documentation', iconKey: 'monitor', payBucket: 'indirect', sortOrder: 90 },
-  { typeKey: 'client_follow_up', label: 'Client Follow-Up (Non-Billable)', description: 'Non-billable client follow-up activities', iconKey: 'user-check', payBucket: 'indirect', sortOrder: 100 },
-  { typeKey: 'resource_coordination', label: 'Resource Coordination (Non-Billable)', description: 'Coordinate resources and supports', iconKey: 'handshake', payBucket: 'indirect', sortOrder: 110 },
-  // Type 2 / Other 1
-  { typeKey: 'training_meetings', label: 'Training Meetings', description: 'Staff training and development meetings', iconKey: 'users', payBucket: 'other_1', sortOrder: 210 },
-  { typeKey: 'outreach_meetings', label: 'Outreach Meetings', description: 'Outreach planning and coordination meetings', iconKey: 'megaphone', payBucket: 'other_1', sortOrder: 220 },
-  { typeKey: 'bilingual_coordination', label: 'Bilingual Coordination', description: 'Bilingual coordination and language-support work', iconKey: 'handshake', payBucket: 'other_1', sortOrder: 230 },
-  { typeKey: 'bilingual_intakes_not_billed', label: 'Bilingual Intakes (Not Billed)', description: 'Non-billed bilingual intake work', iconKey: 'user-check', payBucket: 'other_1', sortOrder: 240 },
-  { typeKey: 'back_to_school_events', label: 'Back to School Events', description: 'Back-to-school and school kickoff events', iconKey: 'book', payBucket: 'other_1', sortOrder: 250 },
-  { typeKey: 'other_type_2', label: 'Other (Type 2)', description: 'Other approved Other 1 / Type 2 work', iconKey: 'more', payBucket: 'other_1', sortOrder: 260 }
+  // Indirect Service Time (hourly)
+  { typeKey: 'clinical_documentation', label: 'Clinical Documentation', description: 'Clinical documentation and charting', iconKey: 'file-text', payBucket: 'indirect', sortOrder: 10 },
+  { typeKey: 'treatment_planning_svc', label: 'Treatment Planning', description: 'Treatment planning (non-billable)', iconKey: 'clipboard', payBucket: 'indirect', sortOrder: 20 },
+  { typeKey: 'care_coordination', label: 'Care Coordination', description: 'Care coordination activities', iconKey: 'handshake', payBucket: 'indirect', sortOrder: 30 },
+  { typeKey: 'client_communication', label: 'Client Communication', description: 'Client or guardian communication', iconKey: 'phone', payBucket: 'indirect', sortOrder: 40 },
+  { typeKey: 'client_record_review', label: 'Client Record Review', description: 'Review client records and charts', iconKey: 'book', payBucket: 'indirect', sortOrder: 50 },
+  { typeKey: 'scheduling_follow_up', label: 'Scheduling & Follow-up', description: 'Scheduling and follow-up activities', iconKey: 'calendar', payBucket: 'indirect', sortOrder: 60 },
+  { typeKey: 'billing_correction', label: 'Billing Correction / Claim Resolution', description: 'Billing corrections and claim resolution', iconKey: 'monitor', payBucket: 'indirect', sortOrder: 70 },
+  { typeKey: 'outreach_activities', label: 'Outreach Activities', description: 'Approved outreach activities', iconKey: 'megaphone', payBucket: 'indirect', sortOrder: 80 },
+  // Support Activity Time (everyone) — paid at MEETING
+  { typeKey: 'staff_meeting', label: 'Staff Meeting', description: 'Staff meeting (non-auto-logged)', iconKey: 'users', payBucket: 'support', sortOrder: 210 },
+  { typeKey: 'required_training', label: 'Required Training', description: 'Required training when not auto-logged', iconKey: 'book', payBucket: 'support', sortOrder: 220 },
+  { typeKey: 'clinical_supervision_sa', label: 'Clinical Supervision', description: 'Clinical supervision when not auto-logged', iconKey: 'users', payBucket: 'support', sortOrder: 230 },
+  { typeKey: 'onboarding_sa', label: 'Onboarding', description: 'Onboarding activities when not auto-logged', iconKey: 'user-check', payBucket: 'support', sortOrder: 240 },
+  { typeKey: 'fingerprinting_credentialing', label: 'Fingerprinting / Credentialing', description: 'Fingerprinting and credentialing activities', iconKey: 'clipboard', payBucket: 'support', sortOrder: 250 },
+  { typeKey: 'approved_travel', label: 'Approved Travel', description: 'Approved travel time', iconKey: 'car', payBucket: 'support', sortOrder: 260 },
+  // Supervision Note Time (supervisors) — paid at Admin Time
+  { typeKey: 'supervision_note_time', label: 'Supervision Note Time', description: 'Write and complete supervision notes / related admin after sessions', iconKey: 'file-text', payBucket: 'supervision_note', sortOrder: 310 }
 ];
 
 const DEFAULT_TYPES = DEFAULT_INDIRECT_SERVICE_TYPES;
@@ -75,9 +74,16 @@ class PayrollIndirectServiceType {
     for (const d of DEFAULT_TYPES) {
       if (hasPayBucket) {
         await pool.execute(
-          `INSERT IGNORE INTO payroll_indirect_service_types
+          `INSERT INTO payroll_indirect_service_types
            (agency_id, type_key, label, description, icon_key, pay_bucket, sort_order, is_active)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+           ON DUPLICATE KEY UPDATE
+             label = VALUES(label),
+             description = VALUES(description),
+             icon_key = VALUES(icon_key),
+             pay_bucket = VALUES(pay_bucket),
+             sort_order = VALUES(sort_order),
+             is_active = 1`,
           [aid, d.typeKey, d.label, d.description, d.iconKey, normalizePayBucket(d.payBucket), d.sortOrder]
         );
       } else if (normalizePayBucket(d.payBucket) === 'indirect') {

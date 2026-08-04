@@ -120,6 +120,30 @@ export function normalizeBudgetExpenses(rows = []) {
   });
 }
 
+function timeClaimDisplayTitle(r) {
+  const t = String(r.claim_type || r.type || 'claim').toLowerCase();
+  const payload = r.payload || r.payload_json || {};
+  const parsed = typeof payload === 'string'
+    ? (() => { try { return JSON.parse(payload); } catch { return {}; } })()
+    : payload;
+  if (t === 'indirect_time') {
+    const cat = String(parsed.categoryLabel || '').trim();
+    const activity = parsed.allocations?.[0]?.serviceTypeLabel;
+    if (cat && activity) return `${cat} — ${activity}`;
+    if (cat) return cat;
+    if (activity) return `Log Time — ${activity}`;
+    return 'Log Time';
+  }
+  if (t === 'meeting_training') {
+    const cat = String(parsed.categoryLabel || '').trim();
+    if (cat) return cat;
+    const mt = String(parsed.meetingType || '').trim();
+    if (mt) return `Auto meeting — ${mt}`;
+    return 'Auto meeting';
+  }
+  return `Time claim — ${t.replace(/_/g, ' ')}`;
+}
+
 export function normalizeTimeClaims(rows = []) {
   return (rows || []).map((r) =>
     normalizeRow({
@@ -127,7 +151,7 @@ export function normalizeTimeClaims(rows = []) {
       groupId: 'time',
       type: 'time_claim',
       typeLabel: 'Time claim',
-      title: `Time claim — ${String(r.claim_type || r.type || 'claim').replace(/_/g, ' ')}`,
+      title: timeClaimDisplayTitle(r),
       dateRaw: r.claim_date || r.created_at,
       status: r.status,
       sortMs: parseMs(r.created_at || r.claim_date),

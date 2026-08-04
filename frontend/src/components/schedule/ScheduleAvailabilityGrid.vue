@@ -11852,10 +11852,8 @@ const availableQuickActions = computed(() => {
     {
       id: 'indirect_services',
       label: 'Log Time',
-      description: isHourlyWorker.value
-        ? 'Open the hourly indirect time log for payroll'
-        : 'Hourly workers log indirect time for payroll here',
-      disabledReason: (isAdminMode.value || isHourlyWorker.value) ? '' : 'Hourly worker only',
+      description: 'Clock in/out and allocate Indirect Service, Support Activity, or Supervision Note time',
+      disabledReason: '',
       visible: !supervisionOnlyMode,
       tone: 'amber'
     },
@@ -18972,8 +18970,8 @@ const submitOfficeAssign = async () => {
 const onQuickActionSelect = (act) => {
   const id = String(act?.id || '');
   if (act?.disabledReason) return;
-  if (id === 'indirect_services' && (isHourlyWorker.value || isAdminMode.value)) {
-    // Payroll indirect time is logged via the dedicated Time Submission flow.
+  if (id === 'indirect_services') {
+    // Payroll Log Time is logged via the dedicated Time Submission flow.
     recordSlotActionUsage(id);
     closeModal();
     const q = { ...route.query, tab: 'log_time' };

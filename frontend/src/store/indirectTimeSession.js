@@ -55,11 +55,13 @@ export const useIndirectTimeSessionStore = defineStore('indirectTimeSession', ()
   let tickTimer = null;
   let pollTimer = null;
 
-  const isHourlyWorker = computed(() => {
-    const u = useAuthStore().user || {};
-    const raw = u.isHourlyWorker ?? u.is_hourly_worker;
-    return raw === true || raw === 1 || raw === '1';
+  /** Log Time is available to all agency members (not only hourly workers). */
+  const canUseLogTime = computed(() => {
+    const auth = useAuthStore();
+    return !!auth.isAuthenticated;
   });
+  /** @deprecated Use canUseLogTime — kept for callers that still check hourly. */
+  const isHourlyWorker = canUseLogTime;
 
   const agencyId = computed(() => {
     const a = useAgencyStore().currentAgency;
@@ -255,7 +257,7 @@ export const useIndirectTimeSessionStore = defineStore('indirectTimeSession', ()
       resetAll();
       return null;
     }
-    if (!isHourlyWorker.value) {
+    if (!canUseLogTime.value) {
       resetAll();
       return null;
     }
@@ -304,6 +306,7 @@ export const useIndirectTimeSessionStore = defineStore('indirectTimeSession', ()
   return {
     session,
     loading,
+    canUseLogTime,
     isHourlyWorker,
     agencyId,
     isClockedIn,
