@@ -2236,7 +2236,7 @@ export const terminateClient = async (req, res, next) => {
     const roleNorm = String(userRole || '').toLowerCase();
     const isSupportStaff = ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm);
     let isAssignedProvider = false;
-    if (roleNorm === 'provider') {
+    if (roleNorm === 'provider' || roleNorm === 'provider_plus') {
       try {
         const [rows] = await pool.execute(
           `SELECT 1 FROM client_provider_assignments
