@@ -1840,16 +1840,23 @@ async function withdrawScheduleAdjustment(adj) {
 
 async function submitScheduleAdjust() {
   if (!adjustTarget.value) return;
-  saving.value = true;
-  actionError.value = '';
   const { school, day } = adjustTarget.value;
+  const requestedSlots = Number(adjustForm.slotsTotal);
   const currentSlots = day.slotsTotal ?? null;
   const currentUsed = day.clientCount ?? null;
-  const requestedSlots = Number(adjustForm.slotsTotal);
   const slotsChanged =
     Number.isFinite(requestedSlots) &&
     currentSlots != null &&
     requestedSlots !== Number(currentSlots);
+  const hoursChanged =
+    String(adjustForm.startTime || '').slice(0, 5) !== String(day.startTime || '').slice(0, 5) ||
+    String(adjustForm.endTime || '').slice(0, 5) !== String(day.endTime || '').slice(0, 5);
+  if (!slotsChanged && !hoursChanged) {
+    actionError.value = 'Update hours or slot count before submitting a schedule adjustment.';
+    return;
+  }
+  saving.value = true;
+  actionError.value = '';
   try {
     const note = [
       `Schedule adjustment request for ${school.schoolName}`,

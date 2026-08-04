@@ -1670,11 +1670,14 @@
             <button
               class="btn btn-primary"
               type="button"
-              :disabled="availabilitySubmitting || !availabilitySelectedDay"
+              :disabled="availabilitySubmitting || !availabilitySelectedDay || !availabilityHasScheduleChanges"
               @click="submitAvailabilityRequest"
             >
               {{ availabilitySubmitting ? 'Sending…' : 'Send request' }}
             </button>
+            <div v-if="!availabilityHasScheduleChanges" class="muted" style="font-size: 13px;">
+              Change hours or slot count to send a request. If your schedule is correct, use Confirm current availability.
+            </div>
             <a class="btn btn-secondary btn-sm" :href="additionalAvailabilityHref">
               Submit for additional availability
             </a>
@@ -3663,6 +3666,17 @@ const availabilityOverAssignedWarning = computed(() => {
   return '';
 });
 
+const availabilityHasScheduleChanges = computed(() => {
+  const d = selectedAvailabilityAssignment.value || {};
+  const delta = Number(availabilityDeltaSlots.value || 0);
+  if (delta !== 0) return true;
+  const fromStart = String(d.start_time || '').slice(0, 5);
+  const fromEnd = String(d.end_time || '').slice(0, 5);
+  const toStart = String(availabilityNewStart.value || '').slice(0, 5);
+  const toEnd = String(availabilityNewEnd.value || '').slice(0, 5);
+  return toStart !== fromStart || toEnd !== fromEnd;
+});
+
 const formatSchoolPortalTime = (value) => {
   const raw = String(value || '').trim();
   if (!raw || raw === '—') return '—';
@@ -3710,6 +3724,11 @@ const submitAvailabilityRequest = async () => {
   const selected = selectedAvailabilityAssignment.value || {};
   const providerUserId = Number(p.providerUserId || authStore.user?.id || 0);
   if (!providerUserId || !availabilitySelectedDay.value) return;
+  if (!availabilityHasScheduleChanges.value) {
+    availabilityError.value =
+      'No schedule changes to submit. Update hours or slot count, or use Confirm current availability if your schedule is already correct.';
+    return;
+  }
   try {
     availabilitySubmitting.value = true;
     availabilityError.value = '';

@@ -395,6 +395,7 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { formatTimeRange12h } from '../../utils/timeFormat';
 import { useAgencyStore } from '../../store/agency';
+import { parseSchoolRequestNotes, scheduleAdjustmentHasChanges } from '../../utils/schoolRequestNotes.js';
 
 const props = defineProps({
   showHeader: {
@@ -708,7 +709,9 @@ const reload = async () => {
     schools.value = (schoolsResp.data || []).filter((o) => String(o.organization_type || 'agency').toLowerCase() !== 'agency');
     officeRequests.value = officeReqResp.data || [];
     schoolRequests.value = schoolReqResp.data || [];
-    scheduleAdjustmentRequests.value = scheduleAdjResp.data || [];
+    scheduleAdjustmentRequests.value = (scheduleAdjResp.data || []).filter((r) =>
+      scheduleAdjustmentHasChanges(parseSchoolRequestNotes(r.notes))
+    );
     publicRequests.value = publicReqResp.data?.requests || [];
     publicLinkInfo.providerFinderUrl = String(publicLinkResp.data?.providerFinderUrl || '');
     publicLinkInfo.publicAvailabilityEnabled = !!publicLinkResp.data?.publicAvailabilityEnabled;

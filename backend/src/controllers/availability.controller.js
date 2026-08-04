@@ -29,6 +29,10 @@ import {
   upsertBiweeklySkillBuilderConfirmations
 } from '../services/skillBuilderAvailabilityBlocks.service.js';
 import { computeSkillBuilderProgramCreditMinutesPerWeek } from '../services/skillBuilderProgramCredit.service.js';
+import {
+  parseSchoolRequestNotes,
+  scheduleAdjustmentHasChanges
+} from '../utils/schoolRequestNotes.util.js';
 
 function parseIntSafe(v) {
   const n = parseInt(v, 10);
@@ -1515,6 +1519,18 @@ export const createMySchoolAvailabilityRequest = async (req, res, next) => {
     }
     if (normalizedBlocks.length === 0) {
       return res.status(400).json({ error: { message: 'At least one weekday daytime block is required (06:00–18:00).' } });
+    }
+
+    if (requestKind === 'schedule_adjustment') {
+      const parsedNotes = parseSchoolRequestNotes(notes);
+      if (!scheduleAdjustmentHasChanges(parsedNotes)) {
+        return res.status(400).json({
+          error: {
+            message:
+              'No schedule changes were detected. Update hours or slot count before submitting, or use Confirm current availability if nothing needs to change.'
+          }
+        });
+      }
     }
 
     conn = await pool.getConnection();

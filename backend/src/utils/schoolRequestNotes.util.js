@@ -1,6 +1,6 @@
 /**
- * Parse structured notes from school schedule-adjustment / additional-hours requests.
- * Notes are often pipe-delimited key: value pairs from School Portal / year update.
+ * Parse structured notes from school schedule-adjustment requests.
+ * Mirrors frontend/src/utils/schoolRequestNotes.js for server-side validation.
  */
 
 export function parseSchoolRequestNotes(notes) {
@@ -42,7 +42,6 @@ export function parseSchoolRequestNotes(notes) {
     else if (key === 'note' || key === 'hoping to accomplish') out.note = value;
   }
 
-  // Legacy one-liner: "Schedule adjustment request for School Name | …"
   if (!out.school) {
     const m = raw.match(/Schedule adjustment request for (.+?)(?:\s*\||$)/i);
     if (m) out.school = m[1].trim();
@@ -51,7 +50,6 @@ export function parseSchoolRequestNotes(notes) {
   return out;
 }
 
-/** Extract numeric slot total from strings like "7", "7 total", or "3 assigned / 7 total". */
 export function extractSlotTotal(slotsText) {
   const s = String(slotsText || '').trim();
   if (!s || s === '—') return null;
@@ -74,12 +72,6 @@ export function normalizeHoursText(hoursText) {
     .replace(/\s+/g, ' ');
 }
 
-export function formatSlotsTotalDisplay(slotsText) {
-  const total = extractSlotTotal(slotsText);
-  if (total != null) return `${total} total`;
-  return slotsText || '—';
-}
-
 export function hoursChanged(parsed) {
   const a = normalizeHoursText(parsed?.currentHours);
   const b = normalizeHoursText(parsed?.requestedHours);
@@ -95,7 +87,6 @@ export function slotsChanged(parsed) {
   return Number.isFinite(delta) && delta !== 0;
 }
 
-/** True when parsed notes describe an actual hours or slots change. */
 export function scheduleAdjustmentHasChanges(parsed) {
   if (!parsed) return false;
   if (slotsChanged(parsed)) return true;

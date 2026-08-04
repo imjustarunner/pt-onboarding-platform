@@ -151,7 +151,7 @@
               </div>
               <div class="sa-compare-row">
                 <span>Slots</span>
-                <strong>{{ parsed.currentSlots || '—' }}</strong>
+                <strong>{{ formatSlotsTotalDisplay(parsed.currentSlots) }}</strong>
               </div>
             </article>
             <article class="sa-compare-col requested" :class="{ changed: hasChanges }">
@@ -164,8 +164,8 @@
               <div class="sa-compare-row" :class="{ highlight: slotsDiff }">
                 <span>Slots</span>
                 <strong>
-                  {{ parsed.requestedSlots || '—' }}
-                  <template v-if="parsed.slotsDelta"> ({{ parsed.slotsDelta.startsWith('+') || parsed.slotsDelta.startsWith('-') ? parsed.slotsDelta : `+${parsed.slotsDelta}` }})</template>
+                  {{ formatSlotsTotalDisplay(parsed.requestedSlots) }}
+                  <template v-if="slotsDiff && parsed.slotsDelta"> ({{ parsed.slotsDelta.startsWith('+') || parsed.slotsDelta.startsWith('-') ? parsed.slotsDelta : `+${parsed.slotsDelta}` }})</template>
                 </strong>
                 <em v-if="slotsDiff">changed</em>
               </div>
@@ -228,7 +228,13 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
-import { hoursChanged, parseSchoolRequestNotes, slotsChanged } from '../../utils/schoolRequestNotes.js';
+import {
+  formatSlotsTotalDisplay,
+  hoursChanged,
+  parseSchoolRequestNotes,
+  scheduleAdjustmentHasChanges,
+  slotsChanged
+} from '../../utils/schoolRequestNotes.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -375,7 +381,9 @@ async function refresh() {
       }),
       api.get(`/agencies/${agencyId.value}/affiliated-organizations`, { skipGlobalLoading: true })
     ]);
-    adjustments.value = Array.isArray(adjResp.data) ? adjResp.data : [];
+    adjustments.value = (Array.isArray(adjResp.data) ? adjResp.data : []).filter((r) =>
+      scheduleAdjustmentHasChanges(parseSchoolRequestNotes(r.notes))
+    );
     additionalHours.value = Array.isArray(hoursResp.data) ? hoursResp.data : [];
     schools.value = (schoolsResp.data || []).filter(
       (o) => String(o.organization_type || 'agency').toLowerCase() !== 'agency'
