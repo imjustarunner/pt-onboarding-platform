@@ -174,19 +174,19 @@
             <div class="itl-manual-times itl-manual-times--prominent">
               <label class="itl-field">
                 <span>Date worked</span>
-                <input v-model="claimDate" type="date" :max="todayYmd" required />
+                <input v-model="claimDate" type="date" :max="todayYmd" required placeholder="Select date" />
               </label>
               <label class="itl-field">
                 <span>Start time</span>
-                <input v-model="manualStart" type="time" />
+                <input v-model="manualStart" type="time" required />
               </label>
               <label class="itl-field">
                 <span>End time</span>
-                <input v-model="manualEnd" type="time" />
+                <input v-model="manualEnd" type="time" required />
               </label>
             </div>
-            <p v-if="!hasEstablishedTime" class="itl-step-hint">
-              Enter a valid date, start, and end time (at least 1 minute) to continue.
+            <p v-if="manualFieldsPartial" class="itl-step-hint">
+              Enter date worked, start time, and end time to continue.
             </p>
           </template>
 
@@ -332,6 +332,9 @@
               </p>
             </div>
           </div>
+          <p v-if="selectedTypeIds.size === 1" class="itl-step-hint itl-step-hint--activities">
+            Select at least one more activity — allocation opens after you choose two or more.
+          </p>
         </section>
 
         <!-- Step 4: allocate & submit -->
@@ -364,6 +367,17 @@
           </div>
 
           <div class="itl-submit-wrap">
+          <label class="itl-approver-field">
+            <span class="itl-approver-label">Who approved this time? <em>(optional, suggested)</em></span>
+            <input
+              v-model="approvedByName"
+              type="text"
+              class="itl-approver-input"
+              maxlength="120"
+              placeholder="Supervisor or admin name"
+            />
+            <span class="itl-approver-hint">If a supervisor or admin approved this time in advance, enter their name.</span>
+          </label>
           <div class="itl-attest-card" :class="{ 'itl-attest-card--on': attestation }">
             <div class="itl-attest-head">
               <strong>I certify this time is accurate</strong>
@@ -596,10 +610,11 @@ const todayYmd = new Date().toISOString().slice(0, 10);
 
 const mainTab = ref('enter');
 const entryMethod = ref(null);
-const claimDate = ref(todayYmd);
-const manualStart = ref('09:00');
-const manualEnd = ref('11:30');
+const claimDate = ref('');
+const manualStart = ref('');
+const manualEnd = ref('');
 const attestation = ref(false);
+const approvedByName = ref('');
 const serviceTypes = ref([]);
 const typesLoading = ref(false);
 const selectedTypeIds = ref(new Set());
@@ -909,10 +924,11 @@ const hasChosenEntryMethod = computed(() => entryMethod.value === 'clock' || ent
 
 const hasEstablishedTime = computed(() => {
   if (entryMethod.value === 'manual') {
-    return (
-      /^\d{4}-\d{2}-\d{2}$/.test(String(claimDate.value || '')) &&
-      manualTotalMinutes.value >= 1
-    );
+    const date = String(claimDate.value || '').trim();
+    const start = String(manualStart.value || '').trim();
+    const end = String(manualEnd.value || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !start || !end) return false;
+    return manualTotalMinutes.value >= 1;
   }
   if (entryMethod.value === 'clock') {
     return isClockedIn.value || (session.value?.clockedInAt && sessionTotalMinutes.value >= 1);
@@ -920,10 +936,19 @@ const hasEstablishedTime = computed(() => {
   return false;
 });
 
+const manualFieldsPartial = computed(() => {
+  if (entryMethod.value !== 'manual' || hasEstablishedTime.value) return false;
+  return (
+    String(claimDate.value || '').trim()
+    || String(manualStart.value || '').trim()
+    || String(manualEnd.value || '').trim()
+  );
+});
+
 const canShowActivityStep = computed(() => hasChosenEntryMethod.value && hasEstablishedTime.value);
 
 const canShowAllocateStep = computed(
-  () => canShowActivityStep.value && selectedTypeIds.value.size > 0
+  () => canShowActivityStep.value && selectedTypeIds.value.size >= 2
 );
 
 const displayClaimDateYmd = computed(() => {
@@ -942,17 +967,18 @@ const displayClaimDateYmd = computed(() => {
 const displayClaimDateLabel = computed(() => formatDisplayDate(displayClaimDateYmd.value));
 
 function stepClass(n) {
+  const sel = selectedTypeIds.value.size;
   const done =
     n === 1 ? hasChosenEntryMethod.value
     : n === 2 ? hasEstablishedTime.value
-    : n === 3 ? selectedTypeIds.value.size > 0
+    : n === 3 ? sel >= 2
     : n === 4 ? allocationValid.value && attestation.value
     : false;
   const active =
     n === 1 ? !hasChosenEntryMethod.value
     : n === 2 ? hasChosenEntryMethod.value && !hasEstablishedTime.value
-    : n === 3 ? hasEstablishedTime.value && !selectedTypeIds.value.size
-    : n === 4 ? selectedTypeIds.value.size > 0
+    : n === 3 ? hasEstablishedTime.value && sel < 2
+    : n === 4 ? sel >= 2 && (!allocationValid.value || !attestation.value)
     : false;
   return { done, active };
 }
@@ -962,6 +988,12 @@ function chooseEntryMethod(method) {
   entryMethod.value = method;
   clearAllTypes();
   attestation.value = false;
+  approvedByName.value = '';
+  if (method === 'manual') {
+    claimDate.value = '';
+    manualStart.value = '';
+    manualEnd.value = '';
+  }
 }
 
 const selectedTypeIdList = computed(() => [...selectedTypeIds.value]);
@@ -996,7 +1028,7 @@ const canSubmit = computed(() => {
   if (!attestation.value) return false;
   if (entryMethod.value === 'manual' && !/^\d{4}-\d{2}-\d{2}$/.test(String(claimDate.value || ''))) return false;
   if (!(sessionTotalMinutes.value >= 1)) return false;
-  if (!selectedTypeIds.value.size) return false;
+  if (!selectedTypeIds.value.size || selectedTypeIds.value.size < 2) return false;
   return !!allocationValid.value;
 });
 
@@ -1354,6 +1386,9 @@ async function postIndirectTimeClaim({
       ...(usedNoteAid && indirectSessionStore.noteAidOpenedAt
         ? { noteAidOpenedAt: indirectSessionStore.noteAidOpenedAt }
         : {}),
+      ...(String(approvedByName.value || '').trim()
+        ? { approvedBy: String(approvedByName.value).trim().slice(0, 120) }
+        : {}),
       attestation: true
     }
   }).then((r) => r.data);
@@ -1438,6 +1473,7 @@ async function submitTime() {
     success.value = `Submitted ${parts.join(' + ')} for payroll review.`;
 
     attestation.value = false;
+    approvedByName.value = '';
     clearAllTypes();
     try {
       const key = selectionStorageKey();
@@ -1776,6 +1812,42 @@ onUnmounted(() => stopTick());
   margin-bottom: 0;
 }
 .itl-type-card { cursor: pointer; }
+.itl-step-hint--activities {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+}
+.itl-approver-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+  max-width: 420px;
+}
+.itl-approver-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #111827;
+}
+.itl-approver-label em {
+  font-style: normal;
+  font-weight: 500;
+  color: #6b7280;
+}
+.itl-approver-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--itl-border);
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+.itl-approver-hint {
+  font-size: 0.78rem;
+  color: var(--itl-muted);
+  line-height: 1.35;
+}
 .itl-card {
   background: #fff;
   border: 1px solid var(--itl-border);
