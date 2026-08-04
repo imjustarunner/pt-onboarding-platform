@@ -1798,6 +1798,7 @@ async function createTask() {
     newTask.isPrivate = false;
     newTask.taskListId = '';
     newTask.projectId = '';
+    activeTab.value = 'mine';
     await Promise.all([refresh(), loadSharedListsOptions()]);
   } catch (e) {
     console.error('Failed to create task', e);

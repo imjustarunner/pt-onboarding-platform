@@ -229,8 +229,8 @@ class Task {
       q += ' AND t.assigned_to_user_id = ?';
       p.push(userId);
     } else if (view === 'mine' && userId) {
-      q += ' AND t.assigned_by_user_id = ? AND (t.assigned_to_user_id IS NULL OR t.assigned_to_user_id != ?)';
-      p.push(userId, userId);
+      q += ' AND t.assigned_by_user_id = ?';
+      p.push(userId);
     } else if (view === 'watchlist' && userId) {
       q += ` AND t.task_list_id IS NOT NULL
         AND EXISTS (
@@ -408,10 +408,11 @@ class Task {
           SELECT 1 FROM task_list_members tlm
           WHERE tlm.task_list_id = t.task_list_id AND tlm.user_id = ?
         ))
+        OR t.assigned_by_user_id = ?
       )
     `;
-    // CASE uid + privateVisible (3) + WHERE access (5) = 9
-    let params = [uid, uid, uid, uid, uid, uid, uid, uid, uid];
+    // CASE uid + privateVisible (3) + WHERE access (6) = 10
+    let params = [uid, uid, uid, uid, uid, uid, uid, uid, uid, uid];
 
     if (filters.taskType) {
       query += ' AND t.task_type = ?';
@@ -476,9 +477,10 @@ class Task {
             SELECT 1 FROM task_list_members tlm
             WHERE tlm.task_list_id = t.task_list_id AND tlm.user_id = ?
           ))
+          OR t.assigned_by_user_id = ?
         )
       `;
-      let legacyParams = [userId, userId, userId, userId, userId];
+      let legacyParams = [userId, userId, userId, userId, userId, userId];
       if (filters.taskType) {
         legacyQuery += ' AND t.task_type = ?';
         legacyParams.push(filters.taskType);
@@ -622,11 +624,7 @@ class Task {
       open(t) && t.due_date && new Date(t.due_date).getTime() < Date.now();
 
     const assigned = tasks.filter((t) => Number(t.assigned_to_user_id) === uid);
-    const mine = tasks.filter((t) => {
-      if (Number(t.assigned_by_user_id) !== uid) return false;
-      const assignee = t.assigned_to_user_id;
-      return assignee == null || Number(assignee) !== uid;
-    });
+    const mine = tasks.filter((t) => Number(t.assigned_by_user_id) === uid);
     const watchlist = tasks.filter(
       (t) =>
         t.task_list_id &&
@@ -1086,7 +1084,11 @@ class Task {
           entity_id: t.id,
           title: t.title,
           subtitle: t.task_list_name || t.project_name || t.task_type,
-          view: Number(t.assigned_to_user_id) === uid ? 'assigned' : (t.task_list_id ? 'shared' : 'mine'),
+          view: Number(t.assigned_to_user_id) === uid
+            ? 'assigned'
+            : Number(t.assigned_by_user_id) === uid
+              ? 'mine'
+              : (t.task_list_id ? 'shared' : 'mine'),
           status: t.status,
           task: t
         });
