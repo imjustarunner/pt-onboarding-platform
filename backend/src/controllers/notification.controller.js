@@ -1315,6 +1315,17 @@ function managedFanoutIdentity(candidateAlias = 'nf', notificationAlias = 'n') {
 
 function managedRecipientCountExpr(notificationAlias = 'n') {
   return `CASE
+    WHEN ${notificationAlias}.type = 'office_schedule_coverage_flag' THEN GREATEST(1, (
+      SELECT COUNT(DISTINCT nf_count.user_id)
+      FROM notifications nf_count
+      WHERE nf_count.type = 'office_schedule_coverage_flag'
+        AND nf_count.agency_id = ${notificationAlias}.agency_id
+        AND LOWER(COALESCE(nf_count.related_entity_type, '')) = 'office_location'
+        AND nf_count.related_entity_id = ${notificationAlias}.related_entity_id
+        AND DATE(nf_count.created_at) = DATE(${notificationAlias}.created_at)
+        AND nf_count.user_id IS NOT NULL
+        AND nf_count.is_resolved = FALSE
+    ))
     WHEN ${notificationAlias}.user_id IS NULL THEN 1
     ELSE GREATEST(1, (
       SELECT COUNT(DISTINCT nf_count.user_id)
@@ -1433,13 +1444,29 @@ function buildFeedWhere({ req, access, visibilityPolicy, applyFilters = true, in
     // representative row for each exact fan-out event.
     clauses.push(`(
       n.user_id IS NULL
-      OR n.id = (
-        SELECT COALESCE(
-          MIN(CASE WHEN nf.user_id = ? THEN nf.id END),
-          MIN(nf.id)
+      OR (
+        n.type = 'office_schedule_coverage_flag'
+        AND n.id = (
+          SELECT MIN(n2.id)
+          FROM notifications n2
+          WHERE n2.type = 'office_schedule_coverage_flag'
+            AND n2.agency_id = n.agency_id
+            AND LOWER(COALESCE(n2.related_entity_type, '')) = 'office_location'
+            AND n2.related_entity_id = n.related_entity_id
+            AND DATE(n2.created_at) = DATE(n.created_at)
+            AND n2.is_resolved = FALSE
         )
-        FROM notifications nf
-        WHERE ${managedFanoutIdentity('nf', 'n')}
+      )
+      OR (
+        n.type <> 'office_schedule_coverage_flag'
+        AND n.id = (
+          SELECT COALESCE(
+            MIN(CASE WHEN nf.user_id = ? THEN nf.id END),
+            MIN(nf.id)
+          )
+          FROM notifications nf
+          WHERE ${managedFanoutIdentity('nf', 'n')}
+        )
       )
     )`);
     params.push(access.uid);
@@ -1448,6 +1475,21 @@ function buildFeedWhere({ req, access, visibilityPolicy, applyFilters = true, in
     // broadcasts. It must never expose another user's personalized copy.
     clauses.push('(n.user_id = ? OR n.user_id IS NULL)');
     params.push(access.uid);
+    // Coverage audits can fan out duplicate rows when triggered concurrently; keep one per viewer/location/day.
+    clauses.push(`(
+      n.type <> 'office_schedule_coverage_flag'
+      OR n.id = (
+        SELECT MIN(n2.id)
+        FROM notifications n2
+        WHERE n2.type = 'office_schedule_coverage_flag'
+          AND n2.user_id = n.user_id
+          AND n2.agency_id = n.agency_id
+          AND LOWER(COALESCE(n2.related_entity_type, '')) = 'office_location'
+          AND n2.related_entity_id = n.related_entity_id
+          AND DATE(n2.created_at) = DATE(n.created_at)
+          AND n2.is_resolved = FALSE
+      )
+    )`);
   }
 
   // Registration activity is relevant to clinical users only when they are

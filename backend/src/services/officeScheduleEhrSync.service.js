@@ -10,27 +10,46 @@ import GoogleCalendarService from './googleCalendar.service.js';
 import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
 import { createNotificationAndDispatch } from './notificationDispatcher.service.js';
 
-async function alreadyNotifiedCoverageToday({ agencyId, officeLocationId, recipientUserId }) {
+async function alreadyNotifiedLocationCoverageToday({ agencyId, officeLocationId }) {
   const agency = Number(agencyId || 0);
   const locationId = Number(officeLocationId || 0);
-  const userId = Number(recipientUserId || 0);
-  if (!agency || !locationId || !userId) return false;
+  if (!agency || !locationId) return false;
   try {
     const [rows] = await pool.execute(
       `SELECT 1
        FROM notifications
-       WHERE user_id = ?
-         AND agency_id = ?
+       WHERE agency_id = ?
          AND type = 'office_schedule_coverage_flag'
          AND related_entity_type = 'office_location'
          AND related_entity_id = ?
          AND created_at >= CURDATE()
        LIMIT 1`,
-      [userId, agency, locationId]
+      [agency, locationId]
     );
     return (rows || []).length > 0;
   } catch {
     return false;
+  }
+}
+
+async function withCoverageNotifyLock(officeLocationId, fn) {
+  const locationId = Number(officeLocationId || 0);
+  if (!locationId) return null;
+  const lockName = `office_coverage_notify_${locationId}`;
+  let gotLock = false;
+  try {
+    const [[lockRow]] = await pool.execute('SELECT GET_LOCK(?, 5) AS got_lock', [lockName]);
+    gotLock = Number(lockRow?.got_lock) === 1;
+    if (!gotLock) return { skipped: true, reason: 'notify_lock_not_acquired' };
+    return await fn();
+  } finally {
+    if (gotLock) {
+      try {
+        await pool.execute('SELECT RELEASE_LOCK(?)', [lockName]);
+      } catch {
+        // ignore
+      }
+    }
   }
 }
 
@@ -1073,69 +1092,70 @@ export async function auditIcsCoverageForLocation({
     console.warn('[ehr-audit] weekly single-miss cleanup failed:', e?.message || e);
   }
 
-  // Notify only when there are newly flagged hours, and at most once per admin/location/day.
+  // Notify only when there are newly flagged hours, and at most once per location/day.
   if (newlyFlagged > 0 && flagsByProvider.size > 0) {
-    let adminUserIds = [];
-    try {
-      const [adminRows] = await pool.execute(
-        `SELECT DISTINCT ua.user_id
-         FROM user_agencies ua
-         JOIN office_location_agencies ola ON ola.agency_id = ua.agency_id
-         JOIN users u ON u.id = ua.user_id
-         WHERE ola.office_location_id = ?
-           AND u.role IN ('clinical_practice_assistant','provider_plus','admin','super_admin','superadmin','support','staff')
-           AND u.is_active = TRUE`,
-        [officeId]
-      );
-      adminUserIds = (adminRows || []).map((r) => Number(r.user_id)).filter(Boolean);
-    } catch {
-      // fallback: skip notification
-    }
-
     const [locationAgencyRows] = await pool.execute(
       `SELECT agency_id FROM office_location_agencies WHERE office_location_id = ? LIMIT 1`,
       [officeId]
     ).catch(() => [[]]);
     const agencyId = Number(locationAgencyRows?.[0]?.agency_id || 0);
 
-    const hourCount = allFlaggedIds.length;
-    const providerCount = flagsByProvider.size;
-    const blockLabel = flaggedDayBlocks === 1 ? 'day-block' : 'day-blocks';
-    const hourLabel = hourCount === 1 ? 'hour' : 'hours';
-    const providerLabel = providerCount === 1 ? 'provider' : 'providers';
-    const message =
-      `${newlyFlagged} new flagged ${newlyFlagged === 1 ? 'hour' : 'hours'} ` +
-      `(${flaggedDayBlocks} ${blockLabel} / ${hourCount} ${hourLabel} open) ` +
-      `across ${providerCount} ${providerLabel} at ${loc?.name || 'your office'}. ` +
-      `Open Office Schedule → Coverage Flags to review, keep, or release.`;
+    await withCoverageNotifyLock(officeId, async () => {
+      const already = await alreadyNotifiedLocationCoverageToday({
+        agencyId,
+        officeLocationId: officeId
+      });
+      if (already) return { skipped: true, reason: 'already_notified_today' };
 
-    for (const adminId of adminUserIds) {
+      let adminUserIds = [];
       try {
-        // eslint-disable-next-line no-await-in-loop
-        const already = await alreadyNotifiedCoverageToday({
-          agencyId,
-          officeLocationId: officeId,
-          recipientUserId: adminId
-        });
-        if (already) continue;
-
-        // eslint-disable-next-line no-await-in-loop
-        await createNotificationAndDispatch({
-          type: 'office_schedule_coverage_flag',
-          severity: 'warning',
-          title: 'Office coverage flags need review',
-          message,
-          userId: adminId,
-          agencyId: agencyId || undefined,
-          relatedEntityType: 'office_location',
-          relatedEntityId: officeId,
-          actorUserId: parseInt(actorUserId, 10) || 1,
-          actorSource: 'Office Scheduling'
-        });
+        const [adminRows] = await pool.execute(
+          `SELECT DISTINCT ua.user_id
+           FROM user_agencies ua
+           JOIN office_location_agencies ola ON ola.agency_id = ua.agency_id
+           JOIN users u ON u.id = ua.user_id
+           WHERE ola.office_location_id = ?
+             AND u.role IN ('clinical_practice_assistant','provider_plus','admin','super_admin','superadmin','support','staff')
+             AND u.is_active = TRUE`,
+          [officeId]
+        );
+        adminUserIds = (adminRows || []).map((r) => Number(r.user_id)).filter(Boolean);
       } catch {
-        // ignore per-admin notification errors
+        return { skipped: true, reason: 'admin_lookup_failed' };
       }
-    }
+
+      const hourCount = allFlaggedIds.length;
+      const providerCount = flagsByProvider.size;
+      const blockLabel = flaggedDayBlocks === 1 ? 'day-block' : 'day-blocks';
+      const hourLabel = hourCount === 1 ? 'hour' : 'hours';
+      const providerLabel = providerCount === 1 ? 'provider' : 'providers';
+      const message =
+        `${newlyFlagged} new flagged ${newlyFlagged === 1 ? 'hour' : 'hours'} ` +
+        `(${flaggedDayBlocks} ${blockLabel} / ${hourCount} ${hourLabel} open) ` +
+        `across ${providerCount} ${providerLabel} at ${loc?.name || 'your office'}. ` +
+        `Open Office Schedule → Coverage Flags to review, keep, or release.`;
+
+      for (const adminId of adminUserIds) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await createNotificationAndDispatch({
+            type: 'office_schedule_coverage_flag',
+            severity: 'warning',
+            title: 'Office coverage flags need review',
+            message,
+            userId: adminId,
+            agencyId: agencyId || undefined,
+            relatedEntityType: 'office_location',
+            relatedEntityId: officeId,
+            actorUserId: parseInt(actorUserId, 10) || 1,
+            actorSource: 'Office Scheduling'
+          });
+        } catch {
+          // ignore per-admin notification errors
+        }
+      }
+      return { notified: adminUserIds.length };
+    });
   }
 
   return {
@@ -1155,29 +1175,47 @@ export async function auditIcsCoverageForLocation({
  * Run the ICS coverage audit for every active office location (4-week forward window).
  */
 export async function auditIcsCoverageAllLocations({ actorUserId = 1 } = {}) {
-  let locations = [];
+  const lockName = 'office_coverage_audit_all_v1';
+  let gotLock = false;
   try {
-    locations = await OfficeLocation.listAll({ includeInactive: false });
-  } catch (e) {
-    if (e?.code === 'ER_NO_SUCH_TABLE') return { ok: false, reason: 'office_tables_missing' };
-    throw e;
-  }
+    const [[lockRow]] = await pool.execute('SELECT GET_LOCK(?, 0) AS got_lock', [lockName]);
+    gotLock = Number(lockRow?.got_lock) === 1;
+    if (!gotLock) {
+      return { ok: true, skipped: true, reason: 'audit_already_running' };
+    }
 
-  const results = [];
-  for (const loc of locations || []) {
-    const id = Number(loc?.id || 0);
-    if (!id) continue;
+    let locations = [];
     try {
-      // eslint-disable-next-line no-await-in-loop
-      const r = await auditIcsCoverageForLocation({ officeLocationId: id, actorUserId });
-      results.push({ officeLocationId: id, ...r });
+      locations = await OfficeLocation.listAll({ includeInactive: false });
     } catch (e) {
-      results.push({ officeLocationId: id, ok: false, error: String(e?.message || e) });
+      if (e?.code === 'ER_NO_SUCH_TABLE') return { ok: false, reason: 'office_tables_missing' };
+      throw e;
+    }
+
+    const results = [];
+    for (const loc of locations || []) {
+      const id = Number(loc?.id || 0);
+      if (!id) continue;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const r = await auditIcsCoverageForLocation({ officeLocationId: id, actorUserId });
+        results.push({ officeLocationId: id, ...r });
+      } catch (e) {
+        results.push({ officeLocationId: id, ok: false, error: String(e?.message || e) });
+      }
+    }
+
+    const totalFlagged = results.reduce((s, r) => s + (Number(r.flagged) || 0), 0);
+    return { ok: true, locations: results.length, totalFlagged, results };
+  } finally {
+    if (gotLock) {
+      try {
+        await pool.execute('SELECT RELEASE_LOCK(?)', [lockName]);
+      } catch {
+        // ignore
+      }
     }
   }
-
-  const totalFlagged = results.reduce((s, r) => s + (Number(r.flagged) || 0), 0);
-  return { ok: true, locations: results.length, totalFlagged, results };
 }
 
 /**
