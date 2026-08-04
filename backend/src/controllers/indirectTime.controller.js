@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import PayrollIndirectServiceType from '../models/PayrollIndirectServiceType.model.js';
+import PayrollUserIndirectServiceAssignment from '../models/PayrollUserIndirectServiceAssignment.model.js';
 import PayrollIndirectTimeSession from '../models/PayrollIndirectTimeSession.model.js';
 import { normalizePayBucket } from '../utils/hourlyDualRateContract.js';
 
@@ -75,7 +76,11 @@ export const listMyIndirectServiceTypes = async (req, res, next) => {
     const agencyId = await resolveAgencyId(req);
     if (!(await assertAgencyMembership(req, res, agencyId))) return;
     const caps = await loadLogTimeCapabilities(req.user.id);
-    const types = await PayrollIndirectServiceType.listForAgency({ agencyId, activeOnly: true });
+    const types = await PayrollUserIndirectServiceAssignment.listMergedTypesForUser({
+      agencyId,
+      userId: req.user.id,
+      activeOnly: true
+    });
     const filtered = isAdminRole(req.user?.role)
       ? types
       : filterServiceTypesForUser(types, caps);
@@ -173,6 +178,54 @@ export const deleteIndirectServiceType = async (req, res, next) => {
     if (!existing) return res.status(404).json({ error: { message: 'Type not found' } });
     const updated = await PayrollIndirectServiceType.softDelete(id);
     res.json(updated);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** Admin: per-user Log Time duty assignments (enable/disable agency types + rate overrides). */
+export const getUserLogTimeDuties = async (req, res, next) => {
+  try {
+    if (!isAdminRole(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    const agencyId = await resolveAgencyId(req);
+    const userId = Number(req.params.userId || req.query.userId || 0);
+    if (!agencyId || !userId) {
+      return res.status(400).json({ error: { message: 'agencyId and userId are required' } });
+    }
+    const [agencyTypes, assignments, merged] = await Promise.all([
+      PayrollIndirectServiceType.listForAgency({ agencyId, activeOnly: false }),
+      PayrollUserIndirectServiceAssignment.listForUser({ agencyId, userId }),
+      PayrollUserIndirectServiceAssignment.listMergedTypesForUser({ agencyId, userId, activeOnly: false })
+    ]);
+    res.json({ agencyTypes, assignments, mergedTypes: merged });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const putUserLogTimeDuties = async (req, res, next) => {
+  try {
+    if (!isAdminRole(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    const agencyId = await resolveAgencyId(req);
+    const userId = Number(req.params.userId || 0);
+    if (!agencyId || !userId) {
+      return res.status(400).json({ error: { message: 'agencyId and userId are required' } });
+    }
+    const assignments = await PayrollUserIndirectServiceAssignment.upsertForUser({
+      agencyId,
+      userId,
+      assignments: req.body?.assignments || []
+    });
+    const mergedTypes = await PayrollUserIndirectServiceAssignment.listMergedTypesForUser({
+      agencyId,
+      userId,
+      activeOnly: false
+    });
+    res.json({ assignments, mergedTypes });
   } catch (e) {
     next(e);
   }

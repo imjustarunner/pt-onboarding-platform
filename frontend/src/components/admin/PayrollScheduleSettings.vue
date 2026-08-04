@@ -233,9 +233,12 @@
           </div>
           <div class="filters-group">
             <label class="filters-label">Icon</label>
-            <select v-model="indirectTypeDraft.iconKey" class="filters-input" :disabled="indirectTypesSaving">
-              <option v-for="opt in indirectIconOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
-            </select>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <IndirectTimeIcon :icon-key="indirectTypeDraft.iconKey || 'circle'" :size="22" />
+              <button type="button" class="btn btn-secondary btn-sm" :disabled="indirectTypesSaving" @click="openIconPicker('draft', indirectTypeDraft.iconKey)">
+                Choose icon
+              </button>
+            </div>
           </div>
           <div class="filters-group">
             <label class="filters-label">Pay bucket</label>
@@ -287,9 +290,9 @@
                   </select>
                 </td>
                 <td>
-                  <select v-model="t.iconKey" :disabled="indirectTypesSaving" @change="saveIndirectType(t)">
-                    <option v-for="opt in indirectIconOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
-                  </select>
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="indirectTypesSaving" @click="openIconPicker(t.id, t.iconKey)">
+                    <IndirectTimeIcon :icon-key="t.iconKey || 'circle'" :size="18" />
+                  </button>
                 </td>
                 <td>
                   <input v-model.number="t.sortOrder" type="number" style="width:72px;" :disabled="indirectTypesSaving" @change="saveIndirectType(t)" />
@@ -780,6 +783,13 @@
     </div>
     </div>
   </div>
+
+  <LogTimeIconPickerModal
+    :open="showIconPicker"
+    :model-value="iconPickerValue"
+    @update:model-value="onIconPicked"
+    @close="showIconPicker = false"
+  />
 </template>
 
 <script setup>
@@ -787,6 +797,8 @@ import { computed, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import CompensationLevelsSettings from './CompensationLevelsSettings.vue';
+import LogTimeIconPickerModal from './LogTimeIconPickerModal.vue';
+import IndirectTimeIcon from '../dashboard/IndirectTimeIcon.vue';
 import { INDIRECT_TIME_ICON_OPTIONS } from '../../utils/indirectTimeIcons';
 
 const props = defineProps({
@@ -1019,6 +1031,26 @@ const saveTimeClaimSettings = async () => {
 };
 
 const indirectIconOptions = INDIRECT_TIME_ICON_OPTIONS;
+const showIconPicker = ref(false);
+const iconPickerTarget = ref('draft');
+const iconPickerValue = ref('circle');
+const openIconPicker = (target, current) => {
+  iconPickerTarget.value = target;
+  iconPickerValue.value = current || 'circle';
+  showIconPicker.value = true;
+};
+const onIconPicked = (key) => {
+  if (iconPickerTarget.value === 'draft') {
+    indirectTypeDraft.value.iconKey = key;
+  } else {
+    const t = indirectTypes.value.find((x) => Number(x.id) === Number(iconPickerTarget.value));
+    if (t) {
+      t.iconKey = key;
+      saveIndirectType(t);
+    }
+  }
+  showIconPicker.value = false;
+};
 const indirectTypes = ref([]);
 const indirectTypesLoading = ref(false);
 const indirectTypesSaving = ref(false);

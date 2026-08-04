@@ -352,6 +352,12 @@
           </div>
         </div>
 
+        <UserLogTimeDutiesPanel
+          v-if="selectedAgencyId && userId"
+          :agency-id="selectedAgencyId"
+          :user-id="userId"
+        />
+
         <div v-if="templateDetails?.template" class="template-card" style="margin-top: 10px;">
           <div class="template-title-row">
             <div class="template-title">Template: {{ templateDetails.template.name }}</div>
@@ -713,6 +719,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import UserLogTimeDutiesPanel from './UserLogTimeDutiesPanel.vue';
 import {
   isDualRateContractPilotUser,
   isHourlyDualRateEnabled

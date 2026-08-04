@@ -210,6 +210,8 @@ import {
   createIndirectServiceType,
   updateIndirectServiceType,
   deleteIndirectServiceType,
+  getUserLogTimeDuties,
+  putUserLogTimeDuties,
   getMyIndirectTimeSession,
   clockInIndirectTime,
   breakIndirectTime,
@@ -323,6 +325,8 @@ router.get('/indirect-service-types', listIndirectServiceTypes);
 router.post('/indirect-service-types', createIndirectServiceType);
 router.patch('/indirect-service-types/:id', updateIndirectServiceType);
 router.delete('/indirect-service-types/:id', deleteIndirectServiceType);
+router.get('/users/:userId/log-time-duties', getUserLogTimeDuties);
+router.put('/users/:userId/log-time-duties', putUserLogTimeDuties);
 router.get('/me/indirect-time-session', getMyIndirectTimeSession);
 router.post('/me/indirect-time-session/clock-in', clockInIndirectTime);
 router.post('/me/indirect-time-session/break', breakIndirectTime);

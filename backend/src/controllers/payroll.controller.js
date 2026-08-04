@@ -785,14 +785,11 @@ async function computeRawAuditReductionDetails({
     }
   }
 
-  // Supervisee requirement codes never pay and never create PTO credits (MEETING is the pay path).
-  if (codeKey === '99414' || (codeKey === '99416' && isPrelicensed === true)) {
+  // Prelicensed supervisee tracking codes never pay (MEETING is the pay path).
+  if (isPrelicensed === true && (codeKey === '99414' || codeKey === '99416')) {
     return { amount: 0, category: lineCategory, creditsHours: 0 };
   }
   if ((codeKey === '99414' || codeKey === '99415' || codeKey === '99416') && String(user?.role || '').trim().toLowerCase() === 'intern') {
-    return { amount: 0, category: lineCategory, creditsHours: 0 };
-  }
-  if ((codeKey === '99414' || codeKey === '99416') && isPrelicensed === false) {
     return { amount: 0, category: lineCategory, creditsHours: 0 };
   }
 
@@ -5095,7 +5092,7 @@ async function loadSupervisionPayGateMaps({ agencyId, periodStart }) {
   } catch {
     // tables/columns may not exist yet
   }
-  return { eligibleByUserId, startDateByUserId };
+  return { eligibleByUserId, startDateByUserId, prelicensedUserIds: new Set(preIds) };
 }
 
 function superviseeSessionPayable({ userId, serviceDate, eligibleByUserId, startDateByUserId }) {
@@ -5118,7 +5115,7 @@ async function buildResolvedSupervisionUnitsByUserCode({
 }) {
   const payableClause = `(pir.note_status = 'FINALIZED' OR (pir.note_status = 'DRAFT' AND COALESCE(pir.draft_payable, 1) = 1))`;
   const supervisionCodes = ['99414', '99415', '99416'];
-  const { eligibleByUserId, startDateByUserId } = await loadSupervisionPayGateMaps({
+  const { eligibleByUserId, startDateByUserId, prelicensedUserIds } = await loadSupervisionPayGateMaps({
     agencyId,
     periodStart
   });
@@ -5224,8 +5221,8 @@ async function buildResolvedSupervisionUnitsByUserCode({
     if (!(Number.isFinite(minutes) && minutes > 0)) continue;
 
     if (!isSupervisor) {
-      // Supervisees (incl. interns): pay only after effective date + 100h gate, via MEETING.
-      if (!superviseeSessionPayable({
+      // Prelicensed supervisees: MEETING pay only after 100h gate + effective date.
+      if (prelicensedUserIds.has(uid) && !superviseeSessionPayable({
         userId: uid,
         serviceDate,
         eligibleByUserId,
@@ -5255,18 +5252,20 @@ async function buildResolvedSupervisionUnitsByUserCode({
     const units = Number(r.units_total || 0);
     if (!(Number.isFinite(units) && units > 0)) continue;
 
-    // Convert supervisee requirement codes to MEETING pay when eligible; otherwise omit from pay.
+    // Prelicensed supervisee billing codes → MEETING when past gate; non-prelicensed keep 99414 (indirect pay).
     if (serviceCode === '99414') {
-      if (!superviseeSessionPayable({
-        userId: uid,
-        serviceDate,
-        eligibleByUserId,
-        startDateByUserId
-      })) {
-        continue;
+      if (prelicensedUserIds.has(uid)) {
+        if (!superviseeSessionPayable({
+          userId: uid,
+          serviceDate,
+          eligibleByUserId,
+          startDateByUserId
+        })) {
+          continue;
+        }
+        serviceCode = 'MEETING';
       }
-      serviceCode = 'MEETING';
-    } else if (serviceCode === '99416' && eligibleByUserId.has(uid)) {
+    } else if (serviceCode === '99416' && prelicensedUserIds.has(uid)) {
       // Prelicensed users' 99416 is supervisee group time → MEETING when payable.
       if (!superviseeSessionPayable({
         userId: uid,
@@ -5332,7 +5331,9 @@ async function buildResolvedSupervisionUnitsByUserCode({
 
     if (source === 'none') continue;
     const sourceMap = source === 'app' ? appByUserDateCode : legacyByUserDateCode;
-    const payCodes = ['99415', '99416', 'MEETING'];
+    const payCodes = source === 'legacy'
+      ? ['99414', '99415', '99416', 'MEETING']
+      : ['99415', '99416', 'MEETING'];
     for (const code of payCodes) {
       const key = `${uid}:${d}:${code}`;
       const units = Number(sourceMap.get(key) || 0);
@@ -5435,6 +5436,10 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
   if (agencyId && periodStart && periodEnd) {
     try {
       const supervisionLegacyCodes = new Set(['99414', '99415', '99416']);
+      const { prelicensedUserIds: supervisionPrelicensedUserIds } = await loadSupervisionPayGateMaps({
+        agencyId,
+        periodStart
+      });
       const selectedByUserCode = await buildResolvedSupervisionUnitsByUserCode({
         payrollPeriodId,
         agencyId,
@@ -5483,10 +5488,14 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
         if (!supervisionLegacyCodes.has(code)) continue;
         const uid = Number(row?.userId || 0);
         if (!uid) continue;
-        // 99414 is requirement-tracking only — never pay / never feed PTO via this code.
+        // 99414: prelicensed = tracking only (MEETING pays). Non-prelicensed billing 99414 pays at indirect.
         if (code === '99414') {
-          row.finalizedUnits = Number(row.oldDoneNotesUnits || 0);
-          row.supervisionSource = 'requirement_tracking_only';
+          if (supervisionPrelicensedUserIds.has(uid)) {
+            row.finalizedUnits = Number(row.oldDoneNotesUnits || 0);
+            row.supervisionSource = 'requirement_tracking_only';
+          } else {
+            row.supervisionSource = row.supervisionSource || 'billing_indirect';
+          }
           continue;
         }
         const k = `${uid}:${code}`;
@@ -5745,9 +5754,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
   }
 
-  // Prelicensed supervisee pay gate (50 ind + 100 total prior). Used to zero 99414/99416
+  // Prelicensed supervisee pay gate (50 ind + 100 total prior). Used to zero prelicensed 99414/99416
   // leftovers; payable supervision is staged as MEETING after the gate + effective date.
-  const { eligibleByUserId: supervisionPayEligibleByUserId } = await loadSupervisionPayGateMaps({
+  const { eligibleByUserId: supervisionPayEligibleByUserId, prelicensedUserIds: supervisionPrelicensedUserIds } = await loadSupervisionPayGateMaps({
     agencyId,
     periodStart
   });
@@ -5943,12 +5952,12 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       let creditsHours = (finalizedUnits * safeCreditValue);
       const payHours = (finalizedUnits / safeDivisor);
 
-      // 99414/99416 are requirement-tracking codes for supervisees — never feed PTO.
-      // Post-100 supervisee pay is staged as MEETING (which does count when paid).
+      // 99414/99416: prelicensed tracking codes don't feed PTO (MEETING pays). Billing 99414 for others does.
       const uidNum = Number(userId);
-      if (codeKey === '99414') {
+      const isPrelicensedSupervisee = supervisionPrelicensedUserIds.has(uidNum);
+      if (codeKey === '99414' && isPrelicensedSupervisee) {
         creditsHours = 0;
-      } else if (codeKey === '99416' && supervisionPayEligibleByUserId.has(uidNum)) {
+      } else if (codeKey === '99416' && isPrelicensedSupervisee) {
         creditsHours = 0;
       }
 
@@ -6033,15 +6042,16 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
 
       // Always compute wage math on pay-hours for non-flat categories.
       const computeLineAmount = ({ units, payHours }) => {
-        // Supervisee tracking codes are never paid (MEETING is the payable path).
-        if (codeKey === '99414') return 0;
-        if (codeKey === '99416' && supervisionPayEligibleByUserId.has(Number(userId))) return 0;
+        const isPrelicensedSupervisee = supervisionPrelicensedUserIds.has(Number(userId));
+        // Prelicensed 99414/99416 tracking codes never pay (MEETING is the payable path).
+        if (codeKey === '99414' && isPrelicensedSupervisee) return 0;
+        if (codeKey === '99416' && isPrelicensedSupervisee) return 0;
         if ((codeKey === '99414' || codeKey === '99415' || codeKey === '99416') && userIsIntern) {
           return 0;
         }
-        // Prelicensed leftover gate (defensive).
-        if (codeKey === '99414' || codeKey === '99416') {
-          if (supervisionPayEligibleByUserId.has(Number(userId)) && supervisionPayEligibleByUserId.get(Number(userId)) === false) {
+        // Prelicensed leftover gate (defensive) — only when still on tracking codes.
+        if ((codeKey === '99414' || codeKey === '99416') && isPrelicensedSupervisee) {
+          if (supervisionPayEligibleByUserId.get(Number(userId)) === false) {
             return 0;
           }
         }
@@ -18198,6 +18208,24 @@ async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approv
     const claimBucket = normalizeTimeClaimBucket(
       approveBucket || claim?.bucket || payload?.bucket || 'indirect'
     );
+
+    // Per-user Log Time duty rate override (compensation tab).
+    if (type === 'indirect_time') {
+      const typeId = Number(payload?.allocations?.[0]?.serviceTypeId || 0);
+      if (typeId > 0 && claim?.agency_id && claim?.user_id) {
+        try {
+          const PayrollUserIndirectServiceAssignment = (await import('../models/PayrollUserIndirectServiceAssignment.model.js')).default;
+          const override = await PayrollUserIndirectServiceAssignment.findRateOverride({
+            agencyId: Number(claim.agency_id),
+            userId: Number(claim.user_id),
+            serviceTypeId: typeId
+          });
+          if (Number.isFinite(override) && override > 0) {
+            return Math.round(hrs * override * 100) / 100;
+          }
+        } catch { /* fall through */ }
+      }
+    }
 
     // Log Time: honor Direct / Other 1 / Indirect bucket for rate-card pay.
     if (type === 'indirect_time') {
