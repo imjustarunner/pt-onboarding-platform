@@ -5,12 +5,14 @@
         <p class="eyebrow">Project overview</p>
         <h2>{{ project?.name || 'Project' }}</h2>
         <p class="muted">{{ project?.description || 'No description' }}</p>
+        <p v-if="overview?.due_date" class="due">Due {{ formatDate(overview.due_date) }}</p>
       </div>
       <div class="project-overview__actions">
+        <button type="button" class="btn btn-secondary btn-sm" @click="$emit('edit')">Edit</button>
         <button type="button" class="btn btn-primary btn-sm" @click="$emit('open-project', project.id)">
           Open Project
         </button>
-        <button type="button" class="btn btn-secondary btn-sm" @click="$emit('close')">Back</button>
+        <button type="button" class="btn btn-ghost btn-sm" @click="$emit('close')">Back</button>
       </div>
     </header>
 
@@ -75,10 +77,15 @@ const props = defineProps({
   agencyId: { type: Number, default: null }
 });
 
-defineEmits(['close', 'open-project']);
+defineEmits(['close', 'open-project', 'edit']);
 
 const loading = ref(false);
 const overview = ref(null);
+
+function formatDate(d) {
+  if (!d) return '';
+  return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
 
 async function load() {
   if (!props.project?.id) return;
@@ -88,7 +95,7 @@ async function load() {
       params: { agencyId: props.agencyId || undefined },
       skipGlobalLoading: true
     });
-    overview.value = data?.overview || null;
+    overview.value = { ...(data?.overview || {}), due_date: data?.due_date };
   } catch {
     overview.value = null;
   } finally {
@@ -105,12 +112,19 @@ watch(() => props.project?.id, load, { immediate: true });
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   padding: 16px;
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.04);
 }
 .project-overview__head {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
+}
+.project-overview__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
 }
 .eyebrow {
   margin: 0;
@@ -121,6 +135,7 @@ watch(() => props.project?.id, load, { immediate: true });
 }
 h2 { margin: 4px 0; }
 .muted { color: #64748b; font-size: 13px; }
+.due { margin: 4px 0 0; font-size: 12px; font-weight: 600; color: #0f766e; }
 .kpis {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -128,12 +143,12 @@ h2 { margin: 4px 0; }
   margin-bottom: 16px;
 }
 .kpi {
-  background: #f8fafc;
+  background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   padding: 10px;
 }
-.kpi strong { display: block; font-size: 1.25rem; }
+.kpi strong { display: block; font-size: 1.25rem; color: #14532d; }
 .kpi span { font-size: 12px; font-weight: 600; color: #475569; }
 .kpi small { display: block; font-size: 11px; color: #94a3b8; }
 .cols {
@@ -141,6 +156,7 @@ h2 { margin: 4px 0; }
   grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
+h3 { margin: 0 0 8px; font-size: 14px; color: #14532d; }
 ul { list-style: none; margin: 0; padding: 0; }
 li {
   display: flex;

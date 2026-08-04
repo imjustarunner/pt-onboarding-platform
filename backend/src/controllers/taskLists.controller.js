@@ -3,6 +3,11 @@
  * Users must be members to see/edit lists.
  */
 import pool from '../config/database.js';
+import TaskProject from '../models/TaskProject.model.js';
+import {
+  resolveTaskListAndProject,
+  sendListProjectError
+} from '../services/taskListProjectLink.service.js';
 import TaskList from '../models/TaskList.model.js';
 import TaskListMember from '../models/TaskListMember.model.js';
 import Task from '../models/Task.model.js';
@@ -43,6 +48,16 @@ async function ensureUserInAgency(userId, agencyId) {
   return (agencies || []).some((a) => Number(a?.id) === Number(agencyId));
 }
 
+/** Other collaborators (excludes the viewing user). */
+function buildSharedWithLabel(members, viewerUserId) {
+  const others = (members || []).filter((m) => Number(m.user_id) !== Number(viewerUserId));
+  if (!others.length) return 'Only you';
+  const names = others.map((m) =>
+    `${m.first_name || ''} ${m.last_name || ''}`.trim() || m.email || 'Member'
+  );
+  return names.slice(0, 4).join(', ') + (names.length > 4 ? ` +${names.length - 4}` : '');
+}
+
 /** Manager/superadmin: all shared lists for a tenant (membership not required). */
 export const listTeamTaskLists = async (req, res, next) => {
   try {
@@ -80,9 +95,7 @@ export const listTeamTaskLists = async (req, res, next) => {
           member_count: Number(l.member_count || 0),
           members,
           member_names: memberNames,
-          shared_with_label: memberNames.length
-            ? memberNames.slice(0, 4).join(', ') + (memberNames.length > 4 ? ` +${memberNames.length - 4}` : '')
-            : 'No members',
+          shared_with_label: buildSharedWithLabel(members, userId),
           team_browse: true
         };
       })
@@ -124,15 +137,16 @@ export const listTaskLists = async (req, res, next) => {
         const memberNames = (members || []).map((m) =>
           `${m.first_name || ''} ${m.last_name || ''}`.trim() || m.email || 'Member'
         );
+        const linkedProject = await TaskProject.findLinkedProjectForList(l.id).catch(() => null);
         return {
           ...l,
           task_count: countRow?.c ?? 0,
           last_activity_at: lastActivity && lastActivity !== '0' ? lastActivity : null,
           members: members || [],
           member_names: memberNames,
-          shared_with_label: memberNames.length
-            ? memberNames.slice(0, 4).join(', ') + (memberNames.length > 4 ? ` +${memberNames.length - 4}` : '')
-            : 'Only you'
+          shared_with_label: buildSharedWithLabel(members, userId),
+          linked_project_id: linkedProject?.project_id ?? null,
+          linked_project_name: linkedProject?.name ?? null
         };
       })
     );
@@ -292,7 +306,13 @@ export const listTasks = async (req, res, next) => {
          t.created_at DESC`;
 
     const [rows] = await pool.execute(
-      `SELECT t.* FROM tasks t WHERE ${whereClause}
+      `SELECT t.*,
+        assignee.first_name AS assignee_first_name,
+        assignee.last_name AS assignee_last_name,
+        assignee.profile_photo_path AS assignee_profile_photo_path
+       FROM tasks t
+       LEFT JOIN users assignee ON assignee.id = t.assigned_to_user_id
+       WHERE ${whereClause}
        ORDER BY ${orderBy}`,
       params
     );
@@ -338,6 +358,19 @@ export const createTaskInList = async (req, res, next) => {
       if (!member) return res.status(400).json({ error: { message: 'Assignee must be a list member' } });
     }
 
+    let resolvedProjectId = null;
+    try {
+      const linked = await resolveTaskListAndProject({
+        taskListId: listId,
+        projectId: req.body?.project_id ?? req.body?.projectId ?? null
+      });
+      resolvedProjectId = linked.projectId;
+    } catch (err) {
+      const sent = sendListProjectError(res, err);
+      if (sent) return sent;
+      throw err;
+    }
+
     const task = await Task.create({
       taskType: 'custom',
       title: titleStr,
@@ -353,7 +386,8 @@ export const createTaskInList = async (req, res, next) => {
       recurringRule: recurring_rule || null,
       typicalDayOfWeek: typical_day_of_week ?? null,
       typicalTime: typical_time || null,
-      targetCount: target_count ?? null
+      targetCount: target_count ?? null,
+      projectId: resolvedProjectId
     });
 
     await TaskAuditLog.logAction({

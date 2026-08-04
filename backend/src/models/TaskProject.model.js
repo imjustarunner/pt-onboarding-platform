@@ -180,6 +180,22 @@ class TaskProject {
     return rows || [];
   }
 
+  /** First project this shared list is attached to (lists are expected to belong to at most one project). */
+  static async findLinkedProjectForList(taskListId) {
+    const lid = parseInt(taskListId, 10);
+    if (!Number.isFinite(lid) || lid <= 0) return null;
+    const [rows] = await pool.execute(
+      `SELECT tp.id AS project_id, tp.name
+       FROM task_project_lists tpl
+       JOIN task_projects tp ON tp.id = tpl.project_id
+       WHERE tpl.task_list_id = ?
+       ORDER BY tpl.id ASC
+       LIMIT 1`,
+      [lid]
+    );
+    return rows[0] || null;
+  }
+
   static async attachList(projectId, taskListId) {
     try {
       await pool.execute(
@@ -196,6 +212,14 @@ class TaskProject {
       `DELETE FROM task_project_lists WHERE project_id = ? AND task_list_id = ?`,
       [parseInt(projectId, 10), parseInt(taskListId, 10)]
     );
+  }
+
+  static async removeMember(projectId, userId) {
+    const [result] = await pool.execute(
+      `DELETE FROM task_project_members WHERE project_id = ? AND user_id = ?`,
+      [parseInt(projectId, 10), parseInt(userId, 10)]
+    );
+    return result.affectedRows > 0;
   }
 
   static async listAttachedLists(projectId) {

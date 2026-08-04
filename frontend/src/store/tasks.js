@@ -45,6 +45,9 @@ export const useTasksStore = defineStore('tasks', () => {
       if (filters.taskListId) params.append('taskListId', String(filters.taskListId));
       if (filters.projectId) params.append('projectId', String(filters.projectId));
       if (filters.tenantId) params.append('tenantId', String(filters.tenantId));
+      if (filters.onSharedList === '1' || filters.onSharedList === '0') {
+        params.append('onSharedList', filters.onSharedList);
+      }
 
       const qs = params.toString();
       const response = await api.get(`/tasks${qs ? `?${qs}` : ''}`);

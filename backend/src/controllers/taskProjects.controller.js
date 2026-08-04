@@ -159,5 +159,26 @@ export const addProjectMember = async (req, res, next) => {
   }
 };
 
+export const removeProjectMember = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const id = parseInt(req.params.id, 10);
+    const targetUserId = parseInt(req.params.userId, 10);
+    const access = await TaskProject.canView(id, userId, { canViewAll: isManager(req) });
+    if (!access.ok || (access.role !== 'admin' && !isManager(req))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    if (!targetUserId) return res.status(400).json({ error: { message: 'userId required' } });
+    const project = access.project;
+    if (Number(project.created_by_user_id) === targetUserId) {
+      return res.status(400).json({ error: { message: 'Cannot remove project creator' } });
+    }
+    await TaskProject.removeMember(id, targetUserId);
+    res.json({ members: await TaskProject.listMembers(id) });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // silence unused
 void canManageRole;

@@ -29,7 +29,10 @@ class TaskAssignee {
     const tid = parseInt(taskId, 10);
     const ids = [...new Set((userIds || []).map((n) => parseInt(n, 10)).filter((n) => n > 0))];
     await pool.execute('DELETE FROM task_assignees WHERE task_id = ?', [tid]);
-    if (!ids.length) return [];
+    if (!ids.length) {
+      await pool.execute('UPDATE tasks SET assigned_to_user_id = NULL WHERE id = ?', [tid]);
+      return [];
+    }
     const primary = primaryUserId ? parseInt(primaryUserId, 10) : ids[0];
     for (const uid of ids) {
       await pool.execute(

@@ -6,11 +6,19 @@
         type="button"
         class="btn btn-primary btn-sm"
         :disabled="creating || !agencyId"
-        @click="showCreateForm = true"
+        @click="openCreate"
       >
         {{ creating ? '…' : 'New list' }}
       </button>
     </div>
+
+    <input
+      v-if="lists.length || showCreateForm"
+      v-model="listSearch"
+      type="search"
+      class="form-control list-search"
+      placeholder="Search shared lists…"
+    />
 
     <div v-if="showCreateForm" class="create-list-form">
       <input
@@ -20,6 +28,36 @@
         placeholder="List name (e.g. Skill Builders)"
         @keydown.enter="createList"
       />
+      <div class="form-block">
+        <label class="form-label">Share with teammates</label>
+        <div class="pick-box">
+          <label v-for="u in shareableUsers" :key="u.id" class="pick-row">
+            <input v-model="newMemberIds" type="checkbox" :value="u.id" />
+            {{ u.first_name }} {{ u.last_name }}
+          </label>
+          <p v-if="!shareableUsers.length" class="muted">No other users in this agency</p>
+        </div>
+      </div>
+      <div class="form-block">
+        <label class="form-label">Add existing tasks & action items (not on another list)</label>
+        <input v-model="itemSearch" type="search" class="form-control" placeholder="Search…" />
+        <div class="pick-box">
+          <template v-if="filteredTasks.length">
+            <p class="pick-heading">Tasks</p>
+            <label v-for="t in filteredTasks" :key="`t-${t.id}`" class="pick-row">
+              <input v-model="newTaskIds" type="checkbox" :value="t.id" />
+              {{ t.title }}
+            </label>
+          </template>
+          <template v-if="filteredActions.length">
+            <p class="pick-heading">Action items</p>
+            <label v-for="a in filteredActions" :key="`a-${a.id}`" class="pick-row">
+              <input v-model="newActionIds" type="checkbox" :value="a.id" />
+              {{ a.title }}
+            </label>
+          </template>
+        </div>
+      </div>
       <div class="create-list-actions">
         <button type="button" class="btn btn-primary btn-sm" :disabled="!newListName.trim() || creating" @click="createList">
           {{ creating ? '…' : 'Create' }}
@@ -29,11 +67,11 @@
     </div>
 
     <div v-if="loading" class="shared-lists-loading">Loading lists…</div>
-    <div v-else-if="lists.length === 0 && !showCreateForm" class="shared-lists-empty">
-      No shared lists yet. Create one to collaborate on tasks with your team.
+    <div v-else-if="filteredLists.length === 0 && !showCreateForm" class="shared-lists-empty">
+      {{ listSearch ? 'No lists match your search.' : 'No shared lists yet. Create one to collaborate on tasks with your team.' }}
     </div>
     <ul v-else class="shared-lists-list">
-      <li v-for="list in lists" :key="list.id" class="shared-list-item">
+      <li v-for="list in filteredLists" :key="list.id" class="shared-list-item">
         <div class="shared-list-info">
           <div class="shared-list-name-row">
             <span class="shared-list-badge" title="Shared list">Shared list</span>
@@ -41,7 +79,7 @@
           </div>
           <span class="shared-list-meta">
             {{ list.task_count ?? 0 }} open task{{ Number(list.task_count || 0) === 1 ? '' : 's' }}
-            <span class="shared-with">· Shared with {{ list.shared_with_label || 'you' }}</span>
+            <span class="shared-with">· Shared with {{ list.shared_with_label || 'Only you' }}</span>
             <span v-if="list.my_role" class="role-badge">{{ list.my_role }}</span>
           </span>
         </div>
@@ -53,7 +91,7 @@
             class="btn btn-secondary btn-sm"
             @click="openManage(list)"
           >
-            Manage
+            Share
           </button>
         </div>
       </li>
@@ -76,8 +114,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, onUnmounted } from 'vue';
+import { ref, computed, onMounted, watch, onUnmounted } from 'vue';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
 import TaskListView from './TaskListView.vue';
 import TaskListMemberManager from './TaskListMemberManager.vue';
 
@@ -88,11 +127,20 @@ const props = defineProps({
 
 const emit = defineEmits(['task-changed', 'summary']);
 
+const authStore = useAuthStore();
 const loading = ref(true);
 const creating = ref(false);
 const showCreateForm = ref(false);
 const newListName = ref('');
+const newMemberIds = ref([]);
+const newTaskIds = ref([]);
+const newActionIds = ref([]);
+const listSearch = ref('');
+const itemSearch = ref('');
 const lists = ref([]);
+const agencyUsers = ref([]);
+const unattachedTasks = ref([]);
+const unattachedActions = ref([]);
 const selectedList = ref(null);
 const manageList = ref(null);
 
@@ -101,11 +149,70 @@ let pollTimer = null;
 
 const canManage = (list) => list.my_role === 'admin' || list.my_role === 'editor';
 
+const filteredLists = computed(() => {
+  const q = listSearch.value.trim().toLowerCase();
+  if (!q) return lists.value;
+  return lists.value.filter((l) => String(l.name || '').toLowerCase().includes(q));
+});
+
+const shareableUsers = computed(() => {
+  const me = Number(authStore.user?.id);
+  return (agencyUsers.value || []).filter((u) => Number(u.id) !== me);
+});
+
+const filteredTasks = computed(() => {
+  const q = itemSearch.value.trim().toLowerCase();
+  let list = unattachedTasks.value || [];
+  if (q) list = list.filter((t) => String(t.title || '').toLowerCase().includes(q));
+  return list.slice(0, 15);
+});
+
+const filteredActions = computed(() => {
+  const q = itemSearch.value.trim().toLowerCase();
+  let list = unattachedActions.value || [];
+  if (q) list = list.filter((a) => String(a.title || '').toLowerCase().includes(q));
+  return list.slice(0, 15);
+});
+
+async function loadAgencyUsers() {
+  if (!props.agencyId) return;
+  try {
+    const { data } = await api.get(`/agencies/${props.agencyId}/users`, { skipGlobalLoading: true });
+    agencyUsers.value = Array.isArray(data) ? data : (data?.users || []);
+  } catch {
+    agencyUsers.value = [];
+  }
+}
+
+async function loadUnattached() {
+  try {
+    const [tasksRes, actionsRes] = await Promise.all([
+      api.get('/tasks', {
+        params: {
+          view: 'assigned',
+          agencyId: props.agencyId || undefined,
+          unassignedFromList: '1',
+          limit: 100
+        },
+        skipGlobalLoading: true
+      }),
+      api.get('/task-action-items', {
+        params: { agencyId: props.agencyId || undefined, unassignedFromList: '1' },
+        skipGlobalLoading: true
+      })
+    ]);
+    unattachedTasks.value = Array.isArray(tasksRes.data) ? tasksRes.data : [];
+    unattachedActions.value = Array.isArray(actionsRes.data) ? actionsRes.data : [];
+  } catch {
+    unattachedTasks.value = [];
+    unattachedActions.value = [];
+  }
+}
+
 const fetchLists = async (opts = {}) => {
   const { emitTaskChanged = true } = typeof opts === 'object' && opts !== null ? opts : {};
   loading.value = true;
   try {
-    // Always load by membership across agencies so lists don't disappear when org context differs.
     const res = await api.get('/task-lists', { skipGlobalLoading: true });
     lists.value = Array.isArray(res.data) ? res.data : [];
     const totalTasks = lists.value.reduce((s, l) => s + (l.task_count ?? 0), 0);
@@ -129,6 +236,11 @@ const fetchLists = async (opts = {}) => {
   }
 };
 
+async function openCreate() {
+  showCreateForm.value = true;
+  await Promise.all([loadAgencyUsers(), loadUnattached()]);
+}
+
 const createList = async () => {
   const name = String(newListName.value || '').trim();
   if (!name) return;
@@ -138,8 +250,26 @@ const createList = async () => {
   }
   creating.value = true;
   try {
-    await api.post('/task-lists', { agencyId: props.agencyId, name }, { skipGlobalLoading: true });
+    const { data } = await api.post('/task-lists', { agencyId: props.agencyId, name }, { skipGlobalLoading: true });
+    const listId = data?.id;
+    if (listId) {
+      await Promise.all([
+        ...newMemberIds.value.map((uid) =>
+          api.post(`/task-lists/${listId}/members`, { userId: Number(uid), role: 'editor' }, { skipGlobalLoading: true })
+        ),
+        ...newTaskIds.value.map((tid) =>
+          api.put(`/me/tasks/${tid}`, { task_list_id: listId }, { skipGlobalLoading: true })
+        ),
+        ...newActionIds.value.map((aid) =>
+          api.put(`/task-action-items/${aid}`, { taskListId: listId }, { skipGlobalLoading: true })
+        )
+      ]);
+    }
     newListName.value = '';
+    newMemberIds.value = [];
+    newTaskIds.value = [];
+    newActionIds.value = [];
+    itemSearch.value = '';
     showCreateForm.value = false;
     await fetchLists();
   } catch (err) {
@@ -152,6 +282,9 @@ const createList = async () => {
 const cancelCreate = () => {
   showCreateForm.value = false;
   newListName.value = '';
+  newMemberIds.value = [];
+  newTaskIds.value = [];
+  newActionIds.value = [];
 };
 
 const openList = (list) => {
@@ -182,7 +315,6 @@ onMounted(() => {
 });
 onUnmounted(stopPolling);
 watch(() => props.agencyId, () => {
-  // Agency change only affects create context; still refresh memberships.
   fetchLists();
 });
 </script>
@@ -191,8 +323,9 @@ watch(() => props.agencyId, () => {
 .shared-lists-view {
   background: white;
   border: 1px solid var(--border, #e5e7eb);
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 16px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
 }
 
 .shared-lists-header {
@@ -208,6 +341,10 @@ watch(() => props.agencyId, () => {
   font-weight: 700;
 }
 
+.list-search {
+  margin-bottom: 12px;
+}
+
 .shared-lists-loading,
 .shared-lists-empty {
   padding: 24px 12px;
@@ -219,8 +356,46 @@ watch(() => props.agencyId, () => {
 .create-list-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   margin-bottom: 12px;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+
+.form-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 4px;
+}
+
+.pick-box {
+  max-height: 140px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fff;
+}
+
+.pick-heading {
+  margin: 6px 0 2px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin: 3px 0;
+  cursor: pointer;
 }
 
 .create-list-actions {
@@ -307,4 +482,6 @@ watch(() => props.agencyId, () => {
   border-radius: 8px;
   font: inherit;
 }
+
+.muted { color: #64748b; font-size: 12px; margin: 4px 0; }
 </style>

@@ -49,6 +49,14 @@ class ScheduleBlockAssignment {
   }
 
   static async listEventsForUserDay(userId, dayYmd) {
+    // Wall-clock day window (matches toMysqlDateTimeWall storage).
+    const dayStart = `${dayYmd} 00:00:00`;
+    const [y, m, d] = String(dayYmd).split('-').map(Number);
+    const next = new Date(y, m - 1, d + 1);
+    const ny = next.getFullYear();
+    const nm = String(next.getMonth() + 1).padStart(2, '0');
+    const nd = String(next.getDate()).padStart(2, '0');
+    const dayEnd = `${ny}-${nm}-${nd} 00:00:00`;
     const [rows] = await pool.execute(
       `SELECT e.*
        FROM provider_schedule_events e
@@ -57,10 +65,10 @@ class ScheduleBlockAssignment {
          AND (e.status IS NULL OR e.status IN ('ACTIVE', 'scheduled', 'confirmed', 'held'))
          AND (
            (e.all_day = 1 AND e.start_date <= ? AND (e.end_date IS NULL OR e.end_date >= ?))
-           OR (e.all_day = 0 AND DATE(e.start_at) = ?)
+           OR (e.all_day = 0 AND e.start_at >= ? AND e.start_at < ?)
          )
        ORDER BY COALESCE(e.start_at, CONCAT(e.start_date, ' 00:00:00')) ASC`,
-      [userId, dayYmd, dayYmd, dayYmd]
+      [userId, dayYmd, dayYmd, dayStart, dayEnd]
     );
     return rows || [];
   }

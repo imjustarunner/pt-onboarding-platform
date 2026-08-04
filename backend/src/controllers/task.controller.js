@@ -322,7 +322,10 @@ export const getUserTasks = async (req, res, next) => {
       assignedToUserId,
       taskListId,
       projectId,
-      tenantId
+      tenantId,
+      unassignedFromList,
+      unassignedFromProject,
+      onSharedList
     } = req.query;
 
     const role = String(req.user.role || '').toLowerCase();
@@ -364,7 +367,10 @@ export const getUserTasks = async (req, res, next) => {
       assignedToUserId: canViewAll && assignedToUserId ? parseInt(assignedToUserId, 10) : undefined,
       taskListId: taskListId ? parseInt(taskListId, 10) : undefined,
       projectId: projectId ? parseInt(projectId, 10) : undefined,
-      agencyIdFilter: tenantFilter || undefined
+      agencyIdFilter: tenantFilter || undefined,
+      unassignedFromList: String(unassignedFromList || '') === '1',
+      unassignedFromProject: String(unassignedFromProject || '') === '1',
+      onSharedList: onSharedList === '1' ? true : onSharedList === '0' ? false : undefined
     };
 
     if (requestedView === 'all' && !canViewAll) {

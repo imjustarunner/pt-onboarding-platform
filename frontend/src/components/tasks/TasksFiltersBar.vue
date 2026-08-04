@@ -43,6 +43,7 @@
         <option value="due_asc">Sort: Due Date (Soonest)</option>
         <option value="urgency">Sort: Priority</option>
         <option value="created">Sort: Recently created</option>
+        <option v-if="teamView" value="shared_list">Sort: Shared list</option>
       </select>
       <button type="button" class="btn btn-ghost btn-sm" @click="clear">Clear</button>
     </div>
@@ -54,7 +55,9 @@ import { reactive, watch } from 'vue';
 
 const props = defineProps({
   modelValue: { type: Object, default: () => ({}) },
-  departments: { type: Array, default: () => [] }
+  departments: { type: Array, default: () => [] },
+  /** Team Tasks tab: show shared-list sort option */
+  teamView: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['update:modelValue']);

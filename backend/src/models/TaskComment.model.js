@@ -32,6 +32,8 @@ export default class TaskComment {
       user_id: r.user_id,
       body: r.body,
       created_at: r.created_at,
+      first_name: r.first_name,
+      last_name: r.last_name,
       author_name: [r.first_name, r.last_name].filter(Boolean).join(' ') || `User ${r.user_id}`
     }));
   }

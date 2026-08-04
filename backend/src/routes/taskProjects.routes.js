@@ -8,7 +8,8 @@ import {
   attachList,
   detachList,
   listProjectTasks,
-  addProjectMember
+  addProjectMember,
+  removeProjectMember
 } from '../controllers/taskProjects.controller.js';
 
 const router = express.Router();
@@ -21,5 +22,6 @@ router.get('/:id/tasks', authenticate, listProjectTasks);
 router.post('/:id/lists', authenticate, attachList);
 router.delete('/:id/lists/:listId', authenticate, detachList);
 router.post('/:id/members', authenticate, addProjectMember);
+router.delete('/:id/members/:userId', authenticate, removeProjectMember);
 
 export default router;

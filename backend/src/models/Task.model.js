@@ -270,6 +270,13 @@ class Task {
       p.push(needle, needle);
     }
 
+    if (filters.unassignedFromList) {
+      q += ' AND t.task_list_id IS NULL';
+    }
+    if (filters.unassignedFromProject) {
+      q += ' AND t.project_id IS NULL';
+    }
+
     if (filters.due === 'overdue') {
       q += ` AND t.due_date IS NOT NULL AND t.due_date < NOW() AND t.status NOT IN ('completed', 'overridden')`;
     } else if (filters.due === 'today') {
@@ -281,15 +288,15 @@ class Task {
     return { query: q, params: p };
   }
 
-  /** Private tasks are only visible to owner (assignee / creator / multi-assignee). */
+  /** Private tasks are only visible to owner (assignee / creator / collaborator). */
   static _privateVisibleSql(alias = 't') {
     return `(
       COALESCE(${alias}.is_private, 0) = 0
       OR ${alias}.assigned_to_user_id = ?
       OR ${alias}.assigned_by_user_id = ?
       OR EXISTS (
-        SELECT 1 FROM task_assignees ta
-        WHERE ta.task_id = ${alias}.id AND ta.user_id = ?
+        SELECT 1 FROM task_collaborators tc
+        WHERE tc.task_id = ${alias}.id AND tc.user_id = ?
       )
     )`;
   }
@@ -333,13 +340,17 @@ class Task {
       const auid = parseInt(filters.assignedToUserId, 10);
       where += ` AND (
         t.assigned_to_user_id = ?
-        OR EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = ?)
+        OR EXISTS (SELECT 1 FROM task_collaborators tc WHERE tc.task_id = t.id AND tc.user_id = ?)
       )`;
       params.push(auid, auid);
     }
     if (filters.taskListId) {
       where += ' AND t.task_list_id = ?';
       params.push(parseInt(filters.taskListId, 10));
+    } else if (filters.onSharedList === true) {
+      where += ' AND t.task_list_id IS NOT NULL';
+    } else if (filters.onSharedList === false) {
+      where += ' AND t.task_list_id IS NULL';
     }
     if (filters.projectId) {
       where += ' AND t.project_id = ?';
@@ -367,6 +378,7 @@ class Task {
         ad.name as department_name,
         assignee.first_name as assignee_first_name,
         assignee.last_name as assignee_last_name,
+        assignee.profile_photo_path as assignee_profile_photo_path,
         CASE 
           WHEN t.assigned_to_user_id = ? THEN 'direct'
           WHEN t.assigned_to_role IS NOT NULL THEN 'role'
@@ -381,7 +393,7 @@ class Task {
       WHERE ${this._privateVisibleSql('t')}
         AND (
         t.assigned_to_user_id = ?
-        OR EXISTS (SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = ?)
+        OR EXISTS (SELECT 1 FROM task_collaborators tc WHERE tc.task_id = t.id AND tc.user_id = ?)
         OR (t.assigned_to_role IS NOT NULL AND t.assigned_to_user_id IS NULL AND EXISTS (
           SELECT 1 FROM users u 
           JOIN user_agencies ua ON u.id = ua.user_id
@@ -504,6 +516,7 @@ class Task {
           ad.name as department_name,
           assignee.first_name as assignee_first_name,
           assignee.last_name as assignee_last_name,
+          assignee.profile_photo_path as assignee_profile_photo_path,
           'agency' as assignment_type
         FROM tasks t
         LEFT JOIN task_lists tl ON tl.id = t.task_list_id
@@ -609,9 +622,11 @@ class Task {
       open(t) && t.due_date && new Date(t.due_date).getTime() < Date.now();
 
     const assigned = tasks.filter((t) => Number(t.assigned_to_user_id) === uid);
-    const mine = tasks.filter(
-      (t) => Number(t.assigned_by_user_id) === uid && Number(t.assigned_to_user_id) !== uid
-    );
+    const mine = tasks.filter((t) => {
+      if (Number(t.assigned_by_user_id) !== uid) return false;
+      const assignee = t.assigned_to_user_id;
+      return assignee == null || Number(assignee) !== uid;
+    });
     const watchlist = tasks.filter(
       (t) =>
         t.task_list_id &&

@@ -19824,7 +19824,7 @@ const submitRequest = async () => {
             : `/tasks?tab=assigned&blockEventId=${firstId || ''}`;
           // Soft CTA: offer to assign tasks on the Tasks hub timeline
           try {
-            if (window.confirm('Schedule block created. Assign tasks to this block now?')) {
+            if (window.confirm('Schedule block created. Go to Tasks to assign work to this block?')) {
               closeModal();
               await router.push(tasksPath);
               return;

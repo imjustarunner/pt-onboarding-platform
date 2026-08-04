@@ -17,16 +17,30 @@ export async function requireTaskCommentAccess(req, res, next) {
   }
   const task = await Task.findById(taskId);
   if (!task) return res.status(404).json({ error: { message: 'Task not found' } });
-  if (String(task.task_type) !== 'custom') {
-    return res.status(400).json({ error: { message: 'Comments only supported for custom tasks' } });
-  }
+  // Allow comments on custom hub tasks and other task types the user can see.
+  const role = String(req.user?.role || '').toLowerCase();
+  const isManager = ['super_admin', 'superadmin', 'admin', 'support'].includes(role);
+  const isAssignee = Number(task.assigned_to_user_id) === Number(userId);
+  const isCreator = Number(task.assigned_by_user_id) === Number(userId)
+    || Number(task.created_by_user_id) === Number(userId);
+
+  let isListMember = false;
   if (task.task_list_id) {
     const membership = await TaskListMember.findByListAndUser(task.task_list_id, userId);
-    if (!membership) return res.status(403).json({ error: { message: 'You must be a list member' } });
-  } else {
-    if (Number(task.assigned_to_user_id) !== Number(userId)) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
-    }
+    isListMember = !!membership;
+  }
+
+  let isCollaborator = false;
+  try {
+    const TaskCollaborator = (await import('../models/TaskCollaborator.model.js')).default;
+    const collaborators = await TaskCollaborator.listForTask(taskId);
+    isCollaborator = (collaborators || []).some((c) => Number(c.user_id) === Number(userId));
+  } catch {
+    isCollaborator = false;
+  }
+
+  if (!isManager && !isAssignee && !isCreator && !isListMember && !isCollaborator) {
+    return res.status(403).json({ error: { message: 'Access denied' } });
   }
   req.task = task;
   req.taskId = taskId;
@@ -68,11 +82,9 @@ export const createComment = async (req, res, next) => {
     const snippet = body.length > 120 ? body.slice(0, 117) + '…' : body;
 
     for (const rid of mentionedIds) {
-      const membership = task.task_list_id
-        ? await TaskListMember.findByListAndUser(task.task_list_id, rid)
-        : null;
-      if (!membership && task.task_list_id) continue; // only notify list members
-      if (!task.task_list_id && Number(task.assigned_to_user_id) !== Number(rid)) continue;
+      // Notify anyone @mentioned who exists (visibility already gated by comment access).
+      const mentioned = await User.findById(rid);
+      if (!mentioned) continue;
 
       await Notification.create({
         type: 'task_comment_mention',

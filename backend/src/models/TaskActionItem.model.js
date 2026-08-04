@@ -47,7 +47,7 @@ class TaskActionItem {
     return this.mapRow(rows[0]);
   }
 
-  static async listForUser(userId, { agencyId = null, status = null } = {}) {
+  static async listForUser(userId, { agencyId = null, status = null, unassignedFromList = false, unassignedFromProject = false } = {}) {
     const uid = parseInt(userId, 10);
     let query = `
       SELECT tai.*,
@@ -76,6 +76,12 @@ class TaskActionItem {
     if (status) {
       query += ' AND tai.status = ?';
       params.push(status);
+    }
+    if (unassignedFromList) {
+      query += ' AND tai.task_list_id IS NULL';
+    }
+    if (unassignedFromProject) {
+      query += ' AND tai.project_id IS NULL';
     }
     query += ' ORDER BY (tai.status = \'completed\'), tai.updated_at DESC';
     try {

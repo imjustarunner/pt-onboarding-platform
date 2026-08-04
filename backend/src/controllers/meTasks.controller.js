@@ -8,14 +8,28 @@ import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import TaskDeletionLog from '../models/TaskDeletionLog.model.js';
 import TaskListMember from '../models/TaskListMember.model.js';
 import TaskList from '../models/TaskList.model.js';
-import TaskAssignee from '../models/TaskAssignee.model.js';
+import TaskCollaborator from '../models/TaskCollaborator.model.js';
 import TaskLink from '../models/TaskLink.model.js';
+import {
+  resolveTaskListAndProject,
+  sendListProjectError
+} from '../services/taskListProjectLink.service.js';
+import {
+  syncCollaboratorsForTask,
+  validateCollaboratorUserIds
+} from '../services/taskCollaborators.service.js';
 
 function ensureCustomTaskOwnedByUser(task, userId) {
   if (!task) return false;
   if (String(task.task_type) !== 'custom') return false;
-  if (Number(task.assigned_to_user_id) !== Number(userId)) return false;
-  return true;
+  if (Number(task.assigned_to_user_id) === Number(userId)) return true;
+  if (
+    (task.assigned_to_user_id == null || task.assigned_to_user_id === '')
+    && Number(task.assigned_by_user_id) === Number(userId)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 async function canUpdateOrDeleteTask(task, userId, role = '') {
@@ -78,11 +92,31 @@ export const createCustomTask = async (req, res, next) => {
       resolvedAgencyId = list?.agency_id ? Number(list.agency_id) : null;
     }
 
+    let resolvedProjectId = null;
+    try {
+      const linked = await resolveTaskListAndProject({
+        taskListId: resolvedListId,
+        projectId: req.body?.project_id ?? req.body?.projectId ?? null
+      });
+      resolvedListId = linked.taskListId;
+      resolvedProjectId = linked.projectId;
+    } catch (err) {
+      const sent = sendListProjectError(res, err);
+      if (sent) return sent;
+      throw err;
+    }
+
+    const assigneeRaw = req.body?.assigned_to_user_id ?? req.body?.assignedToUserId ?? null;
+    const resolvedAssignee =
+      assigneeRaw != null && assigneeRaw !== ''
+        ? parseInt(assigneeRaw, 10) || null
+        : null;
+
     const task = await Task.create({
       taskType: 'custom',
       title: titleStr,
       description: description ? String(description).trim() || null : null,
-      assignedToUserId: userId,
+      assignedToUserId: resolvedAssignee,
       assignedByUserId: userId,
       assignedToAgencyId: resolvedAgencyId,
       dueDate: dueDate || null,
@@ -98,14 +132,14 @@ export const createCustomTask = async (req, res, next) => {
       workTypeId: req.body?.work_type_id ?? metadataIn?.work_type_id ?? null,
       workTypeIconKey: req.body?.work_type_icon_key ?? null,
       isPrivate: !!(req.body?.isPrivate ?? req.body?.is_private),
-      projectId: req.body?.project_id ?? req.body?.projectId ?? null
+      projectId: resolvedProjectId
     });
 
     await TaskAuditLog.logAction({
       taskId: task.id,
-      actionType: 'assigned',
+      actionType: resolvedAssignee ? 'assigned' : 'created',
       actorUserId: userId,
-      targetUserId: userId,
+      targetUserId: resolvedAssignee || userId,
       metadata: meta
     });
 
@@ -152,7 +186,17 @@ export const updateCustomTask = async (req, res, next) => {
     if (description !== undefined) updates.description = description ? String(description).trim() || null : null;
     if (dueDate !== undefined) updates.dueDate = dueDate || null;
     if (task_list_id !== undefined) updates.taskListId = task_list_id ?? null;
-    if (assigned_to_user_id !== undefined) updates.assignedToUserId = assigned_to_user_id;
+    if (assigned_to_user_id !== undefined) {
+      updates.assignedToUserId =
+        assigned_to_user_id != null && assigned_to_user_id !== ''
+          ? parseInt(assigned_to_user_id, 10) || null
+          : null;
+    }
+    if (body.assignedToUserId !== undefined) {
+      const raw = body.assignedToUserId;
+      updates.assignedToUserId =
+        raw != null && raw !== '' ? parseInt(raw, 10) || null : null;
+    }
     if (urgency !== undefined && ['low', 'medium', 'high'].includes(urgency)) updates.urgency = urgency;
     if (is_recurring !== undefined) updates.isRecurring = !!is_recurring;
     if (recurring_rule !== undefined) updates.recurringRule = recurring_rule || null;
@@ -169,6 +213,28 @@ export const updateCustomTask = async (req, res, next) => {
       updates.taskListId = body.task_list_id ?? body.taskListId ?? null;
     }
 
+    const nextListId =
+      updates.taskListId !== undefined ? updates.taskListId : task.task_list_id;
+    const nextProjectId =
+      updates.projectId !== undefined ? updates.projectId : task.project_id;
+    if (
+      updates.taskListId !== undefined
+      || updates.projectId !== undefined
+    ) {
+      try {
+        const linked = await resolveTaskListAndProject({
+          taskListId: nextListId,
+          projectId: nextProjectId
+        });
+        updates.taskListId = linked.taskListId;
+        updates.projectId = linked.projectId;
+      } catch (err) {
+        const sent = sendListProjectError(res, err);
+        if (sent) return sent;
+        throw err;
+      }
+    }
+
     if (metadata !== undefined || subtasks !== undefined) {
       const existing = typeof task.metadata === 'object' ? task.metadata : Task.parseMetadata(task.metadata);
       const merged = { ...(existing || {}) };
@@ -178,6 +244,18 @@ export const updateCustomTask = async (req, res, next) => {
     }
 
     const updated = await Task.updateCustomTask(taskId, updates);
+
+    if (
+      updates.taskListId !== undefined
+      || updates.projectId !== undefined
+      || updates.assignedToUserId !== undefined
+    ) {
+      const fresh = await Task.findById(taskId);
+      if (updates.assignedToUserId && fresh?.assigned_to_user_id) {
+        await TaskCollaborator.removeUser(taskId, fresh.assigned_to_user_id);
+      }
+      await syncCollaboratorsForTask(taskId);
+    }
 
     await TaskAuditLog.logAction({
       taskId,
@@ -273,6 +351,12 @@ async function canViewTaskDetails(task, userId, role) {
     const membership = await TaskListMember.findByListAndUser(task.task_list_id, userId);
     if (membership) return true;
   }
+  try {
+    const collaborators = await TaskCollaborator.listForTask(task.id);
+    if ((collaborators || []).some((c) => Number(c.user_id) === Number(userId))) return true;
+  } catch {
+    /* ignore */
+  }
   return false;
 }
 
@@ -282,7 +366,9 @@ export const getTaskAssignees = async (req, res, next) => {
     if (!(await canViewTaskDetails(task, req.user.id, req.user.role))) {
       return res.status(403).json({ error: { message: 'Forbidden' } });
     }
-    res.json(await TaskAssignee.listForTask(task.id));
+    res.json({
+      assigneeUserId: task.assigned_to_user_id ?? null
+    });
   } catch (err) {
     next(err);
   }
@@ -294,10 +380,57 @@ export const setTaskAssignees = async (req, res, next) => {
     if (!(await canViewTaskDetails(task, req.user.id, req.user.role))) {
       return res.status(403).json({ error: { message: 'Forbidden' } });
     }
-    const userIds = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
-    const primaryUserId = req.body?.primaryUserId ?? userIds[0] ?? null;
-    res.json(await TaskAssignee.setForTask(task.id, userIds, primaryUserId));
+    const canModify = await canUpdateOrDeleteTask(task, req.user.id, req.user?.role);
+    if (!canModify) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    let raw =
+      req.body?.userId
+      ?? req.body?.assignedToUserId
+      ?? req.body?.assigned_to_user_id
+      ?? null;
+    if (raw == null && Array.isArray(req.body?.userIds)) {
+      raw = req.body.userIds[0] ?? null;
+    }
+    const assigneeId =
+      raw != null && raw !== '' ? parseInt(raw, 10) || null : null;
+    const updated = await Task.updateCustomTask(task.id, { assignedToUserId: assigneeId });
+    if (assigneeId) await TaskCollaborator.removeUser(task.id, assigneeId);
+    res.json({ assigneeUserId: updated?.assigned_to_user_id ?? null });
   } catch (err) {
+    next(err);
+  }
+};
+
+export const getTaskCollaborators = async (req, res, next) => {
+  try {
+    const task = await Task.findById(parseInt(req.params.id, 10));
+    if (!(await canViewTaskDetails(task, req.user.id, req.user.role))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    res.json(await TaskCollaborator.listForTask(task.id));
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const setTaskCollaborators = async (req, res, next) => {
+  try {
+    const task = await Task.findById(parseInt(req.params.id, 10));
+    if (!(await canViewTaskDetails(task, req.user.id, req.user.role))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const canModify = await canUpdateOrDeleteTask(task, req.user.id, req.user?.role);
+    if (!canModify) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const userIds = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
+    const validated = await validateCollaboratorUserIds(task, userIds);
+    res.json(await TaskCollaborator.setForTask(task.id, validated));
+  } catch (err) {
+    if (err?.statusCode === 400) {
+      return res.status(400).json({ error: { message: err.message } });
+    }
     next(err);
   }
 };

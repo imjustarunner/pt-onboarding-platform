@@ -9,6 +9,8 @@ import {
   claimTask,
   getTaskAssignees,
   setTaskAssignees,
+  getTaskCollaborators,
+  setTaskCollaborators,
   getTaskLinks,
   addTaskLink,
   deleteTaskLink
@@ -44,6 +46,8 @@ router.post('/tasks/:id/claim', authenticate, claimTask);
 router.delete('/tasks/:id', authenticate, deleteCustomTask);
 router.get('/tasks/:id/assignees', authenticate, getTaskAssignees);
 router.put('/tasks/:id/assignees', authenticate, setTaskAssignees);
+router.get('/tasks/:id/collaborators', authenticate, getTaskCollaborators);
+router.put('/tasks/:id/collaborators', authenticate, setTaskCollaborators);
 router.get('/tasks/:id/links', authenticate, getTaskLinks);
 router.post('/tasks/:id/links', authenticate, addTaskLink);
 router.delete('/tasks/:id/links/:linkId', authenticate, deleteTaskLink);

@@ -29,12 +29,12 @@
         </ul>
       </div>
       <div class="tasks-hub__actions">
-        <router-link class="btn btn-secondary btn-sm" :to="mySchedulePath">My Schedule</router-link>
+        <router-link class="hub-chip-btn" :to="mySchedulePath">My Schedule</router-link>
         <div class="view-toggle">
           <button type="button" class="view-btn" :class="{ active: layout === 'list' }" @click="layout = 'list'">List</button>
           <button type="button" class="view-btn" :class="{ active: layout === 'board' }" @click="layout = 'board'">Board</button>
         </div>
-        <button type="button" class="btn btn-primary btn-sm" @click="showNewTask = true">+ New Task</button>
+        <button type="button" class="hub-chip-btn hub-chip-btn--accent" @click="showNewPicker = true">New</button>
       </div>
     </header>
 
@@ -56,9 +56,11 @@
       <TaskTimeline
         ref="timelineRef"
         :agency-id="agencyId"
+        :open-tasks="openTasksForTimeline"
         @select-block="onSelectBlock"
         @join-focus="openFocusSession"
         @assigned="onAssignedToBlock"
+        @blocks-changed="onTimelineBlocksChanged"
       />
 
       <div class="tasks-hub__main">
@@ -68,6 +70,7 @@
             :agency-id="effectiveTenantId"
             @close="overviewProject = null"
             @open-project="openProjectWorkspace"
+            @edit="openEditProject(overviewProject)"
           />
         </template>
 
@@ -90,7 +93,7 @@
                 <h2>Projects</h2>
                 <p class="muted">View overview in-hub, or open the full project workspace.</p>
               </div>
-              <button type="button" class="btn btn-primary btn-sm" @click="showNewProject = true">+ New Project</button>
+              <button type="button" class="btn btn-primary btn-sm" @click="pickNew('project')">+ New Project</button>
             </div>
             <ul class="project-dir">
               <li v-for="p in projects" :key="p.id">
@@ -100,6 +103,7 @@
                 </div>
                 <div class="project-dir__actions">
                   <button type="button" class="btn btn-secondary btn-sm" @click="overviewProject = p">View</button>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="openEditProject(p)">Edit</button>
                   <button type="button" class="btn btn-primary btn-sm" @click="openProjectWorkspace(p.id)">Open Project</button>
                 </div>
               </li>
@@ -136,7 +140,7 @@
 
           <div v-if="activeTab === 'all' && canViewAll" class="team-filters">
             <select v-model="teamFilters.tenantId" class="filter-select" @change="refresh">
-              <option value="">All tenants (current)</option>
+              <option value="">All tenants</option>
               <option v-for="a in hideableAgencies" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
             </select>
             <select v-model="teamFilters.userId" class="filter-select" @change="refresh">
@@ -145,34 +149,73 @@
                 {{ u.first_name }} {{ u.last_name }}
               </option>
             </select>
-            <select v-if="teamMode === 'tasks'" v-model="teamFilters.taskListId" class="filter-select" @change="refresh">
-              <option value="">All shared lists</option>
-              <option v-for="l in teamLists" :key="l.id" :value="String(l.id)">{{ l.name }}</option>
-            </select>
           </div>
 
           <template v-if="activeTab === 'all' && teamMode === 'lists'">
-            <label class="field-inline">
-              <span>Team shared list</span>
-              <select v-model="selectedTeamListId" class="filter-select" @change="loadTeamListTasks">
-                <option value="">Select a list…</option>
-                <option v-for="l in teamLists" :key="l.id" :value="String(l.id)">
-                  {{ l.name }} ({{ l.task_count || 0 }})
-                </option>
-              </select>
-            </label>
-            <p v-if="selectedTeamList" class="muted">Shared with {{ selectedTeamList.shared_with_label }}</p>
-            <TasksListTable
-              v-if="teamListTasks.length"
-              :tasks="teamListTasks"
-              :type-defs="typeDefs"
-              :current-user-id="authStore.user?.id"
-              view="all"
-              @open="openTask"
-              @toggle-complete="toggleComplete"
-              @menu="openTask"
-            />
-            <div v-else class="hub-state">Select a tenant shared list to view its tasks</div>
+            <div class="team-lists-browser">
+              <input
+                v-model="teamListSearch"
+                type="search"
+                class="filter-select team-lists-browser__search"
+                placeholder="Search shared lists across tenants…"
+                @input="onTeamListSearchInput"
+              />
+              <div v-if="teamListsLoading" class="hub-state">Loading shared lists…</div>
+              <div v-else-if="!teamListsGrouped.length" class="hub-state">
+                No shared lists found{{ teamFilters.tenantId ? ' for this tenant' : '' }}.
+              </div>
+              <section
+                v-for="tenant in teamListsGrouped"
+                :key="tenant.agencyId"
+                class="tenant-group"
+              >
+                <button
+                  type="button"
+                  class="tenant-group__head"
+                  @click="toggleTenantGroup(tenant.agencyId)"
+                >
+                  <span class="tenant-group__bar" aria-hidden="true" />
+                  <span class="tenant-group__title">{{ tenant.agencyName }}</span>
+                  <span class="tenant-group__count">{{ tenant.lists.length }} list{{ tenant.lists.length === 1 ? '' : 's' }}</span>
+                  <span class="tenant-group__chev">{{ isTenantGroupExpanded(tenant.agencyId) ? '▼' : '▶' }}</span>
+                </button>
+                <div v-show="isTenantGroupExpanded(tenant.agencyId)" class="tenant-group__body">
+                  <div
+                    v-for="list in tenant.lists"
+                    :key="list.id"
+                    class="team-list-block"
+                  >
+                    <button
+                      type="button"
+                      class="team-list-block__head"
+                      @click="toggleTeamList(list.id)"
+                    >
+                      <span class="team-list-block__name">{{ list.name }}</span>
+                      <span class="team-list-block__meta">
+                        {{ list.task_count || 0 }} open
+                        · Shared with {{ list.shared_with_label || 'Only you' }}
+                      </span>
+                      <span class="team-list-block__chev">{{ isTeamListExpanded(list.id) ? '▼' : '▶' }}</span>
+                    </button>
+                    <div v-show="isTeamListExpanded(list.id)" class="team-list-block__tasks">
+                      <div v-if="teamListTasksLoading[list.id]" class="hub-state hub-state--sm">Loading tasks…</div>
+                      <TasksListTable
+                        v-else-if="(teamListTasksByListId[list.id] || []).length"
+                        :tasks="teamListTasksByListId[list.id]"
+                        :type-defs="typeDefs"
+                        :current-user-id="authStore.user?.id"
+                        :timeline-keys="timelineAssignableKeys"
+                        view="all"
+                        @open="openTask"
+                        @toggle-complete="toggleComplete"
+                        @menu="openTask"
+                      />
+                      <div v-else class="hub-state hub-state--sm">No open tasks in this list</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
           </template>
 
           <template v-else-if="activeTab === 'all' && teamMode === 'projects'">
@@ -184,6 +227,7 @@
                 </div>
                 <div class="project-dir__actions">
                   <button type="button" class="btn btn-secondary btn-sm" @click="overviewProject = p">View</button>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="openEditProject(p)">Edit</button>
                   <button type="button" class="btn btn-primary btn-sm" @click="openProjectWorkspace(p.id)">Open Project</button>
                 </div>
               </li>
@@ -215,7 +259,50 @@
                 {{ t.label }}
               </button>
             </div>
-            <TasksFiltersBar v-model="filters" :departments="departments" />
+            <div v-if="activeTab === 'all' && teamMode === 'tasks'" class="shared-list-pills">
+              <span class="shared-list-pills__label">Shared lists</span>
+              <button
+                type="button"
+                class="type-pill"
+                :class="{ active: !teamFilters.sharedListScope && !teamFilters.taskListId }"
+                @click="setSharedListScope('')"
+              >
+                All tasks
+              </button>
+              <button
+                type="button"
+                class="type-pill"
+                :class="{ active: teamFilters.sharedListScope === 'on_list' && !teamFilters.taskListId }"
+                @click="setSharedListScope('on_list')"
+              >
+                On a shared list
+              </button>
+              <button
+                type="button"
+                class="type-pill"
+                :class="{ active: teamFilters.sharedListScope === 'off_list' }"
+                @click="setSharedListScope('off_list')"
+              >
+                Not on a list
+              </button>
+              <input
+                v-model="teamListFilterSearch"
+                type="search"
+                class="shared-list-pills__search"
+                placeholder="Search lists…"
+              />
+              <select
+                v-model="teamFilters.taskListId"
+                class="shared-list-pills__select"
+                @change="onTeamListFilterPick"
+              >
+                <option value="">Specific list…</option>
+                <option v-for="l in teamListsForFilter" :key="l.id" :value="String(l.id)">
+                  {{ l.name }}{{ l._agencyName ? ` · ${l._agencyName}` : '' }}
+                </option>
+              </select>
+            </div>
+            <TasksFiltersBar v-model="filters" :departments="departments" :team-view="activeTab === 'all' && teamMode === 'tasks'" />
 
             <div v-if="tasksStore.loading" class="hub-state" data-tour="tasks-loading">Loading tasks…</div>
             <div v-else-if="tasksStore.error" class="hub-state error">{{ tasksStore.error }}</div>
@@ -229,6 +316,7 @@
               :tasks="displayTasks"
               :type-defs="typeDefs"
               :current-user-id="authStore.user?.id"
+              :timeline-keys="timelineAssignableKeys"
               :view="activeTab"
               data-tour="tasks-list"
               @open="openTask"
@@ -266,14 +354,97 @@
         :agency-users="agencyUsers"
         @close="detailTask = null"
         @complete="onPanelComplete"
-        @changed="refresh"
+        @incomplete="onPanelIncomplete"
+        @changed="onPanelChanged"
+        @list-created="onInlineListCreated"
         @view-project="(id) => viewProjectById(id)"
         @open-project="openProjectWorkspace"
       />
     </div>
 
+    <div v-if="showNewPicker" class="detail-overlay" @click.self="showNewPicker = false">
+      <div class="new-picker">
+        <h3>What are you creating?</h3>
+        <p class="muted">Pick a type to get started</p>
+        <div class="new-picker__grid">
+          <button type="button" class="new-picker__card" @click="pickNew('task')">
+            <span class="new-picker__icon">☑</span>
+            <strong>Task</strong>
+            <span>Something you need to finish</span>
+          </button>
+          <button type="button" class="new-picker__card" @click="pickNew('action')">
+            <span class="new-picker__icon">⚡</span>
+            <strong>Action item</strong>
+            <span>Quick follow-up from a meeting</span>
+          </button>
+          <button type="button" class="new-picker__card" @click="pickNew('list')">
+            <span class="new-picker__icon">☰</span>
+            <strong>Shared list</strong>
+            <span>Collaborate with teammates</span>
+          </button>
+          <button type="button" class="new-picker__card" @click="pickNew('project')">
+            <span class="new-picker__icon">◈</span>
+            <strong>Project</strong>
+            <span>Group lists and workstreams</span>
+          </button>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" @click="showNewPicker = false">Cancel</button>
+      </div>
+    </div>
+
+    <div v-if="showNewList" class="detail-overlay" @click.self="showNewList = false">
+      <div class="detail-modal detail-modal--wide">
+        <button type="button" class="modal-back" @click="backToNewPicker">← Back</button>
+        <h3>New shared list</h3>
+        <div class="form-group">
+          <label>Name</label>
+          <input v-model="newListName" class="form-control" type="text" placeholder="e.g. Skill Builders" />
+        </div>
+        <div class="form-group">
+          <label>Share with teammates</label>
+          <div class="member-pick">
+            <label v-for="u in shareableUsers" :key="u.id" class="check">
+              <input v-model="newListMemberIds" type="checkbox" :value="u.id" />
+              {{ u.first_name }} {{ u.last_name }}
+            </label>
+            <p v-if="!shareableUsers.length" class="muted">No other users in this agency yet</p>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Add existing work (not on another list)</label>
+          <input v-model="newItemSearch" type="search" class="form-control" placeholder="Search tasks & action items…" />
+          <div class="item-pick">
+            <template v-if="filteredUnattachedTasks.length">
+              <p class="pick-section">Tasks</p>
+              <label v-for="t in filteredUnattachedTasks" :key="`t-${t.id}`" class="check">
+                <input v-model="newListTaskIds" type="checkbox" :value="t.id" />
+                {{ t.title }}
+              </label>
+            </template>
+            <template v-if="filteredUnattachedActions.length">
+              <p class="pick-section">Action items</p>
+              <label v-for="a in filteredUnattachedActions" :key="`a-${a.id}`" class="check">
+                <input v-model="newListActionIds" type="checkbox" :value="a.id" />
+                {{ a.title }}
+              </label>
+            </template>
+            <p v-if="!filteredUnattachedTasks.length && !filteredUnattachedActions.length" class="muted">
+              No unassigned tasks or action items found
+            </p>
+          </div>
+        </div>
+        <div class="detail-actions">
+          <button type="button" class="btn btn-primary btn-sm" :disabled="!newListName.trim() || creating" @click="createSharedList">
+            {{ creating ? 'Creating…' : 'Create list' }}
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="showNewList = false">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showNewTask" class="detail-overlay" @click.self="showNewTask = false">
       <div class="detail-modal">
+        <button type="button" class="modal-back" @click="backToNewPicker">← Back</button>
         <h3>New task</h3>
         <div class="form-group">
           <label>Title</label>
@@ -299,18 +470,14 @@
           Private — only you can see this
         </label>
         <div class="form-group">
-          <label>Shared list</label>
-          <select v-model="newTask.taskListId" class="form-control">
-            <option value="">None</option>
-            <option v-for="l in sharedListsOptions" :key="l.id" :value="String(l.id)">{{ l.name }}</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Project</label>
-          <select v-model="newTask.projectId" class="form-control">
-            <option value="">None</option>
-            <option v-for="p in projectsOptions" :key="p.id" :value="String(p.id)">{{ p.name }}</option>
-          </select>
+          <TaskListProjectFields
+            v-model:task-list-id="newTask.taskListId"
+            v-model:project-id="newTask.projectId"
+            :lists="sharedListsOptions"
+            :projects="projectsOptions"
+            :agency-id="agencyId || effectiveTenantId"
+            @list-created="onInlineListCreated"
+          />
         </div>
         <div class="detail-actions">
           <button type="button" class="btn btn-primary btn-sm" :disabled="creating || !newTask.title.trim()" @click="createTask">
@@ -323,6 +490,7 @@
 
     <div v-if="showNewActionItem" class="detail-overlay" @click.self="showNewActionItem = false">
       <div class="detail-modal">
+        <button type="button" class="modal-back" @click="backToNewPicker">← Back</button>
         <h3>New action item</h3>
         <div class="form-group">
           <label>Title</label>
@@ -337,18 +505,14 @@
           Private — only you can see this
         </label>
         <div class="form-group">
-          <label>Shared list</label>
-          <select v-model="newActionItem.taskListId" class="form-control">
-            <option value="">None</option>
-            <option v-for="l in sharedListsOptions" :key="l.id" :value="String(l.id)">{{ l.name }}</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Project</label>
-          <select v-model="newActionItem.projectId" class="form-control">
-            <option value="">None</option>
-            <option v-for="p in projectsOptions" :key="p.id" :value="String(p.id)">{{ p.name }}</option>
-          </select>
+          <TaskListProjectFields
+            v-model:task-list-id="newActionItem.taskListId"
+            v-model:project-id="newActionItem.projectId"
+            :lists="sharedListsOptions"
+            :projects="projectsOptions"
+            :agency-id="agencyId || effectiveTenantId"
+            @list-created="onInlineListCreated"
+          />
         </div>
         <div class="detail-actions">
           <button type="button" class="btn btn-primary btn-sm" :disabled="!newActionItem.title.trim()" @click="createActionItem">
@@ -360,17 +524,119 @@
     </div>
 
     <div v-if="showNewProject" class="detail-overlay" @click.self="showNewProject = false">
-      <div class="detail-modal">
+      <div class="detail-modal detail-modal--wide">
+        <button type="button" class="modal-back" @click="backToNewPicker">← Back</button>
         <h3>New project</h3>
         <div class="form-group">
           <label>Name</label>
           <input v-model="newProjectName" class="form-control" type="text" />
         </div>
+        <div class="form-group">
+          <label>Description (optional)</label>
+          <textarea v-model="newProjectDescription" class="form-control" rows="2" />
+        </div>
+        <div class="form-group">
+          <label>Due date (optional)</label>
+          <input v-model="newProjectDueDate" class="form-control" type="date" />
+        </div>
+        <div class="form-group">
+          <label>Share with teammates</label>
+          <div class="member-pick">
+            <label v-for="u in shareableUsers" :key="`np-${u.id}`" class="check">
+              <input v-model="newProjectMemberIds" type="checkbox" :value="u.id" />
+              {{ u.first_name }} {{ u.last_name }}
+            </label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Attach shared lists</label>
+          <div class="member-pick">
+            <label v-for="l in sharedListsOptions" :key="`pl-${l.id}`" class="check">
+              <input v-model="newProjectListIds" type="checkbox" :value="l.id" />
+              {{ l.name }}
+            </label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Add existing work (not on another project)</label>
+          <input v-model="newItemSearch" type="search" class="form-control" placeholder="Search…" />
+          <div class="item-pick">
+            <template v-if="filteredUnattachedForProject.tasks.length">
+              <p class="pick-section">Tasks</p>
+              <label v-for="t in filteredUnattachedForProject.tasks" :key="`pt-${t.id}`" class="check">
+                <input v-model="newProjectTaskIds" type="checkbox" :value="t.id" />
+                {{ t.title }}
+              </label>
+            </template>
+            <template v-if="filteredUnattachedForProject.actions.length">
+              <p class="pick-section">Action items</p>
+              <label v-for="a in filteredUnattachedForProject.actions" :key="`pa-${a.id}`" class="check">
+                <input v-model="newProjectActionIds" type="checkbox" :value="a.id" />
+                {{ a.title }}
+              </label>
+            </template>
+          </div>
+        </div>
         <div class="detail-actions">
-          <button type="button" class="btn btn-primary btn-sm" :disabled="!newProjectName.trim()" @click="createProject">
-            Create
+          <button type="button" class="btn btn-primary btn-sm" :disabled="!newProjectName.trim() || creating" @click="createProject">
+            {{ creating ? 'Creating…' : 'Create project' }}
           </button>
           <button type="button" class="btn btn-secondary btn-sm" @click="showNewProject = false">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showEditProject" class="detail-overlay" @click.self="showEditProject = false">
+      <div class="detail-modal detail-modal--wide">
+        <h3>Edit project</h3>
+        <div class="form-group">
+          <label>Name</label>
+          <input v-model="editProjectForm.name" class="form-control" type="text" />
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <textarea v-model="editProjectForm.description" class="form-control" rows="2" />
+        </div>
+        <div class="form-group">
+          <label>Due date</label>
+          <input v-model="editProjectForm.dueDate" class="form-control" type="date" />
+        </div>
+        <div class="form-group">
+          <label>Members</label>
+          <div class="member-pick">
+            <label v-for="u in shareableUsers" :key="`ep-${u.id}`" class="check">
+              <input v-model="editProjectForm.memberIds" type="checkbox" :value="u.id" />
+              {{ u.first_name }} {{ u.last_name }}
+            </label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Shared lists</label>
+          <div class="member-pick">
+            <label v-for="l in sharedListsOptions" :key="`el-${l.id}`" class="check">
+              <input v-model="editProjectForm.listIds" type="checkbox" :value="l.id" />
+              {{ l.name }}
+            </label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Add tasks & action items</label>
+          <div class="item-pick">
+            <label v-for="t in filteredUnattachedForProject.tasks" :key="`et-${t.id}`" class="check">
+              <input v-model="editProjectForm.taskIds" type="checkbox" :value="t.id" />
+              {{ t.title }}
+            </label>
+            <label v-for="a in filteredUnattachedForProject.actions" :key="`ea-${a.id}`" class="check">
+              <input v-model="editProjectForm.actionIds" type="checkbox" :value="a.id" />
+              {{ a.title }}
+            </label>
+          </div>
+        </div>
+        <div class="detail-actions">
+          <button type="button" class="btn btn-primary btn-sm" :disabled="creating" @click="saveEditProject">
+            {{ creating ? 'Saving…' : 'Save' }}
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="showEditProject = false">Cancel</button>
         </div>
       </div>
     </div>
@@ -378,27 +644,56 @@
     <div v-if="selectedBlock" class="detail-overlay" @click.self="selectedBlock = null">
       <div class="detail-modal">
         <header class="detail-modal__head">
-          <h3>{{ selectedBlock.title }}</h3>
+          <h3>{{ selectedBlock.title || 'Schedule block' }}</h3>
           <button type="button" class="btn btn-ghost btn-sm" @click="selectedBlock = null">Close</button>
         </header>
-        <p class="muted">Drag tasks from the list onto the timeline, or assign below.</p>
+        <p class="muted">Drag tasks from the list onto the timeline, or assign from open tasks below.</p>
         <ul class="block-assign-list">
           <li v-for="a in selectedBlock.assignments || []" :key="a.id">
-            <span>{{ a.title }}</span>
-            <span class="muted">{{ a.status || a.assignable_type }}</span>
+            <div class="block-assign-main">
+              <span>{{ a.title }}</span>
+              <select
+                v-if="a.assignable_type === 'task'"
+                class="status-mini"
+                :value="a.status === 'completed' ? 'completed' : 'pending'"
+                @change="changeAssignmentStatus(a, $event.target.value)"
+              >
+                <option value="pending">Open</option>
+                <option value="completed">Completed</option>
+              </select>
+              <span v-else class="muted">{{ a.status || a.assignable_type }}</span>
+            </div>
+            <button type="button" class="btn-x" title="Remove from block" @click="removeBlockAssignment(a)">Remove</button>
           </li>
-          <li v-if="!(selectedBlock.assignments || []).length" class="muted">No assignments yet</li>
+          <li v-if="!(selectedBlock.assignments || []).length" class="muted">No assignments yet — drag a task onto the block</li>
         </ul>
+        <div v-if="openTasksForTimeline.length" class="assign-quick">
+          <label class="field-inline">
+            <span>Quick assign</span>
+            <select v-model="quickAssignTaskId" class="filter-select">
+              <option value="">Select a task…</option>
+              <option v-for="t in openTasksForTimeline" :key="t.id" :value="String(t.id)">{{ t.title }}</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="!quickAssignTaskId"
+            @click="quickAssignToBlock"
+          >
+            Assign
+          </button>
+        </div>
         <div class="detail-actions">
           <button
-            v-if="selectedBlock.focus_session_enabled"
+            v-if="selectedBlock.focus_session_enabled && (selectedBlock.assignments || []).length"
             type="button"
             class="btn btn-primary btn-sm"
             @click="openFocusSession(selectedBlock)"
           >
             Join Focus Session
           </button>
-          <router-link class="btn btn-secondary btn-sm" :to="mySchedulePath">Open in My Schedule</router-link>
+          <router-link class="hub-chip-btn" :to="mySchedulePath">Open in My Schedule</router-link>
         </div>
       </div>
     </div>
@@ -429,6 +724,7 @@ import SharedListsView from '../dashboard/SharedListsView.vue';
 import TaskTimeline from './TaskTimeline.vue';
 import FocusSessionModal from './FocusSessionModal.vue';
 import TaskDetailSidePanel from './TaskDetailSidePanel.vue';
+import TaskListProjectFields from './TaskListProjectFields.vue';
 import ProjectOverviewPanel from './ProjectOverviewPanel.vue';
 
 const route = useRoute();
@@ -455,10 +751,41 @@ const filters = ref({
 const departments = ref([]);
 const typeDefs = ref([]);
 const detailTask = ref(null);
+const showNewPicker = ref(false);
 const showNewTask = ref(false);
 const showNewActionItem = ref(false);
 const showNewProject = ref(false);
+const showNewList = ref(false);
+const showEditProject = ref(false);
+const newListName = ref('');
+const newListMemberIds = ref([]);
+const newListTaskIds = ref([]);
+const newListActionIds = ref([]);
+const newProjectDescription = ref('');
+const newProjectDueDate = ref('');
+const newProjectMemberIds = ref([]);
+const newProjectListIds = ref([]);
+const newProjectTaskIds = ref([]);
+const newProjectActionIds = ref([]);
+const newItemSearch = ref('');
+const unattachedTasks = ref([]);
+const unattachedActions = ref([]);
+const teamListSearch = ref('');
+const editProjectForm = reactive({
+  id: null,
+  name: '',
+  description: '',
+  dueDate: '',
+  memberIds: [],
+  listIds: [],
+  taskIds: [],
+  actionIds: [],
+  existingMemberIds: [],
+  existingListIds: []
+});
 const creating = ref(false);
+const timelineAssignableKeys = ref(new Set());
+const quickAssignTaskId = ref('');
 const newTask = reactive({
   title: '', description: '', dueDate: '', workTypeId: '', isPrivate: false, taskListId: '', projectId: ''
 });
@@ -476,10 +803,15 @@ const searchInputRef = ref(null);
 const showHideAgencies = ref(false);
 const hiddenAgencyIds = ref(loadHiddenAgencies());
 const teamMode = ref('tasks');
-const teamFilters = reactive({ tenantId: '', userId: '', taskListId: '' });
+const teamFilters = reactive({ tenantId: '', userId: '', taskListId: '', sharedListScope: '' });
+const teamListFilterSearch = ref('');
 const teamLists = ref([]);
-const teamListTasks = ref([]);
-const selectedTeamListId = ref('');
+const teamListsGrouped = ref([]);
+const teamListsLoading = ref(false);
+const teamListTasksByListId = ref({});
+const teamListTasksLoading = ref({});
+const expandedTenantGroups = ref({});
+const expandedTeamLists = ref({});
 const projects = ref([]);
 const teamProjects = ref([]);
 const sharedListsOptions = ref([]);
@@ -550,9 +882,69 @@ const effectiveTenantId = computed(() => {
   return agencyId.value ? Number(agencyId.value) : null;
 });
 
-const selectedTeamList = computed(() =>
-  teamLists.value.find((l) => String(l.id) === String(selectedTeamListId.value)) || null
-);
+
+const filteredTeamLists = computed(() => teamLists.value);
+
+const teamListsForFilter = computed(() => {
+  const q = teamListFilterSearch.value.trim().toLowerCase();
+  let list = teamLists.value || [];
+  if (q) {
+    list = list.filter((l) => {
+      const name = String(l.name || '').toLowerCase();
+      const agency = String(l._agencyName || '').toLowerCase();
+      return name.includes(q) || agency.includes(q);
+    });
+  }
+  return list;
+});
+
+function teamSharedListQuery() {
+  if (teamFilters.taskListId) {
+    return { taskListId: teamFilters.taskListId, onSharedList: undefined };
+  }
+  if (teamFilters.sharedListScope === 'on_list') {
+    return { taskListId: undefined, onSharedList: '1' };
+  }
+  if (teamFilters.sharedListScope === 'off_list') {
+    return { taskListId: undefined, onSharedList: '0' };
+  }
+  return { taskListId: undefined, onSharedList: undefined };
+}
+
+function setSharedListScope(scope) {
+  teamFilters.sharedListScope = scope || '';
+  teamFilters.taskListId = '';
+  refresh();
+}
+
+function onTeamListFilterPick() {
+  if (teamFilters.taskListId) teamFilters.sharedListScope = '';
+  refresh();
+}
+
+const shareableUsers = computed(() => {
+  const me = Number(authStore.user?.id);
+  return (agencyUsers.value || []).filter((u) => Number(u.id) !== me);
+});
+
+const filteredUnattachedTasks = computed(() => {
+  const q = newItemSearch.value.trim().toLowerCase();
+  let list = unattachedTasks.value || [];
+  if (q) list = list.filter((t) => String(t.title || '').toLowerCase().includes(q));
+  return list.slice(0, 20);
+});
+
+const filteredUnattachedActions = computed(() => {
+  const q = newItemSearch.value.trim().toLowerCase();
+  let list = unattachedActions.value || [];
+  if (q) list = list.filter((a) => String(a.title || '').toLowerCase().includes(q));
+  return list.slice(0, 20);
+});
+
+const filteredUnattachedForProject = computed(() => ({
+  tasks: filteredUnattachedTasks.value,
+  actions: filteredUnattachedActions.value
+}));
 
 const projectsOptions = computed(() => {
   const map = new Map();
@@ -641,6 +1033,19 @@ const displayTasks = computed(() => {
     list.sort((a, b) => (rank[a.urgency] || 2) - (rank[b.urgency] || 2));
   } else if (filters.value.sort === 'created') {
     list.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  } else if (filters.value.sort === 'shared_list') {
+    list.sort((a, b) => {
+      const an = String(a.task_list_name || '').trim();
+      const bn = String(b.task_list_name || '').trim();
+      if (an && !bn) return -1;
+      if (!an && bn) return 1;
+      const listCmp = an.localeCompare(bn);
+      if (listCmp !== 0) return listCmp;
+      if (!a.due_date && !b.due_date) return 0;
+      if (!a.due_date) return 1;
+      if (!b.due_date) return -1;
+      return new Date(a.due_date) - new Date(b.due_date);
+    });
   } else {
     list.sort((a, b) => {
       if (!a.due_date && !b.due_date) return 0;
@@ -708,8 +1113,73 @@ function setTab(id) {
 
 function setTeamMode(mode) {
   teamMode.value = mode;
-  if (mode === 'lists') loadTeamLists();
+  if (mode === 'lists' || mode === 'tasks') loadTeamLists();
   if (mode === 'projects') loadTeamProjects();
+}
+
+function isTenantGroupExpanded(agencyId) {
+  return expandedTenantGroups.value[agencyId] !== false;
+}
+
+function toggleTenantGroup(agencyId) {
+  expandedTenantGroups.value = {
+    ...expandedTenantGroups.value,
+    [agencyId]: !isTenantGroupExpanded(agencyId)
+  };
+}
+
+function isTeamListExpanded(listId) {
+  return !!expandedTeamLists.value[listId];
+}
+
+async function toggleTeamList(listId) {
+  const id = Number(listId);
+  if (isTeamListExpanded(id)) {
+    const next = { ...expandedTeamLists.value };
+    delete next[id];
+    expandedTeamLists.value = next;
+    return;
+  }
+  expandedTeamLists.value = { ...expandedTeamLists.value, [id]: true };
+  await loadTasksForTeamList(id);
+}
+
+let teamListSearchTimer = null;
+function onTeamListSearchInput() {
+  if (teamListSearchTimer) clearTimeout(teamListSearchTimer);
+  teamListSearchTimer = setTimeout(() => loadTeamLists(), 280);
+}
+
+async function loadTasksForTeamList(listId) {
+  const id = Number(listId);
+  if (teamListTasksByListId.value[id]) return;
+  teamListTasksLoading.value = { ...teamListTasksLoading.value, [id]: true };
+  try {
+    const { data } = await api.get(`/task-lists/${id}/team-tasks`, { skipGlobalLoading: true });
+    teamListTasksByListId.value = {
+      ...teamListTasksByListId.value,
+      [id]: Array.isArray(data) ? data : []
+    };
+  } catch {
+    teamListTasksByListId.value = { ...teamListTasksByListId.value, [id]: [] };
+  } finally {
+    teamListTasksLoading.value = { ...teamListTasksLoading.value, [id]: false };
+  }
+}
+
+async function expandTeamListById(listId, agencyId = null) {
+  if (agencyId) {
+    expandedTenantGroups.value = { ...expandedTenantGroups.value, [agencyId]: true };
+  } else {
+    for (const g of teamListsGrouped.value) {
+      if (g.lists.some((l) => Number(l.id) === Number(listId))) {
+        expandedTenantGroups.value = { ...expandedTenantGroups.value, [g.agencyId]: true };
+        break;
+      }
+    }
+  }
+  expandedTeamLists.value = { ...expandedTeamLists.value, [Number(listId)]: true };
+  await loadTasksForTeamList(listId);
 }
 
 function toggleHiddenAgency(agencyIdVal, visible) {
@@ -775,8 +1245,7 @@ async function selectSearchResult(r) {
       activeTab.value = 'all';
       teamMode.value = 'lists';
       await loadTeamLists();
-      selectedTeamListId.value = String(r.entity_id);
-      await loadTeamListTasks();
+      await expandTeamListById(r.entity_id);
     } else {
       activeTab.value = 'shared';
     }
@@ -817,30 +1286,49 @@ async function viewProjectById(id) {
 }
 
 async function loadTeamLists() {
-  if (!effectiveTenantId.value) return;
+  teamListsLoading.value = true;
+  const q = teamListSearch.value.trim().toLowerCase();
+  let agencies = teamFilters.tenantId
+    ? hideableAgencies.value.filter((a) => String(a.id) === String(teamFilters.tenantId))
+    : [...hideableAgencies.value];
+  if (!agencies.length && agencyId.value) {
+    const cur = agencyStore.currentAgency?.value ?? agencyStore.currentAgency;
+    agencies = [{ id: Number(agencyId.value), name: cur?.name || 'Current tenant' }];
+  }
   try {
-    const { data } = await api.get('/task-lists/team', {
-      params: { agencyId: effectiveTenantId.value },
-      skipGlobalLoading: true
-    });
-    teamLists.value = Array.isArray(data) ? data : [];
+    const groups = await Promise.all(
+      agencies.map(async (a) => {
+        try {
+          const { data } = await api.get('/task-lists/team', {
+            params: { agencyId: a.id },
+            skipGlobalLoading: true
+          });
+          let lists = Array.isArray(data) ? data : [];
+          if (q) {
+            lists = lists.filter((l) => String(l.name || '').toLowerCase().includes(q));
+          }
+          return { agencyId: a.id, agencyName: a.name, lists };
+        } catch {
+          return { agencyId: a.id, agencyName: a.name, lists: [] };
+        }
+      })
+    );
+    teamListsGrouped.value = teamFilters.tenantId
+      ? groups
+      : groups.filter((g) => g.lists.length > 0);
+    teamLists.value = groups.flatMap((g) =>
+      g.lists.map((l) => ({ ...l, _agencyName: g.agencyName, _agencyId: g.agencyId }))
+    );
+    const expanded = { ...expandedTenantGroups.value };
+    for (const g of teamListsGrouped.value) {
+      if (expanded[g.agencyId] === undefined) expanded[g.agencyId] = true;
+    }
+    expandedTenantGroups.value = expanded;
   } catch {
+    teamListsGrouped.value = [];
     teamLists.value = [];
-  }
-}
-
-async function loadTeamListTasks() {
-  if (!selectedTeamListId.value) {
-    teamListTasks.value = [];
-    return;
-  }
-  try {
-    const { data } = await api.get(`/task-lists/${selectedTeamListId.value}/team-tasks`, {
-      skipGlobalLoading: true
-    });
-    teamListTasks.value = Array.isArray(data) ? data : [];
-  } catch {
-    teamListTasks.value = [];
+  } finally {
+    teamListsLoading.value = false;
   }
 }
 
@@ -877,33 +1365,271 @@ async function loadSharedListsOptions() {
   }
 }
 
-async function loadAgencyUsers() {
-  if (!effectiveTenantId.value) return;
+function onInlineListCreated(list) {
+  if (!list?.id) return;
+  const exists = sharedListsOptions.value.some((l) => Number(l.id) === Number(list.id));
+  if (!exists) {
+    sharedListsOptions.value = [...sharedListsOptions.value, list];
+  }
+  loadSharedListsOptions();
+}
+
+async function loadAgencyUsers(preferredAgencyId = null) {
+  const aid = preferredAgencyId || agencyId.value || effectiveTenantId.value;
+  if (!aid) {
+    agencyUsers.value = [];
+    return;
+  }
   try {
-    const { data } = await api.get(`/agencies/${effectiveTenantId.value}/users`, { skipGlobalLoading: true });
+    const { data } = await api.get(`/agencies/${aid}/users`, { skipGlobalLoading: true });
     agencyUsers.value = Array.isArray(data) ? data : (data?.users || []);
   } catch {
     agencyUsers.value = [];
   }
 }
 
-async function createProject() {
-  const name = newProjectName.value.trim();
-  if (!name || !agencyId.value) return;
+async function loadUnattachedItems({ forProject = false } = {}) {
+  const aid = agencyId.value || effectiveTenantId.value;
   try {
-    await api.post('/task-projects', { agencyId: agencyId.value, name }, { skipGlobalLoading: true });
-    newProjectName.value = '';
-    showNewProject.value = false;
-    await loadProjects();
+    const [tasksRes, actionsRes] = await Promise.all([
+      api.get('/tasks', {
+        params: {
+          view: 'assigned',
+          agencyId: aid || undefined,
+          unassignedFromList: forProject ? undefined : '1',
+          unassignedFromProject: forProject ? '1' : undefined,
+          limit: 100
+        },
+        skipGlobalLoading: true
+      }),
+      api.get('/task-action-items', {
+        params: {
+          agencyId: aid || undefined,
+          unassignedFromList: forProject ? undefined : '1',
+          unassignedFromProject: forProject ? '1' : undefined
+        },
+        skipGlobalLoading: true
+      })
+    ]);
+    unattachedTasks.value = Array.isArray(tasksRes.data) ? tasksRes.data : [];
+    unattachedActions.value = Array.isArray(actionsRes.data) ? actionsRes.data : [];
+  } catch {
+    unattachedTasks.value = [];
+    unattachedActions.value = [];
+  }
+}
+
+function resetNewListForm() {
+  newListName.value = '';
+  newListMemberIds.value = [];
+  newListTaskIds.value = [];
+  newListActionIds.value = [];
+  newItemSearch.value = '';
+}
+
+function resetNewProjectForm() {
+  newProjectName.value = '';
+  newProjectDescription.value = '';
+  newProjectDueDate.value = '';
+  newProjectMemberIds.value = [];
+  newProjectListIds.value = [];
+  newProjectTaskIds.value = [];
+  newProjectActionIds.value = [];
+  newItemSearch.value = '';
+}
+
+function backToNewPicker() {
+  showNewTask.value = false;
+  showNewActionItem.value = false;
+  showNewList.value = false;
+  showNewProject.value = false;
+  showNewPicker.value = true;
+}
+
+async function openEditProject(project) {
+  if (!project?.id) return;
+  await Promise.all([loadAgencyUsers(), loadSharedListsOptions(), loadUnattachedItems({ forProject: true })]);
+  try {
+    const { data } = await api.get(`/task-projects/${project.id}`, {
+      params: { agencyId: effectiveTenantId.value || undefined },
+      skipGlobalLoading: true
+    });
+    const overview = data?.overview || {};
+    editProjectForm.id = project.id;
+    editProjectForm.name = data.name || project.name || '';
+    editProjectForm.description = data.description || '';
+    editProjectForm.dueDate = data.due_date ? String(data.due_date).slice(0, 10) : '';
+    editProjectForm.existingMemberIds = (overview.members || []).map((m) => Number(m.user_id));
+    editProjectForm.existingListIds = (overview.lists || []).map((l) => Number(l.id));
+    editProjectForm.memberIds = [...editProjectForm.existingMemberIds];
+    editProjectForm.listIds = [...editProjectForm.existingListIds];
+    editProjectForm.taskIds = [];
+    editProjectForm.actionIds = [];
+    showEditProject.value = true;
   } catch (e) {
     console.error(e);
   }
 }
 
+async function saveEditProject() {
+  if (!editProjectForm.id) return;
+  creating.value = true;
+  try {
+    await api.put(`/task-projects/${editProjectForm.id}`, {
+      name: editProjectForm.name.trim(),
+      description: editProjectForm.description || null,
+      dueDate: editProjectForm.dueDate || null
+    }, { skipGlobalLoading: true });
+    const toAddMembers = editProjectForm.memberIds.filter(
+      (id) => !editProjectForm.existingMemberIds.includes(Number(id))
+    );
+    await Promise.all(
+      toAddMembers.map((uid) =>
+        api.post(`/task-projects/${editProjectForm.id}/members`, { userId: Number(uid), role: 'editor' }, { skipGlobalLoading: true })
+      )
+    );
+    const toAddLists = editProjectForm.listIds.filter(
+      (id) => !editProjectForm.existingListIds.includes(Number(id))
+    );
+    await Promise.all(
+      toAddLists.map((lid) =>
+        api.post(`/task-projects/${editProjectForm.id}/lists`, { taskListId: Number(lid) }, { skipGlobalLoading: true })
+      )
+    );
+    await Promise.all([
+      ...editProjectForm.taskIds.map((tid) =>
+        api.put(`/me/tasks/${tid}`, { project_id: editProjectForm.id }, { skipGlobalLoading: true })
+      ),
+      ...editProjectForm.actionIds.map((aid) =>
+        api.put(`/task-action-items/${aid}`, { projectId: editProjectForm.id }, { skipGlobalLoading: true })
+      )
+    ]);
+    showEditProject.value = false;
+    await loadProjects();
+    if (overviewProject.value?.id === editProjectForm.id) {
+      overviewProject.value = { ...overviewProject.value, name: editProjectForm.name };
+    }
+  } catch (e) {
+    console.error(e);
+  } finally {
+    creating.value = false;
+  }
+}
+
+async function createProject() {
+  const name = newProjectName.value.trim();
+  if (!name || !agencyId.value) return;
+  creating.value = true;
+  try {
+    const { data } = await api.post('/task-projects', {
+      agencyId: agencyId.value,
+      name,
+      description: newProjectDescription.value || null,
+      dueDate: newProjectDueDate.value || null
+    }, { skipGlobalLoading: true });
+    const projectId = data?.id;
+    if (projectId) {
+      await Promise.all([
+        ...newProjectMemberIds.value.map((uid) =>
+          api.post(`/task-projects/${projectId}/members`, { userId: Number(uid), role: 'editor' }, { skipGlobalLoading: true })
+        ),
+        ...newProjectListIds.value.map((lid) =>
+          api.post(`/task-projects/${projectId}/lists`, { taskListId: Number(lid) }, { skipGlobalLoading: true })
+        ),
+        ...newProjectTaskIds.value.map((tid) =>
+          api.put(`/me/tasks/${tid}`, { project_id: projectId }, { skipGlobalLoading: true })
+        ),
+        ...newProjectActionIds.value.map((aid) =>
+          api.put(`/task-action-items/${aid}`, { projectId }, { skipGlobalLoading: true })
+        )
+      ]);
+    }
+    resetNewProjectForm();
+    showNewProject.value = false;
+    await loadProjects();
+    activeTab.value = 'projects';
+  } catch (e) {
+    console.error(e);
+  } finally {
+    creating.value = false;
+  }
+}
+
+async function onPanelIncomplete(item) {
+  if (!item || item._isActionItem) return;
+  await tasksStore.incompleteTask(item.id);
+  await refresh();
+}
+
+async function onPanelChanged() {
+  await Promise.all([refresh(), loadSharedListsOptions()]);
+}
+
 function onPanelComplete(item) {
   if (item?._isActionItem) toggleActionItem(item);
   else toggleComplete(item);
-  detailTask.value = null;
+}
+
+const openTasksForTimeline = computed(() =>
+  (displayTasks.value || []).filter((t) => t.status !== 'completed' && t.status !== 'overridden')
+);
+
+function pickNew(kind) {
+  showNewPicker.value = false;
+  if (kind === 'task') {
+    loadSharedListsOptions();
+    showNewTask.value = true;
+  } else if (kind === 'action') {
+    loadSharedListsOptions();
+    showNewActionItem.value = true;
+  } else if (kind === 'project') {
+    resetNewProjectForm();
+    loadAgencyUsers();
+    loadSharedListsOptions();
+    loadUnattachedItems({ forProject: true });
+    showNewProject.value = true;
+  } else if (kind === 'list') {
+    resetNewListForm();
+    loadAgencyUsers();
+    loadUnattachedItems({ forProject: false });
+    showNewList.value = true;
+  }
+}
+
+async function createSharedList() {
+  const name = newListName.value.trim();
+  const aid = agencyId.value || effectiveTenantId.value;
+  if (!name || !aid) return;
+  creating.value = true;
+  try {
+    const { data } = await api.post('/task-lists', { agencyId: aid, name }, { skipGlobalLoading: true });
+    const listId = data?.id;
+    if (listId) {
+      await Promise.all([
+        ...newListMemberIds.value.map((uid) =>
+          api.post(`/task-lists/${listId}/members`, { userId: Number(uid), role: 'editor' }, { skipGlobalLoading: true })
+        ),
+        ...newListTaskIds.value.map((tid) =>
+          api.put(`/me/tasks/${tid}`, { task_list_id: listId }, { skipGlobalLoading: true })
+        ),
+        ...newListActionIds.value.map((aid2) =>
+          api.put(`/task-action-items/${aid2}`, { taskListId: listId }, { skipGlobalLoading: true })
+        )
+      ]);
+    }
+    resetNewListForm();
+    showNewList.value = false;
+    activeTab.value = 'shared';
+    await loadSharedListsOptions();
+  } catch (e) {
+    console.error(e);
+  } finally {
+    creating.value = false;
+  }
+}
+
+function onTimelineBlocksChanged({ assignedIds }) {
+  timelineAssignableKeys.value = assignedIds instanceof Set ? assignedIds : new Set(assignedIds || []);
 }
 
 function onKeydown(e) {
@@ -971,6 +1697,7 @@ async function refresh() {
     return;
   }
   const view = activeTab.value === 'all' && canViewAll.value ? 'all' : activeTab.value;
+  const sharedListQ = view === 'all' ? teamSharedListQuery() : {};
   await Promise.all([
     tasksStore.fetchTasks({
       view,
@@ -982,13 +1709,14 @@ async function refresh() {
       agencyId: effectiveTenantId.value || agencyId.value || undefined,
       hiddenAgencyIds: view === 'all' ? hidden : undefined,
       assignedToUserId: view === 'all' && teamFilters.userId ? teamFilters.userId : undefined,
-      taskListId: view === 'all' && teamFilters.taskListId ? teamFilters.taskListId : undefined,
+      taskListId: view === 'all' && sharedListQ.taskListId ? sharedListQ.taskListId : undefined,
+      onSharedList: view === 'all' ? sharedListQ.onSharedList : undefined,
       tenantId: teamFilters.tenantId || undefined
     }),
     tasksStore.fetchTaskCounts(countOpts.agencyId, hidden, {
       tenantId: teamFilters.tenantId || undefined,
       assignedToUserId: teamFilters.userId || undefined,
-      taskListId: teamFilters.taskListId || undefined
+      taskListId: sharedListQ.taskListId || teamFilters.taskListId || undefined
     })
   ]);
   timelineRef.value?.refresh?.();
@@ -1006,10 +1734,12 @@ async function loadDepartments() {
 
 function openTask(task) {
   detailTask.value = task;
+  loadAgencyUsers(task?.assigned_to_agency_id || task?.agency_id);
 }
 
 function openActionItem(task) {
   detailTask.value = task;
+  loadAgencyUsers(task?.agency_id || task?.assigned_to_agency_id);
 }
 
 async function toggleComplete(task) {
@@ -1018,7 +1748,13 @@ async function toggleComplete(task) {
   } else {
     await tasksStore.completeTask(task.id);
   }
-  if (detailTask.value?.id === task.id) detailTask.value = null;
+  if (detailTask.value?.id === task.id) {
+    detailTask.value = {
+      ...detailTask.value,
+      status: task.status === 'completed' ? 'pending' : 'completed'
+    };
+  }
+  await refresh();
 }
 
 async function toggleActionItem(task) {
@@ -1062,7 +1798,7 @@ async function createTask() {
     newTask.isPrivate = false;
     newTask.taskListId = '';
     newTask.projectId = '';
-    await refresh();
+    await Promise.all([refresh(), loadSharedListsOptions()]);
   } catch (e) {
     console.error('Failed to create task', e);
   } finally {
@@ -1087,7 +1823,7 @@ async function createActionItem() {
     newActionItem.isPrivate = false;
     newActionItem.taskListId = '';
     newActionItem.projectId = '';
-    await loadActionItems();
+    await Promise.all([loadActionItems(), loadSharedListsOptions()]);
     await tasksStore.fetchTaskCounts(agencyId.value);
   } catch (e) {
     console.error(e);
@@ -1104,15 +1840,86 @@ function onBoardDrag(ev, task) {
   } catch { /* ignore */ }
 }
 
-function onSelectBlock(block) {
+async function onSelectBlock(block) {
   selectedBlock.value = block;
+  quickAssignTaskId.value = '';
+  // Refresh assignments so remove/status controls see latest
+  try {
+    const { data } = await api.get(`/schedule-block-assignments/${block.id}`, { skipGlobalLoading: true });
+    if (data?.event) {
+      selectedBlock.value = {
+        ...data.event,
+        assignments: data.assignments || [],
+        title: data.event.title,
+        focus_session_enabled: data.event.focus_session_enabled
+      };
+    }
+  } catch { /* keep existing */ }
 }
 
 function onAssignedToBlock() {
   timelineRef.value?.refresh?.();
+  // Keep the list — only highlight via timeline keys (refresh updates counts).
+  refresh();
+}
+
+async function removeBlockAssignment(a) {
+  if (!selectedBlock.value?.id || !a?.id) return;
+  try {
+    await api.delete(`/schedule-block-assignments/${selectedBlock.value.id}/${a.id}`, {
+      skipGlobalLoading: true
+    });
+    selectedBlock.value = {
+      ...selectedBlock.value,
+      assignments: (selectedBlock.value.assignments || []).filter((x) => x.id !== a.id)
+    };
+    timelineRef.value?.refresh?.();
+    await refresh();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function changeAssignmentStatus(a, status) {
+  if (a.assignable_type !== 'task' || !a.assignable_id) return;
+  try {
+    if (status === 'completed') {
+      await tasksStore.completeTask(a.assignable_id);
+    } else {
+      await tasksStore.incompleteTask(a.assignable_id);
+    }
+    a.status = status;
+    await refresh();
+    timelineRef.value?.refresh?.();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function quickAssignToBlock() {
+  const tid = parseInt(quickAssignTaskId.value, 10);
+  if (!tid || !selectedBlock.value?.id) return;
+  try {
+    await api.post(`/schedule-block-assignments/${selectedBlock.value.id}`, {
+      assignableType: 'task',
+      assignableId: tid
+    }, { skipGlobalLoading: true });
+    quickAssignTaskId.value = '';
+    await onSelectBlock(selectedBlock.value);
+    timelineRef.value?.refresh?.();
+    await refresh();
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 async function openFocusSession(block) {
+  const count = Number(block?.assignment_count || (block?.assignments || []).length || 0);
+  if (count < 1) {
+    // Prefer assign first — open the block sheet instead of an empty Focus session.
+    await onSelectBlock(block);
+    return;
+  }
   focusBlock.value = block;
   selectedBlock.value = null;
   try {
@@ -1130,6 +1937,9 @@ async function openFocusSession(block) {
 }
 
 watch([activeTab, filters], () => refresh(), { deep: true });
+watch([activeTab, () => teamMode.value], ([tab, mode]) => {
+  if (tab === 'all' && mode === 'tasks') loadTeamLists();
+}, { immediate: true });
 watch(agencyId, () => {
   loadDepartments();
   loadTypeDefs();
@@ -1165,15 +1975,21 @@ onMounted(async () => {
         selectedBlock.value = {
           ...data.event,
           assignments: data.assignments || [],
-          title: data.event.title
+          title: data.event.title,
+          focus_session_enabled: data.event.focus_session_enabled
         };
       }
+      // Drop the query so refresh/back doesn't re-open Join prematurely.
+      const q = { ...route.query };
+      delete q.blockEventId;
+      router.replace({ query: q }).catch(() => {});
     } catch { /* ignore */ }
   }
 });
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown);
   if (searchTimer) clearTimeout(searchTimer);
+  if (teamListSearchTimer) clearTimeout(teamListSearchTimer);
 });
 </script>
 
@@ -1220,6 +2036,31 @@ onUnmounted(() => {
   background: #f8fafc;
 }
 .tasks-hub__actions { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; margin-left: auto; }
+.hub-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.hub-chip-btn:hover {
+  background: #f8fafc;
+  color: #0f172a;
+}
+.hub-chip-btn--accent {
+  border-color: color-mix(in srgb, var(--brand-primary, #1f6b4a) 35%, #e2e8f0);
+  color: var(--brand-primary, #1f6b4a);
+}
+.hub-chip-btn--accent:hover {
+  background: color-mix(in srgb, var(--brand-primary, #1f6b4a) 10%, #fff);
+}
 .view-toggle {
   display: inline-flex;
   border: 1px solid #e2e8f0;
@@ -1239,6 +2080,86 @@ onUnmounted(() => {
 .view-btn.active {
   background: color-mix(in srgb, var(--brand-primary, #1f6b4a) 12%, #fff);
   color: var(--brand-primary, #1f6b4a);
+}
+.new-picker {
+  background: #fff;
+  border-radius: 16px;
+  padding: 22px 22px 16px;
+  width: min(440px, 92vw);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.14);
+}
+.new-picker h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #0f172a;
+}
+.new-picker > .muted {
+  margin: 4px 0 14px;
+  font-size: 13px;
+}
+.new-picker__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.new-picker__card {
+  text-align: left;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fafafa;
+  padding: 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+}
+.new-picker__card:hover {
+  border-color: #86efac;
+  background: #f0fdf4;
+  transform: translateY(-1px);
+}
+.new-picker__icon {
+  font-size: 16px;
+  margin-bottom: 4px;
+}
+.new-picker__card strong {
+  font-size: 13px;
+  color: #0f172a;
+}
+.new-picker__card span:last-child {
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.35;
+}
+.block-assign-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.status-mini {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  max-width: 140px;
+}
+.assign-quick {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  margin: 10px 0;
+}
+.btn-x {
+  border: 0;
+  background: transparent;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
 }
 .tasks-hub__tabs {
   display: flex;
@@ -1316,6 +2237,95 @@ onUnmounted(() => {
   border-color: #86efac;
   color: #14532d;
 }
+.team-lists-browser__search {
+  width: 100%;
+  margin-bottom: 12px;
+}
+.tenant-group {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+.tenant-group__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  background: #f8fafc;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.tenant-group__bar {
+  width: 4px;
+  height: 22px;
+  border-radius: 999px;
+  background: #166534;
+  flex-shrink: 0;
+}
+.tenant-group__title {
+  font-weight: 800;
+  color: #0f172a;
+  font-size: 14px;
+}
+.tenant-group__count {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  background: #e2e8f0;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.tenant-group__chev {
+  margin-left: auto;
+  color: #94a3b8;
+  font-size: 11px;
+}
+.tenant-group__body {
+  border-top: 1px solid #f1f5f9;
+}
+.team-list-block__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px 10px 22px;
+  border: 0;
+  border-bottom: 1px solid #f8fafc;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.team-list-block__head:hover { background: #f8fafc; }
+.team-list-block__name {
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 13px;
+}
+.team-list-block__meta {
+  font-size: 11px;
+  color: #64748b;
+  flex: 1;
+  min-width: 160px;
+}
+.team-list-block__chev {
+  color: #94a3b8;
+  font-size: 10px;
+}
+.team-list-block__tasks {
+  padding: 0 8px 8px 16px;
+  background: #fafafa;
+}
+.hub-state--sm {
+  padding: 12px;
+  font-size: 12px;
+}
 .team-filters {
   display: flex;
   flex-wrap: wrap;
@@ -1381,6 +2391,43 @@ onUnmounted(() => {
   height: 8px;
   border-radius: 50%;
   background: var(--pill-color, #64748b);
+}
+.shared-list-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+.shared-list-pills__label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  margin-right: 4px;
+}
+.shared-list-pills__search {
+  flex: 1;
+  min-width: 120px;
+  max-width: 200px;
+  padding: 5px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  font-size: 12px;
+  background: #fff;
+}
+.shared-list-pills__select {
+  min-width: 160px;
+  padding: 5px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 12px;
+  background: #fff;
 }
 .hub-state { padding: 20px; text-align: center; color: #64748b; }
 .hub-state.error { color: #b91c1c; }
@@ -1455,11 +2502,50 @@ onUnmounted(() => {
   padding: 20px;
 }
 .detail-modal {
-  width: min(520px, 100%);
   background: #fff;
   border-radius: 14px;
   padding: 20px;
-  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.2);
+  width: min(420px, 92vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.15);
+}
+.detail-modal--wide {
+  width: min(520px, 94vw);
+}
+.modal-back {
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 8px;
+}
+.member-pick,
+.item-pick {
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-top: 6px;
+}
+.pick-section {
+  margin: 8px 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin: 4px 0;
+  cursor: pointer;
 }
 .detail-modal__head {
   display: flex;

@@ -12,6 +12,7 @@
           v-for="task in group.items"
           :key="task.id"
           class="task-row"
+          :class="{ 'task-row--on-timeline': isOnTimeline(task) }"
           :style="{ '--type-color': typeMeta(task).color }"
           draggable="true"
           @dragstart="onDragStart($event, task)"
@@ -27,10 +28,20 @@
           />
           <div class="task-row__main">
             <span class="task-row__title" :class="{ done: task.status === 'completed' }">{{ task.title }}</span>
-            <span v-if="showAssignee(task)" class="task-row__assignee">{{ assigneeLabel(task) }}</span>
+            <span v-if="showAssignee(task)" class="task-row__assignee-wrap">
+              <UserAvatar
+                v-if="showAssigneeAvatars"
+                size="xs"
+                :photo-path="task.assignee_profile_photo_path"
+                :first-name="task.assignee_first_name"
+                :last-name="task.assignee_last_name"
+              />
+              <span class="task-row__assignee">{{ assigneeLabel(task) }}</span>
+            </span>
             <span v-if="task.task_list_name" class="task-row__badge task-row__badge--list">{{ task.task_list_name }}</span>
             <span v-if="task.project_name" class="task-row__badge task-row__badge--project">{{ task.project_name }}</span>
             <span v-if="Number(task.is_private)" class="task-row__badge task-row__badge--private">Private</span>
+            <span v-if="isOnTimeline(task)" class="task-row__badge task-row__badge--timeline">On timeline</span>
           </div>
           <span
             class="task-row__type"
@@ -58,13 +69,16 @@
 import { computed, reactive } from 'vue';
 import { formatDate } from '../../utils/formatDate';
 import { resolveTaskTypeMeta, taskTypeIconSvg } from '../../utils/taskTypeIcons';
+import UserAvatar from '../common/UserAvatar.vue';
 
 const props = defineProps({
   tasks: { type: Array, default: () => [] },
   typeDefs: { type: Array, default: () => [] },
   currentUserId: { type: [Number, String], default: null },
   /** assigned | all | mine | watchlist | action_items */
-  view: { type: String, default: 'assigned' }
+  view: { type: String, default: 'assigned' },
+  /** Set of keys like "task:123" or "action_item:45" currently on today's timeline */
+  timelineKeys: { type: [Set, Array], default: () => [] }
 });
 
 defineEmits(['open', 'toggle-complete', 'menu', 'drag-start']);
@@ -139,6 +153,8 @@ function showAssignee(task) {
   return true;
 }
 
+const showAssigneeAvatars = computed(() => props.view === 'all');
+
 function assigneeLabel(task) {
   const uid = Number(props.currentUserId || 0);
   if (task.assigned_to_user_id == null) return 'Unassigned';
@@ -170,6 +186,17 @@ function relativeDueClass(task) {
   return '';
 }
 
+function timelineKeySet() {
+  if (props.timelineKeys instanceof Set) return props.timelineKeys;
+  return new Set(props.timelineKeys || []);
+}
+
+function isOnTimeline(task) {
+  const type = task._assignableType || (task._isActionItem ? 'action_item' : 'task');
+  const id = task._assignableId || task.id;
+  return timelineKeySet().has(`${type}:${id}`);
+}
+
 function onDragStart(ev, task) {
   try {
     ev.dataTransfer.setData('application/x-task-id', String(task.id));
@@ -177,7 +204,7 @@ function onDragStart(ev, task) {
       assignableType: task._assignableType || 'task',
       assignableId: task._assignableId || task.id
     }));
-    ev.dataTransfer.effectAllowed = 'copyMove';
+    ev.dataTransfer.effectAllowed = 'copy';
   } catch { /* ignore */ }
 }
 </script>
@@ -235,6 +262,11 @@ function onDragStart(ev, task) {
   min-height: 40px;
 }
 .task-row:hover { background: #f8fafc; }
+.task-row--on-timeline {
+  background: #f0fdf4;
+  box-shadow: inset 3px 0 0 #16a34a;
+}
+.task-row__badge--timeline { background: #dcfce7; color: #166534; }
 .task-row__rail {
   width: 4px;
   height: 70%;
@@ -270,6 +302,12 @@ function onDragStart(ev, task) {
 .task-row__title.done {
   text-decoration: line-through;
   color: #94a3b8;
+}
+.task-row__assignee-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 .task-row__assignee {
   font-size: 11px;
