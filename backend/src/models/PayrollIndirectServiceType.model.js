@@ -18,7 +18,8 @@ export const DEFAULT_INDIRECT_SERVICE_TYPES = [
   { typeKey: 'fingerprinting_credentialing', label: 'Fingerprinting / Credentialing', description: 'Fingerprinting and credentialing activities', iconKey: 'clipboard', payBucket: 'support', sortOrder: 250 },
   { typeKey: 'approved_travel', label: 'Approved Travel', description: 'Approved travel time', iconKey: 'car', payBucket: 'support', sortOrder: 260 },
   // Supervision Note Time (supervisors) — paid at Admin Time
-  { typeKey: 'supervision_note_time', label: 'Supervision Note Time', description: 'Write and complete supervision notes / related admin after sessions', iconKey: 'file-text', payBucket: 'supervision_note', sortOrder: 310 }
+  { typeKey: 'supervision_note_time', label: 'Supervision Note Time', description: 'Write and complete supervision notes / related admin after sessions', iconKey: 'file-text', payBucket: 'supervision_note', sortOrder: 310 },
+  { typeKey: 'supervisors_meeting', label: 'Supervisor\'s Meeting', description: 'Supervisor meeting when not auto-logged (paid at Admin Time rate)', iconKey: 'users', payBucket: 'supervision_note', sortOrder: 320 }
 ];
 
 const DEFAULT_TYPES = DEFAULT_INDIRECT_SERVICE_TYPES;

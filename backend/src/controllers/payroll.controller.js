@@ -6448,9 +6448,14 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
           const bucketLabel = b === 'direct' ? 'Direct' : (b === 'other_1' ? 'Other 1' : 'Indirect');
           lineLabel = `${evTitle}${dateStr ? ` (${dateStr})` : ''} — ${bucketLabel}`;
         } else if (claimType === 'indirect_time') {
+          const code = String(payload?.activityCode || '').trim();
           const catLabel = String(payload?.categoryLabel || '').trim();
           const activity = String(payload?.allocations?.[0]?.serviceTypeLabel || '').trim();
-          if (catLabel && activity) lineLabel = `${catLabel} — ${activity}`;
+          if (code) {
+            const titleSource = catLabel || activity;
+            const title = titleSource.replace(new RegExp(`^${code}\\s+`), '').trim() || titleSource;
+            lineLabel = title ? `${code} ${title}` : code;
+          } else if (catLabel && activity && catLabel !== activity) lineLabel = `${catLabel} — ${activity}`;
           else if (catLabel) lineLabel = catLabel;
           else if (b === 'other_1') lineLabel = 'Support Activity (legacy Other 1)';
           else lineLabel = activity ? `Log Time — ${activity}` : 'Log Time';

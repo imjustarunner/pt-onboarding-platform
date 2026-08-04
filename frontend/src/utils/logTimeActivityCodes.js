@@ -16,7 +16,8 @@ export const LOG_TIME_ACTIVITY_CODE_BY_TYPE_KEY = {
   onboarding_sa: 'SUP-04',
   fingerprinting_credentialing: 'SUP-05',
   approved_travel: 'SUP-06',
-  supervision_note_time: 'SN-01'
+  supervision_note_time: 'SN-01',
+  supervisors_meeting: 'SN-02'
 };
 
 export function activityCodeForTypeKey(typeKey) {

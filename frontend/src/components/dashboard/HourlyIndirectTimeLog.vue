@@ -291,7 +291,10 @@
                   <span class="itl-type-icon" aria-hidden="true">
                     <IndirectTimeIcon :name="t.iconKey" :size="22" :stroke-width="1.75" />
                   </span>
-                  <span class="itl-type-label">{{ activityCardLabel(t) }}</span>
+                  <span class="itl-type-text">
+                    <span class="itl-type-label">{{ activityCardTitle(t) }}</span>
+                    <span v-if="activityCardCode(t)" class="itl-type-code">{{ activityCardCode(t) }}</span>
+                  </span>
                 </label>
               </div>
               <p class="itl-disclaimer">
@@ -324,7 +327,10 @@
                   <span class="itl-type-icon" aria-hidden="true">
                     <IndirectTimeIcon :name="t.iconKey" :size="22" :stroke-width="1.75" />
                   </span>
-                  <span class="itl-type-label">{{ activityCardLabel(t) }}</span>
+                  <span class="itl-type-text">
+                    <span class="itl-type-label">{{ activityCardTitle(t) }}</span>
+                    <span v-if="activityCardCode(t)" class="itl-type-code">{{ activityCardCode(t) }}</span>
+                  </span>
                 </label>
               </div>
               <p class="itl-disclaimer">
@@ -359,12 +365,16 @@
                   <span class="itl-type-icon" aria-hidden="true">
                     <IndirectTimeIcon :name="t.iconKey" :size="22" :stroke-width="1.75" />
                   </span>
-                  <span class="itl-type-label">{{ activityCardLabel(t) }}</span>
+                  <span class="itl-type-text">
+                    <span class="itl-type-label">{{ activityCardTitle(t) }}</span>
+                    <span v-if="activityCardCode(t)" class="itl-type-code">{{ activityCardCode(t) }}</span>
+                  </span>
                 </label>
               </div>
               <p class="itl-disclaimer">
-                Use this for writing supervision notes and related admin after sessions. Supervisor attendance at
-                Admin Meetings is auto-submitted and paid at your Admin Time rate — do not duplicate those claims.
+                Use this for writing supervision notes and related admin after sessions, or to log a
+                Supervisor's Meeting when it was not auto-submitted. Supervisor attendance at Admin Meetings is
+                auto-submitted and paid at your Admin Time rate — do not duplicate those claims.
               </p>
             </div>
           </div>
@@ -579,6 +589,9 @@ const route = useRoute();
 
 const EXCLUDED_INDIRECT_TYPE_KEYS = new Set(['other_indirect', 'billing_correction']);
 
+/** Support activities hidden from supervisors (they use Supervisor's Meeting instead). */
+const SUPERVISOR_HIDDEN_SUPPORT_TYPE_KEYS = new Set(['clinical_supervision_sa']);
+
 /** Categories that often overlap with auto-submitted meeting/training claims. */
 const AUTO_CLAIM_WARN_TYPE_KEYS = new Set([
   'outreach_activities',
@@ -623,7 +636,9 @@ const indirectServiceTypes = computed(() =>
 const supportServiceTypes = computed(() =>
   (serviceTypes.value || []).filter((t) => {
     const b = normalizePayBucket(t.payBucket || t.pay_bucket);
-    return b === 'support' || b === 'other_1';
+    if (b !== 'support' && b !== 'other_1') return false;
+    if (isSupervisorUser.value && SUPERVISOR_HIDDEN_SUPPORT_TYPE_KEYS.has(typeKeyOf(t))) return false;
+    return true;
   })
 );
 const supervisionNoteTypes = computed(() =>
@@ -1005,7 +1020,7 @@ const singleSelectedActivityLabel = computed(() => {
   if (selectedTypeIds.value.size !== 1) return '';
   const id = [...selectedTypeIds.value][0];
   const typeRec = findServiceTypeById(id);
-  return typeRec ? activityCardLabel(typeRec) : 'selected activity';
+  return typeRec ? codedActivityLabel(typeRec) : 'selected activity';
 });
 
 const displayClaimDateYmd = computed(() => {
@@ -1178,7 +1193,15 @@ function formatDisplayDate(ymd) {
   }
 }
 
-function activityCardLabel(typeRec) {
+function activityCardTitle(typeRec) {
+  return String(typeRec?.label || '').trim();
+}
+
+function activityCardCode(typeRec) {
+  return activityCodeForTypeKey(typeKeyOf(typeRec));
+}
+
+function codedActivityLabel(typeRec) {
   return formatLogTimeActivityLabel(typeRec);
 }
 
@@ -2454,11 +2477,25 @@ onUnmounted(() => stopTick());
   accent-color: var(--itl-green);
 }
 .itl-type-icon { color: var(--itl-green); margin-bottom: 4px; }
+.itl-type-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  padding-right: 18px;
+}
 .itl-type-label {
   font-weight: 700;
   font-size: 0.88rem;
   color: var(--itl-green-dark);
-  padding-right: 18px;
+  line-height: 1.25;
+}
+.itl-type-code {
+  margin-top: 3px;
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: #9ca3af;
+  letter-spacing: 0.02em;
 }
 .itl-type-desc { font-size: 0.75rem; color: var(--itl-muted); line-height: 1.3; }
 .itl-total-chip {

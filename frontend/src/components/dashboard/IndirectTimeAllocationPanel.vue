@@ -227,7 +227,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { VueDraggableNext as draggable } from 'vue-draggable-next';
-import { enrichAllocationWithActivityCode, formatLogTimeActivityLabel } from '../../utils/logTimeActivityCodes';
+import { enrichAllocationWithActivityCode } from '../../utils/logTimeActivityCodes';
 
 const props = defineProps({
   totalMinutes: { type: Number, default: 0 },
@@ -296,7 +296,7 @@ function makeRow(t, extras = {}) {
     id: `ar-${rowSeq++}`,
     typeId: t.id,
     typeKey: t.typeKey || t.type_key,
-    label: formatLogTimeActivityLabel(t),
+    label: String(t.label || '').trim(),
     startTime: extras.startTime || props.sessionStartHm || '09:00',
     endTime: extras.endTime || props.sessionEndHm || '17:00',
     hhmm: extras.hhmm || '00:00',
