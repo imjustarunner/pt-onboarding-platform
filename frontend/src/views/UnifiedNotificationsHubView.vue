@@ -342,6 +342,7 @@ const loadFeed = async () => {
     };
     const { data } = await api.get('/notifications/feed', { params, skipGlobalLoading: true });
     if (requestId === feedRequestId) Object.assign(feed, data || {});
+    void notificationStore.fetchCounts().catch(() => {});
   } catch (e) {
     if (requestId === feedRequestId) error.value = e.response?.data?.error?.message || 'Could not load notifications.';
   } finally {

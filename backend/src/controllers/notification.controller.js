@@ -117,6 +117,16 @@ function resolveTriggerSetting(trigger, setting) {
 // Message-related notification types must never be visible cross-user.
 const MESSAGE_PRIVATE_TYPES = new Set(['chat_message', 'inbound_client_message', 'support_safety_net_alert']);
 
+// Payroll claim outcomes are addressed to the claimant only — never agency-wide or managed-feed.
+const PERSONAL_PAYROLL_CLAIM_TYPES = new Set([
+  'mileage_claim_approved',
+  'mileage_claim_rejected',
+  'mileage_claim_returned',
+  'medcancel_claim_approved',
+  'medcancel_claim_rejected',
+  'medcancel_claim_returned'
+]);
+
 const SELF_ACTIVITY_TYPES = new Set(['user_login', 'user_logout', 'presence_user_returned']);
 
 function filterNotificationsForViewer(notifications, viewerUserId, viewerRole, opts = {}) {
@@ -173,7 +183,7 @@ function filterNotificationsForViewer(notifications, viewerUserId, viewerRole, o
     .filter((n) => audienceAllows(n, viewerRole))
     .filter((n) => {
       const t = String(n?.type || '');
-      if (!MESSAGE_PRIVATE_TYPES.has(t)) return true;
+      if (!MESSAGE_PRIVATE_TYPES.has(t) && !PERSONAL_PAYROLL_CLAIM_TYPES.has(t)) return true;
       return Number(n?.user_id) === uid;
     })
     .filter((n) => {
@@ -740,6 +750,8 @@ export const getNotificationCounts = async (req, res, next) => {
         const result = await queryNotificationFeed(req);
         const counts = {};
         for (const facet of result.facets.agencies || []) counts[facet.agencyId] = facet.unread;
+        // Header badge must match feed totals — per-agency facets can under-count when agency_id is missing.
+        counts._total = Number(result.unreadCount || 0);
         return res.json(counts);
       } finally {
         req.query = originalQuery;
@@ -1305,7 +1317,12 @@ export const syncNotifications = async (req, res, next) => {
   }
 };
 
-const FEED_PRIVATE_TYPES = ['chat_message', 'inbound_client_message', 'support_safety_net_alert'];
+const FEED_PRIVATE_TYPES = [
+  'chat_message',
+  'inbound_client_message',
+  'support_safety_net_alert',
+  ...Array.from(PERSONAL_PAYROLL_CLAIM_TYPES)
+];
 
 function managedFanoutIdentity(candidateAlias = 'nf', notificationAlias = 'n') {
   return `
@@ -1475,6 +1492,12 @@ function buildFeedWhere({ req, access, visibilityPolicy, applyFilters = true, in
     // broadcasts. It must never expose another user's personalized copy.
     clauses.push('(n.user_id = ? OR n.user_id IS NULL)');
     params.push(access.uid);
+    // Payroll claim outcomes must never appear as agency-wide rows in any inbox.
+    clauses.push(`(
+      n.type NOT IN (${Array.from(PERSONAL_PAYROLL_CLAIM_TYPES).map(() => '?').join(',')})
+      OR n.user_id = ?
+    )`);
+    params.push(...Array.from(PERSONAL_PAYROLL_CLAIM_TYPES), access.uid);
     // Coverage audits can fan out duplicate rows when triggered concurrently; keep one per viewer/location/day.
     clauses.push(`(
       n.type <> 'office_schedule_coverage_flag'

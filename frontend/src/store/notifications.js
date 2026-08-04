@@ -9,12 +9,27 @@ export const useNotificationStore = defineStore('notifications', () => {
   const selectedAgencyId = ref(null);
 
   const unreadCount = computed(() => {
+    if (counts.value?._total != null) {
+      return Number(counts.value._total) || 0;
+    }
     if (selectedAgencyId.value) {
       return counts.value[selectedAgencyId.value] || 0;
     }
     // Sum all counts if no agency selected
-    return Object.values(counts.value).reduce((sum, count) => sum + count, 0);
+    return Object.entries(counts.value || {})
+      .filter(([key]) => key !== '_total')
+      .reduce((sum, [, count]) => sum + Number(count || 0), 0);
   });
+
+  const bumpUnreadCount = (delta, agencyId = null) => {
+    if (!delta) return;
+    if (counts.value?._total != null) {
+      counts.value._total = Math.max(0, Number(counts.value._total || 0) + delta);
+    }
+    if (agencyId && counts.value[agencyId] != null) {
+      counts.value[agencyId] = Math.max(0, Number(counts.value[agencyId] || 0) + delta);
+    }
+  };
 
   const notificationsByAgency = computed(() => {
     if (!selectedAgencyId.value) {
@@ -100,9 +115,7 @@ export const useNotificationStore = defineStore('notifications', () => {
         notification.muted_until = null;
         
         // Update count
-        if (counts.value[notification.agency_id] > 0) {
-          counts.value[notification.agency_id]--;
-        }
+        bumpUnreadCount(-1, notification.agency_id);
       }
     } catch (error) {
       console.error('Error marking notification as read:', error);
@@ -121,8 +134,8 @@ export const useNotificationStore = defineStore('notifications', () => {
         notification.resolved_at = new Date().toISOString();
         
         // Update count if not already read
-        if (!notification.is_read && counts.value[notification.agency_id] > 0) {
-          counts.value[notification.agency_id]--;
+        if (!notification.is_read) {
+          bumpUnreadCount(-1, notification.agency_id);
         }
       }
     } catch (error) {
@@ -141,8 +154,8 @@ export const useNotificationStore = defineStore('notifications', () => {
         notifications.value = notifications.value.filter(n => n.id !== notificationId);
         
         // Update count
-        if (!notification.is_read && !notification.is_resolved && counts.value[notification.agency_id] > 0) {
-          counts.value[notification.agency_id]--;
+        if (!notification.is_read && !notification.is_resolved) {
+          bumpUnreadCount(-1, notification.agency_id);
         }
       }
     } catch (error) {
