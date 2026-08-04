@@ -441,6 +441,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { updateRemoteVideoState } from './remoteVideoState.js';
 
 const props = defineProps({
   /** Vonage Application ID (preferred) or legacy OpenTok project API key */
@@ -889,11 +890,11 @@ function rebroadcastLocalMediaState() {
  * Keep remote camera state consistent across SDK event gaps.
  * Split cam-off layout remounts tiles when hasVideo flips — refresh after DOM settles.
  */
-async function refreshRemoteVideo(streamId, hasVideo) {
+async function refreshRemoteVideo(streamId, hasVideo, { updateSubscription = false } = {}) {
   const id = String(streamId || '').trim();
   if (!id) return;
   const sub = subscribers.get(id);
-  if (sub) {
+  if (sub && updateSubscription) {
     try {
       if (typeof sub.subscribeToVideo === 'function') sub.subscribeToVideo(!!hasVideo);
     } catch { /* ignore */ }
@@ -921,22 +922,19 @@ async function refreshRemoteVideo(streamId, hasVideo) {
 }
 
 function setRemoteVideoState({ streamId = '', connectionId = '', hasVideo }) {
-  const sid = String(streamId || '').trim();
-  const cid = String(connectionId || '').trim();
-  const on = !!hasVideo;
-  let matched = false;
-  remotes.value = remotes.value.map((r) => {
-    const hit = (sid && r.streamId === sid) || (cid && r.connectionId === cid);
-    if (!hit) return r;
-    matched = true;
-    if (r.hasVideo === on) return r;
-    return { ...r, hasVideo: on };
-  });
-  if (!matched) return;
+  const result = updateRemoteVideoState(remotes.value, { streamId, connectionId, hasVideo });
+  remotes.value = result.remotes;
+  // SDK videoEnabled/videoDisabled events may echo subscribeToVideo(). Never
+  // re-subscribe when the authoritative state is already identical, or the SDK
+  // produces an event -> subscribe -> event feedback loop (and telemetry flood).
+  if (!result.matched || !result.changed) return;
   const targets = remotes.value.filter((r) => (
-    (sid && r.streamId === sid) || (cid && r.connectionId === cid)
+    (result.streamId && r.streamId === result.streamId)
+    || (result.connectionId && r.connectionId === result.connectionId)
   ));
-  for (const r of targets) void refreshRemoteVideo(r.streamId, on);
+  for (const r of targets) {
+    void refreshRemoteVideo(r.streamId, result.hasVideo, { updateSubscription: true });
+  }
 }
 
 function setRemoteVideoByConnection(connectionId, hasVideo) {
@@ -1314,6 +1312,8 @@ const localInitials = computed(() => initialsFromLabel(props.localName));
 let session = null;
 let screenPublisher = null;
 let publisher = null;
+/** Prevent intentional credential handoffs/unmounts from looking like a dropped call. */
+const intentionallyDisconnectedSessions = new WeakSet();
 /** Cached Vonage OT module for mid-call publisher rebuilds (e.g. unmute after muted join). */
 let OTApi = null;
 const subscribers = new Map();
@@ -1702,7 +1702,12 @@ async function connect() {
       emit('stream-destroyed', event);
     });
 
+    const connectedSession = session;
     session.on('sessionDisconnected', () => {
+      if (intentionallyDisconnectedSessions.has(connectedSession)) {
+        intentionallyDisconnectedSessions.delete(connectedSession);
+        return;
+      }
       connecting.value = false;
       emit('disconnected');
     });
@@ -2037,6 +2042,7 @@ function disconnect(emitEvent = true) {
     subscribers.clear();
     if (session) {
       try {
+        intentionallyDisconnectedSessions.add(session);
         session.disconnect();
       } catch {
         /* ignore */
@@ -2276,16 +2282,6 @@ watch(
   [publishAudio, () => remotes.value.map((r) => `${r.streamId}:${r.hasAudio ? 1 : 0}`).join('|')],
   () => {
     emitAudioMapChange();
-  }
-);
-
-watch(
-  () => remotes.value.map((r) => `${r.streamId}:${r.hasVideo ? 1 : 0}`).join('|'),
-  () => {
-    for (const r of remotes.value) {
-      if (r.hasVideo) void refreshRemoteVideo(r.streamId, true);
-      else void syncRemotePresentation(r.streamId);
-    }
   }
 );
 

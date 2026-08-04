@@ -18,6 +18,10 @@
     <div class="mse__card">
       <h2 id="mse-title">{{ headline }}</h2>
       <p class="mse__body">{{ bodyText }}</p>
+      <div v-if="isClosed" class="mse__closure" role="status" aria-live="polite">
+        <strong>{{ closureSummary }}</strong>
+        <span v-if="formattedClosedAt">{{ formattedClosedAt }}</span>
+      </div>
       <div class="mse__actions">
         <button
           v-if="canRejoin"
@@ -50,7 +54,9 @@ const props = defineProps({
   meetingLabel: { type: String, default: 'meeting' },
   /** team-meeting | supervision */
   sessionKind: { type: String, default: 'team-meeting' },
-  bannerDismissed: { type: Boolean, default: false }
+  bannerDismissed: { type: Boolean, default: false },
+  closedByName: { type: String, default: '' },
+  closedAt: { type: [String, Date], default: null }
 });
 
 defineEmits(['rejoin', 'go-to-schedule', 'dismiss-banner']);
@@ -58,6 +64,33 @@ defineEmits(['rejoin', 'go-to-schedule', 'dismiss-banner']);
 const isSupervision = computed(() => String(props.sessionKind || '').toLowerCase() === 'supervision');
 const hostNoun = computed(() => (isSupervision.value ? 'facilitator' : 'host'));
 const sessionNoun = computed(() => (isSupervision.value ? 'session' : 'meeting'));
+const isClosed = computed(() => ['host-ended', 'ended-by-you'].includes(String(props.variant || '')));
+
+const formattedClosedAt = computed(() => {
+  if (!props.closedAt) return '';
+  const raw = props.closedAt instanceof Date ? props.closedAt : String(props.closedAt);
+  const normalized = typeof raw === 'string'
+    && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(raw)
+    && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)
+    ? `${raw.replace(' ', 'T')}Z`
+    : raw;
+  const date = normalized instanceof Date ? normalized : new Date(normalized);
+  if (Number.isNaN(date.getTime())) return String(props.closedAt);
+  return date.toLocaleString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  });
+});
+
+const closureSummary = computed(() => {
+  const who = String(props.closedByName || '').trim() || (isSupervision.value ? 'the facilitator' : 'the host or an administrator');
+  return `${isSupervision.value ? 'Session' : 'Team meeting'} was closed by ${who}.`;
+});
 
 const showTopBanner = computed(() => (
   props.variant === 'host-ended' && !props.bannerDismissed
@@ -68,10 +101,7 @@ const bannerText = computed(() => (
 ));
 
 const headline = computed(() => {
-  if (props.variant === 'host-ended') return `${capitalize(hostNoun.value)} ended the ${sessionNoun.value}`;
-  if (props.variant === 'ended-by-you') {
-    return isSupervision.value ? 'You ended the session' : 'You ended the meeting';
-  }
+  if (isClosed.value) return isSupervision.value ? 'Session was closed' : 'Team meeting was closed';
   return isSupervision.value ? 'You left the session' : 'You left the meeting';
 });
 
@@ -89,10 +119,6 @@ const scheduleButtonLabel = computed(() => (
   isSupervision.value ? 'Back to my schedule' : 'Back to my schedule'
 ));
 
-function capitalize(s) {
-  const t = String(s || '').trim();
-  return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
-}
 </script>
 
 <style scoped>
@@ -150,11 +176,25 @@ function capitalize(s) {
   color: #f8fafc;
 }
 .mse__body {
-  margin: 0 0 20px;
+  margin: 0 0 14px;
   color: #94a3b8;
   font-size: 0.95rem;
   line-height: 1.5;
 }
+.mse__closure {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0 0 20px;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid #f59e0b;
+  background: #422006;
+  color: #fef3c7;
+  text-align: left;
+  line-height: 1.4;
+}
+.mse__closure span { color: #fde68a; font-size: 0.9rem; }
 .mse__actions {
   display: flex;
   flex-direction: column;

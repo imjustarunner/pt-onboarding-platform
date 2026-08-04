@@ -10,6 +10,8 @@
       meeting-label="meeting"
       session-kind="team-meeting"
       :banner-dismissed="exitBannerDismissed"
+      :closed-by-name="meetingClosedByName"
+      :closed-at="meetingCompletedAt"
       @rejoin="rejoinMeeting"
       @go-to-schedule="goToScheduleFromExit"
       @dismiss-banner="dismissHostEndedBanner"
@@ -328,6 +330,7 @@ const attendanceTrackingEnabled = ref(false);
 const enablingTracking = ref(false);
 const enableTrackingError = ref('');
 const meetingCompletedAt = ref(null);
+const meetingClosedByName = ref('');
 const roomName = ref('');
 const isHost = ref(false);
 const resolvedEventId = ref(0);
@@ -631,6 +634,7 @@ function retryJoin() {
 }
 
 function applyTokenPayload(data) {
+  applyClosurePayload(data);
   const tok = String(data.token || data.data?.token || '').trim();
   if (tok) token.value = tok;
   const sid = String(data.sessionId || data.roomSid || data.vonageSessionId || '').trim();
@@ -674,6 +678,18 @@ function applyTokenPayload(data) {
   if (joinLink) participantJoinUrl.value = joinLink;
 }
 
+function applyClosurePayload(data = {}) {
+  const closedAt = data.meetingClosedAt || data.meetingCompletedAt || data.meeting_completed_at || null;
+  if (closedAt) meetingCompletedAt.value = closedAt;
+  const closedBy = String(
+    data.meetingClosedByName
+    || data.meetingCompletedByName
+    || data.closedByName
+    || ''
+  ).trim();
+  if (closedBy) meetingClosedByName.value = closedBy;
+}
+
 function stopAdmissionPolling() {
   if (admissionPollInterval) {
     clearInterval(admissionPollInterval);
@@ -705,7 +721,8 @@ async function pollMeetingCompletion() {
     });
     const data = resp?.data || {};
     if (data.meetingCompleted || data.meetingCompletedAt || data.roomMode === 'ended') {
-      meetingCompletedAt.value = data.meetingCompletedAt || new Date().toISOString();
+      applyClosurePayload(data);
+      meetingCompletedAt.value = meetingCompletedAt.value || new Date().toISOString();
       onMeetingEnded();
     }
   } catch {
@@ -751,7 +768,8 @@ async function pollAdmission() {
     });
     const data = resp?.data || {};
     if (data.meetingCompleted || data.meetingCompletedAt || data.roomMode === 'ended') {
-      meetingCompletedAt.value = data.meetingCompletedAt || new Date().toISOString();
+      applyClosurePayload(data);
+      meetingCompletedAt.value = meetingCompletedAt.value || new Date().toISOString();
       stopAdmissionPolling();
       onMeetingEnded();
       return;
@@ -827,7 +845,8 @@ async function resolveAndRedirect() {
     return 'redirected';
   } catch (e) {
     if (Number(e?.response?.status || 0) === 410 || e?.response?.data?.meetingCompletedAt) {
-      meetingCompletedAt.value = e?.response?.data?.meetingCompletedAt || new Date().toISOString();
+      applyClosurePayload(e?.response?.data || {});
+      meetingCompletedAt.value = meetingCompletedAt.value || new Date().toISOString();
       intentionalLeave.value = true;
       showSessionExit({ variant: 'host-ended', canRejoin: false });
       return 'error';
@@ -894,7 +913,8 @@ async function fetchTokenAndJoin() {
       }
     }
     if (status === 410 || e?.response?.data?.meetingCompletedAt) {
-      meetingCompletedAt.value = e?.response?.data?.meetingCompletedAt || new Date().toISOString();
+      applyClosurePayload(e?.response?.data || {});
+      meetingCompletedAt.value = meetingCompletedAt.value || new Date().toISOString();
       intentionalLeave.value = true;
       showSessionExit({ variant: 'host-ended', canRejoin: false });
       return;
@@ -1131,7 +1151,8 @@ async function markCompletedAndLeave() {
   intentionalLeave.value = true;
   try {
     const { data } = await api.post(`/team-meetings/${encodeURIComponent(eid)}/complete`, {}, { skipGlobalLoading: true });
-    meetingCompletedAt.value = data?.meetingCompletedAt || new Date().toISOString();
+    applyClosurePayload(data || {});
+    meetingCompletedAt.value = meetingCompletedAt.value || new Date().toISOString();
     showHostLeaveModal.value = false;
     void finishLeave({ variant: 'ended-by-you', canRejoin: false });
   } catch (e) {
@@ -1147,8 +1168,9 @@ function leaveWithoutClosing() {
   void finishLeave({ variant: 'left', canRejoin: true });
 }
 
-function onMeetingEnded() {
+function onMeetingEnded(payload = {}) {
   if (sessionExit.value || intentionalLeave.value) return;
+  applyClosurePayload(payload || {});
   meetingCompletedAt.value = meetingCompletedAt.value || new Date().toISOString();
   void finishLeave({ variant: 'host-ended', canRejoin: false });
 }
@@ -1234,7 +1256,7 @@ watch(
         skipGlobalLoading: true,
         skipAuthRedirect: true
       });
-      meetingCompletedAt.value = att?.meetingCompletedAt || null;
+      applyClosurePayload(att || {});
       if (att?.kind) meetingKind.value = String(att.kind).toUpperCase();
       if (att?.meetingSubtype) {
         const subtype = String(att.meetingSubtype).toLowerCase();

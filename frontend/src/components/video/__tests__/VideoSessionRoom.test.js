@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import VideoSessionRoom from '../VideoSessionRoom.vue';
+import { updateRemoteVideoState } from '../remoteVideoState.js';
 
 const videoSdk = vi.hoisted(() => ({
   session: null,
@@ -103,5 +104,24 @@ describe('VideoSessionRoom connection lifecycle', () => {
     expect(micButton.text()).toContain('Mic ready');
 
     wrapper.unmount();
+  });
+
+  it('stops re-subscribing when Vonage echoes the same video state event', () => {
+    let remotes = [{ streamId: 'remote-stream', connectionId: 'remote-connection', hasVideo: true }];
+    let subscribeCalls = 0;
+    const handleVideoEvent = (hasVideo) => {
+      const result = updateRemoteVideoState(remotes, { streamId: 'remote-stream', hasVideo });
+      remotes = result.remotes;
+      if (result.changed) {
+        subscribeCalls += 1;
+        // Model Vonage immediately echoing videoDisabled after the subscription update.
+        handleVideoEvent(hasVideo);
+      }
+    };
+
+    handleVideoEvent(false);
+
+    expect(subscribeCalls).toBe(1);
+    expect(remotes[0].hasVideo).toBe(false);
   });
 });

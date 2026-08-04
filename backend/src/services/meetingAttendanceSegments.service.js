@@ -225,7 +225,8 @@ export async function loadMeetingEvent(eventId) {
   if (!eid) return null;
   const [rows] = await pool.execute(
     `SELECT id, agency_id, provider_id, kind, meeting_subtype, start_at, end_at,
-            meeting_completed_at, status, google_meet_link, platform_video_link, title,
+            meeting_completed_at, meeting_completed_by_user_id, status,
+            google_meet_link, platform_video_link, title,
             attendance_tracking_enabled
      FROM provider_schedule_events
      WHERE id = ?
@@ -466,9 +467,16 @@ export async function completeMeetingSession({
   if (!event.meeting_completed_at) {
     await pool.execute(
       `UPDATE provider_schedule_events
-       SET meeting_completed_at = ?, updated_by_user_id = COALESCE(?, updated_by_user_id)
+       SET meeting_completed_at = ?,
+           meeting_completed_by_user_id = COALESCE(?, meeting_completed_by_user_id),
+           updated_by_user_id = COALESCE(?, updated_by_user_id)
        WHERE id = ?`,
-      [toMysqlWall(now), Number(actorUserId || 0) || null, eid]
+      [
+        toMysqlWall(now),
+        Number(actorUserId || 0) || null,
+        Number(actorUserId || 0) || null,
+        eid
+      ]
     );
   }
 
@@ -498,6 +506,7 @@ export async function completeMeetingSession({
     ok: true,
     eventId: eid,
     meetingCompletedAt: fresh?.meeting_completed_at || toMysqlWall(now),
+    meetingCompletedByUserId: Number(fresh?.meeting_completed_by_user_id || actorUserId || 0) || null,
     rebuild,
     carryover
   };

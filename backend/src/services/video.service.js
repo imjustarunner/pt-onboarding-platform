@@ -62,10 +62,13 @@ export async function createOrGetRoomByUniqueName(uniqueName) {
   return await createOrGetRoom(uniqueName);
 }
 
-export async function completeRoom(roomSid) {
+export async function completeRoom(roomSid, details = null) {
   // Signal + force-disconnect everyone still in the Vonage session.
   try {
-    const result = await VonageVideoService.endLiveSession(roomSid, { reason: 'meeting_completed' });
+    const result = await VonageVideoService.endLiveSession(roomSid, {
+      reason: 'meeting_completed',
+      details
+    });
     return { sid: roomSid, status: 'completed', ...result };
   } catch (e) {
     console.warn('[video.service] completeRoom failed', e?.message || e);

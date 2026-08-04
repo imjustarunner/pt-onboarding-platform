@@ -147,7 +147,7 @@ class VonageVideoService {
   /**
    * End a live room: signal meeting_ended, then disconnect every connection.
    */
-  static async endLiveSession(sessionId, { reason = 'meeting_completed' } = {}) {
+  static async endLiveSession(sessionId, { reason = 'meeting_completed', details = null } = {}) {
     const sid = String(sessionId || '').trim();
     if (!sid || !this.isVideoConfigured()) {
       return { ok: false, signaled: false, disconnected: 0 };
@@ -156,7 +156,7 @@ class VonageVideoService {
     try {
       await this.sendSignal(sid, {
         type: 'meeting_ended',
-        data: JSON.stringify({ reason, at: new Date().toISOString() })
+        data: JSON.stringify({ reason, at: new Date().toISOString(), ...(details || {}) })
       });
       signaled = true;
     } catch (e) {

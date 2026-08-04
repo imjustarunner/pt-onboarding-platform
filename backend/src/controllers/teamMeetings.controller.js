@@ -42,6 +42,36 @@ function displayNameFromUser(user) {
     || '';
 }
 
+async function meetingClosureDetails(event) {
+  const meetingClosedAt = event?.meeting_completed_at || event?.meetingCompletedAt || null;
+  if (!meetingClosedAt) {
+    return {
+      meetingClosedAt: null,
+      meetingCompletedAt: null,
+      meetingClosedByUserId: null,
+      meetingClosedByName: null
+    };
+  }
+  const meetingClosedByUserId = Number(
+    event?.meeting_completed_by_user_id
+    || event?.meetingCompletedByUserId
+    || event?.updated_by_user_id
+    || 0
+  ) || null;
+  let meetingClosedByName = null;
+  if (meetingClosedByUserId) {
+    try {
+      meetingClosedByName = displayNameFromUser(await User.findById(meetingClosedByUserId)) || null;
+    } catch { /* keep the closure time even if the user lookup fails */ }
+  }
+  return {
+    meetingClosedAt,
+    meetingCompletedAt: meetingClosedAt,
+    meetingClosedByUserId,
+    meetingClosedByName
+  };
+}
+
 async function profilePhotoUrlForUserId(userId) {
   const uid = Number(userId || 0);
   if (!uid) return null;
@@ -448,10 +478,11 @@ export const getTeamMeetingJoinInfo = async (req, res, next) => {
 
     const meetingCompletedAt = event.meeting_completed_at || null;
     if (meetingCompletedAt) {
+      const closure = await meetingClosureDetails(event);
       return res.status(410).json({
         error: { message: 'This meeting has ended.' },
         meetingCompleted: true,
-        meetingCompletedAt
+        ...closure
       });
     }
 
@@ -524,9 +555,11 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
     if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
     if (row.meeting_completed_at) {
+      const closure = await meetingClosureDetails(row);
       return res.status(410).json({
         error: { message: 'This meeting has ended.' },
-        meetingCompletedAt: row.meeting_completed_at
+        meetingCompleted: true,
+        ...closure
       });
     }
 
@@ -924,11 +957,12 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
     const meetingCompletedAt = row.meeting_completed_at || null;
 
     if (meetingCompletedAt) {
+      const closure = await meetingClosureDetails(row);
       return res.json({
         admitted: false,
         roomMode: 'ended',
         meetingCompleted: true,
-        meetingCompletedAt,
+        ...closure,
         lobbyEnabledForSession: waitingRoomOn,
         waitingRoomEnabled: waitingRoomOn
       });
@@ -1528,12 +1562,18 @@ export const completeTeamMeetingSession = async (req, res, next) => {
       return res.status(400).json({ error: { message: result?.error || 'Unable to complete meeting' } });
     }
 
+    const completedEvent = await ProviderScheduleEvent.findById(eventId);
+    const closure = await meetingClosureDetails(completedEvent || {
+      meeting_completed_at: result.meetingCompletedAt,
+      meeting_completed_by_user_id: actorId
+    });
+
     // Kick everyone still in the live Vonage room (signal + force-disconnect).
     const roomSid = String(event.twilio_room_sid || '').trim();
     let videoEnd = null;
     if (roomSid) {
       try {
-        videoEnd = await completeRoom(roomSid);
+        videoEnd = await completeRoom(roomSid, closure);
       } catch (e) {
         console.warn('[teamMeeting] completeRoom failed', e?.message || e);
       }
@@ -1549,7 +1589,7 @@ export const completeTeamMeetingSession = async (req, res, next) => {
       summary = { ok: false, error: e?.message || 'summary_failed' };
     }
 
-    res.json({ ...result, videoEnd, summary });
+    res.json({ ...result, ...closure, videoEnd, summary });
   } catch (e) {
     next(e);
   }
@@ -1947,6 +1987,7 @@ export const getTeamMeetingTimeClaims = async (req, res, next) => {
       eligible: true,
       canEdit,
       meetingCompletedAt: attendance?.meetingCompletedAt || null,
+      ...(await meetingClosureDetails(event)),
       rows
     });
   } catch (e) {
