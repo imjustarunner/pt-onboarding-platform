@@ -304,11 +304,11 @@
           class="vsr__ctrl vsr__ctrl--mic"
           :class="{ 'vsr__ctrl--danger': !publishAudio, 'vsr__ctrl--mic-muted': !publishAudio }"
           :aria-pressed="!publishAudio"
-          :title="lobbyMode ? (publishAudio ? 'Join muted' : 'Test microphone and join with it on') : (publishAudio ? 'Mute microphone' : (canSelfUnmute ? 'Unmute microphone' : 'Muted by host'))"
+          :title="lobbyMode ? lobbyMicButtonTitle : (publishAudio ? 'Mute microphone' : (canSelfUnmute ? 'Unmute microphone' : 'Muted by host'))"
           @click.stop.prevent="toggleMic"
         >
           <span class="vsr__ctrl-mic-row">
-            <span>{{ lobbyMode ? (publishAudio ? 'Mic ready' : 'Test mic') : (publishAudio ? 'Mic' : (canSelfUnmute ? 'Unmute' : 'Muted')) }}</span>
+            <span>{{ lobbyMode ? lobbyMicButtonLabel : (publishAudio ? 'Mic' : (canSelfUnmute ? 'Unmute' : 'Muted')) }}</span>
             <span
               v-if="publishAudio"
               class="vsr__mic-meter"
@@ -530,6 +530,8 @@ const errorMeta = ref(null);
 const publishAudio = ref(!props.startMuted && !props.lobbyMode);
 const publishVideo = ref(true);
 const automuteNoticeVisible = ref(!!props.startMuted && !props.lobbyMode);
+/** A lobby mic test grants permission and verifies capture without publishing audio. */
+const lobbyMicTested = ref(false);
 /** Set when a host/co-host force-mutes this participant — self-unmute is blocked. */
 const forceMutedByHost = ref(false);
 const canSelfUnmute = computed(() => !forceMutedByHost.value);
@@ -723,6 +725,19 @@ const voiceIsolationTitle = computed(() => {
     return 'This browser cannot report mic processing. Your system may still apply voice isolation.';
   }
   return '';
+});
+const lobbyMicButtonLabel = computed(() => {
+  if (props.startMuted && lobbyMicTested.value) return 'Mic tested';
+  if (publishAudio.value) return 'Mic ready';
+  return 'Test mic';
+});
+const lobbyMicButtonTitle = computed(() => {
+  if (props.startMuted) {
+    return lobbyMicTested.value
+      ? 'Microphone tested; you will still join muted'
+      : 'Test microphone; you will still join muted';
+  }
+  return publishAudio.value ? 'Join muted' : 'Test microphone and join with it on';
 });
 
 function trackAudioEnhancementStatus(track) {
@@ -2182,6 +2197,34 @@ async function rebuildPublisherWithAudio() {
 
 async function toggleMic() {
   if (props.lobbyMode) {
+    // Auto-muted participants may test/grant the mic in private, but a successful
+    // test must not change the muted state they carry into the main room.
+    if (props.startMuted) {
+      try {
+        if (!navigator?.mediaDevices?.getUserMedia) {
+          throw new Error('Microphone testing is not supported in this browser.');
+        }
+        const testStream = await navigator.mediaDevices.getUserMedia({
+          audio: nativeAudioConstraints(),
+          video: false
+        });
+        const testTrack = testStream?.getAudioTracks?.()?.[0] || null;
+        const testStatus = trackAudioEnhancementStatus(testTrack);
+        for (const track of testStream?.getTracks?.() || []) {
+          try { track.stop(); } catch { /* ignore */ }
+        }
+        lobbyMicTested.value = true;
+        publishAudio.value = false;
+        voiceIsolationStatus.value = testStatus || 'unavailable';
+        showMicHint('Microphone tested — you will still join muted.');
+      } catch (e) {
+        lobbyMicTested.value = false;
+        publishAudio.value = false;
+        const friendly = sanitizeVideoError(e);
+        showMicHint(friendly.message || 'Could not test the microphone. You will join muted.');
+      }
+      return;
+    }
     const next = !publishAudio.value;
     if (!next) {
       publishAudio.value = false;
@@ -2206,11 +2249,13 @@ async function toggleMic() {
         try { track.stop(); } catch { /* ignore */ }
       }
       publishAudio.value = true;
+      lobbyMicTested.value = true;
       automuteNoticeVisible.value = false;
       voiceIsolationStatus.value = testStatus || 'unavailable';
       showMicHint('Microphone ready — you will join with it on.');
     } catch (e) {
       publishAudio.value = false;
+      lobbyMicTested.value = false;
       const friendly = sanitizeVideoError(e);
       showMicHint(friendly.message || 'Could not test the microphone. You will join muted.');
     }

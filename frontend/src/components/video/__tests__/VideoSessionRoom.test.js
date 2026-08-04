@@ -107,6 +107,48 @@ describe('VideoSessionRoom connection lifecycle', () => {
     wrapper.unmount();
   });
 
+  it('tests an auto-muted participant microphone without changing the join-muted state', async () => {
+    const stop = vi.fn();
+    const getUserMedia = vi.fn().mockResolvedValue({
+      getAudioTracks: () => [{
+        stop,
+        getSettings: () => ({ noiseSuppression: true })
+      }],
+      getTracks: () => [{ stop }]
+    });
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia,
+        getSupportedConstraints: () => ({ voiceIsolation: true })
+      }
+    });
+
+    const wrapper = mount(VideoSessionRoom, {
+      props: {
+        applicationId: '11111111-1111-4111-8111-111111111111',
+        sessionId: 'auto-muted-lobby-session',
+        token: 'eyJ.test.token',
+        lobbyMode: true,
+        startMuted: true,
+        autoConnect: false
+      }
+    });
+    await flushPromises();
+
+    const micButton = wrapper.get('.vsr__ctrl--mic');
+    await micButton.trigger('click');
+    await flushPromises();
+
+    expect(getUserMedia).toHaveBeenCalledOnce();
+    expect(stop).toHaveBeenCalled();
+    expect(micButton.text()).toContain('Mic tested');
+    expect(micButton.attributes('aria-pressed')).toBe('true');
+    expect(wrapper.text()).toContain('you will still join muted');
+
+    wrapper.unmount();
+  });
+
   it('acquires and constrains the exact microphone track supplied to the publisher', async () => {
     const stop = vi.fn();
     const applyConstraints = vi.fn().mockResolvedValue(undefined);

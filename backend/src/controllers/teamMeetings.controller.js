@@ -1008,6 +1008,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
         admitted: false,
         roomMode: 'ended',
         meetingCompleted: true,
+        attendanceTrackingEnabled: isAttendanceTrackingEnabledForEvent(row),
         ...closure,
         lobbyEnabledForSession: waitingRoomOn,
         waitingRoomEnabled: waitingRoomOn
@@ -1020,6 +1021,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
         roomMode: 'main',
         meetingCompleted: false,
         meetingCompletedAt: null,
+        attendanceTrackingEnabled: isAttendanceTrackingEnabledForEvent(row),
         lobbyEnabledForSession: waitingRoomOn,
         waitingRoomEnabled: waitingRoomOn
       });
@@ -1052,6 +1054,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
         roomMode: 'lobby',
         meetingCompleted: false,
         meetingCompletedAt: null,
+        attendanceTrackingEnabled: isAttendanceTrackingEnabledForEvent(row),
         lobbyEnabledForSession: waitingRoomOn,
         waitingRoomEnabled: waitingRoomOn,
         sessionTitle: waitingPrep.sessionTitle || String(row.title || '').trim() || null,
@@ -1133,6 +1136,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
       profilePhotoUrl,
       isHost: false,
       eventId: Number(row.id),
+      attendanceTrackingEnabled: isAttendanceTrackingEnabledForEvent(row),
       lobbyEnabledForSession: waitingRoomOn,
       waitingRoomEnabled: waitingRoomOn,
       diagnostics: getVideoClientDiagnostics({ token, sessionId: vonageSessionId })

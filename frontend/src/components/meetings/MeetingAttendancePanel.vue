@@ -62,6 +62,8 @@
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue';
 import api from '../../services/api';
 
+const emit = defineEmits(['tracking-status']);
+
 const props = defineProps({
   eventId: { type: [Number, String], required: true },
   /** team-meeting (default) or supervision */
@@ -162,6 +164,9 @@ async function load({ quiet = false } = {}) {
     copyNames.value = String(data?.copyNamesCsv || '');
     copyWithTime.value = String(data?.copyNamesWithTimeCsv || '');
     meetingCompletedAt.value = data?.meetingCompletedAt || null;
+    if (data?.attendanceTrackingEnabled != null) {
+      emit('tracking-status', !!data.attendanceTrackingEnabled);
+    }
   } catch (e) {
     if (!quiet) {
       error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load attendance';

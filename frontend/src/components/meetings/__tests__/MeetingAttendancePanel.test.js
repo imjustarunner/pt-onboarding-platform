@@ -32,7 +32,25 @@ describe('MeetingAttendancePanel', () => {
     expect(wrapper.text()).toContain('In room');
     expect(wrapper.text()).not.toContain('Copy with time');
     expect(wrapper.find('.map__mins').exists()).toBe(false);
+    expect(wrapper.emitted('tracking-status')?.at(-1)).toEqual([false]);
 
+    wrapper.unmount();
+  });
+
+  it('pushes server-confirmed tracking activation to the meeting view', async () => {
+    apiMock.get.mockResolvedValueOnce({
+      data: {
+        attendanceTrackingEnabled: true,
+        timingTracked: true,
+        participants: [{ userId: 7, name: 'Alex Participant', isPresent: true, totalMinutes: 1.25 }]
+      }
+    });
+    const wrapper = mount(MeetingAttendancePanel, {
+      props: { eventId: 42, trackingEnabled: false }
+    });
+    await flushPromises();
+
+    expect(wrapper.emitted('tracking-status')?.at(-1)).toEqual([true]);
     wrapper.unmount();
   });
 });

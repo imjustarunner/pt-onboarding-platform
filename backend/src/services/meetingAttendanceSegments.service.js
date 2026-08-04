@@ -366,7 +366,10 @@ export async function closeAllOpenSegmentsForEvent({ eventId, at = null } = {}) 
 /**
  * Sum segment seconds for a user, clamping each segment to [start_at, meeting_completed_at|now].
  */
-export function computeSegmentSeconds(segments, event, { asOf = null } = {}) {
+export function computeSegmentSeconds(segments, event, {
+  asOf = null,
+  clampToScheduledStart = true
+} = {}) {
   const startMs = payableStartMs(event);
   const completedMs = payableEndMs(event);
   const asOfMs = (asOf instanceof Date ? asOf : new Date()).getTime();
@@ -380,7 +383,7 @@ export function computeSegmentSeconds(segments, event, { asOf = null } = {}) {
     if (!s0 || !e0) continue;
     let a = s0.getTime();
     let b = e0.getTime();
-    if (startMs != null && a < startMs) a = startMs;
+    if (clampToScheduledStart && startMs != null && a < startMs) a = startMs;
     if (b > hardEnd) b = hardEnd;
     if (b > a) total += Math.floor((b - a) / 1000);
   }
@@ -580,7 +583,11 @@ export async function listAttendanceSummary(eventId) {
   const presenceByUser = await loadJoinPresenceByUser(eid);
 
   const participants = Array.from(byUser.values()).map((p) => {
-    const totalSeconds = computeSegmentSeconds(p.segments, event);
+    // The live attendance panel reports actual time in-room from the segment.
+    // Payroll rollups keep using the scheduled-start clamp above.
+    const totalSeconds = computeSegmentSeconds(p.segments, event, {
+      clampToScheduledStart: false
+    });
     const name = [p.firstName, p.lastName].filter(Boolean).join(' ').trim()
       || p.email
       || `User #${p.userId}`;

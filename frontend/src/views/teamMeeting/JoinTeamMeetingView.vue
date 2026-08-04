@@ -131,6 +131,7 @@
               :screen-share-mode="screenShareMode"
               :can-share-screen="canShareScreenByDefault"
               :can-grant-screen-share="canGrantScreenShare"
+              :start-muted="!isHost"
               :mute-others-mode="muteOthersMode"
               :lobby-mode="isInLobby && !videoFullscreen"
               :show-layout-controls="!isInLobby"
@@ -231,6 +232,7 @@
                 :raised-hands="raisedHandCount"
                 :raised-hand-names="raisedHandNames"
                 :muted-names="mutedParticipantNames"
+                @tracking-status="onAttendanceTrackingStatus"
               />
             </section>
             <section v-if="showNotesTab" class="join-stack-section">
@@ -720,6 +722,9 @@ async function pollMeetingCompletion() {
       skipGlobalLoading: true
     });
     const data = resp?.data || {};
+    if (data.attendanceTrackingEnabled != null) {
+      applyAttendanceTrackingStatus(!!data.attendanceTrackingEnabled);
+    }
     if (data.meetingCompleted || data.meetingCompletedAt || data.roomMode === 'ended') {
       applyClosurePayload(data);
       meetingCompletedAt.value = meetingCompletedAt.value || new Date().toISOString();
@@ -1007,8 +1012,13 @@ async function enableAttendanceTracking() {
   enableTrackingError.value = '';
   try {
     const { data } = await api.post(`/team-meetings/${encodeURIComponent(eid)}/enable-attendance-tracking`);
-    attendanceTrackingEnabled.value = !!data?.attendanceTrackingEnabled;
+    applyAttendanceTrackingStatus(!!data?.attendanceTrackingEnabled);
     await attendancePanelRef.value?.load?.();
+    videoRoomRef.value?.signalTranscriptControl?.({
+      action: 'start',
+      byName: localDisplayName.value || 'Host',
+      startedAt: new Date().toISOString()
+    });
   } catch (e) {
     enableTrackingError.value = e?.response?.data?.error?.message || 'Could not enable transcription and attendance.';
   } finally {
@@ -1052,7 +1062,11 @@ function onTranscriptControlApi(payload) {
 
 function onRemoteTranscriptControl(payload) {
   const action = String(payload?.action || '');
-  if (action === 'pause') void pauseTranscriptLocal();
+  if (action === 'start') {
+    applyAttendanceTrackingStatus(true);
+    transcriptionNoticeDismissed.value = false;
+    void attendancePanelRef.value?.load?.({ quiet: true });
+  } else if (action === 'pause') void pauseTranscriptLocal();
   else if (action === 'resume') void resumeTranscriptLocal();
   else if (action === 'stop') {
     void applyTranscriptRoomStop({
@@ -1060,6 +1074,17 @@ function onRemoteTranscriptControl(payload) {
       stoppedAt: payload?.stoppedAt || new Date().toISOString()
     });
   }
+}
+
+function applyAttendanceTrackingStatus(enabled) {
+  const next = !!enabled;
+  const wasEnabled = attendanceTrackingEnabled.value;
+  attendanceTrackingEnabled.value = next;
+  if (next && !wasEnabled) transcriptionNoticeDismissed.value = false;
+}
+
+function onAttendanceTrackingStatus(enabled) {
+  applyAttendanceTrackingStatus(enabled);
 }
 
 async function teardownLiveSession() {
