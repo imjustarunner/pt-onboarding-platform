@@ -21,6 +21,12 @@ import {
   resolveNotificationTypePreference,
   listEffectiveNotificationPreferences
 } from '../services/notificationPreferences.service.js';
+import {
+  INBOX_AGENCY_BROADCAST_TYPES,
+  MANAGED_AGENCY_EVENT_TYPES,
+  sqlInList,
+  viewerMaySeeNotification
+} from '../utils/notificationPersonalScope.js';
 
 // Guardians should not see the full internal staff notification feed.
 // They only need a narrow, family-facing set: announcements/reminders and
@@ -117,16 +123,6 @@ function resolveTriggerSetting(trigger, setting) {
 // Message-related notification types must never be visible cross-user.
 const MESSAGE_PRIVATE_TYPES = new Set(['chat_message', 'inbound_client_message', 'support_safety_net_alert']);
 
-// Payroll claim outcomes are addressed to the claimant only — never agency-wide or managed-feed.
-const PERSONAL_PAYROLL_CLAIM_TYPES = new Set([
-  'mileage_claim_approved',
-  'mileage_claim_rejected',
-  'mileage_claim_returned',
-  'medcancel_claim_approved',
-  'medcancel_claim_rejected',
-  'medcancel_claim_returned'
-]);
-
 const SELF_ACTIVITY_TYPES = new Set(['user_login', 'user_logout', 'presence_user_returned']);
 
 function filterNotificationsForViewer(notifications, viewerUserId, viewerRole, opts = {}) {
@@ -181,11 +177,9 @@ function filterNotificationsForViewer(notifications, viewerUserId, viewerRole, o
       return notificationCategories[key] !== false;
     })
     .filter((n) => audienceAllows(n, viewerRole))
-    .filter((n) => {
-      const t = String(n?.type || '');
-      if (!MESSAGE_PRIVATE_TYPES.has(t) && !PERSONAL_PAYROLL_CLAIM_TYPES.has(t)) return true;
-      return Number(n?.user_id) === uid;
-    })
+    .filter((n) => viewerMaySeeNotification(n, uid, {
+      allowManagedAgencyEvents: !!opts.allowManagedAgencyEvents
+    }))
     .filter((n) => {
       // Don't show users their own login/logout notifications
       if (SELF_ACTIVITY_TYPES.has(String(n?.type || '')) && Number(n?.user_id) === uid) return false;
@@ -821,12 +815,13 @@ export const getNotificationCounts = async (req, res, next) => {
       if (agencyIds.length === 0) return res.json({});
 
       const counts = {};
+      const managedFilterOpts = { ...filterOpts, allowManagedAgencyEvents: true };
       for (const aid of agencyIds) {
         const notifications = await Notification.findByAgency(aid, {
           isResolved: false
         });
         await Notification.applyReadStateForViewer(notifications, userId);
-        const visible = filterNotificationsForViewer(notifications, userId, userRole, filterOpts).filter(isUnmuted);
+        const visible = filterNotificationsForViewer(notifications, userId, userRole, managedFilterOpts).filter(isUnmuted);
         const collapsed = collapseEquivalentNotifications(visible);
         counts[aid] = collapsed.filter((n) => !n._is_read_for_viewer && !n.is_resolved).length;
       }
@@ -1317,12 +1312,6 @@ export const syncNotifications = async (req, res, next) => {
   }
 };
 
-const FEED_PRIVATE_TYPES = [
-  'chat_message',
-  'inbound_client_message',
-  'support_safety_net_alert',
-  ...Array.from(PERSONAL_PAYROLL_CLAIM_TYPES)
-];
 
 function managedFanoutIdentity(candidateAlias = 'nf', notificationAlias = 'n') {
   return `
@@ -1454,8 +1443,13 @@ function buildFeedWhere({ req, access, visibilityPolicy, applyFilters = true, in
       clauses.push('1 = 0');
     }
   } else if (access.scope === 'managed') {
-    clauses.push(`(n.user_id = ? OR n.type NOT IN (${FEED_PRIVATE_TYPES.map(() => '?').join(',')}))`);
-    params.push(access.uid, ...FEED_PRIVATE_TYPES);
+    const managedTypes = sqlInList(MANAGED_AGENCY_EVENT_TYPES);
+    clauses.push(`(
+      n.user_id IS NULL
+      OR n.user_id = ?
+      OR n.type IN (${managedTypes.placeholders})
+    )`);
+    params.push(access.uid, ...managedTypes.params);
     // Notification producers fan one database row out per recipient. Managed
     // views are event-oriented, so retain the audit rows while showing one
     // representative row for each exact fan-out event.
@@ -1488,16 +1482,13 @@ function buildFeedWhere({ req, access, visibilityPolicy, applyFilters = true, in
     )`);
     params.push(access.uid);
   } else {
-    // My Inbox contains records addressed to the viewer plus true agency-wide
-    // broadcasts. It must never expose another user's personalized copy.
-    clauses.push('(n.user_id = ? OR n.user_id IS NULL)');
-    params.push(access.uid);
-    // Payroll claim outcomes must never appear as agency-wide rows in any inbox.
+    // My Inbox: own rows plus true agency-wide broadcasts only (never another user's personal copy).
+    const broadcastTypes = sqlInList(INBOX_AGENCY_BROADCAST_TYPES);
     clauses.push(`(
-      n.type NOT IN (${Array.from(PERSONAL_PAYROLL_CLAIM_TYPES).map(() => '?').join(',')})
-      OR n.user_id = ?
+      n.user_id = ?
+      OR (n.user_id IS NULL AND n.type IN (${broadcastTypes.placeholders}))
     )`);
-    params.push(...Array.from(PERSONAL_PAYROLL_CLAIM_TYPES), access.uid);
+    params.push(access.uid, ...broadcastTypes.params);
     // Coverage audits can fan out duplicate rows when triggered concurrently; keep one per viewer/location/day.
     clauses.push(`(
       n.type <> 'office_schedule_coverage_flag'
