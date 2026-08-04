@@ -24,5 +24,6 @@ router.post(
 router.post('/:token/support-tickets', ctrl.createSupportTicketByToken);
 router.get('/:token/support-tickets/mine', ctrl.listMySupportTicketsByToken);
 router.post('/:token/finalize', ctrl.finalizePublic);
+router.post('/:token/session-heartbeat', ctrl.heartbeatPublicByToken);
 
 export default router;

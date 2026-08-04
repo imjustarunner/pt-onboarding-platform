@@ -1126,3 +1126,99 @@ export async function withdrawMySchoolNeed(req, res, next) {
     next(e);
   }
 }
+
+/** POST /api/provider-year-update/me/session-heartbeat */
+export async function heartbeatMyCycle(req, res, next) {
+  try {
+    const agencyId = safeInt(req.body?.agencyId) || safeInt(req.user?.agency_id);
+    const cycleId = safeInt(req.body?.cycleId);
+    if (!agencyId || !cycleId) {
+      return res.status(400).json({ error: { message: 'agencyId and cycleId are required' } });
+    }
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const cycle = await S.getCycleById(cycleId);
+    if (!cycle || Number(cycle.agency_id) !== agencyId || Number(cycle.provider_user_id) !== req.user.id) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    if (!req.body?.visible) {
+      const current = await S.getCycleActiveSeconds(cycleId);
+      return res.json({ ok: true, ...current });
+    }
+    const result = await S.recordCycleTimeHeartbeat(cycleId);
+    res.json({ ok: true, ...(result || { activeSeconds: 0 }) });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/public/provider-year-update/:token/session-heartbeat */
+export async function heartbeatPublicByToken(req, res, next) {
+  try {
+    const { valid, reason, row } = await S.validateToken(req.params.token);
+    if (!valid && reason !== 'expired') {
+      if (!row || row.cycle_status !== 'finalized') {
+        return res.status(404).json({ error: { message: 'Invalid or expired link', reason } });
+      }
+    }
+    if (!row) return res.status(404).json({ error: { message: 'Invalid link' } });
+
+    if (!req.body?.visible) {
+      const current = await S.getCycleActiveSeconds(row.cycle_id);
+      return res.json({ ok: true, ...current });
+    }
+    const result = await S.recordCycleTimeHeartbeat(row.cycle_id);
+    res.json({ ok: true, ...(result || { activeSeconds: 0 }) });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/provider-year-update/me/session-heartbeat */
+export async function heartbeatMyCycle(req, res, next) {
+  try {
+    const agencyId = safeInt(req.body?.agencyId) || safeInt(req.user?.agency_id);
+    const cycleId = safeInt(req.body?.cycleId);
+    if (!agencyId || !cycleId) {
+      return res.status(400).json({ error: { message: 'agencyId and cycleId are required' } });
+    }
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const cycle = await S.getCycleById(cycleId);
+    if (!cycle || Number(cycle.agency_id) !== agencyId || Number(cycle.provider_user_id) !== req.user.id) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    if (!req.body?.visible) {
+      const current = await S.getCycleActiveSeconds(cycleId);
+      return res.json({ ok: true, ...current });
+    }
+    const result = await S.recordCycleTimeHeartbeat(cycleId);
+    res.json({ ok: true, ...(result || { activeSeconds: 0 }) });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/** POST /api/public/provider-year-update/:token/session-heartbeat */
+export async function heartbeatPublicByToken(req, res, next) {
+  try {
+    const { valid, reason, row } = await S.validateToken(req.params.token);
+    if (!valid && reason !== 'expired') {
+      if (!row || row.cycle_status !== 'finalized') {
+        return res.status(404).json({ error: { message: 'Invalid or expired link', reason } });
+      }
+    }
+    if (!row) return res.status(404).json({ error: { message: 'Invalid link' } });
+
+    if (!req.body?.visible) {
+      const current = await S.getCycleActiveSeconds(row.cycle_id);
+      return res.json({ ok: true, ...current });
+    }
+    const result = await S.recordCycleTimeHeartbeat(row.cycle_id);
+    res.json({ ok: true, ...(result || { activeSeconds: 0 }) });
+  } catch (e) {
+    next(e);
+  }
+}

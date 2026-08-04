@@ -1349,6 +1349,53 @@ export async function recordViewEvent({
   );
 }
 
+const PYU_HEARTBEAT_CAP_SEC = 120;
+const PYU_SESSION_GAP_SEC = 30 * 60;
+
+/** Accrue visible time while a provider is in the Year Update flow. */
+export async function recordCycleTimeHeartbeat(cycleId) {
+  const id = Number(cycleId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+
+  const [rows] = await pool.execute(
+    `SELECT id, active_seconds, last_time_heartbeat_at
+     FROM provider_year_update_cycles
+     WHERE id = ?
+     LIMIT 1`,
+    [id]
+  );
+  const cycle = rows?.[0];
+  if (!cycle) return null;
+
+  const now = new Date();
+  const lastHb = cycle.last_time_heartbeat_at ? new Date(cycle.last_time_heartbeat_at) : null;
+  let deltaSec = 0;
+  if (lastHb) {
+    deltaSec = Math.max(0, Math.floor((now - lastHb) / 1000));
+    if (deltaSec > PYU_SESSION_GAP_SEC) {
+      deltaSec = 0;
+    } else {
+      deltaSec = Math.min(deltaSec, PYU_HEARTBEAT_CAP_SEC);
+    }
+  }
+
+  const activeSeconds = Number(cycle.active_seconds || 0) + deltaSec;
+  await pool.execute(
+    `UPDATE provider_year_update_cycles
+     SET active_seconds = ?, last_time_heartbeat_at = ?
+     WHERE id = ?`,
+    [activeSeconds, now, id]
+  );
+
+  return { activeSeconds, deltaSec };
+}
+
+export async function getCycleActiveSeconds(cycleId) {
+  const cycle = await getCycleById(cycleId);
+  if (!cycle) return { activeSeconds: 0 };
+  return { activeSeconds: Number(cycle.active_seconds || 0) };
+}
+
 export async function markTokenSent(tokenId, userId, sent = true) {
   if (sent) {
     await pool.execute(
@@ -2165,6 +2212,7 @@ export async function listAgencyReport(agencyId, schoolYear) {
       sections,
       sectionKeys: effectiveKeys,
       tokenClickCount: clickCount,
+      activeSeconds: Number(cycle?.active_seconds || 0),
       tokens,
       lastActivityAt,
       needSchoolCart:
@@ -2211,6 +2259,7 @@ export async function listAgencyReport(agencyId, schoolYear) {
       inProgress: out.filter((r) => r.status === 'in_progress').length,
       notStarted: out.filter((r) => r.status === 'not_started' || !r.status).length,
       totalTokenViews: out.reduce((n, r) => n + Number(r.tokenClickCount || 0), 0),
+      totalActiveSeconds: out.reduce((n, r) => n + Number(r.activeSeconds || 0), 0),
       needSchoolCartCount: out.filter((r) => r.needSchoolCart).length,
     },
     campaign: {

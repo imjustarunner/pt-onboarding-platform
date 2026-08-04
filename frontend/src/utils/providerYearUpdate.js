@@ -88,3 +88,16 @@ export async function copyTextToClipboard(text) {
     }
   }
 }
+
+/** Human-readable active time for Year Update reporting. */
+export function formatYearUpdateActiveSeconds(totalSeconds) {
+  const n = Math.max(0, Math.floor(Number(totalSeconds || 0)));
+  if (!n) return '—';
+  if (n < 60) return `${n}s`;
+  const minutes = Math.floor(n / 60);
+  const seconds = n % 60;
+  if (minutes < 60) return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  return remMinutes ? `${hours}h ${remMinutes}m` : `${hours}h`;
+}

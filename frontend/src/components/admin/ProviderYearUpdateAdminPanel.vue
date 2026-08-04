@@ -87,6 +87,10 @@
         <strong>{{ summary.notStarted || 0 }}</strong>
       </div>
       <div class="metric">
+        <span class="metric__label">Total time in flow</span>
+        <strong>{{ formatYearUpdateActiveSeconds(summary.totalActiveSeconds) }}</strong>
+      </div>
+      <div class="metric">
         <span class="metric__label">Views</span>
         <strong>{{ summary.totalTokenViews || 0 }}</strong>
       </div>
@@ -281,6 +285,7 @@
                 <th>Progress</th>
                 <th>Sections</th>
                 <th>Views</th>
+                <th>Time in flow</th>
                 <th>Last activity</th>
                 <th>Link / Push</th>
               </tr>
@@ -309,6 +314,7 @@
                   />
                 </td>
                 <td>{{ row.tokenClickCount || 0 }}</td>
+                <td class="muted small">{{ formatYearUpdateActiveSeconds(row.activeSeconds) }}</td>
                 <td class="muted small">{{ formatDt(row.lastActivityAt) || '—' }}</td>
                 <td @click.stop>
                   <div class="pyu-admin__row-actions">
@@ -362,7 +368,7 @@
                 </td>
               </tr>
               <tr v-if="!filteredRows.length">
-                <td colspan="8" class="muted">No providers with school assignments found for this agency.</td>
+                <td colspan="9" class="muted">No providers with school assignments found for this agency.</td>
               </tr>
             </tbody>
           </table>
@@ -374,6 +380,11 @@
         <h3>{{ selectedRow.providerName }}</h3>
         <p class="muted">{{ selectedRow.email }}</p>
         <p v-if="selectedRow.phone" class="muted">{{ selectedRow.phone }}</p>
+        <div class="detail-block">
+          <strong>Engagement</strong>
+          <p>Time in Year Update: {{ formatYearUpdateActiveSeconds(selectedRow.activeSeconds) }}</p>
+          <p class="muted">Views: {{ selectedRow.tokenClickCount || 0 }}</p>
+        </div>
         <div class="detail-block">
           <strong>Schools</strong>
           <ul>
@@ -456,6 +467,7 @@ import {
   currentSchoolYear,
   publicProviderYearUpdateUrl,
   copyTextToClipboard,
+  formatYearUpdateActiveSeconds,
 } from '../../utils/providerYearUpdate';
 import { logoSrc } from '../../utils/schoolReinit';
 
@@ -909,6 +921,7 @@ function exportCsv() {
     'Status',
     'Progress %',
     'Clicks',
+    'Time in flow (seconds)',
     'Last activity',
     'Need school cart',
     'Materials notes',
@@ -923,6 +936,7 @@ function exportCsv() {
       r.status,
       r.sectionPercent,
       r.tokenClickCount,
+      r.activeSeconds || 0,
       r.lastActivityAt || '',
       r.needSchoolCart ? 'yes' : 'no',
       r.materialsNotes || '',

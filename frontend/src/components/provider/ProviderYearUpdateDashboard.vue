@@ -805,6 +805,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { useProviderYearUpdateSession } from '../../composables/useProviderYearUpdateSession';
 import { SECTION_META } from '../../utils/providerYearUpdate';
 import {
   agencyDisplayName,
@@ -907,6 +908,23 @@ const resolvedAgencyId = computed(() => {
     0
   );
 });
+
+const yearUpdateCycleId = computed(() => Number(payload.value?.cycle?.id || 0) || null);
+const yearUpdateSession = useProviderYearUpdateSession({
+  cycleId: () => yearUpdateCycleId.value,
+  agencyId: () => resolvedAgencyId.value,
+  mode: props.mode,
+  token: () => props.token,
+});
+
+watch(
+  yearUpdateCycleId,
+  (id) => {
+    if (id) yearUpdateSession.start();
+    else yearUpdateSession.stop();
+  },
+  { immediate: true }
+);
 
 const tenantName = computed(() => agencyDisplayName(payload.value?.agency, 'Partner'));
 const tenantLogo = computed(() => {

@@ -28,6 +28,7 @@ router.post('/me/ensure-token', authenticate, ctrl.ensureMyToken);
 router.post('/me/dismiss', authenticate, ctrl.dismissMyCycle);
 router.put('/me/sections/:sectionKey', authenticate, ctrl.updateMySection);
 router.post('/me/finalize', authenticate, ctrl.finalizeMyCycle);
+router.post('/me/session-heartbeat', authenticate, ctrl.heartbeatMyCycle);
 router.get('/me/school-needs', authenticate, ctrl.listMySchoolNeeds);
 router.post('/me/school-needs/:id/apply', authenticate, ctrl.applyMySchoolNeed);
 router.delete('/me/school-needs/:id/apply', authenticate, ctrl.withdrawMySchoolNeed);
