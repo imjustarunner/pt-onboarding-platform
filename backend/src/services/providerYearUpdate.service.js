@@ -4,6 +4,7 @@
  */
 import crypto from 'crypto';
 import pool from '../config/database.js';
+import { estimateActiveSecondsFromTimestamps } from '../utils/providerYearUpdateTime.util.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import {
   getUserPreferences,
@@ -1382,12 +1383,130 @@ export async function recordCycleTimeHeartbeat(cycleId) {
   const activeSeconds = Number(cycle.active_seconds || 0) + deltaSec;
   await pool.execute(
     `UPDATE provider_year_update_cycles
-     SET active_seconds = ?, last_time_heartbeat_at = ?
+     SET active_seconds = ?, active_seconds_is_inferred = 0, last_time_heartbeat_at = ?
      WHERE id = ?`,
     [activeSeconds, now, id]
   );
 
   return { activeSeconds, deltaSec };
+}
+
+async function loadCycleActivityTimestampsMs(cycleId) {
+  const id = Number(cycleId);
+  if (!Number.isInteger(id) || id <= 0) return { timestamps: [], reviewedSectionCount: 0 };
+
+  const timestamps = [];
+
+  const [events] = await pool.execute(
+    `SELECT created_at
+     FROM provider_year_update_view_events
+     WHERE cycle_id = ?
+       AND event_type IN ('view', 'dashboard_view', 'token_click', 'section_open')
+     ORDER BY created_at ASC`,
+    [id]
+  );
+  for (const row of events || []) {
+    if (!row?.created_at) continue;
+    const ts = new Date(row.created_at).getTime();
+    if (Number.isFinite(ts)) timestamps.push(ts);
+  }
+
+  const [sections] = await pool.execute(
+    `SELECT reviewed_at
+     FROM provider_year_update_section_progress
+     WHERE cycle_id = ? AND reviewed_at IS NOT NULL`,
+    [id]
+  );
+  let reviewedSectionCount = 0;
+  for (const row of sections || []) {
+    reviewedSectionCount += 1;
+    if (!row?.reviewed_at) continue;
+    const ts = new Date(row.reviewed_at).getTime();
+    if (Number.isFinite(ts)) timestamps.push(ts);
+  }
+
+  const [tokens] = await pool.execute(
+    `SELECT last_viewed_at
+     FROM provider_year_update_tokens
+     WHERE cycle_id = ? AND last_viewed_at IS NOT NULL`,
+    [id]
+  );
+  for (const row of tokens || []) {
+    const ts = new Date(row.last_viewed_at).getTime();
+    if (Number.isFinite(ts)) timestamps.push(ts);
+  }
+
+  return { timestamps, reviewedSectionCount };
+}
+
+/** Estimate time spent from historical view/section activity (pre-heartbeat). */
+export async function inferCycleActiveSecondsFromHistory(cycleId) {
+  const cycle = await getCycleById(cycleId);
+  if (!cycle) return 0;
+
+  const { timestamps, reviewedSectionCount } = await loadCycleActivityTimestampsMs(cycleId);
+  let cycleSpanSec = 0;
+  if (cycle.created_at && cycle.finalized_at) {
+    cycleSpanSec = Math.max(
+      0,
+      Math.floor((new Date(cycle.finalized_at) - new Date(cycle.created_at)) / 1000)
+    );
+  }
+
+  return estimateActiveSecondsFromTimestamps(timestamps, {
+    reviewedSectionCount,
+    cycleSpanSec,
+  });
+}
+
+/** Persist inferred seconds when heartbeat tracking never ran (active_seconds still 0). */
+export async function ensureCycleActiveSecondsFromHistory(cycleId) {
+  const id = Number(cycleId);
+  if (!Number.isInteger(id) || id <= 0) return { activeSeconds: 0, activeSecondsIsInferred: false };
+
+  const cycle = await getCycleById(id);
+  if (!cycle) return { activeSeconds: 0, activeSecondsIsInferred: false };
+
+  const stored = Number(cycle.active_seconds || 0);
+  if (stored > 0) {
+    return {
+      activeSeconds: stored,
+      activeSecondsIsInferred: Boolean(cycle.active_seconds_is_inferred),
+    };
+  }
+
+  const inferred = await inferCycleActiveSecondsFromHistory(id);
+  if (inferred <= 0) {
+    return { activeSeconds: 0, activeSecondsIsInferred: false };
+  }
+
+  const [result] = await pool.execute(
+    `UPDATE provider_year_update_cycles
+     SET active_seconds = ?, active_seconds_is_inferred = 1
+     WHERE id = ? AND active_seconds = 0`,
+    [inferred, id]
+  );
+  if (Number(result?.affectedRows || 0) > 0) {
+    return { activeSeconds: inferred, activeSecondsIsInferred: true };
+  }
+
+  const refreshed = await getCycleById(id);
+  return {
+    activeSeconds: Number(refreshed?.active_seconds || 0),
+    activeSecondsIsInferred: Boolean(refreshed?.active_seconds_is_inferred),
+  };
+}
+
+export async function backfillInferredActiveSecondsForAgency(agencyId, schoolYear) {
+  const year = schoolYear || currentSchoolYear();
+  const [cycles] = await pool.execute(
+    `SELECT id FROM provider_year_update_cycles
+     WHERE agency_id = ? AND school_year = ? AND active_seconds = 0`,
+    [agencyId, year]
+  );
+  for (const row of cycles || []) {
+    await ensureCycleActiveSecondsFromHistory(row.id);
+  }
 }
 
 export async function getCycleActiveSeconds(cycleId) {
@@ -2115,6 +2234,7 @@ export async function getDismissal(cycleId, userId) {
 
 export async function listAgencyReport(agencyId, schoolYear) {
   const year = schoolYear || currentSchoolYear();
+  await backfillInferredActiveSecondsForAgency(agencyId, year);
   const providers = await listSchoolAssignedProviders(agencyId);
   const out = [];
 
@@ -2213,6 +2333,7 @@ export async function listAgencyReport(agencyId, schoolYear) {
       sectionKeys: effectiveKeys,
       tokenClickCount: clickCount,
       activeSeconds: Number(cycle?.active_seconds || 0),
+      activeSecondsIsInferred: Boolean(cycle?.active_seconds_is_inferred),
       tokens,
       lastActivityAt,
       needSchoolCart:

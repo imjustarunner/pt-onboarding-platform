@@ -90,14 +90,20 @@ export async function copyTextToClipboard(text) {
 }
 
 /** Human-readable active time for Year Update reporting. */
-export function formatYearUpdateActiveSeconds(totalSeconds) {
+export function formatYearUpdateActiveSeconds(totalSeconds, { estimated = false } = {}) {
   const n = Math.max(0, Math.floor(Number(totalSeconds || 0)));
   if (!n) return '—';
-  if (n < 60) return `${n}s`;
-  const minutes = Math.floor(n / 60);
-  const seconds = n % 60;
-  if (minutes < 60) return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const remMinutes = minutes % 60;
-  return remMinutes ? `${hours}h ${remMinutes}m` : `${hours}h`;
+  let label;
+  if (n < 60) label = `${n}s`;
+  else {
+    const minutes = Math.floor(n / 60);
+    const seconds = n % 60;
+    if (minutes < 60) label = seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
+    else {
+      const hours = Math.floor(minutes / 60);
+      const remMinutes = minutes % 60;
+      label = remMinutes ? `${hours}h ${remMinutes}m` : `${hours}h`;
+    }
+  }
+  return estimated ? `${label} (est.)` : label;
 }

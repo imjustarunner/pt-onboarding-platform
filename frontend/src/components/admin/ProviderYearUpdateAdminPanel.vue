@@ -314,7 +314,9 @@
                   />
                 </td>
                 <td>{{ row.tokenClickCount || 0 }}</td>
-                <td class="muted small">{{ formatYearUpdateActiveSeconds(row.activeSeconds) }}</td>
+                <td class="muted small">
+                  {{ formatYearUpdateActiveSeconds(row.activeSeconds, { estimated: row.activeSecondsIsInferred }) }}
+                </td>
                 <td class="muted small">{{ formatDt(row.lastActivityAt) || '—' }}</td>
                 <td @click.stop>
                   <div class="pyu-admin__row-actions">
@@ -382,7 +384,13 @@
         <p v-if="selectedRow.phone" class="muted">{{ selectedRow.phone }}</p>
         <div class="detail-block">
           <strong>Engagement</strong>
-          <p>Time in Year Update: {{ formatYearUpdateActiveSeconds(selectedRow.activeSeconds) }}</p>
+          <p>
+            Time in Year Update:
+            {{ formatYearUpdateActiveSeconds(selectedRow.activeSeconds, { estimated: selectedRow.activeSecondsIsInferred }) }}
+          </p>
+          <p v-if="selectedRow.activeSecondsIsInferred" class="muted tiny">
+            Estimated from saved visits and section activity before live session tracking.
+          </p>
           <p class="muted">Views: {{ selectedRow.tokenClickCount || 0 }}</p>
         </div>
         <div class="detail-block">
@@ -922,6 +930,7 @@ function exportCsv() {
     'Progress %',
     'Clicks',
     'Time in flow (seconds)',
+    'Time estimated',
     'Last activity',
     'Need school cart',
     'Materials notes',
@@ -937,6 +946,7 @@ function exportCsv() {
       r.sectionPercent,
       r.tokenClickCount,
       r.activeSeconds || 0,
+      r.activeSecondsIsInferred ? 'yes' : 'no',
       r.lastActivityAt || '',
       r.needSchoolCart ? 'yes' : 'no',
       r.materialsNotes || '',
