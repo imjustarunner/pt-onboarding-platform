@@ -442,8 +442,8 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { updateRemoteVideoState } from './remoteVideoState.js';
-import { acquireNativeAudioSource, nativeAudioConstraints } from './nativeAudioCapture.js';
-import { attachPublisherAudioSource, silenceLocalPublisherMedia } from './localPublisherMedia.js';
+import { nativeAudioConstraints } from './nativeAudioCapture.js';
+import { attachPublisherAudioDevice, silenceLocalPublisherMedia } from './localPublisherMedia.js';
 
 const props = defineProps({
   /** Vonage Application ID (preferred) or legacy OpenTok project API key */
@@ -1320,6 +1320,7 @@ let publisherAudioStream = null;
 let publisherAudioTrack = null;
 /** Prevent intentional credential handoffs/unmounts from looking like a dropped call. */
 const intentionallyDisconnectedSessions = new WeakSet();
+let OTApi = null;
 const subscribers = new Map();
 let screenSubscriber = null;
 
@@ -1333,10 +1334,6 @@ function releasePublisherAudioSource() {
   }
   publisherAudioStream = null;
   publisherAudioTrack = null;
-}
-
-async function acquirePublisherAudioSource() {
-  return acquireNativeAudioSource(navigator?.mediaDevices);
 }
 
 function isOwnStream(stream) {
@@ -1420,6 +1417,28 @@ async function subscribeToStream(stream) {
     hasScreenShare.value = true;
     screenShareLabel.value = String(stream?.name || 'Screen share');
     return;
+  }
+
+  // This app publishes one camera stream per connection. Replace any older
+  // camera stream from that same connection so a rapid publisher handoff can
+  // never leave two subscriber audio elements playing the same participant.
+  const connectionId = connectionIdFrom(stream?.connection);
+  const superseded = remotes.value.filter((remote) => (
+    connectionId
+    && remote.connectionId === connectionId
+    && remote.streamId !== streamId
+  ));
+  for (const remote of superseded) {
+    const oldSubscriber = subscribers.get(remote.streamId);
+    if (oldSubscriber) {
+      try { session.unsubscribe(oldSubscriber); } catch { /* ignore */ }
+      subscribers.delete(remote.streamId);
+    }
+    remoteMediaEls.delete(remote.streamId);
+  }
+  if (superseded.length) {
+    const supersededIds = new Set(superseded.map((remote) => remote.streamId));
+    remotes.value = remotes.value.filter((remote) => !supersededIds.has(remote.streamId));
   }
 
   if (subscribers.has(streamId)) return;
@@ -1665,6 +1684,7 @@ async function connect() {
     if (!OT?.initSession) {
       throw new Error('Vonage Video client SDK failed to load.');
     }
+    OTApi = OT;
     disconnect(false);
     // Vonage Video JWT tokens: first arg must be Application ID (not account API key).
     session = OT.initSession(projectId, props.sessionId);
@@ -1830,19 +1850,18 @@ async function connect() {
     await nextTick();
     const publisherMountEl = localMediaStageEl.value || localPublisherHostEl.value;
     if (publisherMountEl) publisherMountEl.innerHTML = '';
-    // Capture the main-room microphone ourselves and pass that exact constrained
-    // track to Vonage. This prevents the SDK from opening a different desktop
-    // track than the one configured for native microphone processing.
+    // Let Vonage/browser own the main-room capture track so native WebRTC echo
+    // cancellation and device Mic Mode stay in the normal capture pipeline.
     voiceIsolationStatus.value = props.lobbyMode ? '' : 'processing';
 
-    const buildPublisherOpts = (withAudio, audioTrack = null) => {
-      const acquireAudio = !!withAudio && !props.lobbyMode;
+    const buildPublisherOpts = (withAudio, captureAudio) => {
+      const mainRoom = !props.lobbyMode;
       const opts = {
         insertMode: 'append',
         width: '100%',
         height: '100%',
         fitMode: 'cover',
-        publishAudio: acquireAudio,
+        publishAudio: mainRoom && !!withAudio,
         publishVideo: publishVideo.value,
         name: props.localName,
         mirror: true,
@@ -1852,20 +1871,19 @@ async function connect() {
         noiseSuppression: true,
         disableAudioProcessing: false
       };
-      // publishAudio:false only mutes an acquired track. audioSource:null avoids
-      // opening the microphone at all (critical for iPad lobby handoff/retry).
-      opts.audioSource = acquireAudio ? audioTrack : null;
+      // In the main room, omit audioSource so Vonage and the browser own one
+      // native capture track (the same path used by mature meeting clients).
+      // The waiting room and mic-failure fallback explicitly avoid capture.
+      if (!captureAudio) opts.audioSource = null;
       return opts;
     };
 
-    const createPublisher = async (withAudio) => {
-      const acquireAudio = !!withAudio && !props.lobbyMode;
-      const audioSource = acquireAudio ? await acquirePublisherAudioSource() : null;
+    const createPublisher = async (withAudio, { captureAudio = !props.lobbyMode } = {}) => {
       try {
         const pub = await new Promise((resolve, reject) => {
           const nextPublisher = OT.initPublisher(
             publisherMountEl,
-            buildPublisherOpts(withAudio, audioSource?.track || null),
+            buildPublisherOpts(withAudio, captureAudio),
             (err) => {
               if (err) {
                 console.error('[VideoSessionRoom] publisher error', err);
@@ -1887,20 +1905,16 @@ async function connect() {
           silenceLocalPublisherMedia(typeof pub?.element === 'function' ? pub.element() : null);
           silenceLocalPublisherMedia(publisherMountEl);
         } catch { /* ignore */ }
-        releasePublisherAudioSource();
-        publisherAudioStream = audioSource?.stream || null;
-        publisherAudioTrack = audioSource?.track || null;
+        publisherAudioStream = null;
+        publisherAudioTrack = captureAudio ? (pub?.getAudioSource?.() || null) : null;
         return pub;
       } catch (error) {
-        for (const track of audioSource?.stream?.getTracks?.() || []) {
-          try { track.stop(); } catch { /* ignore */ }
-        }
         throw error;
       }
     };
 
-    const publishLocal = async (withAudio) => {
-      const pub = await createPublisher(withAudio);
+    const publishLocal = async (withAudio, options = {}) => {
+      const pub = await createPublisher(withAudio, options);
       await new Promise((resolve, reject) => {
         session.publish(pub, (err) => {
           if (err) {
@@ -1916,19 +1930,19 @@ async function connect() {
     };
 
     try {
-      publisher = await publishLocal(publishAudio.value);
-      // A main-room publisher created with audioSource:null has no track for
-      // publishAudio(true); attach one without restarting the camera on first unmute.
-      needsAudioSourceAttach.value = !props.lobbyMode && !publishAudio.value;
+      publisher = await publishLocal(publishAudio.value, { captureAudio: !props.lobbyMode });
+      // A muted main-room publisher still owns one native mic track, so unmute
+      // is a simple track enable and never needs a camera/publisher restart.
+      needsAudioSourceAttach.value = !props.lobbyMode && !publisher?.getAudioSource?.();
     } catch (publishErr) {
       // iOS often fails when another tab/app holds the mic — join muted instead of hard-failing.
-      if (publishAudio.value && isMicAccessError(publishErr)) {
+      if (!props.lobbyMode && isMicAccessError(publishErr)) {
         console.warn('[VideoSessionRoom] mic publish failed; retrying muted', publishErr?.message || publishErr);
         if (publisherMountEl) publisherMountEl.innerHTML = '';
         publishAudio.value = false;
         automuteNoticeVisible.value = false;
         needsAudioSourceAttach.value = true;
-        publisher = await publishLocal(false);
+        publisher = await publishLocal(false, { captureAudio: false });
         showMicHint('Joined muted — mic was busy. Tap Unmute when ready (close other apps using the mic first).');
       } else {
         throw publishErr;
@@ -2137,12 +2151,15 @@ function showMicHint(message) {
 
 async function addPublisherAudioWithoutRestartingCamera() {
   if (!publisher) throw new Error('Video session is not ready.');
+  if (!OTApi?.getDevices) throw new Error('Microphone devices are not available.');
   voiceIsolationStatus.value = 'processing';
-  const audioSource = await acquirePublisherAudioSource();
-  await attachPublisherAudioSource(publisher, audioSource);
-  releasePublisherAudioSource();
-  publisherAudioStream = audioSource?.stream || null;
-  publisherAudioTrack = audioSource?.track || null;
+  const devices = await new Promise((resolve, reject) => {
+    OTApi.getDevices((error, list) => (error ? reject(error) : resolve(list || [])));
+  });
+  const microphone = devices.find((device) => String(device?.kind || '').toLowerCase() === 'audioinput');
+  await attachPublisherAudioDevice(publisher, microphone?.deviceId || 'default');
+  publisherAudioStream = null;
+  publisherAudioTrack = publisher?.getAudioSource?.() || null;
   needsAudioSourceAttach.value = false;
   refreshAudioEnhancementStatus(publisher);
   await syncLocalVideoPresentation();

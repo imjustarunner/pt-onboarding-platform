@@ -26,19 +26,10 @@ export function silenceLocalPublisherMedia(root) {
  * Vonage supports replacing the audio source directly; rebuilding the whole
  * publisher also destroys the live camera, which is unreliable on iPad.
  */
-export async function attachPublisherAudioSource(publisher, audioSource) {
-  const track = audioSource?.track || null;
+export async function attachPublisherAudioDevice(publisher, deviceId) {
   if (!publisher || typeof publisher.setAudioSource !== 'function') {
     throw new Error('This video publisher cannot attach a microphone without restarting the camera.');
   }
-  if (!track) throw new Error('No microphone track was available.');
-  try {
-    await publisher.setAudioSource(track);
-    return audioSource;
-  } catch (error) {
-    for (const mediaTrack of audioSource?.stream?.getTracks?.() || []) {
-      try { mediaTrack.stop(); } catch { /* ignore */ }
-    }
-    throw error;
-  }
+  if (!deviceId) throw new Error('No microphone device was available.');
+  await publisher.setAudioSource(deviceId);
 }

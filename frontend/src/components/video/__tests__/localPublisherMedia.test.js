@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  attachPublisherAudioSource,
+  attachPublisherAudioDevice,
   silenceLocalPublisherMedia
 } from '../localPublisherMedia.js';
 
@@ -27,15 +27,14 @@ describe('local publisher media safety', () => {
   });
 
   it('attaches only the audio source without rebuilding or touching video', async () => {
-    const track = { kind: 'audio' };
     const setAudioSource = vi.fn().mockResolvedValue(undefined);
     const publishVideo = vi.fn();
     const destroy = vi.fn();
     const publisher = { setAudioSource, publishVideo, destroy };
 
-    await attachPublisherAudioSource(publisher, { track, stream: { getTracks: () => [track] } });
+    await attachPublisherAudioDevice(publisher, 'default-microphone-id');
 
-    expect(setAudioSource).toHaveBeenCalledWith(track);
+    expect(setAudioSource).toHaveBeenCalledWith('default-microphone-id');
     expect(publishVideo).not.toHaveBeenCalled();
     expect(destroy).not.toHaveBeenCalled();
   });
