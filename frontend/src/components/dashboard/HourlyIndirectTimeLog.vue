@@ -171,26 +171,62 @@
           </template>
 
           <template v-else-if="entryMethod === 'manual'">
-            <div class="itl-manual-times itl-manual-times--prominent">
-              <label class="itl-field">
-                <span>Date worked</span>
-                <input v-model="claimDate" type="date" :max="todayYmd" required placeholder="Select date" />
-              </label>
-              <label class="itl-field">
-                <span>Start time</span>
-                <input v-model="manualStart" type="time" required />
-              </label>
-              <label class="itl-field">
-                <span>End time</span>
-                <input v-model="manualEnd" type="time" required />
-              </label>
+            <div class="itl-time-hero itl-time-hero--editable" aria-label="Date and times worked">
+              <div class="itl-time-hero-grid">
+                <label class="itl-time-hero-cell itl-field">
+                  <span class="itl-time-hero-label">Date worked</span>
+                  <input
+                    v-model="claimDate"
+                    type="date"
+                    :max="todayYmd"
+                    class="itl-time-hero-input"
+                  />
+                </label>
+                <label class="itl-time-hero-cell itl-field">
+                  <span class="itl-time-hero-label">Start time</span>
+                  <input
+                    v-model="manualStart"
+                    type="time"
+                    step="60"
+                    class="itl-time-hero-input"
+                  />
+                  <span v-if="manualStart" class="itl-time-hero-preview">{{ formatWallClock12h(manualStart) }}</span>
+                </label>
+                <label class="itl-time-hero-cell itl-field">
+                  <span class="itl-time-hero-label">End time</span>
+                  <input
+                    v-model="manualEnd"
+                    type="time"
+                    step="60"
+                    class="itl-time-hero-input"
+                  />
+                  <span v-if="manualEnd" class="itl-time-hero-preview">{{ formatWallClock12h(manualEnd) }}</span>
+                </label>
+                <div class="itl-time-hero-cell itl-time-hero-cell--total">
+                  <span class="itl-time-hero-label">Total time</span>
+                  <strong class="itl-time-hero-value itl-time-hero-total">
+                    {{ hasEstablishedTime ? formatHm(manualTotalMinutes) : '—' }}
+                  </strong>
+                </div>
+              </div>
+              <p class="itl-time-hero-tz">
+                Enter date, start, and end. Preview shows 12-hour time (e.g. 2:30 PM).
+                Times in {{ timezoneAbbrevAt(new Date(), displayTimeZone) || displayTimeZone }}.
+              </p>
             </div>
-            <p v-if="manualFieldsPartial" class="itl-step-hint">
-              Enter date worked, start time, and end time to continue.
+            <p v-if="!manualTimeStepComplete" class="itl-step-hint">
+              Enter date worked, start time, and end time (at least 1 minute) to continue to activities.
+            </p>
+            <p v-else-if="!hasEstablishedTime" class="itl-step-hint itl-step-hint--warn">
+              Adjust start and end so total time is at least 1 minute before you submit.
             </p>
           </template>
 
-          <div v-if="hasEstablishedTime" class="itl-time-hero" aria-label="Session summary">
+          <div
+            v-if="hasEstablishedTime && entryMethod === 'clock'"
+            class="itl-time-hero"
+            aria-label="Session summary"
+          >
             <div class="itl-time-hero-grid">
               <div class="itl-time-hero-cell">
                 <span class="itl-time-hero-label">Date</span>
@@ -198,11 +234,11 @@
               </div>
               <div class="itl-time-hero-cell">
                 <span class="itl-time-hero-label">Start</span>
-                <strong class="itl-time-hero-value">{{ sessionBoundsHm.start || '—' }}</strong>
+                <strong class="itl-time-hero-value">{{ formatWallClock12h(sessionBoundsHm.start) }}</strong>
               </div>
               <div class="itl-time-hero-cell">
                 <span class="itl-time-hero-label">End</span>
-                <strong class="itl-time-hero-value">{{ sessionBoundsHm.end || '—' }}</strong>
+                <strong class="itl-time-hero-value">{{ formatWallClock12h(sessionBoundsHm.end) }}</strong>
               </div>
               <div class="itl-time-hero-cell itl-time-hero-cell--total">
                 <span class="itl-time-hero-label">Total time</span>
@@ -613,6 +649,7 @@ const entryMethod = ref(null);
 const claimDate = ref('');
 const manualStart = ref('');
 const manualEnd = ref('');
+const manualTimeStepComplete = ref(false);
 const attestation = ref(false);
 const approvedByName = ref('');
 const serviceTypes = ref([]);
@@ -936,16 +973,11 @@ const hasEstablishedTime = computed(() => {
   return false;
 });
 
-const manualFieldsPartial = computed(() => {
-  if (entryMethod.value !== 'manual' || hasEstablishedTime.value) return false;
-  return (
-    String(claimDate.value || '').trim()
-    || String(manualStart.value || '').trim()
-    || String(manualEnd.value || '').trim()
-  );
+const canShowActivityStep = computed(() => {
+  if (!hasChosenEntryMethod.value) return false;
+  if (entryMethod.value === 'manual') return manualTimeStepComplete.value;
+  return hasEstablishedTime.value;
 });
-
-const canShowActivityStep = computed(() => hasChosenEntryMethod.value && hasEstablishedTime.value);
 
 const canShowAllocateStep = computed(
   () => canShowActivityStep.value && selectedTypeIds.value.size >= 2
@@ -968,16 +1000,19 @@ const displayClaimDateLabel = computed(() => formatDisplayDate(displayClaimDateY
 
 function stepClass(n) {
   const sel = selectedTypeIds.value.size;
+  const step2Done = entryMethod.value === 'manual'
+    ? manualTimeStepComplete.value
+    : hasEstablishedTime.value;
   const done =
     n === 1 ? hasChosenEntryMethod.value
-    : n === 2 ? hasEstablishedTime.value
+    : n === 2 ? step2Done
     : n === 3 ? sel >= 2
     : n === 4 ? allocationValid.value && attestation.value
     : false;
   const active =
     n === 1 ? !hasChosenEntryMethod.value
-    : n === 2 ? hasChosenEntryMethod.value && !hasEstablishedTime.value
-    : n === 3 ? hasEstablishedTime.value && sel < 2
+    : n === 2 ? hasChosenEntryMethod.value && !step2Done
+    : n === 3 ? step2Done && sel < 2
     : n === 4 ? sel >= 2 && (!allocationValid.value || !attestation.value)
     : false;
   return { done, active };
@@ -989,6 +1024,7 @@ function chooseEntryMethod(method) {
   clearAllTypes();
   attestation.value = false;
   approvedByName.value = '';
+  manualTimeStepComplete.value = false;
   if (method === 'manual') {
     claimDate.value = '';
     manualStart.value = '';
@@ -1050,6 +1086,19 @@ function formatHm(mins) {
   const hh = String(Math.floor(m / 60)).padStart(2, '0');
   const mm = String(m % 60).padStart(2, '0');
   return `${hh}:${mm}`;
+}
+
+/** Display HH:MM (24h storage) as 12-hour wall clock, e.g. 14:30 → 2:30 PM */
+function formatWallClock12h(hm) {
+  const m = String(hm || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return hm || '—';
+  let h = Number(m[1]);
+  const mm = m[2];
+  if (!Number.isFinite(h)) return String(hm);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${h}:${mm} ${ampm}`;
 }
 
 function parseHhmm(raw) {
@@ -1227,7 +1276,13 @@ function onAllocationSelectedIds(ids) {
 }
 
 watch(hasEstablishedTime, (ok) => {
-  if (!ok) clearAllTypes();
+  if (ok && entryMethod.value === 'manual') {
+    manualTimeStepComplete.value = true;
+  }
+  // Only collapse activity picks when clock session time is lost — not while editing manual times.
+  if (!ok && entryMethod.value === 'clock') {
+    clearAllTypes();
+  }
 });
 
 watch(sessionTotalMinutes, (n, prev) => {
@@ -1799,6 +1854,34 @@ onUnmounted(() => stopTick());
   margin: 10px 0 0;
   font-size: 0.78rem;
   color: #6b7280;
+}
+.itl-time-hero--editable {
+  margin-top: 4px;
+}
+.itl-time-hero-input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #86efac;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+  background: #fff;
+  color: #111827;
+}
+.itl-time-hero-preview {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #166534;
+}
+.itl-step-hint--warn {
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  padding: 10px 12px;
 }
 .itl-manual-times--prominent {
   margin-top: 4px;

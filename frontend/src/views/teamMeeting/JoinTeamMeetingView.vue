@@ -1140,9 +1140,9 @@ async function rejoinMeeting() {
 function navigateAway() {
   const slug = organizationSlug.value || authStore.user?.organization?.slug;
   if (slug) {
-    router.push({ path: `/${slug}/dashboard`, query: { focus: 'schedule', tab: 'my_schedule' } });
+    router.push(`/${slug}/my-schedule`).catch(() => {});
   } else {
-    router.push({ path: '/dashboard', query: { focus: 'schedule', tab: 'my_schedule' } });
+    router.push('/my-schedule').catch(() => {});
   }
 }
 

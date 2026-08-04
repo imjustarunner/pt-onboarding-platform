@@ -333,8 +333,8 @@ function dismissHostEndedBanner() {
 function navigateAway() {
   const slug = organizationSlug.value;
   if (authStore.isAuthenticated) {
-    if (slug) router.push({ path: `/${slug}/dashboard`, query: { focus: 'schedule', tab: 'my_schedule' } });
-    else router.push({ path: '/dashboard', query: { focus: 'schedule', tab: 'my_schedule' } });
+    if (slug) router.push(`/${slug}/my-schedule`).catch(() => {});
+    else router.push('/my-schedule').catch(() => {});
     return;
   }
   error.value = 'You left the session. Use Rejoin below if the room is still open.';
