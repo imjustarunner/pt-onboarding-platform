@@ -44,6 +44,7 @@
       @audio-map-change="$emit('audio-map-change', $event)"
       @reaction="$emit('reaction', $event)"
       @transcript-control="$emit('transcript-control', $event)"
+      @cohost-granted="$emit('cohost-granted', $event)"
       @participant-left="$emit('participant-left', $event)"
     >
       <template #extra-controls>
@@ -116,6 +117,7 @@ defineEmits([
   'audio-map-change',
   'reaction',
   'transcript-control',
+  'cohost-granted',
   'participant-left'
 ]);
 
@@ -177,6 +179,7 @@ defineExpose({
   toggleRaiseHand: (...args) => videoRoomRef.value?.toggleRaiseHand?.(...args),
   sendReaction: (...args) => videoRoomRef.value?.sendReaction?.(...args),
   signalTranscriptControl: (...args) => videoRoomRef.value?.signalTranscriptControl?.(...args),
+  signalCohostGrant: (...args) => videoRoomRef.value?.signalCohostGrant?.(...args),
   disconnect: (...args) => videoRoomRef.value?.disconnect?.(...args),
   muteAllExcept: (...args) => videoRoomRef.value?.muteAllExcept?.(...args),
   get remotes() { return videoRoomRef.value?.remotes || []; },

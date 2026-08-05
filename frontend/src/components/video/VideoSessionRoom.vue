@@ -546,7 +546,8 @@ const emit = defineEmits([
   'hands-map-change',
   'audio-map-change',
   'reaction',
-  'transcript-control'
+  'transcript-control',
+  'cohost-granted'
 ]);
 
 const localMediaStageEl = ref(null);
@@ -2084,6 +2085,16 @@ async function connect() {
       emit('transcript-control', payload);
     });
 
+    session.on('signal:cohost_grant', (event) => {
+      // Received by everyone; only act if it targets this connection.
+      let payload = {};
+      try { payload = event?.data ? JSON.parse(event.data) : {}; } catch { /* ignore */ }
+      const myConnId = session?.connection?.connectionId;
+      if (payload.connectionId && myConnId && payload.connectionId === myConnId) {
+        emit('cohost-granted', { name: payload.name });
+      }
+    });
+
     await new Promise((resolve, reject) => {
       session.connect(props.token, (err) => (err ? reject(err) : resolve()));
     });
@@ -2606,6 +2617,10 @@ function signalTranscriptControl(payload) {
   return sendSessionSignal('transcript_control', payload || {});
 }
 
+function signalCohostGrant(connectionId, name) {
+  return sendSessionSignal('cohost_grant', { connectionId, name });
+}
+
 defineExpose({
   connect,
   disconnect,
@@ -2615,6 +2630,7 @@ defineExpose({
   toggleRaiseHand,
   sendReaction,
   signalTranscriptControl,
+  signalCohostGrant,
   sendSessionSignal,
   publishAudio,
   publishVideo,

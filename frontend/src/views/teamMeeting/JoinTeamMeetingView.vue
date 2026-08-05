@@ -53,13 +53,22 @@
         </div>
         <div class="join-header__right">
           <button
-            v-if="showEnableTrackingButton"
+            v-if="showEnableAttendanceButton"
             type="button"
             class="btn btn-primary btn-sm"
             :disabled="enablingTracking"
             @click="enableAttendanceTracking"
           >
-            {{ enablingTracking ? 'Enabling…' : 'Enable transcription & attendance' }}
+            {{ enablingTracking ? 'Enabling…' : 'Enable attendance' }}
+          </button>
+          <button
+            v-if="showEnableTranscriptionButton"
+            type="button"
+            class="btn btn-primary btn-sm"
+            :disabled="enablingTranscription"
+            @click="enableTranscription"
+          >
+            {{ enablingTranscription ? 'Starting…' : 'Enable transcription' }}
           </button>
           <span v-if="enableTrackingError" class="join-tracking-error">{{ enableTrackingError }}</span>
           <button
@@ -78,7 +87,52 @@
               <button type="button" class="join-tools__item" @click="openAddAttendeeModal">
                 Add someone to this meeting
               </button>
+              <button
+                v-if="isHost"
+                type="button"
+                class="join-tools__item"
+                @click="participantsPanelOpen = !participantsPanelOpen; toolsOpen = false"
+              >
+                Participants &amp; co-host
+              </button>
             </div>
+
+          <!-- Participants / co-host panel -->
+          <div v-if="isHost && participantsPanelOpen" class="join-participants-panel">
+            <div class="join-participants-panel__head">
+              <span class="join-participants-panel__title">Participants</span>
+              <button
+                type="button"
+                class="join-participants-panel__close"
+                @click="participantsPanelOpen = false"
+                aria-label="Close"
+              >×</button>
+            </div>
+            <div class="join-participants-panel__body">
+              <div v-if="!videoRoomRef?.remotes?.length" class="join-participants-panel__empty">
+                No other participants yet.
+              </div>
+              <div
+                v-for="remote in (videoRoomRef?.remotes || [])"
+                :key="remote.connectionId || remote.streamId"
+                class="join-participants-panel__row"
+              >
+                <span class="join-participants-panel__name">{{ cleanRemoteName(remote.name) }}</span>
+                <span
+                  v-if="coHostedConnectionIds.has(remote.connectionId)"
+                  class="join-participants-panel__badge"
+                >Co-host</span>
+                <button
+                  v-else
+                  type="button"
+                  class="join-participants-panel__cohost-btn"
+                  @click="makeCoHost(remote)"
+                >
+                  Make co-host
+                </button>
+              </div>
+            </div>
+          </div>
           </div>
           <span
             v-if="isHost && waitingLobbyCount > 0"
@@ -168,6 +222,7 @@
               @hands-map-change="onHandsMapChange"
               @audio-map-change="onAudioMapChange"
               @transcript-control="onRemoteTranscriptControl"
+              @cohost-granted="onCohostGranted"
               @participant-left="onParticipantLeft"
               @activity-notice-click="onFullscreenActivityClick"
             />
@@ -443,6 +498,14 @@ const meetingKind = ref('TEAM_MEETING');
 const attendanceTrackingEnabled = ref(false);
 const enablingTracking = ref(false);
 const enableTrackingError = ref('');
+/** True once the host has explicitly started transcription for a general meeting. */
+const transcriptionExplicitlyEnabled = ref(false);
+const enablingTranscription = ref(false);
+/** Co-host: elevated by host signal during this session. */
+const isCoHostBySignal = ref(false);
+/** connectionIds the host has granted co-host this session. */
+const coHostedConnectionIds = ref(new Set());
+const participantsPanelOpen = ref(false);
 const meetingCompletedAt = ref(null);
 const meetingClosedByName = ref('');
 const roomName = ref('');
@@ -519,6 +582,13 @@ const isAttendanceTrackingActive = computed(() => {
   return attendanceTrackingEnabled.value;
 });
 
+/** General meetings need the host to opt-in to transcription separately. */
+const isAutoTranscriptKind = computed(() => {
+  const kind = String(meetingKind.value || '').toUpperCase();
+  const subtype = String(meetingSubtype.value || '').toLowerCase();
+  return kind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall';
+});
+
 const transcriptEnabled = computed(() => (
   videoConnected.value
   && !!token.value
@@ -526,6 +596,7 @@ const transcriptEnabled = computed(() => (
   && !!Number(resolvedEventId.value || 0)
   && !intentionalLeave.value
   && isAttendanceTrackingActive.value
+  && (isAutoTranscriptKind.value || transcriptionExplicitlyEnabled.value)
 ));
 
 const {
@@ -630,13 +701,27 @@ const showTranscriptionNotice = computed(() => (
   && (transcriptCapturing.value || videoConnected.value)
 ));
 
-const showEnableTrackingButton = computed(() => (
+const isGeneralTeamMeeting = computed(() => (
+  String(meetingKind.value || '').toUpperCase() === 'TEAM_MEETING'
+  && String(meetingSubtype.value || 'general').toLowerCase() === 'general'
+));
+
+const showEnableAttendanceButton = computed(() => (
   isHost.value
   && !isInLobby.value
   && !!token.value
-  && String(meetingKind.value || '').toUpperCase() === 'TEAM_MEETING'
-  && String(meetingSubtype.value || 'general').toLowerCase() === 'general'
+  && isGeneralTeamMeeting.value
   && !attendanceTrackingEnabled.value
+  && !meetingCompletedAt.value
+));
+
+const showEnableTranscriptionButton = computed(() => (
+  isHost.value
+  && !isInLobby.value
+  && !!token.value
+  && isGeneralTeamMeeting.value
+  && attendanceTrackingEnabled.value
+  && !transcriptionExplicitlyEnabled.value
   && !meetingCompletedAt.value
 ));
 
@@ -653,7 +738,7 @@ const MUTE_PARTICIPANT_ROLES = new Set([
 ]);
 
 const canMuteParticipants = computed(() => (
-  isHost.value || MUTE_PARTICIPANT_ROLES.has(actorRole.value)
+  isHost.value || isCoHostBySignal.value || MUTE_PARTICIPANT_ROLES.has(actorRole.value)
 ));
 
 /** Who may invite/add people mid-meeting — host, admin, support, or super admin. */
@@ -1198,16 +1283,52 @@ async function enableAttendanceTracking() {
     const { data } = await api.post(`/team-meetings/${encodeURIComponent(eid)}/enable-attendance-tracking`);
     applyAttendanceTrackingStatus(!!data?.attendanceTrackingEnabled);
     await attendancePanelRef.value?.load?.();
+    // Attendance only — transcription requires a separate opt-in for general meetings.
+  } catch (e) {
+    enableTrackingError.value = e?.response?.data?.error?.message || 'Could not enable attendance tracking.';
+  } finally {
+    enablingTracking.value = false;
+  }
+}
+
+async function enableTranscription() {
+  const eid = Number(resolvedEventId.value || 0);
+  if (!eid || !isHost.value) return;
+  enablingTranscription.value = true;
+  enableTrackingError.value = '';
+  try {
+    if (!attendanceTrackingEnabled.value) {
+      const { data } = await api.post(`/team-meetings/${encodeURIComponent(eid)}/enable-attendance-tracking`);
+      applyAttendanceTrackingStatus(!!data?.attendanceTrackingEnabled);
+      await attendancePanelRef.value?.load?.();
+    }
+    transcriptionExplicitlyEnabled.value = true;
     videoRoomRef.value?.signalTranscriptControl?.({
       action: 'start',
       byName: localDisplayName.value || 'Host',
       startedAt: new Date().toISOString()
     });
   } catch (e) {
-    enableTrackingError.value = e?.response?.data?.error?.message || 'Could not enable transcription and attendance.';
+    enableTrackingError.value = e?.response?.data?.error?.message || 'Could not enable transcription.';
   } finally {
-    enablingTracking.value = false;
+    enablingTranscription.value = false;
   }
+}
+
+async function makeCoHost(remote) {
+  if (!isHost.value || !remote?.connectionId) return;
+  const name = cleanRemoteName(remote.name);
+  coHostedConnectionIds.value = new Set([...coHostedConnectionIds.value, remote.connectionId]);
+  videoRoomRef.value?.signalCohostGrant?.(remote.connectionId, name);
+}
+
+function cleanRemoteName(raw) {
+  const parts = String(raw || '').trim().split('·').map((p) => p.trim()).filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : String(raw || '').trim();
+}
+
+function onCohostGranted() {
+  isCoHostBySignal.value = true;
 }
 
 async function onTranscriptPause() {
@@ -1719,6 +1840,98 @@ onUnmounted(() => {
   color: #0f172a;
 }
 .join-tools__item:hover { background: #f1f5f9; }
+
+/* Participants / co-host panel */
+.join-participants-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 100;
+  width: 260px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+}
+.join-participants-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.join-participants-panel__title {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
+}
+.join-participants-panel__close {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  cursor: pointer;
+  color: #64748b;
+  line-height: 1;
+  padding: 0 2px;
+}
+.join-participants-panel__body {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+.join-participants-panel__empty {
+  font-size: 12px;
+  color: #94a3b8;
+  padding: 10px 14px;
+}
+.join-participants-panel__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 14px;
+}
+.join-participants-panel__row:hover {
+  background: #f8fafc;
+}
+.join-participants-panel__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.join-participants-panel__badge {
+  font-size: 10px;
+  font-weight: 800;
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #86efac;
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.join-participants-panel__cohost-btn {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #334155;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.join-participants-panel__cohost-btn:hover {
+  border-color: #22c55e;
+  color: #166534;
+  background: #f0fdf4;
+}
+
 .join-hand-chip {
   font-size: 0.78rem;
   font-weight: 700;
