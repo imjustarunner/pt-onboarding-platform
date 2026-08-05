@@ -2,26 +2,26 @@
   <div class="map" :class="{ 'map--dark': dark }" data-testid="meeting-attendance-panel">
     <div class="map__head">
       <h4>
-        {{ trackingEnabled ? 'Attendance' : 'Participants' }}
-        <span v-if="presentCount" class="map__present" title="In room now">{{ presentCount }} in room</span>
+        {{ trackingEnabled ? t('Attendance', lang) : t('Participants', lang) }}
+        <span v-if="presentCount" class="map__present" title="In room now">{{ presentCount }} {{ t('In room', lang) }}</span>
         <span v-if="raisedHands" class="map__hands" title="Hands raised">✋ {{ raisedHands }}</span>
         <span v-if="mutedCount" class="map__muted-summary" title="Muted participants">🔇 {{ mutedCount }}</span>
       </h4>
       <div class="map__actions">
         <button type="button" class="btn btn-secondary btn-sm" :disabled="!copyNames" @click="copy(copyNames)">
-          Copy names
+          {{ t('Copy names', lang) }}
         </button>
         <button v-if="trackingEnabled" type="button" class="btn btn-secondary btn-sm" :disabled="!copyWithTime" @click="copy(copyWithTime)">
-          Copy with time
+          {{ t('Copy with time', lang) }}
         </button>
-        <button type="button" class="btn btn-ghost btn-sm" :disabled="loading" @click="load">Refresh</button>
+        <button type="button" class="btn btn-ghost btn-sm" :disabled="loading" @click="load">{{ t('Refresh', lang) }}</button>
       </div>
     </div>
     <p v-if="meetingCompletedAt" class="muted map__meta">
-      Session completed {{ formatWhen(meetingCompletedAt) }}
+      {{ t('Session completed', lang) }} {{ formatWhen(meetingCompletedAt) }}
     </p>
     <p v-if="!trackingEnabled" class="map__live-only" role="status">
-      Live participant list only — attendance time is not being tracked for this meeting.
+      {{ t('Live participant list only — attendance time is not being tracked for this meeting.', lang) }}
     </p>
     <p v-if="error" class="error">{{ error }}</p>
     <p v-else-if="loading" class="muted">Loading {{ trackingEnabled ? 'attendance' : 'participants' }}…</p>
@@ -33,12 +33,12 @@
         >
           <span class="map__name">
             {{ p.name }}
-            <span v-if="p.isHost" class="map__host">Host</span>
-            <span v-else-if="p.isRequired === false" class="map__optional">Optional</span>
-            <span v-else class="map__required">Mandatory</span>
+            <span v-if="p.isHost" class="map__host">{{ t('Host', lang) }}</span>
+            <span v-else-if="p.isRequired === false" class="map__optional">{{ t('Optional', lang) }}</span>
+            <span v-else class="map__required">{{ t('Mandatory', lang) }}</span>
             <span v-if="participantHasRaisedHand(p)" class="map__hand-hint" title="Hand raised">✋</span>
-            <span v-if="participantIsMuted(p)" class="map__mute-hint" title="Muted">Muted</span>
-            <span class="map__status map__status--active">In room</span>
+            <span v-if="participantIsMuted(p)" class="map__mute-hint" title="Muted">{{ t('Muted', lang) }}</span>
+            <span class="map__status map__status--active">{{ t('In room', lang) }}</span>
           </span>
           <span v-if="trackingEnabled" class="map__mins">
             {{ formatMins(p.totalMinutes) }}
@@ -92,8 +92,10 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue';
 import api from '../../services/api';
+import { t, useMeetingLang } from '../../composables/useMeetingI18n.js';
 
 const emit = defineEmits(['tracking-status']);
+const lang = useMeetingLang();
 const showAbsent = ref(false);
 
 const props = defineProps({

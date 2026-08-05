@@ -20,7 +20,7 @@
         title="Chat, polls & Q&A"
         @click="openPanel"
       >
-        {{ panelOpen ? 'Hide chat' : 'Chat & polls' }}
+        {{ panelOpen ? t('Hide chat', lang) : t('Chat & polls', lang) }}
         <span v-if="totalUnread > 0" class="mlap__badge">{{ totalUnread }}</span>
       </button>
       <button
@@ -42,15 +42,15 @@
     <div v-if="panelOpen" class="mlap__panel">
       <div class="mlap__tabs">
         <button type="button" class="mlap__tab" :class="{ on: tab === 'chat' }" @click="setTab('chat')">
-          Chat
+          {{ t('Chat', lang) }}
           <span v-if="unread.chat > 0" class="mlap__tab-badge">{{ unread.chat }}</span>
         </button>
         <button type="button" class="mlap__tab" :class="{ on: tab === 'polls' }" @click="setTab('polls')">
-          Polls
+          {{ t('Polls', lang) }}
           <span v-if="unread.polls > 0" class="mlap__tab-badge">{{ unread.polls }}</span>
         </button>
         <button type="button" class="mlap__tab" :class="{ on: tab === 'qa' }" @click="setTab('qa')">
-          Q&amp;A
+          {{ t('Q&A', lang) }}
           <span v-if="unread.qa > 0" class="mlap__tab-badge">{{ unread.qa }}</span>
         </button>
       </div>
@@ -59,7 +59,7 @@
 
       <div v-if="tab === 'chat'" class="mlap__body">
         <div ref="chatMessagesEl" class="mlap__messages">
-          <div v-if="!chatMessages.length" class="mlap__empty">No messages yet. Say hello.</div>
+          <div v-if="!chatMessages.length" class="mlap__empty">{{ t('No messages yet. Say hello.', lang) }}</div>
           <div
             v-for="m in chatMessages"
             :key="m.id"
@@ -69,7 +69,7 @@
           >
             <span class="mlap__sender" :style="{ color: m.color }">{{ m.senderLabel }}</span>
             <img v-if="m.imageUrl" :src="m.imageUrl" alt="" class="mlap__img" />
-            <span v-if="m.text" class="mlap__text">{{ m.text }}</span>
+            <span v-if="m.text" class="mlap__text" :title="lang === 'es' && displayText(m.text) !== m.text ? m.text : undefined">{{ displayText(m.text) }}</span>
           </div>
         </div>
         <div v-if="emojiOpen" class="mlap__emoji-tray">
@@ -91,12 +91,12 @@
             v-model="chatInput"
             type="text"
             class="mlap__input"
-            placeholder="Type a message…"
+            :placeholder="t('Type a message…', lang)"
             maxlength="2000"
             :disabled="sending"
           />
-          <button type="submit" class="btn btn-primary btn-sm" :disabled="sending || (!chatInput.trim() && !pendingImageUrl)">
-            Send
+          <button type="submit" class="btn btn-primary btn-sm"             :disabled="sending || (!chatInput.trim() && !pendingImageUrl)">
+            {{ t('Send', lang) }}
           </button>
         </form>
         <p v-if="pendingImageUrl" class="mlap__pending-img">
@@ -126,7 +126,7 @@
         </div>
         <div class="mlap__messages">
           <div v-if="!polls.length" class="mlap__empty">
-            {{ canCreatePolls ? 'No polls yet. Create one above.' : 'No polls yet.' }}
+            {{ canCreatePolls ? t('No polls yet. Create one above.', lang) : t('No polls yet.', lang) }}
           </div>
           <div v-for="p in polls" :key="p.id" class="mlap__poll">
             <div class="mlap__poll-q">{{ p.question || 'Poll' }}</div>
@@ -150,7 +150,7 @@
 
       <div v-else class="mlap__body">
         <div class="mlap__messages">
-          <div v-if="!qaItems.length" class="mlap__empty">No questions yet.</div>
+          <div v-if="!qaItems.length" class="mlap__empty">{{ t('No questions yet.', lang) }}</div>
           <div v-for="q in qaItems" :key="q.id" class="mlap__qa">
             <div class="mlap__qa-head">
               <strong>Q:</strong> {{ q.text }}
@@ -246,6 +246,7 @@
 import { ref, watch, onMounted, onUnmounted, nextTick, computed, reactive } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { t, useMeetingLang, batchTranslateMessages } from '../../composables/useMeetingI18n.js';
 
 /** Non-provider staff (and host via isHost) may create polls. Providers vote only. */
 const POLL_CREATE_ROLES = new Set([
@@ -286,9 +287,13 @@ const props = defineProps({
 
 const emit = defineEmits(['update:open', 'activity-notice']);
 const authStore = useAuthStore();
+const lang = useMeetingLang();
 const panelOpen = ref(!!props.startOpen);
 /** s | m | l — only meaningful for the full-width below-video bar. */
 const panelSize = ref('m');
+/** Cache: original text → translated text. Populated when lang switches to 'es'. */
+const translationCache = new Map();
+let translating = false;
 const tab = ref('chat');
 const loading = ref(false);
 const sending = ref(false);
@@ -440,14 +445,16 @@ function applyActivity(a) {
   const isOwn = !!(ownIdentity.value && String(a?.participantIdentity || '') === ownIdentity.value);
 
   if (type === 'chat') {
+    const msgText = payload.text || '';
     chatMessages.value.push({
       id: key || `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      text: payload.text || '',
+      text: msgText,
       imageUrl: payload.imageUrl || payload.image_url || '',
       senderLabel: senderLabel(a.participantIdentity, payload),
       color: colorForIdentity(a.participantIdentity),
       isOwn
     });
+    if (msgText) void translateNewMessage(msgText);
     return { kind: 'chat', isNew: !isOwn };
   }
   if (type === 'poll') {
@@ -855,6 +862,47 @@ watch(
 watch(() => props.startOpen, (v) => {
   panelOpen.value = !!v;
 });
+
+/**
+ * When the language switches to Spanish, batch-translate all current chat
+ * messages and cache the results so new messages are translated as they arrive.
+ */
+async function applyLangToMessages(newLang) {
+  if (newLang !== 'es') return;
+  if (translating) return;
+  translating = true;
+  try {
+    const untranslated = chatMessages.value
+      .map((m) => m.text)
+      .filter((text) => text && !translationCache.has(text));
+    if (untranslated.length) {
+      const map = await batchTranslateMessages(untranslated, 'es');
+      for (const [orig, translated] of Object.entries(map)) {
+        translationCache.set(orig, translated);
+      }
+    }
+  } finally {
+    translating = false;
+  }
+}
+
+watch(lang, (newLang) => { void applyLangToMessages(newLang); });
+
+/** Returns the display text for a message, respecting current lang. */
+function displayText(text) {
+  if (!text) return text;
+  if (lang.value !== 'es') return text;
+  return translationCache.get(text) || text;
+}
+
+/** Translates a single newly-arrived message in the background (when lang is already 'es'). */
+async function translateNewMessage(text) {
+  if (!text || lang.value !== 'es' || translationCache.has(text)) return;
+  const map = await batchTranslateMessages([text], 'es');
+  for (const [orig, translated] of Object.entries(map)) {
+    translationCache.set(orig, translated);
+  }
+}
 
 onMounted(() => {
   panelOpen.value = !!props.startOpen;

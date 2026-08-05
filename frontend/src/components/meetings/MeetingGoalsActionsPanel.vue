@@ -7,15 +7,15 @@
     <p v-if="!eventId && !sessionId" class="muted mgap__hint">
       Save the meeting first, then you can add goals and action items.
     </p>
-    <p v-else-if="loading && !hasLoaded" class="muted">Loading goals and action items…</p>
+    <p v-else-if="loading && !hasLoaded" class="muted">{{ t('Loading goals and action items…', lang) }}</p>
     <p v-else-if="error && !hasLoaded" class="error">{{ error }}</p>
 
     <template v-if="(eventId || sessionId) && (hasLoaded || !loading)">
       <section v-if="section === 'goals' || section === 'both'" class="mgap__section">
         <div class="mgap__head">
-          <h3>Goals</h3>
+          <h3>{{ t('Goals', lang) }}</h3>
           <button type="button" class="mw-link-btn" :disabled="disabled" @click="addGoal">
-            + Add goal
+            {{ t('+ Add goal', lang) }}
           </button>
         </div>
         <ol class="mgap__list">
@@ -71,16 +71,16 @@
               </template>
             </div>
           </li>
-          <li v-if="!goals.length" class="mgap__empty muted">No goals yet.</li>
+          <li v-if="!goals.length" class="mgap__empty muted">{{ t('No goals yet.', lang) }}</li>
         </ol>
-        <p v-if="live && section === 'goals'" class="mgap__live-hint muted">Live — updates for everyone</p>
+        <p v-if="live && section === 'goals'" class="mgap__live-hint muted">{{ t('Live — updates for everyone', lang) }}</p>
       </section>
 
       <section v-if="section === 'actions' || section === 'both'" class="mgap__section">
         <div class="mgap__head">
-          <h3>Action items</h3>
+          <h3>{{ t('Action Items', lang) }}</h3>
           <button type="button" class="mw-link-btn" :disabled="disabled" @click="addAction">
-            + Add action
+            {{ t('+ Add action', lang) }}
           </button>
         </div>
         <ol class="mgap__list mgap__list--actions">
@@ -174,9 +174,9 @@
               </template>
             </div>
           </li>
-          <li v-if="!actionItems.length" class="mgap__empty muted">No action items yet.</li>
+          <li v-if="!actionItems.length" class="mgap__empty muted">{{ t('No action items yet.', lang) }}</li>
         </ol>
-        <p v-if="live" class="mgap__live-hint muted">Live — updates for everyone</p>
+        <p v-if="live" class="mgap__live-hint muted">{{ t('Live — updates for everyone', lang) }}</p>
       </section>
 
       <div v-if="saveStatus || error" class="mgap__status" :class="`mgap__status--${saveStatus || 'error'}`" aria-live="polite">
@@ -215,6 +215,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import { t, useMeetingLang } from '../../composables/useMeetingI18n.js';
 
 const props = defineProps({
   eventId: { type: [Number, String], default: 0 },
@@ -236,6 +237,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['saved', 'escalated']);
+const lang = useMeetingLang();
 
 const goals = ref([]);
 const actionItems = ref([]);

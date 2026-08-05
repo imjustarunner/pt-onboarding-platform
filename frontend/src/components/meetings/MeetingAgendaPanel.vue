@@ -11,16 +11,16 @@
     <div v-if="!embedded" class="agenda-header">
       <h3 class="agenda-title">Agenda for {{ meeting?.title || 'Meeting' }}</h3>
       <span v-if="meeting?.start_at" class="agenda-date">{{ formatMeetingDate(meeting.start_at) }}</span>
-      <span v-if="live" class="agenda-live">Live — updates for everyone</span>
+      <span v-if="live" class="agenda-live">{{ t('Live — updates for everyone', lang) }}</span>
       <button type="button" class="btn-close" aria-label="Close" @click="$emit('close')">×</button>
     </div>
 
-    <div v-if="loading && !hasLoaded" class="agenda-loading">Loading agenda…</div>
+    <div v-if="loading && !hasLoaded" class="agenda-loading">{{ t('Loading agenda…', lang) }}</div>
     <div v-else-if="error && !hasLoaded" class="agenda-error">{{ error }}</div>
     <template v-else-if="hasLoaded || !loading">
       <section class="agenda-section">
         <div class="agenda-section-head">
-          <h3>{{ embedded ? 'Agenda' : 'Agenda items' }}</h3>
+          <h3>{{ embedded ? t('Agenda', lang) : t('Agenda items', lang) }}</h3>
           <div class="agenda-section-actions">
             <button
               v-if="compact && canAddItem"
@@ -29,7 +29,7 @@
               :class="{ 'mw-pill-btn--on': statusMode }"
               @click="statusMode = !statusMode"
             >
-              Status
+              {{ t('Status', lang) }}
             </button>
             <button
               v-if="canAddItem"
@@ -38,7 +38,7 @@
               :disabled="adding"
               @click="startAdd"
             >
-              + Add item
+              {{ t('+ Add item', lang) }}
             </button>
           </div>
         </div>
@@ -194,9 +194,9 @@
               </template>
             </div>
           </li>
-          <li v-if="!items.length" class="agenda-empty muted">No agenda items yet.</li>
+          <li v-if="!items.length" class="agenda-empty muted">{{ t('No agenda items yet.', lang) }}</li>
         </ol>
-        <p v-if="live" class="agenda-live-hint muted">Live — updates for everyone</p>
+        <p v-if="live" class="agenda-live-hint muted">{{ t('Live — updates for everyone', lang) }}</p>
       </section>
     </template>
   </div>
@@ -205,6 +205,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import { t, useMeetingLang } from '../../composables/useMeetingI18n.js';
 
 const props = defineProps({
   meetingType: { type: String, required: true },
@@ -224,6 +225,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close', 'updated']);
+const lang = useMeetingLang();
 
 const compact = computed(() => (
   props.compact != null ? !!props.compact : !!props.embedded

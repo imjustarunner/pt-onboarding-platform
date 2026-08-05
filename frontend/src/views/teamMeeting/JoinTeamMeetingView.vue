@@ -265,6 +265,21 @@
               />
             </section>
           </div>
+          <div class="join-lang-row">
+            <span class="join-lang-label">{{ t('Language', meetingLang) }}</span>
+            <button
+              type="button"
+              class="join-lang-btn"
+              :class="{ active: meetingLang === 'en' }"
+              @click="meetingLang = 'en'"
+            >English</button>
+            <button
+              type="button"
+              class="join-lang-btn"
+              :class="{ active: meetingLang === 'es' }"
+              @click="meetingLang = 'es'"
+            >Español</button>
+          </div>
         </aside>
       </div>
     </template>
@@ -345,7 +360,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, provide } from 'vue';
+import { t } from '../../composables/useMeetingI18n.js';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/activityTracker';
@@ -387,6 +403,9 @@ const eventId = computed(() => route.params.eventId);
 const organizationSlug = computed(() => route.params.organizationSlug);
 /** Dedicated portal hosts (app.itsco.health) strip /{slug} from the path in the router. */
 const hostPortalSlug = computed(() => resolveHostImpliedPortalSlug());
+
+const meetingLang = ref('en');
+provide('meetingLang', meetingLang);
 
 const resolving = ref(false);
 const error = ref('');
@@ -2051,5 +2070,36 @@ onUnmounted(() => {
 }
 :global([data-theme="dark"]) .join-add-attendee-list {
   border-top-color: rgba(255,255,255,0.12);
+}
+
+/* Language toggle row — sits at the bottom of the workspace panel */
+.join-lang-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px 10px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
+.join-lang-label {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-right: 2px;
+}
+.join-lang-btn {
+  background: transparent;
+  border: 1px solid rgba(148,163,184,0.3);
+  border-radius: 4px;
+  color: #94a3b8;
+  font-size: 12px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.join-lang-btn:hover { background: rgba(255,255,255,0.06); color: #e2e8f0; }
+.join-lang-btn.active {
+  background: rgba(59,130,246,0.18);
+  border-color: #3b82f6;
+  color: #93c5fd;
 }
 </style>
