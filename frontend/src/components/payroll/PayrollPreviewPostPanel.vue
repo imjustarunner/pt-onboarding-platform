@@ -104,11 +104,18 @@
               </thead>
               <tbody>
                 <tr v-for="l in serviceLines" :key="l.code">
-                  <td>{{ l.code }}</td>
+                  <td>
+                    {{ l.code }}
+                    <span
+                      v-if="l.supervisionTrackingOnly"
+                      class="ppp-badge ppp-badge--tracking"
+                      title="Hours earned toward licensure — not counted toward PTO or pay"
+                    >Credits Earned</span>
+                  </td>
                   <td class="right muted">{{ fmtNum(l.noNoteUnits) }}</td>
                   <td class="right muted">{{ fmtNum(l.draftUnits) }}</td>
                   <td class="right">{{ fmtNum(l.finalizedUnits ?? l.units) }}</td>
-                  <td class="right muted">{{ fmtNum(l.hours ?? l.creditsHours) }}</td>
+                  <td class="right muted">{{ fmtNum(l.supervisionTrackingHours ?? l.hours ?? l.creditsHours) }}</td>
                   <td class="right">{{ fmtMoney(l.amount) }}</td>
                 </tr>
               </tbody>
@@ -347,4 +354,11 @@ onMounted(reload);
   padding: 4px 0; font-size: 13px;
 }
 .ppp-note { margin-top: 8px; font-size: 13px; }
+.ppp-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 6px;
+  border-radius: 10px; font-size: 10px; font-weight: 700; vertical-align: middle;
+}
+.ppp-badge--tracking {
+  background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
+}
 </style>

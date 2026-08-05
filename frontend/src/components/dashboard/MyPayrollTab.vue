@@ -3107,7 +3107,11 @@ const payTotalsFromBreakdown = (breakdown) => {
   return out;
 };
 
-const expandedServiceLines = computed(() => splitBreakdownForDisplay(expanded.value?.breakdown || null));
+const expandedServiceLines = computed(() =>
+  splitBreakdownForDisplay(expanded.value?.breakdown || null).filter(
+    (l) => !l.supervisionTrackingOnly
+  )
+);
 
 const hourlyRateSummary = computed(() => {
   const b = expanded.value?.breakdown || null;

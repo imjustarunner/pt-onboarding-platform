@@ -279,7 +279,9 @@ const nextPeriod = computed(() => {
     : null;
 });
 
-const lines = computed(() => serviceLines(props.period?.breakdown));
+const lines = computed(() =>
+  serviceLines(props.period?.breakdown).filter((l) => !l.supervisionTrackingOnly)
+);
 
 const diTotals = computed(() => {
   const totals = payTotalsFromBreakdown(props.period?.breakdown);

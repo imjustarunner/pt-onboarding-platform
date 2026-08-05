@@ -70,6 +70,7 @@ export function serviceLines(breakdown) {
       hours: val?.hours ?? 0,
       rateAmount: val?.rateAmount ?? 0,
       amount: val?.amount ?? 0,
+      supervisionTrackingOnly: val?.supervisionTrackingOnly ?? false,
     }))
     .filter((l) => l.finalizedUnits > 0 || l.amount !== 0);
 }

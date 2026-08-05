@@ -6245,6 +6245,12 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       lateAdditionNotesTotal += lateAddNotes;
       subtotal += lineAmount;
 
+      // Prelicensed 99414/99416: display tracking hours to admins but exclude from
+      // PTO/ADP export/provider pay stubs.  Flag with supervisionTrackingOnly so
+      // downstream consumers can hide or skip accordingly.
+      const isSupervisionTrackingRow =
+        (codeKey === '99414' || codeKey === '99416') && isPrelicensedSupervisee;
+
       breakdown[code] = {
         units: finalizedUnits,
         noNoteUnits,
@@ -6276,9 +6282,11 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         lateAdditionClientPaidAmount: pctPay.usesPercentPay ? lateAdditionClientPaidAmount : null,
         codeChangedClientPaidAmount: pctPay.usesPercentPay ? codeChangedClientPaidAmount : null,
         amount: lineAmount,
-        // For now, "hours" represents Credits/Hours (credits treated as hours).
-        hours: creditsHours,
-        creditsHours,
+        // hours / creditsHours: zero for tracking-only rows so ADP CSV columns exclude them.
+        // supervisionTrackingHours holds the real earned minutes (admin display only).
+        hours: isSupervisionTrackingRow ? 0 : creditsHours,
+        creditsHours: isSupervisionTrackingRow ? 0 : creditsHours,
+        ...(isSupervisionTrackingRow ? { supervisionTrackingHours: creditsHours, supervisionTrackingOnly: true } : {}),
         payHours,
         rateSource
       };
