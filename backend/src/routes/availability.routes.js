@@ -25,6 +25,7 @@ import {
   unrequestAllMyAvailabilityRequests,
   listSchoolAvailabilityRequests,
   assignSchoolFromRequest,
+  approveScheduleAdjustmentFromRequest,
   listAvailableSkills,
   upsertAvailableSkill,
   deactivateAvailableSkill,
@@ -70,6 +71,7 @@ router.post('/admin/office-requests/:id/assign-temporary', assignTemporaryOffice
 router.post('/admin/office-requests/:id/deny', denyOfficeAvailabilityRequest);
 router.get('/admin/school-requests', listSchoolAvailabilityRequests);
 router.post('/admin/school-requests/:id/assign', assignSchoolFromRequest);
+router.post('/admin/school-requests/:id/approve-adjustment', approveScheduleAdjustmentFromRequest);
 router.post('/admin/school-requests/:id/deny', denySchoolAvailabilityRequest);
 
 router.get('/admin/skills', listAvailableSkills);

@@ -31,7 +31,11 @@ import {
 import { computeSkillBuilderProgramCreditMinutesPerWeek } from '../services/skillBuilderProgramCredit.service.js';
 import {
   parseSchoolRequestNotes,
-  scheduleAdjustmentHasChanges
+  scheduleAdjustmentHasChanges,
+  hoursChanged,
+  slotsChanged,
+  extractSlotTotal,
+  parseHoursRangeToTimes
 } from '../utils/schoolRequestNotes.util.js';
 
 function parseIntSafe(v) {
@@ -3580,6 +3584,208 @@ export const assignSchoolFromRequest = async (req, res, next) => {
         severity: 'info',
         title: 'School day request approved',
         message: `Your school availability request was approved for ${dayOfWeek}.`,
+        userId: providerUserId,
+        agencyId,
+        relatedEntityType: 'provider_school_availability_request',
+        relatedEntityId: requestId,
+        actorUserId: req.user.id
+      });
+    } catch { /* non-blocking */ }
+
+    res.json({ ok: true, providerSchoolAssignmentId: assignmentId });
+  } catch (e) {
+    if (conn) {
+      try { await conn.rollback(); } catch { /* ignore */ }
+    }
+    next(e);
+  } finally {
+    if (conn) conn.release();
+  }
+};
+
+export const approveScheduleAdjustmentFromRequest = async (req, res, next) => {
+  let conn = null;
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    if (!canManageAvailability(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const requestId = parseIntSafe(req.params.id);
+    if (!requestId) return res.status(400).json({ error: { message: 'Request ID is required' } });
+
+    const [reqRows] = await pool.execute(
+      `SELECT *
+       FROM provider_school_availability_requests
+       WHERE id = ? AND agency_id = ?
+       LIMIT 1`,
+      [requestId, agencyId]
+    );
+    const reqRow = reqRows?.[0] || null;
+    if (!reqRow) return res.status(404).json({ error: { message: 'Request not found' } });
+    if (String(reqRow.status || '').toUpperCase() !== 'PENDING') {
+      return res.status(409).json({ error: { message: 'Request is not pending' } });
+    }
+    if (String(reqRow.request_kind || 'additional_hours') !== 'schedule_adjustment') {
+      return res.status(400).json({
+        error: { message: 'Only schedule adjustment requests can be approved with this action' }
+      });
+    }
+
+    const parsedNotes = parseSchoolRequestNotes(reqRow.notes);
+    if (!scheduleAdjustmentHasChanges(parsedNotes)) {
+      return res.status(400).json({ error: { message: 'No schedule changes were detected on this request' } });
+    }
+
+    const [blockRows] = await pool.execute(
+      `SELECT day_of_week, start_time, end_time
+       FROM provider_school_availability_request_blocks
+       WHERE request_id = ?
+       LIMIT 10`,
+      [requestId]
+    );
+    const block = blockRows?.[0] || null;
+    const dayOfWeek = normalizeAnyDay(parsedNotes.day || block?.day_of_week);
+    if (!dayOfWeek) {
+      return res.status(400).json({ error: { message: 'Could not determine day of week for this adjustment' } });
+    }
+
+    let schoolOrganizationId = null;
+    try {
+      const ids = reqRow.preferred_school_org_ids_json ? JSON.parse(reqRow.preferred_school_org_ids_json) : [];
+      schoolOrganizationId = Number(ids[0]) || null;
+    } catch {
+      schoolOrganizationId = null;
+    }
+
+    if (!schoolOrganizationId && parsedNotes.school) {
+      const [schRows] = await pool.execute(
+        `SELECT o.id
+         FROM organization_affiliations oa
+         INNER JOIN agencies o ON o.id = oa.organization_id
+         WHERE oa.agency_id = ? AND oa.is_active = TRUE AND LOWER(o.name) = LOWER(?)
+         LIMIT 1`,
+        [agencyId, parsedNotes.school]
+      );
+      schoolOrganizationId = schRows?.[0]?.id ? Number(schRows[0].id) : null;
+    }
+
+    if (!schoolOrganizationId) {
+      return res.status(400).json({ error: { message: 'Could not determine school for this adjustment' } });
+    }
+
+    const [aff] = await pool.execute(
+      `SELECT id
+       FROM organization_affiliations
+       WHERE agency_id = ? AND organization_id = ? AND is_active = TRUE
+       LIMIT 1`,
+      [agencyId, schoolOrganizationId]
+    );
+    if (!aff?.[0] && req.user?.role !== 'super_admin') {
+      return res.status(400).json({ error: { message: 'School is not linked to this agency' } });
+    }
+
+    const providerUserId = Number(reqRow.provider_id);
+    const [existing] = await pool.execute(
+      `SELECT id, slots_total, slots_available, start_time, end_time
+       FROM provider_school_assignments
+       WHERE provider_user_id = ? AND school_organization_id = ? AND day_of_week = ?
+       LIMIT 1`,
+      [providerUserId, schoolOrganizationId, dayOfWeek]
+    );
+    if (!existing?.[0]) {
+      return res.status(400).json({
+        error: {
+          message: `No existing school assignment found for ${dayOfWeek}. Create the assignment in Provider Management first.`
+        }
+      });
+    }
+
+    const wantHoursChange = hoursChanged(parsedNotes);
+    const wantSlotsChange = slotsChanged(parsedNotes);
+
+    let nextStart = existing[0].start_time;
+    let nextEnd = existing[0].end_time;
+    if (wantHoursChange) {
+      const blockStart = block?.start_time ? normalizeTimeHHMM(String(block.start_time).slice(0, 5)) : null;
+      const blockEnd = block?.end_time ? normalizeTimeHHMM(String(block.end_time).slice(0, 5)) : null;
+      if (blockStart && blockEnd) {
+        nextStart = blockStart;
+        nextEnd = blockEnd;
+      } else {
+        const { startTime, endTime } = parseHoursRangeToTimes(parsedNotes.requestedHours);
+        if (startTime && endTime) {
+          nextStart = startTime;
+          nextEnd = endTime;
+        } else {
+          return res.status(400).json({ error: { message: 'Could not parse requested hours for this adjustment' } });
+        }
+      }
+    }
+
+    let nextSlotsTotal = parseInt(existing[0].slots_total ?? 0, 10);
+    if (wantSlotsChange) {
+      const requested = extractSlotTotal(parsedNotes.requestedSlots);
+      if (requested == null) {
+        return res.status(400).json({ error: { message: 'Could not parse requested slot count for this adjustment' } });
+      }
+      nextSlotsTotal = requested;
+    }
+
+    const oldTotal = parseInt(existing[0].slots_total ?? 0, 10);
+    const oldAvail = parseInt(existing[0].slots_available ?? 0, 10);
+    const used = Math.max(0, oldTotal - oldAvail);
+    const nextSlotsAvailable = Math.max(0, nextSlotsTotal - used);
+    const assignmentId = existing[0].id;
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    await conn.execute(
+      `UPDATE provider_school_assignments
+       SET slots_total = ?, slots_available = ?, start_time = ?, end_time = ?, is_active = TRUE
+       WHERE id = ?`,
+      [nextSlotsTotal, nextSlotsAvailable, nextStart, nextEnd, assignmentId]
+    );
+
+    await syncSchoolPortalDayProvider({
+      executor: conn,
+      schoolId: schoolOrganizationId,
+      providerUserId,
+      weekday: dayOfWeek,
+      isActive: true,
+      actorUserId: req.user?.id
+    });
+    enqueueD11ComplianceEnsure(providerUserId, {
+      schoolOrganizationId,
+      actorUserId: req.user?.id,
+    });
+
+    await conn.execute(
+      `UPDATE provider_school_availability_requests
+       SET status = 'ASSIGNED',
+           resolved_school_organization_id = ?,
+           resolved_provider_school_assignment_id = ?,
+           resolved_at = NOW(),
+           resolved_by_user_id = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [schoolOrganizationId, assignmentId, req.user.id, requestId]
+    );
+
+    await conn.commit();
+
+    try {
+      await Notification.markAllAsResolvedForFilter(agencyId, {
+        relatedEntityType: 'provider_school_availability_request',
+        relatedEntityId: requestId
+      });
+    } catch { /* non-blocking */ }
+    try {
+      await Notification.create({
+        type: 'school_availability_request_approved',
+        severity: 'info',
+        title: 'Schedule adjustment approved',
+        message: `Your schedule adjustment for ${dayOfWeek} was approved.`,
         userId: providerUserId,
         agencyId,
         relatedEntityType: 'provider_school_availability_request',

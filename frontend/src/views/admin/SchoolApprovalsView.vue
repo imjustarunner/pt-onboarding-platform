@@ -110,7 +110,10 @@
                 </button>
               </template>
               <template v-else>
-                <router-link class="btn btn-primary" :to="providerManagementTo">Open Provider Management</router-link>
+                <button type="button" class="btn btn-primary" :disabled="saving" @click="approveAdjustment">
+                  {{ saving ? 'Working…' : 'Approve' }}
+                </button>
+                <router-link class="btn btn-secondary" :to="providerManagementTo">Open Provider Management</router-link>
                 <button type="button" class="btn btn-secondary" :disabled="saving" @click="denySelected">
                   Dismiss
                 </button>
@@ -185,7 +188,7 @@
           </p>
 
           <p v-if="tab === 'adjustments'" class="sa-hint">
-            Apply the approved times/slots in Provider Management for this provider, then dismiss this request.
+            Approve applies the requested hours and slots to this provider's existing school assignment.
           </p>
         </div>
 
@@ -411,6 +414,22 @@ async function denySelected() {
     await refresh();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to dismiss request';
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function approveAdjustment() {
+  if (!selected.value) return;
+  saving.value = true;
+  error.value = '';
+  try {
+    await api.post(`/availability/admin/school-requests/${selected.value.id}/approve-adjustment`, {
+      agencyId: agencyId.value
+    });
+    await refresh();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Failed to approve adjustment';
   } finally {
     saving.value = false;
   }

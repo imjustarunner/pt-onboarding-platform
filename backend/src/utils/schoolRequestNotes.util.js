@@ -93,3 +93,31 @@ export function scheduleAdjustmentHasChanges(parsed) {
   if (hoursChanged(parsed)) return true;
   return false;
 }
+
+function parseAmPmTimeToHHMM(t) {
+  const s = String(t || '').trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) {
+    const m24 = s.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m24) return null;
+    return `${String(parseInt(m24[1], 10)).padStart(2, '0')}:${m24[2]}:00`;
+  }
+  let h = parseInt(m[1], 10);
+  const min = m[2];
+  const ampm = m[3].toUpperCase();
+  if (ampm === 'PM' && h < 12) h += 12;
+  if (ampm === 'AM' && h === 12) h = 0;
+  return `${String(h).padStart(2, '0')}:${min}:00`;
+}
+
+/** Parse display ranges like "10:00 AM–12:00 PM" into DB time strings. */
+export function parseHoursRangeToTimes(hoursText) {
+  const s = String(hoursText || '').trim();
+  if (!s || s === '—') return { startTime: null, endTime: null };
+  const parts = s.split(/[–-]/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 2) return { startTime: null, endTime: null };
+  return {
+    startTime: parseAmPmTimeToHHMM(parts[0]),
+    endTime: parseAmPmTimeToHHMM(parts[1])
+  };
+}
