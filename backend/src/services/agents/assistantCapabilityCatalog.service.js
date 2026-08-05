@@ -120,6 +120,26 @@ function parsePresencePersonQueryFromPrompt(promptLower) {
   return '';
 }
 
+/** "what is Halle doing right now" / "what has Sarah been doing today" */
+function parsePersonActivityQueryFromPrompt(promptLower) {
+  const s = String(promptLower || '').toLowerCase().trim();
+  if (!s) return '';
+  const skipName =
+    /^(i|we|you|he|she|they|it|my|your|our|the|this|that|everyone|anyone|anybody|something|nothing)$/;
+  const patterns = [
+    /\bwhat(?:'?s| is)\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)\s+doing\b/,
+    /\bwhat\s+has\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)\s+been\s+doing\b/
+  ];
+  for (const re of patterns) {
+    const m = s.match(re);
+    if (m?.[1]) {
+      const name = m[1].trim();
+      if (!skipName.test(name)) return name.slice(0, 80);
+    }
+  }
+  return '';
+}
+
 /**
  * Parse admin/payroll analytics questions into queryPayrollAnalytics args.
  * Returns null if the prompt is not a staff payroll analytics ask.
@@ -852,6 +872,7 @@ function catalogEntries() {
       ],
       matcher: (lower, allowedTools) => {
         if (!allowedTools.has('openTodaysWorkspace')) return false;
+        if (parsePersonActivityQueryFromPrompt(lower)) return false;
         if (allowedTools.has('navigateTo') && /\b(open|go to|take me to|navigate)\b/.test(lower)) {
           const routeName = resolveNavigateRouteNameFromPrompt(lower);
           if (['Schedule', 'MyPayroll', 'Credentials', 'MyCompensation', 'MyBenefits'].includes(routeName)) {
@@ -1043,6 +1064,43 @@ function catalogEntries() {
           capabilityId: 'people_directory_lookup',
           suppressUserAutoOpen: true,
           toolCalls: [{ name: 'searchUsers', args: { query, limit: 20 } }]
+        };
+      }
+    },
+    {
+      id: 'person_activity_lookup',
+      audience: ['admin_like'],
+      group: 'People / directory',
+      prompt: 'What is Sarah doing right now?',
+      requiredToolsAll: ['lookupPersonActivity'],
+      subtitleTag: 'person activity',
+      peopleBucket: true,
+      softRoute: false,
+      semanticExamples: [
+        'what is halle doing right now',
+        'what is sarah doing today',
+        'whats john doing right now and today',
+        'what has rachel been doing today',
+        'what is melissa doing right now'
+      ],
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('lookupPersonActivity')) return false;
+        return Boolean(parsePersonActivityQueryFromPrompt(lower));
+      },
+      buildIntent: (lower) => {
+        const name = parsePersonActivityQueryFromPrompt(lower);
+        if (!name) return null;
+        const dateHint = parseDateHintFromPrompt(lower);
+        const today = new Date().toISOString().slice(0, 10);
+        const activeOnly = /\b(now|right now|currently|active)\b/.test(lower);
+        return {
+          intent: 'person_activity_lookup',
+          capabilityId: 'person_activity_lookup',
+          suppressUserAutoOpen: true,
+          toolCalls: [{
+            name: 'lookupPersonActivity',
+            args: { query: name, dateYmd: dateHint || today, activeOnly }
+          }]
         };
       }
     },

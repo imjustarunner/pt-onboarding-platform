@@ -48,12 +48,15 @@ test('deterministic acceptance matrix for top prompts', async () => {
     'getAgencyActivityStats',
     'listMyRecentActivity',
     'listTeamPresence',
+    'lookupPersonActivity',
     'searchTrainingKnowledgeBase'
   );
 
   const cases = [
     ['Open my workspace for today', 'openTodaysWorkspace'],
     ['what is active right now', 'openTodaysWorkspace'],
+    ['what is halle doing right now and today', 'lookupPersonActivity'],
+    ['what is sarah doing today', 'lookupPersonActivity'],
     ['start a meeting with Sarah', 'searchUsers'],
     ['start a virtual meeting with melissa', 'searchUsers'],
     ['schedule a meeting with melissa', 'searchUsers'],
@@ -153,9 +156,9 @@ test('drift guard: every visible prompt maps to a deterministic capability and c
     'searchAgencyActivity',
     'getAgencyActivityStats',
     'listMyRecentActivity',
-    'searchTrainingKnowledgeBase'
+    'searchTrainingKnowledgeBase',
+    'lookupPersonActivity'
   );
-  const payload = buildCapabilityUiPayload({ role: 'admin', allowedToolNames: adminTools });
   const catalogIds = new Set(getCapabilityCatalogForTests().map((c) => c.id));
 
   const prompts = new Set([

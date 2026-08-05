@@ -710,6 +710,8 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
       case 'openWorkspaceEvent':
         // Anyone signed in: returns whatever events the actor is part of today.
         return true;
+      case 'lookupPersonActivity':
+        return roleAllowed(reqUser, BACKOFFICE_USER_ENUM_ROLES);
       case 'listMyOpenTasks':
         // Anyone signed in can see their own open tasks.
         return true;
@@ -1413,6 +1415,33 @@ export function getToolSchemas() {
           eventId: { type: 'integer' }
         },
         required: ['eventId']
+      }
+    },
+    {
+      name: 'lookupPersonActivity',
+      description:
+        'Look up what a specific person is doing right now and on a given day — live Messages presence plus their schedule (meetings, holds, sessions). Use for "what is Sarah doing right now", "what is Halle doing today". Do NOT use for the signed-in user\'s own calendar — use openTodaysWorkspace for "my schedule" / "my day".',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Person name to look up (first name, last name, or email fragment).'
+          },
+          userId: {
+            type: 'integer',
+            description: 'Optional resolved user id when already known.'
+          },
+          dateYmd: {
+            type: 'string',
+            description: 'YYYY-MM-DD. Defaults to today.'
+          },
+          activeOnly: {
+            type: 'boolean',
+            description: 'If true, only events currently happening or starting within the next 30 minutes.'
+          }
+        }
       }
     },
     {
@@ -3788,6 +3817,221 @@ export async function executeToolCall({ req, toolCall }) {
       nameQuery
     });
     return { ok: true, tool: name, result: snapshot };
+  }
+
+  // lookupPersonActivity — presence + schedule for a named agency user (admin directory).
+  // ---------------------------------------------------------------------
+  if (name === 'lookupPersonActivity') {
+    assertBackofficeAdmin(req.user);
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) noAgencyContextError();
+
+    const dateYmd = str(args.dateYmd || new Date().toISOString().slice(0, 10), 10);
+    const activeOnly = args.activeOnly === true;
+    const explicitUserId = intOrNull(args.userId);
+    const query = str(args.query, 200);
+
+    const credJoin = `
+      LEFT JOIN (
+        SELECT uiv.user_id,
+               MAX(uiv.value) AS cred_value
+        FROM user_info_values uiv
+        JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+        WHERE uifd.field_key IN ('provider_credential', 'provider_credential_license_type_number')
+        GROUP BY uiv.user_id
+      ) cred ON cred.user_id = u.id`;
+
+    const mapUserRow = (r) => ({
+      id: Number(r.id),
+      name: [r.firstName, r.lastName].filter(Boolean).join(' ').trim() || r.email,
+      role: r.role,
+      email: r.email,
+      credential: r.credential || null,
+      profilePath: `/admin/users/${r.id}`
+    });
+
+    const searchUsers = async (searchQuery, limit = 5) => {
+      const q = String(searchQuery || '').trim();
+      if (!q) return [];
+
+      const runLike = async (likeArg) => {
+        const params = [agencyId];
+        let where =
+          `(u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))`;
+        if (likeArg) {
+          where += ` AND (
+            u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?
+            OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?
+            OR COALESCE(cred.cred_value, '') LIKE ?
+            OR LOWER(COALESCE(u.role, '')) LIKE ?
+          )`;
+          params.push(likeArg, likeArg, likeArg, likeArg, likeArg, likeArg.toLowerCase());
+        }
+        const [rs] = await pool.execute(
+          `SELECT u.id,
+                  u.first_name AS firstName,
+                  u.last_name  AS lastName,
+                  u.email,
+                  u.role,
+                  cred.cred_value AS credential
+           FROM users u
+           JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+           ${credJoin}
+           WHERE ${where}
+           ORDER BY u.last_name, u.first_name
+           LIMIT ${Math.min(Math.max(1, limit), 25)}`,
+          params
+        );
+        return rs || [];
+      };
+
+      let rows = await runLike(`%${q}%`);
+      if (!rows.length && q.includes(' ')) {
+        const tokens = q.toLowerCase().split(/\s+/).filter((t) => t.length >= 2);
+        if (tokens.length > 1) {
+          rows = await runLike(`%${tokens[tokens.length - 1]}%`);
+          if (!rows.length) rows = await runLike(`%${tokens[0]}%`);
+        }
+      }
+      return rows.map(mapUserRow);
+    };
+
+    let targetUser = null;
+    let ambiguousMatches = [];
+
+    if (explicitUserId) {
+      const [idRows] = await pool.execute(
+        `SELECT u.id,
+                u.first_name AS firstName,
+                u.last_name  AS lastName,
+                u.email,
+                u.role,
+                cred.cred_value AS credential
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+         ${credJoin}
+         WHERE u.id = ?
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+         LIMIT 1`,
+        [agencyId, explicitUserId]
+      );
+      if (idRows?.[0]) targetUser = mapUserRow(idRows[0]);
+    } else if (query) {
+      const matches = await searchUsers(query, 5);
+      if (matches.length === 1) targetUser = matches[0];
+      else if (matches.length > 1) ambiguousMatches = matches;
+    }
+
+    if (!targetUser && !ambiguousMatches.length) {
+      return {
+        ok: true,
+        tool: name,
+        result: {
+          query: query || null,
+          dateYmd,
+          user: null,
+          presence: null,
+          events: [],
+          totalEvents: 0,
+          ambiguousMatches: []
+        }
+      };
+    }
+
+    if (!targetUser) {
+      return {
+        ok: true,
+        tool: name,
+        result: {
+          query,
+          dateYmd,
+          user: null,
+          presence: null,
+          events: [],
+          totalEvents: 0,
+          ambiguousMatches
+        }
+      };
+    }
+
+    const dayStart = `${dateYmd} 00:00:00`;
+    const dayEnd = `${dateYmd} 23:59:59`;
+    let rows = [];
+    try {
+      rows = await ProviderScheduleEvent.listForUserInWindow({
+        agencyId,
+        providerId: targetUser.id,
+        windowStart: dayStart,
+        windowEnd: dayEnd
+      });
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    const now = new Date();
+    const inHalfHour = new Date(now.getTime() + 30 * 60 * 1000);
+    const isActive = (r) => {
+      if (Number(r.all_day) === 1) return true;
+      const startMs = r.start_at ? new Date(r.start_at).getTime() : 0;
+      const endMs = r.end_at ? new Date(r.end_at).getTime() : 0;
+      return endMs > now.getTime() && startMs < inHalfHour.getTime();
+    };
+    const filtered = activeOnly ? rows.filter(isActive) : rows;
+
+    const events = filtered.map((r) => {
+      const kind = String(r.kind || '').toUpperCase();
+      const isMeeting = kind === 'TEAM_MEETING' || kind === 'HUDDLE';
+      const joinPath = isMeeting ? `/join/team-meeting/${Number(r.id)}` : '/schedule';
+      return {
+        id: Number(r.id),
+        kind,
+        title: r.title,
+        startAt: r.start_at,
+        endAt: r.end_at,
+        allDay: Number(r.all_day) === 1,
+        active: isActive(r),
+        joinPath
+      };
+    });
+
+    let presence = null;
+    try {
+      const snapshot = await listTeamPresenceForAssist({
+        agencyId,
+        viewerUserId: req.user?.id,
+        includeOffline: true,
+        nameQuery: targetUser.name || query || ''
+      });
+      const people = snapshot?.people || [];
+      const match = people.find((p) => Number(p.id) === Number(targetUser.id));
+      if (match) {
+        presence = {
+          status: match.status,
+          status_label: match.status_label,
+          idle_for_label: match.idle_for_label || null,
+          idle_reason: match.idle_reason || null
+        };
+      }
+    } catch {
+      /* presence optional */
+    }
+
+    return {
+      ok: true,
+      tool: name,
+      result: {
+        query: query || null,
+        dateYmd,
+        user: targetUser,
+        presence,
+        events,
+        totalEvents: events.length,
+        ambiguousMatches: []
+      }
+    };
   }
 
   // openTodaysWorkspace — list today's events for the actor.

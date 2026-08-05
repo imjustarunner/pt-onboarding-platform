@@ -1470,6 +1470,63 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
           `You have ${events.length} events on ${dateLabel}. Suggested order (by start time):\n${ordered.join('\n')}`
         );
       }
+    } else if (r.tool === 'lookupPersonActivity') {
+      const out = r.result || {};
+      const dateLabel = out.dateYmd || 'today';
+      const ambiguous = out.ambiguousMatches || [];
+      if (ambiguous.length > 1) {
+        const names = ambiguous
+          .map((u) => u.name || u.email)
+          .filter(Boolean)
+          .join(', ');
+        lines.push(`Several people match "${out.query || 'that name'}" — ${names}. Which one did you mean?`);
+      } else if (!out.user) {
+        lines.push(
+          out.query
+            ? `I couldn't find anyone matching "${out.query}" in your agency.`
+            : 'No matching person found in your agency.'
+        );
+      } else {
+        const who = out.user.name || out.user.email || `User #${out.user.id}`;
+        const presenceBits = [];
+        const pres = out.presence;
+        if (pres?.status === 'online') {
+          presenceBits.push(`${who} is Active right now (live Messages presence).`);
+        } else if (pres?.status === 'idle') {
+          const dur = pres.idle_for_label ? ` for ${pres.idle_for_label}` : '';
+          presenceBits.push(`${who} is Idle${dur} (live Messages presence).`);
+        } else if (pres?.status === 'offline') {
+          presenceBits.push(`${who} is Inactive / offline right now (live Messages presence).`);
+        }
+        const events = out.events || [];
+        if (!events.length) {
+          if (presenceBits.length) {
+            lines.push(`${presenceBits.join(' ')} Nothing on ${who}'s schedule for ${dateLabel}.`);
+          } else {
+            lines.push(`Nothing on ${who}'s schedule for ${dateLabel} — their calendar looks open.`);
+          }
+        } else if (events.length === 1) {
+          const e = events[0];
+          const time = e.allDay
+            ? '(all day)'
+            : `${String(e.startAt || '').slice(11, 16)}–${String(e.endAt || '').slice(11, 16)}`;
+          const activeNote = e.active ? ' · active now' : '';
+          const header = presenceBits.length ? `${presenceBits.join(' ')} ` : '';
+          lines.push(`${header}One event for ${dateLabel}: "${e.title || e.kind || 'Event'}" ${time}${activeNote}.`);
+        } else {
+          const ordered = events.slice(0, 8).map((e) => {
+            const time = e.allDay
+              ? 'all day'
+              : `${String(e.startAt || '').slice(11, 16)}–${String(e.endAt || '').slice(11, 16)}`;
+            const activeNote = e.active ? ' · active now' : '';
+            return `• ${time} — ${e.title || e.kind || 'Event'}${activeNote}`;
+          });
+          const header = presenceBits.length ? `${presenceBits.join(' ')}\n` : '';
+          lines.push(
+            `${header}${who} has ${events.length} events on ${dateLabel}:\n${ordered.join('\n')}`
+          );
+        }
+      }
     } else if (r.tool === 'listTeamPresence') {
       const out = r.result || {};
       const online = out.online || [];
