@@ -62,6 +62,13 @@
             {{ enablingTracking ? 'Enabling…' : 'Enable transcription & attendance' }}
           </button>
           <span v-if="enableTrackingError" class="join-tracking-error">{{ enableTrackingError }}</span>
+          <button
+            type="button"
+            class="join-dark-toggle"
+            :title="meetingDarkMode ? 'Switch to brand theme' : 'Switch to dark theme'"
+            :aria-pressed="meetingDarkMode"
+            @click="toggleMeetingDarkMode"
+          >{{ meetingDarkMode ? '☀' : '🌙' }}</button>
           <div v-if="canManageMeetingLive" class="join-tools">
             <button type="button" class="btn btn-secondary btn-sm" @click="toolsOpen = !toolsOpen">Tools</button>
             <div v-if="toolsOpen" class="join-tools__menu">
@@ -235,6 +242,7 @@
                 :raised-hands="raisedHandCount"
                 :raised-hand-names="raisedHandNames"
                 :muted-names="mutedParticipantNames"
+                :dark="true"
                 @tracking-status="onAttendanceTrackingStatus"
               />
             </section>
@@ -354,10 +362,26 @@ import MeetingSessionExitPanel from '../../components/meetings/MeetingSessionExi
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import api from '../../services/api';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath';
+import { applyDarkMode, getStoredDarkMode, setDarkMode } from '../../utils/darkMode';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
+
+// Dark theme toggle — persisted per user, defaults to their stored pref.
+const meetingDarkMode = ref(false);
+function initMeetingDarkMode() {
+  const uid = authStore.user?.id || null;
+  const stored = getStoredDarkMode(uid);
+  meetingDarkMode.value = stored === true;
+  if (stored === true) applyDarkMode(true);
+}
+function toggleMeetingDarkMode() {
+  const uid = authStore.user?.id || null;
+  const next = !meetingDarkMode.value;
+  meetingDarkMode.value = next;
+  setDarkMode(uid, next);
+}
 
 const eventId = computed(() => route.params.eventId);
 const organizationSlug = computed(() => route.params.organizationSlug);
@@ -1411,6 +1435,7 @@ watch(
 );
 
 onMounted(async () => {
+  initMeetingDarkMode();
   await runJoinFlowForCurrentRoute();
 });
 
@@ -1601,6 +1626,18 @@ onUnmounted(() => {
   padding: 0 !important;
   border: 0 !important;
 }
+.join-dark-toggle {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 5px 9px;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #e8edf5;
+  transition: background 0.15s;
+}
+.join-dark-toggle:hover { background: rgba(255, 255, 255, 0.14); }
 .join-tools { position: relative; }
 .join-tools__menu {
   position: absolute;
@@ -1791,7 +1828,7 @@ onUnmounted(() => {
   inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
-  object-fit: cover !important;
+  object-fit: contain !important;
 }
 .join-workspace {
   min-width: 0;
@@ -1879,7 +1916,7 @@ onUnmounted(() => {
 .join-workspace__body :deep(.map__head h4),
 .join-workspace__body :deep(.mnp__head h4),
 .join-workspace__body :deep(.agenda-section-head h3) {
-  color: #0f172a;
+  color: #e2e8f0;
   font-size: 0.95rem;
 }
 .join-workspace__body :deep(.btn-secondary),
@@ -1988,5 +2025,31 @@ onUnmounted(() => {
     width: auto;
     max-height: 48vh;
   }
+}
+
+/* Global dark mode — override light-colored modal and add-attendee surfaces */
+:global([data-theme="dark"]) .join-modal {
+  background: #1e2430;
+  color: #e2e8f0;
+  border: 1px solid rgba(255,255,255,0.12);
+}
+:global([data-theme="dark"]) .join-modal p { color: #94a3b8; }
+:global([data-theme="dark"]) .join-tools__menu {
+  background: #1e2430;
+  border-color: rgba(255,255,255,0.12);
+}
+:global([data-theme="dark"]) .join-tools__item {
+  color: #e2e8f0;
+}
+:global([data-theme="dark"]) .join-tools__item:hover { background: rgba(255,255,255,0.08); }
+:global([data-theme="dark"]) .join-add-attendee-item {
+  color: #e2e8f0;
+  border-bottom-color: rgba(255,255,255,0.08);
+}
+:global([data-theme="dark"]) .join-add-attendee-item:hover:not(:disabled) {
+  background: rgba(255,255,255,0.06);
+}
+:global([data-theme="dark"]) .join-add-attendee-list {
+  border-top-color: rgba(255,255,255,0.12);
 }
 </style>

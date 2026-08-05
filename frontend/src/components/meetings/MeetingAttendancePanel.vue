@@ -1,5 +1,5 @@
 <template>
-  <div class="map" data-testid="meeting-attendance-panel">
+  <div class="map" :class="{ 'map--dark': dark }" data-testid="meeting-attendance-panel">
     <div class="map__head">
       <h4>
         {{ trackingEnabled ? 'Attendance' : 'Participants' }}
@@ -25,37 +25,66 @@
     </p>
     <p v-if="error" class="error">{{ error }}</p>
     <p v-else-if="loading" class="muted">Loading {{ trackingEnabled ? 'attendance' : 'participants' }}…</p>
-    <ul v-else-if="participants.length" class="map__list">
-      <li
-        v-for="p in participants"
-        :key="p.userId"
-        :class="{ 'map__list-item--away': !p.isPresent }"
-      >
-        <span class="map__name">
-          {{ p.name }}
-          <span v-if="p.isHost" class="map__host">Host</span>
-          <span v-else-if="p.isRequired === false" class="map__optional">Optional</span>
-          <span v-else class="map__required">Mandatory</span>
-          <span v-if="participantHasRaisedHand(p)" class="map__hand-hint" title="Hand raised">✋</span>
-          <span v-if="participantIsMuted(p)" class="map__mute-hint" title="Muted">Muted</span>
-          <span v-if="p.isPresent" class="map__status map__status--active">In room</span>
-          <span v-else-if="p.leftAt" class="map__status map__status--left">Left {{ formatWhen(p.leftAt) }}</span>
-          <span v-else class="map__status map__status--away">Away</span>
-        </span>
-        <span v-if="trackingEnabled" class="map__mins">
-          {{ formatMins(p.totalMinutes) }}
-          <small v-if="Number(p.segmentCount || 0) > 1" class="map__segments" title="Total time sums all join/leave segments">
-            {{ p.segmentCount }} segments
-          </small>
-          <small v-if="Number(p.waitMinutes || 0) > 0" class="map__wait" title="Waiting-room time (not counted toward session pay)">
-            wait {{ formatMins(p.waitMinutes) }}
-          </small>
-        </span>
-      </li>
-    </ul>
-    <p v-else class="muted">
-      {{ trackingEnabled ? 'No attendance recorded yet.' : 'No one is in the meeting right now.' }}
-    </p>
+    <template v-else>
+      <ul v-if="presentParticipants.length" class="map__list">
+        <li
+          v-for="p in presentParticipants"
+          :key="p.userId"
+        >
+          <span class="map__name">
+            {{ p.name }}
+            <span v-if="p.isHost" class="map__host">Host</span>
+            <span v-else-if="p.isRequired === false" class="map__optional">Optional</span>
+            <span v-else class="map__required">Mandatory</span>
+            <span v-if="participantHasRaisedHand(p)" class="map__hand-hint" title="Hand raised">✋</span>
+            <span v-if="participantIsMuted(p)" class="map__mute-hint" title="Muted">Muted</span>
+            <span class="map__status map__status--active">In room</span>
+          </span>
+          <span v-if="trackingEnabled" class="map__mins">
+            {{ formatMins(p.totalMinutes) }}
+            <small v-if="Number(p.segmentCount || 0) > 1" class="map__segments" title="Total time sums all join/leave segments">
+              {{ p.segmentCount }} segments
+            </small>
+            <small v-if="Number(p.waitMinutes || 0) > 0" class="map__wait" title="Waiting-room time (not counted toward session pay)">
+              wait {{ formatMins(p.waitMinutes) }}
+            </small>
+          </span>
+        </li>
+      </ul>
+      <p v-else class="muted">
+        {{ trackingEnabled ? 'No attendance recorded yet.' : 'No one is in the meeting right now.' }}
+      </p>
+
+      <!-- Invited but not yet in room -->
+      <template v-if="absentParticipants.length">
+        <button type="button" class="map__invited-toggle" @click="showAbsent = !showAbsent">
+          {{ showAbsent ? 'Hide' : 'Show' }} {{ absentParticipants.length }} invited{{ showAbsent ? '' : ' not yet here' }}
+          <span class="map__invited-caret" :class="{ 'map__invited-caret--open': showAbsent }">▾</span>
+        </button>
+        <ul v-if="showAbsent" class="map__list map__list--absent">
+          <li
+            v-for="p in absentParticipants"
+            :key="p.userId"
+            class="map__list-item--away"
+          >
+            <span class="map__name">
+              {{ p.name }}
+              <span v-if="p.isHost" class="map__host">Host</span>
+              <span v-else-if="p.isRequired === false" class="map__optional">Optional</span>
+              <span v-else class="map__required">Mandatory</span>
+              <span v-if="p.leftAt" class="map__status map__status--left">Left {{ formatWhen(p.leftAt) }}</span>
+              <span v-else class="map__status map__status--away">Not here</span>
+            </span>
+            <span v-if="trackingEnabled" class="map__mins">
+              {{ formatMins(p.totalMinutes) }}
+              <small v-if="Number(p.segmentCount || 0) > 1" class="map__segments">
+                {{ p.segmentCount }} segments
+              </small>
+            </span>
+          </li>
+        </ul>
+      </template>
+    </template>
     <p v-if="copied" class="map__copied">Copied</p>
   </div>
 </template>
@@ -65,6 +94,7 @@ import { ref, watch, onMounted, onUnmounted, computed } from 'vue';
 import api from '../../services/api';
 
 const emit = defineEmits(['tracking-status']);
+const showAbsent = ref(false);
 
 const props = defineProps({
   eventId: { type: [Number, String], required: true },
@@ -79,13 +109,15 @@ const props = defineProps({
   /** Display names of participants with a raised hand */
   raisedHandNames: { type: Array, default: () => [] },
   /** Display names of participants who are muted */
-  mutedNames: { type: Array, default: () => [] }
+  mutedNames: { type: Array, default: () => [] },
+  /** Apply dark-context styles (meeting workspace background is dark) */
+  dark: { type: Boolean, default: false }
 });
 
 const mutedCount = computed(() => (props.mutedNames || []).length);
-const presentCount = computed(() => (
-  (participants.value || []).filter((p) => p.isPresent).length
-));
+const presentParticipants = computed(() => (participants.value || []).filter((p) => p.isPresent));
+const absentParticipants = computed(() => (participants.value || []).filter((p) => !p.isPresent));
+const presentCount = computed(() => presentParticipants.value.length);
 
 const loading = ref(false);
 const error = ref('');
@@ -363,6 +395,79 @@ defineExpose({ load });
   font-weight: 650;
   line-height: 1.4;
 }
+.map__list--absent { opacity: 0.82; }
+.map__invited-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  padding: 4px 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+.map__invited-toggle:hover { color: #1e40af; }
+.map__invited-caret {
+  display: inline-block;
+  transition: transform 0.18s;
+  font-size: 0.85em;
+}
+.map__invited-caret--open { transform: rotate(180deg); }
 .error { color: #b91c1c; margin: 0; font-size: 0.85rem; }
 .muted { color: #64748b; margin: 0; font-size: 0.85rem; }
+
+/* Dark-context overrides — used inside the dark meeting workspace */
+:global([data-theme="dark"]) .map__live-only {
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+}
+:global([data-theme="dark"]) .map__status--away {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.15);
+}
+:global([data-theme="dark"]) .map__status--left {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.12);
+}
+:global([data-theme="dark"]) .map__required {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+}
+:global([data-theme="dark"]) .map__optional {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.12);
+}
+:global([data-theme="dark"]) .map__invited-toggle {
+  color: #94a3b8;
+}
+:global([data-theme="dark"]) .map__invited-toggle:hover { color: #93c5fd; }
+:global([data-theme="dark"]) .muted { color: #94a3b8; }
+
+/* Meeting workspace dark context (workspace panel has dark background but not data-theme="dark") */
+.map--dark .map__live-only {
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+}
+.map--dark .map__status--away {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.15);
+}
+.map--dark .map__status--left {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.12);
+}
+.map--dark .map__required {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+}
+.map--dark .map__optional {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.12);
+}
+.map--dark .map__invited-toggle { color: #94a3b8; }
+.map--dark .map__invited-toggle:hover { color: #93c5fd; }
+.map--dark .muted { color: #94a3b8; }
 </style>

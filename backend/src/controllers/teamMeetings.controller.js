@@ -2025,8 +2025,60 @@ export const getTeamMeetingAttendance = async (req, res, next) => {
     }
     const attendanceTrackingEnabled = isAttendanceTrackingEnabledForEvent(event);
     if (!attendanceTrackingEnabled) {
-      const participants = await listLiveMainRoomPresence(event);
-      const names = participants.map((participant) => participant.name).filter(Boolean);
+      const livePresent = await listLiveMainRoomPresence(event);
+      const presentByUser = new Map(livePresent.map((p) => [String(p.userId || p.joinIdentity), p]));
+
+      // Merge in invited attendees and host so the panel can show who hasn't arrived yet.
+      const invitedRows = [];
+      try {
+        const hostId = Number(event.provider_id || 0);
+        if (hostId) {
+          const [hr] = await pool.execute(
+            'SELECT id, first_name, last_name, email FROM users WHERE id = ? LIMIT 1',
+            [hostId]
+          );
+          if (hr?.[0] && !presentByUser.has(String(hostId))) {
+            const h = hr[0];
+            invitedRows.push({
+              userId: hostId,
+              name: [h.first_name, h.last_name].filter(Boolean).join(' ').trim() || h.email || `User #${hostId}`,
+              isHost: true,
+              isPresent: false,
+              totalMinutes: null,
+              totalSeconds: null,
+              segmentCount: 0,
+              timingTracked: false
+            });
+          }
+        }
+        const [attRows] = await pool.execute(
+          `SELECT u.id, u.first_name, u.last_name, u.email
+           FROM provider_schedule_event_attendees a
+           JOIN users u ON u.id = a.user_id
+           WHERE a.event_id = ?`,
+          [eventId]
+        );
+        for (const a of attRows || []) {
+          const uid = Number(a.id || 0);
+          if (!uid || presentByUser.has(String(uid))) continue;
+          invitedRows.push({
+            userId: uid,
+            name: [a.first_name, a.last_name].filter(Boolean).join(' ').trim() || a.email || `User #${uid}`,
+            isHost: false,
+            isPresent: false,
+            totalMinutes: null,
+            totalSeconds: null,
+            segmentCount: 0,
+            timingTracked: false
+          });
+        }
+      } catch { /* best-effort */ }
+
+      const participants = [
+        ...livePresent,
+        ...invitedRows.sort((a, b) => String(a.name).localeCompare(String(b.name)))
+      ];
+      const names = livePresent.map((p) => p.name).filter(Boolean);
       return res.json({
         eventId,
         attendanceTrackingEnabled: false,

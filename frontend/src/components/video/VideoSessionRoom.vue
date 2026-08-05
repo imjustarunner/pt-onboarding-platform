@@ -1107,7 +1107,7 @@ async function refreshRemoteVideo(streamId, hasVideo) {
   if (!id) return;
   const sub = subscribers.get(id);
   if (!hasVideo) return;
-  for (const delay of [0, 50, 160, 320]) {
+  for (const delay of [0, 50, 160, 320, 600]) {
     // eslint-disable-next-line no-await-in-loop
     if (delay) await new Promise((r) => setTimeout(r, delay));
     // eslint-disable-next-line no-await-in-loop
@@ -1120,11 +1120,17 @@ async function refreshRemoteVideo(streamId, hasVideo) {
       const mediaEl = typeof sub?.element === 'function' ? sub.element() : null;
       const video = mediaEl?.querySelector?.('video') || el.querySelector?.('video');
       if (video) {
+        video.style.display = '';
         video.style.visibility = 'visible';
         video.style.opacity = '1';
         if (typeof video.play === 'function') void video.play().catch(() => {});
       }
     } catch { /* ignore */ }
+  }
+  // Explicitly nudge the SDK to resume video delivery — the publisher may have
+  // re-enabled the track after toggling off, and some SDK builds require this call.
+  if (sub && typeof sub.subscribeToVideo === 'function') {
+    try { sub.subscribeToVideo(true); } catch { /* ignore */ }
   }
 }
 
@@ -1285,6 +1291,8 @@ function sendReaction(emoji) {
 function forceMuteRemote(remote) {
   if (!canMuteOthers.value || !remote?.connectionId) return;
   setRemoteAudioByConnection(remote.connectionId, false);
+  // Emit immediately — don't wait for the watcher tick so the badge appears right away.
+  emitAudioMapChange();
   sendSessionSignal('force_mute', {
     targetConnectionId: remote.connectionId,
     byName: props.localName || 'Someone'
