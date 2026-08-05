@@ -5038,6 +5038,7 @@ function isSupervisionMeetingCode(codeRaw) {
 async function loadSupervisionPayGateMaps({ agencyId, periodStart }) {
   const eligibleByUserId = new Map();
   const startDateByUserId = new Map();
+  let preIds = [];
   try {
     const [uaRows] = await pool.execute(
       `SELECT user_id,
@@ -5048,7 +5049,7 @@ async function loadSupervisionPayGateMaps({ agencyId, periodStart }) {
        WHERE agency_id = ? AND supervision_is_prelicensed = 1`,
       [agencyId]
     );
-    const preIds = (uaRows || []).map((r) => Number(r.user_id)).filter((n) => Number.isFinite(n) && n > 0);
+    preIds = (uaRows || []).map((r) => Number(r.user_id)).filter((n) => Number.isFinite(n) && n > 0);
     const baseByUser = new Map();
     for (const r of uaRows || []) {
       const uid = Number(r.user_id || 0);
