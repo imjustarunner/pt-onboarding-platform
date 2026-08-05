@@ -479,8 +479,8 @@
             <tbody>
               <tr v-for="c in reimbClaims" :key="c.id" :class="{ 'row-highlight': focusUserId && Number(c.user_id) === focusUserId }">
                 <td>{{ claimName(c) }}</td>
-                <td>{{ fmtDate(c.claim_date) }}</td>
-                <td>{{ c.description || c.notes || '—' }}</td>
+                <td>{{ fmtDate(c.expense_date || c.claim_date) }}</td>
+                <td>{{ c.reason || c.description || c.notes || '—' }}</td>
                 <td class="right">${{ Number(c.amount || 0).toFixed(2) }}</td>
                 <td>
                   <select v-model="claimTargetByKey[`reimb-${c.id}`]" :disabled="busyId === `reimb-${c.id}`">
@@ -494,6 +494,7 @@
                     {{ busyId === `reimb-${c.id}` ? '…' : 'Approve' }}
                   </button>
                   <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === `reimb-${c.id}`" @click="rejectReimb(c)">Reject</button>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="openReimbClaimView(c)">View</button>
                 </td>
               </tr>
             </tbody>
@@ -676,6 +677,62 @@
         </div>
       </div>
 
+      <!-- Reimbursement View Modal -->
+      <div v-if="reimbClaimViewOpen" class="pps-modal-backdrop" @click.self="closeReimbClaimView">
+        <div class="pps-modal" style="width: min(720px, 100%);">
+          <div class="pps-modal-header">
+            <div>
+              <div class="pps-modal-title">Reimbursement Submission Details</div>
+              <div class="hint" v-if="reviewedReimbClaim">
+                {{ claimName(reviewedReimbClaim) }} — {{ fmtDate(reviewedReimbClaim.expense_date || reviewedReimbClaim.claim_date) }} — ${{ Number(reviewedReimbClaim.amount || 0).toFixed(2) }}
+              </div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" @click="closeReimbClaimView">Close</button>
+          </div>
+          <div v-if="reviewedReimbClaim" class="pps-modal-body">
+            <div class="pps-detail-grid">
+              <div class="field"><label>Claim ID</label><div>{{ reviewedReimbClaim.id || '—' }}</div></div>
+              <div class="field"><label>Status</label><div>{{ String(reviewedReimbClaim.status || '—').toUpperCase() }}</div></div>
+              <div class="field"><label>Expense date</label><div>{{ fmtDate(reviewedReimbClaim.expense_date || reviewedReimbClaim.claim_date) }}</div></div>
+              <div class="field"><label>Amount</label><div>${{ Number(reviewedReimbClaim.amount || 0).toFixed(2) }}</div></div>
+              <div class="field"><label>Category</label><div>{{ reviewedReimbClaim.category || '—' }}</div></div>
+              <div class="field"><label>Vendor</label><div>{{ reviewedReimbClaim.vendor || '—' }}</div></div>
+            </div>
+
+            <div class="pps-detail-grid">
+              <div class="field"><label>Payment method</label><div>{{ reviewedReimbClaim.payment_method || '—' }}</div></div>
+              <div class="field"><label>Purchase approved by</label><div>{{ reviewedReimbClaim.purchase_approved_by || '—' }}</div></div>
+              <div class="field"><label>Pre-approved</label><div>{{ reviewedReimbClaim.purchase_preapproved != null ? (reviewedReimbClaim.purchase_preapproved ? 'Yes' : 'No') : '—' }}</div></div>
+              <div class="field"><label>Project / ref</label><div>{{ reviewedReimbClaim.project_ref || '—' }}</div></div>
+            </div>
+
+            <div class="field"><label>Reason / Description</label><div style="white-space: pre-wrap;">{{ reviewedReimbClaim.reason || reviewedReimbClaim.description || '—' }}</div></div>
+            <div class="field"><label>Notes</label><div style="white-space: pre-wrap;">{{ reviewedReimbClaim.notes || '—' }}</div></div>
+
+            <div class="pps-detail-grid">
+              <div class="field"><label>Submitted by</label><div>{{ submitterLabel(reviewedReimbClaim) }}</div></div>
+              <div class="field"><label>Submitted on</label><div>{{ reviewedReimbClaim.created_at ? String(reviewedReimbClaim.created_at).slice(0, 10) : '—' }}</div></div>
+              <div class="field"><label>Suggested pay period</label><div>{{ periodLabelForId(reviewedReimbClaim.suggested_payroll_period_id) }}</div></div>
+            </div>
+
+            <template v-if="reviewedReimbClaim.receipt_original_name">
+              <div class="card" style="padding: 10px; margin-top: 4px;">
+                <strong style="display:block; margin-bottom: 6px;">Receipt</strong>
+                <div class="pps-detail-grid">
+                  <div class="field"><label>File name</label><div>{{ reviewedReimbClaim.receipt_original_name }}</div></div>
+                  <div class="field"><label>Type</label><div>{{ reviewedReimbClaim.receipt_mime_type || '—' }}</div></div>
+                  <div class="field"><label>Size</label><div>{{ reviewedReimbClaim.receipt_size_bytes ? Math.round(reviewedReimbClaim.receipt_size_bytes / 1024) + ' KB' : '—' }}</div></div>
+                </div>
+              </div>
+            </template>
+
+            <div style="display:flex; justify-content:flex-end;">
+              <button type="button" class="btn btn-secondary" @click="closeReimbClaimView">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div v-if="eventTimeEditOpen" class="pps-modal-backdrop" @click.self="closeEventTimeEdit">
         <div class="pps-modal">
           <div class="pps-modal-header">
@@ -794,6 +851,8 @@ const timeClaimViewOpen = ref(false);
 const reviewedTimeClaim = ref(null);
 const mileageClaimViewOpen = ref(false);
 const reviewedMileageClaim = ref(null);
+const reimbClaimViewOpen = ref(false);
+const reviewedReimbClaim = ref(null);
 
 const eventTimeSubmissions = ref([]);
 const eventTimeLoading = ref(false);
@@ -1571,6 +1630,16 @@ const openMileageClaimView = (c) => {
 const closeMileageClaimView = () => {
   mileageClaimViewOpen.value = false;
   reviewedMileageClaim.value = null;
+};
+
+const openReimbClaimView = (c) => {
+  reviewedReimbClaim.value = c;
+  reimbClaimViewOpen.value = true;
+};
+
+const closeReimbClaimView = () => {
+  reimbClaimViewOpen.value = false;
+  reviewedReimbClaim.value = null;
 };
 
 const mileageTypeLabel = (c) => {
