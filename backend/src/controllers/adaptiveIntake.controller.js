@@ -65,6 +65,23 @@ export async function submitQuick(req, res, next) {
   }
 }
 
+/** POST /api/public/adaptive-intake/:agencySlug/support-inquiry */
+export async function submitSupportInquiry(req, res, next) {
+  try {
+    const result = await AdaptiveIntake.submitSupportInquiry({
+      agencySlugOrId: req.params.agencySlug,
+      payload: req.body || {}
+    });
+    res.status(201).json(result);
+  } catch (e) {
+    const msg = e?.message || 'Failed to send message';
+    if (/Organization not found|required/i.test(msg)) {
+      return res.status(400).json({ error: { message: msg } });
+    }
+    next(e);
+  }
+}
+
 /** GET /api/public/adaptive-intake/:agencySlug/providers */
 export async function listProviders(req, res, next) {
   try {

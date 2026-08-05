@@ -29,7 +29,7 @@ const TYPES_BY_CATEGORY = {
     'voicemail_received'
   ],
   clients_documents: [
-    'paperwork_received', 'new_packet_uploaded', 'client_became_current',
+    'paperwork_received', 'new_packet_uploaded', 'new_prospective_inquiry', 'client_became_current',
     'client_checklist_updated', 'client_terminated', 'client_assigned',
     'client_school_roi_link_generated', 'client_school_roi_link_copied',
     'client_school_roi_link_sent', 'client_school_roi_completed',
@@ -97,6 +97,7 @@ const LABEL_OVERRIDES = {
   school_collaborative_year_update_completed: 'School collaborative year update complete',
   status_expired: 'Status expired',
   new_packet_uploaded: 'New packet uploaded',
+  new_prospective_inquiry: 'New interest form submitted',
   company_event_registration_submitted: 'New event registration',
   payroll_unpaid_notes_2_periods_old: 'Payroll notes require attention',
   payroll_unsigned_draft_notes: 'Unsigned draft notes',
@@ -211,7 +212,7 @@ const MANAGER_RELEVANT = new Set([
   ...PROVIDER_RELEVANT,
   'status_expired', 'first_login_pending', 'first_login', 'user_activity_digest',
   'presence_user_returned', 'support_safety_net_alert', 'support_ticket_created',
-  'referral_directory_pending_approval', 'new_packet_uploaded',
+  'referral_directory_pending_approval', 'new_packet_uploaded', 'new_prospective_inquiry',
   'unassigned_document_submitted', 'medical_records_release_submitted',
   'office_schedule_coverage_flag', 'office_availability_request_pending',
   'school_availability_request_pending', 'school_primary_staff_removed',
@@ -271,7 +272,7 @@ const SCHOOL_ESSENTIAL = new Set([
 const MANAGER_ESSENTIAL = new Set([
   ...PROVIDER_ESSENTIAL,
   'status_expired', 'first_login_pending', 'support_ticket_created',
-  'referral_directory_pending_approval', 'new_packet_uploaded',
+  'referral_directory_pending_approval', 'new_packet_uploaded', 'new_prospective_inquiry',
   'unassigned_document_submitted', 'office_schedule_coverage_flag',
   'office_availability_request_pending', 'school_availability_request_pending',
   'budget_expense_pending_approval', 'payroll_holiday_bonus_missing_approval',
@@ -282,7 +283,7 @@ const MANAGER_ESSENTIAL = new Set([
 const OPERATIONS_ESSENTIAL = new Set([
   ...WORKFORCE_ESSENTIAL,
   'support_ticket_created', 'referral_directory_pending_approval',
-  'new_packet_uploaded', 'unassigned_document_submitted',
+  'new_packet_uploaded', 'new_prospective_inquiry', 'unassigned_document_submitted',
   'medical_records_release_submitted', 'office_schedule_coverage_flag',
   'office_availability_request_pending', 'school_availability_request_pending',
   'company_event_registration_submitted', 'budget_expense_pending_approval',
@@ -363,6 +364,7 @@ const LEGACY_CATEGORY_BY_TYPE = {
   client_assigned: 'client_assignments',
   paperwork_received: 'clients_new_intakes',
   new_packet_uploaded: 'clients_new_intakes',
+  new_prospective_inquiry: 'clients_new_intakes',
   company_event_registration_submitted: 'clients_new_intakes',
   client_checklist_updated: 'clients_checklist_updates',
   client_became_current: 'clients_checklist_updates',

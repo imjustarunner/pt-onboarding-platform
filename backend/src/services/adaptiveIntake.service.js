@@ -16,6 +16,106 @@ function parseJson(value, fallback = null) {
   }
 }
 
+const INTAKE_SERVICE_TYPES = new Set(['counseling', 'tutoring', 'coaching', 'consulting']);
+
+function defaultDisplayNameForServiceType(serviceType) {
+  const st = String(serviceType || '').toLowerCase();
+  if (st === 'counseling') return 'Counseling';
+  if (st === 'tutoring') return 'Tutoring';
+  if (st === 'coaching') return 'Life Coaching';
+  if (st === 'consulting') return 'Consulting';
+  return st ? st.charAt(0).toUpperCase() + st.slice(1) : 'Services';
+}
+
+function defaultIntroBlurbForServiceType(serviceType) {
+  const st = String(serviceType || '').toLowerCase();
+  if (st === 'counseling') {
+    return 'Start an intake for counseling and behavioral health services.';
+  }
+  if (st === 'tutoring') {
+    return 'Start an intake for tutoring and academic support.';
+  }
+  if (st === 'coaching') {
+    return 'Start an intake for coaching services.';
+  }
+  if (st === 'consulting') {
+    return 'Start an intake for consulting services.';
+  }
+  return 'Start your intake.';
+}
+
+async function listIntakeServices(agencyRow) {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT service_type, display_name, intro_blurb, sort_order
+       FROM agency_public_service_types
+       WHERE agency_id = ? AND is_enabled = 1
+       ORDER BY sort_order ASC, service_type ASC`,
+      [Number(agencyRow.id)]
+    );
+    const mapped = (rows || [])
+      .filter((r) => INTAKE_SERVICE_TYPES.has(String(r.service_type || '').toLowerCase()))
+      .map((r) => ({
+        serviceType: String(r.service_type || '').toLowerCase(),
+        displayName: r.display_name || defaultDisplayNameForServiceType(r.service_type),
+        introBlurb: r.intro_blurb || defaultIntroBlurbForServiceType(r.service_type),
+        sortOrder: Number(r.sort_order) || 0
+      }));
+    if (mapped.length) return mapped;
+  } catch {
+    /* table may not exist in older envs */
+  }
+
+  const orgType = String(agencyRow.organization_type || 'agency').toLowerCase();
+  if (orgType === 'tutoring' || orgType === 'learning') {
+    return [
+      {
+        serviceType: 'tutoring',
+        displayName: 'Tutoring',
+        introBlurb: defaultIntroBlurbForServiceType('tutoring'),
+        sortOrder: 0
+      }
+    ];
+  }
+  if (orgType === 'life_coach') {
+    return [
+      {
+        serviceType: 'coaching',
+        displayName: 'Life Coaching',
+        introBlurb: defaultIntroBlurbForServiceType('coaching'),
+        sortOrder: 0
+      }
+    ];
+  }
+  if (orgType === 'consultant') {
+    return [
+      {
+        serviceType: 'consulting',
+        displayName: 'Consulting',
+        introBlurb: defaultIntroBlurbForServiceType('consulting'),
+        sortOrder: 0
+      }
+    ];
+  }
+  return [
+    {
+      serviceType: 'counseling',
+      displayName: 'Counseling',
+      introBlurb: defaultIntroBlurbForServiceType('counseling'),
+      sortOrder: 0
+    }
+  ];
+}
+
+function verticalFromServiceType(serviceType, organizationType) {
+  const st = String(serviceType || '').toLowerCase();
+  if (st === 'counseling') return 'clinical';
+  if (st === 'tutoring') return 'tutoring';
+  if (st === 'coaching') return 'life_coach';
+  if (st === 'consulting') return 'consultant';
+  return verticalFromOrgType(organizationType);
+}
+
 async function resolveAgency(agencySlugOrId) {
   return ClientExchange.getPublicOfficeIntakeAgency(agencySlugOrId);
 }
@@ -25,14 +125,14 @@ async function loadAgencyRow(agencySlugOrId) {
   if (!slug) return null;
   if (/^\d+$/.test(slug)) {
     const [rows] = await pool.execute(
-      `SELECT id, name, slug, portal_url, organization_type, logo_url, color_palette, feature_flags, public_booking_settings
+      `SELECT id, name, slug, portal_url, organization_type, logo_url, color_palette, feature_flags, public_booking_settings, careers_page_json, phone_number, phone_extension, onboarding_team_email
        FROM agencies WHERE id = ? AND is_active = 1 LIMIT 1`,
       [Number(slug)]
     );
     return rows[0] || null;
   }
   const [rows] = await pool.execute(
-    `SELECT id, name, slug, portal_url, organization_type, logo_url, color_palette, feature_flags, public_booking_settings
+    `SELECT id, name, slug, portal_url, organization_type, logo_url, color_palette, feature_flags, public_booking_settings, careers_page_json, phone_number, phone_extension, onboarding_team_email
      FROM agencies
      WHERE (slug = ? OR portal_url = ?) AND is_active = 1
      LIMIT 1`,
@@ -72,10 +172,12 @@ function verticalFromOrgType(organizationType) {
 
 async function findFullIntakePublicKey(agencyId) {
   try {
+    // intake_links has no agency_id — organization_id is the tenant for agency-scoped links.
     const [rows] = await pool.execute(
       `SELECT public_key, title, form_type
        FROM intake_links
-       WHERE agency_id = ?
+       WHERE organization_id = ?
+         AND scope_type = 'agency'
          AND is_active = 1
          AND (form_type IS NULL OR form_type IN ('intake', 'public_form', ''))
        ORDER BY updated_at DESC, id DESC
@@ -126,11 +228,19 @@ async function listProviderPreview(agencyId, { limit = 6 } = {}) {
   }
 }
 
-export async function getAdaptiveIntakeConfig(agencySlugOrId, req) {
+export async function getAdaptiveIntakeConfig(agencySlugOrId, req, options = {}) {
   const agencyRow = await loadAgencyRow(agencySlugOrId);
   if (!agencyRow) return null;
 
-  const vertical = verticalFromOrgType(agencyRow.organization_type);
+  const intakeServices = await listIntakeServices(agencyRow);
+  const requestedServiceType = String(options.serviceType || req?.query?.serviceType || '').trim().toLowerCase();
+  const activeService =
+    intakeServices.find((s) => s.serviceType === requestedServiceType) ||
+    (intakeServices.length === 1 ? intakeServices[0] : null);
+
+  const vertical = activeService
+    ? verticalFromServiceType(activeService.serviceType, agencyRow.organization_type)
+    : verticalFromOrgType(agencyRow.organization_type);
   const [concernTemplate, practitionerTemplate, fullIntake, providers] = await Promise.all([
     loadPathwayTemplate(vertical === 'clinical' ? 'clinical' : vertical),
     vertical === 'clinical' ? null : loadPathwayTemplate(vertical),
@@ -161,6 +271,16 @@ export async function getAdaptiveIntakeConfig(agencySlugOrId, req) {
           { value: 'other', label: 'Other' }
         ];
 
+  const careersPage = parseJson(agencyRow.careers_page_json, null);
+  const decorHero = careersPage
+    ? {
+        heroImageUrl: careersPage.heroImageUrl || null,
+        heroImageAlt: careersPage.heroImageAlt || null,
+        heroFrameStyle: careersPage.heroFrameStyle || null,
+        heroImagePosition: careersPage.heroImagePosition || null
+      }
+    : null;
+
   return {
     agency: {
       id: agencyRow.id,
@@ -169,6 +289,15 @@ export async function getAdaptiveIntakeConfig(agencySlugOrId, req) {
       organizationType: agencyRow.organization_type || 'agency'
     },
     branding,
+    decorHero,
+    intakeServices,
+    activeService: activeService
+      ? {
+          serviceType: activeService.serviceType,
+          displayName: activeService.displayName,
+          introBlurb: activeService.introBlurb
+        }
+      : null,
     vertical,
     pathways: {
       quick: { enabled: true },
@@ -184,7 +313,12 @@ export async function getAdaptiveIntakeConfig(agencySlugOrId, req) {
     concernOptions,
     practitionerFrame: practitionerTemplate,
     providerPreview: providers,
-    copy: copyForVertical(vertical, agencyRow.name)
+    copy: copyForVertical(vertical, agencyRow.name),
+    supportContact: {
+      email: agencyRow.onboarding_team_email || null,
+      phone: agencyRow.phone_number || null,
+      phoneExtension: agencyRow.phone_extension || null
+    }
   };
 }
 
@@ -222,16 +356,70 @@ function copyForVertical(vertical, agencyName) {
   };
 }
 
+function normalizeBirthdate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
+}
+
+function humanizeToken(value) {
+  return String(value || '')
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+const MODALITY_LABELS = {
+  in_person: 'In person',
+  virtual: 'Virtual',
+  either: 'No preference'
+};
+
+const TIME_OF_DAY_LABELS = {
+  morning: 'Morning',
+  afternoon: 'Afternoon',
+  evening: 'Evening',
+  flexible: 'Flexible'
+};
+
+function labelModality(value) {
+  return MODALITY_LABELS[String(value || '').trim()] || humanizeToken(value);
+}
+
+function labelTimeOfDay(value) {
+  return TIME_OF_DAY_LABELS[String(value || '').trim()] || humanizeToken(value);
+}
+
 export async function submitQuickProspective({ agencySlugOrId, payload = {}, req }) {
   const agencyRow = await loadAgencyRow(agencySlugOrId);
   if (!agencyRow) throw new Error('Organization not found');
 
-  const vertical = verticalFromOrgType(agencyRow.organization_type);
+  const intakeServices = await listIntakeServices(agencyRow);
+  const requestedServiceType = String(payload.serviceType || '').trim().toLowerCase();
+  const activeService =
+    intakeServices.find((s) => s.serviceType === requestedServiceType) ||
+    (intakeServices.length === 1 ? intakeServices[0] : null);
+  if (intakeServices.length > 1 && !activeService) {
+    throw new Error('Please choose a service before submitting.');
+  }
+
+  const vertical = activeService
+    ? verticalFromServiceType(activeService.serviceType, agencyRow.organization_type)
+    : verticalFromOrgType(agencyRow.organization_type);
   const whoFor = String(payload.whoFor || 'myself').trim();
   const respondent = payload.respondent || {};
   const clientInfo = payload.client || {};
   const concerns = Array.isArray(payload.concerns) ? payload.concerns : [];
   const preferences = payload.preferences || {};
+  const accomplishGoal = String(payload.accomplishGoal || payload.goals || '').trim() || null;
+  const homeAddress = String(payload.homeAddress || clientInfo.homeAddress || '').trim() || null;
+  const birthdate = normalizeBirthdate(
+    payload.birthdate || clientInfo.birthdate || clientInfo.dateOfBirth || clientInfo.ageOrDob
+  );
 
   const clientFirst =
     String(clientInfo.firstName || respondent.firstName || payload.firstName || '').trim();
@@ -253,7 +441,10 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
       firstName: clientFirst,
       lastName: clientLast,
       contactPhone: respondent.phone || payload.contactPhone || payload.phone,
+      dateOfBirth: birthdate,
+      homeAddress,
       presentingConcern:
+        accomplishGoal ||
         payload.presentingConcern ||
         (concerns.length ? concerns.join(', ') : null) ||
         payload.notes ||
@@ -270,6 +461,7 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
   const meta = {
     pathway: 'quick_prospective',
     vertical,
+    serviceType: activeService?.serviceType || null,
     whoFor,
     respondent: {
       firstName: respondent.firstName || null,
@@ -280,6 +472,9 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
       relationship: respondent.relationship || (whoFor === 'myself' ? 'self' : 'guardian')
     },
     concerns,
+    accomplishGoal,
+    homeAddress,
+    birthdate,
     notes: payload.notes || null,
     preferredProviderUserId: payload.preferredProviderUserId || preferences.preferredProviderUserId || null,
     source: 'ADAPTIVE_QUICK_PROSPECTIVE',
@@ -313,9 +508,13 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
       pathway: 'quick_prospective',
       whoFor,
       concerns,
+      accomplishGoal,
+      homeAddress,
+      birthdate,
       respondentEmail: meta.respondent.email,
       preferredProviderUserId: meta.preferredProviderUserId,
-      vertical
+      vertical,
+      serviceType: activeService?.serviceType || null
     };
     await pool.execute(`UPDATE clients SET intake_preferences_json = ? WHERE id = ?`, [
       JSON.stringify(nextPrefs),
@@ -341,8 +540,43 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     client,
     confirmation: {
       identifierCode: client.identifier_code,
+      clientId: client.id,
       submittedAt: new Date().toISOString(),
-      pathway: 'quick_prospective'
+      pathway: 'quick_prospective',
+      summary: {
+        whoFor,
+        whoForLabel:
+          whoFor === 'myself'
+            ? 'Myself'
+            : whoFor === 'child'
+              ? 'My child / dependent'
+              : whoFor === 'legal'
+                ? 'Someone I have legal authority for'
+                : humanizeToken(whoFor),
+        contactName: `${String(respondent.firstName || '').trim()} ${String(respondent.lastName || '').trim()}`.trim(),
+        contactEmail: meta.respondent.email,
+        contactPhone: meta.respondent.phone,
+        clientName: `${clientFirst} ${clientLast}`.trim(),
+        birthdate,
+        homeAddress,
+        concerns,
+        accomplishGoal,
+        notes: payload.notes || null,
+        preferredModality: labelModality(preferences.preferredModality || payload.preferredModality),
+        preferredTimeOfDay: labelTimeOfDay(preferences.preferredTimeOfDay || payload.preferredTimeOfDay),
+        preferredDays: Array.isArray(preferences.preferredDays)
+          ? preferences.preferredDays
+          : preferences.preferredDays
+            ? [preferences.preferredDays]
+            : [],
+        insuranceOrPayment: preferences.insuranceOrPayment || payload.insuranceOrPayment || null,
+        serviceType: activeService?.displayName || activeService?.serviceType || null
+      },
+      supportContact: {
+        email: agencyRow.onboarding_team_email || null,
+        phone: agencyRow.phone_number || null,
+        phoneExtension: agencyRow.phone_extension || null
+      }
     },
     conversion: {
       available: true,
@@ -426,6 +660,52 @@ export async function convertProspectiveToFullIntake({
     prefill,
     meta: nextMeta
   };
+}
+
+export async function submitSupportInquiry({ agencySlugOrId, payload = {} }) {
+  const agencyRow = await loadAgencyRow(agencySlugOrId);
+  if (!agencyRow) throw new Error('Organization not found');
+
+  const name = String(payload.name || '').trim();
+  const email = String(payload.email || '').trim();
+  const message = String(payload.message || '').trim();
+  if (!name || !email || !message) {
+    throw new Error('Name, email, and message are required.');
+  }
+
+  const supportEmail = String(agencyRow.onboarding_team_email || '').trim();
+  const referenceCode = String(payload.referenceCode || '').trim();
+  const clientId = Number(payload.clientId || 0) || null;
+  const subject = referenceCode
+    ? `Interest form follow-up (${referenceCode})`
+    : 'Interest form follow-up question';
+
+  const bodyLines = [
+    `Name: ${name}`,
+    `Email: ${email}`,
+    referenceCode ? `Reference: ${referenceCode}` : null,
+    clientId ? `Client ID: ${clientId}` : null,
+    '',
+    message
+  ].filter(Boolean);
+
+  if (supportEmail) {
+    try {
+      const { sendEmailFromIdentity } = await import('./unifiedEmail/unifiedEmailSender.service.js');
+      await sendEmailFromIdentity({
+        agencyId: agencyRow.id,
+        to: supportEmail,
+        subject,
+        text: bodyLines.join('\n'),
+        source: 'adaptive_intake_support_inquiry',
+        replyTo: email
+      });
+    } catch {
+      /* fall through — still acknowledge submission */
+    }
+  }
+
+  return { ok: true };
 }
 
 export async function listProspectiveAdaptiveClients({ agencyId, limit = 50 }) {

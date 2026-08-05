@@ -10,7 +10,7 @@
         class="ai-pathway-card"
         :class="{ 'ai-pathway-card--selected': modelValue === 'quick' }"
         :aria-pressed="modelValue === 'quick'"
-        @click="$emit('update:modelValue', 'quick')"
+        @click="choosePathway('quick')"
       >
         <div class="ai-pathway-card-top">
           <span class="ai-pathway-card-icon" aria-hidden="true">⚡</span>
@@ -32,7 +32,7 @@
         :class="{ 'ai-pathway-card--selected': modelValue === 'full' }"
         :aria-pressed="modelValue === 'full'"
         :disabled="!full.enabled"
-        @click="full.enabled && $emit('update:modelValue', 'full')"
+        @click="choosePathway('full')"
       >
         <div class="ai-pathway-card-top">
           <span class="ai-pathway-card-icon" aria-hidden="true">📋</span>
@@ -54,7 +54,7 @@
         type="button"
         class="df-btn df-btn-primary"
         :disabled="!modelValue"
-        @click="$emit('continue', modelValue)"
+        @click="choosePathway(modelValue)"
       >
         Continue
       </button>
@@ -63,7 +63,7 @@
 </template>
 
 <script setup>
-defineProps({
+const props = defineProps({
   modelValue: { type: String, default: '' },
   eyebrow: { type: String, default: '' },
   title: { type: String, default: "Welcome! We're glad you're here." },
@@ -98,5 +98,14 @@ defineProps({
   }
 });
 
-defineEmits(['update:modelValue', 'continue']);
+const emit = defineEmits(['update:modelValue', 'continue']);
+
+/** Card click, CTA text, and Continue all start the chosen pathway immediately. */
+function choosePathway(pathway) {
+  const choice = String(pathway || '').trim();
+  if (!choice) return;
+  if (choice === 'full' && !props.full?.enabled) return;
+  emit('update:modelValue', choice);
+  emit('continue', choice);
+}
 </script>

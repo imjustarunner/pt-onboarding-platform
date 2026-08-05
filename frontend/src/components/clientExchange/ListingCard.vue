@@ -1,5 +1,5 @@
 <template>
-  <div class="listing-card">
+  <div class="listing-card" :class="{ 'listing-card--selected': selected }" @click="$emit('select', listing)">
     <div class="lc-top">
       <div class="lc-title">
         <span class="status-badge" :class="`status-${listing.status}`">{{ listing.status }}</span>
@@ -98,9 +98,10 @@ const props = defineProps({
   currentUserId: { type: Number, default: null },
   isBackoffice: { type: Boolean, default: false },
   requests: { type: Array, default: () => [] },
-  requestsLoading: { type: Boolean, default: false }
+  requestsLoading: { type: Boolean, default: false },
+  selected: { type: Boolean, default: false }
 });
-const emit = defineEmits(['request', 'withdraw', 'expand', 'approve', 'deny']);
+const emit = defineEmits(['request', 'withdraw', 'expand', 'approve', 'deny', 'select']);
 
 const expanded = ref(false);
 const showRequestForm = ref(false);
@@ -162,13 +163,18 @@ function submitRequest() {
 
 <style scoped>
 .listing-card {
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 12px;
-  padding: 12px 14px;
+  border: none;
+  border-bottom: 1px solid var(--border, #f1f5f9);
+  border-radius: 0;
+  padding: 0.9rem 1rem;
   background: #fff;
   display: grid;
-  gap: 8px;
+  gap: 7px;
+  cursor: pointer;
+  transition: background 0.1s;
 }
+.listing-card:hover { background: #f8fafc; }
+.listing-card--selected { background: #f0fdf4 !important; border-left: 3px solid var(--primary, #2d6a4f); }
 .lc-top {
   display: flex;
   justify-content: space-between;

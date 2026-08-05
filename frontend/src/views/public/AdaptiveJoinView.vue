@@ -8,9 +8,11 @@
     :progress-steps="sidebarSteps"
     :progress-index="stepIndex"
     :sidebar-steps="sidebarSteps"
-    :help-blocks="helpBlocks"
+    :decor-hero-url="decorHero.url"
+    :decor-hero-alt="decorHero.alt"
+    :decor-hero-frame-style="decorHero.frameStyle"
+    :decor-hero-image-position="decorHero.imagePosition"
     :cover-mode="loading || !!loadError || submitted"
-    :show-top-progress="phase !== 'pathway' && !submitted"
   >
     <template #header-left>
       <button
@@ -27,10 +29,12 @@
     <div v-if="loading" class="df-loading">Loading…</div>
     <div v-else-if="loadError" class="df-banner df-banner--warn">{{ loadError }}</div>
 
-    <DigitalFormSuccess
+    <AdaptiveIntakeThankYou
       v-else-if="submitted"
-      title="You're all set."
-      :body="successBody"
+      :agency-slug="agencySlug"
+      :agency-name="config?.agency?.name || ''"
+      :confirmation="confirmation"
+      :support-contact="config?.supportContact"
     />
 
     <AdaptiveIntakePathwayChoice
@@ -55,7 +59,7 @@
             type="button"
             class="ai-pathway-card"
             :class="{ 'ai-pathway-card--selected': form.whoFor === opt.value }"
-            @click="form.whoFor = opt.value"
+            @click="chooseWhoFor(opt.value)"
           >
             <h2 class="ai-pathway-card-title" style="font-size: 1.05rem;">{{ opt.label }}</h2>
             <p class="ai-pathway-card-desc">{{ opt.description }}</p>
@@ -71,15 +75,36 @@
           <DigitalFormField v-model="form.respondent.firstName" label="Your first name" required />
           <DigitalFormField v-model="form.respondent.lastName" label="Your last name" required />
         </div>
-        <DigitalFormField v-model="form.respondent.email" type="email" label="Email" required />
-        <DigitalFormField v-model="form.respondent.phone" type="tel" label="Phone" required />
+        <DigitalFormField
+          v-model="form.respondent.email"
+          type="email"
+          label="Email"
+          placeholder="name@gmail.com"
+          required
+          :email-domain-hints="true"
+          :error="fieldErrors.email"
+          @blur="validateBasicsField('email')"
+        />
+        <DigitalFormField v-model="form.respondent.phone" type="tel" label="Phone" required :error="fieldErrors.phone" @blur="validateBasicsField('phone')" />
+        <DigitalFormField
+          v-model="form.birthdate"
+          type="date"
+          :label="form.whoFor === 'myself' ? 'Date of birth' : 'Client date of birth'"
+          required
+        />
+        <DigitalFormField
+          v-model="form.homeAddress"
+          type="textarea"
+          label="Home address"
+          :rows="2"
+          required
+        />
         <template v-if="form.whoFor !== 'myself'">
           <h2 style="margin: 1.25rem 0 0.5rem; font-size: 1.05rem;">Prospective client</h2>
           <div class="field-row">
             <DigitalFormField v-model="form.client.firstName" label="Client first name" required />
             <DigitalFormField v-model="form.client.lastName" label="Client last name" required />
           </div>
-          <DigitalFormField v-model="form.client.ageOrDob" label="Age or date of birth (optional)" />
         </template>
       </div>
 
@@ -92,14 +117,19 @@
             v-for="c in concernOptions"
             :key="c.value"
             type="button"
-            class="ai-pathway-card"
+            class="ai-pathway-card ai-concern-chip"
             :class="{ 'ai-pathway-card--selected': form.concerns.includes(c.value) }"
-            style="padding: 0.85rem;"
             @click="toggleConcern(c.value)"
           >
             <strong>{{ c.label }}</strong>
           </button>
         </div>
+        <DigitalFormField
+          v-model="form.accomplishGoal"
+          type="textarea"
+          label="What would you like to accomplish?"
+          :rows="3"
+        />
         <DigitalFormField
           v-model="form.notes"
           type="textarea"
@@ -131,7 +161,7 @@
         <DigitalFormField
           v-model="form.preferences.preferredDaysRaw"
           label="Preferred days (optional)"
-          placeholder="e.g. Tuesdays, Thursday afternoons"
+          placeholder="e.g. Tuesdays, weekends, Thursday afternoons"
         />
         <DigitalFormField
           v-model="form.preferences.insuranceOrPayment"
@@ -150,6 +180,35 @@
         />
       </div>
 
+      <!-- Step: consent / contact permission -->
+      <div v-else-if="quickStep === 5">
+        <h1 class="ai-page-title">Permission to contact you</h1>
+        <p class="ai-page-lead">Please review and accept the following before submitting.</p>
+        <div class="ai-consent-box">
+          <div class="ai-consent-icon" aria-hidden="true">🔒</div>
+          <div class="ai-consent-body">
+            <h3 class="ai-consent-heading">Contact authorization</h3>
+            <p>
+              By submitting this interest form, I authorize {{ config?.agency?.name || 'this organization' }}
+              to contact me via phone, email, or text at the information I provided above, for the purpose
+              of scheduling services and providing follow-up care coordination.
+            </p>
+            <p>
+              I understand that submitting this form does not guarantee service and does not create a
+              treatment relationship. My information will be handled confidentially in accordance with
+              HIPAA and applicable privacy laws.
+            </p>
+            <p class="ai-consent-footnote">
+              You may withdraw consent at any time by contacting the organization directly.
+            </p>
+          </div>
+        </div>
+        <label class="ai-consent-check">
+          <input type="checkbox" v-model="form.consentGiven" />
+          <span>I have read and agree to the above authorization</span>
+        </label>
+      </div>
+
       <!-- Step: review -->
       <div v-else>
         <h1 class="ai-page-title">Review & submit</h1>
@@ -160,9 +219,22 @@
           <p v-if="form.whoFor !== 'myself'">
             <strong>Client:</strong> {{ form.client.firstName }} {{ form.client.lastName }}
           </p>
+          <p v-if="form.birthdate"><strong>Date of birth:</strong> {{ formatBirthdate(form.birthdate) }}</p>
+          <p v-if="form.homeAddress"><strong>Home address:</strong> {{ form.homeAddress }}</p>
           <p v-if="form.concerns.length"><strong>Interests:</strong> {{ concernLabels }}</p>
+          <p v-if="form.accomplishGoal"><strong>Goals:</strong> {{ form.accomplishGoal }}</p>
+          <p v-if="form.notes"><strong>Additional notes:</strong> {{ form.notes }}</p>
           <p v-if="form.preferences.preferredModality">
-            <strong>Format:</strong> {{ form.preferences.preferredModality }}
+            <strong>Format:</strong> {{ modalityLabel(form.preferences.preferredModality) }}
+          </p>
+          <p v-if="form.preferences.preferredTimeOfDay">
+            <strong>Preferred time:</strong> {{ timeLabel(form.preferences.preferredTimeOfDay) }}
+          </p>
+          <p v-if="form.preferences.preferredDaysRaw">
+            <strong>Preferred days:</strong> {{ form.preferences.preferredDaysRaw }}
+          </p>
+          <p v-if="form.preferences.insuranceOrPayment">
+            <strong>Insurance / payment:</strong> {{ form.preferences.insuranceOrPayment }}
           </p>
         </div>
         <div v-if="submitError" class="df-banner df-banner--warn">{{ submitError }}</div>
@@ -173,10 +245,10 @@
         <button
           type="button"
           class="df-btn df-btn-primary"
-          :disabled="submitting || !canContinueQuick"
+          :disabled="submitting || !canContinueQuick || (quickStep === 5 && !form.consentGiven)"
           @click="onQuickContinue"
         >
-          {{ quickStep >= 5 ? (submitting ? 'Submitting…' : 'Submit interest form') : 'Continue' }}
+          {{ quickStep >= 6 ? (submitting ? 'Submitting…' : 'Submit interest form') : 'Continue' }}
         </button>
       </div>
     </template>
@@ -187,18 +259,27 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
-import { DigitalFormField, DigitalFormSuccess } from '../../components/digital-form';
+import { DigitalFormField } from '../../components/digital-form';
 import {
   AdaptiveIntakeShell,
   AdaptiveIntakePathwayChoice,
+  AdaptiveIntakeThankYou,
   AdaptiveProviderPreview
 } from '../../components/adaptive-intake';
+import { mergeCareersPageWithDefaults } from '../../utils/careersAssets.js';
+import {
+  isValidEmailAddress,
+  isValidUsPhone,
+  normalizeUsPhoneForSubmit
+} from '../../utils/contactInput.js';
 
 const route = useRoute();
 const router = useRouter();
 const agencySlug = computed(() =>
   String(route.params.organizationSlug || route.params.agencySlug || '').trim()
 );
+
+const serviceType = computed(() => String(route.params.serviceType || '').trim().toLowerCase());
 
 const loading = ref(true);
 const loadError = ref('');
@@ -211,6 +292,11 @@ const submitError = ref('');
 const submitted = ref(false);
 const confirmation = ref(null);
 
+const fieldErrors = reactive({
+  email: '',
+  phone: ''
+});
+
 const providers = ref([]);
 const providersLoading = ref(false);
 const providersError = ref('');
@@ -218,8 +304,11 @@ const providersError = ref('');
 const form = reactive({
   whoFor: 'child',
   respondent: { firstName: '', lastName: '', email: '', phone: '' },
-  client: { firstName: '', lastName: '', ageOrDob: '' },
+  client: { firstName: '', lastName: '' },
+  birthdate: '',
+  homeAddress: '',
   concerns: [],
+  accomplishGoal: '',
   notes: '',
   preferences: {
     preferredModality: '',
@@ -227,7 +316,8 @@ const form = reactive({
     preferredDaysRaw: '',
     insuranceOrPayment: ''
   },
-  preferredProviderUserId: null
+  preferredProviderUserId: null,
+  consentGiven: false
 });
 
 const whoForOptions = [
@@ -247,7 +337,6 @@ const whoForOptions = [
 const modalityOptions = [
   { value: 'in_person', label: 'In person' },
   { value: 'virtual', label: 'Virtual' },
-  { value: 'school', label: 'School-based' },
   { value: 'either', label: 'No preference' }
 ];
 
@@ -273,6 +362,7 @@ const sidebarSteps = computed(() => {
     { id: 'needs', label: 'What support?' },
     { id: 'prefs', label: 'Preferences' },
     { id: 'providers', label: 'Provider preview' },
+    { id: 'consent', label: 'Authorization' },
     { id: 'review', label: 'Review & Submit' }
   ];
 });
@@ -283,6 +373,8 @@ const stepIndex = computed(() => {
 });
 
 const pathwayBadge = computed(() => {
+  const svc = config.value?.activeService?.displayName;
+  if (svc) return svc;
   if (phase.value === 'quick') return config.value?.copy?.quickTitle || 'Quick Prospective';
   if (selectedPathway.value === 'full') return config.value?.copy?.fullTitle || 'In-Depth Intake';
   return '';
@@ -306,6 +398,22 @@ const concernLabels = computed(() =>
     .join(', ')
 );
 
+function modalityLabel(value) {
+  return modalityOptions.find((o) => o.value === value)?.label || value;
+}
+
+function timeLabel(value) {
+  return timeOptions.find((o) => o.value === value)?.label || value;
+}
+
+function formatBirthdate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const parsed = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return parsed.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
 const quickCard = computed(() => ({
   title: config.value?.copy?.quickTitle || 'Quick Prospective',
   tagline: 'A short form to get you started.',
@@ -328,51 +436,16 @@ const fullCard = computed(() => ({
   disabledReason: config.value?.pathways?.full?.disabledReason
 }));
 
-const helpBlocks = computed(() => {
-  if (phase.value === 'pathway') {
-    return [
-      {
-        id: 'next',
-        icon: '📅',
-        title: 'What happens next?',
-        bullets: [
-          'Our team reviews your information',
-          'We reach out about next steps',
-          'No commitment required to explore'
-        ]
-      },
-      {
-        id: 'why',
-        icon: '💚',
-        title: 'Why we ask',
-        body: 'A little information helps us match you with the right resources and providers.'
-      }
-    ];
-  }
-  if (quickStep.value === 2) {
-    return [
-      {
-        id: 'why',
-        icon: '?',
-        title: 'Why we ask',
-        body: 'Understanding your needs helps us prepare a helpful follow-up conversation.'
-      },
-      {
-        id: 'control',
-        icon: '🔒',
-        title: "You're in control",
-        body: 'You can skip details you are not ready to share and add more later.'
-      }
-    ];
-  }
-  return [
-    {
-      id: 'safe',
-      icon: '🛡️',
-      title: 'Confidential & secure',
-      body: 'Your responses are encrypted and only shared with your care team.'
-    }
-  ];
+const decorHero = computed(() => {
+  const slug = config.value?.agency?.slug || agencySlug.value;
+  const name = config.value?.agency?.name || '';
+  const page = mergeCareersPageWithDefaults(config.value?.decorHero || {}, { slug, agencyName: name });
+  return {
+    url: String(page.heroImageUrl || '').trim(),
+    alt: String(page.heroImageAlt || `${name || 'Organization'} intake`).trim(),
+    frameStyle: String(page.heroFrameStyle || 'preframed').trim().toLowerCase(),
+    imagePosition: String(page.heroImagePosition || 'center center').trim()
+  };
 });
 
 const canContinueQuick = computed(() => {
@@ -380,6 +453,8 @@ const canContinueQuick = computed(() => {
   if (quickStep.value === 1) {
     const r = form.respondent;
     if (!r.firstName.trim() || !r.lastName.trim() || !r.email.trim() || !r.phone.trim()) return false;
+    if (!isValidEmailAddress(r.email) || !isValidUsPhone(r.phone)) return false;
+    if (!form.birthdate.trim() || !form.homeAddress.trim()) return false;
     if (form.whoFor !== 'myself') {
       if (!form.client.firstName.trim() || !form.client.lastName.trim()) return false;
     }
@@ -388,12 +463,40 @@ const canContinueQuick = computed(() => {
   return true;
 });
 
-const successBody = computed(() => {
-  const code = confirmation.value?.identifierCode;
-  return `Thanks for reaching out. We've received your interest form${
-    code ? ` (ref ${code})` : ''
-  }. Our team will follow up within 1–2 business days.`;
-});
+function validateBasicsField(field) {
+  if (field === 'email') {
+    const email = form.respondent.email.trim();
+    if (!email) {
+      fieldErrors.email = 'Email is required.';
+    } else if (!isValidEmailAddress(email)) {
+      fieldErrors.email = 'Enter a valid email (e.g. name@gmail.com).';
+    } else {
+      fieldErrors.email = '';
+    }
+    return;
+  }
+  if (field === 'phone') {
+    const phone = form.respondent.phone.trim();
+    if (!phone) {
+      fieldErrors.phone = 'Phone is required.';
+    } else if (!isValidUsPhone(phone)) {
+      fieldErrors.phone = 'Enter a valid 10-digit US phone number.';
+    } else {
+      fieldErrors.phone = '';
+    }
+  }
+}
+
+function validateBasicsFields() {
+  validateBasicsField('email');
+  validateBasicsField('phone');
+  return !fieldErrors.email && !fieldErrors.phone;
+}
+
+function chooseWhoFor(value) {
+  form.whoFor = value;
+  quickStep.value = 1;
+}
 
 function toggleConcern(value) {
   const i = form.concerns.indexOf(value);
@@ -401,9 +504,22 @@ function toggleConcern(value) {
   else form.concerns.push(value);
 }
 
+function joinHubPath() {
+  const slug = agencySlug.value;
+  if (!slug) return '';
+  if (route.params.organizationSlug) {
+    return `/${encodeURIComponent(slug)}/join-intake`;
+  }
+  return `/join/${encodeURIComponent(slug)}`;
+}
+
 function goBack() {
   if (phase.value === 'quick' && quickStep.value > 0) {
     quickStep.value -= 1;
+    return;
+  }
+  if ((config.value?.intakeServices?.length || 0) > 1) {
+    router.push(joinHubPath());
     return;
   }
   phase.value = 'pathway';
@@ -439,7 +555,10 @@ async function loadProviders() {
 }
 
 async function onQuickContinue() {
-  if (quickStep.value < 5) {
+  if (quickStep.value === 1 && !validateBasicsFields()) {
+    return;
+  }
+  if (quickStep.value < 6) {
     quickStep.value += 1;
     return;
   }
@@ -463,10 +582,18 @@ async function submitQuick() {
         : { ...form.client };
 
     const { data } = await api.post(`/public/adaptive-intake/${agencySlug.value}/quick`, {
+      serviceType: serviceType.value || config.value?.activeService?.serviceType || null,
       whoFor: form.whoFor,
-      respondent: form.respondent,
+      respondent: {
+        ...form.respondent,
+        email: form.respondent.email.trim(),
+        phone: normalizeUsPhoneForSubmit(form.respondent.phone)
+      },
       client: clientPayload,
+      birthdate: form.birthdate,
+      homeAddress: form.homeAddress.trim(),
       concerns: form.concerns,
+      accomplishGoal: form.accomplishGoal.trim() || null,
       notes: form.notes,
       preferredProviderUserId: form.preferredProviderUserId,
       preferences: {
@@ -474,7 +601,8 @@ async function submitQuick() {
         preferredTimeOfDay: form.preferences.preferredTimeOfDay || null,
         preferredDays,
         insuranceOrPayment: form.preferences.insuranceOrPayment || null
-      }
+      },
+      consentGiven: form.consentGiven
     });
     confirmation.value = data?.confirmation || null;
     submitted.value = true;
@@ -493,9 +621,19 @@ onMounted(async () => {
       loadError.value = 'Missing organization.';
       return;
     }
-    const { data } = await api.get(`/public/adaptive-intake/${agencySlug.value}`);
+    const params = serviceType.value ? { serviceType: serviceType.value } : {};
+    const { data } = await api.get(`/public/adaptive-intake/${agencySlug.value}`, { params });
     config.value = data;
     providers.value = data?.providerPreview || [];
+
+    const services = Array.isArray(data?.intakeServices) ? data.intakeServices : [];
+    if (services.length > 1 && !data?.activeService) {
+      await router.replace(joinHubPath());
+      return;
+    }
+    if (services.length === 0) {
+      loadError.value = 'No intake services are available right now.';
+    }
   } catch (e) {
     loadError.value = e?.response?.data?.error?.message || 'Unable to load intake.';
   } finally {
@@ -516,9 +654,68 @@ onMounted(async () => {
   gap: 0.65rem;
   margin-bottom: 1rem;
 }
+.ai-concern-grid .ai-concern-chip {
+  text-align: center;
+  align-items: center;
+  justify-content: center;
+  padding: 0.55rem 0.65rem;
+  min-height: 0;
+}
+.ai-concern-grid .ai-concern-chip strong {
+  font-size: 0.92rem;
+  line-height: 1.25;
+}
 @media (max-width: 640px) {
   .field-row {
     grid-template-columns: 1fr;
   }
+}
+/* Consent step */
+.ai-consent-box {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 12px;
+  padding: 1.2rem 1.25rem;
+  margin-bottom: 1.2rem;
+}
+.ai-consent-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+.ai-consent-heading {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 0.6rem;
+}
+.ai-consent-body p {
+  margin: 0 0 0.65rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: #1a2f2a;
+}
+.ai-consent-footnote {
+  font-size: 0.8rem !important;
+  color: #4b5563 !important;
+}
+.ai-consent-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #111827;
+}
+.ai-consent-check input[type="checkbox"] {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.15rem;
+  accent-color: var(--primary, #2d6a4f);
+  flex-shrink: 0;
+  cursor: pointer;
 }
 </style>

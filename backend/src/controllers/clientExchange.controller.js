@@ -226,6 +226,30 @@ export async function denyRequest(req, res, next) {
   return resolveRequestAction(req, res, next, 'deny');
 }
 
+/**
+ * GET /api/client-exchange/recently-referred?agencyId=&windowDays=
+ * Clients awaiting provider acceptance (assigned within windowDays, not yet accepted/declined).
+ */
+export async function listRecentlyReferredClients(req, res, next) {
+  try {
+    const agencyId = safeInt(req.query.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const requestingUser = await User.findById(req.user.id);
+    const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
+    if (!isBackoffice(req.user.role) && !isSupervisor) {
+      return res.status(403).json({ error: { message: 'Support/admin access required' } });
+    }
+    const windowDays = safeInt(req.query.windowDays) || 30;
+    const clients = await ClientExchange.listPendingAcceptanceClients({ agencyId, windowDays });
+    res.json({ clients });
+  } catch (e) {
+    next(e);
+  }
+}
+
 /** GET /api/client-exchange/pending-office-clients?agencyId= — support/admin new-client queue */
 export async function listPendingOfficeClients(req, res, next) {
   try {

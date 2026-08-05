@@ -10,8 +10,8 @@ import OfficeIntakeQueuePanel from '../../components/admin/OfficeIntakeQueuePane
 
 <style scoped>
 .office-intake-queue-view {
-  max-width: 1100px;
+  padding: 20px 24px 60px;
+  max-width: 1600px;
   margin: 0 auto;
-  padding: 20px 16px 60px;
 }
 </style>

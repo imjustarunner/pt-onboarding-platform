@@ -303,6 +303,26 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // This ensures req.body is available for sanitization
 app.use(requestLoggingMiddleware);
 
+// Slow-request timing. Enable with TIMING_DEBUG=1; optionally set TIMING_DEBUG_MS
+// to change the threshold (default 300ms). Logs method, path, status, duration and
+// response size so slow endpoints and oversized payloads are both visible.
+if (process.env.TIMING_DEBUG === '1') {
+  const thresholdMs = Number(process.env.TIMING_DEBUG_MS || 300);
+  app.use((req, res, next) => {
+    const startedAt = process.hrtime.bigint();
+    res.on('finish', () => {
+      const ms = Number(process.hrtime.bigint() - startedAt) / 1e6;
+      if (ms < thresholdMs) return;
+      const kb = Number(res.getHeader('content-length') || 0) / 1024;
+      console.warn(
+        `[timing] ${ms.toFixed(0)}ms ${req.method} ${req.originalUrl} ` +
+          `status=${res.statusCode}${kb ? ` size=${kb.toFixed(1)}kB` : ''}`
+      );
+    });
+    next();
+  });
+}
+
 // Prevent caching of API JSON responses (especially important in local dev).
 app.use('/api', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');

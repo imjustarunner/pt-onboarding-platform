@@ -9,8 +9,56 @@
     </label>
     <p v-if="help && type !== 'checkbox'" class="df-field-help">{{ help }}</p>
 
+    <template v-if="type === 'email'">
+      <input
+        :id="inputId"
+        class="df-input"
+        type="text"
+        inputmode="email"
+        autocomplete="email"
+        autocapitalize="none"
+        spellcheck="false"
+        :value="modelValue"
+        :placeholder="placeholder"
+        :required="required"
+        :disabled="disabled"
+        :aria-invalid="error ? 'true' : undefined"
+        @input="onEmailInput"
+        @blur="$emit('blur')"
+      />
+      <div v-if="resolvedEmailDomainHints.length" class="df-email-domain-hints">
+        <span class="df-email-domain-hints-label">Quick fill:</span>
+        <button
+          v-for="domain in resolvedEmailDomainHints"
+          :key="domain"
+          type="button"
+          class="df-email-domain-chip"
+          :disabled="disabled"
+          @click="applyEmailDomain(domain)"
+        >
+          {{ domain }}
+        </button>
+      </div>
+    </template>
+
     <input
-      v-if="type === 'text' || type === 'email' || type === 'tel' || type === 'date' || type === 'number'"
+      v-else-if="type === 'tel'"
+      :id="inputId"
+      class="df-input"
+      type="tel"
+      inputmode="tel"
+      autocomplete="tel"
+      :value="modelValue"
+      :placeholder="placeholder || '(555) 555-5555'"
+      :required="required"
+      :disabled="disabled"
+      :aria-invalid="error ? 'true' : undefined"
+      @input="onTelInput"
+      @blur="$emit('blur')"
+    />
+
+    <input
+      v-else-if="type === 'text' || type === 'date' || type === 'number'"
       :id="inputId"
       class="df-input"
       :type="type === 'text' ? 'text' : type"
@@ -19,6 +67,7 @@
       :required="required"
       :disabled="disabled"
       @input="$emit('update:modelValue', $event.target.value)"
+      @blur="$emit('blur')"
     />
 
     <textarea
@@ -82,6 +131,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import { formatUsPhoneInput, applyEmailDomainHint, POPULAR_EMAIL_DOMAINS } from '../../utils/contactInput.js';
 
 const props = defineProps({
   modelValue: { type: [String, Number, Boolean, Array], default: '' },
@@ -94,9 +144,32 @@ const props = defineProps({
   options: { type: Array, default: () => [] },
   error: { type: String, default: '' },
   rows: { type: Number, default: 4 },
-  id: { type: String, default: '' }
+  id: { type: String, default: '' },
+  /** true = popular domains, or pass custom list like ['@gmail.com'] */
+  emailDomainHints: { type: [Boolean, Array], default: false }
 });
-defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue', 'blur']);
+
+const resolvedEmailDomainHints = computed(() => {
+  if (Array.isArray(props.emailDomainHints) && props.emailDomainHints.length) {
+    return props.emailDomainHints.map((d) => (String(d).startsWith('@') ? String(d) : `@${d}`));
+  }
+  if (props.emailDomainHints === true) return POPULAR_EMAIL_DOMAINS;
+  return [];
+});
+
+function onEmailInput(event) {
+  emit('update:modelValue', event.target.value);
+}
+
+function onTelInput(event) {
+  emit('update:modelValue', formatUsPhoneInput(event.target.value));
+}
+
+function applyEmailDomain(domain) {
+  emit('update:modelValue', applyEmailDomainHint(props.modelValue, domain));
+  emit('blur');
+}
 
 const inputId = computed(() => props.id || `df-field-${Math.random().toString(36).slice(2, 9)}`);
 
@@ -130,5 +203,42 @@ const safeInfoHtml = computed(() => {
   color: var(--df-danger);
   font-size: 0.8rem;
   margin: 0;
+}
+
+.df-email-domain-hints {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+}
+
+.df-email-domain-hints-label {
+  font-size: 0.72rem;
+  color: var(--df-muted);
+  margin-right: 0.15rem;
+}
+
+.df-email-domain-chip {
+  border: 1px solid color-mix(in srgb, var(--df-primary) 22%, var(--df-border));
+  background: color-mix(in srgb, var(--df-secondary) 8%, #fff);
+  color: var(--df-primary);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.df-email-domain-chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--df-secondary) 16%, #fff);
+  border-color: color-mix(in srgb, var(--df-primary) 40%, var(--df-border));
+}
+
+.df-email-domain-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 </style>

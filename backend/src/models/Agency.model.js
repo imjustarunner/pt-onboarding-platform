@@ -40,49 +40,16 @@ class Agency {
    * @returns {Promise<Array>} Array of organization objects
    */
   static async findAll(includeInactive = false, includeArchived = false, organizationType = null) {
-    // Check if is_archived column exists
-    let hasArchiveColumn = false;
+    let cols;
     try {
-      const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'is_archived'"
-      );
-      hasArchiveColumn = columns.length > 0;
-    } catch (e) {
-      hasArchiveColumn = false;
+      cols = await getAgencySchemaColumns();
+    } catch {
+      cols = new Set();
     }
-    
-    // Check if organization_type column exists
-    let hasOrganizationType = false;
-    try {
-      const [orgTypeColumns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'organization_type'"
-      );
-      hasOrganizationType = orgTypeColumns.length > 0;
-    } catch (e) {
-      hasOrganizationType = false;
-    }
-    
-    // Check if icon_id column exists
-    let hasIconId = false;
-    try {
-      const [iconColumns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'icon_id'"
-      );
-      hasIconId = iconColumns.length > 0;
-    } catch (e) {
-      hasIconId = false;
-    }
-
-    // Check if chat_icon_id column exists
-    let hasChatIconId = false;
-    try {
-      const [chatCols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'chat_icon_id'"
-      );
-      hasChatIconId = chatCols.length > 0;
-    } catch (e) {
-      hasChatIconId = false;
-    }
+    const hasArchiveColumn = cols.has('is_archived');
+    const hasOrganizationType = cols.has('organization_type');
+    const hasIconId = cols.has('icon_id');
+    const hasChatIconId = cols.has('chat_icon_id');
     
     let query;
     if (hasIconId) {

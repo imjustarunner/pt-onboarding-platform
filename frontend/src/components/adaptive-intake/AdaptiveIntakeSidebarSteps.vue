@@ -1,5 +1,5 @@
 <template>
-  <nav class="ai-sidebar-steps" :aria-label="ariaLabel">
+  <nav class="ai-sidebar-steps" :class="{ 'ai-sidebar-steps--dark': variant === 'dark' }" :aria-label="ariaLabel">
     <ol class="ai-sidebar-steps-list">
       <li
         v-for="(step, i) in steps"
@@ -31,6 +31,7 @@
 defineProps({
   steps: { type: Array, default: () => [] },
   activeIndex: { type: Number, default: 0 },
+  variant: { type: String, default: 'light' },
   ariaLabel: { type: String, default: 'Intake progress' },
   youAreHere: { type: String, default: 'You are here' },
   completedLabel: { type: String, default: 'Completed' }

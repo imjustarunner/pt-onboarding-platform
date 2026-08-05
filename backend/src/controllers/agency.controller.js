@@ -98,6 +98,59 @@ const TENANT_EXTRA_DEPENDENCY_TABLES = [
   'club_store_orders'
 ];
 
+// information_schema lookups are expensive; the schema does not change at runtime.
+let _hasOrgAffiliationsTable = null;
+async function hasOrganizationAffiliationsTable() {
+  if (_hasOrgAffiliationsTable !== null) return _hasOrgAffiliationsTable;
+  try {
+    const [tables] = await pool.execute(
+      "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'organization_affiliations'"
+    );
+    _hasOrgAffiliationsTable = Number(tables?.[0]?.cnt || 0) > 0;
+  } catch {
+    _hasOrgAffiliationsTable = false;
+  }
+  return _hasOrgAffiliationsTable;
+}
+
+/**
+ * Lightweight projection for dropdowns/pickers: id, name, organization_type and the
+ * affiliated parent agency id. Deliberately skips branding inheritance and the
+ * clinical/learning flag batching that attachAffiliationMeta performs, since callers
+ * that pass ?minimal=1 only need to label and group organizations.
+ */
+async function toMinimalOrgs(orgs) {
+  const list = Array.isArray(orgs) ? orgs : [];
+  if (!list.length) return [];
+
+  const byOrg = new Map();
+  if (await hasOrganizationAffiliationsTable()) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT organization_id, agency_id
+         FROM organization_affiliations
+         WHERE is_active = TRUE
+         ORDER BY updated_at DESC, id DESC`
+      );
+      for (const r of rows || []) {
+        const orgId = Number(r?.organization_id || 0);
+        if (!orgId || byOrg.has(orgId)) continue;
+        byOrg.set(orgId, Number(r?.agency_id || 0) || null);
+      }
+    } catch {
+      // Fall back to no affiliation hints.
+    }
+  }
+
+  return list.map((a) => ({
+    id: a.id,
+    name: a.name,
+    organization_type: a.organization_type,
+    slug: a.slug || null,
+    affiliated_agency_id: byOrg.get(Number(a.id)) || null
+  }));
+}
+
 async function attachAffiliationMeta(orgs) {
   const list = Array.isArray(orgs) ? orgs : [];
   if (!list.length) return list;
@@ -106,11 +159,7 @@ async function attachAffiliationMeta(orgs) {
   // affiliated agency id (i.e., "this org is a child org of agency X").
   // This lets UIs filter out affiliated orgs even when organization_type is missing/null.
   try {
-    const [tables] = await pool.execute(
-      "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'organization_affiliations'"
-    );
-    const has = Number(tables?.[0]?.cnt || 0) > 0;
-    if (!has) return list;
+    if (!(await hasOrganizationAffiliationsTable())) return list;
 
     const [rows] = await pool.execute(
       `SELECT organization_id, agency_id
@@ -218,19 +267,19 @@ export const getAllAgencies = async (req, res, next) => {
     // Super admins see all agencies
     if (req.user.role === 'super_admin') {
       const agencies = await Agency.findAll(includeInactive, includeArchived);
-      if (!minimal) await attachAffiliationMeta(agencies);
       if (minimal) {
-        return res.json(agencies.map((a) => ({ id: a.id, name: a.name, organization_type: a.organization_type })));
+        return res.json(await toMinimalOrgs(agencies));
       }
+      await attachAffiliationMeta(agencies);
       return res.json(agencies);
     }
 
     // Regular admins and others see only their assigned agencies
     const userAgencies = await User.getAgencies(req.user.id);
-    if (!minimal) await attachAffiliationMeta(userAgencies);
     if (minimal) {
-      return res.json(userAgencies.map((a) => ({ id: a.id, name: a.name, organization_type: a.organization_type })));
+      return res.json(await toMinimalOrgs(userAgencies));
     }
+    await attachAffiliationMeta(userAgencies);
     res.json(userAgencies);
   } catch (error) {
     next(error);

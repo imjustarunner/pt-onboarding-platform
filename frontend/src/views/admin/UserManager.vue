@@ -15,7 +15,7 @@
       </div>
       <div class="header-actions" data-tour="users-header-actions">
         <router-link
-          v-if="canSeeClientExchange && !isSscSstcTenant && (directoryPersona === 'clients' || directoryPersona === 'employees')"
+          v-if="canSeeClientExchange && !isSscSstcTenant && directoryPersona === 'employees'"
           :to="clientExchangeLink"
           class="btn btn-secondary"
         >
@@ -30,10 +30,15 @@
       </div>
     </div>
     
-    <div v-if="loading" class="loading">Loading users...</div>
+    <!-- Only show full loading screen on first load (no data yet) -->
+    <div v-if="loading && users.length === 0" class="loading">Loading users…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
+    <!-- Subtle refresh indicator while reloading an existing list -->
+    <div v-if="loading && users.length > 0" class="um-refresh-banner">
+      <span class="um-refresh-spinner"></span> Refreshing…
+    </div>
     
-    <div v-else>
+    <div v-if="!loading || users.length > 0">
       <div v-if="canUseQuickAnnouncements" class="um-quick-announce">
         <div class="um-quick-announce-head">
           <h3 class="um-quick-announce-title">Quick Announcement / Splash</h3>
@@ -137,17 +142,12 @@
             <div class="type-filter-row um-persona-row">
               <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: directoryPersona === 'employees' }" @click="setDirectoryPersona('employees')">Employees</button>
               <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: directoryPersona === 'school_staff' }" @click="setDirectoryPersona('school_staff')">School staff</button>
-              <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: directoryPersona === 'guardians' }" @click="setDirectoryPersona('guardians')">Guardians</button>
-              <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: directoryPersona === 'clients' }" @click="setDirectoryPersona('clients')">Clients</button>
             </div>
-            <div class="um-persona-links muted">
-              <router-link to="/admin/guardians">Open full Guardians</router-link>
-              <span>·</span>
-              <router-link to="/admin/clients">Open Client Management</router-link>
-              <template v-if="canSeeClientExchange">
-                <span>·</span>
-                <router-link :to="clientExchangeLink">Client Exchange</router-link>
-              </template>
+            <div class="filter-label um-persona-elsewhere-label">Other directories</div>
+            <div class="type-filter-row um-persona-row">
+              <router-link to="/admin/guardians" class="btn btn-secondary btn-sm type-filter-btn">Guardians ↗</router-link>
+              <router-link to="/admin/clients" class="btn btn-secondary btn-sm type-filter-btn">Clients ↗</router-link>
+              <router-link v-if="canSeeClientExchange" :to="clientExchangeLink" class="btn btn-secondary btn-sm type-filter-btn">Exchange ↗</router-link>
             </div>
           </div>
 
@@ -173,7 +173,7 @@
             <div class="filter-help muted">Scopes directory results.</div>
           </div>
 
-          <div v-if="!isSscSstcTenant && directoryPersona !== 'clients'" class="filter-section">
+          <div v-if="!isSscSstcTenant" class="filter-section">
             <label for="organizationSort" class="filter-label">Organization</label>
             <input
               v-model="organizationSearch"
@@ -194,7 +194,7 @@
             </select>
           </div>
 
-          <div v-if="!isAffiliationContext && !isSscSstcTenant && directoryPersona !== 'clients'" class="filter-section">
+          <div v-if="!isAffiliationContext && !isSscSstcTenant" class="filter-section">
             <label for="statusSort" class="filter-label">Status</label>
             <select id="statusSort" v-model="statusSort" class="filter-select">
               <option value="">All</option>
@@ -318,106 +318,10 @@
               </span>
             </div>
 
-            <!-- Guardians directory -->
-            <table v-if="!isSscSstcTenant && directoryPersona === 'guardians'">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th class="col-email">Email</th>
-                  <th>Agency</th>
-                  <th>Linked clients</th>
-                  <th class="col-status">Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="g in filteredGuardians" :key="`g-${g.id}`">
-                  <td>
-                    <div class="user-name-cell">
-                      <div class="um-avatar">
-                        <span class="um-avatar-initials">{{ ((g.first_name || '')[0] || '') + ((g.last_name || '')[0] || '') }}</span>
-                      </div>
-                      <div class="um-name-info">
-                        <router-link :to="userProfilePath(g.id)" class="user-name-link">{{ g.first_name }} {{ g.last_name }}</router-link>
-                        <div class="um-badges"><span class="badge badge-guardian">Guardian</span></div>
-                      </div>
-                    </div>
-                  </td>
-                  <td class="col-email"><span class="table-truncate" :title="String(g.email || '')">{{ g.email }}</span></td>
-                  <td><span class="um-pill um-pill-agency">{{ g.agencies || '—' }}</span></td>
-                  <td>
-                    <div class="um-linked-chips">
-                      <router-link
-                        v-for="c in (g.linked_clients || []).slice(0, 4)"
-                        :key="`gc-${g.id}-${c.id}`"
-                        :to="clientProfilePath(c.id)"
-                        class="um-linked-chip"
-                      >{{ c.name }}</router-link>
-                      <span v-if="!(g.linked_clients || []).length" class="muted">None</span>
-                      <span v-else-if="(g.linked_clients || []).length > 4" class="muted um-linked-more">+{{ (g.linked_clients || []).length - 4 }}</span>
-                    </div>
-                  </td>
-                  <td class="col-status">
-                    <span class="um-status-dot" :class="statusDotClass(g.status, g.is_active)"></span>
-                    {{ getStatusLabelWrapper(g.status, g.is_active) }}
-                  </td>
-                  <td class="actions-cell">
-                    <router-link :to="userProfilePath(g.id)" class="btn btn-primary btn-sm">View</router-link>
-                  </td>
-                </tr>
-                <tr v-if="!filteredGuardians.length">
-                  <td colspan="6" class="muted" style="padding: 20px;">No guardians match these filters.</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <!-- Clients directory -->
-            <table v-else-if="!isSscSstcTenant && directoryPersona === 'clients'">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Organization</th>
-                  <th>Linked guardians</th>
-                  <th class="col-status">Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="c in filteredClients" :key="`c-${c.id}`">
-                  <td>
-                    <router-link :to="clientProfilePath(c.id)" class="user-name-link">
-                      {{ c.full_name || c.initials || `Client #${c.id}` }}
-                    </router-link>
-                  </td>
-                  <td>{{ c.organization_name || c.agency_name || '—' }}</td>
-                  <td>
-                    <div class="um-linked-chips">
-                      <router-link
-                        v-for="g in (c.linked_guardians || []).slice(0, 4)"
-                        :key="`cg-${c.id}-${g.id}`"
-                        :to="userProfilePath(g.id)"
-                        class="um-linked-chip"
-                      >{{ g.name }}</router-link>
-                      <span v-if="!(c.linked_guardians || []).length" class="muted">None</span>
-                      <span v-else-if="(c.linked_guardians || []).length > 4" class="muted um-linked-more">+{{ (c.linked_guardians || []).length - 4 }}</span>
-                    </div>
-                  </td>
-                  <td class="col-status">
-                    <span class="um-status-dot" :class="clientStatusDotClass(c)"></span>
-                    {{ c.client_status_label || c.status || '—' }}
-                  </td>
-                  <td class="actions-cell">
-                    <router-link :to="clientProfilePath(c.id)" class="btn btn-primary btn-sm">View</router-link>
-                  </td>
-                </tr>
-                <tr v-if="!filteredClients.length">
-                  <td colspan="5" class="muted" style="padding: 20px;">No clients match these filters.</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <!-- Employees / School staff / SSTC members -->
-            <table v-else>
+            <!-- Employees / School staff / SSTC members.
+                 Guardians and Clients have their own dedicated views; the sidebar links
+                 to them rather than loading those directories here. -->
+            <table>
               <thead>
                 <tr>
                   <th class="sortable" @click="toggleTableSort('name')">
@@ -445,7 +349,15 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="user in sortedUsers" :key="user.id" :class="{ 'member-row--editing': inlineEditingId === user.id }">
+                <tr
+                  v-for="user in sortedUsers"
+                  :key="user.id"
+                  :class="{ 'member-row--editing': inlineEditingId === user.id, 'um-row--peeked': umQuickViewUser?.id === user.id }"
+                  @mouseenter="scheduleUmQuickView(user)"
+                  @mouseleave="cancelUmQuickView"
+                  @click="!user.isOrphaned && !user.isGuardian ? $router.push(userProfilePath(user.id)) : undefined"
+                  :style="{ cursor: (!user.isOrphaned && !user.isGuardian) ? 'pointer' : 'default' }"
+                >
             <td>
               <template v-if="isSscSstcTenant && inlineEditingId === user.id">
                 <div class="inline-edit-fields">
@@ -474,7 +386,7 @@
                     <span v-if="user.isOrphaned" class="user-name-link" style="color: var(--text-muted); font-style: italic;">
                       {{ user.first_name || '[Deleted account]' }} {{ user.last_name }}
                     </span>
-                    <router-link v-else :to="userProfilePath(user.id)" class="user-name-link">
+                    <router-link v-else :to="userProfilePath(user.id)" class="user-name-link" @click.stop>
                       {{ user.first_name }} {{ user.last_name }}
                     </router-link>
                     <div class="um-badges">
@@ -606,7 +518,7 @@
                 {{ getStatusLabelWrapper(user.status, user.is_active) }}
               </template>
             </td>
-            <td class="actions-cell">
+            <td class="actions-cell" @click.stop>
               <div class="action-buttons um-actions">
                 <!-- Inline edit controls for unclaimed placeholder members -->
                 <template v-if="isSscSstcTenant && user.isPlaceholder && inlineEditingId === user.id">
@@ -1749,6 +1661,88 @@
         </div>
       </div>
     </div>
+
+    <!-- User quick-view panel (hover-triggered) -->
+    <transition name="um-drawer">
+      <div
+        v-if="umQuickViewUser"
+        class="um-drawer"
+        role="complementary"
+        aria-label="User quick view"
+        @mouseenter="cancelUmQuickViewClose"
+        @mouseleave="scheduleUmQuickViewClose"
+      >
+        <div class="um-drawer-header">
+          <div class="um-drawer-avatar">
+            <img
+              v-if="umQuickViewUser.profile_photo_url"
+              :src="toUploadsUrl(umQuickViewUser.profile_photo_url)"
+              class="um-drawer-avatar-img"
+              @error="$event.target.style.display='none'"
+            />
+            <span v-else class="um-drawer-avatar-initials">
+              {{ ((umQuickViewUser.first_name || '')[0] || '') + ((umQuickViewUser.last_name || '')[0] || '') }}
+            </span>
+          </div>
+          <div class="um-drawer-title">
+            <strong>{{ umQuickViewUser.first_name }} {{ umQuickViewUser.last_name }}</strong>
+            <div class="um-drawer-sub">
+              <span class="um-pill um-pill-role" style="font-size:0.72rem; padding:2px 8px;">{{ formatRole(umQuickViewUser.role) }}</span>
+              <span class="um-status-dot" :class="statusDotClass(umQuickViewUser.status, umQuickViewUser.is_active)" style="margin-left:4px;"></span>
+              <span style="font-size:0.78rem; color:#64748b;">{{ getStatusLabelWrapper(umQuickViewUser.status, umQuickViewUser.is_active) }}</span>
+            </div>
+          </div>
+          <div class="um-drawer-actions">
+            <router-link
+              v-if="!umQuickViewUser.isOrphaned && !umQuickViewUser.isGuardian"
+              :to="userProfilePath(umQuickViewUser.id)"
+              class="um-drawer-open-btn"
+            >Open profile ↗</router-link>
+            <button class="um-drawer-close" type="button" @click="umQuickViewUser = null" aria-label="Close">✕</button>
+          </div>
+        </div>
+        <div class="um-drawer-body">
+          <div class="um-drawer-section">
+            <div class="um-drawer-section-title">Contact</div>
+            <div class="um-drawer-grid">
+              <div>
+                <span class="um-drawer-label">Email</span>
+                <span>{{ umQuickViewUser.email || '—' }}</span>
+              </div>
+              <div v-if="umQuickViewUser.provider_credential">
+                <span class="um-drawer-label">Credential</span>
+                <span>{{ umQuickViewUser.provider_credential }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="um-drawer-section">
+            <div class="um-drawer-section-title">Assignment</div>
+            <div class="um-drawer-grid">
+              <div>
+                <span class="um-drawer-label">Agency</span>
+                <span>{{ userAgencySummary(umQuickViewUser) || '—' }}</span>
+              </div>
+              <div v-if="userChildOrgs(umQuickViewUser).length">
+                <span class="um-drawer-label">Organizations</span>
+                <span>{{ userChildOrgs(umQuickViewUser).length }} linked</span>
+              </div>
+            </div>
+          </div>
+          <div v-if="umQuickViewUser.role === 'provider' || umQuickViewUser.has_provider_access" class="um-drawer-section">
+            <div class="um-drawer-section-title">Provider</div>
+            <div class="um-drawer-grid">
+              <div>
+                <span class="um-drawer-label">Availability</span>
+                <span :class="['badge', availabilityBadgeClass(umQuickViewUser)]" style="font-size:0.72rem;">
+                  {{ availabilityBadgeText(umQuickViewUser) }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
+
   </div>
 </template>
 
@@ -1769,6 +1763,29 @@ const router = useRouter();
 const route = useRoute();
 const canSeeClientExchange = computed(() => canSeeClientExchangeNav(user.value?.role));
 const clientExchangeLink = computed(() => clientExchangePath(route.params?.organizationSlug));
+
+// User quick-view hover panel
+const umQuickViewUser = ref(null);
+let _umHoverOpenTimer = null;
+let _umHoverCloseTimer = null;
+
+function scheduleUmQuickView(user) {
+  cancelUmQuickViewClose();
+  if (umQuickViewUser.value?.id === user.id) return;
+  clearTimeout(_umHoverOpenTimer);
+  _umHoverOpenTimer = setTimeout(() => { umQuickViewUser.value = user; }, 420);
+}
+function cancelUmQuickView() {
+  clearTimeout(_umHoverOpenTimer);
+  scheduleUmQuickViewClose();
+}
+function cancelUmQuickViewClose() {
+  clearTimeout(_umHoverCloseTimer);
+}
+function scheduleUmQuickViewClose() {
+  clearTimeout(_umHoverCloseTimer);
+  _umHoverCloseTimer = setTimeout(() => { umQuickViewUser.value = null; }, 250);
+}
 
 const userProfilePath = (userId) => {
   const slug = String(route.params.organizationSlug || '').trim();
@@ -1792,13 +1809,6 @@ const userProfileTabPath = (userId, tabId) => {
   const base = basePath.split('?')[0];
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
-};
-
-const clientProfilePath = (clientId) => {
-  const slug = String(route.params.organizationSlug || '').trim();
-  const id = Number(clientId);
-  if (!Number.isFinite(id) || id <= 0) return slug ? `/${slug}/admin/clients` : '/admin/clients';
-  return slug ? `/${slug}/admin/clients/${id}` : `/admin/clients/${id}`;
 };
 
 const memberDisplayName = (member) => {
@@ -1883,10 +1893,6 @@ const newSuperviseeAssignment = ref({
 });
 
 const users = ref([]);
-const guardians = ref([]);
-const directoryClients = ref([]);
-const guardiansLoading = ref(false);
-const clientsLoading = ref(false);
 const agencies = ref([]);
 // Map orgId -> parent agencyId (best-effort; populated from /affiliated-organizations).
 const orgAffiliationById = ref({});
@@ -1897,6 +1903,9 @@ const showBulkAssignModal = ref(false);
 const editingUser = ref(null);
 const saving = ref(false);
 /** Directory personas: employees (default) | school_staff | guardians | clients */
+// Guardians and Clients live in their own views (/admin/guardians, /admin/clients);
+// this directory only covers people with user accounts.
+const DIRECTORY_PERSONAS = ['employees', 'school_staff'];
 const directoryPersona = ref('employees');
 // Default to Active Employee per admin workflow.
 const statusSort = ref('ACTIVE_EMPLOYEE');
@@ -1958,7 +1967,9 @@ const loadUserFilters = () => {
     if (stored?.statusSort !== undefined) statusSort.value = stored.statusSort;
     if (stored?.userTypeFilter !== undefined) userTypeFilter.value = stored.userTypeFilter;
     if (stored?.organizationSearch !== undefined) organizationSearch.value = stored.organizationSearch;
-    if (stored?.directoryPersona && ['employees', 'school_staff', 'guardians', 'clients'].includes(stored.directoryPersona)) {
+    // Older builds persisted 'guardians'/'clients' here; those are separate views now,
+    // so anything unrecognized falls back to the default persona.
+    if (stored?.directoryPersona && DIRECTORY_PERSONAS.includes(stored.directoryPersona)) {
       directoryPersona.value = stored.directoryPersona;
     }
   } catch {
@@ -2266,8 +2277,6 @@ const affiliationsPopoverStyle = computed(() => {
 const directoryPersonaLabel = computed(() => {
   if (isSscSstcTenant.value) return 'Members';
   if (directoryPersona.value === 'school_staff') return 'School staff';
-  if (directoryPersona.value === 'guardians') return 'Guardians';
-  if (directoryPersona.value === 'clients') return 'Clients';
   return 'Employees';
 });
 
@@ -2280,7 +2289,7 @@ const directoryGreeting = computed(() => {
 
 const setDirectoryPersona = (persona) => {
   const next = String(persona || 'employees');
-  if (!['employees', 'school_staff', 'guardians', 'clients'].includes(next)) return;
+  if (!DIRECTORY_PERSONAS.includes(next)) return;
   directoryPersona.value = next;
   if (next === 'school_staff') {
     roleSort.value = '';
@@ -2290,8 +2299,6 @@ const setDirectoryPersona = (persona) => {
     statusSort.value = 'ACTIVE_EMPLOYEE';
   }
   persistUserFilters();
-  if (next === 'guardians') void fetchGuardiansDirectory();
-  if (next === 'clients') void fetchClientsDirectory();
 };
 
 const collapsePeopleAssistant = () => {
@@ -2378,103 +2385,6 @@ const statusDotClass = (status, isActive = true) => {
   }
   return 'um-status-gray';
 };
-
-const clientStatusDotClass = (c) => {
-  const key = String(c?.client_status_key || c?.status || '').toLowerCase();
-  if (key.includes('active') || key === 'enrolled' || key === 'current') return 'um-status-green';
-  if (key.includes('prospective') || key.includes('pending') || key.includes('intake')) return 'um-status-amber';
-  return 'um-status-gray';
-};
-
-const fetchGuardiansDirectory = async () => {
-  if (isSscSstcTenant.value) return;
-  try {
-    guardiansLoading.value = true;
-    const params = {};
-    if (agencySort.value) params.agencyId = agencySort.value;
-    const r = await api.get('/users/guardians', { params });
-    guardians.value = Array.isArray(r.data) ? r.data : [];
-  } catch (e) {
-    console.warn('[UserManager] guardians fetch failed', e?.message || e);
-    guardians.value = [];
-  } finally {
-    guardiansLoading.value = false;
-  }
-};
-
-const fetchClientsDirectory = async () => {
-  if (isSscSstcTenant.value) return;
-  try {
-    clientsLoading.value = true;
-    const params = new URLSearchParams();
-    params.set('includeArchived', 'false');
-    params.set('includeGuardians', 'true');
-    if (agencySort.value) params.set('agency_id', String(agencySort.value));
-    if (organizationSort.value) params.set('organization_id', String(organizationSort.value));
-    const r = await api.get(`/clients?${params.toString()}`);
-    const payload = r.data || [];
-    const raw = Array.isArray(payload) ? payload : (payload.items || []);
-    directoryClients.value = (Array.isArray(raw) ? raw : []).filter(
-      (c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED'
-    );
-  } catch (e) {
-    console.warn('[UserManager] clients fetch failed', e?.message || e);
-    directoryClients.value = [];
-  } finally {
-    clientsLoading.value = false;
-  }
-};
-
-const filteredGuardians = computed(() => {
-  let list = [...(guardians.value || [])];
-  if (agencySort.value) {
-    const aid = String(agencySort.value);
-    list = list.filter((g) => {
-      const ids = String(g.agency_ids || '')
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-      return ids.includes(aid) || String(g.agencies || '').length > 0;
-    });
-    // Prefer exact agency_ids match when present
-    const withIds = list.filter((g) =>
-      String(g.agency_ids || '')
-        .split(',')
-        .map((s) => s.trim())
-        .includes(aid)
-    );
-    if (withIds.length || list.some((g) => g.agency_ids)) list = withIds.length ? withIds : list;
-  }
-  if (statusSort.value && statusSort.value !== 'ACTIVE_EMPLOYEE') {
-    list = list.filter((g) => String(g.status || '') === statusSort.value);
-  } else if (statusSort.value === 'ACTIVE_EMPLOYEE') {
-    list = list.filter((g) => g.status === 'ACTIVE_EMPLOYEE' || g.status === 'active' || g.is_active);
-  }
-  const q = String(userSearch.value || '').trim().toLowerCase();
-  if (q) {
-    list = list.filter((g) => {
-      const name = `${g.first_name || ''} ${g.last_name || ''}`.toLowerCase();
-      const email = String(g.email || '').toLowerCase();
-      const linked = (g.linked_clients || []).map((c) => String(c.name || '').toLowerCase()).join(' ');
-      return name.includes(q) || email.includes(q) || linked.includes(q);
-    });
-  }
-  return list;
-});
-
-const filteredClients = computed(() => {
-  let list = [...(directoryClients.value || [])];
-  const q = String(userSearch.value || '').trim().toLowerCase();
-  if (q) {
-    list = list.filter((c) => {
-      const name = String(c.full_name || c.initials || '').toLowerCase();
-      const org = String(c.organization_name || c.agency_name || '').toLowerCase();
-      const linked = (c.linked_guardians || []).map((g) => String(g.name || '').toLowerCase()).join(' ');
-      return name.includes(q) || org.includes(q) || linked.includes(q) || String(c.id).includes(q);
-    });
-  }
-  return list;
-});
 
 // Provider uploads (User Management)
 const providerListFile = ref(null);
@@ -2633,11 +2543,27 @@ const pendingUserData = ref(null);
 const tokenInput = ref(null);
 const usernameInput = ref(null);
 
+/**
+ * Server-side scope for the user list. Narrowing on the server keeps the payload
+ * proportional to what is actually shown: picking an agency loads that agency, and
+ * the School staff persona loads only school staff.
+ */
+const buildUserScopeParams = () => {
+  const params = {};
+  if (agencySort.value) params.agency_id = String(agencySort.value);
+  if (organizationSort.value) params.organization_id = String(organizationSort.value);
+  if (directoryPersona.value === 'school_staff') params.role = 'school_staff';
+  else if (roleSort.value) params.role = String(roleSort.value);
+  return params;
+};
+
 const fetchUsers = async () => {
   try {
     loading.value = true;
     if (isSscSstcTenant.value && selectedClubId.value) {
-      const { data } = await api.get(`/summit-stats/clubs/${selectedClubId.value}/members`);
+      const { data } = await api.get(`/summit-stats/clubs/${selectedClubId.value}/members`, {
+        skipGlobalLoading: true
+      });
       users.value = (Array.isArray(data?.members) ? data.members : []).map((m) => ({
         id: m.id,
         email: m.email,
@@ -2662,8 +2588,14 @@ const fetchUsers = async () => {
       users.value = [];
     } else {
       // Archived users are managed in Settings → Archive, not in the main user list.
-      const response = await api.get('/users');
-      users.value = response.data;
+      // skipGlobalLoading: the global overlay stays up until every in-flight request
+      // finishes, so participating here would hide this table behind unrelated slow
+      // requests. This view shows its own loading state instead.
+      const response = await api.get('/users', {
+        params: buildUserScopeParams(),
+        skipGlobalLoading: true
+      });
+      users.value = Array.isArray(response.data) ? response.data : [];
     }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load users';
@@ -2803,55 +2735,61 @@ const saveTempMergeMembers = async () => {
   }
 };
 
-const fetchAgencies = async () => {
-  try {
-    const response = await api.get('/agencies');
-    const base = response.data || [];
+// Cached across component remounts within the SPA session. The agency/organization
+// catalog rarely changes and this view only needs id/name/type/parent for its pickers.
+let _minimalOrgsCache = null;
+let _minimalOrgsInFlight = null;
 
-    // Expand with affiliated orgs (schools/programs/learning) for each parent agency.
-    // This lets admins assign providers to affiliated orgs even if they aren't directly assigned yet.
-    const parents = base.filter((a) => String(a.organization_type || 'agency').toLowerCase() === 'agency');
-    const affLists = await Promise.all(
-      parents.map(async (a) => {
-        try {
-          const r = await api.get(`/agencies/${a.id}/affiliated-organizations`);
-          const rows = Array.isArray(r.data) ? r.data : [];
-          // Annotate each returned org with its parent agency.
-          return rows.map((o) => ({ ...(o || {}), __affiliatedAgencyId: a.id }));
-        } catch (e) {
-          return [];
-        }
-      })
-    );
-
-    const merged = [...base, ...affLists.flat()];
-    const byId = new Map();
-    const affiliation = {};
-    for (const org of merged) {
-      if (!org?.id) continue;
-      // best-effort: keep/merge affiliation hints
-      const orgId = String(org.id);
-      const type = String(org.organization_type || 'agency').toLowerCase();
-      if (type === 'agency') {
-        affiliation[orgId] = parseInt(orgId, 10);
-      } else if (org.__affiliatedAgencyId) {
-        affiliation[orgId] = parseInt(String(org.__affiliatedAgencyId), 10);
-      } else if (orgAffiliationById.value?.[orgId]) {
-        affiliation[orgId] = parseInt(String(orgAffiliationById.value[orgId]), 10);
-      }
-
-      if (!byId.has(org.id)) {
-        byId.set(org.id, org);
-      } else {
-        const prev = byId.get(org.id) || {};
-        byId.set(org.id, { ...prev, ...org });
-      }
+const applyOrgCatalog = (rows) => {
+  const affiliation = {};
+  const byId = new Map();
+  for (const org of rows || []) {
+    if (!org?.id) continue;
+    const orgId = String(org.id);
+    const type = String(org.organization_type || 'agency').toLowerCase();
+    if (type === 'agency') {
+      affiliation[orgId] = parseInt(orgId, 10);
+    } else if (org.affiliated_agency_id) {
+      affiliation[orgId] = parseInt(String(org.affiliated_agency_id), 10);
     }
-    orgAffiliationById.value = affiliation;
-    agencies.value = Array.from(byId.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-  } catch (err) {
-    console.error('Failed to load agencies:', err);
+    // organizationOptions reads __affiliatedAgencyId, keep both shapes in sync
+    const normalized = org.affiliated_agency_id
+      ? { ...org, __affiliatedAgencyId: org.affiliated_agency_id }
+      : org;
+    byId.set(org.id, byId.has(org.id) ? { ...byId.get(org.id), ...normalized } : normalized);
   }
+  orgAffiliationById.value = affiliation;
+  agencies.value = Array.from(byId.values()).sort((a, b) =>
+    String(a.name || '').localeCompare(String(b.name || ''))
+  );
+};
+
+const fetchAgencies = async () => {
+  if (_minimalOrgsCache) {
+    applyOrgCatalog(_minimalOrgsCache);
+    return;
+  }
+  if (_minimalOrgsInFlight) return _minimalOrgsInFlight;
+
+  _minimalOrgsInFlight = (async () => {
+    try {
+      // minimal=1 returns id/name/organization_type/slug/affiliated_agency_id only.
+      // The full payload is ~400KB and spends most of its time on branding inheritance
+      // this view never reads.
+      const response = await api.get('/agencies', {
+        params: { minimal: 1 },
+        skipGlobalLoading: true
+      });
+      const rows = Array.isArray(response.data) ? response.data : [];
+      _minimalOrgsCache = rows;
+      applyOrgCatalog(rows);
+    } catch (err) {
+      console.error('Failed to load agencies:', err);
+    } finally {
+      _minimalOrgsInFlight = null;
+    }
+  })();
+  return _minimalOrgsInFlight;
 };
 
 const resolveDefaultAgencyAndOrg = () => {
@@ -3947,14 +3885,17 @@ watch(
   }
 );
 
-watch(agencySort, () => {
-  if (directoryPersona.value === 'guardians') void fetchGuardiansDirectory();
-  if (directoryPersona.value === 'clients') void fetchClientsDirectory();
+// Scope changes are resolved on the server, so refetch rather than filtering a large
+// client-side list. Debounced because agency and organization can change together.
+let _scopeRefetchTimer = null;
+watch([agencySort, organizationSort, directoryPersona, roleSort], () => {
+  if (isSscSstcTenant.value) return;
+  clearTimeout(_scopeRefetchTimer);
+  _scopeRefetchTimer = setTimeout(() => {
+    void fetchUsers();
+  }, 150);
 });
 
-watch(organizationSort, () => {
-  if (directoryPersona.value === 'clients') void fetchClientsDirectory();
-});
 watch(quickAnnouncementCollapsed, () => {
   persistQuickAnnouncementCollapsed();
 });
@@ -4229,11 +4170,7 @@ const sortedUsers = computed(() => {
   return sorted;
 });
 
-const directoryResultCount = computed(() => {
-  if (!isSscSstcTenant.value && directoryPersona.value === 'guardians') return filteredGuardians.value.length;
-  if (!isSscSstcTenant.value && directoryPersona.value === 'clients') return filteredClients.value.length;
-  return sortedUsers.value.length;
-});
+const directoryResultCount = computed(() => sortedUsers.value.length);
 
 const applySorting = () => {
   // Sorting is handled by computed property
@@ -4491,10 +4428,14 @@ onMounted(async () => {
   } catch {
     // ignore (best effort)
   }
-  await Promise.all([fetchUsers(), fetchAgencies(), fetchPackages()]);
-  resolveDefaultAgencyAndOrg();
-  if (!isSscSstcTenant.value && directoryPersona.value === 'guardians') await fetchGuardiansDirectory();
-  if (!isSscSstcTenant.value && directoryPersona.value === 'clients') await fetchClientsDirectory();
+  // Start every request concurrently, but only block rendering on the user list.
+  // Agencies/packages only feed filter dropdowns and modals, so they resolve in the
+  // background without holding up the table.
+  const agenciesReady = fetchAgencies().catch(() => {});
+  fetchPackages().catch(() => {});
+  await fetchUsers();
+  // Default agency/org selection depends on the org catalog being present.
+  agenciesReady.then(() => resolveDefaultAgencyAndOrg());
   if (isSscSstcTenant.value && selectedClubId.value) {
     quickAnnouncementDraft.value.agencyId = String(selectedClubId.value);
     userForm.value.primaryAgencyId = String(selectedClubId.value);
@@ -4771,22 +4712,13 @@ onUnmounted(() => window.removeEventListener('click', closeActionsMenus));
   justify-content: center;
 }
 
-.um-persona-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-  font-size: 12px;
+.um-persona-elsewhere-label {
+  margin-top: 10px;
 }
 
-.um-persona-links a {
-  color: var(--primary);
+/* Links out to the dedicated Guardians / Clients / Exchange views. */
+.um-persona-row a.type-filter-btn {
   text-decoration: none;
-  font-weight: 600;
-}
-
-.um-persona-links a:hover {
-  text-decoration: underline;
 }
 
 .um-assistant-card {
@@ -4934,33 +4866,6 @@ onUnmounted(() => window.removeEventListener('click', closeActionsMenus));
 .um-status-green { background: #22c55e; }
 .um-status-amber { background: #f59e0b; }
 .um-status-gray { background: #9ca3af; }
-
-.um-linked-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-
-.um-linked-chip {
-  display: inline-flex;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.06);
-  color: var(--text-primary, #1f2937);
-  text-decoration: none;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.um-linked-chip:hover {
-  background: color-mix(in srgb, var(--primary) 14%, #fff);
-  color: var(--primary);
-}
-
-.um-linked-more {
-  font-size: 12px;
-}
 
 .um-actions {
   position: relative;
@@ -6146,5 +6051,157 @@ th {
 .toggle-switch input:disabled + .slider {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* Refresh banner (shown during reload of existing list) */
+.um-refresh-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: #64748b;
+  padding: 4px 0 6px;
+}
+@keyframes um-spin {
+  to { transform: rotate(360deg); }
+}
+.um-refresh-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #cbd5e1;
+  border-top-color: var(--primary, #2d6a4f);
+  border-radius: 50%;
+  animation: um-spin 0.7s linear infinite;
+}
+
+/* User quick-view hover panel */
+.um-row--peeked td {
+  background: #f0fdf4 !important;
+}
+.um-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(380px, 88vw);
+  background: #fff;
+  box-shadow: -4px 0 28px rgba(0, 0, 0, 0.13);
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--border, #e5e7eb);
+}
+.um-drawer-enter-active,
+.um-drawer-leave-active {
+  transition: transform 0.22s ease, opacity 0.18s ease;
+}
+.um-drawer-enter-from,
+.um-drawer-leave-to {
+  transform: translateX(100%);
+  opacity: 0;
+}
+.um-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  background: #fff;
+}
+.um-drawer-avatar {
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 999px;
+  background: var(--primary, #2d6a4f);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.um-drawer-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.um-drawer-avatar-initials {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.um-drawer-title {
+  flex: 1;
+  min-width: 0;
+}
+.um-drawer-title strong {
+  font-size: 0.96rem;
+  display: block;
+  margin-bottom: 0.3rem;
+}
+.um-drawer-sub {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.um-drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+.um-drawer-open-btn {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--primary, #2d6a4f);
+  background: none;
+  border: 1px solid var(--primary, #2d6a4f);
+  border-radius: 7px;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.um-drawer-open-btn:hover { background: #f0fdf4; }
+.um-drawer-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  color: #6b7280;
+  padding: 0.2rem;
+  line-height: 1;
+}
+.um-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.25rem 0;
+}
+.um-drawer-section {
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+.um-drawer-section-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  margin-bottom: 0.5rem;
+}
+.um-drawer-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+.um-drawer-label {
+  display: block;
+  font-size: 0.74rem;
+  color: #6b7280;
+  margin-bottom: 0.1rem;
 }
 </style>

@@ -1873,8 +1873,8 @@ const routes = [
   {
     path: '/:organizationSlug/join-intake',
     name: 'OrganizationAdaptiveJoinAlt',
-    component: () => import('../views/public/AdaptiveJoinView.vue'),
-    meta: { requiresGuest: false, organizationSlug: true }
+    component: () => import('../views/public/AdaptiveJoinHubView.vue'),
+    meta: { requiresGuest: false, hideNav: true, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/caseload-hub/schools-staff',
@@ -3025,15 +3025,45 @@ const routes = [
   },
   {
     path: '/join/:agencySlug',
-    name: 'AdaptiveJoin',
+    name: 'AdaptiveJoinHub',
+    component: () => import('../views/public/AdaptiveJoinHubView.vue'),
+    meta: { requiresGuest: false, hideNav: true }
+  },
+  {
+    path: '/join/:agencySlug/:serviceType(counseling|tutoring|coaching|consulting)',
+    name: 'AdaptiveJoinService',
     component: () => import('../views/public/AdaptiveJoinView.vue'),
     meta: { requiresGuest: false, hideNav: true }
   },
   {
-    path: '/:organizationSlug/join',
-    name: 'OrganizationAdaptiveJoin',
+    path: '/join/:agencySlug/join_counseling',
+    redirect: (to) => ({ path: `/join/${to.params.agencySlug}/counseling`, query: to.query, hash: to.hash })
+  },
+  {
+    path: '/join/:agencySlug/join_tutoring',
+    redirect: (to) => ({ path: `/join/${to.params.agencySlug}/tutoring`, query: to.query, hash: to.hash })
+  },
+  {
+    path: '/:organizationSlug/join_counseling',
+    redirect: (to) => ({
+      path: `/${to.params.organizationSlug}/join/counseling`,
+      query: to.query,
+      hash: to.hash
+    })
+  },
+  {
+    path: '/:organizationSlug/join_tutoring',
+    redirect: (to) => ({
+      path: `/${to.params.organizationSlug}/join/tutoring`,
+      query: to.query,
+      hash: to.hash
+    })
+  },
+  {
+    path: '/:organizationSlug/join/:serviceType(counseling|tutoring|coaching|consulting)',
+    name: 'OrganizationAdaptiveJoinService',
     component: () => import('../views/public/AdaptiveJoinView.vue'),
-    meta: { requiresGuest: false, hideNav: true }
+    meta: { requiresGuest: false, hideNav: true, organizationSlug: true }
   },
   {
     path: '/admin/caseload-hub/schools-staff',

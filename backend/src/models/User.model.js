@@ -1,6 +1,43 @@
-import pool from '../config/database.js';
+import pool, { onTableWrite } from '../config/database.js';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
+
+/**
+ * Short-lived cache for User.getAgencies().
+ *
+ * getAgencies is called from ~250 places, mostly permission checks, so a single page
+ * load invokes it dozens of times for the same user. Each call runs several
+ * `SELECT a.*` queries against agencies joined to icons, which is expensive enough
+ * that the repeats dominate page load time.
+ *
+ * The TTL is intentionally small: long enough to collapse one page's burst of
+ * requests into a single set of queries, short enough that a membership change is
+ * reflected almost immediately even if an invalidation path is missed. Writes that
+ * touch user_agencies call invalidateUserAgenciesCache() for immediate correctness.
+ *
+ * Set DB_USER_AGENCIES_CACHE=0 to disable.
+ */
+const USER_AGENCIES_CACHE_ENABLED = process.env.DB_USER_AGENCIES_CACHE !== '0';
+const USER_AGENCIES_CACHE_TTL_MS =
+  parseInt(process.env.DB_USER_AGENCIES_CACHE_TTL_MS, 10) || 5000;
+const _userAgenciesCache = new Map(); // userId -> { expiresAt, promise }
+
+export function invalidateUserAgenciesCache(userId = null) {
+  if (userId === null || userId === undefined) {
+    _userAgenciesCache.clear();
+    return;
+  }
+  _userAgenciesCache.delete(Number(userId));
+}
+
+// Membership and affiliation writes happen across many controllers and services, so
+// rather than relying on each one to invalidate, drop the cache whenever the
+// underlying tables are written to.
+if (USER_AGENCIES_CACHE_ENABLED) {
+  for (const table of ['user_agencies', 'organization_affiliations', 'agency_schools']) {
+    onTableWrite(table, () => _userAgenciesCache.clear());
+  }
+}
 
 class User {
   static _statusEnumCache = null;
@@ -1723,6 +1760,31 @@ class User {
   }
 
   static async getAgencies(userId) {
+    if (!USER_AGENCIES_CACHE_ENABLED) return User._getAgenciesUncached(userId);
+
+    const key = Number(userId);
+    if (!Number.isFinite(key)) return User._getAgenciesUncached(userId);
+
+    const now = Date.now();
+    const hit = _userAgenciesCache.get(key);
+    if (hit && hit.expiresAt > now) return hit.promise;
+
+    const promise = User._getAgenciesUncached(userId).catch((err) => {
+      _userAgenciesCache.delete(key);
+      throw err;
+    });
+    _userAgenciesCache.set(key, { expiresAt: now + USER_AGENCIES_CACHE_TTL_MS, promise });
+
+    if (_userAgenciesCache.size > 5000) {
+      for (const [k, v] of _userAgenciesCache) {
+        if (v.expiresAt <= now) _userAgenciesCache.delete(k);
+      }
+    }
+
+    return promise;
+  }
+
+  static async _getAgenciesUncached(userId) {
     // Best-effort: include icon paths when columns exist (keeps older DBs working).
     let hasIconId = false;
     let hasChatIconId = false;

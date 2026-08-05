@@ -10,57 +10,77 @@
         </p>
       </div>
       <div class="header-actions cm-header-actions" data-tour="clients-actions">
-        <button @click="showBulkImportModal = true" class="btn btn-secondary cm-action-btn">Bulk Import</button>
         <router-link
           v-if="canBackofficeEdit"
           :to="schoolOverviewLink"
-          class="btn btn-secondary cm-action-btn"
+          class="cm-hbtn cm-hbtn--ghost"
         >
-          Show all schools
+          All schools
         </router-link>
         <button
           v-if="authStore.user?.role === 'super_admin'"
           @click="openDeleteImportedModal"
-          class="btn btn-secondary cm-action-btn cm-action-danger"
+          class="cm-hbtn cm-hbtn--ghost cm-hbtn--danger"
           :disabled="deleteImportedWorking"
         >
-          Delete Imported Clients…
-        </button>
-        <button
-          v-if="authStore.user?.role !== 'school_staff'"
-          @click="openRolloverModal('rollover')"
-          class="btn btn-secondary cm-action-btn"
-          :disabled="rolloverWorking"
-        >
-          {{ rolloverWorking ? 'Rolling over…' : 'Rollover School Year…' }}
-        </button>
-        <button
-          v-if="authStore.user?.role !== 'school_staff'"
-          @click="openRolloverModal('reset_docs')"
-          class="btn btn-secondary cm-action-btn"
-          :disabled="rolloverWorking"
-        >
-          {{ rolloverWorking ? 'Working…' : 'Reset Documentation…' }}
+          Delete imported…
         </button>
         <button
           v-if="isSuperAdmin && usingServerPagination"
           @click="showHiddenTenantsModal = true"
-          class="btn btn-secondary btn-sm cm-action-btn"
+          class="cm-hbtn cm-hbtn--ghost"
           title="Configure which tenants show in the platform-wide client list"
           type="button"
         >
-          Tenant Visibility
+          Tenant visibility
         </button>
-        <router-link
-          v-if="canSeeClientExchange"
-          :to="clientExchangeLink"
-          class="btn btn-secondary cm-action-btn"
-        >
-          Client Exchange
-        </router-link>
-        <button @click="openCreateClientModal" class="btn btn-primary cm-create-btn">+ Create Client</button>
+        <button @click="openCreateClientModal" class="cm-hbtn cm-hbtn--primary">+ New client</button>
       </div>
     </div>
+
+    <!-- View mode tabs -->
+    <div class="cm-view-tabs">
+      <button
+        type="button"
+        class="cm-view-tab"
+        :class="{ active: cmViewMode === 'clients' }"
+        @click="cmViewMode = 'clients'"
+      >
+        All Clients
+        <span v-if="totalCountForDisplay" class="cm-view-badge cm-view-badge--neutral">{{ totalCountForDisplay }}</span>
+      </button>
+      <button
+        type="button"
+        class="cm-view-tab"
+        :class="{ active: cmViewMode === 'intakes' }"
+        @click="cmViewMode = 'intakes'"
+      >
+        New Intakes
+        <span v-if="pendingIntakeCount" class="cm-view-badge">{{ pendingIntakeCount }}</span>
+      </button>
+      <button
+        v-if="canSeeClientExchange"
+        type="button"
+        class="cm-view-tab"
+        :class="{ active: cmViewMode === 'exchange' }"
+        @click="cmViewMode = 'exchange'"
+      >
+        Client Exchange
+        <span v-if="exchangeListingCount" class="cm-view-badge cm-view-badge--blue">{{ exchangeListingCount }}</span>
+      </button>
+    </div>
+
+    <!-- Inline Intakes view -->
+    <div v-if="cmViewMode === 'intakes'" class="cm-inline-panel">
+      <OfficeIntakeQueuePanel />
+    </div>
+
+    <!-- Inline Exchange view -->
+    <div v-else-if="cmViewMode === 'exchange'" class="cm-inline-panel cm-inline-panel--exchange">
+      <ClientExchangePanel />
+    </div>
+
+    <template v-else>
 
     <div v-if="!loading && !error" class="cm-summary-grid" data-tour="clients-summary">
       <div class="cm-summary-card cm-summary-total">
@@ -293,14 +313,21 @@
       </div>
     </div>
 
-    <div v-if="loading" class="loading">Loading clients...</div>
+    <!-- Initial empty load — only show full loading screen when we have nothing yet -->
+    <div v-if="loading && clients.length === 0" class="loading">Loading clients…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
-    <div v-else-if="filteredClients.length === 0" class="empty-state">
-      <p v-if="clients.length === 0">No clients found. Create your first client or import from CSV.</p>
-      <p v-else>No clients match your filters.</p>
+    <div v-else-if="!loading && filteredClients.length === 0 && clients.length === 0" class="empty-state">
+      <p>No clients found. Create your first client or import from CSV.</p>
+    </div>
+    <div v-else-if="!loading && filteredClients.length === 0" class="empty-state">
+      <p>No clients match your filters.</p>
+    </div>
+    <!-- Subtle refresh banner while reloading an already-populated list -->
+    <div v-if="loading && clients.length > 0" class="cm-refresh-banner">
+      <span class="cm-refresh-spinner"></span> Refreshing…
     </div>
 
-    <div v-else class="clients-table-container" data-tour="clients-table-container">
+    <div v-if="pagedClients.length > 0 || (!loading && filteredClients.length > 0)" class="clients-table-container" data-tour="clients-table-container">
       <div v-if="selectedIds.size > 0" class="bulk-bar">
         <div class="bulk-left">
           <strong>{{ selectedIds.size }}</strong> selected
@@ -376,8 +403,8 @@
             <th v-if="usingServerPagination && columnPrefs.affiliation">Tenant</th>
             <th v-if="columnPrefs.affiliation">Affiliation</th>
             <th v-if="columnPrefs.clientStatus">Client Status</th>
-            <th v-if="columnPrefs.provider">Provider</th>
-            <th v-if="columnPrefs.submissionDate">Submission Date</th>
+            <th v-if="columnPrefs.provider">Provider / Referred</th>
+            <th v-if="columnPrefs.submissionDate">Submitted</th>
             <th v-if="columnPrefs.paperwork">Document Status</th>
             <th v-if="columnPrefs.insurance">Insurance</th>
             <th v-if="columnPrefs.lastActivity">Last Activity</th>
@@ -390,12 +417,20 @@
             :key="client.id"
             @click="openClientDetail(client)"
             class="client-row cm-client-row"
+            :class="{ 'cm-client-row--active': quickViewClient?.id === client.id }"
             :style="getClientRowStyle(client)"
           >
             <td class="select-cell" @click.stop>
               <input type="checkbox" :checked="selectedIds.has(client.id)" @change.stop="toggleSelected(client.id)" />
             </td>
-            <td class="initials-cell">
+            <td
+              class="initials-cell"
+              @click.stop="openClientDetail(client)"
+              @mouseenter="scheduleQuickView(client)"
+              @mouseleave="cancelQuickView"
+              style="cursor:pointer;"
+              title="Hover: preview · Click: open profile"
+            >
               <span class="cm-initials-badge" :style="getInitialsStyle(client)">{{ getClientDisplay(client) }}</span>
             </td>
             <td v-if="usingServerPagination && columnPrefs.affiliation">
@@ -404,30 +439,36 @@
               </span>
             </td>
             <td v-if="columnPrefs.affiliation">
-              <button
+              <a
                 v-if="client.organization_slug"
-                type="button"
+                :href="`/${client.organization_slug}/dashboard`"
+                target="_blank"
+                rel="noopener"
                 class="cm-affiliation-badge cm-affiliation-link"
                 :style="getAffiliationBadgeStyle(client)"
-                @click.stop="router.push({
-                  path: `/${client.organization_slug}/dashboard`,
-                  query: { focusClientId: String(client.id) }
-                })"
+                @click.stop
               >
                 {{ client.organization_name || '-' }}
-              </button>
+              </a>
               <span v-else class="cm-affiliation-badge" :style="getAffiliationBadgeStyle(client)">
                 {{ client.organization_name || '-' }}
               </span>
             </td>
-            <td v-if="columnPrefs.clientStatus">
+            <td
+              v-if="columnPrefs.clientStatus"
+              @mouseenter="scheduleQuickView(client)"
+              @mouseleave="cancelQuickView"
+            >
               <span class="cm-status-pill" :style="getStatusPillStyle(client)">
                 {{ formatClientStatus(client) }}
               </span>
             </td>
             <td v-if="columnPrefs.provider">
               <span class="cm-provider-label" :style="getProviderLabelStyle(client)">
-                {{ client.provider_name || 'Not assigned' }}
+                {{ client.provider_name || 'Unassigned' }}
+              </span>
+              <span v-if="client.referral_date && client.provider_name" class="cm-referral-date">
+                Referred {{ formatDate(client.referral_date) }}
               </span>
             </td>
             <td v-if="columnPrefs.submissionDate">{{ formatDate(client.submission_date) }}</td>
@@ -439,8 +480,10 @@
             </td>
             <td v-if="columnPrefs.insurance">{{ client.insurance_type_label || '-' }}</td>
             <td v-if="columnPrefs.lastActivity">{{ formatDate(client.last_activity_at) || '-' }}</td>
-            <td class="actions-cell" @click.stop>
-              <button @click="openClientDetail(client)" class="btn btn-primary btn-sm cm-view-btn">View</button>
+            <td class="actions-cell" @click.stop @mouseenter="quickViewClient = null; clearTimeout(_hoverOpenTimer)">
+              <button @click.stop="openQuickView(client)" class="btn btn-primary btn-sm cm-view-btn" title="Quick preview">
+                Preview
+              </button>
               <button
                 v-if="canBackofficeEdit"
                 @click.stop="startEditStatus(client)" 
@@ -926,6 +969,93 @@
         </div>
       </div>
     </div>
+
+    </template><!-- /v-else cmViewMode=clients -->
+
+    <!-- Quick-view drawer (hover-triggered) -->
+    <transition name="cm-drawer">
+      <div
+        v-if="quickViewClient"
+        class="cm-drawer"
+        role="complementary"
+        aria-label="Client quick view"
+        @mouseenter="cancelQuickViewClose"
+        @mouseleave="scheduleQuickViewClose"
+      >
+          <div class="cm-drawer-header">
+            <div class="cm-drawer-avatar" :style="getInitialsStyle(quickViewClient)">
+              {{ getClientDisplay(quickViewClient) }}
+            </div>
+            <div class="cm-drawer-title">
+              <strong>{{ quickViewClient.full_name || quickViewClient.initials || `Client #${quickViewClient.id}` }}</strong>
+              <div class="cm-drawer-sub">
+                <span v-if="quickViewClient.identifier_code" class="cm-drawer-code"># {{ quickViewClient.identifier_code }}</span>
+                <span class="cm-status-pill" :style="getStatusPillStyle(quickViewClient)">{{ formatClientStatus(quickViewClient) }}</span>
+              </div>
+            </div>
+            <div class="cm-drawer-actions">
+              <button
+                class="cm-drawer-open-btn"
+                type="button"
+                @click="openClientDetail(quickViewClient)"
+                title="Open full profile"
+              >Open profile ↗</button>
+              <button class="cm-drawer-close" type="button" @click="quickViewClient = null" aria-label="Close">✕</button>
+            </div>
+          </div>
+          <div class="cm-drawer-body">
+            <!-- At a glance rows -->
+            <div class="cm-drawer-rows">
+              <div class="cm-drawer-row">
+                <span class="cm-drawer-dt">Clinician</span>
+                <span class="cm-drawer-dd">{{ quickViewClient.provider_name || 'Unassigned' }}</span>
+              </div>
+              <div class="cm-drawer-row">
+                <span class="cm-drawer-dt">Program</span>
+                <span class="cm-drawer-dd">{{ quickViewClient.client_type || '—' }}</span>
+              </div>
+              <div class="cm-drawer-row">
+                <span class="cm-drawer-dt">Status</span>
+                <span class="cm-drawer-dd">
+                  <span class="cm-status-pill" :style="getStatusPillStyle(quickViewClient)">{{ formatClientStatus(quickViewClient) }}</span>
+                </span>
+              </div>
+              <div class="cm-drawer-row">
+                <span class="cm-drawer-dt">Affiliation</span>
+                <span class="cm-drawer-dd">{{ quickViewClient.organization_name || '—' }}</span>
+              </div>
+              <div class="cm-drawer-row">
+                <span class="cm-drawer-dt">Since</span>
+                <span class="cm-drawer-dd">
+                  {{ formatDate(quickViewClient.referral_date || quickViewClient.submission_date) || '—' }}
+                  <span v-if="quickViewClient.source" class="cm-drawer-meta">{{ quickViewClient.source }}</span>
+                </span>
+              </div>
+              <div class="cm-drawer-row" v-if="quickViewClient.insurance_type_label">
+                <span class="cm-drawer-dt">Insurance</span>
+                <span class="cm-drawer-dd">{{ quickViewClient.insurance_type_label }}</span>
+              </div>
+              <div class="cm-drawer-row" v-if="quickViewClient.date_of_birth">
+                <span class="cm-drawer-dt">DOB</span>
+                <span class="cm-drawer-dd">{{ formatDate(quickViewClient.date_of_birth) }}</span>
+              </div>
+              <div class="cm-drawer-row">
+                <span class="cm-drawer-dt">Documents</span>
+                <span class="cm-drawer-dd">
+                  <span class="cm-doc-status" :class="`cm-doc-${getDocumentStatusTone(quickViewClient)}`">
+                    {{ getDocumentStatusIcon(quickViewClient) }} {{ formatDocumentStatusSummary(quickViewClient) }}
+                  </span>
+                </span>
+              </div>
+              <div class="cm-drawer-row" v-if="quickViewClient.last_activity_at">
+                <span class="cm-drawer-dt">Last activity</span>
+                <span class="cm-drawer-dd">{{ formatDate(quickViewClient.last_activity_at) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+    </transition>
+
   </div>
 </template>
 
@@ -936,6 +1066,8 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import BulkClientImporter from '../../components/admin/BulkClientImporter.vue';
+import OfficeIntakeQueuePanel from '../../components/admin/OfficeIntakeQueuePanel.vue';
+import ClientExchangePanel from '../../components/clientExchange/ClientExchangePanel.vue';
 import { STANDARD_GRADE_SELECT_OPTIONS, normalizeGradeForSave } from '../../utils/clientGrade.js';
 import { useRouteTenantAgencyId } from '../../composables/useRouteTenantAgencyId.js';
 import { canSeeClientExchangeNav, clientExchangePath } from '../../utils/clientExchangeNav.js';
@@ -960,6 +1092,59 @@ const router = useRouter();
 const canSeeClientExchange = computed(() => canSeeClientExchangeNav(authStore.user?.role));
 const clientExchangeLink = computed(() => clientExchangePath(route.params?.organizationSlug));
 const searchHints = SEARCH_HINTS;
+
+// View-mode switcher: 'clients' | 'intakes' | 'exchange'
+const cmViewMode = ref('clients');
+const pendingIntakeCount = ref(0);
+const exchangeListingCount = ref(0);
+const quickViewClient = ref(null);
+let _hoverOpenTimer = null;
+let _hoverCloseTimer = null;
+
+function openQuickView(client) {
+  quickViewClient.value = client;
+}
+
+function scheduleQuickView(client) {
+  cancelQuickViewClose();
+  if (quickViewClient.value?.id === client.id) return;
+  clearTimeout(_hoverOpenTimer);
+  _hoverOpenTimer = setTimeout(() => {
+    quickViewClient.value = client;
+  }, 420);
+}
+
+function cancelQuickView() {
+  clearTimeout(_hoverOpenTimer);
+  scheduleQuickViewClose();
+}
+
+function cancelQuickViewClose() {
+  clearTimeout(_hoverCloseTimer);
+}
+
+function scheduleQuickViewClose() {
+  clearTimeout(_hoverCloseTimer);
+  _hoverCloseTimer = setTimeout(() => {
+    quickViewClient.value = null;
+  }, 250);
+}
+
+async function loadSideCounts() {
+  const aid = agencyStore.currentAgency?.value?.id || agencyStore.currentAgency?.id;
+  if (!aid) return;
+  try {
+    const [intakeRes, exchangeRes] = await Promise.all([
+      api.get('/client-exchange/pending-office-clients', { params: { agencyId: aid }, skipGlobalLoading: true }),
+      api.get('/client-exchange/listings', { params: { agencyId: aid }, skipGlobalLoading: true })
+    ]);
+    pendingIntakeCount.value = (intakeRes.data?.clients || []).length;
+    exchangeListingCount.value = (exchangeRes.data?.listings || []).filter((l) => l.status === 'open' || l.status === 'requested').length;
+  } catch {
+    pendingIntakeCount.value = 0;
+    exchangeListingCount.value = 0;
+  }
+}
 const serverSummary = ref(null);
 const parsedSearch = ref({ freeText: '' });
 
@@ -2543,6 +2728,7 @@ const openClientFromQuery = async () => {
 
 onMounted(async () => {
   loadColumnPrefs();
+  loadSideCounts();
   if (isSuperAdmin.value) {
     loadHiddenTenants();
   }
@@ -2689,44 +2875,296 @@ watch(() => currentPage.value, (newPage, oldPage) => {
 }
 
 .cm-page-header {
-  align-items: flex-start;
-  gap: 20px;
-  margin-bottom: 20px;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.cm-refresh-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: #64748b;
+  padding: 4px 0 8px;
+}
+@keyframes cm-spin {
+  to { transform: rotate(360deg); }
+}
+.cm-refresh-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #cbd5e1;
+  border-top-color: var(--primary, #2d6a4f);
+  border-radius: 50%;
+  animation: cm-spin 0.7s linear infinite;
 }
 
 .cm-header-copy h1 {
-  margin: 0 0 6px;
-  font-size: 1.75rem;
+  margin: 0 0 4px;
+  font-size: 1.45rem;
+  font-weight: 700;
   letter-spacing: -0.02em;
 }
 
 .cm-subtitle {
   margin: 0;
   color: var(--cm-muted);
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   max-width: 52rem;
 }
 
 .cm-header-actions {
   flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 6px;
 }
 
-.cm-action-btn {
-  border-radius: 10px;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
-}
-
-.cm-action-danger {
-  color: #b42318;
-}
-
-.cm-create-btn {
-  border-radius: 10px;
-  background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
-  border: none;
+/* Modern compact header buttons */
+.cm-hbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0.38rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
   font-weight: 600;
-  box-shadow: 0 8px 18px rgba(234, 88, 12, 0.22);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.12s;
+  white-space: nowrap;
+}
+.cm-hbtn--ghost {
+  background: transparent;
+  color: var(--text-secondary, #374151);
+  border-color: var(--border, #e5e7eb);
+}
+.cm-hbtn--ghost:hover { background: var(--surface-muted, #f3f4f6); }
+.cm-hbtn--danger { color: #b91c1c; }
+.cm-hbtn--primary {
+  background: var(--primary, #2d6a4f);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 1px 4px rgba(45, 106, 79, 0.25);
+}
+.cm-hbtn--primary:hover { filter: brightness(1.07); }
+
+/* View mode tabs */
+.cm-view-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 1rem;
+  background: var(--surface-muted, #f1f5f9);
+  border-radius: 10px;
+  padding: 4px;
+  width: fit-content;
+}
+.cm-view-tab {
+  background: transparent;
+  border: none;
+  padding: 7px 18px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.12s;
+}
+.cm-view-tab.active {
+  background: var(--card-bg, #fff);
+  color: var(--text, #111827);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.09);
+}
+.cm-view-badge {
+  background: #2d6a4f;
+  color: #fff;
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 11px;
+  font-weight: 800;
+}
+.cm-view-badge--neutral {
+  background: var(--surface-muted, #e5e7eb);
+  color: var(--text-secondary, #374151);
+}
+.cm-view-badge--blue {
+  background: #2563eb;
+  color: #fff;
+}
+.cm-inline-panel {
+  padding-bottom: 2rem;
+}
+.cm-inline-panel--exchange {
+  max-width: none;
+}
+/* Open-profile arrow button */
+.cm-open-btn {
+  padding: 0.2rem 0.45rem;
+  font-size: 0.78rem;
+}
+/* Active row highlight */
+.cm-client-row--active {
+  background: #f0fdf4 !important;
+}
+/* Quick-view drawer — non-blocking fixed side panel */
+.cm-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(400px, 90vw);
+  background: #fff;
+  box-shadow: -4px 0 28px rgba(0, 0, 0, 0.13);
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--border, #e5e7eb);
+}
+.cm-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  position: sticky;
+  top: 0;
+  background: #fff;
+}
+.cm-drawer-avatar {
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 999px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.cm-drawer-title {
+  flex: 1;
+  min-width: 0;
+}
+.cm-drawer-title strong {
+  font-size: 0.96rem;
+  display: block;
+  margin-bottom: 0.3rem;
+}
+.cm-drawer-sub {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.cm-drawer-code {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #6b7280);
+}
+.cm-drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+.cm-drawer-open-btn {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--primary, #2d6a4f);
+  background: none;
+  border: 1px solid var(--primary, #2d6a4f);
+  border-radius: 7px;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cm-drawer-open-btn:hover { background: #f0fdf4; }
+.cm-drawer-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  color: var(--text-secondary, #6b7280);
+  padding: 0.2rem;
+  line-height: 1;
+}
+.cm-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.25rem 0;
+}
+.cm-drawer-section {
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--border, #f1f5f9);
+}
+.cm-drawer-section-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary, #94a3b8);
+  margin-bottom: 0.5rem;
+}
+.cm-drawer-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+.cm-drawer-label {
+  display: block;
+  font-size: 0.74rem;
+  color: var(--text-secondary, #6b7280);
+  margin-bottom: 0.1rem;
+}
+/* At-a-glance rows in drawer */
+.cm-drawer-rows {
+  display: flex;
+  flex-direction: column;
+}
+.cm-drawer-row {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  border-bottom: 1px solid #f1f5f9;
+}
+.cm-drawer-row:last-child { border-bottom: none; }
+.cm-drawer-dt {
+  padding: 8px 10px 8px 14px;
+  background: #f8fafc;
+  border-right: 1px solid #f1f5f9;
+  font-size: 11px;
+  font-weight: 650;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+}
+.cm-drawer-dd {
+  padding: 8px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cm-drawer-meta {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 400;
+}
+/* Drawer transition */
+.cm-drawer-enter-active,
+.cm-drawer-leave-active {
+  transition: transform 0.22s ease, opacity 0.18s ease;
+}
+.cm-drawer-enter-from,
+.cm-drawer-leave-to {
+  transform: translateX(100%);
+  opacity: 0;
 }
 
 .cm-summary-grid {
@@ -2958,6 +3396,13 @@ watch(() => currentPage.value, (newPage, oldPage) => {
 .cm-provider-label {
   font-weight: 600;
   font-size: 13px;
+  display: block;
+}
+.cm-referral-date {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary, #6b7280);
+  margin-top: 1px;
 }
 
 .cm-doc-status {

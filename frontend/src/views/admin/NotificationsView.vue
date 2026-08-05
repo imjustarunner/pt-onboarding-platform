@@ -19,6 +19,7 @@
         <select v-model="filters.type" @change="applyFilters" class="filter-select">
           <option :value="null">All Types</option>
           <option value="new_packet_uploaded">New Packet Uploaded</option>
+          <option value="new_prospective_inquiry">New Interest Form</option>
           <option value="company_event_registration_submitted">New Event Registration</option>
           <option value="status_expired">Status Expired</option>
           <option value="temp_password_expired">Temp Password Expired</option>
@@ -387,6 +388,7 @@ const getTypeLabel = (type) => {
     password_changed: 'Password Changed',
     support_ticket_created: 'Support Tickets',
     new_packet_uploaded: 'New Packet Uploaded',
+    new_prospective_inquiry: 'New Interest Form',
     company_event_registration_submitted: 'New Event Registration',
     office_availability_request_pending: 'Office Requests',
     office_schedule_standing_review_6_weeks: 'Office standing review',
@@ -600,6 +602,11 @@ const getNotificationNavigationPath = async (notification) => {
   } else if (notification.type === 'new_packet_uploaded' && notification.related_entity_type === 'client' && notification.related_entity_id) {
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/clients` : '/admin/clients';
     return `${base}?clientId=${notification.related_entity_id}&tab=documents`;
+  } else if (notification.type === 'new_prospective_inquiry' && notification.agency_id) {
+    const base = route.params.organizationSlug
+      ? `/${route.params.organizationSlug}/admin/office-intake-queue`
+      : '/admin/office-intake-queue';
+    return `${base}?agencyId=${notification.agency_id}`;
   } else if (notification.type === 'company_event_registration_submitted' && notification.related_entity_type === 'company_event' && notification.related_entity_id) {
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/skill-builders/event` : '/skill-builders/event';
     return `${base}/${notification.related_entity_id}`;

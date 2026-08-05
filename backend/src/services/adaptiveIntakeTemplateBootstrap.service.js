@@ -23,7 +23,7 @@ export async function ensurePractitionerIntakeFrame({ agencyId, verticalKey, int
   }
 
   const [linkRows] = await pool.execute(
-    `SELECT id, intake_fields FROM intake_links WHERE id = ? AND agency_id = ? LIMIT 1`,
+    `SELECT id, intake_fields FROM intake_links WHERE id = ? AND organization_id = ? LIMIT 1`,
     [linkId, aid]
   );
   const link = linkRows[0];

@@ -68,6 +68,134 @@ console.log('  - Connection timeout:', poolConfig.connectTimeout, 'ms');
 
 const pool = mysql.createPool(poolConfig);
 
+/**
+ * Memoize information_schema lookups.
+ *
+ * The codebase probes information_schema in ~390 places to stay compatible with
+ * databases that predate a given migration ("does this column exist yet?"). Each probe
+ * costs 45-120ms, and a single page load can fan out to over a hundred API requests,
+ * so these dominate request latency even though the answer never changes while the
+ * process is running.
+ *
+ * Results are cached by SQL + params for a short TTL. The TTL (rather than caching
+ * for the process lifetime) means a migration applied against a running server is
+ * picked up without a restart. Concurrent identical probes share one round-trip.
+ *
+ * Set DB_SCHEMA_CACHE=0 to disable.
+ */
+const SCHEMA_CACHE_ENABLED = process.env.DB_SCHEMA_CACHE !== '0';
+const SCHEMA_CACHE_TTL_MS = parseInt(process.env.DB_SCHEMA_CACHE_TTL_MS, 10) || 60000;
+const schemaCache = new Map(); // key -> { expiresAt, promise }
+
+const isSchemaIntrospection = (sql) =>
+  typeof sql === 'string' && sql.toLowerCase().includes('information_schema');
+
+/**
+ * Table-write notifications, so model-layer caches can invalidate without every
+ * write site having to remember to do so. Writes to user_agencies in particular are
+ * spread across 20+ controllers and services.
+ *
+ * Models register here rather than this file importing them, which would be a
+ * circular dependency (models import the pool).
+ */
+const tableWriteListeners = new Map(); // lowercased table name -> Set<fn>
+
+export function onTableWrite(tableName, listener) {
+  const key = String(tableName).toLowerCase();
+  if (!tableWriteListeners.has(key)) tableWriteListeners.set(key, new Set());
+  tableWriteListeners.get(key).add(listener);
+  return () => tableWriteListeners.get(key)?.delete(listener);
+}
+
+const WRITE_STATEMENT = /^\s*(?:insert|update|delete|replace|truncate)\b/i;
+
+function notifyTableWrites(sql) {
+  if (!tableWriteListeners.size) return;
+  if (typeof sql !== 'string' || !WRITE_STATEMENT.test(sql)) return;
+  const lowered = sql.toLowerCase();
+  for (const [table, listeners] of tableWriteListeners) {
+    if (!lowered.includes(table)) continue;
+    for (const listener of listeners) {
+      try {
+        listener();
+      } catch {
+        // A misbehaving cache listener must not fail the query.
+      }
+    }
+  }
+}
+
+// Return a defensive copy so a caller mutating rows cannot corrupt the cached value.
+const cloneResult = ([rows, fields]) => [
+  Array.isArray(rows) ? rows.map((r) => (r && typeof r === 'object' ? { ...r } : r)) : rows,
+  fields
+];
+
+// Slow-query logging. Enable with DB_TIMING_DEBUG=1, threshold via DB_TIMING_DEBUG_MS.
+const DB_TIMING_DEBUG = process.env.DB_TIMING_DEBUG === '1';
+const DB_TIMING_DEBUG_MS = parseInt(process.env.DB_TIMING_DEBUG_MS, 10) || 150;
+
+for (const method of ['execute', 'query']) {
+  const original0 = pool[method].bind(pool);
+  const original = DB_TIMING_DEBUG
+    ? async (sql, params, ...rest) => {
+        const t0 = process.hrtime.bigint();
+        try {
+          return await original0(sql, params, ...rest);
+        } finally {
+          const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+          if (ms >= DB_TIMING_DEBUG_MS) {
+            const text = (typeof sql === 'string' ? sql : sql?.sql || '')
+              .replace(/\s+/g, ' ')
+              .trim()
+              .slice(0, 160);
+            console.warn(`[db] ${ms.toFixed(0)}ms  ${text}`);
+          }
+        }
+      }
+    : original0;
+
+  pool[method] = function poolInterceptor(sql, params, ...rest) {
+    const sqlText = typeof sql === 'string' ? sql : sql?.sql;
+
+    // Let model-layer caches know when a table they depend on is written to.
+    notifyTableWrites(sqlText);
+
+    // Only intercept the simple (sql, params?) promise form used by schema probes.
+    if (
+      !SCHEMA_CACHE_ENABLED ||
+      !isSchemaIntrospection(sqlText) ||
+      typeof params === 'function' ||
+      rest.length > 0
+    ) {
+      return original(sql, params, ...rest);
+    }
+
+    const key = `${sqlText}::${params ? JSON.stringify(params) : ''}`;
+    const now = Date.now();
+    const hit = schemaCache.get(key);
+    if (hit && hit.expiresAt > now) {
+      return hit.promise.then(cloneResult);
+    }
+
+    const promise = original(sql, params).catch((err) => {
+      // Never cache failures; the next caller should retry.
+      schemaCache.delete(key);
+      throw err;
+    });
+    schemaCache.set(key, { expiresAt: now + SCHEMA_CACHE_TTL_MS, promise });
+
+    // Bound memory in case of highly dynamic probe SQL.
+    if (schemaCache.size > 2000) {
+      for (const [k, v] of schemaCache) {
+        if (v.expiresAt <= now) schemaCache.delete(k);
+      }
+    }
+
+    return promise.then(cloneResult);
+  };
+}
+
 // Track connection readiness
 let isConnectionReady = false;
 export const waitForConnection = () => {

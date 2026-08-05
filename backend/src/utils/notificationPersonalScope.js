@@ -21,6 +21,7 @@ export const MANAGED_AGENCY_EVENT_TYPES = new Set([
   'medical_records_release_submitted',
   'new_job_application_submitted',
   'new_packet_uploaded',
+  'new_prospective_inquiry',
   'office_availability_request_pending',
   'office_schedule_biweekly_review',
   'office_schedule_coverage_flag',

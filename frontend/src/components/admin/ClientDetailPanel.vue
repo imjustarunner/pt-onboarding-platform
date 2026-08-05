@@ -176,100 +176,92 @@
             </div>
           </div>
 
-          <div class="cdp-glance-grid">
-            <article class="cdp-glance-card">
-              <div class="cdp-glance-label">Primary clinician</div>
-              <div class="cdp-glance-value">{{ primaryProviderLabel }}</div>
-              <div class="cdp-glance-meta">{{ client.organization_name || '—' }}</div>
-            </article>
-            <article class="cdp-glance-card">
-              <div class="cdp-glance-label">Program</div>
-              <div class="cdp-glance-value">{{ clientTypeLabel }}</div>
-              <div class="cdp-glance-meta">{{ client.organization_name || 'No organization' }}</div>
-            </article>
-            <article class="cdp-glance-card">
-              <div class="cdp-glance-label">Primary diagnosis</div>
-              <div class="cdp-glance-value mono">{{ primaryDiagnosisLabel }}</div>
-              <button v-if="canViewMedicalRecord" type="button" class="cdp-text-link" @click="activeTab = 'clinical'">
-                View clinical →
-              </button>
-            </article>
-            <article class="cdp-glance-card">
-              <div class="cdp-glance-label">Since</div>
-              <div class="cdp-glance-value">{{ client.referral_date ? formatDate(client.referral_date) : (client.submission_date ? formatDate(client.submission_date) : '—') }}</div>
-              <div class="cdp-glance-meta">{{ client.source || '—' }}</div>
-            </article>
-            <article class="cdp-glance-card">
-              <div class="cdp-glance-label">Insurance</div>
-              <div class="cdp-glance-value">{{ primaryInsuranceLabel || 'Not on file' }}</div>
-              <div class="cdp-glance-meta">{{ client.insurance_type_label || '—' }}</div>
-            </article>
-            <article class="cdp-glance-card">
-              <div class="cdp-glance-label">Last session</div>
-              <div class="cdp-glance-value">{{ lastSessionLabel }}</div>
-              <div class="cdp-glance-meta">{{ lastSessionMeta }}</div>
-            </article>
-            <article class="cdp-glance-card">
-              <div class="cdp-glance-label">Sessions on file</div>
-              <div class="cdp-glance-value">{{ sessionCountLabel }}</div>
-              <button v-if="canViewMedicalRecord && sessionCount" type="button" class="cdp-text-link" @click="activeTab = 'medical-record'">
-                View medical record →
-              </button>
-            </article>
-            <article class="cdp-glance-card">
-              <div class="cdp-glance-label">Care team</div>
-              <div class="cdp-glance-value">{{ careTeamGlanceSummary }}</div>
-              <div v-if="careTeamGlanceMeta" class="cdp-glance-meta">{{ careTeamGlanceMeta }}</div>
-              <button
-                v-if="canManageSchoolAssignments"
-                type="button"
-                class="cdp-text-link"
-                @click="showAssignDayModal = true"
-              >
-                Update assignment →
-              </button>
-              <button v-else-if="canEditAccount" type="button" class="cdp-text-link" @click="activeTab = 'assignments'">
-                Manage →
-              </button>
-            </article>
+          <div class="cdp-profile-rows">
+            <div class="cdp-profile-row">
+              <span class="cdp-profile-dt">Primary clinician</span>
+              <span class="cdp-profile-dd">
+                {{ primaryProviderLabel }}
+                <span v-if="client.organization_name" class="cdp-profile-meta">{{ client.organization_name }}</span>
+              </span>
+            </div>
+            <div class="cdp-profile-row">
+              <span class="cdp-profile-dt">Program</span>
+              <span class="cdp-profile-dd">{{ clientTypeLabel }}</span>
+            </div>
+            <div class="cdp-profile-row">
+              <span class="cdp-profile-dt">Primary diagnosis</span>
+              <span class="cdp-profile-dd">
+                <span class="mono">{{ primaryDiagnosisLabel }}</span>
+                <button v-if="canViewMedicalRecord" type="button" class="cdp-text-link" @click="activeTab = 'clinical'">View clinical →</button>
+              </span>
+            </div>
+            <div class="cdp-profile-row">
+              <span class="cdp-profile-dt">Since</span>
+              <span class="cdp-profile-dd">
+                {{ client.referral_date ? formatDate(client.referral_date) : (client.submission_date ? formatDate(client.submission_date) : '—') }}
+                <span v-if="client.source" class="cdp-profile-meta">{{ client.source }}</span>
+              </span>
+            </div>
+            <div class="cdp-profile-row">
+              <span class="cdp-profile-dt">Insurance</span>
+              <span class="cdp-profile-dd">
+                {{ primaryInsuranceLabel || 'Not on file' }}
+                <span v-if="client.insurance_type_label" class="cdp-profile-meta">{{ client.insurance_type_label }}</span>
+              </span>
+            </div>
+            <div class="cdp-profile-row">
+              <span class="cdp-profile-dt">Last session</span>
+              <span class="cdp-profile-dd">
+                {{ lastSessionLabel }}
+                <span v-if="lastSessionMeta" class="cdp-profile-meta">{{ lastSessionMeta }}</span>
+              </span>
+            </div>
+            <div class="cdp-profile-row">
+              <span class="cdp-profile-dt">Sessions on file</span>
+              <span class="cdp-profile-dd">
+                {{ sessionCountLabel }}
+                <button v-if="canViewMedicalRecord && sessionCount" type="button" class="cdp-text-link" @click="activeTab = 'medical-record'">View record →</button>
+              </span>
+            </div>
+            <div class="cdp-profile-row">
+              <span class="cdp-profile-dt">Care team</span>
+              <span class="cdp-profile-dd">
+                {{ careTeamGlanceSummary }}
+                <span v-if="careTeamGlanceMeta" class="cdp-profile-meta">{{ careTeamGlanceMeta }}</span>
+                <button v-if="canManageSchoolAssignments" type="button" class="cdp-text-link" @click="showAssignDayModal = true">Update →</button>
+                <button v-else-if="canEditAccount" type="button" class="cdp-text-link" @click="activeTab = 'assignments'">Manage →</button>
+              </span>
+            </div>
           </div>
 
           <div class="cdp-care-section">
             <h3 class="cdp-section-title">Current care</h3>
-            <div class="cdp-care-grid">
-              <article class="cdp-care-card">
-                <div class="cdp-care-card__title">Status</div>
-                <div class="cdp-care-card__body">{{ isClientArchived ? 'Archived' : (client.client_status_label || '—') }}</div>
-                <div class="cdp-glance-meta">Client type: {{ clientTypeLabel }}</div>
-              </article>
-              <article class="cdp-care-card">
-                <div class="cdp-care-card__title">Clinical</div>
-                <div class="cdp-care-card__body">{{ primaryDiagnosisLabel !== '—' ? primaryDiagnosisLabel : 'No diagnosis on file' }}</div>
-                <button v-if="canViewMedicalRecord" type="button" class="cdp-text-link" @click="activeTab = 'clinical'">
-                  Open clinical →
-                </button>
-              </article>
-              <article class="cdp-care-card">
-                <div class="cdp-care-card__title">Medical record</div>
-                <div class="cdp-care-card__body">Imported sessions &amp; notes</div>
-                <button v-if="canViewMedicalRecord" type="button" class="cdp-text-link" @click="activeTab = 'medical-record'">
-                  Open medical record →
-                </button>
-              </article>
-              <article class="cdp-care-card">
-                <div class="cdp-care-card__title">Documents</div>
-                <div class="cdp-care-card__body">{{ formatDocumentStatus(client.document_status) }}</div>
-                <button type="button" class="cdp-text-link" @click="activeTab = 'phi'">
-                  View documents →
-                </button>
-              </article>
-              <article v-if="canViewClientBillingImport" class="cdp-care-card">
-                <div class="cdp-care-card__title">Billing</div>
-                <div class="cdp-care-card__body">Imported report balances</div>
-                <button type="button" class="cdp-text-link" @click="activeTab = 'client-billing'">
-                  Open billing →
-                </button>
-              </article>
+            <div class="cdp-care-strip">
+              <button type="button" class="cdp-care-chip">
+                <span class="cdp-care-chip__title">Status</span>
+                <span class="cdp-care-chip__body">{{ isClientArchived ? 'Archived' : (client.client_status_label || '—') }}</span>
+                <span class="cdp-care-chip__meta">{{ clientTypeLabel }}</span>
+              </button>
+              <button v-if="canViewMedicalRecord" type="button" class="cdp-care-chip" @click="activeTab = 'clinical'">
+                <span class="cdp-care-chip__title">Clinical</span>
+                <span class="cdp-care-chip__body">{{ primaryDiagnosisLabel !== '—' ? primaryDiagnosisLabel : 'No diagnosis' }}</span>
+                <span class="cdp-care-chip__meta">Open chart →</span>
+              </button>
+              <button v-if="canViewMedicalRecord" type="button" class="cdp-care-chip" @click="activeTab = 'medical-record'">
+                <span class="cdp-care-chip__title">Medical record</span>
+                <span class="cdp-care-chip__body">{{ sessionCountLabel }} session{{ sessionCount !== 1 ? 's' : '' }}</span>
+                <span class="cdp-care-chip__meta">Open record →</span>
+              </button>
+              <button type="button" class="cdp-care-chip" @click="activeTab = 'phi'">
+                <span class="cdp-care-chip__title">Documents</span>
+                <span class="cdp-care-chip__body">{{ formatDocumentStatus(client.document_status) }}</span>
+                <span class="cdp-care-chip__meta">View →</span>
+              </button>
+              <button v-if="canViewClientBillingImport" type="button" class="cdp-care-chip" @click="activeTab = 'client-billing'">
+                <span class="cdp-care-chip__title">Billing</span>
+                <span class="cdp-care-chip__body">Imported balances</span>
+                <span class="cdp-care-chip__meta">Open →</span>
+              </button>
             </div>
           </div>
 
@@ -4805,7 +4797,9 @@ onMounted(async () => {
   if (isBackofficeRole.value) {
     await fetchProviders();
   }
-  await fetchAccess();
+  // Fire fetchAccess without awaiting — it only populates the agency-switcher dropdown
+  // which is only visible in edit mode; no need to block the overview render.
+  fetchAccess().catch(() => {});
   await refreshOverviewProviders();
   await fetchAdminNote();
   if (isClinicalLikeClientType.value) {
@@ -5006,20 +5000,11 @@ watch(
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 24px;
-  padding: 22px 28px 18px;
+  gap: 16px;
+  padding: 14px 20px 12px;
   border-bottom: 1px solid rgba(58, 76, 107, 0.10);
   background: #fff;
   position: relative;
-}
-.modal-header.cdp-header::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--primary, #C69A2B);
 }
 
 .cdp-header-main {
@@ -5032,29 +5017,29 @@ watch(
 
 .cdp-avatar {
   flex: 0 0 auto;
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   font-family: var(--font-display, var(--font-header));
   font-weight: 700;
-  font-size: 18px;
+  font-size: 15px;
   letter-spacing: 0.4px;
   text-shadow: 0 1px 2px rgba(0,0,0,0.18);
   user-select: none;
   box-shadow:
     0 0 0 2px #fff,
     0 0 0 3px rgba(58, 76, 107, 0.16),
-    0 6px 14px -8px rgba(29, 38, 51, 0.35);
+    0 4px 10px -6px rgba(29, 38, 51, 0.3);
 }
 
 .cdp-header-info {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
   min-width: 0;
   flex: 1;
 }
@@ -5062,11 +5047,11 @@ watch(
 .cdp-title {
   margin: 0;
   font-family: var(--font-display, var(--font-header));
-  font-size: 28px;
-  line-height: 1.12;
+  font-size: 20px;
+  line-height: 1.2;
   font-weight: 750;
   color: var(--secondary, #1D2633);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
 .cdp-identity-line {
@@ -5456,34 +5441,49 @@ watch(
   font-size: 12.5px;
   color: var(--accent, #3A4C6B);
 }
-.cdp-glance-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 20px;
-}
-.cdp-glance-card {
-  background: #fff;
+/* Compact profile rows (replaces cdp-glance-grid cards) */
+.cdp-profile-rows {
   border: 1px solid rgba(58, 76, 107, 0.10);
-  border-radius: 12px;
-  padding: 14px 14px 12px;
-  box-shadow: 0 1px 2px rgba(29, 38, 51, 0.03);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 20px;
+  background: #fff;
 }
-.cdp-glance-label {
-  font-size: 11px;
-  font-weight: 750;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+.cdp-profile-row {
+  display: grid;
+  grid-template-columns: 148px 1fr;
+  border-bottom: 1px solid rgba(58, 76, 107, 0.06);
+}
+.cdp-profile-row:last-child {
+  border-bottom: none;
+}
+.cdp-profile-dt {
+  padding: 9px 14px;
+  background: #f8fafc;
+  border-right: 1px solid rgba(58, 76, 107, 0.06);
+  font-size: 11.5px;
+  font-weight: 650;
   color: #64748b;
-  margin-bottom: 6px;
+  letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
 }
-.cdp-glance-value {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--secondary, #1D2633);
-  margin-bottom: 4px;
-  line-height: 1.3;
+.cdp-profile-dd {
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--secondary, #1d2633);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
+.cdp-profile-meta {
+  font-size: 11.5px;
+  color: #64748b;
+  font-weight: 400;
+}
+/* Keep glance-meta for legacy use elsewhere */
 .cdp-glance-meta {
   font-size: 12px;
   color: #64748b;
@@ -5510,13 +5510,48 @@ watch(
 .cdp-contacts-section {
   margin-bottom: 20px;
 }
-.cdp-care-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+/* Care strip — compact horizontal row of clickable chips */
+.cdp-care-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 10px;
 }
-.cdp-care-card,
+.cdp-care-chip {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 14px;
+  background: #f8fafc;
+  border: 1px solid rgba(58, 76, 107, 0.10);
+  border-radius: 9px;
+  cursor: pointer;
+  gap: 2px;
+  text-align: left;
+  min-width: 110px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.cdp-care-chip:hover {
+  background: #f0f9ff;
+  border-color: rgba(58, 76, 107, 0.22);
+}
+.cdp-care-chip__title {
+  font-size: 10px;
+  text-transform: uppercase;
+  font-weight: 750;
+  color: #94a3b8;
+  letter-spacing: 0.05em;
+}
+.cdp-care-chip__body {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--secondary, #1d2633);
+  line-height: 1.3;
+}
+.cdp-care-chip__meta {
+  font-size: 11px;
+  color: #94a3b8;
+}
+/* Keep contact card for legacy use */
 .cdp-contact-card {
   background: #fff;
   border: 1px solid rgba(58, 76, 107, 0.10);
@@ -5524,7 +5559,6 @@ watch(
   padding: 14px;
   box-shadow: 0 1px 2px rgba(29, 38, 51, 0.03);
 }
-.cdp-care-card__title,
 .cdp-contact-card__role {
   font-size: 11px;
   font-weight: 750;
@@ -5533,7 +5567,6 @@ watch(
   color: #64748b;
   margin-bottom: 6px;
 }
-.cdp-care-card__body,
 .cdp-contact-card__name {
   font-size: 14px;
   font-weight: 700;
@@ -5783,8 +5816,7 @@ watch(
 @media (max-width: 1100px) {
   .cdp-overview-layout { grid-template-columns: 1fr; }
   .cdp-overview-aside { position: static; }
-  .cdp-glance-grid,
-  .cdp-care-grid,
+  .cdp-profile-row { grid-template-columns: 130px 1fr; }
   .cdp-contacts-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 980px) {
@@ -5795,13 +5827,12 @@ watch(
     align-items: stretch;
   }
   .cdp-header-actions { justify-content: flex-start; }
-  .cdp-avatar { width: 52px; height: 52px; font-size: 18px; border-radius: 14px; }
-  .cdp-title { font-size: 22px; }
+  .cdp-avatar { width: 40px; height: 40px; font-size: 14px; border-radius: 10px; }
+  .cdp-title { font-size: 18px; }
   .tab-content {
     padding: 18px 16px;
   }
-  .cdp-glance-grid,
-  .cdp-care-grid,
+  .cdp-profile-row { grid-template-columns: 110px 1fr; }
   .cdp-contacts-grid { grid-template-columns: 1fr; }
   .cdp-footer { padding: 12px 16px; }
 }

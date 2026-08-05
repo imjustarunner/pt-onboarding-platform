@@ -420,6 +420,56 @@ export async function resolveRequest({ requestId, action, actingUserId, denialRe
   return getRequestById(request.id);
 }
 
+/**
+ * Referred: Awaiting acceptance — office clients assigned to a provider but still
+ * within the acceptance window (not yet posted to exchange or marked current).
+ * Uses office_client_assignment_events for accurate tracking.
+ */
+export async function listPendingAcceptanceClients({ agencyId, windowDays = 30 }) {
+  const aid = Number(agencyId);
+  if (!aid) return [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT
+         e.id AS event_id,
+         e.client_id, e.provider_user_id, e.assigned_at,
+         e.exchanged_at, e.marked_current_at, e.exchange_listing_id,
+         c.initials, c.full_name, c.identifier_code, c.client_type, c.status AS client_status,
+         c.contact_phone, c.source, c.intake_preferences_json, c.adaptive_intake_meta_json,
+         u.first_name AS provider_first, u.last_name AS provider_last
+       FROM office_client_assignment_events e
+       INNER JOIN clients c ON c.id = e.client_id
+       INNER JOIN users u ON u.id = e.provider_user_id
+       WHERE e.agency_id = ?
+         AND e.ended_at IS NULL
+         AND e.exchanged_at IS NULL
+         AND e.marked_current_at IS NULL
+         AND e.assigned_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+         AND c.status NOT IN ('ARCHIVED')
+       ORDER BY e.assigned_at DESC`,
+      [aid, windowDays]
+    );
+    return (rows || []).map((row) => ({
+      id: Number(row.client_id),
+      eventId: Number(row.event_id),
+      initials: row.initials,
+      fullName: row.full_name,
+      identifierCode: row.identifier_code,
+      clientType: row.client_type,
+      clientStatus: row.client_status,
+      contactPhone: row.contact_phone,
+      source: row.source,
+      intakePreferences: parseJsonColumn(row.intake_preferences_json),
+      adaptiveMeta: parseJsonColumn(row.adaptive_intake_meta_json),
+      assignedAt: row.assigned_at,
+      providerName: `${row.provider_first || ''} ${row.provider_last || ''}`.trim() || null,
+      providerUserId: Number(row.provider_user_id)
+    }));
+  } catch {
+    return [];
+  }
+}
+
 /** Support/admin queue: office clients (clinical/learning) awaiting a first provider assignment. */
 export async function listPendingOfficeClients({ agencyId }) {
   const aid = Number(agencyId);
@@ -429,13 +479,13 @@ export async function listPendingOfficeClients({ agencyId }) {
        AND c.client_type IN (${typePlaceholders})
        AND c.provider_id IS NULL
        AND c.status NOT IN ('ARCHIVED')
-     ORDER BY c.created_at ASC`;
+     ORDER BY c.created_at DESC`;
   let rows;
   try {
     const [r] = await pool.execute(
       `SELECT c.id, c.initials, c.full_name, c.identifier_code, c.client_type, c.status,
               c.contact_phone, c.submission_date, c.source, c.intake_preferences_json,
-              c.adaptive_intake_meta_json, c.created_at
+              c.adaptive_intake_meta_json, c.created_at, c.date_of_birth
        FROM clients c
        ${baseWhere}`,
       [aid, ...OFFICE_CLIENT_TYPES]
@@ -449,6 +499,7 @@ export async function listPendingOfficeClients({ agencyId }) {
               c.created_at
        FROM clients c
        ${baseWhere}`,
+      // date_of_birth may not exist in older schema, handled via adaptiveMeta fallback
       [aid, ...OFFICE_CLIENT_TYPES]
     );
     rows = r;
@@ -466,7 +517,8 @@ export async function listPendingOfficeClients({ agencyId }) {
     intakePreferences: parseJsonColumn(row.intake_preferences_json),
     adaptiveMeta: parseJsonColumn(row.adaptive_intake_meta_json),
     pathway: parseJsonColumn(row.adaptive_intake_meta_json)?.pathway || null,
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    dateOfBirth: row.date_of_birth || null
   }));
 }
 
@@ -504,6 +556,8 @@ export async function createPublicOfficeIntakeClient({ agencySlugOrId, payload =
   const fullName = String(payload.fullName || `${firstName} ${lastName}`).trim();
   if (!fullName) throw new Error('Name is required');
   const contactPhone = String(payload.contactPhone || payload.phone || '').trim() || null;
+  const dateOfBirth = String(payload.dateOfBirth || payload.birthdate || '').trim() || null;
+  const homeAddress = String(payload.homeAddress || '').trim() || null;
 
   const initials = fullName
     .split(/\s+/)
@@ -540,6 +594,7 @@ export async function createPublicOfficeIntakeClient({ agencySlugOrId, payload =
     initials,
     full_name: fullName,
     contact_phone: contactPhone,
+    date_of_birth: dateOfBirth || undefined,
     identifier_code: identifierCode,
     status: 'PENDING_REVIEW',
     submission_date: new Date().toISOString().split('T')[0],
@@ -555,6 +610,10 @@ export async function createPublicOfficeIntakeClient({ agencySlugOrId, payload =
     JSON.stringify(intakePreferences),
     client.id
   ]);
+
+  if (homeAddress) {
+    await pool.execute(`UPDATE clients SET address_street = ? WHERE id = ?`, [homeAddress, client.id]).catch(() => null);
+  }
 
   await seedClientAffiliations({ clientId: client.id, agencyId, organizationId: agencyId });
   await seedClientPaperworkItems({ clientId: client.id, agencyId });

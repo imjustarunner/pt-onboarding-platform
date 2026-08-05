@@ -542,8 +542,51 @@ export const getAllUsers = async (req, res, next) => {
     } else {
       // Admin and support users only see users from their agencies
       const userAgencies = await User.getAgencies(req.user.id);
-      const agencyIds = userAgencies.map(a => a.id);
-      
+      let agencyIds = userAgencies.map(a => a.id);
+
+      // Optional narrowing. Requested scopes are intersected with the caller's
+      // accessible agencies, so these params can only ever reduce visibility.
+      //
+      // Selecting a tenant must also include the organizations beneath it: school staff
+      // hold a membership on their school, not on the parent tenant, so filtering to the
+      // tenant id alone would hide them.
+      const accessible = new Set(agencyIds.map(Number));
+
+      const narrowToOrgAndChildren = async (rootId) => {
+        const scope = new Set();
+        if (accessible.has(rootId)) scope.add(rootId);
+        try {
+          const [children] = await pool.execute(
+            `SELECT organization_id FROM organization_affiliations
+              WHERE is_active = TRUE AND agency_id = ?`,
+            [rootId]
+          );
+          for (const row of children || []) {
+            const childId = Number(row.organization_id);
+            if (accessible.has(childId)) scope.add(childId);
+          }
+        } catch {
+          // No affiliation table; the root on its own is the best available scope.
+        }
+        return [...scope];
+      };
+
+      const requestedOrgId = parseInt(req.query.organization_id, 10);
+      const requestedAgencyId = parseInt(req.query.agency_id, 10);
+      if (Number.isFinite(requestedOrgId) && requestedOrgId > 0) {
+        // A specific organization is already the narrowest scope.
+        agencyIds = accessible.has(requestedOrgId) ? [requestedOrgId] : [];
+      } else if (Number.isFinite(requestedAgencyId) && requestedAgencyId > 0) {
+        agencyIds = await narrowToOrgAndChildren(requestedAgencyId);
+      }
+
+      const ALLOWED_ROLE_FILTERS = new Set([
+        'school_staff', 'provider', 'staff', 'admin', 'support',
+        'facilitator', 'intern', 'supervisor', 'clinical_practice_assistant'
+      ]);
+      const requestedRole = String(req.query.role || '').trim().toLowerCase();
+      const roleFilter = ALLOWED_ROLE_FILTERS.has(requestedRole) ? requestedRole : null;
+
       if (agencyIds.length === 0) {
         // User has no agencies, return empty array
         users = [];
@@ -594,10 +637,17 @@ export const getAllUsers = async (req, res, next) => {
           WHERE ua.agency_id IN (${agencyIds.map(() => '?').join(',')})
         `;
         
+        const queryParams = [...agencyIds];
+
         if (!includeArchived) {
           query += ' AND (u.is_archived = FALSE OR u.is_archived IS NULL)';
         }
-        
+
+        if (roleFilter) {
+          query += ' AND LOWER(u.role) = ?';
+          queryParams.push(roleFilter);
+        }
+
         let groupByFields = 'u.id, u.email, u.role, u.status, u.completed_at, u.terminated_at, u.status_expires_at, u.is_active, u.first_name, u.last_name, u.created_at';
         if (hasSupervisorPrivilegesField) {
           groupByFields += ', u.has_supervisor_privileges';
@@ -610,8 +660,8 @@ export const getAllUsers = async (req, res, next) => {
         }
         query += ` GROUP BY ${groupByFields}`;
         query += ' ORDER BY u.created_at DESC';
-        
-        const [rows] = await pool.execute(query, agencyIds);
+
+        const [rows] = await pool.execute(query, queryParams);
         users = rows;
       }
     }

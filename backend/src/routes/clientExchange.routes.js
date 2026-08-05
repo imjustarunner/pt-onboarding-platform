@@ -15,6 +15,7 @@ router.post('/requests/:id/approve', authenticate, ctrl.approveRequest);
 router.post('/requests/:id/deny', authenticate, ctrl.denyRequest);
 
 router.get('/pending-office-clients', authenticate, ctrl.listPendingOfficeClients);
+router.get('/recently-referred', authenticate, ctrl.listRecentlyReferredClients);
 router.get('/acceptance-metrics', authenticate, ctrl.getAcceptanceMetrics);
 router.post('/adaptive-convert', authenticate, async (req, res, next) => {
   const { convertProspective } = await import('../controllers/adaptiveIntake.controller.js');

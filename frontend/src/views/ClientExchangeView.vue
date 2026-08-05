@@ -10,8 +10,8 @@ import ClientExchangePanel from '../components/clientExchange/ClientExchangePane
 
 <style scoped>
 .client-exchange-view {
-  max-width: 980px;
+  padding: 20px 24px 60px;
+  max-width: 1600px;
   margin: 0 auto;
-  padding: 20px 16px 60px;
 }
 </style>

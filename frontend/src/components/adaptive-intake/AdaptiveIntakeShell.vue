@@ -1,17 +1,24 @@
 <template>
   <DigitalFormShell
     class="ai-shell-host"
-    :class="{ 'ai-shell-host--with-help': showHelpPanel }"
     :branding="branding"
     :program-title-override="programTitle"
     :form-title-override="formTitle"
     :form-subtitle="formSubtitle"
-    :progress-steps="showTopProgress ? progressSteps : []"
+    :progress-steps="sidebarSteps"
     :progress-index="progressIndex"
+    :intake-sidebar-steps="coverMode ? [] : sidebarSteps"
+    :intake-sidebar-step-index="progressIndex"
+    :show-intake-sidebar-security="!coverMode && sidebarSteps.length > 0"
+    :decor-hero-url="decorHeroUrl"
+    :decor-hero-alt="decorHeroAlt"
+    :decor-hero-frame-style="decorHeroFrameStyle"
+    :decor-hero-image-position="decorHeroImagePosition"
     :cover-mode="coverMode"
     :hide-sidebar="hideSidebar"
-    :wide="wide || showHelpPanel"
-    :trust-items="trustItems"
+    :wide="wide"
+    :trust-items="trustItems || adaptiveTrustItems"
+    :quote="''"
     :show-header="showHeader"
   >
     <template v-if="$slots['header-left']" #header-left>
@@ -21,33 +28,11 @@
       <slot name="header-right" />
     </template>
 
-    <div class="ai-layout" :class="{ 'ai-layout--help': showHelpPanel && !coverMode }">
-      <div v-if="sidebarSteps.length && !coverMode" class="ai-layout-sidebar-steps df-desktop-only">
-        <AdaptiveIntakeSidebarSteps
-          :steps="sidebarSteps"
-          :active-index="progressIndex"
-        />
-        <div class="ai-security-badge">
-          <span class="ai-security-badge-icon" aria-hidden="true">🔒</span>
-          <div>
-            <strong>Your information is safe</strong>
-            <p>We use industry-standard encryption to protect your privacy.</p>
-          </div>
-        </div>
-      </div>
-
+    <div class="ai-layout">
       <div class="ai-layout-main">
         <div v-if="pathwayBadge && !coverMode" class="ai-pathway-badge">{{ pathwayBadge }}</div>
         <slot />
       </div>
-
-      <AdaptiveIntakeHelpPanel
-        v-if="showHelpPanel && !coverMode && helpBlocks.length"
-        class="df-desktop-only"
-        :blocks="helpBlocks"
-      >
-        <slot name="help-extra" />
-      </AdaptiveIntakeHelpPanel>
     </div>
 
     <template v-if="$slots.footer" #footer>
@@ -57,13 +42,16 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
 import { DigitalFormShell } from '../digital-form';
-import AdaptiveIntakeSidebarSteps from './AdaptiveIntakeSidebarSteps.vue';
-import AdaptiveIntakeHelpPanel from './AdaptiveIntakeHelpPanel.vue';
 import '../../styles/adaptive-intake.css';
 
-const props = defineProps({
+const adaptiveTrustItems = [
+  { icon: 'shield', label: 'Your information is secure' },
+  { icon: 'lock', label: 'HIPAA Protected' },
+  { icon: 'check', label: 'Only takes a few minutes' }
+];
+
+defineProps({
   branding: { type: Object, default: null },
   programTitle: { type: String, default: '' },
   formTitle: { type: String, default: '' },
@@ -71,15 +59,15 @@ const props = defineProps({
   progressSteps: { type: Array, default: () => [] },
   progressIndex: { type: Number, default: 0 },
   sidebarSteps: { type: Array, default: () => [] },
-  helpBlocks: { type: Array, default: () => [] },
+  decorHeroUrl: { type: String, default: '' },
+  decorHeroAlt: { type: String, default: '' },
+  decorHeroFrameStyle: { type: String, default: 'preframed' },
+  decorHeroImagePosition: { type: String, default: 'center center' },
   pathwayBadge: { type: String, default: '' },
   coverMode: { type: Boolean, default: false },
   hideSidebar: { type: Boolean, default: false },
   wide: { type: Boolean, default: false },
   showHeader: { type: Boolean, default: true },
-  showTopProgress: { type: Boolean, default: true },
   trustItems: { type: Array, default: undefined }
 });
-
-const showHelpPanel = computed(() => Array.isArray(props.helpBlocks) && props.helpBlocks.length > 0);
 </script>

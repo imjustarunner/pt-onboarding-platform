@@ -1,3 +1,4 @@
+export { default as AdaptiveIntakeThankYou } from './AdaptiveIntakeThankYou.vue';
 export { default as AdaptiveIntakeShell } from './AdaptiveIntakeShell.vue';
 export { default as AdaptiveIntakeSidebarSteps } from './AdaptiveIntakeSidebarSteps.vue';
 export { default as AdaptiveIntakeHelpPanel } from './AdaptiveIntakeHelpPanel.vue';
