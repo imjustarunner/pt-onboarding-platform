@@ -120,21 +120,62 @@ function parsePresencePersonQueryFromPrompt(promptLower) {
   return '';
 }
 
-/** "what is Halle doing right now" / "what has Sarah been doing today" */
-function parsePersonActivityQueryFromPrompt(promptLower) {
+const PERSON_ACTIVITY_SKIP_NAMES =
+  /^(i|we|you|he|she|they|it|my|your|our|the|this|that|everyone|anyone|anybody|something|nothing)$/;
+
+/** @[Name](userId) tokens from Ask Assistant composer mentions. */
+export function normalizeAssistantPersonMentions(prompt) {
+  const original = String(prompt || '').trim();
+  const mentions = [];
+  let text = original;
+  text = text.replace(/@\[([^\]]+)\]\((\d+)\)/g, (_, name, id) => {
+    const userId = parseInt(String(id), 10);
+    const label = String(name || '').trim();
+    if (userId > 0 && label) mentions.push({ userId, name: label });
+    return label;
+  });
+  text = text.replace(/@([a-z][a-z'.-]*(?:\s+[a-z][a-z'.-]+)*)/gi, (_, name) => String(name || '').trim());
+  return { text: text.trim(), mentions, original };
+}
+
+function personActivityTailKeywords(lower) {
+  return /\b(schedule|calendar|day|agenda|events?|meetings?|workspace|doing)\b/.test(lower) || /\btoday\b/.test(lower);
+}
+
+/** "what is Halle doing", "@halle schedule today", "what is on Halle's schedule" */
+function parsePersonActivityQueryFromPrompt(promptLower, mentionCtx = null) {
+  const mentions = mentionCtx?.mentions || [];
   const s = String(promptLower || '').toLowerCase().trim();
   if (!s) return '';
-  const skipName =
-    /^(i|we|you|he|she|they|it|my|your|our|the|this|that|everyone|anyone|anybody|something|nothing)$/;
+
+  if (mentions.length === 1 && mentions[0]?.name && personActivityTailKeywords(s)) {
+    const label = String(mentions[0].name || '').trim();
+    if (label && !PERSON_ACTIVITY_SKIP_NAMES.test(label.toLowerCase())) return label.slice(0, 80);
+  }
+
+  const tryName = (raw) => {
+    const name = String(raw || '').trim();
+    if (!name || PERSON_ACTIVITY_SKIP_NAMES.test(name)) return '';
+    return name.slice(0, 80);
+  };
+
+  const nameChunk = '[a-z][a-z\'.-]{1,40}(?:\\s+[a-z][a-z\'.-]{1,40})*';
   const patterns = [
     /\bwhat(?:'?s| is)\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)\s+doing\b/,
-    /\bwhat\s+has\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)\s+been\s+doing\b/
+    /\bwhat\s+has\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)\s+been\s+doing\b/,
+    new RegExp(`\\bwhat(?:'?s| is)\\s+(?:on\\s+)?(${nameChunk})(?:'s|s)?\\s+schedule\\b`),
+    new RegExp(`\\b(${nameChunk})(?:'s|s)?\\s+schedule\\b`),
+    /\bschedule\s+(?:for|of)\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)\b/,
+    new RegExp(`^(${nameChunk})\\s+schedule\\b`)
   ];
   for (const re of patterns) {
     const m = s.match(re);
     if (m?.[1]) {
-      const name = m[1].trim();
-      if (!skipName.test(name)) return name.slice(0, 80);
+      const hit = tryName(m[1]);
+      if (hit) {
+        if (/^(my|your|our|the|this|that)$/.test(hit)) continue;
+        return hit;
+      }
     }
   }
   return '';
@@ -546,11 +587,23 @@ export async function matchSemanticCapabilityIntent({
   allowedToolNames,
   callGemini,
   placementKey,
-  routeName
+  routeName,
+  mentionCtx = null
 } = {}) {
   const lower = String(prompt || '').toLowerCase().trim();
   if (!lower) return null;
   if (looksLikeServiceCodeQuery(lower) || extractServiceCodes(lower).length) return null;
+
+  if (
+    allowedToolNames?.has?.('lookupPersonActivity') &&
+    parsePersonActivityQueryFromPrompt(lower, mentionCtx)
+  ) {
+    const entry = catalogEntries().find((e) => e.id === 'person_activity_lookup');
+    if (entry && isToolEligibleEntry(entry, allowedToolNames)) {
+      const intent = entry.buildIntent(lower, allowedToolNames, mentionCtx);
+      if (intent) return intent;
+    }
+  }
 
   let candidates = placementSortEntries(
     catalogEntries().filter((entry) => isSemanticRoutableEntry(entry, allowedToolNames)),
@@ -687,7 +740,8 @@ export async function matchDeterministicCapabilityIntent({
   placementKey,
   routeName
 } = {}) {
-  const lower = String(prompt || '').toLowerCase().trim();
+  const mentionCtx = normalizeAssistantPersonMentions(prompt);
+  const lower = String(mentionCtx.text || '').toLowerCase().trim();
   if (!lower) return null;
 
   const forcedId = String(forceCapabilityId || '').trim();
@@ -733,9 +787,9 @@ export async function matchDeterministicCapabilityIntent({
     if (Array.isArray(entry.requiredToolsAll) && !canUseAll(entry.requiredToolsAll, allowedToolNames)) continue;
     if (Array.isArray(entry.requiredToolsAny) && !canUseAny(entry.requiredToolsAny, allowedToolNames)) continue;
     if (typeof entry.matcher !== 'function') continue;
-    if (!entry.matcher(lower, allowedToolNames)) continue;
+    if (!entry.matcher(lower, allowedToolNames, mentionCtx)) continue;
     if (typeof entry.buildIntent !== 'function') return null;
-    const intent = entry.buildIntent(lower, allowedToolNames);
+    const intent = entry.buildIntent(lower, allowedToolNames, mentionCtx);
     if (intent) return intent;
   }
   // Semantic catalog routing for read/nav capabilities only.
@@ -744,7 +798,8 @@ export async function matchDeterministicCapabilityIntent({
     allowedToolNames,
     callGemini,
     placementKey,
-    routeName
+    routeName,
+    mentionCtx
   });
 }
 
@@ -870,9 +925,9 @@ function catalogEntries() {
         "what's on my agenda",
         'whats on my schedule today'
       ],
-      matcher: (lower, allowedTools) => {
+      matcher: (lower, allowedTools, mentionCtx) => {
         if (!allowedTools.has('openTodaysWorkspace')) return false;
-        if (parsePersonActivityQueryFromPrompt(lower)) return false;
+        if (parsePersonActivityQueryFromPrompt(lower, mentionCtx)) return false;
         if (allowedTools.has('navigateTo') && /\b(open|go to|take me to|navigate)\b/.test(lower)) {
           const routeName = resolveNavigateRouteNameFromPrompt(lower);
           if (['Schedule', 'MyPayroll', 'Credentials', 'MyCompensation', 'MyBenefits'].includes(routeName)) {
@@ -890,6 +945,8 @@ function catalogEntries() {
           /\b(what|whats|what's|show|open|list)\b/.test(lower) &&
           /\b(my\s+)?(day|agenda|schedule|calendar|workspace)\b/.test(lower)
         ) {
+          if (parsePersonActivityQueryFromPrompt(lower, mentionCtx)) return false;
+          if (/\b(on\s+)?[a-z][a-z'.-]+\s+.*\bschedule\b/.test(lower) && !/\bmy\b/.test(lower)) return false;
           return true;
         }
         if (/\b(today'?s?\s+(agenda|schedule|events?|meetings?|workspace)|schedule\s+for\s+today)\b/.test(lower)) {
@@ -1081,26 +1138,31 @@ function catalogEntries() {
         'what is sarah doing today',
         'whats john doing right now and today',
         'what has rachel been doing today',
-        'what is melissa doing right now'
+        'what is melissa doing right now',
+        'what is on halle brimms schedule',
+        'halle brimm schedule today',
+        '@halle brimm schedule today'
       ],
-      matcher: (lower, allowedTools) => {
+      matcher: (lower, allowedTools, mentionCtx) => {
         if (!allowedTools.has('lookupPersonActivity')) return false;
-        return Boolean(parsePersonActivityQueryFromPrompt(lower));
+        return Boolean(parsePersonActivityQueryFromPrompt(lower, mentionCtx));
       },
-      buildIntent: (lower) => {
-        const name = parsePersonActivityQueryFromPrompt(lower);
+      buildIntent: (lower, _allowedTools, mentionCtx) => {
+        const name = parsePersonActivityQueryFromPrompt(lower, mentionCtx);
         if (!name) return null;
         const dateHint = parseDateHintFromPrompt(lower);
         const today = new Date().toISOString().slice(0, 10);
         const activeOnly = /\b(now|right now|currently|active)\b/.test(lower);
+        const mentions = mentionCtx?.mentions || [];
+        const args = { query: name, dateYmd: dateHint || today, activeOnly };
+        if (mentions.length === 1 && mentions[0]?.userId) {
+          args.userId = Number(mentions[0].userId);
+        }
         return {
           intent: 'person_activity_lookup',
           capabilityId: 'person_activity_lookup',
           suppressUserAutoOpen: true,
-          toolCalls: [{
-            name: 'lookupPersonActivity',
-            args: { query: name, dateYmd: dateHint || today, activeOnly }
-          }]
+          toolCalls: [{ name: 'lookupPersonActivity', args }]
         };
       }
     },

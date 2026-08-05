@@ -27,6 +27,25 @@ import {
   countPendingAssistantAssistSignals
 } from '../services/agents/assistantRouteFeedback.service.js';
 
+function formatAssistTimeHm(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (!Number.isNaN(d.getTime())) {
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+  const s = String(iso).replace('T', ' ');
+  const m = s.match(/(\d{1,2}):(\d{2})/);
+  return m ? `${m[1]}:${m[2]}` : '';
+}
+
+function formatAssistEventTimeRange(startAt, endAt, allDay) {
+  if (allDay) return '(all day)';
+  const start = formatAssistTimeHm(startAt);
+  const end = formatAssistTimeHm(endAt);
+  if (start && end) return `${start}–${end}`;
+  return start || end || '';
+}
+
 function askAssistantAllowsVertex() {
   const v = String(process.env.ASK_ASSISTANT_ALLOW_VERTEX || '').trim().toLowerCase();
   return v === '1' || v === 'true' || v === 'yes' || v === 'on';
@@ -987,7 +1006,7 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
   const smRes = lastOkToolResult(toolResults, 'startMeeting');
   if (smRes?.result?.eventId) {
     const m = smRes.result;
-    const time = String(m.startAt || '').slice(11, 16);
+    const time = formatAssistTimeHm(m.startAt);
     const joinUrl = m.joinUrl || m.joinPath || null;
     const actions = [
       {
@@ -1014,19 +1033,20 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
   }
 
   const wsRes = lastOkToolResult(toolResults, 'openTodaysWorkspace');
+  const paRes = lastOkToolResult(toolResults, 'lookupPersonActivity');
   const wsEvents = wsRes?.result?.events;
-  if (Array.isArray(wsEvents) && wsEvents.length) {
-    const canCancel = allowedToolNames.has('cancelMeeting');
-    const canReschedule = allowedToolNames.has('rescheduleMeeting');
-    for (const e of wsEvents.slice(0, 8)) {
+  const personEvents = paRes?.result?.events;
+  const cardEvents = Array.isArray(personEvents) && personEvents.length ? personEvents : wsEvents;
+  if (Array.isArray(cardEvents) && cardEvents.length) {
+    const canCancel = allowedToolNames.has('cancelMeeting') && !personEvents;
+    const canReschedule = allowedToolNames.has('rescheduleMeeting') && !personEvents;
+    for (const e of cardEvents.slice(0, 8)) {
       const id = e?.id == null ? null : Number(e.id);
       if (!id) continue;
-      const time = e.allDay
-        ? '(all day)'
-        : `${String(e.startAt || '').slice(11, 16)}–${String(e.endAt || '').slice(11, 16)}`;
+      const time = formatAssistEventTimeRange(e.startAt, e.endAt, e.allDay);
       const subtitle = `${e.kind || 'EVENT'} · ${time}${e.active ? ' · active now' : ''}`;
       const isMeeting = e.kind === 'TEAM_MEETING' || e.kind === 'HUDDLE';
-      const startHm = String(e.startAt || '').slice(11, 16);
+      const startHm = formatAssistTimeHm(e.startAt);
       pushCard({
         kind: 'event',
         title: safeTitle(e.title, e.kind || 'Event'),
@@ -1457,13 +1477,11 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
         lines.push(`Nothing on your schedule for ${dateLabel} — your calendar looks open.`);
       } else if (events.length === 1) {
         const e = events[0];
-        const time = e.allDay ? '(all day)' : `${String(e.startAt || '').slice(11, 16)}–${String(e.endAt || '').slice(11, 16)}`;
+        const time = formatAssistEventTimeRange(e.startAt, e.endAt, e.allDay);
         lines.push(`One event for ${dateLabel}: "${e.title}" ${time}.`);
       } else {
         const ordered = events.slice(0, 8).map((e) => {
-          const time = e.allDay
-            ? 'all day'
-            : `${String(e.startAt || '').slice(11, 16)}–${String(e.endAt || '').slice(11, 16)}`;
+          const time = formatAssistEventTimeRange(e.startAt, e.endAt, e.allDay);
           return `• ${time} — ${e.title || e.kind || 'Event'}`;
         });
         lines.push(
@@ -1507,17 +1525,13 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
           }
         } else if (events.length === 1) {
           const e = events[0];
-          const time = e.allDay
-            ? '(all day)'
-            : `${String(e.startAt || '').slice(11, 16)}–${String(e.endAt || '').slice(11, 16)}`;
+          const time = formatAssistEventTimeRange(e.startAt, e.endAt, e.allDay);
           const activeNote = e.active ? ' · active now' : '';
           const header = presenceBits.length ? `${presenceBits.join(' ')} ` : '';
           lines.push(`${header}One event for ${dateLabel}: "${e.title || e.kind || 'Event'}" ${time}${activeNote}.`);
         } else {
           const ordered = events.slice(0, 8).map((e) => {
-            const time = e.allDay
-              ? 'all day'
-              : `${String(e.startAt || '').slice(11, 16)}–${String(e.endAt || '').slice(11, 16)}`;
+            const time = formatAssistEventTimeRange(e.startAt, e.endAt, e.allDay);
             const activeNote = e.active ? ' · active now' : '';
             return `• ${time} — ${e.title || e.kind || 'Event'}${activeNote}`;
           });

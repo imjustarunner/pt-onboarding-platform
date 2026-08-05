@@ -145,7 +145,7 @@
             <div class="aap-msg-col">
               <span class="aap-msg-meta">{{ t.role === 'user' ? 'You' : 'Assistant' }}</span>
               <div class="aap-msg-bubble">
-                <div class="aap-msg-text">{{ t.text }}</div>
+                <div class="aap-msg-text" v-html="formatTurnMentionHtml(t.text)" />
                 <ul v-if="t.navs && t.navs.length" class="aap-navlist">
                   <li v-for="(nav, i) in t.navs" :key="i" class="aap-nav-item">
                     <span class="aap-nav-ic" aria-hidden="true">↗</span>
@@ -359,6 +359,34 @@
         </button>
         <div class="aap-composer-wrap">
           <div
+            v-if="mentionPanelOpen"
+            id="aap-mention-listbox"
+            class="aap-mention-panel"
+            role="listbox"
+            aria-label="Mention someone"
+          >
+            <button
+              v-for="(m, mi) in mentionResults"
+              :id="`aap-mention-opt-${m.user_id}`"
+              :key="m.user_id"
+              type="button"
+              class="aap-mention-option"
+              role="option"
+              :aria-selected="mentionActiveIndex === mi ? 'true' : 'false'"
+              :class="{ 'is-active': mentionActiveIndex === mi }"
+              @mousedown.prevent="insertMention(m)"
+              @mouseenter="mentionActiveIndex = mi"
+            >
+              <span class="aap-mention-name">{{ mentionMemberLabel(m) }}</span>
+              <span v-if="m.email" class="aap-mention-email">{{ m.email }}</span>
+            </button>
+            <p v-if="mentionLoading" class="aap-mention-hint" role="status">Searching people…</p>
+            <p v-else-if="mentionQuery && !mentionResults.length" class="aap-mention-hint" role="status">
+              No people match “{{ mentionQuery }}”.
+            </p>
+            <p v-else-if="!mentionQuery" class="aap-mention-hint" role="status">Type a name after @</p>
+          </div>
+          <div
             v-if="quickNavPanelOpen"
             id="aap-quick-nav-listbox"
             class="aap-qnav-panel"
@@ -392,7 +420,7 @@
               No quick matches — press Enter to ask the assistant.
             </div>
           </div>
-          <div class="aap-composer" :class="{ 'is-open': quickNavPanelOpen }">
+          <div class="aap-composer" :class="{ 'is-open': quickNavPanelOpen || mentionPanelOpen }">
           <textarea
             v-model="prompt"
             ref="textareaRef"
@@ -407,7 +435,7 @@
             data-1p-ignore
             data-protonpass-ignore="true"
             data-form-type="other"
-            placeholder="Ask anything… or type Payroll, Schedule, Submit…"
+            placeholder="Ask anything… Type @ to mention someone, or Payroll, Schedule…"
             role="combobox"
             :aria-expanded="quickNavPanelOpen ? 'true' : 'false'"
             aria-autocomplete="list"
@@ -898,6 +926,21 @@ const turnsRef = ref(null);
 const stickToBottom = ref(true);
 const quickNavActiveId = ref(null);
 
+const peopleMentionsEnabled = computed(() => {
+  const pk = String(props.placementKey || '').trim().toLowerCase();
+  return pk === 'user_manager';
+});
+const mentionOpen = ref(false);
+const mentionQuery = ref('');
+const mentionResults = ref([]);
+const mentionLoading = ref(false);
+const mentionActiveIndex = ref(0);
+let mentionFetchTimer = null;
+
+const mentionPanelOpen = computed(
+  () => peopleMentionsEnabled.value && mentionOpen.value && !busy.value
+);
+
 const quickNavCtx = computed(() => {
   const u = authStore.user;
   const role = String(u?.role || '').toLowerCase();
@@ -938,7 +981,11 @@ const quickNavGroups = computed(() => quickNavSearch.value.groups);
 const quickNavFlat = computed(() => quickNavSearch.value.flat);
 
 const quickNavPanelOpen = computed(
-  () => String(prompt.value || '').trim().length > 0 && quickNavFlat.value.length > 0 && !busy.value
+  () =>
+    !mentionPanelOpen.value &&
+    String(prompt.value || '').trim().length > 0 &&
+    quickNavFlat.value.length > 0 &&
+    !busy.value
 );
 
 const quickNavActiveDescendantId = computed(() => {
@@ -1018,8 +1065,125 @@ function activateQuickNavSelection() {
   return true;
 }
 
+function mentionMemberLabel(m) {
+  const name = [m?.first_name, m?.last_name].filter(Boolean).join(' ').trim();
+  return name || String(m?.email || '').trim() || `User ${m?.user_id || ''}`;
+}
+
+function escapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function formatTurnMentionHtml(text) {
+  const raw = String(text || '');
+  const escaped = escapeHtml(raw);
+  return escaped
+    .replace(/@\[([^\]]+)\]\(\d+\)/g, '<span class="aap-mention-chip">@$1</span>')
+    .replace(/@([a-z][a-z'.-]*(?:\s+[a-z][a-z'.-]+)*)/gi, '<span class="aap-mention-chip">@$1</span>');
+}
+
+function syncMentionFromComposer() {
+  if (!peopleMentionsEnabled.value) {
+    mentionOpen.value = false;
+    mentionQuery.value = '';
+    return;
+  }
+  const ta = textareaRef.value;
+  const val = String(prompt.value || '');
+  const cursor = ta?.selectionStart ?? val.length;
+  const before = val.slice(0, cursor);
+  const atMatch = before.match(/@([^\s@[\]]*)$/);
+  if (!atMatch) {
+    mentionOpen.value = false;
+    mentionQuery.value = '';
+    return;
+  }
+  mentionOpen.value = true;
+  mentionQuery.value = atMatch[1] || '';
+  mentionActiveIndex.value = 0;
+  queueMentionFetch(mentionQuery.value);
+}
+
+function queueMentionFetch(q) {
+  clearTimeout(mentionFetchTimer);
+  const query = String(q || '').trim();
+  if (!query) {
+    mentionResults.value = [];
+    mentionLoading.value = false;
+    return;
+  }
+  mentionFetchTimer = setTimeout(async () => {
+    mentionLoading.value = true;
+    try {
+      const resp = await api.get('/users/ai-query', {
+        params: { query, limit: 8, activeOnly: true },
+        skipGlobalLoading: true
+      });
+      const list = Array.isArray(resp?.data?.results) ? resp.data.results : [];
+      mentionResults.value = list
+        .map((r) => ({
+          user_id: Number(r.id || r.user_id || r.userId || 0),
+          first_name: r.first_name || r.firstName || '',
+          last_name: r.last_name || r.lastName || '',
+          email: r.email || ''
+        }))
+        .filter((r) => r.user_id > 0);
+    } catch {
+      mentionResults.value = [];
+    } finally {
+      mentionLoading.value = false;
+    }
+  }, 200);
+}
+
+function insertMention(member) {
+  const ta = textareaRef.value;
+  const val = String(prompt.value || '');
+  const cursor = ta?.selectionStart ?? val.length;
+  const before = val.slice(0, cursor);
+  const after = val.slice(cursor);
+  const atMatch = before.match(/@([^\s@[\]]*)$/);
+  if (!atMatch || !member?.user_id) return;
+  const start = before.length - atMatch[0].length;
+  const label = mentionMemberLabel(member);
+  const insertText = `@[${label}](${member.user_id}) `;
+  prompt.value = before.slice(0, start) + insertText + after;
+  mentionOpen.value = false;
+  mentionQuery.value = '';
+  mentionResults.value = [];
+  nextTick(() => {
+    const pos = start + insertText.length;
+    ta?.setSelectionRange?.(pos, pos);
+    ta?.focus?.();
+    autoGrow();
+  });
+}
+
+function moveMentionActive(delta) {
+  const list = mentionResults.value;
+  if (!list.length) return;
+  const next = (mentionActiveIndex.value + delta + list.length) % list.length;
+  mentionActiveIndex.value = next;
+  nextTick(() => {
+    document.getElementById(`aap-mention-opt-${list[next].user_id}`)?.scrollIntoView?.({ block: 'nearest' });
+  });
+}
+
+function activateMentionSelection() {
+  const list = mentionResults.value;
+  if (!list.length) return false;
+  const hit = list[mentionActiveIndex.value] || list[0];
+  insertMention(hit);
+  return true;
+}
+
 function onComposerInput() {
   pinAssistantOpen();
+  syncMentionFromComposer();
   autoGrow();
 }
 
@@ -1028,6 +1192,28 @@ function onComposerFocus() {
 }
 
 function onComposerKeydown(e) {
+  if (mentionPanelOpen.value) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      moveMentionActive(1);
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      moveMentionActive(-1);
+      return;
+    }
+    if (e.key === 'Enter' && !e.shiftKey && mentionResults.value.length) {
+      e.preventDefault();
+      activateMentionSelection();
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      mentionOpen.value = false;
+      return;
+    }
+  }
   if (e.key === 'ArrowDown') {
     if (quickNavPanelOpen.value && quickNavFlat.value.length) {
       e.preventDefault();
@@ -2529,6 +2715,67 @@ onUnmounted(() => {
 
 .aap-composer-wrap {
   position: relative;
+}
+
+.aap-mention-panel {
+  position: absolute;
+  z-index: 13;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  max-height: min(220px, 34vh);
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+  padding: 6px;
+}
+
+.aap-mention-option {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.aap-mention-option:hover,
+.aap-mention-option.is-active {
+  background: #f5f3ff;
+}
+
+.aap-mention-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.aap-mention-email {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.aap-mention-hint {
+  font-size: 12px;
+  color: #64748b;
+  padding: 8px 10px;
+  margin: 0;
+}
+
+.aap-mention-chip {
+  display: inline;
+  background: #ede9fe;
+  color: #5b21b6;
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-weight: 600;
 }
 
 .aap-qnav-panel {
