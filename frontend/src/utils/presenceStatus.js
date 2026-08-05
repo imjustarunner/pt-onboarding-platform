@@ -69,42 +69,9 @@ export const AVAILABILITY_BANDS = Object.freeze({
   offline: { id: 'offline', label: 'Inactive', short: 'Inactive', dot: '#94a3b8' }
 });
 
-/** Team Board in-office statuses — use Away modal for out / longer absences. */
-export const IN_PRESENCE_OPTIONS = [
-  { value: 'in_available', label: 'Available', displayLabel: 'Available' },
-  { value: 'in_heads_down', label: 'Heads Down', displayLabel: 'Heads Down' },
-  { value: 'in_available_for_phone', label: 'Available for Phone', displayLabel: 'Available for Phone' },
-  { value: 'in_heads_down_meeting', label: 'In a meeting', status: 'in_heads_down', displayLabel: 'In a meeting' },
-  { value: 'in_heads_down_focus', label: 'Focus time', status: 'in_heads_down', displayLabel: 'Focus time' },
-  { value: 'in_heads_down_client', label: 'With a client', status: 'in_heads_down', displayLabel: 'With a client' },
-  { value: 'in_available_onsite', label: 'On site / traveling', status: 'in_available', displayLabel: 'On site / traveling' }
-];
-
 /** Strip legacy "In –" prefix from stored display labels. */
 export function normalizePresenceDisplayLabel(label) {
   return String(label || '').trim().replace(/^In\s*[–-]\s*/i, '');
-}
-
-export function inPresenceOptionKey(row) {
-  const status = String(row?.presence_status || row?.status || '').trim();
-  const label = normalizePresenceDisplayLabel(row?.presence_display_label || row?.display_label || '');
-  const byLabel = IN_PRESENCE_OPTIONS.find(
-    (o) => normalizePresenceDisplayLabel(o.displayLabel || o.label) === label
-  );
-  if (byLabel) return byLabel.value;
-  const hit = IN_PRESENCE_OPTIONS.find(
-    (o) => (o.status || o.value) === status && (o.displayLabel || o.label) === (label || o.displayLabel || o.label)
-  );
-  if (hit) return hit.value;
-  if (status === 'in_available') return 'in_available';
-  if (status === 'in_heads_down') return 'in_heads_down';
-  if (status === 'in_available_for_phone') return 'in_available_for_phone';
-  return '';
-}
-
-export function labelForInPresenceOptionKey(key) {
-  const hit = IN_PRESENCE_OPTIONS.find((o) => o.value === key);
-  return hit ? (hit.displayLabel || hit.label) : '';
 }
 
 /** Team Board enum labels (roster for admin/support/super_admin). Not for Messages peers. */

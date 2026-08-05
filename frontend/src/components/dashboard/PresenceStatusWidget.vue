@@ -5,29 +5,13 @@
       <router-link v-if="canViewTeamBoard" to="/admin/presence" class="presence-team-link">View Team Board</router-link>
     </div>
     <div class="presence-widget-body" :class="{ 'presence-widget-body--compact': compact }">
-      <select
-        :value="currentOptionKey"
-        class="presence-select"
-        :class="{ 'presence-select--compact': compact }"
-        :disabled="saving"
-        @change="onChange"
-      >
-        <option value="">{{ compact ? 'Status…' : '— Set status —' }}</option>
-        <option
-          v-for="opt in statusOptions"
-          :key="opt.value"
-          :value="opt.value"
-        >
-          {{ opt.label }}
-        </option>
-      </select>
       <button
         v-if="canUseAwayPrompt"
         type="button"
         class="presence-away-btn"
         @click="openAwayPrompt"
       >
-        {{ compact ? 'Set status…' : 'Set Away status…' }}
+        Set status…
       </button>
       <p v-if="loading && !compact" class="presence-muted">Loading…</p>
       <p v-else-if="error" class="presence-error">{{ error }}</p>
@@ -41,10 +25,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { usePresenceSessionStore } from '../../store/presenceSession';
 import {
-  IN_PRESENCE_OPTIONS,
-  inPresenceOptionKey,
   isPrivilegedPresenceRole,
-  labelForInPresenceOptionKey,
   normalizePresenceDisplayLabel,
   teamBoardStatusLabel
 } from '../../utils/presenceStatus';
@@ -53,8 +34,6 @@ import api from '../../services/api';
 defineProps({
   compact: { type: Boolean, default: false }
 });
-
-const emit = defineEmits(['updated']);
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -76,16 +55,11 @@ const openAwayPrompt = () => {
   presenceSession.openManualTimeoutPrompt();
 };
 
-const statusOptions = IN_PRESENCE_OPTIONS;
-
-const currentOptionKey = ref('');
 const presenceRow = ref(null);
 const loading = ref(true);
-const saving = ref(false);
 const error = ref('');
 
 const currentStatusLabel = computed(() => {
-  if (currentOptionKey.value) return labelForInPresenceOptionKey(currentOptionKey.value);
   const row = presenceRow.value;
   if (!row) return '';
   const rich = normalizePresenceDisplayLabel(row.presence_display_label || row.display_label || '');
@@ -104,43 +78,10 @@ const fetchStatus = async () => {
     error.value = '';
     const res = await api.get('/presence/status/me');
     presenceRow.value = res.data || {};
-    currentOptionKey.value = inPresenceOptionKey(presenceRow.value);
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load';
-    currentOptionKey.value = '';
   } finally {
     loading.value = false;
-  }
-};
-
-const onChange = async (event) => {
-  const key = event.target?.value || '';
-  if (!key) return;
-  const opt = statusOptions.find((o) => o.value === key);
-  if (!opt) return;
-
-  try {
-    saving.value = true;
-    error.value = '';
-    await api.put('/presence/status/me', {
-      status: opt.status || opt.value,
-      display_label: opt.displayLabel || opt.label,
-      reason: null,
-      note: null
-    });
-    currentOptionKey.value = key;
-    presenceRow.value = {
-      ...(presenceRow.value || {}),
-      presence_status: opt.status || opt.value,
-      presence_display_label: opt.displayLabel || opt.label,
-      display_label: opt.displayLabel || opt.label
-    };
-    emit('updated');
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to update';
-    event.target.value = currentOptionKey.value;
-  } finally {
-    saving.value = false;
   }
 };
 
@@ -183,18 +124,6 @@ onMounted(fetchStatus);
   gap: 8px;
 }
 
-.presence-select {
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  font-size: 0.9rem;
-  min-width: 180px;
-}
-
-.presence-select:disabled {
-  opacity: 0.7;
-}
-
 .presence-muted {
   margin: 0;
   font-size: 0.8rem;
@@ -221,15 +150,6 @@ onMounted(fetchStatus);
   gap: 6px;
 }
 
-.presence-select--compact {
-  min-width: 0;
-  width: auto;
-  max-width: 168px;
-  padding: 5px 8px;
-  font-size: 11px;
-  border-radius: 8px;
-}
-
 .presence-away-btn {
   border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 28%, #e2e8f0);
   background: #fff;
@@ -245,5 +165,12 @@ onMounted(fetchStatus);
 
 .presence-away-btn:hover {
   background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 8%, #fff);
+}
+
+.presence-widget:not(.presence-widget--compact) .presence-away-btn {
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  border-radius: 8px;
+  align-self: flex-start;
 }
 </style>

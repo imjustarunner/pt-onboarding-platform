@@ -540,17 +540,9 @@
         </button>
         <div v-if="statusMenuOpen" class="status-menu" @click.stop>
           <template v-if="isPrivileged">
-            <div class="status-menu-label">Set status</div>
-            <button
-              v-for="r in AWAY_REASONS"
-              :key="r.id"
-              type="button"
-              class="status-menu-item"
-              @click="quickSetAway(r.id)"
-            >
-              {{ r.label }}
-            </button>
-            <button type="button" class="status-menu-item" @click="clearMyAway">I'm back · Active</button>
+            <button type="button" class="status-menu-item" @click="setMyBusy">Busy</button>
+            <button type="button" class="status-menu-item" @click="openStatusPrompt">Set status…</button>
+            <button type="button" class="status-menu-item" @click="clearMyAway">I'm back · Available</button>
             <div class="status-menu-divider"></div>
             <button
               type="button"
@@ -1077,7 +1069,6 @@ import AskAssistantPanel from '../assistant/AskAssistantPanel.vue';
 import PeerTenantMark from './PeerTenantMark.vue';
 import { useBrandingStore } from '../../store/branding';
 import {
-  AWAY_REASONS,
   DIRECTORY_ROLE_OPTIONS,
   canToggleDirectoryAudience,
   isPrivilegedPresenceRole,
@@ -3136,19 +3127,23 @@ const toggleMyAvailability = async () => {
   await setMyAvailability(next);
 };
 
-const quickSetAway = async (reason) => {
+const setMyBusy = async () => {
   try {
-    if (reason === 'out_day') {
-      await presenceSession.applyAway({ reason: 'out_day', extendSession: false });
-    } else {
-      await presenceSession.applyAway({ reason, durationMinutes: 60, extendSession: true });
-      pauseIdleForSessionExtend(presenceSession.sessionExtendUntil);
-    }
+    await api.put(
+      '/presence/status/me',
+      { status: 'in_heads_down', display_label: 'Busy', reason: null, note: null },
+      { skipGlobalLoading: true }
+    );
     statusMenuOpen.value = false;
     await Promise.all([fetchMyPresence(), loadPresence()]);
   } catch {
     // ignore
   }
+};
+
+const openStatusPrompt = () => {
+  statusMenuOpen.value = false;
+  presenceSession.openManualTimeoutPrompt();
 };
 
 const clearMyAway = async () => {
