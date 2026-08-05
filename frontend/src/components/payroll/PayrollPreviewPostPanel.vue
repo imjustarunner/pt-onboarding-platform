@@ -233,10 +233,21 @@ const payTotals = computed(() => {
   const out = { directAmount: 0, indirectAmount: 0 };
   const b = summary.value?.breakdown;
   if (!b || typeof b !== 'object') return out;
+  // Service code rows (H2014, MEETING, 99415, etc.)
   for (const [code, v] of Object.entries(b)) {
     if (!isPayrollServiceCodeKey(code)) continue;
     const amt = Number(v?.amount || 0);
     const bucket = String(v?.bucket || v?.category || 'direct').toLowerCase();
+    if (bucket === 'indirect') out.indirectAmount += amt;
+    else out.directAmount += amt;
+  }
+  // Adjustment lines bucketed direct/indirect (event time, time claims, manual pay lines, etc.)
+  const adjLines = Array.isArray(b.__adjustments?.lines) ? b.__adjustments.lines : [];
+  for (const line of adjLines) {
+    if (!line || line.taxable !== true) continue;
+    const bucket = String(line.bucket || '').toLowerCase();
+    if (bucket !== 'direct' && bucket !== 'indirect') continue;
+    const amt = Number(line.amount || 0);
     if (bucket === 'indirect') out.indirectAmount += amt;
     else out.directAmount += amt;
   }
