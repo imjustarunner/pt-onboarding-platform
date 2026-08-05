@@ -8212,13 +8212,13 @@ export const getSupervisionPrelicensedClassification = async (req, res, next) =>
     const userId = parseInt(req.params.id, 10);
     if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
 
-    const { classifyPrelicensedStatus } = await import('../utils/credentialNormalization.js');
+    const { classifyPrelicensedStatus, determineLicenseStatus } = await import('../utils/credentialNormalization.js');
 
-    // Fetch user base fields + all agency memberships in one go
+    // Fetch user base fields (role needed for license status) + all agency memberships
     const pool = (await import('../config/database.js')).default;
     const [[userRows], [agencyRows]] = await Promise.all([
       pool.execute(
-        `SELECT id, credential, title, is_hourly_worker FROM users WHERE id = ? LIMIT 1`,
+        `SELECT id, credential, title, role, is_hourly_worker FROM users WHERE id = ? LIMIT 1`,
         [userId]
       ),
       pool.execute(
@@ -8233,6 +8233,17 @@ export const getSupervisionPrelicensedClassification = async (req, res, next) =>
 
     const user = userRows?.[0];
     if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+
+    const isHourlyWorker = !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1');
+
+    // License status is user-level (same across all agencies)
+    const licenseClassification = determineLicenseStatus({
+      credential: user.credential,
+      title: user.title,
+      jobTitle: null,
+      role: user.role,
+      isHourlyWorker,
+    });
 
     const results = (agencyRows || []).map((ua) => {
       const manualFlag = !!(ua.supervision_is_prelicensed === 1 || ua.supervision_is_prelicensed === true || ua.supervision_is_prelicensed === '1');
@@ -8252,7 +8263,10 @@ export const getSupervisionPrelicensedClassification = async (req, res, next) =>
         autoDetected: cls.autoDetected,
         credential: user.credential || null,
         title: user.title || null,
-        isHourlyWorker: !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1'),
+        isHourlyWorker,
+        // License status fields (user-level, same for every agency row)
+        licenseStatus: licenseClassification.status,       // 'licensed' | 'prelicensed' | 'unlicensed' | 'unknown'
+        licenseStatusReason: licenseClassification.reason, // human-readable rule explanation
       };
     });
 

@@ -258,6 +258,96 @@ function _hasPrelicensedCredentialToken(upperCred) {
   return false;
 }
 
+/**
+ * Determine a provider's clinical license status: 'licensed', 'prelicensed', 'unlicensed', or 'unknown'.
+ *
+ * This is distinct from payroll prelicensed classification — it describes the person's
+ * clinical credential tier and will be used across billing, supervision, and credentialing.
+ *
+ * Rules (evaluated in order — first match wins):
+ *
+ * LICENSED  — holds a full, independent clinical practice license:
+ *   • Credential contains LCSW, LPC (not LPCC), LMFT (not LMFTC), MFT (not MFTC),
+ *     LAC, PsyD, PhD (clinical), LPSY, or bare LP (not LPC)
+ *
+ * PRELICENSED — working toward licensure under supervision:
+ *   • Role = 'intern'
+ *   • Credential contains INTERN, UNLICENSED, PRE-LICENSED, PRELICENSED
+ *   • Credential contains LPCC, LSW (not LCSW), MFTC, LMFTC, SWC, LPC-A, LPC-ASSOCIATE
+ *   • Credential contains CANDIDATE or ASSOCIATE (clinical context)
+ *   • Bare master's degree (MA, MS, MEd) without a full license alongside it —
+ *     indicates a degreed clinician who hasn't yet achieved licensure
+ *
+ * UNLICENSED — not on a clinical licensure track:
+ *   • Role = 'qbha' or 'clinical_practice_assistant'
+ *   • Title/Job Title = 'Facilitator'
+ *   • Credential contains BA, BS, BBA, or MBA without any clinical/intern token
+ *   • is_hourly_worker = 1 AND no clinical credential token at all
+ *     (hourly alone doesn't mean unlicensed, but hourly + no clin cred = support/parapro)
+ *
+ * UNKNOWN — cannot be auto-determined:
+ *   • No credential, no title, no signal
+ *   • Credential present but doesn't match any known pattern
+ *
+ * Returns { status, reason } where reason is a human-readable explanation
+ * so admins can review the rule and correct it if wrong.
+ */
+export function determineLicenseStatus({
+  credential,
+  title,
+  jobTitle,
+  role,
+  isHourlyWorker,
+} = {}) {
+  const cred = String(credential || '').trim();
+  const upper = cred.toUpperCase();
+  const titleLower = String(title || '').trim().toLowerCase();
+  const jobTitleLower = String(jobTitle || '').trim().toLowerCase();
+  const roleLower = String(role || '').trim().toLowerCase();
+  const hourly = !!(isHourlyWorker === true || isHourlyWorker === 1 || isHourlyWorker === '1');
+
+  // ── LICENSED ─────────────────────────────────────────────────────────────
+  // Test for full licenses before prelicensed tokens so LCSW isn't caught by LSW check.
+  if (/\bLCSW\b/.test(upper)) return { status: 'licensed', reason: 'Credential contains LCSW (Licensed Clinical Social Worker — fully licensed)' };
+  if (/\bLMFT\b/.test(upper) && !/\bLMFTC\b/.test(upper)) return { status: 'licensed', reason: 'Credential contains LMFT (Licensed Marriage and Family Therapist — fully licensed)' };
+  if (/\bMFT\b/.test(upper) && !/\bMFTC\b/.test(upper) && !/\bLMFTC\b/.test(upper)) return { status: 'licensed', reason: 'Credential contains MFT (Marriage and Family Therapist — fully licensed)' };
+  if (/\bLAC\b/.test(upper)) return { status: 'licensed', reason: 'Credential contains LAC (Licensed Addiction Counselor — fully licensed)' };
+  if (/\bLPC\b/.test(upper) && !/\bLPCC\b/.test(upper) && !/\bLPC-A\b/.test(upper) && !/\bLPC-ASSOCIATE\b/.test(upper)) return { status: 'licensed', reason: 'Credential contains LPC (Licensed Professional Counselor — fully licensed)' };
+  if (/\bPSYD\b/.test(upper) || /\bPSY\.?\s*D\.?\b/i.test(cred)) return { status: 'licensed', reason: 'Credential contains PsyD (Doctor of Psychology — fully licensed)' };
+  if (/\bPH\.?\s*D\.?\b/i.test(cred) && /PSYCH/i.test(cred)) return { status: 'licensed', reason: 'Credential contains PhD (Psychology — fully licensed)' };
+  if (/\bLPSY\b/.test(upper)) return { status: 'licensed', reason: 'Credential contains LPSY (Licensed Psychologist — fully licensed)' };
+  if (/\bLP\b/.test(upper) && !/\bLPC/.test(upper)) return { status: 'licensed', reason: 'Credential contains LP (Licensed Psychologist — fully licensed)' };
+  if (/\bLICENSED\s+PSYCHOLOGIST\b/i.test(cred)) return { status: 'licensed', reason: 'Credential contains "Licensed Psychologist" — fully licensed' };
+
+  // ── PRELICENSED ───────────────────────────────────────────────────────────
+  if (roleLower === 'intern') return { status: 'prelicensed', reason: 'User role is "Intern" — working toward licensure under supervision' };
+  if (/\bINTERN\b/.test(upper)) return { status: 'prelicensed', reason: `Credential "${cred}" contains "Intern" — working toward licensure under supervision` };
+  if (/\bUNLICENSED\b/.test(upper)) return { status: 'prelicensed', reason: `Credential "${cred}" contains "Unlicensed" — working toward licensure under supervision` };
+  if (/\bPRE[- ]?LICENSED\b/.test(upper) || /\bPRELICENSED\b/.test(upper)) return { status: 'prelicensed', reason: `Credential "${cred}" explicitly states pre-licensed status` };
+  if (/\bLPCC\b/.test(upper)) return { status: 'prelicensed', reason: `Credential "${cred}" contains LPCC (Licensed Professional Counselor Candidate — prelicensed, working toward LPC)` };
+  if (/\bSWC\b/.test(upper)) return { status: 'prelicensed', reason: `Credential "${cred}" contains SWC (Social Work Candidate — prelicensed, working toward LCSW)` };
+  if (/\bMFTC\b/.test(upper) || /\bLMFTC\b/.test(upper)) return { status: 'prelicensed', reason: `Credential "${cred}" contains MFTC/LMFTC (Marriage and Family Therapist Candidate — prelicensed, working toward LMFT)` };
+  if (/\bLPC-A\b/.test(upper) || /\bLPC-ASSOCIATE\b/.test(upper)) return { status: 'prelicensed', reason: `Credential "${cred}" contains LPC-A/LPC-Associate (Associate — prelicensed, working toward LPC)` };
+  if (/\bLSW\b/.test(upper) && !/\bLCSW\b/.test(upper)) return { status: 'prelicensed', reason: `Credential "${cred}" contains LSW (Licensed Social Worker — prelicensed, working toward LCSW)` };
+  if (/\bCANDIDATE\b/.test(upper)) return { status: 'prelicensed', reason: `Credential "${cred}" contains "Candidate" — in a prelicensed candidacy track` };
+  if (/\bASSOCIATE\b/.test(upper)) return { status: 'prelicensed', reason: `Credential "${cred}" contains "Associate" — typically a prelicensed associate-level clinician` };
+  // Bare master's degree without a full license alongside it = degreed but not yet licensed
+  const hasMasters = /\bMA\b/.test(upper) || /\bMS\b/.test(upper) || /\bMED\b/.test(upper) || /\bMSW\b/.test(upper) || /\bMCOUNS\b/.test(upper);
+  if (hasMasters) return { status: 'prelicensed', reason: `Credential "${cred}" contains a master's degree (${/\bMSW\b/.test(upper) ? 'MSW' : /\bMS\b/.test(upper) ? 'MS' : /\bMED\b/.test(upper) ? 'MEd' : 'MA'}) without a full independent license — indicating a degreed clinician working toward licensure` };
+
+  // ── UNLICENSED ────────────────────────────────────────────────────────────
+  if (roleLower === 'qbha' || roleLower === 'clinical_practice_assistant') return { status: 'unlicensed', reason: `Role is "${roleLower}" — a paraprofessional support role, not on a clinical licensure track` };
+  const isFacilitator = titleLower === 'facilitator' || jobTitleLower === 'facilitator';
+  if (isFacilitator) return { status: 'unlicensed', reason: `Title is "Facilitator" — a paraprofessional role, not on a clinical licensure track` };
+  const hasBachelors = /\bBA\b/.test(upper) || /\bBS\b/.test(upper) || /\bBBA\b/.test(upper) || /\bMBA\b/.test(upper) || /\bB\.A\./i.test(cred) || /\bB\.S\./i.test(cred) || /\bbachelor/i.test(cred);
+  if (hasBachelors) return { status: 'unlicensed', reason: `Credential "${cred}" indicates a bachelor's/associate degree — not on a clinical licensure track (if this is incorrect, update the credential)` };
+  if (hourly && !cred) return { status: 'unlicensed', reason: 'Hourly worker with no clinical credential — classified as a support/paraprofessional role' };
+
+  // ── UNKNOWN ───────────────────────────────────────────────────────────────
+  if (!cred) return { status: 'unknown', reason: 'No credential on file — license status cannot be determined automatically. Please add the credential to the user profile.' };
+  return { status: 'unknown', reason: `Credential "${cred}" does not match any known clinical license pattern. Review and correct if needed.` };
+}
+
 /** Licensed / pre-licensed credentials that require PYU license + background check review. */
 export const PROVIDER_YEAR_UPDATE_LICENSE_TOKENS = [
   'LMFTC',

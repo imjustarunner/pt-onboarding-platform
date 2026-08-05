@@ -624,6 +624,34 @@
                           </select>
                         </div>
 
+                        <!-- Auto-generated License Classification row -->
+                        <div
+                          v-if="canShowPrelicensedSupervision && prelicensedClassificationFor(agency.id)"
+                          class="agency-item-row license-classification-row"
+                          style="flex-wrap: wrap; gap: 8px;"
+                        >
+                          <span class="muted" style="font-size: 12px; font-weight: 700; min-width: 120px;">License Status</span>
+                          <span
+                            class="license-status-badge"
+                            :class="{
+                              'license-status-badge--licensed': prelicensedClassificationFor(agency.id).licenseStatus === 'licensed',
+                              'license-status-badge--prelicensed': prelicensedClassificationFor(agency.id).licenseStatus === 'prelicensed',
+                              'license-status-badge--unlicensed': prelicensedClassificationFor(agency.id).licenseStatus === 'unlicensed',
+                              'license-status-badge--unknown': prelicensedClassificationFor(agency.id).licenseStatus === 'unknown',
+                            }"
+                          >
+                            {{
+                              prelicensedClassificationFor(agency.id).licenseStatus === 'licensed' ? 'Licensed' :
+                              prelicensedClassificationFor(agency.id).licenseStatus === 'prelicensed' ? 'Prelicensed' :
+                              prelicensedClassificationFor(agency.id).licenseStatus === 'unlicensed' ? 'Unlicensed' :
+                              'Unknown'
+                            }}
+                          </span>
+                          <span class="license-status-reason">
+                            {{ prelicensedClassificationFor(agency.id).licenseStatusReason }}
+                          </span>
+                        </div>
+
                         <div
                           v-if="canShowPrelicensedSupervision"
                           class="agency-item-row"
@@ -7687,6 +7715,54 @@ onUnmounted(() => {
 
 .prelicensed-conflict-text {
   margin-bottom: 2px;
+}
+
+/* License classification row */
+.license-classification-row {
+  align-items: flex-start;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  margin-bottom: 4px;
+}
+
+.license-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.license-status-badge--licensed {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+}
+.license-status-badge--prelicensed {
+  background: #fef9c3;
+  color: #854d0e;
+  border: 1px solid #fde047;
+}
+.license-status-badge--unlicensed {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+}
+.license-status-badge--unknown {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+}
+
+.license-status-reason {
+  font-size: 11px;
+  color: var(--text-secondary, #64748b);
+  line-height: 1.5;
+  flex: 1;
+  min-width: 0;
 }
 
 .page-header h1 {
