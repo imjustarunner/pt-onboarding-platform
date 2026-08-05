@@ -313,7 +313,7 @@
             <path d="M19 11a7 7 0 0 1-14 0M12 18v3M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>
         </span>
-        <span class="vsr__muted-banner-text">{{ lobbyMode ? 'Microphone off — test it or join muted' : (forceMutedByHost ? 'Muted by host — you cannot unmute yourself' : 'You are muted — others cannot hear you') }}</span>
+        <span class="vsr__muted-banner-text">{{ lobbyMode ? 'Microphone off — test it or join muted' : (forceMutedByHost ? 'Muted by host — click to unmute' : 'You are muted — others cannot hear you') }}</span>
       </div>
       <div v-if="micActionHint" class="vsr__mic-hint" role="alert">{{ micActionHint }}</div>
       <div v-if="connectionNotice" class="vsr__connection-hint" role="status" aria-live="polite">
@@ -564,9 +564,12 @@ const publishVideo = ref(true);
 const automuteNoticeVisible = ref(!!props.startMuted && !props.lobbyMode);
 /** A lobby mic test grants permission and verifies capture without publishing audio. */
 const lobbyMicTested = ref(false);
-/** Set when a host/co-host force-mutes this participant — self-unmute is blocked. */
+/** Set when a host/co-host force-mutes this participant. Cleared when participant self-unmutes. */
 const forceMutedByHost = ref(false);
-const canSelfUnmute = computed(() => !forceMutedByHost.value);
+/** Participants can always unmute themselves — only they decide when to come off mute. */
+const canSelfUnmute = computed(() => true);
+/** Tracks whether a screen share subscription has already been retried. */
+let screenSubscribeRetried = false;
 /** Non-blocking mic toggle feedback (do not use errorMessage — that unmounts the room). */
 const micActionHint = ref('');
 let micHintTimer = null;
@@ -1634,24 +1637,39 @@ async function subscribeToStream(stream) {
     const targetEl = screenEl.value;
     if (!targetEl) return;
     targetEl.innerHTML = '';
-    const sub = session.subscribe(
-      stream,
-      targetEl,
-      {
-        insertMode: 'append',
-        width: '100%',
-        height: '100%',
-        fitMode: 'contain',
-        subscribeToAudio: true,
-        subscribeToVideo: true,
-        style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
-      },
-      (err) => {
-        if (err) console.error('[VideoSessionRoom] screen subscribe error', err);
-        else forceMediaFill(targetEl);
-      }
-    );
-    screenSubscriber = sub;
+    screenSubscribeRetried = false;
+    const doScreenSubscribe = () => {
+      const sub = session.subscribe(
+        stream,
+        targetEl,
+        {
+          insertMode: 'append',
+          width: '100%',
+          height: '100%',
+          fitMode: 'contain',
+          subscribeToAudio: true,
+          subscribeToVideo: true,
+          style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
+        },
+        (err) => {
+          if (err) {
+            console.warn('[VideoSessionRoom] screen subscribe error', err?.message || err);
+            if (!screenSubscribeRetried) {
+              screenSubscribeRetried = true;
+              try { session.unsubscribe(sub); } catch { /* ignore */ }
+              if (targetEl) targetEl.innerHTML = '';
+              setTimeout(doScreenSubscribe, 2000);
+            } else {
+              showConnectionNotice('Screen share could not load. Ask the presenter to stop and restart sharing.');
+            }
+          } else {
+            forceMediaFill(targetEl);
+          }
+        }
+      );
+      screenSubscriber = sub;
+    };
+    doScreenSubscribe();
     hasScreenShare.value = true;
     screenShareLabel.value = String(stream?.name || 'Screen share');
     return;
@@ -1782,6 +1800,7 @@ async function subscribeToStream(stream) {
 function clearScreenShareTile() {
   hasScreenShare.value = false;
   screenShareLabel.value = '';
+  screenSubscribeRetried = false;
   if (screenSubscriber) {
     try { session?.unsubscribe(screenSubscriber); } catch { /* ignore */ }
     screenSubscriber = null;
@@ -2504,8 +2523,8 @@ async function toggleMic() {
   }
   const next = !publishAudio.value;
   if (next && forceMutedByHost.value) {
-    showMicHint('Muted by host — you cannot unmute yourself.');
-    return;
+    // User is choosing to unmute themselves — that's always allowed.
+    forceMutedByHost.value = false;
   }
   if (!publisher && !needsAudioSourceAttach.value) {
     console.warn('[VideoSessionRoom] mic toggled before publisher ready');
