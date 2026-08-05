@@ -787,7 +787,7 @@ async function computeRawAuditReductionDetails({
 
   // Prelicensed supervisee tracking codes never pay (MEETING is the pay path).
   if (isPrelicensed === true && (codeKey === '99414' || codeKey === '99416')) {
-    return { amount: 0, category: lineCategory, creditsHours: 0 };
+    return { amount: 0, category: lineCategory, creditsHours: creditsAbs };
   }
   if ((codeKey === '99414' || codeKey === '99415' || codeKey === '99416') && String(user?.role || '').trim().toLowerCase() === 'intern') {
     return { amount: 0, category: lineCategory, creditsHours: 0 };
@@ -5029,6 +5029,118 @@ function mapSupervisionServiceCodeForPayroll({ participantRole, sessionType, par
   return ['MEETING'];
 }
 
+/** Requirement-tracking display codes (hours visible even when pay is $0). */
+function mapSupervisionTrackingCodesForDisplay({ participantRole, sessionType, participantUserRole }) {
+  const role = String(participantRole || '').trim().toLowerCase();
+  const st = String(sessionType || 'individual').trim().toLowerCase();
+  if (role === 'supervisor' || isProviderPlusRole(participantUserRole)) {
+    if (st === 'group') return ['99416'];
+    return ['99415'];
+  }
+  if (st === 'group') return ['99416'];
+  return ['99414'];
+}
+
+/**
+ * Supervision minutes for 99414/99416 (and 99415) requirement tracking on pay stubs.
+ * Unlike pay resolution, this always includes prelicensed supervisee hours and does not
+ * exclude supervisors who already have a finalize time-claim.
+ */
+async function buildSupervisionTrackingUnitsByUserCode({
+  payrollPeriodId,
+  agencyId,
+  periodStart,
+  periodEnd
+}) {
+  const trackingByUserCode = new Map();
+  const addUnits = (uid, code, units) => {
+    const u = Number(uid || 0);
+    const c = String(code || '').trim().toUpperCase();
+    const n = Number(units || 0);
+    if (!u || !c || !(Number.isFinite(n) && n > 0)) return;
+    const key = `${u}:${c}`;
+    trackingByUserCode.set(key, (trackingByUserCode.get(key) || 0) + n);
+  };
+
+  const payableClause = `(pir.note_status = 'FINALIZED' OR (pir.note_status = 'DRAFT' AND COALESCE(pir.draft_payable, 1) = 1))`;
+  const supervisionCodes = ['99414', '99415', '99416'];
+  try {
+    const [legacyRows] = await pool.execute(
+      `SELECT
+         pir.user_id,
+         UPPER(TRIM(pir.service_code)) AS service_code,
+         SUM(COALESCE(pir.unit_count, 0)) AS units_total
+       FROM payroll_import_rows pir
+       WHERE pir.payroll_period_id = ?
+         AND pir.agency_id = ?
+         AND pir.user_id IS NOT NULL
+         AND UPPER(TRIM(pir.service_code)) IN (${supervisionCodes.map(() => '?').join(',')})
+         AND ${payableClause}
+       GROUP BY pir.user_id, UPPER(TRIM(pir.service_code))`,
+      [payrollPeriodId, agencyId, ...supervisionCodes]
+    );
+    for (const r of legacyRows || []) {
+      addUnits(r.user_id, r.service_code, Number(r.units_total || 0));
+    }
+  } catch {
+    // import table may be empty
+  }
+
+  const appAttendanceParams = [
+    agencyId,
+    String(periodStart || '').slice(0, 10),
+    String(periodEnd || '').slice(0, 10)
+  ];
+  try {
+    const [appRows] = await pool.execute(
+      `SELECT
+         ssar.user_id,
+         LOWER(TRIM(COALESCE(ss.session_type, 'individual'))) AS session_type,
+         LOWER(TRIM(COALESCE(ssa.participant_role,
+           CASE WHEN ssar.user_id = ss.supervisor_user_id THEN 'supervisor' ELSE 'supervisee' END
+         ))) AS participant_role,
+         LOWER(TRIM(COALESCE(u.role, ''))) AS participant_user_role,
+         SUM(COALESCE(ssar.total_seconds, 0)) AS total_seconds
+       FROM supervision_session_attendance_rollups ssar
+       JOIN supervision_sessions ss ON ss.id = ssar.session_id
+       LEFT JOIN supervision_session_attendees ssa
+         ON ssa.session_id = ssar.session_id
+        AND ssa.user_id = ssar.user_id
+       LEFT JOIN users u ON u.id = ssar.user_id
+       WHERE ss.agency_id = ?
+         AND ssar.user_id IS NOT NULL
+         AND (ss.status IS NULL OR UPPER(ss.status) <> 'CANCELLED')
+         AND ss.start_at >= ?
+         AND ss.start_at < DATE_ADD(?, INTERVAL 1 DAY)
+         AND COALESCE(ssar.total_seconds, 0) > 0
+       GROUP BY
+         ssar.user_id,
+         LOWER(TRIM(COALESCE(ss.session_type, 'individual'))),
+         LOWER(TRIM(COALESCE(ssa.participant_role,
+           CASE WHEN ssar.user_id = ss.supervisor_user_id THEN 'supervisor' ELSE 'supervisee' END
+         ))),
+         LOWER(TRIM(COALESCE(u.role, '')))`,
+      appAttendanceParams
+    );
+    for (const r of appRows || []) {
+      const minutes = Number(r.total_seconds || 0) / 60;
+      if (!(Number.isFinite(minutes) && minutes > 0)) continue;
+      const codes = mapSupervisionTrackingCodesForDisplay({
+        participantRole: r.participant_role,
+        sessionType: r.session_type,
+        participantUserRole: r.participant_user_role
+      });
+      for (const code of codes) {
+        addUnits(r.user_id, code, minutes);
+      }
+    }
+  } catch {
+    // attendance tables may be unavailable
+  }
+
+  return trackingByUserCode;
+}
+
 function isSupervisionMeetingCode(codeRaw) {
   const code = String(codeRaw || '').trim().toUpperCase();
   return code === '99414' || code === '99415' || code === '99416';
@@ -5447,6 +5559,20 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
         periodStart,
         periodEnd
       });
+      const trackingByUserCode = await buildSupervisionTrackingUnitsByUserCode({
+        payrollPeriodId,
+        agencyId,
+        periodStart,
+        periodEnd
+      });
+
+      const applyTrackingUnits = (row, code, uid) => {
+        const trackingUnits = Number(trackingByUserCode.get(`${uid}:${code}`) || 0);
+        if (!(trackingUnits > 1e-9)) return;
+        const base = Number(row.oldDoneNotesUnits || 0);
+        row.finalizedUnits = Math.max(Number(row.finalizedUnits || 0), base + trackingUnits);
+        row.supervisionTrackingUnits = trackingUnits;
+      };
 
       const outMap = new Map((out || []).map((row) => [`${row.userId}:${String(row.serviceCode || '').trim().toUpperCase()}`, row]));
       for (const [key, unitsRaw] of selectedByUserCode.entries()) {
@@ -5483,16 +5609,42 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
         }
       }
 
-      // Zero unpaid supervisee tracking / unselected supervisor codes (not MEETING — shared with team meetings).
+      // Overlay requirement-tracking units (99414/99416/99415) for display even when pay is $0.
+      for (const [key, unitsRaw] of trackingByUserCode.entries()) {
+        const units = Number(unitsRaw || 0);
+        if (!(Number.isFinite(units) && units > 0)) continue;
+        if (outMap.has(key)) {
+          applyTrackingUnits(outMap.get(key), String(key).split(':')[1], Number(String(key).split(':')[0]));
+        } else {
+          const [uid, code] = String(key).split(':');
+          const newRow = {
+            userId: Number(uid || 0),
+            providerName: null,
+            serviceCode: String(code || '').trim().toUpperCase(),
+            noNoteUnits: 0,
+            draftUnits: 0,
+            oldDoneNotesUnits: 0,
+            oldDoneNotesNotes: 0,
+            carryoverMeta: null,
+            finalizedUnits: units,
+            supervisionSource: 'requirement_tracking',
+            supervisionTrackingUnits: units
+          };
+          out.push(newRow);
+          outMap.set(key, newRow);
+        }
+      }
+
+      // Zero unpaid supervisee pay on tracking codes (not MEETING — shared with team meetings).
       for (const row of out || []) {
         const code = String(row?.serviceCode || '').trim().toUpperCase();
         if (!supervisionLegacyCodes.has(code)) continue;
         const uid = Number(row?.userId || 0);
         if (!uid) continue;
-        // 99414: prelicensed = tracking only (MEETING pays). Non-prelicensed billing 99414 pays at indirect.
-        if (code === '99414') {
+        // 99414/99416: prelicensed = tracking only (MEETING pays). Keep hours visible; pay math zeros amount.
+        if (code === '99414' || code === '99416') {
           if (supervisionPrelicensedUserIds.has(uid)) {
-            row.finalizedUnits = Number(row.oldDoneNotesUnits || 0);
+            applyTrackingUnits(row, code, uid);
             row.supervisionSource = 'requirement_tracking_only';
           } else {
             row.supervisionSource = row.supervisionSource || 'billing_indirect';
@@ -5501,9 +5653,11 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
         }
         const k = `${uid}:${code}`;
         if (!selectedByUserCode.has(k)) {
-          // Preserve unpaid-note counts for display/reporting; only zero the paid portion.
-          row.finalizedUnits = Number(row.oldDoneNotesUnits || 0);
-          row.supervisionSource = 'not_selected';
+          applyTrackingUnits(row, code, uid);
+          if (!(Number(row.supervisionTrackingUnits || 0) > 1e-9)) {
+            row.finalizedUnits = Number(row.oldDoneNotesUnits || 0);
+            row.supervisionSource = 'not_selected';
+          }
         }
       }
 
@@ -5950,19 +6104,18 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
 
       // Credits/Hours: minute-based rows use unit_count minutes and credit_value = 1/60.
       // Pay-hours: unit_count / pay_divisor (e.g. minutes / 60).
-      let creditsHours = (finalizedUnits * safeCreditValue);
+      const creditsHours = (finalizedUnits * safeCreditValue);
       const payHours = (finalizedUnits / safeDivisor);
 
-      // 99414/99416: prelicensed tracking codes don't feed PTO (MEETING pays). Billing 99414 for others does.
+      // 99414/99416: prelicensed tracking codes don't feed PTO (MEETING pays) but still display hours.
       const uidNum = Number(userId);
       const isPrelicensedSupervisee = supervisionPrelicensedUserIds.has(uidNum);
-      if (codeKey === '99414' && isPrelicensedSupervisee) {
-        creditsHours = 0;
-      } else if (codeKey === '99416' && isPrelicensedSupervisee) {
-        creditsHours = 0;
-      }
+      const ptoCreditsHours =
+        (codeKey === '99414' || codeKey === '99416') && isPrelicensedSupervisee
+          ? 0
+          : creditsHours;
 
-      totalHours += creditsHours;
+      totalHours += ptoCreditsHours;
       const baseBucket =
         (category === 'indirect' || category === 'admin' || category === 'meeting') ? 'indirect'
           : (category === 'other' || category === 'tutoring') ? 'other'
@@ -5981,15 +6134,15 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         if (mapped === 'direct' || mapped === 'indirect') bucket = mapped;
       }
 
-      if (bucket === 'indirect') indirectHours += creditsHours;
-      else if (bucket === 'other') otherHours += creditsHours;
-      else if (bucket === 'direct') directHours += creditsHours;
+      if (bucket === 'indirect') indirectHours += ptoCreditsHours;
+      else if (bucket === 'other') otherHours += ptoCreditsHours;
+      else if (bucket === 'direct') directHours += ptoCreditsHours;
 
       // Tier credits (per TIER_INSTRUCTION.md):
       // - Based on DIRECT Credits/Hours only
       // - Excludes Old Done Notes (carryover) from the current window calculation
       // - Matches the Payroll Stage "Credits/Hours" column for direct rows
-      if (bucket === 'direct' && tierSettings.enabled) {
+      if (bucket === 'direct' && tierSettings.enabled && ptoCreditsHours > 1e-9) {
         const baseUnitsForTier = Math.max(0, finalizedUnits - oldDoneNotesUnits);
         const tierCreditsForRow = (baseUnitsForTier * safeCreditValue);
         tierCreditsCurrent += tierCreditsForRow;
