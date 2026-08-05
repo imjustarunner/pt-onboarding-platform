@@ -6656,6 +6656,11 @@ export const deleteUserScheduleEvent = async (req, res, next) => {
     if (!['single', 'future', 'others'].includes(scope)) {
       return res.status(400).json({ error: { message: 'scope must be single, future, or others' } });
     }
+    // Only suppress the cancellation email when explicitly opted out — default stays 'send'.
+    const notifyRaw = req.query?.notifyParticipants ?? req.body?.notifyParticipants;
+    const notifyParticipants = !(
+      notifyRaw === false || notifyRaw === 0 || notifyRaw === '0' || notifyRaw === 'false'
+    );
 
     let rowsToCancel = [target];
     const seriesId = String(target.recurrence_series_id || '').trim();
@@ -6689,7 +6694,8 @@ export const deleteUserScheduleEvent = async (req, res, next) => {
       await GoogleCalendarService.deleteEvent({
         subjectEmail,
         calendarId: 'primary',
-        eventId: gid
+        eventId: gid,
+        sendUpdates: notifyParticipants ? 'all' : 'none'
       }).catch(() => {});
     }));
 

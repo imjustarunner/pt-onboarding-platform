@@ -4178,7 +4178,7 @@
             class="btn btn-danger"
             type="button"
             :disabled="supvSaving || !selectedSupvSessionId"
-            @click="cancelSupvSession"
+            @click="openCancelSupvConfirm"
           >
             Cancel session
           </button>
@@ -4416,7 +4416,7 @@
               v-if="canCancelSelectedSupvSession"
               class="btn btn-danger"
               type="button"
-              @click="cancelSupvSession"
+              @click="openCancelSupvConfirm"
               :disabled="supvSaving || !selectedSupvSessionId"
             >
               Cancel session
@@ -4949,6 +4949,13 @@
           <p v-else class="cancel-meeting-copy">
             This is part of a series. Choose what to cancel — cancelled items stay on everyone’s schedule.
           </p>
+          <label
+            v-if="cancelMeetingIsMeeting"
+            style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 14px; font-size: 0.88rem; cursor: pointer;"
+          >
+            <input v-model="cancelMeetingNotify" type="checkbox" style="margin-top: 3px;" />
+            <span>Send everyone a cancellation email (calendar invite update). Uncheck to cancel silently.</span>
+          </label>
           <div v-if="cancelMeetingError" class="error" style="margin-bottom: 12px;">{{ cancelMeetingError }}</div>
           <div v-if="!cancelMeetingIsSeries" style="display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap;">
             <button type="button" class="btn btn-secondary cancel-meeting-btn-secondary" :disabled="!!cancellingScheduleEventId" @click="closeCancelMeetingConfirm">
@@ -4996,6 +5003,35 @@
               @click="closeCancelMeetingConfirm"
             >
               Never mind
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showCancelSupvModal" class="modal-backdrop" style="z-index: 10001;" @click.self="closeCancelSupvConfirm">
+      <div class="modal cancel-meeting-modal" style="max-width: 440px;" role="dialog" aria-modal="true" aria-labelledby="cancel-supv-title">
+        <div class="modal-head">
+          <div id="cancel-supv-title" class="modal-title">Cancel session</div>
+          <button class="btn btn-secondary btn-sm cancel-meeting-btn-secondary" type="button" :disabled="cancelSupvBusy" @click="closeCancelSupvConfirm">
+            Close
+          </button>
+        </div>
+        <div class="modal-body">
+          <p class="cancel-meeting-copy">
+            Are you sure you want to cancel this supervision session? It will stay on everyone’s schedule as cancelled.
+          </p>
+          <label style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 14px; font-size: 0.88rem; cursor: pointer;">
+            <input v-model="cancelSupvNotify" type="checkbox" style="margin-top: 3px;" />
+            <span>Send everyone a cancellation email (calendar invite update). Uncheck to cancel silently.</span>
+          </label>
+          <div v-if="cancelSupvError" class="error" style="margin-bottom: 12px;">{{ cancelSupvError }}</div>
+          <div style="display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap;">
+            <button type="button" class="btn btn-secondary cancel-meeting-btn-secondary" :disabled="cancelSupvBusy" @click="closeCancelSupvConfirm">
+              Never mind
+            </button>
+            <button type="button" class="btn btn-danger" :disabled="cancelSupvBusy" @click="confirmCancelSupvSession">
+              {{ cancelSupvBusy ? 'Cancelling…' : 'Cancel session' }}
             </button>
           </div>
         </div>
@@ -22230,6 +22266,7 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
       presenterUserIds,
       modality: editorSupervisionIsVirtual.value ? 'virtual' : 'in_person',
       waitingRoomEnabled: !!editorSupervisionWaitingRoomEnabled.value,
+      notifyParticipants: !!notifyMeetingParticipants.value,
       inviteAudienceAllSupervised: !!supervisionInviteAudienceAllSupervised.value,
       inviteAudienceGroupSupport: !!supervisionInviteAudienceGroupSupport.value,
       ...(scope ? { scope } : {})
@@ -22274,24 +22311,47 @@ const ensureSupvMeetLink = async () => {
   }
 };
 
-const cancelSupvSession = async () => {
-  const id = Number(selectedSupvSessionId.value || 0);
-  if (!id) return;
+const showCancelSupvModal = ref(false);
+const cancelSupvNotify = ref(true);
+const cancelSupvError = ref('');
+const cancelSupvBusy = ref(false);
+
+const openCancelSupvConfirm = () => {
   if (!canCancelSelectedSupvSession.value) {
     supvModalError.value = 'Only the host or an admin can cancel this session.';
     return;
   }
+  cancelSupvError.value = '';
+  cancelSupvNotify.value = true;
+  showCancelSupvModal.value = true;
+};
+
+const closeCancelSupvConfirm = () => {
+  if (cancelSupvBusy.value) return;
+  showCancelSupvModal.value = false;
+};
+
+const confirmCancelSupvSession = async () => {
+  const id = Number(selectedSupvSessionId.value || 0);
+  if (!id) return;
+  if (!canCancelSelectedSupvSession.value) {
+    cancelSupvError.value = 'Only the host or an admin can cancel this session.';
+    return;
+  }
   try {
+    cancelSupvBusy.value = true;
     supvSaving.value = true;
-    supvModalError.value = '';
-    await api.post(`/supervision/sessions/${id}/cancel`);
+    cancelSupvError.value = '';
+    await api.post(`/supervision/sessions/${id}/cancel`, { notifyParticipants: cancelSupvNotify.value });
     invalidateScheduleSummaryCacheForUser(props.userId);
+    showCancelSupvModal.value = false;
     await load({ forceRefresh: true });
     closeSupvModal();
     if (isSupervisionEditMode.value) requestCloseModal();
   } catch (e) {
-    supvModalError.value = e.response?.data?.error?.message || e.message || 'Failed to cancel session';
+    cancelSupvError.value = e.response?.data?.error?.message || e.message || 'Failed to cancel session';
   } finally {
+    cancelSupvBusy.value = false;
     supvSaving.value = false;
   }
 };
@@ -22810,6 +22870,9 @@ const cancellingScheduleEventScope = ref('');
 const showCancelMeetingModal = ref(false);
 const cancelMeetingItem = ref(null);
 const cancelMeetingError = ref('');
+/** Default on (matches prior always-email behavior) — host can opt out so a
+ * cancellation doesn't blast the whole team by surprise. */
+const cancelMeetingNotify = ref(true);
 const cancelMeetingTitle = computed(() => String(cancelMeetingItem.value?.label || 'this meeting').trim() || 'this meeting');
 const cancelMeetingIsSeries = computed(() => !!String(cancelMeetingItem.value?.recurrenceSeriesId || '').trim());
 const showSeriesEditScopeModal = ref(false);
@@ -23529,6 +23592,7 @@ const openCancelMeetingConfirm = (item) => {
   if (!eventId || item?.isCancelled) return;
   cancelMeetingItem.value = item;
   cancelMeetingError.value = '';
+  cancelMeetingNotify.value = true;
   showCancelMeetingModal.value = true;
 };
 
@@ -23551,7 +23615,7 @@ const confirmCancelMeeting = async (scope = 'single') => {
     cancellingScheduleEventScope.value = normalizedScope;
     cancelMeetingError.value = '';
     await api.delete(`/users/${hostProviderId}/schedule-events/${eventId}`, {
-      params: { scope: normalizedScope },
+      params: { scope: normalizedScope, notifyParticipants: cancelMeetingNotify.value },
       skipGlobalLoading: true
     });
     invalidateScheduleSummaryCacheForUser(props.userId);

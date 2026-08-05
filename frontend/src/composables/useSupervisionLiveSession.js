@@ -33,6 +33,12 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   const viewAsAttendee = ref(false);
   let speechRecognition = null;
   let transcriptFlushTimer = null;
+  // The background poll (every 5s) can otherwise race a just-made local slide change —
+  // if the PUT hasn't landed by the next GET, the poll would snap currentSlide back and
+  // (via the host's "close editor on slide change" watcher) silently discard an edit in
+  // progress, making it look like only the first slide was ever editable.
+  let suppressCurrentSlideSyncUntil = 0;
+  let presentationEditingGuardActive = false;
 
   const numericSessionId = computed(() => {
     const n = Number(props.supervisionSessionId || 0);
@@ -342,10 +348,18 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
       });
       presentation.value = data.presentation || null;
       slides.value = data.presentation?.slides || [];
-      currentSlide.value = data.currentSlide || slides.value[0] || null;
+      if (!presentationEditingGuardActive && Date.now() >= suppressCurrentSlideSyncUntil) {
+        currentSlide.value = data.currentSlide || slides.value[0] || null;
+      }
     } catch {
       /* ignore until presentation exists */
     }
+  }
+
+  /** Pause the background poll from overwriting currentSlide — call while a presenter
+   *  has the inline editor open so a stray refresh can never discard their in-progress edit. */
+  function setPresentationEditingGuard(active) {
+    presentationEditingGuardActive = !!active;
   }
 
   /** Load (or lazily create) the current user's own presenter deck, separate from
@@ -450,6 +464,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   async function setSlide(slide) {
     if (!slide || !canControlSlides.value) return;
     currentSlide.value = slide;
+    suppressCurrentSlideSyncUntil = Date.now() + 4000;
     try {
       await api.put(`/supervision/sessions/${props.supervisionSessionId}/presentation-state`, {
         activePresentationId: presentation.value?.id,
@@ -640,6 +655,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     presentMyDeck,
     stopPresenting,
     saveCurrentSlideContent,
+    setPresentationEditingGuard,
     caseSummary,
     slidePositionLabel,
     slideBodyHtml,

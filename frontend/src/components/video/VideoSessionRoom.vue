@@ -7,7 +7,8 @@
       'vsr--hide-controls': hideControls,
       'vsr--fullscreen': videoFullscreen,
       'vsr--lobby': lobbyMode,
-      [`vsr--focus-${tileFocus}`]: !!tileFocus
+      [`vsr--focus-${tileFocus}`]: !!tileFocus,
+      [`vsr--tile-size-${tileSizePreset}`]: true
     }"
   >
     <div v-if="errorMessage" class="vsr__error" role="alert">
@@ -77,8 +78,11 @@
                 (tileFocus === 'remote' && stageRemotes.length === 1)
                 || (tileFocus === 'speaker' && r.streamId === featuredSpeakerStreamId)
               ),
-              'vsr__tile--mini': tileFocus === 'collapsed'
+              'vsr__tile--mini': tileFocus === 'collapsed',
+              'vsr__tile--speaking': isParticipantSpeaking({ key: r.streamId }),
+              'vsr__tile--paged-hidden': tileFocus === 'equal' && tileHiddenByPage('remote', r.streamId)
             }"
+            :style="tileFocus === 'equal' ? { order: tileOrderFor('remote', r.streamId) } : null"
             @click="onTileActivate('remote')"
           >
             <div
@@ -149,8 +153,11 @@
               'vsr__tile--grid-local': isGridStage && !hasScreenShare && tileFocus === 'equal',
               'vsr__tile--pip': hasScreenShare || tileFocus === 'remote' || (tileFocus === 'speaker' && !!featuredSpeakerStreamId),
               'vsr__tile--featured': tileFocus === 'local' || (tileFocus === 'speaker' && !featuredSpeakerStreamId),
-              'vsr__tile--mini': tileFocus === 'collapsed'
+              'vsr__tile--mini': tileFocus === 'collapsed',
+              'vsr__tile--speaking': isParticipantSpeaking({ key: 'local' }),
+              'vsr__tile--paged-hidden': tileFocus === 'equal' && tileHiddenByPage('local', 'local')
             }"
+            :style="tileFocus === 'equal' ? { order: tileOrderFor('local', 'local') } : null"
             @click="onTileActivate('local')"
           >
             <div ref="localMediaStageEl" class="vsr__media" />
@@ -192,6 +199,22 @@
               <span class="vsr__float-rx-name">{{ rx.displayName }}</span>
             </div>
           </div>
+        </div>
+
+        <div v-if="isGridStage" class="vsr__grid-toolbar">
+          <div class="vsr__tile-size-group" role="group" aria-label="Video tile size">
+            <button type="button" class="vsr__tile-size-btn" :class="{ on: tileSizePreset === 's' }" title="Smaller tiles" @click="setTileSize('s')">S</button>
+            <button type="button" class="vsr__tile-size-btn" :class="{ on: tileSizePreset === 'm' }" title="Medium tiles" @click="setTileSize('m')">M</button>
+            <button type="button" class="vsr__tile-size-btn" :class="{ on: tileSizePreset === 'l' }" title="Larger tiles" @click="setTileSize('l')">L</button>
+          </div>
+          <button
+            v-if="hiddenStageTileCount > 0"
+            type="button"
+            class="vsr__show-more-btn"
+            @click="showMoreStageTiles"
+          >
+            Show {{ Math.min(hiddenStageTileCount, STAGE_TILE_PAGE_SIZE) }} more
+          </button>
         </div>
 
         <aside
@@ -408,6 +431,7 @@
             v-if="layoutMenuOpen"
             class="vsr__layout-menu"
             :class="{ 'vsr__layout-menu--up': layoutMenuOpensUp }"
+            :style="layoutMenuStyle"
             role="menu"
           >
             <button
@@ -566,6 +590,14 @@ const handByConnection = ref({});
 const audioNameByConnection = ref({});
 /** @type {import('vue').Ref<Record<string, string>>} */
 const handNameByConnection = ref({});
+/** Local/remote names are formatted "You · Role · Name" or "Role · Name" for the
+ * persistent tile label (role matters there). Transient UI — reaction bubbles,
+ * hand-raise notices, muted-name lists — should show just the person's name,
+ * since the role prefix reads as clutter ("Host · Jane raised their hand"). */
+function cleanPersonName(raw) {
+  const parts = String(raw || '').trim().split('·').map((p) => p.trim()).filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : String(raw || '').trim();
+}
 /** @type {import('vue').Ref<Array<{ id: string, emoji: string, displayName: string, left: string, top: string, duration: string }>>} */
 const floatingReactions = ref([]);
 const reactionEmojis = ['👍', '❤️', '🎉', '👏', '💡'];
@@ -580,6 +612,10 @@ const hasRemote = computed(() => remotes.value.length > 0);
 const layoutMenuOpen = ref(false);
 const layoutMenuOpensUp = ref(false);
 const layoutMenuButton = ref(null);
+/** Positioned via fixed viewport coordinates (not absolute-within-parent) so it
+ * can never get trapped/clipped by an ancestor's overflow:hidden — e.g. the
+ * video box shrinking to make room for a tall chat panel below it. */
+const layoutMenuStyle = ref({});
 
 /** Flip the menu upward when there isn't enough room below the trigger (e.g. fullscreen
  * controls docked near the bottom of the screen) so it never renders off-viewport. */
@@ -592,10 +628,75 @@ function toggleLayoutMenu() {
     if (!rect) return;
     const spaceBelow = window.innerHeight - rect.bottom;
     const estimatedMenuHeight = 320;
-    layoutMenuOpensUp.value = spaceBelow < estimatedMenuHeight && rect.top > spaceBelow;
+    const estimatedMenuWidth = 200;
+    const opensUp = spaceBelow < estimatedMenuHeight && rect.top > spaceBelow;
+    layoutMenuOpensUp.value = opensUp;
+    const left = Math.min(rect.left, Math.max(8, window.innerWidth - estimatedMenuWidth - 8));
+    layoutMenuStyle.value = opensUp
+      ? { left: `${left}px`, bottom: `${window.innerHeight - rect.top + 6}px`, top: 'auto' }
+      : { left: `${left}px`, top: `${rect.bottom + 6}px`, bottom: 'auto' };
   });
 }
 const lastSpeakerStreamId = ref('');
+/** Many-participant grids: default to a manageable first page (host/presenter
+ * always included first), and let the person watching reveal more or shrink
+ * tiles themselves — instead of an algorithm silently deciding what they see. */
+const STAGE_TILE_PAGE_SIZE = 8;
+const visibleStagePages = ref(1);
+const tileSizePreset = ref('m');
+
+function stageTileRoleRank(name) {
+  const n = String(name || '');
+  if (/\b(supervisor|host|co-host|cohost)\b/i.test(n)) return 0;
+  if (/\bpresenter\b/i.test(n)) return 1;
+  return 2;
+}
+
+const orderedStageEntries = computed(() => {
+  const list = stageRemotes.value.map((r, idx) => ({
+    kind: 'remote',
+    key: String(r.streamId || ''),
+    rank: stageTileRoleRank(r.name),
+    tieBreak: idx
+  }));
+  if (showLocalOnStage.value) {
+    const localRank = props.isHostOrCohost ? 0 : stageTileRoleRank(props.localName);
+    list.push({
+      kind: 'local',
+      key: 'local',
+      rank: localRank,
+      tieBreak: localRank < 2 ? -1 : Number.MAX_SAFE_INTEGER
+    });
+  }
+  list.sort((a, b) => (a.rank - b.rank) || (a.tieBreak - b.tieBreak));
+  return list.map((entry, i) => ({ ...entry, position: i }));
+});
+
+function findStageEntry(kind, key) {
+  const k = String(key || '');
+  return orderedStageEntries.value.find((e) => e.kind === kind && e.key === k);
+}
+function tileOrderFor(kind, key) {
+  return findStageEntry(kind, key)?.position ?? 999;
+}
+function tileHiddenByPage(kind, key) {
+  const entry = findStageEntry(kind, key);
+  if (!entry) return false;
+  return entry.position >= visibleStagePages.value * STAGE_TILE_PAGE_SIZE;
+}
+const hiddenStageTileCount = computed(() => Math.max(
+  0,
+  orderedStageEntries.value.length - (visibleStagePages.value * STAGE_TILE_PAGE_SIZE)
+));
+function showMoreStageTiles() {
+  visibleStagePages.value += 1;
+}
+function resetStagePagination() {
+  visibleStagePages.value = 1;
+}
+function setTileSize(preset) {
+  if (['s', 'm', 'l'].includes(preset)) tileSizePreset.value = preset;
+}
 const layoutMenuOptions = [
   { id: 'equal', label: 'Equal tiles', kind: 'focus' },
   { id: 'speaker', label: 'Speaker only', kind: 'focus' },
@@ -1055,7 +1156,7 @@ function broadcastCameraState(hasVideo) {
   sendSessionSignal('camera_state', {
     connectionId: connId,
     hasVideo: !!hasVideo,
-    displayName: props.localName || 'You'
+    displayName: cleanPersonName(props.localName) || 'You'
   });
 }
 
@@ -1065,13 +1166,13 @@ function emitAudioMapChange() {
   for (const r of remotes.value) {
     if (!r.hasAudio && r.connectionId) {
       mutedByConnection[r.connectionId] = true;
-      if (r.name) nameByConnection[r.connectionId] = r.name;
+      if (r.name) nameByConnection[r.connectionId] = cleanPersonName(r.name);
     }
   }
   const localId = localConnectionId();
   if (localId && !publishAudio.value) {
     mutedByConnection[localId] = true;
-    nameByConnection[localId] = props.localName || 'You';
+    nameByConnection[localId] = cleanPersonName(props.localName) || 'You';
   }
   emit('audio-map-change', {
     mutedByConnection: { ...mutedByConnection },
@@ -1085,7 +1186,7 @@ function broadcastMicState(hasAudio) {
   sendSessionSignal('mic_state', {
     connectionId: connId,
     hasAudio: !!hasAudio,
-    displayName: props.localName || 'You'
+    displayName: cleanPersonName(props.localName) || 'You'
   });
 }
 
@@ -1137,11 +1238,12 @@ function toggleRaiseHand() {
   const next = !localHandRaised.value;
   localHandRaised.value = next;
   const connId = localConnectionId();
-  if (connId) setHandState(connId, next, props.localName || 'You');
+  const cleanName = cleanPersonName(props.localName) || 'You';
+  if (connId) setHandState(connId, next, cleanName);
   sendSessionSignal('hand_raised', {
     raised: next,
     connectionId: connId,
-    displayName: props.localName || 'You'
+    displayName: cleanName
   });
   emit('hand-raised-change', next);
 }
@@ -1171,7 +1273,7 @@ function pushFloatingReaction({ emoji, displayName }) {
 function sendReaction(emoji) {
   const payload = {
     emoji: String(emoji || '').trim(),
-    displayName: String(props.localName || 'You').replace(/^You\s*[·|]\s*/i, '').trim() || 'You',
+    displayName: cleanPersonName(props.localName) || 'You',
     connectionId: localConnectionId()
   };
   if (!payload.emoji) return;
@@ -1611,7 +1713,10 @@ async function subscribeToStream(stream) {
       insertMode: 'append',
       width: '100%',
       height: '100%',
-      fitMode: 'cover',
+      // 'cover' crops to fill the tile box — on a mismatched aspect ratio (e.g. a
+      // square tile with a 16:9 camera) that can crop someone down to just their
+      // forehead. 'contain' always shows their whole video, letterboxed if needed.
+      fitMode: 'contain',
       subscribeToAudio: true,
       subscribeToVideo: true,
       style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
@@ -1989,7 +2094,9 @@ async function connect() {
         insertMode: 'append',
         width: '100%',
         height: '100%',
-        fitMode: 'cover',
+        // See subscribeToStream() above — 'contain' keeps your whole camera frame
+        // visible instead of cropping to fill the tile.
+        fitMode: 'contain',
         publishAudio: mainRoom && !!withAudio,
         publishVideo: publishVideo.value,
         name: props.localName,
@@ -2217,6 +2324,7 @@ async function toggleScreenShare() {
 function disconnect(emitEvent = true) {
   try {
     clearFloatingReactions();
+    resetStagePagination();
     stopScreenShare();
     clearScreenShareTile();
     sessionReady.value = false;
@@ -2538,7 +2646,9 @@ defineExpose({
   width: 100%;
   aspect-ratio: 1 / 1;
   min-height: 0;
-  max-height: min(300px, 34vw);
+  /* No pixel ceiling — width comes from the parent rail (itself a % of the
+     screen), and aspect-ratio derives height from that, so this genuinely
+     scales with whatever screen the person has instead of topping out. */
 }
 .vsr--lobby .vsr__stage {
   flex: 1 1 auto;
@@ -2550,16 +2660,25 @@ defineExpose({
   min-height: 0 !important;
   height: 100% !important;
 }
+/* Row-wrap instead of a full-height stacked column — the mic CTA stays prominent
+   and full-width, but camera/raise-hand/reactions share a row so the preview
+   above gets most of the vertical space instead of being squeezed by controls. */
 .vsr--lobby .vsr__controls {
   flex: 0 0 auto;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(8, 10, 14, 0.96);
 }
 .vsr--lobby .vsr__ctrl--mic {
+  flex: 1 1 100%;
   width: 100%;
+}
+.vsr--lobby .vsr__ctrl-mic-row {
+  flex-direction: row;
+  justify-content: center;
 }
 .vsr__lobby-preview-label {
   position: absolute;
@@ -3114,19 +3233,73 @@ defineExpose({
   height: auto;
   align-items: stretch;
 }
+/* Column count is derived from the chosen tile size (S/M/L), not hardcoded —
+   auto-fit collapses any unused tracks so a handful of tiles still stretch to
+   fill the row instead of leaving dead space next to them. */
 .vsr__stage--grid {
-  grid-template-columns: 1fr 1fr;
-  grid-auto-rows: minmax(120px, 1fr);
+  --vsr-tile-min: 240px;
+  grid-template-columns: repeat(auto-fit, minmax(var(--vsr-tile-min), 1fr));
+  grid-auto-rows: minmax(140px, 1fr);
   flex: 1 1 0;
   min-height: 0 !important;
   height: auto;
   align-items: stretch;
 }
-.vsr__stage--grid.vsr__stage--count-3,
-.vsr__stage--grid.vsr__stage--count-4,
-.vsr__stage--grid.vsr__stage--count-5,
-.vsr__stage--grid.vsr__stage--count-6 {
-  grid-template-columns: 1fr 1fr;
+.vsr--tile-size-s .vsr__stage--grid {
+  --vsr-tile-min: 150px;
+}
+.vsr--tile-size-l .vsr__stage--grid {
+  --vsr-tile-min: 340px;
+}
+.vsr__tile--paged-hidden {
+  display: none !important;
+}
+.vsr__tile--speaking {
+  box-shadow: 0 0 0 3px #34d399, 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.vsr__grid-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0.3rem 0.5rem;
+  flex: 0 0 auto;
+}
+.vsr__tile-size-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  padding: 2px;
+}
+.vsr__tile-size-btn {
+  min-width: 26px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.vsr__tile-size-btn.on {
+  background: #2563eb;
+  color: #fff;
+}
+.vsr__show-more-btn {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f2f4f8;
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.vsr__show-more-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
 }
 .vsr__media {
   position: absolute;
@@ -3233,11 +3406,11 @@ defineExpose({
   position: relative;
 }
 .vsr__layout-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  bottom: auto;
-  left: 0;
-  z-index: 80;
+  /* Fixed to the viewport (position set inline from getBoundingClientRect) —
+     see toggleLayoutMenu(). Escapes any ancestor's overflow:hidden instead of
+     being clipped/hidden when this component is squeezed short by a sibling. */
+  position: fixed;
+  z-index: 2000;
   min-width: 200px;
   max-height: min(50vh, 320px);
   overflow: auto;
@@ -3249,12 +3422,6 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-/* Fullscreen controls dock near the bottom of the screen — open upward there
-   so the menu never renders past the bottom of the viewport. */
-.vsr__layout-menu--up {
-  top: auto;
-  bottom: calc(100% + 6px);
 }
 .vsr__layout-item {
   display: flex;
@@ -3371,14 +3538,16 @@ defineExpose({
   max-width: none !important;
   max-height: none !important;
 }
+/* 'contain' always shows a participant's whole camera frame (letterboxed if the
+   tile's box doesn't match their camera's aspect ratio) instead of cropping —
+   'cover' was silently chopping people down to a sliver (e.g. just a forehead)
+   whenever a tile's shape didn't match their webcam. This is the actual rule in
+   control (it overrides the SDK's own fitMode option below via !important). */
 .vsr__tile :deep(video) {
   width: 100% !important;
   height: 100% !important;
-  object-fit: cover !important;
-  background: #0b0e14;
-}
-.vsr__stage--strip .vsr__tile :deep(video) {
   object-fit: contain !important;
+  background: #0b0e14;
 }
 .vsr__stage--strip .vsr__tile--local {
   position: relative;

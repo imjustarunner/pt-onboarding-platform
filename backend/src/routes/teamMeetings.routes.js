@@ -8,6 +8,7 @@ import {
   postTeamMeetingJoinPresence,
   getTeamMeetingLobbyParticipants,
   admitTeamMeetingParticipant,
+  addTeamMeetingAttendee,
   setTeamMeetingWaitingRoomLive,
   getTeamMeetingAdmissionStatus,
   getTeamMeetingWorkspace,
@@ -40,6 +41,7 @@ router.get('/:eventId/video-token', getTeamMeetingVideoToken);
 router.get('/:eventId/lobby-participants', getTeamMeetingLobbyParticipants);
 router.get('/:eventId/admission-status', getTeamMeetingAdmissionStatus);
 router.post('/:eventId/admit/:userId', admitTeamMeetingParticipant);
+router.post('/:eventId/attendees', addTeamMeetingAttendee);
 router.post('/:eventId/waiting-room', setTeamMeetingWaitingRoomLive);
 router.post('/:eventId/recording-rules', setTeamMeetingRecordingRules);
 router.post('/:eventId/client-transcript', saveTeamMeetingClientTranscript);

@@ -261,16 +261,19 @@ export class GoogleCalendarService {
     }
   }
 
-  static async deleteEvent({ subjectEmail, calendarId = 'primary', eventId } = {}) {
+  static async deleteEvent({ subjectEmail, calendarId = 'primary', eventId, sendUpdates = 'all' } = {}) {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     const eid = String(eventId || '').trim();
     if (!subject) return { ok: false, reason: 'missing_subject_email' };
     if (!eid) return { ok: false, reason: 'missing_event_id' };
     if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
+    const sendUpdatesMode = ['all', 'externalOnly', 'none'].includes(String(sendUpdates || ''))
+      ? String(sendUpdates)
+      : 'all';
 
     try {
       const cal = this.buildCalendarClientForSubject(subject);
-      await cal.events.delete({ calendarId, eventId: eid, sendUpdates: 'all' });
+      await cal.events.delete({ calendarId, eventId: eid, sendUpdates: sendUpdatesMode });
       return { ok: true };
     } catch (e) {
       const code = Number(e?.code || e?.response?.status || 0);
@@ -1058,16 +1061,19 @@ export class GoogleCalendarService {
     }
   }
 
-  static async cancelSupervisionSessionGoogleEvent({ hostEmail, googleEventId }) {
+  static async cancelSupervisionSessionGoogleEvent({ hostEmail, googleEventId, sendUpdates = 'all' }) {
     const subject = String(hostEmail || '').trim().toLowerCase();
     const eventId = String(googleEventId || '').trim();
     if (!subject) return { ok: false, reason: 'missing_host_email' };
     if (!eventId) return { ok: false, reason: 'missing_event_id' };
+    const sendUpdatesMode = ['all', 'externalOnly', 'none'].includes(String(sendUpdates || ''))
+      ? String(sendUpdates)
+      : 'all';
 
     const cal = this.buildCalendarClientForSubject(subject);
     const calendarId = 'primary';
     try {
-      await cal.events.delete({ calendarId, eventId, sendUpdates: 'all' });
+      await cal.events.delete({ calendarId, eventId, sendUpdates: sendUpdatesMode });
       return { ok: true };
     } catch (e) {
       logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.cancelSupervisionSessionGoogleEvent' });

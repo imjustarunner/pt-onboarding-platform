@@ -4048,7 +4048,8 @@ export const patchSupervisionSessionValidators = [
   body('modality').optional(),
   body('locationText').optional(),
   body('createMeetLink').optional().isBoolean().withMessage('createMeetLink must be boolean'),
-  body('waitingRoomEnabled').optional().isBoolean().withMessage('waitingRoomEnabled must be boolean')
+  body('waitingRoomEnabled').optional().isBoolean().withMessage('waitingRoomEnabled must be boolean'),
+  body('notifyParticipants').optional().isBoolean().withMessage('notifyParticipants must be boolean')
 ];
 
 export const createSupervisionSession = async (req, res, next) => {
@@ -4506,6 +4507,17 @@ export const patchSupervisionSession = async (req, res, next) => {
     const waitingRoomEnabled = req.body?.waitingRoomEnabled !== undefined
       ? req.body.waitingRoomEnabled === true
       : undefined;
+    // Same opt-out semantics as create: only suppress when explicitly falsy.
+    const notifyParticipants = !(
+      req.body?.notifyParticipants === false
+      || req.body?.notifyParticipants === 0
+      || req.body?.notifyParticipants === '0'
+      || req.body?.notifyParticipants === 'false'
+      || req.body?.sendCalendarInvites === false
+      || req.body?.sendCalendarInvites === 0
+      || req.body?.sendCalendarInvites === '0'
+      || req.body?.sendCalendarInvites === 'false'
+    );
 
     const nextStart = startAt !== undefined ? startAt : row.start_at;
     const nextEnd = endAt !== undefined ? endAt : row.end_at;
@@ -4638,7 +4650,8 @@ export const patchSupervisionSession = async (req, res, next) => {
         createMeetLink: useVideo ? false : (occId === id && createMeetLink && !String(fresh.google_meet_link || '').trim()),
         appJoinUrl,
         existingGoogleEventId: fresh.google_event_id || null,
-        existingMeetLink: fresh.google_meet_link || null
+        existingMeetLink: fresh.google_meet_link || null,
+        sendUpdates: notifyParticipants ? 'all' : 'none'
       });
 
       if (sync?.ok) {
@@ -4698,12 +4711,19 @@ export const cancelSupervisionSession = async (req, res, next) => {
 
     const cancelled = await SupervisionSession.cancel(id);
 
+    // Only suppress the cancellation email when explicitly opted out — default stays 'send'.
+    const notifyRaw = req.body?.notifyParticipants;
+    const notifyParticipants = !(
+      notifyRaw === false || notifyRaw === 0 || notifyRaw === '0' || notifyRaw === 'false'
+    );
+
     // Best-effort delete in Google
     const hostEmail = String(row.google_host_email || '').trim() || (await User.findById(row.supervisor_user_id))?.email;
     if (hostEmail && row.google_event_id) {
       await GoogleCalendarService.cancelSupervisionSessionGoogleEvent({
         hostEmail,
-        googleEventId: row.google_event_id
+        googleEventId: row.google_event_id,
+        sendUpdates: notifyParticipants ? 'all' : 'none'
       });
     }
 

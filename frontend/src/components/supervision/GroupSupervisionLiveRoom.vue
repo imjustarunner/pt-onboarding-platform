@@ -92,6 +92,10 @@
     />
 
     <div
+      class="gsl__top-row"
+      :class="{ 'gsl__top-row--grow': !videoFullscreen && !showWaitingRoomStage && !presentationBandOpen }"
+    >
+    <div
       class="gsl__video-strip"
       :class="{
         'gsl__video-strip--lobby': showWaitingRoomStage,
@@ -197,11 +201,68 @@
       </div>
     </div>
 
+      <aside v-if="!videoFullscreen && !showWaitingRoomStage" class="gsl__workspace">
+        <section class="gsl__workspace-section" :class="{ 'gsl__workspace-section--collapsed': !agendaOpen }">
+          <button type="button" class="gsl__section-head" @click="agendaOpen = !agendaOpen">
+            <span>Agenda</span>
+            <span class="gsl__section-chevron" :class="{ 'gsl__section-chevron--open': agendaOpen }">▾</span>
+          </button>
+          <div v-show="agendaOpen" class="gsl__section-body">
+            <MeetingAgendaPanel
+              meeting-type="supervision_session"
+              :meeting-id="numericSessionId || supervisionSessionId"
+              :can-add-item="canEditAgenda"
+              :embedded="true"
+              :live="true"
+              :live-sidebar="true"
+              theme="dark"
+            />
+          </div>
+        </section>
+        <section v-if="canFacilitate" class="gsl__workspace-section" :class="{ 'gsl__workspace-section--collapsed': !attendanceOpen }">
+          <button type="button" class="gsl__section-head" @click="attendanceOpen = !attendanceOpen">
+            <span>Attendance</span>
+            <span class="gsl__section-chevron" :class="{ 'gsl__section-chevron--open': attendanceOpen }">▾</span>
+          </button>
+          <div v-show="attendanceOpen" class="gsl__section-body gsl__section-body--attendance">
+            <MeetingAttendancePanel
+              ref="attendancePanelRef"
+              meeting-kind="supervision"
+              :event-id="numericSessionId || supervisionSessionId"
+              :live-poll="true"
+              :raised-hands="raisedHandCount"
+              :raised-hand-names="raisedHandNames"
+              :muted-names="mutedParticipantNames"
+            />
+          </div>
+        </section>
+        <section class="gsl__workspace-section" :class="{ 'gsl__workspace-section--collapsed': !transcriptOpen }">
+          <button type="button" class="gsl__section-head" @click="transcriptOpen = !transcriptOpen">
+            <span>Transcript</span>
+            <span class="gsl__section-chevron" :class="{ 'gsl__section-chevron--open': transcriptOpen }">▾</span>
+          </button>
+          <div v-show="transcriptOpen" class="gsl__section-body">
+            <p v-if="transcriptHint" class="gsl__transcript-hint">{{ transcriptHint }}</p>
+            <pre v-if="transcriptCombined" class="gsl__transcript">{{ transcriptCombined }}</pre>
+            <p v-else class="gsl__transcript-empty">Transcript will appear here once speech is detected.</p>
+          </div>
+        </section>
+      </aside>
+    </div>
+
     <div
       v-if="!videoFullscreen && !showWaitingRoomStage"
-      class="gsl__main"
+      class="gsl__presentation-band"
+      :class="{
+        'gsl__presentation-band--collapsed': !presentationBandOpen,
+        'gsl__presentation-band--grow': presentationBandOpen && !chatBandOpen
+      }"
     >
-      <section class="gsl__stage-wrap">
+      <button type="button" class="gsl__section-head gsl__presentation-band-head" @click="presentationBandOpen = !presentationBandOpen">
+        <span>Presentation</span>
+        <span class="gsl__section-chevron" :class="{ 'gsl__section-chevron--open': presentationBandOpen }">▾</span>
+      </button>
+      <section v-show="presentationBandOpen" class="gsl__stage-wrap">
         <div class="gsl__stage">
           <template v-if="externalEmbedUrl">
             <iframe
@@ -274,59 +335,12 @@
           </div>
         </div>
       </section>
-
-      <aside class="gsl__workspace">
-        <section class="gsl__workspace-section" :class="{ 'gsl__workspace-section--collapsed': !agendaOpen }">
-          <button type="button" class="gsl__section-head" @click="agendaOpen = !agendaOpen">
-            <span>Agenda</span>
-            <span class="gsl__section-chevron" :class="{ 'gsl__section-chevron--open': agendaOpen }">▾</span>
-          </button>
-          <div v-show="agendaOpen" class="gsl__section-body">
-            <MeetingAgendaPanel
-              meeting-type="supervision_session"
-              :meeting-id="numericSessionId || supervisionSessionId"
-              :can-add-item="canEditAgenda"
-              :embedded="true"
-              :live="true"
-              :live-sidebar="true"
-              theme="dark"
-            />
-          </div>
-        </section>
-        <section v-if="canFacilitate" class="gsl__workspace-section" :class="{ 'gsl__workspace-section--collapsed': !attendanceOpen }">
-          <button type="button" class="gsl__section-head" @click="attendanceOpen = !attendanceOpen">
-            <span>Attendance</span>
-            <span class="gsl__section-chevron" :class="{ 'gsl__section-chevron--open': attendanceOpen }">▾</span>
-          </button>
-          <div v-show="attendanceOpen" class="gsl__section-body gsl__section-body--attendance">
-            <MeetingAttendancePanel
-              ref="attendancePanelRef"
-              meeting-kind="supervision"
-              :event-id="numericSessionId || supervisionSessionId"
-              :live-poll="true"
-              :raised-hands="raisedHandCount"
-              :raised-hand-names="raisedHandNames"
-              :muted-names="mutedParticipantNames"
-            />
-          </div>
-        </section>
-        <section class="gsl__workspace-section" :class="{ 'gsl__workspace-section--collapsed': !transcriptOpen }">
-          <button type="button" class="gsl__section-head" @click="transcriptOpen = !transcriptOpen">
-            <span>Transcript</span>
-            <span class="gsl__section-chevron" :class="{ 'gsl__section-chevron--open': transcriptOpen }">▾</span>
-          </button>
-          <div v-show="transcriptOpen" class="gsl__section-body">
-            <p v-if="transcriptHint" class="gsl__transcript-hint">{{ transcriptHint }}</p>
-            <pre v-if="transcriptCombined" class="gsl__transcript">{{ transcriptCombined }}</pre>
-            <p v-else class="gsl__transcript-empty">Transcript will appear here once speech is detected.</p>
-          </div>
-        </section>
-      </aside>
     </div>
 
     <div
       v-if="!videoFullscreen && !showWaitingRoomStage"
       class="gsl__chat-bar"
+      :class="{ 'gsl__chat-bar--collapsed': !chatBandOpen }"
     >
       <MeetingLiveActivityPanel
         :session-id="numericSessionId || supervisionSessionId"
@@ -339,6 +353,7 @@
         :start-open="true"
         :below-video="true"
         theme="dark"
+        @update:open="chatBandOpen = $event"
         @activity-notice="onLiveActivityNotice"
       />
     </div>
@@ -412,6 +427,11 @@ let inviteCopiedTimer = null;
 const agendaOpen = ref(true);
 const attendanceOpen = ref(true);
 const transcriptOpen = ref(true);
+/** Presentation/chat bands collapse into each other: collapsing chat frees its
+ * space for the presentation band, and collapsing presentation frees its space
+ * for the video row — so people decide the split themselves. */
+const presentationBandOpen = ref(true);
+const chatBandOpen = ref(true);
 const guestBannerDismissed = ref(false);
 
 const videoStripCollapsed = computed(() => (
@@ -456,6 +476,7 @@ const {
   presentMyDeck,
   stopPresenting,
   saveCurrentSlideContent,
+  setPresentationEditingGuard,
   caseSummary,
   slidePositionLabel,
   slideBodyHtml,
@@ -484,11 +505,13 @@ function openSlideEditor() {
   slideEditDraft.presenterNotes = String(currentSlide.value?.presenter_notes || '');
   editingSlide.value = true;
   slideEditSaveStatus.value = '';
+  setPresentationEditingGuard(true);
   nextTick(syncSlideEditor);
 }
 
 function closeSlideEditor() {
   editingSlide.value = false;
+  setPresentationEditingGuard(false);
 }
 
 function onSlideBodyInput() {
@@ -803,25 +826,45 @@ defineExpose({
   opacity: 0.85;
   font-size: 0.9rem;
 }
-.gsl__video-strip {
-  flex: 0 1 36%;
-  min-height: min(32vh, 340px);
-  max-height: min(46vh, 480px);
+/* Row 1: video + workspace side panel. Height is a flex-grow share of
+   whatever vertical space is actually left after the header/banners — a real
+   percentage of the screen rather than a pixel ceiling — and it absorbs the
+   presentation band's space when that band is collapsed. */
+.gsl__top-row {
+  display: flex;
+  gap: 12px;
+  min-height: 0;
+  flex: 3 1 0%;
   margin-bottom: 10px;
+  transition: flex-grow 0.2s ease;
+}
+.gsl__top-row--grow {
+  flex: 8 1 0%;
+}
+.gsl__video-strip {
   position: relative;
   border-radius: 14px;
   overflow: visible;
   background: #070a10;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: min-height 0.22s ease;
   z-index: 6;
+  /* Live (non-lobby): the lion's share of the row's width; the workspace
+     panel next to it takes the rest. Lobby overrides this below since it's
+     the row's only child there. */
+  flex: 1 1 68%;
+  min-width: 0;
+  height: 100%;
+  /* Floor so the presentation/chat bands below can never squeeze this so
+     short that the video's own control bar wraps and gets clipped by this
+     box's overflow:hidden — the page scrolls instead (see .gsl overflow-y). */
+  min-height: min(40vh, 380px);
 }
 .gsl__video-strip--featured {
-  min-height: min(40vh, 420px);
-  max-height: min(52vh, 560px);
+  flex-grow: 1.4;
 }
 .gsl__video-strip--collapsed {
   flex: 0 0 auto;
+  height: auto;
   min-height: 88px;
   max-height: 104px;
 }
@@ -838,35 +881,20 @@ defineExpose({
   height: 100%;
   place-content: center;
 }
-/* Square, evenly-sized tiles instead of a thin horizontal strip — prioritize
-   video size and avoid dead space around each tile. Scoped away from the
-   waiting-room self-preview (main stage AND the small corner pip), which needs
-   its own natural sizing, not a forced square. */
-.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--solo .vsr__tile),
-.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--duo .vsr__tile),
-.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--grid .vsr__tile) {
-  aspect-ratio: 1 / 1;
-  min-height: 0;
-  max-height: 100%;
-  max-width: 100%;
-}
-.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--grid),
-.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--duo) {
-  gap: 6px;
-  justify-content: center;
-  align-content: center;
-}
-.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--count-3),
-.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--count-4),
-.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--count-5),
-.gsl__video-strip:not(.gsl__video-strip--collapsed):not(.gsl__video-strip--lobby) :deep(.vsr__stage--count-6) {
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-}
+/* Let the video component's own solo/duo/grid layout fill this larger box —
+   it already stretches tiles evenly (2 columns x auto rows) with no dead
+   space. A prior attempt to force auto-fit(160px) columns here backfired: on
+   wide desktops it reserved several empty phantom columns whenever there were
+   fewer than ~6 tiles, shrinking real tiles into a corner with a big blank
+   gap next to them. Removed — bigger, fully-filled tiles beat tiny squares. */
 .gsl__video-strip--lobby {
   overflow: hidden;
   border-radius: 16px;
   background: #0b1210;
-  min-height: min(58vh, 520px);
+  min-height: 66vh;
+  height: auto;
+  /* Lobby is the row's only child — take the full row width. */
+  flex: 1 1 auto;
 }
 .gsl__lobby-rail {
   position: absolute;
@@ -874,7 +902,9 @@ defineExpose({
   right: 14px;
   bottom: 14px;
   z-index: 5;
-  width: min(300px, 34%);
+  /* Percentage of the screen, not a fixed px ceiling — it should keep scaling
+     up on bigger screens instead of topping out. */
+  width: 46%;
   max-height: calc(100% - 28px);
   overflow: auto;
   display: flex;
@@ -1074,9 +1104,11 @@ defineExpose({
   gap: 4px;
   min-height: 0;
   overflow-y: auto;
-}
-.gsl__workspace--lobby {
-  max-height: none;
+  /* Fills the row's height next to the video, taking a fixed-ish share of its
+     width (agenda/goals/actions/attendance don't need to grow past this). */
+  flex: 0 1 340px;
+  min-width: 260px;
+  height: 100%;
 }
 /* Collapsible sections: auto-height when expanded, header-only when collapsed —
    siblings actually reflow into the freed space instead of leaving a gap. */
@@ -1171,32 +1203,59 @@ defineExpose({
 .gsl__workspace :deep(.muted) {
   color: #93a0b8;
 }
-.gsl__main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
-  gap: 12px;
-  flex: 0 0 auto;
+/* Band 2: case presentation, full width below the video row. Grows to absorb
+   the chat band's space when chat is collapsed; collapses to just its header
+   (via the button below) to free space back up to the video row. */
+.gsl__presentation-band {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
+  flex: 1.6 1 0%;
+  margin-bottom: 10px;
+  transition: flex-grow 0.2s ease;
 }
-.gsl__main--lobby {
-  grid-template-columns: minmax(0, 1fr);
+.gsl__presentation-band--grow {
+  flex: 3.2 1 0%;
+}
+.gsl__presentation-band--collapsed {
+  flex: 0 0 auto;
+}
+.gsl__presentation-band-head {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  margin-bottom: 6px;
+  padding: 8px 12px;
+}
+.gsl__stage-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 /* Full-width chat/polls/Q&A bar under everything — the tabs stay horizontal and
    the whole thing is far easier to reach on a tablet than a buried side column. */
 .gsl__chat-bar {
+  flex: 1.6 1 0%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  transition: flex-grow 0.2s ease;
+}
+.gsl__chat-bar--collapsed {
   flex: 0 0 auto;
-  margin-top: 10px;
 }
-.gsl__chat-bar :deep(.mlap--below-video) {
-  max-height: min(44vh, 480px);
-}
+/* No outer height cap here — the panel's own S/M/L size presets already bound
+   its height. A fixed cap previously fought the "L" preset (which wants up to
+   840px) since this wrapper clips overflow, hiding the message input at the
+   bottom of a tall panel. */
 .gsl__stage {
   position: relative;
   background: #121722;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
   min-height: 160px;
-  max-height: min(30vh, 320px);
+  flex: 1 1 auto;
   padding: 14px 16px;
   overflow: auto;
 }
@@ -1365,18 +1424,30 @@ defineExpose({
   margin: 2px 0 0;
 }
 @media (max-width: 980px) {
-  .gsl__main, .gsl__below, .gsl__case {
+  .gsl__below, .gsl__case {
     grid-template-columns: 1fr;
   }
+  .gsl__top-row {
+    flex-direction: column;
+  }
+  .gsl__video-strip {
+    flex: 1 1 auto;
+    min-height: min(46vh, 420px);
+  }
+  .gsl__workspace {
+    flex: 0 0 auto;
+    height: auto;
+    max-height: 42vh;
+  }
   .gsl__video-strip--lobby {
-    min-height: 48vh;
+    min-height: 54vh;
   }
   .gsl__lobby-rail {
-    width: min(46%, 200px);
+    width: 58%;
     top: auto;
     bottom: 10px;
     right: 10px;
-    max-height: 55%;
+    max-height: 60%;
   }
   .gsl__lobby-prep { max-height: 36%; }
 }

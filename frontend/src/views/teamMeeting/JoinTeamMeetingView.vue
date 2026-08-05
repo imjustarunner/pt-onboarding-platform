@@ -62,11 +62,14 @@
             {{ enablingTracking ? 'Enabling…' : 'Enable transcription & attendance' }}
           </button>
           <span v-if="enableTrackingError" class="join-tracking-error">{{ enableTrackingError }}</span>
-          <div v-if="isAdminMeeting" class="join-tools">
+          <div v-if="canManageMeetingLive" class="join-tools">
             <button type="button" class="btn btn-secondary btn-sm" @click="toolsOpen = !toolsOpen">Tools</button>
             <div v-if="toolsOpen" class="join-tools__menu">
               <button type="button" class="join-tools__item" @click="copyJoinLink">
                 {{ joinLinkCopied ? 'Copied!' : 'Copy join link' }}
+              </button>
+              <button type="button" class="join-tools__item" @click="openAddAttendeeModal">
+                Add someone to this meeting
               </button>
             </div>
           </div>
@@ -290,6 +293,46 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showAddAttendeeModal" class="join-modal-backdrop" role="dialog" aria-modal="true" @click.self="closeAddAttendeeModal">
+      <div class="join-modal">
+        <h3>Add someone to this meeting</h3>
+        <p class="muted" style="margin: 0 0 4px;">
+          They’ll be able to join right away (waiting room still applies) and their attendance —
+          and pay, if this meeting type is compensated — is tracked automatically once they’re in.
+        </p>
+        <input
+          v-model="addAttendeeSearch"
+          type="text"
+          class="input"
+          placeholder="Search by name or email…"
+          :disabled="addAttendeeCandidatesLoading"
+          autocomplete="off"
+        />
+        <div v-if="addAttendeeCandidatesLoading" class="muted" style="margin-top: 8px;">Loading people…</div>
+        <ul v-else class="join-add-attendee-list">
+          <li v-for="c in filteredAddAttendeeCandidates" :key="c.id">
+            <button
+              type="button"
+              class="join-add-attendee-item"
+              :disabled="addingAttendeeId === c.id"
+              @click="addAttendee(c)"
+            >
+              <span>{{ c.label }}</span>
+              <span class="join-add-attendee-added" v-if="addedAttendeeIds.has(c.id)">Added ✓</span>
+              <span v-else class="join-add-attendee-add">{{ addingAttendeeId === c.id ? 'Adding…' : 'Add' }}</span>
+            </button>
+          </li>
+          <li v-if="!filteredAddAttendeeCandidates.length" class="muted" style="padding: 8px 0;">
+            No matches.
+          </li>
+        </ul>
+        <p v-if="addAttendeeError" class="error-inline">{{ addAttendeeError }}</p>
+        <div class="join-modal-actions">
+          <button type="button" class="btn btn-secondary" @click="closeAddAttendeeModal">Done</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -436,6 +479,13 @@ const {
 
 const toolsOpen = ref(false);
 const joinLinkCopied = ref(false);
+const showAddAttendeeModal = ref(false);
+const addAttendeeSearch = ref('');
+const addAttendeeCandidates = ref([]);
+const addAttendeeCandidatesLoading = ref(false);
+const addingAttendeeId = ref(0);
+const addedAttendeeIds = ref(new Set());
+const addAttendeeError = ref('');
 const tileFocus = ref('equal');
 const videoFullscreen = ref(false);
 const videoFullscreenActivityNotice = ref('');
@@ -536,6 +586,11 @@ const MUTE_PARTICIPANT_ROLES = new Set([
 
 const canMuteParticipants = computed(() => (
   isHost.value || MUTE_PARTICIPANT_ROLES.has(actorRole.value)
+));
+
+/** Who may invite/add people mid-meeting — host, admin, support, or super admin. */
+const canManageMeetingLive = computed(() => (
+  isHost.value || ['super_admin', 'superadmin', 'admin', 'support'].includes(actorRole.value)
 ));
 
 /** Host + admin-side roles see the full right-rail workspace. Providers see chat/polls only. */
@@ -1003,6 +1058,67 @@ async function copyJoinLink() {
     /* ignore */
   }
   toolsOpen.value = false;
+}
+
+const filteredAddAttendeeCandidates = computed(() => {
+  const q = String(addAttendeeSearch.value || '').trim().toLowerCase();
+  const list = addAttendeeCandidates.value || [];
+  if (!q) return list.slice(0, 30);
+  return list.filter((c) => c.label.toLowerCase().includes(q) || c.email.toLowerCase().includes(q)).slice(0, 30);
+});
+
+async function loadAddAttendeeCandidates() {
+  const selfId = Number(authStore.user?.id || 0);
+  const agencyId = authStore.user?.agencies?.[0]?.id || authStore.user?.agencyId || 0;
+  addAttendeeCandidatesLoading.value = true;
+  addAttendeeError.value = '';
+  try {
+    const params = agencyId ? { agencyId } : { allAgencies: 'true' };
+    const resp = await api.get(`/users/${selfId}/meeting-candidates`, {
+      params,
+      skipGlobalLoading: true
+    });
+    const rows = Array.isArray(resp?.data?.users) ? resp.data.users : [];
+    addAttendeeCandidates.value = rows.map((u) => {
+      const id = Number(u.id || 0);
+      const first = String(u.firstName || u.first_name || '').trim();
+      const last = String(u.lastName || u.last_name || '').trim();
+      const email = String(u.email || '').trim();
+      return { id, email, label: `${first} ${last}`.trim() || email || `User ${id}` };
+    }).filter((c) => c.id > 0 && c.id !== selfId);
+  } catch (e) {
+    addAttendeeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load people';
+  } finally {
+    addAttendeeCandidatesLoading.value = false;
+  }
+}
+
+function openAddAttendeeModal() {
+  toolsOpen.value = false;
+  addAttendeeError.value = '';
+  addAttendeeSearch.value = '';
+  addedAttendeeIds.value = new Set();
+  showAddAttendeeModal.value = true;
+  if (!addAttendeeCandidates.value.length) void loadAddAttendeeCandidates();
+}
+
+function closeAddAttendeeModal() {
+  showAddAttendeeModal.value = false;
+}
+
+async function addAttendee(candidate) {
+  const eid = Number(resolvedEventId.value || eventId.value || 0);
+  if (!eid || !candidate?.id) return;
+  addingAttendeeId.value = candidate.id;
+  addAttendeeError.value = '';
+  try {
+    await api.post(`/team-meetings/${eid}/attendees`, { userId: candidate.id });
+    addedAttendeeIds.value = new Set([...addedAttendeeIds.value, candidate.id]);
+  } catch (e) {
+    addAttendeeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to add attendee';
+  } finally {
+    addingAttendeeId.value = 0;
+  }
 }
 
 async function enableAttendanceTracking() {
@@ -1551,7 +1667,7 @@ onUnmounted(() => {
 .join-video--lobby {
   position: relative;
   flex: 1;
-  min-height: min(68vh, 620px);
+  min-height: 66vh;
   border-radius: 16px;
   overflow: hidden;
   background: #0b1210;
@@ -1560,14 +1676,17 @@ onUnmounted(() => {
   position: relative;
   z-index: 3;
   flex: 1;
-  min-height: 0;
+  /* Floor so a tall chat panel below can never squeeze the video area smaller
+     than it needs to render its controls without wrapping/clipping them —
+     .join-video scrolls (see below) instead of fighting for the same space. */
+  min-height: min(46vh, 480px);
 }
 .join-video__stage--pip {
   position: absolute;
   right: 14px;
   bottom: 14px;
   top: auto;
-  width: min(300px, 34%);
+  width: 46%;
   max-height: calc(100% - 28px);
   height: auto;
   min-height: 0;
@@ -1818,6 +1937,41 @@ onUnmounted(() => {
 .join-modal h3 { margin: 0; font-size: 1.1rem; }
 .join-modal p { margin: 0; line-height: 1.45; font-size: 0.95rem; color: #334155; }
 .join-modal-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.join-add-attendee-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  border-top: 1px solid #e2e8f0;
+}
+.join-add-attendee-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 0;
+  border-bottom: 1px solid #f1f5f9;
+  background: transparent;
+  padding: 9px 4px;
+  font-size: 0.9rem;
+  color: #0f172a;
+  cursor: pointer;
+  text-align: left;
+}
+.join-add-attendee-item:hover:not(:disabled) { background: #f8fafc; }
+.join-add-attendee-item:disabled { cursor: default; }
+.join-add-attendee-add {
+  color: #1d4ed8;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+.join-add-attendee-added {
+  color: #15803d;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
 @media (max-width: 900px) {
   .join-session-layout,
   .join-session-layout--chat-only {
@@ -1832,7 +1986,7 @@ onUnmounted(() => {
     right: 14px;
     bottom: 14px;
     width: auto;
-    max-height: min(48vh, 360px);
+    max-height: 48vh;
   }
 }
 </style>

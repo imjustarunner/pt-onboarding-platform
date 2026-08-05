@@ -930,6 +930,90 @@ export const admitTeamMeetingParticipant = async (req, res, next) => {
   }
 };
 
+/** Host, admin, support, or super admin can add someone to a scheduled/live team
+ * meeting so they gain access — canAccessTeamMeeting() only lets in the host,
+ * people already on the attendee list, or privileged roles. Once added, they
+ * can request a video token themselves; attendance segments and Admin Meeting
+ * pay/compensation claims already pick up anyone who successfully joins (see
+ * openAttendanceSegment() in getTeamMeetingVideoToken and
+ * meetingCompensationClaims.service.js), so no separate "enable X" step is
+ * needed beyond granting access. */
+export const addTeamMeetingAttendee = async (req, res, next) => {
+  try {
+    const ref = String(req.params.eventId || '').trim();
+    if (!ref) return res.status(400).json({ error: { message: 'Invalid event id' } });
+    const row = await ProviderScheduleEvent.resolveByJoinRef(ref)
+      || (/^\d+$/.test(ref) ? await ProviderScheduleEvent.findById(Number(ref)) : null);
+    if (!row?.id) return res.status(404).json({ error: { message: 'Event not found' } });
+    const kind = String(row.kind || '').toUpperCase();
+    if (!['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
+      return res.status(400).json({ error: { message: 'Event is not a team meeting or huddle' } });
+    }
+    if (row.meeting_completed_at) {
+      return res.status(400).json({ error: { message: 'This meeting has already ended.' } });
+    }
+
+    const actorId = Number(req.user?.id || 0);
+    if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    const role = String(req.user?.role || '').toLowerCase();
+    const isHost = actorId === Number(row.provider_id || 0) || actorId === Number(row.created_by_user_id || 0);
+    const isPrivileged = ['super_admin', 'superadmin', 'admin', 'support'].includes(role);
+    if (!isHost && !isPrivileged) {
+      return res.status(403).json({ error: { message: 'Only the host, admin, support, or super admin can add attendees.' } });
+    }
+
+    const userId = parseInt(req.body?.userId, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
+    const newAttendee = await User.findById(userId);
+    if (!newAttendee) return res.status(404).json({ error: { message: 'User not found' } });
+
+    const agencyId = Number(row.agency_id || 0);
+    if (agencyId) {
+      const attendeeAgencies = await User.getAgencies(userId);
+      const inAgency = (attendeeAgencies || []).some((a) => Number(a?.id) === agencyId);
+      if (!inAgency) {
+        return res.status(400).json({ error: { message: 'That person is not in this agency.' } });
+      }
+    }
+
+    await ProviderScheduleEventAttendee.upsertForEvent(row.id, [userId]);
+
+    try {
+      const { createNotificationAndDispatch } = await import('../services/notificationDispatcher.service.js');
+      const actor = await User.findById(actorId);
+      const actorName = displayNameFromUser(actor) || 'A teammate';
+      const title = String(row.title || '').trim() || 'Team meeting';
+      const joinUrl = joinUrlForTeamMeeting(
+        (process.env.FRONTEND_URL || '').replace(/\/$/, ''),
+        row.participant_join_token || row.join_token || row.id
+      );
+      await createNotificationAndDispatch({
+        type: 'team_meeting_invited_live',
+        severity: 'info',
+        title: `Added to "${title}"`,
+        message: `${actorName} added you to "${title}" — it's happening now. Tap to join.`,
+        userId,
+        agencyId,
+        relatedEntityType: 'provider_schedule_events',
+        relatedEntityId: row.id,
+        actorSource: 'Schedule',
+        metadata: { eventId: row.id, joinUrl, live: true }
+      }).catch(() => null);
+    } catch (notifyErr) {
+      console.warn('[teamMeeting] add-attendee notify skipped', notifyErr?.message || notifyErr);
+    }
+
+    res.json({
+      ok: true,
+      userId,
+      eventId: row.id,
+      displayName: displayNameFromUser(newAttendee) || newAttendee.email || `User ${userId}`
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 /** Host live control: turn waiting room off (admit current waiters) or back on. */
 export const setTeamMeetingWaitingRoomLive = async (req, res, next) => {
   try {
