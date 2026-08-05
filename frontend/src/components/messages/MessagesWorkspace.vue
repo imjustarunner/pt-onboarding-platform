@@ -2165,7 +2165,7 @@ watch(
   { immediate: true }
 );
 
-defineExpose({ switchToAssistant, switchToDms, closeChat });
+defineExpose({ switchToAssistant, switchToDms, closeChat, hasActiveChat });
 
 const filteredFilesInbox = computed(() => {
   const q = filesInboxQ.value.trim().toLowerCase();
@@ -3331,6 +3331,27 @@ onUnmounted(() => {
   border: none;
 }
 
+/* Drawer: side-by-side when a conversation is open */
+.messages-workspace.layout-drawer.has-active-chat {
+  flex-direction: row;
+}
+.messages-workspace.layout-drawer.has-active-chat .mw-list-col {
+  width: 280px;
+  flex: none;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  border-right: 1px solid var(--border, #e2e8f0);
+}
+.messages-workspace.layout-drawer.has-active-chat .mw-chat-col {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  max-height: none;
+  border-top: none;
+  display: flex;
+}
+
 .messages-workspace.layout-page {
   flex: 1;
   min-height: min(70vh, calc(100vh - 180px));
@@ -3422,13 +3443,6 @@ onUnmounted(() => {
   min-height: 0;
   flex: 1;
   background: #fff;
-}
-
-.messages-workspace.layout-drawer .mw-chat-col {
-  /* In drawer, conversation stacks under the list in the flex column via panel-body flow —
-     list col contains lists+footer; chat col sits as second flex child when drawer is column. */
-  border-top: 1px solid var(--border, #e2e8f0);
-  max-height: 55%;
 }
 
 .messages-workspace.layout-drawer:not(.has-active-chat) .mw-chat-col {
