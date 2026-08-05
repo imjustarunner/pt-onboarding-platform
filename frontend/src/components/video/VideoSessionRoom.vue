@@ -313,7 +313,7 @@
             <path d="M19 11a7 7 0 0 1-14 0M12 18v3M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>
         </span>
-        <span class="vsr__muted-banner-text">{{ lobbyMode ? 'Microphone off — test it or join muted' : (forceMutedByHost ? 'Muted by host — click to unmute' : 'You are muted — others cannot hear you') }}</span>
+        <span class="vsr__muted-banner-text">{{ lobbyMode ? 'Microphone off — test it or join muted' : (micLockedByHost ? 'Microphone locked by host' : forceMutedByHost ? 'Muted by host — click to unmute' : 'You are muted — others cannot hear you') }}</span>
       </div>
       <div v-if="micActionHint" class="vsr__mic-hint" role="alert">{{ micActionHint }}</div>
       <div v-if="connectionNotice" class="vsr__connection-hint" role="status" aria-live="polite">
@@ -327,11 +327,11 @@
           class="vsr__ctrl vsr__ctrl--mic"
           :class="{ 'vsr__ctrl--danger': !publishAudio, 'vsr__ctrl--mic-muted': !publishAudio }"
           :aria-pressed="!publishAudio"
-          :title="lobbyMode ? lobbyMicButtonTitle : (publishAudio ? 'Mute microphone' : (canSelfUnmute ? 'Unmute microphone' : 'Muted by host'))"
+          :title="lobbyMode ? lobbyMicButtonTitle : (publishAudio ? 'Mute microphone' : (micLockedByHost ? 'Microphone locked by host' : 'Unmute microphone'))"
           @click.stop.prevent="toggleMic"
         >
           <span class="vsr__ctrl-mic-row">
-            <span>{{ lobbyMode ? lobbyMicButtonLabel : (publishAudio ? 'Mic' : (canSelfUnmute ? 'Unmute' : 'Muted')) }}</span>
+            <span>{{ lobbyMode ? lobbyMicButtonLabel : (publishAudio ? 'Mic' : (micLockedByHost ? 'Locked' : 'Unmute')) }}</span>
             <span
               v-if="publishAudio"
               class="vsr__mic-meter"
@@ -566,8 +566,10 @@ const automuteNoticeVisible = ref(!!props.startMuted && !props.lobbyMode);
 const lobbyMicTested = ref(false);
 /** Set when a host/co-host force-mutes this participant. Cleared when participant self-unmutes. */
 const forceMutedByHost = ref(false);
-/** Participants can always unmute themselves — only they decide when to come off mute. */
-const canSelfUnmute = computed(() => true);
+/** Set when a host/co-host hard-locks all mics. Participants cannot unmute until unlocked. */
+const micLockedByHost = ref(false);
+/** Participants can unmute themselves unless the host has hard-locked all mics. */
+const canSelfUnmute = computed(() => !micLockedByHost.value);
 /** Tracks whether a screen share subscription has already been retried. */
 let screenSubscribeRetried = false;
 /** Non-blocking mic toggle feedback (do not use errorMessage — that unmounts the room). */
@@ -2083,6 +2085,22 @@ async function connect() {
       }
     });
 
+    session.on('signal:mic_lock', () => {
+      micLockedByHost.value = true;
+      forceMutedByHost.value = false;
+      if (publishAudio.value) {
+        publishAudio.value = false;
+        try { publisher?.publishAudio?.(false); } catch { /* ignore */ }
+        broadcastMicState(false);
+        setSpeaking('local', false);
+        localMicLevel.value = 0;
+      }
+    });
+
+    session.on('signal:mic_unlock', () => {
+      micLockedByHost.value = false;
+    });
+
     // Peer joined or missed a toggle — reply with our current mic/camera flags.
     session.on('signal:media_state_request', () => {
       rebroadcastLocalMediaState();
@@ -2293,7 +2311,9 @@ function stopScreenShare() {
     /* ignore */
   }
   try {
+    const el = screenPublisher.element?.parentElement;
     screenPublisher.destroy();
+    if (el && el.parentNode && el !== screenEl.value) el.parentNode.removeChild(el);
   } catch {
     /* ignore */
   }
@@ -2319,11 +2339,14 @@ async function toggleScreenShare() {
   try {
     const mod = await import('@vonage/client-sdk-video');
     const OT = mod?.default || mod;
-    // Publish into the featured screen tile so local + remote can see it.
-    const target = screenEl.value || undefined;
+    // Publish into a hidden off-screen container so the local publisher DOM
+    // never conflicts with the remote screen subscriber rendering in screenEl.
+    const offscreen = document.createElement('div');
+    offscreen.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;';
+    document.body.appendChild(offscreen);
     await new Promise((resolve, reject) => {
       screenPublisher = OT.initPublisher(
-        target || undefined,
+        offscreen,
         {
           videoSource: 'screen',
           publishAudio: false,
@@ -2404,6 +2427,7 @@ function disconnect(emitEvent = true) {
     voiceIsolationStatus.value = '';
     needsAudioSourceAttach.value = false;
     forceMutedByHost.value = false;
+    micLockedByHost.value = false;
     micActionHint.value = '';
     if (micHintTimer) {
       clearTimeout(micHintTimer);
@@ -2522,8 +2546,12 @@ async function toggleMic() {
     return;
   }
   const next = !publishAudio.value;
+  if (next && micLockedByHost.value) {
+    showMicHint('Your microphone has been locked by the host.');
+    return;
+  }
   if (next && forceMutedByHost.value) {
-    // User is choosing to unmute themselves — that's always allowed.
+    // Soft-muted by host — participant can still choose to unmute themselves.
     forceMutedByHost.value = false;
   }
   if (!publisher && !needsAudioSourceAttach.value) {
@@ -2640,6 +2668,16 @@ function signalCohostGrant(connectionId, name) {
   return sendSessionSignal('cohost_grant', { connectionId, name });
 }
 
+function lockAllMics() {
+  // Mute every unmuted participant and prevent self-unmute until host unlocks.
+  muteAllExcept([]);
+  sendSessionSignal('mic_lock', {});
+}
+
+function unlockAllMics() {
+  sendSessionSignal('mic_unlock', {});
+}
+
 defineExpose({
   connect,
   disconnect,
@@ -2650,6 +2688,8 @@ defineExpose({
   sendReaction,
   signalTranscriptControl,
   signalCohostGrant,
+  lockAllMics,
+  unlockAllMics,
   sendSessionSignal,
   publishAudio,
   publishVideo,

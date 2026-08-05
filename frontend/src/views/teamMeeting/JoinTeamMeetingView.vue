@@ -88,17 +88,36 @@
                 Add someone to this meeting
               </button>
               <button
-                v-if="isHost"
+                v-if="canMuteParticipants"
                 type="button"
                 class="join-tools__item"
                 @click="participantsPanelOpen = !participantsPanelOpen; toolsOpen = false"
               >
                 Participants &amp; co-host
               </button>
+              <template v-if="canMuteParticipants">
+                <div class="join-tools__divider" />
+                <button
+                  v-if="!micsLocked"
+                  type="button"
+                  class="join-tools__item join-tools__item--warning"
+                  @click="lockMics"
+                >
+                  🔇 Lock all mics
+                </button>
+                <button
+                  v-else
+                  type="button"
+                  class="join-tools__item join-tools__item--success"
+                  @click="unlockMics"
+                >
+                  🔓 Unlock mics
+                </button>
+              </template>
             </div>
 
           <!-- Participants / co-host panel -->
-          <div v-if="isHost && participantsPanelOpen" class="join-participants-panel">
+          <div v-if="canMuteParticipants && participantsPanelOpen" class="join-participants-panel">
             <div class="join-participants-panel__head">
               <span class="join-participants-panel__title">Participants</span>
               <button
@@ -506,6 +525,8 @@ const isCoHostBySignal = ref(false);
 /** connectionIds the host has granted co-host this session. */
 const coHostedConnectionIds = ref(new Set());
 const participantsPanelOpen = ref(false);
+/** True while all participant mics are hard-locked by the host/co-host. */
+const micsLocked = ref(false);
 const meetingCompletedAt = ref(null);
 const meetingClosedByName = ref('');
 const roomName = ref('');
@@ -1331,6 +1352,18 @@ function onCohostGranted() {
   isCoHostBySignal.value = true;
 }
 
+function lockMics() {
+  micsLocked.value = true;
+  videoRoomRef.value?.lockAllMics?.();
+  toolsOpen.value = false;
+}
+
+function unlockMics() {
+  micsLocked.value = false;
+  videoRoomRef.value?.unlockAllMics?.();
+  toolsOpen.value = false;
+}
+
 async function onTranscriptPause() {
   await pauseTranscriptLocal();
   videoRoomRef.value?.signalTranscriptControl?.({ action: 'pause', byName: localDisplayName.value });
@@ -1840,6 +1873,11 @@ onUnmounted(() => {
   color: #0f172a;
 }
 .join-tools__item:hover { background: #f1f5f9; }
+.join-tools__divider { height: 1px; background: #e2e8f0; margin: 4px 0; }
+.join-tools__item--warning { color: #b45309; }
+.join-tools__item--warning:hover { background: #fef3c7; }
+.join-tools__item--success { color: #15803d; }
+.join-tools__item--success:hover { background: #dcfce7; }
 
 /* Participants / co-host panel */
 .join-participants-panel {

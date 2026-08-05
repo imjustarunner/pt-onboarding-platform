@@ -180,6 +180,8 @@ defineExpose({
   sendReaction: (...args) => videoRoomRef.value?.sendReaction?.(...args),
   signalTranscriptControl: (...args) => videoRoomRef.value?.signalTranscriptControl?.(...args),
   signalCohostGrant: (...args) => videoRoomRef.value?.signalCohostGrant?.(...args),
+  lockAllMics: (...args) => videoRoomRef.value?.lockAllMics?.(...args),
+  unlockAllMics: (...args) => videoRoomRef.value?.unlockAllMics?.(...args),
   disconnect: (...args) => videoRoomRef.value?.disconnect?.(...args),
   muteAllExcept: (...args) => videoRoomRef.value?.muteAllExcept?.(...args),
   get remotes() { return videoRoomRef.value?.remotes || []; },
