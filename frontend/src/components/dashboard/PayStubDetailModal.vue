@@ -169,7 +169,7 @@
                     <td class="right psd-muted">{{ fmtNum(l.noNoteUnits) }}</td>
                     <td class="right psd-muted">{{ fmtNum(l.draftUnits) }}</td>
                     <td class="right">{{ fmtNum(l.finalizedUnits) }}</td>
-                    <td class="right psd-muted">{{ fmtNum(l.hours) }}</td>
+                    <td class="right psd-muted">{{ fmtNum(l.supervisionTrackingHours ?? l.hours) }}</td>
                     <td class="right psd-muted">{{ fmtMoney(l.rateAmount) }}</td>
                     <td class="right">{{ fmtMoney(l.amount) }}</td>
                   </tr>
@@ -279,9 +279,7 @@ const nextPeriod = computed(() => {
     : null;
 });
 
-const lines = computed(() =>
-  serviceLines(props.period?.breakdown).filter((l) => !l.supervisionTrackingOnly)
-);
+const lines = computed(() => serviceLines(props.period?.breakdown));
 
 const diTotals = computed(() => {
   const totals = payTotalsFromBreakdown(props.period?.breakdown);

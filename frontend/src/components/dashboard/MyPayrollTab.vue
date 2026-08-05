@@ -270,7 +270,7 @@
               <div class="right muted">{{ fmtNum(l.noNoteUnits ?? 0) }}</div>
               <div class="right muted">{{ fmtNum(l.draftUnits ?? 0) }}</div>
               <div class="right">{{ fmtNum(l.finalizedUnits ?? l.units ?? 0) }}</div>
-              <div class="right muted">{{ fmtNum(l.hours ?? 0) }}</div>
+              <div class="right muted">{{ fmtNum(l.supervisionTrackingHours ?? l.hours ?? 0) }}</div>
               <div class="right muted">{{ fmtMoney(l.rateAmount ?? 0) }}</div>
               <div class="right">{{ fmtMoney(l.amount ?? 0) }}</div>
             </div>
@@ -3108,9 +3108,7 @@ const payTotalsFromBreakdown = (breakdown) => {
 };
 
 const expandedServiceLines = computed(() =>
-  splitBreakdownForDisplay(expanded.value?.breakdown || null).filter(
-    (l) => !l.supervisionTrackingOnly
-  )
+  splitBreakdownForDisplay(expanded.value?.breakdown || null)
 );
 
 const hourlyRateSummary = computed(() => {

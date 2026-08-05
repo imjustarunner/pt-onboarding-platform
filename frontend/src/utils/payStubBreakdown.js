@@ -68,6 +68,7 @@ export function serviceLines(breakdown) {
       draftUnits: val?.draftUnits ?? 0,
       finalizedUnits: val?.finalizedUnits ?? val?.units ?? 0,
       hours: val?.hours ?? 0,
+      supervisionTrackingHours: val?.supervisionTrackingHours ?? null,
       rateAmount: val?.rateAmount ?? 0,
       amount: val?.amount ?? 0,
       supervisionTrackingOnly: val?.supervisionTrackingOnly ?? false,

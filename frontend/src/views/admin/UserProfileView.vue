@@ -649,6 +649,23 @@
                           >
                             {{ isEditingPrelicensedForAgency(agency) ? 'Done' : 'Edit' }}
                           </button>
+                          <!-- Classification conflict badge -->
+                          <template v-if="prelicensedClassificationFor(agency.id)">
+                            <span
+                              v-if="prelicensedClassificationFor(agency.id).conflictReason"
+                              class="prelicensed-conflict-badge"
+                              :title="prelicensedClassificationFor(agency.id).conflictReason"
+                            >
+                              ⚠ Classification conflict
+                            </span>
+                            <span
+                              v-else-if="prelicensedClassificationFor(agency.id).classifiedAs === 'unknown'"
+                              class="prelicensed-unknown-badge"
+                              :title="prelicensedClassificationFor(agency.id).conflictReason || 'Could not auto-classify'"
+                            >
+                              ? Unclassified
+                            </span>
+                          </template>
                           <div
                             v-if="isPrelicensedForAgency(agency)"
                             class="prelicensed-field"
@@ -662,6 +679,35 @@
                               @change="savePrelicensedSettings(agency, { startDate: $event.target.value })"
                             />
                             <span class="prelicensed-caption">Effective start date</span>
+                          </div>
+                          <!-- Conflict detail panel -->
+                          <div
+                            v-if="prelicensedClassificationFor(agency.id)?.conflictReason || prelicensedClassificationFor(agency.id)?.classifiedAs === 'unknown'"
+                            class="prelicensed-conflict-panel"
+                          >
+                            <div class="prelicensed-conflict-text">
+                              {{ prelicensedClassificationFor(agency.id).conflictReason }}
+                            </div>
+                            <div style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;">
+                              <button
+                                v-if="prelicensedClassificationFor(agency.id).classifiedAs === 'prelicensed' && !isPrelicensedForAgency(agency) && canEditUser"
+                                type="button"
+                                class="btn btn-warning btn-sm"
+                                :disabled="updatingPrelicensedAgencyId === agency.id"
+                                @click="applyPrelicensedSuggestion(agency, true)"
+                              >
+                                Mark as Prelicensed
+                              </button>
+                              <button
+                                v-else-if="prelicensedClassificationFor(agency.id).classifiedAs === 'paid' && isPrelicensedForAgency(agency) && canEditUser"
+                                type="button"
+                                class="btn btn-warning btn-sm"
+                                :disabled="updatingPrelicensedAgencyId === agency.id"
+                                @click="applyPrelicensedSuggestion(agency, false)"
+                              >
+                                Remove Prelicensed
+                              </button>
+                            </div>
                           </div>
                           <div v-if="isPrelicensedForAgency(agency)" class="prelicensed-hours">
                             <div class="prelicensed-field">
@@ -5305,6 +5351,7 @@ const fetchUser = async () => {
         fetchUserAgencies().then(() => {
           void loadProviderPublicProfile();
           if (profileOverviewAgencyId.value) void refreshOverview();
+          void fetchPrelicensedClassification();
         }),
         fetchAccountInfo(),
         fetchProviderCredential(),
@@ -5881,6 +5928,28 @@ const setH0032Mode = async (agencyId, mode) => {
 
 const updatingPrelicensedAgencyId = ref(null);
 const editingPrelicensedAgencyIds = ref({});
+
+// Classification conflict detection
+const prelicensedClassifications = ref({}); // agencyId → { classifiedAs, conflictReason, autoDetected }
+const fetchPrelicensedClassification = async () => {
+  const uid = userId.value;
+  if (!uid) return;
+  try {
+    const resp = await api.get(`/users/${uid}/supervision-prelicensed-classification`);
+    const map = {};
+    for (const r of (resp.data?.results || [])) {
+      map[r.agencyId] = r;
+    }
+    prelicensedClassifications.value = map;
+  } catch {
+    // Non-critical; silently ignore
+  }
+};
+const prelicensedClassificationFor = (agencyId) => prelicensedClassifications.value?.[agencyId] || null;
+const applyPrelicensedSuggestion = async (agency, markAsPrelicensed) => {
+  await savePrelicensedSettings(agency, { isPrelicensed: markAsPrelicensed });
+  await fetchPrelicensedClassification();
+};
 const isPrelicensedForAgency = (agency) => {
   const v = agency?.supervision_is_prelicensed;
   return v === true || v === 1 || v === '1';
@@ -5923,6 +5992,7 @@ const savePrelicensedSettings = async (agency, patch) => {
       startGroupHours: nextIs ? nextGrp : 0
     });
     await fetchUserAgencies();
+    void fetchPrelicensedClassification();
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to update prelicensed supervision settings');
   } finally {
@@ -7575,6 +7645,48 @@ onUnmounted(() => {
   font-size: 11px;
   font-weight: 700;
   color: var(--text-secondary);
+}
+
+.prelicensed-conflict-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  cursor: default;
+}
+
+.prelicensed-unknown-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  cursor: default;
+}
+
+.prelicensed-conflict-panel {
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #78350f;
+  line-height: 1.5;
+}
+
+.prelicensed-conflict-text {
+  margin-bottom: 2px;
 }
 
 .page-header h1 {

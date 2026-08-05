@@ -8202,6 +8202,66 @@ export const setUserAgencySupervisionPrelicensed = async (req, res, next) => {
 };
 
 
+/**
+ * GET /users/:id/supervision-prelicensed-classification
+ * Returns the auto-detected prelicensed classification and any conflict reason
+ * for each agency the user belongs to.  Admin-only.
+ */
+export const getSupervisionPrelicensedClassification = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
+
+    const { classifyPrelicensedStatus } = await import('../utils/credentialNormalization.js');
+
+    // Fetch user base fields + all agency memberships in one go
+    const pool = (await import('../config/database.js')).default;
+    const [[userRows], [agencyRows]] = await Promise.all([
+      pool.execute(
+        `SELECT id, credential, title, is_hourly_worker FROM users WHERE id = ? LIMIT 1`,
+        [userId]
+      ),
+      pool.execute(
+        `SELECT ua.agency_id, ua.supervision_is_prelicensed, ua.supervision_start_date,
+                a.name AS agency_name
+         FROM user_agencies ua
+         JOIN agencies a ON a.id = ua.agency_id
+         WHERE ua.user_id = ?`,
+        [userId]
+      ),
+    ]);
+
+    const user = userRows?.[0];
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+
+    const results = (agencyRows || []).map((ua) => {
+      const manualFlag = !!(ua.supervision_is_prelicensed === 1 || ua.supervision_is_prelicensed === true || ua.supervision_is_prelicensed === '1');
+      const cls = classifyPrelicensedStatus({
+        credential: user.credential,
+        title: user.title,
+        jobTitle: null,
+        isHourlyWorker: user.is_hourly_worker,
+        manualIsPrelicensed: manualFlag,
+      });
+      return {
+        agencyId: ua.agency_id,
+        agencyName: ua.agency_name,
+        manualIsPrelicensed: manualFlag,
+        classifiedAs: cls.classifiedAs,
+        conflictReason: cls.conflictReason,
+        autoDetected: cls.autoDetected,
+        credential: user.credential || null,
+        title: user.title || null,
+        isHourlyWorker: !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1'),
+      };
+    });
+
+    res.json({ userId, results });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const assignUserToAgency = async (req, res, next) => {
   try {
     const { userId, agencyId } = req.body;

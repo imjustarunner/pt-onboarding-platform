@@ -132,6 +132,132 @@ export function isClinicalOrBillingSupervisorCredentialText(raw) {
 export const CLINICAL_BILLING_SUPERVISOR_LICENSE_HINT =
   'LPC, LCSW, LMFT, LAC, PsyD, or PhD';
 
+/**
+ * Auto-classify whether a supervisee should be treated as "prelicensed"
+ * (meaning 99414/99416 are displayed but don't pay or accrue PTO).
+ *
+ * Priority order:
+ *   1. is_hourly_worker → always PAID (overrides everything)
+ *   2. Title / Job Title = "Facilitator" → PAID
+ *   3. Credential has "Intern" (even with BA/BS) → PRELICENSED
+ *   4. Credential has MA, LPCC, LSW (not LCSW), MFTC, SWC, candidate,
+ *      associate, unlicensed, pre-licensed → PRELICENSED
+ *   5. Credential has BA, BS, MBA (no Intern) → PAID
+ *      (flags if is_hourly_worker is not on — should be hourly)
+ *   6. Fully licensed (LCSW, LPC, LMFT, LAC, PsyD, PhD) → PAID
+ *   7. No usable signal → UNKNOWN + conflict flag
+ *
+ * Returns:
+ *   classifiedAs : 'paid' | 'prelicensed' | 'unknown'
+ *   conflictReason : string | null   — surfaced as an admin warning
+ *   autoDetected : boolean           — false when manual flag was the only signal
+ */
+export function classifyPrelicensedStatus({
+  credential,
+  title,
+  jobTitle,
+  isHourlyWorker,
+  manualIsPrelicensed = null,   // current DB value (true/false/null)
+} = {}) {
+  const cred = String(credential || '').trim();
+  const upper = cred.toUpperCase();
+  const titleLower = String(title || '').trim().toLowerCase();
+  const jobTitleLower = String(jobTitle || '').trim().toLowerCase();
+  const hourly = !!(isHourlyWorker === true || isHourlyWorker === 1 || isHourlyWorker === '1');
+
+  // ── Rule 1: hourly worker ─────────────────────────────────────────────────
+  if (hourly) {
+    const conflict =
+      manualIsPrelicensed === true
+        ? 'Hourly Workers is enabled (paid) but this user is manually marked as Prelicensed — uncheck Prelicensed'
+        : null;
+    return { classifiedAs: 'paid', conflictReason: conflict, autoDetected: true };
+  }
+
+  // ── Rule 2: Facilitator title / job title ─────────────────────────────────
+  const isFacilitator = titleLower === 'facilitator' || jobTitleLower === 'facilitator';
+  if (isFacilitator) {
+    const hasPrelicensedToken = _hasPrelicensedCredentialToken(upper);
+    const conflict = hasPrelicensedToken
+      ? `Title is "Facilitator" (paid) but credential "${cred}" contains a prelicensed indicator — verify classification`
+      : manualIsPrelicensed === true
+        ? 'Title is "Facilitator" (paid) but manually marked as Prelicensed — uncheck Prelicensed'
+        : null;
+    return { classifiedAs: 'paid', conflictReason: conflict, autoDetected: true };
+  }
+
+  // ── Rule 3: Intern token wins over bachelor's ─────────────────────────────
+  if (/\bINTERN\b/.test(upper)) {
+    const conflict =
+      manualIsPrelicensed === false
+        ? `Credential "${cred}" contains "Intern" (prelicensed) but manually marked as NOT prelicensed — verify`
+        : null;
+    return { classifiedAs: 'prelicensed', conflictReason: conflict, autoDetected: true };
+  }
+
+  // ── Rule 4: Prelicensed credential tokens ─────────────────────────────────
+  if (_hasPrelicensedCredentialToken(upper)) {
+    const conflict =
+      manualIsPrelicensed === false
+        ? `Credential "${cred}" indicates prelicensed but manually marked as NOT prelicensed — verify`
+        : null;
+    return { classifiedAs: 'prelicensed', conflictReason: conflict, autoDetected: true };
+  }
+
+  // ── Rule 5: Bachelor's without intern ────────────────────────────────────
+  const hasBachelors =
+    isBachelorsCredentialText(cred) ||
+    /\bMBA\b/.test(upper) ||
+    /\bBBA\b/.test(upper);
+  if (hasBachelors) {
+    const reasons = [];
+    if (!hourly) reasons.push(`Credential "${cred}" (BA/BS/MBA) typically indicates an hourly worker, but "Hourly Workers" is not enabled on this profile`);
+    if (manualIsPrelicensed === true) reasons.push('manually marked as Prelicensed but credential suggests paid — verify');
+    return {
+      classifiedAs: 'paid',
+      conflictReason: reasons.length ? reasons.join('; ') : null,
+      autoDetected: true,
+    };
+  }
+
+  // ── Rule 6: Fully licensed ────────────────────────────────────────────────
+  if (isFullyLicensedCredentialText(cred)) {
+    const conflict =
+      manualIsPrelicensed === true
+        ? `Credential "${cred}" is fully licensed (paid) but manually marked as Prelicensed — uncheck Prelicensed`
+        : null;
+    return { classifiedAs: 'paid', conflictReason: conflict, autoDetected: true };
+  }
+
+  // ── Rule 7: Unclassifiable ────────────────────────────────────────────────
+  const missingSignals = [];
+  if (!cred) missingSignals.push('no credential on file');
+  if (!titleLower && !jobTitleLower) missingSignals.push('no title or job title');
+  const unknownReason = missingSignals.length
+    ? `Cannot auto-classify prelicensed status (${missingSignals.join(', ')}) — set the Prelicensed toggle manually`
+    : `Credential "${cred}" could not be automatically classified — manually verify prelicensed status`;
+
+  return { classifiedAs: 'unknown', conflictReason: unknownReason, autoDetected: false };
+}
+
+/** MA, LPCC, LSW (not LCSW), MFTC, SWC, and similar pre-license tokens. */
+function _hasPrelicensedCredentialToken(upperCred) {
+  if (!upperCred) return false;
+  // LSW yes, LCSW no
+  if (/\bLSW\b/.test(upperCred) && !/\bLCSW\b/.test(upperCred)) return true;
+  const tokens = [
+    'LPCC', 'MFTC', 'SWC', 'CANDIDATE', 'ASSOCIATE',
+    'UNLICENSED', 'PRE-LICENSED', 'PRELICENSED', 'LPC-A',
+    'LPC-ASSOCIATE', 'LMFTC',
+    // Master's degree alone (MA, MS, MEd) without a full license = prelicensed clinician
+    // Matched with word boundary so "LMFT" doesn't trigger "MFT" rule
+  ];
+  if (tokens.some((t) => new RegExp(`\\b${t}\\b`).test(upperCred))) return true;
+  // Bare MA / MS / MEd with word boundary (degree without full license)
+  if (/\bMA\b/.test(upperCred) || /\bMS\b/.test(upperCred) || /\bMED\b/.test(upperCred)) return true;
+  return false;
+}
+
 /** Licensed / pre-licensed credentials that require PYU license + background check review. */
 export const PROVIDER_YEAR_UPDATE_LICENSE_TOKENS = [
   'LMFTC',

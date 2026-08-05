@@ -132,6 +132,7 @@ import {
   aggregateShiftCoverageBonusByUser
 } from '../services/shiftProgramPayroll.service.js';
 import { encryptBillingSecret, isBillingEncryptionConfigured } from '../services/billingEncryption.service.js';
+import { classifyPrelicensedStatus } from '../utils/credentialNormalization.js';
 
 const TIER_WINDOW_PERIODS = 6; // 6 pay periods (~90 days)
 
@@ -4019,8 +4020,19 @@ export const getPayrollReportCredits = async (req, res, next) => {
         for (const [code, vRaw] of Object.entries(breakdown)) {
           if (String(code).startsWith('__')) continue;
           const v = (vRaw && typeof vRaw === 'object') ? vRaw : {};
+          const codeUpper = String(code || '').trim().toUpperCase();
           const credits = Number(v.creditsHours ?? v.hours ?? 0);
           const units = Number(v.units ?? v.finalizedUnits ?? 0);
+          const amount = Number(v.amount ?? 0);
+          // Tracking-only supervision (prelicensed 99414/99416): visible on pay stubs
+          // but must not appear in credits/ADP export rows.
+          if (v.supervisionTrackingOnly) continue;
+          if (
+            (codeUpper === '99414' || codeUpper === '99416')
+            && amount < 1e-9
+            && credits < 1e-9
+            && units > 1e-9
+          ) continue;
           const creditValue = Number(v.creditValue ?? 0);
           const bucket = String(v.bucket || v.category || '').trim().toLowerCase() || 'other';
           if (!(credits > 1e-9) && !(units > 1e-9)) continue;
@@ -4641,6 +4653,16 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
         for (const [code, vRaw] of Object.entries(breakdown)) {
           if (String(code).startsWith('__')) continue;
           const v = vRaw && typeof vRaw === 'object' ? vRaw : {};
+          if (v.supervisionTrackingOnly) continue;
+          const codeUpper = String(code || '').trim().toUpperCase();
+          const amt = safeNum(v.amount || 0);
+          const creditsHours = safeNum(v.hours || 0);
+          if (
+            (codeUpper === '99414' || codeUpper === '99416')
+            && amt < 1e-9
+            && creditsHours < 1e-9
+            && safeNum(v.units ?? v.finalizedUnits ?? 0) > 1e-9
+          ) continue;
           const bucketRaw = v.bucket ? String(v.bucket).trim().toLowerCase() : '';
           const cat = String(v.category || '').trim().toLowerCase();
           const bucket =
@@ -4650,8 +4672,6 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
                 : (cat === 'other' || cat === 'tutoring') ? 'other'
                   : (cat === 'mileage' || cat === 'bonus' || cat === 'reimbursement' || cat === 'other_pay') ? 'flat'
                     : 'direct');
-          const amt = safeNum(v.amount || 0);
-          const creditsHours = safeNum(v.hours || 0);
           if (bucket === 'indirect') {
             indirectAmt += amt;
             indirectCreditsFromRows += creditsHours;
@@ -5150,20 +5170,61 @@ function isSupervisionMeetingCode(codeRaw) {
 async function loadSupervisionPayGateMaps({ agencyId, periodStart }) {
   const eligibleByUserId = new Map();
   const startDateByUserId = new Map();
+  /** userId → { conflictReason, classifiedAs, manualIsPrelicensed } */
+  const classificationByUserId = new Map();
   let preIds = [];
   try {
+    // Join users so we can auto-detect prelicensed status from credential/title/hourly.
+    // We include ALL active supervisees in the agency so we can flag conflicts even
+    // when supervision_is_prelicensed = 0.
     const [uaRows] = await pool.execute(
-      `SELECT user_id,
-              supervision_start_individual_hours,
-              supervision_start_group_hours,
-              supervision_start_date
-       FROM user_agencies
-       WHERE agency_id = ? AND supervision_is_prelicensed = 1`,
+      `SELECT ua.user_id,
+              ua.supervision_start_individual_hours,
+              ua.supervision_start_group_hours,
+              ua.supervision_start_date,
+              ua.supervision_is_prelicensed,
+              u.credential,
+              u.title,
+              u.is_hourly_worker
+       FROM user_agencies ua
+       JOIN users u ON u.id = ua.user_id
+       WHERE ua.agency_id = ?
+         AND (ua.supervision_is_prelicensed = 1 OR ua.supervision_start_date IS NOT NULL)`,
       [agencyId]
     );
-    preIds = (uaRows || []).map((r) => Number(r.user_id)).filter((n) => Number.isFinite(n) && n > 0);
-    const baseByUser = new Map();
+
+    // Auto-classify each supervisee and merge with the manual flag.
     for (const r of uaRows || []) {
+      const uid = Number(r.user_id || 0);
+      if (!uid) continue;
+      const manualFlag = !!(r.supervision_is_prelicensed === 1 || r.supervision_is_prelicensed === true || r.supervision_is_prelicensed === '1');
+      const cls = classifyPrelicensedStatus({
+        credential: r.credential,
+        title: r.title,
+        jobTitle: null,   // job_title not on users table; title is the primary signal
+        isHourlyWorker: r.is_hourly_worker,
+        manualIsPrelicensed: manualFlag,
+      });
+      classificationByUserId.set(uid, {
+        classifiedAs: cls.classifiedAs,
+        conflictReason: cls.conflictReason,
+        manualIsPrelicensed: manualFlag,
+      });
+    }
+
+    // Prelicensed set = manual flag OR auto-detected as prelicensed.
+    // This way no one slips through just because the admin forgot to check the box.
+    const prelicensedRows = (uaRows || []).filter((r) => {
+      const uid = Number(r.user_id || 0);
+      if (!uid) return false;
+      const manual = !!(r.supervision_is_prelicensed === 1 || r.supervision_is_prelicensed === true || r.supervision_is_prelicensed === '1');
+      const cls = classificationByUserId.get(uid);
+      return manual || cls?.classifiedAs === 'prelicensed';
+    });
+
+    preIds = prelicensedRows.map((r) => Number(r.user_id)).filter((n) => Number.isFinite(n) && n > 0);
+    const baseByUser = new Map();
+    for (const r of prelicensedRows) {
       const uid = Number(r.user_id || 0);
       if (!uid) continue;
       baseByUser.set(uid, {
@@ -5205,7 +5266,7 @@ async function loadSupervisionPayGateMaps({ agencyId, periodStart }) {
   } catch {
     // tables/columns may not exist yet
   }
-  return { eligibleByUserId, startDateByUserId, prelicensedUserIds: new Set(preIds) };
+  return { eligibleByUserId, startDateByUserId, prelicensedUserIds: new Set(preIds), classificationByUserId };
 }
 
 function superviseeSessionPayable({ userId, serviceDate, eligibleByUserId, startDateByUserId }) {
@@ -6114,6 +6175,8 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         (codeKey === '99414' || codeKey === '99416') && isPrelicensedSupervisee
           ? 0
           : creditsHours;
+      const isSupervisionTrackingRow =
+        (codeKey === '99414' || codeKey === '99416') && isPrelicensedSupervisee;
 
       totalHours += ptoCreditsHours;
       const baseBucket =
@@ -6236,7 +6299,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
 
       noNoteUnitsTotal += noNoteUnits;
       draftUnitsTotal += draftUnits;
-      finalizedUnitsTotal += finalizedUnits;
+      if (!isSupervisionTrackingRow) finalizedUnitsTotal += finalizedUnits;
       oldDoneNotesUnitsTotal += oldDoneNotesUnits;
       oldDoneNotesNotesTotal += oldDoneNotesNotes;
       codeChangedUnitsTotal += codeChangedUnits;
@@ -6245,12 +6308,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       lateAdditionNotesTotal += lateAddNotes;
       subtotal += lineAmount;
 
-      // Prelicensed 99414/99416: display tracking hours to admins but exclude from
-      // PTO/ADP export/provider pay stubs.  Flag with supervisionTrackingOnly so
-      // downstream consumers can hide or skip accordingly.
-      const isSupervisionTrackingRow =
-        (codeKey === '99414' || codeKey === '99416') && isPrelicensedSupervisee;
-
+      // Prelicensed 99414/99416: show units on pay stubs ($0 pay) but exclude from
+      // PTO accrual and ADP/credits export.  Flag with supervisionTrackingOnly so
+      // downstream consumers can distinguish credits earned vs credits toward PTO.
       breakdown[code] = {
         units: finalizedUnits,
         noNoteUnits,
