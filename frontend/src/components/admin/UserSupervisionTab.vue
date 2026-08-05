@@ -85,6 +85,67 @@
         Session history and artifacts are below. Hour requirements apply when you are marked pre-licensed.
       </section>
 
+      <section
+        v-if="isSelfView && scopeOrgId"
+        class="ust-discrepancy"
+        aria-label="Report supervision hours discrepancy"
+      >
+        <p class="ust-discrepancy-lead">
+          Notice a discrepancy? Let us know so we can get things up to date.
+        </p>
+        <form class="ust-discrepancy-form" @submit.prevent="submitDiscrepancyTicket">
+          <div class="ust-discrepancy-fields">
+            <label class="ust-discrepancy-field">
+              <span>Individual hours</span>
+              <input
+                v-model="discrepancyForm.individualHours"
+                type="number"
+                min="0"
+                step="0.01"
+                inputmode="decimal"
+                placeholder="e.g. 12.5"
+                :disabled="discrepancySending"
+                required
+              />
+            </label>
+            <label class="ust-discrepancy-field">
+              <span>Group hours</span>
+              <input
+                v-model="discrepancyForm.groupHours"
+                type="number"
+                min="0"
+                step="0.01"
+                inputmode="decimal"
+                placeholder="e.g. 8"
+                :disabled="discrepancySending"
+                required
+              />
+            </label>
+            <label class="ust-discrepancy-field">
+              <span>Accurate as of</span>
+              <input
+                v-model="discrepancyForm.asOfDate"
+                type="date"
+                :max="todayIso"
+                :disabled="discrepancySending"
+                required
+              />
+            </label>
+          </div>
+          <div class="ust-discrepancy-actions">
+            <button
+              type="submit"
+              class="btn btn-secondary btn-sm"
+              :disabled="discrepancySending || !canSubmitDiscrepancy"
+            >
+              {{ discrepancySending ? 'Submitting…' : 'Submit ticket' }}
+            </button>
+          </div>
+        </form>
+        <p v-if="discrepancyError" class="ust-discrepancy-msg ust-discrepancy-msg--error">{{ discrepancyError }}</p>
+        <p v-else-if="discrepancySuccess" class="ust-discrepancy-msg ust-discrepancy-msg--ok">{{ discrepancySuccess }}</p>
+      </section>
+
       <div v-if="upcomingSessions.length" class="ust-section">
         <h3 class="ust-section-title">Upcoming</h3>
         <div class="sessions-list">
@@ -305,6 +366,33 @@ const supervision = ref(null);
 const supervisionEnabled = ref(null);
 const selectedSessionId = ref(null);
 
+const isSelfView = computed(() => String(props.userId) === 'me');
+const scopeOrgId = computed(() => {
+  const id = Number(props.agencyId);
+  return Number.isFinite(id) && id > 0 ? id : null;
+});
+
+const discrepancyForm = ref({
+  individualHours: '',
+  groupHours: '',
+  asOfDate: ''
+});
+const discrepancySending = ref(false);
+const discrepancyError = ref('');
+const discrepancySuccess = ref('');
+
+const todayIso = computed(() => new Date().toISOString().slice(0, 10));
+
+const canSubmitDiscrepancy = computed(() => {
+  const ind = String(discrepancyForm.value.individualHours ?? '').trim();
+  const grp = String(discrepancyForm.value.groupHours ?? '').trim();
+  const asOf = String(discrepancyForm.value.asOfDate ?? '').trim();
+  if (!ind || !grp || !asOf) return false;
+  const indN = Number(ind);
+  const grpN = Number(grp);
+  return Number.isFinite(indN) && indN >= 0 && Number.isFinite(grpN) && grpN >= 0;
+});
+
 const showProgress = computed(() => {
   const s = supervision.value;
   return !!(s?.enabled && s?.isPrelicensed);
@@ -511,6 +599,50 @@ function csvCell(value) {
   return `"${raw.replace(/"/g, '""')}"`;
 }
 
+function formatIsoDate(iso) {
+  if (!iso) return '';
+  const [y, m, d] = String(iso).split('-').map((part) => Number(part));
+  if (!y || !m || !d) return iso;
+  const date = new Date(y, m - 1, d);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+async function submitDiscrepancyTicket() {
+  if (!scopeOrgId.value || !canSubmitDiscrepancy.value || discrepancySending.value) return;
+  discrepancySending.value = true;
+  discrepancyError.value = '';
+  discrepancySuccess.value = '';
+  const reportedInd = Number(discrepancyForm.value.individualHours);
+  const reportedGrp = Number(discrepancyForm.value.groupHours);
+  const asOf = String(discrepancyForm.value.asOfDate).trim();
+  const lines = [
+    'I believe my supervision hours are incorrect.',
+    '',
+    'Currently showing in My Supervision:',
+    `- Individual: ${fmtHours(indHours.value)} hrs`,
+    `- Group: ${fmtHours(grpHours.value)} hrs`,
+    '',
+    `Correct hours as of ${formatIsoDate(asOf)}:`,
+    `- Individual: ${fmtHours(reportedInd)} hrs`,
+    `- Group: ${fmtHours(reportedGrp)} hrs`
+  ];
+  try {
+    await api.post('/support-tickets', {
+      schoolOrganizationId: scopeOrgId.value,
+      topic: 'payroll',
+      subject: 'Supervision hours discrepancy',
+      question: lines.join('\n')
+    });
+    discrepancyForm.value = { individualHours: '', groupHours: '', asOfDate: '' };
+    discrepancySuccess.value = 'Thanks — we received your ticket and will review your hours.';
+  } catch (e) {
+    discrepancyError.value = e?.response?.data?.error?.message || e?.message || 'Could not submit ticket';
+  } finally {
+    discrepancySending.value = false;
+  }
+}
+
 function exportSessionsCsv() {
   const rows = Array.isArray(sessions.value) ? sessions.value : [];
   if (!rows.length) return;
@@ -706,6 +838,59 @@ watch([() => props.userId, () => props.agencyId], fetchAll);
   font-size: 0.82rem;
   line-height: 1.4;
   color: var(--text-secondary, #6b7280);
+}
+.ust-discrepancy {
+  background: #f8fafc;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.ust-discrepancy-lead {
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+  color: var(--text-primary, #111827);
+  line-height: 1.45;
+}
+.ust-discrepancy-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ust-discrepancy-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.ust-discrepancy-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #374151;
+}
+.ust-discrepancy-field input {
+  font: inherit;
+  font-weight: 400;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  background: #fff;
+}
+.ust-discrepancy-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ust-discrepancy-msg {
+  margin: 10px 0 0;
+  font-size: 0.85rem;
+}
+.ust-discrepancy-msg--error {
+  color: #b91c1c;
+}
+.ust-discrepancy-msg--ok {
+  color: #166534;
 }
 .ust-section-head {
   display: flex;
@@ -1045,6 +1230,9 @@ watch([() => props.userId, () => props.agencyId], fetchAll);
 
 @media (max-width: 720px) {
   .ust-tracks {
+    grid-template-columns: 1fr;
+  }
+  .ust-discrepancy-fields {
     grid-template-columns: 1fr;
   }
   .ust-header {
