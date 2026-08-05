@@ -2062,6 +2062,7 @@
       <!-- <RegistrationPromoToastRail v-if="isAuthenticated" /> -->
       <HelperWidget v-if="isAuthenticated && !isImmersiveJoinRoute" />
       <BetaFeedbackWidget v-if="isAuthenticated && !isNative && !isImmersiveJoinRoute" />
+      <FloatingMeetingBar v-if="isAuthenticated" />
       <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin" />
       <TourManager v-if="isAuthenticated && !isSummitStatsChallengeChrome" />
       <!-- School staff get DM-only Messages (no global nav); other hidden-chrome verticals stay without it. -->
@@ -2399,6 +2400,7 @@ import TourManager from './components/TourManager.vue';
 import SuperAdminBuilderPanel from './components/SuperAdminBuilderPanel.vue';
 import HelperWidget from './components/HelperWidget.vue';
 import BetaFeedbackWidget from './components/BetaFeedbackWidget.vue';
+import FloatingMeetingBar from './components/meetings/FloatingMeetingBar.vue';
 import MomentumStickiesOverlay from './components/momentum/MomentumStickiesOverlay.vue';
 import AddStickyFab from './components/momentum/AddStickyFab.vue';
 import AddToStickyContextMenu from './components/momentum/AddToStickyContextMenu.vue';

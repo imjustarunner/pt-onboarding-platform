@@ -89,6 +89,13 @@
           </span>
           <span v-if="raisedHandCount" class="join-hand-chip" title="Hands raised">✋ {{ raisedHandCount }}</span>
           <span v-if="meetingCompletedAt" class="join-completed-chip">Session completed</span>
+          <button
+            v-if="token && vonageSessionId && !isInLobby"
+            type="button"
+            class="btn btn-secondary btn-sm join-mini-btn"
+            title="Collapse to mini view — stay in meeting while you use the app"
+            @click="activateMiniMode"
+          >⊡ Mini</button>
           <button type="button" class="btn btn-danger btn-sm" @click="requestLeave">
             {{ isHost ? 'Leave / End meeting' : 'Leave meeting' }}
           </button>
@@ -379,10 +386,28 @@ import BrandingLogo from '../../components/BrandingLogo.vue';
 import api from '../../services/api';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath';
 import { applyDarkMode, getStoredDarkMode, setDarkMode } from '../../utils/darkMode';
+import { useActiveMeeting } from '../../composables/useActiveMeeting';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
+
+const { setMiniMode } = useActiveMeeting();
+
+function activateMiniMode() {
+  if (!token.value || !vonageSessionId.value) return;
+  setMiniMode({
+    token: token.value,
+    vonageSessionId: vonageSessionId.value,
+    applicationId: applicationId.value,
+    roomName: roomName.value,
+    eventId: resolvedEventId.value,
+    meetingPath: route.fullPath,
+    meetingTitle: displayMeetingTitle.value || 'Meeting',
+  });
+  intentionalLeave.value = true;
+  router.push('/dashboard');
+}
 
 // Dark theme toggle — persisted per user, defaults to their stored pref.
 const meetingDarkMode = ref(false);
@@ -1644,6 +1669,16 @@ onUnmounted(() => {
   min-height: 0 !important;
   padding: 0 !important;
   border: 0 !important;
+}
+.join-mini-btn {
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  color: #e2e8f0 !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  font-size: 0.78rem !important;
+  letter-spacing: 0.02em;
+}
+.join-mini-btn:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
 }
 .join-dark-toggle {
   border: 1px solid rgba(255, 255, 255, 0.18);
