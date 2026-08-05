@@ -141,6 +141,65 @@
           </dl>
         </div>
 
+        <div class="sa-schedule-card">
+          <h3>Provider schedule overview</h3>
+          <p class="sa-schedule-lead">All current school days and office hours for this provider.</p>
+
+          <div v-if="scheduleLoading" class="muted">Loading schedule…</div>
+          <div v-else-if="scheduleError" class="sa-schedule-error">{{ scheduleError }}</div>
+          <template v-else>
+            <div v-if="!schoolScheduleRows.length && !officeScheduleRows.length" class="muted">
+              No school or office schedule on file for this provider.
+            </div>
+
+            <div v-if="schoolScheduleRows.length" class="sa-schedule-section">
+              <h4>School days</h4>
+              <table class="sa-schedule-table">
+                <thead>
+                  <tr>
+                    <th>Day</th>
+                    <th>School</th>
+                    <th>Hours</th>
+                    <th>Slots</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="row in schoolScheduleRows"
+                    :key="`${row.schoolOrganizationId}-${row.dayOfWeek}`"
+                    :class="{ 'sa-schedule-highlight': isAdjustmentDayRow(row) }"
+                  >
+                    <td>
+                      {{ row.dayOfWeek }}
+                      <span v-if="isAdjustmentDayRow(row)" class="sa-schedule-tag">This request</span>
+                    </td>
+                    <td>{{ row.schoolName }}</td>
+                    <td>{{ formatTimeRange(row.startTime, row.endTime) }}</td>
+                    <td>{{ row.slotsTotal }} total · {{ row.slotsAvailable }} open</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div v-if="officeScheduleRows.length" class="sa-schedule-section">
+              <h4>Office hours</h4>
+              <ul class="sa-office-list">
+                <li v-for="(row, idx) in officeScheduleRows" :key="idx">
+                  <strong>{{ row.dayOfWeek }}</strong>
+                  <div class="sa-office-detail">
+                    <span class="sa-office-name">{{ row.officeName }}</span>
+                    <span class="sa-office-times">
+                      <template v-for="(range, ri) in row.ranges" :key="ri">
+                        {{ formatHour(range.start) }}–{{ formatHour(range.end) }}<template v-if="ri < row.ranges.length - 1">, </template>
+                      </template>
+                    </span>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </template>
+        </div>
+
         <!-- Current vs requested comparison -->
         <div class="sa-compare-card">
           <h3>{{ tab === 'adjustments' ? 'Current schedule vs requested changes' : 'Requested additional hours' }}</h3>
@@ -262,6 +321,12 @@ const additionalHours = ref([]);
 const schools = ref([]);
 const selectedId = ref(null);
 const hoursForm = reactive({ schoolOrgId: '', blockKey: '', slotsTotal: 1 });
+const scheduleLoading = ref(false);
+const scheduleError = ref('');
+const providerSchedule = ref({ schoolSlots: [], officeAvailability: [] });
+let scheduleLoadToken = 0;
+
+const WEEKDAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const activeList = computed(() => (tab.value === 'hours' ? additionalHours.value : adjustments.value));
 
@@ -280,6 +345,68 @@ const parsed = computed(() => parseSchoolRequestNotes(selected.value?.notes));
 const hoursDiff = computed(() => hoursChanged(parsed.value));
 const slotsDiff = computed(() => slotsChanged(parsed.value));
 const hasChanges = computed(() => hoursDiff.value || slotsDiff.value);
+
+const adjustmentDay = computed(() => {
+  if (!selected.value) return '';
+  return parsed.value.day || primaryBlock(selected.value)?.dayOfWeek || '';
+});
+
+const adjustmentSchool = computed(() => {
+  if (!selected.value) return '';
+  return parsed.value.school || schoolNameFromIds(selected.value) || '';
+});
+
+const schoolScheduleRows = computed(() => {
+  const rows = providerSchedule.value.schoolSlots || [];
+  return [...rows].sort((a, b) => {
+    const schoolCmp = String(a.schoolName || '').localeCompare(String(b.schoolName || ''));
+    if (schoolCmp !== 0) return schoolCmp;
+    return weekdayOrder(a.dayOfWeek) - weekdayOrder(b.dayOfWeek);
+  });
+});
+
+const officeScheduleRows = computed(() => {
+  const slots = providerSchedule.value.officeAvailability || [];
+  const groups = new Map();
+  for (const slot of slots) {
+    const key = `${slot.dayOfWeek}|${slot.officeLocationId || slot.officeName}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        dayOfWeek: slot.dayOfWeek,
+        officeName: slot.officeName || 'Office',
+        hours: []
+      });
+    }
+    const hour = Number(slot.hour);
+    if (Number.isFinite(hour)) groups.get(key).hours.push(hour);
+  }
+
+  const out = [];
+  for (const group of groups.values()) {
+    const hours = [...new Set(group.hours)].sort((a, b) => a - b);
+    const ranges = [];
+    let start = null;
+    let end = null;
+    for (const hour of hours) {
+      if (start === null) {
+        start = hour;
+        end = hour;
+        continue;
+      }
+      if (hour === end + 1) {
+        end = hour;
+        continue;
+      }
+      ranges.push({ start, end: end + 1 });
+      start = hour;
+      end = hour;
+    }
+    if (start !== null) ranges.push({ start, end: end + 1 });
+    out.push({ ...group, ranges });
+  }
+
+  return out.sort((a, b) => weekdayOrder(a.dayOfWeek) - weekdayOrder(b.dayOfWeek));
+});
 
 function setTab(next) {
   tab.value = next;
@@ -301,6 +428,57 @@ function syncHoursForm() {
 
 function blockKey(b) {
   return `${b.dayOfWeek}|${b.startTime}|${b.endTime}`;
+}
+
+function weekdayOrder(day) {
+  const idx = WEEKDAY_ORDER.indexOf(String(day || ''));
+  return idx >= 0 ? idx : 99;
+}
+
+function isAdjustmentDayRow(row) {
+  const day = adjustmentDay.value;
+  if (!day || String(row.dayOfWeek) !== day) return false;
+  const school = adjustmentSchool.value;
+  if (!school) return true;
+  return String(row.schoolName || '').toLowerCase() === school.toLowerCase();
+}
+
+function formatHour(hour) {
+  const h = Number(hour);
+  if (!Number.isFinite(h)) return '—';
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const hh = ((h + 11) % 12) + 1;
+  return `${hh}:00 ${ampm}`;
+}
+
+async function loadProviderSchedule() {
+  const providerId = Number(selected.value?.providerId || 0);
+  if (!providerId || !agencyId.value) {
+    providerSchedule.value = { schoolSlots: [], officeAvailability: [] };
+    scheduleError.value = '';
+    return;
+  }
+
+  const token = ++scheduleLoadToken;
+  scheduleLoading.value = true;
+  scheduleError.value = '';
+  try {
+    const resp = await api.get('/availability/admin/provider-availability-dashboard', {
+      params: { agencyId: agencyId.value, providerId },
+      skipGlobalLoading: true
+    });
+    if (token !== scheduleLoadToken) return;
+    providerSchedule.value = {
+      schoolSlots: resp.data?.schoolSlots || [],
+      officeAvailability: resp.data?.officeAvailability || []
+    };
+  } catch (e) {
+    if (token !== scheduleLoadToken) return;
+    scheduleError.value = e?.response?.data?.error?.message || 'Failed to load provider schedule';
+    providerSchedule.value = { schoolSlots: [], officeAvailability: [] };
+  } finally {
+    if (token === scheduleLoadToken) scheduleLoading.value = false;
+  }
 }
 
 function primaryBlock(r) {
@@ -468,7 +646,10 @@ function resolveInitialTab() {
   return 'adjustments';
 }
 
-watch(selectedId, syncHoursForm);
+watch(selectedId, () => {
+  syncHoursForm();
+  loadProviderSchedule();
+});
 watch(agencyId, () => refresh());
 watch(
   () => route.query.tab,
@@ -595,6 +776,7 @@ onMounted(async () => {
 }
 .sa-queue,
 .sa-summary-card,
+.sa-schedule-card,
 .sa-compare-card,
 .sa-apply-card {
   background: var(--sa-panel);
@@ -610,6 +792,7 @@ onMounted(async () => {
   margin-bottom: 10px;
 }
 .sa-panel-title-row h2,
+.sa-schedule-card h3,
 .sa-compare-card h3,
 .sa-apply-card h3 {
   margin: 0;
@@ -685,9 +868,98 @@ onMounted(async () => {
   gap: 12px;
 }
 .sa-summary-card,
+.sa-schedule-card,
 .sa-compare-card,
 .sa-apply-card {
   padding: 16px;
+}
+.sa-schedule-lead {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--sa-muted);
+}
+.sa-schedule-error {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 13px;
+}
+.sa-schedule-section + .sa-schedule-section {
+  margin-top: 14px;
+}
+.sa-schedule-section h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--sa-muted);
+}
+.sa-schedule-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.sa-schedule-table th,
+.sa-schedule-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--sa-line);
+  text-align: left;
+  vertical-align: top;
+}
+.sa-schedule-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--sa-muted);
+}
+.sa-schedule-highlight {
+  background: color-mix(in srgb, var(--sa-accent) 10%, #fff);
+}
+.sa-schedule-tag {
+  display: inline-flex;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #ffedd5;
+  color: #c2410c;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.sa-office-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sa-office-list li {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 4px 10px;
+  align-items: start;
+  font-size: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--sa-line);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.sa-office-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sa-office-name {
+  color: var(--sa-muted);
+  font-weight: 650;
+  font-size: 13px;
+}
+.sa-office-times {
+  font-weight: 650;
 }
 .sa-summary-top {
   display: flex;
