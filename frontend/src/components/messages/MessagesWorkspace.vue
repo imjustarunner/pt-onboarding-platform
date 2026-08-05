@@ -721,12 +721,12 @@
             </div>
 
             <div class="chat-messages" ref="chatMessagesEl">
-              <div v-if="chatLoading" class="muted">Loading messages…</div>
-              <div v-else-if="chatError" class="error">{{ chatError }}</div>
-              <div v-else-if="chatMessages.length === 0" class="muted" style="padding: 10px 2px;">
+              <div v-if="chatLoading" class="chat-loading-strip" aria-label="Loading messages" />
+              <div v-if="chatError" class="error">{{ chatError }}</div>
+              <div v-if="!chatLoading && !chatError && chatMessages.length === 0" class="muted" style="padding: 10px 2px;">
                 No messages yet.
               </div>
-              <div v-else class="msg-list">
+              <div v-if="chatMessages.length > 0" class="msg-list">
                 <div v-for="m in chatMessages" :key="m.id" class="msg-row" :class="{ mine: m.sender_user_id === meId }">
                   <label v-if="selectMode" class="msg-select">
                     <input type="checkbox" :checked="isSelected(m.id)" @change="toggleSelected(m.id)" />
@@ -3160,7 +3160,17 @@ const clearMyAway = async () => {
 
 const formatTime = (d) => {
   try {
-    return new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const date = new Date(d);
+    const now = new Date();
+    const timePart = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (date.toDateString() === now.toDateString()) return timePart;
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (date.toDateString() === yesterday.toDateString()) return `Yesterday ${timePart}`;
+    if (date.getFullYear() === now.getFullYear()) {
+      return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${timePart}`;
+    }
+    return `${date.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })} ${timePart}`;
   } catch {
     return '';
   }
@@ -4257,6 +4267,33 @@ onUnmounted(() => {
   padding: 10px 12px;
   background: #f8fafc;
   min-height: 0; /* allows this flex child to scroll instead of pushing composer off-screen */
+  position: relative;
+}
+
+.chat-loading-strip {
+  position: sticky;
+  top: -10px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  margin: -10px -12px 10px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--primary, #22c55e) 70%, transparent) 40%,
+    color-mix(in srgb, var(--primary, #22c55e) 90%, transparent) 50%,
+    color-mix(in srgb, var(--primary, #22c55e) 70%, transparent) 60%,
+    transparent 100%
+  );
+  background-size: 250% 100%;
+  animation: chat-load-slide 1.4s ease-in-out infinite;
+  border-radius: 0 0 2px 2px;
+  z-index: 2;
+}
+
+@keyframes chat-load-slide {
+  0%   { background-position: 150% 0; }
+  100% { background-position: -50% 0; }
 }
 .msg-list { display: flex; flex-direction: column; gap: 10px; }
 .msg-row { display: flex; gap: 10px; align-items: flex-start; }
