@@ -5400,7 +5400,6 @@ import {
 import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
 import OfficeRoomPhotoButton from './OfficeRoomPhotoButton.vue';
 import OfficeRoomPhotoGalleryModal from './OfficeRoomPhotoGalleryModal.vue';
-import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 import SupervisionLiveRoom from '../supervision/SupervisionLiveRoom.vue';
 import UnifiedBookingPanel from './UnifiedBookingPanel.vue';
