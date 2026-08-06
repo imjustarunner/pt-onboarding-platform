@@ -1192,6 +1192,7 @@
                     'cell-block-span': !!b.spanBlock && !!b.timedSlice,
                     'cell-block-draggable': isAppointmentBlockDraggable(b),
                     'cell-block-dragging': isAppointmentBlockDragging(b),
+                    'cell-block-resizing': isBlockBeingResized(b),
                     'cell-block-supv-signup-pulse': b.kind === 'supv-signup' && b.signupOpen && !b.viewerSignedUp,
                     'cell-block-supv-signup-enrolled': b.kind === 'supv-signup' && b.viewerSignedUp && !b.sessionLive,
                     'cell-block-supv-signup-occurring': b.kind === 'supv-signup' && b.sessionLive,
@@ -1200,7 +1201,7 @@
                   }
                 ]"
                 :title="b.title"
-                :style="{ ...cellBlockStyle(b), ...cellBlockPickHoverStyle(d, slot.hour, slot.minute, b) }"
+                :style="{ ...cellBlockStyle(b), ...cellBlockPickHoverStyle(d, slot.hour, slot.minute, b), ...schedResizeOverrideStyle(b, d, slot.hour, slot.minute) }"
                 @mouseenter="hoveredBlockKey = blockKey(d, slot.hour, b)"
                 @mouseleave="hoveredBlockKey = ''"
                 @mousedown.stop
@@ -1208,6 +1209,13 @@
                 @click="onCellBlockClick($event, b, d, slot.hour, slot.minute)"
                 @dblclick="onCellBlockDoubleClick($event, b, d, slot.hour, slot.minute)"
               >
+                <!-- Top resize handle — only on timed, draggable blocks -->
+                <div
+                  v-if="b.timedSlice && isAppointmentBlockDraggable(b)"
+                  class="cell-block-resize-handle cell-block-resize-handle--top"
+                  title="Drag to adjust start time"
+                  @pointerdown.stop="onCellBlockResizePointerDown($event, b, d, slot.hour, slot.minute, 'top')"
+                ></div>
                 <span
                   v-if="colorBlocksByTenant"
                   class="cell-block-type-stripe"
@@ -1276,6 +1284,13 @@
                   class="cell-block-pending-badge"
                   :title="b.pendingRequestCount > 1 ? `${b.pendingRequestCount} pending requests` : 'Pending request'"
                 >{{ b.pendingRequestCount > 1 ? `Req×${b.pendingRequestCount}` : 'Req' }}</span>
+                <!-- Bottom resize handle -->
+                <div
+                  v-if="b.timedSlice && isAppointmentBlockDraggable(b)"
+                  class="cell-block-resize-handle cell-block-resize-handle--bottom"
+                  title="Drag to adjust end time"
+                  @pointerdown.stop="onCellBlockResizePointerDown($event, b, d, slot.hour, slot.minute, 'bottom')"
+                ></div>
               </div>
             </div>
           </div>
@@ -4873,19 +4888,17 @@
       </div>
     </div>
 
-    <!-- Floating drag ghost: follows cursor while dragging an appointment -->
+    <!-- Floating drag ghost: follows cursor while dragging or resizing an appointment -->
     <Teleport to="body">
       <div
-        v-if="appointmentDragState?.active && appointmentDragClientPos"
+        v-if="schedDragGhostInfo"
         class="appt-drag-ghost"
-        :style="{ left: (appointmentDragClientPos.x + 16) + 'px', top: (appointmentDragClientPos.y - 44) + 'px' }"
+        :style="{ left: (schedDragGhostInfo.x + 16) + 'px', top: (schedDragGhostInfo.y - 44) + 'px' }"
         aria-hidden="true"
       >
-        <span class="appt-drag-ghost__label">{{ appointmentDragState.label }}</span>
-        <span v-if="appointmentDragTarget" class="appt-drag-ghost__target">
-          → {{ appointmentDragTarget.dayName }} {{ hourMinuteLabel(appointmentDragTarget.hour, appointmentDragTarget.minute) }}
-        </span>
-        <span v-else class="appt-drag-ghost__hint">Drop on a time slot</span>
+        <span class="appt-drag-ghost__label">{{ schedDragGhostInfo.label }}</span>
+        <span v-if="schedDragGhostInfo.subLabel" class="appt-drag-ghost__target">{{ schedDragGhostInfo.subLabel }}</span>
+        <span v-else-if="schedDragGhostInfo.hint" class="appt-drag-ghost__hint">{{ schedDragGhostInfo.hint }}</span>
       </div>
     </Teleport>
 
@@ -18432,6 +18445,11 @@ const cellBlockStyle = (b) => {
     style.height = `${hp}%`;
     style.flex = 'none';
     style.minHeight = '18px';
+    // Draggable event types (supv/sevt) float above non-draggable office/peer blocks
+    // so users can always grab them even when they overlap.
+    if (['supv', 'sevt'].includes(kind) && !b?.isCancelled && Number(b?.eventId || 0) > 0) {
+      style.zIndex = (Number(style.zIndex) || 3) + 5;
+    }
     style.alignItems = 'flex-start';
     style.paddingTop = '4px';
     // Fewer lines on short blocks so text stays inside the colored fill.
@@ -22410,7 +22428,36 @@ const appointmentMoveDraft = ref(null);
 const appointmentDragState = ref(null);
 const appointmentDragTarget = ref(null);
 const appointmentDragClientPos = ref(null);
+const schedResizeState = ref(null);
 let suppressNextAppointmentClick = false;
+
+// Single ghost info for both drag-to-move and edge-resize
+const schedDragGhostInfo = computed(() => {
+  const pos = appointmentDragClientPos.value;
+  if (!pos) return null;
+  const ds = appointmentDragState.value;
+  if (ds?.active) {
+    const target = appointmentDragTarget.value;
+    return {
+      x: pos.x,
+      y: pos.y,
+      label: ds.label || 'Appointment',
+      subLabel: target ? `→ ${target.dayName} ${hourMinuteLabel(target.hour, target.minute)}` : null,
+      hint: !target ? 'Drop on a time slot' : null,
+    };
+  }
+  const rs = schedResizeState.value;
+  if (rs?.active) {
+    return {
+      x: pos.x,
+      y: pos.y,
+      label: rs.label || 'Appointment',
+      subLabel: clockRangeLabel(rs.newStartAt, rs.newEndAt) || null,
+      hint: null,
+    };
+  }
+  return null;
+});
 
 const isAppointmentBlockDraggable = (block) => {
   if (!canBookFromGrid.value) return false;
@@ -22477,6 +22524,116 @@ const cleanupAppointmentDragListeners = () => {
   window.removeEventListener('pointerup', onAppointmentPointerUp);
   window.removeEventListener('pointercancel', onAppointmentPointerUp);
   appointmentDragClientPos.value = null;
+};
+
+// ── Resize helpers ──────────────────────────────────────────────────────────
+
+const schedResizeOverrideStyle = (b, dayName, hour, minute) => {
+  const rs = schedResizeState.value;
+  if (!rs?.active) return {};
+  if (Number(b?.eventId) !== rs.eventId || String(b?.kind) !== rs.kind) return {};
+  if (String(dayName) !== rs.dayName || Number(hour) !== rs.hour) return {};
+  const slice = appointmentSpanSlice(rs.newStartAt, rs.newEndAt, rs.dayName, rs.hour, rs.minute);
+  if (!slice) return {};
+  return { top: `${slice.topPct}%`, height: `${slice.heightPct}%` };
+};
+
+const isBlockBeingResized = (b) => {
+  const rs = schedResizeState.value;
+  if (!rs) return false;
+  return Number(b?.eventId) === rs.eventId && String(b?.kind) === rs.kind;
+};
+
+const cleanupResizeListeners = () => {
+  window.removeEventListener('pointermove', onCellBlockResizePointerMove);
+  window.removeEventListener('pointerup', onCellBlockResizePointerUp);
+  window.removeEventListener('pointercancel', onCellBlockResizePointerUp);
+};
+
+const onCellBlockResizePointerDown = (e, b, dayName, hour, minute, edge) => {
+  if (!isAppointmentBlockDraggable(b)) return;
+  if (e?.button !== 0) return;
+  e?.stopPropagation?.();
+  e?.preventDefault?.();
+  schedResizeState.value = {
+    eventId: Number(b.eventId),
+    kind: String(b.kind),
+    providerId: Number(b.providerId || resolveBookedProviderIdForEvent(b) || props.userId || 0),
+    seriesId: String(b.recurrenceSeriesId || '').trim(),
+    label: String(b.shortLabel || b.title || 'Appointment').trim(),
+    dayName: String(dayName),
+    hour: Number(hour),
+    minute: Number(minute || 0),
+    edge,
+    origStartAt: b.startAt,
+    origEndAt: b.endAt,
+    newStartAt: b.startAt,
+    newEndAt: b.endAt,
+    originY: Number(e?.clientY || 0),
+    pointerId: e?.pointerId,
+    active: false,
+    canReschedule: blockAllowsReschedule(b),
+  };
+  try { e?.currentTarget?.setPointerCapture?.(e.pointerId); } catch {}
+  window.addEventListener('pointermove', onCellBlockResizePointerMove);
+  window.addEventListener('pointerup', onCellBlockResizePointerUp);
+  window.addEventListener('pointercancel', onCellBlockResizePointerUp);
+};
+
+const onCellBlockResizePointerMove = (e) => {
+  const rs = schedResizeState.value;
+  if (!rs) return;
+  const clientY = Number(e?.clientY || 0);
+  const clientX = Number(e?.clientX || 0);
+  const deltaY = clientY - rs.originY;
+  if (!rs.active && Math.abs(deltaY) < 4) return;
+  // Convert px → minutes (15-min snap). Each cell row = rowHeightPx; each cell = 60 or 15 min.
+  const minsPerCell = showQuarterDetail.value ? 15 : 60;
+  const pxPerMin = rowHeightPx.value / minsPerCell;
+  const deltaMin = Math.round((deltaY / pxPerMin) / 15) * 15;
+  const origStart = parseLocalDateTime(rs.origStartAt);
+  const origEnd = parseLocalDateTime(rs.origEndAt);
+  if (!origStart || !origEnd) return;
+  let newStartAt = rs.origStartAt;
+  let newEndAt = rs.origEndAt;
+  if (rs.edge === 'top') {
+    const newMs = Math.min(origEnd.getTime() - 15 * 60000, origStart.getTime() + deltaMin * 60000);
+    newStartAt = formatLocalDateTimeValue(new Date(newMs));
+  } else {
+    const newMs = Math.max(origStart.getTime() + 15 * 60000, origEnd.getTime() + deltaMin * 60000);
+    newEndAt = formatLocalDateTimeValue(new Date(newMs));
+  }
+  schedResizeState.value = { ...rs, active: true, newStartAt, newEndAt };
+  appointmentDragClientPos.value = { x: clientX, y: clientY };
+};
+
+const onCellBlockResizePointerUp = () => {
+  const rs = schedResizeState.value;
+  cleanupResizeListeners();
+  appointmentDragClientPos.value = null;
+  if (!rs) return;
+  schedResizeState.value = null;
+  if (!rs.active) return;
+  if (rs.newStartAt === rs.origStartAt && rs.newEndAt === rs.origEndAt) return;
+  if (!rs.canReschedule) {
+    flashScheduleToast('Only the host can change the time. Your resize was not saved.');
+    return;
+  }
+  appointmentMoveError.value = '';
+  appointmentMoveDraft.value = {
+    kind: rs.kind,
+    eventId: rs.eventId,
+    providerId: rs.providerId,
+    seriesId: rs.seriesId,
+    label: rs.label,
+    startAt: rs.origStartAt,
+    endAt: rs.origEndAt,
+    newStartAt: rs.newStartAt,
+    newEndAt: rs.newEndAt,
+    targetLabel: clockRangeLabel(rs.newStartAt, rs.newEndAt) || '',
+    fromLabel: clockRangeLabel(rs.origStartAt, rs.origEndAt) || '',
+  };
+  showAppointmentMoveModal.value = true;
 };
 
 const onAppointmentPointerDown = (e, block, dayName, hour, minute = 0) => {
@@ -26376,6 +26533,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   cursor: grab;
   touch-action: none;
   user-select: none;
+  position: relative;
 }
 .cell-block-dragging {
   cursor: grabbing;
@@ -26384,6 +26542,48 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.75), inset 0 0 0 1000px rgba(255,255,255,0.08);
   transform: scale(0.97);
   filter: saturate(0.6);
+}
+.cell-block-resizing {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Resize handles — visible on block hover, hidden otherwise */
+.cell-block-resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 7px;
+  cursor: ns-resize;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.cell-block-draggable:hover .cell-block-resize-handle {
+  opacity: 1;
+}
+.cell-block-resize-handle--top {
+  top: 0;
+  border-radius: 8px 8px 0 0;
+}
+.cell-block-resize-handle--bottom {
+  bottom: 0;
+  border-radius: 0 0 8px 8px;
+}
+.cell-block-resize-handle::after {
+  content: '';
+  display: block;
+  width: 22px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(59, 130, 246, 0.7);
+}
+/* Supervision blocks get a purple bar */
+.cell-block-supv .cell-block-resize-handle::after {
+  background: rgba(124, 58, 237, 0.7);
 }
 
 /* Appointment drag ghost */
