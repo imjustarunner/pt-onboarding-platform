@@ -1091,6 +1091,30 @@
           </div>
         </div>
 
+        <!-- ▲ Before-band overflow row: events that start before the visible hour range -->
+        <template v-if="!showAllHours && hasAnyBeforeBandEvents">
+          <div class="sched-hour sched-overflow-label sched-overflow-label--before">
+            <span class="sched-overflow-label__text" aria-hidden="true">↑</span>
+          </div>
+          <div
+            v-for="d in visibleDays"
+            :key="`obefore-${d}`"
+            class="sched-overflow-row sched-overflow-row--before"
+            :class="{ 'sched-overflow-row--has-events': (outOfBandCountsByDay.get(d)?.before || 0) > 0 }"
+          >
+            <button
+              v-if="(outOfBandCountsByDay.get(d)?.before || 0) > 0"
+              type="button"
+              class="sched-overflow-badge sched-overflow-badge--before"
+              :title="`${outOfBandCountsByDay.get(d).before} event${outOfBandCountsByDay.get(d).before > 1 ? 's' : ''} before ${hourLabel(gridMinHour)} — click to show full day`"
+              @click.stop="showAllHours = true"
+            >
+              <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8V2"/><path d="M2 5l3-3 3 3"/></svg>
+              {{ outOfBandCountsByDay.get(d).before }}
+            </button>
+          </div>
+        </template>
+
         <template v-for="slot in displayTimeSlots" :key="`h-${slot.key}`">
           <div
             class="sched-hour"
@@ -1209,9 +1233,9 @@
                 @click="onCellBlockClick($event, b, d, slot.hour, slot.minute)"
                 @dblclick="onCellBlockDoubleClick($event, b, d, slot.hour, slot.minute)"
               >
-                <!-- Top resize handle — only on timed, draggable blocks -->
+                <!-- Top resize handle — any draggable block -->
                 <div
-                  v-if="b.timedSlice && isAppointmentBlockDraggable(b)"
+                  v-if="isAppointmentBlockDraggable(b)"
                   class="cell-block-resize-handle cell-block-resize-handle--top"
                   title="Drag to adjust start time"
                   @pointerdown.stop="onCellBlockResizePointerDown($event, b, d, slot.hour, slot.minute, 'top')"
@@ -1286,13 +1310,37 @@
                 >{{ b.pendingRequestCount > 1 ? `Req×${b.pendingRequestCount}` : 'Req' }}</span>
                 <!-- Bottom resize handle -->
                 <div
-                  v-if="b.timedSlice && isAppointmentBlockDraggable(b)"
+                  v-if="isAppointmentBlockDraggable(b)"
                   class="cell-block-resize-handle cell-block-resize-handle--bottom"
                   title="Drag to adjust end time"
                   @pointerdown.stop="onCellBlockResizePointerDown($event, b, d, slot.hour, slot.minute, 'bottom')"
                 ></div>
               </div>
             </div>
+          </div>
+        </template>
+
+        <!-- ▼ After-band overflow row: events that end/start after the visible hour range -->
+        <template v-if="!showAllHours && hasAnyAfterBandEvents">
+          <div class="sched-hour sched-overflow-label sched-overflow-label--after">
+            <span class="sched-overflow-label__text" aria-hidden="true">↓</span>
+          </div>
+          <div
+            v-for="d in visibleDays"
+            :key="`oafter-${d}`"
+            class="sched-overflow-row sched-overflow-row--after"
+            :class="{ 'sched-overflow-row--has-events': (outOfBandCountsByDay.get(d)?.after || 0) > 0 }"
+          >
+            <button
+              v-if="(outOfBandCountsByDay.get(d)?.after || 0) > 0"
+              type="button"
+              class="sched-overflow-badge sched-overflow-badge--after"
+              :title="`${outOfBandCountsByDay.get(d).after} event${outOfBandCountsByDay.get(d).after > 1 ? 's' : ''} after ${hourLabel(gridMaxHour - 1)} — click to show full day`"
+              @click.stop="showAllHours = true"
+            >
+              {{ outOfBandCountsByDay.get(d).after }}
+              <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2v6"/><path d="M2 5l3 3 3-3"/></svg>
+            </button>
           </div>
         </template>
       </div>
@@ -5603,6 +5651,48 @@ const hours = computed(() => {
 });
 const gridMinHour = computed(() => (hours.value?.length ? Math.min(...hours.value) : 7));
 const gridMaxHour = computed(() => (hours.value?.length ? Math.max(...hours.value) + 1 : 22));
+
+// Per-day count of events that fall outside the visible hour band.
+// Used to render the ↑ before-band and ↓ after-band overflow indicator rows.
+const outOfBandCountsByDay = computed(() => {
+  const result = new Map();
+  if (showAllHours.value) return result;
+  const minH = gridMinHour.value;
+  const maxH = gridMaxHour.value;
+  const ws = summary.value?.weekStart || weekStart.value;
+  if (!ws) return result;
+  const vDays = visibleDays.value || [];
+  // Build dayName → YYYY-MM-DD for each visible day
+  const dayToYmd = {};
+  for (const d of vDays) {
+    dayToYmd[d] = addDaysYmd(ws, dayIdxFromWeekStartMonday(d));
+  }
+  for (const ev of (summary.value?.scheduleEvents || [])) {
+    const raw = ev.startAt || ev.start_at;
+    if (!raw) continue;
+    const evYmd = String(raw).slice(0, 10);
+    const dayName = vDays.find((d) => dayToYmd[d] === evYmd);
+    if (!dayName) continue;
+    const s = parseLocalDateTime(raw);
+    if (!s) continue;
+    const sh = s.getHours();
+    const endRaw = ev.endAt || ev.end_at;
+    const e = endRaw ? parseLocalDateTime(endRaw) : null;
+    const eh = e ? e.getHours() : sh + 1;
+    const em = e ? e.getMinutes() : 0;
+    if (!result.has(dayName)) result.set(dayName, { before: 0, after: 0 });
+    const entry = result.get(dayName);
+    if (sh < minH) entry.before++;
+    if (sh >= maxH || eh > maxH || (eh === maxH && em > 0)) entry.after++;
+  }
+  return result;
+});
+const hasAnyBeforeBandEvents = computed(() =>
+  !showAllHours.value && [...outOfBandCountsByDay.value.values()].some((v) => v.before > 0)
+);
+const hasAnyAfterBandEvents = computed(() =>
+  !showAllHours.value && [...outOfBandCountsByDay.value.values()].some((v) => v.after > 0)
+);
 
 const loading = ref(false);
 const error = ref('');
@@ -26624,6 +26714,55 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   from { opacity: 0; transform: scale(0.88) rotate(-1.5deg); }
   to   { opacity: 1; transform: scale(1) rotate(-1.5deg); }
 }
+/* Out-of-band overflow indicator rows */
+.sched-overflow-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+.sched-overflow-label--before { border-bottom: 1px dashed #e2e8f0; }
+.sched-overflow-label--after  { border-top:    1px dashed #e2e8f0; }
+.sched-overflow-label__text { font-size: 14px; line-height: 1; }
+
+.sched-overflow-row {
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid #e8eef5;
+}
+.sched-overflow-row--before { border-bottom: 1px dashed #e2e8f0; }
+.sched-overflow-row--after  { border-top:    1px dashed #e2e8f0; }
+
+.sched-overflow-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.07);
+  color: #4f46e5;
+  border-radius: 20px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s, transform 0.1s;
+  line-height: 1.4;
+}
+.sched-overflow-badge:hover {
+  background: rgba(99, 102, 241, 0.14);
+  border-color: rgba(99, 102, 241, 0.6);
+  transform: scale(1.05);
+}
+.sched-overflow-badge--before { color: #0369a1; border-color: rgba(3,105,161,0.3); background: rgba(3,105,161,0.07); }
+.sched-overflow-badge--before:hover { background: rgba(3,105,161,0.13); border-color: rgba(3,105,161,0.55); }
+.sched-overflow-badge--after  { color: #7c3aed; border-color: rgba(124,58,237,0.3); background: rgba(124,58,237,0.07); }
+.sched-overflow-badge--after:hover  { background: rgba(124,58,237,0.13); border-color: rgba(124,58,237,0.55); }
+
 .cell-block-timed {
   box-sizing: border-box;
 }
