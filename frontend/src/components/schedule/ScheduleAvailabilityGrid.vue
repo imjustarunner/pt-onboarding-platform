@@ -4873,6 +4873,22 @@
       </div>
     </div>
 
+    <!-- Floating drag ghost: follows cursor while dragging an appointment -->
+    <Teleport to="body">
+      <div
+        v-if="appointmentDragState?.active && appointmentDragClientPos"
+        class="appt-drag-ghost"
+        :style="{ left: (appointmentDragClientPos.x + 16) + 'px', top: (appointmentDragClientPos.y - 44) + 'px' }"
+        aria-hidden="true"
+      >
+        <span class="appt-drag-ghost__label">{{ appointmentDragState.label }}</span>
+        <span v-if="appointmentDragTarget" class="appt-drag-ghost__target">
+          → {{ appointmentDragTarget.dayName }} {{ hourMinuteLabel(appointmentDragTarget.hour, appointmentDragTarget.minute) }}
+        </span>
+        <span v-else class="appt-drag-ghost__hint">Drop on a time slot</span>
+      </div>
+    </Teleport>
+
     <div v-if="showAppointmentMoveModal" class="modal-backdrop" style="z-index: 10002;" @click.self="closeAppointmentMoveModal">
       <div class="modal cancel-meeting-modal" style="max-width: 440px;" role="dialog" aria-modal="true" aria-labelledby="appointment-move-title">
         <div class="modal-head">
@@ -22393,6 +22409,7 @@ const appointmentMoveError = ref('');
 const appointmentMoveDraft = ref(null);
 const appointmentDragState = ref(null);
 const appointmentDragTarget = ref(null);
+const appointmentDragClientPos = ref(null);
 let suppressNextAppointmentClick = false;
 
 const isAppointmentBlockDraggable = (block) => {
@@ -22459,6 +22476,7 @@ const cleanupAppointmentDragListeners = () => {
   window.removeEventListener('pointermove', onAppointmentPointerMove);
   window.removeEventListener('pointerup', onAppointmentPointerUp);
   window.removeEventListener('pointercancel', onAppointmentPointerUp);
+  appointmentDragClientPos.value = null;
 };
 
 const onAppointmentPointerDown = (e, block, dayName, hour, minute = 0) => {
@@ -22534,18 +22552,18 @@ const resolveDropFromPoint = (clientX, clientY) => {
 const onAppointmentPointerMove = (e) => {
   const st = appointmentDragState.value;
   if (!st) return;
-  const dist = Math.hypot(
-    Number(e?.clientX || 0) - Number(st.originX || 0),
-    Number(e?.clientY || 0) - Number(st.originY || 0)
-  );
+  const clientX = Number(e?.clientX || 0);
+  const clientY = Number(e?.clientY || 0);
+  const dist = Math.hypot(clientX - Number(st.originX || 0), clientY - Number(st.originY || 0));
   if (!st.active && dist >= 8) {
     st.active = true;
     st.moved = true;
     appointmentDragState.value = { ...st };
   }
   if (!st.active) return;
-  const drop = resolveDropFromPoint(Number(e?.clientX || 0), Number(e?.clientY || 0));
+  const drop = resolveDropFromPoint(clientX, clientY);
   appointmentDragTarget.value = drop;
+  appointmentDragClientPos.value = { x: clientX, y: clientY };
 };
 
 const openAppointmentMoveConfirm = (st, target) => {
@@ -26345,9 +26363,14 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   outline: 1px solid rgba(37, 99, 235, 0.35);
 }
 .sched-cell-drop-target {
-  outline: 2px solid rgba(59, 130, 246, 0.85);
+  outline: 3px solid rgba(59, 130, 246, 0.9);
   outline-offset: -2px;
-  background: rgba(59, 130, 246, 0.10);
+  background: rgba(59, 130, 246, 0.16);
+  animation: drop-cell-pulse 0.7s ease-in-out infinite;
+}
+@keyframes drop-cell-pulse {
+  0%, 100% { background: rgba(59, 130, 246, 0.16); }
+  50%       { background: rgba(59, 130, 246, 0.28); }
 }
 .cell-block-draggable {
   cursor: grab;
@@ -26356,9 +26379,50 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 }
 .cell-block-dragging {
   cursor: grabbing;
-  opacity: 0.45;
+  opacity: 0.28;
   pointer-events: none;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.65);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.75), inset 0 0 0 1000px rgba(255,255,255,0.08);
+  transform: scale(0.97);
+  filter: saturate(0.6);
+}
+
+/* Appointment drag ghost */
+.appt-drag-ghost {
+  position: fixed;
+  background: #1e3a5f;
+  color: #fff;
+  border-radius: 10px;
+  padding: 7px 12px;
+  font-size: 11px;
+  z-index: 99999;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.25), 0 0 0 1.5px rgba(255,255,255,0.12) inset;
+  white-space: nowrap;
+  min-width: 140px;
+  transform: rotate(-1.5deg);
+  animation: appt-ghost-appear 0.12s ease-out;
+}
+.appt-drag-ghost__label {
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: -0.01em;
+}
+.appt-drag-ghost__target {
+  font-size: 11px;
+  color: #93c5fd;
+  font-weight: 600;
+}
+.appt-drag-ghost__hint {
+  font-size: 10px;
+  opacity: 0.6;
+  font-style: italic;
+}
+@keyframes appt-ghost-appear {
+  from { opacity: 0; transform: scale(0.88) rotate(-1.5deg); }
+  to   { opacity: 1; transform: scale(1) rotate(-1.5deg); }
 }
 .cell-block-timed {
   box-sizing: border-box;

@@ -5,12 +5,29 @@
       <p class="task-timeline__subtitle">Click or drag empty space to add a schedule block · drop tasks on blocks</p>
     </div>
     <header class="task-timeline__head">
-      <button type="button" class="nav-btn" @click="shiftDay(-1)" aria-label="Previous day">‹</button>
+      <button
+        type="button"
+        class="nav-btn"
+        :class="{ 'nav-btn--drag-target': isAnyBlockDragging }"
+        @click="shiftDay(-1)"
+        @pointerenter="onNavDayHover(-1)"
+        aria-label="Previous day"
+      >‹</button>
       <div class="task-timeline__date">
         <strong>{{ dayLabel }}</strong>
+        <span v-if="blockDragState?.active && blockDragState.targetDayYmd !== dayYmd" class="drag-day-badge">
+          → {{ dragTargetDayLabel }}
+        </span>
         <button v-if="!isToday" type="button" class="today-btn" @click="goToday">Today</button>
       </div>
-      <button type="button" class="nav-btn" @click="shiftDay(1)" aria-label="Next day">›</button>
+      <button
+        type="button"
+        class="nav-btn"
+        :class="{ 'nav-btn--drag-target': isAnyBlockDragging }"
+        @click="shiftDay(1)"
+        @pointerenter="onNavDayHover(1)"
+        aria-label="Next day"
+      >›</button>
     </header>
 
     <div
@@ -40,22 +57,28 @@
         <div class="other-event__title">{{ ev.title }}</div>
       </div>
 
-      <!-- Schedule blocks (drop targets) -->
+      <!-- Schedule blocks (move targets + drop targets) -->
       <div
         v-for="block in positionedBlocks"
         :key="block.id"
         class="block"
         :class="{
           'block--drop': dropTargetId === block.id,
-          'block--focus': block.focus_session_enabled
+          'block--focus': block.focus_session_enabled,
+          'block--dragging': blockDragState?.active && blockDragState?.blockId === block.id,
+          'block--resizing': blockResizeState?.active && blockResizeState?.blockId === block.id,
         }"
         :style="block.style"
         @dragover.prevent="dropTargetId = block.id"
         @dragleave="onDragLeave(block.id)"
         @drop.prevent="onDrop($event, block)"
-        @pointerdown.stop
-        @click.stop="selectBlock(block)"
+        @pointerdown.stop="onBlockPointerDown($event, block)"
       >
+        <div
+          class="block__resize-handle block__resize-handle--top"
+          title="Drag to adjust start time"
+          @pointerdown.stop="onResizePointerDown($event, block, 'top')"
+        ></div>
         <div class="block__title">{{ block.title || block.reason_code || 'Focus Time' }}</div>
         <div class="block__meta">
           {{ block.assignment_count || 0 }} task{{ (block.assignment_count || 0) === 1 ? '' : 's' }}
@@ -72,6 +95,11 @@
         >
           Join Focus Session
         </button>
+        <div
+          class="block__resize-handle block__resize-handle--bottom"
+          title="Drag to adjust end time"
+          @pointerdown.stop="onResizePointerDown($event, block, 'bottom')"
+        ></div>
       </div>
 
       <!-- Drag-create preview -->
@@ -82,6 +110,15 @@
       >
         New schedule block
         <span>{{ dragPreview.label }}</span>
+      </div>
+
+      <!-- Block drag / resize landing preview -->
+      <div
+        v-if="blockLandingPreview"
+        class="block-landing-preview"
+        :style="{ top: blockLandingPreview.top + 'px', height: blockLandingPreview.height + 'px' }"
+      >
+        <span class="block-landing-preview__time">{{ blockLandingPreview.timeLabel }}</span>
       </div>
 
       <div v-if="nowTop != null" class="now-line" :style="{ top: nowTop + 'px' }">
@@ -115,10 +152,41 @@
       <p v-if="createError" class="error">{{ createError }}</p>
     </div>
 
+    <!-- Block move / resize confirmation -->
+    <div v-if="showBlockMoveConfirm && blockMoveConfirm" class="create-sheet move-confirm">
+      <h3>{{ blockMoveConfirm.isResize ? 'Resize block' : 'Move block' }}</h3>
+      <p class="muted move-confirm__range">
+        {{ blockMoveConfirm.fromLabel }}
+        <svg class="move-confirm__arrow" viewBox="0 0 16 10" width="16" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 5h13M10 1l4 4-4 4"/></svg>
+        <strong>{{ blockMoveConfirm.toLabel }}</strong>
+        <span v-if="blockMoveConfirm.targetDayYmd !== dayYmd" class="move-confirm__day"> ({{ blockMoveConfirm.targetDayYmd }})</span>
+      </p>
+      <div class="create-sheet__actions">
+        <button type="button" class="btn btn-primary btn-sm" :disabled="blockMoveSaving" @click="confirmBlockMove">
+          {{ blockMoveSaving ? 'Saving…' : 'Confirm' }}
+        </button>
+        <button type="button" class="btn btn-ghost btn-sm" :disabled="blockMoveSaving" @click="cancelBlockMove">Cancel</button>
+      </div>
+      <p v-if="blockMoveError" class="error">{{ blockMoveError }}</p>
+    </div>
+
     <footer class="task-timeline__foot">
       <button type="button" class="btn-add-block" @click="addBlockAtNow">+ Add Time Block</button>
     </footer>
   </aside>
+
+  <!-- Floating ghost follows cursor while dragging / resizing a block -->
+  <Teleport to="body">
+    <div
+      v-if="blockGhost"
+      class="block-drag-ghost"
+      :style="{ left: (blockGhost.x + 14) + 'px', top: (blockGhost.y - 44) + 'px' }"
+      aria-hidden="true"
+    >
+      <span class="block-drag-ghost__title">{{ blockGhost.title }}</span>
+      <span class="block-drag-ghost__time">{{ blockGhost.timeLabel }}</span>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -150,6 +218,18 @@ const axisRef = ref(null);
 const dragState = ref(null);
 const dragPreview = ref(null);
 const showCreateSheet = ref(false);
+
+// Block drag-to-move state
+const blockDragState = ref(null);
+// Block edge-resize state
+const blockResizeState = ref(null);
+// Floating ghost following cursor
+const blockGhost = ref(null);
+// Pending confirmation after drag/resize
+const blockMoveConfirm = ref(null);
+const showBlockMoveConfirm = ref(false);
+const blockMoveSaving = ref(false);
+const blockMoveError = ref('');
 const createStartMin = ref(null);
 const createEndMin = ref(null);
 const createTitle = ref('Focus Time');
@@ -165,6 +245,12 @@ const AXIS_START = 0;
 const AXIS_END = 24;
 
 const isToday = computed(() => dayYmd.value === toYmd(new Date()));
+const isAnyBlockDragging = computed(() => !!(blockDragState.value?.active || blockResizeState.value?.active));
+const dragTargetDayLabel = computed(() => {
+  const ymd = blockDragState.value?.targetDayYmd;
+  if (!ymd) return '';
+  return parseYmd(ymd).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+});
 const dayLabel = computed(() => {
   const d = parseYmd(dayYmd.value);
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -204,6 +290,26 @@ const positionedOtherEvents = computed(() =>
     };
   })
 );
+
+const blockLandingPreview = computed(() => {
+  const ds = blockDragState.value;
+  if (ds?.active && ds.newStartMin != null && ds.targetDayYmd === dayYmd.value) {
+    const startMin = ds.newStartMin;
+    const endMin = ds.newStartMin + ds.durationMin;
+    const top = ((startMin - AXIS_START * 60) / 60) * PX_PER_HOUR;
+    const height = Math.max(((endMin - startMin) / 60) * PX_PER_HOUR, 36);
+    return { top, height, timeLabel: `${minsToLabel(startMin)} – ${minsToLabel(endMin)}` };
+  }
+  const rs = blockResizeState.value;
+  if (rs?.active && rs.newStartMin != null && rs.newEndMin != null) {
+    const startMin = rs.newStartMin;
+    const endMin = rs.newEndMin;
+    const top = ((startMin - AXIS_START * 60) / 60) * PX_PER_HOUR;
+    const height = Math.max(((endMin - startMin) / 60) * PX_PER_HOUR, 36);
+    return { top, height, timeLabel: `${minsToLabel(startMin)} – ${minsToLabel(endMin)}` };
+  }
+  return null;
+});
 
 const nowTop = computed(() => {
   if (!isToday.value) return null;
@@ -402,6 +508,199 @@ function clearDragListeners() {
   window.removeEventListener('pointercancel', onWindowPointerUp);
 }
 
+// ── Block drag-to-move ──────────────────────────────────────────────────────
+
+function onBlockPointerDown(ev, block) {
+  if (ev.button !== 0) return;
+  if (showCreateSheet.value || showBlockMoveConfirm.value) return;
+  const { startMin, endMin } = blockMinutes(block);
+  const durationMin = Math.max(15, endMin - startMin);
+  const pointerMin = yToMinutes(ev.clientY);
+  const pointerOffsetMin = Math.max(0, Math.min(durationMin, pointerMin - startMin));
+  blockDragState.value = {
+    blockId: block.id,
+    block,
+    startMin,
+    endMin,
+    durationMin,
+    pointerOffsetMin,
+    originX: ev.clientX,
+    originY: ev.clientY,
+    active: false,
+    pointerId: ev.pointerId,
+    newStartMin: startMin,
+    newEndMin: endMin,
+    targetDayYmd: dayYmd.value,
+  };
+  window.addEventListener('pointermove', onBlockDragPointerMove);
+  window.addEventListener('pointerup', onBlockDragPointerUp);
+  window.addEventListener('pointercancel', onBlockDragPointerUp);
+}
+
+function onBlockDragPointerMove(ev) {
+  const ds = blockDragState.value;
+  if (!ds || ev.pointerId !== ds.pointerId) return;
+  const dist = Math.hypot(ev.clientX - ds.originX, ev.clientY - ds.originY);
+  if (!ds.active && dist < 8) return;
+  const pointerMin = yToMinutes(ev.clientY);
+  const raw = pointerMin - ds.pointerOffsetMin;
+  const snapped = Math.round(raw / 15) * 15;
+  const newStartMin = Math.max(AXIS_START * 60, Math.min(AXIS_END * 60 - ds.durationMin, snapped));
+  const newEndMin = newStartMin + ds.durationMin;
+  blockDragState.value = { ...ds, active: true, newStartMin, newEndMin };
+  blockGhost.value = {
+    title: ds.block.title || ds.block.reason_code || 'Focus Time',
+    timeLabel: `${minsToLabel(newStartMin)} – ${minsToLabel(newEndMin)}`,
+    x: ev.clientX,
+    y: ev.clientY,
+  };
+}
+
+function onBlockDragPointerUp(ev) {
+  const ds = blockDragState.value;
+  if (!ds || ev.pointerId !== ds.pointerId) return;
+  clearBlockDragListeners();
+  blockGhost.value = null;
+  if (!ds.active) {
+    blockDragState.value = null;
+    selectBlock(ds.block);
+    return;
+  }
+  blockDragState.value = null;
+  const sameTime = ds.newStartMin === ds.startMin && ds.targetDayYmd === dayYmd.value;
+  if (sameTime) return;
+  blockMoveConfirm.value = {
+    block: ds.block,
+    newStartMin: ds.newStartMin,
+    newEndMin: ds.newEndMin,
+    targetDayYmd: ds.targetDayYmd || dayYmd.value,
+    fromLabel: `${minsToLabel(ds.startMin)} – ${minsToLabel(ds.endMin)}`,
+    toLabel: `${minsToLabel(ds.newStartMin)} – ${minsToLabel(ds.newEndMin)}`,
+    isResize: false,
+  };
+  showBlockMoveConfirm.value = true;
+}
+
+function clearBlockDragListeners() {
+  window.removeEventListener('pointermove', onBlockDragPointerMove);
+  window.removeEventListener('pointerup', onBlockDragPointerUp);
+  window.removeEventListener('pointercancel', onBlockDragPointerUp);
+}
+
+function onNavDayHover(delta) {
+  if (!blockDragState.value?.active) return;
+  const d = parseYmd(blockDragState.value.targetDayYmd || dayYmd.value);
+  d.setDate(d.getDate() + delta);
+  blockDragState.value = { ...blockDragState.value, targetDayYmd: toYmd(d) };
+}
+
+// ── Block edge resize ───────────────────────────────────────────────────────
+
+function onResizePointerDown(ev, block, edge) {
+  if (ev.button !== 0) return;
+  if (showCreateSheet.value || showBlockMoveConfirm.value) return;
+  const { startMin, endMin } = blockMinutes(block);
+  blockResizeState.value = {
+    blockId: block.id,
+    block,
+    edge,
+    origStartMin: startMin,
+    origEndMin: endMin,
+    newStartMin: startMin,
+    newEndMin: endMin,
+    originY: ev.clientY,
+    active: false,
+    pointerId: ev.pointerId,
+  };
+  window.addEventListener('pointermove', onResizePointerMove);
+  window.addEventListener('pointerup', onResizePointerUp);
+  window.addEventListener('pointercancel', onResizePointerUp);
+  ev.preventDefault();
+}
+
+function onResizePointerMove(ev) {
+  const rs = blockResizeState.value;
+  if (!rs || ev.pointerId !== rs.pointerId) return;
+  const dist = Math.abs(ev.clientY - rs.originY);
+  if (!rs.active && dist < 4) return;
+  const pointerMin = yToMinutes(ev.clientY);
+  const snapped = Math.round(pointerMin / 15) * 15;
+  let newStartMin = rs.origStartMin;
+  let newEndMin = rs.origEndMin;
+  if (rs.edge === 'top') {
+    newStartMin = Math.max(AXIS_START * 60, Math.min(rs.origEndMin - 15, snapped));
+  } else {
+    newEndMin = Math.min(AXIS_END * 60, Math.max(rs.origStartMin + 15, snapped));
+  }
+  blockResizeState.value = { ...rs, active: true, newStartMin, newEndMin };
+  blockGhost.value = {
+    title: rs.block.title || rs.block.reason_code || 'Focus Time',
+    timeLabel: `${minsToLabel(newStartMin)} – ${minsToLabel(newEndMin)}`,
+    x: ev.clientX,
+    y: ev.clientY,
+    isResize: true,
+    edge: rs.edge,
+  };
+}
+
+function onResizePointerUp(ev) {
+  const rs = blockResizeState.value;
+  if (!rs || ev.pointerId !== rs.pointerId) return;
+  window.removeEventListener('pointermove', onResizePointerMove);
+  window.removeEventListener('pointerup', onResizePointerUp);
+  window.removeEventListener('pointercancel', onResizePointerUp);
+  blockGhost.value = null;
+  if (!rs.active || (rs.newStartMin === rs.origStartMin && rs.newEndMin === rs.origEndMin)) {
+    blockResizeState.value = null;
+    return;
+  }
+  const block = rs.block;
+  blockResizeState.value = null;
+  blockMoveConfirm.value = {
+    block,
+    newStartMin: rs.newStartMin,
+    newEndMin: rs.newEndMin,
+    targetDayYmd: dayYmd.value,
+    fromLabel: `${minsToLabel(rs.origStartMin)} – ${minsToLabel(rs.origEndMin)}`,
+    toLabel: `${minsToLabel(rs.newStartMin)} – ${minsToLabel(rs.newEndMin)}`,
+    isResize: true,
+  };
+  showBlockMoveConfirm.value = true;
+}
+
+async function confirmBlockMove() {
+  const c = blockMoveConfirm.value;
+  if (!c) return;
+  blockMoveSaving.value = true;
+  blockMoveError.value = '';
+  try {
+    const uid = authStore.user?.id;
+    if (!uid) throw new Error('Not authenticated');
+    const tDay = c.targetDayYmd || dayYmd.value;
+    const sh = Math.floor(c.newStartMin / 60);
+    const sm = c.newStartMin % 60;
+    const eh = Math.floor(c.newEndMin / 60);
+    const em = c.newEndMin % 60;
+    const startAt = `${tDay}T${pad2(sh)}:${pad2(sm)}:00`;
+    const endAt = `${tDay}T${pad2(eh)}:${pad2(em)}:00`;
+    await api.patch(`/users/${uid}/schedule-events/${c.block.id}`, { startAt, endAt }, { skipGlobalLoading: true });
+    showBlockMoveConfirm.value = false;
+    blockMoveConfirm.value = null;
+    if (tDay !== dayYmd.value) dayYmd.value = tDay;
+    await fetchBlocks();
+  } catch (e) {
+    blockMoveError.value = e?.response?.data?.error?.message || e?.message || 'Failed to update block';
+  } finally {
+    blockMoveSaving.value = false;
+  }
+}
+
+function cancelBlockMove() {
+  showBlockMoveConfirm.value = false;
+  blockMoveConfirm.value = null;
+  blockMoveError.value = '';
+}
+
 function openCreateSheetFromRange(startMin, endMin) {
   let a = startMin;
   let b = endMin;
@@ -558,6 +857,10 @@ onMounted(() => {
 onUnmounted(() => {
   if (timer) clearInterval(timer);
   clearDragListeners();
+  clearBlockDragListeners();
+  window.removeEventListener('pointermove', onResizePointerMove);
+  window.removeEventListener('pointerup', onResizePointerUp);
+  window.removeEventListener('pointercancel', onResizePointerUp);
 });
 
 defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assignedIds });
@@ -698,14 +1001,138 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
   border-left: 4px solid #16a34a;
   border-radius: 8px;
   padding: 6px 8px;
-  cursor: pointer;
+  cursor: grab;
   overflow: hidden;
   z-index: 2;
+  touch-action: none;
+  user-select: none;
+  transition: opacity 0.15s, box-shadow 0.15s;
+}
+.block:hover {
+  box-shadow: 0 2px 8px rgba(22,163,74,0.18);
 }
 .block--focus { border-left-color: #7c3aed; background: #f5f3ff; }
+.block--focus:hover { box-shadow: 0 2px 8px rgba(124,58,237,0.18); }
 .block--drop {
   outline: 2px dashed #166534;
   background: #dcfce7;
+}
+.block--dragging {
+  opacity: 0.35;
+  cursor: grabbing;
+  pointer-events: none;
+  box-shadow: 0 0 0 2px rgba(22,163,74,0.6);
+}
+.block--resizing {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Resize handles — shown on hover */
+.block__resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 10px;
+  cursor: ns-resize;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.block:hover .block__resize-handle {
+  opacity: 1;
+}
+.block__resize-handle--top {
+  top: 0;
+  border-radius: 8px 8px 0 0;
+}
+.block__resize-handle--bottom {
+  bottom: 0;
+  border-radius: 0 0 8px 8px;
+}
+.block__resize-handle::after {
+  content: '';
+  display: block;
+  width: 28px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(22,163,74,0.65);
+}
+.block--focus .block__resize-handle::after {
+  background: rgba(124,58,237,0.65);
+}
+
+/* Landing preview for block drag / resize */
+.block-landing-preview {
+  position: absolute;
+  left: 52px;
+  right: 8px;
+  border: 2px dashed #16a34a;
+  border-radius: 8px;
+  background: rgba(22,163,74,0.08);
+  z-index: 3;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.block-landing-preview__time {
+  font-size: 11px;
+  font-weight: 700;
+  color: #16a34a;
+  background: rgba(255,255,255,0.7);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+/* Nav day shift indicator during drag */
+.nav-btn--drag-target {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #14532d;
+  animation: nav-pulse 1s ease-in-out infinite;
+}
+@keyframes nav-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(22,163,74,0.35); }
+  50% { box-shadow: 0 0 0 5px rgba(22,163,74,0.12); }
+}
+.drag-day-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: #7c3aed;
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* Move / resize confirmation */
+.move-confirm {
+  background: #f0fdf4;
+  border-top: 2px solid #bbf7d0;
+}
+.move-confirm h3 { color: #14532d; }
+.move-confirm__range {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 12px;
+  margin: 4px 0 10px;
+  color: #334155;
+}
+.move-confirm__arrow {
+  color: #64748b;
+  flex-shrink: 0;
+}
+.move-confirm__day {
+  color: #7c3aed;
+  font-weight: 600;
 }
 .block__title { font-size: 12px; font-weight: 700; color: #0f172a; }
 .block__meta { font-size: 11px; color: #64748b; }
@@ -869,6 +1296,39 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
     flex: 1 1 auto;
     max-height: 420px;
   }
+}
+
+/* Floating ghost — teleported to <body>, renders above everything */
+:global(.block-drag-ghost) {
+  position: fixed;
+  background: #166534;
+  color: #fff;
+  border-radius: 10px;
+  padding: 7px 12px;
+  font-size: 11px;
+  z-index: 99999;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.22), 0 0 0 1.5px rgba(255,255,255,0.15) inset;
+  white-space: nowrap;
+  min-width: 130px;
+  transform: rotate(-1deg);
+  animation: ghost-appear 0.12s ease-out;
+}
+:global(.block-drag-ghost__title) {
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: -0.01em;
+}
+:global(.block-drag-ghost__time) {
+  font-size: 11px;
+  opacity: 0.82;
+}
+@keyframes ghost-appear {
+  from { opacity: 0; transform: scale(0.9) rotate(-1deg); }
+  to   { opacity: 1; transform: scale(1) rotate(-1deg); }
 }
 :global(html.dark) .task-timeline,
 :global(.dark) .task-timeline {
