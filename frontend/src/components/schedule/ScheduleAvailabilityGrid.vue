@@ -24356,6 +24356,7 @@ const formatRangeFromRaw = (startAt, endAt) => {
 const SCHEDULE_EVENT_KIND_LABELS = {
   SKILL_BUILDERS_PROGRAM: 'Skill Builders program',
   COMPANY_EVENT_BOOKING: 'Program event',
+  COMPANY_EVENT_OPEN: 'Open event',
   TEAM_MEETING: 'Team meeting',
   HUDDLE: 'Huddle',
   PERSONAL_EVENT: 'Personal',
@@ -24369,9 +24370,11 @@ const SCHEDULE_EVENT_KIND_LABELS = {
 
 const scheduleKindLabel = (kindRaw, ev = null) => {
   const k = String(kindRaw || '').trim().toUpperCase();
-  if (k === 'COMPANY_EVENT_BOOKING') {
+  if (k === 'COMPANY_EVENT_BOOKING' || k === 'COMPANY_EVENT_OPEN') {
     const et = String(ev?.eventType || '').trim().toLowerCase();
-    if (et.startsWith('school_') || ev?.isSchoolPortalEvent) return 'School event';
+    if (et.startsWith('school_') || ev?.isSchoolPortalEvent) {
+      return k === 'COMPANY_EVENT_OPEN' ? 'Open school event' : 'School event';
+    }
   }
   if (k === 'PERSONAL_EVENT' || (!k && isClientSessionScheduleEvent(ev))) {
     if (isClientSessionScheduleEvent(ev || { kind: k })) return 'Session';
@@ -24403,7 +24406,7 @@ const formatSessionProviderName = (p) => {
 
 const scheduleEventStackExtras = (ev) => {
   const kind = String(ev?.kind || '').trim().toUpperCase();
-  if (kind !== 'COMPANY_EVENT_BOOKING') return {};
+  if (kind !== 'COMPANY_EVENT_BOOKING' && kind !== 'COMPANY_EVENT_OPEN') return {};
   return {
     companyEventId: Number(ev?.companyEventId || 0) || null,
     sessionDateId: Number(ev?.sessionDateId || ev?.id || 0) || null,
@@ -24608,7 +24611,8 @@ const buildScheduleEventDetailText = (ev) => {
       lines.push('No providers on this roster or per-session assignment.');
     }
   }
-  if (kind === 'COMPANY_EVENT_BOOKING') {
+  if (kind === 'COMPANY_EVENT_BOOKING' || kind === 'COMPANY_EVENT_OPEN') {
+    if (kind === 'COMPANY_EVENT_OPEN') lines.push('Open — sign up via Event Shift Requests');
     const statusLabel = String(ev?.assignmentStatusLabel || ev?.assignmentStatus || '').trim();
     if (statusLabel) lines.push(`Assignment: ${statusLabel}`);
     const school = String(ev?.schoolName || '').trim();

@@ -4938,6 +4938,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
                 ce.id AS company_event_id,
                 ce.title AS event_title,
                 ce.event_type,
+                ce.employee_report_time,
+                ce.employee_departure_time,
                 sch.name AS school_name,
                 cesp.assignment_status
          FROM company_event_session_providers cesp
@@ -5136,15 +5138,31 @@ export const getUserScheduleSummary = async (req, res, next) => {
           sessionProviders,
           eventRosterProviders,
           participantCount: participants.count,
-          participantAges: [...participants.ages].sort((a, b) => a - b)
+          participantAges: [...participants.ages].sort((a, b) => a - b),
+          employeeReportTime: reportTime || null,
+          employeeDepartureTime: departureTime || null
         };
         const startRaw = r.starts_at;
         const endRaw = r.ends_at;
         const dateOnly = r.session_date ? String(r.session_date).slice(0, 10) : null;
+        // Use employee_report_time (TIME) on the session date as the calendar start when set,
+        // so the block begins at the staff report time rather than the public event start.
+        const reportTime = r.employee_report_time ? String(r.employee_report_time).slice(0, 8) : null;
+        const departureTime = r.employee_departure_time ? String(r.employee_departure_time).slice(0, 8) : null;
         if (startRaw && endRaw) {
-          const startAtOut = toIsoUtcForSchedule(startRaw) || toMysqlDateTimeWall(startRaw) || startRaw;
-          const endAtOut = toIsoUtcForSchedule(endRaw) || toMysqlDateTimeWall(endRaw) || endRaw;
+          let startAtOut = toIsoUtcForSchedule(startRaw) || toMysqlDateTimeWall(startRaw) || startRaw;
+          let endAtOut = toIsoUtcForSchedule(endRaw) || toMysqlDateTimeWall(endRaw) || endRaw;
           if (!startAtOut || !endAtOut) continue;
+          // Override start with report_time when available (keep same date, replace time).
+          if (reportTime && dateOnly) {
+            const reportWall = `${dateOnly} ${reportTime}`;
+            startAtOut = toIsoUtcForSchedule(reportWall) || toMysqlDateTimeWall(reportWall) || reportWall;
+          }
+          // Override end with departure_time when available.
+          if (departureTime && dateOnly) {
+            const departureWall = `${dateOnly} ${departureTime}`;
+            endAtOut = toIsoUtcForSchedule(departureWall) || toMysqlDateTimeWall(departureWall) || departureWall;
+          }
           scheduleEvents.push({
             id: sessionDateId,
             agencyId: Number(agencyId),
@@ -5172,17 +5190,27 @@ export const getUserScheduleSummary = async (req, res, next) => {
             ...bookingExtras
           });
         } else if (dateOnly) {
+          // When session has no starts_at/ends_at but we have report_time + departure_time,
+          // convert to a timed block so it appears correctly on the schedule grid.
+          const reportWall = reportTime ? `${dateOnly} ${reportTime}` : null;
+          const departureWall = departureTime ? `${dateOnly} ${departureTime}` : null;
+          const timedStartOut = reportWall
+            ? (toIsoUtcForSchedule(reportWall) || toMysqlDateTimeWall(reportWall) || reportWall)
+            : null;
+          const timedEndOut = departureWall
+            ? (toIsoUtcForSchedule(departureWall) || toMysqlDateTimeWall(departureWall) || departureWall)
+            : null;
           scheduleEvents.push({
             id: sessionDateId,
             agencyId: Number(agencyId),
             kind: 'COMPANY_EVENT_BOOKING',
             title,
             isPrivate: false,
-            allDay: true,
-            startAt: null,
-            endAt: null,
-            startDate: dateOnly,
-            endDate: addDaysYmd(dateOnly, 1),
+            allDay: !timedStartOut || !timedEndOut,
+            startAt: timedStartOut || null,
+            endAt: timedEndOut || null,
+            startDate: (!timedStartOut || !timedEndOut) ? dateOnly : null,
+            endDate: (!timedStartOut || !timedEndOut) ? addDaysYmd(dateOnly, 1) : null,
             reasonCode: null,
             recurrenceSeriesId: null,
             recurrenceFrequency: null,
@@ -5202,6 +5230,156 @@ export const getUserScheduleSummary = async (req, res, next) => {
       }
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    // 4f) Open school/company events in the week window that the provider is NOT already assigned to.
+    //     These appear as COMPANY_EVENT_OPEN so providers can see what's available and sign up.
+    //     Only events with staffing signup enabled (or school outreach) that are not yet fully staffed.
+    try {
+      const schoolTypeList = [
+        'school_back_to_school', 'school_fall_check_in', 'school_spring_event',
+        'school_first_day', 'school_open_house', 'school_resource_fair',
+        'school_family_night', 'school_orientation', 'school_holiday',
+        'school_day_off', 'school_other'
+      ];
+      const stPh = schoolTypeList.map(() => '?').join(',');
+      const [openRows] = await pool.execute(
+        `SELECT cesd.id AS session_date_id,
+                cesd.session_date,
+                cesd.starts_at,
+                cesd.ends_at,
+                cesd.timezone,
+                cesd.location_label,
+                ce.id AS company_event_id,
+                ce.title AS event_title,
+                ce.event_type,
+                ce.staffing_config_json,
+                ce.outreach_table_invited,
+                ce.employee_report_time,
+                ce.employee_departure_time,
+                sch.name AS school_name,
+                COUNT(cesp_all.provider_user_id) AS assigned_count
+         FROM company_event_session_dates cesd
+         INNER JOIN company_events ce ON ce.id = cesd.company_event_id
+           AND ce.agency_id = ?
+           AND ce.is_active = 1
+           AND ce.event_type IN (${stPh})
+           AND NOT EXISTS (
+             SELECT 1 FROM skills_groups sg
+             WHERE sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
+           )
+         LEFT JOIN agencies sch ON sch.id = ce.organization_id
+         LEFT JOIN company_event_session_providers cesp_all
+           ON cesp_all.session_date_id = cesd.id
+         WHERE (
+             (cesd.starts_at IS NOT NULL AND cesd.ends_at IS NOT NULL AND cesd.starts_at < ? AND cesd.ends_at > ?)
+             OR (cesd.session_date >= ? AND cesd.session_date < ?)
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM company_event_session_providers cesp_me
+             WHERE cesp_me.session_date_id = cesd.id AND cesp_me.provider_user_id = ?
+           )
+         GROUP BY cesd.id, ce.id
+         ORDER BY COALESCE(cesd.starts_at, CONCAT(cesd.session_date, ' 00:00:00')) ASC, cesd.id ASC
+         LIMIT 200`,
+        [agencyId, ...schoolTypeList, windowEnd, windowStart, weekStart, weekEnd, providerId]
+      );
+
+      for (const r of openRows || []) {
+        // Only show if staffing signup is open for this event.
+        const eventType = String(r.event_type || '').trim().toLowerCase();
+        let staffingEnabled = false;
+        try {
+          const cfg = r.staffing_config_json
+            ? (typeof r.staffing_config_json === 'string' ? JSON.parse(r.staffing_config_json) : r.staffing_config_json)
+            : null;
+          if (cfg?.enabled && cfg?.providerSignup?.enabled !== false) staffingEnabled = true;
+        } catch { /* ignore */ }
+        const isOutreach = !!(r.outreach_table_invited === 1 || r.outreach_table_invited === true);
+        if (!staffingEnabled && !isOutreach) continue;
+
+        const sessionDateId = Number(r.session_date_id);
+        const companyEventId = Number(r.company_event_id) || null;
+        const isSchoolEvent = eventType.startsWith('school_');
+        const schoolName = String(r.school_name || '').trim();
+        const evTitle = String(r.event_title || '').trim() || (isSchoolEvent ? 'School event' : 'Program event');
+        const title = isSchoolEvent && schoolName && !evTitle.toLowerCase().includes(schoolName.toLowerCase())
+          ? `${evTitle} — ${schoolName}`
+          : evTitle;
+
+        const reportTime4f = r.employee_report_time ? String(r.employee_report_time).slice(0, 8) : null;
+        const departureTime4f = r.employee_departure_time ? String(r.employee_departure_time).slice(0, 8) : null;
+        const dateOnly4f = r.session_date ? String(r.session_date).slice(0, 10) : null;
+        const startRaw4f = r.starts_at;
+        const endRaw4f = r.ends_at;
+
+        let startAtOut4f = null;
+        let endAtOut4f = null;
+        let allDay4f = false;
+        let startDate4f = null;
+        let endDate4f = null;
+
+        if (startRaw4f && endRaw4f) {
+          startAtOut4f = toIsoUtcForSchedule(startRaw4f) || toMysqlDateTimeWall(startRaw4f) || startRaw4f;
+          endAtOut4f = toIsoUtcForSchedule(endRaw4f) || toMysqlDateTimeWall(endRaw4f) || endRaw4f;
+          if (reportTime4f && dateOnly4f) {
+            const rw = `${dateOnly4f} ${reportTime4f}`;
+            startAtOut4f = toIsoUtcForSchedule(rw) || toMysqlDateTimeWall(rw) || rw;
+          }
+          if (departureTime4f && dateOnly4f) {
+            const dw = `${dateOnly4f} ${departureTime4f}`;
+            endAtOut4f = toIsoUtcForSchedule(dw) || toMysqlDateTimeWall(dw) || dw;
+          }
+        } else if (dateOnly4f) {
+          const rw = reportTime4f ? `${dateOnly4f} ${reportTime4f}` : null;
+          const dw = departureTime4f ? `${dateOnly4f} ${departureTime4f}` : null;
+          if (rw && dw) {
+            startAtOut4f = toIsoUtcForSchedule(rw) || toMysqlDateTimeWall(rw) || rw;
+            endAtOut4f = toIsoUtcForSchedule(dw) || toMysqlDateTimeWall(dw) || dw;
+          } else {
+            allDay4f = true;
+            startDate4f = dateOnly4f;
+            endDate4f = addDaysYmd(dateOnly4f, 1);
+          }
+        }
+
+        if (!startAtOut4f && !allDay4f) continue;
+
+        scheduleEvents.push({
+          id: sessionDateId,
+          agencyId: Number(agencyId),
+          kind: 'COMPANY_EVENT_OPEN',
+          title,
+          isPrivate: false,
+          allDay: allDay4f,
+          startAt: startAtOut4f || null,
+          endAt: endAtOut4f || null,
+          startDate: startDate4f,
+          endDate: endDate4f,
+          reasonCode: null,
+          recurrenceSeriesId: null,
+          recurrenceFrequency: null,
+          recurrencePolicy: null,
+          recurrenceIndex: null,
+          googleEventId: null,
+          htmlLink: null,
+          meetLink: null,
+          appJoinUrl: null,
+          assignmentStatus: null,
+          assignmentStatusLabel: null,
+          locationLabel: (r.location_label ? String(r.location_label).trim() : null) || schoolName || null,
+          timezone: r.timezone ? String(r.timezone).trim() : null,
+          companyEventId,
+          sessionDateId,
+          eventType: eventType || null,
+          isSchoolPortalEvent: isSchoolEvent,
+          schoolName: schoolName || null,
+          employeeReportTime: reportTime4f || null,
+          employeeDepartureTime: departureTime4f || null
+        });
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
     }
 
     // 5) Optional busy overlays (busy blocks only)
