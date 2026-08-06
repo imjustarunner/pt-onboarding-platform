@@ -1142,7 +1142,52 @@ export const getClientDayAssignmentContext = async (req, res, next) => {
       );
 
       const assignedDays = Array.isArray(p.assigned_days) ? p.assigned_days : [];
-      const workDays = (workRows || []).map((r) => ({
+
+      let effectiveWorkRows = workRows || [];
+
+      // Fallback: if provider_school_assignments has no active rows for this provider at this
+      // school (e.g. rows became inactive after a year rollover, or were never created for a
+      // provider who just took over clients), synthesise work-day entries so they can still
+      // complete the continuation checklist.  Try two sources in order:
+      //   1. Days from active client_provider_assignments at this school (most specific)
+      //   2. Days from inactive provider_school_assignments (reflects confirmed prior schedule)
+      if (!effectiveWorkRows.length) {
+        const [cpaFallback] = await pool.execute(
+          `SELECT DISTINCT cpa.service_day AS day_of_week
+           FROM client_provider_assignments cpa
+           WHERE cpa.organization_id = ?
+             AND cpa.provider_user_id = ?
+             AND cpa.is_active = TRUE
+             AND cpa.service_day IS NOT NULL
+             AND cpa.service_day IN (${allowedDays.map(() => '?').join(',')})`,
+          [schoolId, p.provider_user_id, ...allowedDays]
+        );
+        if (cpaFallback && cpaFallback.length) {
+          effectiveWorkRows = cpaFallback.map((r) => ({
+            day_of_week: String(r.day_of_week),
+            slots_total: null,
+            slots_available: null,
+            start_time: null,
+            end_time: null
+          }));
+        }
+      }
+
+      if (!effectiveWorkRows.length) {
+        // Last resort: inactive provider_school_assignments rows (schedule confirmed for prior
+        // year but not yet reactivated).  Return them so the provider isn't completely blocked.
+        const [psaInactive] = await pool.execute(
+          `SELECT day_of_week, slots_total, slots_available, start_time, end_time
+           FROM provider_school_assignments
+           WHERE school_organization_id = ? AND provider_user_id = ?
+             AND day_of_week IN (${allowedDays.map(() => '?').join(',')})
+           ORDER BY FIELD(day_of_week, ${allowedDays.map(() => '?').join(',')})`,
+          [schoolId, p.provider_user_id, ...allowedDays, ...allowedDays]
+        );
+        effectiveWorkRows = psaInactive || [];
+      }
+
+      const workDays = effectiveWorkRows.map((r) => ({
         day_of_week: String(r.day_of_week),
         slots_total: r.slots_total == null ? null : Number(r.slots_total),
         slots_available: r.slots_available == null ? null : Number(r.slots_available),

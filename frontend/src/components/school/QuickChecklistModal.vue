@@ -320,6 +320,11 @@ const save = async () => {
   if (!props.client?.id) return;
   const plan = form.value.continuation?.plan || '';
   if (showContinuationServices.value && plan === 'continue_school') {
+    if (!workDays.value.length) {
+      error.value =
+        'No work days found at this school for your schedule. Please confirm your school schedule in Provider Schedule, then try again.';
+      return;
+    }
     if (!(form.value.continuation.serviceDays || []).length) {
       error.value = 'Select at least one day of the week for this client.';
       return;
