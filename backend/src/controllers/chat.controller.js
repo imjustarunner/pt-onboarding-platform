@@ -449,7 +449,10 @@ async function resolveDirectThreadAgencyId(
   const isSuperAdmin = String(viewerRole || '').toLowerCase() === 'super_admin';
 
   if (await otherUserAllowedInAgency(otherUserId, reqAgency, organizationId)) {
-    if (isSuperAdmin || (await userInAgency(meUserId, reqAgency))) {
+    const meInAgency = isSuperAdmin || (await userInAgency(meUserId, reqAgency));
+    // School staff are in the school org's user_agencies, not the parent agency.
+    const meInOrg = organizationId ? (await userInAgency(meUserId, organizationId)) : false;
+    if (meInAgency || meInOrg) {
       return reqAgency;
     }
   }
