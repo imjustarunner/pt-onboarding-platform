@@ -4601,12 +4601,9 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       'Employee',
       'Benefit Tier',
       'Direct Hour Credits',
-      'Direct Taxable Pay',
       'Direct Hourly Rate',
       'Indirect Hour Credits',
-      'Indirect Taxable Pay',
       'Indirect Hourly Rate',
-      'Total Taxable Pay',
       'Total Extra Taxable Pay (No Hours)',
       'PTO Pay',
       'Sick Leave PTO (Hours)',
@@ -4784,22 +4781,16 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
         return ptoTakenHours * ptoRate;
       })();
 
-      const nonTaxableTotal = safeNum(adjFromBreakdown?.nonTaxableAmount ?? (mileage + reimbursement + tuition));
-      // Salary is base taxable pay; taxable total should include salary + hourly taxable pay + taxable adjustments.
       const totalPay = safeNum(s.total_amount || 0);
-      const taxableTotal = safeNum(totalPay - nonTaxableTotal);
 
       lines.push(
         [
           csvEscape(employee),
           csvEscape(fmtTierExportCell(s)),
           fmt2(directCredits),
-          fmt2(directTaxablePay),
           fmt2(directRate),
           fmt2(indirectCredits),
-          fmt2(indirectTaxablePay),
           fmt2(indirectRate),
-          fmt2(taxableTotal),
           fmt2(extraTaxableNoHours),
           fmt2(ptoPay),
           fmt2(sickPtoCsv),
