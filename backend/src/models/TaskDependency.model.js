@@ -1,4 +1,9 @@
 import pool from '../config/database.js';
+// Lazy import to avoid circular dependency at module load time
+async function getNotifyTaskUnlocked() {
+  const mod = await import('../services/taskNotifications.service.js');
+  return mod.notifyTaskUnlocked;
+}
 
 class TaskDependency {
   /**
@@ -81,6 +86,17 @@ class TaskDependency {
           [dep.task_id]
         );
         unlocked++;
+        // Notify assignee that the task is now active
+        const [[freshTask]] = await pool.execute(
+          'SELECT id, title, assigned_to_user_id, assigned_to_agency_id FROM tasks WHERE id = ?',
+          [dep.task_id]
+        );
+        if (freshTask?.assigned_to_user_id) {
+          const [[completedTask]] = await pool.execute('SELECT title FROM tasks WHERE id = ?', [completedTaskId]);
+          getNotifyTaskUnlocked().then((fn) =>
+            fn({ task: freshTask, unlockedByTaskTitle: completedTask?.title || null })
+          ).catch(() => {});
+        }
       }
     }
 

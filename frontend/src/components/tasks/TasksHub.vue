@@ -322,6 +322,8 @@
               @open="openTask"
               @toggle-complete="toggleComplete"
               @menu="openTask"
+              @make-dependent="onMakeDependent"
+              @create-shared-list="onDragCreateSharedList"
             />
 
             <div v-else class="board-view" data-tour="tasks-list">
@@ -1767,6 +1769,43 @@ async function toggleComplete(task) {
     };
   }
   await refresh();
+}
+
+/** Called when user drags task A onto task B and picks "Make dependent" */
+async function onMakeDependent({ blockerTask, waitingTask }) {
+  if (!blockerTask?.id || !waitingTask?.id) return;
+  try {
+    await api.post(`/me/tasks/${waitingTask.id}/dependencies`, {
+      dependsOnId: blockerTask.id
+    }, { skipGlobalLoading: true });
+    await refresh();
+  } catch (e) {
+    console.error('[TasksHub] onMakeDependent failed:', e);
+  }
+}
+
+/** Called when user drags two tasks and picks "Create shared list" */
+async function onDragCreateSharedList({ taskA, taskB }) {
+  if (!taskA?.id || !taskB?.id) return;
+  const listName = prompt(
+    `Create a shared list with "${taskA.title}" and "${taskB.title}"?\n\nEnter a name for the new list:`
+  );
+  if (!listName?.trim()) return;
+  try {
+    const { data: list } = await api.post('/task-lists', {
+      name: listName.trim(),
+      agencyId: agencyId.value || undefined
+    }, { skipGlobalLoading: true });
+    if (list?.id) {
+      await Promise.all([
+        api.put(`/me/tasks/${taskA.id}`, { task_list_id: list.id }, { skipGlobalLoading: true }),
+        api.put(`/me/tasks/${taskB.id}`, { task_list_id: list.id }, { skipGlobalLoading: true })
+      ]);
+    }
+    await refresh();
+  } catch (e) {
+    console.error('[TasksHub] onDragCreateSharedList failed:', e);
+  }
 }
 
 async function toggleActionItem(task) {

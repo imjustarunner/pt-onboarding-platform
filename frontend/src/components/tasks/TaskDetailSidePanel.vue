@@ -27,9 +27,29 @@
           <span>Status</span>
           <select v-model="draft.status" class="form-control" @change="saveStatus">
             <option value="pending">Open</option>
+            <option value="in_progress">In Progress</option>
+            <option value="waiting">Waiting</option>
             <option value="completed">Completed</option>
           </select>
         </label>
+
+        <!-- Waiting state notice -->
+        <div v-if="draft.status === 'waiting'" class="waiting-notice">
+          <span class="waiting-notice__icon">⏳</span>
+          <div class="waiting-notice__body">
+            <strong>This task is waiting</strong>
+            <p v-if="blockers.length">
+              It will become active when the following task{{ blockers.length > 1 ? 's are' : ' is' }} completed:
+            </p>
+            <ul v-if="blockers.length" class="blockers-list">
+              <li v-for="b in blockers" :key="b.id" :class="{ 'blocker--done': b.status === 'completed' || b.status === 'overridden' }">
+                <span class="blocker-status">{{ b.status === 'completed' || b.status === 'overridden' ? '✓' : '○' }}</span>
+                {{ b.title }}
+              </li>
+            </ul>
+            <p v-else class="muted">No blockers set — you can edit or complete this task at any time.</p>
+          </div>
+        </div>
 
         <label class="field">
           <span>Title</span>
@@ -281,6 +301,7 @@ const assigneeError = ref('');
 const collaboratorError = ref('');
 const assocError = ref('');
 const postingComment = ref(false);
+const blockers = ref([]);
 
 const isActionItem = computed(() => !!props.item?._isActionItem);
 
@@ -445,11 +466,22 @@ function renderMentions(body) {
   return escaped.replace(/@\[([^\]]*)\]\((\d+)\)/g, '<span class="mention">@$1</span>');
 }
 
+async function loadBlockers() {
+  if (!props.item?.id || isActionItem.value) { blockers.value = []; return; }
+  try {
+    const { data } = await api.get(`/me/tasks/${props.item.id}/dependencies`, { skipGlobalLoading: true });
+    blockers.value = Array.isArray(data?.blockers) ? data.blockers : [];
+  } catch {
+    blockers.value = [];
+  }
+}
+
 async function loadExtras() {
   if (!props.item?.id || isActionItem.value) {
     attachments.value = [];
     comments.value = [];
     links.value = [];
+    blockers.value = [];
     return;
   }
   loading.value = true;
@@ -463,7 +495,7 @@ async function loadExtras() {
     attachments.value = Array.isArray(a.data) ? a.data : [];
     comments.value = Array.isArray(c.data) ? c.data : [];
     links.value = Array.isArray(l.data) ? l.data : [];
-    await Promise.all([loadMemberPool(), reloadCollaborators()]);
+    await Promise.all([loadMemberPool(), reloadCollaborators(), loadBlockers()]);
   } finally {
     loading.value = false;
   }
@@ -514,6 +546,9 @@ async function saveStatus() {
       emit('complete', props.item);
     } else if (draft.status !== 'completed' && props.item.status === 'completed') {
       emit('incomplete', props.item);
+    } else if (draft.status === 'waiting' || draft.status === 'in_progress') {
+      await api.put(`/me/tasks/${props.item.id}`, { status: draft.status }, { skipGlobalLoading: true });
+      emit('changed');
     }
   } catch (e) {
     console.error(e);
@@ -905,6 +940,39 @@ watch(
   cursor: pointer;
 }
 .subtask-row .done { text-decoration: line-through; color: #94a3b8; }
+/* Waiting notice block */
+.waiting-notice {
+  display: flex;
+  gap: 10px;
+  background: #faf5ff;
+  border: 1px solid #e9d5ff;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.waiting-notice__icon { font-size: 18px; flex-shrink: 0; line-height: 1.3; }
+.waiting-notice__body { flex: 1; min-width: 0; }
+.waiting-notice__body strong { color: #7e22ce; font-size: 13px; display: block; margin-bottom: 4px; }
+.waiting-notice__body p { font-size: 12px; color: #6b21a8; margin: 0 0 6px; }
+.blockers-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.blockers-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #334155;
+}
+.blocker-status { font-size: 13px; width: 14px; text-align: center; color: #94a3b8; }
+.blocker--done .blocker-status { color: #16a34a; }
+.blocker--done { text-decoration: line-through; color: #94a3b8; }
+
 .meta-foot {
   font-size: 11px;
   color: #94a3b8;

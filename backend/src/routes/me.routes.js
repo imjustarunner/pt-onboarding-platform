@@ -30,6 +30,7 @@ import {
 import { listNotesToSign, getNotesToSignCount, signNote, getClinicalNotesEligible } from '../controllers/notesToSign.controller.js';
 import TaskDependency from '../models/TaskDependency.model.js';
 import pool from '../config/database.js';
+import { resolveAssignmentNotificationForWaiting } from '../services/taskNotifications.service.js';
 import { getMyBookClubStatus, respondToMyBookClubPrompt } from '../controllers/bookClub.controller.js';
 import {
   getMyClubEmployerSharePrompts,
@@ -85,6 +86,8 @@ router.post('/tasks/:id/dependencies', authenticate, async (req, res, next) => {
         `UPDATE tasks SET status = 'waiting' WHERE id = ? AND status NOT IN ('completed','overridden')`,
         [taskId]
       );
+      // Resolve any pending assignment notification since this task is now waiting
+      resolveAssignmentNotificationForWaiting(taskId, null).catch(() => {});
     }
     const blockers = await TaskDependency.listBlockers(taskId);
     res.status(201).json({ blockers });

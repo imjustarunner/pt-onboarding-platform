@@ -18,6 +18,11 @@ import {
   syncCollaboratorsForTask,
   validateCollaboratorUserIds
 } from '../services/taskCollaborators.service.js';
+import {
+  notifyTaskAssigned,
+  resolveAssignmentNotificationForWaiting
+} from '../services/taskNotifications.service.js';
+import pool from '../config/database.js';
 
 function ensureCustomTaskOwnedByUser(task, userId) {
   if (!task) return false;
@@ -143,6 +148,9 @@ export const createCustomTask = async (req, res, next) => {
       metadata: meta
     });
 
+    // Notify assignee (skips if waiting or self-assigned)
+    notifyTaskAssigned({ task, actorUserId: userId }).catch(() => {});
+
     res.status(201).json(task);
   } catch (err) {
     next(err);
@@ -243,6 +251,18 @@ export const updateCustomTask = async (req, res, next) => {
       updates.metadata = merged;
     }
 
+    // Handle status changes for waiting / in_progress (not covered by markComplete/incomplete)
+    const statusAllowed = ['pending', 'in_progress', 'waiting'];
+    if (body.status !== undefined && statusAllowed.includes(body.status)) {
+      await pool.execute(
+        `UPDATE tasks SET status = ? WHERE id = ? AND task_type = 'custom'`,
+        [body.status, taskId]
+      );
+      if (body.status === 'waiting') {
+        resolveAssignmentNotificationForWaiting(taskId, null).catch(() => {});
+      }
+    }
+
     const updated = await Task.updateCustomTask(taskId, updates);
 
     if (
@@ -264,6 +284,11 @@ export const updateCustomTask = async (req, res, next) => {
       targetUserId: userId,
       metadata: { source: 'momentum_user_request', updates }
     });
+
+    // If assignee changed, notify the new assignee (skips if waiting or self-assigned)
+    if (updates.assignedToUserId !== undefined && updated) {
+      notifyTaskAssigned({ task: updated, actorUserId: userId }).catch(() => {});
+    }
 
     res.json(updated);
   } catch (err) {

@@ -1,5 +1,32 @@
 <template>
-  <div class="tasks-list-table">
+  <div class="tasks-list-table" @dragend="onDragEnd">
+
+    <!-- Drag-and-drop bubble -->
+    <teleport to="body">
+      <div
+        v-if="hoverTask && draggedTask"
+        class="dep-bubble"
+        :style="bubbleStyle"
+        @mouseenter="clearTimeout(leaveTimer)"
+        @mouseleave="hoverTask = null"
+      >
+        <p class="dep-bubble__label">
+          Drop <strong>{{ hoverTask.title }}</strong> to…
+        </p>
+        <button type="button" class="dep-bubble__btn dep-bubble__btn--dep" @click="doMakeDependent">
+          Make dependent
+          <span class="dep-bubble__hint">{{ hoverTask.title }} waits for {{ draggedTask.title }}</span>
+        </button>
+        <button
+          v-if="canCreateSharedList()"
+          type="button"
+          class="dep-bubble__btn dep-bubble__btn--list"
+          @click="doCreateSharedList"
+        >
+          Create shared list with both
+        </button>
+      </div>
+    </teleport>
     <section v-for="group in groups" :key="group.key" class="task-group" :class="`task-group--${group.key}`">
       <button type="button" class="task-group__head" @click="toggle(group.key)">
         <span class="task-group__bar" aria-hidden="true" />
@@ -12,10 +39,12 @@
           v-for="task in group.items"
           :key="task.id"
           class="task-row"
-          :class="{ 'task-row--on-timeline': isOnTimeline(task) }"
+          :class="{ 'task-row--on-timeline': isOnTimeline(task), 'task-row--waiting': task.status === 'waiting', 'task-row--drag-target': hoverTask?.id === task.id && draggedTask?.id !== task.id }"
           :style="{ '--type-color': typeMeta(task).color }"
           draggable="true"
           @dragstart="onDragStart($event, task)"
+          @dragover.prevent="onDragOver($event, task)"
+          @dragleave="onDragLeave"
           @click="$emit('open', task)"
         >
           <span class="task-row__rail" aria-hidden="true" />
@@ -42,6 +71,7 @@
             <span v-if="task.project_name" class="task-row__badge task-row__badge--project">{{ task.project_name }}</span>
             <span v-if="Number(task.is_private)" class="task-row__badge task-row__badge--private">Private</span>
             <span v-if="isOnTimeline(task)" class="task-row__badge task-row__badge--timeline">On timeline</span>
+            <span v-if="task.status === 'waiting'" class="task-row__badge task-row__badge--waiting">Waiting</span>
           </div>
           <span
             class="task-row__type"
@@ -66,7 +96,7 @@
 </template>
 
 <script setup>
-import { computed, reactive } from 'vue';
+import { computed, reactive, ref, onBeforeUnmount } from 'vue';
 import { formatDate } from '../../utils/formatDate';
 import { resolveTaskTypeMeta, taskTypeIconSvg } from '../../utils/taskTypeIcons';
 import UserAvatar from '../common/UserAvatar.vue';
@@ -81,7 +111,7 @@ const props = defineProps({
   timelineKeys: { type: [Set, Array], default: () => [] }
 });
 
-defineEmits(['open', 'toggle-complete', 'menu', 'drag-start']);
+const emit = defineEmits(['open', 'toggle-complete', 'menu', 'drag-start', 'make-dependent', 'create-shared-list']);
 
 const collapsed = reactive({
   overdue: false,
@@ -197,6 +227,12 @@ function isOnTimeline(task) {
   return timelineKeySet().has(`${type}:${id}`);
 }
 
+// ---- Drag-and-drop bubble state ----
+const draggedTask = ref(null);
+const hoverTask = ref(null);
+const bubbleStyle = ref({});
+let leaveTimer = null;
+
 function onDragStart(ev, task) {
   try {
     ev.dataTransfer.setData('application/x-task-id', String(task.id));
@@ -206,7 +242,52 @@ function onDragStart(ev, task) {
     }));
     ev.dataTransfer.effectAllowed = 'copy';
   } catch { /* ignore */ }
+  draggedTask.value = task;
+  hoverTask.value = null;
 }
+
+function onDragOver(ev, task) {
+  if (!draggedTask.value) return;
+  if (task.id === draggedTask.value.id) { hoverTask.value = null; return; }
+  clearTimeout(leaveTimer);
+  hoverTask.value = task;
+  const rect = ev.currentTarget?.getBoundingClientRect?.() || {};
+  bubbleStyle.value = {
+    top: `${(rect.top ?? 0) + window.scrollY + (rect.height ?? 20) / 2}px`,
+    left: `${(rect.left ?? 0) + window.scrollX + (rect.width ?? 200) / 2}px`
+  };
+}
+
+function onDragLeave() {
+  leaveTimer = setTimeout(() => { hoverTask.value = null; }, 200);
+}
+
+function onDragEnd() {
+  draggedTask.value = null;
+  hoverTask.value = null;
+}
+
+function canCreateSharedList() {
+  if (!draggedTask.value || !hoverTask.value) return false;
+  const a = draggedTask.value.task_list_id;
+  const b = hoverTask.value.task_list_id;
+  // Only offer if at least one task has no list, or they're in different lists
+  if (!a && !b) return true;
+  return String(a || '') !== String(b || '');
+}
+
+function doMakeDependent() {
+  // hoverTask waits for draggedTask
+  emit('make-dependent', { blockerTask: draggedTask.value, waitingTask: hoverTask.value });
+  hoverTask.value = null;
+}
+
+function doCreateSharedList() {
+  emit('create-shared-list', { taskA: draggedTask.value, taskB: hoverTask.value });
+  hoverTask.value = null;
+}
+
+onBeforeUnmount(() => clearTimeout(leaveTimer));
 </script>
 
 <style scoped>
@@ -337,6 +418,68 @@ function onDragStart(ev, task) {
 }
 .task-group__empty { padding: 8px 12px; color: #94a3b8; font-size: 12px; }
 .muted { color: #94a3b8; }
+
+/* Waiting task row */
+.task-row--waiting { background: #fdf4ff; border-left: 3px solid #a855f7; }
+.task-row--waiting .task-row__title { color: #7e22ce; }
+.task-row__badge--waiting { background: #f3e8ff; color: #7e22ce; }
+
+/* Drag target highlight */
+.task-row--drag-target { background: #eff6ff; outline: 2px dashed #3b82f6; border-radius: 6px; }
+
+/* Drag-and-drop bubble */
+.dep-bubble {
+  position: fixed;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.18);
+  padding: 14px 16px;
+  z-index: 9999;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: all;
+}
+.dep-bubble__label {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0 0 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dep-bubble__btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  transition: background .15s;
+}
+.dep-bubble__btn:hover { background: #f1f5f9; }
+.dep-bubble__btn--dep { border-color: #a855f7; color: #7e22ce; background: #faf5ff; }
+.dep-bubble__btn--dep:hover { background: #f3e8ff; }
+.dep-bubble__btn--list { border-color: #0ea5e9; color: #0369a1; background: #f0f9ff; }
+.dep-bubble__btn--list:hover { background: #e0f2fe; }
+.dep-bubble__hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
 @media (max-width: 900px) {
   .task-row {
     grid-template-columns: 4px 28px 1fr 28px 32px;
