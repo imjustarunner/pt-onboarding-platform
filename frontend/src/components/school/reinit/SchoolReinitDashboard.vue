@@ -387,7 +387,7 @@
                 </div>
 
                 <div v-if="!providerRoster.length" class="cua__panel">
-                  <p class="cua__muted">No provider day assignments on file yet. Add them from the school portal Providers page, then refresh here.</p>
+                  <p class="cua__muted">No provider day assignments on file yet. If clinicians are being added this year, your agency will update this — you can still complete this section below.</p>
                 </div>
 
                 <div v-else class="cua__provider-grid">
@@ -481,7 +481,7 @@
                   </article>
                 </div>
 
-                <div v-if="allProvidersIndividuallyConfirmed && providerRoster.length" class="cua__panel">
+                <div v-if="allProvidersIndividuallyConfirmed || !providerRoster.length" class="cua__panel">
                   <h4>For the upcoming school year, do you expect to need changes?</h4>
                   <p class="cua__muted">
                     Let us know if you think you'll need more or fewer providers and/or service days.
@@ -1798,15 +1798,6 @@ function validateSchoolEventsSection() {
 }
 
 function validateAssignedProvidersSection() {
-  if (!providerRoster.value.length) {
-    return {
-      sectionKey: 'assigned_providers',
-      title: 'No providers on file',
-      message: 'Add providers from the school portal Providers page, then refresh this list before confirming.',
-      whyText: 'Schools confirm the clinicians and days currently scheduled for the upcoming year.',
-      variant: 'info',
-    };
-  }
   if (!String(formData.assigned_providers.capacity_outlook || '').trim()) {
     return {
       sectionKey: 'assigned_providers',
@@ -1991,17 +1982,7 @@ async function onConfirmSection(sectionKey) {
     clearSectionAlert('school_events');
   }
   if (sectionKey === 'assigned_providers') {
-    if (!providerRoster.value.length) {
-      sectionAlert.value = {
-        sectionKey: 'assigned_providers',
-        title: 'No providers on file',
-        message: 'Add providers from the school portal Providers page, then refresh this list before confirming.',
-        whyText: 'Schools confirm the clinicians and days currently scheduled for the upcoming year.',
-        variant: 'info',
-      };
-      return;
-    }
-    if (!allProvidersIndividuallyConfirmed.value) {
+    if (providerRoster.value.length && !allProvidersIndividuallyConfirmed.value) {
       providersConfirmModal.value = { open: true, pendingSectionConfirm: true };
       return;
     }
