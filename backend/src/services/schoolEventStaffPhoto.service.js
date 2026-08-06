@@ -79,6 +79,25 @@ export async function listMarketingContactUserIds(agencyId) {
   }
 }
 
+/** Returns IDs of admin/support/CPA/provider_plus active users in the agency. */
+async function listEventPhotoManagerUserIds(agencyId) {
+  const aid = parsePositiveInt(agencyId);
+  if (!aid) return [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT u.id
+       FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE u.role IN ('super_admin','admin','support','provider_plus','clinical_practice_assistant')
+         AND (u.status = 'ACTIVE_EMPLOYEE' OR LOWER(COALESCE(u.status,'')) = 'active')`,
+      [aid]
+    );
+    return (rows || []).map((r) => Number(r.id)).filter((n) => n > 0);
+  } catch {
+    return [];
+  }
+}
+
 async function notifyMarketingContacts({
   agencyId,
   type,
@@ -87,7 +106,11 @@ async function notifyMarketingContacts({
   actorUserId,
   relatedEntityId
 }) {
-  const userIds = await listMarketingContactUserIds(agencyId);
+  const [marketingIds, managerIds] = await Promise.all([
+    listMarketingContactUserIds(agencyId),
+    listEventPhotoManagerUserIds(agencyId)
+  ]);
+  const userIds = [...new Set([...marketingIds, ...managerIds])];
   for (const userId of userIds) {
     try {
       await createNotificationAndDispatch({

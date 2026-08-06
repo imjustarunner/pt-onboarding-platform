@@ -10,6 +10,7 @@ import {
   cancelCompanySessionProvidersBeforeDelete
 } from '../services/providerAssignmentGoogleSync.service.js';
 import { isSchoolPortalEventType } from '../services/schoolPortalEvents.service.js';
+import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw ?? ''), 10);
@@ -62,13 +63,38 @@ async function canViewProgramEventStaffing(req, agencyId, eventId) {
 
 async function loadEventForAgency(eventId, agencyId) {
   const [rows] = await pool.execute(
-    `SELECT id, agency_id, organization_id, event_type, staffing_config_json
+    `SELECT id, agency_id, organization_id, event_type, staffing_config_json, title
      FROM company_events
      WHERE id = ? AND agency_id = ?
      LIMIT 1`,
     [eventId, agencyId]
   );
   return rows?.[0] || null;
+}
+
+/** Returns IDs of active admin/support/staff/provider_plus/CPA in the agency, excluding one user. */
+async function listEventManagerUserIds(agencyId, { excludeUserId = null } = {}) {
+  const aid = parsePositiveInt(agencyId);
+  if (!aid) return [];
+  try {
+    const params = [aid];
+    let excludeClause = '';
+    if (excludeUserId) {
+      excludeClause = ' AND u.id != ?';
+      params.push(excludeUserId);
+    }
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT u.id
+       FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE u.role IN ('super_admin','admin','support','staff','provider_plus','clinical_practice_assistant')
+         AND (u.status = 'ACTIVE_EMPLOYEE' OR LOWER(COALESCE(u.status,'')) = 'active')${excludeClause}`,
+      params
+    );
+    return (rows || []).map((r) => Number(r.id)).filter((n) => n > 0);
+  } catch {
+    return [];
+  }
 }
 
 async function ensureProgramEventScope(eventRow) {
@@ -667,7 +693,37 @@ export const createCompanyEventSessionRequest = async (req, res, next) => {
        VALUES (?, ?, ?, ?, ?, 'pending')`,
       [eventId, agencyId, sessionDateId, userId, requestType]
     );
-    res.status(201).json({ ok: true, id: Number(result.insertId), status: 'pending' });
+    const newId = Number(result.insertId);
+    res.status(201).json({ ok: true, id: newId, status: 'pending' });
+
+    // Notify managers asynchronously — do not block the response.
+    Promise.resolve().then(async () => {
+      try {
+        const [actorRows] = await pool.execute(
+          `SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1`, [userId]
+        );
+        const actor = actorRows?.[0];
+        const actorName = actor ? `${actor.first_name || ''} ${actor.last_name || ''}`.trim() : `User ${userId}`;
+        const eventTitle = String(event?.title || `Event ${eventId}`).trim();
+        const managerIds = await listEventManagerUserIds(agencyId, { excludeUserId: userId });
+        for (const managerId of managerIds) {
+          await createNotificationAndDispatch({
+            type: 'company_event_shift_requested',
+            severity: 'info',
+            title: 'New event shift application',
+            message: `${actorName} applied for a shift at "${eventTitle}".`,
+            userId: managerId,
+            agencyId,
+            relatedEntityType: 'company_event_session_provider_request',
+            relatedEntityId: newId,
+            actorUserId: userId,
+            actorSource: 'company_event_staffing'
+          }).catch(() => {});
+        }
+      } catch {
+        // best-effort; never throw from notification side-effect
+      }
+    });
   } catch (e) {
     if (String(e?.message || '').includes('company_event_session_provider_requests')) {
       return res.status(503).json({ error: { message: 'Run database migration 740_company_events_staffing_and_session_groups.sql' } });
@@ -820,6 +876,27 @@ export const approveCompanyEventSessionRequest = async (req, res, next) => {
     await conn.commit();
     syncCompanySessionProviderBySlotBestEffort({ sessionDateId, providerUserId }).catch(() => {});
     res.json({ ok: true });
+
+    // Notify the provider asynchronously.
+    Promise.resolve().then(async () => {
+      try {
+        const eventTitle = String(eventRow?.title || `Event ${eventId}`).trim();
+        await createNotificationAndDispatch({
+          type: 'company_event_shift_approved',
+          severity: 'info',
+          title: 'Event shift approved',
+          message: `Your shift request for "${eventTitle}" has been approved.`,
+          userId: providerUserId,
+          agencyId,
+          relatedEntityType: 'company_event_session_provider_request',
+          relatedEntityId: requestId,
+          actorUserId: userId,
+          actorSource: 'company_event_staffing'
+        }).catch(() => {});
+      } catch {
+        // best-effort
+      }
+    });
   } catch (e) {
     if (conn) {
       try { await conn.rollback(); } catch {}
@@ -884,6 +961,31 @@ export const denyCompanyEventSessionRequest = async (req, res, next) => {
 
     await conn.commit();
     res.json({ ok: true });
+
+    // Notify the provider asynchronously.
+    Promise.resolve().then(async () => {
+      try {
+        const [evRows] = await pool.execute(
+          `SELECT title FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1`,
+          [eventId, agencyId]
+        );
+        const eventTitle = String(evRows?.[0]?.title || `Event ${eventId}`).trim();
+        await createNotificationAndDispatch({
+          type: 'company_event_shift_denied',
+          severity: 'warning',
+          title: 'Event shift request not approved',
+          message: `Your shift request for "${eventTitle}" was not approved.`,
+          userId: providerUserId,
+          agencyId,
+          relatedEntityType: 'company_event_session_provider_request',
+          relatedEntityId: requestId,
+          actorUserId: userId,
+          actorSource: 'company_event_staffing'
+        }).catch(() => {});
+      } catch {
+        // best-effort
+      }
+    });
   } catch (e) {
     if (conn) {
       try { await conn.rollback(); } catch {}

@@ -53,7 +53,8 @@ const TYPES_BY_CATEGORY = {
     'supervision_session_scheduled', 'team_meeting_scheduled'
   ],
   events_registration: [
-    'company_event_registration_submitted', 'company_event_message'
+    'company_event_registration_submitted', 'company_event_message',
+    'company_event_shift_requested', 'company_event_shift_approved', 'company_event_shift_denied'
   ],
   payroll_billing: [
     'mileage_claim_approved', 'mileage_claim_rejected', 'mileage_claim_returned',
@@ -99,6 +100,9 @@ const LABEL_OVERRIDES = {
   new_packet_uploaded: 'New packet uploaded',
   new_prospective_inquiry: 'New interest form submitted',
   company_event_registration_submitted: 'New event registration',
+  company_event_shift_requested: 'New event shift application',
+  company_event_shift_approved: 'Event shift approved',
+  company_event_shift_denied: 'Event shift request denied',
   payroll_unpaid_notes_2_periods_old: 'Payroll notes require attention',
   payroll_unsigned_draft_notes: 'Unsigned draft notes',
   office_schedule_booking_confirm_6_weeks: 'Office booking confirmation',
@@ -189,6 +193,7 @@ const PROVIDER_RELEVANT = new Set([
   'school_provider_availability_updated', 'school_provider_slot_verification_requested',
   'school_provider_slot_verification_completed', 'public_appointment_request_received',
   'company_event_registration_submitted', 'company_event_message',
+  'company_event_shift_approved', 'company_event_shift_denied',
   'payroll_unpaid_notes_2_periods_old', 'payroll_missing_notes_reminder',
   'payroll_unsigned_draft_notes', 'payroll_direct_indirect_ratio_alert',
   'supervision_individual_50_reached', 'supervision_total_100_reached',
@@ -228,8 +233,17 @@ const OPERATIONS_RELEVANT = new Set([
   ...MANAGER_RELEVANT,
   'paperwork_received', 'client_school_roi_link_generated',
   'client_school_roi_link_copied', 'company_event_registration_submitted',
+  'company_event_shift_requested',
   'school_event_marketing_photo', 'school_event_marketing_photo_missing'
 ]);
+
+// Extend MANAGER_RELEVANT after OPERATIONS_RELEVANT is defined so provider_plus/CPA
+// can configure and receive event-staffing and photo notifications.
+MANAGER_RELEVANT.add('company_event_shift_requested');
+MANAGER_RELEVANT.add('company_event_shift_approved');
+MANAGER_RELEVANT.add('company_event_shift_denied');
+MANAGER_RELEVANT.add('school_event_marketing_photo');
+MANAGER_RELEVANT.add('school_event_marketing_photo_missing');
 
 const GUARDIAN_RELEVANT = new Set([
   'emergency_broadcast', 'program_reminder', 'paperwork_received',
@@ -260,7 +274,8 @@ const PROVIDER_ESSENTIAL = new Set([
   'school_availability_request_approved', 'school_availability_request_denied',
   'school_provider_slot_verification_requested', 'public_appointment_request_received',
   'payroll_unpaid_notes_2_periods_old', 'payroll_missing_notes_reminder',
-  'payroll_unsigned_draft_notes', 'supervision_presenter_reminder'
+  'payroll_unsigned_draft_notes', 'supervision_presenter_reminder',
+  'company_event_shift_approved', 'company_event_shift_denied'
 ]);
 
 const SCHOOL_ESSENTIAL = new Set([
@@ -279,7 +294,8 @@ const MANAGER_ESSENTIAL = new Set([
   'office_availability_request_pending', 'school_availability_request_pending',
   'budget_expense_pending_approval', 'payroll_holiday_bonus_missing_approval',
   'new_job_application_submitted', 'school_portal_onboarding_completed',
-  'provider_year_update_completed', 'school_collaborative_year_update_completed'
+  'provider_year_update_completed', 'school_collaborative_year_update_completed',
+  'company_event_shift_requested', 'school_event_marketing_photo'
 ]);
 
 const OPERATIONS_ESSENTIAL = new Set([
@@ -288,16 +304,17 @@ const OPERATIONS_ESSENTIAL = new Set([
   'new_packet_uploaded', 'new_prospective_inquiry', 'unassigned_document_submitted',
   'medical_records_release_submitted', 'office_schedule_coverage_flag',
   'office_availability_request_pending', 'school_availability_request_pending',
-  'company_event_registration_submitted', 'budget_expense_pending_approval',
-  'payroll_holiday_bonus_missing_approval', 'new_job_application_submitted',
-  'school_portal_onboarding_completed', 'provider_year_update_completed',
-  'school_collaborative_year_update_completed'
+  'company_event_registration_submitted', 'company_event_shift_requested',
+  'budget_expense_pending_approval', 'payroll_holiday_bonus_missing_approval',
+  'new_job_application_submitted', 'school_portal_onboarding_completed',
+  'provider_year_update_completed', 'school_collaborative_year_update_completed'
 ]);
 
 const ADMINISTRATIVE_ESSENTIAL = new Set([
   ...OPERATIONS_ESSENTIAL,
   'status_expired', 'first_login_pending', 'user_activity_digest',
-  'school_event_marketing_photo', 'school_event_marketing_photo_missing'
+  'school_event_marketing_photo', 'school_event_marketing_photo_missing',
+  'company_event_shift_requested'
 ]);
 
 export function notificationRoleProfile(role) {
