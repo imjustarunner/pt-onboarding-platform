@@ -2007,16 +2007,9 @@ async function onConfirmSection(sectionKey) {
     if (formData.fall_check_in.fall_checkin_slot_id) {
       await bookSelectedSlot();
       if (!checkinBooking.value) return;
-    } else {
-      sectionAlert.value = {
-        sectionKey: 'fall_check_in',
-        title: 'Fall Check-In Required',
-        message: 'Book a check-in slot before marking this section complete.',
-        whyText: 'Your fall check-in keeps everyone aligned before the school year begins.',
-        variant: 'info',
-      };
-      return;
     }
+    // No slots available — agency will reach out to schedule the check-in directly.
+    // Allow the school to proceed without booking.
   }
   await saveSection(sectionKey, true);
   if (isSectionDone(sectionKey) || true) {

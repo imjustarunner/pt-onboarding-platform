@@ -1097,7 +1097,8 @@ export async function inviteSchoolStaffOnFinalize(cycleId) {
 
   const booking = await getBookingForCycle(cycleId);
   if (!booking) {
-    throw new Error('Book a Fall Check-in slot before finalizing');
+    // No slot booked — agency will reach out directly to schedule the check-in.
+    return null;
   }
 
   const staff = await listSchoolStaffUserEmails(cycle.school_organization_id);
