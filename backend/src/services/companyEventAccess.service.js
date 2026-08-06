@@ -281,6 +281,9 @@ export async function canViewProgramEvent(req, agencyId, eventId) {
   }
   if (!(await userHasAgencyAccessForRequest(req, agencyId))) return false;
   if (await canManageProgramEvent(req, agencyId)) return true;
+  // provider_plus (and other provider-like roles) in the agency can view any event in their tenant.
+  const role = String(req.user?.role || '').toLowerCase();
+  if (PROVIDER_LIKE_ROLES.has(role)) return true;
   return false;
 }
 

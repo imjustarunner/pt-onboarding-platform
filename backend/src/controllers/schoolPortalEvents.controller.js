@@ -52,7 +52,15 @@ async function resolveActiveAgencyIdForOrg(orgId) {
 
 function roleCanUseAgencyAffiliation(role) {
   const r = String(role || '').toLowerCase();
-  return r === 'admin' || r === 'support' || r === 'staff' || r === 'supervisor';
+  // provider_plus and clinical_practice_assistant have elevated access across the tenant.
+  return (
+    r === 'admin' ||
+    r === 'support' ||
+    r === 'staff' ||
+    r === 'supervisor' ||
+    r === 'provider_plus' ||
+    r === 'clinical_practice_assistant'
+  );
 }
 
 async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId }) {

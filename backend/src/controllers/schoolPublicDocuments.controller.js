@@ -50,7 +50,14 @@ async function resolveActiveAgencyIdForOrg(orgId) {
 
 function roleCanUseAgencyAffiliation(role) {
   const r = String(role || '').toLowerCase();
-  return r === 'admin' || r === 'support' || r === 'staff' || r === 'supervisor';
+  return (
+    r === 'admin' ||
+    r === 'support' ||
+    r === 'staff' ||
+    r === 'supervisor' ||
+    r === 'provider_plus' ||
+    r === 'clinical_practice_assistant'
+  );
 }
 
 async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId }) {
