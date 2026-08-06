@@ -175,10 +175,30 @@ const filteredActions = computed(() => {
 });
 
 async function loadAgencyUsers() {
-  if (!props.agencyId) return;
   try {
-    const { data } = await api.get(`/agencies/${props.agencyId}/users`, { skipGlobalLoading: true });
-    agencyUsers.value = Array.isArray(data) ? data : (data?.users || []);
+    if (props.agencyId) {
+      // Tenant context known — load users from that agency
+      const { data } = await api.get(`/agencies/${props.agencyId}/users`, { skipGlobalLoading: true });
+      agencyUsers.value = Array.isArray(data) ? data : (data?.users || []);
+    } else {
+      // Person-scoped — load users from all of my agencies via /users/me/agencies then flatten
+      const { data: myAgencies } = await api.get('/users/me/agencies', { skipGlobalLoading: true });
+      const ids = (Array.isArray(myAgencies) ? myAgencies : []).map((a) => a.id).filter(Boolean);
+      if (!ids.length) { agencyUsers.value = []; return; }
+      const allUsers = await Promise.all(
+        ids.map((aid) =>
+          api.get(`/agencies/${aid}/users`, { skipGlobalLoading: true })
+            .then((r) => Array.isArray(r.data) ? r.data : (r.data?.users || []))
+            .catch(() => [])
+        )
+      );
+      const seen = new Set();
+      agencyUsers.value = allUsers.flat().filter((u) => {
+        if (seen.has(u.id)) return false;
+        seen.add(u.id);
+        return true;
+      });
+    }
   } catch {
     agencyUsers.value = [];
   }
@@ -244,13 +264,12 @@ async function openCreate() {
 const createList = async () => {
   const name = String(newListName.value || '').trim();
   if (!name) return;
-  if (!props.agencyId) {
-    console.error('Cannot create shared list without an agency context');
-    return;
-  }
   creating.value = true;
   try {
-    const { data } = await api.post('/task-lists', { agencyId: props.agencyId, name }, { skipGlobalLoading: true });
+    // agencyId is now optional — person-scoped lists are created without a tenant context
+    const payload = { name };
+    if (props.agencyId) payload.agencyId = props.agencyId;
+    const { data } = await api.post('/task-lists', payload, { skipGlobalLoading: true });
     const listId = data?.id;
     if (listId) {
       await Promise.all([

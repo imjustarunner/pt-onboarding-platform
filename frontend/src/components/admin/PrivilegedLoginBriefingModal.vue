@@ -170,8 +170,32 @@
               <input v-model="dontShowAgain" type="checkbox" />
               <span>Don’t show this briefing again on this device</span>
             </label>
+
+            <!-- Tenant quick-launch row -->
+            <div v-if="!isSuperadmin && brandedAgencies.length > 0" class="tenant-launchers" role="list" aria-label="Go to tenant dashboard">
+              <button
+                v-for="agency in brandedAgencies"
+                :key="`launch-${agency.id}`"
+                type="button"
+                class="tenant-launcher"
+                :title="agency.name"
+                :style="{ '--tl-color': agency.primary || '#334155' }"
+                @click="navigateToTenant(agency)"
+              >
+                <img
+                  v-if="agency.logo"
+                  :src="agency.logo"
+                  :alt="agency.name"
+                  class="tenant-launcher__logo"
+                  @error="$event.target.style.display='none'"
+                />
+                <span v-else class="tenant-launcher__initials">{{ agency.initials }}</span>
+                <span class="tenant-launcher__name">{{ agency.name }}</span>
+              </button>
+            </div>
+
             <button class="enter-dashboard" type="button" @click="dismiss">
-              <span aria-hidden="true">▣</span> Enter Dashboard
+              <span aria-hidden="true">&#x25A3;</span> Enter Dashboard
             </button>
           </footer>
         </section>
@@ -702,6 +726,18 @@ async function navigate(to) {
   if (to) await router.push(to);
 }
 
+async function navigateToTenant(agency) {
+  agencyStore.setCurrentAgency(agency);
+  const slug = String(agency?.portal_url || agency?.slug || '').trim().toLowerCase();
+  dismiss();
+  await nextTick();
+  if (slug) {
+    await router.push(`/${slug}/admin`).catch(() => router.push(`/${slug}`));
+  } else {
+    await router.push('/admin');
+  }
+}
+
 watch(
   () => [authStore.user?.id, props.loginTrigger],
   ([nextUserId, trigger]) => {
@@ -898,6 +934,37 @@ onBeforeUnmount(() => {
 .dont-show-label { display: flex; align-items: center; gap: 9px; font-size: 11px; cursor: pointer; }
 .dont-show-label input { width: 16px; height: 16px; accent-color: var(--brief-primary); }
 .enter-dashboard { min-width: 245px; padding: 12px 20px; border: 1px solid rgba(255,255,255,.15); border-radius: 7px; background: var(--brief-blend); color: #fff; font-size: 13px; font-weight: 800; cursor: pointer; }
+
+/* Tenant quick-launch icons in footer */
+.tenant-launchers { display: flex; align-items: center; gap: 8px; flex: 1; flex-wrap: wrap; }
+.tenant-launcher {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 10px;
+  background: rgba(255,255,255,.08);
+  color: #fff;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 64px;
+  max-width: 96px;
+  transition: background .15s, border-color .15s;
+}
+.tenant-launcher:hover { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.4); }
+.tenant-launcher__logo { width: 32px; height: 32px; object-fit: contain; border-radius: 6px; background: #fff; }
+.tenant-launcher__initials {
+  width: 32px; height: 32px;
+  border-radius: 6px;
+  background: var(--tl-color, #334155);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800;
+}
+.tenant-launcher__name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 88px; text-align: center; }
 .briefing-fade-enter-active, .briefing-fade-leave-active { transition: opacity .18s ease; }
 .briefing-fade-enter-active .briefing-modal, .briefing-fade-leave-active .briefing-modal { transition: transform .18s ease; }
 .briefing-fade-enter-from, .briefing-fade-leave-to { opacity: 0; }

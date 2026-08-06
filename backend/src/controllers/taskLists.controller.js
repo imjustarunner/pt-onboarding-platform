@@ -44,8 +44,27 @@ async function requireAdmin(req, res, next) {
 }
 
 async function ensureUserInAgency(userId, agencyId) {
+  if (!agencyId) return true; // person-scoped list — no agency requirement
   const agencies = await User.getAgencies(userId);
   return (agencies || []).some((a) => Number(a?.id) === Number(agencyId));
+}
+
+/**
+ * Returns true if actor can add targetUserId to a list.
+ * Rules (person-to-person model):
+ *  - Actor is superadmin → can share with anyone
+ *  - Otherwise → both must share at least one common agency
+ */
+async function canShareWith(actorUserId, actorRole, targetUserId) {
+  const role = String(actorRole || '').toLowerCase();
+  if (['super_admin', 'superadmin', 'support'].includes(role)) return true;
+  if (Number(actorUserId) === Number(targetUserId)) return true;
+  const [actorAgencies, targetAgencies] = await Promise.all([
+    User.getAgencies(actorUserId),
+    User.getAgencies(targetUserId)
+  ]);
+  const actorIds = new Set((actorAgencies || []).map((a) => Number(a.id)));
+  return (targetAgencies || []).some((a) => actorIds.has(Number(a.id)));
 }
 
 /** Other collaborators (excludes the viewing user). */
@@ -161,13 +180,15 @@ export const createTaskList = async (req, res, next) => {
     const userId = req.user?.id;
     const { agencyId, name } = req.body || {};
     if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
-    const aid = parseInt(agencyId, 10);
-    if (!aid) return res.status(400).json({ error: { message: 'agencyId is required' } });
     const nameStr = String(name || '').trim();
     if (!nameStr) return res.status(400).json({ error: { message: 'name is required' } });
 
-    const inAgency = await ensureUserInAgency(userId, aid);
-    if (!inAgency) return res.status(403).json({ error: { message: 'You must be in this agency to create a list' } });
+    // agencyId is now optional — lists can be person-scoped (no tenant required)
+    const aid = agencyId ? parseInt(agencyId, 10) || null : null;
+    if (aid) {
+      const inAgency = await ensureUserInAgency(userId, aid);
+      if (!inAgency) return res.status(403).json({ error: { message: 'You must be in this agency to create a list there' } });
+    }
 
     const list = await TaskList.create({ agencyId: aid, name: nameStr, createdByUserId: userId });
     res.status(201).json(list);
@@ -220,8 +241,16 @@ export const addMember = async (req, res, next) => {
     if (!uid) return res.status(400).json({ error: { message: 'userId is required' } });
     const list = await TaskList.findById(listId);
     if (!list) return res.status(404).json({ error: { message: 'List not found' } });
-    const inAgency = await ensureUserInAgency(uid, list.agency_id);
-    if (!inAgency) return res.status(400).json({ error: { message: 'User must be in this agency' } });
+
+    if (list.agency_id) {
+      // Legacy tenant-scoped list: target must be in that agency
+      const inAgency = await ensureUserInAgency(uid, list.agency_id);
+      if (!inAgency) return res.status(400).json({ error: { message: 'User must be in the list\'s agency' } });
+    } else {
+      // Person-scoped list: actor and target must share at least one common agency (or actor is superadmin)
+      const ok = await canShareWith(req.user.id, req.user.role, uid);
+      if (!ok) return res.status(403).json({ error: { message: 'You can only share lists with people in your organization' } });
+    }
 
     const member = await TaskListMember.add(listId, uid, role || 'viewer');
     res.status(201).json(member);
@@ -233,19 +262,53 @@ export const addMember = async (req, res, next) => {
 export const listAgencyUsers = async (req, res, next) => {
   try {
     const listId = req.taskListId;
+    const actorId = req.user?.id;
+    const actorRole = String(req.user?.role || '').toLowerCase();
     const list = await TaskList.findById(listId);
     if (!list) return res.status(404).json({ error: { message: 'List not found' } });
-    const [rows] = await pool.execute(
-      `SELECT u.id, u.first_name, u.last_name, u.email
-       FROM users u
-       JOIN user_agencies ua ON u.id = ua.user_id
-       WHERE ua.agency_id = ?
-       AND (u.is_archived = FALSE OR u.is_archived IS NULL)
-       AND (u.role IS NULL OR u.role != 'school_staff')
-       AND (u.status IS NULL OR UPPER(u.status) != 'PROSPECTIVE')
-       ORDER BY u.last_name, u.first_name`,
-      [list.agency_id]
-    );
+
+    let rows;
+    if (list.agency_id) {
+      // Tenant-scoped list: return users in that agency
+      [rows] = await pool.execute(
+        `SELECT u.id, u.first_name, u.last_name, u.email
+         FROM users u
+         JOIN user_agencies ua ON u.id = ua.user_id
+         WHERE ua.agency_id = ?
+         AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+         AND (u.role IS NULL OR u.role != 'school_staff')
+         AND (u.status IS NULL OR UPPER(u.status) != 'PROSPECTIVE')
+         ORDER BY u.last_name, u.first_name`,
+        [list.agency_id]
+      );
+    } else if (['super_admin', 'superadmin', 'support'].includes(actorRole)) {
+      // Superadmin on a person-scoped list: return users in any of the actor's agencies
+      [rows] = await pool.execute(
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email
+         FROM users u
+         JOIN user_agencies ua ON u.id = ua.user_id
+         WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+         AND (u.role IS NULL OR u.role != 'school_staff')
+         AND (u.status IS NULL OR UPPER(u.status) != 'PROSPECTIVE')
+         ORDER BY u.last_name, u.first_name`
+      );
+    } else {
+      // Person-scoped list: return users who share any agency with the actor
+      [rows] = await pool.execute(
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email
+         FROM users u
+         JOIN user_agencies ua ON u.id = ua.user_id
+         WHERE ua.agency_id IN (
+           SELECT agency_id FROM user_agencies WHERE user_id = ?
+         )
+         AND u.id != ?
+         AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+         AND (u.role IS NULL OR u.role != 'school_staff')
+         AND (u.status IS NULL OR UPPER(u.status) != 'PROSPECTIVE')
+         ORDER BY u.last_name, u.first_name`,
+        [actorId, actorId]
+      );
+    }
     res.json(rows || []);
   } catch (err) {
     next(err);

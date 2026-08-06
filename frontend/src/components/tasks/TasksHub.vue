@@ -409,7 +409,7 @@
               <input v-model="newListMemberIds" type="checkbox" :value="u.id" />
               {{ u.first_name }} {{ u.last_name }}
             </label>
-            <p v-if="!shareableUsers.length" class="muted">No other users in this agency yet</p>
+            <p v-if="!shareableUsers.length" class="muted">No other teammates found</p>
           </div>
         </div>
         <div class="form-group">
@@ -1378,18 +1378,34 @@ function onInlineListCreated(list) {
 
 async function loadAgencyUsers(preferredAgencyId = null) {
   const aid = preferredAgencyId || agencyId.value || effectiveTenantId.value;
-  if (!aid) {
-    agencyUsers.value = [];
-    return;
-  }
   try {
-    const { data } = await api.get(`/agencies/${aid}/users`, { skipGlobalLoading: true });
-    const raw = Array.isArray(data) ? data : (data?.users || []);
-    agencyUsers.value = raw.map((u) => ({
-      ...u,
-      first_name: u.first_name || u.firstName || '',
-      last_name: u.last_name || u.lastName || '',
-    }));
+    if (aid) {
+      // Specific agency context — load just that agency's users
+      const { data } = await api.get(`/agencies/${aid}/users`, { skipGlobalLoading: true });
+      const raw = Array.isArray(data) ? data : (data?.users || []);
+      agencyUsers.value = raw.map((u) => ({
+        ...u,
+        first_name: u.first_name || u.firstName || '',
+        last_name: u.last_name || u.lastName || '',
+      }));
+    } else {
+      // No agency context — load teammates from all my agencies (person-centric)
+      const { data: myAgencies } = await api.get('/users/me/agencies', { skipGlobalLoading: true });
+      const agencyIds = (Array.isArray(myAgencies) ? myAgencies : []).map((a) => a.id).filter(Boolean);
+      if (!agencyIds.length) { agencyUsers.value = []; return; }
+      const allUsers = await Promise.all(
+        agencyIds.map((id) =>
+          api.get(`/agencies/${id}/users`, { skipGlobalLoading: true })
+            .then((r) => Array.isArray(r.data) ? r.data : (r.data?.users || []))
+            .catch(() => [])
+        )
+      );
+      const seen = new Set();
+      const me = authStore.user?.id;
+      agencyUsers.value = allUsers.flat()
+        .filter((u) => { if (seen.has(u.id) || String(u.id) === String(me)) return false; seen.add(u.id); return true; })
+        .map((u) => ({ ...u, first_name: u.first_name || u.firstName || '', last_name: u.last_name || u.lastName || '' }));
+    }
   } catch {
     agencyUsers.value = [];
   }
@@ -1612,11 +1628,14 @@ function pickNew(kind) {
 
 async function createSharedList() {
   const name = newListName.value.trim();
-  const aid = agencyId.value || effectiveTenantId.value;
-  if (!name || !aid) return;
+  if (!name) return;
+  // agencyId is now optional — lists can be person-scoped without a tenant
+  const aid = agencyId.value || effectiveTenantId.value || null;
   creating.value = true;
   try {
-    const { data } = await api.post('/task-lists', { agencyId: aid, name }, { skipGlobalLoading: true });
+    const payload = { name };
+    if (aid) payload.agencyId = aid;
+    const { data } = await api.post('/task-lists', payload, { skipGlobalLoading: true });
     const listId = data?.id;
     if (listId) {
       await Promise.all([
