@@ -294,6 +294,7 @@
               <tr
                 v-for="row in filteredRows"
                 :key="row.providerUserId"
+                :data-cycle-id="row.cycleId || ''"
                 :class="{ selected: selectedRow?.providerUserId === row.providerUserId }"
                 @click="selectRow(row)"
               >
@@ -483,6 +484,7 @@ const props = defineProps({
   agencyId: { type: [Number, String], required: true },
   schoolYear: { type: String, default: '' },
   organizationSlug: { type: String, default: '' },
+  highlightCycleId: { type: Number, default: null },
 });
 
 const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -822,6 +824,18 @@ async function load() {
     if (selectedRow.value) {
       selectedRow.value =
         rows.value.find((r) => r.providerUserId === selectedRow.value.providerUserId) || null;
+    } else if (props.highlightCycleId) {
+      const target = rows.value.find((r) => Number(r.cycleId) === props.highlightCycleId);
+      if (target) {
+        selectedRow.value = target;
+        // Scroll the highlighted row into view after the next render tick
+        import('vue').then(({ nextTick }) =>
+          nextTick(() => {
+            const el = document.querySelector(`tr[data-cycle-id="${props.highlightCycleId}"]`);
+            el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          })
+        );
+      }
     }
     await loadNeeds();
   } catch (e) {

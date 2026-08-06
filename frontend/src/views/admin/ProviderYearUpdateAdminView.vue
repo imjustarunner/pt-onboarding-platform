@@ -5,7 +5,12 @@
       <h1>Provider Year Update</h1>
     </header>
     <p v-if="!ready" class="muted">Loading agency context…</p>
-    <ProviderYearUpdateAdminPanel v-else-if="agencyId" :agency-id="agencyId" :organization-slug="organizationSlug" />
+    <ProviderYearUpdateAdminPanel
+      v-else-if="agencyId"
+      :agency-id="agencyId"
+      :organization-slug="organizationSlug"
+      :highlight-cycle-id="highlightCycleId"
+    />
     <p v-else class="muted">Select an agency context to manage Provider Year Update.</p>
   </div>
 </template>
@@ -24,6 +29,8 @@ const organizationSlug = computed(() => {
   const slug = typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : '';
   return slug || '';
 });
+
+const highlightCycleId = computed(() => Number(route.query.cycleId || 0) || null);
 
 const agencyId = computed(() => {
   const fromQuery = Number(route.query.agencyId || 0);

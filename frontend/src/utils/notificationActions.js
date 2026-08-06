@@ -9,7 +9,11 @@ export function notificationDestination(notification, { organizationSlug = null,
     return `${base}/admin/school-onboarding${n.agency_id ? `?agencyId=${n.agency_id}` : ''}`;
   }
   if (n.type === 'provider_year_update_completed') {
-    return `${base}/admin/provider-year-update${n.agency_id ? `?agencyId=${n.agency_id}` : ''}`;
+    const qs = new URLSearchParams();
+    if (n.agency_id) qs.set('agencyId', String(n.agency_id));
+    if (n.related_entity_id) qs.set('cycleId', String(n.related_entity_id));
+    const q = qs.toString();
+    return `${base}/admin/provider-year-update${q ? `?${q}` : ''}`;
   }
   if (n.type === 'school_collaborative_year_update_completed' && entityType === 'school' && entityId) {
     return `${base}/admin/school-reinit/${entityId}${n.agency_id ? `?agencyId=${n.agency_id}` : ''}`;

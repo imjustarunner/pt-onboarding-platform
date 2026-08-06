@@ -124,8 +124,17 @@
               <p>{{ formatNotificationLine(notification) }}</p>
               <div class="notification-meta">
                 <small v-if="notification.actor_display_name">By: {{ notification.actor_display_name }}</small>
-                <small v-if="scope === 'managed' && Number(notification.recipient_count) > 1">
+                <small v-else-if="notification.actor_source">By: {{ notification.actor_source }}</small>
+                <small v-if="notification.recipient_display_name">To: {{ notification.recipient_display_name }}</small>
+                <small v-else-if="audienceSummary(notification)">Audience: {{ audienceSummary(notification) }}</small>
+                <small v-if="Number(notification.recipient_count) > 1">
                   Sent to {{ Number(notification.recipient_count).toLocaleString() }} recipients
+                </small>
+                <small v-if="role === 'super_admin' && notification.reader_count != null">
+                  {{ Number(notification.reader_count).toLocaleString() }} read
+                </small>
+                <small v-if="role === 'super_admin' && notification.related_entity_type" class="entity-tag">
+                  {{ notification.related_entity_type }}{{ notification.related_entity_id ? ` #${notification.related_entity_id}` : '' }}
                 </small>
               </div>
             </div>
@@ -147,6 +156,7 @@
                     <button type="button" @click="markTypeRead(notification.type)">Mark all {{ notification.catalog?.label || 'of this type' }} read</button>
                     <button v-if="!notification.catalog?.required" type="button" @click="muteType(notification)">Mute this type</button>
                     <button type="button" @click="openSettings(notification.type)">Manage this notification type</button>
+                    <button v-if="role === 'super_admin'" type="button" @click="overflowId = null; openDetail(notification)">View full details</button>
                   </div>
                 </div>
               </div>
@@ -196,6 +206,78 @@
       @assigned="handleOfficeRequestResolved"
       @denied="handleOfficeRequestResolved"
     />
+
+    <Teleport to="body">
+      <div v-if="detailModal.open" class="modal-backdrop" @click.self="detailModal.open = false">
+        <section class="detail-modal" role="dialog" aria-modal="true" aria-label="Notification details">
+          <header>
+            <strong>Notification Details</strong>
+            <button type="button" @click="detailModal.open = false">×</button>
+          </header>
+          <div v-if="detailModal.loading" class="empty-state">Loading details…</div>
+          <div v-else class="detail-body">
+            <div class="detail-section">
+              <h4>Core Info</h4>
+              <dl class="detail-dl">
+                <dt>ID</dt><dd>{{ detailModal.notification?.id }}</dd>
+                <dt>Type</dt><dd>{{ detailModal.notification?.type }}</dd>
+                <dt>Category</dt><dd>{{ detailModal.notification?.catalog?.category || '—' }}</dd>
+                <dt>Severity</dt><dd>{{ detailModal.notification?.severity }}</dd>
+                <dt>Title</dt><dd>{{ detailModal.notification?.title }}</dd>
+                <dt>Message</dt><dd>{{ detailModal.notification?.message }}</dd>
+                <dt>Created</dt><dd>{{ formatDate(detailModal.notification?.created_at) }}</dd>
+                <dt>Agency</dt><dd>{{ detailModal.notification?.agency_name }} (ID {{ detailModal.notification?.agency_id }})</dd>
+              </dl>
+            </div>
+            <div class="detail-section">
+              <h4>Targeting</h4>
+              <dl class="detail-dl">
+                <dt>Recipient user</dt>
+                <dd>{{ detailModal.notification?.recipient_display_name || (detailModal.notification?.user_id ? `User #${detailModal.notification.user_id}` : 'Agency broadcast') }}</dd>
+                <dt>Recipient email</dt><dd>{{ detailModal.notification?.recipient_email || '—' }}</dd>
+                <dt>Recipient role</dt><dd>{{ detailModal.notification?.recipient_role || '—' }}</dd>
+                <dt>Audience roles</dt>
+                <dd>{{ audienceSummary(detailModal.notification) || (detailModal.notification?.audience_json ? JSON.stringify(detailModal.notification.audience_json) : 'All roles') }}</dd>
+              </dl>
+            </div>
+            <div class="detail-section">
+              <h4>Actor / Source</h4>
+              <dl class="detail-dl">
+                <dt>Actor</dt><dd>{{ detailModal.notification?.actor_display_name || '—' }}</dd>
+                <dt>Actor email</dt><dd>{{ detailModal.notification?.actor_email || '—' }}</dd>
+                <dt>Actor role</dt><dd>{{ detailModal.notification?.actor_role || '—' }}</dd>
+                <dt>Actor source</dt><dd>{{ detailModal.notification?.actor_source || '—' }}</dd>
+              </dl>
+            </div>
+            <div class="detail-section">
+              <h4>Related Entity</h4>
+              <dl class="detail-dl">
+                <dt>Entity type</dt><dd>{{ detailModal.notification?.related_entity_type || '—' }}</dd>
+                <dt>Entity ID</dt><dd>{{ detailModal.notification?.related_entity_id || '—' }}</dd>
+                <dt>Fanout fingerprint</dt><dd class="mono">{{ detailModal.notification?.fanout_fingerprint || '—' }}</dd>
+              </dl>
+            </div>
+            <div class="detail-section">
+              <h4>Read Status ({{ detailModal.readCount }} read · {{ detailModal.dismissedCount }} dismissed)</h4>
+              <div v-if="!detailModal.readers.length" class="muted-note">No one has opened this notification yet.</div>
+              <table v-else class="readers-table">
+                <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Read</th><th>Read at</th><th>Dismissed</th></tr></thead>
+                <tbody>
+                  <tr v-for="r in detailModal.readers" :key="r.user_id">
+                    <td>{{ r.user_name || `User #${r.user_id}` }}</td>
+                    <td>{{ r.user_email || '—' }}</td>
+                    <td>{{ r.user_role || '—' }}</td>
+                    <td>{{ r.is_read ? '✓' : '—' }}</td>
+                    <td>{{ r.read_at ? formatDate(r.read_at) : '—' }}</td>
+                    <td>{{ r.dismissed_at ? formatDate(r.dismissed_at) : '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+    </Teleport>
   </main>
 </template>
 
@@ -234,6 +316,7 @@ let searchTimer = null;
 let feedRequestId = 0;
 const officeRequestModal = ref({ visible: false, requestId: null, agencyId: null });
 const digestModal = reactive({ open: false, loading: false, items: [] });
+const detailModal = reactive({ open: false, loading: false, notification: null, readers: [], readCount: 0, dismissedCount: 0 });
 
 const feed = reactive({
   items: [], unreadCount: 0,
@@ -468,6 +551,36 @@ const undoMute = async () => {
 const openSettings = (notificationType = null) => { settingsType.value = notificationType; settingsOpen.value = true; overflowId.value = null; };
 const handleSettingsChanged = () => { void loadFeed(); void notificationStore.fetchCounts(); };
 
+const audienceSummary = (notification) => {
+  try {
+    const aud = typeof notification.audience_json === 'string'
+      ? JSON.parse(notification.audience_json)
+      : notification.audience_json;
+    if (!aud || typeof aud !== 'object') return null;
+    const LABELS = { super_admin: 'Super Admin', admin: 'Admin', support: 'Support', staff: 'Staff', provider: 'Provider', provider_plus: 'Provider+', supervisor: 'Supervisor', guardian: 'Guardian' };
+    const allowed = Object.entries(aud).filter(([, v]) => v !== false).map(([k]) => LABELS[k] || k);
+    return allowed.length ? allowed.join(', ') : null;
+  } catch { return null; }
+};
+
+const openDetail = async (notification) => {
+  detailModal.open = true;
+  detailModal.loading = true;
+  detailModal.notification = notification;
+  detailModal.readers = [];
+  detailModal.readCount = 0;
+  detailModal.dismissedCount = 0;
+  try {
+    const { data } = await api.get(`/notifications/${notification.id}/detail`);
+    detailModal.notification = data.notification || notification;
+    detailModal.readers = data.readers || [];
+    detailModal.readCount = data.readCount || 0;
+    detailModal.dismissedCount = data.dismissedCount || 0;
+  } finally {
+    detailModal.loading = false;
+  }
+};
+
 const openNotification = async (notification) => {
   if (notification.type === 'user_activity_digest') {
     digestModal.open = true; digestModal.loading = true; digestModal.items = [];
@@ -562,6 +675,7 @@ onBeforeUnmount(() => { if (undoTimer) clearTimeout(undoTimer); if (searchTimer)
 .pagination { display:flex; justify-content:center; align-items:center; gap:14px; padding:14px; border-top:1px solid var(--border); }.pagination button { border:1px solid var(--border); background:white; border-radius:8px; padding:8px 12px; }.pagination button:disabled { opacity:.45; }
 .mobile-filter-btn { display:none; }.undo-toast { position:fixed; z-index:2500; left:50%; bottom:24px; transform:translateX(-50%); background:#102a25; color:white; border-radius:10px; padding:12px 16px; box-shadow:0 12px 30px rgba(0,0,0,.2); display:flex; gap:18px; }.undo-toast button { border:0; background:none; color:#6ee7b7; font-weight:800; cursor:pointer; }
 .modal-backdrop { position:fixed; inset:0; z-index:3000; background:rgba(15,23,42,.45); display:grid; place-items:center; }.digest-modal { width:min(700px,94vw); max-height:80vh; background:white; border-radius:14px; overflow:auto; }.digest-modal>header { display:flex; justify-content:space-between; padding:16px; border-bottom:1px solid var(--border); }.digest-modal>header button { border:0; background:none; font-size:24px; }.digest-events { padding:12px; }.digest-events article { display:grid; grid-template-columns:140px 1fr auto; gap:10px; padding:10px; border-bottom:1px solid var(--border); font-size:12px; }.digest-events span { color:var(--text-secondary); }
+.detail-modal { width:min(860px,96vw); max-height:88vh; background:white; border-radius:14px; overflow:auto; display:flex; flex-direction:column; }.detail-modal>header { display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid var(--border); position:sticky; top:0; background:white; z-index:1; }.detail-modal>header button { border:0; background:none; font-size:24px; cursor:pointer; }.detail-body { padding:16px; display:flex; flex-direction:column; gap:16px; }.detail-section { border:1px solid var(--border); border-radius:10px; padding:14px; }.detail-section h4 { margin:0 0 10px; font-size:13px; color:#0c4a6e; text-transform:uppercase; letter-spacing:.04em; }.detail-dl { display:grid; grid-template-columns:140px 1fr; gap:5px 12px; font-size:12px; }.detail-dl dt { color:var(--text-secondary); font-weight:700; }.detail-dl dd { margin:0; overflow-wrap:anywhere; }.mono { font-family:monospace; font-size:11px; }.muted-note { color:var(--text-secondary); font-size:13px; }.readers-table { width:100%; border-collapse:collapse; font-size:12px; }.readers-table th,.readers-table td { padding:7px 9px; border-bottom:1px solid var(--border); text-align:left; }.readers-table th { background:#f8fafb; font-weight:700; }.entity-tag { background:#f0f9ff; color:#0369a1; border-radius:4px; padding:1px 5px; font-family:monospace; font-size:10px; }
 @media (max-width:1050px) { .page-header { flex-direction:column; }.header-actions { justify-content:flex-start; }.notification-row { grid-template-columns:44px 1fr; }.notification-side { grid-column:2; align-items:flex-start; }.row-actions { flex-wrap:wrap; } }
 @media (max-width:760px) { .notification-page { padding:14px; }.inbox-layout { grid-template-columns:1fr; }.mobile-filter-btn { display:block; width:100%; border:1px solid var(--border); border-radius:9px; background:white; padding:9px; margin-bottom:8px; }.filter-sidebar { display:none; position:static; }.filter-sidebar.mobileOpen { display:block; }.scope-tabs { overflow-x:auto; }.scope-tabs select { max-width:160px; }.notification-row { grid-template-columns:36px 1fr; padding:10px; }.notification-icon { width:34px; height:34px; }.notification-side { grid-column:1/-1; }.inbox-toolbar { align-items:flex-start; gap:10px; }.inbox-toolbar>div { align-items:flex-end; }.digest-events article { grid-template-columns:1fr; } }
 </style>

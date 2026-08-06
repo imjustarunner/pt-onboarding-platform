@@ -19,7 +19,8 @@ import {
   updateNotificationState,
   bulkNotificationActions,
   getNotificationUpdates,
-  getNotificationDigestEvents
+  getNotificationDigestEvents,
+  getNotificationDetail
 } from '../controllers/notification.controller.js';
 import { getMySmsLogs, getSmsLogs } from '../controllers/notificationSmsLog.controller.js';
 import { authenticate, requireBackofficeAdmin, requireAgencyAdmin } from '../middleware/auth.middleware.js';
@@ -65,6 +66,9 @@ router.put('/read-all', markAllAsRead);
 
 // Mark all notifications as resolved for an agency
 router.put('/resolve-all', markAllAsResolved);
+
+// Full notification detail for super_admin (readers, audience, all metadata)
+router.get('/:id/detail', getNotificationDetail);
 
 // Mark notification as read
 router.put('/:id/read', markAsRead);

@@ -1693,9 +1693,13 @@ async function queryNotificationFeed(req, { forcePageSize = null, includeAfterId
     : sort === 'priority'
       ? "FIELD(n.severity, 'urgent', 'warning', 'info') ASC, n.created_at DESC, n.id DESC"
       : 'n.created_at DESC, n.id DESC';
-  const recipientCountExpr = access.scope === 'managed'
+  const isSuperAdmin = access.role === 'super_admin';
+  const recipientCountExpr = (access.scope === 'managed' || isSuperAdmin)
     ? managedRecipientCountExpr('n')
     : '1';
+  const readerCountExpr = isSuperAdmin
+    ? `(SELECT COUNT(*) FROM notification_user_reads nur2 WHERE nur2.notification_id = n.id AND nur2.is_read = 1)`
+    : 'NULL';
 
   const [[countRow], [rows], [facetRows], [categoryFacetRows], [typeFacetRows], [unreadCountRows]] = await Promise.all([
     pool.execute(`SELECT COUNT(*) AS total ${joins} WHERE ${current.sql}`, current.params),
@@ -1706,7 +1710,8 @@ async function queryNotificationFeed(req, { forcePageSize = null, includeAfterId
         nur.snoozed_until AS _snoozed_until_for_viewer,
         a.name AS agency_name,
         NULLIF(TRIM(CONCAT_WS(' ', au.first_name, au.last_name)), '') AS actor_display_name,
-        ${recipientCountExpr} AS recipient_count
+        ${recipientCountExpr} AS recipient_count,
+        ${readerCountExpr} AS reader_count
        ${joins}
        WHERE ${current.sql}
        ORDER BY ${orderBy}
@@ -2017,6 +2022,69 @@ export const getNotificationUpdates = async (req, res, next) => {
     });
   } catch (error) {
     if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
+};
+
+export const getNotificationDetail = async (req, res, next) => {
+  try {
+    const notificationId = Number(req.params.id);
+    if (!notificationId) return res.status(400).json({ error: { message: 'Invalid notification id' } });
+    const userRole = String(req.user.role || '').toLowerCase();
+    if (userRole !== 'super_admin') return res.status(403).json({ error: { message: 'Super admin access required' } });
+
+    const [[notifRows], [readerRows]] = await Promise.all([
+      pool.execute(
+        `SELECT n.*,
+          a.name AS agency_name,
+          NULLIF(TRIM(CONCAT_WS(' ', actor_u.first_name, actor_u.last_name)), '') AS actor_display_name,
+          actor_u.email AS actor_email,
+          actor_u.role AS actor_role,
+          NULLIF(TRIM(CONCAT_WS(' ', recip_u.first_name, recip_u.last_name)), '') AS recipient_display_name,
+          recip_u.email AS recipient_email,
+          recip_u.role AS recipient_role
+         FROM notifications n
+         LEFT JOIN agencies a ON a.id = n.agency_id
+         LEFT JOIN users actor_u ON actor_u.id = n.actor_user_id
+         LEFT JOIN users recip_u ON recip_u.id = n.user_id
+         WHERE n.id = ?
+         LIMIT 1`,
+        [notificationId]
+      ),
+      pool.execute(
+        `SELECT nur.user_id, nur.is_read, nur.read_at, nur.requires_follow_up, nur.dismissed_at, nur.snoozed_until,
+          NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), '') AS user_name,
+          u.email AS user_email,
+          u.role AS user_role
+         FROM notification_user_reads nur
+         LEFT JOIN users u ON u.id = nur.user_id
+         WHERE nur.notification_id = ?
+         ORDER BY nur.read_at DESC, nur.user_id ASC
+         LIMIT 500`,
+        [notificationId]
+      )
+    ]);
+
+    const notification = notifRows?.[0];
+    if (!notification) return res.status(404).json({ error: { message: 'Notification not found' } });
+
+    const catalog = getNotificationCatalogEntry(notification.type);
+    const audience = parseJsonMaybe(notification.audience_json);
+
+    const readCount = readerRows.filter((r) => r.is_read).length;
+    const dismissedCount = readerRows.filter((r) => r.dismissed_at).length;
+
+    res.json({
+      notification: {
+        ...notification,
+        catalog: catalog || null,
+        audience_parsed: audience || null
+      },
+      readers: readerRows,
+      readCount,
+      dismissedCount
+    });
+  } catch (error) {
     next(error);
   }
 };
