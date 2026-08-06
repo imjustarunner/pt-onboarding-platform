@@ -29,6 +29,7 @@
       @request-office="emit('request-office')"
       @cancel-office-request="emit('cancel-office-request')"
       @scroll-to-group-clients="emit('scroll-to-group-clients')"
+      @open-room-photos="emit('open-room-photos', $event)"
     >
       <template #provider>
         <slot name="provider" />
@@ -73,6 +74,7 @@
       :until-date="recurrenceUntilDate"
       :weekdays="recurrenceWeekdays"
       :occurrence-label="recurrenceOccurrenceLabel"
+      :open-slot-hint="openSlotRecurrenceHint"
       :disabled="disabled"
       @update:frequency="emit('update:recurrenceFrequency', $event)"
       @update:endMode="emit('update:recurrenceEndMode', $event)"
@@ -124,6 +126,9 @@ const props = defineProps({
   recurrenceUntilDate: { type: String, default: '' },
   recurrenceWeekdays: { type: Array, default: () => [] },
   recurrenceOccurrenceLabel: { type: String, default: '' },
+  openSlotRecurrenceHint: { type: String, default: '' },
+  showType: { type: Boolean, default: true },
+  showStatus: { type: Boolean, default: true },
   // header field passthrough
   dateYmd: { type: String, default: '' },
   startTime: { type: String, default: '' },
@@ -201,6 +206,7 @@ const emit = defineEmits([
   'request-office',
   'cancel-office-request',
   'scroll-to-group-clients',
+  'open-room-photos',
   'dismiss-virtual',
   'update:virtualIsVirtual',
   'update:virtualUsePlatformVideo',
@@ -223,12 +229,14 @@ const headerProps = computed(() => ({
   appointmentTypeLabel: props.appointmentTypeLabel,
   typeOptions: props.typeOptions,
   canEditType: props.canEditType,
+  showType: props.showType,
   showParticipant: props.showParticipant,
   participantLabel: props.participantLabel,
   participantSummary: props.participantSummary,
   status: props.status,
   statusOptions: props.statusOptions,
   canEditStatus: props.canEditStatus,
+  showStatus: props.showStatus,
   showOccurrenceCount: props.showOccurrenceCount,
   occurrenceCountLabel: props.occurrenceCountLabel,
   showLocation: props.showLocation,

@@ -1207,6 +1207,37 @@ export const putMyVirtualWorkingHours = async (req, res, next) => {
   }
 };
 
+/** PATCH /api/availability/me/virtual-working-hours/:id — move/resize a single open-slot window */
+export const patchMyVirtualWorkingHoursRow = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    const providerId = Number(req.user?.id || 0);
+    if (!providerId) return res.status(400).json({ error: { message: 'Invalid user' } });
+    const id = Number(req.params?.id || 0);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid id' } });
+
+    const dayOfWeek = req.body?.dayOfWeek || req.body?.day_of_week;
+    const startTime = req.body?.startTime || req.body?.start_time;
+    const endTime = req.body?.endTime || req.body?.end_time;
+    const updated = await ProviderVirtualWorkingHours.updateRowForProvider({
+      id,
+      agencyId,
+      providerId,
+      dayOfWeek,
+      startTime,
+      endTime
+    });
+    res.json({ ok: true, agencyId, providerId, row: updated });
+  } catch (e) {
+    if (e?.status === 404) return res.status(404).json({ error: { message: e.message } });
+    if (String(e?.message || '').includes('Invalid')) {
+      return res.status(400).json({ error: { message: e.message } });
+    }
+    next(e);
+  }
+};
+
 export const getProviderWeekAvailability = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);

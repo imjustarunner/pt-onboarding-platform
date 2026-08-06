@@ -1458,6 +1458,11 @@ export const setEventVirtualIntakeAvailability = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Unable to resolve agency for provider/office' } });
     }
 
+    const bodyIntake = req.body?.availableForIntake;
+    const bodySession = req.body?.availableForSession;
+    const availableForIntake = bodyIntake === undefined ? true : !(bodyIntake === false || bodyIntake === 0 || bodyIntake === '0' || String(bodyIntake).toLowerCase() === 'false');
+    const availableForSession = bodySession === true || bodySession === 1 || bodySession === '1' || String(bodySession).toLowerCase() === 'true';
+
     if (enabled) {
       await ProviderVirtualSlotAvailability.upsertSlot({
         agencyId,
@@ -1466,7 +1471,9 @@ export const setEventVirtualIntakeAvailability = async (req, res, next) => {
         roomId: Number(ev.room_id || 0) || null,
         startAt,
         endAt,
-        sessionType: 'INTAKE',
+        sessionType: availableForIntake && availableForSession ? 'BOTH' : (availableForIntake ? 'INTAKE' : 'REGULAR'),
+        availableForIntake,
+        availableForSession,
         source: 'OFFICE_EVENT',
         sourceEventId: ev.id,
         createdByUserId: req.user.id

@@ -538,6 +538,38 @@ class StorageService {
   }
 
   /**
+   * Save an office room photo to GCS (served via /uploads/*).
+   * @param {number} roomId
+   * @param {Buffer} fileBuffer
+   * @param {string} filename
+   * @param {string} contentType
+   */
+  static async saveOfficeRoomPhoto(roomId, fileBuffer, filename, contentType = 'image/jpeg') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const unique = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+    const rid = Number(roomId) || 0;
+    const key = `uploads/office_room_photos/room_${rid}/${unique}-${sanitizedFilename}`;
+
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType,
+      metadata: {
+        roomId: String(rid || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return {
+      path: key,
+      key,
+      filename: sanitizedFilename,
+      relativePath: key
+    };
+  }
+
+  /**
    * Club feed image attachment — scoped by club + uploader (served via /uploads/*).
    */
   static async saveClubFeedAttachment(clubId, userId, fileBuffer, filename, contentType = 'image/jpeg') {

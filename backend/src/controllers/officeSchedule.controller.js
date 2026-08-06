@@ -1077,16 +1077,36 @@ export const getWeeklyGrid = async (req, res, next) => {
     }
     const virtualIntakeSlotKeys = new Set();
     try {
-      const [virtualRows] = await pool.execute(
-        `SELECT provider_id, start_at, end_at
-         FROM provider_virtual_slot_availability
-         WHERE office_location_id = ?
-           AND is_active = TRUE
-           AND session_type IN ('INTAKE', 'BOTH')
-           AND start_at < ?
-           AND end_at > ?`,
-        [officeLocationIdNum, windowEnd, windowStart]
-      );
+      let virtualRows;
+      try {
+        const [rows] = await pool.execute(
+          `SELECT provider_id, start_at, end_at
+           FROM provider_virtual_slot_availability
+           WHERE office_location_id = ?
+             AND is_active = TRUE
+             AND (
+               available_for_intake = 1
+               OR (available_for_intake IS NULL AND session_type IN ('INTAKE', 'BOTH'))
+             )
+             AND start_at < ?
+             AND end_at > ?`,
+          [officeLocationIdNum, windowEnd, windowStart]
+        );
+        virtualRows = rows;
+      } catch (colErr) {
+        if (!String(colErr?.message || '').includes('available_for_intake')) throw colErr;
+        const [rows] = await pool.execute(
+          `SELECT provider_id, start_at, end_at
+           FROM provider_virtual_slot_availability
+           WHERE office_location_id = ?
+             AND is_active = TRUE
+             AND session_type IN ('INTAKE', 'BOTH')
+             AND start_at < ?
+             AND end_at > ?`,
+          [officeLocationIdNum, windowEnd, windowStart]
+        );
+        virtualRows = rows;
+      }
       for (const row of virtualRows || []) {
         const providerId = Number(row.provider_id || 0);
         const startAt = normalizeMysqlDateTime(row.start_at);
@@ -1940,7 +1960,9 @@ export const getWeeklyGrid = async (req, res, next) => {
         id: r.id,
         name: r.name,
         roomNumber: r.room_number ?? null,
-        label: r.label ?? null
+        label: r.label ?? null,
+        photoUrl: r.photo_url || null,
+        photo_url: r.photo_url || null
       })),
       slots: privacySlots.map(compact),
       cancelledGoogleEvents,

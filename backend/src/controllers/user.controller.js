@@ -5431,16 +5431,25 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const rows = await ProviderVirtualWorkingHours.listForProvider({ agencyId: aid, providerId });
         for (const r of rows || []) {
           const sessionType = String(r?.sessionType || 'REGULAR').toUpperCase();
-          if (!['INTAKE', 'BOTH'].includes(sessionType)) continue;
+          const forIntake = r?.availableForIntake === true
+            || r?.availableForIntake === 1
+            || ['INTAKE', 'BOTH'].includes(sessionType);
+          // Grid "Open" marker is for intake-capable availability (never labeled "for intake").
+          if (!forIntake) continue;
           const key = `${aid}|${r.dayOfWeek}|${r.startTime}|${r.endTime}|${sessionType}`;
           if (seenVwh.has(key)) continue;
           seenVwh.add(key);
           virtualWorkingHours.push({
+            id: Number(r?.id || 0) || null,
             agencyId: aid,
             dayOfWeek: r.dayOfWeek,
             startTime: r.startTime,
             endTime: r.endTime,
             sessionType,
+            availableForIntake: !!forIntake,
+            availableForSession: !!(r?.availableForSession === true
+              || r?.availableForSession === 1
+              || ['REGULAR', 'BOTH'].includes(sessionType)),
             frequency: String(r?.frequency || 'WEEKLY').toUpperCase()
           });
         }

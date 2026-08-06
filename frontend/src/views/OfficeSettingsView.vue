@@ -224,8 +224,15 @@
           <div v-else class="list" style="margin-top: 10px;">
             <div v-for="r in rooms" :key="r.id" class="list-row">
               <div class="list-main">
-                <div class="title">
-                  {{ r.room_number ? `#${r.room_number}` : '' }} {{ r.label || r.name }}
+                <div class="title" style="display:flex; align-items:center; gap:8px;">
+                  <span>{{ r.room_number ? `#${r.room_number}` : '' }} {{ r.label || r.name }}</span>
+                  <OfficeRoomPhotoButton
+                    :room-id="Number(r.id)"
+                    :office-id="Number(officeId || 0)"
+                    :photo-url="String(r.photo_url || r.photoUrl || '')"
+                    :room-label="`${r.room_number ? `#${r.room_number} ` : ''}${r.label || r.name || ''}`.trim()"
+                    @open="openOfficeRoomPhotoGallery"
+                  />
                 </div>
                 <div class="meta">Office ID: {{ r.id }}</div>
                 <div style="margin-top: 10px;">
@@ -234,6 +241,19 @@
                   </button>
                   <button class="btn btn-danger btn-sm" style="margin-left: 8px;" @click="deleteRoom(r)" :disabled="saving || loading || !canManageOfficeSettings">
                     Delete
+                  </button>
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    style="margin-left: 8px;"
+                    type="button"
+                    @click="openOfficeRoomPhotoGallery({
+                      roomId: Number(r.id),
+                      officeId: Number(officeId || 0),
+                      roomLabel: `${r.room_number ? `#${r.room_number} ` : ''}${r.label || r.name || ''}`.trim(),
+                      photoUrl: String(r.photo_url || r.photoUrl || '')
+                    })"
+                  >
+                    Manage photos
                   </button>
                 </div>
 
@@ -335,6 +355,15 @@
         </div>
       </div>
     </div>
+
+    <OfficeRoomPhotoGalleryModal
+      :open="officeRoomPhotoGallery.open"
+      :office-id="officeRoomPhotoGallery.officeId"
+      :room-id="officeRoomPhotoGallery.roomId"
+      :room-label="officeRoomPhotoGallery.roomLabel"
+      @close="closeOfficeRoomPhotoGallery"
+      @updated="loadAll"
+    />
   </div>
 </template>
 
@@ -343,10 +372,27 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
+import OfficeRoomPhotoButton from '../components/schedule/OfficeRoomPhotoButton.vue';
+import OfficeRoomPhotoGalleryModal from '../components/schedule/OfficeRoomPhotoGalleryModal.vue';
 
 const route = useRoute();
 const router = useRouter();
 const officeId = computed(() => (typeof route.query.officeId === 'string' ? route.query.officeId : ''));
+const officeRoomPhotoGallery = ref({ open: false, officeId: 0, roomId: 0, roomLabel: '' });
+function openOfficeRoomPhotoGallery(payload = {}) {
+  const roomId = Number(payload?.roomId || 0);
+  const oid = Number(payload?.officeId || officeId.value || 0);
+  if (!roomId || !oid) return;
+  officeRoomPhotoGallery.value = {
+    open: true,
+    officeId: oid,
+    roomId,
+    roomLabel: String(payload?.roomLabel || 'Room')
+  };
+}
+function closeOfficeRoomPhotoGallery() {
+  officeRoomPhotoGallery.value = { open: false, officeId: 0, roomId: 0, roomLabel: '' };
+}
 const authStore = useAuthStore();
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
 const canManageOfficeSettings = computed(() => {

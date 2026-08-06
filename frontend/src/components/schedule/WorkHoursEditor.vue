@@ -6,10 +6,6 @@
     </summary>
 
     <div class="work-hours__body">
-      <p class="work-hours__help">
-        Reachability for email/SMS — not client booking hours. Toggle “Allow outside work hours” in Preferences if needed.
-      </p>
-
       <div v-if="loading" class="muted">Loading…</div>
       <div v-else>
         <div v-if="error" class="error">{{ error }}</div>
@@ -25,13 +21,25 @@
             </select>
             <span v-if="timezoneHint" class="field-hint muted">{{ timezoneHint }}</span>
           </label>
-          <label class="check">
-            <input v-model="isActive" type="checkbox" />
-            Active
-          </label>
+          <div class="work-hours__active">
+            <label class="check">
+              <input v-model="isActive" type="checkbox" />
+              Active for this user
+            </label>
+            <p class="work-hours__help">
+              Your reachability for email/SMS only — not client booking hours, and not a global toggle for other staff.
+              Toggle “Allow outside work hours” in Preferences if needed.
+            </p>
+          </div>
         </div>
 
         <div class="work-hours__table">
+          <div class="work-hours__row work-hours__row--head" aria-hidden="true">
+            <span>Day</span>
+            <span>Start</span>
+            <span>End</span>
+            <span></span>
+          </div>
           <div v-for="(r, idx) in rows" :key="idx" class="work-hours__row">
             <select v-model.number="r.dayOfWeek" class="select">
               <option v-for="d in dayOptions" :key="d.value" :value="d.value">{{ d.label }}</option>
@@ -219,17 +227,19 @@ watch(() => props.userId, load);
 }
 .work-hours__body { margin-top: 8px; }
 .work-hours__help {
-  margin: 0 0 8px;
+  margin: 4px 0 0;
   font-size: 11px;
   color: var(--text-secondary);
   font-weight: 600;
+  max-width: 360px;
+  line-height: 1.35;
 }
 .work-hours__meta {
   display: flex;
-  gap: 12px;
-  align-items: end;
+  gap: 16px;
+  align-items: flex-start;
   flex-wrap: wrap;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 .work-hours__meta .field {
   display: flex;
@@ -248,6 +258,12 @@ watch(() => props.userId, load);
   font-weight: 600;
   margin-top: 2px;
 }
+.work-hours__active {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 220px;
+}
 .work-hours__meta .check {
   display: inline-flex;
   gap: 6px;
@@ -255,12 +271,20 @@ watch(() => props.userId, load);
   font-size: 12px;
   font-weight: 700;
 }
-.work-hours__table { display: flex; flex-direction: column; gap: 4px; }
+.work-hours__table { display: flex; flex-direction: column; gap: 6px; }
 .work-hours__row {
   display: grid;
-  grid-template-columns: 72px 110px 110px auto;
-  gap: 6px;
+  grid-template-columns: 80px 1fr 1fr auto;
+  gap: 8px;
   align-items: center;
+}
+.work-hours__row--head {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, #64748b);
+  padding: 0 2px;
 }
 .work-hours__actions {
   display: flex;

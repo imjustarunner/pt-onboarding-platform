@@ -1,18 +1,30 @@
 <template>
   <div class="osorb" data-testid="open-slot-office-request-body">
     <p class="osorb-help muted">
-      Publish this time as an open in-office slot and optionally attach an office request for the same series.
+      Publish this time as an open slot for booking. Leave office unchecked for virtual availability, or attach an office request for the same series.
     </p>
 
     <label class="osorb-check">
       <input
         type="checkbox"
-        :checked="openSlotEnabled"
+        :checked="availableForIntake"
         :disabled="disabled"
-        @change="emit('update:openSlotEnabled', !!$event.target.checked)"
+        @change="emit('update:availableForIntake', !!$event.target.checked)"
       />
-      <span>Open slot for booking</span>
+      <span>{{ intakeLabel }}</span>
     </label>
+    <label class="osorb-check">
+      <input
+        type="checkbox"
+        :checked="availableForSession"
+        :disabled="disabled"
+        @change="emit('update:availableForSession', !!$event.target.checked)"
+      />
+      <span>{{ sessionLabel }}</span>
+    </label>
+    <p v-if="!availableForIntake && !availableForSession" class="osorb-warn" role="status">
+      Select at least one availability option to publish an open slot.
+    </p>
 
     <label class="osorb-check">
       <input
@@ -24,35 +36,19 @@
       <span>Also request office for this duration / series</span>
     </label>
 
+    <p v-if="durationWarning" class="osorb-warn" role="status">
+      {{ durationWarning }}
+    </p>
+
+    <p
+      v-if="acceptingNewClientsHint"
+      class="osorb-warn"
+      role="status"
+    >
+      {{ acceptingNewClientsHint }}
+    </p>
+
     <div v-if="attachOfficeRequest" class="osorb-panel">
-      <div class="osorb-row">
-        <label class="osorb-label">Office / location</label>
-        <select
-          class="osorb-input"
-          :value="officeLocationId"
-          :disabled="disabled"
-          @change="emit('update:officeLocationId', Number($event.target.value || 0))"
-        >
-          <option :value="0">Any available / admin assigns</option>
-          <option v-for="loc in officeLocations" :key="loc.id" :value="Number(loc.id)">
-            {{ loc.name || loc.label || `Office #${loc.id}` }}
-          </option>
-        </select>
-      </div>
-      <div class="osorb-row">
-        <label class="osorb-label">Preferred room</label>
-        <select
-          class="osorb-input"
-          :value="preferredRoomId"
-          :disabled="disabled"
-          @change="emit('update:preferredRoomId', Number($event.target.value || 0))"
-        >
-          <option :value="0">Any open room</option>
-          <option v-for="r in roomOptions" :key="r.id" :value="Number(r.id)">
-            {{ r.label || r.name || `Room #${r.id}` }}
-          </option>
-        </select>
-      </div>
       <div class="osorb-row">
         <label class="osorb-label">Request notes</label>
         <textarea
@@ -64,29 +60,38 @@
           @input="emit('update:requestNotes', $event.target.value)"
         />
       </div>
+      <p class="osorb-help muted" style="margin: 0;">
+        Choose office and open room in the Office request panel above.
+      </p>
     </div>
   </div>
 </template>
 
 <script setup>
-defineProps({
-  openSlotEnabled: { type: Boolean, default: true },
+import { computed } from 'vue';
+import { openSlotAvailabilityLabels } from '../../utils/openSlotAvailabilityLabels.js';
+
+const props = defineProps({
+  availableForIntake: { type: Boolean, default: true },
+  availableForSession: { type: Boolean, default: false },
   attachOfficeRequest: { type: Boolean, default: false },
-  officeLocationId: { type: Number, default: 0 },
-  preferredRoomId: { type: Number, default: 0 },
-  officeLocations: { type: Array, default: () => [] },
-  roomOptions: { type: Array, default: () => [] },
   requestNotes: { type: String, default: '' },
+  durationWarning: { type: String, default: '' },
+  acceptingNewClientsHint: { type: String, default: '' },
+  practitionerType: { type: String, default: '' },
   disabled: { type: Boolean, default: false }
 });
 
 const emit = defineEmits([
-  'update:openSlotEnabled',
+  'update:availableForIntake',
+  'update:availableForSession',
   'update:attachOfficeRequest',
-  'update:officeLocationId',
-  'update:preferredRoomId',
   'update:requestNotes'
 ]);
+
+const labels = computed(() => openSlotAvailabilityLabels(props.practitionerType));
+const intakeLabel = computed(() => labels.value.intake);
+const sessionLabel = computed(() => labels.value.session);
 </script>
 
 <style scoped>
@@ -123,6 +128,15 @@ const emit = defineEmits([
   padding: 8px 10px;
   font: inherit;
   background: #fff;
+}
+.osorb-warn {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
+  font-size: 0.84rem;
 }
 .muted { color: #64748b; }
 </style>

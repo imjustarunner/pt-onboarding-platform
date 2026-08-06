@@ -31,6 +31,7 @@ const KIND_TITLES = {
   huddle: 'Huddle',
   supervision: 'Supervision',
   portal_intake: 'Open Slot for Booking',
+  attach_open_for_booking: 'Attach Open for Booking',
   office_request_only: 'Request Office',
   office: 'Request Office',
   personal_event: 'Personal Event',

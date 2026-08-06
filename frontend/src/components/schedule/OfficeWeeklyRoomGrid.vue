@@ -14,7 +14,16 @@
         <div class="day-grid" :style="dayGridStyle">
           <div class="corner"></div>
           <div v-for="r in rooms" :key="`rh-${r.id}`" class="room-head">
-            <div class="room-title">{{ roomLabel(r) }}</div>
+            <div class="room-title-row">
+              <div class="room-title">{{ roomLabel(r) }}</div>
+              <OfficeRoomPhotoButton
+                :room-id="Number(r.id)"
+                :office-id="Number(grid?.location?.id || 0)"
+                :photo-url="String(r.photoUrl || r.photo_url || '')"
+                :room-label="roomLabel(r)"
+                @open="emit('open-room-photos', $event)"
+              />
+            </div>
           </div>
 
           <template v-for="h in hours" :key="`row-${dateYmd}-${h}`">
@@ -57,6 +66,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import OfficeRoomPhotoButton from './OfficeRoomPhotoButton.vue';
 
 const props = defineProps({
   officeGrid: { type: Object, default: null },
@@ -67,7 +77,7 @@ const props = defineProps({
   showIcsGaps: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['cell-click', 'cell-mousedown', 'cell-mouseenter']);
+const emit = defineEmits(['cell-click', 'cell-mousedown', 'cell-mouseenter', 'open-room-photos']);
 
 const grid = computed(() => props.officeGrid);
 const rooms = computed(() => {
@@ -337,7 +347,8 @@ const dayGridStyle = computed(() => ({
 .day-grid { display: grid; overflow-x: auto; }
 .corner { background: var(--bg-alt); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .room-head { background: var(--bg-alt); border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); padding: 8px 10px; }
-.room-title { font-weight: 900; font-size: 12px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.room-title-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.room-title { font-weight: 900; font-size: 12px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 
 .hour { background: var(--bg-alt); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 8px 10px; font-weight: 900; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
 .cell { border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); padding: 6px 8px; min-height: 44px; display: flex; flex-direction: column; gap: 2px; }

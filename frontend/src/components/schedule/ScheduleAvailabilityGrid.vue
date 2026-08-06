@@ -754,6 +754,7 @@
           @cell-click="onOfficeLayoutCellClick"
           @cell-mousedown="onOfficeLayoutCellMouseDown"
           @cell-mouseenter="onOfficeLayoutCellMouseEnter"
+          @open-room-photos="openOfficeRoomPhotoGallery"
         />
       </template>
     </div>
@@ -1367,6 +1368,31 @@
         </div>
         <div class="nr-chooser" v-if="slotInfoModalData">
         <div class="slot-info-card">
+          <div
+            v-if="slotInfoModalData.photoUrl || Number(slotInfoModalData.roomId || 0) > 0"
+            class="slot-info-photo-row"
+          >
+            <img
+              v-if="slotInfoModalData.photoUrl"
+              :src="slotInfoModalPhotoSrc"
+              alt=""
+              class="slot-info-photo"
+              @click="openOfficeRoomPhotoGallery({
+                roomId: Number(slotInfoModalData.roomId || 0),
+                officeId: Number(slotInfoModalData.officeId || selectedOfficeLocationId || 0),
+                roomLabel: slotInfoModalData.roomLabel,
+                photoUrl: slotInfoModalData.photoUrl
+              })"
+            />
+            <OfficeRoomPhotoButton
+              v-if="Number(slotInfoModalData.roomId || 0) > 0"
+              :room-id="Number(slotInfoModalData.roomId || 0)"
+              :office-id="Number(slotInfoModalData.officeId || selectedOfficeLocationId || 0)"
+              :photo-url="String(slotInfoModalData.photoUrl || '')"
+              :room-label="slotInfoModalData.roomLabel || 'Room'"
+              @open="openOfficeRoomPhotoGallery"
+            />
+          </div>
           <div class="slot-info-row">
             <span class="slot-info-label">Room</span>
             <span class="slot-info-value">{{ slotInfoModalData.roomLabel }}</span>
@@ -1637,6 +1663,7 @@
           :recurrence-until-date="editorRecurrenceUntilDate"
           :recurrence-weekdays="editorRecurrenceWeekdays"
           :recurrence-occurrence-label="editorRecurrenceOccurrenceLabel"
+          :open-slot-recurrence-hint="editorOpenSlotRecurrenceHint"
           :date-ymd="editorDateYmd"
           :start-time="editorStartTime"
           :end-time="editorEndTime"
@@ -1660,6 +1687,8 @@
           :status-options="APPOINTMENT_EDITOR_STATUS_OPTIONS"
           :show-occurrence-count="editorShowOccurrenceCount"
           :occurrence-count-label="editorOccurrenceCountLabel"
+          :show-type="!editorIsOpenSlot"
+          :show-status="!editorIsOpenSlot"
           :show-location="editorShowLocation"
           :location-address="editorLocationAddress"
           :location-options="editorServiceLocationOptions"
@@ -1708,6 +1737,7 @@
           @request-office="onEditorRequestOffice"
           @cancel-office-request="onEditorCancelOfficeRequest"
           @scroll-to-group-clients="onScrollToGroupClients"
+          @open-room-photos="openOfficeRoomPhotoGallery"
         >
           <template v-if="editorIsSupervision" #before-recurrence>
             <SupervisionBody
@@ -2001,14 +2031,13 @@
           />
 
           <OpenSlotPlusOfficeRequestBody
-            v-if="editorIsOpenSlot"
-            v-model:open-slot-enabled="editorOpenSlotEnabled"
+            v-if="editorIsOpenSlot || requestType === 'attach_open_for_booking'"
+            v-model:available-for-intake="editorAvailableForIntake"
+            v-model:available-for-session="editorAvailableForSession"
             v-model:attach-office-request="editorAttachOfficeRequest"
-            v-model:office-location-id="editorOfficeLocationId"
-            v-model:preferred-room-id="editorPreferredRoomId"
             v-model:request-notes="requestNotes"
-            :office-locations="editorOfficeLocations"
-            :room-options="editorPreferredOpenRoomOptions"
+            :duration-warning="editorOpenSlotDurationWarning"
+            :accepting-new-clients-hint="editorAcceptingNewClientsHint"
             :disabled="submitting"
           />
           <p
@@ -4936,6 +4965,15 @@
       </div>
     </div>
 
+    <OfficeRoomPhotoGalleryModal
+      :open="officeRoomPhotoGallery.open"
+      :office-id="officeRoomPhotoGallery.officeId"
+      :room-id="officeRoomPhotoGallery.roomId"
+      :room-label="officeRoomPhotoGallery.roomLabel"
+      @close="closeOfficeRoomPhotoGallery"
+      @updated="onOfficeRoomPhotosUpdated"
+    />
+
     <!-- Floating drag ghost: follows cursor while dragging or resizing an appointment -->
     <Teleport to="body">
       <div
@@ -5360,6 +5398,9 @@ import {
   isTenantOrganizationType as isTenantOrganizationTypeShared
 } from '../../utils/organizationTypes.js';
 import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
+import OfficeRoomPhotoButton from './OfficeRoomPhotoButton.vue';
+import OfficeRoomPhotoGalleryModal from './OfficeRoomPhotoGalleryModal.vue';
+import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 import SupervisionLiveRoom from '../supervision/SupervisionLiveRoom.vue';
 import UnifiedBookingPanel from './UnifiedBookingPanel.vue';
@@ -7449,8 +7490,12 @@ const onOfficeLayoutCellClick = ({ dateYmd, hour, roomId, slot, event, alreadyRe
   if (pending && st === 'open') {
     const names = Array.isArray(slot?.pendingRequestNames) ? slot.pendingRequestNames.filter(Boolean) : [];
     const roomName = String(slot?.roomLabel || slot?.room_label || `Room ${roomId}`).trim();
+    const roomMeta = (officeGrid.value?.rooms || []).find((r) => Number(r.id) === Number(roomId));
     slotInfoModalData.value = {
       roomLabel: roomName,
+      roomId: Number(roomId || 0),
+      officeId: Number(selectedOfficeLocationId.value || officeGrid.value?.location?.id || 0),
+      photoUrl: String(roomMeta?.photoUrl || roomMeta?.photo_url || slot?.photoUrl || '').trim(),
       providerLabel: names.length ? names.join(', ') : '—',
       state: 'requested',
       statusLabel: 'Already requested (pending approval)',
@@ -7467,8 +7512,12 @@ const onOfficeLayoutCellClick = ({ dateYmd, hour, roomId, slot, event, alreadyRe
     if (isOtherPersonsBooked) {
       const roomName = String(slot?.roomLabel || slot?.room_label || `Room ${roomId}`).trim();
       const providerName = String(slot?.bookedProviderFullName || slot?.bookedProviderName || slot?.assignedProviderFullName || slot?.assignedProviderName || slot?.providerInitials || '').trim() || '—';
+      const roomMeta = (officeGrid.value?.rooms || []).find((r) => Number(r.id) === Number(roomId));
       slotInfoModalData.value = {
         roomLabel: roomName,
+        roomId: Number(roomId || 0),
+        officeId: Number(selectedOfficeLocationId.value || officeGrid.value?.location?.id || 0),
+        photoUrl: String(roomMeta?.photoUrl || roomMeta?.photo_url || slot?.photoUrl || '').trim(),
         providerLabel: providerName,
         state: st,
         statusLabel: 'Booked',
@@ -10643,21 +10692,40 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     const key = aid || 'none';
     if (!portalByAgency.has(key)) portalByAgency.set(key, row);
   }
+  const officeHitsForPortalTie = officeEventsInCell(dayName, hour, minute);
+  const portalOfficeTied = officeHitsForPortalTie.some((ev) => {
+    const st = String(ev?.slotState || '').toUpperCase();
+    return ['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(st);
+  });
   for (const [aid, row] of portalByAgency) {
     const agencyId = (aid === 'none' || !aid) ? null : Number(aid);
     const label = agencyId && colorBlocksByTenant.value
       ? `Open · ${agencyLabel(agencyId) || 'Portal'}`
       : 'Open';
+    const vwhId = Number(row?.id || 0) || 0;
+    const st = String(row?.startTime || '').slice(0, 5);
+    const et = String(row?.endTime || '').slice(0, 5);
+    const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName));
+    const startAt = (dateYmd && st) ? `${dateYmd}T${st.length === 5 ? `${st}:00` : st}` : null;
+    const endAt = (dateYmd && et) ? `${dateYmd}T${et.length === 5 ? `${et}:00` : et}` : null;
+    const movable = !portalOfficeTied && vwhId > 0;
     blocks.push({
-      key: `portal-${agencyId || 'x'}`,
+      key: `portal-${vwhId || agencyId || 'x'}-${st}`,
       kind: 'portal',
       shortLabel: singleDayFocused
         ? (label.length > 22 ? `${label.slice(0, 22)}…` : label)
         : (agencyId ? 'Open' : 'Open'),
-      title: `Open for new clients${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${String(row?.startTime || '').slice(0, 5)}–${String(row?.endTime || '').slice(0, 5)}`,
+      title: `Open for new clients${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${st}–${et}`,
       agencyId,
       startTime: row?.startTime || null,
-      endTime: row?.endTime || null
+      endTime: row?.endTime || null,
+      virtualHoursId: vwhId,
+      officeTied: portalOfficeTied,
+      startAt,
+      endAt,
+      canReschedule: movable,
+      canEdit: movable,
+      draggable: movable
     });
   }
 
@@ -11275,6 +11343,32 @@ watch(() => props.userId, (uid) => {
 });
 const showSlotInfoModal = ref(false);
 const slotInfoModalData = ref(null);
+const officeRoomPhotoGallery = ref({ open: false, officeId: 0, roomId: 0, roomLabel: '' });
+const slotInfoModalPhotoSrc = computed(() => {
+  const raw = String(slotInfoModalData.value?.photoUrl || '').trim();
+  if (!raw) return '';
+  return toUploadsUrl(raw) || raw;
+});
+function openOfficeRoomPhotoGallery(payload = {}) {
+  const roomId = Number(payload?.roomId || 0);
+  const officeId = Number(payload?.officeId || selectedOfficeLocationId.value || officeGrid.value?.location?.id || 0);
+  if (!roomId || !officeId) return;
+  officeRoomPhotoGallery.value = {
+    open: true,
+    officeId,
+    roomId,
+    roomLabel: String(payload?.roomLabel || 'Room')
+  };
+}
+function closeOfficeRoomPhotoGallery() {
+  officeRoomPhotoGallery.value = { open: false, officeId: 0, roomId: 0, roomLabel: '' };
+}
+function onOfficeRoomPhotosUpdated() {
+  // Refresh office grid so header thumbs pick up new primary photo.
+  if (viewMode.value === 'office_layout') {
+    void loadSelectedOfficeGrid();
+  }
+}
 const modalDay = ref('Monday');
 const modalHour = ref(7);
 const modalStartHour = ref(7);
@@ -11902,22 +11996,13 @@ const availableQuickActions = computed(() => {
       chooserPriority: (booked || hasAssignedOffice) ? 90 : 15
     },
     {
-      id: 'intake_virtual_on',
-      label: 'Enable Virtual Intake',
-      description: 'Auto-add virtual work hours if missing',
-      disabledReason: hasEvent && !ctx.virtualIntakeEnabled ? '' : 'Needs assigned office slot',
-      visible: hasEvent && !ctx.virtualIntakeEnabled,
+      id: 'attach_open_for_booking',
+      label: 'Attach Open for Booking',
+      description: 'Mark this office reservation as available for intake and/or current-client sessions',
+      disabledReason: hasEvent && hasAssignedOffice ? '' : 'Needs an office reserved/assigned slot',
+      visible: !supervisionOnlyMode && hasEvent && hasAssignedOffice,
       tone: 'cyan',
       chooserPriority: 25
-    },
-    {
-      id: 'intake_inperson_on',
-      label: 'Enable In-Person Intake',
-      description: 'Only available on assigned office slots',
-      disabledReason: hasEvent && hasAssignedOffice && !ctx.inPersonIntakeEnabled ? '' : 'Needs assigned office slot',
-      visible: hasEvent && hasAssignedOffice && !ctx.inPersonIntakeEnabled,
-      tone: 'green',
-      chooserPriority: 26
     },
     {
       id: 'intake_virtual_off',
@@ -12006,14 +12091,6 @@ const availableQuickActions = computed(() => {
       // Merged into schedule_hold + All day toggle; keep id for legacy deep-links.
       visible: false,
       tone: 'slate'
-    },
-    {
-      id: 'indirect_services',
-      label: 'Log Time',
-      description: 'Clock in/out and allocate Indirect Service, Support Activity, or Supervision Note time',
-      disabledReason: '',
-      visible: !supervisionOnlyMode,
-      tone: 'amber'
     },
     {
       id: 'start_video',
@@ -12498,6 +12575,7 @@ const submitActionLabel = computed(() => {
     office: 'Request office',
     office_request_only: 'Request office',
     portal_intake: 'Publish availability',
+    attach_open_for_booking: 'Attach open for booking',
     school: 'Schedule school hours',
     supervision: isGroupSupervisionType.value ? 'Schedule group supervision' : 'Schedule supervision',
     agency_meeting: 'Schedule meeting',
@@ -12588,6 +12666,7 @@ const modalScheduleSubtitle = computed(() => {
   if (t === 'slot_details') return 'Selected office slot details.';
   if (['office', 'office_request_only'].includes(t)) return 'Send an office or room request for approval.';
   if (t === 'portal_intake') return 'Publish open hours for new clients on the portal.';
+  if (t === 'attach_open_for_booking') return 'Attach open-for-booking availability to this office reservation.';
   if (t === 'school') return 'Request additional weekday daytime hours (not a change to existing open slots).';
   if (t === 'individual_session') return 'Schedule an individual session — virtual or in-person.';
   if (t === 'group_session') return 'Schedule a group session.';
@@ -12606,6 +12685,7 @@ const UNIFIED_EDITOR_KINDS = new Set([
   'huddle',
   'supervision',
   'portal_intake',
+  'attach_open_for_booking',
   'office_request_only',
   'edit_schedule_event',
   'edit_supervision'
@@ -12653,7 +12733,7 @@ const editorIsSupervision = computed(() => (
   String(requestType.value || '') === 'supervision' || isSupervisionEditMode.value
 ));
 const editorIsOpenSlot = computed(() => (
-  ['portal_intake', 'office_request_only'].includes(String(requestType.value || ''))
+  ['portal_intake', 'attach_open_for_booking'].includes(String(requestType.value || ''))
 ));
 
 const editorModality = ref('TELEHEALTH');
@@ -12682,6 +12762,17 @@ const editorMeetingIsVirtual = ref(true);
 const editorSupervisionIsVirtual = ref(true);
 const editorSupervisionWaitingRoomEnabled = ref(true);
 const editorOpenSlotEnabled = ref(true);
+const editorAvailableForIntake = ref(true);
+const editorAvailableForSession = ref(false);
+const editorAcceptingNewClientsHint = computed(() => {
+  if (!editorIsOpenSlot.value && String(requestType.value || '') !== 'attach_open_for_booking') return '';
+  if (!editorAvailableForIntake.value) return '';
+  const accepting = summary.value?.providerAcceptingNewClients;
+  if (accepting === false || accepting === 0 || accepting === '0') {
+    return 'This provider is marked as not accepting new clients — intake slots may not appear in public search until that is turned on.';
+  }
+  return '';
+});
 const editorAttachOfficeRequest = ref(false);
 const editorOfficeLocationId = ref(0);
 const editorPreferredRoomId = ref(0);
@@ -13174,6 +13265,7 @@ const editorPreferredOpenRoomOptions = computed(() => {
       roomNumber: r.roomNumber ?? r.room_number ?? null,
       label: String(r.label || r.name || `Room #${r.id || r.roomId}`).trim(),
       photoUrl: String(r.photoUrl || r.photo_url || '').trim() || '',
+      state: String(r.state || '').toLowerCase(),
       stateLabel: r.stateLabel || (r.requestable === false ? 'Booked' : 'Open'),
       requestable: r.requestable !== false
     })).filter((r) => r.id > 0);
@@ -13183,9 +13275,19 @@ const editorPreferredOpenRoomOptions = computed(() => {
       ...r,
       roomNumber: r.roomNumber ?? r.room_number ?? null,
       photoUrl: String(r.photoUrl || r.photo_url || '').trim() || '',
+      state: String(r.state || '').toLowerCase(),
       stateLabel: 'Availability unknown',
       requestable: true
     }));
+  }
+  // Open-slot continuous booking: only truly Open rooms (hide Assigned available).
+  if (editorIsOpenSlot.value) {
+    rows = rows.filter((r) => {
+      const st = String(r.state || '').toLowerCase();
+      const label = String(r.stateLabel || '').toLowerCase();
+      if (st === 'assigned_available' || label.includes('assigned available')) return false;
+      return r.requestable !== false;
+    });
   }
   return mergeEditorRoomOptionsWithBookings(rows);
 });
@@ -13497,9 +13599,32 @@ const editorSuperviseeDisplayName = computed(() => {
   return '—';
 });
 
-const editorShowLocation = computed(() => !editorShowVirtual.value || editorIsOpenSlot.value);
-const editorShowRoom = computed(() => editorShowLocation.value || editorIsOpenSlot.value);
+const editorShowLocation = computed(() => {
+  // Open-slot modal: location/room live in the Office request panel when attached.
+  if (editorIsOpenSlot.value) return false;
+  return !editorShowVirtual.value;
+});
+const editorShowRoom = computed(() => {
+  if (editorIsOpenSlot.value) return false;
+  return editorShowLocation.value;
+});
 const editorCanEditRoom = computed(() => !!editorIsOpenSlot.value);
+const editorOpenSlotRecurrenceHint = computed(() => {
+  if (!editorIsOpenSlot.value) return '';
+  return 'Open slots are typically weekly so prospective clients can see ongoing availability. You can choose “Does not repeat” for a one-time window.';
+});
+const editorOpenSlotDurationWarning = computed(() => {
+  if (!editorIsOpenSlot.value) return '';
+  const start = String(editorStartTime.value || '').trim();
+  const end = String(editorEndTime.value || '').trim();
+  const sm = start.match(/^(\d{1,2}):(\d{2})/);
+  const em = end.match(/^(\d{1,2}):(\d{2})/);
+  if (!sm || !em) return '';
+  const startMin = Number(sm[1]) * 60 + Number(sm[2]);
+  const endMin = Number(em[1]) * 60 + Number(em[2]);
+  if (!(endMin > startMin) || (endMin - startMin) <= 60) return '';
+  return 'Open slots are typically shown as 1-hour windows — longer is atypical but allowed.';
+});
 const editorRoomLabel = computed(() => String(modalOccupiedSlotSummary.value?.roomDisplay || '').trim());
 const editorRoomOptions = computed(() => {
   const rooms = Array.isArray(officeRooms.value) ? officeRooms.value : [];
@@ -13513,7 +13638,8 @@ const editorShowBookedUntil = computed(() => (
   editorShowRecurrence.value && editorRecurrenceFrequency.value !== 'ONCE'
 ));
 const editorShowOfficeRequestCta = computed(() => {
-  // Clinical only — open-slot flow has its own office UI. When active, header expands in place.
+  // Open-slot: the rich chip-list panel expands when attach is checked (officeRequestActive).
+  // No separate CTA button — the checkbox in OpenSlotPlusOfficeRequestBody drives attach.
   if (editorIsOpenSlot.value) return false;
   if (!editorIsClinical.value) return false;
   if (editorAttachOfficeRequest.value) return false;
@@ -13977,6 +14103,7 @@ function mapOpenRoomRow(r) {
     label,
     name,
     photoUrl: String(r.photoUrl || r.photo_url || '').trim() || '',
+    state: String(r.state || '').toLowerCase(),
     stateLabel: r.stateLabel || 'Open for this window',
     requestable: r.requestable !== false
   };
@@ -14330,7 +14457,20 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   editorServiceLocationId.value = Number(defaults.serviceLocationId || bookingServiceLocationId.value || 0) || 0;
   editorAttachOfficeRequest.value = !!defaults.attachOfficeRequest;
   editorOpenSlotEnabled.value = defaults.openSlotEnabled !== false;
+  editorAvailableForIntake.value = defaults.availableForIntake !== false;
+  editorAvailableForSession.value = defaults.availableForSession === true;
+  // Keep legacy openSlotEnabled in sync with at least one flag.
+  if (!editorAvailableForIntake.value && !editorAvailableForSession.value && editorOpenSlotEnabled.value) {
+    editorAvailableForIntake.value = true;
+  }
   editorWorkspaceTab.value = String(defaults.workspaceTab || (mode === 'edit' ? 'info' : 'edit'));
+  if (defaults.recurrence) {
+    scheduleEventRecurrence.value = String(defaults.recurrence || 'ONCE').toUpperCase();
+    officeBookingRecurrence.value = scheduleEventRecurrence.value;
+  } else if (k === 'portal_intake' && mode === 'create') {
+    scheduleEventRecurrence.value = 'WEEKLY';
+    officeBookingRecurrence.value = 'WEEKLY';
+  }
   if (Array.isArray(defaults.weekdays) && defaults.weekdays.length) {
     editorRecurrenceWeekdays.value = defaults.weekdays.map(String);
   } else if (modalDay.value) {
@@ -14505,11 +14645,14 @@ const requestSubmitBlockedReason = computed(() => {
       if (bookingClassificationInvalidReason.value) return String(bookingClassificationInvalidReason.value);
     }
   }
-  if (t === 'portal_intake') {
+  if (t === 'portal_intake' || t === 'attach_open_for_booking') {
     if (!effectiveAgencyId.value) return 'Select an agency for portal availability.';
     const endH = Number(modalEndHour.value);
     const startH = Number(modalHour.value);
     if (!(endH > startH)) return 'Choose an end time after the start.';
+    if (!editorAvailableForIntake.value && !editorAvailableForSession.value) {
+      return 'Select Available for intake and/or Available for session.';
+    }
   }
   if (t === 'school' && !schoolWindowValid.value) {
     return 'School daytime availability must be on weekdays between 6 AM and 6 PM.';
@@ -14892,10 +15035,13 @@ const modalOfficeRoomOptions = computed(() => {
   };
 
   const currentUserId = Number(authStore.user?.id || 0);
+  const openSlotOnlyOpenRooms = editorIsOpenSlot.value;
   const isRequestableState = (st, slot) => {
     // Soft hold: open cells with a pending request are not requestable.
     if (st === 'open' && Number(slot?.pendingRequestCount || 0) > 0) return false;
-    if (st === 'open' || st === 'assigned_available') return true;
+    if (st === 'open') return true;
+    // Open-slot continuous booking: do not treat assigned_available as bookable.
+    if (st === 'assigned_available') return !openSlotOnlyOpenRooms;
     // Assigned to me: allow booking my assigned_temporary slot (convert to booked)
     if (st === 'assigned_temporary' && currentUserId > 0) {
       const slotProviderId = Number(slot?.providerId || slot?.assignedProviderId || 0);
@@ -19133,30 +19279,31 @@ const submitOfficeAssign = async () => {
 const onQuickActionSelect = (act) => {
   const id = String(act?.id || '');
   if (act?.disabledReason) return;
-  if (id === 'indirect_services') {
-    // Payroll Log Time is logged via the dedicated Time Submission flow.
-    recordSlotActionUsage(id);
-    closeModal();
-    const q = { ...route.query, tab: 'log_time' };
-    router.push({ query: q }).catch(() => {});
-    return;
-  }
   recordSlotActionUsage(id);
   requestTypeChosenByUser.value = true;
   if (id === 'individual_session' && !String(bookingModality.value || '').trim()) {
     bookingModality.value = 'TELEHEALTH';
   }
   if (UNIFIED_EDITOR_KINDS.has(id)) {
+    const hasOfficeEvent = Number(modalContext.value?.officeEventId || 0) > 0;
+    // Open slot: default virtual (no office) unless already tied to an office reservation.
+    // Do not inherit sticky sessionAlsoRequestOffice for untied portal slots.
+    let attachOffice = false;
+    if (id === 'office_request_only') attachOffice = true;
+    else if (id === 'portal_intake') attachOffice = hasOfficeEvent;
+    else if (id === 'attach_open_for_booking') attachOffice = false; // already on an office reservation
+    else if (sessionAlsoRequestOffice.value) attachOffice = true;
     openAppointmentEditor({
       mode: 'create',
       kind: id,
       defaults: {
         modality: bookingModality.value || 'TELEHEALTH',
         roomId: Number(selectedOfficeRoomId.value || modalContext.value?.roomId || 0),
-        attachOfficeRequest: id === 'office_request_only' || id === 'portal_intake' || !!sessionAlsoRequestOffice.value
-          ? (id === 'office_request_only' || !!sessionAlsoRequestOffice.value)
-          : false,
-        openSlotEnabled: id === 'portal_intake'
+        attachOfficeRequest: attachOffice,
+        openSlotEnabled: id === 'portal_intake' || id === 'attach_open_for_booking',
+        availableForIntake: true,
+        availableForSession: false,
+        recurrence: (id === 'portal_intake' || id === 'attach_open_for_booking') ? 'WEEKLY' : undefined
       }
     });
     return;
@@ -19316,12 +19463,21 @@ const minuteFromTime = (t) => {
   return Number(m[1]) * 60 + Number(m[2]);
 };
 
-const ensureVirtualWorkingHoursForRange = async ({ dayName, startHour, endHour }) => {
+const ensureVirtualWorkingHoursForRange = async ({
+  dayName,
+  startHour,
+  endHour,
+  availableForIntake = true,
+  availableForSession = false
+} = {}) => {
   const agencyId = Number(effectiveAgencyId.value || 0);
   if (!agencyId) return;
   const day = String(dayName || '');
   const targetStart = `${pad2(startHour)}:00`;
   const targetEnd = `${pad2(endHour)}:00`;
+  const forIntake = availableForIntake !== false;
+  const forSession = availableForSession === true;
+  const sessionType = forIntake && forSession ? 'BOTH' : (forIntake ? 'INTAKE' : (forSession ? 'REGULAR' : 'INTAKE'));
   const resp = await api.get('/availability/me/virtual-working-hours', { params: { agencyId } });
   const rows = Array.isArray(resp?.data?.rows) ? resp.data.rows : [];
   const normalized = rows.map((r) => ({
@@ -19329,6 +19485,10 @@ const ensureVirtualWorkingHoursForRange = async ({ dayName, startHour, endHour }
     startTime: String(r.startTime || ''),
     endTime: String(r.endTime || ''),
     sessionType: String(r.sessionType || 'REGULAR').toUpperCase(),
+    availableForIntake: r.availableForIntake === true || r.availableForIntake === 1
+      || ['INTAKE', 'BOTH'].includes(String(r.sessionType || '').toUpperCase()),
+    availableForSession: r.availableForSession === true || r.availableForSession === 1
+      || ['REGULAR', 'BOTH'].includes(String(r.sessionType || '').toUpperCase()),
     frequency: String(r.frequency || 'WEEKLY').toUpperCase()
   })).filter((r) => r.dayOfWeek && r.startTime && r.endTime);
 
@@ -19341,7 +19501,10 @@ const ensureVirtualWorkingHoursForRange = async ({ dayName, startHour, endHour }
     return s !== null && e !== null && !(e < targetStartMin || s > targetEndMin);
   });
 
-  if (overlaps.some((r) => ['INTAKE', 'BOTH'].includes(r.sessionType))) return;
+  // Already covers requested flags — nothing to write.
+  if (overlaps.some((r) => (!forIntake || r.availableForIntake) && (!forSession || r.availableForSession))) {
+    return;
+  }
 
   const rowsWithoutOverlaps = normalized.filter((r) => !overlaps.includes(r));
   const allMins = [targetStartMin, targetEndMin];
@@ -19353,11 +19516,15 @@ const ensureVirtualWorkingHoursForRange = async ({ dayName, startHour, endHour }
   }
   const mergedStart = Math.min(...allMins);
   const mergedEnd = Math.max(...allMins);
+  const mergedIntake = forIntake || overlaps.some((r) => r.availableForIntake);
+  const mergedSession = forSession || overlaps.some((r) => r.availableForSession);
   const mergedRow = {
     dayOfWeek: day,
     startTime: `${pad2(Math.floor(mergedStart / 60))}:${pad2(mergedStart % 60)}`,
     endTime: `${pad2(Math.floor(mergedEnd / 60))}:${pad2(mergedEnd % 60)}`,
-    sessionType: 'BOTH',
+    sessionType: mergedIntake && mergedSession ? 'BOTH' : (mergedIntake ? 'INTAKE' : 'REGULAR'),
+    availableForIntake: mergedIntake,
+    availableForSession: mergedSession,
     frequency: overlaps[0]?.frequency || 'WEEKLY'
   };
   const nextRows = [...rowsWithoutOverlaps, mergedRow];
@@ -20377,12 +20544,46 @@ const submitRequest = async () => {
       if (isVirtualIndividual && officeId && sessionAlsoRequestOffice.value) {
         // Office booking-request above already covers the room; no separate request needed.
       }
-    } else if (requestType.value === 'portal_intake') {
+    } else if (requestType.value === 'portal_intake' || requestType.value === 'attach_open_for_booking') {
       const agencyId = Number(effectiveAgencyId.value || 0);
       if (!agencyId) throw new Error('Select an agency for portal availability.');
       if (!(endH > h)) throw new Error('End time must be after start time.');
-      if (editorOpenSlotEnabled.value !== false) {
-        await ensureVirtualWorkingHoursForRange({ dayName: dn, startHour: h, endHour: endH });
+      const forIntake = editorAvailableForIntake.value !== false;
+      const forSession = editorAvailableForSession.value === true;
+      if (!forIntake && !forSession) {
+        throw new Error('Select Available for intake and/or Available for session.');
+      }
+      editorOpenSlotEnabled.value = true;
+      await ensureVirtualWorkingHoursForRange({
+        dayName: dn,
+        startHour: h,
+        endHour: endH,
+        availableForIntake: forIntake,
+        availableForSession: forSession
+      });
+      // Office-tied attach: also toggle VI/IP overlays on the reservation when present.
+      if (requestType.value === 'attach_open_for_booking') {
+        const contexts = selectedActionContexts().filter((x) => Number(x?.officeEventId || 0) > 0);
+        for (const ctx of contexts) {
+          if (forIntake || forSession) {
+            // eslint-disable-next-line no-await-in-loop
+            await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/virtual-intake`, {
+              enabled: true,
+              agencyId: effectiveAgencyId.value,
+              availableForIntake: forIntake,
+              availableForSession: forSession
+            }).catch(() => null);
+          }
+          if (forIntake) {
+            // eslint-disable-next-line no-await-in-loop
+            await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/in-person-intake`, {
+              enabled: true,
+              agencyId: effectiveAgencyId.value,
+              availableForIntake: forIntake,
+              availableForSession: forSession
+            }).catch(() => null);
+          }
+        }
       }
       const linkedRoomId = Number(editorPreferredRoomId.value || editorRoomId.value || selectedOfficeRoomId.value || 0);
       const existingBooking = linkedRoomId > 0
@@ -22553,6 +22754,13 @@ const isAppointmentBlockDraggable = (block) => {
   if (!canBookFromGrid.value) return false;
   if (block?.isCancelled || block?.draggable === false) return false;
   const kind = String(block?.kind || '');
+  // Untied open slots (virtual working hours) can be moved/resized.
+  if (kind === 'portal') {
+    return !block?.officeTied
+      && Number(block?.virtualHoursId || 0) > 0
+      && !!block?.startAt
+      && !!block?.endAt;
+  }
   if (!['supv', 'sevt'].includes(kind)) return false;
   // Allow the drag gesture for everyone who can book; permission is enforced on drop (snap-back).
   return Number(block?.eventId || 0) > 0 && !!block?.startAt && !!block?.endAt;
@@ -22586,8 +22794,11 @@ const flashScheduleToast = (message, ms = 4500) => {
 const isAppointmentBlockDragging = (block) => {
   const st = appointmentDragState.value;
   if (!st?.active) return false;
-  return Number(st.eventId || 0) === Number(block?.eventId || 0)
-    && String(st.kind || '') === String(block?.kind || '');
+  if (String(st.kind || '') !== String(block?.kind || '')) return false;
+  if (String(st.kind || '') === 'portal') {
+    return Number(st.virtualHoursId || 0) === Number(block?.virtualHoursId || 0);
+  }
+  return Number(st.eventId || 0) === Number(block?.eventId || 0);
 };
 
 const isAppointmentDropTarget = (dayName, hour, minute = 0) => {
@@ -22621,7 +22832,12 @@ const cleanupAppointmentDragListeners = () => {
 const schedResizeOverrideStyle = (b, dayName, hour, minute) => {
   const rs = schedResizeState.value;
   if (!rs?.active) return {};
-  if (Number(b?.eventId) !== rs.eventId || String(b?.kind) !== rs.kind) return {};
+  if (String(b?.kind) !== rs.kind) return {};
+  if (rs.kind === 'portal') {
+    if (Number(b?.virtualHoursId || 0) !== Number(rs.virtualHoursId || 0)) return {};
+  } else if (Number(b?.eventId) !== rs.eventId) {
+    return {};
+  }
   if (String(dayName) !== rs.dayName || Number(hour) !== rs.hour) return {};
   const slice = appointmentSpanSlice(rs.newStartAt, rs.newEndAt, rs.dayName, rs.hour, rs.minute);
   if (!slice) return {};
@@ -22631,7 +22847,11 @@ const schedResizeOverrideStyle = (b, dayName, hour, minute) => {
 const isBlockBeingResized = (b) => {
   const rs = schedResizeState.value;
   if (!rs) return false;
-  return Number(b?.eventId) === rs.eventId && String(b?.kind) === rs.kind;
+  if (String(b?.kind) !== rs.kind) return false;
+  if (rs.kind === 'portal') {
+    return Number(b?.virtualHoursId || 0) === Number(rs.virtualHoursId || 0);
+  }
+  return Number(b?.eventId) === rs.eventId;
 };
 
 const cleanupResizeListeners = () => {
@@ -22646,7 +22866,9 @@ const onCellBlockResizePointerDown = (e, b, dayName, hour, minute, edge) => {
   e?.stopPropagation?.();
   e?.preventDefault?.();
   schedResizeState.value = {
-    eventId: Number(b.eventId),
+    eventId: Number(b.eventId || 0),
+    virtualHoursId: Number(b.virtualHoursId || 0),
+    agencyId: Number(b.agencyId || 0),
     kind: String(b.kind),
     providerId: Number(b.providerId || resolveBookedProviderIdForEvent(b) || props.userId || 0),
     seriesId: String(b.recurrenceSeriesId || '').trim(),
@@ -22662,7 +22884,7 @@ const onCellBlockResizePointerDown = (e, b, dayName, hour, minute, edge) => {
     originY: Number(e?.clientY || 0),
     pointerId: e?.pointerId,
     active: false,
-    canReschedule: blockAllowsReschedule(b),
+    canReschedule: blockAllowsReschedule(b) || (String(b.kind) === 'portal' && !!b.canReschedule),
   };
   try { e?.currentTarget?.setPointerCapture?.(e.pointerId); } catch {}
   window.addEventListener('pointermove', onCellBlockResizePointerMove);
@@ -22713,6 +22935,8 @@ const onCellBlockResizePointerUp = () => {
   appointmentMoveDraft.value = {
     kind: rs.kind,
     eventId: rs.eventId,
+    virtualHoursId: Number(rs.virtualHoursId || 0),
+    agencyId: Number(rs.agencyId || 0),
     providerId: rs.providerId,
     seriesId: rs.seriesId,
     label: rs.label,
@@ -22720,6 +22944,7 @@ const onCellBlockResizePointerUp = () => {
     endAt: rs.origEndAt,
     newStartAt: rs.newStartAt,
     newEndAt: rs.newEndAt,
+    targetDayName: String(rs.dayName || ''),
     targetLabel: clockRangeLabel(rs.newStartAt, rs.newEndAt) || '',
     fromLabel: clockRangeLabel(rs.origStartAt, rs.origEndAt) || '',
   };
@@ -22738,6 +22963,8 @@ const onAppointmentPointerDown = (e, block, dayName, hour, minute = 0) => {
     moved: false,
     kind: String(block.kind || ''),
     eventId: Number(block.eventId || 0),
+    virtualHoursId: Number(block.virtualHoursId || 0),
+    agencyId: Number(block.agencyId || 0),
     providerId: Number(block.providerId || resolveBookedProviderIdForEvent(block) || props.userId || 0),
     seriesId: String(block.recurrenceSeriesId || '').trim(),
     label: String(block.shortLabel || block.title || 'Appointment').trim(),
@@ -22750,7 +22977,7 @@ const onAppointmentPointerDown = (e, block, dayName, hour, minute = 0) => {
     originX: Number(e?.clientX || 0),
     originY: Number(e?.clientY || 0),
     pointerId: e?.pointerId,
-    canReschedule: blockAllowsReschedule(block),
+    canReschedule: blockAllowsReschedule(block) || (String(block.kind) === 'portal' && !!block.canReschedule),
     eventKind: String(block.eventKind || '').toUpperCase(),
     meetingSubtype: normalizeMeetingSubtype(block.meetingSubtype)
   };
@@ -22829,6 +23056,8 @@ const openAppointmentMoveConfirm = (st, target) => {
   appointmentMoveDraft.value = {
     kind: st.kind,
     eventId: st.eventId,
+    virtualHoursId: Number(st.virtualHoursId || 0),
+    agencyId: Number(st.agencyId || 0),
     providerId: st.providerId,
     seriesId: st.seriesId,
     label: st.label,
@@ -22836,6 +23065,7 @@ const openAppointmentMoveConfirm = (st, target) => {
     endAt: st.endAt,
     newStartAt,
     newEndAt,
+    targetDayName: String(target.dayName || ''),
     targetLabel: `${target.dayName} ${newRange || hourMinuteLabel(target.hour, target.minute)}`,
     fromLabel: oldRange || ''
   };
@@ -22851,8 +23081,9 @@ const closeAppointmentMoveModal = () => {
 
 const applyAppointmentMove = async (scope = null, { pastConfirmed = false } = {}) => {
   const draft = appointmentMoveDraft.value;
-  if (!draft?.eventId) return;
-  if (!confirmIfUpdatingPastAppointment({
+  const isPortal = String(draft?.kind || '') === 'portal';
+  if (!draft || (!draft.eventId && !(isPortal && Number(draft.virtualHoursId || 0) > 0))) return;
+  if (!isPortal && !confirmIfUpdatingPastAppointment({
     originalStart: draft.startAt,
     newStart: draft.newStartAt,
     label: draft.kind === 'supv' ? 'supervision session' : 'appointment',
@@ -22861,7 +23092,7 @@ const applyAppointmentMove = async (scope = null, { pastConfirmed = false } = {}
     return;
   }
   const seriesId = String(draft.seriesId || '').trim();
-  if (!scope && seriesId) {
+  if (!isPortal && !scope && seriesId) {
     showAppointmentMoveModal.value = false;
     await askSeriesEditScope({
       title: draft.label || 'Appointment',
@@ -22874,7 +23105,19 @@ const applyAppointmentMove = async (scope = null, { pastConfirmed = false } = {}
   try {
     appointmentMoveBusy.value = true;
     appointmentMoveError.value = '';
-    if (draft.kind === 'supv') {
+    if (isPortal) {
+      const newStart = parseLocalDateTime(draft.newStartAt);
+      const newEnd = parseLocalDateTime(draft.newEndAt);
+      if (!newStart || !newEnd) throw new Error('Invalid open-slot times.');
+      const dayName = String(draft.targetDayName || '').trim()
+        || ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][newStart.getDay()];
+      await api.patch(`/availability/me/virtual-working-hours/${Number(draft.virtualHoursId)}`, {
+        dayOfWeek: dayName,
+        startTime: `${pad2(newStart.getHours())}:${pad2(newStart.getMinutes())}`,
+        endTime: `${pad2(newEnd.getHours())}:${pad2(newEnd.getMinutes())}`,
+        ...(Number(draft.agencyId || 0) > 0 ? { agencyId: Number(draft.agencyId) } : {})
+      }, { skipGlobalLoading: true });
+    } else if (draft.kind === 'supv') {
       await api.patch(`/supervision/sessions/${draft.eventId}`, {
         startAt: draft.newStartAt,
         endAt: draft.newEndAt,
@@ -28509,6 +28752,21 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.slot-info-photo-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.slot-info-photo {
+  width: 72px;
+  height: 54px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  cursor: pointer;
+  background: #f1f5f9;
 }
 .slot-info-row {
   display: flex;

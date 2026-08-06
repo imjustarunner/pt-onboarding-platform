@@ -14,6 +14,10 @@
       </select>
     </div>
 
+    <p v-if="openSlotHint" class="rec-meta muted" data-testid="open-slot-recurrence-hint">
+      {{ openSlotHint }}
+    </p>
+
     <div v-if="isWeekBased" class="rec-row rec-weekdays">
       <label class="rec-label">Days</label>
       <div class="rec-day-chips">
@@ -97,7 +101,9 @@ const props = defineProps({
   untilDate: { type: String, default: '' },
   weekdays: { type: Array, default: () => [] },
   occurrenceLabel: { type: String, default: '' },
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  /** Shown for open-slot publishing — typically weekly for prospective clients */
+  openSlotHint: { type: String, default: '' }
 });
 
 const emit = defineEmits([

@@ -30,6 +30,13 @@ import {
   createKioskAssignment,
   deleteKioskAssignment
 } from '../controllers/officeSettings.controller.js';
+import {
+  listRoomPhotos,
+  uploadRoomPhoto,
+  deleteRoomPhoto,
+  setPrimaryRoomPhoto,
+  roomPhotoUpload
+} from '../controllers/officeRoomPhotos.controller.js';
 
 const router = express.Router();
 
@@ -61,6 +68,17 @@ router.get('/:officeId/rooms', listRooms);
 router.post('/:officeId/rooms', createRoom);
 router.put('/:officeId/rooms/:roomId', updateRoom);
 router.delete('/:officeId/rooms/:roomId', deleteRoom);
+
+// Room photo gallery
+router.get('/:officeId/rooms/:roomId/photos', listRoomPhotos);
+router.post(
+  '/:officeId/rooms/:roomId/photos',
+  roomPhotoUpload.single('photo'),
+  uploadRoomPhoto
+);
+router.put('/:officeId/rooms/:roomId/photos/:photoId/set-primary', setPrimaryRoomPhoto);
+router.delete('/:officeId/rooms/:roomId/photos/:photoId', deleteRoomPhoto);
+
 router.post('/:officeId/test-google-sync', testGoogleSync);
 
 // Questionnaire modules (shared modules)

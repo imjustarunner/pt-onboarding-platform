@@ -235,12 +235,22 @@ export class ProviderAvailabilityService {
       const e = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.endTime, timeZone: tz });
       if (s && e && e > s) {
         const sessionType = String(r.sessionType || 'REGULAR').toUpperCase();
-        if (intakeOnlyFlag && !['INTAKE', 'BOTH'].includes(sessionType)) continue;
+        const forIntake = r.availableForIntake === true
+          || r.availableForIntake === 1
+          || ['INTAKE', 'BOTH'].includes(sessionType);
+        const forSession = r.availableForSession === true
+          || r.availableForSession === 1
+          || ['REGULAR', 'BOTH'].includes(sessionType);
+        // NEW_CLIENT → intake flag; CURRENT_CLIENT → session flag
+        if (intakeOnlyFlag && !forIntake) continue;
+        if (!intakeOnlyFlag && !forSession) continue;
         virtualBase.push({
           start: s,
           end: e,
           meta: {
             sessionType,
+            availableForIntake: !!forIntake,
+            availableForSession: !!forSession,
             frequency: String(r.frequency || 'WEEKLY').toUpperCase()
           }
         });
@@ -406,29 +416,61 @@ export class ProviderAvailabilityService {
     const virtualSlotBase = [];
     const virtualSlotOverrideIntervals = [];
     try {
-      const [rows] = await pool.execute(
-        `SELECT
-           v.start_at,
-           v.end_at,
-           v.session_type,
-           v.office_location_id,
-           v.room_id,
-           ol.timezone AS building_timezone,
-           ol.name AS building_name,
-           r.room_number,
-           r.label AS room_label,
-           r.name AS room_name
-         FROM provider_virtual_slot_availability v
-         LEFT JOIN office_locations ol ON ol.id = v.office_location_id
-         LEFT JOIN office_rooms r ON r.id = v.room_id
-         WHERE v.agency_id = ?
-           AND v.provider_id = ?
-           AND v.is_active = TRUE
-           AND v.start_at < ?
-           AND v.end_at > ?
-         ORDER BY v.start_at ASC`,
-        [aid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
-      );
+      let rows;
+      try {
+        const [r] = await pool.execute(
+          `SELECT
+             v.start_at,
+             v.end_at,
+             v.session_type,
+             v.available_for_intake,
+             v.available_for_session,
+             v.office_location_id,
+             v.room_id,
+             ol.timezone AS building_timezone,
+             ol.name AS building_name,
+             r.room_number,
+             r.label AS room_label,
+             r.name AS room_name
+           FROM provider_virtual_slot_availability v
+           LEFT JOIN office_locations ol ON ol.id = v.office_location_id
+           LEFT JOIN office_rooms r ON r.id = v.room_id
+           WHERE v.agency_id = ?
+             AND v.provider_id = ?
+             AND v.is_active = TRUE
+             AND v.start_at < ?
+             AND v.end_at > ?
+           ORDER BY v.start_at ASC`,
+          [aid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
+        );
+        rows = r;
+      } catch (colErr) {
+        if (!String(colErr?.message || '').includes('available_for_')) throw colErr;
+        const [r] = await pool.execute(
+          `SELECT
+             v.start_at,
+             v.end_at,
+             v.session_type,
+             v.office_location_id,
+             v.room_id,
+             ol.timezone AS building_timezone,
+             ol.name AS building_name,
+             r.room_number,
+             r.label AS room_label,
+             r.name AS room_name
+           FROM provider_virtual_slot_availability v
+           LEFT JOIN office_locations ol ON ol.id = v.office_location_id
+           LEFT JOIN office_rooms r ON r.id = v.room_id
+           WHERE v.agency_id = ?
+             AND v.provider_id = ?
+             AND v.is_active = TRUE
+             AND v.start_at < ?
+             AND v.end_at > ?
+           ORDER BY v.start_at ASC`,
+          [aid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
+        );
+        rows = r;
+      }
       for (const r of rows || []) {
         const st = parseMySqlDateTime(r.start_at);
         const en = parseMySqlDateTime(r.end_at);
@@ -440,8 +482,14 @@ export class ProviderAvailabilityService {
         if (!(e > s)) continue;
 
         const sessionType = String(r.session_type || 'INTAKE').toUpperCase();
-        if (intakeOnlyFlag && !['INTAKE', 'BOTH'].includes(sessionType)) continue;
-        if (!intakeOnlyFlag && !['REGULAR', 'BOTH', 'INTAKE'].includes(sessionType)) continue;
+        const forIntake = r.available_for_intake != null
+          ? Number(r.available_for_intake) === 1
+          : ['INTAKE', 'BOTH'].includes(sessionType);
+        const forSession = r.available_for_session != null
+          ? Number(r.available_for_session) === 1
+          : ['REGULAR', 'BOTH', 'INTAKE'].includes(sessionType);
+        if (intakeOnlyFlag && !forIntake) continue;
+        if (!intakeOnlyFlag && !forSession) continue;
 
         virtualSlotBase.push({
           start: s,

@@ -271,8 +271,15 @@
 
       <div v-for="room in displayedRooms" :key="room.id" class="room-card" data-tour="buildings-schedule-room-card">
         <div class="room-head">
-          <div class="room-title">
+          <div class="room-title" style="display:flex; align-items:center; gap:8px;">
             <strong>{{ room.roomNumber ? `#${room.roomNumber}` : '' }} {{ room.label || room.name }}</strong>
+            <OfficeRoomPhotoButton
+              :room-id="Number(room.id)"
+              :office-id="Number(officeId || 0)"
+              :photo-url="String(room.photoUrl || room.photo_url || '')"
+              :room-label="`${room.roomNumber ? `#${room.roomNumber} ` : ''}${room.label || room.name || ''}`.trim()"
+              @open="openOfficeRoomPhotoGallery"
+            />
           </div>
         </div>
 
@@ -855,6 +862,15 @@
         </div>
       </div>
     </div>
+
+    <OfficeRoomPhotoGalleryModal
+      :open="officeRoomPhotoGallery.open"
+      :office-id="officeRoomPhotoGallery.officeId"
+      :room-id="officeRoomPhotoGallery.roomId"
+      :room-label="officeRoomPhotoGallery.roomLabel"
+      @close="closeOfficeRoomPhotoGallery"
+      @updated="loadGrid"
+    />
   </div>
 </template>
 
@@ -869,12 +885,29 @@ import { isMedicalBillingEnabled } from '../config/medicalBillingAccess.js';
 import { RECURRENCE_OPTIONS, RECURRING_FREQUENCIES } from '../utils/scheduleRecurrence.js';
 import PersonSearchSelect from '../components/schedule/PersonSearchSelect.vue';
 import ClinicalArtifactRetentionPanel from '../components/clinical/ClinicalArtifactRetentionPanel.vue';
+import OfficeRoomPhotoButton from '../components/schedule/OfficeRoomPhotoButton.vue';
+import OfficeRoomPhotoGalleryModal from '../components/schedule/OfficeRoomPhotoGalleryModal.vue';
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
 const officeId = computed(() => (typeof route.query.officeId === 'string' ? route.query.officeId : ''));
+const officeRoomPhotoGallery = ref({ open: false, officeId: 0, roomId: 0, roomLabel: '' });
+function openOfficeRoomPhotoGallery(payload = {}) {
+  const roomId = Number(payload?.roomId || 0);
+  const oid = Number(payload?.officeId || officeId.value || 0);
+  if (!roomId || !oid) return;
+  officeRoomPhotoGallery.value = {
+    open: true,
+    officeId: oid,
+    roomId,
+    roomLabel: String(payload?.roomLabel || 'Room')
+  };
+}
+function closeOfficeRoomPhotoGallery() {
+  officeRoomPhotoGallery.value = { open: false, officeId: 0, roomId: 0, roomLabel: '' };
+}
 const currentAgencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
 const medicalBillingOn = computed(() => isMedicalBillingEnabled(agencyStore.currentAgency?.feature_flags));
 const normalizeServiceCode = (value) => String(value || '').trim().toUpperCase();

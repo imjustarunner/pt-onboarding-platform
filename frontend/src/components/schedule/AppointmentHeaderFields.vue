@@ -76,8 +76,8 @@
         </div>
       </div>
 
-      <div class="ahf-details">
-        <div class="ahf-field">
+      <div v-if="showType || showStatus || showLocation || showRoom || showService || showParticipant || showGroupClientsButton || showOccurrenceCount || showBookedUntil" class="ahf-details">
+        <div v-if="showType" class="ahf-field">
           <span class="ahf-label">Type</span>
           <select
             v-if="typeOptions.length"
@@ -135,7 +135,7 @@
           </button>
         </div>
 
-        <div class="ahf-field">
+        <div v-if="showStatus" class="ahf-field">
           <span class="ahf-label">Status</span>
           <select
             v-if="statusOptions.length"
@@ -308,13 +308,17 @@
                   <span v-if="r.stateLabel" class="ahf-room-state">{{ r.stateLabel }}</span>
                 </button>
                 <button
-                  v-if="roomPhotoOf(r)"
                   type="button"
                   class="ahf-room-photo-btn"
-                  title="Quick view room photo"
-                  @click="previewRoomPhoto(r)"
+                  :title="roomPhotoOf(r) ? 'View room photos' : 'Room photos'"
+                  @click="openRoomPhotos(r)"
                 >
-                  <img :src="roomPhotoOf(r)" alt="" class="ahf-room-thumb" />
+                  <img v-if="roomPhotoOf(r)" :src="roomPhotoOf(r)" alt="" class="ahf-room-thumb" />
+                  <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <rect x="3" y="5" width="18" height="14" rx="2" />
+                    <circle cx="8.5" cy="10" r="1.5" />
+                    <path d="M21 16l-5.5-5.5L9 17" />
+                  </svg>
                 </button>
               </div>
             </div>
@@ -360,6 +364,7 @@ const props = defineProps({
   appointmentTypeLabel: { type: String, default: '' },
   typeOptions: { type: Array, default: () => [] },
   canEditType: { type: Boolean, default: false },
+  showType: { type: Boolean, default: true },
   showParticipant: { type: Boolean, default: true },
   participantLabel: { type: String, default: 'Participant' },
   participantSummary: { type: String, default: '' },
@@ -368,6 +373,7 @@ const props = defineProps({
   status: { type: String, default: 'confirmed' },
   statusOptions: { type: Array, default: () => [] },
   canEditStatus: { type: Boolean, default: true },
+  showStatus: { type: Boolean, default: true },
   showOccurrenceCount: { type: Boolean, default: false },
   occurrenceCountLabel: { type: String, default: '1 time' },
   showLocation: { type: Boolean, default: true },
@@ -420,7 +426,8 @@ const emit = defineEmits([
   'update:tenantServiceId',
   'request-office',
   'cancel-office-request',
-  'scroll-to-group-clients'
+  'scroll-to-group-clients',
+  'open-room-photos'
 ]);
 
 const roomPhotoPreviewUrl = ref('');
@@ -438,9 +445,15 @@ function roomNameOf(r) {
 function roomPhotoOf(r) {
   return String(r?.photoUrl || r?.photo_url || '').trim();
 }
-function previewRoomPhoto(r) {
-  const url = roomPhotoOf(r);
-  if (url) roomPhotoPreviewUrl.value = url;
+function openRoomPhotos(r) {
+  const roomId = Number(r?.id || r?.roomId || 0);
+  if (!roomId) return;
+  emit('open-room-photos', {
+    roomId,
+    officeId: Number(props.officeLocationId || 0),
+    roomLabel: `${roomNumberOf(r) ? `#${roomNumberOf(r)} ` : ''}${roomNameOf(r)}`.trim(),
+    photoUrl: roomPhotoOf(r)
+  });
 }
 function roomOptionLabel(r) {
   const base = String(r?.label || r?.name || `Room #${r?.id || r?.roomId || ''}`).trim();

@@ -35,6 +35,26 @@ function normSessionType(v) {
   return 'REGULAR';
 }
 
+function deriveSessionType({ availableForIntake, availableForSession, sessionType }) {
+  const intake = availableForIntake === true || availableForIntake === 1 || availableForIntake === '1';
+  const session = availableForSession === true || availableForSession === 1 || availableForSession === '1';
+  if (availableForIntake != null || availableForSession != null) {
+    if (intake && session) return 'BOTH';
+    if (intake) return 'INTAKE';
+    if (session) return 'REGULAR';
+    return 'INTAKE'; // open-slot publish should mean something bookable; default intake
+  }
+  return normSessionType(sessionType);
+}
+
+function flagsFromSessionType(sessionType) {
+  const st = normSessionType(sessionType);
+  return {
+    availableForIntake: st === 'INTAKE' || st === 'BOTH',
+    availableForSession: st === 'REGULAR' || st === 'BOTH'
+  };
+}
+
 function normFrequency(v) {
   const s = String(v || '').trim().toUpperCase();
   if (s === 'BIWEEKLY') return 'BIWEEKLY';
@@ -54,9 +74,22 @@ class ProviderVirtualWorkingHours {
       const endTime = normTimeHHMM(r?.endTime || r?.end_time);
       if (!startTime || !endTime) continue;
       if (endTime <= startTime) continue;
-      const sessionType = normSessionType(r?.sessionType || r?.session_type);
+      const sessionType = deriveSessionType({
+        availableForIntake: r?.availableForIntake ?? r?.available_for_intake,
+        availableForSession: r?.availableForSession ?? r?.available_for_session,
+        sessionType: r?.sessionType || r?.session_type
+      });
+      const flags = flagsFromSessionType(sessionType);
       const frequency = normFrequency(r?.frequency);
-      out.push({ dayOfWeek: day, startTime, endTime, sessionType, frequency });
+      out.push({
+        dayOfWeek: day,
+        startTime,
+        endTime,
+        sessionType,
+        availableForIntake: flags.availableForIntake,
+        availableForSession: flags.availableForSession,
+        frequency
+      });
     }
     // stable sort
     out.sort((a, b) => {
@@ -75,7 +108,8 @@ class ProviderVirtualWorkingHours {
     let rows = [];
     try {
       const [r] = await pool.execute(
-        `SELECT day_of_week, start_time, end_time, session_type, frequency
+        `SELECT id, day_of_week, start_time, end_time, session_type, frequency,
+                available_for_intake, available_for_session
          FROM provider_virtual_working_hours
          WHERE agency_id = ? AND provider_id = ?
          ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time ASC`,
@@ -85,22 +119,80 @@ class ProviderVirtualWorkingHours {
     } catch (e) {
       // Backward compatibility if migration hasn't been applied yet.
       if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') throw e;
-      const [r] = await pool.execute(
-        `SELECT day_of_week, start_time, end_time
-         FROM provider_virtual_working_hours
-         WHERE agency_id = ? AND provider_id = ?
-         ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time ASC`,
-        [aid, pid]
-      );
-      rows = r || [];
+      try {
+        const [r] = await pool.execute(
+          `SELECT id, day_of_week, start_time, end_time, session_type, frequency
+           FROM provider_virtual_working_hours
+           WHERE agency_id = ? AND provider_id = ?
+           ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time ASC`,
+          [aid, pid]
+        );
+        rows = r || [];
+      } catch (e2) {
+        if (e2?.code !== 'ER_BAD_FIELD_ERROR' && e2?.code !== 'ER_NO_SUCH_TABLE') throw e2;
+        const [r] = await pool.execute(
+          `SELECT id, day_of_week, start_time, end_time
+           FROM provider_virtual_working_hours
+           WHERE agency_id = ? AND provider_id = ?
+           ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time ASC`,
+          [aid, pid]
+        );
+        rows = r || [];
+      }
     }
-    return (rows || []).map((r) => ({
-      dayOfWeek: r.day_of_week,
-      startTime: String(r.start_time || '').slice(0, 5),
-      endTime: String(r.end_time || '').slice(0, 5),
-      sessionType: normSessionType(r.session_type),
-      frequency: normFrequency(r.frequency)
-    }));
+    return (rows || []).map((r) => {
+      const sessionType = r.available_for_intake != null || r.available_for_session != null
+        ? deriveSessionType({
+          availableForIntake: r.available_for_intake,
+          availableForSession: r.available_for_session,
+          sessionType: r.session_type
+        })
+        : normSessionType(r.session_type);
+      const flags = flagsFromSessionType(sessionType);
+      return {
+        id: Number(r.id || 0) || null,
+        dayOfWeek: r.day_of_week,
+        startTime: String(r.start_time || '').slice(0, 5),
+        endTime: String(r.end_time || '').slice(0, 5),
+        sessionType,
+        availableForIntake: flags.availableForIntake,
+        availableForSession: flags.availableForSession,
+        frequency: normFrequency(r.frequency)
+      };
+    });
+  }
+
+  /**
+   * Update a single virtual-working-hours row owned by the provider.
+   */
+  static async updateRowForProvider({ id, agencyId, providerId, dayOfWeek, startTime, endTime }) {
+    const rowId = Number(id || 0);
+    const aid = Number(agencyId || 0);
+    const pid = Number(providerId || 0);
+    if (!rowId || !aid || !pid) throw new Error('Invalid id/agencyId/providerId');
+    const day = normDay(dayOfWeek);
+    const start = normTimeHHMM(startTime);
+    const end = normTimeHHMM(endTime);
+    if (!DAY_SET.has(day) || !start || !end || end <= start) {
+      throw new Error('Invalid day/time range');
+    }
+    const [result] = await pool.execute(
+      `UPDATE provider_virtual_working_hours
+       SET day_of_week = ?, start_time = ?, end_time = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND agency_id = ? AND provider_id = ?`,
+      [day, start, end, rowId, aid, pid]
+    );
+    if (!result?.affectedRows) {
+      const err = new Error('Virtual working hours row not found');
+      err.status = 404;
+      throw err;
+    }
+    return {
+      id: rowId,
+      dayOfWeek: day,
+      startTime: String(start).slice(0, 5),
+      endTime: String(end).slice(0, 5)
+    };
   }
 
   static async replaceForProvider({ agencyId, providerId, rows }) {
@@ -119,18 +211,39 @@ class ProviderVirtualWorkingHours {
       for (const r of normalized) {
         try {
           await conn.execute(
-            `INSERT INTO provider_virtual_working_hours (agency_id, provider_id, day_of_week, start_time, end_time, session_type, frequency)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [aid, pid, r.dayOfWeek, r.startTime, r.endTime, normSessionType(r.sessionType), normFrequency(r.frequency)]
+            `INSERT INTO provider_virtual_working_hours
+               (agency_id, provider_id, day_of_week, start_time, end_time, session_type,
+                available_for_intake, available_for_session, frequency)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              aid,
+              pid,
+              r.dayOfWeek,
+              r.startTime,
+              r.endTime,
+              normSessionType(r.sessionType),
+              r.availableForIntake ? 1 : 0,
+              r.availableForSession ? 1 : 0,
+              normFrequency(r.frequency)
+            ]
           );
         } catch (e) {
           // Backward compatibility if migration hasn't been applied yet.
           if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-          await conn.execute(
-            `INSERT INTO provider_virtual_working_hours (agency_id, provider_id, day_of_week, start_time, end_time)
-             VALUES (?, ?, ?, ?, ?)`,
-            [aid, pid, r.dayOfWeek, r.startTime, r.endTime]
-          );
+          try {
+            await conn.execute(
+              `INSERT INTO provider_virtual_working_hours (agency_id, provider_id, day_of_week, start_time, end_time, session_type, frequency)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              [aid, pid, r.dayOfWeek, r.startTime, r.endTime, normSessionType(r.sessionType), normFrequency(r.frequency)]
+            );
+          } catch (e2) {
+            if (e2?.code !== 'ER_BAD_FIELD_ERROR') throw e2;
+            await conn.execute(
+              `INSERT INTO provider_virtual_working_hours (agency_id, provider_id, day_of_week, start_time, end_time)
+               VALUES (?, ?, ?, ?, ?)`,
+              [aid, pid, r.dayOfWeek, r.startTime, r.endTime]
+            );
+          }
         }
       }
       await conn.commit();
@@ -139,6 +252,8 @@ class ProviderVirtualWorkingHours {
         startTime: String(r.startTime).slice(0, 5),
         endTime: String(r.endTime).slice(0, 5),
         sessionType: normSessionType(r.sessionType),
+        availableForIntake: !!r.availableForIntake,
+        availableForSession: !!r.availableForSession,
         frequency: normFrequency(r.frequency)
       }));
     } catch (e) {

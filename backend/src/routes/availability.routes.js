@@ -10,6 +10,7 @@ import {
   getMyAvailabilityPending,
   getMyVirtualWorkingHours,
   putMyVirtualWorkingHours,
+  patchMyVirtualWorkingHoursRow,
   getProviderWeekAvailability,
   createMyOfficeAvailabilityRequest,
   createMySchoolAvailabilityRequest,
@@ -55,6 +56,7 @@ router.use(authenticate);
 router.get('/me/pending', getMyAvailabilityPending);
 router.get('/me/virtual-working-hours', getMyVirtualWorkingHours);
 router.put('/me/virtual-working-hours', putMyVirtualWorkingHours);
+router.patch('/me/virtual-working-hours/:id', patchMyVirtualWorkingHoursRow);
 router.get('/providers/:providerId/week', getProviderWeekAvailability);
 router.post('/office-requests', createMyOfficeAvailabilityRequest);
 router.post('/school-requests', createMySchoolAvailabilityRequest);
