@@ -4635,7 +4635,7 @@
               }"
             >
               <button
-                v-if="stackDetailsItems.length > 1 && scheduleEventEditId !== Number(item.eventId || 0)"
+                v-if="stackDetailsItems.length > 1 && !(Number(item.eventId || 0) > 0 && scheduleEventEditId === Number(item.eventId))"
                 type="button"
                 class="stack-details-pick"
                 @click="openStackDetailsItem(item)"
@@ -23096,6 +23096,25 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0) => {
     return;
   }
   if (block?.peerOnly) return;
+
+  // When the user explicitly clicks a block that is rendered in its own visual
+  // space (timed/span, lane column, share-row half, or a typed non-event block),
+  // open it directly — no "Choose item" picker needed.
+  const isDistinctBlock = kind !== 'more'
+    && (
+      Number(block?.eventId || 0) > 0                                              // specific sevt/supv with a known ID
+      || !!block?.timedSlice                                                        // absolutely positioned with known bounds
+      || !!block?.shareRow                                                          // occupies its own half-cell lane
+      || Number(block?.laneCol ?? -1) >= 0                                         // occupies a dedicated lane column
+      || ['portal', 'school', 'request', 'intake-ip', 'intake-vi'].includes(kind)  // typed config blocks (no overlap ambiguity)
+    );
+
+  if (isDistinctBlock) {
+    dispatchCellBlockAction(block, dayName, hour, minute);
+    return;
+  }
+
+  // Fallback: cell has truly ambiguous stacked blocks — open the picker.
   const overlapStack = buildCellOverlapStackDetails(block, dayName, hour, minute);
   if (overlapStack) {
     openStackDetailsModal({
