@@ -101,7 +101,11 @@
             />
             <span :class="{ done: t.status === 'completed' }">{{ t.title }}</span>
           </li>
-          <li v-if="!tasks.length" class="fs-empty">Drag tasks onto this block in the timeline, or assign from the block panel.</li>
+          <li v-if="tasksError" class="fs-empty fs-empty--error">
+            Couldn't load tasks — open the block panel to verify assignments.
+            <button type="button" class="fs-retry-btn" @click="loadTasks">Retry</button>
+          </li>
+          <li v-else-if="!tasks.length" class="fs-empty">Drag tasks onto this block in the timeline, or assign from the block panel.</li>
         </ul>
       </section>
     </div>
@@ -152,6 +156,7 @@ const minimized = ref(false);
 const quote = ref(null);
 const intention = ref('');
 const tasks = ref([]);
+const tasksError = ref(false);
 const nowTick = ref(Date.now());
 let quoteTimer = null;
 let tickTimer = null;
@@ -301,6 +306,7 @@ async function loadQuote() {
 
 async function loadTasks() {
   if (!props.block?.id) return;
+  tasksError.value = false;
   try {
     const { data } = await api.get(`/schedule-block-assignments/${props.block.id}`, {
       skipGlobalLoading: true
@@ -314,8 +320,10 @@ async function loadTasks() {
         _assignmentId: a.id,
         _type: a.assignable_type
       }));
-  } catch {
+  } catch (e) {
+    console.error('[FocusSession] loadTasks failed:', e);
     tasks.value = [];
+    tasksError.value = true;
   }
 }
 
@@ -530,6 +538,18 @@ onUnmounted(() => {
   background: #ef4444;
 }
 .fs-empty { font-size: 12px; color: #94a3b8; margin: 8px 0 0; }
+.fs-empty--error { color: #ef4444; }
+.fs-retry-btn {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #3b82f6;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
 .quote-card {
   position: relative;
   border-radius: 16px;

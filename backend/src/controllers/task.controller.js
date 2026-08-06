@@ -2,6 +2,7 @@ import Task from '../models/Task.model.js';
 import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import TaskDeletionLog from '../models/TaskDeletionLog.model.js';
 import TaskAssignmentService from '../services/taskAssignment.service.js';
+import TaskDependency from '../models/TaskDependency.model.js';
 import User from '../models/User.model.js';
 import { validationResult } from 'express-validator';
 import StorageService from '../services/storage.service.js';
@@ -803,6 +804,11 @@ export const completeTask = async (req, res, next) => {
     }
 
     const updatedTask = await Task.markComplete(id, userId);
+
+    // Unlock any tasks that were waiting on this one
+    TaskDependency.unlockDependents(id).catch((err) =>
+      console.error('[TaskDependency] unlockDependents failed:', err)
+    );
 
     // Log completion
     await TaskAuditLog.logAction({

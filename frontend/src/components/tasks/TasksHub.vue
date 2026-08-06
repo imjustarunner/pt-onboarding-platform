@@ -1382,7 +1382,12 @@ async function loadAgencyUsers(preferredAgencyId = null) {
   }
   try {
     const { data } = await api.get(`/agencies/${aid}/users`, { skipGlobalLoading: true });
-    agencyUsers.value = Array.isArray(data) ? data : (data?.users || []);
+    const raw = Array.isArray(data) ? data : (data?.users || []);
+    agencyUsers.value = raw.map((u) => ({
+      ...u,
+      first_name: u.first_name || u.firstName || '',
+      last_name: u.last_name || u.lastName || '',
+    }));
   } catch {
     agencyUsers.value = [];
   }
@@ -1570,9 +1575,16 @@ function onPanelComplete(item) {
   else toggleComplete(item);
 }
 
-const openTasksForTimeline = computed(() =>
-  (displayTasks.value || []).filter((t) => t.status !== 'completed' && t.status !== 'overridden')
-);
+const openTasksForTimeline = computed(() => {
+  const assignedIds = new Set(
+    (selectedBlock.value?.assignments || [])
+      .filter((a) => a.assignable_type === 'task')
+      .map((a) => String(a.assignable_id))
+  );
+  return (displayTasks.value || []).filter(
+    (t) => t.status !== 'completed' && t.status !== 'overridden' && !assignedIds.has(String(t.id))
+  );
+});
 
 function pickNew(kind) {
   showNewPicker.value = false;
