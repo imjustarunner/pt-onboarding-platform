@@ -247,6 +247,7 @@ import {
   timezoneAbbrevAt
 } from '../../utils/timezones';
 import PostSchoolEventModal from '../school/PostSchoolEventModal.vue';
+import { notifyHubSchoolEventsChanged } from '../../utils/hubSchoolEventsRefresh';
 
 const props = defineProps({
   event: { type: Object, default: null },
@@ -496,6 +497,7 @@ async function onEventSaved() {
 async function onEventDeleted() {
   showEditModal.value = false;
   actionMsg.value = 'Event deleted.';
+  notifyHubSchoolEventsChanged();
   emit('changed');
   emit('close');
 }

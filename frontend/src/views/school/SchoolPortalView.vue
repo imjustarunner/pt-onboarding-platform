@@ -1203,9 +1203,11 @@
               :school-organization-id="organizationId"
               :can-manage="canManageSchoolEvents"
               :can-request-assignment="canRequestSchoolEventAssignment"
+              :external-events="schoolPortalEvents"
               @add-event="onCalendarAddEvent"
               @edit-event="onCalendarEditEvent"
               @request-assignment="openSchoolEventStaffing"
+              @request-reload="loadSchoolPortalEvents"
             />
           </div>
 
@@ -1857,6 +1859,7 @@ import {
   formatSchoolEventReportTime,
   timezoneAbbrevAt
 } from '../../utils/timezones';
+import { notifyHubSchoolEventsChanged } from '../../utils/hubSchoolEventsRefresh';
 import { useOrganizationStore } from '../../store/organization';
 import { useBrandingStore } from '../../store/branding';
 import { useAgencyStore } from '../../store/agency';
@@ -2050,8 +2053,7 @@ const openSchoolEventsPanel = async ({ syncQuery = true } = {}) => {
 
 const openSchoolCalendarPanel = async ({ syncQuery = true } = {}) => {
   await setPortalMode('calendar', { syncQuery });
-  await nextTick();
-  await schoolCalendarPanelRef.value?.reload?.();
+  await loadSchoolPortalEvents();
 };
 
 const openPostSchoolEvent = (categoryOrOpts = 'back_to_school') => {
@@ -2108,7 +2110,7 @@ const closePostSchoolEvent = () => {
 const handleSchoolEventSaved = async () => {
   await loadSchoolEventsMissing();
   await loadSchoolPortalEvents();
-  await schoolCalendarPanelRef.value?.reload?.();
+  notifyHubSchoolEventsChanged();
   showSchoolEventPrompt.value = false;
   editingSchoolEvent.value = null;
 };
@@ -2128,7 +2130,7 @@ const deleteSchoolEvent = async (ev) => {
     if (editingSchoolEvent.value?.id === ev.id) closePostSchoolEvent();
     await loadSchoolEventsMissing();
     await loadSchoolPortalEvents();
-    await schoolCalendarPanelRef.value?.reload?.();
+    notifyHubSchoolEventsChanged();
   } catch (e) {
     schoolPortalEventsError.value = e?.response?.data?.error?.message || 'Failed to delete event';
   } finally {

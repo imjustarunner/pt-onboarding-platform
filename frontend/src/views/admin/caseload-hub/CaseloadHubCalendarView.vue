@@ -238,6 +238,7 @@ import { useAgencyStore } from '../../../store/agency';
 import api from '../../../services/api';
 import { fetchHubEvents, fetchSchoolCoverageSummary } from '../../../services/schoolCoverageApi';
 import PostSchoolEventModal from '../../../components/school/PostSchoolEventModal.vue';
+import { onHubSchoolEventsChanged } from '../../../utils/hubSchoolEventsRefresh';
 import {
   formatSchoolEventWhen,
   schoolEventTimezoneLabel,
@@ -648,13 +649,19 @@ onMounted(async () => {
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', onVisibilityChange);
   }
+  offHubEventsChanged = onHubSchoolEventsChanged(() => {
+    reload({ silent: true });
+  });
 });
+
+let offHubEventsChanged = null;
 
 onUnmounted(() => {
   stopPolling();
   if (typeof document !== 'undefined') {
     document.removeEventListener('visibilitychange', onVisibilityChange);
   }
+  if (offHubEventsChanged) offHubEventsChanged();
 });
 </script>
 

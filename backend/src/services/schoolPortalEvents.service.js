@@ -1016,7 +1016,7 @@ export async function deleteSchoolPortalEvent({
   }
 
   const [existingRows] = await pool.execute(
-    `SELECT id, event_type, is_active
+    `SELECT id, event_type, is_active, district_broadcast_id
      FROM company_events
      WHERE id = ? AND agency_id = ? AND organization_id = ?
      LIMIT 1`,
@@ -1028,6 +1028,23 @@ export async function deleteSchoolPortalEvent({
     throw Object.assign(new Error('Not a school portal event'), { status: 400 });
   }
 
+  const broadcastId = String(existing.district_broadcast_id || '').trim();
+  const deactivateWhere = broadcastId
+    ? { sql: 'agency_id = ? AND district_broadcast_id = ? AND is_active = 1', params: [aid, broadcastId] }
+    : { sql: 'id = ? AND agency_id = ? AND organization_id = ?', params: [eid, aid, orgId] };
+
+  let affectedEventIds = [eid];
+  if (broadcastId) {
+    const [siblingRows] = await pool.execute(
+      `SELECT id, organization_id
+       FROM company_events
+       WHERE agency_id = ? AND district_broadcast_id = ? AND is_active = 1`,
+      [aid, broadcastId]
+    );
+    affectedEventIds = (siblingRows || []).map((r) => Number(r.id)).filter(Boolean);
+    if (!affectedEventIds.length) affectedEventIds = [eid];
+  }
+
   try {
     await pool.execute(
       `UPDATE company_events
@@ -1035,8 +1052,8 @@ export async function deleteSchoolPortalEvent({
            school_event_status = 'canceled',
            updated_by_user_id = ?,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND agency_id = ? AND organization_id = ?`,
-      [userId || null, eid, aid, orgId]
+       WHERE ${deactivateWhere.sql}`,
+      [userId || null, ...deactivateWhere.params]
     );
   } catch (e) {
     if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
@@ -1045,23 +1062,30 @@ export async function deleteSchoolPortalEvent({
        SET is_active = 0,
            updated_by_user_id = ?,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND agency_id = ? AND organization_id = ?`,
-      [userId || null, eid, aid, orgId]
+       WHERE ${deactivateWhere.sql}`,
+      [userId || null, ...deactivateWhere.params]
     );
   }
 
   try {
+    const placeholders = affectedEventIds.map(() => '?').join(', ');
     await pool.execute(
       `UPDATE school_portal_announcements
        SET ends_at = NOW(), updated_at = CURRENT_TIMESTAMP
-       WHERE organization_id = ? AND company_event_id = ? AND ends_at > NOW()`,
-      [orgId, eid]
+       WHERE company_event_id IN (${placeholders}) AND ends_at > NOW()`,
+      affectedEventIds
     );
   } catch {
     /* announcement table/column may be missing */
   }
 
-  return { ok: true, id: eid, deleted: true };
+  return {
+    ok: true,
+    id: eid,
+    deleted: true,
+    deletedCount: affectedEventIds.length,
+    districtBroadcastId: broadcastId || null
+  };
 }
 
 /**

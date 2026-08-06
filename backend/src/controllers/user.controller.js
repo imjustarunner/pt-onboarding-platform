@@ -4948,6 +4948,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
          LEFT JOIN agencies sch ON sch.id = ce.organization_id
          WHERE cesp.provider_user_id = ?
            AND cesp.agency_id = ?
+           AND ce.is_active = 1
            AND (
              (cesd.starts_at IS NOT NULL AND cesd.ends_at IS NOT NULL AND cesd.starts_at < ? AND cesd.ends_at > ?)
              OR (cesd.session_date >= ? AND cesd.session_date < ?)

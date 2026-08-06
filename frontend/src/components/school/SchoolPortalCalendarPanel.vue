@@ -134,10 +134,12 @@ const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },
   canManage: { type: Boolean, default: false },
   /** Providers (not school staff) may request assignment on attendable events. */
-  canRequestAssignment: { type: Boolean, default: false }
+  canRequestAssignment: { type: Boolean, default: false },
+  /** When set, use parent-owned event list (stays in sync after deletes from the events tab). */
+  externalEvents: { type: Array, default: null }
 });
 
-const emit = defineEmits(['add-event', 'edit-event', 'request-assignment', 'refreshed']);
+const emit = defineEmits(['add-event', 'edit-event', 'request-assignment', 'refreshed', 'request-reload']);
 
 const CALENDAR_ONLY_TYPES = new Set([
   'school_holiday',
@@ -201,6 +203,10 @@ const error = ref('');
 const view = ref('month');
 const cursor = ref(startOfMonth(new Date()));
 const typeFilter = ref('');
+
+const effectiveEvents = computed(() =>
+  Array.isArray(props.externalEvents) ? props.externalEvents : events.value
+);
 
 const dowLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -274,7 +280,7 @@ function typeColor(e) {
 }
 
 const filteredEvents = computed(() => {
-  return events.value.filter((e) => {
+  return effectiveEvents.value.filter((e) => {
     if (typeFilter.value && e.eventType !== typeFilter.value) return false;
     const t = e.startsAt ? new Date(e.startsAt) : null;
     if (!t || Number.isNaN(t.getTime())) return false;
@@ -336,6 +342,10 @@ const cells = computed(() => {
 
 async function reload() {
   if (!props.schoolOrganizationId) return;
+  if (Array.isArray(props.externalEvents)) {
+    emit('request-reload');
+    return;
+  }
   loading.value = true;
   error.value = '';
   try {
@@ -343,6 +353,7 @@ async function reload() {
     events.value = Array.isArray(res.data?.events)
       ? res.data.events
       : (Array.isArray(res.data) ? res.data : []);
+    emit('refreshed');
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load calendar';
     events.value = [];
