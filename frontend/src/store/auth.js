@@ -1,7 +1,20 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../services/api';
-import { storeUserAgencies, clearStoredAgencies } from '../utils/loginRedirect';
+// loginRedirect is NOT statically imported here to avoid a circular-import TDZ with router/index.js.
+// Use inline localStorage ops or dynamic imports for the two helpers we need.
+function _storeUserAgencies(agencies) {
+  try {
+    if (Array.isArray(agencies) && agencies.length > 0) {
+      localStorage.setItem('userAgencies', JSON.stringify(agencies));
+    } else {
+      localStorage.removeItem('userAgencies');
+    }
+  } catch { /* ignore */ }
+}
+function _clearStoredAgencies() {
+  try { localStorage.removeItem('userAgencies'); } catch { /* ignore */ }
+}
 import { saveBiometricToken, clearBiometricToken } from '../utils/biometricAuth';
 import {
   clearDemoWindowSession,
@@ -109,7 +122,7 @@ export const useAuthStore = defineStore('auth', () => {
       localStorage.removeItem('pt.pendingScheduleWeekReset');
       // Prevent stale org context bleeding across users (affects tenant switcher + X-Agency-Id header).
       localStorage.removeItem('currentAgency');
-      clearStoredAgencies();
+      _clearStoredAgencies();
     } catch {
       /* ignore */
     }
@@ -189,7 +202,7 @@ export const useAuthStore = defineStore('auth', () => {
       
       // Keep localStorage.userAgencies aligned to THIS user so slug-resolution and
       // tenant switchers don't accidentally show a previous user's org list.
-      storeUserAgencies(Array.isArray(response.data.agencies) ? response.data.agencies : []);
+      _storeUserAgencies(Array.isArray(response.data.agencies) ? response.data.agencies : []);
 
       // Store agencies if provided (for approved employees with multiple agencies)
       if (response.data.agencies && response.data.agencies.length > 0) {
@@ -384,11 +397,11 @@ export const useAuthStore = defineStore('auth', () => {
         }
       }
 
-      const { getLoginUrlForRedirect, clearStoredAgencies } = await import('../utils/loginRedirect');
+      const { getLoginUrlForRedirect } = await import('../utils/loginRedirect');
       if (!loginUrl) {
         loginUrl = getLoginUrlForRedirect(currentUser);
       }
-      clearStoredAgencies();
+      _clearStoredAgencies();
 
       localStorage.removeItem('sessionId');
       clearAuth();
