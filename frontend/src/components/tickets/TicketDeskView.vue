@@ -71,7 +71,6 @@
             class="search"
             type="search"
             placeholder="Search tickets or schools…"
-            @keydown.enter="loadTickets"
           />
           <div class="filters">
             <select v-model="priorityFilter" @change="loadTickets">
@@ -93,6 +92,11 @@
             <select v-model="topicFilter" @change="loadTickets">
               <option value="">Audience</option>
               <option v-for="t in ticketTopics" :key="t.id" :value="t.id">{{ t.short }}</option>
+            </select>
+            <select v-model="schoolSort">
+              <option value="">School order</option>
+              <option value="school_asc">School A→Z</option>
+              <option value="school_desc">School Z→A</option>
             </select>
           </div>
         </div>
@@ -224,31 +228,102 @@
           <div class="detail-main">
             <div class="conversation-col">
               <div class="tab-row">
-                <button type="button" class="tab active">Conversation</button>
-                <button type="button" class="tab" disabled title="Coming soon">Details</button>
+                <button
+                  type="button"
+                  class="tab"
+                  :class="{ active: detailTab === 'conversation' }"
+                  @click="detailTab = 'conversation'"
+                >Conversation</button>
+                <button
+                  type="button"
+                  class="tab"
+                  :class="{ active: detailTab === 'details' }"
+                  @click="detailTab = 'details'"
+                >Details</button>
                 <button type="button" class="tab" disabled title="Coming soon">Client</button>
               </div>
 
-              <div v-if="messagesLoading" class="muted pad">Loading conversation…</div>
-              <div v-else-if="messagesError" class="error pad">{{ messagesError }}</div>
-              <div v-else class="thread" ref="threadEl">
-                <div
-                  v-for="m in messages"
-                  :key="m.id"
-                  class="bubble"
-                  :class="{
-                    mine: m.author_user_id === myUserId,
-                    internal: !!m.is_internal
-                  }"
-                >
-                  <div v-if="m.is_internal" class="internal-label">Internal note</div>
-                  <div class="bubble-meta">
-                    <strong>{{ messageAuthor(m) }}</strong>
-                    <span>{{ formatDateTime(m.created_at) }}</span>
+              <!-- Conversation tab -->
+              <template v-if="detailTab === 'conversation'">
+                <div v-if="messagesLoading" class="muted pad">Loading conversation…</div>
+                <div v-else-if="messagesError" class="error pad">{{ messagesError }}</div>
+                <div v-else class="thread" ref="threadEl">
+                  <div
+                    v-for="m in messages"
+                    :key="m.id"
+                    class="bubble"
+                    :class="{
+                      mine: m.author_user_id === myUserId,
+                      internal: !!m.is_internal
+                    }"
+                  >
+                    <div v-if="m.is_internal" class="internal-label">Internal note</div>
+                    <div class="bubble-meta">
+                      <strong>{{ messageAuthor(m) }}</strong>
+                      <span>{{ formatDateTime(m.created_at) }}</span>
+                    </div>
+                    <div class="bubble-body">{{ m.body || '(deleted)' }}</div>
                   </div>
-                  <div class="bubble-body">{{ m.body || '(deleted)' }}</div>
+                  <div v-if="!messages.length" class="muted pad">No messages yet.</div>
                 </div>
-                <div v-if="!messages.length" class="muted pad">No messages yet.</div>
+              </template>
+
+              <!-- Details tab -->
+              <div v-else-if="detailTab === 'details'" class="email-details-panel">
+                <div v-if="selected.source_channel === 'email'" class="detail-section">
+                  <div class="detail-row">
+                    <span class="detail-label">From</span>
+                    <span class="detail-value">{{ selected.source_email_from || '—' }}</span>
+                  </div>
+                  <div class="detail-row" v-if="emailRecipients(selected).length">
+                    <span class="detail-label">To / CC</span>
+                    <span class="detail-value">{{ emailRecipients(selected).join(', ') }}</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Subject</span>
+                    <span class="detail-value">{{ selected.source_email_subject || selected.subject || '—' }}</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Received</span>
+                    <span class="detail-value">{{ formatDateTime(selected.source_email_received_at || selected.email_ingested_at) }}</span>
+                  </div>
+                  <div class="detail-row" v-if="selected.sent_at">
+                    <span class="detail-label">Reply sent</span>
+                    <span class="detail-value">{{ formatDateTime(selected.sent_at) }}</span>
+                  </div>
+                </div>
+                <div v-else class="muted pad">No email details available for portal tickets.</div>
+
+                <div class="detail-section mt-12">
+                  <div class="detail-row">
+                    <span class="detail-label">Ticket #</span>
+                    <span class="detail-value">{{ selected.id }}</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Created</span>
+                    <span class="detail-value">{{ formatDateTime(selected.created_at) }}</span>
+                  </div>
+                  <div class="detail-row" v-if="createdByName">
+                    <span class="detail-label">Submitted by</span>
+                    <span class="detail-value">{{ createdByName }}</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">School</span>
+                    <span class="detail-value">{{ selected.school_name || '—' }}</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Status</span>
+                    <span class="detail-value">{{ statusLabel(selected) }}</span>
+                  </div>
+                  <div class="detail-row" v-if="assigneeName(selected)">
+                    <span class="detail-label">Assigned to</span>
+                    <span class="detail-value">{{ assigneeName(selected) }}</span>
+                  </div>
+                  <div class="detail-row" v-if="selected.escalation_reason">
+                    <span class="detail-label">Escalation</span>
+                    <span class="detail-value">{{ selected.escalation_reason.replace(/_/g, ' ') }}</span>
+                  </div>
+                </div>
               </div>
 
               <div v-if="selected.ai_draft_response && canAnswer" class="ai-draft-banner">
@@ -383,6 +458,14 @@
               <div class="meta-block">
                 <label>Source</label>
                 <div>{{ sourceLabel(selected) }}</div>
+              </div>
+              <div v-if="selected.source_channel === 'email'" class="meta-block">
+                <label>From</label>
+                <div class="meta-email-from">{{ selected.source_email_from || '—' }}</div>
+              </div>
+              <div v-if="selected.source_channel === 'email' && emailRecipients(selected).length" class="meta-block">
+                <label>Recipients</label>
+                <div class="meta-email-from">{{ emailRecipients(selected).join(', ') }}</div>
               </div>
               <div class="meta-block">
                 <label>Assigned to</label>
@@ -529,6 +612,7 @@ const error = ref('');
 const actionError = ref('');
 const selectedId = ref(null);
 const selected = ref(null);
+const detailTab = ref('conversation'); // conversation | details
 const messages = ref([]);
 const messagesLoading = ref(false);
 const messagesError = ref('');
@@ -541,6 +625,7 @@ const priorityFilter = ref('');
 const sourceChannel = ref('');
 const creatorRoleFilter = ref('');
 const topicFilter = ref('');
+const schoolSort = ref(''); // '' | 'school_asc' | 'school_desc'
 const ticketTopics = TICKET_TOPICS;
 /** Selected tenant id (number|null) or 'platform'. null = all tenants. */
 const agencyIdInput = ref(null);
@@ -739,6 +824,18 @@ function sourceLabel(t) {
   return 'Portal';
 }
 
+function emailRecipients(t) {
+  if (!t) return [];
+  const raw = t.source_email_recipients;
+  if (!raw) return [];
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function formatDateTime(v) {
   if (!v) return '—';
   const d = new Date(v);
@@ -899,6 +996,14 @@ async function loadTickets() {
       const r = await api.get('/support-tickets', { params, skipGlobalLoading: true });
       tickets.value = Array.isArray(r.data) ? r.data : [];
     }
+    // Apply school sort if active.
+    if (schoolSort.value) {
+      tickets.value = [...tickets.value].sort((a, b) => {
+        const na = String(a.school_name || '').toLowerCase();
+        const nb = String(b.school_name || '').toLowerCase();
+        return schoolSort.value === 'school_asc' ? na.localeCompare(nb) : nb.localeCompare(na);
+      });
+    }
     if (selectedId.value) {
       const found = tickets.value.find((t) => t.id === selectedId.value);
       if (found) selected.value = found;
@@ -931,6 +1036,7 @@ async function loadMessages(ticketId) {
 function selectTicket(t) {
   selectedId.value = t.id;
   selected.value = t;
+  detailTab.value = 'conversation';
   composerMode.value = 'reply';
   draft.value = '';
   actionError.value = '';
@@ -1227,6 +1333,27 @@ async function submitForward() {
 async function loadAll() {
   await Promise.all([loadMetrics(), loadTickets(), loadAgencyCounts()]);
 }
+
+// Live search: debounce so we don't hammer the API on every keystroke.
+let searchDebounceTimer = null;
+watch(searchInput, () => {
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => loadTickets(), 350);
+});
+
+// Apply school sort whenever the sort selection changes (client-side only, no reload).
+watch(schoolSort, () => {
+  if (!tickets.value.length) return;
+  if (!schoolSort.value) {
+    loadTickets(); // restore default backend order
+    return;
+  }
+  tickets.value = [...tickets.value].sort((a, b) => {
+    const na = String(a.school_name || '').toLowerCase();
+    const nb = String(b.school_name || '').toLowerCase();
+    return schoolSort.value === 'school_asc' ? na.localeCompare(nb) : nb.localeCompare(na);
+  });
+});
 
 watch(
   () => route.query?.ticketId,
@@ -1845,5 +1972,48 @@ defineExpose({ loadAll, clearSelection });
 .ticket-desk--platform .thread .bubble {
   background: #1e293b;
   color: #e5e7eb;
+}
+
+/* Email details tab */
+.email-details-panel {
+  padding: 12px 16px;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+.detail-section {
+  background: #f8faf9;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.detail-section.mt-12 { margin-top: 12px; }
+.detail-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.detail-label {
+  flex: 0 0 90px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-secondary, #64748b);
+  padding-top: 1px;
+}
+.detail-value {
+  flex: 1;
+  color: var(--text-primary, #1a3d2b);
+  word-break: break-word;
+}
+.meta-email-from {
+  font-size: 12px;
+  word-break: break-all;
+  color: var(--text-primary, #1a3d2b);
 }
 </style>

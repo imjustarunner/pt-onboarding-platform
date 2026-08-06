@@ -204,9 +204,16 @@ async function findSchoolContextByInboundAddresses({ agencyId, addresses }) {
   }
 }
 
+// Roles considered internal employees / providers — emails from these senders
+// should NOT generate support tickets (they are our own staff or therapists).
+const EMPLOYEE_PROVIDER_ROLES = new Set([
+  'admin', 'support', 'staff', 'super_admin', 'provider', 'provider_plus',
+  'clinical_practice_assistant', 'supervisor', 'scheduler', 'billing'
+]);
+
 async function findKnownSender({ schoolOrganizationId, fromEmail }) {
   const email = String(fromEmail || '').trim().toLowerCase();
-  if (!email) return { isKnownContact: false, isKnownAccount: false, accountUserId: null };
+  if (!email) return { isKnownContact: false, isKnownAccount: false, accountUserId: null, senderRole: null, isEmployeeOrProvider: false };
 
   let isKnownContact = false;
   try {
@@ -224,33 +231,59 @@ async function findKnownSender({ schoolOrganizationId, fromEmail }) {
   }
 
   let accountUserId = null;
+  let senderRole = null;
   try {
     const direct = await User.findByEmail(email);
-    if (direct?.id) accountUserId = Number(direct.id);
+    if (direct?.id) {
+      accountUserId = Number(direct.id);
+      senderRole = String(direct.role || '').toLowerCase();
+    }
   } catch {
     accountUserId = null;
   }
   if (!accountUserId) {
     try {
       const [rows] = await pool.execute(
-        `SELECT id
+        `SELECT id, role
          FROM users
          WHERE LOWER(COALESCE(email, '')) = ?
             OR LOWER(COALESCE(work_email, '')) = ?
          LIMIT 1`,
         [email, email]
       );
-      accountUserId = rows?.[0]?.id ? Number(rows[0].id) : null;
+      if (rows?.[0]?.id) {
+        accountUserId = Number(rows[0].id);
+        senderRole = String(rows[0].role || '').toLowerCase();
+      }
     } catch {
       accountUserId = null;
     }
   }
 
+  const isEmployeeOrProvider = !!senderRole && EMPLOYEE_PROVIDER_ROLES.has(senderRole);
+
   return {
     isKnownContact,
     isKnownAccount: !!accountUserId,
-    accountUserId: accountUserId || null
+    accountUserId: accountUserId || null,
+    senderRole: senderRole || null,
+    isEmployeeOrProvider
   };
+}
+
+/** Return true if a support ticket for this Gmail message-id already exists. */
+async function ticketAlreadyExistsForMessageId(messageId) {
+  const mid = String(messageId || '').trim();
+  if (!mid) return false;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id FROM support_tickets WHERE source_email_message_id = ? LIMIT 1`,
+      [mid]
+    );
+    return !!rows?.[0];
+  } catch {
+    return false;
+  }
 }
 
 async function findFallbackCreatorUserId(agencyId) {
@@ -507,6 +540,7 @@ async function createEmailDraftSupportTicket({
   messageId,
   threadId,
   receivedAt,
+  recipients,
   matchedClient,
   draftResponse,
   draftConfidence,
@@ -514,34 +548,55 @@ async function createEmailDraftSupportTicket({
   escalationReason,
   metadata
 }) {
-  const [result] = await pool.execute(
-    `INSERT INTO support_tickets
-      (school_organization_id, client_id, created_by_user_id, agency_id, source_channel,
-       source_email_from, source_email_subject, source_email_message_id, source_email_thread_id, source_email_received_at,
-       email_ingested_at,
-       subject, question, status, ai_draft_response, ai_draft_confidence, ai_draft_status, ai_draft_metadata_json,
-       ai_draft_generated_at, draft_generated_at, ai_draft_review_state, escalation_reason)
-     VALUES (?, ?, ?, ?, 'email', ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'pending', ?)`,
-    [
-      Number(schoolOrganizationId),
-      matchedClient?.id ? Number(matchedClient.id) : null,
-      Number(createdByUserId),
-      agencyId ? Number(agencyId) : null,
-      String(fromEmail || '').trim() || null,
-      truncate(subject, 255) || null,
-      String(messageId || '').trim() || null,
-      String(threadId || '').trim() || null,
-      receivedAt || null,
-      receivedAt || null,
-      truncate(subject || 'Inbound school status request', 255) || 'Inbound school status request',
-      truncate(bodyText, 4000),
-      draftResponse ? truncate(draftResponse, 6000) : null,
-      Number.isFinite(Number(draftConfidence)) ? Number(draftConfidence) : null,
-      draftStatus || null,
-      metadata ? JSON.stringify(metadata) : null,
-      escalationReason || null
-    ]
-  );
+  // Deduplication: skip if a ticket for this exact Gmail message already exists.
+  if (messageId && (await ticketAlreadyExistsForMessageId(messageId))) {
+    console.log(`[EmailAgent] Skipping duplicate ticket for message-id: ${messageId}`);
+    return 0;
+  }
+
+  const recipientsJson = Array.isArray(recipients) && recipients.length
+    ? JSON.stringify(recipients.map((r) => String(r).trim().toLowerCase()).filter(Boolean))
+    : null;
+
+  let result;
+  try {
+    [result] = await pool.execute(
+      `INSERT INTO support_tickets
+        (school_organization_id, client_id, created_by_user_id, agency_id, source_channel,
+         source_email_from, source_email_subject, source_email_message_id, source_email_thread_id, source_email_received_at,
+         email_ingested_at, source_email_recipients,
+         subject, question, status, ai_draft_response, ai_draft_confidence, ai_draft_status, ai_draft_metadata_json,
+         ai_draft_generated_at, draft_generated_at, ai_draft_review_state, escalation_reason)
+       VALUES (?, ?, ?, ?, 'email', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'pending', ?)`,
+      [
+        Number(schoolOrganizationId),
+        matchedClient?.id ? Number(matchedClient.id) : null,
+        Number(createdByUserId),
+        agencyId ? Number(agencyId) : null,
+        String(fromEmail || '').trim() || null,
+        truncate(subject, 255) || null,
+        String(messageId || '').trim() || null,
+        String(threadId || '').trim() || null,
+        receivedAt || null,
+        receivedAt || null,
+        recipientsJson,
+        truncate(subject || 'Inbound school status request', 255) || 'Inbound school status request',
+        truncate(bodyText, 4000),
+        draftResponse ? truncate(draftResponse, 6000) : null,
+        Number.isFinite(Number(draftConfidence)) ? Number(draftConfidence) : null,
+        draftStatus || null,
+        metadata ? JSON.stringify(metadata) : null,
+        escalationReason || null
+      ]
+    );
+  } catch (err) {
+    // Duplicate entry for unique index on source_email_message_id — already processed.
+    if (err?.code === 'ER_DUP_ENTRY') {
+      console.log(`[EmailAgent] Duplicate key — ticket already exists for message-id: ${messageId}`);
+      return 0;
+    }
+    throw err;
+  }
   const ticketId = Number(result?.insertId || 0);
   if (ticketId && (await hasSupportTicketMessagesTable())) {
     await pool.execute(
@@ -655,6 +710,20 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         schoolOrganizationId: schoolContext.schoolOrganizationId,
         fromEmail
       });
+
+      // Skip ticket creation if sender is an internal employee or provider.
+      // School contacts and external senders (school accounts) should still create tickets.
+      if (sender.isEmployeeOrProvider) {
+        console.log(`[EmailAgent] Ignoring email from employee/provider (role: ${sender.senderRole}): ${fromEmail}`);
+        results.ignored += 1;
+        await gmail.users.messages.modify({
+          userId: 'me',
+          id,
+          requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, ignoredLabelId] }
+        });
+        continue;
+      }
+
       const senderAllowed = isSenderAllowedForPolicy({
         policyMode: normalizeEmailAiPolicyMode(policy.mode),
         isKnownContact: sender.isKnownContact,
@@ -724,6 +793,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           messageId: hdrs.get('message-id') || null,
           threadId: full.data?.threadId || null,
           receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
+          recipients: Array.from(new Set([...(routed.to || []), ...(routed.cc || [])])),
           matchedClient: null,
           draftResponse: null,
           draftConfidence: Math.max(Number(intent.confidence || 0), Number(reinitIntent.confidence || 0)),
@@ -838,6 +908,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         messageId: hdrs.get('message-id') || null,
         threadId: full.data?.threadId || null,
         receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
+        recipients: Array.from(new Set([...(routed.to || []), ...(routed.cc || [])])),
         matchedClient: match.match,
         draftResponse,
         draftConfidence: Math.max(
