@@ -6,6 +6,11 @@ import Agency from '../models/Agency.model.js';
 import { getUserCapabilities, buildAgencyAccessCaps } from '../utils/capabilities.js';
 import { isSupervisorActor, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
 import { canUserManageClub, getUserClubMembership, inferLegacyClubRole } from '../utils/sscClubAccess.js';
+import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
+
+const PROVIDER_LIKE_ROLES_MIDDLEWARE = new Set([
+  'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'
+]);
 
 /** Normalize role strings for authorization (JWT quirks / legacy variants). */
 function normalizeAuthRole(role) {
@@ -746,6 +751,13 @@ export const requireAgencyAccess = async (req, res, next) => {
     const hasAccess = userAgencies.some(a => a.id === parseInt(agencyId));
     
     if (!hasAccess) {
+      // Provider-like roles may belong to an affiliated school org rather than the root agency.
+      // Use the tenant tree check so they can still access tenant-scoped routes.
+      const roleNorm = String(req.user?.role || '').toLowerCase();
+      if (PROVIDER_LIKE_ROLES_MIDDLEWARE.has(roleNorm)) {
+        const tenantOk = await hasTenantAccess(req, agencyId).catch(() => false);
+        if (tenantOk) return next();
+      }
       const hasSupervisorCapability = await isSupervisorActor({
         userId: req.user?.id,
         role: req.user?.role,

@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { userHasAgencyOrAffiliatedOrgAccessForRequest } from '../utils/userAgencyAffiliationAccess.js';
+import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw ?? ''), 10);
@@ -279,20 +280,23 @@ export async function canViewProgramEvent(req, agencyId, eventId) {
   if (uid && eid && aid && (await providerCanAccessSchoolPortalEventStaffing(req, agencyId, eventId))) {
     return true;
   }
+  // Provider-like roles anywhere in the same tenant may view any event in that tenant — checked
+  // before the strict agency-membership gate so users in affiliated school orgs aren't blocked.
+  const role = String(req.user?.role || '').toLowerCase();
+  if (PROVIDER_LIKE_ROLES.has(role) && aid && (await hasTenantAccess(req, agencyId))) return true;
   if (!(await userHasAgencyAccessForRequest(req, agencyId))) return false;
   if (await canManageProgramEvent(req, agencyId)) return true;
-  // provider_plus (and other provider-like roles) in the agency can view any event in their tenant.
-  const role = String(req.user?.role || '').toLowerCase();
-  if (PROVIDER_LIKE_ROLES.has(role)) return true;
   return false;
 }
 
 /** May submit/withdraw session staffing requests (agency staff or school-assigned providers). */
 export async function canRequestEventShifts(req, agencyId, eventId) {
+  const role = String(req.user?.role || '').toLowerCase();
+  const aid = parsePositiveInt(agencyId);
+  // Provider-like roles in the same tenant may request shifts without requiring direct agency membership.
+  if (PROVIDER_LIKE_ROLES.has(role) && aid && (await hasTenantAccess(req, agencyId))) return true;
   if (await userHasAgencyAccessForRequest(req, agencyId)) {
-    const role = String(req.user?.role || '').toLowerCase();
     if (role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff') return true;
-    if (PROVIDER_LIKE_ROLES.has(role)) return true;
     if (await getProgramCoordinatorAccess(parsePositiveInt(req.user?.id))) return true;
   }
   return providerCanAccessSchoolPortalEventStaffing(req, agencyId, eventId);
