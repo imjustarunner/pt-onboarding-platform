@@ -144,6 +144,10 @@ import {
   ,getPayrollOtherRateTitles
   ,putPayrollOtherRateTitlesForAgency
   ,putPayrollOtherRateTitlesForUser
+  ,getUserTimeCategories
+  ,upsertUserTimeCategory
+  ,deleteUserTimeCategory
+  ,getMyTimeCategories
   ,listPayrollManualPayLines
   ,createPayrollManualPayLine
   ,createPayrollManualBulk
@@ -453,5 +457,11 @@ router.get('/me/compensation', getMyCompensation);
 
 // ADP export (stub/job log)
 router.post('/periods/:id/adp/export', requestAdpExport);
+
+// Per-user time submission categories
+router.get('/user-time-categories',        getUserTimeCategories);
+router.post('/user-time-categories',       upsertUserTimeCategory);
+router.delete('/user-time-categories/:id', deleteUserTimeCategory);
+router.get('/my-time-categories',          getMyTimeCategories);
 
 export default router;

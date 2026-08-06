@@ -15,7 +15,7 @@
       >
         <span class="submit-hub__featured-icon" v-html="actionIcon(featuredLogTime.icon)" />
         <span class="submit-hub__featured-body">
-          <span class="submit-hub__featured-eyebrow">Hourly employees</span>
+          <span class="submit-hub__featured-eyebrow">Log Time</span>
           <span class="submit-hub__featured-title">{{ featuredLogTime.title }}</span>
           <span class="submit-hub__featured-desc">{{ featuredLogTime.description }}</span>
         </span>
@@ -43,6 +43,23 @@
                 <span class="submit-hub__action-desc">{{ actionDescription(action) }}</span>
                 <span class="submit-hub__action-cta">Open →</span>
               </button>
+
+              <!-- Per-user extra time categories — shown only in the "time" group -->
+              <template v-if="group.id === 'time' && extraTimeCategories.length">
+                <button
+                  v-for="cat in extraTimeCategories"
+                  :key="cat.id"
+                  type="button"
+                  class="submit-hub__action submit-hub__action--compact submit-hub__action--cat"
+                  :data-cat="cat.categoryType"
+                  @click="onAction(cat.event, cat.payload)"
+                >
+                  <span class="submit-hub__action-icon submit-hub__action-icon--cat" v-html="actionIcon(cat.icon)" />
+                  <span class="submit-hub__action-title">{{ cat.label }}</span>
+                  <span class="submit-hub__action-desc">{{ cat.desc }}</span>
+                  <span class="submit-hub__action-cta">Open →</span>
+                </button>
+              </template>
             </div>
           </div>
           <SubmitSubmissionHistoryColumn
@@ -227,7 +244,40 @@ const ACTION_ICONS = {
   clipboard: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>',
   video: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>',
   school: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/></svg>',
+  // Per-user category icons
+  indirect:         '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/></svg>',
+  support_activity: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  supervisor:       '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><polyline points="9 12 11 14 15 10"/></svg>',
+  indirect_plus:    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>',
 };
+
+// Category-type metadata for tenant-colored extra cards
+const CATEGORY_TYPE_META = {
+  indirect:         { event: 'log-time-indirect',      defaultLabel: 'Indirect Service',  desc: 'Submit indirect service hours.' },
+  support_activity: { event: 'log-time-support',       defaultLabel: 'Support Activity',  desc: 'Submit support activity (MEETING rate) hours.' },
+  supervisor:       { event: 'log-time-supervisor',    defaultLabel: 'Supervisor Notes',  desc: 'Submit supervision note time.' },
+  indirect_plus:    { event: 'log-time-indirect-plus', defaultLabel: 'Indirect Plus',     desc: 'Submit specialty indirect hours (Other Rate 1).' },
+};
+
+const extraTimeCategories = computed(() => {
+  const cats = flags.value.userTimeCategories;
+  if (!Array.isArray(cats) || !cats.length) return [];
+  return cats
+    .map((c) => {
+      const meta = CATEGORY_TYPE_META[c.category_type];
+      if (!meta) return null;
+      return {
+        id: `cat_${c.id || c.category_type}`,
+        categoryType: c.category_type,
+        label: c.label || meta.defaultLabel,
+        desc:  meta.desc,
+        event: meta.event,
+        icon:  c.category_type,
+        payload: { label: c.label || meta.defaultLabel },
+      };
+    })
+    .filter(Boolean);
+});
 
 const actionIcon = (name) => ACTION_ICONS[name] || ACTION_ICONS.clipboard;
 
@@ -245,7 +295,7 @@ const actionDescription = (action) => {
   return action.description;
 };
 
-const onAction = (event) => {
+const onAction = (event, payload) => {
   if (event === 'open-time') {
     emit('update:view', 'time');
     return;
@@ -254,7 +304,7 @@ const onAction = (event) => {
     emit('update:view', 'in_school');
     return;
   }
-  emit('action', event);
+  emit('action', event, payload);
 };
 
 defineExpose({ refreshHistory });
@@ -467,4 +517,44 @@ defineExpose({ refreshHistory });
   border-radius: 10px;
   padding: 16px 18px;
 }
+
+/* Per-user additional time category cards */
+.submit-hub__action--cat {
+  border-color: var(--cat-accent, #7c3aed);
+  background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+}
+.submit-hub__action--cat:hover {
+  background: linear-gradient(135deg, #f3e8ff 0%, #ede9fe 100%);
+  border-color: var(--cat-accent, #7c3aed);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.15);
+}
+.submit-hub__action-icon--cat {
+  background: var(--cat-accent, #7c3aed);
+  color: #fff;
+}
+/* Individual color overrides by category type */
+.submit-hub__action--cat[data-cat="indirect"] {
+  background: linear-gradient(135deg, #faf5ff 0%, #ede9fe 100%);
+  border-color: #7c3aed;
+}
+.submit-hub__action-icon--cat[data-cat="indirect"],
+.submit-hub__action--cat[data-cat="indirect"] .submit-hub__action-icon--cat { background: #7c3aed; }
+
+.submit-hub__action--cat[data-cat="support_activity"] {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border-color: #0284c7;
+}
+.submit-hub__action--cat[data-cat="support_activity"] .submit-hub__action-icon--cat { background: #0284c7; }
+
+.submit-hub__action--cat[data-cat="supervisor"] {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  border-color: #b45309;
+}
+.submit-hub__action--cat[data-cat="supervisor"] .submit-hub__action-icon--cat { background: #b45309; }
+
+.submit-hub__action--cat[data-cat="indirect_plus"] {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border-color: #059669;
+}
+.submit-hub__action--cat[data-cat="indirect_plus"] .submit-hub__action-icon--cat { background: #059669; }
 </style>

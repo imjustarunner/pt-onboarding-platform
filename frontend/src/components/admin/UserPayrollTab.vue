@@ -515,6 +515,15 @@
           </div>
         </div>
 
+        <!-- Time Submission Categories -->
+        <div class="settings-card" style="padding: 0; border: none; background: transparent;">
+          <UserTimeCategoriesPanel
+            v-if="selectedAgencyId && userId"
+            :agency-id="selectedAgencyId"
+            :user-id="userId"
+          />
+        </div>
+
         <!-- PTO -->
         <div class="settings-card">
           <div class="settings-head">
@@ -720,6 +729,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import UserLogTimeDutiesPanel from './UserLogTimeDutiesPanel.vue';
+import UserTimeCategoriesPanel from './UserTimeCategoriesPanel.vue';
 import {
   isDualRateContractPilotUser,
   isHourlyDualRateEnabled

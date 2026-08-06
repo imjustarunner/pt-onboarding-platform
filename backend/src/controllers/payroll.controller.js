@@ -21771,3 +21771,116 @@ export const listMyEventTime = async (req, res, next) => {
     next(e);
   }
 };
+
+// ─── Per-user time submission categories ─────────────────────────────────────
+
+const VALID_CATEGORY_TYPES = new Set(['indirect', 'support_activity', 'supervisor', 'indirect_plus']);
+
+/**
+ * GET /payroll/user-time-categories?agencyId=&userId=
+ * Admin/payroll: list configured time-submission categories for a specific user.
+ */
+export const getUserTimeCategories = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.query.agencyId, 10);
+    const userId   = parseInt(req.query.userId,   10);
+    if (!agencyId || !userId) return res.status(400).json({ error: { message: 'agencyId and userId are required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const [rows] = await pool.execute(
+      `SELECT id, agency_id, user_id, category_type, label, enabled, sort_order,
+              created_by_user_id, created_at, updated_at
+       FROM payroll_user_time_categories
+       WHERE agency_id = ? AND user_id = ?
+       ORDER BY sort_order ASC, created_at ASC`,
+      [agencyId, userId]
+    );
+    res.json(rows || []);
+  } catch (e) { next(e); }
+};
+
+/**
+ * POST /payroll/user-time-categories
+ * Admin/payroll: add or update a category for a user.
+ * Body: { agencyId, userId, categoryType, label?, enabled?, sortOrder? }
+ */
+export const upsertUserTimeCategory = async (req, res, next) => {
+  try {
+    const agencyId     = parseInt(req.body.agencyId, 10);
+    const userId       = parseInt(req.body.userId,   10);
+    const categoryType = String(req.body.categoryType || '').trim().toLowerCase();
+    const label        = req.body.label != null ? String(req.body.label).trim().slice(0, 100) || null : null;
+    const enabled      = req.body.enabled !== false ? 1 : 0;
+    const sortOrder    = parseInt(req.body.sortOrder || 0, 10);
+
+    if (!agencyId || !userId) return res.status(400).json({ error: { message: 'agencyId and userId are required' } });
+    if (!VALID_CATEGORY_TYPES.has(categoryType)) {
+      return res.status(400).json({ error: { message: 'Invalid categoryType. Must be one of: ' + [...VALID_CATEGORY_TYPES].join(', ') } });
+    }
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const createdBy = req.user?.id || null;
+
+    await pool.execute(
+      `INSERT INTO payroll_user_time_categories
+         (agency_id, user_id, category_type, label, enabled, sort_order, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         label      = VALUES(label),
+         enabled    = VALUES(enabled),
+         sort_order = VALUES(sort_order),
+         updated_at = CURRENT_TIMESTAMP`,
+      [agencyId, userId, categoryType, label, enabled, sortOrder, createdBy]
+    );
+
+    const [rows] = await pool.execute(
+      `SELECT id, agency_id, user_id, category_type, label, enabled, sort_order, created_at, updated_at
+       FROM payroll_user_time_categories
+       WHERE agency_id = ? AND user_id = ? AND category_type = ? LIMIT 1`,
+      [agencyId, userId, categoryType]
+    );
+    res.json(rows?.[0] || {});
+  } catch (e) { next(e); }
+};
+
+/**
+ * DELETE /payroll/user-time-categories/:id
+ * Admin/payroll: remove a category entry.
+ */
+export const deleteUserTimeCategory = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'id is required' } });
+
+    const [existing] = await pool.execute(
+      'SELECT agency_id FROM payroll_user_time_categories WHERE id = ? LIMIT 1', [id]
+    );
+    if (!existing?.length) return res.status(404).json({ error: { message: 'Category not found' } });
+
+    if (!(await requirePayrollAccess(req, res, existing[0].agency_id))) return;
+
+    await pool.execute('DELETE FROM payroll_user_time_categories WHERE id = ? LIMIT 1', [id]);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+};
+
+/**
+ * GET /payroll/my-time-categories?agencyId=
+ * Provider: return own enabled time-submission categories.
+ */
+export const getMyTimeCategories = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.query.agencyId, 10);
+    const userId   = req.user?.id;
+    if (!agencyId || !userId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    const [rows] = await pool.execute(
+      `SELECT id, category_type, label, sort_order
+       FROM payroll_user_time_categories
+       WHERE agency_id = ? AND user_id = ? AND enabled = 1
+       ORDER BY sort_order ASC, created_at ASC`,
+      [agencyId, userId]
+    );
+    res.json(rows || []);
+  } catch (e) { next(e); }
+};

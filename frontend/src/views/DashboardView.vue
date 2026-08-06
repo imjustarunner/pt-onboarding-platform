@@ -425,6 +425,8 @@
               v-if="currentAgencyId"
               :agency-id="currentAgencyId"
               :enabled="activeTab === 'log_time'"
+              :force-bucket="logTimeForceBucket"
+              :category-label="logTimeCategoryLabel"
             />
             <div v-else class="hint" style="padding: 16px;">Select an organization to log indirect time.</div>
           </div>
@@ -2142,6 +2144,7 @@ const cardIconOrgOverride = computed(() => {
 
 watch(currentAgencyId, () => {
   failedRailIconIds.value = new Set();
+  fetchUserTimeCategories();
 });
 
 const canPickEmployeeSchedule = computed(() => {
@@ -4398,6 +4401,24 @@ const syncFromQuery = () => {
 const submitPanelView = ref('root'); // 'root' | 'in_school' | 'time' | 'availability' | 'virtual_hours' | 'company_car'
 const submitPanelRef = ref(null);
 
+// Per-user time submission categories (fetched per agency)
+const userTimeCategories = ref([]);
+const fetchUserTimeCategories = async () => {
+  const agencyId = currentAgencyId.value;
+  const userId   = authStore.user?.id;
+  if (!agencyId || !userId) { userTimeCategories.value = []; return; }
+  try {
+    const { data } = await api.get('/payroll/my-time-categories', { params: { agencyId }, skipGlobalLoading: true });
+    userTimeCategories.value = Array.isArray(data) ? data : [];
+  } catch {
+    userTimeCategories.value = [];
+  }
+};
+
+// Log-time category for routed action (used by HourlyIndirectTimeLog)
+const logTimeForceBucket  = ref(null);   // null | 'other_1'
+const logTimeCategoryLabel = ref(null);  // null | string
+
 const refreshSubmitHistory = () => {
   submitPanelRef.value?.refreshHistory?.();
 };
@@ -4422,6 +4443,7 @@ const submitPanelFlags = computed(() => ({
   overtimeDesc: isOfficeStaff.value
     ? 'Submit overtime evaluation details. Request holiday pay for working on approved holidays.'
     : 'Submit overtime evaluation details.',
+  userTimeCategories: userTimeCategories.value,
 }));
 
 const openLogTimeTab = () => {
@@ -4432,9 +4454,35 @@ const openLogTimeTab = () => {
   router.replace({ query: { ...route.query, tab: 'log_time' } }).catch(() => {});
 };
 
-const onSubmitPanelAction = (event) => {
+const openLogTimeTabWithCategory = (forceBucket, categoryLabel) => {
+  logTimeForceBucket.value  = forceBucket  || null;
+  logTimeCategoryLabel.value = categoryLabel || null;
+  openLogTimeTab();
+};
+
+const onSubmitPanelAction = (event, payload) => {
+  // Category-specific log-time events emitted from extra category cards
+  if (event === 'log-time-indirect') {
+    openLogTimeTabWithCategory(null, payload?.label || 'Indirect Service');
+    return;
+  }
+  if (event === 'log-time-support') {
+    openLogTimeTabWithCategory(null, payload?.label || 'Support Activity');
+    return;
+  }
+  if (event === 'log-time-supervisor') {
+    openLogTimeTabWithCategory(null, payload?.label || 'Supervisor Notes');
+    return;
+  }
+  if (event === 'log-time-indirect-plus') {
+    openLogTimeTabWithCategory('other_1', payload?.label || 'Indirect Plus');
+    return;
+  }
+
   switch (event) {
     case 'log-time':
+      logTimeForceBucket.value   = null;
+      logTimeCategoryLabel.value = null;
       openLogTimeTab();
       break;
     case 'mileage':
@@ -5054,6 +5102,7 @@ onMounted(async () => {
 
   if (!props.previewMode && authStore.isAuthenticated) {
     api.post('/auth/activity-log', { actionType: 'dashboard_view' }, { skipGlobalLoading: true }).catch(() => {});
+    fetchUserTimeCategories();
   }
   // Remember Google quick-login only after a successful OAuth callback hit dashboard.
   if (String(route.query?.sso || '') === '1') {

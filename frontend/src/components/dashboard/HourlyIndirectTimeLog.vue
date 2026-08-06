@@ -5,7 +5,7 @@
         <span class="itl-top-icon" aria-hidden="true">
           <IndirectTimeIcon name="clock" :size="22" />
         </span>
-        <h2 class="itl-title">Time Submission</h2>
+        <h2 class="itl-title">{{ categoryLabel || 'Time Submission' }}</h2>
       </div>
       <div class="itl-top-right">
         <div class="itl-user" v-if="displayName">
@@ -574,8 +574,12 @@ import {
 } from '../../utils/logTimeActivityCodes';
 
 const props = defineProps({
-  agencyId: { type: [Number, String], required: true },
-  enabled: { type: Boolean, default: true }
+  agencyId:      { type: [Number, String], required: true },
+  enabled:       { type: Boolean, default: true },
+  /** When set (e.g. 'other_1'), time claims are submitted with this pay bucket override. */
+  forceBucket:   { type: String, default: null },
+  /** Display label shown in the header when opened from a specific category card. */
+  categoryLabel: { type: String, default: null },
 });
 
 const emit = defineEmits(['submitted']);
@@ -1591,7 +1595,7 @@ async function postIndirectTimeClaim({
       categoryGroup: group,
       categoryLabel: displayLabel,
       activityCode: resolvedCode,
-      bucket: 'indirect',
+      bucket: props.forceBucket || 'indirect',
       ...(serviceCode ? { serviceCode } : {}),
       sessionId: session.value?.id || null,
       noteAidUsedDuringSession: usedNoteAid,
