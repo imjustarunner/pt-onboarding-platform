@@ -158,7 +158,7 @@
           </div>
           <div class="cua__user-block">
             <button type="button" class="cua__copy-token" @click="copyShareToken">
-              {{ copyFlash ? 'Copied!' : 'Copy Token' }}
+              {{ copyFlash ? 'Copied!' : 'Copy Link' }}
             </button>
             <a v-if="embedded || mode === 'staff'" class="cua__help" href="#" @click.prevent="$emit('dismiss-request')">Need help?</a>
             <div class="cua__user-chip">
