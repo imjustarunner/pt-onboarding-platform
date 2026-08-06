@@ -178,9 +178,9 @@ const props = defineProps({
 });
 
 const CATEGORIES = [
-  { id: 1, label: 'Category 1', description: 'Bachelors, Interns, QBHA & Peer Professionals' },
-  { id: 2, label: 'Category 2', description: 'Pre-licensed & Unlicensed Masters Level' },
-  { id: 3, label: 'Category 3', description: 'Licensed Professionals' }
+  { id: 1, label: 'Unlicensed', description: 'Unlicensed — Bachelors, Interns, QBHA, Peer & Unlicensed Masters' },
+  { id: 2, label: 'Pre-licensed', description: 'Pre-licensed Masters Level' },
+  { id: 3, label: 'Licensed', description: 'Licensed Professionals' }
 ];
 
 const loading = ref(false);

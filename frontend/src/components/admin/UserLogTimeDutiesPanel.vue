@@ -81,6 +81,45 @@
           </span>
         </label>
       </div>
+
+      <!-- Create new activity type inline -->
+      <div class="ltd-new-type">
+        <div v-if="!showNewTypeForm" class="ltd-new-type-trigger">
+          <button type="button" class="btn btn-link" @click="showNewTypeForm = true">
+            + Create a new activity type
+          </button>
+          <span class="muted" style="font-size:12px;">Adds to agency catalog and assigns to this person</span>
+        </div>
+        <div v-else class="ltd-new-type-form">
+          <div class="ltd-new-type-title">New activity type</div>
+          <div class="ltd-new-type-fields">
+            <div class="ltd-new-type-field">
+              <label>Label <span class="required">*</span></label>
+              <input v-model="newTypeLabel" type="text" class="ltd-new-type-input" placeholder="e.g., Crisis documentation" :disabled="newTypeSaving" maxlength="120" />
+            </div>
+            <div class="ltd-new-type-field">
+              <label>Description</label>
+              <input v-model="newTypeDescription" type="text" class="ltd-new-type-input" placeholder="Short help text" :disabled="newTypeSaving" maxlength="255" />
+            </div>
+            <div class="ltd-new-type-field">
+              <label>Pay bucket</label>
+              <select v-model="newTypePayBucket" class="ltd-new-type-input" :disabled="newTypeSaving">
+                <option value="indirect">Indirect Service (hourly rate)</option>
+                <option value="support">Support Activity (MEETING rate)</option>
+                <option value="supervision_note">Supervision Note (Admin Time)</option>
+              </select>
+            </div>
+          </div>
+          <div v-if="newTypeError" class="error-box" style="margin-top:8px;">{{ newTypeError }}</div>
+          <div class="ltd-new-type-actions">
+            <button type="button" class="btn btn-primary btn-sm" :disabled="newTypeSaving || !newTypeLabel.trim()" @click="createAndAssignType">
+              {{ newTypeSaving ? 'Creating…' : 'Create & assign to this person' }}
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="newTypeSaving" @click="showNewTypeForm = false">Cancel</button>
+          </div>
+        </div>
+      </div>
+
       <div class="ltd-modal-foot">
         <button type="button" class="btn btn-secondary" @click="showCatalog = false">Cancel</button>
         <button type="button" class="btn btn-primary" @click="applyCatalog">Apply selection</button>
@@ -108,6 +147,13 @@ const rows = ref([]);
 const showCatalog = ref(false);
 const catalogSelected = ref(new Set());
 const usingCustomList = ref(false);
+
+const showNewTypeForm = ref(false);
+const newTypeLabel = ref('');
+const newTypeDescription = ref('');
+const newTypePayBucket = ref('indirect');
+const newTypeSaving = ref(false);
+const newTypeError = ref('');
 
 const bucketLabel = (b) => {
   const v = String(b || '').toLowerCase();
@@ -164,7 +210,41 @@ const openCatalog = () => {
     agencyTypes.value.filter((t) => t.isActive).forEach((t) => selected.add(Number(t.id)));
   }
   catalogSelected.value = selected;
+  showNewTypeForm.value = false;
+  newTypeLabel.value = '';
+  newTypeDescription.value = '';
+  newTypePayBucket.value = 'indirect';
+  newTypeError.value = '';
   showCatalog.value = true;
+};
+
+const createAndAssignType = async () => {
+  const label = newTypeLabel.value.trim();
+  if (!label || !props.agencyId) return;
+  newTypeSaving.value = true;
+  newTypeError.value = '';
+  try {
+    const resp = await api.post('/payroll/indirect-service-types', {
+      agencyId: Number(props.agencyId),
+      label,
+      description: newTypeDescription.value.trim() || '',
+      payBucket: newTypePayBucket.value,
+      sortOrder: 200
+    });
+    const created = resp.data;
+    if (created?.id) {
+      agencyTypes.value = [...agencyTypes.value, created];
+      catalogSelected.value = new Set([...catalogSelected.value, Number(created.id)]);
+    }
+    showNewTypeForm.value = false;
+    newTypeLabel.value = '';
+    newTypeDescription.value = '';
+    newTypePayBucket.value = 'indirect';
+  } catch (e) {
+    newTypeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to create type';
+  } finally {
+    newTypeSaving.value = false;
+  }
 };
 
 const toggleCatalog = (id, on) => {
@@ -262,4 +342,31 @@ onMounted(load);
 .ltd-badge { font-size: 11px; background: #fef3c7; color: #92400e; padding: 1px 6px; border-radius: 4px; margin-left: 6px; }
 .ltd-modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .btn-link { background: none; border: none; color: var(--primary, #15803d); cursor: pointer; text-decoration: underline; padding: 0; }
+.ltd-new-type {
+  border-top: 1px dashed #e2e8f0;
+  margin-top: 8px;
+  padding-top: 10px;
+}
+.ltd-new-type-trigger { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ltd-new-type-form {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.ltd-new-type-title { font-weight: 700; font-size: 13px; margin-bottom: 10px; color: #0f172a; }
+.ltd-new-type-fields { display: flex; flex-direction: column; gap: 8px; }
+.ltd-new-type-field { display: flex; flex-direction: column; gap: 3px; }
+.ltd-new-type-field label { font-size: 12px; font-weight: 600; color: #374151; }
+.ltd-new-type-input {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: #fff;
+  color: #111827;
+}
+.ltd-new-type-input:focus { outline: 2px solid #15803d; outline-offset: 1px; }
+.ltd-new-type-actions { display: flex; gap: 8px; margin-top: 10px; }
+.required { color: #dc2626; }
 </style>

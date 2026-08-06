@@ -66,6 +66,8 @@
 
     <slot name="filters" />
 
+    <slot name="after-filters" />
+
     <div v-if="!loading && actionItems.length" class="pay-hub__action-required">
       <div class="pay-hub__action-required-head">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">

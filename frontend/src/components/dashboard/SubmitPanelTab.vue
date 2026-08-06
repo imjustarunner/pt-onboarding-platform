@@ -6,6 +6,8 @@
   >
     <!-- Root: categorized submit actions -->
     <div v-if="view === 'root'" class="submit-hub__root">
+      <PayCalculatorCard :agency-id="agencyId" :start-expanded="false" />
+
       <button
         v-if="featuredLogTime"
         type="button"
@@ -168,6 +170,7 @@ import SubmitSubmissionHistoryColumn from './SubmitSubmissionHistoryColumn.vue';
 import AdditionalAvailabilitySubmit from '../AdditionalAvailabilitySubmit.vue';
 import VirtualWorkingHoursEditor from '../availability/VirtualWorkingHoursEditor.vue';
 import CompanyCarTripsView from '../companyCar/CompanyCarTripsView.vue';
+import PayCalculatorCard from './PayCalculatorCard.vue';
 import { useSubmitSubmissionHistory } from '../../composables/useSubmitSubmissionHistory';
 import {
   SUBMIT_ROOT_GROUPS,

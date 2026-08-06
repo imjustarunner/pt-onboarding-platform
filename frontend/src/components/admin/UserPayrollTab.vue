@@ -231,6 +231,50 @@
           <div v-else-if="!currentCompLevel" class="muted" style="font-size: 13px;">
             Assign a category and level in the Account tab first.
           </div>
+
+          <!-- New pay system flags -->
+          <div v-if="currentCompLevel" class="pay-sys-flags">
+            <div class="pay-sys-flags-title">New Pay System</div>
+            <div class="pay-sys-flags-grid">
+              <label class="pay-sys-flag">
+                <input type="checkbox" v-model="paySysFlags.paySystemEnabled" :disabled="paySysFlagsSaving" />
+                Enrolled in new pay system
+              </label>
+              <label class="pay-sys-flag">
+                <input type="checkbox" v-model="paySysFlags.waiveProbation" :disabled="paySysFlagsSaving" />
+                Waive 90-day probation
+              </label>
+              <label class="pay-sys-flag">
+                <input type="checkbox" v-model="paySysFlags.waiveMinimumWorkload" :disabled="paySysFlagsSaving" />
+                Waive minimum workload rate
+              </label>
+              <label class="pay-sys-flag">
+                <input type="checkbox" v-model="paySysFlags.spanishBonusEligible" :disabled="paySysFlagsSaving" />
+                Spanish bonus eligible
+              </label>
+              <label class="pay-sys-flag">
+                <input type="checkbox" v-model="paySysFlags.locationBonusEligible" :disabled="paySysFlagsSaving" />
+                Location bonus eligible
+                <span class="pay-sys-flag-hint">(e.g. Denver office)</span>
+              </label>
+              <label class="pay-sys-flag pay-sys-flag--date">
+                <span>Probation start override</span>
+                <input type="date" v-model="paySysFlags.probationStartOverride" :disabled="paySysFlagsSaving" />
+              </label>
+            </div>
+            <div class="pay-sys-flags-actions">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="paySysFlagsSaving"
+                @click="savePaySysFlags"
+              >
+                {{ paySysFlagsSaving ? 'Saving…' : 'Save pay-system flags' }}
+              </button>
+              <span v-if="paySysFlagsSuccess" class="save-success" style="margin:0;">Saved.</span>
+              <span v-if="paySysFlagsError" class="error-box" style="margin:0;">{{ paySysFlagsError }}</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -964,9 +1008,9 @@ const visibilityByCode = computed(() => {
 
 // ── Compensation Level ──────────────────────────────────────────────────────
 const COMP_CATEGORIES = {
-  1: { label: 'Category 1', description: 'Bachelors, Interns, QBHA & Peer Professionals' },
-  2: { label: 'Category 2', description: 'Pre-licensed & Unlicensed Masters Level' },
-  3: { label: 'Category 3', description: 'Licensed Professionals' }
+  1: { label: 'Unlicensed', description: 'Unlicensed — Bachelors, Interns, QBHA, Peer & Unlicensed Masters' },
+  2: { label: 'Pre-licensed', description: 'Pre-licensed Masters Level' },
+  3: { label: 'Licensed', description: 'Licensed Professionals' }
 };
 
 const compLevelLoading = ref(false);
@@ -983,6 +1027,31 @@ const previewCompLevel = computed(() => {
   return allCompLevels.value.find((r) => r.category === category && r.level === level) || null;
 });
 
+const paySysFlags = ref({
+  paySystemEnabled: false,
+  waiveProbation: false,
+  waiveMinimumWorkload: false,
+  spanishBonusEligible: false,
+  locationBonusEligible: false,
+  probationStartOverride: ''
+});
+const paySysFlagsSaving = ref(false);
+const paySysFlagsError = ref('');
+const paySysFlagsSuccess = ref(false);
+
+const syncPaySysFlagsFromAssignment = (assignment) => {
+  paySysFlags.value = {
+    paySystemEnabled: !!Number(assignment?.pay_system_enabled || 0),
+    waiveProbation: !!Number(assignment?.waive_probation || 0),
+    waiveMinimumWorkload: !!Number(assignment?.waive_minimum_workload || 0),
+    spanishBonusEligible: !!Number(assignment?.spanish_bonus_eligible || 0),
+    locationBonusEligible: !!Number(assignment?.location_bonus_eligible || 0),
+    probationStartOverride: assignment?.probation_start_override
+      ? String(assignment.probation_start_override).slice(0, 10)
+      : ''
+  };
+};
+
 const fetchCompLevel = async () => {
   if (!selectedAgencyId.value || !props.userId) return;
   compLevelLoading.value = true;
@@ -994,10 +1063,37 @@ const fetchCompLevel = async () => {
     ]);
     currentCompLevel.value = assignRes.data?.assignment || null;
     allCompLevels.value = defsRes.data?.levels || [];
+    syncPaySysFlagsFromAssignment(currentCompLevel.value);
   } catch (e) {
     compLevelError.value = e.response?.data?.error?.message || 'Failed to load compensation level';
   } finally {
     compLevelLoading.value = false;
+  }
+};
+
+const savePaySysFlags = async () => {
+  if (!selectedAgencyId.value || !props.userId) return;
+  paySysFlagsSaving.value = true;
+  paySysFlagsError.value = '';
+  paySysFlagsSuccess.value = false;
+  try {
+    const res = await api.patch(`/payroll/users/${props.userId}/pay-system-flags`, {
+      agencyId: selectedAgencyId.value,
+      paySystemEnabled: !!paySysFlags.value.paySystemEnabled,
+      waiveProbation: !!paySysFlags.value.waiveProbation,
+      waiveMinimumWorkload: !!paySysFlags.value.waiveMinimumWorkload,
+      spanishBonusEligible: !!paySysFlags.value.spanishBonusEligible,
+      locationBonusEligible: !!paySysFlags.value.locationBonusEligible,
+      probationStartOverride: paySysFlags.value.probationStartOverride || null
+    });
+    currentCompLevel.value = res.data?.assignment || currentCompLevel.value;
+    syncPaySysFlagsFromAssignment(currentCompLevel.value);
+    paySysFlagsSuccess.value = true;
+    setTimeout(() => { paySysFlagsSuccess.value = false; }, 3000);
+  } catch (e) {
+    paySysFlagsError.value = e.response?.data?.error?.message || 'Failed to save pay-system flags';
+  } finally {
+    paySysFlagsSaving.value = false;
   }
 };
 
@@ -2280,6 +2376,56 @@ input {
   border-radius: 8px;
   padding: 10px 14px;
   margin-bottom: 12px;
+}
+.pay-sys-flags {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid #dbeafe;
+  background: #f8fbff;
+  border-radius: 8px;
+}
+.pay-sys-flags-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e3a5f;
+  margin-bottom: 8px;
+}
+.pay-sys-flags-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin-bottom: 10px;
+}
+.pay-sys-flag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #374151;
+  cursor: pointer;
+}
+.pay-sys-flag--date {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.pay-sys-flag-hint {
+  font-size: 11px;
+  color: #9ca3af;
+  font-weight: 400;
+  margin-left: 2px;
+}
+.pay-sys-flag--date input[type="date"] {
+  padding: 4px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.pay-sys-flags-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 .comp-level-name {
   color: #6b7280;

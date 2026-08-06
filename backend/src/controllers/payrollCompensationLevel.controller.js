@@ -101,7 +101,8 @@ export const getUserCompensationLevel = async (req, res, next) => {
 
 /**
  * POST /payroll/users/:userId/compensation-level
- * body: { agencyId, category, level, applyRates? }
+ * body: { agencyId, category, level, applyRates?, paySystemEnabled?, waiveProbation?,
+ *         waiveMinimumWorkload?, probationStartOverride?, spanishBonusEligible? }
  * When applyRates=true, copies direct/indirect rates from the level definition to the user's rate card.
  */
 export const assignUserCompensationLevel = async (req, res, next) => {
@@ -117,7 +118,26 @@ export const assignUserCompensationLevel = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!CATEGORY_IDS.includes(category)) return res.status(400).json({ error: { message: 'Invalid category (must be 1-3)' } });
 
-    await PayrollCompensationLevel.assignToUser(agencyId, userId, category, level, req.user?.id, bypass);
+    const body = req.body || {};
+    const payFlags = {
+      paySystemEnabled: body.paySystemEnabled,
+      waiveProbation: body.waiveProbation,
+      waiveMinimumWorkload: body.waiveMinimumWorkload,
+      probationStartOverride: body.probationStartOverride,
+      spanishBonusEligible: body.spanishBonusEligible
+    };
+    const hasPayFlags = Object.values(payFlags).some((v) => v !== undefined);
+
+    await PayrollCompensationLevel.assignToUser(
+      agencyId, userId, category, level, req.user?.id, bypass,
+      hasPayFlags ? {
+        paySystemEnabled: !!payFlags.paySystemEnabled,
+        waiveProbation: !!payFlags.waiveProbation,
+        waiveMinimumWorkload: !!payFlags.waiveMinimumWorkload,
+        probationStartOverride: payFlags.probationStartOverride || null,
+        spanishBonusEligible: !!payFlags.spanishBonusEligible
+      } : {}
+    );
 
     if (applyRates && level) {
       const [def, codeRates] = await Promise.all([

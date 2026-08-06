@@ -8,6 +8,15 @@ import {
   removeUserCompensationLevel
 } from '../controllers/payrollCompensationLevel.controller.js';
 import {
+  listPaySystemRates,
+  savePaySystemRates,
+  transitionToPaySystem,
+  getPaySystemStatus,
+  updateUserPaySystemFlags,
+  getMyPaySystemRates,
+  estimatePaySystem
+} from '../controllers/payrollPaySystem.controller.js';
+import {
   createPayrollPeriod,
   listPayrollPeriods,
   getUnpaidDraftsReport,
@@ -216,6 +225,7 @@ import {
   deleteIndirectServiceType,
   getUserLogTimeDuties,
   putUserLogTimeDuties,
+  getUsersAssignedToType,
   getMyIndirectTimeSession,
   clockInIndirectTime,
   breakIndirectTime,
@@ -326,6 +336,7 @@ router.get('/me/time-claims', listMyTimeClaims);
 // Hourly indirect time log (service types + clock session)
 router.get('/me/indirect-service-types', listMyIndirectServiceTypes);
 router.get('/indirect-service-types', listIndirectServiceTypes);
+router.get('/indirect-service-types/assigned-users', getUsersAssignedToType);
 router.post('/indirect-service-types', createIndirectServiceType);
 router.patch('/indirect-service-types/:id', updateIndirectServiceType);
 router.delete('/indirect-service-types/:id', deleteIndirectServiceType);
@@ -445,6 +456,15 @@ router.put('/compensation-levels', saveCompensationLevels);
 router.get('/users/:userId/compensation-level', getUserCompensationLevel);
 router.post('/users/:userId/compensation-level', assignUserCompensationLevel);
 router.delete('/users/:userId/compensation-level', removeUserCompensationLevel);
+
+// New pay system (category/level rates, transition, calculator)
+router.get('/pay-system/status', getPaySystemStatus);
+router.get('/pay-system/rates', listPaySystemRates);
+router.put('/pay-system/rates', savePaySystemRates);
+router.post('/pay-system/transition', transitionToPaySystem);
+router.get('/pay-system/my-rates', getMyPaySystemRates);
+router.post('/pay-system/estimate', estimatePaySystem);
+router.patch('/users/:userId/pay-system-flags', updateUserPaySystemFlags);
 
 // User payroll history
 router.get('/users/:userId/periods', listUserPayroll);

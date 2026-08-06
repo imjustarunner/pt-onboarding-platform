@@ -18,36 +18,10 @@
     <div v-if="!agencyId" class="empty">Select an agency first.</div>
 
     <div v-else>
-      <div class="tabs" style="margin-bottom: 12px;">
-        <button type="button" class="tab" :class="{ active: payrollTab === 'schedule' }" @click="payrollTab = 'schedule'">
-          Schedule
-        </button>
-        <button type="button" class="tab" :class="{ active: payrollTab === 'excess' }" @click="payrollTab = 'excess'; loadExcessRules()">
-          Excess Time Rules
-        </button>
-        <button type="button" class="tab" :class="{ active: payrollTab === 'time_claims' }" @click="payrollTab = 'time_claims'; loadTimeClaimSettings()">
-          Time claims
-        </button>
-        <button type="button" class="tab" :class="{ active: payrollTab === 'indirect_types' }" @click="payrollTab = 'indirect_types'; loadIndirectTypes()">
-          Indirect types
-        </button>
-        <button type="button" class="tab" :class="{ active: payrollTab === 'percent_pay' }" @click="payrollTab = 'percent_pay'; loadPercentPay()">
-          Percent-of-charge pay
-        </button>
-        <button type="button" class="tab" :class="{ active: payrollTab === 'med_cancel' }" @click="payrollTab = 'med_cancel'; loadMedcancel()">
-          Med Cancel
-        </button>
-        <button type="button" class="tab" :class="{ active: payrollTab === 'mileage' }" @click="payrollTab = 'mileage'; loadMileage()">
-          Mileage Rates
-        </button>
-        <button type="button" class="tab" :class="{ active: payrollTab === 'pto' }" @click="payrollTab = 'pto'; loadPto()">
-          PTO Policy
-        </button>
-        <button type="button" class="tab" :class="{ active: payrollTab === 'supervision' }" @click="payrollTab = 'supervision'; loadSupervision()">
-          Supervision
-        </button>
-        <button type="button" class="tab" :class="{ active: payrollTab === 'holidays' }" @click="payrollTab = 'holidays'; loadHolidays()">
-          Holidays
+      <div class="tabs" style="margin-bottom: 12px; flex-wrap: wrap;">
+        <!-- Pay rates -->
+        <button type="button" class="tab" :class="{ active: payrollTab === 'pay_system' }" @click="payrollTab = 'pay_system'">
+          Pay System Rates
         </button>
         <button type="button" class="tab" :class="{ active: payrollTab === 'service_codes' }" @click="payrollTab = 'service_codes'; loadServiceCodes()">
           Service Codes
@@ -55,8 +29,41 @@
         <button type="button" class="tab" :class="{ active: payrollTab === 'rate_titles' }" @click="payrollTab = 'rate_titles'; loadRateTitles()">
           Rate Titles
         </button>
-        <button type="button" class="tab" :class="{ active: payrollTab === 'comp_levels' }" @click="payrollTab = 'comp_levels'">
-          Compensation Levels
+        <button type="button" class="tab" :class="{ active: payrollTab === 'percent_pay' }" @click="payrollTab = 'percent_pay'; loadPercentPay()">
+          % of Charge
+        </button>
+        <!-- Schedule / time -->
+        <button type="button" class="tab" :class="{ active: payrollTab === 'schedule' }" @click="payrollTab = 'schedule'">
+          Schedule
+        </button>
+        <button type="button" class="tab" :class="{ active: payrollTab === 'indirect_types' }" @click="payrollTab = 'indirect_types'; loadIndirectTypes()">
+          Indirect Types
+        </button>
+        <button type="button" class="tab" :class="{ active: payrollTab === 'time_claims' }" @click="payrollTab = 'time_claims'; loadTimeClaimSettings()">
+          Time Claims
+        </button>
+        <button type="button" class="tab" :class="{ active: payrollTab === 'excess' }" @click="payrollTab = 'excess'; loadExcessRules()">
+          Excess Time
+        </button>
+        <button type="button" class="tab" :class="{ active: payrollTab === 'supervision' }" @click="payrollTab = 'supervision'; loadSupervision()">
+          Supervision
+        </button>
+        <!-- Benefits / leave -->
+        <button type="button" class="tab" :class="{ active: payrollTab === 'pto' }" @click="payrollTab = 'pto'; loadPto()">
+          PTO Policy
+        </button>
+        <button type="button" class="tab" :class="{ active: payrollTab === 'holidays' }" @click="payrollTab = 'holidays'; loadHolidays()">
+          Holidays
+        </button>
+        <button type="button" class="tab" :class="{ active: payrollTab === 'mileage' }" @click="payrollTab = 'mileage'; loadMileage()">
+          Mileage
+        </button>
+        <button type="button" class="tab" :class="{ active: payrollTab === 'med_cancel' }" @click="payrollTab = 'med_cancel'; loadMedcancel()">
+          Med Cancel
+        </button>
+        <!-- Legacy -->
+        <button type="button" class="tab tab--legacy" :class="{ active: payrollTab === 'comp_levels' }" @click="payrollTab = 'comp_levels'" title="Legacy rate card system — replaced by Pay System Rates">
+          Rate Cards (legacy)
         </button>
       </div>
 
@@ -273,39 +280,133 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="t in indirectTypes" :key="t.id">
-                <td>
-                  <input v-model="t.label" type="text" style="width:100%; min-width:160px;" :disabled="indirectTypesSaving" @change="saveIndirectType(t)" />
-                  <div class="hint" style="margin-top:4px;">
-                    <input v-model="t.description" type="text" style="width:100%;" placeholder="Description" :disabled="indirectTypesSaving" @change="saveIndirectType(t)" />
-                  </div>
-                </td>
-                <td><code>{{ t.typeKey }}</code></td>
-                <td>
-                  <select v-model="t.payBucket" :disabled="indirectTypesSaving" @change="saveIndirectType(t)">
-                    <option value="indirect">Indirect Service</option>
-                    <option value="support">Support Activity</option>
-                    <option value="supervision_note">Supervision Note</option>
-                    <option value="other_1">Other 1 (legacy)</option>
-                  </select>
-                </td>
-                <td>
-                  <button type="button" class="btn btn-secondary btn-sm" :disabled="indirectTypesSaving" @click="openIconPicker(t.id, t.iconKey)">
-                    <IndirectTimeIcon :icon-key="t.iconKey || 'circle'" :size="18" />
-                  </button>
-                </td>
-                <td>
-                  <input v-model.number="t.sortOrder" type="number" style="width:72px;" :disabled="indirectTypesSaving" @change="saveIndirectType(t)" />
-                </td>
-                <td>
-                  <input type="checkbox" v-model="t.isActive" :disabled="indirectTypesSaving" @change="saveIndirectType(t)" />
-                </td>
-                <td>
-                  <button class="btn btn-danger btn-sm" type="button" @click="deactivateIndirectType(t)" :disabled="indirectTypesSaving || !t.isActive">
-                    Deactivate
-                  </button>
-                </td>
-              </tr>
+              <template v-for="t in indirectTypes" :key="t.id">
+                <tr>
+                  <td>
+                    <input v-model="t.label" type="text" style="width:100%; min-width:160px;" :disabled="indirectTypesSaving" @change="saveIndirectType(t)" />
+                    <div class="hint" style="margin-top:4px;">
+                      <input v-model="t.description" type="text" style="width:100%;" placeholder="Description" :disabled="indirectTypesSaving" @change="saveIndirectType(t)" />
+                    </div>
+                  </td>
+                  <td><code>{{ t.typeKey }}</code></td>
+                  <td>
+                    <select v-model="t.payBucket" :disabled="indirectTypesSaving" @change="saveIndirectType(t)">
+                      <option value="indirect">Indirect Service</option>
+                      <option value="support">Support Activity</option>
+                      <option value="supervision_note">Supervision Note</option>
+                      <option value="other_1">Other 1 (legacy)</option>
+                    </select>
+                  </td>
+                  <td>
+                    <button type="button" class="btn btn-secondary btn-sm" :disabled="indirectTypesSaving" @click="openIconPicker(t.id, t.iconKey)">
+                      <IndirectTimeIcon :icon-key="t.iconKey || 'circle'" :size="18" />
+                    </button>
+                  </td>
+                  <td>
+                    <input v-model.number="t.sortOrder" type="number" style="width:72px;" :disabled="indirectTypesSaving" @change="saveIndirectType(t)" />
+                  </td>
+                  <td>
+                    <input type="checkbox" v-model="t.isActive" :disabled="indirectTypesSaving" @change="saveIndirectType(t)" />
+                  </td>
+                  <td style="white-space:nowrap;">
+                    <button class="btn btn-danger btn-sm" type="button" @click="deactivateIndirectType(t)" :disabled="indirectTypesSaving || !t.isActive">
+                      Deactivate
+                    </button>
+                    <button
+                      class="btn btn-secondary btn-sm"
+                      type="button"
+                      style="margin-left:6px;"
+                      @click="toggleTypeAssignPanel(t.id)"
+                      :title="typeAssignOpen === t.id ? 'Close assignment panel' : 'Assign to specific people'"
+                    >
+                      {{ typeAssignOpen === t.id ? '▲ People' : '▼ People' }}
+                    </button>
+                  </td>
+                </tr>
+                <!-- Per-type people assignment panel -->
+                <tr v-if="typeAssignOpen === t.id">
+                  <td colspan="7" style="padding:0; background:#f8fafc;">
+                    <div class="type-assign-panel">
+                      <div class="type-assign-header">
+                        <strong>Assign "{{ t.label }}" to specific people</strong>
+                        <span class="hint" style="margin-left:8px;">
+                          <template v-if="typeAssignData[t.id]?.isSupervisionBucket">
+                            Supervisors in this agency are listed below. Adding anyone here saves them to a custom list for this type.
+                          </template>
+                          <template v-else>
+                            By default everyone sees all active types. Adding anyone here creates a custom list — only those people will see this type.
+                          </template>
+                        </span>
+                      </div>
+
+                      <div v-if="typeAssignLoading[t.id]" class="muted" style="padding:8px 0;">Loading…</div>
+                      <div v-else-if="typeAssignError[t.id]" class="warn">{{ typeAssignError[t.id] }}</div>
+                      <template v-else>
+                        <!-- Current assignments for this type -->
+                        <div v-if="typeAssignData[t.id]?.assignedUsers?.length" class="type-assign-list">
+                          <div
+                            v-for="u in typeAssignData[t.id].assignedUsers"
+                            :key="u.userId"
+                            class="type-assign-person"
+                            :class="{ 'type-assign-person--suggested': u.isSuggested }"
+                          >
+                            <span class="type-assign-name">{{ u.name }}</span>
+                            <span v-if="u.isSuggested" class="type-assign-badge">supervisor</span>
+                            <button
+                              v-if="!u.isSuggested"
+                              type="button"
+                              class="btn btn-danger btn-sm"
+                              style="padding:2px 8px;"
+                              @click="removeTypeAssignment(t.id, u.userId)"
+                              :disabled="typeAssignSaving[t.id]"
+                            >Remove</button>
+                            <button
+                              v-else
+                              type="button"
+                              class="btn btn-primary btn-sm"
+                              style="padding:2px 8px;"
+                              @click="addTypeAssignment(t.id, typeAssignData[t.id].allUsers.find(a => a.id === u.userId))"
+                              :disabled="typeAssignSaving[t.id]"
+                            >Save</button>
+                          </div>
+                        </div>
+                        <p v-else class="hint" style="margin:8px 0;">
+                          <template v-if="typeAssignData[t.id]?.isSupervisionBucket">
+                            No supervisors found in this agency — search below to assign someone.
+                          </template>
+                          <template v-else>
+                            No specific assignments — everyone sees this type (agency-wide).
+                          </template>
+                        </p>
+
+                        <!-- Add person -->
+                        <div class="type-assign-add">
+                          <input
+                            v-model="typeAssignSearch[t.id]"
+                            type="text"
+                            class="filters-input"
+                            style="min-width:220px;"
+                            placeholder="Search staff by name…"
+                            @input="filterTypeAssignStaff(t.id)"
+                          />
+                          <div v-if="typeAssignFiltered[t.id]?.length" class="type-assign-dropdown">
+                            <button
+                              v-for="s in typeAssignFiltered[t.id]"
+                              :key="s.id"
+                              type="button"
+                              class="type-assign-option"
+                              @click="addTypeAssignment(t.id, s)"
+                            >
+                              {{ s.first_name }} {{ s.last_name }}
+                              <span class="muted" style="font-size:11px; margin-left:6px;">{{ s.email }}</span>
+                            </button>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </td>
+                </tr>
+              </template>
               <tr v-if="!indirectTypes.length">
                 <td colspan="7" class="empty-state-inline">No types yet — defaults will seed on first employee open, or add one above.</td>
               </tr>
@@ -684,9 +785,20 @@
       </template>
     </div>
 
-    <!-- ── Compensation Levels ──────────────────────────────────────────────── -->
+    <!-- ── Compensation Levels (legacy rate cards) ──────────────────────────── -->
     <div v-else-if="payrollTab === 'comp_levels'">
+      <div class="card" style="background:#fefce8; border-color:#fde68a; margin-bottom:12px; padding:12px 16px;">
+        <strong style="color:#92400e;">Legacy rate card system</strong>
+        <span style="color:#78350f; margin-left:8px; font-size:13px;">
+          This is the old per-user rate card (category × level grid). It is being replaced by
+          <button type="button" class="btn btn-link" style="font-size:13px; padding:0;" @click="payrollTab = 'pay_system'">Pay System Rates</button>.
+          Staff enrolled in the new pay system use those rates instead. You can leave this here until everyone is migrated.
+        </span>
+      </div>
       <CompensationLevelsSettings :agency-id="agencyId" />
+    </div>
+    <div v-else-if="payrollTab === 'pay_system'">
+      <PaySystemRatesSettings :agency-id="agencyId" />
     </div>
 
     <div v-else-if="payrollTab === 'percent_pay'" class="card">
@@ -797,6 +909,7 @@ import { computed, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import CompensationLevelsSettings from './CompensationLevelsSettings.vue';
+import PaySystemRatesSettings from './PaySystemRatesSettings.vue';
 import LogTimeIconPickerModal from './LogTimeIconPickerModal.vue';
 import IndirectTimeIcon from '../dashboard/IndirectTimeIcon.vue';
 import { INDIRECT_TIME_ICON_OPTIONS } from '../../utils/indirectTimeIcons';
@@ -1133,6 +1246,160 @@ const deactivateIndirectType = async (t) => {
     indirectTypesError.value = e.response?.data?.error?.message || e.message || 'Failed to deactivate type';
   } finally {
     indirectTypesSaving.value = false;
+  }
+};
+
+// ── Per-type people assignment ─────────────────────────────────────────────
+const typeAssignOpen = ref(null);
+const typeAssignLoading = ref({});
+const typeAssignSaving = ref({});
+const typeAssignError = ref({});
+const typeAssignData = ref({});   // { [typeId]: { assignedUsers: [{userId, name}], allUsers: [...] } }
+const typeAssignSearch = ref({});
+const typeAssignFiltered = ref({});
+
+const toggleTypeAssignPanel = async (typeId) => {
+  if (typeAssignOpen.value === typeId) {
+    typeAssignOpen.value = null;
+    return;
+  }
+  typeAssignOpen.value = typeId;
+  // Always reload — never use stale cache
+  await loadTypeAssignData(typeId);
+};
+
+const loadTypeAssignData = async (typeId) => {
+  if (!agencyId.value) return;
+  typeAssignLoading.value = { ...typeAssignLoading.value, [typeId]: true };
+  typeAssignError.value = { ...typeAssignError.value, [typeId]: '' };
+  try {
+    const [usersResp, assignedResp] = await Promise.all([
+      api.get('/payroll/agency-users', { params: { agencyId: agencyId.value } }),
+      api.get('/payroll/indirect-service-types/assigned-users', {
+        params: { agencyId: agencyId.value, serviceTypeId: typeId }
+      })
+    ]);
+    const allUsers = Array.isArray(usersResp.data) ? usersResp.data : [];
+    const assignedUsers = (Array.isArray(assignedResp.data?.assignments)
+      ? assignedResp.data.assignments
+      : []).map((u) => ({ ...u, isSuggested: false }));
+
+    // Backend returns suggestedSupervisors for supervision_note bucket types
+    const suggestedSupervisors = (Array.isArray(assignedResp.data?.suggestedSupervisors)
+      ? assignedResp.data.suggestedSupervisors
+      : []).map((u) => ({ ...u, isSuggested: true }));
+
+    const isSupervisionBucket = suggestedSupervisors.length > 0 || assignedResp.data?.suggestedSupervisors !== undefined;
+    const combinedAssigned = [...assignedUsers, ...suggestedSupervisors];
+
+    typeAssignData.value = {
+      ...typeAssignData.value,
+      [typeId]: { allUsers, assignedUsers: combinedAssigned, isSupervisionBucket }
+    };
+  } catch (e) {
+    typeAssignError.value = { ...typeAssignError.value, [typeId]: e?.response?.data?.error?.message || e.message || 'Failed to load staff list' };
+  } finally {
+    typeAssignLoading.value = { ...typeAssignLoading.value, [typeId]: false };
+  }
+};
+
+const filterTypeAssignStaff = (typeId) => {
+  const q = String(typeAssignSearch.value[typeId] || '').toLowerCase().trim();
+  if (!q) { typeAssignFiltered.value = { ...typeAssignFiltered.value, [typeId]: [] }; return; }
+  const data = typeAssignData.value[typeId];
+  if (!data) return;
+  const already = new Set((data.assignedUsers || []).map((u) => u.userId));
+  typeAssignFiltered.value = {
+    ...typeAssignFiltered.value,
+    [typeId]: (data.allUsers || [])
+      .filter((u) => !already.has(Number(u.id)) &&
+        `${u.first_name} ${u.last_name} ${u.email}`.toLowerCase().includes(q))
+      .slice(0, 8)
+  };
+};
+
+const addTypeAssignment = async (typeId, user) => {
+  if (!agencyId.value) return;
+  typeAssignSaving.value = { ...typeAssignSaving.value, [typeId]: true };
+  typeAssignSearch.value = { ...typeAssignSearch.value, [typeId]: '' };
+  typeAssignFiltered.value = { ...typeAssignFiltered.value, [typeId]: [] };
+  try {
+    // Load this user's current full duty list, add this type, then save back
+    const resp = await api.get(`/payroll/users/${user.id}/log-time-duties`, {
+      params: { agencyId: agencyId.value }
+    });
+    const data = resp.data || {};
+    const agencyTypes = Array.isArray(data.agencyTypes) ? data.agencyTypes : [];
+    const existing = Array.isArray(data.assignments) ? data.assignments : [];
+    const alreadyHas = existing.some((a) => Number(a.serviceTypeId) === Number(typeId));
+    if (!alreadyHas) {
+      const usingCustom = existing.length > 0;
+      const assignments = usingCustom
+        ? [...existing.map((a) => ({ serviceTypeId: a.serviceTypeId, isEnabled: a.isEnabled !== false, rateOverride: a.rateOverride ?? null })),
+           { serviceTypeId: Number(typeId), isEnabled: true, rateOverride: null }]
+        : [
+            ...agencyTypes.filter((t) => t.isActive).map((t) => ({ serviceTypeId: Number(t.id), isEnabled: true, rateOverride: null })),
+            { serviceTypeId: Number(typeId), isEnabled: true, rateOverride: null }
+          ];
+      await api.put(`/payroll/users/${user.id}/log-time-duties`, {
+        agencyId: agencyId.value,
+        assignments
+      });
+    }
+    // Update local display
+    const current = typeAssignData.value[typeId] || { allUsers: [], assignedUsers: [] };
+    if (!current.assignedUsers.some((u) => u.userId === Number(user.id))) {
+      const firstName = user.first_name || user.firstName || '';
+      const lastName = user.last_name || user.lastName || '';
+      typeAssignData.value = {
+        ...typeAssignData.value,
+        [typeId]: {
+          ...current,
+          assignedUsers: [...current.assignedUsers, {
+            userId: Number(user.id),
+            name: `${firstName} ${lastName}`.trim() || user.email || `User #${user.id}`
+          }]
+        }
+      };
+    }
+  } catch (e) {
+    typeAssignError.value = { ...typeAssignError.value, [typeId]: e?.response?.data?.error?.message || e.message || 'Failed to assign' };
+  } finally {
+    typeAssignSaving.value = { ...typeAssignSaving.value, [typeId]: false };
+  }
+};
+
+const removeTypeAssignment = async (typeId, userId) => {
+  if (!agencyId.value) return;
+  typeAssignSaving.value = { ...typeAssignSaving.value, [typeId]: true };
+  try {
+    const resp = await api.get(`/payroll/users/${userId}/log-time-duties`, {
+      params: { agencyId: agencyId.value }
+    });
+    const existing = Array.isArray(resp.data?.assignments) ? resp.data.assignments : [];
+    // Remove this type from their list; if they had no custom list, skip saving (nothing to remove)
+    if (existing.length) {
+      const filtered = existing
+        .filter((a) => Number(a.serviceTypeId) !== Number(typeId))
+        .map((a) => ({ serviceTypeId: a.serviceTypeId, isEnabled: a.isEnabled !== false, rateOverride: a.rateOverride ?? null }));
+      await api.put(`/payroll/users/${userId}/log-time-duties`, {
+        agencyId: agencyId.value,
+        assignments: filtered
+      });
+    }
+    // Update local display
+    const current = typeAssignData.value[typeId] || { allUsers: [], assignedUsers: [] };
+    typeAssignData.value = {
+      ...typeAssignData.value,
+      [typeId]: {
+        ...current,
+        assignedUsers: current.assignedUsers.filter((u) => u.userId !== Number(userId))
+      }
+    };
+  } catch (e) {
+    typeAssignError.value = { ...typeAssignError.value, [typeId]: e?.response?.data?.error?.message || e.message || 'Failed to remove' };
+  } finally {
+    typeAssignSaving.value = { ...typeAssignSaving.value, [typeId]: false };
   }
 };
 
@@ -1772,6 +2039,21 @@ watch(payrollTab, async (t) => {
   color: white;
   border-color: var(--primary, #0d6efd);
 }
+.tab--legacy {
+  color: #6b7280;
+  border-style: dashed;
+  font-size: 12px;
+}
+.tab--legacy:hover {
+  background: #fef9c3;
+  border-color: #ca8a04;
+  color: #92400e;
+}
+.tab--legacy.active {
+  background: #78716c;
+  border-color: #78716c;
+  color: #fff;
+}
 .table-wrap {
   overflow-x: auto;
 }
@@ -1836,5 +2118,79 @@ watch(payrollTab, async (t) => {
 .toggle-row label {
   cursor: pointer;
 }
+
+/* ── Per-type people assignment ─────────────────────────────────── */
+.type-assign-panel {
+  padding: 14px 18px 16px;
+  border-top: 2px solid #e2e8f0;
+}
+.type-assign-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.type-assign-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.type-assign-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 20px;
+  padding: 4px 10px 4px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #1e40af;
+}
+.type-assign-person--suggested {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+.type-assign-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #dcfce7;
+  color: #15803d;
+  border-radius: 10px;
+  padding: 1px 7px;
+}
+.type-assign-name { white-space: nowrap; }
+.type-assign-add { position: relative; display: flex; flex-direction: column; gap: 4px; max-width: 380px; }
+.type-assign-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.1);
+  z-index: 50;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.type-assign-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #111827;
+}
+.type-assign-option:hover { background: #f0fdf4; }
 </style>
 

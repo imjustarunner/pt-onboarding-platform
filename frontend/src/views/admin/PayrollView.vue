@@ -145,7 +145,21 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
               Supervision Sheet
             </button>
+            <button class="pr-quick-btn pr-quick-btn--settings" type="button" @click="showPayrollSettings = !showPayrollSettings" :disabled="!agencyId">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              Payroll Settings
+            </button>
           </div>
+
+          <!-- Inline Payroll Settings panel -->
+          <div v-if="showPayrollSettings && agencyId" class="pr-settings-panel">
+            <div class="pr-settings-panel-header">
+              <strong>Payroll Settings</strong>
+              <button type="button" class="pr-settings-panel-close" @click="showPayrollSettings = false" aria-label="Close settings">✕</button>
+            </div>
+            <PayrollScheduleSettings />
+          </div>
+
           <div class="pr-secondary-actions">
             <button class="btn btn-secondary btn-sm" type="button" @click="showStageModal = true" :disabled="!selectedPeriodId">Payroll Stage</button>
             <button class="btn btn-secondary btn-sm" type="button" @click="openRawModal" :disabled="!selectedPeriodId">Raw Import Audit</button>
@@ -6471,6 +6485,7 @@ import { useBrandingStore } from '../../store/branding';
 import AdminPayrollSubmitOverride from '../../components/admin/AdminPayrollSubmitOverride.vue';
 import PayrollPtoSheetModal from '../../components/admin/PayrollPtoSheetModal.vue';
 import PayrollSupervisionSheetModal from '../../components/admin/PayrollSupervisionSheetModal.vue';
+import PayrollScheduleSettings from '../../components/admin/PayrollScheduleSettings.vue';
 import IndirectTimeClaimDetailFields from '../../components/payroll/IndirectTimeClaimDetailFields.vue';
 import { logTimeActivitiesSummary } from '../../utils/logTimeClaimDetails';
 import {
@@ -6488,6 +6503,8 @@ const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
+
+const showPayrollSettings = ref(false);
 
 const openPayrollReports = async () => {
   const pid = Number(selectedPeriodId.value || 0);
@@ -15795,6 +15812,43 @@ button.pr-metric-card:disabled {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
+}
+.pr-quick-btn--settings {
+  border-color: var(--pr-forest, #2d6a4f);
+  color: var(--pr-forest, #2d6a4f);
+}
+.pr-quick-btn--settings:hover:not(:disabled) {
+  background: var(--pr-mint, #d8f3dc);
+  border-color: var(--pr-forest, #2d6a4f);
+}
+.pr-settings-panel {
+  margin-top: 16px;
+  border: 1px solid var(--pr-mint-border, #b7e4c7);
+  border-radius: var(--pr-radius, 12px);
+  background: #fff;
+  overflow: hidden;
+}
+.pr-settings-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--pr-mint, #d8f3dc);
+  border-bottom: 1px solid var(--pr-mint-border, #b7e4c7);
+  font-size: 14px;
+}
+.pr-settings-panel-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: var(--text-secondary, #555);
+}
+.pr-settings-panel-close:hover {
+  background: rgba(0,0,0,0.07);
 }
 
 .pr-autodetect {

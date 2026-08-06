@@ -78,6 +78,7 @@ import {
 } from '../services/payrollPercentagePayPolicy.service.js';
 import { syncHolidayBonusClaimsForPeriod } from '../services/payrollHolidayBonus.service.js';
 import TrainingFocusPayrollService from '../services/trainingFocusPayroll.service.js';
+import { loadUserPaySystemContext, applyPaySystemToBreakdown, classifyPayType } from '../services/paySystem.service.js';
 import {
   listAgencyHolidays as listAgencyHolidaysSvc,
   createAgencyHoliday as createAgencyHolidaySvc,
@@ -6443,7 +6444,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     const otherTaxableAmount = Number(adj?.other_taxable_amount || 0);
     const imatterAmount = Number(adj?.imatter_amount || 0);
     const missedAppointmentsAmount = Number(adj?.missed_appointments_amount || 0);
-    const bonusAmount = Number(adj?.bonus_amount || 0);
+    let bonusAmount = Number(adj?.bonus_amount || 0);
     const shiftOnCallPayAmount = shiftOnCallPayByUser.get(Number(userId)) || 0;
     const shiftPerfectAttendanceAmount = shiftPerfectAttendanceByUser.get(Number(userId)) || 0;
     const shiftCoverageAmount = shiftCoverageBonusByUser.get(Number(userId)) || 0;
@@ -6554,7 +6555,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     const manualPayLinesAmount = manualPayLines.reduce((a, l) => a + Number(l?.amount || 0), 0);
 
     const nonTaxableAmount = mileageAmount + reimbursementAmount + tuitionReimbursementAmount;
-    const taxableAdjustmentsAmount =
+    let taxableAdjustmentsAmount =
       medcancelAmount +
       otherTaxableAmount +
       imatterAmount +
@@ -6568,14 +6569,15 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       ptoPay +
       manualPayLinesAmount +
       otherHoursPay;
-    const adjustmentsAmount = taxableAdjustmentsAmount + nonTaxableAmount;
+    let adjustmentsAmount = taxableAdjustmentsAmount + nonTaxableAmount;
     // Salary rule:
     // - If salary exists, salary is the base pay.
     // - Service/session pay only adds on top when explicitly enabled (include_service_pay = true).
     const hasSalary = salaryAmount > 0.001;
-    const basePay = hasSalary ? salaryAmount : (subtotal + shiftHoursPay);
-    const servicePayAddonAmount = (hasSalary && salaryIncludeServicePay) ? subtotal : 0;
-    const totalAmount = basePay + adjustmentsAmount + servicePayAddonAmount;
+    let basePay = hasSalary ? salaryAmount : (subtotal + shiftHoursPay);
+    let servicePayAddonAmount = (hasSalary && salaryIncludeServicePay) ? subtotal : 0;
+    let totalAmount = basePay + adjustmentsAmount + servicePayAddonAmount;
+    let paySystemBonusAmount = 0;
 
     const adjustmentLines = [];
     const pushLine = (l) => { if (Math.abs(Number(l?.amount || 0)) > 1e-9) adjustmentLines.push(l); };
@@ -6903,6 +6905,103 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     if (!tierSettings.enabled) {
       // Keep breakdown shape stable, but remove tier badge content for agencies that don't use tiers.
       breakdown.__tier = null;
+    }
+
+    // New pay system: when agency + user are enrolled, overwrite service-line pay,
+    // add auto-indirect for H-codes, and apply tier/Spanish bonuses.
+    try {
+      const payCtx = await loadUserPaySystemContext({
+        agencyId,
+        userId,
+        periodEnd,
+        benefitTierLevel,
+        graceActive: !!graceActive,
+        displayTierLevel
+      });
+      if (payCtx?.enabled && payCtx.rateProfile) {
+        const shiftDirect = Number(shiftHours?.directHours || 0) || 0;
+        const shiftIndirect = Number(shiftHours?.indirectHours || 0) || 0;
+        const meta = applyPaySystemToBreakdown({
+          breakdown,
+          rateProfile: payCtx.rateProfile,
+          status: payCtx.status,
+          shiftDirectHours: shiftDirect,
+          shiftIndirectHours: shiftIndirect
+        });
+
+        // Rebuild service subtotal from re-rated lines (exclude meta keys and AUTO INDIRECT).
+        let newSubtotal = 0;
+        for (const [code, row] of Object.entries(breakdown)) {
+          if (!row || typeof row !== 'object') continue;
+          if (String(code).startsWith('__')) continue;
+          if (String(code).toUpperCase() === 'AUTO INDIRECT') continue;
+          newSubtotal += Number(row.amount || 0) || 0;
+        }
+        subtotal = Math.round(newSubtotal * 100) / 100;
+        shiftHoursPay = Number(meta.shiftHoursPay || 0) || 0;
+
+        const autoIndirectPay = Number(meta.autoIndirectAmount || 0) || 0;
+        if (autoIndirectPay > 1e-9) {
+          const autoHrs = Number(breakdown['AUTO INDIRECT']?.hours || 0) || 0;
+          indirectHours += autoHrs;
+          totalHours += autoHrs;
+        }
+
+        paySystemBonusAmount = Number(meta.paySystemBonusTotal || 0) || 0;
+        if (paySystemBonusAmount > 1e-9) {
+          bonusAmount = (Number(bonusAmount || 0) || 0) + paySystemBonusAmount;
+          if (breakdown.__adjustments) {
+            breakdown.__adjustments.bonusAmount = bonusAmount;
+            breakdown.__adjustments.paySystemBonusAmount = paySystemBonusAmount;
+            const lines = Array.isArray(breakdown.__adjustments.lines) ? breakdown.__adjustments.lines : null;
+            if (lines) {
+              const existingBonusLine = lines.find((l) => l?.type === 'bonus');
+              if (existingBonusLine) existingBonusLine.amount = bonusAmount;
+              else {
+                lines.push({
+                  type: 'bonus',
+                  label: 'Tier / Spanish bonus',
+                  taxable: true,
+                  amount: paySystemBonusAmount,
+                  meta: { paySystem: true, ...(meta.bonuses || {}) }
+                });
+              }
+            }
+          }
+        }
+
+        const serviceWithAuto = Math.round((subtotal + autoIndirectPay) * 100) / 100;
+        const hasSalaryPs = salaryAmount > 0.001;
+        basePay = hasSalaryPs ? salaryAmount : (serviceWithAuto + shiftHoursPay);
+        servicePayAddonAmount = (hasSalaryPs && salaryIncludeServicePay) ? serviceWithAuto : 0;
+        taxableAdjustmentsAmount =
+          medcancelAmount +
+          otherTaxableAmount +
+          imatterAmount +
+          missedAppointmentsAmount +
+          bonusAmount +
+          shiftOnCallPayAmount +
+          shiftPerfectAttendanceAmount +
+          shiftCoverageAmount +
+          holidayBonusClaimsAmount +
+          timeClaimsAmount +
+          ptoPay +
+          manualPayLinesAmount +
+          otherHoursPay;
+        adjustmentsAmount = taxableAdjustmentsAmount + nonTaxableAmount;
+        totalAmount = basePay + adjustmentsAmount + servicePayAddonAmount;
+        if (breakdown.__adjustments) {
+          breakdown.__adjustments.shiftHoursPay = shiftHoursPay;
+          breakdown.__adjustments.taxableAdjustmentsAmount = taxableAdjustmentsAmount;
+        }
+        if (breakdown.__paySystem) {
+          breakdown.__paySystem.rebuiltBasePay = basePay;
+          breakdown.__paySystem.rebuiltTotalAmount = Math.round(totalAmount * 100) / 100;
+        }
+      }
+    } catch (paySysErr) {
+      // Never fail a payroll recompute because of pay-system overlay.
+      console.warn('[payroll] pay system overlay failed:', paySysErr?.message || paySysErr);
     }
 
     await PayrollSummary.upsert({
@@ -21127,7 +21226,11 @@ export const listServiceCodeRules = async (req, res, next) => {
       }
     }
     const rows = await PayrollServiceCodeRule.listForAgency(resolvedAgencyId);
-    res.json(rows);
+    const enriched = (rows || []).map((r) => ({
+      ...r,
+      payType: classifyPayType(r?.service_code, r)
+    }));
+    res.json(enriched);
   } catch (e) {
     next(e);
   }

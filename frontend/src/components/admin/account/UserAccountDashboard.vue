@@ -974,9 +974,9 @@ watch(
 
 // ── Compensation Level ────────────────────────────────────────────────────────
 const COMP_CATEGORIES = {
-  1: { label: 'Category 1', description: 'Bachelors, Interns, QBHA & Peer Professionals' },
-  2: { label: 'Category 2', description: 'Pre-licensed & Unlicensed Masters Level' },
-  3: { label: 'Category 3', description: 'Licensed Professionals' }
+  1: { label: 'Unlicensed', description: 'Unlicensed — Bachelors, Interns, QBHA, Peer & Unlicensed Masters' },
+  2: { label: 'Pre-licensed', description: 'Pre-licensed Masters Level' },
+  3: { label: 'Licensed', description: 'Licensed Professionals' }
 };
 
 const compAssignment = ref(null);

@@ -231,6 +231,81 @@ export const putUserLogTimeDuties = async (req, res, next) => {
   }
 };
 
+/** Admin: list users who have a specific service type in their custom duty assignment list. */
+export const getUsersAssignedToType = async (req, res, next) => {
+  try {
+    if (!isAdminRole(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    const agencyId = await resolveAgencyId(req);
+    const serviceTypeId = Number(req.query.serviceTypeId || req.params.serviceTypeId || 0);
+    if (!agencyId || !serviceTypeId) {
+      return res.status(400).json({ error: { message: 'agencyId and serviceTypeId required' } });
+    }
+
+    // Load explicit assignments
+    const [rows] = await pool.execute(
+      `SELECT pua.user_id, u.first_name, u.last_name, u.email
+       FROM payroll_user_indirect_service_assignments pua
+       JOIN users u ON u.id = pua.user_id
+       WHERE pua.agency_id = ? AND pua.service_type_id = ? AND pua.is_enabled = 1
+       ORDER BY u.last_name ASC, u.first_name ASC`,
+      [agencyId, serviceTypeId]
+    );
+    const assignments = (rows || []).map((r) => ({
+      userId: Number(r.user_id),
+      name: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+      email: r.email || ''
+    }));
+
+    // For supervision_note bucket types OR types with 'supervision' in the key/label,
+    // also return agency supervisors as suggestions
+    const typeRow = await PayrollIndirectServiceType.findById(serviceTypeId);
+    const bucketIsSupervision = normalizePayBucket(typeRow?.payBucket) === 'supervision_note';
+    const keyHasSupervision = /supervis/i.test(typeRow?.typeKey || '') || /supervis/i.test(typeRow?.label || '');
+    let suggestedSupervisors = [];
+    if (bucketIsSupervision || keyHasSupervision) {
+      // Check whether has_supervisor_privileges column exists
+      let hasSuperCol = false;
+      try {
+        const [colCheck] = await pool.execute(
+          `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+           AND COLUMN_NAME = 'has_supervisor_privileges' LIMIT 1`
+        );
+        hasSuperCol = !!(colCheck && colCheck.length);
+      } catch { hasSuperCol = false; }
+
+      const supCondition = hasSuperCol
+        ? `(u.role = 'supervisor' OR u.has_supervisor_privileges = 1)`
+        : `u.role = 'supervisor'`;
+
+      const [supRows] = await pool.execute(
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id
+         WHERE ua.agency_id = ?
+           AND ${supCondition}
+           AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [agencyId]
+      );
+      const assignedIds = new Set(assignments.map((a) => a.userId));
+      suggestedSupervisors = (supRows || [])
+        .filter((r) => !assignedIds.has(Number(r.id)))
+        .map((r) => ({
+          userId: Number(r.id),
+          name: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+          email: r.email || ''
+        }));
+    }
+
+    res.json({ assignments, suggestedSupervisors });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const getMyIndirectTimeSession = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);

@@ -34,6 +34,10 @@
       </div>
     </template>
 
+    <template #after-filters>
+      <PayCalculatorCard :agency-id="agencyId" />
+    </template>
+
     <div v-if="submitSuccess" class="success" style="margin: 0 0 14px;">
       {{ submitSuccess }}
     </div>
@@ -2285,6 +2289,7 @@ import { useAuthStore } from '../../store/auth';
 import PayrollHubPanel from './PayrollHubPanel.vue';
 import PayrollHubSection from './PayrollHubSection.vue';
 import IndirectTimeClaimEditModal from './IndirectTimeClaimEditModal.vue';
+import PayCalculatorCard from './PayCalculatorCard.vue';
 import { computePayrollHubStats, getPayrollActionRequired } from '../../utils/payrollUiHelpers';
 import {
   formatBusinessDateTime,

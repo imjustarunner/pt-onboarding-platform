@@ -1,9 +1,9 @@
 import pool from '../config/database.js';
 
 export const COMPENSATION_CATEGORIES = Object.freeze({
-  1: { label: 'Category 1', description: 'Bachelors, Interns, QBHA & Peer Professionals' },
-  2: { label: 'Category 2', description: 'Pre-licensed & Unlicensed Masters Level' },
-  3: { label: 'Category 3', description: 'Licensed Professionals' }
+  1: { label: 'Unlicensed', description: 'Unlicensed — Bachelors, Interns, QBHA, Peer & Unlicensed Masters' },
+  2: { label: 'Pre-licensed', description: 'Pre-licensed Masters Level' },
+  3: { label: 'Licensed', description: 'Licensed Professionals' }
 });
 
 export const CATEGORY_IDS = [1, 2, 3];
@@ -80,20 +80,111 @@ const PayrollCompensationLevel = {
    * bypass=true → save category (and optional level) but do NOT apply rates.
    * bypass=false → rates should be applied by the caller after this.
    * level may be null when bypass=true and no specific level chosen yet.
+   * opts may include pay-system flags: paySystemEnabled, waiveProbation,
+   * waiveMinimumWorkload, probationStartOverride, spanishBonusEligible.
    */
-  async assignToUser(agencyId, userId, category, level, assignedByUserId, bypass = true) {
+  async assignToUser(agencyId, userId, category, level, assignedByUserId, bypass = true, opts = {}) {
+    const hasPayFlags = opts && (
+      opts.paySystemEnabled !== undefined
+      || opts.waiveProbation !== undefined
+      || opts.waiveMinimumWorkload !== undefined
+      || opts.probationStartOverride !== undefined
+      || opts.spanishBonusEligible !== undefined
+    );
+
+    if (!hasPayFlags) {
+      await pool.execute(
+        `INSERT INTO payroll_user_compensation_levels
+           (agency_id, user_id, category, level, bypass, assigned_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           category            = VALUES(category),
+           level               = VALUES(level),
+           bypass              = VALUES(bypass),
+           assigned_by_user_id = VALUES(assigned_by_user_id),
+           updated_at          = CURRENT_TIMESTAMP`,
+        [agencyId, userId, category, level ?? null, bypass ? 1 : 0, assignedByUserId || null]
+      );
+      return;
+    }
+
     await pool.execute(
       `INSERT INTO payroll_user_compensation_levels
-         (agency_id, user_id, category, level, bypass, assigned_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?)
+         (agency_id, user_id, category, level, bypass,
+          pay_system_enabled, waive_probation, waive_minimum_workload,
+          probation_start_override, spanish_bonus_eligible, assigned_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
-         category            = VALUES(category),
-         level               = VALUES(level),
-         bypass              = VALUES(bypass),
-         assigned_by_user_id = VALUES(assigned_by_user_id),
-         updated_at          = CURRENT_TIMESTAMP`,
-      [agencyId, userId, category, level ?? null, bypass ? 1 : 0, assignedByUserId || null]
+         category                 = VALUES(category),
+         level                    = VALUES(level),
+         bypass                   = VALUES(bypass),
+         pay_system_enabled       = VALUES(pay_system_enabled),
+         waive_probation          = VALUES(waive_probation),
+         waive_minimum_workload   = VALUES(waive_minimum_workload),
+         probation_start_override = VALUES(probation_start_override),
+         spanish_bonus_eligible   = VALUES(spanish_bonus_eligible),
+         assigned_by_user_id      = VALUES(assigned_by_user_id),
+         updated_at               = CURRENT_TIMESTAMP`,
+      [
+        agencyId, userId, category, level ?? null, bypass ? 1 : 0,
+        opts.paySystemEnabled ? 1 : 0,
+        opts.waiveProbation ? 1 : 0,
+        opts.waiveMinimumWorkload ? 1 : 0,
+        opts.probationStartOverride || null,
+        opts.spanishBonusEligible ? 1 : 0,
+        assignedByUserId || null
+      ]
     );
+  },
+
+  /** Update only pay-system flags for an existing assignment (no category/level change). */
+  async updatePaySystemFlags(agencyId, userId, flags = {}) {
+    const sets = [];
+    const params = [];
+    if (flags.paySystemEnabled !== undefined) {
+      sets.push('pay_system_enabled = ?');
+      params.push(flags.paySystemEnabled ? 1 : 0);
+    }
+    if (flags.waiveProbation !== undefined) {
+      sets.push('waive_probation = ?');
+      params.push(flags.waiveProbation ? 1 : 0);
+    }
+    if (flags.waiveMinimumWorkload !== undefined) {
+      sets.push('waive_minimum_workload = ?');
+      params.push(flags.waiveMinimumWorkload ? 1 : 0);
+    }
+    if (flags.probationStartOverride !== undefined) {
+      sets.push('probation_start_override = ?');
+      params.push(flags.probationStartOverride || null);
+    }
+    if (flags.spanishBonusEligible !== undefined) {
+      sets.push('spanish_bonus_eligible = ?');
+      params.push(flags.spanishBonusEligible ? 1 : 0);
+    }
+    if (flags.locationBonusEligible !== undefined) {
+      sets.push('location_bonus_eligible = ?');
+      params.push(flags.locationBonusEligible ? 1 : 0);
+    }
+    if (!sets.length) return;
+    sets.push('updated_at = CURRENT_TIMESTAMP');
+    params.push(agencyId, userId);
+    await pool.execute(
+      `UPDATE payroll_user_compensation_levels SET ${sets.join(', ')} WHERE agency_id = ? AND user_id = ?`,
+      params
+    );
+  },
+
+  /** Bulk-enroll all assigned users into the new pay system, grandfathering waive_probation. */
+  async transitionAgencyUsersToPaySystem(agencyId) {
+    const [result] = await pool.execute(
+      `UPDATE payroll_user_compensation_levels
+       SET pay_system_enabled = 1,
+           waive_probation = 1,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE agency_id = ?`,
+      [agencyId]
+    );
+    return result?.affectedRows || 0;
   },
 
   async removeFromUser(agencyId, userId) {
@@ -111,7 +202,7 @@ const PayrollCompensationLevel = {
     return rows[0] || null;
   },
 
-  /** Return { 1: 'Category 1', 2: 'Category 2', 3: 'Category 3' } merged with any agency overrides */
+  /** Return { 1: 'Unlicensed', 2: 'Pre-licensed', 3: 'Licensed' } merged with any agency overrides */
   async getCategoryLabels(agencyId) {
     const [rows] = await pool.execute(
       `SELECT category, name FROM payroll_compensation_category_labels WHERE agency_id = ?`,
