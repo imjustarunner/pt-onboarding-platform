@@ -2,14 +2,14 @@
   <div class="modal-backdrop" @click.self="$emit('close')">
     <div class="modal-card">
       <div class="modal-header">
-        <h3 style="margin: 0;">Post a client to the exchange</h3>
+        <h3 style="margin: 0;">{{ lockClient ? 'Post client to the exchange' : 'Post a client to the exchange' }}</h3>
         <button type="button" class="btn-link" @click="$emit('close')">Close</button>
       </div>
 
       <div v-if="loadingClients" class="muted">Loading your office clients…</div>
       <div v-else-if="error" class="error">{{ error }}</div>
       <template v-else>
-        <label class="field">
+        <label class="field" v-if="!lockClient">
           <span class="label">Client</span>
           <select v-model="selectedClientId" class="select">
             <option value="" disabled>Select a client…</option>
@@ -21,6 +21,10 @@
             No eligible office clients found{{ isBackoffice ? '' : ' assigned to you' }}.
           </span>
         </label>
+        <div v-else class="field">
+          <span class="label">Client</span>
+          <div class="locked-client">{{ presetClientLabel || 'Selected client' }}</div>
+        </div>
 
         <div class="field-row">
           <label class="field">
@@ -79,7 +83,10 @@ import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
   agencyId: { type: Number, default: null },
-  isBackoffice: { type: Boolean, default: false }
+  isBackoffice: { type: Boolean, default: false },
+  presetClientId: { type: Number, default: null },
+  lockClient: { type: Boolean, default: false },
+  presetClientLabel: { type: String, default: '' }
 });
 const emit = defineEmits(['close', 'posted']);
 
@@ -107,6 +114,10 @@ function formatClientType(t) {
 }
 
 async function loadClients() {
+  if (props.lockClient && props.presetClientId) {
+    selectedClientId.value = String(props.presetClientId);
+    return;
+  }
   if (!props.agencyId) return;
   loadingClients.value = true;
   error.value = '';
@@ -155,7 +166,14 @@ async function submit() {
   }
 }
 
-onMounted(loadClients);
+onMounted(async () => {
+  loadingClients.value = true;
+  try {
+    await loadClients();
+  } finally {
+    loadingClients.value = false;
+  }
+});
 </script>
 
 <style scoped>
@@ -166,7 +184,7 @@ onMounted(loadClients);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 10050;
   padding: 16px;
 }
 .modal-card {
@@ -198,6 +216,15 @@ onMounted(loadClients);
   font-size: 12px;
   font-weight: 800;
   color: var(--text-secondary, #64748b);
+}
+.locked-client {
+  padding: 8px 10px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--bg-alt, #f8fafc);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text, #1e293b);
 }
 .input,
 .select,

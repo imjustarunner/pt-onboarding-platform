@@ -106,7 +106,12 @@ function redactListing(listing, { viewerRole, viewerUserId }) {
   const mapped = mapListingRow(listing);
   if (!mapped) return null;
   if (isPrivilegedViewer({ viewerRole, viewerUserId, listing })) {
-    return { ...mapped, clientIdentifier: listing.client_identifier_code || listing.client_initials || null };
+    return {
+      ...mapped,
+      clientInitials: listing.client_initials || null,
+      clientIdentifierCode: listing.client_identifier_code || null,
+      clientIdentifier: listing.client_identifier_code || listing.client_initials || null
+    };
   }
   // Redacted view for browsing providers: strip identifying fields.
   const { clientId, postedByName, currentProviderName, ...rest } = mapped;

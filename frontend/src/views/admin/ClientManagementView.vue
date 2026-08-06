@@ -132,26 +132,7 @@
             data-tour="clients-search"
           />
         </div>
-        <div v-if="!isSchoolStaffRole" class="display-mode-toggle cm-display-toggle" title="Toggle how clients are identified in the table">
-          <button
-            type="button"
-            :class="['display-mode-btn', { active: displayMode === 'initials' }]"
-            @click="displayMode = 'initials'; applyFilters()"
-            title="Show initials only (private)"
-          >Initials</button>
-          <button
-            type="button"
-            :class="['display-mode-btn', { active: displayMode === 'full_name' }]"
-            @click="displayMode = 'full_name'; applyFilters()"
-            title="Show full name with initials"
-          >Name</button>
-          <button
-            type="button"
-            :class="['display-mode-btn', { active: displayMode === 'code' }]"
-            @click="displayMode = 'code'; applyFilters()"
-            title="Show client code"
-          >Code</button>
-        </div>
+        <ClientDisplayModeToggle />
       </div>
       <div class="cm-search-hints muted">
         <span>Try:</span>
@@ -1068,6 +1049,8 @@ import api from '../../services/api';
 import BulkClientImporter from '../../components/admin/BulkClientImporter.vue';
 import OfficeIntakeQueuePanel from '../../components/admin/OfficeIntakeQueuePanel.vue';
 import ClientExchangePanel from '../../components/clientExchange/ClientExchangePanel.vue';
+import ClientDisplayModeToggle from '../../components/admin/ClientDisplayModeToggle.vue';
+import { useClientDisplayMode } from '../../composables/useClientDisplayMode.js';
 import { STANDARD_GRADE_SELECT_OPTIONS, normalizeGradeForSave } from '../../utils/clientGrade.js';
 import { useRouteTenantAgencyId } from '../../composables/useRouteTenantAgencyId.js';
 import { canSeeClientExchangeNav, clientExchangePath } from '../../utils/clientExchangeNav.js';
@@ -1288,37 +1271,18 @@ const providerFilter = ref('');
 const skillsOnly = ref(false);
 const sortBy = ref('submission_date-desc');
 
-// Display mode: 'initials' (default/private), 'full_name', 'code'
-// School staff is forced to 'initials' regardless of saved preference (PII gating).
-const isSchoolStaffRole = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
-const DISPLAY_MODE_STORAGE_KEY = `cmv_display_mode_v1_${authStore.user?.id || 'anon'}`;
-const displayMode = ref(
-  (() => {
-    if (isSchoolStaffRole.value) return 'initials';
-    try { return localStorage.getItem(DISPLAY_MODE_STORAGE_KEY) || 'initials'; } catch { return 'initials'; }
-  })()
-);
-watch(() => displayMode.value, (v) => {
-  if (isSchoolStaffRole.value) return;
-  try { localStorage.setItem(DISPLAY_MODE_STORAGE_KEY, v); } catch { /* ignore */ }
-});
+const {
+  displayMode,
+  isSchoolStaffRole,
+  getClientLabel: getClientDisplay,
+} = useClientDisplayMode();
+
 const clientDisplayLabel = computed(() => {
   if (isSchoolStaffRole.value) return 'Initials';
   if (displayMode.value === 'full_name') return 'Name + Initials';
   if (displayMode.value === 'code') return 'Code';
   return 'Initials';
 });
-const getClientDisplay = (client) => {
-  if (isSchoolStaffRole.value) return client.initials || client.identifier_code || '-';
-  if (displayMode.value === 'full_name') {
-    if (client.full_name) {
-      return client.initials ? `${client.full_name} (${client.initials})` : client.full_name;
-    }
-    return client.initials || '-';
-  }
-  if (displayMode.value === 'code') return client.identifier_code || client.initials || '-';
-  return client.initials || '-';
-};
 
 const WORKFLOW_STATUS_OPTIONS = [
   { value: 'PACKET', label: 'Packet' },
@@ -2872,6 +2836,8 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   --cm-surface: #ffffff;
   --cm-border: #e4e7ec;
   --cm-muted: #667085;
+  padding-top: 24px;
+  padding-bottom: 48px;
 }
 
 .cm-page-header {

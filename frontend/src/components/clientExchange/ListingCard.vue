@@ -1,92 +1,110 @@
 <template>
-  <div class="listing-card" :class="{ 'listing-card--selected': selected }" @click="$emit('select', listing)">
-    <div class="lc-top">
-      <div class="lc-title">
-        <span class="status-badge" :class="`status-${listing.status}`">{{ listing.status }}</span>
-        <strong v-if="listing.clientType">{{ formatClientType(listing.clientType) }}</strong>
-        <span v-if="listing.clientIdentifier" class="lc-identifier">#{{ listing.clientIdentifier }}</span>
-        <span v-if="listing.pendingRequestCount > 0" class="lc-pending-badge">
-          {{ listing.pendingRequestCount }} pending request{{ listing.pendingRequestCount === 1 ? '' : 's' }}
+  <div
+    class="listing-card"
+    :class="{
+      'listing-card--selected': selected,
+      'listing-card--compact': compact
+    }"
+    @click="$emit('select', listing)"
+  >
+    <template v-if="compact">
+      <div class="lc-compact-row">
+        <strong class="lc-client-label">{{ clientLabel || 'Client' }}</strong>
+        <span v-if="listing.pendingRequestCount > 0" class="lc-pending-badge lc-pending-badge--compact">
+          {{ listing.pendingRequestCount }}
         </span>
       </div>
-      <div class="lc-meta muted">Posted {{ formatDate(listing.createdAt) }}</div>
-    </div>
+    </template>
 
-    <div class="lc-chips" v-if="chips.length">
-      <span v-for="(chip, idx) in chips" :key="idx" class="lc-chip">{{ chip }}</span>
-    </div>
-
-    <p v-if="listing.notes" class="lc-notes">{{ listing.notes }}</p>
-
-    <div class="lc-current" v-if="listing.currentProviderName">
-      <span class="muted">Current provider:</span> {{ listing.currentProviderName }}
-    </div>
-
-    <div class="lc-actions">
-      <button
-        v-if="canRequest"
-        type="button"
-        class="btn btn-primary btn-sm"
-        @click="showRequestForm = !showRequestForm"
-      >
-        Request this client
-      </button>
-      <button
-        v-if="canWithdraw"
-        type="button"
-        class="btn btn-secondary btn-sm"
-        @click="$emit('withdraw', listing.id)"
-      >
-        Withdraw
-      </button>
-      <button type="button" class="btn-link" @click="toggleExpand">
-        {{ expanded ? 'Hide requests' : 'View requests' }}
-      </button>
-    </div>
-
-    <div v-if="showRequestForm" class="lc-request-form">
-      <textarea
-        v-model="requestMessage"
-        rows="2"
-        placeholder="Optional note for the current provider (availability, fit, etc.)"
-      ></textarea>
-      <div class="lc-request-form-actions">
-        <button type="button" class="btn btn-primary btn-sm" @click="submitRequest">Send request</button>
-        <button type="button" class="btn btn-secondary btn-sm" @click="showRequestForm = false">Cancel</button>
+    <template v-else>
+      <div class="lc-top">
+        <div class="lc-title">
+          <span class="status-badge" :class="`status-${listing.status}`">{{ listing.status }}</span>
+          <strong v-if="clientLabel" class="lc-client-label">{{ clientLabel }}</strong>
+          <span v-if="listing.clientType" class="lc-type">{{ formatClientType(listing.clientType) }}</span>
+          <span v-if="listing.pendingRequestCount > 0" class="lc-pending-badge">
+            {{ listing.pendingRequestCount }} pending request{{ listing.pendingRequestCount === 1 ? '' : 's' }}
+          </span>
+        </div>
+        <div class="lc-meta muted">Posted {{ formatDate(listing.createdAt) }}</div>
       </div>
-    </div>
 
-    <div v-if="expanded" class="lc-requests">
-      <div v-if="requestsLoading" class="muted">Loading requests…</div>
-      <div v-else-if="requests.length === 0" class="muted">No requests yet.</div>
-      <table v-else class="lc-requests-table">
-        <thead>
-          <tr>
-            <th>Provider</th>
-            <th>Message</th>
-            <th>Status</th>
-            <th v-if="isBackoffice || isCurrentProvider"></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="r in requests" :key="r.id">
-            <td>{{ r.requestingProviderName || `Provider #${r.requestingProviderUserId}` }}</td>
-            <td>{{ r.message || '—' }}</td>
-            <td><span class="status-badge" :class="`status-${r.status}`">{{ r.status }}</span></td>
-            <td v-if="isBackoffice || isCurrentProvider">
-              <div v-if="r.status === 'pending'" class="lc-request-resolve">
-                <button type="button" class="btn btn-primary btn-sm" @click="$emit('approve', { requestId: r.id, listingId: listing.id })">
-                  Approve
-                </button>
-                <button type="button" class="btn btn-secondary btn-sm" @click="$emit('deny', { requestId: r.id, listingId: listing.id })">
-                  Deny
-                </button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+      <div class="lc-chips" v-if="chips.length">
+        <span v-for="(chip, idx) in chips" :key="idx" class="lc-chip">{{ chip }}</span>
+      </div>
+
+      <p v-if="listing.notes" class="lc-notes">{{ listing.notes }}</p>
+
+      <div class="lc-current" v-if="listing.currentProviderName">
+        <span class="muted">Current provider:</span> {{ listing.currentProviderName }}
+      </div>
+
+      <div class="lc-actions" @click.stop>
+        <button
+          v-if="canRequest"
+          type="button"
+          class="btn btn-primary btn-sm"
+          @click="showRequestForm = !showRequestForm"
+        >
+          Request this client
+        </button>
+        <button
+          v-if="canWithdraw"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          @click="$emit('withdraw', listing.id)"
+        >
+          Withdraw
+        </button>
+        <button type="button" class="btn-link" @click="toggleExpand">
+          {{ expanded ? 'Hide requests' : 'View requests' }}
+        </button>
+      </div>
+
+      <div v-if="showRequestForm" class="lc-request-form" @click.stop>
+        <textarea
+          v-model="requestMessage"
+          rows="2"
+          placeholder="Optional note for the current provider (availability, fit, etc.)"
+        ></textarea>
+        <div class="lc-request-form-actions">
+          <button type="button" class="btn btn-primary btn-sm" @click="submitRequest">Send request</button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="showRequestForm = false">Cancel</button>
+        </div>
+      </div>
+
+      <div v-if="expanded" class="lc-requests" @click.stop>
+        <div v-if="requestsLoading" class="muted">Loading requests…</div>
+        <div v-else-if="requests.length === 0" class="muted">No requests yet.</div>
+        <table v-else class="lc-requests-table">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Message</th>
+              <th>Status</th>
+              <th v-if="isBackoffice || isCurrentProvider"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in requests" :key="r.id">
+              <td>{{ r.requestingProviderName || `Provider #${r.requestingProviderUserId}` }}</td>
+              <td>{{ r.message || '—' }}</td>
+              <td><span class="status-badge" :class="`status-${r.status}`">{{ r.status }}</span></td>
+              <td v-if="isBackoffice || isCurrentProvider">
+                <div v-if="r.status === 'pending'" class="lc-request-resolve">
+                  <button type="button" class="btn btn-primary btn-sm" @click="$emit('approve', { requestId: r.id, listingId: listing.id })">
+                    Approve
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="$emit('deny', { requestId: r.id, listingId: listing.id })">
+                    Deny
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -99,7 +117,9 @@ const props = defineProps({
   isBackoffice: { type: Boolean, default: false },
   requests: { type: Array, default: () => [] },
   requestsLoading: { type: Boolean, default: false },
-  selected: { type: Boolean, default: false }
+  selected: { type: Boolean, default: false },
+  clientLabel: { type: String, default: '' },
+  compact: { type: Boolean, default: false }
 });
 const emit = defineEmits(['request', 'withdraw', 'expand', 'approve', 'deny', 'select']);
 
@@ -173,8 +193,32 @@ function submitRequest() {
   cursor: pointer;
   transition: background 0.1s;
 }
+.listing-card--compact {
+  padding: 0.45rem 0.65rem;
+  gap: 0;
+}
 .listing-card:hover { background: #f8fafc; }
 .listing-card--selected { background: #f0fdf4 !important; border-left: 3px solid var(--primary, #2d6a4f); }
+.lc-compact-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.lc-compact-row .lc-client-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+.lc-pending-badge--compact {
+  flex-shrink: 0;
+  min-width: 20px;
+  text-align: center;
+  padding: 2px 6px;
+}
 .lc-top {
   display: flex;
   justify-content: space-between;
@@ -188,10 +232,14 @@ function submitRequest() {
   gap: 8px;
   flex-wrap: wrap;
 }
-.lc-identifier {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  color: var(--text-secondary, #64748b);
+.lc-client-label {
+  font-size: 14px;
+  color: var(--text, #1e293b);
+}
+.lc-type {
   font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  font-weight: 600;
 }
 .lc-pending-badge {
   background: rgba(245, 158, 11, 0.15);

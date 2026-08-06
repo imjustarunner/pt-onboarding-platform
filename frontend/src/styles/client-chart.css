@@ -320,22 +320,11 @@
 .client-chart .modal-header.cdp-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 24px;
-  padding: 22px 28px 18px;
+  align-items: center;
+  gap: 12px 16px;
+  padding: 10px 20px;
   border-bottom: 1px solid color-mix(in srgb, var(--cc-accent) 10%, var(--cc-border));
   background: var(--cc-card);
-  position: relative;
-}
-
-.client-chart .modal-header.cdp-header::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--cc-primary);
 }
 
 .client-chart .cdp-footer {

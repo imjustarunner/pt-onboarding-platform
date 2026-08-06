@@ -9,6 +9,7 @@
         </p>
       </div>
       <div class="oiq-header-actions">
+        <ClientDisplayModeToggle />
         <button class="oiq-btn oiq-btn--ghost" type="button" @click="loadAll" :disabled="loading">
           {{ loading ? 'Loading…' : '↺ Refresh' }}
         </button>
@@ -51,7 +52,7 @@
         </div>
         <div v-for="c in recentlyReferred" :key="c.eventId || c.id" class="oiq-referred-row">
           <div class="oiq-referred-name">
-            <strong>{{ c.fullName || c.initials || `Client #${c.id}` }}</strong>
+            <strong>{{ getClientLabel(c) }}</strong>
             <span class="oiq-pill oiq-pill--type">{{ clientTypeLabel(c.clientType) }}</span>
           </div>
           <div class="oiq-referred-to">
@@ -70,7 +71,7 @@
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search by name, email, phone, concern…"
+          placeholder="Search by name, age, teen, adult, email, phone, concern…"
           class="oiq-search-input"
         />
         <button v-if="searchQuery" type="button" class="oiq-search-clear" @click="searchQuery = ''">✕</button>
@@ -113,41 +114,59 @@
           v-for="c in filtered"
           :key="c.id"
           class="oiq-card"
-          :class="{ 'oiq-card--active': selectedId === c.id }"
+          :class="{
+            'oiq-card--active': selectedId === c.id,
+            'oiq-card--compact': selected
+          }"
           @click="select(c)"
         >
           <div class="oiq-card-top">
-            <div class="oiq-card-initials" :style="initialsStyle(c)">{{ initials(c) }}</div>
-            <div class="oiq-card-info">
-              <strong class="oiq-card-name">{{ c.fullName || c.initials || `Client #${c.id}` }}</strong>
-              <div class="oiq-card-meta">
-                <span class="oiq-pill oiq-pill--type">{{ clientTypeLabel(c.clientType) }}</span>
-                <span v-if="!selected" class="oiq-pill oiq-pill--pathway">{{ pathwayLabel(c) }}</span>
+            <div class="oiq-card-initials" :style="initialsStyle(c)">{{ getAvatarLetters(c) }}</div>
+
+            <template v-if="selected">
+              <strong class="oiq-card-name oiq-card-name--compact">{{ getClientLabel(c) }}</strong>
+            </template>
+
+            <template v-else>
+              <div class="oiq-card-info">
+                <div class="oiq-card-row-main">
+                  <strong class="oiq-card-name">{{ getClientLabel(c) }}</strong>
+                  <span class="oiq-pill oiq-pill--type">{{ clientTypeLabel(c.clientType) }}</span>
+                  <span class="oiq-pill oiq-pill--pathway">{{ pathwayLabel(c) }}</span>
+                  <span v-if="intakeAge(c) != null" class="oiq-inline-age">Age {{ intakeAge(c) }}</span>
+                </div>
+                <div class="oiq-card-row-details">
+                  <span
+                    v-if="c.intakePreferences?.presentingConcern || c.adaptiveMeta?.concerns?.length"
+                    class="oiq-detail-chip"
+                  >
+                    {{ c.intakePreferences?.presentingConcern || c.adaptiveMeta?.concerns?.slice(0, 3).join(', ') }}
+                  </span>
+                  <span v-if="c.contactPhone" class="oiq-detail-chip">{{ c.contactPhone }}</span>
+                  <span v-if="c.adaptiveMeta?.respondent?.email" class="oiq-detail-chip">{{ c.adaptiveMeta.respondent.email }}</span>
+                  <span v-if="c.intakePreferences?.preferredModality" class="oiq-detail-chip">
+                    {{ labelModality(c.intakePreferences.preferredModality) }}
+                  </span>
+                  <span v-if="c.intakePreferences?.insuranceOrPayment" class="oiq-detail-chip">
+                    {{ c.intakePreferences.insuranceOrPayment }}
+                  </span>
+                </div>
               </div>
-            </div>
-            <div class="oiq-card-date">
-              <div>{{ formatDate(c.createdAt) }}</div>
-              <div class="oiq-card-date-label">submitted</div>
-            </div>
+              <div class="oiq-card-date">
+                <div>{{ formatDate(c.createdAt) }}</div>
+                <div class="oiq-card-date-label">submitted</div>
+              </div>
+            </template>
           </div>
-          <template v-if="!selected">
-            <div v-if="c.intakePreferences?.presentingConcern || c.adaptiveMeta?.concerns?.length" class="oiq-card-concern">
-              {{ c.intakePreferences?.presentingConcern || c.adaptiveMeta?.concerns?.slice(0, 3).join(', ') }}
-            </div>
-            <div class="oiq-card-contact">
-              <span v-if="c.contactPhone">{{ c.contactPhone }}</span>
-              <span v-if="c.adaptiveMeta?.respondent?.email">{{ c.adaptiveMeta.respondent.email }}</span>
-            </div>
-          </template>
         </div>
       </div>
 
       <!-- Detail panel -->
       <div v-if="selected" class="oiq-detail" role="complementary" aria-label="Client detail">
         <div class="oiq-detail-header">
-          <div class="oiq-detail-initials" :style="initialsStyle(selected)">{{ initials(selected) }}</div>
+          <div class="oiq-detail-initials" :style="initialsStyle(selected)">{{ getAvatarLetters(selected) }}</div>
           <div class="oiq-detail-title">
-            <h2>{{ selected.fullName || selected.initials || `Client #${selected.id}` }}</h2>
+            <h2>{{ getClientLabel(selected) }}</h2>
             <div class="oiq-detail-id">
               <span v-if="selected.identifierCode"># {{ selected.identifierCode }}</span>
               <span class="oiq-pill oiq-pill--type">{{ clientTypeLabel(selected.clientType) }}</span>
@@ -313,7 +332,16 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
+import { useClientDisplayMode } from '../../composables/useClientDisplayMode';
+import {
+  buildIntakeClientSearchContext,
+  intakeClientAge,
+  matchesQueueSearch
+} from '../../utils/clientQueueSearch.js';
 import api from '../../services/api';
+import ClientDisplayModeToggle from './ClientDisplayModeToggle.vue';
+
+const { getClientLabel, getAvatarLetters } = useClientDisplayMode();
 
 const agencyStore = useAgencyStore();
 const route = useRoute();
@@ -418,15 +446,10 @@ function isProspectivePathway(c) {
   );
 }
 
-function initials(c) {
-  const name = c.fullName || c.initials || '';
-  if (!name) return '?';
-  return name.split(/\s+/).filter(Boolean).map((p) => p[0]?.toUpperCase() || '').slice(0, 2).join('');
-}
-
 const HUE_MAP = ['#2d6a4f', '#1d6b9b', '#7c3aed', '#b45309', '#0f766e', '#9333ea', '#b91c1c'];
+
 function initialsStyle(c) {
-  const idx = Math.abs(String(c.id || c.fullName || '').split('').reduce((a, ch) => a + ch.charCodeAt(0), 0)) % HUE_MAP.length;
+  const idx = Math.abs(String(c.id || c.initials || c.fullName || '').split('').reduce((a, ch) => a + ch.charCodeAt(0), 0)) % HUE_MAP.length;
   return { background: HUE_MAP[idx] };
 }
 
@@ -434,21 +457,17 @@ const searchTokens = computed(() => {
   return String(searchQuery.value || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
 });
 
+function intakeAge(c) {
+  return intakeClientAge(c);
+}
+
 function matchesSearch(c) {
   if (!searchTokens.value.length) return true;
-  const haystack = [
-    c.fullName,
-    c.initials,
-    c.contactPhone,
-    c.adaptiveMeta?.respondent?.email,
-    c.adaptiveMeta?.concerns?.join(' '),
-    c.adaptiveMeta?.accomplishGoal,
-    c.adaptiveMeta?.homeAddress,
-    c.intakePreferences?.presentingConcern,
-    pathwayLabel(c),
-    clientTypeLabel(c.clientType)
-  ].filter(Boolean).join(' ').toLowerCase();
-  return searchTokens.value.every((t) => haystack.includes(t));
+  const ctx = buildIntakeClientSearchContext(c);
+  return matchesQueueSearch(ctx.haystack, searchTokens.value, {
+    ageBands: ctx.ageBands,
+    numericAges: ctx.numericAges
+  });
 }
 
 const filtered = computed(() => {
@@ -594,7 +613,9 @@ onMounted(() => {
 }
 .oiq-header-actions {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 /* ── Stats row ─────────────────────────────────────── */
@@ -717,7 +738,7 @@ onMounted(() => {
 }
 .oiq-layout--split {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 200px 1fr;
   min-height: 500px;
 }
 @media (max-width: 860px) {
@@ -747,12 +768,16 @@ onMounted(() => {
   border-bottom: 1px solid var(--border, #f1f5f9);
   transition: background 0.1s;
 }
+.oiq-card--compact {
+  padding: 0.45rem 0.65rem;
+}
 .oiq-card:hover { background: #f8fafc; }
 .oiq-card--active { background: #f0fdf4 !important; border-left: 3px solid var(--primary, #2d6a4f); }
 .oiq-card-top {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.6rem;
+  min-width: 0;
 }
 .oiq-card-initials {
   width: 2.2rem;
@@ -766,9 +791,47 @@ onMounted(() => {
   font-weight: 700;
   flex-shrink: 0;
 }
+.oiq-card--compact .oiq-card-initials {
+  width: 1.75rem;
+  height: 1.75rem;
+  font-size: 0.68rem;
+}
 .oiq-card-info {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.oiq-card-row-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+  min-width: 0;
+}
+.oiq-card-row-details {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.65rem;
+  min-width: 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #64748b);
+}
+.oiq-detail-chip {
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.oiq-inline-age {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary, #475569);
+  background: #f1f5f9;
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
 }
 .oiq-card-name {
   font-size: 0.875rem;
@@ -776,13 +839,11 @@ onMounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: block;
 }
-.oiq-card-meta {
-  display: flex;
-  gap: 0.3rem;
-  flex-wrap: wrap;
-  margin-top: 0.2rem;
+.oiq-card-name--compact {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.82rem;
 }
 .oiq-card-date {
   text-align: right;
@@ -793,22 +854,6 @@ onMounted(() => {
 .oiq-card-date-label {
   font-size: 0.7rem;
   color: var(--text-secondary, #b0bac7);
-}
-.oiq-card-concern {
-  font-size: 0.8rem;
-  color: var(--text-secondary, #64748b);
-  margin-top: 0.3rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.oiq-card-contact {
-  font-size: 0.78rem;
-  color: var(--text-secondary, #94a3b8);
-  margin-top: 0.2rem;
-  display: flex;
-  gap: 0.65rem;
-  flex-wrap: wrap;
 }
 
 /* ── Pills ─────────────────────────────────────────── */

@@ -15,42 +15,45 @@
             {{ avatarText }}
           </div>
           <div class="cdp-header-info">
-            <h2 class="cdp-title">
-              <template v-if="canSeeClientFullName && client.full_name">
-                {{ client.full_name }}
-                <span class="cdp-title-initials">({{ client.initials || '—' }})</span>
-              </template>
-              <template v-else>{{ client.initials || '—' }}</template>
-            </h2>
-            <div class="cdp-identity-line">
-              <span v-if="client.initials">Initials {{ client.initials }}</span>
-              <span v-if="clientAgeLabel">Age {{ clientAgeLabel }}</span>
-              <span v-if="client.identifier_code" class="mono">ID {{ client.identifier_code }}</span>
-              <span v-else-if="client.id" class="mono">ID {{ client.id }}</span>
-              <span v-if="clientDobLabel">DOB {{ clientDobLabel }}</span>
-              <span v-if="guardianIntakeName">Guardian: {{ guardianIntakeName }}</span>
-            </div>
-            <div class="cdp-meta-row">
-              <span
-                class="cdp-pill"
-                :class="statusPillClass"
-                :title="isClientTerminated && client.termination_reason ? client.termination_reason : undefined"
+            <div class="cdp-header-row">
+              <h2 class="cdp-title">
+                <template v-if="canSeeClientFullName && client.full_name">
+                  {{ client.full_name }}
+                  <span class="cdp-title-initials">({{ client.initials || '—' }})</span>
+                </template>
+                <template v-else>{{ client.initials || '—' }}</template>
+              </h2>
+              <div class="cdp-identity-line">
+                <span v-if="client.initials">Initials {{ client.initials }}</span>
+                <span v-if="clientAgeLabel">Age {{ clientAgeLabel }}</span>
+                <span v-if="client.identifier_code" class="mono">ID {{ client.identifier_code }}</span>
+                <span v-else-if="client.id" class="mono">ID {{ client.id }}</span>
+                <span v-if="clientDobLabel">DOB {{ clientDobLabel }}</span>
+                <span v-if="guardianIntakeName">Guardian: {{ guardianIntakeName }}</span>
+              </div>
+              <div class="cdp-meta-row">
+                <span
+                  class="cdp-pill"
+                  :class="statusPillClass"
+                  :title="isClientTerminated && client.termination_reason ? client.termination_reason : undefined"
+                >
+                  {{ isClientArchived ? 'Archived' : (client.client_status_label || 'No status') }}
+                </span>
+                <span class="cdp-pill cdp-pill--type">
+                  <span class="cdp-pill__dot"></span>
+                  {{ clientTypeLabel }}
+                </span>
+                <span v-if="client.organization_name" class="cdp-pill cdp-pill--org">
+                  {{ client.organization_name }}
+                </span>
+                <span v-if="primaryInsuranceLabel" class="cdp-pill cdp-pill--success">
+                  {{ primaryInsuranceLabel }}
+                </span>
+              </div>
+              <details
+                v-if="canEditClientType || (isBackofficeRole && (switchableAgencies.length > 1 || clientAgenciesNote))"
+                class="cdp-admin-details"
               >
-                {{ isClientArchived ? 'Archived' : (client.client_status_label || 'No status') }}
-              </span>
-              <span class="cdp-pill cdp-pill--type">
-                <span class="cdp-pill__dot"></span>
-                {{ clientTypeLabel }}
-              </span>
-              <span v-if="client.organization_name" class="cdp-pill cdp-pill--org">
-                {{ client.organization_name }}
-              </span>
-              <span v-if="primaryInsuranceLabel" class="cdp-pill cdp-pill--success">
-                {{ primaryInsuranceLabel }}
-              </span>
-            </div>
-
-            <details v-if="canEditClientType || (isBackofficeRole && (switchableAgencies.length > 1 || clientAgenciesNote))" class="cdp-admin-details">
               <summary>Admin settings</summary>
               <div v-if="canEditClientType" class="cdp-inline-controls">
                 <span class="cdp-inline-controls__label">Client type</span>
@@ -87,7 +90,8 @@
                   <span class="muted">{{ clientAgenciesNote }}</span>
                 </template>
               </div>
-            </details>
+              </details>
+            </div>
           </div>
         </div>
 
@@ -852,6 +856,14 @@
                   </button>
                   <button type="button" class="cdp-btn-soft" @click="activeTab = 'phi'">
                     Upload document
+                  </button>
+                  <button
+                    v-if="canPostClientToExchange"
+                    type="button"
+                    class="cdp-btn-soft"
+                    @click="openPostToExchangeModal"
+                  >
+                    Post client to exchange
                   </button>
                   <button
                     v-if="isClinicalLikeClientType"
@@ -2076,6 +2088,17 @@
         @close="showAssignDayModal = false"
         @updated="onSchoolAssignmentUpdated"
       />
+
+      <PostListingModal
+        v-if="showPostToExchangeModal && clientAgencyId && client?.id"
+        :agency-id="clientAgencyId"
+        :is-backoffice="isBackofficeRole"
+        :preset-client-id="Number(client.id)"
+        :lock-client="true"
+        :preset-client-label="postToExchangeClientLabel"
+        @close="showPostToExchangeModal = false"
+        @posted="onPostedToExchange"
+      />
     </template>
   </ClientChartShell>
 </template>
@@ -2109,6 +2132,9 @@ import {
   normalizeGradeToStandard
 } from '../../utils/clientGrade.js';
 import AssignDayModal from '../school/AssignDayModal.vue';
+import PostListingModal from '../clientExchange/PostListingModal.vue';
+import { canSeeClientExchangeNav } from '../../utils/clientExchangeNav.js';
+import { useClientDisplayMode } from '../../composables/useClientDisplayMode.js';
 
 const props = defineProps({
   client: {
@@ -2155,6 +2181,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'updated', 'navigate', 'tab-change', 'encounter-change']);
 
 const authStore = useAuthStore();
+const { getClientLabel } = useClientDisplayMode();
 const route = useRoute();
 const router = useRouter();
 
@@ -2623,6 +2650,31 @@ const canViewMedicalRecord = computed(() => {
 
 const clientAgencyId = computed(() => Number(props.client?.agency_id || 0) || null);
 const clientChartClientId = computed(() => Number(props.client?.id || 0) || null);
+
+const showPostToExchangeModal = ref(false);
+const postToExchangeClientLabel = computed(() => {
+  const label = getClientLabel(props.client);
+  const type = clientTypeLabel.value;
+  return type ? `${label} — ${type}` : label;
+});
+const canPostClientToExchange = computed(() => {
+  if (!canSeeClientExchangeNav(roleNorm.value)) return false;
+  if (!isClinicalLikeClientType.value) return false;
+  if (!hasAgencyAccess.value) return false;
+  if (isClientArchived.value) return false;
+  if (isBackofficeRole.value) return true;
+  const providerId = Number(props.client?.provider_id || 0);
+  return providerId > 0 && providerId === Number(authStore.user?.id || 0);
+});
+
+function openPostToExchangeModal() {
+  showPostToExchangeModal.value = true;
+}
+
+function onPostedToExchange() {
+  showPostToExchangeModal.value = false;
+  emit('updated', { keepOpen: true });
+}
 
 const {
   diagnoses: billingDiagnoses,
@@ -4999,27 +5051,26 @@ watch(
 .modal-header.cdp-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  padding: 14px 20px 12px;
+  align-items: center;
+  gap: 12px 16px;
+  padding: 10px 20px;
   border-bottom: 1px solid rgba(58, 76, 107, 0.10);
   background: #fff;
-  position: relative;
 }
 
 .cdp-header-main {
   display: flex;
-  gap: 18px;
-  align-items: flex-start;
+  gap: 12px;
+  align-items: center;
   min-width: 0;
   flex: 1;
 }
 
 .cdp-avatar {
   flex: 0 0 auto;
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5037,30 +5088,37 @@ watch(
 }
 
 .cdp-header-info {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
   min-width: 0;
   flex: 1;
+}
+
+.cdp-header-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  min-width: 0;
 }
 
 .cdp-title {
   margin: 0;
   font-family: var(--font-display, var(--font-header));
-  font-size: 20px;
-  line-height: 1.2;
+  font-size: 17px;
+  line-height: 1.25;
   font-weight: 750;
   color: var(--secondary, #1D2633);
   letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 
 .cdp-identity-line {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 10px;
-  font-size: 13px;
-  color: var(--accent, #3A4C6B);
-  font-weight: 550;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  font-weight: 500;
 }
 .cdp-identity-line > span:not(:last-child)::after {
   content: '·';
@@ -5069,20 +5127,19 @@ watch(
 }
 
 .cdp-title-initials {
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-secondary);
   letter-spacing: 0;
-  margin-left: 6px;
+  margin-left: 4px;
   vertical-align: baseline;
 }
 
 .cdp-meta-row {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
-  margin-top: 2px;
 }
 
 .cdp-submeta-row {
@@ -5095,10 +5152,10 @@ watch(
 .cdp-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 11px;
+  gap: 5px;
+  padding: 3px 9px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.15px;
   background: #fff;
@@ -5167,19 +5224,21 @@ watch(
 }
 
 .cdp-admin-details {
-  margin-top: 4px;
-  border-top: 1px dashed rgba(58, 76, 107, 0.18);
-  padding-top: 8px;
+  margin: 0;
+  border: none;
+  padding: 0;
+  flex: 0 0 auto;
 }
 .cdp-admin-details > summary {
   cursor: pointer;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--accent, #3A4C6B);
   list-style: none;
   user-select: none;
+  white-space: nowrap;
 }
 .cdp-admin-details > summary::-webkit-details-marker { display: none; }
 .cdp-admin-details > summary::after {
@@ -5187,6 +5246,23 @@ watch(
   color: var(--primary, #C69A2B);
 }
 .cdp-admin-details[open] > summary::after { content: ' ▴'; }
+.cdp-admin-details[open] {
+  position: relative;
+}
+.cdp-admin-details[open] .cdp-inline-controls,
+.cdp-admin-details[open] .cdp-inline-controls--muted {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 280px;
+  margin-top: 0;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px -8px rgba(15, 23, 42, 0.22);
+}
 
 .cdp-submeta {
   display: inline-flex;
@@ -5821,12 +5897,11 @@ watch(
 }
 @media (max-width: 980px) {
   .modal-header.cdp-header {
-    padding: 16px 18px;
-    gap: 14px;
-    flex-direction: column;
-    align-items: stretch;
+    padding: 10px 14px;
+    gap: 10px;
+    flex-wrap: wrap;
   }
-  .cdp-header-actions { justify-content: flex-start; }
+  .cdp-header-actions { justify-content: flex-end; flex: 1 1 auto; }
   .cdp-avatar { width: 40px; height: 40px; font-size: 14px; border-radius: 10px; }
   .cdp-title { font-size: 18px; }
   .tab-content {

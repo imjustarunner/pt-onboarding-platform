@@ -63,12 +63,14 @@
         </button>
       </div>
 
+      <ClientDisplayModeToggle />
+
       <div class="cep-search-wrap">
         <span class="cep-search-icon" aria-hidden="true">⌕</span>
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search by type, concern, age, modality…"
+          placeholder="Search by age, teen, adult, concern, modality…"
           class="cep-search-input"
         />
         <button v-if="searchQuery" class="cep-search-clear" type="button" @click="searchQuery = ''">✕</button>
@@ -93,6 +95,8 @@
             :current-user-id="currentUserId"
             :is-backoffice="isBackoffice"
             :selected="selectedListingId === listing.id"
+            :client-label="listingClientLabel(listing)"
+            :compact="!!selectedListing"
             :requests="requestsByListing[listing.id] || []"
             :requests-loading="requestsLoadingId === listing.id"
             @select="selectListing(listing)"
@@ -117,6 +121,8 @@
             :current-user-id="currentUserId"
             :is-backoffice="isBackoffice"
             :selected="selectedListingId === listing.id"
+            :client-label="listingClientLabel(listing)"
+            :compact="!!selectedListing"
             :requests="requestsByListing[listing.id] || []"
             :requests-loading="requestsLoadingId === listing.id"
             @select="selectListing(listing)"
@@ -153,6 +159,8 @@
             :current-user-id="currentUserId"
             :is-backoffice="isBackoffice"
             :selected="selectedListingId === listing.id"
+            :client-label="listingClientLabel(listing)"
+            :compact="!!selectedListing"
             :requests="requestsByListing[listing.id] || []"
             :requests-loading="requestsLoadingId === listing.id"
             @select="selectListing(listing)"
@@ -169,10 +177,8 @@
               <span class="cep-status-badge" :class="`cep-status-${selectedListing.status}`">
                 {{ selectedListing.status }}
               </span>
-              <strong>{{ formatClientType(selectedListing.clientType) }}</strong>
-              <span v-if="selectedListing.clientIdentifier" class="cep-detail-code">
-                #{{ selectedListing.clientIdentifier }}
-              </span>
+              <strong class="cep-detail-client-label">{{ listingClientLabel(selectedListing) }}</strong>
+              <span class="cep-detail-type">{{ formatClientType(selectedListing.clientType) }}</span>
             </div>
             <p class="cep-detail-posted">Posted {{ formatDate(selectedListing.createdAt) }}</p>
           </div>
@@ -272,9 +278,17 @@
 import { computed, onMounted, ref, reactive } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import { useClientDisplayMode } from '../../composables/useClientDisplayMode';
+import {
+  buildExchangeListingSearchContext,
+  matchesQueueSearch
+} from '../../utils/clientQueueSearch.js';
 import api from '../../services/api';
 import ListingCard from './ListingCard.vue';
 import PostListingModal from './PostListingModal.vue';
+import ClientDisplayModeToggle from '../admin/ClientDisplayModeToggle.vue';
+
+const { getClientLabel } = useClientDisplayMode();
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -339,15 +353,22 @@ const currentTabList = computed(() => {
 
 const searchTokens = computed(() => String(searchQuery.value || '').toLowerCase().split(/\s+/).filter(Boolean));
 
+function listingClientLabel(listing) {
+  if (!listing) return '—';
+  return getClientLabel({
+    id: listing.clientId,
+    initials: listing.clientInitials,
+    identifierCode: listing.clientIdentifierCode || listing.clientIdentifier,
+  });
+}
+
 function matchSearch(listing) {
   if (!searchTokens.value.length) return true;
-  const hay = [
-    listing.clientType,
-    listing.notes,
-    listing.currentProviderName,
-    ...(listing.chips || [])
-  ].filter(Boolean).join(' ').toLowerCase();
-  return searchTokens.value.every((t) => hay.includes(t));
+  const ctx = buildExchangeListingSearchContext(listing);
+  return matchesQueueSearch(ctx.haystack, searchTokens.value, {
+    ageBands: ctx.ageBands,
+    numericAges: ctx.numericAges
+  });
 }
 
 const filteredOpen = computed(() => openListings.value.filter(matchSearch));
@@ -644,7 +665,7 @@ onMounted(load);
 }
 .cep-layout--split {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 200px 1fr;
   min-height: 500px;
 }
 @media (max-width: 900px) {
@@ -722,6 +743,15 @@ onMounted(load);
   gap: 0.4rem;
   flex-wrap: wrap;
   margin-bottom: 0.2rem;
+}
+.cep-detail-client-label {
+  font-size: 0.95rem;
+  color: var(--text, #111827);
+}
+.cep-detail-type {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #6b7280);
+  font-weight: 600;
 }
 .cep-detail-code {
   color: var(--text-secondary, #6b7280);
