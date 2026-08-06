@@ -74,6 +74,27 @@ async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId })
        LIMIT 1`,
       [orgId, uid]
     );
+    if (rows?.[0]) return true;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+
+  // 3. Any (inactive) provider_school_assignments row — schedule confirmed for a prior year.
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM provider_school_assignments psa
+       WHERE psa.school_organization_id = ?
+         AND psa.provider_user_id = ?
+       LIMIT 1`,
+      [orgId, uid]
+    );
     return !!rows?.[0];
   } catch (e) {
     const msg = String(e?.message || '');

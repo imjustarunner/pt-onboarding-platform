@@ -59,6 +59,8 @@ async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId })
   const uid = parseInt(providerUserId, 10);
   const orgId = parseInt(schoolOrganizationId, 10);
   if (!uid || !orgId) return false;
+
+  // 1. Active schedule row — the normal case.
   try {
     const [rows] = await pool.execute(
       `SELECT 1 FROM provider_school_assignments psa
@@ -71,7 +73,35 @@ async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId })
     const msg = String(e?.message || '');
     if (!msg.includes("doesn't exist") && !msg.includes('ER_NO_SUCH_TABLE')) throw e;
   }
-  return false;
+
+  // 2. Active client assignment at this school.
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM client_provider_assignments cpa
+       WHERE cpa.organization_id = ? AND cpa.provider_user_id = ? AND cpa.is_active = TRUE
+       LIMIT 1`,
+      [orgId, uid]
+    );
+    if (rows?.[0]) return true;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (!msg.includes("doesn't exist") && !msg.includes('ER_NO_SUCH_TABLE')) throw e;
+  }
+
+  // 3. Any (inactive) provider_school_assignments row — schedule confirmed for a prior year.
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 FROM provider_school_assignments psa
+       WHERE psa.school_organization_id = ? AND psa.provider_user_id = ?
+       LIMIT 1`,
+      [orgId, uid]
+    );
+    return !!rows?.[0];
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE')) return false;
+    throw e;
+  }
 }
 
 async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, user = null, schoolOrganizationId }) {

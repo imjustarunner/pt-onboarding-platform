@@ -28,15 +28,53 @@ async function loadCompanyEventForAgencyAccess(eventId, agencyId) {
   return rows?.[0] || null;
 }
 
-/** Active provider_school_assignments row for this school org (same rule as school portal). */
+/**
+ * Returns true when a provider has any association with the given school org.
+ * Primary check: active provider_school_assignments row (confirmed schedule).
+ * Fallback: active client_provider_assignments row (covers providers who were
+ * newly assigned / are taking over clients before their schedule row was
+ * reactivated, e.g. after a year rollover).  Also checks inactive
+ * provider_school_assignments as a last resort for those whose row exists but
+ * was temporarily deactivated.
+ */
 export async function providerHasSchoolAssignment({ providerUserId, schoolOrganizationId }) {
   const uid = parsePositiveInt(providerUserId);
   const orgId = parsePositiveInt(schoolOrganizationId);
   if (!uid || !orgId) return false;
+
+  // 1. Active schedule row — the normal case.
   try {
     const [rows] = await pool.execute(
       `SELECT 1 AS ok FROM provider_school_assignments psa
        WHERE psa.school_organization_id = ? AND psa.provider_user_id = ? AND psa.is_active = TRUE
+       LIMIT 1`,
+      [orgId, uid]
+    );
+    if (rows?.[0]?.ok) return true;
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+  }
+
+  // 2. Active client assignment at this school (provider is assigned to clients here even if their
+  //    schedule row is inactive/missing).
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 AS ok FROM client_provider_assignments cpa
+       WHERE cpa.organization_id = ? AND cpa.provider_user_id = ? AND cpa.is_active = TRUE
+       LIMIT 1`,
+      [orgId, uid]
+    );
+    if (rows?.[0]?.ok) return true;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (!msg.includes("doesn't exist") && e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+  }
+
+  // 3. Any (inactive) provider_school_assignments row — schedule was confirmed for a prior year.
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 AS ok FROM provider_school_assignments psa
+       WHERE psa.school_organization_id = ? AND psa.provider_user_id = ?
        LIMIT 1`,
       [orgId, uid]
     );
