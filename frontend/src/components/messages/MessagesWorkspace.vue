@@ -447,10 +447,10 @@
             </div>
           </div>
 
-          <div v-if="loading" class="loading">Loading…</div>
-          <div v-else-if="error" class="error">{{ error }}</div>
+          <div v-if="loading && !people.length" class="list-loading-strip" aria-label="Loading contacts" />
+          <div v-if="error" class="error">{{ error }}</div>
 
-          <div v-else class="lists">
+          <div v-if="!error" class="lists">
             <div v-if="pendingThreads.length > 0" class="section">
               <div class="section-title">Unread</div>
               <button
@@ -975,6 +975,7 @@
                 <div v-if="attachError" class="error">{{ attachError }}</div>
                 <div class="composer-wrap">
                   <textarea
+                    ref="textareaEl"
                     v-model="draft"
                     rows="2"
                     :placeholder="replyRoot ? 'Reply… (use @ to mention)' : 'Message… (use @ to mention)'"
@@ -996,16 +997,63 @@
                   </div>
                 </div>
                 <div class="composer-tools">
-                  <label class="attach-btn" :class="{ disabled: uploadingAttach || !activeThreadId }">
+                  <!-- Emoji picker -->
+                  <div class="emoji-picker-wrap">
+                    <button
+                      type="button"
+                      class="composer-icon-btn"
+                      :class="{ active: emojiPickerOpen }"
+                      title="Insert emoji"
+                      @click.stop="emojiPickerOpen = !emojiPickerOpen"
+                    >😊</button>
+                    <div v-if="emojiPickerOpen" class="emoji-picker" @click.stop>
+                      <div v-for="group in EMOJI_GRID" :key="group.label" class="emoji-group">
+                        <div class="emoji-group-label">{{ group.label }}</div>
+                        <div class="emoji-row">
+                          <button
+                            v-for="e in group.emojis"
+                            :key="e"
+                            type="button"
+                            class="emoji-btn"
+                            @click="insertEmoji(e)"
+                          >{{ e }}</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Photo / video attach -->
+                  <label
+                    class="composer-icon-btn"
+                    :class="{ disabled: uploadingAttach || !activeThreadId }"
+                    title="Attach photo or video"
+                  >
                     <input
-                      ref="fileInputEl"
+                      ref="photoInputEl"
                       type="file"
-                      accept="image/gif,image/png,image/jpeg,image/jpg,image/webp,video/mp4,video/webm,video/quicktime"
+                      accept="image/*,video/*"
+                      multiple
                       :disabled="uploadingAttach || !activeThreadId"
                       @change="onAttachFiles"
                     />
-                    {{ uploadingAttach ? 'Uploading…' : 'Attach' }}
+                    📷
                   </label>
+                  <!-- Any file attach -->
+                  <label
+                    class="composer-icon-btn"
+                    :class="{ disabled: uploadingAttach || !activeThreadId }"
+                    title="Attach file (PDF, doc, etc.)"
+                  >
+                    <input
+                      ref="anyFileInputEl"
+                      type="file"
+                      accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar"
+                      multiple
+                      :disabled="uploadingAttach || !activeThreadId"
+                      @change="onAttachFiles"
+                    />
+                    📎
+                  </label>
+                  <span v-if="uploadingAttach" class="uploading-label">Uploading…</span>
                 </div>
               </div>
               <button
@@ -1350,9 +1398,38 @@ const stagedAttachments = ref([]);
 const uploadingAttach = ref(false);
 const attachError = ref('');
 const fileInputEl = ref(null);
+const photoInputEl = ref(null);
+const anyFileInputEl = ref(null);
+const textareaEl = ref(null);
 const reactionPickerFor = ref(null);
+const emojiPickerOpen = ref(false);
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '🔥', '👏', '🙌', '💯', '⭐', '😎', '💪', '🚀'];
+
+const EMOJI_GRID = [
+  { label: 'Smileys', emojis: ['😊','😂','🥹','😍','🤩','😎','🥳','😅','😢','😡','🤔','🙄','🫠','🥰','😇','🤦'] },
+  { label: 'Gestures', emojis: ['👍','👎','👏','🙌','🤝','✌️','💪','🤜','🫶','🤞','🙏','🫡'] },
+  { label: 'Hearts', emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','❤️‍🔥','✅','💯'] },
+  { label: 'Celebration', emojis: ['🎉','🎊','🎈','🏆','🥂','🎯','🚀','🔥','⭐','💥','👑','💎'] }
+];
+
+function insertEmoji(emoji) {
+  if (!textareaEl.value) {
+    draft.value += emoji;
+    emojiPickerOpen.value = false;
+    return;
+  }
+  const el = textareaEl.value;
+  const start = el.selectionStart ?? draft.value.length;
+  const end = el.selectionEnd ?? draft.value.length;
+  draft.value = draft.value.slice(0, start) + emoji + draft.value.slice(end);
+  nextTick(() => {
+    el.focus();
+    const pos = start + [...emoji].length;
+    el.setSelectionRange(pos, pos);
+  });
+  emojiPickerOpen.value = false;
+}
 
 function isImageAttachment(a) {
   const kind = String(a?.file_kind || a?.kind || '').toLowerCase();
@@ -1900,7 +1977,7 @@ function mergePresencePeople(lists) {
 
 const loadPresence = async () => {
   try {
-    loading.value = true;
+    if (!people.value.length) loading.value = true;
     error.value = '';
     if (adminsAllMode.value) {
       const resp = await api.get('/presence/admins', { skipGlobalLoading: true });
@@ -3293,8 +3370,11 @@ watch(
 );
 
 function onDocClickClosePickers(e) {
-  if (reactionPickerFor.value == null) return;
   const el = e?.target;
+  if (emojiPickerOpen.value) {
+    if (!el || !el.closest?.('.emoji-picker-wrap')) emojiPickerOpen.value = false;
+  }
+  if (reactionPickerFor.value == null) return;
   if (el && typeof el.closest === 'function' && el.closest('.rx-add-wrap')) return;
   reactionPickerFor.value = null;
 }
@@ -3940,6 +4020,88 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
+/* Modern icon buttons replacing the old Attach label */
+.composer-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+  transition: background 120ms;
+  color: inherit;
+}
+.composer-icon-btn:hover,
+.composer-icon-btn.active {
+  background: var(--border, #e2e8f0);
+}
+.composer-icon-btn.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.composer-icon-btn input {
+  display: none;
+}
+.uploading-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* Emoji picker */
+.emoji-picker-wrap {
+  position: relative;
+}
+.emoji-picker {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 120;
+  background: #fff;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.14);
+  padding: 10px;
+  width: 272px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.emoji-group { margin-bottom: 8px; }
+.emoji-group:last-child { margin-bottom: 0; }
+.emoji-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+.emoji-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.emoji-btn {
+  border: none;
+  background: none;
+  font-size: 20px;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 100ms;
+}
+.emoji-btn:hover { background: var(--border, #f1f5f9); }
+
 .filter-chips {
   display: flex;
   gap: 6px;
@@ -4360,6 +4522,17 @@ onUnmounted(() => {
 }
 
 .loading { color: var(--text-secondary); }
+.list-loading-strip {
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, var(--primary, #0d9488) 40%, var(--primary, #0d9488) 60%, transparent 100%);
+  background-size: 200% 100%;
+  animation: list-load-slide 1.4s ease-in-out infinite;
+  border-radius: 2px;
+}
+@keyframes list-load-slide {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 .error { color: #b91c1c; font-size: 13px; }
 .empty { color: var(--text-secondary); padding: 10px 2px; }
 
@@ -4478,5 +4651,17 @@ onUnmounted(() => {
 .messages-workspace.theme-platform .status-menu-item.active {
   background: rgba(139, 92, 246, 0.16);
   color: #e5e7eb;
+}
+.messages-workspace.theme-platform .emoji-picker {
+  background: #1e293b;
+  border-color: rgba(148, 163, 184, 0.18);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+.messages-workspace.theme-platform .emoji-btn:hover {
+  background: rgba(148, 163, 184, 0.14);
+}
+.messages-workspace.theme-platform .composer-icon-btn:hover,
+.messages-workspace.theme-platform .composer-icon-btn.active {
+  background: rgba(148, 163, 184, 0.14);
 }
 </style>
