@@ -1,4 +1,5 @@
 import ActivityLogService from '../services/activityLog.service.js';
+import pool from '../config/database.js';
 import { runAgentAssist, safeParseAgentJson } from '../services/agents/agentRuntime.service.js';
 import { executeToolCall, getToolSchemasForUser } from '../services/agents/toolRegistry.service.js';
 import {
@@ -44,6 +45,21 @@ function formatAssistEventTimeRange(startAt, endAt, allDay) {
   const end = formatAssistTimeHm(endAt);
   if (start && end) return `${start}–${end}`;
   return start || end || '';
+}
+
+async function resolveAssistAgencyTimezone(agencyId) {
+  const id = Number(agencyId || 0);
+  if (!id) return 'America/Denver';
+  try {
+    const [rows] = await pool.execute(
+      `SELECT COALESCE(NULLIF(TRIM(timezone), ''), 'America/Denver') AS tz
+       FROM agencies WHERE id = ? LIMIT 1`,
+      [id]
+    );
+    return String(rows?.[0]?.tz || 'America/Denver').trim() || 'America/Denver';
+  } catch {
+    return 'America/Denver';
+  }
 }
 
 function askAssistantAllowsVertex() {
@@ -362,7 +378,7 @@ function tryDisambiguationFollowUp(prompt, history) {
  *
  * Returns null when the prompt is genuinely conversational and needs an LLM.
  */
-async function detectExplicitIntent({ prompt, allowedToolNames, context, forceCapabilityId }) {
+async function detectExplicitIntent({ prompt, allowedToolNames, context, forceCapabilityId, agencyTimezone }) {
   const lower = String(prompt || '').toLowerCase().trim();
   if (!lower) return null;
 
@@ -376,11 +392,12 @@ async function detectExplicitIntent({ prompt, allowedToolNames, context, forceCa
   // Capability-catalog fast path: high-frequency deterministic asks are
   // matched from a single shared registry used by both backend and frontend.
   const capabilityIntent = await matchDeterministicCapabilityIntent({
-    prompt: lower,
+    prompt,
     allowedToolNames,
     forceCapabilityId,
     placementKey: context?.placementKey,
-    routeName: context?.routeName
+    routeName: context?.routeName,
+    agencyTimezone
   });
   if (capabilityIntent) return capabilityIntent;
 
@@ -1047,11 +1064,20 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
       const subtitle = `${e.kind || 'EVENT'} · ${time}${e.active ? ' · active now' : ''}`;
       const isMeeting = e.kind === 'TEAM_MEETING' || e.kind === 'HUDDLE';
       const startHm = formatAssistTimeHm(e.startAt);
+      const isOfficeSession = e.source === 'office_event' || e.kind === 'OFFICE_SESSION';
       pushCard({
         kind: 'event',
         title: safeTitle(e.title, e.kind || 'Event'),
         subtitle,
-        actions: [
+        actions: isOfficeSession
+          ? (allowedToolNames.has('navigateTo')
+            ? [{
+                type: 'tool',
+                label: 'Open schedule',
+                toolCall: { name: 'navigateTo', args: { routeName: 'Schedule' } }
+              }]
+            : [])
+          : [
           {
             type: 'tool',
             label: isMeeting ? 'Join meeting' : 'Open',
@@ -2464,11 +2490,13 @@ export const assist = async (req, res, next) => {
     }
 
     // 2. Explicit entity search / navigation intent.
+    const agencyTimezone = await resolveAssistAgencyTimezone(agencyContextId);
     const explicit = await detectExplicitIntent({
       prompt,
       allowedToolNames,
       context,
-      forceCapabilityId
+      forceCapabilityId,
+      agencyTimezone
     });
     if (explicit?.followUpAgencyResearch) {
       try {

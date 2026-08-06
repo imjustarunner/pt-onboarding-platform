@@ -22,6 +22,7 @@ import {
   SEMANTIC_MIN_SCORE,
   SEMANTIC_MARGIN
 } from './assistantCapabilitySemanticRouter.service.js';
+import { utcDateToZonedYmd } from '../../utils/zonedWallTime.util.js';
 import {
   looksLikeMyComplianceQuestion,
   parseAgencyComplianceFilterFromPrompt
@@ -54,21 +55,24 @@ function roleAudience(role) {
   return 'general';
 }
 
-function parseDateHintFromPrompt(promptLower) {
+function parseDateHintFromPrompt(promptLower, timeZone = 'America/Denver') {
   const s = String(promptLower || '').toLowerCase();
+  const tz = String(timeZone || 'America/Denver').trim() || 'America/Denver';
   const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayYmd = utcDateToZonedYmd(now, tz);
 
-  if (/\btoday\b/.test(s)) return startOfDay.toISOString().slice(0, 10);
+  if (/\btoday\b/.test(s)) return todayYmd;
   if (/\btomorrow\b/.test(s)) {
-    const t = new Date(startOfDay);
-    t.setDate(t.getDate() + 1);
-    return t.toISOString().slice(0, 10);
+    const [y, m, d] = todayYmd.split('-').map(Number);
+    const base = new Date(Date.UTC(y, m - 1, d));
+    base.setUTCDate(base.getUTCDate() + 1);
+    return utcDateToZonedYmd(base, tz);
   }
   if (/\byesterday\b/.test(s)) {
-    const t = new Date(startOfDay);
-    t.setDate(t.getDate() - 1);
-    return t.toISOString().slice(0, 10);
+    const [y, m, d] = todayYmd.split('-').map(Number);
+    const base = new Date(Date.UTC(y, m - 1, d));
+    base.setUTCDate(base.getUTCDate() - 1);
+    return utcDateToZonedYmd(base, tz);
   }
   const iso = s.match(/\b(\d{4}-\d{2}-\d{2})\b/);
   if (iso) return iso[1];
@@ -588,11 +592,17 @@ export async function matchSemanticCapabilityIntent({
   callGemini,
   placementKey,
   routeName,
-  mentionCtx = null
+  mentionCtx = null,
+  agencyTimezone = 'America/Denver'
 } = {}) {
   const lower = String(prompt || '').toLowerCase().trim();
   if (!lower) return null;
   if (looksLikeServiceCodeQuery(lower) || extractServiceCodes(lower).length) return null;
+
+  const scheduleCtx = {
+    mentionCtx,
+    agencyTimezone: String(agencyTimezone || 'America/Denver').trim() || 'America/Denver'
+  };
 
   if (
     allowedToolNames?.has?.('lookupPersonActivity') &&
@@ -600,7 +610,7 @@ export async function matchSemanticCapabilityIntent({
   ) {
     const entry = catalogEntries().find((e) => e.id === 'person_activity_lookup');
     if (entry && isToolEligibleEntry(entry, allowedToolNames)) {
-      const intent = entry.buildIntent(lower, allowedToolNames, mentionCtx);
+      const intent = entry.buildIntent(lower, allowedToolNames, scheduleCtx);
       if (intent) return intent;
     }
   }
@@ -738,11 +748,16 @@ export async function matchDeterministicCapabilityIntent({
   callGemini,
   forceCapabilityId,
   placementKey,
-  routeName
+  routeName,
+  agencyTimezone
 } = {}) {
   const mentionCtx = normalizeAssistantPersonMentions(prompt);
   const lower = String(mentionCtx.text || '').toLowerCase().trim();
   if (!lower) return null;
+  const scheduleCtx = {
+    mentionCtx,
+    agencyTimezone: String(agencyTimezone || 'America/Denver').trim() || 'America/Denver'
+  };
 
   const forcedId = String(forceCapabilityId || '').trim();
   if (forcedId) {
@@ -787,9 +802,9 @@ export async function matchDeterministicCapabilityIntent({
     if (Array.isArray(entry.requiredToolsAll) && !canUseAll(entry.requiredToolsAll, allowedToolNames)) continue;
     if (Array.isArray(entry.requiredToolsAny) && !canUseAny(entry.requiredToolsAny, allowedToolNames)) continue;
     if (typeof entry.matcher !== 'function') continue;
-    if (!entry.matcher(lower, allowedToolNames, mentionCtx)) continue;
+    if (!entry.matcher(lower, allowedToolNames, scheduleCtx)) continue;
     if (typeof entry.buildIntent !== 'function') return null;
-    const intent = entry.buildIntent(lower, allowedToolNames, mentionCtx);
+    const intent = entry.buildIntent(lower, allowedToolNames, scheduleCtx);
     if (intent) return intent;
   }
   // Semantic catalog routing for read/nav capabilities only.
@@ -799,7 +814,8 @@ export async function matchDeterministicCapabilityIntent({
     callGemini,
     placementKey,
     routeName,
-    mentionCtx
+    mentionCtx,
+    agencyTimezone: scheduleCtx.agencyTimezone
   });
 }
 
@@ -925,9 +941,9 @@ function catalogEntries() {
         "what's on my agenda",
         'whats on my schedule today'
       ],
-      matcher: (lower, allowedTools, mentionCtx) => {
+      matcher: (lower, allowedTools, scheduleCtx) => {
         if (!allowedTools.has('openTodaysWorkspace')) return false;
-        if (parsePersonActivityQueryFromPrompt(lower, mentionCtx)) return false;
+        if (parsePersonActivityQueryFromPrompt(lower, scheduleCtx?.mentionCtx)) return false;
         if (allowedTools.has('navigateTo') && /\b(open|go to|take me to|navigate)\b/.test(lower)) {
           const routeName = resolveNavigateRouteNameFromPrompt(lower);
           if (['Schedule', 'MyPayroll', 'Credentials', 'MyCompensation', 'MyBenefits'].includes(routeName)) {
@@ -945,7 +961,7 @@ function catalogEntries() {
           /\b(what|whats|what's|show|open|list)\b/.test(lower) &&
           /\b(my\s+)?(day|agenda|schedule|calendar|workspace)\b/.test(lower)
         ) {
-          if (parsePersonActivityQueryFromPrompt(lower, mentionCtx)) return false;
+          if (parsePersonActivityQueryFromPrompt(lower, scheduleCtx?.mentionCtx)) return false;
           if (/\b(on\s+)?[a-z][a-z'.-]+\s+.*\bschedule\b/.test(lower) && !/\bmy\b/.test(lower)) return false;
           return true;
         }
@@ -957,9 +973,10 @@ function catalogEntries() {
           (/\bopen.*today/.test(lower) && /\b(events?|sessions?|meetings?)\b/.test(lower))
         );
       },
-      buildIntent: (lower) => {
-        const dateHint = parseDateHintFromPrompt(lower);
-        const today = new Date().toISOString().slice(0, 10);
+      buildIntent: (lower, _allowedTools, scheduleCtx) => {
+        const tz = scheduleCtx?.agencyTimezone || 'America/Denver';
+        const dateHint = parseDateHintFromPrompt(lower, tz);
+        const today = utcDateToZonedYmd(new Date(), tz);
         const activeOnly = /\b(now|right now|currently|active)\b/.test(lower);
         return {
           intent: 'todays_workspace',
@@ -1143,17 +1160,18 @@ function catalogEntries() {
         'halle brimm schedule today',
         '@halle brimm schedule today'
       ],
-      matcher: (lower, allowedTools, mentionCtx) => {
+      matcher: (lower, allowedTools, scheduleCtx) => {
         if (!allowedTools.has('lookupPersonActivity')) return false;
-        return Boolean(parsePersonActivityQueryFromPrompt(lower, mentionCtx));
+        return Boolean(parsePersonActivityQueryFromPrompt(lower, scheduleCtx?.mentionCtx));
       },
-      buildIntent: (lower, _allowedTools, mentionCtx) => {
-        const name = parsePersonActivityQueryFromPrompt(lower, mentionCtx);
+      buildIntent: (lower, _allowedTools, scheduleCtx) => {
+        const name = parsePersonActivityQueryFromPrompt(lower, scheduleCtx?.mentionCtx);
         if (!name) return null;
-        const dateHint = parseDateHintFromPrompt(lower);
-        const today = new Date().toISOString().slice(0, 10);
+        const tz = scheduleCtx?.agencyTimezone || 'America/Denver';
+        const dateHint = parseDateHintFromPrompt(lower, tz);
+        const today = utcDateToZonedYmd(new Date(), tz);
         const activeOnly = /\b(now|right now|currently|active)\b/.test(lower);
-        const mentions = mentionCtx?.mentions || [];
+        const mentions = scheduleCtx?.mentionCtx?.mentions || [];
         const args = { query: name, dateYmd: dateHint || today, activeOnly };
         if (mentions.length === 1 && mentions[0]?.userId) {
           args.userId = Number(mentions[0].userId);

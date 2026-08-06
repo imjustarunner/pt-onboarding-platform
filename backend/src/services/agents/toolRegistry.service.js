@@ -22,6 +22,32 @@ import auditActionRegistry from '../../config/auditActionRegistry.js';
 import { getUserCapabilities } from '../../utils/capabilities.js';
 import { searchTrainingKnowledgeBase } from '../trainingKnowledgeBase.service.js';
 import { listTeamPresenceForAssist } from './teamPresenceAssist.service.js';
+import { localDayUtcBounds, resolveOfficeTimeZone } from '../../utils/officeEventDateTime.util.js';
+import { utcDateToZonedYmd } from '../../utils/zonedWallTime.util.js';
+import OfficeScheduleMaterializer from '../officeScheduleMaterializer.service.js';
+
+function mysqlUtcToIso(value) {
+  if (value == null || value === '') return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const d = new Date(raw.includes('T') ? raw : `${raw.replace(' ', 'T')}Z`);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : raw;
+}
+
+async function resolveAgencyTimezoneForAssist(agencyId) {
+  const id = Number(agencyId || 0);
+  if (!id) return 'America/Denver';
+  try {
+    const [rows] = await pool.execute(
+      `SELECT COALESCE(NULLIF(TRIM(timezone), ''), 'America/Denver') AS tz
+       FROM agencies WHERE id = ? LIMIT 1`,
+      [id]
+    );
+    return resolveOfficeTimeZone(rows?.[0]?.tz);
+  } catch {
+    return 'America/Denver';
+  }
+}
 
 function str(v, maxLen = 2000) {
   const s = String(v ?? '').trim();
@@ -3826,7 +3852,11 @@ export async function executeToolCall({ req, toolCall }) {
     const agencyId = currentAgencyId(req);
     if (!agencyId) noAgencyContextError();
 
-    const dateYmd = str(args.dateYmd || new Date().toISOString().slice(0, 10), 10);
+    const agencyTz = await resolveAgencyTimezoneForAssist(agencyId);
+    const dateYmd = str(
+      args.dateYmd || utcDateToZonedYmd(new Date(), agencyTz),
+      10
+    );
     const activeOnly = args.activeOnly === true;
     const explicitUserId = intOrNull(args.userId);
     const query = str(args.query, 200);
@@ -3957,44 +3987,140 @@ export async function executeToolCall({ req, toolCall }) {
       };
     }
 
-    const dayStart = `${dateYmd} 00:00:00`;
-    const dayEnd = `${dateYmd} 23:59:59`;
+    const dayBounds = localDayUtcBounds(dateYmd, agencyTz);
+    const windowStart = dayBounds?.startAt || `${dateYmd} 00:00:00`;
+    const windowEnd = dayBounds?.endAt || `${dateYmd} 23:59:59`;
+    const providerId = targetUser.id;
+
+    // Best-effort materialize office week so sessions exist for this day.
+    try {
+      const [officeLocRows] = await pool.execute(
+        `SELECT DISTINCT osa.office_location_id
+         FROM office_standing_assignments osa
+         JOIN office_location_agencies ola ON ola.office_location_id = osa.office_location_id
+         WHERE osa.provider_id = ? AND osa.is_active = TRUE AND ola.agency_id = ?`,
+        [providerId, agencyId]
+      );
+      const mondayAnchor = OfficeScheduleMaterializer.startOfWeekMonday(dateYmd) || dateYmd;
+      for (const row of officeLocRows || []) {
+        const officeLocationId = Number(row.office_location_id || 0);
+        if (!officeLocationId) continue;
+        await OfficeScheduleMaterializer.materializeWeek({
+          officeLocationId,
+          weekStartRaw: mondayAnchor,
+          createdByUserId: req.user?.id,
+          useExactWeekStart: true,
+          force: false
+        }).catch(() => null);
+      }
+    } catch {
+      /* optional */
+    }
+
     let rows = [];
     try {
       rows = await ProviderScheduleEvent.listForUserInWindow({
         agencyId,
-        providerId: targetUser.id,
-        windowStart: dayStart,
-        windowEnd: dayEnd
+        providerId,
+        windowStart,
+        windowEnd
       });
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    let officeRows = [];
+    try {
+      const [officeRs] = await pool.execute(
+        `SELECT e.id,
+                e.start_at,
+                e.end_at,
+                e.status,
+                e.slot_state,
+                ol.name AS building_name,
+                r.label AS room_label,
+                r.name AS room_name,
+                r.room_number
+         FROM office_events e
+         JOIN office_rooms r ON r.id = e.room_id
+         JOIN office_locations ol ON ol.id = e.office_location_id
+         JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id = ?
+         WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
+           AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+           AND e.start_at < ?
+           AND e.end_at > ?
+         ORDER BY e.start_at ASC`,
+        [agencyId, providerId, providerId, windowEnd, windowStart]
+      );
+      officeRows = officeRs || [];
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
 
     const now = new Date();
     const inHalfHour = new Date(now.getTime() + 30 * 60 * 1000);
-    const isActive = (r) => {
-      if (Number(r.all_day) === 1) return true;
-      const startMs = r.start_at ? new Date(r.start_at).getTime() : 0;
-      const endMs = r.end_at ? new Date(r.end_at).getTime() : 0;
+    const isActiveInstant = (startAt, endAt, allDay = false) => {
+      if (allDay) return true;
+      const startMs = startAt ? new Date(startAt).getTime() : 0;
+      const endMs = endAt ? new Date(endAt).getTime() : 0;
       return endMs > now.getTime() && startMs < inHalfHour.getTime();
     };
-    const filtered = activeOnly ? rows.filter(isActive) : rows;
+    const isActiveProviderRow = (r) => {
+      if (Number(r.all_day) === 1) return true;
+      return isActiveInstant(r.start_at, r.end_at, false);
+    };
 
-    const events = filtered.map((r) => {
+    const providerEvents = (activeOnly ? rows.filter(isActiveProviderRow) : rows).map((r) => {
       const kind = String(r.kind || '').toUpperCase();
       const isMeeting = kind === 'TEAM_MEETING' || kind === 'HUDDLE';
       const joinPath = isMeeting ? `/join/team-meeting/${Number(r.id)}` : '/schedule';
+      const startIso = mysqlUtcToIso(r.start_at);
+      const endIso = mysqlUtcToIso(r.end_at);
       return {
         id: Number(r.id),
         kind,
         title: r.title,
-        startAt: r.start_at,
-        endAt: r.end_at,
+        startAt: startIso || r.start_at,
+        endAt: endIso || r.end_at,
         allDay: Number(r.all_day) === 1,
-        active: isActive(r),
-        joinPath
+        active: isActiveProviderRow(r),
+        joinPath,
+        source: 'provider_schedule_event'
       };
+    });
+
+    const officeEvents = officeRows.map((r) => {
+      const roomLabel = String(r.room_label || r.room_name || '').trim();
+      const roomNumber = String(r.room_number || '').trim();
+      const roomBits = [roomLabel, roomNumber].filter(Boolean);
+      const roomDisplay = roomBits.join(' ') || roomLabel;
+      const title = roomDisplay ? `Session · ${roomDisplay}` : 'Session';
+      const startIso = mysqlUtcToIso(r.start_at);
+      const endIso = mysqlUtcToIso(r.end_at);
+      const active = isActiveInstant(startIso || r.start_at, endIso || r.end_at, false);
+      const status = String(r.status || '').trim().toUpperCase();
+      const slotState = String(r.slot_state || '').trim().toUpperCase();
+      return {
+        id: Number(r.id),
+        kind: 'OFFICE_SESSION',
+        title,
+        startAt: startIso || r.start_at,
+        endAt: endIso || r.end_at,
+        allDay: false,
+        active,
+        joinPath: '/schedule',
+        source: 'office_event',
+        buildingName: r.building_name || null,
+        displayStatus: status === 'BOOKED' ? 'BOOKED' : slotState || status || null
+      };
+    });
+
+    let events = [...providerEvents, ...officeEvents];
+    if (activeOnly) events = events.filter((e) => e.active);
+    events.sort((a, b) => {
+      const am = new Date(a.startAt || 0).getTime();
+      const bm = new Date(b.startAt || 0).getTime();
+      return am - bm;
     });
 
     let presence = null;
@@ -4040,19 +4166,24 @@ export async function executeToolCall({ req, toolCall }) {
     requireAuthed(req);
     const actorId = Number(req.user?.id || 0);
     const agencyId = currentAgencyId(req); // may be null for super_admin without ctx
-    const dateYmd = str(args.dateYmd || new Date().toISOString().slice(0, 10), 10);
+    const agencyTz = await resolveAgencyTimezoneForAssist(agencyId);
+    const dateYmd = str(
+      args.dateYmd || utcDateToZonedYmd(new Date(), agencyTz),
+      10
+    );
     const activeOnly = args.activeOnly === true;
 
-    const dayStart = `${dateYmd} 00:00:00`;
-    const dayEnd = `${dateYmd} 23:59:59`;
+    const dayBounds = localDayUtcBounds(dateYmd, agencyTz);
+    const windowStart = dayBounds?.startAt || `${dateYmd} 00:00:00`;
+    const windowEnd = dayBounds?.endAt || `${dateYmd} 23:59:59`;
 
     let rows = [];
     try {
       rows = await ProviderScheduleEvent.listForUserInWindow({
         agencyId: agencyId || 0,
         providerId: actorId,
-        windowStart: dayStart,
-        windowEnd: dayEnd
+        windowStart,
+        windowEnd
       });
     } catch (e) {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
@@ -4076,12 +4207,14 @@ export async function executeToolCall({ req, toolCall }) {
       const kind = String(r.kind || '').toUpperCase();
       const isMeeting = kind === 'TEAM_MEETING' || kind === 'HUDDLE';
       const joinPath = isMeeting ? `/join/team-meeting/${Number(r.id)}` : '/schedule';
+      const startIso = mysqlUtcToIso(r.start_at);
+      const endIso = mysqlUtcToIso(r.end_at);
       return {
         id: Number(r.id),
         kind,
         title: r.title,
-        startAt: r.start_at,
-        endAt: r.end_at,
+        startAt: startIso || r.start_at,
+        endAt: endIso || r.end_at,
         allDay: Number(r.all_day) === 1,
         active: isActive(r),
         joinPath,
