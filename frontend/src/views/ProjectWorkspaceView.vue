@@ -35,7 +35,7 @@
         @click="tab = t.id"
       >
         {{ t.label }}
-        <span v-if="t.id === 'tasks' && tasks.length" class="tab-count">{{ tasks.length }}</span>
+        <span v-if="tabCount(t.id)" class="tab-count">{{ tabCount(t.id) }}</span>
       </button>
     </nav>
 
@@ -1060,6 +1060,17 @@ const filteredAvailableLists = computed(() => {
 // ── Helpers ──
 function initials(m) {
   return `${(m.first_name || '?')[0]}${(m.last_name || '')[0] || ''}`.toUpperCase();
+}
+
+function tabCount(tabId) {
+  switch (tabId) {
+    case 'tasks':      return tasks.value?.length || 0;
+    case 'lists':      return (overview.value?.lists || []).length || 0;
+    case 'documents':  return overview.value?.document_count || 0;
+    case 'activity':   return (activity.value || []).length || 0;
+    case 'whiteboard': return (whiteboards.value || []).length || 0;
+    default:           return 0;
+  }
 }
 
 function userInitials(u) {
