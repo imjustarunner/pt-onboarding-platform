@@ -47,7 +47,7 @@
         <div v-if="tab === 'overview'" class="ov">
           <!-- Row 1: KPI cards + Quick action cards — one row, never wraps -->
           <div class="ov-kpis">
-            <!-- Progress -->
+            <!-- Progress (no nav, stays on overview) -->
             <div class="ov-kpi ov-kpi--progress">
               <div class="ov-kpi__body">
                 <span class="ov-kpi__label">Overall Progress</span>
@@ -60,8 +60,8 @@
                 <polyline :points="sparkPoints" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </div>
-            <!-- Tasks -->
-            <div class="ov-kpi">
+            <!-- Tasks → navigates to Tasks tab -->
+            <button type="button" class="ov-kpi ov-kpi--btn" @click="tab = 'tasks'">
               <span class="ov-kpi__icon" style="color:#3b82f6;background:#eff6ff">
                 <svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
               </span>
@@ -70,9 +70,20 @@
                 <span class="ov-kpi__value">{{ overview?.total_task_count || 0 }}</span>
                 <span class="ov-kpi__sub muted">{{ overview?.open_task_count || 0 }} open</span>
               </div>
-            </div>
-            <!-- Action Items -->
-            <div class="ov-kpi">
+            </button>
+            <!-- Lists → navigates to Lists tab -->
+            <button type="button" class="ov-kpi ov-kpi--btn" @click="tab = 'lists'">
+              <span class="ov-kpi__icon" style="color:#16a34a;background:#dcfce7">
+                <svg viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><polyline points="16 6 12 2 8 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="2" x2="12" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              </span>
+              <div class="ov-kpi__body">
+                <span class="ov-kpi__label">Shared Lists</span>
+                <span class="ov-kpi__value">{{ (overview?.lists || []).length }}</span>
+                <span class="ov-kpi__sub muted">Click to view</span>
+              </div>
+            </button>
+            <!-- Action Items → navigates to Tasks tab -->
+            <button type="button" class="ov-kpi ov-kpi--btn" @click="tab = 'tasks'">
               <span class="ov-kpi__icon" :style="{ color: (overview?.open_action_item_count||0)>5?'#f97316':'#8b5cf6', background: (overview?.open_action_item_count||0)>5?'#fff7ed':'#f5f3ff' }">
                 <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><line x1="12" y1="9" x2="12" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
               </span>
@@ -83,8 +94,8 @@
                   {{ (overview?.open_action_item_count||0)>5?'Needs attention':'On track' }}
                 </span>
               </div>
-            </div>
-            <!-- Team Members -->
+            </button>
+            <!-- Team Members → no dedicated tab, just a visual card -->
             <div class="ov-kpi">
               <span class="ov-kpi__icon" style="color:#14b8a6;background:#f0fdfa">
                 <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2" fill="none"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
@@ -95,8 +106,8 @@
                 <span class="ov-kpi__sub muted">Active</span>
               </div>
             </div>
-            <!-- Documents -->
-            <div class="ov-kpi">
+            <!-- Documents → navigates to Documents tab -->
+            <button type="button" class="ov-kpi ov-kpi--btn" @click="tab = 'documents'">
               <span class="ov-kpi__icon" style="color:#ec4899;background:#fdf2f8">
                 <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><polyline points="14 2 14 8 20 8" stroke="currentColor" stroke-width="2" fill="none"/></svg>
               </span>
@@ -105,7 +116,29 @@
                 <span class="ov-kpi__value">{{ overview?.document_count || 0 }}</span>
                 <span class="ov-kpi__sub muted">Linked</span>
               </div>
-            </div>
+            </button>
+            <!-- Activity → navigates to Activity tab -->
+            <button type="button" class="ov-kpi ov-kpi--btn" @click="tab = 'activity'">
+              <span class="ov-kpi__icon" style="color:#f59e0b;background:#fffbeb">
+                <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <div class="ov-kpi__body">
+                <span class="ov-kpi__label">Activity</span>
+                <span class="ov-kpi__value">{{ (activity || []).length }}</span>
+                <span class="ov-kpi__sub muted">Recent events</span>
+              </div>
+            </button>
+            <!-- Whiteboards → navigates to Whiteboard tab -->
+            <button type="button" class="ov-kpi ov-kpi--btn" @click="tab = 'whiteboard'">
+              <span class="ov-kpi__icon" style="color:#ef4444;background:#fef2f2">
+                <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><line x1="8" y1="21" x2="16" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="17" x2="12" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              </span>
+              <div class="ov-kpi__body">
+                <span class="ov-kpi__label">Whiteboards</span>
+                <span class="ov-kpi__value">{{ (whiteboards || []).length }}</span>
+                <span class="ov-kpi__sub muted">Canvases</span>
+              </div>
+            </button>
 
             <!-- Divider -->
             <div class="ov-kpis-div" />
@@ -1237,11 +1270,11 @@ async function load() {
     overview.value = data?.overview || null;
     tasks.value = Array.isArray(tasksRes.data) ? tasksRes.data : [];
 
-    // Default all groups to open
+    // Default all groups to collapsed
     const groups = {};
     for (const t of tasks.value) {
       const key = t.task_list_id ? String(t.task_list_id) : '__none__';
-      groups[key] = true;
+      if (!(key in groups)) groups[key] = false;
     }
     expandedGroups.value = groups;
 
@@ -1477,7 +1510,21 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
   flex: 1 1 0;
   min-width: 0;
   min-height: 68px;
+  text-align: left;
+  font: inherit;
 }
+
+/* Clickable KPI cards */
+.ov-kpi--btn {
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+}
+.ov-kpi--btn:hover {
+  border-color: #93c5fd;
+  box-shadow: 0 4px 12px rgba(59,130,246,.12);
+  transform: translateY(-1px);
+}
+.ov-kpi--btn:active { transform: translateY(0); }
 
 .ov-kpi--progress {
   flex: 1.4 1 0;
