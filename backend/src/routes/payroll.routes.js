@@ -226,6 +226,9 @@ import {
   getUserLogTimeDuties,
   putUserLogTimeDuties,
   getUsersAssignedToType,
+  assignUserToServiceType,
+  unassignUserFromServiceType,
+  bulkAssignServiceType,
   getMyIndirectTimeSession,
   clockInIndirectTime,
   breakIndirectTime,
@@ -337,6 +340,9 @@ router.get('/me/time-claims', listMyTimeClaims);
 router.get('/me/indirect-service-types', listMyIndirectServiceTypes);
 router.get('/indirect-service-types', listIndirectServiceTypes);
 router.get('/indirect-service-types/assigned-users', getUsersAssignedToType);
+router.post('/indirect-service-types/:typeId/assign', assignUserToServiceType);
+router.delete('/indirect-service-types/:typeId/assign/:userId', unassignUserFromServiceType);
+router.post('/indirect-service-types/:typeId/assign-bulk', bulkAssignServiceType);
 router.post('/indirect-service-types', createIndirectServiceType);
 router.patch('/indirect-service-types/:id', updateIndirectServiceType);
 router.delete('/indirect-service-types/:id', deleteIndirectServiceType);

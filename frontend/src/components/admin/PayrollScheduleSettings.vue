@@ -333,8 +333,11 @@
                           <template v-if="typeAssignData[t.id]?.isSupervisionBucket">
                             Supervisors in this agency are listed below. Adding anyone here saves them to a custom list for this type.
                           </template>
+                          <template v-else-if="typeAssignData[t.id]?.assignedUsers?.length">
+                            This type is currently <strong>restricted</strong> to the people listed below — everyone else will not see it, even though it's active.
+                          </template>
                           <template v-else>
-                            By default everyone sees all active types. Adding anyone here creates a custom list — only those people will see this type.
+                            By default, everyone sees all active types. Adding anyone here (individually or via an "Add all …" group button) restricts this type — only those listed will see it.
                           </template>
                         </span>
                       </div>
@@ -342,10 +345,40 @@
                       <div v-if="typeAssignLoading[t.id]" class="muted" style="padding:8px 0;">Loading…</div>
                       <div v-else-if="typeAssignError[t.id]" class="warn">{{ typeAssignError[t.id] }}</div>
                       <template v-else>
+                        <!-- Bulk group assignment -->
+                        <div class="type-assign-bulk">
+                          <button
+                            v-for="g in ASSIGNMENT_GROUP_OPTIONS"
+                            :key="g.key"
+                            type="button"
+                            class="btn btn-secondary btn-sm"
+                            :disabled="!!typeAssignBulkBusy[t.id] || typeAssignSaving[t.id]"
+                            @click="bulkAssignGroup(t.id, g.key)"
+                          >
+                            {{ typeAssignBulkBusy[t.id] === g.key ? 'Adding…' : g.label }}
+                          </button>
+                        </div>
+
+                        <!-- Search + sort for the already-assigned list -->
+                        <div v-if="typeAssignData[t.id]?.assignedUsers?.length > 1" class="type-assign-list-controls">
+                          <input
+                            v-model="typeAssignListSearch[t.id]"
+                            type="text"
+                            class="filters-input"
+                            style="max-width:200px;"
+                            placeholder="Search assigned people…"
+                          />
+                          <select v-model="typeAssignListSort[t.id]" class="filters-input" style="max-width:170px;">
+                            <option value="name_asc">Name (A–Z)</option>
+                            <option value="name_desc">Name (Z–A)</option>
+                            <option value="recent">Recently added</option>
+                          </select>
+                        </div>
+
                         <!-- Current assignments for this type -->
                         <div v-if="typeAssignData[t.id]?.assignedUsers?.length" class="type-assign-list">
                           <div
-                            v-for="u in typeAssignData[t.id].assignedUsers"
+                            v-for="u in visibleAssignedUsers(t.id)"
                             :key="u.userId"
                             class="type-assign-person"
                             :class="{ 'type-assign-person--suggested': u.isSuggested }"
@@ -1319,33 +1352,16 @@ const filterTypeAssignStaff = (typeId) => {
 };
 
 const addTypeAssignment = async (typeId, user) => {
-  if (!agencyId.value) return;
+  if (!agencyId.value || !user?.id) return;
   typeAssignSaving.value = { ...typeAssignSaving.value, [typeId]: true };
   typeAssignSearch.value = { ...typeAssignSearch.value, [typeId]: '' };
   typeAssignFiltered.value = { ...typeAssignFiltered.value, [typeId]: [] };
   try {
-    // Load this user's current full duty list, add this type, then save back
-    const resp = await api.get(`/payroll/users/${user.id}/log-time-duties`, {
-      params: { agencyId: agencyId.value }
+    // Touches only this one (agency, user, type) row — never mutates the user's other type assignments.
+    await api.post(`/payroll/indirect-service-types/${typeId}/assign`, {
+      agencyId: agencyId.value,
+      userId: user.id
     });
-    const data = resp.data || {};
-    const agencyTypes = Array.isArray(data.agencyTypes) ? data.agencyTypes : [];
-    const existing = Array.isArray(data.assignments) ? data.assignments : [];
-    const alreadyHas = existing.some((a) => Number(a.serviceTypeId) === Number(typeId));
-    if (!alreadyHas) {
-      const usingCustom = existing.length > 0;
-      const assignments = usingCustom
-        ? [...existing.map((a) => ({ serviceTypeId: a.serviceTypeId, isEnabled: a.isEnabled !== false, rateOverride: a.rateOverride ?? null })),
-           { serviceTypeId: Number(typeId), isEnabled: true, rateOverride: null }]
-        : [
-            ...agencyTypes.filter((t) => t.isActive).map((t) => ({ serviceTypeId: Number(t.id), isEnabled: true, rateOverride: null })),
-            { serviceTypeId: Number(typeId), isEnabled: true, rateOverride: null }
-          ];
-      await api.put(`/payroll/users/${user.id}/log-time-duties`, {
-        agencyId: agencyId.value,
-        assignments
-      });
-    }
     // Update local display
     const current = typeAssignData.value[typeId] || { allUsers: [], assignedUsers: [] };
     if (!current.assignedUsers.some((u) => u.userId === Number(user.id))) {
@@ -1357,7 +1373,8 @@ const addTypeAssignment = async (typeId, user) => {
           ...current,
           assignedUsers: [...current.assignedUsers, {
             userId: Number(user.id),
-            name: `${firstName} ${lastName}`.trim() || user.email || `User #${user.id}`
+            name: `${firstName} ${lastName}`.trim() || user.email || `User #${user.id}`,
+            assignedAt: new Date().toISOString()
           }]
         }
       };
@@ -1373,20 +1390,10 @@ const removeTypeAssignment = async (typeId, userId) => {
   if (!agencyId.value) return;
   typeAssignSaving.value = { ...typeAssignSaving.value, [typeId]: true };
   try {
-    const resp = await api.get(`/payroll/users/${userId}/log-time-duties`, {
+    // Touches only this one (agency, user, type) row — never mutates the user's other type assignments.
+    await api.delete(`/payroll/indirect-service-types/${typeId}/assign/${userId}`, {
       params: { agencyId: agencyId.value }
     });
-    const existing = Array.isArray(resp.data?.assignments) ? resp.data.assignments : [];
-    // Remove this type from their list; if they had no custom list, skip saving (nothing to remove)
-    if (existing.length) {
-      const filtered = existing
-        .filter((a) => Number(a.serviceTypeId) !== Number(typeId))
-        .map((a) => ({ serviceTypeId: a.serviceTypeId, isEnabled: a.isEnabled !== false, rateOverride: a.rateOverride ?? null }));
-      await api.put(`/payroll/users/${userId}/log-time-duties`, {
-        agencyId: agencyId.value,
-        assignments: filtered
-      });
-    }
     // Update local display
     const current = typeAssignData.value[typeId] || { allUsers: [], assignedUsers: [] };
     typeAssignData.value = {
@@ -1401,6 +1408,57 @@ const removeTypeAssignment = async (typeId, userId) => {
   } finally {
     typeAssignSaving.value = { ...typeAssignSaving.value, [typeId]: false };
   }
+};
+
+// ── Bulk "Add all …" group assignment ──────────────────────────────────────
+const ASSIGNMENT_GROUP_OPTIONS = [
+  { key: 'all', label: 'Add all' },
+  { key: 'hourly', label: 'Add all hourly' },
+  { key: 'prelicensed', label: 'Add all prelicensed' },
+  { key: 'licensed', label: 'Add all licensed' },
+  { key: 'unlicensed', label: 'Add all unlicensed' },
+  { key: 'supervisees', label: 'Add all supervisees' },
+  { key: 'supervisors', label: 'Add all supervisors' },
+  { key: 'providers', label: 'Add all providers' },
+];
+
+const typeAssignBulkBusy = ref({});
+
+const bulkAssignGroup = async (typeId, group) => {
+  if (!agencyId.value) return;
+  const label = ASSIGNMENT_GROUP_OPTIONS.find((g) => g.key === group)?.label || group;
+  if (!confirm(`${label} to this type? This will make it visible only to the assigned group (restricting it from everyone else, unless they're also added).`)) return;
+  typeAssignBulkBusy.value = { ...typeAssignBulkBusy.value, [typeId]: group };
+  typeAssignError.value = { ...typeAssignError.value, [typeId]: '' };
+  try {
+    await api.post(`/payroll/indirect-service-types/${typeId}/assign-bulk`, {
+      agencyId: agencyId.value,
+      group
+    });
+    await loadTypeAssignData(typeId);
+  } catch (e) {
+    typeAssignError.value = { ...typeAssignError.value, [typeId]: e?.response?.data?.error?.message || e.message || 'Failed to bulk-assign' };
+  } finally {
+    typeAssignBulkBusy.value = { ...typeAssignBulkBusy.value, [typeId]: null };
+  }
+};
+
+// ── Search + sort within the already-assigned people list ─────────────────
+const typeAssignListSearch = ref({});
+const typeAssignListSort = ref({}); // 'name_asc' | 'name_desc' | 'recent'
+
+const visibleAssignedUsers = (typeId) => {
+  const data = typeAssignData.value[typeId];
+  const list = Array.isArray(data?.assignedUsers) ? [...data.assignedUsers] : [];
+  const q = String(typeAssignListSearch.value[typeId] || '').toLowerCase().trim();
+  const filtered = q ? list.filter((u) => String(u.name || '').toLowerCase().includes(q)) : list;
+  const sort = typeAssignListSort.value[typeId] || 'name_asc';
+  filtered.sort((a, b) => {
+    if (sort === 'name_desc') return String(b.name || '').localeCompare(String(a.name || ''));
+    if (sort === 'recent') return new Date(b.assignedAt || 0) - new Date(a.assignedAt || 0);
+    return String(a.name || '').localeCompare(String(b.name || ''));
+  });
+  return filtered;
 };
 
 const addExcessRule = async () => {
@@ -2131,6 +2189,19 @@ watch(payrollTab, async (t) => {
   flex-wrap: wrap;
   margin-bottom: 10px;
   font-size: 13px;
+}
+.type-assign-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed #cbd5e1;
+}
+.type-assign-list-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 .type-assign-list {
   display: flex;

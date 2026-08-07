@@ -245,7 +245,7 @@ export const getUsersAssignedToType = async (req, res, next) => {
 
     // Load explicit assignments
     const [rows] = await pool.execute(
-      `SELECT pua.user_id, u.first_name, u.last_name, u.email
+      `SELECT pua.user_id, pua.created_at, u.first_name, u.last_name, u.email
        FROM payroll_user_indirect_service_assignments pua
        JOIN users u ON u.id = pua.user_id
        WHERE pua.agency_id = ? AND pua.service_type_id = ? AND pua.is_enabled = 1
@@ -255,7 +255,8 @@ export const getUsersAssignedToType = async (req, res, next) => {
     const assignments = (rows || []).map((r) => ({
       userId: Number(r.user_id),
       name: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
-      email: r.email || ''
+      email: r.email || '',
+      assignedAt: r.created_at || null
     }));
 
     // For supervision_note bucket types OR types with 'supervision' in the key/label,
@@ -304,6 +305,127 @@ export const getUsersAssignedToType = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+/** Admin: valid bulk-assignment group keys for the "Add all …" buttons. */
+const ASSIGNMENT_GROUPS = new Set([
+  'all', 'hourly', 'prelicensed', 'licensed', 'unlicensed', 'supervisees', 'supervisors', 'providers'
+]);
+const PROVIDER_ROLES = new Set(['provider', 'provider_plus', 'intern', 'intern_plus', 'clinician']);
+
+async function resolveUserIdsForGroup({ agencyId, group }) {
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT u.id, u.role, u.is_hourly_worker, u.credential, u.title, u.has_supervisor_privileges
+     FROM users u
+     JOIN user_agencies ua ON ua.user_id = u.id
+     WHERE ua.agency_id = ? AND (u.is_archived = FALSE OR u.is_archived IS NULL)`,
+    [agencyId]
+  );
+  const list = rows || [];
+
+  if (group === 'all') return list.map((r) => Number(r.id));
+
+  if (group === 'hourly') {
+    return list.filter((r) => r.is_hourly_worker === 1 || r.is_hourly_worker === true).map((r) => Number(r.id));
+  }
+  if (group === 'supervisors') {
+    return list
+      .filter((r) => r.has_supervisor_privileges === 1 || r.has_supervisor_privileges === true || String(r.role || '').toLowerCase() === 'supervisor')
+      .map((r) => Number(r.id));
+  }
+  if (group === 'providers') {
+    return list.filter((r) => PROVIDER_ROLES.has(String(r.role || '').toLowerCase())).map((r) => Number(r.id));
+  }
+  if (group === 'supervisees') {
+    const [supRows] = await pool.execute(
+      `SELECT DISTINCT supervisee_id FROM supervisor_assignments WHERE agency_id = ?`,
+      [agencyId]
+    );
+    return (supRows || []).map((r) => Number(r.supervisee_id)).filter(Boolean);
+  }
+  if (group === 'licensed' || group === 'prelicensed' || group === 'unlicensed') {
+    const { determineLicenseStatus } = await import('../utils/credentialNormalization.js');
+    return list
+      .filter((r) => {
+        const { status } = determineLicenseStatus({
+          credential: r.credential,
+          title: r.title,
+          jobTitle: r.title,
+          role: r.role,
+          isHourlyWorker: r.is_hourly_worker
+        });
+        return status === group;
+      })
+      .map((r) => Number(r.id));
+  }
+  return [];
+}
+
+/**
+ * Admin: add or update a single user's assignment for one service type
+ * without touching their other type assignments. Fixes the historical bug
+ * where adding a person to type X snapshotted every currently-active type
+ * onto their record.
+ */
+export const assignUserToServiceType = async (req, res, next) => {
+  try {
+    if (!isAdminRole(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    const agencyId = await resolveAgencyId(req);
+    const typeId = Number(req.params.typeId || 0);
+    const userId = Number(req.body?.userId || 0);
+    if (!agencyId || !typeId || !userId) {
+      return res.status(400).json({ error: { message: 'agencyId, typeId, and userId are required' } });
+    }
+    const row = await PayrollUserIndirectServiceAssignment.upsertSingle({
+      agencyId, userId, serviceTypeId: typeId, isEnabled: true
+    });
+    res.json(row);
+  } catch (e) { next(e); }
+};
+
+/** Admin: remove a single user's assignment for one service type. */
+export const unassignUserFromServiceType = async (req, res, next) => {
+  try {
+    if (!isAdminRole(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    const agencyId = await resolveAgencyId(req);
+    const typeId = Number(req.params.typeId || 0);
+    const userId = Number(req.params.userId || 0);
+    if (!agencyId || !typeId || !userId) {
+      return res.status(400).json({ error: { message: 'agencyId, typeId, and userId are required' } });
+    }
+    await PayrollUserIndirectServiceAssignment.removeSingle({ agencyId, userId, serviceTypeId: typeId });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+};
+
+/**
+ * Admin: bulk-assign a whole role/classification group to one service type
+ * in a single call ("Add all hourly", "Add all supervisors", etc.).
+ */
+export const bulkAssignServiceType = async (req, res, next) => {
+  try {
+    if (!isAdminRole(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    const agencyId = await resolveAgencyId(req);
+    const typeId = Number(req.params.typeId || 0);
+    const group = String(req.body?.group || '').trim().toLowerCase();
+    if (!agencyId || !typeId) {
+      return res.status(400).json({ error: { message: 'agencyId and typeId are required' } });
+    }
+    if (!ASSIGNMENT_GROUPS.has(group)) {
+      return res.status(400).json({ error: { message: `Invalid group. Must be one of: ${[...ASSIGNMENT_GROUPS].join(', ')}` } });
+    }
+    const userIds = await resolveUserIdsForGroup({ agencyId, group });
+    if (!userIds.length) return res.json({ added: 0, userIds: [] });
+
+    await PayrollUserIndirectServiceAssignment.bulkUpsert({ agencyId, userIds, serviceTypeId: typeId, isEnabled: true });
+    res.json({ added: userIds.length, userIds });
+  } catch (e) { next(e); }
 };
 
 export const getMyIndirectTimeSession = async (req, res, next) => {
