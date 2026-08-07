@@ -1,0 +1,65 @@
+---
+description: Auto-file a testing task after every fix/feature change into the shared PlotTwistHQ Development list
+alwaysApply: true
+---
+
+# Testing Needed | Updates and Fixes
+
+Whenever you fix a bug or ship a feature change in this codebase (anything you'd
+summarize to the user as "fixed"/"done"/"shipped"), file one task into the
+shared list below **at the end of that fix** (not mid-task). Do this silently
+unless the user says otherwise — mention in one sentence that you filed it.
+
+**Already exists — no new migration needed.** The task/project system
+(`task_projects`, `task_lists`, `task_list_members`, `tasks`, `task_links`)
+already supports everything required. Do not create new tables/migrations for
+this.
+
+## Where it goes
+
+- Project: **PlotTwistHQ Development** — `task_projects.id = 3`
+- Shared list: **Testing Needed | Updates and Fixes** — `task_lists.id = 10`
+- Agency: ITSCO — `agency_id = 2`
+- Members: all ITSCO admin/super_admin users (already added to both the
+  project and list as `editor`). If a new admin/super_admin joins ITSCO later,
+  add them too via `TaskListMember.add(10, userId, 'editor')` and
+  `TaskProject.addMember(3, userId, 'editor')`.
+
+## How to file the task
+
+Use the `Task` and `TaskLink` models directly (fastest — a one-off Node
+script via the Shell tool, like `node -e "..."` importing
+`backend/src/models/Task.model.js` and `TaskLink.model.js`), or the
+`/tasks` and `/tasks/:id/links` API routes if already authenticated in
+context.
+
+```js
+const task = await Task.create({
+  taskType: 'custom',
+  title: 'Test: <short description of what changed>',
+  description: `What was happening: ...\n\nWhy it happened: ...\n\nWhat was fixed: ...\n\nPlease test: <specific steps to verify in the app>`,
+  assignedByUserId: 501, // Michael Mendez, unless another user is clearly the requester
+  taskListId: 10,
+  projectId: 3,
+  urgency: 'medium',
+  isPrivate: false
+});
+await TaskLink.create({
+  taskId: task.id,
+  url: 'https://plottwisthq.com/<path to the exact page that changed>',
+  label: 'Short page name',
+  createdByUserId: 501
+});
+```
+
+- `description` should mirror exactly what you told the user in chat: what was
+  happening, why, what was fixed, and concrete steps to test it.
+- Always attach a `task_link` with the production URL (`https://plottwisthq.com/...`)
+  of the page most directly affected, when one exists.
+- One task per distinct fix — don't bundle unrelated fixes into one task.
+
+## On request: "log everything from this chat"
+
+If the user asks you to summarize a chat/session and file tasks for
+everything fixed in it, walk back through the conversation, identify each
+distinct fix/feature, and file one task per fix using the steps above.
