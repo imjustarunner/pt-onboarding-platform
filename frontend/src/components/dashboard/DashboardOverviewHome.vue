@@ -76,6 +76,7 @@
       :notes-period-label="notesStats.periodLabel"
       :supervision-hours="supervisionHours"
       :notes-to-sign-count="notesToSignCount"
+      :task-count="taskCount"
       @navigate="navigate"
     />
 
@@ -223,7 +224,8 @@ const {
   recentActivityItems,
   unreadCount,
   notesToSignCount,
-  refresh
+  refresh,
+  taskCount
 } = useDashboardOverview({
   userId,
   agencyId: agencyIdRef,

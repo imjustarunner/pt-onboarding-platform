@@ -4177,6 +4177,11 @@ const onOverviewNavigate = (tab) => {
     router.push(slug ? `/${slug}/my-schedule` : '/my-schedule').catch(() => {});
     return;
   }
+  if (id === 'tasks_hub') {
+    const slug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
+    router.push(slug ? `/${slug}/tasks` : '/tasks').catch(() => {});
+    return;
+  }
   if (id === 'log_time') {
     openLogTimeTab();
     return;

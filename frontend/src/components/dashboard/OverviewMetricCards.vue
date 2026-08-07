@@ -88,6 +88,22 @@
       </div>
       <span class="ov-metric-chevron" aria-hidden="true">›</span>
     </button>
+
+    <button
+      type="button"
+      class="ov-metric ov-metric--orange"
+      @click="$emit('navigate', 'tasks_hub')"
+    >
+      <div class="ov-metric-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      </div>
+      <div class="ov-metric-body">
+        <div class="ov-metric-label">Tasks</div>
+        <div class="ov-metric-value">{{ taskCount > 0 ? `${taskCount} open` : 'My Tasks' }}</div>
+        <div class="ov-metric-hint">Assigned &amp; shared lists</div>
+      </div>
+      <span class="ov-metric-chevron" aria-hidden="true">›</span>
+    </button>
   </div>
 </template>
 
@@ -111,7 +127,8 @@ const props = defineProps({
   notesCompletedPct: { type: Number, default: null },
   notesPeriodLabel: { type: String, default: '' },
   supervisionHours: { type: Object, default: null },
-  notesToSignCount: { type: Number, default: 0 }
+  notesToSignCount: { type: Number, default: 0 },
+  taskCount: { type: Number, default: 0 }
 });
 
 defineEmits(['navigate']);
@@ -203,6 +220,7 @@ const supervisionHint = computed(() => {
 .ov-metric--purple .ov-metric-icon { background: #f3e8ff; color: #7e22ce; }
 .ov-metric--green .ov-metric-icon { background: #dcfce7; color: #15803d; }
 .ov-metric--blue .ov-metric-icon { background: #dbeafe; color: #1d4ed8; }
+.ov-metric--orange .ov-metric-icon { background: #fff7ed; color: #c2410c; }
 .ov-metric-body { flex: 1; min-width: 0; }
 .ov-metric-label {
   font-size: 11px;
@@ -255,6 +273,7 @@ const supervisionHint = computed(() => {
 [data-theme="dark"] .ov-metric--purple .ov-metric-icon { background: #2e1a47; color: #c4b5fd; }
 [data-theme="dark"] .ov-metric--green .ov-metric-icon { background: #14291e; color: #86efac; }
 [data-theme="dark"] .ov-metric--blue .ov-metric-icon { background: #172554; color: #93c5fd; }
+[data-theme="dark"] .ov-metric--orange .ov-metric-icon { background: #431407; color: #fdba74; }
 [data-theme="dark"] .ov-metric-label { color: var(--text-secondary, #94a3b8); }
 [data-theme="dark"] .ov-metric-value { color: var(--text-primary, #cbd5e1); }
 [data-theme="dark"] .ov-metric-hint { color: var(--text-secondary, #94a3b8); }
