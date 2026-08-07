@@ -5,10 +5,36 @@ alwaysApply: true
 
 # Testing Needed | Updates and Fixes
 
-Whenever you fix a bug or ship a feature change in this codebase (anything you'd
-summarize to the user as "fixed"/"done"/"shipped"), file one task into the
-shared list below **at the end of that fix** (not mid-task). Do this silently
-unless the user says otherwise — mention in one sentence that you filed it.
+File a task into the shared list below **only when the change is something a
+person could click through and verify in the app**. Do this silently at the end
+of the change — mention in one sentence that you filed it.
+
+## ✅ File a task when…
+
+- **A bug was fixed** — something was broken and now it should work; someone
+  needs to confirm it does.
+- **A user-visible UI change was made** — new button, label, modal, panel,
+  column, badge, form field, etc. The user attached screenshots, or the change
+  alters what appears on screen.
+- **A workflow changed** — the sequence of steps a user takes (wizard flow,
+  submit flow, payroll run, export, etc.) was modified.
+- **Data a user reads changed** — a report, export CSV, pay stub, ADP output,
+  or similar artifact now looks different.
+- **A new user-facing feature landed** — something the user explicitly asked to
+  build that they will interact with directly.
+
+## ❌ Do NOT file a task when…
+
+- The change is **backend/infrastructure only** with no user-visible surface —
+  e.g. a new notification batching algorithm, a migration adding a column, a
+  locking strategy, a refactor, a service method, or a route handler that
+  isn't exposed in any new UI yet.
+- The change is a **pure code quality / bug-prevention improvement** that a
+  user can't tell happened (race condition guard, duplicate prevention logic,
+  index added, etc.).
+- The change is **already covered by another task** filed in the same session.
+- The task would have no meaningful "Please test:" steps — if you can't write
+  at least two concrete click-through steps, don't file it.
 
 **Already exists — no new migration needed.** The task/project system
 (`task_projects`, `task_lists`, `task_list_members`, `tasks`, `task_links`)
