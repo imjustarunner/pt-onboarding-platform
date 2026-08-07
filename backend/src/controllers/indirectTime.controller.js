@@ -133,7 +133,8 @@ export const createIndirectServiceType = async (req, res, next) => {
       iconKey: body.iconKey || 'circle',
       payBucket: body.payBucket || body.pay_bucket || 'indirect',
       sortOrder: body.sortOrder,
-      isActive: body.isActive !== false
+      isActive: body.isActive !== false,
+      displayCode: body.displayCode || ''
     });
     res.status(201).json(created);
   } catch (e) {

@@ -279,7 +279,7 @@
                   class="itl-type-card"
                   :class="{ selected: selectedTypeIds.has(t.id) }"
                   @mousedown.prevent
-                  @click.prevent="toggleType(t)"
+                  @click.prevent="toggleType(t, $event)"
                 >
                   <input
                     type="checkbox"
@@ -315,7 +315,7 @@
                   class="itl-type-card"
                   :class="{ selected: selectedTypeIds.has(t.id) }"
                   @mousedown.prevent
-                  @click.prevent="toggleType(t)"
+                  @click.prevent="toggleType(t, $event)"
                 >
                   <input
                     type="checkbox"
@@ -353,7 +353,7 @@
                   class="itl-type-card"
                   :class="{ selected: selectedTypeIds.has(t.id) }"
                   @mousedown.prevent
-                  @click.prevent="toggleType(t)"
+                  @click.prevent="toggleType(t, $event)"
                 >
                   <input
                     type="checkbox"
@@ -382,6 +382,29 @@
             All {{ formatHm(sessionTotalMinutes) }} will be submitted for {{ singleSelectedActivityLabel }}.
           </p>
         </section>
+
+        <!-- Activity description popup — shown right after selecting a type, must be dismissed -->
+        <Teleport to="body">
+          <div
+            v-if="typeTooltip.visible"
+            class="itl-type-tooltip"
+            :style="{ top: typeTooltip.top + 'px', left: typeTooltip.left + 'px' }"
+            role="status"
+          >
+            <div class="itl-type-tooltip-arrow" />
+            <div class="itl-type-tooltip-header">
+              <strong class="itl-type-tooltip-title">{{ typeTooltip.title }}</strong>
+              <button
+                type="button"
+                class="itl-type-tooltip-close"
+                aria-label="Dismiss"
+                @click="dismissTypeTooltip"
+              >×</button>
+            </div>
+            <p class="itl-type-tooltip-text">{{ typeTooltip.text }}</p>
+            <button type="button" class="itl-type-tooltip-ok" @click="dismissTypeTooltip">Got it</button>
+          </div>
+        </Teleport>
 
         <!-- Step 4: allocate & submit -->
         <section
@@ -570,7 +593,8 @@ import { isSupervisor } from '../../utils/helpers';
 import {
   activityCodeForTypeKey,
   enrichAllocationWithActivityCode,
-  formatLogTimeActivityLabel
+  formatLogTimeActivityLabel,
+  registerActivityCodes
 } from '../../utils/logTimeActivityCodes';
 
 const props = defineProps({
@@ -1202,7 +1226,7 @@ function activityCardTitle(typeRec) {
 }
 
 function activityCardCode(typeRec) {
-  return activityCodeForTypeKey(typeKeyOf(typeRec));
+  return String(typeRec?.displayCode || '').trim() || activityCodeForTypeKey(typeKeyOf(typeRec));
 }
 
 function codedActivityLabel(typeRec) {
@@ -1290,17 +1314,48 @@ function submissionMetaLine(s) {
   return parts.join(' · ');
 }
 
-function toggleType(t) {
+function toggleType(t, evt) {
+  const wasSelected = selectedTypeIds.value.has(t.id);
   const next = new Set(selectedTypeIds.value);
-  if (next.has(t.id)) next.delete(t.id);
+  if (wasSelected) next.delete(t.id);
   else next.add(t.id);
   selectedTypeIds.value = next;
   persistSelectedTypes();
+
+  if (!wasSelected && String(t?.description || '').trim()) {
+    showTypeTooltip(t, evt);
+  } else if (wasSelected && typeTooltip.value.typeId === t.id) {
+    dismissTypeTooltip();
+  }
+
   nextTick(() => {
     if (canShowAllocateStep.value) {
       allocationPanelRef.value?.tryEvenDistribute?.();
     }
   });
+}
+
+const typeTooltip = ref({ visible: false, typeId: null, title: '', text: '', top: 0, left: 0 });
+
+function showTypeTooltip(t, evt) {
+  const target = evt?.currentTarget || evt?.target || null;
+  const rect = target?.getBoundingClientRect ? target.getBoundingClientRect() : null;
+  const viewportWidth = window.innerWidth || 1024;
+  const bubbleWidth = 280;
+  let left = rect ? rect.left : (evt?.clientX || 0);
+  left = Math.min(Math.max(left, 8), viewportWidth - bubbleWidth - 8);
+  typeTooltip.value = {
+    visible: true,
+    typeId: t.id,
+    title: t.label,
+    text: t.description,
+    top: rect ? rect.bottom + 8 : (evt?.clientY || 0) + 12,
+    left
+  };
+}
+
+function dismissTypeTooltip() {
+  typeTooltip.value = { ...typeTooltip.value, visible: false };
 }
 
 function selectAllTypes() {
@@ -1451,6 +1506,7 @@ async function loadTypes() {
   try {
     const resp = await api.get('/payroll/me/indirect-service-types', { params: { agencyId: agencyId.value } });
     const raw = Array.isArray(resp.data?.types) ? resp.data.types : [];
+    registerActivityCodes(raw);
     serviceTypes.value = raw.filter((t) => !isExcludedIndirectType(t));
     if (indirectSessionStore.noteAidUsedDuringSession) {
       restoreSelectedTypes();
@@ -2444,6 +2500,72 @@ onUnmounted(() => stopTick());
 .itl-sub-category[data-category="support_activity"] { background: #dbeafe; color: #1e40af; }
 .itl-sub-category[data-category="supervision_note"] { background: #ede9fe; color: #5b21b6; }
 .itl-sub-category[data-category="indirect_service"] { background: #dcfce7; color: #166534; }
+.itl-type-tooltip {
+  position: fixed;
+  z-index: 4000;
+  width: 280px;
+  max-width: calc(100vw - 16px);
+  background: #111827;
+  color: #f9fafb;
+  border-radius: 12px;
+  padding: 12px 14px 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  animation: itl-tooltip-in 0.15s ease-out;
+}
+.itl-type-tooltip-arrow {
+  position: absolute;
+  top: -6px;
+  left: 20px;
+  width: 12px;
+  height: 12px;
+  background: #111827;
+  transform: rotate(45deg);
+}
+.itl-type-tooltip-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.itl-type-tooltip-title {
+  font-size: 0.86rem;
+  color: #f9fafb;
+}
+.itl-type-tooltip-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: #9ca3af;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.itl-type-tooltip-close:hover { color: #f9fafb; }
+.itl-type-tooltip-text {
+  margin: 0 0 10px;
+  color: #d1d5db;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.itl-type-tooltip-ok {
+  display: block;
+  margin-left: auto;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.itl-type-tooltip-ok:hover { background: #1d4ed8; }
+@keyframes itl-tooltip-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .itl-type-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -261,6 +261,10 @@
             <input v-model.number="indirectTypeDraft.sortOrder" class="filters-input" type="number" style="width:80px;" :disabled="indirectTypesSaving" />
           </div>
           <div class="filters-group">
+            <label class="filters-label">Code</label>
+            <input v-model="indirectTypeDraft.displayCode" class="filters-input" type="text" style="width:90px;" placeholder="Auto" :disabled="indirectTypesSaving" />
+          </div>
+          <div class="filters-group">
             <button class="btn btn-primary" type="button" @click="createIndirectType" :disabled="indirectTypesSaving || !String(indirectTypeDraft.label||'').trim()">
               {{ indirectTypesSaving ? 'Saving…' : 'Add type' }}
             </button>
@@ -272,6 +276,7 @@
               <tr>
                 <th>Label</th>
                 <th>Key</th>
+                <th>Code</th>
                 <th>Pay bucket</th>
                 <th>Icon</th>
                 <th>Sort</th>
@@ -289,6 +294,16 @@
                     </div>
                   </td>
                   <td><code>{{ t.typeKey }}</code></td>
+                  <td>
+                    <input
+                      v-model="t.displayCode"
+                      type="text"
+                      style="width:80px; font-family: monospace;"
+                      placeholder="Auto"
+                      :disabled="indirectTypesSaving"
+                      @change="saveIndirectType(t)"
+                    />
+                  </td>
                   <td>
                     <select v-model="t.payBucket" :disabled="indirectTypesSaving" @change="saveIndirectType(t)">
                       <option value="indirect">Indirect Service</option>
@@ -325,7 +340,7 @@
                 </tr>
                 <!-- Per-type people assignment panel -->
                 <tr v-if="typeAssignOpen === t.id">
-                  <td colspan="7" style="padding:0; background:#f8fafc;">
+                  <td colspan="8" style="padding:0; background:#f8fafc;">
                     <div class="type-assign-panel">
                       <div class="type-assign-header">
                         <strong>Assign "{{ t.label }}" to specific people</strong>
@@ -1206,7 +1221,8 @@ const indirectTypeDraft = ref({
   description: '',
   iconKey: 'circle',
   payBucket: 'indirect',
-  sortOrder: 200
+  sortOrder: 200,
+  displayCode: ''
 });
 
 const loadIndirectTypes = async () => {
@@ -1236,9 +1252,10 @@ const createIndirectType = async () => {
       description: indirectTypeDraft.value.description || '',
       iconKey: indirectTypeDraft.value.iconKey || 'circle',
       payBucket: indirectTypeDraft.value.payBucket || 'indirect',
-      sortOrder: Number(indirectTypeDraft.value.sortOrder || 0)
+      sortOrder: Number(indirectTypeDraft.value.sortOrder || 0),
+      displayCode: indirectTypeDraft.value.displayCode || ''
     });
-    indirectTypeDraft.value = { label: '', description: '', iconKey: 'circle', payBucket: 'indirect', sortOrder: 200 };
+    indirectTypeDraft.value = { label: '', description: '', iconKey: 'circle', payBucket: 'indirect', sortOrder: 200, displayCode: '' };
     await loadIndirectTypes();
   } catch (e) {
     indirectTypesError.value = e.response?.data?.error?.message || e.message || 'Failed to add type';
@@ -1258,7 +1275,8 @@ const saveIndirectType = async (t) => {
       iconKey: t.iconKey,
       payBucket: t.payBucket || 'indirect',
       sortOrder: t.sortOrder,
-      isActive: !!t.isActive
+      isActive: !!t.isActive,
+      displayCode: t.displayCode || ''
     });
     await loadIndirectTypes();
   } catch (e) {

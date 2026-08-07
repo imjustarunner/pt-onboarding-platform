@@ -20,10 +20,27 @@ export const LOG_TIME_ACTIVITY_CODE_BY_TYPE_KEY = {
   supervisors_meeting: 'SN-02'
 };
 
+/**
+ * Admin-configured codes loaded from the DB (payroll_indirect_service_types.display_code)
+ * override the static defaults above. Populated by registerActivityCodes() whenever a
+ * component loads the agency's Log Time service types, so any admin edit/auto-generated
+ * code takes effect everywhere codes are shown (activity cards, claims, pay stubs).
+ */
+const runtimeCodeOverrides = new Map();
+
+export function registerActivityCodes(types) {
+  if (!Array.isArray(types)) return;
+  for (const t of types) {
+    const key = String(t?.typeKey || t?.type_key || '').trim().toLowerCase();
+    const code = String(t?.displayCode || t?.display_code || '').trim();
+    if (key && code) runtimeCodeOverrides.set(key, code);
+  }
+}
+
 export function activityCodeForTypeKey(typeKey) {
   const k = String(typeKey || '').trim().toLowerCase();
   if (!k) return '';
-  return LOG_TIME_ACTIVITY_CODE_BY_TYPE_KEY[k] || '';
+  return runtimeCodeOverrides.get(k) || LOG_TIME_ACTIVITY_CODE_BY_TYPE_KEY[k] || '';
 }
 
 export function formatLogTimeActivityLabel(typeOrKey, labelFallback = '') {
