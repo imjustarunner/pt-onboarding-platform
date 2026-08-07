@@ -353,7 +353,7 @@
           <!-- Left sidebar: lists → tasks hierarchy -->
           <aside class="tasks-sidebar">
             <div class="sidebar-head">
-              <span class="sidebar-head__label">Lists & Tasks</span>
+              <span class="sidebar-head__label">Lists &amp; Tasks</span>
               <button type="button" class="sidebar-head__all" @click="collapseAll">Collapse all</button>
             </div>
 
@@ -363,14 +363,23 @@
               v-for="group in tasksByList"
               :key="group.listId"
               class="list-group"
+              :class="group.isSharedList ? 'list-group--shared' : 'list-group--direct'"
             >
               <button
                 type="button"
                 class="list-group__head"
                 @click="toggleGroup(group.listId)"
               >
+                <!-- Shared-list icon vs direct-tasks icon -->
+                <span v-if="group.isSharedList" class="list-group__type-icon list-group__type-icon--shared" title="Shared list">
+                  <svg viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><polyline points="16 6 12 2 8 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="2" x2="12" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                </span>
+                <span v-else class="list-group__type-icon list-group__type-icon--direct" title="Direct project tasks">
+                  <svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </span>
                 <span class="list-group__chev">{{ expandedGroups[group.listId] ? '▾' : '▸' }}</span>
                 <span class="list-group__name">{{ group.listName }}</span>
+                <span v-if="group.isSharedList" class="list-group__badge">Shared</span>
                 <span class="list-group__count">{{ group.tasks.length }}</span>
               </button>
 
@@ -444,26 +453,71 @@
         </div>
 
         <!-- ── Lists ── -->
-        <div v-else-if="tab === 'lists'" class="panel panel--full">
-          <ul class="task-ul">
-            <li v-for="l in overview?.lists || []" :key="l.id">
-              <strong>{{ l.name }}</strong>
-              <div class="row-actions">
-                <span class="muted">{{ l.open_task_count || 0 }} open</span>
-                <button type="button" class="btn-x" @click="detachList(l.id)">Detach</button>
+        <div v-else-if="tab === 'lists'" class="lists-tab">
+          <div class="lists-tab__head">
+            <div>
+              <h3 class="lists-tab__title">Shared Lists</h3>
+              <p class="lists-tab__sub">{{ (overview?.lists || []).length }} list{{ (overview?.lists||[]).length !== 1 ? 's' : '' }} attached to this project</p>
+            </div>
+          </div>
+
+          <div v-if="!(overview?.lists || []).length" class="lists-tab__empty">
+            <svg viewBox="0 0 64 48"><rect x="8" y="8" width="48" height="32" rx="3" fill="none" stroke="#cbd5e1" stroke-width="2"/><line x1="18" y1="18" x2="46" y2="18" stroke="#cbd5e1" stroke-width="1.5"/><line x1="18" y1="24" x2="38" y2="24" stroke="#cbd5e1" stroke-width="1.5"/><line x1="18" y1="30" x2="42" y2="30" stroke="#cbd5e1" stroke-width="1.5"/></svg>
+            <p>No shared lists attached yet.</p>
+            <span>Attach a shared list below to link its tasks to this project.</span>
+          </div>
+
+          <div class="lists-tab__cards">
+            <div v-for="l in overview?.lists || []" :key="l.id" class="sl-card">
+              <div class="sl-card__stripe" />
+              <div class="sl-card__header">
+                <div class="sl-card__icon">
+                  <svg viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><polyline points="16 6 12 2 8 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="2" x2="12" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                </div>
+                <div class="sl-card__name-wrap">
+                  <span class="sl-card__type-badge">Shared List</span>
+                  <strong class="sl-card__name">{{ l.name }}</strong>
+                </div>
+                <button type="button" class="sl-card__detach" @click="detachList(l.id)" title="Detach from project">
+                  Detach
+                </button>
               </div>
-            </li>
-            <li v-if="!(overview?.lists || []).length" class="empty">No shared lists linked</li>
-          </ul>
+              <div class="sl-card__stats">
+                <div class="sl-card__stat">
+                  <strong>{{ l.total_task_count || 0 }}</strong>
+                  <span>Total tasks</span>
+                </div>
+                <div class="sl-card__stat sl-card__stat--open">
+                  <strong>{{ l.open_task_count || 0 }}</strong>
+                  <span>Open</span>
+                </div>
+                <div class="sl-card__stat sl-card__stat--done">
+                  <strong>{{ (l.total_task_count || 0) - (l.open_task_count || 0) }}</strong>
+                  <span>Done</span>
+                </div>
+              </div>
+              <div class="sl-card__progress">
+                <div
+                  class="sl-card__progress-fill"
+                  :style="{ width: l.total_task_count ? Math.round(((l.total_task_count - l.open_task_count) / l.total_task_count) * 100) + '%' : '0%' }"
+                />
+              </div>
+              <div class="sl-card__footer">
+                <button type="button" class="sl-card__view-btn" @click="tab = 'tasks'">View tasks →</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Attach -->
           <div class="attach-row">
             <input
               v-model="listAttachSearch"
               type="search"
               class="form-control"
-              placeholder="Search lists to attach…"
+              placeholder="Search shared lists to attach…"
             />
             <select v-model="attachListId" class="form-control">
-              <option value="">Attach a shared list…</option>
+              <option value="">Choose a shared list…</option>
               <option v-for="l in filteredAvailableLists" :key="l.id" :value="String(l.id)">{{ l.name }}</option>
             </select>
             <button type="button" class="btn-primary" :disabled="!attachListId" @click="attachList">
@@ -940,18 +994,23 @@ function dueDateChip(dateStr) {
 const tasksByList = computed(() => {
   const groups = {};
   const order = [];
+  const sharedListIds = new Set((overview.value?.lists || []).map((l) => Number(l.id)));
 
   for (const t of tasks.value || []) {
     const key = t.task_list_id ? String(t.task_list_id) : '__none__';
     const name = t.task_list_name || (t.task_list_id ? `List ${t.task_list_id}` : 'Direct tasks');
     if (!groups[key]) {
-      groups[key] = { listId: key, listName: name, tasks: [] };
+      const isSharedList = key !== '__none__' && sharedListIds.has(Number(key));
+      groups[key] = { listId: key, listName: name, tasks: [], isSharedList };
       order.push(key);
     }
     groups[key].tasks.push(t);
   }
 
-  return order.map((k) => groups[k]);
+  // Sort: direct tasks first, shared lists after
+  return order
+    .map((k) => groups[k])
+    .sort((a, b) => (a.isSharedList ? 1 : 0) - (b.isSharedList ? 1 : 0));
 });
 
 const attachedListIds = computed(() => new Set((overview.value?.lists || []).map((l) => Number(l.id))));
@@ -1924,6 +1983,114 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
   flex-direction: column;
 }
 
+.wb-list-wrap {
+  padding: 24px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.wb-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.wb-list-head h3 { margin: 0; font-size: 16px; }
+
+.wb-list-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 0;
+  color: #94a3b8;
+  text-align: center;
+}
+.wb-list-empty svg { width: 64px; height: 48px; }
+.wb-list-empty p { font-size: 14px; margin: 0; }
+
+.wb-list-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.wb-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: box-shadow 0.15s, border-color 0.15s;
+  position: relative;
+}
+.wb-card:hover { box-shadow: 0 4px 16px rgba(15,23,42,.1); border-color: #cbd5e1; }
+
+.wb-card__preview {
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.wb-card__preview svg { width: 80px; height: 50px; }
+
+.wb-card__info {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wb-card__info strong { font-size: 13px; color: #1e293b; }
+.wb-card__info span   { font-size: 11px; color: #94a3b8; }
+
+.wb-card__actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+.wb-card__del {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.3);
+  color: #fff;
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wb-card:hover .wb-card__del { opacity: 1; }
+
+.wb-active-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+.wb-back-btn {
+  background: none;
+  border: none;
+  color: #0ea5e9;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+}
+.wb-back-btn:hover { text-decoration: underline; }
+.wb-active-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
 /* ── Activity full tab list ─────────── */
 .activity-full-list {
   list-style: none;
@@ -2014,14 +2181,28 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
 
 /* List group */
 .list-group { border-bottom: 1px solid #e2e8f0; }
+
+/* Direct tasks group */
+.list-group--direct .list-group__head {
+  background: #f8fafc;
+  border-left: 3px solid #6366f1;
+}
+.list-group--direct .list-group__head:hover { background: #f1f5f9; }
+
+/* Shared list group — distinct color treatment */
+.list-group--shared .list-group__head {
+  background: #f0fdf4;
+  border-left: 3px solid #16a34a;
+}
+.list-group--shared .list-group__head:hover { background: #dcfce7; }
+
 .list-group__head {
   width: 100%;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 14px;
+  padding: 10px 12px;
   border: 0;
-  background: #f1f5f9;
   cursor: pointer;
   font: inherit;
   font-size: 12px;
@@ -2029,15 +2210,205 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
   text-align: left;
   color: #374151;
 }
-.list-group__head:hover { background: #e9eef5; }
+
 .list-group__chev { font-size: 10px; color: #64748b; width: 10px; flex-shrink: 0; }
 .list-group__name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Type icon */
+.list-group__type-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.list-group__type-icon svg { width: 11px; height: 11px; }
+.list-group__type-icon--direct  { background: #e0e7ff; color: #6366f1; }
+.list-group__type-icon--shared  { background: #dcfce7; color: #16a34a; }
+
+/* "Shared" badge */
+.list-group__badge {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: #16a34a;
+  color: #fff;
+  border-radius: 99px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+
 .list-group__count {
   font-size: 10px; font-weight: 700;
   background: #e2e8f0; color: #64748b;
   border-radius: 999px; padding: 1px 7px;
   flex-shrink: 0;
 }
+
+/* ─── Lists tab redesign ─────────────────── */
+.lists-tab {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lists-tab__head { display: flex; align-items: flex-start; justify-content: space-between; }
+.lists-tab__title { margin: 0; font-size: 16px; color: #0f172a; }
+.lists-tab__sub   { margin: 3px 0 0; font-size: 12px; color: #64748b; }
+
+.lists-tab__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 0;
+  color: #94a3b8;
+  text-align: center;
+}
+.lists-tab__empty svg { width: 64px; height: 48px; }
+.lists-tab__empty p    { font-size: 14px; color: #475569; margin: 0; }
+.lists-tab__empty span { font-size: 12px; }
+
+.lists-tab__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+/* Shared list card */
+.sl-card {
+  background: #fff;
+  border: 1px solid #bbf7d0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(22,163,74,.06);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.sl-card__stripe {
+  height: 4px;
+  background: linear-gradient(90deg, #16a34a, #22c55e);
+  flex-shrink: 0;
+}
+
+.sl-card__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px 10px;
+}
+
+.sl-card__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #dcfce7;
+  color: #16a34a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.sl-card__icon svg { width: 18px; height: 18px; }
+
+.sl-card__name-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sl-card__type-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #16a34a;
+  background: #dcfce7;
+  border-radius: 99px;
+  padding: 1px 7px;
+  width: fit-content;
+}
+
+.sl-card__name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.sl-card__detach {
+  font-size: 11px;
+  color: #94a3b8;
+  background: none;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: color 0.12s, border-color 0.12s;
+}
+.sl-card__detach:hover { color: #dc2626; border-color: #fca5a5; }
+
+.sl-card__stats {
+  display: flex;
+  gap: 0;
+  border-top: 1px solid #f0fdf4;
+  border-bottom: 1px solid #f0fdf4;
+}
+
+.sl-card__stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+  border-right: 1px solid #f0fdf4;
+}
+.sl-card__stat:last-child { border-right: none; }
+.sl-card__stat strong { font-size: 1.2rem; font-weight: 700; color: #0f172a; }
+.sl-card__stat span   { font-size: 10px; color: #94a3b8; }
+.sl-card__stat--open strong { color: #2563eb; }
+.sl-card__stat--done strong { color: #16a34a; }
+
+.sl-card__progress {
+  height: 4px;
+  background: #f1f5f9;
+  margin: 0 16px;
+}
+.sl-card__progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #16a34a, #22c55e);
+  transition: width 0.5s ease;
+}
+
+.sl-card__footer {
+  padding: 10px 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+.sl-card__view-btn {
+  font-size: 12px;
+  font-weight: 600;
+  color: #16a34a;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.sl-card__view-btn:hover { text-decoration: underline; }
 
 /* Task row */
 .task-row {
@@ -2220,16 +2591,6 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
 .status-dot--overridden { background: #ef4444; }
 
 /* ── Lists tab ── */
-.task-ul { list-style: none; margin: 0; padding: 0; }
-.task-ul li {
-  display: flex; justify-content: space-between; align-items: center;
-  gap: 12px; padding: 10px 0;
-  border-bottom: 1px solid #f1f5f9; font-size: 14px;
-}
-.row-actions { display: flex; align-items: center; gap: 10px; }
-.muted { color: #94a3b8; font-size: 12px; }
-.btn-x { border: 0; background: transparent; color: #94a3b8; cursor: pointer; font-size: 12px; }
-.btn-x:hover { color: #ef4444; }
 .attach-row {
   display: grid;
   grid-template-columns: 1fr 1fr auto;
