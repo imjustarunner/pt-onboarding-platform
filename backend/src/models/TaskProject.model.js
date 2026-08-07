@@ -170,7 +170,8 @@ class TaskProject {
 
   static async listMembers(projectId) {
     const [rows] = await pool.execute(
-      `SELECT tpm.*, u.first_name, u.last_name, u.email
+      `SELECT tpm.*, u.first_name, u.last_name, u.email,
+              u.profile_photo_path, u.title
        FROM task_project_members tpm
        JOIN users u ON u.id = tpm.user_id
        WHERE tpm.project_id = ?

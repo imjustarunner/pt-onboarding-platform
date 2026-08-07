@@ -97,8 +97,8 @@
             </div>
             <ul class="project-dir">
               <li v-for="p in projects" :key="p.id">
-                <div>
-                  <strong>{{ p.name }}</strong>
+                <div class="project-dir__info" @click="openProjectWorkspace(p.id)" style="cursor:pointer">
+                  <strong class="project-dir__name">{{ p.name }}</strong>
                   <span class="muted">{{ p.list_count ?? 0 }} lists · {{ p.member_count ?? 0 }} members</span>
                 </div>
                 <div class="project-dir__actions">
@@ -221,8 +221,8 @@
           <template v-else-if="activeTab === 'all' && teamMode === 'projects'">
             <ul class="project-dir">
               <li v-for="p in teamProjects" :key="p.id">
-                <div>
-                  <strong>{{ p.name }}</strong>
+                <div class="project-dir__info" @click="openProjectWorkspace(p.id)" style="cursor:pointer">
+                  <strong class="project-dir__name">{{ p.name }}</strong>
                   <span class="muted">{{ p.agency_name || '' }}</span>
                 </div>
                 <div class="project-dir__actions">
@@ -1269,8 +1269,9 @@ async function selectSearchResult(r) {
   if (task) openTask(task);
 }
 
-function openProjectWorkspace(projectId) {
-  router.push(`${orgPrefix.value}/tasks/projects/${projectId}`);
+function openProjectWorkspace(projectId, tab) {
+  const path = `${orgPrefix.value}/tasks/projects/${projectId}`;
+  router.push(tab ? { path, query: { tab } } : path);
 }
 
 async function viewProjectById(id) {
@@ -2443,6 +2444,9 @@ onUnmounted(() => {
   border-bottom: 1px solid #f1f5f9;
 }
 .project-dir__actions { display: flex; gap: 6px; }
+.project-dir__info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.project-dir__name { color: #0f172a; transition: color 0.12s; }
+.project-dir__info:hover .project-dir__name { color: #15803d; text-decoration: underline; }
 .type-pills {
   display: flex;
   flex-wrap: wrap;
