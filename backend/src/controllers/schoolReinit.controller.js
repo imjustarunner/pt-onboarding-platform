@@ -494,6 +494,35 @@ export async function deactivateCheckinSlot(req, res, next) {
   }
 }
 
+/** PUT /api/school-reinit/checkin-slots/:slotId */
+export async function updateCheckinSlot(req, res, next) {
+  try {
+    const agencyId = safeInt(req.body?.agencyId);
+    const slotId = safeInt(req.params.slotId);
+    if (!agencyId || !slotId) {
+      return res.status(400).json({ error: { message: 'agencyId and slotId are required' } });
+    }
+    if (!(await assertAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const slot = await Checkin.updateCheckinSlot({
+      slotId,
+      agencyId,
+      label: req.body?.label !== undefined ? req.body.label : undefined,
+      startsAt: req.body?.startsAt || null,
+      updatedByUserId: req.user?.id || null,
+    });
+    res.json({ slot });
+  } catch (e) {
+    const msg = e?.message || 'Update slot failed';
+    if (e?.status) return res.status(e.status).json({ error: { message: msg } });
+    if (/booked|not found|Invalid/i.test(msg)) {
+      return res.status(400).json({ error: { message: msg } });
+    }
+    next(e);
+  }
+}
+
 /** POST /api/school-reinit/checkin-bookings — school books a pre-slot */
 export async function bookCheckinSlot(req, res, next) {
   try {

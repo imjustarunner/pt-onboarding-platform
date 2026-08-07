@@ -296,7 +296,10 @@ export class GoogleCalendarService {
     location,
     attendeeEmails = null,
     createMeetLink = false,
-    timeZone = 'America/New_York'
+    timeZone = 'America/New_York',
+    /** Pass UTC ISO strings (e.g. "2026-10-08T03:00:00Z") to re-time the event */
+    startAt = undefined,
+    endAt = undefined,
   } = {}) {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     const eid = String(eventId || '').trim();
@@ -334,9 +337,20 @@ export class GoogleCalendarService {
         };
       }
 
-      // Preserve times if present so patch doesn't clear them
-      if (existing?.start) requestBody.start = existing.start;
-      if (existing?.end) requestBody.end = existing.end;
+      // Apply new times when provided; otherwise preserve existing times so patch doesn't clear them
+      if (startAt != null) {
+        // Accept UTC ISO strings (e.g. "2026-10-08T03:00:00Z") — Google Calendar handles Z correctly
+        const dtStr = String(startAt).includes('T') ? String(startAt) : String(startAt).replace(' ', 'T');
+        requestBody.start = { dateTime: dtStr };
+      } else if (existing?.start) {
+        requestBody.start = existing.start;
+      }
+      if (endAt != null) {
+        const dtStr = String(endAt).includes('T') ? String(endAt) : String(endAt).replace(' ', 'T');
+        requestBody.end = { dateTime: dtStr };
+      } else if (existing?.end) {
+        requestBody.end = existing.end;
+      }
       if (!requestBody.start?.timeZone && timeZone && requestBody.start?.dateTime) {
         requestBody.start = { ...requestBody.start, timeZone };
       }

@@ -646,14 +646,46 @@
                     </div>
                     <div class="cua__panel">
                       <h4>2. Available {{ formData.fall_check_in.fall_checkin_modality === 'virtual' ? 'virtual' : 'in-person' }} pre-slots</h4>
+                      <!-- Preferred-time filter -->
+                      <div v-if="availableTimesForFilter.length > 1" class="cua__slot-time-filter">
+                        <span class="cua__slot-time-filter-label">Show a specific time:</span>
+                        <div class="cua__slot-time-chips">
+                          <button
+                            type="button"
+                            class="cua__slot-time-chip"
+                            :class="{ 'cua__slot-time-chip--active': preferredTimeFilter === '' }"
+                            @click="preferredTimeFilter = ''"
+                          >All</button>
+                          <button
+                            v-for="t in availableTimesForFilter"
+                            :key="t.value"
+                            type="button"
+                            class="cua__slot-time-chip"
+                            :class="{ 'cua__slot-time-chip--active': preferredTimeFilter === t.value }"
+                            @click="preferredTimeFilter = t.value"
+                          >{{ t.label }}</button>
+                        </div>
+                      </div>
                       <p v-if="!filteredCheckinSlots.length" class="cua__muted">
                         No open {{ formData.fall_check_in.fall_checkin_modality === 'virtual' ? 'virtual' : 'in-person' }} slots yet.
-                        Prefer a time below, or ask your agency to add pre-slots.
+                        Your agency will reach out to schedule a time.
                       </p>
-                      <label v-for="slot in filteredCheckinSlots" :key="slot.id" class="cua__check">
-                        <input v-model="formData.fall_check_in.fall_checkin_slot_id" type="radio" :value="String(slot.id)" />
-                        {{ formatSlot(slot) }}
-                      </label>
+                      <p v-else-if="checkinSlotsByDate.length === 0" class="cua__muted">
+                        No slots match that time. Try a different time or select "All".
+                      </p>
+                      <!-- Date-grouped slot list -->
+                      <div v-for="group in checkinSlotsByDate" :key="group.dateKey" class="cua__slot-date-group">
+                        <div class="cua__slot-date-header">
+                          <span class="cua__slot-weekday">{{ group.weekday }}</span>
+                          <span class="cua__slot-date">{{ group.dateLabel }}</span>
+                        </div>
+                        <label v-for="slot in group.slots" :key="slot.id" class="cua__check cua__check--slot">
+                          <input v-model="formData.fall_check_in.fall_checkin_slot_id" type="radio" :value="String(slot.id)" />
+                          {{ formatTimeOnly(slot.starts_at) }}
+                          <template v-if="slot.ends_at"> – {{ formatTimeOnly(slot.ends_at) }}</template>
+                          <template v-if="slot.label"> — {{ slot.label }}</template>
+                        </label>
+                      </div>
                       <button
                         type="button"
                         class="btn btn-primary"
@@ -1163,11 +1195,56 @@ const filteredCheckinSlots = computed(() => {
   return (checkinSlots.value || []).filter((s) => {
     if (s.status && s.status !== 'open') return false;
     if (String(s.modality || 'in_person') !== modality) return false;
-    // Hide slots that have already passed (wall-clock, no UTC shift)
     const slotTime = parseSlotWallClock(s.starts_at)?.getTime();
     if (slotTime != null && slotTime < now) return false;
     return true;
   });
+});
+
+/** Preferred-time filter (HH:MM local, e.g. "15:00"). Empty = show all. */
+const preferredTimeFilter = ref('');
+
+/** Slots grouped by date string, optionally filtered by preferred time. */
+const checkinSlotsByDate = computed(() => {
+  const slots = filteredCheckinSlots.value;
+  const pref = preferredTimeFilter.value.trim();
+  const groups = [];
+  const dateMap = new Map(); // dateKey → group index
+  for (const s of slots) {
+    const d = parseSlotWallClock(s.starts_at);
+    if (!d) continue;
+    // Preferred-time filter: compare HH:MM
+    if (pref) {
+      const slotHHMM = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      if (slotHHMM !== pref) continue;
+    }
+    const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (!dateMap.has(dateKey)) {
+      const weekday = d.toLocaleDateString(undefined, { weekday: 'long' });
+      const dateLabel = d.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+      dateMap.set(dateKey, groups.length);
+      groups.push({ dateKey, weekday, dateLabel, slots: [] });
+    }
+    groups[dateMap.get(dateKey)].slots.push(s);
+  }
+  return groups;
+});
+
+/** All distinct HH:MM times available across filtered slots (for the preferred-time picker). */
+const availableTimesForFilter = computed(() => {
+  const seen = new Set();
+  const result = [];
+  for (const s of filteredCheckinSlots.value) {
+    const d = parseSlotWallClock(s.starts_at);
+    if (!d) continue;
+    const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    if (!seen.has(hhmm)) {
+      seen.add(hhmm);
+      const label = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      result.push({ value: hhmm, label });
+    }
+  }
+  return result.sort((a, b) => a.value.localeCompare(b.value));
 });
 
 const ICONS = {
@@ -1379,16 +1456,22 @@ function clearBtsAlternative() {
   formData.school_events.bts_note = '';
   clearSectionAlert('school_events');
 }
-/** Check-in slots are wall-clock times — never shift by timezone. */
+/**
+ * Parse a check-in slot datetime string.
+ * UTC ISO strings (with Z or offset) are parsed as absolute UTC — the browser
+ * then converts to local time for display, which matches the agency timezone
+ * for on-site users.
+ * Legacy wall-clock strings (no Z) are treated as local time for backward compat.
+ */
 function parseSlotWallClock(raw) {
   if (!raw) return null;
-  const m = String(raw)
-    .trim()
-    .match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
-  if (!m) {
-    const d = new Date(raw);
+  const s = String(raw).trim();
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) {
+    const d = new Date(s);
     return Number.isNaN(d.getTime()) ? null : d;
   }
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return null;
   return new Date(
     Number(m[1]),
     Number(m[2]) - 1,
@@ -2885,6 +2968,68 @@ defineExpose({ reload: load, copyShareToken });
 .cua__check input {
   width: 18px;
   height: 18px;
+}
+/* Slot date grouping */
+.cua__slot-date-group {
+  margin-bottom: 14px;
+}
+.cua__slot-date-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--cua-border, #e2e8f0);
+}
+.cua__slot-weekday {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--cua-primary, #15803d);
+}
+.cua__slot-date {
+  font-size: 13px;
+  color: var(--cua-text-muted, #64748b);
+}
+.cua__check--slot {
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+.cua__check--slot:hover {
+  background: var(--cua-bg-light, #f8fafc);
+}
+/* Preferred-time filter */
+.cua__slot-time-filter {
+  margin-bottom: 14px;
+}
+.cua__slot-time-filter-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cua-text-muted, #64748b);
+  display: block;
+  margin-bottom: 6px;
+}
+.cua__slot-time-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cua__slot-time-chip {
+  padding: 4px 12px;
+  border: 1px solid var(--cua-border, #e2e8f0);
+  border-radius: 20px;
+  background: white;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.cua__slot-time-chip:hover {
+  background: var(--cua-bg-light, #f8fafc);
+}
+.cua__slot-time-chip--active {
+  background: var(--cua-primary, #15803d);
+  color: white;
+  border-color: var(--cua-primary, #15803d);
 }
 .cua__list {
   list-style: none;

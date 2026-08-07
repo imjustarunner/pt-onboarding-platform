@@ -295,10 +295,23 @@ async function ensureHostCalendarForSlot({
   locationText = null,
 }) {
   const settings = serializeCampaignCheckin(campaign);
-  const startsAt = toMysqlDateTime(slot.starts_at);
-  const endsAt = toMysqlDateTime(
-    slot.ends_at || addMinutes(slot.starts_at, slot.duration_minutes || settings.slotDurationMinutes)
-  );
+  // slot.starts_at is already UTC MySQL DATETIME (migration 1098).
+  // Never re-run through toMysqlDateTime without a timezone — that treats the
+  // UTC digits as Denver wall-clock and double-converts (shifts by 6+ hours).
+  // utcMysqlToIso adds a Z suffix so Google Calendar gets the correct absolute instant.
+  const startsAtIso = utcMysqlToIso(slot.starts_at); // "2026-10-08T03:00:00Z"
+  const endsAtDate = slot.ends_at
+    ? new Date(utcMysqlToIso(slot.ends_at))
+    : addMinutes(slot.starts_at, slot.duration_minutes || settings.slotDurationMinutes);
+  const endsAtIso = endsAtDate instanceof Date && !Number.isNaN(endsAtDate.getTime())
+    ? endsAtDate.toISOString()
+    : utcMysqlToIso(slot.ends_at);
+  // Use ISO strings for Google Calendar (handles Z correctly).
+  // Strip T/Z for MySQL DATETIME columns (provider_schedule_events).
+  const startsAt = startsAtIso;
+  const endsAt = endsAtIso;
+  const startsAtMysql = startsAtIso ? startsAtIso.replace('T', ' ').replace('Z', '').slice(0, 19) : null;
+  const endsAtMysql = endsAtIso ? endsAtIso.replace('T', ' ').replace('Z', '').slice(0, 19) : null;
   const slotModality = normalizeModality(modality || slot.modality);
   const modalityLabel = slotModality === 'virtual' ? 'Virtual' : 'In person';
   const title = booked
@@ -375,8 +388,8 @@ async function ensureHostCalendarForSlot({
           pseKind,
           title,
           description,
-          startsAt,
-          endsAt,
+          startsAtMysql,
+          endsAtMysql,
           pseAgencyId,
           googleEventId,
           googleHtmlLink,
@@ -398,8 +411,8 @@ async function ensureHostCalendarForSlot({
         kind: pseKind,
         title,
         description,
-        startAt: startsAt,
-        endAt: endsAt,
+        startAt: startsAtMysql,
+        endAt: endsAtMysql,
         googleEventId,
         googleHtmlLink,
         googleMeetLink,
@@ -637,6 +650,92 @@ export async function getCheckinSlotDetail(slotId) {
     hostEvents: hosts || [],
     booking: booking ? serializeSlotRow(booking) : null,
   };
+}
+
+/**
+ * Update an open pre-slot's label and/or time.
+ * If the time changes, all host Google Calendar events are re-timed via patch.
+ */
+export async function updateCheckinSlot({
+  slotId,
+  agencyId,
+  label,
+  startsAt: startsAtRaw,
+  updatedByUserId = null,
+}) {
+  const [existing] = await pool.execute(
+    `SELECT * FROM school_reinit_checkin_slots WHERE id = ? AND agency_id = ? LIMIT 1`,
+    [slotId, agencyId]
+  );
+  const slot = existing?.[0];
+  if (!slot) throw Object.assign(new Error('Slot not found'), { status: 404 });
+  if (slot.status !== 'open') throw Object.assign(new Error('Cannot edit a booked or cancelled slot'), { status: 400 });
+
+  const updates = [];
+  const values = [];
+
+  if (label !== undefined) {
+    updates.push('label = ?');
+    values.push(label || null);
+  }
+
+  let newStartsAt = null;
+  let newEndsAt = null;
+  if (startsAtRaw) {
+    const tz = await resolveAgencyTimezone(agencyId);
+    const startMysql = toMysqlDateTime(startsAtRaw, tz);
+    if (!startMysql) throw new Error('Invalid startsAt');
+    const campaign = await (await reinit()).getOrCreateCampaign(agencyId, slot.school_year);
+    const settings = serializeCampaignCheckin(campaign);
+    const startDate = new Date(`${startMysql.replace(' ', 'T')}Z`);
+    const endDate = addMinutes(startDate, slot.duration_minutes || settings.slotDurationMinutes);
+    newStartsAt = startMysql;
+    newEndsAt = dateToMysqlUtcDateTime(endDate);
+    updates.push('starts_at = ?', 'ends_at = ?');
+    values.push(newStartsAt, newEndsAt);
+  }
+
+  if (!updates.length) return getCheckinSlotDetail(slotId);
+
+  values.push(slotId, agencyId);
+  await pool.execute(
+    `UPDATE school_reinit_checkin_slots SET ${updates.join(', ')} WHERE id = ? AND agency_id = ?`,
+    values
+  );
+
+  if (newStartsAt && newEndsAt) {
+    // Re-time Google Calendar events for all hosts
+    const startsAtIso = utcMysqlToIso(newStartsAt);
+    const endsAtIso = utcMysqlToIso(newEndsAt);
+    if (startsAtIso && endsAtIso) {
+      const [hostRows] = await pool.execute(
+        `SELECT h.*, u.email FROM school_reinit_checkin_slot_host_events h
+         INNER JOIN users u ON u.id = h.host_user_id
+         WHERE h.slot_id = ?`,
+        [slotId]
+      );
+      for (const h of hostRows || []) {
+        if (!h.google_event_id || !h.email) continue;
+        try {
+          await GoogleCalendarService.patchEventDetails({
+            subjectEmail: h.email,
+            eventId: h.google_event_id,
+            startAt: startsAtIso,
+            endAt: endsAtIso,
+          });
+        } catch { /* log only */ }
+        // Update PSE times too
+        if (h.provider_schedule_event_id) {
+          await pool.execute(
+            `UPDATE provider_schedule_events SET start_at = ?, end_at = ? WHERE id = ?`,
+            [newStartsAt, newEndsAt, h.provider_schedule_event_id]
+          ).catch(() => {});
+        }
+      }
+    }
+  }
+
+  return getCheckinSlotDetail(slotId);
 }
 
 export async function listCheckinSlotsDetailed(agencyId, schoolYear, { includeInactive = false } = {}) {

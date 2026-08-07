@@ -139,35 +139,71 @@
         </div>
       </div>
 
-      <ul class="reinit-admin__slots">
-        <li
-          v-for="s in slots"
-          :key="s.id"
-          class="reinit-admin__slot-row"
-          :class="{ 'reinit-admin__slot-row--past': isSlotPast(s) }"
-        >
-          <span>
-            <span class="pill" :class="s.modality === 'virtual' ? 'pill--enabled' : 'pill--draft'">
-              {{ s.modality === 'virtual' ? 'Virtual' : 'In person' }}
-            </span>
-            {{ formatSlotDt(s.starts_at) }}
-            <template v-if="s.label"> — {{ s.label }}</template>
-            <span v-if="isSlotPast(s)" class="reinit-admin__slot-past-badge">past</span>
-            <span v-if="s.status === 'booked'" class="muted small">
-              · Booked {{ s.booked_school_name || '' }}
-              <template v-if="s.booking_meet_link"> · Meet ready</template>
-              <template v-if="s.booking_invited_at"> · Staff invited</template>
-            </span>
-            <span v-else-if="!isSlotPast(s)" class="muted small"> · Open pre-slot</span>
-          </span>
-          <button
-            v-if="s.status === 'open'"
-            type="button"
-            class="btn btn-secondary btn-sm"
-            @click="deactivateSlot(s)"
-          >Remove</button>
-        </li>
-      </ul>
+      <!-- Slot list grouped by date -->
+      <div v-for="group in slotsByDate" :key="group.key" class="reinit-admin__slot-date-group">
+        <div class="reinit-admin__slot-date-header">
+          <span class="reinit-admin__slot-weekday">{{ group.weekday }}</span>
+          <span class="reinit-admin__slot-date-label">{{ group.dateLabel }}</span>
+        </div>
+        <ul class="reinit-admin__slots">
+          <li
+            v-for="s in group.slots"
+            :key="s.id"
+            class="reinit-admin__slot-row"
+            :class="{ 'reinit-admin__slot-row--past': isSlotPast(s) }"
+          >
+            <template v-if="editingSlotId === s.id">
+              <!-- Inline edit form -->
+              <div class="reinit-admin__slot-edit-form">
+                <label class="reinit-admin__slot-label">
+                  <span class="reinit-admin__slot-field-label">Start time</span>
+                  <input v-model="editSlot.startsAt" type="datetime-local" />
+                </label>
+                <label class="reinit-admin__slot-label">
+                  <span class="reinit-admin__slot-field-label">Label</span>
+                  <input v-model="editSlot.label" type="text" placeholder="e.g. Morning session" />
+                </label>
+                <div class="reinit-admin__slot-edit-actions">
+                  <button type="button" class="btn btn-primary btn-sm" :disabled="savingSlot" @click="saveEditSlot(s)">
+                    {{ savingSlot ? 'Saving…' : 'Save' }}
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="cancelEditSlot">Cancel</button>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <span>
+                <span class="pill" :class="s.modality === 'virtual' ? 'pill--enabled' : 'pill--draft'">
+                  {{ s.modality === 'virtual' ? 'Virtual' : 'In person' }}
+                </span>
+                {{ formatSlotDt(s.starts_at) }}
+                <template v-if="s.label"> — {{ s.label }}</template>
+                <span v-if="isSlotPast(s)" class="reinit-admin__slot-past-badge">past</span>
+                <span v-if="s.status === 'booked'" class="muted small">
+                  · Booked {{ s.booked_school_name || '' }}
+                  <template v-if="s.booking_meet_link"> · Meet ready</template>
+                  <template v-if="s.booking_invited_at"> · Staff invited</template>
+                </span>
+                <span v-else-if="!isSlotPast(s)" class="muted small"> · Open pre-slot</span>
+              </span>
+              <div class="reinit-admin__slot-actions">
+                <button
+                  v-if="s.status === 'open' && !isSlotPast(s)"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="openEditSlot(s)"
+                >Edit</button>
+                <button
+                  v-if="s.status === 'open'"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="deactivateSlot(s)"
+                >Remove</button>
+              </div>
+            </template>
+          </li>
+        </ul>
+      </div>
       <div class="reinit-admin__slot-form-wrap">
         <div class="reinit-admin__slot-form">
           <label class="reinit-admin__slot-label">
@@ -680,6 +716,9 @@ const detailLoading = ref(false);
 const detailTab = ref('summary');
 const newSlot = reactive({ startsAt: '', endsAt: '', label: '', modality: 'in_person' });
 const addingSlots = ref(false);
+const editingSlotId = ref(null);
+const editSlot = reactive({ label: '', startsAt: '' });
+const savingSlot = ref(false);
 const checkinSettings = reactive({
   hostUserIds: [],
   extraAttendeeUserIds: [],
@@ -771,16 +810,20 @@ function formatDt(raw) {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-/** Parse check-in slot times as wall-clock (no UTC shift). */
+/**
+ * Parse a check-in slot datetime string.
+ * UTC ISO strings (with Z or offset) are parsed as absolute UTC.
+ * Legacy wall-clock strings (no Z) are treated as local time for backward compat.
+ */
 function parseSlotWallClock(raw) {
   if (!raw) return null;
-  const m = String(raw)
-    .trim()
-    .match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
-  if (!m) {
-    const d = new Date(raw);
+  const s = String(raw).trim();
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) {
+    const d = new Date(s);
     return Number.isNaN(d.getTime()) ? null : d;
   }
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return null;
   return new Date(
     Number(m[1]),
     Number(m[2]) - 1,
@@ -929,6 +972,55 @@ function userLabel(u) {
 function isSlotPast(slot) {
   const d = parseSlotWallClock(slot.starts_at);
   return d != null && d.getTime() < Date.now();
+}
+
+/** Slots grouped by date for cleaner display. */
+const slotsByDate = computed(() => {
+  const groups = [];
+  const dateMap = new Map();
+  for (const s of slots.value || []) {
+    const d = parseSlotWallClock(s.starts_at);
+    const key = d
+      ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      : 'unknown';
+    if (!dateMap.has(key)) {
+      const weekday = d ? d.toLocaleDateString(undefined, { weekday: 'long' }) : '';
+      const dateLabel = d ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : key;
+      dateMap.set(key, groups.length);
+      groups.push({ key, weekday, dateLabel, slots: [] });
+    }
+    groups[dateMap.get(key)].slots.push(s);
+  }
+  return groups;
+});
+
+function openEditSlot(s) {
+  editingSlotId.value = s.id;
+  const d = parseSlotWallClock(s.starts_at);
+  editSlot.label = s.label || '';
+  editSlot.startsAt = d ? toDatetimeLocalValue(d) : '';
+}
+
+function cancelEditSlot() {
+  editingSlotId.value = null;
+}
+
+async function saveEditSlot(slot) {
+  savingSlot.value = true;
+  error.value = '';
+  try {
+    await api.put(`/school-reinit/checkin-slots/${slot.id}`, {
+      agencyId: Number(props.agencyId),
+      label: editSlot.label || null,
+      startsAt: editSlot.startsAt ? toMysqlWallClock(parseDatetimeLocal(editSlot.startsAt)) : undefined,
+    });
+    editingSlotId.value = null;
+    await load();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Save failed';
+  } finally {
+    savingSlot.value = false;
+  }
 }
 
 const activeGapMinutes = computed(() => {
@@ -2231,12 +2323,55 @@ onUnmounted(() => {
   margin: 0;
   line-height: 1.35;
 }
+/* Date group header */
+.reinit-admin__slot-date-group {
+  margin-bottom: 12px;
+}
+.reinit-admin__slot-date-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0 6px;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 4px;
+}
+.reinit-admin__slot-weekday {
+  font-weight: 700;
+  font-size: 13px;
+  color: #0f766e;
+}
+.reinit-admin__slot-date-label {
+  font-size: 12px;
+  color: #64748b;
+}
+/* Slot actions */
+.reinit-admin__slot-actions {
+  display: flex;
+  gap: 6px;
+}
+/* Inline edit form */
+.reinit-admin__slot-edit-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  width: 100%;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.reinit-admin__slot-edit-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
 .reinit-admin__slot-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  padding: 4px 0;
 }
 .reinit-admin__slot-row--past {
   opacity: 0.45;

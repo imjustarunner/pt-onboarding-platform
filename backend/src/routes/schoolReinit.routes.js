@@ -22,6 +22,7 @@ router.get('/cycles/:cycleId', authenticate, ctrl.getCycleDetail);
 router.post('/change-requests/:id/resolve', authenticate, ctrl.resolveChangeRequest);
 router.get('/checkin-slots', authenticate, ctrl.listCheckinSlotsAdmin);
 router.post('/checkin-slots', authenticate, ctrl.createCheckinSlot);
+router.put('/checkin-slots/:slotId', authenticate, ctrl.updateCheckinSlot);
 router.delete('/checkin-slots/:slotId', authenticate, ctrl.deactivateCheckinSlot);
 router.post('/checkin-bookings', authenticate, ctrl.bookCheckinSlot);
 
