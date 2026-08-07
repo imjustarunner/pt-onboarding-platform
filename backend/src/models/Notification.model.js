@@ -12,6 +12,121 @@ class Notification {
   // This replaces ENUM validation which caused migration issues in Cloud SQL
   static VALID_TYPES = NOTIFICATION_TYPES;
 
+  /**
+   * Coalesce-or-create a notification.
+   *
+   * For personal notifications (userId set), looks for an existing UNREAD, UNRESOLVED
+   * notification with the same type + user + related entity. If found, increments
+   * batch_count and updates the message (via messageBuilder if provided). If not found
+   * (or the user already read it), creates a fresh notification.
+   *
+   * This produces the "10 new tasks → 12 new tasks" batching the user sees in their
+   * notification inbox without spawning a separate row for every event.
+   *
+   * @param {object} opts - Same fields as create(), plus:
+   *   batchDelta {number}   - How many events to add (default 1).
+   *   messageBuilder {fn}   - (currentCount: number) => string  — builds the updated message.
+   *   titleBuilder {fn}     - (currentCount: number) => string  — builds the updated title (optional).
+   */
+  static async coalesceOrCreate({
+    type,
+    severity = 'info',
+    title,
+    message,
+    audienceJson,
+    userId,
+    agencyId,
+    relatedEntityType,
+    relatedEntityId,
+    actorUserId,
+    actorSource,
+    batchDelta = 1,
+    messageBuilder = null,
+    titleBuilder = null
+  }) {
+    // Agency-wide notifications can't be per-user coalesced — fall through to normal create.
+    if (!userId) {
+      return this.create({ type, severity, title, message, audienceJson, userId, agencyId,
+        relatedEntityType, relatedEntityId, actorUserId, actorSource });
+    }
+
+    if (!this.VALID_TYPES.includes(type)) {
+      throw new Error(`Invalid notification type: ${type}. Valid types are: ${this.VALID_TYPES.join(', ')}`);
+    }
+
+    const uid = Number(userId);
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      // Lock the most-recent unread matching notification so concurrent inserts don't race.
+      const [existing] = await conn.execute(
+        `SELECT id, batch_count, title AS cur_title FROM notifications
+         WHERE type = ?
+           AND user_id = ?
+           AND (related_entity_type <=> ?)
+           AND (related_entity_id <=> ?)
+           AND is_read = FALSE
+           AND is_resolved = FALSE
+         ORDER BY id DESC
+         LIMIT 1
+         FOR UPDATE`,
+        [type, uid, relatedEntityType ?? null, relatedEntityId ?? null]
+      );
+
+      let resultId;
+      if (existing.length > 0) {
+        const row = existing[0];
+        const newCount = (row.batch_count || 1) + batchDelta;
+        const newMessage = messageBuilder ? messageBuilder(newCount) : message;
+        const newTitle = titleBuilder ? titleBuilder(newCount) : (row.cur_title ?? title);
+
+        await conn.execute(
+          `UPDATE notifications
+           SET batch_count = ?, message = ?, title = ?, batch_updated_at = NOW()
+           WHERE id = ?`,
+          [newCount, newMessage, newTitle, row.id]
+        );
+        resultId = row.id;
+      } else {
+        const initMessage = messageBuilder ? messageBuilder(batchDelta) : message;
+        const initTitle = titleBuilder ? titleBuilder(batchDelta) : title;
+
+        const [ins] = await conn.execute(
+          `INSERT INTO notifications
+             (type, severity, title, message, audience_json, user_id, agency_id,
+              related_entity_type, related_entity_id, actor_user_id, actor_source, batch_count)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            type,
+            severity,
+            initTitle,
+            initMessage,
+            audienceJson ? JSON.stringify(audienceJson) : null,
+            uid,
+            agencyId ? Number(agencyId) : null,
+            relatedEntityType ?? null,
+            relatedEntityId ?? null,
+            actorUserId ? Number(actorUserId) : null,
+            actorSource ? String(actorSource).trim().slice(0, 100) : null,
+            batchDelta
+          ]
+        );
+        resultId = ins.insertId;
+      }
+
+      await conn.commit();
+
+      const [rows] = await pool.execute('SELECT * FROM notifications WHERE id = ?', [resultId]);
+      return rows[0] || null;
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+
   static async create(notificationData) {
     const {
       type,

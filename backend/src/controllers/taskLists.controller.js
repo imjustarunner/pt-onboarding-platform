@@ -13,6 +13,7 @@ import TaskListMember from '../models/TaskListMember.model.js';
 import Task from '../models/Task.model.js';
 import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import User from '../models/User.model.js';
+import { notifyTaskAddedToList } from '../services/taskNotifications.service.js';
 
 async function requireMembership(req, res, next) {
   const listId = parseInt(req.params.id || req.params.listId, 10);
@@ -460,6 +461,15 @@ export const createTaskInList = async (req, res, next) => {
       targetUserId: resolvedAssignee,
       metadata: { source: 'task_list', taskListId: listId }
     });
+
+    // Fire batched/coalesced notifications to all list members (except the creator).
+    notifyTaskAddedToList({
+      task,
+      listId,
+      listName: list.name,
+      agencyId: list.agency_id,
+      actorUserId: userId
+    }).catch((err) => console.error('[createTaskInList] notifyTaskAddedToList error:', err));
 
     res.status(201).json(task);
   } catch (err) {

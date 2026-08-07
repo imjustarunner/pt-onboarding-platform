@@ -26,7 +26,8 @@ const TYPES_BY_CATEGORY = {
     'task_overdue', 'inbound_client_message', 'support_safety_net_alert', 'client_note',
     'chat_message', 'task_comment_mention', 'support_ticket_created',
     'support_ticket_forwarded_to_provider', 'referral_directory_pending_approval',
-    'voicemail_received', 'custom_task_assigned', 'custom_task_unlocked'
+    'voicemail_received', 'custom_task_assigned', 'custom_task_unlocked',
+    'task_list_activity'
   ],
   clients_documents: [
     'paperwork_received', 'new_packet_uploaded', 'new_prospective_inquiry', 'client_became_current',
@@ -120,6 +121,7 @@ const LABEL_OVERRIDES = {
   task_comment_mention: 'Mentioned in a task comment',
   custom_task_assigned: 'Task assigned to you',
   custom_task_unlocked: 'Task is now ready — blocker completed',
+  task_list_activity: 'New activity in a shared task list',
   support_ticket_forwarded_to_provider: 'Support ticket forwarded to you',
   referral_directory_pending_approval: 'Referral entry needs approval',
   client_school_roi_link_generated: 'School ROI link generated',
