@@ -1,6 +1,6 @@
 <template>
-  <section class="my-docs-wrap" data-tour="school-staff-docs-panel">
-    <header class="my-docs-header">
+  <section class="my-docs-wrap" :class="{ 'my-docs-wrap--splash': splashMode }" data-tour="school-staff-docs-panel">
+    <header v-if="!splashMode" class="my-docs-header">
       <h2>School Staff Documents</h2>
       <div class="header-actions">
         <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="loadStatus">
@@ -22,7 +22,7 @@
       {{ error }}
     </div>
 
-    <div class="waiver-card">
+    <div class="waiver-card" :class="{ 'waiver-card--splash': splashMode }">
       <div class="waiver-top">
         <div>
           <div class="waiver-title">School Staff Waiver</div>
@@ -49,9 +49,10 @@
           type="button"
           class="btn btn-primary waiver-cta"
           :class="{ 'waiver-cta-pulse': shouldPulseCta }"
+          :disabled="loading"
           @click="openSigning"
         >
-          Review and sign waiver
+          {{ loading ? 'Loading…' : 'Review and sign waiver' }}
         </button>
         <button
           v-if="required && taskId && isSigned"
@@ -74,7 +75,7 @@
       </div>
 
       <div
-        v-if="showWaiverHintToast"
+        v-if="showWaiverHintToast && !splashMode"
         class="waiver-hint-toast"
         role="status"
         aria-live="polite"
@@ -87,6 +88,21 @@
           <button type="button" class="btn btn-primary btn-sm" @click="openSigning">Go sign now</button>
           <button type="button" class="btn btn-secondary btn-sm" @click="dismissWaiverHint">Dismiss</button>
         </div>
+      </div>
+
+      <div v-if="splashMode" class="splash-secondary-actions">
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="loadStatus">
+          {{ loading ? 'Refreshing...' : 'Refresh' }}
+        </button>
+        <button
+          v-if="showPilotResetButton"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          :disabled="loading || resetting"
+          @click="resetForTesting"
+        >
+          {{ resetting ? 'Resetting...' : 'Reset for testing' }}
+        </button>
       </div>
     </div>
   </section>
@@ -101,6 +117,11 @@ const props = defineProps({
   organizationId: {
     type: [Number, String],
     default: null
+  },
+  /** Compact layout for the blocking waiver splash */
+  splashMode: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -159,26 +180,43 @@ const openSigning = async () => {
   const latestSigned = Boolean(status.value?.isSigned);
   const orgSlug = String(route.params?.organizationSlug || '').trim();
   const returnTo = orgSlug ? `/${orgSlug}/dashboard?sp=documents` : '/dashboard?sp=documents';
-  if (!latestTaskId) return;
-  if (latestSigned) {
-    await router.push({
-      path: orgSlug
-        ? `/${orgSlug}/tasks/documents/${latestTaskId}/review`
-        : `/tasks/documents/${latestTaskId}/review`,
-      query: {
-        returnTo
-      }
-    });
+  if (!latestTaskId) {
+    error.value = 'Waiver task is not ready yet. Click Refresh, then try again.';
     return;
   }
-  await router.push({
-    path: orgSlug
-      ? `/${orgSlug}/tasks/documents/${latestTaskId}/sign`
-      : `/tasks/documents/${latestTaskId}/sign`,
-    query: {
-      returnTo
+  try {
+    if (latestSigned) {
+      if (orgSlug) {
+        await router.push({
+          name: 'OrganizationDocumentReview',
+          params: { organizationSlug: orgSlug, taskId: String(latestTaskId) },
+          query: { returnTo }
+        });
+      } else {
+        await router.push({
+          name: 'DocumentReview',
+          params: { taskId: String(latestTaskId) },
+          query: { returnTo }
+        });
+      }
+      return;
     }
-  });
+    if (orgSlug) {
+      await router.push({
+        name: 'OrganizationDocumentSigning',
+        params: { organizationSlug: orgSlug, taskId: String(latestTaskId) },
+        query: { returnTo }
+      });
+    } else {
+      await router.push({
+        name: 'DocumentSigning',
+        params: { taskId: String(latestTaskId) },
+        query: { returnTo }
+      });
+    }
+  } catch (e) {
+    error.value = e?.message || 'Could not open the waiver signing page. Please try again.';
+  }
 };
 
 const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -307,6 +345,32 @@ onBeforeUnmount(() => {
 .my-docs-wrap {
   display: grid;
   gap: 12px;
+}
+.my-docs-wrap--splash {
+  gap: 10px;
+}
+.waiver-card--splash {
+  border-color: rgba(47, 143, 131, 0.28);
+  background: linear-gradient(180deg, #f8fffd 0%, #fff 55%);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+.my-docs-wrap--splash .waiver-cta {
+  width: 100%;
+  min-height: 48px;
+  font-size: 1rem;
+  font-weight: 800;
+}
+.my-docs-wrap--splash .header-actions,
+.my-docs-wrap--splash .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.splash-secondary-actions {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .my-docs-header {

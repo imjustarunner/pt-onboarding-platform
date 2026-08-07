@@ -4469,36 +4469,21 @@ router.beforeEach(async (to, from, next) => {
       'SchoolOnboardingStart'
     ]);
     const currentRouteName = String(to.name || '');
-    if (!exemptRouteNames.has(currentRouteName)) {
+    // If a password change is required (e.g. temp-password login), let the
+    // mustChangePassword guard below handle routing before checking the waiver.
+    if (!exemptRouteNames.has(currentRouteName) && !mustChangePassword) {
       const slug = (typeof to.params.organizationSlug === 'string' && to.params.organizationSlug) || getDefaultOrganizationSlug();
       if (slug) {
         try {
-          const waiverStatus = await getSchoolStaffWaiverStatus({
+          await getSchoolStaffWaiverStatus({
             api,
             authUser: authStore.user,
             organizationSlug: slug
           });
-          const requiresWaiver = Boolean(waiverStatus?.required);
-          const isSigned = Boolean(waiverStatus?.isSigned);
-          const requiredTaskId = Number(waiverStatus?.taskId || 0) || null;
-          if (requiresWaiver && !isSigned) {
-            const queryMode = String(to.query?.sp || '').trim().toLowerCase();
-            const isOnboardingDemo = !!String(to.query?.soDemo || '').trim();
-            const isDashboardDocuments =
-              currentRouteName === 'OrganizationDashboard' &&
-              String(to.params.organizationSlug || '') === String(slug) &&
-              queryMode === 'documents';
-            const isRequiredTaskSigningRoute =
-              exemptRouteNames.has(currentRouteName) &&
-              requiredTaskId &&
-              Number(to.params?.taskId || 0) === requiredTaskId;
-            if (!isDashboardDocuments && !isRequiredTaskSigningRoute && !isOnboardingDemo) {
-              next(`/${slug}/dashboard?sp=documents`);
-              return;
-            }
-          }
+          // Waiver status is now cached for SchoolPortalView to pick up; the
+          // portal itself shows a nudge prompt instead of hard-blocking navigation.
         } catch {
-          // Best-effort gate: if status lookup fails, do not hard-block navigation.
+          // Best-effort: if status lookup fails, do not block navigation.
         }
       }
     }

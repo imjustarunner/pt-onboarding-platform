@@ -31,7 +31,7 @@
 
     <aside
       class="sp-sidebar"
-      :class="{ locked: waiverGateLocked, collapsed: sidebarCollapsed }"
+      :class="{ collapsed: sidebarCollapsed }"
       aria-label="School Portal navigation"
       data-tour="school-nav-rail"
     >
@@ -208,7 +208,7 @@
           data-tour="school-nav-docs"
           class="sp-nav-item"
           type="button"
-          :class="{ active: portalMode === 'documents' }"
+          :class="{ active: portalMode === 'documents', 'sp-nav-item--waiver-pending': waiverGateLocked }"
           @click="navigateSidebar(() => setPortalMode('documents'))"
         >
           <span class="sp-nav-icon">
@@ -219,6 +219,7 @@
               class="sp-nav-icon-img"
             />
             <span v-else aria-hidden="true">DO</span>
+            <span v-if="waiverGateLocked" class="waiver-pending-badge waiver-pending-badge--sm" aria-label="1 action required">1</span>
           </span>
           <span class="sp-nav-label">Docs / Links</span>
         </button>
@@ -614,10 +615,6 @@
 
         <div class="main-layout">
           <div class="main-content">
-          <div v-if="waiverGateLocked" class="waiver-lock-banner">
-            <strong>School Staff Waiver required.</strong>
-            <span>You can only access Docs/Links until it is signed.</span>
-          </div>
           <div v-if="portalMode === 'days'" class="days-top-wrap">
             <div class="days-daybar-center" data-tour="school-days-daybar">
               <SchoolDayBar v-model="store.selectedWeekday" :days="store.days" />
@@ -712,306 +709,345 @@
           <p class="home-sections-sub muted">Open a workspace, or use the sidebar anytime.</p>
         </div>
 
-        <div class="dashboard-card-grid" data-tour="school-home-cards">
-          <button
-            data-tour="school-home-card-providers"
-            class="dash-card"
-            type="button"
-            :disabled="!canAccessSchedulingPanels"
-            :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
-            :class="{ disabled: !canAccessSchedulingPanels }"
-            @click="openProvidersPanel"
-          >
-            <div class="dash-card-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('providers', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('providers', cardIconOrg)"
-                alt="Providers icon"
-                class="dash-card-icon-img"
-              />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">PR</div>
-            </div>
-            <div class="dash-card-title">Providers</div>
-            <div class="dash-card-desc">View provider cards, profiles, and messages.</div>
-            <div class="dash-card-meta">
-              <span class="dash-card-cta">Open ›</span>
-            </div>
-          </button>
+        <div class="portal-section-groups" data-tour="school-home-cards">
 
-          <button
-            data-tour="school-home-card-days"
-            class="dash-card"
-            type="button"
-            :disabled="!canAccessSchedulingPanels"
-            :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
-            :class="{ disabled: !canAccessSchedulingPanels }"
-            @click="openDaysPanel"
-          >
-            <div class="dash-card-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
-                alt="Days icon"
-                class="dash-card-icon-img"
-              />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">DY</div>
-            </div>
-            <div class="dash-card-title">Days</div>
-            <div class="dash-card-desc">Choose a weekday and view schedules.</div>
-            <div class="dash-card-meta">
-              <span class="dash-card-cta">Open ›</span>
-            </div>
-          </button>
+          <!-- ── Scheduling & Coverage ────────────────────────────── -->
+          <div class="section-group">
+            <div class="section-group-label">Scheduling &amp; Coverage</div>
+            <div class="dashboard-card-grid">
+              <button
+                data-tour="school-home-card-providers"
+                class="dash-card"
+                type="button"
+                :disabled="!canAccessSchedulingPanels"
+                :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
+                :class="{ disabled: !canAccessSchedulingPanels }"
+                @click="openProvidersPanel"
+              >
+                <div class="dash-card-icon">
+                  <img
+                    v-if="brandingStore.getSchoolPortalCardIconUrl('providers', cardIconOrg)"
+                    :src="brandingStore.getSchoolPortalCardIconUrl('providers', cardIconOrg)"
+                    alt="Providers icon"
+                    class="dash-card-icon-img"
+                  />
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">PR</div>
+                </div>
+                <div class="dash-card-title">Providers</div>
+                <div class="dash-card-desc">View provider cards, profiles, and messages.</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open ›</span>
+                </div>
+              </button>
 
-          <button data-tour="school-home-card-roster" class="dash-card dash-card-default-roster" type="button" @click="scrollToHomeRoster">
-            <div class="dash-card-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('roster', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('roster', cardIconOrg)"
-                alt="Roster icon"
-                class="dash-card-icon-img"
-              />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">RS</div>
-            </div>
-            <div class="dash-card-title">Roster</div>
-            <div class="dash-card-desc">View and sort the client roster.</div>
-            <div class="dash-card-meta">
-              <span class="dash-card-cta">Open ›</span>
-            </div>
-          </button>
+              <button
+                data-tour="school-home-card-days"
+                class="dash-card"
+                type="button"
+                :disabled="!canAccessSchedulingPanels"
+                :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
+                :class="{ disabled: !canAccessSchedulingPanels }"
+                @click="openDaysPanel"
+              >
+                <div class="dash-card-icon">
+                  <img
+                    v-if="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
+                    :src="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
+                    alt="Days icon"
+                    class="dash-card-icon-img"
+                  />
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">DY</div>
+                </div>
+                <div class="dash-card-title">Days</div>
+                <div class="dash-card-desc">Choose a weekday and view schedules.</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open ›</span>
+                </div>
+              </button>
 
-          <button
-            v-if="canAccessSkillBuildersSchoolProgramNav"
-            data-tour="school-home-card-skills"
-            class="dash-card"
-            type="button"
-            @click="setPortalMode('skills')"
-          >
-            <div class="dash-card-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
-                alt="Skills groups icon"
-                class="dash-card-icon-img"
-              />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">SG</div>
-            </div>
-            <div class="dash-card-title">Skill Builders</div>
-            <div class="dash-card-desc">After-school program groups, meetings, providers, and participants.</div>
-            <div class="dash-card-meta">
-              <span class="dash-card-cta">Open ›</span>
-            </div>
-          </button>
+              <button data-tour="school-home-card-roster" class="dash-card dash-card-default-roster" type="button" @click="scrollToHomeRoster">
+                <div class="dash-card-icon">
+                  <img
+                    v-if="brandingStore.getSchoolPortalCardIconUrl('roster', cardIconOrg)"
+                    :src="brandingStore.getSchoolPortalCardIconUrl('roster', cardIconOrg)"
+                    alt="Roster icon"
+                    class="dash-card-icon-img"
+                  />
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">RS</div>
+                </div>
+                <div class="dash-card-title">Roster</div>
+                <div class="dash-card-desc">View and sort the client roster.</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open ›</span>
+                </div>
+              </button>
 
-          <button data-tour="school-home-card-events" class="dash-card" type="button" @click="openSchoolEventsPanel">
-            <div class="dash-card-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('events', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('events', cardIconOrg)"
-                alt="Events icon"
-                class="dash-card-icon-img"
-              />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">EV</div>
+              <button
+                v-if="canAccessSkillBuildersSchoolProgramNav"
+                data-tour="school-home-card-skills"
+                class="dash-card"
+                type="button"
+                @click="setPortalMode('skills')"
+              >
+                <div class="dash-card-icon">
+                  <img
+                    v-if="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
+                    :src="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
+                    alt="Skills groups icon"
+                    class="dash-card-icon-img"
+                  />
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">SG</div>
+                </div>
+                <div class="dash-card-title">Skill Builders</div>
+                <div class="dash-card-desc">After-school program groups, meetings, providers, and participants.</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open ›</span>
+                </div>
+              </button>
             </div>
-            <div class="dash-card-title">Events</div>
-            <div class="dash-card-desc">School events associated with this portal (canonical company events).</div>
-            <div class="dash-card-meta">
-              <span class="dash-card-cta">Open ›</span>
-              <span v-if="schoolPortalEvents.length" class="dash-card-badge">{{ schoolPortalEvents.length }}</span>
-            </div>
-          </button>
+          </div>
 
-          <button data-tour="school-home-card-calendar" class="dash-card" type="button" @click="openSchoolCalendarPanel">
-            <div class="dash-card-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('calendar', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('calendar', cardIconOrg)"
-                alt="School calendar icon"
-                class="dash-card-icon-img"
-              />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">CL</div>
-            </div>
-            <div class="dash-card-title">School calendar</div>
-            <div class="dash-card-desc">Month view of holidays, days off, and parent events for this school.</div>
-            <div class="dash-card-meta">
-              <span class="dash-card-cta">Open ›</span>
-            </div>
-          </button>
+          <!-- ── Events & Calendar ──────────────────────────────────── -->
+          <div class="section-group">
+            <div class="section-group-label">Events &amp; Calendar</div>
+            <div class="dashboard-card-grid">
+              <button data-tour="school-home-card-events" class="dash-card" type="button" @click="openSchoolEventsPanel">
+                <div class="dash-card-icon">
+                  <img
+                    v-if="brandingStore.getSchoolPortalCardIconUrl('events', cardIconOrg)"
+                    :src="brandingStore.getSchoolPortalCardIconUrl('events', cardIconOrg)"
+                    alt="Events icon"
+                    class="dash-card-icon-img"
+                  />
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">EV</div>
+                </div>
+                <div class="dash-card-title">Events</div>
+                <div class="dash-card-desc">School events associated with this portal (canonical company events).</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open ›</span>
+                  <span v-if="schoolPortalEvents.length" class="dash-card-badge">{{ schoolPortalEvents.length }}</span>
+                </div>
+              </button>
 
-          <button data-tour="school-home-card-staff" class="dash-card" type="button" @click="setPortalMode('school_staff')">
-            <div class="dash-card-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('school_staff', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('school_staff', cardIconOrg)"
-                alt="School staff icon"
-                class="dash-card-icon-img"
-              />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">SS</div>
+              <button data-tour="school-home-card-calendar" class="dash-card" type="button" @click="openSchoolCalendarPanel">
+                <div class="dash-card-icon">
+                  <img
+                    v-if="brandingStore.getSchoolPortalCardIconUrl('calendar', cardIconOrg)"
+                    :src="brandingStore.getSchoolPortalCardIconUrl('calendar', cardIconOrg)"
+                    alt="School calendar icon"
+                    class="dash-card-icon-img"
+                  />
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">CL</div>
+                </div>
+                <div class="dash-card-title">School calendar</div>
+                <div class="dash-card-desc">Month view of holidays, days off, and parent events for this school.</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open ›</span>
+                </div>
+              </button>
             </div>
-            <div class="dash-card-title">School staff</div>
-            <div class="dash-card-desc">Manage linked school staff accounts and requests.</div>
-            <div class="dash-card-meta">
-              <span class="dash-card-cta">Open ›</span>
-              <span v-if="Number(store.portalStats?.school_staff_count) >= 0" class="dash-card-badge">
-                {{ Number(store.portalStats?.school_staff_count || 0) }}
-              </span>
-            </div>
-          </button>
+          </div>
 
-          <button data-tour="school-home-card-docs" class="dash-card" type="button" @click="setPortalMode('documents')">
-            <div class="dash-card-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('public_documents', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('public_documents', cardIconOrg)"
-                alt="Public documents icon"
-                class="dash-card-icon-img"
-              />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">DO</div>
-            </div>
-            <div class="dash-card-title">Docs / Links</div>
-            <div class="dash-card-desc">Shared calendars and school-wide reference docs/links.</div>
-            <div class="dash-card-meta">
-              <span class="dash-card-cta">Open ›</span>
-            </div>
-          </button>
+          <!-- ── Staff & Communication ─────────────────────────────── -->
+          <div class="section-group">
+            <div class="section-group-label">Staff &amp; Communication</div>
+            <div class="dashboard-card-grid">
+              <button data-tour="school-home-card-staff" class="dash-card" type="button" @click="setPortalMode('school_staff')">
+                <div class="dash-card-icon">
+                  <img
+                    v-if="brandingStore.getSchoolPortalCardIconUrl('school_staff', cardIconOrg)"
+                    :src="brandingStore.getSchoolPortalCardIconUrl('school_staff', cardIconOrg)"
+                    alt="School staff icon"
+                    class="dash-card-icon-img"
+                  />
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">SS</div>
+                </div>
+                <div class="dash-card-title">School staff</div>
+                <div class="dash-card-desc">Manage linked school staff accounts and requests.</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open ›</span>
+                  <span v-if="Number(store.portalStats?.school_staff_count) >= 0" class="dash-card-badge">
+                    {{ Number(store.portalStats?.school_staff_count || 0) }}
+                  </span>
+                </div>
+              </button>
 
-          <button data-tour="school-home-card-faq" class="dash-card" type="button" @click="setPortalMode('faq')">
-            <div class="dash-card-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('faq', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('faq', cardIconOrg)"
-                alt="FAQ icon"
-                class="dash-card-icon-img"
-              />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">FQ</div>
-            </div>
-            <div class="dash-card-title">FAQ</div>
-            <div class="dash-card-desc">Common questions and answers.</div>
-            <div class="dash-card-meta">
-              <span class="dash-card-cta">Open ›</span>
-            </div>
-          </button>
+              <button data-tour="school-home-card-notifications" class="dash-card" type="button" @click="openNotificationsPanel">
+                <div class="dash-card-icon">
+                  <img
+                    v-if="brandingStore.getSchoolPortalCardIconUrl('announcements', cardIconOrg)"
+                    :src="brandingStore.getSchoolPortalCardIconUrl('announcements', cardIconOrg)"
+                    alt="Announcements icon"
+                    class="dash-card-icon-img"
+                  />
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">AN</div>
+                </div>
+                <div class="dash-card-title">Notifications</div>
+                <div class="dash-card-desc">
+                  {{ notificationsNewestSnippet || 'School-wide updates and notifications.' }}
+                </div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open ›</span>
+                  <span v-if="notificationsUnreadCount > 0" class="dash-card-badge dash-card-badge-pulse" :title="`${notificationsUnreadCount} unread`">
+                    {{ notificationsUnreadCount }}
+                  </span>
+                </div>
+              </button>
 
-          <button data-tour="school-home-card-notifications" class="dash-card" type="button" @click="openNotificationsPanel">
-            <div class="dash-card-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('announcements', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('announcements', cardIconOrg)"
-                alt="Announcements icon"
-                class="dash-card-icon-img"
-              />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">AN</div>
-            </div>
-            <div class="dash-card-title">Notifications</div>
-            <div class="dash-card-desc">
-              {{ notificationsNewestSnippet || 'School-wide updates and notifications.' }}
-            </div>
-            <div class="dash-card-meta">
-              <span class="dash-card-cta">Open ›</span>
-              <span v-if="notificationsUnreadCount > 0" class="dash-card-badge dash-card-badge-pulse" :title="`${notificationsUnreadCount} unread`">
-                {{ notificationsUnreadCount }}
-              </span>
-            </div>
-          </button>
+              <button data-tour="school-home-card-messages" class="dash-card" type="button" @click="openMessages">
+                <div class="dash-card-icon">
+                  <img
+                    v-if="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
+                    :src="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
+                    alt="Messages icon"
+                    class="dash-card-icon-img"
+                  />
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">CH</div>
+                </div>
+                <div class="dash-card-title">Messages</div>
+                <div class="dash-card-desc">Chat with providers and school staff. New messages appear here.</div>
+                <div class="dash-card-meta">
+                  <span v-if="messagesUnreadCount > 0" class="dash-card-badge dash-card-badge-pulse" :title="`${messagesUnreadCount} unread`">
+                    {{ messagesUnreadCount }}
+                  </span>
+                  <span class="dash-card-cta">Open ›</span>
+                </div>
+              </button>
 
-          <button data-tour="school-home-card-help" class="dash-card" type="button" @click="showHelpDesk = true">
-            <div class="dash-card-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('contact_admin', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('contact_admin', cardIconOrg)"
-                alt="Contact admin icon"
-                class="dash-card-icon-img"
-              />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">CA</div>
+              <button data-tour="school-home-card-help" class="dash-card" type="button" @click="showHelpDesk = true">
+                <div class="dash-card-icon">
+                  <img
+                    v-if="brandingStore.getSchoolPortalCardIconUrl('contact_admin', cardIconOrg)"
+                    :src="brandingStore.getSchoolPortalCardIconUrl('contact_admin', cardIconOrg)"
+                    alt="Contact admin icon"
+                    class="dash-card-icon-img"
+                  />
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">CA</div>
+                </div>
+                <div class="dash-card-title">Contact admin</div>
+                <div class="dash-card-desc">Send a message to agency staff.</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open ›</span>
+                </div>
+              </button>
             </div>
-            <div class="dash-card-title">Contact admin</div>
-            <div class="dash-card-desc">Send a message to agency staff.</div>
-            <div class="dash-card-meta">
-              <span class="dash-card-cta">Open ›</span>
-            </div>
-          </button>
+          </div>
 
-          <button data-tour="school-home-card-messages" class="dash-card" type="button" @click="openMessages">
-            <div class="dash-card-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
-                alt="Messages icon"
-                class="dash-card-icon-img"
-              />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">CH</div>
-            </div>
-            <div class="dash-card-title">Messages</div>
-            <div class="dash-card-desc">Chat with providers and school staff. New messages appear here.</div>
-            <div class="dash-card-meta">
-              <span v-if="messagesUnreadCount > 0" class="dash-card-badge dash-card-badge-pulse" :title="`${messagesUnreadCount} unread`">
-                {{ messagesUnreadCount }}
-              </span>
-              <span class="dash-card-cta">Open ›</span>
-            </div>
-          </button>
+          <!-- ── Resources ─────────────────────────────────────────── -->
+          <div class="section-group">
+            <div class="section-group-label">Resources</div>
+            <div class="dashboard-card-grid">
+              <button
+                data-tour="school-home-card-docs"
+                class="dash-card"
+                :class="{ 'dash-card--waiver-pending': waiverGateLocked }"
+                type="button"
+                @click="setPortalMode('documents')"
+              >
+                <div class="dash-card-icon">
+                  <img
+                    v-if="brandingStore.getSchoolPortalCardIconUrl('public_documents', cardIconOrg)"
+                    :src="brandingStore.getSchoolPortalCardIconUrl('public_documents', cardIconOrg)"
+                    alt="Public documents icon"
+                    class="dash-card-icon-img"
+                  />
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">DO</div>
+                  <span v-if="waiverGateLocked" class="waiver-pending-badge" aria-label="1 action required">1</span>
+                </div>
+                <div class="dash-card-title">Docs / Links</div>
+                <div class="dash-card-desc">Shared calendars and school-wide reference docs/links.</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open ›</span>
+                </div>
+              </button>
 
-          <button
-            data-tour="school-home-card-digital-intake"
-            class="dash-card"
-            :class="{ 'dash-card-pulse': shouldPulseDigitalForms }"
-            type="button"
-            @click="openIntakeModal('qr')"
-          >
-            <div class="dash-card-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
-                alt="Digital intake icon"
-                class="dash-card-icon-img"
-              />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">QR</div>
+              <button data-tour="school-home-card-faq" class="dash-card" type="button" @click="setPortalMode('faq')">
+                <div class="dash-card-icon">
+                  <img
+                    v-if="brandingStore.getSchoolPortalCardIconUrl('faq', cardIconOrg)"
+                    :src="brandingStore.getSchoolPortalCardIconUrl('faq', cardIconOrg)"
+                    alt="FAQ icon"
+                    class="dash-card-icon-img"
+                  />
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">FQ</div>
+                </div>
+                <div class="dash-card-title">FAQ</div>
+                <div class="dash-card-desc">Common questions and answers.</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open ›</span>
+                </div>
+              </button>
             </div>
-            <div class="dash-card-title">Digital forms</div>
-            <div class="dash-card-desc">Replaces the paper intake packet. Share QR code or link for parents to complete forms.</div>
-            <div class="dash-card-meta">
-              <span class="dash-card-cta">Open ›</span>
-            </div>
-          </button>
+          </div>
 
-          <button data-tour="school-home-card-upload" class="dash-card" type="button" @click="showUploadModal = true">
-            <div class="dash-card-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('upload_packet', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('upload_packet', cardIconOrg)"
-                alt="Upload packet icon"
-                class="dash-card-icon-img"
-              />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">UP</div>
-            </div>
-            <div class="dash-card-title">Upload packet</div>
-            <div class="dash-card-desc">Upload a referral packet (no PHI exposed on portal).</div>
-            <div class="dash-card-meta">
-              <span class="dash-card-cta">Upload ›</span>
-            </div>
-          </button>
+          <!-- ── Enrollment & Intake ────────────────────────────────── -->
+          <div class="section-group">
+            <div class="section-group-label">Enrollment &amp; Intake</div>
+            <div class="dashboard-card-grid">
+              <button
+                data-tour="school-home-card-digital-intake"
+                class="dash-card"
+                :class="{ 'dash-card-pulse': shouldPulseDigitalForms }"
+                type="button"
+                @click="openIntakeModal('qr')"
+              >
+                <div class="dash-card-icon">
+                  <img
+                    v-if="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
+                    :src="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
+                    alt="Digital intake icon"
+                    class="dash-card-icon-img"
+                  />
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">QR</div>
+                </div>
+                <div class="dash-card-title">Digital forms</div>
+                <div class="dash-card-desc">Replaces the paper intake packet. Share QR code or link for parents to complete forms.</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open ›</span>
+                </div>
+              </button>
 
-          <router-link
-            v-if="canSeeManageSchoolDigitalIntakesLink"
-            class="dash-card"
-            :to="manageSchoolDigitalIntakesTo"
-            data-tour="school-home-card-manage-digital-intakes"
-          >
-            <div class="dash-card-icon">
-              <img
-                v-if="brandingStore.getSchoolPortalCardIconUrl('digital_forms', cardIconOrg)"
-                :src="brandingStore.getSchoolPortalCardIconUrl('digital_forms', cardIconOrg)"
-                alt="Manage digital forms icon"
-                class="dash-card-icon-img"
-              />
-              <div v-else class="dash-card-icon-fallback" aria-hidden="true">DF</div>
+              <button data-tour="school-home-card-upload" class="dash-card" type="button" @click="showUploadModal = true">
+                <div class="dash-card-icon">
+                  <img
+                    v-if="brandingStore.getSchoolPortalCardIconUrl('upload_packet', cardIconOrg)"
+                    :src="brandingStore.getSchoolPortalCardIconUrl('upload_packet', cardIconOrg)"
+                    alt="Upload packet icon"
+                    class="dash-card-icon-img"
+                  />
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">UP</div>
+                </div>
+                <div class="dash-card-title">Upload packet</div>
+                <div class="dash-card-desc">Upload a referral packet (no PHI exposed on portal).</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Upload ›</span>
+                </div>
+              </button>
+
+              <router-link
+                v-if="canSeeManageSchoolDigitalIntakesLink"
+                class="dash-card"
+                :to="manageSchoolDigitalIntakesTo"
+                data-tour="school-home-card-manage-digital-intakes"
+              >
+                <div class="dash-card-icon">
+                  <img
+                    v-if="brandingStore.getSchoolPortalCardIconUrl('digital_forms', cardIconOrg)"
+                    :src="brandingStore.getSchoolPortalCardIconUrl('digital_forms', cardIconOrg)"
+                    alt="Manage digital forms icon"
+                    class="dash-card-icon-img"
+                  />
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">DF</div>
+                </div>
+                <div class="dash-card-title">Manage school digital forms</div>
+                <div class="dash-card-desc">Create or copy English/Spanish intake links for this portal only.</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open ›</span>
+                </div>
+              </router-link>
             </div>
-            <div class="dash-card-title">Manage school digital forms</div>
-            <div class="dash-card-desc">Create or copy English/Spanish intake links for this portal only.</div>
-            <div class="dash-card-meta">
-              <span class="dash-card-cta">Open ›</span>
-            </div>
-          </router-link>
+          </div>
+
         </div>
 
         <div ref="homeRosterEl" class="home-roster" data-tour="school-home-roster">
@@ -1231,7 +1267,10 @@
         <div data-tour="school-docs-panel">
           <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
           <div v-else>
-            <SchoolMyDocumentsPanel v-if="isSchoolStaff" :organization-id="organizationId" />
+            <SchoolMyDocumentsPanel
+              v-if="isSchoolStaff"
+              :organization-id="organizationId"
+            />
             <PublicDocumentsPanel :school-organization-id="organizationId" />
           </div>
         </div>
@@ -1439,6 +1478,38 @@
         </div>
       </div>
     </div>
+
+    <!-- Waiver nudge: auto-shown once per session on load, and on gated-content clicks -->
+    <teleport to="body">
+      <transition name="waiver-nudge-fade">
+        <div
+          v-if="showWaiverNudge"
+          class="waiver-nudge-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Waiver signature required"
+          @click.self="dismissWaiverNudge"
+        >
+          <div class="waiver-nudge-card">
+            <div class="waiver-nudge-icon" aria-hidden="true">📋</div>
+            <h3 class="waiver-nudge-title">One quick thing</h3>
+            <p class="waiver-nudge-body">
+              You have a <strong>School Staff Waiver</strong> ready to review and sign.
+              Once signed, you'll have full access to client profiles and the roster.
+              Everything else in the portal is open in the meantime.
+            </p>
+            <div class="waiver-nudge-actions">
+              <button class="btn btn-primary waiver-nudge-cta" type="button" @click="goToWaiverFromNudge">
+                Review &amp; sign waiver
+              </button>
+              <button class="btn btn-ghost waiver-nudge-dismiss" type="button" @click="dismissWaiverNudge">
+                I'll do it later
+              </button>
+            </div>
+          </div>
+        </div>
+      </transition>
+    </teleport>
 
     <!-- Fall re-initiation collaborative workflow splash -->
     <div
@@ -2613,9 +2684,28 @@ const syncPortalModeQuery = async (mode, { replace = false, queryExtras = null }
   }
 };
 
-const forceWaiverDocumentsMode = async () => {
-  portalMode.value = 'documents';
-  await syncPortalModeQuery('documents', { replace: true });
+// Session key so the auto-greeting only shows once per login session per user+org.
+const waiverNudgeSessionKey = computed(() => {
+  const uid = authStore.user?.id || 'anon';
+  const slug = organizationSlug.value || 'org';
+  return `waiverNudgeSeen_${uid}_${slug}`;
+});
+const waiverNudgeAutoShownThisSession = () => {
+  try { return sessionStorage.getItem(waiverNudgeSessionKey.value) === '1'; } catch { return false; }
+};
+const markWaiverNudgeSeenThisSession = () => {
+  try { sessionStorage.setItem(waiverNudgeSessionKey.value, '1'); } catch {}
+};
+
+const goToWaiverFromNudge = async () => {
+  markWaiverNudgeSeenThisSession();
+  showWaiverNudge.value = false;
+  await setPortalMode('documents');
+};
+
+const dismissWaiverNudge = () => {
+  markWaiverNudgeSeenThisSession();
+  showWaiverNudge.value = false;
 };
 
 const refreshWaiverGateStatus = async ({ force = false } = {}) => {
@@ -2634,8 +2724,10 @@ const refreshWaiverGateStatus = async ({ force = false } = {}) => {
   } catch {
     waiverGateStatus.value = null;
   }
-  if (waiverGateLocked.value && portalMode.value !== 'documents') {
-    await forceWaiverDocumentsMode();
+  // Auto-show the welcome nudge once per session when the waiver is still pending.
+  if (waiverGateLocked.value && !waiverNudgeAutoShownThisSession()) {
+    markWaiverNudgeSeenThisSession();
+    showWaiverNudge.value = true;
   }
 };
 
@@ -2643,10 +2735,6 @@ const setPortalMode = async (mode, { syncQuery = true, replace = false, queryExt
   const next = String(mode || '').trim().toLowerCase();
   if (!next) return;
   if (next === 'skills' && !canAccessSkillBuildersSchoolProgramNav.value) return;
-  if (waiverGateLocked.value && next !== 'documents') {
-    await forceWaiverDocumentsMode();
-    return;
-  }
   const changed = portalMode.value !== next;
   portalMode.value = next;
   const shouldSyncQuery = syncQuery && (
@@ -2679,10 +2767,6 @@ const applyRequestedPortalMode = async (mode) => {
       // ignore
     }
     await setPortalMode('home', { syncQuery: false });
-    return;
-  }
-  if (waiverGateLocked.value && m !== 'documents') {
-    await forceWaiverDocumentsMode();
     return;
   }
   if (m === portalMode.value) return;
@@ -2722,10 +2806,6 @@ const applyRequestedPortalMode = async (mode) => {
 };
 
 const openRosterPanel = (statusKey = '') => {
-  if (waiverGateLocked.value) {
-    forceWaiverDocumentsMode();
-    return;
-  }
   rosterStatusFilterKey.value = String(statusKey || '').trim().toLowerCase();
   void setPortalMode('roster');
 };
@@ -2872,13 +2952,13 @@ const canManageMarketingCampaigns = computed(() => {
   return ['admin', 'super_admin', 'support'].includes(r);
 });
 const waiverGateStatus = ref(null);
+const showWaiverNudge = ref(false);
 const waiverGateLocked = computed(() => (
   !isPublicDemo.value
   && isSchoolStaff.value
   && Boolean(waiverGateStatus.value?.required)
   && !Boolean(waiverGateStatus.value?.isSigned)
 ));
-
 // Schools available to school staff (for multi-school selector)
 const schoolStaffSchools = computed(() => {
   if (!isSchoolStaff.value) return [];
@@ -3162,10 +3242,6 @@ const fetchMessagesUnread = async () => {
   }
 };
 const openMessages = async ({ syncQuery = true } = {}) => {
-  if (waiverGateLocked.value) {
-    await forceWaiverDocumentsMode();
-    return;
-  }
   await setPortalMode('messages', { syncQuery });
   if (!Array.isArray(store.eligibleProviders) || store.eligibleProviders.length === 0) {
     await store.fetchEligibleProviders();
@@ -3174,10 +3250,6 @@ const openMessages = async ({ syncQuery = true } = {}) => {
 };
 
 const openNotificationsPanel = async ({ createAnnouncement = false, syncQuery = true } = {}) => {
-  if (waiverGateLocked.value) {
-    await forceWaiverDocumentsMode();
-    return;
-  }
   await setPortalMode('notifications', {
     syncQuery,
     ...(createAnnouncement ? { queryExtras: { announcementCreate: '1' } } : {})
@@ -3996,10 +4068,6 @@ const openSchoolSettings = async () => {
 };
 
 const openProvidersPanel = async ({ syncQuery = true } = {}) => {
-  if (waiverGateLocked.value) {
-    await forceWaiverDocumentsMode();
-    return;
-  }
   if (!canAccessSchedulingPanels.value) {
     await setPortalMode('home', { syncQuery });
     return;
@@ -4011,10 +4079,6 @@ const openProvidersPanel = async ({ syncQuery = true } = {}) => {
 };
 
 const openDaysPanel = async ({ syncQuery = true } = {}) => {
-  if (waiverGateLocked.value) {
-    await forceWaiverDocumentsMode();
-    return;
-  }
   if (!canAccessSchedulingPanels.value) {
     await setPortalMode('home', { syncQuery });
     return;
@@ -4036,6 +4100,10 @@ const openDaysPanel = async ({ syncQuery = true } = {}) => {
 
 const homeRosterEl = ref(null);
 const scrollToHomeRoster = () => {
+  if (waiverGateLocked.value) {
+    showWaiverNudge.value = true;
+    return;
+  }
   try {
     homeRosterEl.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch {
@@ -4441,6 +4509,10 @@ const resolveSelectedClientNavigationIds = (payload = null) => {
 const openClient = (payload) => {
   const client = payload?.client || payload;
   if (isClientPortalLocked(client)) return;
+  if (waiverGateLocked.value) {
+    showWaiverNudge.value = true;
+    return;
+  }
   const navigationClientIds = resolveSelectedClientNavigationIds(payload);
   selectedClient.value = navigationClientIds.length
     ? { ...client, navigationClientIds }
@@ -4668,15 +4740,6 @@ watch(
   async (mode) => {
     // Empty sp (browser Back from a panel) should restore school home, not leave the panel open.
     await applyRequestedPortalMode(mode);
-  }
-);
-
-watch(
-  () => portalMode.value,
-  async (mode) => {
-    if (waiverGateLocked.value && mode !== 'documents') {
-      await forceWaiverDocumentsMode();
-    }
   }
 );
 
@@ -4999,16 +5062,6 @@ watch(() => store.selectedWeekday, async (weekday) => {
 .school-portal.sidebar-collapsed .sp-sidebar-collapse,
 .sp-sidebar.collapsed .sp-sidebar-collapse {
   align-self: center;
-}
-
-.sp-sidebar.locked .sp-nav-item {
-  pointer-events: none;
-  opacity: 0.45;
-}
-
-.sp-sidebar.locked .sp-nav-item[data-tour="school-nav-docs"] {
-  pointer-events: auto;
-  opacity: 1;
 }
 
 .sp-main {
@@ -5362,16 +5415,114 @@ watch(() => store.selectedWeekday, async (weekday) => {
   min-width: 0;
 }
 
-.waiver-lock-banner {
+/* ── Waiver pending badge (Docs/Links card & sidebar) ─── */
+@keyframes waiver-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.65); }
+  50%       { box-shadow: 0 0 0 6px rgba(234, 88, 12, 0); }
+}
+.waiver-pending-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  padding: 10px 12px;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
   border-radius: 10px;
-  border: 1px solid rgba(245, 158, 11, 0.45);
-  background: rgba(245, 158, 11, 0.12);
-  color: #7c2d12;
+  background: #ea580c;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  animation: waiver-pulse 1.8s ease-in-out infinite;
+  z-index: 2;
+}
+.waiver-pending-badge--sm {
+  min-width: 16px;
+  height: 16px;
+  font-size: 10px;
+  top: -4px;
+  right: -4px;
+}
+.dash-card--waiver-pending {
+  border-color: rgba(234, 88, 12, 0.45) !important;
+}
+.sp-nav-item--waiver-pending {
+  position: relative;
+}
+/* ── Waiver nudge modal ──────────────────────────────── */
+.waiver-nudge-fade-enter-active,
+.waiver-nudge-fade-leave-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+.waiver-nudge-fade-enter-from,
+.waiver-nudge-fade-leave-to {
+  opacity: 0;
+  transform: scale(0.96);
+}
+.waiver-nudge-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.48);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 16px;
+}
+.waiver-nudge-card {
+  background: var(--card-bg, #fff);
+  border-radius: 20px;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.06),
+    0 16px 48px rgba(0, 0, 0, 0.18);
+  padding: 36px 32px 28px;
+  width: min(440px, 94vw);
+  text-align: center;
+}
+.waiver-nudge-icon {
+  font-size: 2.8rem;
+  margin-bottom: 12px;
+  line-height: 1;
+}
+.waiver-nudge-title {
+  margin: 0 0 10px;
+  font-size: 1.22rem;
+  font-weight: 700;
+  color: var(--text-primary, #1e293b);
+  letter-spacing: -0.01em;
+}
+.waiver-nudge-body {
+  margin: 0 0 24px;
+  font-size: 0.93rem;
+  color: var(--text-secondary, #475569);
+  line-height: 1.6;
+}
+.waiver-nudge-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+.waiver-nudge-cta {
+  width: 100%;
+  max-width: 280px;
+  font-weight: 600;
+}
+.waiver-nudge-dismiss {
+  font-size: 0.84rem;
+  color: var(--text-muted, #94a3b8);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.waiver-nudge-dismiss:hover {
+  color: var(--text-secondary, #475569);
+  text-decoration: underline;
 }
 
 .days-top-wrap {
@@ -5547,6 +5698,26 @@ watch(() => store.selectedWeekday, async (weekday) => {
   font-size: 12.5px;
 }
 
+.portal-section-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.section-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.section-group-label {
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-secondary, #6b7280);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border, #e8eaed);
+}
+
 @keyframes homePillPulse {
   0% { transform: scale(1); box-shadow: 0 0 0 rgba(47, 143, 131, 0.0); }
   55% { transform: scale(1.05); box-shadow: 0 0 0 6px rgba(47, 143, 131, 0.12); }
@@ -5612,6 +5783,7 @@ watch(() => store.selectedWeekday, async (weekday) => {
   transform: none;
 }
 .dash-card-icon {
+  position: relative;
   width: 52px;
   height: 52px;
   border-radius: 14px;

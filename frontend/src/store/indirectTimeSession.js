@@ -55,10 +55,22 @@ export const useIndirectTimeSessionStore = defineStore('indirectTimeSession', ()
   let tickTimer = null;
   let pollTimer = null;
 
-  /** Log Time is available to all agency members (not only hourly workers). */
+  /** Log Time is available to agency members who use payroll time — not school/guardian shells. */
   const canUseLogTime = computed(() => {
     const auth = useAuthStore();
-    return !!auth.isAuthenticated;
+    if (!auth.isAuthenticated) return false;
+    const role = String(auth.user?.role || '').toLowerCase();
+    if (
+      role === 'school_staff'
+      || role === 'client_guardian'
+      || role === 'guardian'
+      || role === 'client'
+      || role === 'kiosk'
+      || role === 'athlete'
+    ) {
+      return false;
+    }
+    return true;
   });
   /** @deprecated Use canUseLogTime — kept for callers that still check hourly. */
   const isHourlyWorker = canUseLogTime;

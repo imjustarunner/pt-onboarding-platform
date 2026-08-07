@@ -586,12 +586,49 @@ export async function createSchoolPortalEvent({
 
   let tz = String(timezone || '').trim();
   if (!tz) {
+    // 1. Check the school organization's own timezone column (agencies.timezone).
+    //    This is the most specific source — the school's own record.
+    try {
+      const orgId = parsePositiveInt(organizationId);
+      if (orgId) {
+        const [rows] = await pool.execute(
+          `SELECT timezone FROM agencies WHERE id = ? LIMIT 1`,
+          [orgId]
+        );
+        const orgTz = String(rows?.[0]?.timezone || '').trim();
+        if (orgTz && orgTz !== 'UTC') tz = orgTz;
+      }
+    } catch {
+      // ignore — fall through to next check
+    }
+  }
+  if (!tz) {
+    // 2. Check the parent agency's timezone.
+    try {
+      const aid = parsePositiveInt(agencyId);
+      if (aid) {
+        const [rows] = await pool.execute(
+          `SELECT timezone FROM agencies WHERE id = ? LIMIT 1`,
+          [aid]
+        );
+        const agTz = String(rows?.[0]?.timezone || '').trim();
+        if (agTz && agTz !== 'UTC') tz = agTz;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (!tz) {
+    // 3. Fall back to office_locations.timezone for the agency, then hardcode Mountain.
     try {
       tz = await ProviderAvailabilityService.resolveAgencyTimeZone({ agencyId });
     } catch {
       tz = 'America/Denver';
     }
   }
+  // Safety net: if we ended up with Eastern (the office_locations default) but Mountain is
+  // the tenant standard, prefer Mountain. Callers that explicitly pass a timezone bypass this.
+  if (tz === 'America/New_York') tz = 'America/Denver';
 
   const status = normalizeSchoolEventStatus(schoolEventStatus, { fallback: 'scheduled' });
   const catNorm = String(category || '').trim().toLowerCase();

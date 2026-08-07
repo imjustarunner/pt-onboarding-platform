@@ -2470,7 +2470,20 @@ const indirectTimeSessionStore = useIndirectTimeSessionStore();
 const isSummitStatsChallengeChrome = useSummitStatsChallengeChrome();
 const summitTeamBrandLabel = SUMMIT_STATS_TEAM_CHALLENGE_NAME;
 
-const currentAgencyIdForAddon = computed(() => agencyStore.currentAgency?.id ?? null);
+const currentAgencyIdForAddon = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  // School/guardian shells must not hit /billing/:id/addons (403 noise + freeze risk).
+  if (
+    role === 'school_staff'
+    || role === 'client_guardian'
+    || role === 'guardian'
+    || role === 'client'
+    || role === 'kiosk'
+  ) {
+    return null;
+  }
+  return agencyStore.currentAgency?.id ?? null;
+});
 const { momentumListEnabled } = useMomentumListAddon(currentAgencyIdForAddon);
 const focusMusicUserId = computed(() => authStore.user?.id ?? null);
 const focusMusic = useFocusMusicPlayer({ userIdRef: focusMusicUserId });
@@ -3191,7 +3204,9 @@ const demoRoleOptions = [
   { role: 'provider_plus', label: 'Provider+ View' },
   { role: 'staff', label: 'Staff View' },
   { role: 'support', label: 'Support View' },
-  { role: 'admin', label: 'Admin View' }
+  { role: 'admin', label: 'Admin View' },
+  { role: 'school_staff', label: 'School Staff View' },
+  { role: 'client_guardian', label: 'Guardian View' }
 ];
 const demoAllowlistedEmails = computed(() => {
   const csv = String(import.meta.env.VITE_DEMO_MODE_USER_ALLOWLIST || 'williams@itsco.health');

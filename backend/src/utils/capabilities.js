@@ -129,6 +129,19 @@ export function getUserCapabilities(user, { effectiveRole } = {}) {
     };
   }
 
+  // School staff: portal shell + required waiver / document signing. No payroll or admin tooling.
+  if (role === 'school_staff') {
+    const access = checkAccess(user, { effectiveRole });
+    return {
+      ...base,
+      canAccessPlatform: !!access.canAccessDashboard,
+      canViewTraining: false,
+      canSignDocuments: true,
+      canJoinProgramEvents: !!access.canAccessDashboard,
+      canUseChat: false
+    };
+  }
+
   // Existing status-based access model, resolved with the effective role.
   const access = checkAccess(user, { effectiveRole });
 

@@ -2957,8 +2957,7 @@
             <div class="card" style="margin-top: 12px;">
               <h3 class="card-title" style="margin: 0 0 6px 0;">Event time (Pending)</h3>
               <div class="hint">
-                Skill Builders / program event kiosk check-in/out with direct and indirect hour split. Each session appears as two rows (direct + indirect). Direct hours are defaulted from the event settings and locked; edit the indirect hours if needed before approving each bucket. Edits are logged with the original values.
-                All pending submissions are shown here regardless of pay period. <strong>Approving posts to the currently selected pay period.</strong> Switch pay periods before approving to control where each submission is posted.
+                Skill Builders / program event kiosk check-in/out with direct and indirect hour split. Includes submitted and deferred rows (same queue as Payroll Stage), including auto clock-outs that need verify. Each session appears as two rows (direct + indirect). Events with direct time disabled show only the indirect row. Approving posts to the selected pay period.
               </div>
               <div v-if="eventTimeError" class="warn-box" style="margin-top: 8px;">{{ eventTimeError }}</div>
               <div v-if="eventTimeLoading" class="muted" style="margin-top: 8px;">Loading event time submissions…</div>
@@ -3040,7 +3039,7 @@
                             </select>
                           </template>
                           <button
-                            v-if="row.bucket === 'direct' && row.canApprove"
+                            v-if="row.isLeadRow && row.canApprove"
                             class="btn btn-secondary btn-sm"
                             type="button"
                             :disabled="eventTimeSavingId === row.submission.punchInId"
@@ -3058,7 +3057,7 @@
                             Approve {{ row.bucketLabel.toLowerCase() }}
                           </button>
                           <button
-                            v-if="row.bucket === 'direct' && row.canApprove"
+                            v-if="row.isLeadRow && row.canApprove"
                             class="btn btn-secondary btn-sm"
                             type="button"
                             :disabled="eventTimeSavingId === row.submission.punchInId"
@@ -3067,7 +3066,7 @@
                             Send back…
                           </button>
                           <button
-                            v-if="row.bucket === 'direct' && row.canApprove"
+                            v-if="row.isLeadRow && row.canApprove"
                             class="btn btn-danger btn-sm"
                             type="button"
                             :disabled="eventTimeSavingId === row.submission.punchInId"
@@ -3076,7 +3075,7 @@
                             Reject
                           </button>
                           <button
-                            v-if="row.bucket === 'direct' && !row.canApprove && row.claim?.status === 'approved'"
+                            v-if="row.isLeadRow && !row.canApprove && row.claim?.status === 'approved'"
                             class="btn btn-secondary btn-sm"
                             type="button"
                             :disabled="eventTimeSavingId === row.submission.punchInId"
@@ -8551,16 +8550,23 @@ const eventTimeBucketRows = computed(() => {
       s.eventEmployeeReportTime,
       s.eventTimezone
     );
-    rows.push({
-      submission: s,
-      rowKey: `${s.punchInId}-direct`,
-      bucket: 'direct',
-      bucketLabel: 'Direct',
-      bucketHours: s.directHours,
-      claim: s.directClaim,
-      canApprove: canApproveBucket(s.directClaim),
-      lateMinutes
-    });
+    // Skip the direct row when direct time is disabled for this event:
+    // no actual claim was created and the hours are 0, so the row is noise.
+    const directDisabled = Number(s.directHours || 0) === 0 && !s.directClaim;
+    if (!directDisabled) {
+      rows.push({
+        submission: s,
+        rowKey: `${s.punchInId}-direct`,
+        bucket: 'direct',
+        bucketLabel: 'Direct',
+        bucketHours: s.directHours,
+        claim: s.directClaim,
+        canApprove: canApproveBucket(s.directClaim),
+        // Direct rows are always the "lead" row (carry Edit / Send-back / Reject).
+        isLeadRow: true,
+        lateMinutes
+      });
+    }
     rows.push({
       submission: s,
       rowKey: `${s.punchInId}-indirect`,
@@ -8569,6 +8575,9 @@ const eventTimeBucketRows = computed(() => {
       bucketHours: s.indirectHours,
       claim: s.indirectClaim,
       canApprove: canApproveBucket(s.indirectClaim),
+      // Indirect row is the "lead" (carries Edit / Send-back / Reject) when the
+      // direct row was omitted because direct time is disabled.
+      isLeadRow: directDisabled,
       lateMinutes
     });
   }

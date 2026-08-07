@@ -1335,6 +1335,17 @@ const quickActionsCatalog = computed(() => {
       capabilities: ['canAccessPlatform']
     },
     {
+      id: 'school_events_hub',
+      title: 'School Events Hub',
+      description: 'View and manage school event staffing, shift requests, and coverage',
+      to: `${p}/admin/caseload-hub/events`,
+      emoji: '🏫',
+      iconKey: 'school_overview',
+      category: 'Events',
+      roles: ['clinical_practice_assistant', 'provider_plus'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
       id: 'office_approvals',
       title: 'Office Approvals',
       description: 'Approve office requests and triage bookings missing Therapy Notes coverage',

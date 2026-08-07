@@ -226,7 +226,9 @@ const DEMO_ALLOWED_VIEW_ROLES = new Set([
   'clinical_practice_assistant',
   'staff',
   'support',
-  'admin'
+  'admin',
+  'school_staff',
+  'client_guardian'
 ]);
 const parseCsvSet = (raw) => {
   return new Set(

@@ -310,9 +310,18 @@ export const useAgencyStore = defineStore('agency', () => {
     const arr = Array.isArray(list) ? list : [];
     if (!arr.length) return null;
 
-    const workTenant = pickFirstNonDemoTenant(arr, { preferredPortal }) ||
-      arr.find((a) => isTenantOrganizationType(a) && !isBookClubAgency(a));
-    if (workTenant && roleNorm !== 'club_manager') return workTenant;
+    // Must be declared before use (TDZ). Also pass preferredSlug — pickFirstNonDemoTenant
+    // ignores an unknown preferredPortal key.
+    const preferredPortal = inferPreferredPortalFromRuntime();
+
+    // School staff should land in portal orgs (school/program/learning), not the parent agency.
+    if (roleNorm === 'school_staff') {
+      const portal = arr.find((a) => {
+        const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
+        return t === 'school' || t === 'program' || t === 'learning';
+      }) || null;
+      if (portal) return portal;
+    }
 
     // Club managers: first path segment is the Summit *platform* slug (e.g. ssc), which matches the
     // tenant agency row—not the club affiliation. Prefer affiliation before portal-key matching.
@@ -323,18 +332,14 @@ export const useAgencyStore = defineStore('agency', () => {
       });
       if (affiliation) return affiliation;
     }
-    const preferredPortal = inferPreferredPortalFromRuntime();
+
+    const workTenant = pickFirstNonDemoTenant(arr, { preferredSlug: preferredPortal }) ||
+      arr.find((a) => isTenantOrganizationType(a) && !isBookClubAgency(a));
+    if (workTenant && roleNorm !== 'club_manager') return workTenant;
+
     if (preferredPortal) {
       const preferred = arr.find((a) => pickPortalKey(a) === preferredPortal);
       if (preferred) return preferred;
-    }
-    if (roleNorm === 'school_staff') {
-      // School staff should land in portal orgs (school/program/learning), not the parent agency.
-      const portal = arr.find((a) => {
-        const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
-        return t === 'school' || t === 'program' || t === 'learning';
-      }) || null;
-      if (portal) return portal;
     }
     // Club managers with Summit Stats Club (affiliation) access should default to the club.
     // Admins/backoffice roles who are also club members should stay on their work tenant.

@@ -209,13 +209,15 @@
 import { onMounted, reactive, ref, watch, computed } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { fetchProviderCoverageSummary } from '../../services/schoolCoverageApi';
 import {
-  detectLocalTimezone,
   SCHOOL_EVENT_FALLBACK_TIMEZONE,
   schoolEventTimezoneLabel,
-  timezoneAbbrevAt
+  timezoneAbbrevAt,
+  isoToZonedDatetimeLocal,
+  zonedDatetimeLocalToIso
 } from '../../utils/timezones';
 
 const props = defineProps({
@@ -242,6 +244,23 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'saved', 'deleted']);
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
+
+/**
+ * Resolve the school's IANA timezone from the agency store (agencies.timezone column),
+ * trying the school org first then the parent agency. Falls back to Mountain Time.
+ */
+const schoolTimezone = computed(() => {
+  const agencies = agencyStore.agencies || [];
+  // Prefer the school org's own timezone (schoolOrganizationId), then the parent agency.
+  for (const id of [props.schoolOrganizationId, Number(props.agencyId)]) {
+    if (!id) continue;
+    const match = agencies.find((a) => Number(a.id) === Number(id));
+    const tz = String(match?.timezone || '').trim();
+    if (tz && tz !== 'UTC') return tz;
+  }
+  return SCHOOL_EVENT_FALLBACK_TIMEZONE;
+});
 
 const submitting = ref(false);
 const uploading = ref(false);
@@ -454,7 +473,11 @@ const wallTimeToInput = (value) => {
 
 const timezoneLabel = computed(() => schoolEventTimezoneLabel(form.timezone));
 const timezoneAbbrev = computed(() => {
-  const d = form.date ? new Date(`${form.date}T${form.startTime || '12:00'}:00`) : new Date();
+  // Use a wall-time date in the school's timezone so the abbreviation (e.g. MDT vs MST) reflects DST correctly.
+  const refIso = form.date
+    ? zonedDatetimeLocalToIso(`${form.date}T${form.startTime || '12:00'}`, form.timezone)
+    : null;
+  const d = refIso ? new Date(refIso) : new Date();
   return timezoneAbbrevAt(d, form.timezone) || 'MT';
 });
 
@@ -465,28 +488,34 @@ const displayFlierUrl = computed(() => {
   return toUploadsUrl(raw);
 });
 
-const toLocalDateInput = (value) => {
-  if (!value) return '';
-  const d = new Date(value);
-  if (!Number.isFinite(d.getTime())) return '';
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+/**
+ * Extract YYYY-MM-DD from a UTC ISO string in the given IANA timezone.
+ * Falls back to the school's timezone if none provided.
+ */
+const toZonedDateInput = (value, tz) => {
+  const dt = isoToZonedDatetimeLocal(value, tz || schoolTimezone.value);
+  return dt ? dt.slice(0, 10) : '';
 };
 
-const toLocalTimeInput = (value) => {
-  if (!value) return '';
-  const d = new Date(value);
-  if (!Number.isFinite(d.getTime())) return '';
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+/**
+ * Extract HH:mm wall time from a UTC ISO string in the given IANA timezone.
+ */
+const toZonedTimeInput = (value, tz) => {
+  const dt = isoToZonedDatetimeLocal(value, tz || schoolTimezone.value);
+  return dt ? dt.slice(11, 16) : '';
 };
 
+/**
+ * Build UTC ISO instants from the form's wall-time inputs, interpreted in
+ * form.timezone (the school's timezone) — NOT the browser's local timezone.
+ */
 const buildIsoRange = () => {
   if (!form.date || !form.startTime || !form.endTime) return null;
-  const startsAt = new Date(`${form.date}T${form.startTime}:00`);
-  const endsAt = new Date(`${form.date}T${form.endTime}:00`);
-  if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) return null;
-  return { startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() };
+  const tz = form.timezone || SCHOOL_EVENT_FALLBACK_TIMEZONE;
+  const startsAt = zonedDatetimeLocalToIso(`${form.date}T${form.startTime}`, tz);
+  const endsAt = zonedDatetimeLocalToIso(`${form.date}T${form.endTime}`, tz);
+  if (!startsAt || !endsAt) return null;
+  return { startsAt, endsAt };
 };
 
 const onFileChange = async (event) => {
@@ -533,7 +562,7 @@ const submit = async () => {
       description: form.description.trim(),
       startsAt: range.startsAt,
       endsAt: range.endsAt,
-      timezone: form.timezone || detectLocalTimezone() || SCHOOL_EVENT_FALLBACK_TIMEZONE,
+      timezone: form.timezone || schoolTimezone.value || SCHOOL_EVENT_FALLBACK_TIMEZONE,
       schoolEventStatus: form.schoolEventStatus || 'scheduled',
       employeeReportTime: isCalendarOnlyCategory.value
         ? null
@@ -634,13 +663,18 @@ const deleteEvent = async () => {
 const hydrateFromEdit = () => {
   const e = props.editEvent;
   if (!e) return;
+  // Always display (and re-save) school events in the school's timezone (Mountain by default),
+  // even if the event was originally created in a different timezone. This ensures consistency
+  // regardless of which user's browser timezone the event was entered from.
+  const tz = schoolTimezone.value;
+  form.timezone = tz;
   form.category = e.category || 'back_to_school';
   form.title = e.title || '';
   form.description = e.description || '';
-  form.date = toLocalDateInput(e.startsAt);
+  form.date = toZonedDateInput(e.startsAt, tz);
   form.reportTime = wallTimeToInput(e.employeeReportTime);
-  form.startTime = toLocalTimeInput(e.startsAt) || '17:00';
-  form.endTime = toLocalTimeInput(e.endsAt) || '19:00';
+  form.startTime = toZonedTimeInput(e.startsAt, tz) || '17:00';
+  form.endTime = toZonedTimeInput(e.endsAt, tz) || '19:00';
   form.minProvidersPerSession =
     e.minProvidersPerSession != null && e.minProvidersPerSession !== ''
       ? Math.max(1, Number(e.minProvidersPerSession) || 2)
@@ -653,12 +687,14 @@ const hydrateFromEdit = () => {
   form.eventImageUrl = e.eventImageUrl || '';
   form.detailsUrl = e.detailsUrl || '';
   form.applyToDistrict = !!String(e.districtBroadcastId || e.district_broadcast_id || '').trim();
-  form.timezone = e.timezone || detectLocalTimezone() || SCHOOL_EVENT_FALLBACK_TIMEZONE;
 };
 
 onMounted(() => {
   form.category = props.initialCategory || 'back_to_school';
-  form.timezone = detectLocalTimezone() || SCHOOL_EVENT_FALLBACK_TIMEZONE;
+  // Default to the school's timezone (Mountain Time for most ITSCO schools) so that
+  // wall times entered in the form are always interpreted correctly regardless of the
+  // browser/user timezone.
+  form.timezone = schoolTimezone.value;
   if (props.editEvent) {
     hydrateFromEdit();
     return;

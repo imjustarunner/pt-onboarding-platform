@@ -142,6 +142,17 @@ const surfaceGroups = computed(() => {
     return org === 'life_coach' && isLikelyDemoTenant(t);
   });
 
+  // Prefer known ITSCO school portals used for staff/guardian testing, then any demo school.
+  const demoSchool = findTenant((t) => {
+    const org = String(t.organization_type || '').toLowerCase();
+    const s = String(t.slug || t.portal_url || '').toLowerCase();
+    return org === 'school' && (s === 'hogwarts' || s === 'durmstrang');
+  }) || findTenant((t) => {
+    const org = String(t.organization_type || '').toLowerCase();
+    const hay = `${t.name || ''} ${t.slug || ''}`.toLowerCase();
+    return org === 'school' && (isLikelyDemoTenant(t) || /demo|hogwarts|durmstrang/.test(hay));
+  }) || findTenant((t) => String(t.organization_type || '').toLowerCase() === 'school');
+
   return [
     {
       id: 'demo_itsco',
@@ -154,7 +165,11 @@ const surfaceGroups = computed(() => {
         { id: 'itsco_employee', label: 'Employee / Provider', meta: 'New window · provider', role: 'provider', pathSuffix: 'dashboard', variant: 'primary' },
         { id: 'itsco_provider_plus', label: 'Provider+', meta: 'New window · provider_plus', role: 'provider_plus', pathSuffix: 'dashboard', variant: 'ghost' },
         { id: 'itsco_staff', label: 'Staff', meta: 'New window · staff', role: 'staff', pathSuffix: 'dashboard', variant: 'ghost' },
-        { id: 'itsco_admin', label: 'Admin', meta: 'New window · admin', role: 'admin', pathSuffix: 'admin', variant: 'ghost' }
+        { id: 'itsco_admin', label: 'Admin', meta: 'New window · admin', role: 'admin', pathSuffix: 'admin', variant: 'ghost' },
+        ...(demoSchool ? [
+          { id: 'itsco_school_staff', label: 'School Staff', meta: `New window · school_staff · ${demoSchool.slug || demoSchool.portal_url}`, role: 'school_staff', pathSuffix: 'dashboard', variant: 'ghost', tenantOverride: demoSchool },
+          { id: 'itsco_guardian', label: 'Guardian', meta: `New window · client_guardian · ${demoSchool.slug || demoSchool.portal_url}`, role: 'client_guardian', pathSuffix: 'guardian', variant: 'ghost', tenantOverride: demoSchool }
+        ] : [])
       ],
       publicPages: [
         { id: 'hub', label: 'Services hub', pathSuffix: 'services' },
@@ -228,6 +243,19 @@ const surfaceGroups = computed(() => {
         { id: 'college', label: 'College Readiness (public)', pathSuffix: 'college-readiness', absolute: true },
         { id: 'relationship', label: 'Relationship Health (public)', pathSuffix: 'relationship-health', absolute: true }
       ]
+    },
+    {
+      id: 'demo_school',
+      kind: 'school',
+      kindLabel: 'School portal',
+      title: 'School Staff / Guardian',
+      tenant: demoSchool,
+      missingHint: 'Create a school org (e.g. Hogwarts / Durmstrang) under Organization Management',
+      actions: [
+        { id: 'school_staff', label: 'School Staff', meta: 'New window · school_staff', role: 'school_staff', pathSuffix: 'dashboard', variant: 'primary' },
+        { id: 'school_guardian', label: 'Guardian', meta: 'New window · client_guardian', role: 'client_guardian', pathSuffix: 'guardian', variant: 'ghost' }
+      ],
+      publicPages: []
     }
   ];
 });
@@ -246,6 +274,7 @@ const loadTenants = async () => {
       return (
         org === 'agency' ||
         org === 'learning' ||
+        org === 'school' ||
         isPractitionerOrgType(org) ||
         isLikelyDemoTenant(t)
       );
@@ -264,15 +293,16 @@ const buildTargetPath = (tenant, pathSuffix) => {
 };
 
 const launch = async (group, action) => {
-  if (!group?.tenant || !action) return;
+  const tenant = action?.tenantOverride || group?.tenant;
+  if (!tenant || !action) return;
   launchingId.value = action.id;
   lastLaunch.value = '';
   error.value = '';
   try {
-    const targetPath = buildTargetPath(group.tenant, action.pathSuffix);
+    const targetPath = buildTargetPath(tenant, action.pathSuffix);
     const { data } = await api.post('/auth/demo/launch-window', {
       role: action.role,
-      agencyId: Number(group.tenant.id),
+      agencyId: Number(tenant.id),
       surface: action.id,
       targetPath
     });
@@ -283,12 +313,12 @@ const launch = async (group, action) => {
       targetPath: data.targetPath || targetPath
     });
     const href = `${window.location.origin}/demo-launch${hash}`;
-    const win = window.open(href, `pt-demo-${action.id}-${group.tenant.id}`, 'noopener,noreferrer');
+    const win = window.open(href, `pt-demo-${action.id}-${tenant.id}`, 'noopener,noreferrer');
     if (!win) {
       error.value = 'Popup blocked — allow popups for this site to open demo windows.';
       return;
     }
-    lastLaunch.value = `Opened ${action.label} for ${group.tenant.name} in a new window.`;
+    lastLaunch.value = `Opened ${action.label} for ${tenant.name} in a new window.`;
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to launch demo window';
   } finally {
@@ -424,6 +454,10 @@ onMounted(loadTenants);
 .demo-lab__badge[data-kind='learning'] {
   background: rgba(251, 191, 36, 0.16);
   color: #fcd34d;
+}
+.demo-lab__badge[data-kind='school'] {
+  background: rgba(45, 212, 191, 0.16);
+  color: #5eead4;
 }
 .demo-lab__card h3 {
   margin: 0;

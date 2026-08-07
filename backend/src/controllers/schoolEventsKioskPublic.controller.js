@@ -147,7 +147,7 @@ function eventAllowsPunchToday(eventRow) {
     : startYmd;
   if (!startYmd) return { ok: false, todayYmd, timezone: tz };
   const from = addDaysYmd(startYmd, -1);
-  const to = addDaysYmd(endYmd || startYmd, 1);
+  const to = endYmd || startYmd;
   const ok = todayYmd >= from && todayYmd <= to;
   return { ok, todayYmd, timezone: tz, startYmd, endYmd };
 }
