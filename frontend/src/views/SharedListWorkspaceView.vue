@@ -769,7 +769,8 @@ onMounted(() => {
 
 .slw__table-wrap {
   flex: 1;
-  min-width: 0;
+  min-width: 320px;
+  overflow-x: auto;
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
@@ -861,7 +862,8 @@ onMounted(() => {
 .slw__status--completed { background: #dcfce7; color: #16a34a; }
 
 .slw__detail {
-  width: 400px;
+  width: 800px;
+  max-width: 100%;
   flex-shrink: 0;
   background: #fff;
   border: 1px solid #e2e8f0;
@@ -924,9 +926,11 @@ onMounted(() => {
 
 .slw__add-member { display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding-top: 14px; border-top: 1px solid #f1f5f9; }
 
-@media (max-width: 900px) {
+@media (max-width: 1400px) {
   .slw__body { flex-direction: column; }
   .slw__detail { width: 100%; }
+}
+@media (max-width: 900px) {
   .slw__add-task { grid-template-columns: 1fr 1fr; }
 }
 </style>
