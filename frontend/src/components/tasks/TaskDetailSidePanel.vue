@@ -296,7 +296,14 @@ const emit = defineEmits(['close', 'complete', 'incomplete', 'changed', 'view-pr
 const activeTaskDock = useActiveTaskDockStore();
 
 function pinToDock() {
-  activeTaskDock.pinTask({ ...draft });
+  const projectMatch = props.projects.find((p) => Number(p.id) === Number(draft.project_id));
+  const listMatch = props.lists.find((l) => Number(l.id) === Number(draft.task_list_id));
+  activeTaskDock.pinTask({
+    ...draft,
+    id: props.item?.id,
+    project_name: projectMatch?.name || props.item?.project_name || null,
+    task_list_name: listMatch?.name || props.item?.task_list_name || null
+  });
   emit('close');
 }
 

@@ -541,7 +541,7 @@
             </div>
           </div>
 
-          <!-- Attach -->
+          <!-- Attach existing -->
           <div class="attach-row">
             <input
               v-model="listAttachSearch"
@@ -555,6 +555,26 @@
             </select>
             <button type="button" class="btn-primary" :disabled="!attachListId" @click="attachList">
               Attach
+            </button>
+          </div>
+
+          <!-- Create new -->
+          <div class="attach-row attach-row--create">
+            <span class="attach-row__or">or</span>
+            <input
+              v-model="newListName"
+              type="text"
+              class="form-control"
+              placeholder="Name a brand-new shared list…"
+              @keydown.enter.prevent="createAndAttachList"
+            />
+            <button
+              type="button"
+              class="btn-secondary-outline"
+              :disabled="!newListName.trim() || creatingNewList"
+              @click="createAndAttachList"
+            >
+              {{ creatingNewList ? 'Creating…' : '+ Create & attach' }}
             </button>
           </div>
         </div>
@@ -775,6 +795,8 @@ const unattachedTasks = ref([]);
 const unattachedActions = ref([]);
 const attachListId = ref('');
 const listAttachSearch = ref('');
+const newListName = ref('');
+const creatingNewList = ref(false);
 const tab = ref('overview');
 const selectedTask = ref(null);
 
@@ -1327,6 +1349,26 @@ async function attachList() {
     listAttachSearch.value = '';
     await load();
   } catch (e) { console.error(e); }
+}
+
+async function createAndAttachList() {
+  const name = newListName.value.trim();
+  if (!name || creatingNewList.value) return;
+  creatingNewList.value = true;
+  try {
+    const payload = { name };
+    if (project.value?.agency_id) payload.agencyId = project.value.agency_id;
+    const { data: list } = await api.post('/task-lists', payload, { skipGlobalLoading: true });
+    await api.post(`/task-projects/${projectId.value}/lists`, {
+      taskListId: Number(list.id)
+    }, { skipGlobalLoading: true });
+    newListName.value = '';
+    await load();
+  } catch (e) {
+    console.error(e);
+  } finally {
+    creatingNewList.value = false;
+  }
 }
 
 async function detachList(listId) {
@@ -2690,6 +2732,32 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
   gap: 8px;
   margin-top: 16px;
 }
+.attach-row--create {
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  margin-top: 10px;
+}
+.attach-row__or {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+}
+.btn-secondary-outline {
+  padding: 10px 14px;
+  border: 1px solid #16a34a;
+  border-radius: 10px;
+  background: #fff;
+  color: #16a34a;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.btn-secondary-outline:hover:not(:disabled) { background: #f0fdf4; }
+.btn-secondary-outline:disabled { opacity: 0.5; cursor: default; }
 .form-control {
   padding: 10px 12px;
   border: 1px solid #e2e8f0;

@@ -94,17 +94,18 @@ onMounted(() => {
 
 <style scoped>
 .atd-wrap {
+  --atd-width: 400px;
   position: fixed;
   bottom: 0;
   right: 24px;
   z-index: 900;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: stretch;
 }
 
 .atd-expanded {
-  width: 380px;
+  width: var(--atd-width);
   max-width: calc(100vw - 48px);
   height: 520px;
   max-height: 70vh;
@@ -130,8 +131,8 @@ onMounted(() => {
   border-radius: 12px 12px 0 0;
   padding: 8px 10px 8px 14px;
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.18);
-  min-width: 320px;
-  max-width: min(560px, calc(100vw - 48px));
+  width: var(--atd-width);
+  max-width: calc(100vw - 48px);
 }
 
 .atd-bar__main {
@@ -197,7 +198,8 @@ onMounted(() => {
   border: 1px solid rgba(255, 255, 255, 0.3);
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
-  max-width: 130px;
+  max-width: 100px;
+  flex-shrink: 0;
 }
 .atd-bar__select option { color: #0f172a; }
 
@@ -241,9 +243,9 @@ onMounted(() => {
 }
 
 @media (max-width: 640px) {
-  .atd-wrap { right: 0; left: 0; align-items: stretch; }
-  .atd-bar { border-radius: 0; min-width: 0; max-width: none; }
-  .atd-expanded { width: 100%; margin: 0; border-radius: 0; }
+  .atd-wrap { --atd-width: 100%; right: 0; left: 0; }
+  .atd-bar { border-radius: 0; }
+  .atd-expanded { margin: 0; border-radius: 0; }
   .atd-bar__select { max-width: 90px; }
 }
 </style>
