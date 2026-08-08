@@ -203,8 +203,14 @@ export const getTaskList = async (req, res, next) => {
     const listId = req.taskListId;
     const list = await TaskList.findById(listId);
     if (!list) return res.status(404).json({ error: { message: 'List not found' } });
-    const members = await TaskListMember.listByTaskList(listId);
+    const [members, linkedProject] = await Promise.all([
+      TaskListMember.listByTaskList(listId),
+      TaskProject.findLinkedProjectForList(listId).catch(() => null)
+    ]);
     list.members = members;
+    list.linked_project_id = linkedProject?.project_id ?? null;
+    list.linked_project_name = linkedProject?.name ?? null;
+    list.my_role = req.taskListMembership?.role || null;
     res.json(list);
   } catch (err) {
     next(err);

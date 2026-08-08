@@ -137,6 +137,7 @@
           :disabled="!newTaskTitle.trim() || adding"
           @click="addTask"
         >{{ adding ? '…' : 'Add task' }}</button>
+        <p v-if="addTaskError" class="add-task-error">{{ addTaskError }}</p>
       </div>
 
       <!-- Task List -->
@@ -381,6 +382,7 @@ const currentUserId = computed(() => authStore.user?.id);
 // ─── Core state ─────────────────────────────────────────────────────────────
 const loading = ref(true);
 const adding = ref(false);
+const addTaskError = ref('');
 const completingId = ref(null);
 const incompletingId = ref(null);
 const claimingId = ref(null);
@@ -581,6 +583,7 @@ const addTask = async () => {
   const title = String(newTaskTitle.value || '').trim();
   if (!title || !props.list?.id) return;
   adding.value = true;
+  addTaskError.value = '';
   try {
     const payload = {
       title,
@@ -601,6 +604,7 @@ const addTask = async () => {
     emit('updated');
   } catch (err) {
     console.error('Failed to add task:', err);
+    addTaskError.value = err?.response?.data?.error?.message || 'Could not add task. Please try again.';
   } finally {
     adding.value = false;
   }
@@ -1248,6 +1252,12 @@ watch(showMembers, (v) => {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   flex-shrink: 0;
+}
+
+.add-task-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #dc2626;
 }
 
 .add-task-input-row {

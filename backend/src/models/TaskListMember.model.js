@@ -11,7 +11,7 @@ class TaskListMember {
 
   static async listByTaskList(taskListId) {
     const [rows] = await pool.execute(
-      `SELECT tlm.*, u.first_name, u.last_name, u.email
+      `SELECT tlm.*, u.first_name, u.last_name, u.email, u.profile_photo_path
        FROM task_list_members tlm
        JOIN users u ON u.id = tlm.user_id
        WHERE tlm.task_list_id = ?
@@ -25,7 +25,8 @@ class TaskListMember {
       role: r.role,
       first_name: r.first_name,
       last_name: r.last_name,
-      email: r.email
+      email: r.email,
+      profile_photo_path: r.profile_photo_path
     }));
   }
 

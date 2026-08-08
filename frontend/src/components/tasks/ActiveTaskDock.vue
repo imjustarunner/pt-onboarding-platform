@@ -22,7 +22,7 @@
           <span class="atd-bar__pin">
             <svg viewBox="0 0 24 24"><path d="M12 17v5M8 13h8l-1-7H9l-1 7z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 6h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           </span>
-          <span class="atd-bar__title">{{ store.task.title }}</span>
+          <span class="atd-bar__title" :title="store.task.title">{{ store.task.title }}</span>
           <span class="atd-bar__status" :class="`status--${store.task.status || 'pending'}`">
             {{ statusLabel(store.task.status) }}
           </span>
@@ -44,7 +44,7 @@
             type="button"
             class="atd-bar__complete"
             :disabled="store.saving"
-            @click="store.markComplete()"
+            @click="completeAndNavigate"
           >
             <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
             Complete
@@ -60,10 +60,18 @@
 
 <script setup>
 import { computed, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useActiveTaskDockStore } from '../../store/activeTaskDock';
 import TaskDetailSidePanel from './TaskDetailSidePanel.vue';
 
 const store = useActiveTaskDockStore();
+const route = useRoute();
+const router = useRouter();
+
+const orgPrefix = computed(() => {
+  const slug = route.params.organizationSlug;
+  return typeof slug === 'string' && slug ? `/${slug}` : '';
+});
 
 const expandedProjects = computed(() => {
   if (!store.task?.project_id) return [];
@@ -79,8 +87,27 @@ function onMoveList(val) {
   store.moveToList(val || null);
 }
 
+function navigateToOrigin(task) {
+  if (!task) return;
+  if (task.task_list_id) {
+    router.push(`${orgPrefix.value}/tasks/lists/${task.task_list_id}`);
+  } else if (task.project_id) {
+    router.push(`${orgPrefix.value}/tasks/projects/${task.project_id}`);
+  } else {
+    router.push(`${orgPrefix.value}/tasks`);
+  }
+}
+
+async function completeAndNavigate() {
+  const task = store.task;
+  await store.markComplete();
+  navigateToOrigin(task);
+}
+
 function onComplete() {
+  const task = store.task;
   store.unpin();
+  navigateToOrigin(task);
 }
 
 function onChanged(updated) {

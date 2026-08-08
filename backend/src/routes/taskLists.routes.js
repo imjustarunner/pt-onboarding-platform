@@ -15,10 +15,32 @@ import {
 } from '../controllers/taskLists.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import TaskListMember from '../models/TaskListMember.model.js';
+import pool from '../config/database.js';
 
 const router = express.Router();
 
 const withAuth = [authenticate];
+
+function isPlatformManager(req) {
+  const role = String(req.user?.role || '').toLowerCase();
+  return ['admin', 'super_admin', 'support', 'supervisor'].includes(role);
+}
+
+// A list attached to a project grants list access to that project's members
+// (mapped to the equivalent list role), so people don't need to be added to
+// both the project and the list separately.
+async function projectRoleForList(listId, userId) {
+  const [rows] = await pool.execute(
+    `SELECT tpm.role
+     FROM task_project_lists tpl
+     JOIN task_project_members tpm ON tpm.project_id = tpl.project_id AND tpm.user_id = ?
+     WHERE tpl.task_list_id = ?
+     ORDER BY CASE tpm.role WHEN 'admin' THEN 1 WHEN 'editor' THEN 2 ELSE 3 END
+     LIMIT 1`,
+    [userId, listId]
+  );
+  return rows[0]?.role || null;
+}
 
 async function requireMembership(req, res, next) {
   const listId = parseInt(req.params.listId || req.params.id, 10);
@@ -26,7 +48,17 @@ async function requireMembership(req, res, next) {
   if (!userId || !listId) {
     return res.status(400).json({ error: { message: 'Invalid request' } });
   }
-  const membership = await TaskListMember.findByListAndUser(listId, userId);
+  let membership = await TaskListMember.findByListAndUser(listId, userId);
+  if (!membership) {
+    if (isPlatformManager(req)) {
+      membership = { role: 'admin' };
+    } else {
+      const projectRole = await projectRoleForList(listId, userId);
+      if (projectRole) {
+        membership = { role: projectRole === 'admin' ? 'admin' : projectRole === 'editor' ? 'editor' : 'viewer' };
+      }
+    }
+  }
   if (!membership) {
     return res.status(403).json({ error: { message: 'You are not a member of this list' } });
   }

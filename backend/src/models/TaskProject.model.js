@@ -244,13 +244,15 @@ class TaskProject {
     const uid = parseInt(viewerUserId, 10);
     const privateClause = `(COALESCE(t.is_private, 0) = 0 OR t.assigned_to_user_id = ? OR t.assigned_by_user_id = ?)`;
 
+    // Direct project tasks only — tasks that belong to a shared list are
+    // counted/managed on that list's own page, not the project's Tasks tab.
     const [[taskStats]] = await pool.execute(
       `SELECT
          SUM(CASE WHEN t.status NOT IN ('completed','overridden') THEN 1 ELSE 0 END) AS open_count,
          SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) AS completed_count,
          COUNT(*) AS total_count
        FROM tasks t
-       WHERE t.project_id = ? AND ${privateClause}`,
+       WHERE t.project_id = ? AND t.task_list_id IS NULL AND ${privateClause}`,
       [pid, uid, uid]
     ).catch(() => [[{ open_count: 0, completed_count: 0, total_count: 0 }]]);
 
@@ -304,6 +306,9 @@ class TaskProject {
 
   static async listTasks(projectId, viewerUserId) {
     const uid = parseInt(viewerUserId, 10);
+    // Only tasks added directly to the project. Tasks that belong to a shared
+    // list live on that list's own dedicated page, even if they happen to
+    // also carry this project's id.
     const [rows] = await pool.execute(
       `SELECT t.*, tl.name AS task_list_name, tp.name AS project_name,
               assignee.first_name AS assignee_first_name,
@@ -312,7 +317,7 @@ class TaskProject {
        LEFT JOIN task_lists tl ON tl.id = t.task_list_id
        LEFT JOIN task_projects tp ON tp.id = t.project_id
        LEFT JOIN users assignee ON assignee.id = t.assigned_to_user_id
-       WHERE t.project_id = ?
+       WHERE t.project_id = ? AND t.task_list_id IS NULL
          AND (COALESCE(t.is_private, 0) = 0 OR t.assigned_to_user_id = ? OR t.assigned_by_user_id = ?)
        ORDER BY (t.due_date IS NULL), t.due_date ASC`,
       [parseInt(projectId, 10), uid, uid]

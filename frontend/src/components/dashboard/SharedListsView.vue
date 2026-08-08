@@ -97,13 +97,6 @@
       </li>
     </ul>
 
-    <TaskListView
-      v-if="selectedList"
-      :list="selectedList"
-      @close="selectedList = null"
-      @updated="fetchLists"
-    />
-
     <TaskListMemberManager
       v-if="manageList"
       :list="manageList"
@@ -115,10 +108,17 @@
 
 <script setup>
 import { ref, computed, onMounted, watch, onUnmounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
-import TaskListView from './TaskListView.vue';
 import TaskListMemberManager from './TaskListMemberManager.vue';
+
+const route = useRoute();
+const router = useRouter();
+const orgPrefix = computed(() => {
+  const slug = route.params.organizationSlug;
+  return typeof slug === 'string' && slug ? `/${slug}` : '';
+});
 
 const props = defineProps({
   /** Used for creating new lists; listing always uses membership (all agencies). */
@@ -141,7 +141,6 @@ const lists = ref([]);
 const agencyUsers = ref([]);
 const unattachedTasks = ref([]);
 const unattachedActions = ref([]);
-const selectedList = ref(null);
 const manageList = ref(null);
 
 const POLL_INTERVAL_MS = 25000;
@@ -307,7 +306,7 @@ const cancelCreate = () => {
 };
 
 const openList = (list) => {
-  selectedList.value = list;
+  router.push(`${orgPrefix.value}/tasks/lists/${list.id}`);
 };
 
 const openManage = (list) => {

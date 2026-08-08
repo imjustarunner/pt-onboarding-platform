@@ -1557,6 +1557,12 @@ const routes = [
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/tasks/lists/:listId',
+    name: 'OrganizationSharedListWorkspace',
+    component: () => import('../views/SharedListWorkspaceView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/tasks/documents/:taskId/sign',
     name: 'OrganizationDocumentSigning',
     component: () => import('../views/DocumentSigningView.vue'),
@@ -3650,6 +3656,12 @@ const routes = [
     path: '/tasks/projects/:projectId',
     name: 'TaskProject',
     component: () => import('../views/ProjectWorkspaceView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/tasks/lists/:listId',
+    name: 'SharedListWorkspace',
+    component: () => import('../views/SharedListWorkspaceView.vue'),
     meta: { requiresAuth: true }
   },
   {

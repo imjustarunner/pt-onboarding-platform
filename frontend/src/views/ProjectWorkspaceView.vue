@@ -536,7 +536,7 @@
                 />
               </div>
               <div class="sl-card__footer">
-                <button type="button" class="sl-card__view-btn" @click="tab = 'tasks'">View tasks →</button>
+                <button type="button" class="sl-card__view-btn" @click="openSharedList(l.id)">Open shared list →</button>
               </div>
             </div>
           </div>
@@ -1138,6 +1138,10 @@ function formatDate(d) {
 
 function goBack() {
   router.push(`${orgPrefix.value}/tasks`);
+}
+
+function openSharedList(listId) {
+  router.push(`${orgPrefix.value}/tasks/lists/${listId}`);
 }
 
 function toggleGroup(listId) {
