@@ -52,16 +52,6 @@
             Completed
           </button>
         </div>
-        <label class="slw__sort">
-          <span>Sort by</span>
-          <select v-model="sortBy" class="form-control form-control-sm">
-            <option value="priority">Priority</option>
-            <option value="due_date">Due date</option>
-            <option value="title">Title</option>
-            <option value="status">Status</option>
-            <option value="assignee">Assignee</option>
-          </select>
-        </label>
       </div>
 
       <div v-if="canEdit && statusTab === 'pending'" class="slw__add-task">
@@ -107,11 +97,12 @@
                   />
                 </th>
                 <th class="slw__col-check" title="Mark complete"></th>
-                <th>Task</th>
-                <th>Assignee</th>
-                <th>Due</th>
-                <th>Priority</th>
-                <th>Status</th>
+                <th class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'title' }" @click="setSort('title')">Task <span class="slw__sort-arrow">{{ slwSortIndicator('title') }}</span></th>
+                <th class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'assignee' }" @click="setSort('assignee')">Assignee <span class="slw__sort-arrow">{{ slwSortIndicator('assignee') }}</span></th>
+                <th class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'due_date' }" @click="setSort('due_date')">Due <span class="slw__sort-arrow">{{ slwSortIndicator('due_date') }}</span></th>
+                <th class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'priority' }" @click="setSort('priority')">Priority <span class="slw__sort-arrow">{{ slwSortIndicator('priority') }}</span></th>
+                <th class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'status' }" @click="setSort('status')">Status <span class="slw__sort-arrow">{{ slwSortIndicator('status') }}</span></th>
+                <th class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'added' }" @click="setSort('added')">Added <span class="slw__sort-arrow">{{ slwSortIndicator('added') }}</span></th>
               </tr>
             </thead>
             <tbody>
@@ -140,27 +131,149 @@
                   <span :class="{ 'slw__done-text': t.status === 'completed' }">{{ t.title }}</span>
                   <span v-if="t.status === 'waiting'" class="slw__waiting-badge">Waiting</span>
                 </td>
-                <td>
-                  <span v-if="t.assigned_to_user_id" class="slw__assignee">
-                    <span class="slw__assignee-avatar" :style="{ background: memberColor(t.assigned_to_user_id) }">
-                      <img v-if="t.assignee_profile_photo_path" :src="toUploadsUrl(t.assignee_profile_photo_path)" :alt="assigneeName(t)" />
-                      <template v-else>{{ initialsOf(t.assignee_first_name, t.assignee_last_name) }}</template>
+                <!-- Assignee cell with inline quick-assign -->
+                <td class="slw__cell-assignee" @click.stop>
+                  <div class="slw__quick-wrap">
+                    <span v-if="t.assigned_to_user_id" class="slw__assignee">
+                      <span class="slw__assignee-avatar" :style="{ background: memberColor(t.assigned_to_user_id) }">
+                        <img v-if="t.assignee_profile_photo_path" :src="toUploadsUrl(t.assignee_profile_photo_path)" :alt="assigneeName(t)" />
+                        <template v-else>{{ initialsOf(t.assignee_first_name, t.assignee_last_name) }}</template>
+                      </span>
+                      <span class="slw__assignee-name">{{ assigneeName(t) }}</span>
                     </span>
-                    {{ assigneeName(t) }}
-                  </span>
-                  <span v-else class="slw__muted">Unassigned</span>
+                    <span v-else class="slw__muted">Unassigned</span>
+                    <button
+                      type="button"
+                      class="slw__inline-plus"
+                      :class="{ 'slw__inline-plus--open': assignPopoverTaskId === t.id }"
+                      :title="t.assigned_to_user_id ? 'Reassign' : 'Assign'"
+                      @click.stop="toggleAssignPopover(t.id)"
+                    >{{ t.assigned_to_user_id ? '±' : '+' }}</button>
+                  </div>
+                  <!-- Assign popover -->
+                  <div v-if="assignPopoverTaskId === t.id" class="slw__pop slw__pop--assign" @click.stop>
+                    <p class="slw__pop-label">Assign to…</p>
+                    <button
+                      v-for="m in members"
+                      :key="m.user_id"
+                      type="button"
+                      class="slw__pop-member"
+                      :class="{ 'slw__pop-member--active': t.assigned_to_user_id === m.user_id }"
+                      @click="quickAssign(t, m.user_id)"
+                    >
+                      <span class="slw__pop-avatar" :style="{ background: memberColor(m.user_id) }">
+                        <img v-if="m.profile_photo_path" :src="toUploadsUrl(m.profile_photo_path)" :alt="memberLabel(m)" />
+                        <template v-else>{{ memberInitials(m) }}</template>
+                      </span>
+                      {{ memberLabel(m) }}
+                      <span v-if="t.assigned_to_user_id === m.user_id" class="slw__pop-check">✓</span>
+                    </button>
+                    <button v-if="t.assigned_to_user_id" type="button" class="slw__pop-unassign" @click="quickAssign(t, null)">Remove assignment</button>
+                  </div>
                 </td>
-                <td>
-                  <span v-if="t.due_date" :class="{ 'slw__overdue': isOverdue(t.due_date) && t.status !== 'completed' }">
-                    {{ formatDate(t.due_date) }}
-                  </span>
+
+                <!-- Due date cell with inline quick-set -->
+                <td class="slw__cell-due" @click.stop>
+                  <div class="slw__quick-wrap">
+                    <span v-if="t.due_date" :class="{ 'slw__overdue': isOverdue(t.due_date) && t.status !== 'completed' }">
+                      {{ formatDate(t.due_date) }}
+                    </span>
+                    <span v-else class="slw__muted">—</span>
+                    <button
+                      type="button"
+                      class="slw__inline-plus"
+                      :class="{ 'slw__inline-plus--open': duePopoverTaskId === t.id }"
+                      :title="t.due_date ? 'Change due date' : 'Set due date'"
+                      @click.stop="toggleDuePopover(t.id)"
+                    >+</button>
+                  </div>
+                  <!-- Due date popover -->
+                  <div v-if="duePopoverTaskId === t.id" class="slw__pop slw__pop--due" @click.stop>
+                    <p class="slw__pop-label">Set due date</p>
+                    <button type="button" class="slw__pop-quick" @click="quickSetDue(t, endOfTodayDate())">
+                      <span class="slw__pop-quick-icon">☀</span>
+                      <span>
+                        <strong>End of today</strong>
+                        <small>5 pm · {{ formatDate(endOfTodayDate()) }}</small>
+                      </span>
+                    </button>
+                    <button type="button" class="slw__pop-quick" @click="quickSetDue(t, endOfWeekDate())">
+                      <span class="slw__pop-quick-icon">📅</span>
+                      <span>
+                        <strong>End of week</strong>
+                        <small>Friday 5 pm · {{ formatDate(endOfWeekDate()) }}</small>
+                      </span>
+                    </button>
+                    <div class="slw__pop-divider">or pick a date</div>
+                    <input
+                      type="date"
+                      class="slw__due-input"
+                      :value="t.due_date ? t.due_date.slice(0, 10) : ''"
+                      @change="quickSetDue(t, $event.target.value)"
+                    />
+                    <button v-if="t.due_date" type="button" class="slw__pop-unassign" @click="quickSetDue(t, null)">Remove due date</button>
+                  </div>
+                </td>
+
+                <!-- Priority cell with inline quick-change -->
+                <td class="slw__cell-priority" @click.stop>
+                  <div class="slw__quick-wrap">
+                    <span class="slw__priority" :class="`slw__priority--${t.urgency || 'medium'}`">{{ t.urgency || 'medium' }}</span>
+                    <button
+                      type="button"
+                      class="slw__inline-plus"
+                      :class="{ 'slw__inline-plus--open': priorityPopoverTaskId === t.id }"
+                      title="Change priority"
+                      @click.stop="togglePriorityPopover(t.id)"
+                    >±</button>
+                  </div>
+                  <div v-if="priorityPopoverTaskId === t.id" class="slw__pop" @click.stop>
+                    <p class="slw__pop-label">Priority</p>
+                    <button
+                      v-for="opt in [{ val: 'high', label: 'High', cls: 'slw__priority--high' }, { val: 'medium', label: 'Medium', cls: 'slw__priority--medium' }, { val: 'low', label: 'Low', cls: 'slw__priority--low' }]"
+                      :key="opt.val"
+                      type="button"
+                      class="slw__pop-member"
+                      :class="{ 'slw__pop-member--active': (t.urgency || 'medium') === opt.val }"
+                      @click="quickSetPriority(t, opt.val)"
+                    >
+                      <span class="slw__priority" :class="opt.cls">{{ opt.label }}</span>
+                      <span v-if="(t.urgency || 'medium') === opt.val" class="slw__pop-check">✓</span>
+                    </button>
+                  </div>
+                </td>
+
+                <!-- Status cell with inline quick-change -->
+                <td class="slw__cell-status" @click.stop>
+                  <div class="slw__quick-wrap">
+                    <span class="slw__status" :class="`slw__status--${t.status || 'pending'}`">{{ statusLabel(t.status) }}</span>
+                    <button
+                      type="button"
+                      class="slw__inline-plus"
+                      :class="{ 'slw__inline-plus--open': statusPopoverTaskId === t.id }"
+                      title="Change status"
+                      @click.stop="toggleStatusPopover(t.id)"
+                    >±</button>
+                  </div>
+                  <div v-if="statusPopoverTaskId === t.id" class="slw__pop" @click.stop>
+                    <p class="slw__pop-label">Status</p>
+                    <button
+                      v-for="opt in statusOptions"
+                      :key="opt.val"
+                      type="button"
+                      class="slw__pop-member"
+                      :class="{ 'slw__pop-member--active': (t.status || 'pending') === opt.val }"
+                      @click="quickSetStatus(t, opt.val)"
+                    >
+                      <span class="slw__status-dot" :class="`slw__status-dot--${opt.val}`"></span>
+                      {{ opt.label }}
+                      <span v-if="(t.status || 'pending') === opt.val" class="slw__pop-check">✓</span>
+                    </button>
+                  </div>
+                </td>
+                <td class="slw__col-added">
+                  <span v-if="t.created_at" class="slw__muted">{{ formatDate(t.created_at) }}</span>
                   <span v-else class="slw__muted">—</span>
-                </td>
-                <td>
-                  <span class="slw__priority" :class="`slw__priority--${t.urgency || 'medium'}`">{{ t.urgency || 'medium' }}</span>
-                </td>
-                <td>
-                  <span class="slw__status" :class="`slw__status--${t.status || 'pending'}`">{{ statusLabel(t.status) }}</span>
                 </td>
               </tr>
             </tbody>
@@ -182,6 +295,9 @@
           />
         </div>
       </div>
+
+      <!-- backdrop to close popovers on outside click -->
+      <div v-if="assignPopoverTaskId || duePopoverTaskId || priorityPopoverTaskId || statusPopoverTaskId" class="slw__pop-backdrop" @click="closePopovers" />
 
       <BulkActionBar
         :count="selectedIds.size"
@@ -272,6 +388,7 @@ const tasks = ref([]);
 const selectedTask = ref(null);
 const statusTab = ref('pending');
 const sortBy = ref('priority');
+const sortDir = ref('desc'); // priority: high first; dates: newest first; text: A first
 const showMembers = ref(false);
 const availableUsers = ref([]);
 const addMemberUserId = ref(null);
@@ -417,6 +534,136 @@ const memberLabel = (m) => [m.first_name, m.last_name].filter(Boolean).join(' ')
 const memberInitials = (m) => initialsOf(m.first_name, m.last_name);
 const initialsOf = (fn, ln) => ((fn?.[0] || '') + (ln?.[0] || '')).toUpperCase() || '?';
 const assigneeName = (t) => [t.assignee_first_name, t.assignee_last_name].filter(Boolean).join(' ') || 'Assigned';
+
+// ─── Inline quick-action popovers ─────────────────────────────────────────────
+const assignPopoverTaskId = ref(null);
+const duePopoverTaskId = ref(null);
+const priorityPopoverTaskId = ref(null);
+const statusPopoverTaskId = ref(null);
+
+const statusOptions = [
+  { val: 'pending', label: 'Open' },
+  { val: 'in_progress', label: 'In Progress' },
+  { val: 'waiting', label: 'Waiting' },
+];
+
+function closePopovers() {
+  assignPopoverTaskId.value = null;
+  duePopoverTaskId.value = null;
+  priorityPopoverTaskId.value = null;
+  statusPopoverTaskId.value = null;
+}
+
+function toggleAssignPopover(taskId) {
+  const next = assignPopoverTaskId.value === taskId ? null : taskId;
+  closePopovers();
+  assignPopoverTaskId.value = next;
+}
+
+function toggleDuePopover(taskId) {
+  const next = duePopoverTaskId.value === taskId ? null : taskId;
+  closePopovers();
+  duePopoverTaskId.value = next;
+}
+
+function togglePriorityPopover(taskId) {
+  const next = priorityPopoverTaskId.value === taskId ? null : taskId;
+  closePopovers();
+  priorityPopoverTaskId.value = next;
+}
+
+function toggleStatusPopover(taskId) {
+  const next = statusPopoverTaskId.value === taskId ? null : taskId;
+  closePopovers();
+  statusPopoverTaskId.value = next;
+}
+
+// Quick due-date helpers — uses browser local time so it reflects the current user's timezone
+function endOfTodayDate() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function endOfWeekDate() {
+  const d = new Date();
+  const dayOfWeek = d.getDay(); // 0 Sun … 6 Sat
+  // Advance to Friday: if today is Sat (6) wrap to next Friday (+6), else go forward
+  const daysToFriday = dayOfWeek <= 5 ? 5 - dayOfWeek : 6;
+  d.setDate(d.getDate() + daysToFriday);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+async function quickAssign(task, userId) {
+  assignPopoverTaskId.value = null;
+  try {
+    await api.put(`/me/tasks/${task.id}`, { assigned_to_user_id: userId || null }, { skipGlobalLoading: true });
+    const t = tasks.value.find((x) => x.id === task.id);
+    if (t) {
+      t.assigned_to_user_id = userId || null;
+      const m = userId ? members.value.find((x) => x.user_id === userId) : null;
+      t.assignee_first_name = m?.first_name || null;
+      t.assignee_last_name = m?.last_name || null;
+      t.assignee_profile_photo_path = m?.profile_photo_path || null;
+    }
+    if (selectedTask.value?.id === task.id) {
+      selectedTask.value = { ...selectedTask.value, assigned_to_user_id: userId || null };
+    }
+  } catch (e) {
+    console.error('quickAssign failed', e);
+  }
+}
+
+async function quickSetDue(task, dateStr) {
+  duePopoverTaskId.value = null;
+  try {
+    await api.put(`/me/tasks/${task.id}`, { due_date: dateStr || null }, { skipGlobalLoading: true });
+    const t = tasks.value.find((x) => x.id === task.id);
+    if (t) t.due_date = dateStr || null;
+    if (selectedTask.value?.id === task.id) {
+      selectedTask.value = { ...selectedTask.value, due_date: dateStr || null };
+    }
+  } catch (e) {
+    console.error('quickSetDue failed', e);
+  }
+}
+
+async function quickSetPriority(task, urgency) {
+  priorityPopoverTaskId.value = null;
+  try {
+    await api.put(`/me/tasks/${task.id}`, { urgency }, { skipGlobalLoading: true });
+    const t = tasks.value.find((x) => x.id === task.id);
+    if (t) t.urgency = urgency;
+    if (selectedTask.value?.id === task.id) {
+      selectedTask.value = { ...selectedTask.value, urgency };
+    }
+  } catch (e) {
+    console.error('quickSetPriority failed', e);
+  }
+}
+
+async function quickSetStatus(task, status) {
+  statusPopoverTaskId.value = null;
+  try {
+    if (status === 'completed') {
+      await api.put(`/tasks/${task.id}/complete`, {}, { skipGlobalLoading: true });
+    } else {
+      await api.put(`/me/tasks/${task.id}`, { status }, { skipGlobalLoading: true });
+    }
+    const t = tasks.value.find((x) => x.id === task.id);
+    if (t) t.status = status;
+    if (selectedTask.value?.id === task.id) {
+      selectedTask.value = { ...selectedTask.value, status };
+    }
+  } catch (e) {
+    console.error('quickSetStatus failed', e);
+  }
+}
 const userLabel = (u) => {
   const name = [u.first_name ?? u.firstName, u.last_name ?? u.lastName].filter(Boolean).join(' ');
   return name || u.email || `User #${u.id}`;
@@ -428,25 +675,48 @@ function statusLabel(s) {
   return map[s] || 'Open';
 }
 
-const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
+const PRIORITY_RANK = { high: 3, medium: 2, low: 1 };
+
+function setSort(field) {
+  if (sortBy.value === field) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortBy.value = field;
+    sortDir.value = (field === 'priority' || field === 'due_date' || field === 'added') ? 'desc' : 'asc';
+  }
+}
+
+function slwSortIndicator(field) {
+  if (sortBy.value !== field) return '↕';
+  return sortDir.value === 'asc' ? '↑' : '↓';
+}
+
 const sortedTasks = computed(() => {
-  const list = [...tasks.value];
-  list.sort((a, b) => {
-    if (sortBy.value === 'priority') {
-      return (PRIORITY_ORDER[a.urgency || 'medium'] ?? 1) - (PRIORITY_ORDER[b.urgency || 'medium'] ?? 1);
+  const d = sortDir.value === 'asc' ? 1 : -1;
+  return [...tasks.value].sort((a, b) => {
+    switch (sortBy.value) {
+      case 'priority':
+        return d * ((PRIORITY_RANK[a.urgency] || 0) - (PRIORITY_RANK[b.urgency] || 0));
+      case 'due_date': {
+        const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
+        const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
+        return d * (da - db);
+      }
+      case 'added': {
+        const da = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const db = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return d * (da - db);
+      }
+      case 'title':
+        return d * String(a.title || '').localeCompare(String(b.title || ''));
+      case 'status':
+        return d * String(a.status || '').localeCompare(String(b.status || ''));
+      case 'assignee':
+        return d * assigneeName(a).localeCompare(assigneeName(b));
+      default:
+        return 0;
     }
-    if (sortBy.value === 'due_date') {
-      if (!a.due_date && !b.due_date) return 0;
-      if (!a.due_date) return 1;
-      if (!b.due_date) return -1;
-      return new Date(a.due_date) - new Date(b.due_date);
-    }
-    if (sortBy.value === 'title') return String(a.title || '').localeCompare(String(b.title || ''));
-    if (sortBy.value === 'status') return String(a.status || '').localeCompare(String(b.status || ''));
-    if (sortBy.value === 'assignee') return assigneeName(a).localeCompare(assigneeName(b));
-    return 0;
   });
-  return list;
 });
 
 function goBack() {
@@ -797,6 +1067,197 @@ onMounted(() => {
 .slw__col-select { width: 30px; text-align: center; }
 .slw__col-select input { cursor: pointer; }
 .slw__col-check { width: 34px; }
+.slw__col-added { font-size: 11px; color: #94a3b8; white-space: nowrap; }
+
+/* ── Inline quick-action cells ─────────────────────────────── */
+.slw__cell-assignee,
+.slw__cell-due { position: relative; }
+
+.slw__quick-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.slw__assignee-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 110px;
+}
+
+.slw__inline-plus {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  opacity: 0;
+  transition: opacity .12s, background .12s, border-color .12s;
+}
+tr:hover .slw__inline-plus { opacity: 1; }
+.slw__inline-plus:hover,
+.slw__inline-plus--open {
+  background: #e0f2fe;
+  border-color: #7dd3fc;
+  color: #0369a1;
+  opacity: 1 !important;
+}
+
+/* ── Popovers ───────────────────────────────────────────────── */
+.slw__pop-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 190;
+}
+.slw__pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 200;
+  min-width: 180px;
+  max-width: 240px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15,23,42,.14);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.slw__pop-label {
+  margin: 0 0 4px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: #94a3b8;
+}
+.slw__pop-member {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #1e293b;
+  text-align: left;
+  width: 100%;
+}
+.slw__pop-member:hover { background: #f1f5f9; }
+.slw__pop-member--active { background: #f0fdf4; color: #15803d; font-weight: 600; }
+.slw__pop-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.slw__pop-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.slw__pop-check { margin-left: auto; color: #16a34a; font-size: 12px; }
+.slw__pop-unassign {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  border-top: 1px solid #f1f5f9;
+  border-radius: 0 0 6px 6px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #dc2626;
+  text-align: left;
+  width: 100%;
+}
+.slw__pop-unassign:hover { background: #fef2f2; }
+
+.slw__cell-priority,
+.slw__cell-status { position: relative; }
+
+.slw__pop--due { min-width: 220px; }
+
+/* Quick date option buttons (End of day / End of week) */
+.slw__pop-quick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 8px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  color: #1e293b;
+}
+.slw__pop-quick:hover { background: #f1f5f9; }
+.slw__pop-quick-icon { font-size: 16px; flex-shrink: 0; width: 22px; text-align: center; }
+.slw__pop-quick span:last-child { display: flex; flex-direction: column; gap: 1px; }
+.slw__pop-quick strong { font-size: 13px; font-weight: 600; }
+.slw__pop-quick small { font-size: 10px; color: #64748b; }
+
+.slw__pop-divider {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: #94a3b8;
+  padding: 4px 4px 2px;
+  border-top: 1px solid #f1f5f9;
+  margin-top: 2px;
+}
+
+.slw__due-input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #1e293b;
+  outline: none;
+}
+.slw__due-input:focus { border-color: #7dd3fc; box-shadow: 0 0 0 3px rgba(125,211,252,.18); }
+
+/* Status dot indicator in popover */
+.slw__status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+.slw__status-dot--pending { background: #94a3b8; }
+.slw__status-dot--in_progress { background: #3b82f6; }
+.slw__status-dot--waiting { background: #a855f7; }
+.slw__status-dot--completed { background: #16a34a; }
+
+.slw__th-sort {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.slw__th-sort:hover { color: #0f172a; }
+.slw__th-sort--active { color: #0f172a; font-weight: 700; }
+.slw__sort-arrow { font-size: 9px; opacity: 0.5; margin-left: 3px; }
+.slw__th-sort--active .slw__sort-arrow { opacity: 1; }
 .slw__check {
   width: 20px; height: 20px;
   border-radius: 50%;

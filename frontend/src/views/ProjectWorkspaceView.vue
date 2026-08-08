@@ -464,6 +464,24 @@
                       <span v-else class="qa-btn__label">+ Assign</span>
                     </button>
 
+                    <!-- Quick priority -->
+                    <button
+                      type="button"
+                      class="qa-btn qa-btn--priority"
+                      :class="`qa-btn--priority-${task.urgency || 'medium'}`"
+                      :title="`Priority: ${task.urgency || 'medium'}`"
+                      @click="openPriorityPopover($event, task)"
+                    >{{ (task.urgency || 'medium').charAt(0).toUpperCase() + (task.urgency || 'medium').slice(1) }}</button>
+
+                    <!-- Quick due -->
+                    <button
+                      type="button"
+                      class="qa-btn qa-btn--due"
+                      :class="{ 'qa-btn--overdue': task.due_date && new Date(task.due_date) < new Date() && task.status !== 'completed' }"
+                      :title="task.due_date ? 'Change due date' : 'Set due date'"
+                      @click="openDuePopover($event, task)"
+                    >{{ task.due_date ? formatDate(task.due_date) : '+ Due' }}</button>
+
                     <!-- Quick status -->
                     <button
                       type="button"
@@ -736,6 +754,35 @@
       </div>
     </div>
 
+    <!-- Priority popover -->
+    <div v-if="priorityPopover.open" class="pop-backdrop" @mousedown.self="priorityPopover.open = false">
+      <div class="pop" :style="{ top: priorityPopover.top + 'px', left: priorityPopover.left + 'px' }">
+        <p class="pop__head">Priority</p>
+        <button v-for="opt in [{ val:'high', label:'High' }, { val:'medium', label:'Medium' }, { val:'low', label:'Low' }]" :key="opt.val" type="button" class="pop__row pop__row--priority" :class="[`pop__row--priority-${opt.val}`, { 'pop__row--active': (priorityPopover.task?.urgency || 'medium') === opt.val }]" @mousedown.prevent="doPriority(opt.val)">
+          <span class="priority-dot" :class="`priority-dot--${opt.val}`" />
+          {{ opt.label }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Due date popover -->
+    <div v-if="duePopover.open" class="pop-backdrop" @mousedown.self="duePopover.open = false">
+      <div class="pop pop--due" :style="{ top: duePopover.top + 'px', left: duePopover.left + 'px' }">
+        <p class="pop__head">Set due date</p>
+        <button type="button" class="pop__quick" @mousedown.prevent="doDue(pwEndOfTodayDate())">
+          <span class="pop__quick-icon">☀</span>
+          <span><strong>End of today</strong><small>5 pm · {{ formatDate(pwEndOfTodayDate()) }}</small></span>
+        </button>
+        <button type="button" class="pop__quick" @mousedown.prevent="doDue(pwEndOfWeekDate())">
+          <span class="pop__quick-icon">📅</span>
+          <span><strong>End of week</strong><small>Friday 5 pm · {{ formatDate(pwEndOfWeekDate()) }}</small></span>
+        </button>
+        <div class="pop__divider">or pick a date</div>
+        <input type="date" class="pop__date-input" :value="duePopover.task?.due_date ? String(duePopover.task.due_date).slice(0,10) : ''" @change="doDue($event.target.value || null)" />
+        <button v-if="duePopover.task?.due_date" type="button" class="pop__clear" @mousedown.prevent="doDue(null)">Remove due date</button>
+      </div>
+    </div>
+
     <!-- Edit project sheet -->
     <div v-if="showEdit" class="edit-overlay" @click.self="showEdit = false">
       <div class="edit-sheet">
@@ -802,6 +849,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
+import { formatDate } from '../utils/formatDate';
 import TaskDetailSidePanel from '../components/tasks/TaskDetailSidePanel.vue';
 import ProjectWhiteboard from '../components/tasks/ProjectWhiteboard.vue';
 import BulkActionBar from '../components/tasks/BulkActionBar.vue';
@@ -892,6 +940,8 @@ const statusOptions = [
 // ── Quick-assign popover state ──
 const assignPopover = reactive({ open: false, task: null, top: 0, left: 0 });
 const statusPopover = reactive({ open: false, task: null, top: 0, left: 0 });
+const priorityPopover = reactive({ open: false, task: null, top: 0, left: 0 });
+const duePopover = reactive({ open: false, task: null, top: 0, left: 0 });
 
 // ── Whiteboards ──
 const whiteboards = ref([]);
@@ -1303,16 +1353,70 @@ function positionPopover(ev) {
   return { top, left };
 }
 
+function closeAllPops() {
+  assignPopover.open = false;
+  statusPopover.open = false;
+  priorityPopover.open = false;
+  duePopover.open = false;
+}
+
 function openAssignPopover(ev, task) {
   const pos = positionPopover(ev);
-  statusPopover.open = false;
+  closeAllPops();
   Object.assign(assignPopover, { open: true, task, ...pos });
 }
 
 function openStatusPopover(ev, task) {
   const pos = positionPopover(ev);
-  assignPopover.open = false;
+  closeAllPops();
   Object.assign(statusPopover, { open: true, task, ...pos });
+}
+
+function openPriorityPopover(ev, task) {
+  const pos = positionPopover(ev);
+  closeAllPops();
+  Object.assign(priorityPopover, { open: true, task, ...pos });
+}
+
+function openDuePopover(ev, task) {
+  const pos = positionPopover(ev);
+  closeAllPops();
+  Object.assign(duePopover, { open: true, task, ...pos });
+}
+
+function pwEndOfTodayDate() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function pwEndOfWeekDate() {
+  const d = new Date();
+  const daysToFri = d.getDay() <= 5 ? 5 - d.getDay() : 6;
+  d.setDate(d.getDate() + daysToFri);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+async function doPriority(urgency) {
+  priorityPopover.open = false;
+  const task = priorityPopover.task;
+  if (!task || task.urgency === urgency) return;
+  try {
+    await api.put(`/me/tasks/${task.id}`, { urgency }, { skipGlobalLoading: true });
+    const t = tasks.value.find((x) => x.id === task.id);
+    if (t) t.urgency = urgency;
+    if (selectedTask.value?.id === task.id) selectedTask.value = { ...selectedTask.value, urgency };
+  } catch (e) { console.error('[ProjectWorkspace] doPriority:', e); }
+}
+
+async function doDue(dateStr) {
+  duePopover.open = false;
+  const task = duePopover.task;
+  if (!task) return;
+  try {
+    await api.put(`/me/tasks/${task.id}`, { due_date: dateStr || null }, { skipGlobalLoading: true });
+    const t = tasks.value.find((x) => x.id === task.id);
+    if (t) t.due_date = dateStr || null;
+    if (selectedTask.value?.id === task.id) selectedTask.value = { ...selectedTask.value, due_date: dateStr || null };
+  } catch (e) { console.error('[ProjectWorkspace] doDue:', e); }
 }
 
 async function doAssign(user) {
@@ -2735,6 +2839,58 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
   display: inline-flex; align-items: center; justify-content: center;
 }
 .qa-btn__label { font-size: 11px; }
+
+/* Priority quick-action button */
+.qa-btn--priority { border-style: solid; }
+.qa-btn--priority-high { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; }
+.qa-btn--priority-medium { border-color: #fed7aa; background: #fff7ed; color: #c2410c; }
+.qa-btn--priority-low { border-color: #e2e8f0; background: #f8fafc; color: #64748b; }
+.qa-btn--priority-high:hover { background: #fee2e2; }
+.qa-btn--priority-medium:hover { background: #ffedd5; }
+.qa-btn--priority-low:hover { background: #f1f5f9; }
+
+/* Due date quick-action button */
+.qa-btn--due { border-style: solid; border-color: #e2e8f0; color: #475569; }
+.qa-btn--due:hover { border-color: #94a3b8; background: #f8fafc; }
+.qa-btn--overdue { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; }
+.qa-btn--overdue:hover { background: #fee2e2; }
+
+/* Pop extended styles for priority and due */
+.pop--due { min-width: 220px; }
+.pop__quick {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 7px 8px;
+  border: none; background: transparent; border-radius: 6px;
+  cursor: pointer; text-align: left; color: #1e293b;
+}
+.pop__quick:hover { background: #f1f5f9; }
+.pop__quick-icon { font-size: 15px; flex-shrink: 0; width: 20px; text-align: center; }
+.pop__quick span:last-child { display: flex; flex-direction: column; gap: 1px; }
+.pop__quick strong { font-size: 12px; font-weight: 600; }
+.pop__quick small { font-size: 10px; color: #64748b; }
+.pop__divider {
+  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  color: #94a3b8; padding: 4px 4px 2px;
+  border-top: 1px solid #f1f5f9; margin-top: 2px;
+}
+.pop__date-input {
+  width: 100%; padding: 6px 8px;
+  border: 1px solid #e2e8f0; border-radius: 6px;
+  font-size: 12px; color: #1e293b; outline: none;
+}
+.pop__date-input:focus { border-color: #7dd3fc; }
+.pop__clear {
+  margin-top: 2px; padding: 5px 8px;
+  border: none; border-top: 1px solid #f1f5f9; border-radius: 0 0 6px 6px;
+  background: transparent; cursor: pointer;
+  font-size: 11px; color: #dc2626; text-align: left; width: 100%;
+}
+.pop__clear:hover { background: #fef2f2; }
+.pop__row--priority { justify-content: flex-start; gap: 8px; }
+.priority-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.priority-dot--high { background: #dc2626; }
+.priority-dot--medium { background: #f97316; }
+.priority-dot--low { background: #94a3b8; }
 
 /* Status pill button */
 .status-pill {

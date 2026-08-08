@@ -38,10 +38,11 @@
         />
       </span>
       <span class="header-done" title="Mark complete"></span>
-      <span class="header-task">Task</span>
-      <span class="header-type" title="Task type">Type</span>
-      <span class="header-priority">Priority</span>
-      <span class="header-due">Due</span>
+      <button type="button" class="header-task sort-col" :class="{ 'sort-col--active': sortField === 'title' }" @click="setSort('title')">Task <span class="sort-arrow">{{ sortIndicator('title') }}</span></button>
+      <button type="button" class="header-type sort-col" :class="{ 'sort-col--active': sortField === 'type' }" title="Task type" @click="setSort('type')"><span class="sort-arrow">{{ sortIndicator('type') }}</span></button>
+      <button type="button" class="header-priority sort-col" :class="{ 'sort-col--active': sortField === 'priority' }" @click="setSort('priority')">Priority <span class="sort-arrow">{{ sortIndicator('priority') }}</span></button>
+      <button type="button" class="header-due sort-col" :class="{ 'sort-col--active': sortField === 'due' }" @click="setSort('due')">Due <span class="sort-arrow">{{ sortIndicator('due') }}</span></button>
+      <button type="button" class="header-added sort-col" :class="{ 'sort-col--active': sortField === 'added' }" @click="setSort('added')">Added <span class="sort-arrow">{{ sortIndicator('added') }}</span></button>
       <span class="header-menu"></span>
     </div>
 
@@ -106,13 +107,47 @@
             :title="typeMeta(task).label"
             v-html="typeIconHtml(task)"
           />
-          <span class="priority" :class="`priority--${task.urgency || 'medium'}`">
-            {{ urgencyLabel(task.urgency) }}
-          </span>
-          <div class="task-row__due" :class="relativeDueClass(task)">
-            <template v-if="task.due_date">
-              <span class="due-primary">{{ relativeDue(task) || formatDate(task.due_date) }}</span>
+          <!-- Priority cell with quick-change -->
+          <div class="tlt-cell tlt-cell--priority" @click.stop>
+            <span class="priority" :class="`priority--${patched(task,'urgency') || 'medium'}`">
+              {{ urgencyLabel(patched(task,'urgency')) }}
+            </span>
+            <button type="button" class="tlt-plus" :class="{ 'tlt-plus--open': isPopOpen('priority',task.id) }" title="Change priority" @click.stop="togglePop('priority',task.id,$event)">±</button>
+            <div v-if="isPopOpen('priority',task.id)" class="tlt-pop" @click.stop>
+              <p class="tlt-pop__label">Priority</p>
+              <button v-for="opt in [{val:'high',label:'High',cls:'priority--high'},{val:'medium',label:'Medium',cls:'priority--medium'},{val:'low',label:'Low',cls:'priority--low'}]" :key="opt.val" type="button" class="tlt-pop__item" :class="{'tlt-pop__item--active': (patched(task,'urgency')||'medium')===opt.val}" @click="inlineUpdate(task,{urgency:opt.val})">
+                <span class="priority" :class="opt.cls">{{ opt.label }}</span>
+                <span v-if="(patched(task,'urgency')||'medium')===opt.val" class="tlt-pop__check">✓</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Due date cell with quick-set -->
+          <div class="tlt-cell tlt-cell--due" :class="relativeDueClass(task)" @click.stop>
+            <template v-if="patched(task,'due_date')">
+              <span class="due-primary">{{ relativeDue({...task,due_date:patched(task,'due_date')}) || formatDate(patched(task,'due_date')) }}</span>
             </template>
+            <span v-else class="muted">—</span>
+            <button type="button" class="tlt-plus" :class="{ 'tlt-plus--open': isPopOpen('due',task.id) }" :title="patched(task,'due_date') ? 'Change due date' : 'Set due date'" @click.stop="togglePop('due',task.id,$event)">+</button>
+            <div v-if="isPopOpen('due',task.id)" class="tlt-pop tlt-pop--due" @click.stop>
+              <p class="tlt-pop__label">Set due date</p>
+              <button type="button" class="tlt-pop__quick" @click="inlineUpdate(task,{due_date:endOfTodayDate()})">
+                <span class="tlt-pop__quick-icon">☀</span>
+                <span><strong>End of today</strong><small>5 pm · {{ formatDate(endOfTodayDate()) }}</small></span>
+              </button>
+              <button type="button" class="tlt-pop__quick" @click="inlineUpdate(task,{due_date:endOfWeekDate()})">
+                <span class="tlt-pop__quick-icon">📅</span>
+                <span><strong>End of week</strong><small>Friday 5 pm · {{ formatDate(endOfWeekDate()) }}</small></span>
+              </button>
+              <div class="tlt-pop__divider">or pick a date</div>
+              <input type="date" class="tlt-pop__date-input" :value="patched(task,'due_date') ? String(patched(task,'due_date')).slice(0,10) : ''" @change="inlineUpdate(task,{due_date:$event.target.value||null})" />
+              <button v-if="patched(task,'due_date')" type="button" class="tlt-pop__remove" @click="inlineUpdate(task,{due_date:null})">Remove due date</button>
+            </div>
+          </div>
+
+          <!-- Added date -->
+          <div class="task-row__added">
+            <span v-if="task.created_at" class="muted">{{ formatDate(task.created_at) }}</span>
             <span v-else class="muted">—</span>
           </div>
           <button type="button" class="more-btn" title="Actions" @click.stop="$emit('menu', task)">⋯</button>
@@ -120,6 +155,8 @@
       <div v-if="!group.items.length" class="task-group__empty">No tasks</div>
     </div>
   </section>
+
+  <div v-if="activePop.field" class="tlt-backdrop" @click="closePop" />
 
   <BulkActionBar
     :count="selectedTasks.length"
@@ -143,6 +180,7 @@ import { formatDate } from '../../utils/formatDate';
 import { resolveTaskTypeMeta, taskTypeIconSvg } from '../../utils/taskTypeIcons';
 import UserAvatar from '../common/UserAvatar.vue';
 import BulkActionBar from './BulkActionBar.vue';
+import api from '../../services/api';
 
 const props = defineProps({
   tasks: { type: Array, default: () => [] },
@@ -158,7 +196,8 @@ const props = defineProps({
 
 const emit = defineEmits([
   'open', 'toggle-complete', 'menu', 'drag-start', 'make-dependent', 'create-shared-list',
-  'bulk-complete', 'bulk-assign', 'bulk-due-date', 'bulk-priority', 'bulk-type', 'bulk-status'
+  'bulk-complete', 'bulk-assign', 'bulk-due-date', 'bulk-priority', 'bulk-type', 'bulk-status',
+  'task-updated'
 ]);
 
 // ---- Multi-select state ----
@@ -234,6 +273,122 @@ function groupKeyFor(task) {
   return 'later';
 }
 
+// ─── Inline quick-action popovers ────────────────────────────────────────────
+// Local patch map: { [taskId]: { urgency?, due_date?, status?, assigned_to_user_id?, ... } }
+// Lets us update the display instantly without mutating props.
+const localPatch = reactive({});
+
+function patched(task, field) {
+  return Object.prototype.hasOwnProperty.call(localPatch, task.id) && field in localPatch[task.id]
+    ? localPatch[task.id][field]
+    : task[field];
+}
+
+function applyPatch(taskId, updates) {
+  localPatch[taskId] = { ...(localPatch[taskId] || {}), ...updates };
+}
+
+// Single active popover: { field: 'due'|'priority'|'status'|'assign', taskId }
+const activePop = reactive({ field: null, taskId: null });
+
+function togglePop(field, taskId, ev) {
+  if (ev) ev.stopPropagation();
+  if (activePop.field === field && activePop.taskId === taskId) {
+    activePop.field = null; activePop.taskId = null;
+  } else {
+    activePop.field = field; activePop.taskId = taskId;
+  }
+}
+function closePop() { activePop.field = null; activePop.taskId = null; }
+function isPopOpen(field, taskId) { return activePop.field === field && activePop.taskId === taskId; }
+
+function endOfTodayDate() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function endOfWeekDate() {
+  const d = new Date();
+  const daysToFri = d.getDay() <= 5 ? 5 - d.getDay() : 6;
+  d.setDate(d.getDate() + daysToFri);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+async function inlineUpdate(task, updates) {
+  closePop();
+  applyPatch(task.id, updates);
+  try {
+    const endpoint = task._isActionItem
+      ? `/task-action-items/${task.id}`
+      : `/me/tasks/${task.id}`;
+    await api.put(endpoint, updates, { skipGlobalLoading: true });
+    emit('task-updated', { id: task.id, updates });
+  } catch (e) {
+    // Revert patch on failure
+    if (localPatch[task.id]) {
+      Object.keys(updates).forEach((k) => delete localPatch[task.id][k]);
+    }
+    console.error('inline update failed', e);
+  }
+}
+
+const tltStatusOptions = [
+  { val: 'pending',     label: 'Open',        dot: '#94a3b8' },
+  { val: 'in_progress', label: 'In Progress',  dot: '#3b82f6' },
+  { val: 'waiting',     label: 'Waiting',      dot: '#a855f7' },
+];
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── Column sort ─────────────────────────────────────────────────────────────
+const sortField = ref(null);
+const sortDir = ref('asc');
+const PRIORITY_RANK = { high: 3, medium: 2, low: 1 };
+
+function setSort(field) {
+  if (sortField.value === field) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortField.value = field;
+    // Dates & priority default to descending (newest / highest first)
+    sortDir.value = (field === 'priority' || field === 'due' || field === 'added') ? 'desc' : 'asc';
+  }
+}
+
+function sortIndicator(field) {
+  if (sortField.value !== field) return '↕';
+  return sortDir.value === 'asc' ? '↑' : '↓';
+}
+
+function sortItems(items) {
+  if (!sortField.value) return items;
+  const d = sortDir.value === 'asc' ? 1 : -1;
+  return [...items].sort((a, b) => {
+    switch (sortField.value) {
+      case 'title':
+        return d * String(a.title || '').localeCompare(String(b.title || ''));
+      case 'type': {
+        const ta = resolveTaskTypeMeta(a, props.typeDefs).label || '';
+        const tb = resolveTaskTypeMeta(b, props.typeDefs).label || '';
+        return d * ta.localeCompare(tb);
+      }
+      case 'priority':
+        return d * ((PRIORITY_RANK[a.urgency] || 0) - (PRIORITY_RANK[b.urgency] || 0));
+      case 'due': {
+        const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
+        const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
+        return d * (da - db);
+      }
+      case 'added': {
+        const da = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const db = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return d * (da - db);
+      }
+      default:
+        return 0;
+    }
+  });
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 const groups = computed(() => {
   const buckets = {
     overdue: [],
@@ -246,11 +401,11 @@ const groups = computed(() => {
     buckets[groupKeyFor(t)].push(t);
   }
   return [
-    { key: 'overdue', label: 'Overdue', items: buckets.overdue },
-    { key: 'today', label: 'Today', items: buckets.today },
-    { key: 'week', label: 'Upcoming', items: buckets.week },
-    { key: 'later', label: 'Later', items: buckets.later },
-    { key: 'completed', label: 'Completed', items: buckets.completed }
+    { key: 'overdue', label: 'Overdue', items: sortItems(buckets.overdue) },
+    { key: 'today', label: 'Today', items: sortItems(buckets.today) },
+    { key: 'week', label: 'Upcoming', items: sortItems(buckets.week) },
+    { key: 'later', label: 'Later', items: sortItems(buckets.later) },
+    { key: 'completed', label: 'Completed', items: sortItems(buckets.completed) }
   ].filter((g) => g.items.length > 0);
 });
 
@@ -424,7 +579,7 @@ onBeforeUnmount(() => clearTimeout(leaveTimer));
 .task-group__chev { margin-left: auto; color: #94a3b8; font-size: 11px; }
 .task-row {
   display: grid;
-  grid-template-columns: 4px 22px 22px minmax(140px, 1.8fr) 28px 72px minmax(90px, 120px) 32px;
+  grid-template-columns: 4px 22px 22px minmax(140px, 1.8fr) 28px 72px minmax(90px, 120px) minmax(80px, 100px) 32px;
   gap: 6px;
   align-items: center;
   padding: 7px 10px;
@@ -436,7 +591,7 @@ onBeforeUnmount(() => clearTimeout(leaveTimer));
 
 .tasks-list-table__header {
   display: grid;
-  grid-template-columns: 4px 22px 22px minmax(140px, 1.8fr) 28px 72px minmax(90px, 120px) 32px;
+  grid-template-columns: 4px 22px 22px minmax(140px, 1.8fr) 28px 72px minmax(90px, 120px) minmax(80px, 100px) 32px;
   gap: 6px;
   align-items: center;
   padding: 4px 10px 8px;
@@ -453,9 +608,33 @@ onBeforeUnmount(() => clearTimeout(leaveTimer));
 .tasks-list-table__header .header-type { grid-column: 5; text-align: center; }
 .tasks-list-table__header .header-priority { grid-column: 6; }
 .tasks-list-table__header .header-due { grid-column: 7; }
-.tasks-list-table__header .header-menu { grid-column: 8; }
+.tasks-list-table__header .header-added { grid-column: 8; }
+.tasks-list-table__header .header-menu { grid-column: 9; }
 .tasks-list-table__header .header-priority,
-.tasks-list-table__header .header-due { text-align: right; }
+.tasks-list-table__header .header-due,
+.tasks-list-table__header .header-added { text-align: right; justify-content: flex-end; }
+
+/* Sortable column header buttons */
+.sort-col {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  user-select: none;
+}
+.sort-col:hover { color: #475569; }
+.sort-col--active { color: #1e293b; }
+.sort-arrow { font-size: 9px; opacity: 0.5; }
+.sort-col--active .sort-arrow { opacity: 1; color: #0f172a; }
 
 .task-row__select,
 .task-row__done-btn { justify-self: center; }
@@ -537,9 +716,104 @@ onBeforeUnmount(() => clearTimeout(leaveTimer));
 .priority--high { color: #b91c1c; }
 .priority--medium { color: #c2410c; }
 .priority--low { color: #64748b; }
+.tlt-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.tlt-cell--due { color: #334155; justify-content: flex-end; }
+.tlt-cell--priority { justify-content: flex-end; }
+.due--overdue .tlt-cell--due, .tlt-cell--due.due--overdue { color: #b91c1c; font-weight: 700; }
+.tlt-cell--due.due--today { color: #2563eb; font-weight: 700; }
+
 .task-row__due { font-size: 12px; color: #334155; text-align: right; }
 .due--overdue { color: #b91c1c; font-weight: 700; }
 .due--today { color: #2563eb; font-weight: 700; }
+.task-row__added { font-size: 11px; color: #94a3b8; text-align: right; }
+
+/* ── Inline quick-action plus buttons ────── */
+.tlt-plus {
+  flex-shrink: 0;
+  width: 16px; height: 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12px; line-height: 1;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0;
+  opacity: 0;
+  transition: opacity .1s, background .1s;
+}
+.task-row:hover .tlt-plus { opacity: 1; }
+.tlt-plus:hover, .tlt-plus--open {
+  background: #e0f2fe; border-color: #7dd3fc; color: #0369a1; opacity: 1 !important;
+}
+
+/* ── Popover ──────────────────────────────── */
+.tlt-backdrop {
+  position: fixed; inset: 0; z-index: 190;
+}
+.tlt-pop {
+  position: absolute;
+  top: calc(100% + 4px); right: 0;
+  z-index: 200;
+  min-width: 170px; max-width: 230px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15,23,42,.14);
+  padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.tlt-pop--due { min-width: 210px; }
+.tlt-pop__label {
+  margin: 0 0 3px; padding: 0 4px;
+  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8;
+}
+.tlt-pop__item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 6px 8px;
+  border: none; background: transparent; border-radius: 6px;
+  cursor: pointer; font-size: 13px; color: #1e293b; text-align: left;
+}
+.tlt-pop__item:hover { background: #f1f5f9; }
+.tlt-pop__item--active { background: #f0fdf4; color: #15803d; font-weight: 600; }
+.tlt-pop__check { margin-left: auto; color: #16a34a; font-size: 12px; }
+
+.tlt-pop__quick {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 7px 8px;
+  border: none; background: transparent; border-radius: 6px;
+  cursor: pointer; text-align: left; color: #1e293b;
+}
+.tlt-pop__quick:hover { background: #f1f5f9; }
+.tlt-pop__quick-icon { font-size: 15px; flex-shrink: 0; width: 20px; text-align: center; }
+.tlt-pop__quick span:last-child { display: flex; flex-direction: column; gap: 1px; }
+.tlt-pop__quick strong { font-size: 12px; font-weight: 600; }
+.tlt-pop__quick small { font-size: 10px; color: #64748b; }
+
+.tlt-pop__divider {
+  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  color: #94a3b8; padding: 4px 4px 2px;
+  border-top: 1px solid #f1f5f9; margin-top: 2px;
+}
+.tlt-pop__date-input {
+  width: 100%; padding: 6px 8px;
+  border: 1px solid #e2e8f0; border-radius: 6px;
+  font-size: 12px; color: #1e293b; outline: none;
+}
+.tlt-pop__date-input:focus { border-color: #7dd3fc; }
+.tlt-pop__remove {
+  margin-top: 2px; padding: 5px 8px;
+  border: none; border-top: 1px solid #f1f5f9; border-radius: 0 0 6px 6px;
+  background: transparent; cursor: pointer;
+  font-size: 11px; color: #dc2626; text-align: left; width: 100%;
+}
+.tlt-pop__remove:hover { background: #fef2f2; }
 .more-btn {
   border: 0;
   background: transparent;
@@ -618,7 +892,8 @@ onBeforeUnmount(() => clearTimeout(leaveTimer));
   .tasks-list-table__header {
     grid-template-columns: 4px 22px 22px 1fr 28px 32px;
   }
-  .priority, .task-row__due, .header-priority, .header-due { display: none; }
+  .tlt-cell--priority, .tlt-cell--due, .header-priority, .header-due,
+  .task-row__added, .header-added { display: none; }
   .tasks-list-table__header .header-menu { grid-column: 6; }
 }
 :global(html.dark) .task-group,

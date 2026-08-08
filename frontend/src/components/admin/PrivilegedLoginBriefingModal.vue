@@ -171,27 +171,37 @@
               <span>Don’t show this briefing again on this device</span>
             </label>
 
-            <!-- Tenant quick-launch row -->
-            <div v-if="!isSuperadmin && brandedAgencies.length > 0" class="tenant-launchers" role="list" aria-label="Go to tenant dashboard">
+            <!-- Tenant quick-launch row (admin and superadmin) -->
+            <div v-if="tenantLaunchers.length > 0" class="tenant-launchers" role="list" aria-label="Go to tenant dashboard">
+              <span v-if="isSuperadmin" class="tenant-launchers__label">Tenants</span>
               <button
-                v-for="agency in brandedAgencies"
+                v-for="(agency, idx) in tenantLaunchers.slice(0, 12)"
                 :key="`launch-${agency.id}`"
                 type="button"
                 class="tenant-launcher"
-                :title="agency.name"
+                :class="{ 'tenant-launcher--top': idx < 3 && (getVisitCounts()[String(agency.id)] || 0) > 0 }"
+                :title="`${agency.name}${(getVisitCounts()[String(agency.id)] || 0) > 0 ? ' · ' + getVisitCounts()[String(agency.id)] + ' visit' + (getVisitCounts()[String(agency.id)] === 1 ? '' : 's') : ''}`"
                 :style="{ '--tl-color': agency.primary || '#334155' }"
                 @click="navigateToTenant(agency)"
               >
-                <img
-                  v-if="agency.logo"
-                  :src="agency.logo"
-                  :alt="agency.name"
-                  class="tenant-launcher__logo"
-                  @error="$event.target.style.display='none'"
-                />
-                <span v-else class="tenant-launcher__initials">{{ agency.initials }}</span>
+                <div class="tenant-launcher__icon-wrap">
+                  <img
+                    v-if="agency.logo"
+                    :src="agency.logo"
+                    :alt="agency.name"
+                    class="tenant-launcher__logo"
+                    @error="$event.target.style.display='none'"
+                  />
+                  <span v-else class="tenant-launcher__initials">{{ agency.initials }}</span>
+                  <span
+                    v-if="(getVisitCounts()[String(agency.id)] || 0) > 0"
+                    class="tenant-launcher__visits"
+                    :title="`${getVisitCounts()[String(agency.id)]} visit${getVisitCounts()[String(agency.id)] === 1 ? '' : 's'}`"
+                  >{{ getVisitCounts()[String(agency.id)] }}</span>
+                </div>
                 <span class="tenant-launcher__name">{{ agency.name }}</span>
               </button>
+              <span v-if="tenantLaunchers.length > 12" class="tenant-launchers__overflow">+{{ tenantLaunchers.length - 12 }} more</span>
             </div>
 
             <button class="enter-dashboard" type="button" @click="dismiss">
@@ -370,6 +380,40 @@ function storageKey() {
   return `pt.privilegedLoginBriefing.disabled:${userId.value || 0}`;
 }
 
+// ─── Tenant visit-count tracking ─────────────────────────────────────────────
+const VISIT_COUNT_KEY = 'pt.tenantVisitCount';
+
+function getVisitCounts() {
+  try { return JSON.parse(localStorage.getItem(VISIT_COUNT_KEY) || '{}'); } catch { return {}; }
+}
+
+function incrementVisitCount(agencyId) {
+  try {
+    const counts = getVisitCounts();
+    counts[String(agencyId)] = (counts[String(agencyId)] || 0) + 1;
+    localStorage.setItem(VISIT_COUNT_KEY, JSON.stringify(counts));
+  } catch { /* ignore */ }
+}
+
+// ─── Ranked launcher list (both admin and superadmin) ────────────────────────
+const tenantLaunchers = computed(() => {
+  const counts = getVisitCounts();
+  const base = isSuperadmin.value
+    ? (affiliationRows.value || []).filter(isAgencyTenantOrg).map((agency) => ({
+        ...agency,
+        ...parseBrandPalette(agency, platformPalette.value),
+        logo: agencyLogo(agency),
+        initials: initialsFor(agency?.name)
+      }))
+    : brandedAgencies.value;
+
+  return [...base].sort((a, b) => {
+    const ca = counts[String(a.id)] || 0;
+    const cb = counts[String(b.id)] || 0;
+    return cb - ca; // most-visited first; ties keep insertion order
+  });
+});
+
 function isDisabled() {
   try { return localStorage.getItem(storageKey()) === '1'; } catch { return false; }
 }
@@ -533,7 +577,17 @@ async function loadBriefing() {
       const rows = current.length ? current : (await agencyStore.fetchUserAgencies());
       affiliationRows.value = (rows || []).filter(isAgencyTenantOrg);
     } else {
-      affiliationRows.value = [];
+      // For superadmin: fetch all tenant agencies so the launcher row can be shown and ranked
+      try {
+        const { data } = await api.get('/agencies', {
+          params: { limit: 200 },
+          ...apiOpts(BRIEFING_PRIMARY_TIMEOUT_MS)
+        });
+        const rows = Array.isArray(data) ? data : (data?.items || data?.agencies || []);
+        affiliationRows.value = rows.filter(isAgencyTenantOrg);
+      } catch {
+        affiliationRows.value = [];
+      }
     }
 
     const primaryAgencyId = resolvePrimaryAgencyId();
@@ -727,6 +781,7 @@ async function navigate(to) {
 }
 
 async function navigateToTenant(agency) {
+  incrementVisitCount(agency.id);
   agencyStore.setCurrentAgency(agency);
   const slug = String(agency?.portal_url || agency?.slug || '').trim().toLowerCase();
   dismiss();
@@ -936,35 +991,74 @@ onBeforeUnmount(() => {
 .enter-dashboard { min-width: 245px; padding: 12px 20px; border: 1px solid rgba(255,255,255,.15); border-radius: 7px; background: var(--brief-blend); color: #fff; font-size: 13px; font-weight: 800; cursor: pointer; }
 
 /* Tenant quick-launch icons in footer */
-.tenant-launchers { display: flex; align-items: center; gap: 8px; flex: 1; flex-wrap: wrap; }
+.tenant-launchers {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  flex-wrap: wrap;
+  overflow: hidden;
+  max-height: 78px; /* show at most ~2 rows before clipping */
+}
+.tenant-launchers__label {
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: rgba(255,255,255,.4);
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  margin-right: 2px;
+  flex-shrink: 0;
+}
 .tenant-launcher {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
-  border: 1px solid rgba(255,255,255,.2);
+  gap: 3px;
+  padding: 5px 8px;
+  border: 1px solid rgba(255,255,255,.18);
   border-radius: 10px;
-  background: rgba(255,255,255,.08);
+  background: rgba(255,255,255,.07);
   color: #fff;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  min-width: 64px;
-  max-width: 96px;
-  transition: background .15s, border-color .15s;
+  min-width: 56px;
+  max-width: 80px;
+  transition: background .15s, border-color .15s, transform .1s;
 }
-.tenant-launcher:hover { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.4); }
-.tenant-launcher__logo { width: 32px; height: 32px; object-fit: contain; border-radius: 6px; background: #fff; }
+.tenant-launcher:hover { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.4); transform: translateY(-1px); }
+.tenant-launcher--top { border-color: rgba(167,139,250,.55); background: rgba(139,92,246,.18); }
+.tenant-launcher__icon-wrap { position: relative; display: inline-flex; }
+.tenant-launcher__logo { width: 28px; height: 28px; object-fit: contain; border-radius: 5px; background: #fff; }
 .tenant-launcher__initials {
-  width: 32px; height: 32px;
-  border-radius: 6px;
+  width: 28px; height: 28px;
+  border-radius: 5px;
   background: var(--tl-color, #334155);
   color: #fff;
   display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 800;
+  font-size: 12px; font-weight: 800;
 }
-.tenant-launcher__name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 88px; text-align: center; }
+.tenant-launcher__visits {
+  position: absolute;
+  top: -5px;
+  right: -6px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: #a78bfa;
+  color: #fff;
+  font-size: 8px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.tenant-launcher__name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 76px; text-align: center; }
+.tenant-launchers__overflow { font-size: 10px; color: rgba(255,255,255,.4); white-space: nowrap; align-self: center; }
 .briefing-fade-enter-active, .briefing-fade-leave-active { transition: opacity .18s ease; }
 .briefing-fade-enter-active .briefing-modal, .briefing-fade-leave-active .briefing-modal { transition: transform .18s ease; }
 .briefing-fade-enter-from, .briefing-fade-leave-to { opacity: 0; }

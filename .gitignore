@@ -70,3 +70,6 @@ secrets/
 
 # Local DB recovery snapshots (PII — never commit)
 database/recovery_snapshots/
+
+# One-off repair / dry-run outputs (local only)
+backend/tmp-*
