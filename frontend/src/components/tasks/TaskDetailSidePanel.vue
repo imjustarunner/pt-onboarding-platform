@@ -219,12 +219,18 @@
         </section>
 
         <footer class="meta-foot">
-          <div v-if="draft.created_at">Created {{ formatDate(draft.created_at) }}</div>
-          <div v-if="draft.updated_at">Updated {{ formatDate(draft.updated_at) }}</div>
+          <span class="meta-foot__autosave">
+            <svg viewBox="0 0 16 16"><path d="M13 2H3a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1z" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Changes saved automatically
+          </span>
+          <div class="meta-foot__dates">
+            <span v-if="draft.created_at">Created {{ formatDate(draft.created_at) }}</span>
+            <span v-if="draft.updated_at">Updated {{ formatDate(draft.updated_at) }}</span>
+          </div>
         </footer>
 
         <div class="side-panel__actions">
-          <button type="button" class="btn btn-secondary btn-sm" @click="$emit('close')">Done</button>
+          <button type="button" class="btn btn-close" @click="$emit('close')">Close</button>
         </div>
       </template>
 
@@ -982,8 +988,24 @@ watch(
   display: flex;
   gap: 8px;
   margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #f1f5f9;
 }
 .side-panel__state { padding: 24px; text-align: center; color: #64748b; }
+
+.btn-close {
+  padding: 7px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: #1e3a2f;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-close:hover { background: #14532d; }
+
 .btn-secondary {
   border: 1px solid #e2e8f0;
   background: #fff;
@@ -992,6 +1014,29 @@ watch(
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+}
+
+/* Footer auto-save indicator */
+.meta-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 16px;
+}
+.meta-foot__autosave {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #16a34a;
+  font-weight: 500;
+}
+.meta-foot__autosave svg { width: 13px; height: 13px; }
+.meta-foot__dates {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: #94a3b8;
 }
 @media (max-width: 1100px) {
   .side-panel { width: 100%; flex-basis: auto; height: auto; max-height: 70vh; }

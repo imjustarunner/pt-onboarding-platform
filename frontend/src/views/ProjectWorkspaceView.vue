@@ -634,15 +634,19 @@
       >
         <p class="pop__head">Assign to</p>
         <button
-          v-for="u in agencyUsers"
-          :key="u.id"
+          v-for="m in (overview?.members || [])"
+          :key="m.user_id"
           type="button"
           class="pop__row"
-          :class="{ 'pop__row--active': assignPopover.task?.assigned_to_user_id === u.id }"
-          @mousedown.prevent="doAssign(u)"
+          :class="{ 'pop__row--active': assignPopover.task?.assigned_to_user_id === m.user_id }"
+          @mousedown.prevent="doAssign({ id: m.user_id, first_name: m.first_name, last_name: m.last_name })"
         >
-          <span class="pop__initials">{{ userInitials(u) }}</span>
-          {{ u.first_name }} {{ u.last_name }}
+          <span v-if="m.profile_photo_path" class="pop__avatar">
+            <img :src="m.profile_photo_path" :alt="m.first_name" />
+          </span>
+          <span v-else class="pop__initials">{{ (m.first_name?.[0] || '') + (m.last_name?.[0] || '') }}</span>
+          {{ m.first_name }} {{ m.last_name }}
+          <span class="pop__role">{{ m.role }}</span>
         </button>
         <button
           v-if="assignPopover.task?.assigned_to_user_id"
@@ -652,7 +656,7 @@
         >
           Remove assignment
         </button>
-        <p v-if="!agencyUsers.length" class="pop__empty">No teammates found</p>
+        <p v-if="!(overview?.members || []).length" class="pop__empty">No project members yet</p>
       </div>
     </div>
 
@@ -2637,6 +2641,22 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
   font-weight: 800;
   display: inline-flex; align-items: center; justify-content: center;
   flex-shrink: 0;
+}
+.pop__avatar {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: inline-flex;
+}
+.pop__avatar img { width: 100%; height: 100%; object-fit: cover; }
+.pop__role {
+  margin-left: auto;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
 }
 .pop__empty { color: #94a3b8; font-size: 12px; padding: 6px; }
 .status-dot {
