@@ -469,8 +469,8 @@
               :item="selectedTask"
               :agency-id="project?.agency_id || null"
               :type-defs="[]"
-              :lists="allLists"
-              :projects="[]"
+              :lists="overview?.lists || []"
+              :projects="currentProjectOption"
               :agency-users="agencyUsers"
               @close="selectedTask = null"
               @complete="onTaskComplete"
@@ -1052,6 +1052,11 @@ const tasksByList = computed(() => {
 
 const attachedListIds = computed(() => new Set((overview.value?.lists || []).map((l) => Number(l.id))));
 
+const currentProjectOption = computed(() => {
+  if (!project.value?.id) return [];
+  return [{ id: project.value.id, name: project.value.name || 'Project' }];
+});
+
 const filteredAvailableLists = computed(() => {
   const q = listAttachSearch.value.trim().toLowerCase();
   return (allLists.value || []).filter((l) => {
@@ -1223,8 +1228,18 @@ async function onTaskChanged() {
   } catch { /* ignore */ }
 }
 
-function onListCreated(list) {
-  if (list) allLists.value = [...allLists.value, list];
+async function onListCreated(list) {
+  if (!list) return;
+  allLists.value = [...allLists.value, list];
+  // A list created from within a project's task detail should be attached to this project
+  try {
+    await api.post(`/task-projects/${projectId.value}/lists`, {
+      taskListId: Number(list.id)
+    }, { skipGlobalLoading: true });
+    if (overview.value) {
+      overview.value = { ...overview.value, lists: [...(overview.value.lists || []), list] };
+    }
+  } catch (e) { console.error(e); }
 }
 
 // ── Data loading ──

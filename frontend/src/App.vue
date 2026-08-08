@@ -2351,6 +2351,7 @@
         @end="focusMusic.endSession()"
         @open-modal="openFocusMusic()"
       />
+      <ActiveTaskDock v-if="isAuthenticated" />
       </div>
     </div>
   </BrandingProvider>
@@ -2407,6 +2408,7 @@ import AddToStickyContextMenu from './components/momentum/AddToStickyContextMenu
 import { useMomentumListAddon } from './composables/useMomentumListAddon';
 import { useFocusMusicPlayer } from './composables/useFocusMusicPlayer';
 import FocusMusicModal from './components/focusMusic/FocusMusicModal.vue';
+import ActiveTaskDock from './components/tasks/ActiveTaskDock.vue';
 import FocusMusicToast from './components/focusMusic/FocusMusicToast.vue';
 import { useReminderSnooze, isLoginNotificationDismissed, markLoginNotificationDismissed } from './composables/useReminderSnooze';
 import WeatherChip from './components/WeatherChip.vue';

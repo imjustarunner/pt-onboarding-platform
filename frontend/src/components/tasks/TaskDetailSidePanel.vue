@@ -230,7 +230,10 @@
         </footer>
 
         <div class="side-panel__actions">
-          <button type="button" class="btn btn-close" @click="$emit('close')">Close</button>
+          <button type="button" class="btn-pin" @click="pinToDock">
+            <svg viewBox="0 0 24 24"><path d="M12 17v5M8 13h8l-1-7H9l-1 7z" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 6h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            Keep open in footer
+          </button>
         </div>
       </template>
 
@@ -277,6 +280,7 @@ import api from '../../services/api';
 import { formatDate } from '../../utils/formatDate';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import TaskListProjectFields from './TaskListProjectFields.vue';
+import { useActiveTaskDockStore } from '../../store/activeTaskDock';
 
 const props = defineProps({
   item: { type: Object, required: true },
@@ -288,6 +292,13 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close', 'complete', 'incomplete', 'changed', 'view-project', 'open-project', 'list-created']);
+
+const activeTaskDock = useActiveTaskDockStore();
+
+function pinToDock() {
+  activeTaskDock.pinTask({ ...draft });
+  emit('close');
+}
 
 const tab = ref('details');
 const loading = ref(false);
@@ -993,18 +1004,22 @@ watch(
 }
 .side-panel__state { padding: 24px; text-align: center; color: #64748b; }
 
-.btn-close {
-  padding: 7px 18px;
-  font-size: 13px;
+.btn-pin {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  font-size: 12.5px;
   font-weight: 600;
-  color: #fff;
-  background: #1e3a2f;
-  border: none;
+  color: #14532d;
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
   border-radius: 8px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
-.btn-close:hover { background: #14532d; }
+.btn-pin svg { width: 14px; height: 14px; flex-shrink: 0; }
+.btn-pin:hover { background: #dcfce7; border-color: #86efac; }
 
 .btn-secondary {
   border: 1px solid #e2e8f0;
