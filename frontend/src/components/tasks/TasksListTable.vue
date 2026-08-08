@@ -27,6 +27,24 @@
         </button>
       </div>
     </teleport>
+
+    <div v-if="tasks.length" class="tasks-list-table__header">
+      <span class="header-select">
+        <input
+          type="checkbox"
+          :checked="allSelected"
+          :indeterminate="someSelected"
+          @change="toggleSelectAll"
+        />
+      </span>
+      <span class="header-done" title="Mark complete"></span>
+      <span class="header-task">Task</span>
+      <span class="header-type" title="Task type">Type</span>
+      <span class="header-priority">Priority</span>
+      <span class="header-due">Due</span>
+      <span class="header-menu"></span>
+    </div>
+
     <section v-for="group in groups" :key="group.key" class="task-group" :class="`task-group--${group.key}`">
       <button type="button" class="task-group__head" @click="toggle(group.key)">
         <span class="task-group__bar" aria-hidden="true" />
@@ -50,11 +68,21 @@
           <span class="task-row__rail" aria-hidden="true" />
           <input
             type="checkbox"
-            class="task-row__check"
-            :checked="task.status === 'completed'"
+            class="task-row__select"
+            title="Select"
+            :checked="selected.has(task.id)"
             @click.stop
-            @change="$emit('toggle-complete', task)"
+            @change="toggleSelect(task)"
           />
+          <button
+            type="button"
+            class="task-row__done-btn"
+            :class="{ done: task.status === 'completed' }"
+            title="Mark complete"
+            @click.stop="$emit('toggle-complete', task)"
+          >
+            <svg v-if="task.status === 'completed'" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
           <div class="task-row__main">
             <span class="task-row__title" :class="{ done: task.status === 'completed' }">{{ task.title }}</span>
             <span v-if="showAssignee(task)" class="task-row__assignee-wrap">
@@ -89,9 +117,23 @@
           </div>
           <button type="button" class="more-btn" title="Actions" @click.stop="$emit('menu', task)">⋯</button>
         </div>
-        <div v-if="!group.items.length" class="task-group__empty">No tasks</div>
-      </div>
-    </section>
+      <div v-if="!group.items.length" class="task-group__empty">No tasks</div>
+    </div>
+  </section>
+
+  <BulkActionBar
+    :count="selectedTasks.length"
+    :users="assignableUsers"
+    :type-defs="typeDefs"
+    :busy="bulkBusy"
+    @complete="runBulk('bulk-complete')"
+    @assign="(userId) => runBulk('bulk-assign', userId)"
+    @due-date="(date) => runBulk('bulk-due-date', date)"
+    @priority="(urgency) => runBulk('bulk-priority', urgency)"
+    @type="(workTypeId) => runBulk('bulk-type', workTypeId)"
+    @status="(status) => runBulk('bulk-status', status)"
+    @clear="clearSelection"
+  />
   </div>
 </template>
 
@@ -100,6 +142,7 @@ import { computed, reactive, ref, onBeforeUnmount } from 'vue';
 import { formatDate } from '../../utils/formatDate';
 import { resolveTaskTypeMeta, taskTypeIconSvg } from '../../utils/taskTypeIcons';
 import UserAvatar from '../common/UserAvatar.vue';
+import BulkActionBar from './BulkActionBar.vue';
 
 const props = defineProps({
   tasks: { type: Array, default: () => [] },
@@ -108,10 +151,57 @@ const props = defineProps({
   /** assigned | all | mine | watchlist | action_items */
   view: { type: String, default: 'assigned' },
   /** Set of keys like "task:123" or "action_item:45" currently on today's timeline */
-  timelineKeys: { type: [Set, Array], default: () => [] }
+  timelineKeys: { type: [Set, Array], default: () => [] },
+  /** Users available for the bulk "Assign to" dropdown */
+  assignableUsers: { type: Array, default: () => [] }
 });
 
-const emit = defineEmits(['open', 'toggle-complete', 'menu', 'drag-start', 'make-dependent', 'create-shared-list']);
+const emit = defineEmits([
+  'open', 'toggle-complete', 'menu', 'drag-start', 'make-dependent', 'create-shared-list',
+  'bulk-complete', 'bulk-assign', 'bulk-due-date', 'bulk-priority', 'bulk-type', 'bulk-status'
+]);
+
+// ---- Multi-select state ----
+const selected = ref(new Set());
+const bulkBusy = ref(false);
+
+function toggleSelect(task) {
+  const next = new Set(selected.value);
+  if (next.has(task.id)) next.delete(task.id);
+  else next.add(task.id);
+  selected.value = next;
+}
+
+const allSelected = computed(() => props.tasks.length > 0 && selected.value.size === props.tasks.length);
+const someSelected = computed(() => selected.value.size > 0 && !allSelected.value);
+
+function toggleSelectAll() {
+  if (allSelected.value) {
+    selected.value = new Set();
+  } else {
+    selected.value = new Set(props.tasks.map((t) => t.id));
+  }
+}
+
+const selectedTasks = computed(() =>
+  props.tasks.filter((t) => selected.value.has(t.id))
+);
+
+function clearSelection() {
+  selected.value = new Set();
+}
+
+async function runBulk(eventName, value) {
+  const tasksToUpdate = selectedTasks.value;
+  if (!tasksToUpdate.length) return;
+  bulkBusy.value = true;
+  try {
+    emit(eventName, tasksToUpdate, value);
+  } finally {
+    bulkBusy.value = false;
+    clearSelection();
+  }
+}
 
 const collapsed = reactive({
   overdue: false,
@@ -334,7 +424,7 @@ onBeforeUnmount(() => clearTimeout(leaveTimer));
 .task-group__chev { margin-left: auto; color: #94a3b8; font-size: 11px; }
 .task-row {
   display: grid;
-  grid-template-columns: 4px 28px minmax(140px, 1.8fr) 28px 72px minmax(90px, 120px) 32px;
+  grid-template-columns: 4px 22px 22px minmax(140px, 1.8fr) 28px 72px minmax(90px, 120px) 32px;
   gap: 6px;
   align-items: center;
   padding: 7px 10px;
@@ -343,6 +433,47 @@ onBeforeUnmount(() => clearTimeout(leaveTimer));
   min-height: 40px;
 }
 .task-row:hover { background: #f8fafc; }
+
+.tasks-list-table__header {
+  display: grid;
+  grid-template-columns: 4px 22px 22px minmax(140px, 1.8fr) 28px 72px minmax(90px, 120px) 32px;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 10px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+}
+.tasks-list-table__header .header-select { grid-column: 2; display: flex; }
+.tasks-list-table__header .header-select input { cursor: pointer; }
+.tasks-list-table__header .header-done { grid-column: 3; }
+.tasks-list-table__header .header-task { grid-column: 4; }
+.tasks-list-table__header .header-type { grid-column: 5; text-align: center; }
+.tasks-list-table__header .header-priority { grid-column: 6; }
+.tasks-list-table__header .header-due { grid-column: 7; }
+.tasks-list-table__header .header-menu { grid-column: 8; }
+.tasks-list-table__header .header-priority,
+.tasks-list-table__header .header-due { text-align: right; }
+
+.task-row__select,
+.task-row__done-btn { justify-self: center; }
+.task-row__done-btn {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 2px solid #cbd5e1;
+  background: #fff;
+  color: #fff;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.task-row__done-btn svg { width: 10px; height: 10px; }
+.task-row__done-btn.done { background: #16a34a; border-color: #16a34a; }
 .task-row--on-timeline {
   background: #f0fdf4;
   box-shadow: inset 3px 0 0 #16a34a;
@@ -482,9 +613,13 @@ onBeforeUnmount(() => clearTimeout(leaveTimer));
 }
 @media (max-width: 900px) {
   .task-row {
-    grid-template-columns: 4px 28px 1fr 28px 32px;
+    grid-template-columns: 4px 22px 22px 1fr 28px 32px;
   }
-  .priority, .task-row__due { display: none; }
+  .tasks-list-table__header {
+    grid-template-columns: 4px 22px 22px 1fr 28px 32px;
+  }
+  .priority, .task-row__due, .header-priority, .header-due { display: none; }
+  .tasks-list-table__header .header-menu { grid-column: 6; }
 }
 :global(html.dark) .task-group,
 :global(.dark) .task-group {

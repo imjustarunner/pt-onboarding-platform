@@ -819,7 +819,8 @@ class Task {
     targetCount,
     metadata,
     isPrivate,
-    projectId
+    projectId,
+    workTypeId
   }) {
     const parts = [];
     const params = [];
@@ -846,6 +847,10 @@ class Task {
     if (urgency !== undefined && ['low', 'medium', 'high'].includes(urgency)) {
       parts.push('urgency = ?');
       params.push(urgency);
+    }
+    if (workTypeId !== undefined) {
+      parts.push('work_type_id = ?');
+      params.push(workTypeId != null && workTypeId !== '' ? parseInt(workTypeId, 10) || null : null);
     }
     if (isRecurring !== undefined) {
       parts.push('is_recurring = ?');

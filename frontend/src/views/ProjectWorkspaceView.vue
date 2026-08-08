@@ -386,6 +386,15 @@
           <!-- Left sidebar: lists → tasks hierarchy -->
           <aside class="tasks-sidebar">
             <div class="sidebar-head">
+              <input
+                v-if="tasks.length"
+                type="checkbox"
+                class="sidebar-head__select-all"
+                title="Select all"
+                :checked="allTasksSelected"
+                :indeterminate="someTasksSelected"
+                @change="toggleSelectAllTasks"
+              />
               <span class="sidebar-head__label">Lists &amp; Tasks</span>
               <button type="button" class="sidebar-head__all" @click="collapseAll">Collapse all</button>
             </div>
@@ -428,6 +437,14 @@
                   }"
                   @click="selectTask(task)"
                 >
+                  <input
+                    type="checkbox"
+                    class="task-row__select"
+                    title="Select"
+                    :checked="selectedTaskIds.has(task.id)"
+                    @click.stop
+                    @change="toggleTaskSelect(task)"
+                  />
                   <div class="task-row__main">
                     <span class="task-row__title">{{ task.title }}</span>
                   </div>
@@ -468,7 +485,7 @@
               v-if="selectedTask"
               :item="selectedTask"
               :agency-id="project?.agency_id || null"
-              :type-defs="[]"
+              :type-defs="typeDefs"
               :lists="overview?.lists || []"
               :projects="currentProjectOption"
               :agency-users="agencyUsers"
@@ -483,6 +500,20 @@
               <p>Select a task from the list to view and edit details</p>
             </div>
           </div>
+
+          <BulkActionBar
+            :count="selectedTaskIds.size"
+            :users="agencyUsers"
+            :type-defs="typeDefs"
+            :busy="bulkBusy"
+            @complete="bulkCompleteTasks"
+            @assign="bulkAssignTasks"
+            @due-date="bulkDueDateTasks"
+            @priority="bulkPriorityTasks"
+            @type="bulkTypeTasks"
+            @status="bulkStatusTasks"
+            @clear="clearTaskSelection"
+          />
         </div>
 
         <!-- ── Lists ── -->
@@ -773,6 +804,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import TaskDetailSidePanel from '../components/tasks/TaskDetailSidePanel.vue';
 import ProjectWhiteboard from '../components/tasks/ProjectWhiteboard.vue';
+import BulkActionBar from '../components/tasks/BulkActionBar.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -791,6 +823,11 @@ const overview = ref(null);
 const tasks = ref([]);
 const allLists = ref([]);
 const agencyUsers = ref([]);
+const typeDefs = ref([]);
+
+// ─── Multi-select / bulk actions (Tasks tab) ─────────────────────────────
+const selectedTaskIds = ref(new Set());
+const bulkBusy = ref(false);
 const unattachedTasks = ref([]);
 const unattachedActions = ref([]);
 const attachListId = ref('');
@@ -1074,6 +1111,107 @@ const tasksByList = computed(() => {
 
 const attachedListIds = computed(() => new Set((overview.value?.lists || []).map((l) => Number(l.id))));
 
+const allTasksSelected = computed(() => tasks.value.length > 0 && selectedTaskIds.value.size === tasks.value.length);
+const someTasksSelected = computed(() => selectedTaskIds.value.size > 0 && !allTasksSelected.value);
+
+function toggleTaskSelect(task) {
+  const next = new Set(selectedTaskIds.value);
+  if (next.has(task.id)) next.delete(task.id);
+  else next.add(task.id);
+  selectedTaskIds.value = next;
+}
+
+function toggleSelectAllTasks() {
+  selectedTaskIds.value = allTasksSelected.value ? new Set() : new Set(tasks.value.map((t) => t.id));
+}
+
+function clearTaskSelection() {
+  selectedTaskIds.value = new Set();
+}
+
+const selectedTaskObjs = computed(() => tasks.value.filter((t) => selectedTaskIds.value.has(t.id)));
+
+async function bulkCompleteTasks() {
+  bulkBusy.value = true;
+  try {
+    await Promise.all(selectedTaskObjs.value.map((t) => api.put(`/tasks/${t.id}/complete`, {}, { skipGlobalLoading: true }).catch(() => {})));
+    await load();
+  } finally {
+    bulkBusy.value = false;
+    clearTaskSelection();
+  }
+}
+
+async function bulkAssignTasks(userId) {
+  bulkBusy.value = true;
+  try {
+    await Promise.all(selectedTaskObjs.value.map((t) => api.put(`/me/tasks/${t.id}`, { assigned_to_user_id: userId }, { skipGlobalLoading: true }).catch(() => {})));
+    await load();
+  } finally {
+    bulkBusy.value = false;
+    clearTaskSelection();
+  }
+}
+
+async function bulkDueDateTasks(date) {
+  bulkBusy.value = true;
+  try {
+    await Promise.all(selectedTaskObjs.value.map((t) => api.put(`/me/tasks/${t.id}`, { due_date: date }, { skipGlobalLoading: true }).catch(() => {})));
+    await load();
+  } finally {
+    bulkBusy.value = false;
+    clearTaskSelection();
+  }
+}
+
+async function bulkPriorityTasks(urgency) {
+  bulkBusy.value = true;
+  try {
+    await Promise.all(selectedTaskObjs.value.map((t) => api.put(`/me/tasks/${t.id}`, { urgency }, { skipGlobalLoading: true }).catch(() => {})));
+    await load();
+  } finally {
+    bulkBusy.value = false;
+    clearTaskSelection();
+  }
+}
+
+async function bulkTypeTasks(workTypeId) {
+  bulkBusy.value = true;
+  try {
+    await Promise.all(selectedTaskObjs.value.map((t) => api.put(`/me/tasks/${t.id}`, { work_type_id: workTypeId }, { skipGlobalLoading: true }).catch(() => {})));
+    await load();
+  } finally {
+    bulkBusy.value = false;
+    clearTaskSelection();
+  }
+}
+
+async function bulkStatusTasks(status) {
+  bulkBusy.value = true;
+  try {
+    await Promise.all(selectedTaskObjs.value.map((t) => {
+      if (status === 'completed') return api.put(`/tasks/${t.id}/complete`, {}, { skipGlobalLoading: true }).catch(() => {});
+      return api.put(`/me/tasks/${t.id}`, { status }, { skipGlobalLoading: true }).catch(() => {});
+    }));
+    await load();
+  } finally {
+    bulkBusy.value = false;
+    clearTaskSelection();
+  }
+}
+
+async function loadTypeDefs() {
+  try {
+    const { data } = await api.get('/task-types', {
+      params: { agencyId: project.value?.agency_id || undefined },
+      skipGlobalLoading: true
+    });
+    typeDefs.value = Array.isArray(data) ? data : [];
+  } catch {
+    typeDefs.value = [];
+  }
+}
+
 const currentProjectOption = computed(() => {
   if (!project.value?.id) return [];
   return [{ id: project.value.id, name: project.value.name || 'Project' }];
@@ -1325,6 +1463,7 @@ async function load() {
     project.value = data;
     overview.value = data?.overview || null;
     tasks.value = Array.isArray(tasksRes.data) ? tasksRes.data : [];
+    clearTaskSelection();
 
     // Default all groups to collapsed
     const groups = {};
@@ -1335,7 +1474,7 @@ async function load() {
     expandedGroups.value = groups;
 
     syncEditForm();
-    await Promise.all([loadAux(), loadActivity(), loadWhiteboards()]);
+    await Promise.all([loadAux(), loadActivity(), loadWhiteboards(), loadTypeDefs()]);
   } catch (e) {
     console.error(e);
   } finally {
@@ -2289,7 +2428,7 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
 .sidebar-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   padding: 12px 14px 8px;
   border-bottom: 1px solid #e2e8f0;
   position: sticky;
@@ -2297,8 +2436,9 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
   background: #f8fafc;
   z-index: 1;
 }
-.sidebar-head__label { font-size: 11px; font-weight: 800; text-transform: uppercase; color: #64748b; letter-spacing: .06em; }
-.sidebar-head__all { font-size: 11px; color: #94a3b8; background: none; border: 0; cursor: pointer; padding: 0; }
+.sidebar-head__select-all { flex-shrink: 0; cursor: pointer; }
+.sidebar-head__label { font-size: 11px; font-weight: 800; text-transform: uppercase; color: #64748b; letter-spacing: .06em; flex: 1; }
+.sidebar-head__all { font-size: 11px; color: #94a3b8; background: none; border: 0; cursor: pointer; padding: 0; flex-shrink: 0; }
 .sidebar-head__all:hover { color: #64748b; }
 .sidebar-empty { padding: 24px 16px; color: #94a3b8; font-size: 13px; text-align: center; }
 
@@ -2549,6 +2689,7 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
 .task-row--selected:hover { background: #dcfce7; }
 .task-row--completed .task-row__title { text-decoration: line-through; color: #94a3b8; }
 .task-row--waiting .task-row__title { color: #7e22ce; }
+.task-row__select { flex-shrink: 0; cursor: pointer; }
 .task-row__main { flex: 1; min-width: 0; }
 .task-row__title {
   display: block;

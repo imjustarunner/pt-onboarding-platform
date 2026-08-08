@@ -124,10 +124,17 @@
             :tasks="actionItemsAsTasks"
             :type-defs="typeDefs"
             :current-user-id="authStore.user?.id"
+            :assignable-users="agencyUsers"
             view="action_items"
             @open="openActionItem"
             @toggle-complete="toggleActionItem"
             @menu="openActionItem"
+            @bulk-complete="onBulkComplete"
+            @bulk-assign="onBulkAssign"
+            @bulk-due-date="onBulkDueDate"
+            @bulk-priority="onBulkPriority"
+            @bulk-type="onBulkType"
+            @bulk-status="onBulkStatus"
           />
         </template>
 
@@ -205,10 +212,17 @@
                         :type-defs="typeDefs"
                         :current-user-id="authStore.user?.id"
                         :timeline-keys="timelineAssignableKeys"
+                        :assignable-users="agencyUsers"
                         view="all"
                         @open="openTask"
                         @toggle-complete="toggleComplete"
                         @menu="openTask"
+                        @bulk-complete="onBulkComplete"
+                        @bulk-assign="onBulkAssign"
+                        @bulk-due-date="onBulkDueDate"
+                        @bulk-priority="onBulkPriority"
+                        @bulk-type="onBulkType"
+                        @bulk-status="onBulkStatus"
                       />
                       <div v-else class="hub-state hub-state--sm">No open tasks in this list</div>
                     </div>
@@ -317,6 +331,7 @@
               :type-defs="typeDefs"
               :current-user-id="authStore.user?.id"
               :timeline-keys="timelineAssignableKeys"
+              :assignable-users="agencyUsers"
               :view="activeTab"
               data-tour="tasks-list"
               @open="openTask"
@@ -324,6 +339,12 @@
               @menu="openTask"
               @make-dependent="onMakeDependent"
               @create-shared-list="onDragCreateSharedList"
+              @bulk-complete="onBulkComplete"
+              @bulk-assign="onBulkAssign"
+              @bulk-due-date="onBulkDueDate"
+              @bulk-priority="onBulkPriority"
+              @bulk-type="onBulkType"
+              @bulk-status="onBulkStatus"
             />
 
             <div v-else class="board-view" data-tour="tasks-list">
@@ -1826,6 +1847,67 @@ async function onDragCreateSharedList({ taskA, taskB }) {
   } catch (e) {
     console.error('[TasksHub] onDragCreateSharedList failed:', e);
   }
+}
+
+// ─── Bulk actions (multi-select toolbar) ──────────────────────────────────
+async function onBulkComplete(tasks) {
+  await Promise.all(tasks.map((t) => {
+    if (t._isActionItem) return api.post(`/task-action-items/${t.id}/complete`, {}, { skipGlobalLoading: true }).catch(() => {});
+    return tasksStore.completeTask(t.id).catch(() => {});
+  }));
+  await refresh();
+  await loadActionItems();
+}
+
+async function onBulkAssign(tasks, userId) {
+  await Promise.all(tasks.map((t) => {
+    if (t._isActionItem) {
+      return api.put(`/task-action-items/${t.id}`, { assigneeUserId: userId }, { skipGlobalLoading: true }).catch(() => {});
+    }
+    return api.put(`/me/tasks/${t.id}`, { assigned_to_user_id: userId }, { skipGlobalLoading: true }).catch(() => {});
+  }));
+  await refresh();
+  await loadActionItems();
+}
+
+async function onBulkDueDate(tasks, date) {
+  await Promise.all(
+    tasks
+      .filter((t) => !t._isActionItem)
+      .map((t) => api.put(`/me/tasks/${t.id}`, { due_date: date }, { skipGlobalLoading: true }).catch(() => {}))
+  );
+  await refresh();
+}
+
+async function onBulkPriority(tasks, urgency) {
+  await Promise.all(
+    tasks
+      .filter((t) => !t._isActionItem)
+      .map((t) => api.put(`/me/tasks/${t.id}`, { urgency }, { skipGlobalLoading: true }).catch(() => {}))
+  );
+  await refresh();
+}
+
+async function onBulkType(tasks, workTypeId) {
+  await Promise.all(
+    tasks
+      .filter((t) => !t._isActionItem)
+      .map((t) => api.put(`/me/tasks/${t.id}`, { work_type_id: workTypeId }, { skipGlobalLoading: true }).catch(() => {}))
+  );
+  await refresh();
+}
+
+async function onBulkStatus(tasks, status) {
+  await Promise.all(tasks.map((t) => {
+    if (t._isActionItem) {
+      if (status === 'completed') return api.post(`/task-action-items/${t.id}/complete`, {}, { skipGlobalLoading: true }).catch(() => {});
+      return api.put(`/task-action-items/${t.id}`, { status }, { skipGlobalLoading: true }).catch(() => {});
+    }
+    if (status === 'completed') return tasksStore.completeTask(t.id).catch(() => {});
+    return api.put(`/me/tasks/${t.id}`, { status }, { skipGlobalLoading: true }).catch(() => {});
+  }));
+  await refresh();
+  await loadActionItems();
 }
 
 async function toggleActionItem(task) {

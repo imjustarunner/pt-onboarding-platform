@@ -98,7 +98,15 @@
           <table v-else class="slw__table">
             <thead>
               <tr>
-                <th class="slw__col-check"></th>
+                <th class="slw__col-select">
+                  <input
+                    type="checkbox"
+                    :checked="allSelected"
+                    :indeterminate="someSelected"
+                    @change="toggleSelectAll"
+                  />
+                </th>
+                <th class="slw__col-check" title="Mark complete"></th>
                 <th>Task</th>
                 <th>Assignee</th>
                 <th>Due</th>
@@ -113,12 +121,16 @@
                 :class="{ 'slw__row--selected': selectedTask?.id === t.id, 'slw__row--waiting': t.status === 'waiting' }"
                 @click="selectTask(t)"
               >
+                <td class="slw__col-select" @click.stop>
+                  <input type="checkbox" :checked="selectedIds.has(t.id)" @change="toggleSelectRow(t)" />
+                </td>
                 <td class="slw__col-check" @click.stop>
                   <button
                     type="button"
                     class="slw__check"
                     :class="{ 'slw__check--done': t.status === 'completed' }"
                     :disabled="togglingId === t.id"
+                    title="Mark complete"
                     @click="toggleComplete(t)"
                   >
                     <svg v-if="t.status === 'completed'" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -159,7 +171,7 @@
           <TaskDetailSidePanel
             :item="selectedTask"
             :agency-id="list.agency_id || null"
-            :type-defs="[]"
+            :type-defs="typeDefs"
             :lists="[list]"
             :projects="linkedProjectOption"
             :agency-users="agencyUsersShape"
@@ -170,6 +182,20 @@
           />
         </div>
       </div>
+
+      <BulkActionBar
+        :count="selectedIds.size"
+        :users="agencyUsersShape"
+        :type-defs="typeDefs"
+        :busy="bulkBusy"
+        @complete="bulkComplete"
+        @assign="bulkAssign"
+        @due-date="bulkDueDate"
+        @priority="bulkPriority"
+        @type="bulkType"
+        @status="bulkStatus"
+        @clear="clearSelection"
+      />
     </template>
 
     <!-- Members panel -->
@@ -224,6 +250,7 @@ import api from '../services/api';
 import { formatDate } from '../utils/formatDate';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import TaskDetailSidePanel from '../components/tasks/TaskDetailSidePanel.vue';
+import BulkActionBar from '../components/tasks/BulkActionBar.vue';
 import { useAuthStore } from '../store/auth';
 
 const route = useRoute();
@@ -258,6 +285,112 @@ const newTaskDueDate = ref('');
 const adding = ref(false);
 const addTaskError = ref('');
 const togglingId = ref(null);
+const typeDefs = ref([]);
+
+// ─── Multi-select / bulk actions ─────────────────────────────────────────
+const selectedIds = ref(new Set());
+const bulkBusy = ref(false);
+
+const allSelected = computed(() => sortedTasks.value.length > 0 && selectedIds.value.size === sortedTasks.value.length);
+const someSelected = computed(() => selectedIds.value.size > 0 && !allSelected.value);
+
+function toggleSelectRow(t) {
+  const next = new Set(selectedIds.value);
+  if (next.has(t.id)) next.delete(t.id);
+  else next.add(t.id);
+  selectedIds.value = next;
+}
+
+function toggleSelectAll() {
+  selectedIds.value = allSelected.value ? new Set() : new Set(sortedTasks.value.map((t) => t.id));
+}
+
+function clearSelection() {
+  selectedIds.value = new Set();
+}
+
+const selectedTaskObjs = computed(() => tasks.value.filter((t) => selectedIds.value.has(t.id)));
+
+async function bulkComplete() {
+  bulkBusy.value = true;
+  try {
+    await Promise.all(selectedTaskObjs.value.map((t) => api.put(`/tasks/${t.id}/complete`, {}, { skipGlobalLoading: true }).catch(() => {})));
+    await loadTasks();
+  } finally {
+    bulkBusy.value = false;
+    clearSelection();
+  }
+}
+
+async function bulkAssign(userId) {
+  bulkBusy.value = true;
+  try {
+    await Promise.all(selectedTaskObjs.value.map((t) => api.put(`/me/tasks/${t.id}`, { assigned_to_user_id: userId }, { skipGlobalLoading: true }).catch(() => {})));
+    await loadTasks();
+  } finally {
+    bulkBusy.value = false;
+    clearSelection();
+  }
+}
+
+async function bulkDueDate(date) {
+  bulkBusy.value = true;
+  try {
+    await Promise.all(selectedTaskObjs.value.map((t) => api.put(`/me/tasks/${t.id}`, { due_date: date }, { skipGlobalLoading: true }).catch(() => {})));
+    await loadTasks();
+  } finally {
+    bulkBusy.value = false;
+    clearSelection();
+  }
+}
+
+async function bulkPriority(urgency) {
+  bulkBusy.value = true;
+  try {
+    await Promise.all(selectedTaskObjs.value.map((t) => api.put(`/me/tasks/${t.id}`, { urgency }, { skipGlobalLoading: true }).catch(() => {})));
+    await loadTasks();
+  } finally {
+    bulkBusy.value = false;
+    clearSelection();
+  }
+}
+
+async function bulkType(workTypeId) {
+  bulkBusy.value = true;
+  try {
+    await Promise.all(selectedTaskObjs.value.map((t) => api.put(`/me/tasks/${t.id}`, { work_type_id: workTypeId }, { skipGlobalLoading: true }).catch(() => {})));
+    await loadTasks();
+  } finally {
+    bulkBusy.value = false;
+    clearSelection();
+  }
+}
+
+async function bulkStatus(status) {
+  bulkBusy.value = true;
+  try {
+    await Promise.all(selectedTaskObjs.value.map((t) => {
+      if (status === 'completed') return api.put(`/tasks/${t.id}/complete`, {}, { skipGlobalLoading: true }).catch(() => {});
+      return api.put(`/me/tasks/${t.id}`, { status }, { skipGlobalLoading: true }).catch(() => {});
+    }));
+    await loadTasks();
+  } finally {
+    bulkBusy.value = false;
+    clearSelection();
+  }
+}
+
+async function loadTypeDefs() {
+  try {
+    const { data } = await api.get('/task-types', {
+      params: { agencyId: list.value?.agency_id || undefined },
+      skipGlobalLoading: true
+    });
+    typeDefs.value = Array.isArray(data) ? data : [];
+  } catch {
+    typeDefs.value = [];
+  }
+}
 
 const canEdit = computed(() => list.value?.my_role === 'editor' || list.value?.my_role === 'admin');
 const canAdmin = computed(() => list.value?.my_role === 'admin');
@@ -334,6 +467,7 @@ async function loadList() {
     const { data } = await api.get(`/task-lists/${listId.value}`, { skipGlobalLoading: true });
     list.value = data;
     members.value = data?.members || [];
+    await loadTypeDefs();
   } catch (e) {
     console.error(e);
     list.value = null;
@@ -345,6 +479,7 @@ async function loadList() {
 async function loadTasks() {
   if (!listId.value) return;
   tasksLoading.value = true;
+  clearSelection();
   try {
     const statusParam = statusTab.value === 'completed' ? 'completed' : 'open';
     const { data } = await api.get(`/task-lists/${listId.value}/tasks`, {
@@ -658,6 +793,8 @@ onMounted(() => {
 .slw__table tbody tr.slw__row--waiting { opacity: 0.75; }
 .slw__table td { padding: 10px 12px; vertical-align: middle; }
 
+.slw__col-select { width: 30px; text-align: center; }
+.slw__col-select input { cursor: pointer; }
 .slw__col-check { width: 34px; }
 .slw__check {
   width: 20px; height: 20px;

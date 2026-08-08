@@ -543,7 +543,8 @@ async function saveCore() {
         task_list_id: draft.task_list_id || null,
         projectId: draft.project_id || null,
         isPrivate: !!Number(draft.is_private),
-        urgency: draft.urgency
+        urgency: draft.urgency,
+        work_type_id: draft.work_type_id || null
       }, { skipGlobalLoading: true });
     }
     emit('changed');

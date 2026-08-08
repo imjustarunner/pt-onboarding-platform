@@ -206,6 +206,9 @@ export const updateCustomTask = async (req, res, next) => {
         raw != null && raw !== '' ? parseInt(raw, 10) || null : null;
     }
     if (urgency !== undefined && ['low', 'medium', 'high'].includes(urgency)) updates.urgency = urgency;
+    if (body.work_type_id !== undefined || body.workTypeId !== undefined) {
+      updates.workTypeId = body.work_type_id ?? body.workTypeId ?? null;
+    }
     if (is_recurring !== undefined) updates.isRecurring = !!is_recurring;
     if (recurring_rule !== undefined) updates.recurringRule = recurring_rule || null;
     if (typical_day_of_week !== undefined) updates.typicalDayOfWeek = typical_day_of_week ?? null;
