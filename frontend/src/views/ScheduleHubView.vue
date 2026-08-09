@@ -1021,14 +1021,13 @@ const orbitStyle = (idx, count) => {
 };
 
 const previewPosition = (idx, count) => {
-  const { angleDeg } = getOrbitLayout(idx, count);
-  // Top of the orbit: open sideways so the preview isn't clipped by the page header
-  if (angleDeg >= -135 && angleDeg <= -45) {
-    return angleDeg < -90 ? 'right' : 'left';
-  }
-  if (angleDeg > 45 && angleDeg < 135) return 'bottom';
-  if (angleDeg >= 135 || angleDeg <= -135) return 'left';
-  return 'right';
+  const { topPct, leftPct } = getOrbitLayout(idx, count);
+  // Open away from the orbit edge so previews aren't clipped by the page chrome.
+  if (topPct < 38) return 'bottom';
+  if (topPct > 62) return 'top';
+  if (leftPct < 42) return 'right';
+  if (leftPct > 58) return 'left';
+  return topPct < 50 ? 'bottom' : 'top';
 };
 
 const isNodeHighlighted = (node) => {
@@ -1108,7 +1107,7 @@ onMounted(() => {
     radial-gradient(circle at 80% 20%, rgba(30, 58, 138, 0.04), transparent 35%),
     radial-gradient(circle at 50% 90%, rgba(14, 116, 144, 0.04), transparent 40%),
     var(--hub-bg);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .hub-ambient {
@@ -1260,6 +1259,7 @@ onMounted(() => {
 .hub-stage-wrap {
   min-width: 0;
   overflow: visible;
+  padding: 24px 12px 8px;
 }
 
 .hub-stage {
@@ -1521,6 +1521,11 @@ onMounted(() => {
   height: 164px;
   transition: left 0.45s cubic-bezier(0.22, 1, 0.36, 1), top 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
+.hub-orbit-node:has(.hub-preview),
+.hub-orbit-node:has(.hub-satellite.hovered),
+.hub-orbit-node:has(.hub-satellite.active) {
+  z-index: 30;
+}
 
 .hub-orbit-node::before {
   content: '';
@@ -1779,14 +1784,15 @@ onMounted(() => {
 .hub-preview {
   position: absolute;
   top: 50%;
-  width: 220px;
+  width: 240px;
+  max-width: min(240px, 72vw);
   padding: 12px;
   border-radius: 16px;
   border: 1px solid var(--hub-line);
   background: #fff;
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
   transform: translateY(-50%);
-  z-index: 10;
+  z-index: 40;
   pointer-events: auto;
 }
 .hub-preview.pos-left { right: calc(100% + 14px); }
@@ -1820,6 +1826,10 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  max-height: min(320px, 52vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 .hub-preview-link {
   display: flex;

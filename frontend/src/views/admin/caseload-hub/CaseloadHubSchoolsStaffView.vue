@@ -954,6 +954,7 @@ import PostSchoolEventModal from '../../../components/school/PostSchoolEventModa
 import AvailabilityIntakeManagement from '../../../components/admin/AvailabilityIntakeManagement.vue';
 import ProviderYearUpdateAdminPanel from '../../../components/admin/ProviderYearUpdateAdminPanel.vue';
 import SchoolReinitAdminPanel from '../../../components/admin/SchoolReinitAdminPanel.vue';
+import { resolveScopedAgencyId } from '../../../utils/resolveScopedAgencyId.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -1892,13 +1893,26 @@ async function reload() {
   }
 }
 
-function resolveAgency() {
-  const q = route.query.agencyId ? Number(route.query.agencyId) : null;
-  if (q) return q;
-  if (agencyStore.currentAgency?.id) return Number(agencyStore.currentAgency.id);
-  if (authStore.user?.agencyId) return Number(authStore.user.agencyId);
-  if (agencies.value[0]?.id) return Number(agencies.value[0].id);
-  return null;
+async function resolveAgency() {
+  return resolveScopedAgencyId({
+    route,
+    agencyStore,
+    authStore,
+    agenciesList: agencies.value
+  });
+}
+
+async function syncAgencyFromContext({ reloadData = false } = {}) {
+  const next = await resolveAgency();
+  if (!next) return;
+  const changed = next !== agencyId.value;
+  if (changed) {
+    agencyId.value = next;
+    schoolDistrictFilter.value = '';
+  }
+  if (reloadData && (changed || !schools.value.length)) {
+    await reload();
+  }
 }
 
 onMounted(async () => {
@@ -1906,12 +1920,15 @@ onMounted(async () => {
     if (!agencyStore.agencies?.length && agencyStore.fetchAgencies) {
       await agencyStore.fetchAgencies();
     }
+    if (!agencyStore.userAgencies?.length && agencyStore.fetchUserAgencies) {
+      await agencyStore.fetchUserAgencies().catch(() => {});
+    }
   } catch {
     /* ignore */
   }
-  agencyId.value = resolveAgency();
+  await syncAgencyFromContext();
   const t = String(route.query.tab || 'by-school');
-  if (tabs.some((x) => x.id === t)) tab.value = t;
+  if (tabs.value.some((x) => x.id === t)) tab.value = t;
   needTypeFilter.value = String(route.query.type || '');
   if (route.query.schoolId) selectedSchoolId.value = Number(route.query.schoolId);
   if (route.query.providerId) selectedProviderId.value = Number(route.query.providerId);
@@ -1932,9 +1949,22 @@ onUnmounted(() => {
 watch(
   () => route.query.tab,
   (t) => {
-    if (t && tabs.some((x) => x.id === t)) tab.value = String(t);
+    if (t && tabs.value.some((x) => x.id === t)) tab.value = String(t);
   }
 );
+
+watch(
+  () => [route.params.organizationSlug, route.query.agencyId],
+  () => {
+    syncAgencyFromContext({ reloadData: true }).catch(() => {});
+  }
+);
+
+watch(schoolDistrictOptions, (opts) => {
+  if (schoolDistrictFilter.value && !opts.includes(schoolDistrictFilter.value)) {
+    schoolDistrictFilter.value = '';
+  }
+});
 </script>
 
 <style scoped>

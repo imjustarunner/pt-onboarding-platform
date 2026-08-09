@@ -428,6 +428,11 @@ const schoolApprovalsTo = computed(() => ({
   }
 }));
 
+const providerManagementTo = computed(() => ({
+  path: orgTo('/admin/provider-availability'),
+  query: agencyId.value ? { agencyId: String(agencyId.value) } : {}
+}));
+
 const icon = {
   hub: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="m12 3 9 5-9 5-9-5 9-5z"/><path d="M5 10v5c0 1.5 3 3 7 3s7-1.5 7-3v-5M12 13v8" stroke-linecap="round"/></svg>',
   school: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="m12 3 9 5-9 5-9-5 9-5z"/><path d="M5 10v5c0 1.5 3 3 7 3s7-1.5 7-3v-5M12 13v8" stroke-linecap="round"/></svg>',
@@ -461,6 +466,19 @@ const allSections = computed(() => [
         tone: 'blue',
         icon: icon.school,
         tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: 0
+      },
+      {
+        id: 'provider-mgmt',
+        title: 'Provider Management',
+        shortDesc: 'Slots, availability, ratios, and kudos.',
+        desc: 'School slots, office & virtual availability, payroll ratios, app usage, and kudos — by agency.',
+        cta: 'Open →',
+        to: providerManagementTo.value,
+        tone: 'indigo',
+        icon: icon.people,
+        tour: 'schedule-hub-card-provider-management',
         show: canSeeSchoolOpsContent.value,
         count: 0
       },
@@ -698,13 +716,12 @@ const orbitStyle = (idx, count) => {
 };
 
 const previewPosition = (idx, count) => {
-  const { angleDeg } = getOrbitLayout(idx, count);
-  if (angleDeg >= -135 && angleDeg <= -45) {
-    return angleDeg < -90 ? 'right' : 'left';
-  }
-  if (angleDeg > 45 && angleDeg < 135) return 'bottom';
-  if (angleDeg >= 135 || angleDeg <= -135) return 'left';
-  return 'right';
+  const { topPct, leftPct } = getOrbitLayout(idx, count);
+  if (topPct < 38) return 'bottom';
+  if (topPct > 62) return 'top';
+  if (leftPct < 42) return 'right';
+  if (leftPct > 58) return 'left';
+  return topPct < 50 ? 'bottom' : 'top';
 };
 
 const isNodeHighlighted = (node) => {
@@ -795,7 +812,7 @@ onMounted(() => {
     radial-gradient(circle at 80% 20%, rgba(20, 184, 166, 0.04), transparent 35%),
     radial-gradient(circle at 50% 90%, rgba(14, 116, 144, 0.04), transparent 40%),
     var(--hub-bg);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .hub-ambient {
@@ -954,6 +971,7 @@ onMounted(() => {
 .hub-stage-wrap {
   min-width: 0;
   overflow: visible;
+  padding: 24px 12px 8px;
 }
 
 .hub-stage {
@@ -1205,6 +1223,11 @@ onMounted(() => {
   width: 164px;
   height: 164px;
   transition: left 0.45s cubic-bezier(0.22, 1, 0.36, 1), top 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.hub-orbit-node:has(.hub-preview),
+.hub-orbit-node:has(.hub-satellite.hovered),
+.hub-orbit-node:has(.hub-satellite.active) {
+  z-index: 30;
 }
 
 .hub-orbit-node::before {
@@ -1461,14 +1484,15 @@ onMounted(() => {
 .hub-preview {
   position: absolute;
   top: 50%;
-  width: 220px;
+  width: 240px;
+  max-width: min(240px, 72vw);
   padding: 12px;
   border-radius: 16px;
   border: 1px solid var(--hub-line);
   background: #fff;
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
   transform: translateY(-50%);
-  z-index: 10;
+  z-index: 40;
   pointer-events: auto;
 }
 .hub-preview.pos-left { right: calc(100% + 14px); }
@@ -1503,6 +1527,10 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  max-height: min(320px, 52vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 .hub-preview-link {
   display: flex;
