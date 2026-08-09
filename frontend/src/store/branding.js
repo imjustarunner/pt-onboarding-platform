@@ -1036,6 +1036,9 @@ export const useBrandingStore = defineStore('branding', () => {
       if (agency.logo_url.startsWith('http://') || agency.logo_url.startsWith('https://')) {
         return agency.logo_url;
       }
+      if (agency.logo_url.startsWith('/assets/')) {
+        return agency.logo_url;
+      }
       const apiBase = getBackendBaseUrl();
       return `${apiBase}${agency.logo_url.startsWith('/') ? '' : '/'}${agency.logo_url}`;
     }
@@ -1113,6 +1116,9 @@ export const useBrandingStore = defineStore('branding', () => {
         if (agency.logo_url.startsWith('http://') || agency.logo_url.startsWith('https://')) {
           return addCacheBuster(agency.logo_url);
         }
+        if (agency.logo_url.startsWith('/assets/')) {
+          return addCacheBuster(agency.logo_url);
+        }
         const apiBase = getBackendBaseUrl();
         const fullUrl = `${apiBase}${agency.logo_url.startsWith('/') ? '' : '/'}${agency.logo_url}`;
         return addCacheBuster(fullUrl);
@@ -1150,6 +1156,9 @@ export const useBrandingStore = defineStore('branding', () => {
     }
     if (agency?.logo_url) {
       if (agency.logo_url.startsWith('http://') || agency.logo_url.startsWith('https://')) {
+        return addCacheBuster(agency.logo_url);
+      }
+      if (agency.logo_url.startsWith('/assets/')) {
         return addCacheBuster(agency.logo_url);
       }
       const apiBase = getBackendBaseUrl();
@@ -1241,6 +1250,19 @@ export const useBrandingStore = defineStore('branding', () => {
         const url = iconUrlById(platformBranding.value.organization_logo_icon_id);
         if (url) return addCacheBuster(url);
       }
+    }
+    if (agency?.logo_path) {
+      return addCacheBuster(toUploadsUrl(agency.logo_path));
+    }
+    if (agency?.logo_url) {
+      if (agency.logo_url.startsWith('http://') || agency.logo_url.startsWith('https://')) {
+        return addCacheBuster(agency.logo_url);
+      }
+      if (agency.logo_url.startsWith('/assets/')) {
+        return addCacheBuster(agency.logo_url);
+      }
+      const apiBase = getBackendBaseUrl();
+      return addCacheBuster(`${apiBase}${agency.logo_url.startsWith('/') ? '' : '/'}${agency.logo_url}`);
     }
     return null;
   });

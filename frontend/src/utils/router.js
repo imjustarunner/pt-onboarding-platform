@@ -258,18 +258,14 @@ export function getDashboardRoute() {
     return '/admin';
   }
 
-  // CPAs land on Operations Dashboard (office approvals, coverage, ops tools).
-  // Provider Plus keeps the personal My Dashboard; ops is still in nav.
+  // CPA and Provider+ default to Operations Dashboard (office approvals, coverage, ops tools).
   if (userRole === 'clinical_practice_assistant' || userRole === 'provider_plus') {
     const slug =
       organizationStore.organizationContext?.slug ||
       user.agencies?.[0]?.portal_url ||
       user.agencies?.[0]?.slug ||
       null;
-    if (userRole === 'clinical_practice_assistant') {
-      return slug ? `/${slug}/operations-dashboard` : '/operations-dashboard';
-    }
-    return slug ? `/${slug}/dashboard` : '/dashboard';
+    return slug ? `/${slug}/operations-dashboard` : '/operations-dashboard';
   }
 
   // Providers with agency membership should land on org-scoped dashboard for consistent branding/nav

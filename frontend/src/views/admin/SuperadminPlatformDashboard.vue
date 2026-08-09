@@ -87,7 +87,7 @@
         </div>
         <div class="pthq-top-right">
           <template v-if="panel === 'schedule'">
-            <router-link class="pthq-top-link" to="/schedule" title="Schedule hub">Schedule hub</router-link>
+            <router-link class="pthq-top-link" to="/workforce-operations" title="Workforce Operations">Workforce Operations</router-link>
             <router-link class="pthq-top-link" to="/schedule/staff" title="Compare staff calendars">Staff schedules</router-link>
             <router-link class="pthq-top-link" to="/buildings/schedule" title="Office &amp; room booking">Buildings</router-link>
           </template>

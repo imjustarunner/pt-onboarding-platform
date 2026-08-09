@@ -3630,6 +3630,257 @@ export const demoLaunchWindow = async (req, res, next) => {
   }
 };
 
+const isBackofficeAdminRole = (role) => {
+  const r = String(role || '').trim().toLowerCase();
+  return r === 'admin' || r === 'super_admin' || r === 'superadmin';
+};
+
+const isActiveDemoTestAccountUser = async (userId) => {
+  const id = Number.parseInt(userId, 10);
+  if (!Number.isInteger(id) || id < 1) return false;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1 AS ok
+       FROM demo_test_accounts
+       WHERE user_id = ? AND is_active = 1
+       LIMIT 1`,
+      [id]
+    );
+    return !!rows?.[0];
+  } catch {
+    return false;
+  }
+};
+
+const buildTestAccountSwitchUserPayload = async (targetUser) => {
+  const agencies = (await User.getAgencies(targetUser.id)) || [];
+  const payrollCaps = await buildPayrollCaps(targetUser);
+  const baseCaps = getUserCapabilities(targetUser);
+  const pw = calcPasswordExpiry(targetUser);
+  const medcancelRateSchedule = targetUser?.medcancel_rate_schedule || null;
+  const medcancelEnabled = ['low', 'high'].includes(String(medcancelRateSchedule || '').toLowerCase());
+
+  return {
+    id: targetUser.id,
+    email: targetUser.email,
+    role: targetUser.role,
+    status: targetUser.status,
+    firstName: targetUser.first_name,
+    lastName: targetUser.last_name,
+    preferredName: targetUser.preferred_name || null,
+    username: targetUser.username || targetUser.personal_email || targetUser.email,
+    medcancelEnabled,
+    medcancelRateSchedule,
+    companyCardEnabled: Boolean(targetUser.company_card_enabled),
+    companyCarSubmitAccess: Boolean(targetUser.company_car_submit_access),
+    companyCarManageAccess: Boolean(targetUser.company_car_manage_access),
+    isHourlyWorker: !!(targetUser.is_hourly_worker === true || targetUser.is_hourly_worker === 1 || targetUser.is_hourly_worker === '1'),
+    is_hourly_worker: !!(targetUser.is_hourly_worker === true || targetUser.is_hourly_worker === 1 || targetUser.is_hourly_worker === '1'),
+    hourlyDualRateEnabled: !!(targetUser.hourly_dual_rate_enabled === true || targetUser.hourly_dual_rate_enabled === 1 || targetUser.hourly_dual_rate_enabled === '1'),
+    hourly_dual_rate_enabled: !!(targetUser.hourly_dual_rate_enabled === true || targetUser.hourly_dual_rate_enabled === 1 || targetUser.hourly_dual_rate_enabled === '1'),
+    requiresPasswordChange: pw.requiresPasswordChange,
+    passwordExpiresAt: pw.passwordExpiresAt,
+    passwordExpired: pw.passwordExpired,
+    passwordExpiresSoon: pw.passwordExpiresSoon,
+    passwordExpiresInDays: pw.passwordExpiresInDays,
+    has_supervisor_privileges: !!(targetUser.has_supervisor_privileges === true || targetUser.has_supervisor_privileges === 1 || targetUser.has_supervisor_privileges === '1'),
+    group_supervision_eligible: !!(targetUser.group_supervision_eligible === true || targetUser.group_supervision_eligible === 1 || targetUser.group_supervision_eligible === '1'),
+    has_provider_access: !!(targetUser.has_provider_access === true || targetUser.has_provider_access === 1 || targetUser.has_provider_access === '1'),
+    has_staff_access: !!(targetUser.has_staff_access === true || targetUser.has_staff_access === 1 || targetUser.has_staff_access === '1'),
+    has_games_access: !!(targetUser.has_games_access === true || targetUser.has_games_access === 1 || targetUser.has_games_access === '1'),
+    skill_builder_eligible: !!(targetUser.skill_builder_eligible === true || targetUser.skill_builder_eligible === 1 || targetUser.skill_builder_eligible === '1'),
+    has_skill_builder_coordinator_access: !!(
+      targetUser.has_skill_builder_coordinator_access === true ||
+      targetUser.has_skill_builder_coordinator_access === 1 ||
+      targetUser.has_skill_builder_coordinator_access === '1'
+    ),
+    skill_builder_confirm_required_next_login: !!(
+      targetUser.skill_builder_confirm_required_next_login === true ||
+      targetUser.skill_builder_confirm_required_next_login === 1 ||
+      targetUser.skill_builder_confirm_required_next_login === '1'
+    ),
+    capabilities: baseCaps,
+    agencies,
+    ...payrollCaps
+  };
+};
+
+/**
+ * List allowlisted demo/test accounts available for one-click switching.
+ * Visible to admin/super_admin, or to any active roster member.
+ */
+export const listTestAccounts = async (req, res, next) => {
+  try {
+    const actor = await User.findById(req.user?.id);
+    if (!actor) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    const actorIsAdmin = isBackofficeAdminRole(actor.role);
+    const actorOnRoster = await isActiveDemoTestAccountUser(actor.id);
+    if (!actorIsAdmin && !actorOnRoster) {
+      return res.status(403).json({ error: { message: 'Test account switching is not available for this user' } });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT
+         dta.id,
+         dta.user_id AS userId,
+         dta.label,
+         dta.sort_order AS sortOrder,
+         u.email,
+         u.role,
+         u.first_name AS firstName,
+         u.last_name AS lastName
+       FROM demo_test_accounts dta
+       JOIN users u ON u.id = dta.user_id
+       WHERE dta.is_active = 1
+         AND u.is_active = 1
+         AND (u.is_archived = 0 OR u.is_archived IS NULL)
+       ORDER BY dta.sort_order ASC, dta.id ASC`
+    );
+
+    const accounts = (rows || [])
+      .filter((row) => Number(row.userId) !== Number(actor.id))
+      .map((row) => ({
+        id: row.id,
+        userId: row.userId,
+        label: row.label,
+        sortOrder: row.sortOrder,
+        email: row.email,
+        role: row.role,
+        firstName: row.firstName,
+        lastName: row.lastName
+      }));
+
+    res.json({
+      accounts,
+      canSwitch: true,
+      actorIsAdmin,
+      actorOnRoster
+    });
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(404).json({ error: { message: 'Test account switcher is not configured yet' } });
+    }
+    next(error);
+  }
+};
+
+/**
+ * True account swap onto an allowlisted demo/test user (not a role overlay).
+ * Caller must be admin/super_admin or an active roster member; target must be on the allowlist.
+ */
+export const switchTestAccount = async (req, res, next) => {
+  try {
+    const targetUserId = Number.parseInt(req.body?.userId, 10);
+    if (!Number.isInteger(targetUserId) || targetUserId < 1) {
+      return res.status(400).json({ error: { message: 'Valid userId is required' } });
+    }
+
+    const actor = await User.findById(req.user?.id);
+    if (!actor) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    const actorIsAdmin = isBackofficeAdminRole(actor.role);
+    const actorOnRoster = await isActiveDemoTestAccountUser(actor.id);
+    if (!actorIsAdmin && !actorOnRoster) {
+      return res.status(403).json({ error: { message: 'Test account switching is not available for this user' } });
+    }
+
+    if (Number(actor.id) === targetUserId) {
+      return res.status(400).json({ error: { message: 'Already signed in as that account' } });
+    }
+
+    const targetOnRoster = await isActiveDemoTestAccountUser(targetUserId);
+    if (!targetOnRoster) {
+      return res.status(403).json({ error: { message: 'Target user is not in the test account allowlist' } });
+    }
+
+    const targetUser = await User.findById(targetUserId);
+    if (!targetUser || targetUser.is_active === 0 || targetUser.is_active === false || targetUser.is_archived) {
+      return res.status(404).json({ error: { message: 'Target test account not found or inactive' } });
+    }
+
+    const sessionId = crypto.randomUUID();
+    const token = jwt.sign(
+      {
+        id: targetUser.id,
+        email: targetUser.email,
+        role: targetUser.role,
+        sessionId,
+        testAccountSwitch: true,
+        switchedFromUserId: actor.id
+      },
+      config.jwt.secret,
+      { expiresIn: config.jwt.expiresIn }
+    );
+
+    res.cookie('authToken', token, config.authCookie.set());
+
+    const userPayload = await buildTestAccountSwitchUserPayload(targetUser);
+
+    ActivityLogService.logActivity({
+      actionType: 'test_account_switch',
+      userId: targetUser.id,
+      sessionId,
+      metadata: {
+        actorUserId: actor.id,
+        actorEmail: actor.email,
+        actorRole: actor.role,
+        targetUserId: targetUser.id,
+        targetEmail: targetUser.email,
+        targetRole: targetUser.role
+      }
+    }, req);
+
+    try {
+      const UserPlatformSession = (await import('../models/UserPlatformSession.model.js')).default;
+      const agencyId = Array.isArray(userPayload.agencies) && userPayload.agencies.length
+        ? userPayload.agencies[0].id
+        : null;
+      await UserPlatformSession.startSession({
+        sessionId,
+        userId: targetUser.id,
+        agencyId,
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress || 'unknown',
+        userAgent: req.headers['user-agent'] || 'unknown'
+      });
+    } catch (err) {
+      console.error('Failed to start platform session for test account switch:', err);
+    }
+
+    const preferredAgency =
+      (userPayload.agencies || []).find((a) => String(a?.slug || '').toLowerCase() === 'demo')
+      || (userPayload.agencies || []).find((a) => String(a?.organization_type || '').toLowerCase() === 'agency')
+      || (userPayload.agencies || [])[0]
+      || null;
+
+    res.json({
+      message: 'Switched test account',
+      token,
+      sessionId,
+      user: userPayload,
+      agencies: userPayload.agencies || [],
+      selectedAgency: preferredAgency
+        ? {
+            id: preferredAgency.id,
+            name: preferredAgency.name,
+            slug: preferredAgency.slug || null,
+            portal_url: preferredAgency.portal_url || null,
+            organization_type: preferredAgency.organization_type || null
+          }
+        : null
+    });
+  } catch (error) {
+    if (error?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(404).json({ error: { message: 'Test account switcher is not configured yet' } });
+    }
+    next(error);
+  }
+};
+
 export const register = async (req, res, next) => {
   try {
     const errors = validationResult(req);

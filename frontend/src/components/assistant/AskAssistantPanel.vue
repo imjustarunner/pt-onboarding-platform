@@ -91,7 +91,9 @@
             <div class="aap-empty-core" />
           </div>
           <h3 class="aap-empty-title">What can I help with?</h3>
-          <p class="aap-empty-desc">One-click actions for your day — tap a button to run it:</p>
+          <p class="aap-empty-desc">
+            <strong>Start typing</strong> to jump to any page instantly — or tap a quick action below.
+          </p>
           <div class="aap-capabilities">
             <div v-for="(group, i) in quickActionGroups" :key="i" class="aap-capability">
               <div class="aap-capability-title">{{ group.title }}</div>
@@ -417,7 +419,7 @@
               </div>
             </template>
             <div v-else class="aap-qnav-empty" role="status">
-              No quick matches — press Enter to ask the assistant.
+              No page match — press Enter to ask the assistant instead.
             </div>
           </div>
           <div class="aap-composer" :class="{ 'is-open': quickNavPanelOpen || mentionPanelOpen }">
@@ -499,6 +501,7 @@ import {
   resolveQuickNavRoute,
   searchQuickNav
 } from '../../navigation/quickNavCatalog.js';
+import { searchNav as searchHubNav } from '../../utils/navSearchIndex.js';
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -977,8 +980,64 @@ const quickNavCtx = computed(() => {
 });
 
 const quickNavSearch = computed(() => searchQuickNav(prompt.value, quickNavCtx.value, { limit: 8 }));
-const quickNavGroups = computed(() => quickNavSearch.value.groups);
-const quickNavFlat = computed(() => quickNavSearch.value.flat);
+
+/**
+ * Returns true when the query looks like a conversational question rather than
+ * a navigation lookup. We suppress page results in that case so Enter still
+ * goes straight to the AI without the nav panel getting in the way.
+ */
+function looksLikeQuestion(q) {
+  const t = q.toLowerCase().trim();
+  // Starts with a question or command word aimed at the assistant
+  if (/^(what|who|when|where|why|how|is|are|can|could|would|should|do|does|did|show|tell|find|get|list|give|help|check|review|look)\b/.test(t)) return true;
+  // Contains a possessive name pattern like "halle's" or "john's"
+  if (/\b[a-z]+'s\b/.test(t)) return true;
+  // Looks like a multi-word sentence (5+ words) — user is describing, not searching
+  if (t.split(/\s+/).length >= 5) return true;
+  return false;
+}
+
+/** Admin hub pages merged from navSearchIndex — shown only when user is admin-like. */
+const hubNavResults = computed(() => {
+  if (!isAdminLike.value) return [];
+  const q = String(prompt.value || '').trim();
+  if (q.length < 2) return [];
+  // Don't surface page results for conversational / question-type queries
+  if (looksLikeQuestion(q)) return [];
+  const orgSlug = route.params?.organizationSlug || null;
+  // Require a meaningful score so loose substring matches (e.g. "schedule" in
+  // "whats halle's schedule tomorrow") don't crowd out the conversational path.
+  return searchHubNav(q, { orgSlug })
+    .filter((item) => item.score >= 50)
+    .slice(0, 5)
+    .map((item) => ({
+      id: `hub-${item.path}`,
+      label: item.title,
+      description: item.section,
+      group: 'hub',
+      groupLabel: 'Pages',
+      kind: 'path',
+      path: item.path,
+      score: item.score
+    }));
+});
+
+const quickNavGroups = computed(() => {
+  const q = String(prompt.value || '').trim();
+  if (looksLikeQuestion(q)) return [];
+  const base = quickNavSearch.value.groups;
+  const hub = hubNavResults.value;
+  if (!hub.length) return base;
+  return [{ group: 'hub', label: 'Pages', items: hub }, ...base];
+});
+
+const quickNavFlat = computed(() => {
+  const q = String(prompt.value || '').trim();
+  if (looksLikeQuestion(q)) return [];
+  const base = quickNavSearch.value.flat;
+  const hub = hubNavResults.value;
+  return [...hub, ...base];
+});
 
 const quickNavPanelOpen = computed(
   () =>

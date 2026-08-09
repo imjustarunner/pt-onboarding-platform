@@ -445,6 +445,7 @@
           >
             Tutorial {{ tutorialStore.enabled ? 'On' : 'Off' }}
           </button>
+          <TestAccountSwitcher compact force-check />
           <div v-if="authStore.user?.id" class="sp-user-chip">
             <div class="sp-user-avatar" aria-hidden="true">{{ portalUserInitials }}</div>
             <div class="sp-user-meta">
@@ -1969,6 +1970,7 @@ import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.
 import SchoolReinitDashboard from '../../components/school/reinit/SchoolReinitDashboard.vue';
 import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
 import { useAuthStore } from '../../store/auth';
+import TestAccountSwitcher from '../../components/TestAccountSwitcher.vue';
 import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';

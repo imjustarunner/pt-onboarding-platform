@@ -34,13 +34,45 @@
         <span class="ops-metric-hint">{{ card.hint }}</span>
         <span class="ops-metric-cta">{{ card.cta }}</span>
       </button>
+
+      <!-- Hub quick-access card: one card, 4 mini nav tiles inside -->
+      <div v-if="hubLinks?.length > 1" class="ops-metric ops-metric--hubs" aria-label="Quick hub navigation">
+        <span class="ops-metric-label">QUICK ACCESS</span>
+        <div class="hub-mini-grid">
+          <RouterLink
+            v-for="h in hubLinks"
+            :key="h.to"
+            :to="h.to"
+            class="hub-mini-tile"
+            :class="`hub-mini-tile--${h.icon}`"
+          >
+            <span class="hub-mini-icon">
+              <!-- My Dashboard -->
+              <svg v-if="h.icon === 'my'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+              <!-- Ops Dashboard -->
+              <svg v-else-if="h.icon === 'ops'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3z"/><path d="M14 17.5h7M17.5 14v7" stroke-linecap="round"/></svg>
+              <!-- Workforce -->
+              <svg v-else-if="h.icon === 'workforce'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14"><circle cx="12" cy="12" r="9"/><path d="M8 12h8M12 8v8" stroke-linecap="round"/></svg>
+              <!-- Admin -->
+              <svg v-else-if="h.icon === 'admin'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14"><path d="M12 2a5 5 0 1 1 0 10A5 5 0 0 1 12 2z"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke-linecap="round"/></svg>
+              <!-- School -->
+              <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14"><path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 21V12h6v9" stroke-linecap="round"/></svg>
+            </span>
+            <span class="hub-mini-label">{{ h.label }}</span>
+            <span class="hub-mini-sub">{{ h.sub }}</span>
+          </RouterLink>
+        </div>
+      </div>
     </div>
   </section>
 </template>
 
 <script setup>
+import { RouterLink } from 'vue-router';
+
 defineProps({
   cards: { type: Array, default: () => [] },
+  hubLinks: { type: Array, default: null },
   reorderable: { type: Boolean, default: false }
 });
 
@@ -220,5 +252,73 @@ const formatCount = (v) => {
   font-size: 11px;
   font-weight: 700;
   color: var(--ops-primary, #1f6b4a);
+}
+
+/* ── Hub quick-access card ─────────────────────────── */
+.ops-metric--hubs {
+  cursor: default;
+  padding: 8px 8px 8px;
+  gap: 4px;
+}
+.ops-metric--hubs:hover {
+  transform: none;
+  border-color: color-mix(in srgb, var(--ops-primary, #1f6b4a) 18%, #e2e8f0);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
+}
+.hub-mini-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 5px;
+  flex: 1;
+}
+.hub-mini-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 5px 4px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.13s, transform 0.1s;
+  text-align: center;
+}
+.hub-mini-tile:hover {
+  transform: scale(1.04);
+}
+.hub-mini-tile--my         { background: #f1f5f9; }
+.hub-mini-tile--my:hover   { background: #e2e8f0; }
+.hub-mini-tile--ops        { background: #eff6ff; }
+.hub-mini-tile--ops:hover  { background: #dbeafe; }
+.hub-mini-tile--workforce        { background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 8%, #fff); }
+.hub-mini-tile--workforce:hover  { background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 16%, #fff); }
+.hub-mini-tile--school        { background: #fdf4ff; }
+.hub-mini-tile--school:hover  { background: #f3e8ff; }
+.hub-mini-tile--admin         { background: #fff7ed; }
+.hub-mini-tile--admin:hover   { background: #ffedd5; }
+.hub-mini-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.hub-mini-tile--my        .hub-mini-icon { color: #475569; }
+.hub-mini-tile--ops       .hub-mini-icon { color: #2563eb; }
+.hub-mini-tile--workforce .hub-mini-icon { color: var(--ops-primary, #1f6b4a); }
+.hub-mini-tile--school    .hub-mini-icon { color: #7c3aed; }
+.hub-mini-tile--admin     .hub-mini-icon { color: #c2410c; }
+.hub-mini-label {
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+.hub-mini-sub {
+  font-size: 8.5px;
+  color: #94a3b8;
+  line-height: 1;
 }
 </style>

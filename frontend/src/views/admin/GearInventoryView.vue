@@ -481,7 +481,15 @@ watch(agencyId, () => { void loadAll(); });
 </script>
 
 <style scoped>
-.gi-page { max-width: 1100px; margin: 0 auto; padding: 24px 20px 48px; }
+.gi-page {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 16px 20px 32px;
+  box-sizing: border-box;
+  min-height: calc(100vh - 72px);
+  min-height: calc(100dvh - 72px);
+}
 .gi-header { margin-bottom: 20px; }
 .gi-title {
   margin: 0;
@@ -528,6 +536,8 @@ watch(agencyId, () => { void loadAll(); });
   border: 1px solid #e5e7eb;
   border-radius: 14px;
   padding: 16px 18px 20px;
+  width: 100%;
+  box-sizing: border-box;
 }
 .gi-panel-head {
   display: flex;
@@ -537,7 +547,7 @@ watch(agencyId, () => { void loadAll(); });
 }
 .gi-panel-head h2 { margin: 0; font-size: 1.05rem; font-weight: 800; }
 
-.gi-table { display: flex; flex-direction: column; }
+.gi-table { display: flex; flex-direction: column; width: 100%; }
 .gi-thead, .gi-row {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1fr 1.2fr 70px;

@@ -331,14 +331,24 @@
           <table class="reinit-admin__table">
             <thead>
               <tr>
-                <th>School</th>
-                <th>Status</th>
-                <th>Progress</th>
+                <th class="th-sort" :class="sortColClass('name')" @click="setSort('name')">
+                  School <span class="sort-arrow">{{ sortArrow('name') }}</span>
+                </th>
+                <th class="th-sort" :class="sortColClass('status')" @click="setSort('status')">
+                  Status <span class="sort-arrow">{{ sortArrow('status') }}</span>
+                </th>
+                <th class="th-sort" :class="sortColClass('pct')" @click="setSort('pct')">
+                  Progress <span class="sort-arrow">{{ sortArrow('pct') }}</span>
+                </th>
                 <th>Sections</th>
                 <th>Scores</th>
                 <th>Viewers</th>
-                <th>Clicks</th>
-                <th>Last activity</th>
+                <th class="th-sort" :class="sortColClass('clicks')" @click="setSort('clicks')">
+                  Clicks <span class="sort-arrow">{{ sortArrow('clicks') }}</span>
+                </th>
+                <th class="th-sort" :class="sortColClass('activity')" @click="setSort('activity')">
+                  Last activity <span class="sort-arrow">{{ sortArrow('activity') }}</span>
+                </th>
                 <th>Link / Push</th>
               </tr>
             </thead>
@@ -702,6 +712,7 @@ const showSlots = ref(false);
 const filterText = ref('');
 const filterStatus = ref('all');
 const sortKey = ref('pct');
+const sortDir = ref('desc');
 const filterHasQuote = ref(false);
 const filterDelivery = ref(false);
 const filterSat4 = ref(false);
@@ -775,18 +786,49 @@ const filteredRows = computed(() => {
   if (filterSat4.value) {
     rows = rows.filter((r) => r.scores?.overallSatisfaction != null && r.scores.overallSatisfaction >= 4);
   }
+  const STATUS_ORDER = { finalized: 0, in_progress: 1, not_started: 2 };
+  const dir = sortDir.value === 'asc' ? 1 : -1;
   rows.sort((a, b) => {
-    if (sortKey.value === 'pct') return (b.sectionPercent || 0) - (a.sectionPercent || 0);
-    if (sortKey.value === 'days') return Number(b.daysPerWeekRequested || 0) - Number(a.daysPerWeekRequested || 0);
-    if (sortKey.value === 'clicks') return (b.tokenClickCount || 0) - (a.tokenClickCount || 0);
-    if (sortKey.value === 'quote') return Number(b.hasMarketingQuote) - Number(a.hasMarketingQuote);
-    if (sortKey.value === 'satisfaction') {
-      return Number(b.scores?.overallSatisfaction ?? -1) - Number(a.scores?.overallSatisfaction ?? -1);
+    let cmp = 0;
+    if (sortKey.value === 'pct') {
+      cmp = (a.sectionPercent || 0) - (b.sectionPercent || 0);
+    } else if (sortKey.value === 'status') {
+      cmp = (STATUS_ORDER[a.status] ?? 3) - (STATUS_ORDER[b.status] ?? 3);
+    } else if (sortKey.value === 'clicks') {
+      cmp = (a.tokenClickCount || 0) - (b.tokenClickCount || 0);
+    } else if (sortKey.value === 'activity') {
+      const ta = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0;
+      const tb = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0;
+      cmp = ta - tb;
+    } else if (sortKey.value === 'days') {
+      cmp = Number(a.daysPerWeekRequested || 0) - Number(b.daysPerWeekRequested || 0);
+    } else if (sortKey.value === 'quote') {
+      cmp = Number(a.hasMarketingQuote) - Number(b.hasMarketingQuote);
+    } else if (sortKey.value === 'satisfaction') {
+      cmp = Number(a.scores?.overallSatisfaction ?? -1) - Number(b.scores?.overallSatisfaction ?? -1);
+    } else {
+      cmp = String(a.schoolName || '').localeCompare(String(b.schoolName || ''));
     }
-    return String(a.schoolName || '').localeCompare(String(b.schoolName || ''));
+    return cmp * dir;
   });
   return rows;
 });
+
+function setSort(key) {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortKey.value = key;
+    sortDir.value = key === 'name' || key === 'status' ? 'asc' : 'desc';
+  }
+}
+function sortArrow(key) {
+  if (sortKey.value !== key) return '↕';
+  return sortDir.value === 'asc' ? '↑' : '↓';
+}
+function sortColClass(key) {
+  return { 'th-sort--active': sortKey.value === key };
+}
 
 const detailSections = computed(() => {
   if (detail.value?.sections?.length) return detail.value.sections;
@@ -1951,6 +1993,29 @@ onUnmounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: #64748b;
+}
+.th-sort {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.th-sort:hover {
+  background: #f0f4f8;
+  color: #334155;
+}
+.th-sort--active {
+  color: #2563eb;
+  background: #eff6ff;
+}
+.sort-arrow {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 0.65rem;
+  opacity: 0.55;
+  vertical-align: middle;
+}
+.th-sort--active .sort-arrow {
+  opacity: 1;
 }
 .reinit-admin__table tbody tr {
   cursor: pointer;

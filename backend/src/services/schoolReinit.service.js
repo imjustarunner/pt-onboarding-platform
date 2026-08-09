@@ -1557,18 +1557,102 @@ export async function listAgencyReport(agencyId, schoolYear) {
     return !t || t === 'school' || t === 'program' || t === 'learning';
   });
 
+  // ── Bulk-fetch everything in 6 queries instead of N×6 ────────────────────
+  const schoolIds = schools.map((o) => Number(o.id || o.organization_id)).filter(Boolean);
+
+  // 1. All cycles for this agency + year
+  const [allCycleRows] = schoolIds.length
+    ? await pool.execute(
+        `SELECT * FROM school_reinit_cycles
+         WHERE agency_id = ? AND ${yearEq()}`,
+        [agencyId, year]
+      )
+    : [[]];
+  const cycleBySchoolId = new Map();
+  for (const c of allCycleRows || []) {
+    cycleBySchoolId.set(Number(c.school_organization_id), c);
+  }
+  const cycleIds = (allCycleRows || []).map((c) => c.id).filter(Boolean);
+
+  // 2. Section progress for all cycles
+  const allSectionRows = cycleIds.length
+    ? (await pool.query(
+        `SELECT * FROM school_reinit_section_progress WHERE cycle_id IN (${cycleIds.map(() => '?').join(',')})`,
+        cycleIds
+      ))[0]
+    : [];
+  const sectionsByCycleId = new Map();
+  for (const row of allSectionRows || []) {
+    const cid = Number(row.cycle_id);
+    if (!sectionsByCycleId.has(cid)) sectionsByCycleId.set(cid, []);
+    sectionsByCycleId.get(cid).push(row);
+  }
+
+  // 3. Tokens for all cycles
+  const allTokenRows = cycleIds.length
+    ? (await pool.query(
+        `SELECT id, cycle_id, token, marked_sent_at, locked_at, click_count, last_viewed_at, created_at, expires_at
+         FROM school_reinit_tokens WHERE cycle_id IN (${cycleIds.map(() => '?').join(',')}) ORDER BY id DESC`,
+        cycleIds
+      ))[0]
+    : [];
+  const tokensByCycleId = new Map();
+  for (const row of allTokenRows || []) {
+    const cid = Number(row.cycle_id);
+    if (!tokensByCycleId.has(cid)) tokensByCycleId.set(cid, []);
+    tokensByCycleId.get(cid).push(row);
+  }
+
+  // 4. Unique viewers for all cycles
+  const allViewRows = cycleIds.length
+    ? (await pool.query(
+        `SELECT cycle_id, COALESCE(user_id, 0) AS user_id, actor_display_name
+         FROM school_reinit_view_events WHERE cycle_id IN (${cycleIds.map(() => '?').join(',')})`,
+        cycleIds
+      ))[0]
+    : [];
+  const viewersByCycleId = new Map();
+  for (const row of allViewRows || []) {
+    const cid = Number(row.cycle_id);
+    if (!viewersByCycleId.has(cid)) viewersByCycleId.set(cid, new Map());
+    viewersByCycleId.get(cid).set(Number(row.user_id), row);
+  }
+
+  // 5. Pending change request counts grouped by cycle
+  const allCrRows = cycleIds.length
+    ? (await pool.query(
+        `SELECT cycle_id, COUNT(*) AS n FROM school_reinit_change_requests
+         WHERE cycle_id IN (${cycleIds.map(() => '?').join(',')}) AND status = 'pending'
+         GROUP BY cycle_id`,
+        cycleIds
+      ))[0]
+    : [];
+  const pendingByCycleId = new Map();
+  for (const row of allCrRows || []) {
+    pendingByCycleId.set(Number(row.cycle_id), Number(row.n || 0));
+  }
+
+  // 6. Addendum counts grouped by cycle
+  const allAdRows = cycleIds.length
+    ? (await pool.query(
+        `SELECT cycle_id, COUNT(*) AS n FROM school_reinit_addendums
+         WHERE cycle_id IN (${cycleIds.map(() => '?').join(',')})
+         GROUP BY cycle_id`,
+        cycleIds
+      ))[0]
+    : [];
+  const addendumsByCycleId = new Map();
+  for (const row of allAdRows || []) {
+    addendumsByCycleId.set(Number(row.cycle_id), Number(row.n || 0));
+  }
+  // ── End bulk fetch ────────────────────────────────────────────────────────
+
   const out = [];
   for (const school of schools) {
     const schoolId = Number(school.id || school.organization_id);
     if (!schoolId) continue;
-    let cycle = null;
-    const [cycles] = await pool.execute(
-      `SELECT * FROM school_reinit_cycles
-       WHERE agency_id = ? AND school_organization_id = ? AND ${yearEq()}
-       LIMIT 1`,
-      [agencyId, schoolId, year]
-    );
-    cycle = cycles?.[0] || null;
+
+    const cycle = cycleBySchoolId.get(schoolId) || null;
 
     let sections = [];
     let tokens = [];
@@ -1578,26 +1662,22 @@ export async function listAgencyReport(agencyId, schoolYear) {
     let sectionData = {};
 
     if (cycle) {
-      sections = await getSectionProgress(cycle.id);
-      const [tokRows] = await pool.execute(
-        `SELECT id, token, marked_sent_at, locked_at, click_count, last_viewed_at, created_at, expires_at
-         FROM school_reinit_tokens WHERE cycle_id = ? ORDER BY id DESC`,
-        [cycle.id]
-      );
-      tokens = tokRows || [];
+      // Assemble section progress from bulk data
+      const rawSections = sectionsByCycleId.get(Number(cycle.id)) || [];
+      const byKey = new Map(rawSections.map((r) => [r.section_key, r]));
+      sections = SECTION_KEYS.map((key) => {
+        const row = byKey.get(key);
+        let data = null;
+        if (row?.data_json) {
+          try { data = typeof row.data_json === 'string' ? JSON.parse(row.data_json) : row.data_json; } catch { data = null; }
+        }
+        return { sectionKey: key, reviewed: Boolean(row?.reviewed), reviewedAt: row?.reviewed_at || null, reviewedByDisplayName: row?.reviewed_by_display_name || null, completed: Boolean(row?.completed), data };
+      });
+
+      tokens = tokensByCycleId.get(Number(cycle.id)) || [];
       clickCount = tokens.reduce((n, t) => n + Number(t.click_count || 0), 0);
-      const [viewRows] = await pool.execute(
-        `SELECT DISTINCT COALESCE(user_id, 0) AS user_id, actor_display_name
-         FROM school_reinit_view_events WHERE cycle_id = ?`,
-        [cycle.id]
-      );
-      viewers = viewRows || [];
-      const [cr] = await pool.execute(
-        `SELECT COUNT(*) AS n FROM school_reinit_change_requests
-         WHERE cycle_id = ? AND status = 'pending'`,
-        [cycle.id]
-      );
-      pendingChanges = Number(cr?.[0]?.n || 0);
+      viewers = [...(viewersByCycleId.get(Number(cycle.id))?.values() || [])];
+      pendingChanges = pendingByCycleId.get(Number(cycle.id)) || 0;
       for (const s of sections) {
         if (s.data) sectionData[s.sectionKey] = s.data;
       }
@@ -1611,14 +1691,7 @@ export async function listAgencyReport(agencyId, schoolYear) {
     const eventsAnswers = sectionData.school_events || {};
     const fall = sectionData.fall_check_in || {};
 
-    let addendumCount = 0;
-    if (cycle) {
-      const [ad] = await pool.execute(
-        `SELECT COUNT(*) AS n FROM school_reinit_addendums WHERE cycle_id = ?`,
-        [cycle.id]
-      );
-      addendumCount = Number(ad?.[0]?.n || 0);
-    }
+    const addendumCount = cycle ? (addendumsByCycleId.get(Number(cycle.id)) || 0) : 0;
 
     const lastTokenView = tokens.reduce((max, t) => {
       if (!t.last_viewed_at) return max;

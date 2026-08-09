@@ -10,7 +10,7 @@
         </div>
       </div>
       <div class="header-right" data-tour="sched-compare-controls">
-        <router-link class="btn btn-secondary" :to="orgTo('/schedule')">Schedule hub</router-link>
+        <router-link class="btn btn-secondary" :to="orgTo('/workforce-operations')">Workforce Operations</router-link>
         <router-link class="btn btn-secondary" :to="providerManagementTo">Provider Management</router-link>
         <div class="week" data-tour="sched-compare-week">
           <label class="lbl-sm">Week of</label>

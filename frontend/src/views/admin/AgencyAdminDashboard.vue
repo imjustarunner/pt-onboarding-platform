@@ -809,9 +809,9 @@ const quickActions = computed(() => {
   },
   {
     id: 'schedule',
-    title: 'Schedule',
-    description: 'View schedule hub',
-    to: '/schedule',
+    title: 'Workforce Operations',
+    description: 'View workforce operations hub',
+    to: '/workforce-operations',
     emoji: '📅',
     iconKey: 'schedule',
     category: 'Scheduling',

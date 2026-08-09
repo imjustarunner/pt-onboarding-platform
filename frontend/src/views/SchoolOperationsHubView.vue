@@ -1,5 +1,5 @@
 <template>
-  <div class="wo-hub">
+  <div class="wo-hub so-hub">
     <div class="hub-ambient" aria-hidden="true">
       <span
         v-for="dot in ambientDots"
@@ -18,7 +18,7 @@
       />
     </div>
 
-    <header class="hub-header" data-tour="schedule-hub-header">
+    <header class="hub-header" data-tour="school-ops-hub-header">
       <div class="hub-brand">
         <div class="hub-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
@@ -27,9 +27,9 @@
           </svg>
         </div>
         <div>
-          <h1 class="hub-title" data-tour="schedule-hub-title">Workforce Operations</h1>
-          <p class="hub-subtitle" data-tour="schedule-hub-subtitle">
-            Everything connected. Schedules, billing, buildings, and staff — all in one place.
+          <h1 class="hub-title" data-tour="school-ops-hub-title">School Operations</h1>
+          <p class="hub-subtitle" data-tour="school-ops-hub-subtitle">
+            Caseloads, portals, events, and school requests — organized in one place.
           </p>
         </div>
       </div>
@@ -58,28 +58,31 @@
             </router-link>
           </template>
         </nav>
-        <router-link class="hub-calendar-btn" :to="orgTo('/my-schedule')">
-          View calendar
+        <router-link class="hub-calendar-btn" :to="orgTo('/admin/caseload-hub/calendar')">
+          View school calendar
         </router-link>
       </div>
     </header>
 
     <div
-      v-if="canOpenPrivilegedScheduleTools && pendingTotal > 0"
+      v-if="hubPendingTotal > 0"
       class="hub-alert"
       role="status"
     >
       <div class="hub-alert-copy">
-        <strong>{{ pendingTotal }} availability request{{ pendingTotal === 1 ? '' : 's' }} need review</strong>
-        <span>Stay on top of pending requests to keep everything running smoothly.</span>
+        <strong>{{ hubPendingTotal }} item{{ hubPendingTotal === 1 ? '' : 's' }} need attention</strong>
       </div>
       <div class="hub-alert-meta">
-        <span class="hub-pill">{{ officePending }} office</span>
-        <span class="hub-pill">{{ schoolPending }} school</span>
+        <router-link v-if="schoolPending > 0" :to="schoolApprovalsTo" class="hub-pill hub-pill-link">
+          {{ schoolPending }} school request{{ schoolPending === 1 ? '' : 's' }}
+        </router-link>
+        <router-link v-if="schoolClientsPending > 0" :to="orgTo('/admin/school-clients')" class="hub-pill hub-pill-link">
+          {{ schoolClientsPending }} school client{{ schoolClientsPending === 1 ? '' : 's' }}
+        </router-link>
       </div>
     </div>
 
-    <div class="hub-layout" data-tour="schedule-hub-grid">
+    <div class="hub-layout" data-tour="school-ops-hub-grid">
       <div class="hub-stage-wrap">
         <div
           class="hub-stage"
@@ -102,7 +105,7 @@
                 activeSectionId ? `tone-${activeSection?.tone}` : 'tone-root',
                 { 'is-clickable': !!activeSectionId }
               ]"
-              :aria-label="activeSectionId ? `Return to all areas` : 'Workforce Operations hub'"
+              :aria-label="activeSectionId ? `Return to all areas` : 'School Operations hub'"
               @click="activeSectionId ? goToRoot() : null"
             >
               <div class="hub-center-icon" aria-hidden="true" v-html="centerIcon" />
@@ -184,24 +187,7 @@
 
             <!-- Card satellite (drilled view) -->
             <template v-else>
-              <a
-                v-if="node.external"
-                class="hub-satellite hub-satellite-link hub-satellite--card"
-                :class="[`tone-${node.tone}`, { hovered: hoveredCardId === node.id }]"
-                :href="node.to"
-                target="_blank"
-                rel="noopener noreferrer"
-                :data-tour="node.tour"
-                @mouseenter="hoveredCardId = node.id"
-                @focus="hoveredCardId = node.id"
-              >
-                <div class="hub-satellite-icon" aria-hidden="true" v-html="node.icon" />
-                <div class="hub-satellite-title">{{ node.title }}</div>
-                <p class="hub-satellite-desc">{{ node.shortDesc }}</p>
-                <span class="hub-satellite-pill">{{ node.cta }}</span>
-              </a>
               <router-link
-                v-else
                 class="hub-satellite hub-satellite-link hub-satellite--card"
                 :class="[`tone-${node.tone}`, { hovered: hoveredCardId === node.id }]"
                 :to="node.to"
@@ -232,19 +218,7 @@
                 <div class="hub-preview-title">{{ node.label }}</div>
                 <ul class="hub-preview-list">
                   <li v-for="card in node.cards" :key="card.id">
-                    <a
-                      v-if="card.external"
-                      :href="card.to"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="hub-preview-link"
-                      @click="clearHover"
-                    >
-                      <span class="hub-preview-dot" />
-                      {{ card.title }}
-                      <span v-if="card.count > 0" class="hub-preview-count">{{ card.count }}</span>
-                    </a>
-                    <router-link v-else :to="card.to" class="hub-preview-link" @click="clearHover">
+                    <router-link :to="card.to" class="hub-preview-link" @click="clearHover">
                       <span class="hub-preview-dot" />
                       {{ card.title }}
                       <span v-if="card.count > 0" class="hub-preview-count">{{ card.count }}</span>
@@ -267,26 +241,26 @@
         </p>
       </div>
 
-      <aside v-if="canOpenPrivilegedScheduleTools" class="hub-sidebar">
+      <aside class="hub-sidebar">
         <section class="hub-sidebar-panel">
           <h2>At a glance</h2>
           <ul class="hub-glance-list">
             <li>
-              <span class="glance-dot office" />
-              <span>Office requests</span>
-              <strong>{{ officePending }}</strong>
-              <em>{{ officePending === 1 ? 'Pending' : 'Pending' }}</em>
-            </li>
-            <li>
               <span class="glance-dot school" />
               <span>School requests</span>
               <strong>{{ schoolPending }}</strong>
-              <em>{{ schoolPending === 1 ? 'Pending' : 'Pending' }}</em>
+              <em>Pending</em>
+            </li>
+            <li>
+              <span class="glance-dot office" />
+              <span>School clients</span>
+              <strong>{{ schoolClientsPending }}</strong>
+              <em>Pending</em>
             </li>
             <li>
               <span class="glance-dot total" />
               <span>Total to review</span>
-              <strong>{{ pendingTotal }}</strong>
+              <strong>{{ hubPendingTotal }}</strong>
               <em>Open</em>
             </li>
           </ul>
@@ -295,16 +269,16 @@
         <section class="hub-sidebar-panel">
           <h2>Quick links</h2>
           <div class="hub-quick-links">
-            <router-link :to="officeApprovalsTo" class="hub-quick-link">
-              <span>Approve office requests</span>
-              <span v-if="officePending > 0" class="hub-quick-badge">{{ officePending }}</span>
-            </router-link>
             <router-link :to="schoolApprovalsTo" class="hub-quick-link">
               <span>Approve school requests</span>
               <span v-if="schoolPending > 0" class="hub-quick-badge">{{ schoolPending }}</span>
             </router-link>
-            <router-link :to="orgTo('/schedule/staff')" class="hub-quick-link">Staff schedules</router-link>
-            <router-link :to="orgTo('/my-schedule')" class="hub-quick-link">My calendar</router-link>
+            <router-link :to="orgTo('/admin/school-clients')" class="hub-quick-link">
+              <span>School clients</span>
+              <span v-if="schoolClientsPending > 0" class="hub-quick-badge">{{ schoolClientsPending }}</span>
+            </router-link>
+            <router-link :to="orgTo('/admin/caseload-hub/schools-staff')" class="hub-quick-link">School Management</router-link>
+            <router-link :to="orgTo('/admin/caseload-hub/calendar')" class="hub-quick-link">School calendar</router-link>
           </div>
         </section>
       </aside>
@@ -320,32 +294,18 @@
           </span>
         </h2>
         <div class="hub-mobile-grid">
-          <template v-for="card in section.cards" :key="card.id">
-            <a
-              v-if="card.external"
-              class="hub-mobile-card"
-              :class="[`tone-${card.tone}`]"
-              :href="card.to"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <span v-if="card.count > 0" class="hub-mobile-badge">{{ card.count }}</span>
-              <div class="hub-mobile-icon" v-html="card.icon" />
-              <div class="hub-mobile-title">{{ card.title }}</div>
-              <p>{{ card.desc }}</p>
-            </a>
-            <router-link
-              v-else
-              class="hub-mobile-card"
-              :class="[`tone-${card.tone}`]"
-              :to="card.to"
-            >
+          <router-link
+            v-for="card in section.cards"
+            :key="card.id"
+            class="hub-mobile-card"
+            :class="[`tone-${card.tone}`]"
+            :to="card.to"
+          >
             <span v-if="card.count > 0" class="hub-mobile-badge">{{ card.count }}</span>
             <div class="hub-mobile-icon" v-html="card.icon" />
             <div class="hub-mobile-title">{{ card.title }}</div>
             <p>{{ card.desc }}</p>
           </router-link>
-          </template>
         </div>
       </section>
     </div>
@@ -361,6 +321,8 @@ import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
 import {
   buildHubSwitcherLinks,
+  canSeeSchoolClientsHubCard,
+  canSeeSchoolOpsHubCards,
   workspaceNavContextFromStores
 } from '../utils/workspaceNavAccess.js';
 
@@ -374,41 +336,11 @@ const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
 
 const user = computed(() => authStore.user);
 const actorRole = computed(() => String(user.value?.role || '').toLowerCase());
-const isProviderBusyOnly = computed(() => actorRole.value === 'provider');
-const canOpenPrivilegedScheduleTools = computed(() => !isProviderBusyOnly.value);
-const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0));
-const currentAgencyId = agencyId;
-const officePending = ref(0);
-const schoolPending = ref(0);
-const pendingTotal = computed(() => officePending.value + schoolPending.value);
-
 const isAdmin = computed(() => ['admin', 'super_admin', 'support'].includes(actorRole.value));
-const isTrueAdmin = computed(() => actorRole.value === 'admin' || actorRole.value === 'super_admin');
 const isAffiliationContext = computed(() => {
   const t = String(agencyStore.currentAgency?.organization_type || '').toLowerCase();
   return t === 'affiliation';
 });
-
-const publicAgencySlug = computed(() =>
-  String(
-    agencyStore.currentAgency?.portal_url ||
-    agencyStore.currentAgency?.slug ||
-    orgSlug.value ||
-    ''
-  ).trim()
-);
-
-const publicCareersTo = computed(() =>
-  publicAgencySlug.value ? `/careers/${publicAgencySlug.value}` : '/careers'
-);
-const publicJoinTo = computed(() =>
-  publicAgencySlug.value ? `/join/${publicAgencySlug.value}` : '/join'
-);
-const publicOfficeIntakeTo = computed(() =>
-  publicAgencySlug.value ? `/office-intake/${publicAgencySlug.value}` : '/office-intake'
-);
-
-const canSeePublicFacing = computed(() => !isAffiliationContext.value);
 
 const hubSwitcherLinks = computed(() => {
   const ctx = workspaceNavContextFromStores({
@@ -420,44 +352,29 @@ const hubSwitcherLinks = computed(() => {
   });
   return buildHubSwitcherLinks({
     ...ctx,
-    currentSurface: 'workforce'
+    currentSurface: 'school'
   });
 });
+const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0));
 
-const canSeePayrollManagement = computed(() => {
-  if (user.value?.role === 'super_admin') return true;
-  const caps = user.value?.capabilities || {};
-  if (!caps.canManagePayroll) return false;
-  const ids = Array.isArray(user.value?.payrollAgencyIds) ? user.value.payrollAgencyIds : [];
-  if (!currentAgencyId.value) return false;
-  return ids.includes(currentAgencyId.value);
-});
+const schoolHubAccessCtx = computed(() => workspaceNavContextFromStores({
+  role: actorRole.value,
+  slug: orgSlug.value,
+  agency: agencyStore.currentAgency,
+  branding: brandingStore,
+  isAffiliationContext: isAffiliationContext.value
+}));
 
-const canSeeCredentialing = computed(() => {
-  if (user.value?.role === 'super_admin') return true;
-  const caps = user.value?.capabilities || {};
-  if (!caps.canManageCredentialing) return false;
-  const ids = Array.isArray(user.value?.credentialingAgencyIds) ? user.value.credentialingAgencyIds : [];
-  if (!currentAgencyId.value) return false;
-  return ids.includes(currentAgencyId.value);
-});
+const canSeeSchoolOpsContent = computed(() => canSeeSchoolOpsHubCards(schoolHubAccessCtx.value));
 
-const canSeeProviderAvailability = computed(() =>
-  ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'provider_plus', 'staff'].includes(actorRole.value)
-  && !isAffiliationContext.value
-);
+const canSeeSchoolClients = computed(() => canSeeSchoolClientsHubCard(schoolHubAccessCtx.value));
 
-const canSeeGearInventory = computed(() =>
-  (isAdmin.value || actorRole.value === 'clinical_practice_assistant' || actorRole.value === 'provider_plus')
-  && !isAffiliationContext.value
-);
+const canSeeHub = computed(() => canSeeSchoolOpsContent.value);
 
-const canSeeProviderBooking = computed(() =>
-  (isAdmin.value || actorRole.value === 'clinical_practice_assistant' || actorRole.value === 'provider_plus')
-  && !isAffiliationContext.value
-);
-
-const canSeeFacilitatorAvailability = computed(() => isAdmin.value && !isAffiliationContext.value);
+const schoolPending = ref(0);
+const schoolClientsPending = ref(0);
+const hubPendingTotal = computed(() => schoolPending.value + schoolClientsPending.value);
+const MIN_PENDING_CLIENT_DATE = '2026-02-01';
 
 const formatNotificationCount = (n) => {
   const v = Number(n) || 0;
@@ -511,414 +428,176 @@ const schoolApprovalsTo = computed(() => ({
   }
 }));
 
-const officeApprovalsTo = computed(() => ({
-  path: orgTo('/admin/office-approvals'),
-  query: agencyId.value ? { agencyId: String(agencyId.value) } : {}
-}));
-
-const providerManagementTo = computed(() => ({
-  path: orgTo('/admin/provider-availability'),
-  query: agencyId.value ? { agencyId: String(agencyId.value) } : {}
-}));
-
-const adminMeetingsTo = computed(() => ({
-  path: orgTo('/admin/admin-meetings'),
-  query: agencyId.value ? { agencyId: String(agencyId.value) } : {}
-}));
-
 const icon = {
-  hub: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="9"/><path d="M8 12h8M12 8v8" stroke-linecap="round"/></svg>',
-  calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4" stroke-linecap="round"/></svg>',
+  hub: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="m12 3 9 5-9 5-9-5 9-5z"/><path d="M5 10v5c0 1.5 3 3 7 3s7-1.5 7-3v-5M12 13v8" stroke-linecap="round"/></svg>',
+  school: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="m12 3 9 5-9 5-9-5 9-5z"/><path d="M5 10v5c0 1.5 3 3 7 3s7-1.5 7-3v-5M12 13v8" stroke-linecap="round"/></svg>',
   people: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke-linecap="round"/></svg>',
   ticket: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 1 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 1 0 0-4V9z"/></svg>',
-  compare: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M12 8v8" stroke-linecap="round"/></svg>',
-  building: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 21V5a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v16M14 10h5a1 1 0 0 1 1 1v10M8 8h2M8 12h2M8 16h2M17 14h1M17 18h1"/></svg>',
-  mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6" stroke-linecap="round"/></svg>',
-  school: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="m12 3 9 5-9 5-9-5 9-5z"/><path d="M5 10v5c0 1.5 3 3 7 3s7-1.5 7-3v-5M12 13v8" stroke-linecap="round"/></svg>',
-  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round"/></svg>',
-  shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   calEvent: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4M8 14h4M8 17h6" stroke-linecap="round"/></svg>',
-  dollar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  receipt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 2v20l3-2 3 2 3-2 3 2 3-2 3 2V2l-3 2-3-2-3 2-3-2-3 2-3-2z"/><path d="M8 10h8M8 14h5" stroke-linecap="round"/></svg>',
-  audit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8 11h6M11 8v6" stroke-linecap="round"/></svg>',
-  badge: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 15a6 6 0 1 0 0-12 6 6 0 0 0 0 12z"/><path d="M8.2 13.5 7 22l5-3 5 3-1.2-8.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  clipboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h4" stroke-linecap="round"/></svg>',
-  package: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="m16.5 9.4-9-5.2M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7 12 12l8.7-5M12 22V12" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  booking: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5" stroke-linecap="round"/><path d="M8 11h6M11 8v6" stroke-linecap="round"/></svg>',
-  globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" stroke-linecap="round"/></svg>',
-  briefcase: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M12 12v3" stroke-linecap="round"/></svg>',
-  door: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M5 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M9 21h6M12 11v2" stroke-linecap="round"/></svg>'
+  shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  portal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 13h6" stroke-linecap="round"/></svg>',
+  clients: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v1"/><path d="M16 11h5M18.5 8.5v5" stroke-linecap="round"/></svg>',
+  year: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/><path d="M12 3v2M12 19v2" stroke-linecap="round"/></svg>',
+  collab: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke-linecap="round"/></svg>',
+  approve: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  onboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/><path d="M7 8h10M7 11h6" stroke-linecap="round"/></svg>'
 };
 
 const allSections = computed(() => [
   {
-    id: 'staff-scheduling',
-    label: 'Staff & Scheduling',
-    desc: 'Manage staff, schedules, shifts, and meetings.',
+    id: 'caseloads-staffing',
+    label: 'Caseloads & Staffing',
+    desc: 'School caseloads, coverage, and year updates.',
     tone: 'blue',
-    icon: icon.people,
+    icon: icon.school,
     cards: [
       {
-        id: 'staff',
-        title: 'Staff schedules (compare)',
-        shortDesc: 'Compare provider schedules side by side.',
-        desc: isProviderBusyOnly.value
-          ? 'See coworker busy blocks across your agencies (details hidden).'
-          : 'Select multiple providers and compare schedules; reorder and view two+ at once.',
+        id: 'school-mgmt',
+        title: 'School Management',
+        shortDesc: 'Caseloads, coverage, and open spots.',
+        desc: 'Caseloads by school or person, coverage warnings, open spots, and year-update campaigns.',
         cta: 'Open →',
-        to: orgTo('/schedule/staff'),
-        tone: 'orange',
-        icon: icon.compare,
-        tour: 'schedule-hub-card-staff',
-        show: true,
+        to: orgTo('/admin/caseload-hub/schools-staff'),
+        tone: 'blue',
+        icon: icon.school,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
         count: 0
       },
       {
-        id: 'events',
-        title: 'Event shift requests',
-        shortDesc: 'Request program-event sessions.',
-        desc: 'Request to work upcoming program-event sessions (regular, waitlist, or on-call).',
+        id: 'provider-year-update',
+        title: 'Provider Year Update',
+        shortDesc: 'Year-update campaigns for providers.',
+        desc: 'Launch and track provider year-update campaigns across schools.',
         cta: 'Open →',
-        to: orgTo('/schedule/event-staffing'),
+        to: orgTo('/admin/provider-year-update'),
+        tone: 'amber',
+        icon: icon.year,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: 0
+      },
+      {
+        id: 'collaborative-year-update',
+        title: 'Collaborative Year Update',
+        shortDesc: 'Track school progress and scores.',
+        desc: 'Track school progress, scores, and addendums. Push updates to all affiliated schools.',
+        cta: 'Open →',
+        to: orgTo('/admin/schools/overview?orgType=school&yearUpdate=1'),
+        tone: 'teal',
+        icon: icon.collab,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: 0
+      },
+      {
+        id: 'approve-school-requests',
+        title: 'Approve School Requests',
+        shortDesc: 'Schedule adjustments and extra hours.',
+        desc: 'Review schedule adjustments and additional school-hour requests with current vs requested details.',
+        cta: schoolPending.value > 0 ? `Review ${schoolPending.value} →` : 'Open →',
+        to: schoolApprovalsTo.value,
+        tone: 'orange',
+        icon: icon.approve,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: schoolPending.value
+      }
+    ].filter((c) => c.show)
+  },
+  {
+    id: 'events-calendar',
+    label: 'Events & Calendar',
+    desc: 'School events, assignments, and calendars.',
+    tone: 'amber',
+    icon: icon.calEvent,
+    cards: [
+      {
+        id: 'school-events',
+        title: 'School Events',
+        shortDesc: 'Program events and provider assignments.',
+        desc: 'Manage school-program events, provider assignments, requests, and archived records.',
+        cta: 'Open →',
+        to: orgTo('/admin/caseload-hub/events'),
         tone: 'amber',
         icon: icon.ticket,
         tour: null,
-        show: canOpenPrivilegedScheduleTools.value,
+        show: canSeeSchoolOpsContent.value,
         count: 0
       },
       {
-        id: 'provider-mgmt',
-        title: 'Provider Management',
-        shortDesc: 'Slots, availability, ratios, and kudos.',
-        desc: 'School slots, office & virtual availability, payroll ratios, app usage, and kudos — by agency.',
+        id: 'school-calendar',
+        title: 'School Events Calendar',
+        shortDesc: 'Month, week, and list views.',
+        desc: 'Month, week, and list views of school events with filters and quick add.',
         cta: 'Open →',
-        to: providerManagementTo.value,
-        tone: 'blue',
-        icon: icon.people,
-        tour: 'schedule-hub-card-provider-management',
-        show: canOpenPrivilegedScheduleTools.value,
-        count: 0
-      },
-      {
-        id: 'meetings',
-        title: 'Meetings',
-        shortDesc: 'Admin meetings, huddles, and history.',
-        desc: 'Admin meetings, huddles, and leadership sessions — attendance logs, transcripts, summaries, and full history. Access varies by role.',
-        cta: 'Open →',
-        to: adminMeetingsTo.value,
-        tone: 'green',
-        icon: icon.people,
-        tour: 'schedule-hub-card-admin-meetings',
-        show: canOpenPrivilegedScheduleTools.value,
-        count: 0
-      },
-      {
-        id: 'provider-availability',
-        title: 'Provider Availability',
-        shortDesc: 'Provider slots and availability.',
-        desc: 'School slots, office and virtual availability, ratios, and usage by agency.',
-        cta: 'Open →',
-        to: providerManagementTo.value,
-        tone: 'teal',
-        icon: icon.calendar,
-        tour: null,
-        show: canSeeProviderAvailability.value,
-        count: 0
-      },
-      {
-        id: 'facilitator-availability',
-        title: 'Facilitator Availability',
-        shortDesc: 'Facilitator schedule intake.',
-        desc: 'Manage facilitator availability submissions and review.',
-        cta: 'Open →',
-        to: orgTo('/admin/facilitator-availability'),
-        tone: 'slate',
-        icon: icon.people,
-        tour: null,
-        show: canSeeFacilitatorAvailability.value,
-        count: 0
-      },
-      {
-        id: 'gear-inventory',
-        title: 'Gear & Inventory',
-        shortDesc: 'Equipment and inventory tracking.',
-        desc: 'Track gear assignments, inventory, and equipment across the agency.',
-        cta: 'Open →',
-        to: orgTo('/admin/gear-inventory'),
-        tone: 'cyan',
-        icon: icon.package,
-        tour: null,
-        show: canSeeGearInventory.value,
-        count: 0
-      },
-      {
-        id: 'provider-booking',
-        title: 'Provider Booking Interface',
-        shortDesc: 'Search and book available providers.',
-        desc: 'Find and book available providers across agencies using the provider booking interface.',
-        cta: 'Open →',
-        to: orgTo('/admin/find-providers'),
+        to: orgTo('/admin/caseload-hub/calendar'),
         tone: 'rose',
-        icon: icon.booking,
+        icon: icon.calEvent,
         tour: null,
-        show: canSeeProviderBooking.value,
+        show: canSeeSchoolOpsContent.value,
         count: 0
       }
     ].filter((c) => c.show)
   },
   {
-    id: 'payroll-expenses',
-    label: 'Payroll & Expenses',
-    desc: 'Payroll runs, submissions, and expense reimbursements.',
-    tone: 'orange',
-    icon: icon.dollar,
-    cards: [
-      {
-        id: 'payroll',
-        title: 'Payroll',
-        shortDesc: 'Runs, pending submissions, and pay.',
-        desc: 'Payroll runs, pending submissions, PTO, mileage, and reimbursement review.',
-        cta: 'Open →',
-        to: orgTo('/admin/payroll'),
-        tone: 'orange',
-        icon: icon.dollar,
-        tour: null,
-        show: canSeePayrollManagement.value,
-        count: 0
-      },
-      {
-        id: 'expenses',
-        title: 'Expense/Reimbursements',
-        shortDesc: 'Expenses and reimbursement claims.',
-        desc: 'Review expense and reimbursement submissions tied to payroll workflows.',
-        cta: 'Open →',
-        to: orgTo('/admin/expenses'),
-        tone: 'amber',
-        icon: icon.receipt,
-        tour: null,
-        show: canSeePayrollManagement.value,
-        count: 0
-      }
-    ].filter((c) => c.show)
-  },
-  {
-    id: 'billing-revenue',
-    label: 'Billing & Revenue',
-    desc: 'Billing reports, receivables, medical billing, and revenue.',
-    tone: 'teal',
-    icon: icon.receipt,
-    cards: [
-      {
-        id: 'billing-reports',
-        title: 'Billing Reports',
-        shortDesc: 'Billing report exports and review.',
-        desc: 'Generate and review billing reports for payroll and finance workflows.',
-        cta: 'Open →',
-        to: orgTo('/admin/billing-reports'),
-        tone: 'teal',
-        icon: icon.receipt,
-        tour: null,
-        show: canSeePayrollManagement.value,
-        count: 0
-      },
-      {
-        id: 'receivables',
-        title: 'Receivables',
-        shortDesc: 'Outstanding receivables tracking.',
-        desc: 'Track receivables and outstanding balances across agencies.',
-        cta: 'Open →',
-        to: orgTo('/admin/receivables'),
-        tone: 'blue',
-        icon: icon.clipboard,
-        tour: null,
-        show: canSeePayrollManagement.value,
-        count: 0
-      },
-      {
-        id: 'revenue',
-        title: 'Revenue',
-        shortDesc: 'Agency revenue tracking.',
-        desc: 'Track and review agency revenue data, trends, and financial performance.',
-        cta: 'Open →',
-        to: orgTo('/admin/revenue'),
-        tone: 'amber',
-        icon: icon.dollar,
-        tour: null,
-        show: user.value?.role === 'super_admin',
-        count: 0
-      }
-    ].filter((c) => c.show)
-  },
-  {
-    id: 'compliance-oversight',
-    label: 'Compliance & Oversight',
-    desc: 'Credentialing, audits, compliance tools, and executive reporting.',
-    tone: 'amber',
-    icon: icon.shield,
-    cards: [
-      {
-        id: 'credentialing',
-        title: 'Credentialing',
-        shortDesc: 'Licenses and credentials.',
-        desc: 'Agency credentialing workflows, licenses, and verification status.',
-        cta: 'Open →',
-        to: orgTo('/admin/credentialing'),
-        tone: 'amber',
-        icon: icon.badge,
-        tour: null,
-        show: canSeeCredentialing.value,
-        count: 0
-      },
-      {
-        id: 'psychotherapy-compliance',
-        title: 'Psychotherapy Compliance',
-        shortDesc: 'Psychotherapy CPT compliance.',
-        desc: 'Upload billing reports and track psychotherapy compliance thresholds.',
-        cta: 'Open →',
-        to: orgTo('/admin/psychotherapy-compliance'),
-        tone: 'slate',
-        icon: icon.shield,
-        tour: null,
-        show: canSeePayrollManagement.value,
-        count: 0
-      },
-      {
-        id: 'compliance-corner',
-        title: 'Compliance Corner',
-        shortDesc: 'School compliance inquiry tools.',
-        desc: 'Compliance inquiry tools including pending school clients and access logs.',
-        cta: 'Open →',
-        to: orgTo('/admin/compliance-corner'),
-        tone: 'blue',
-        icon: icon.shield,
-        tour: null,
-        show: isTrueAdmin.value && !isAffiliationContext.value,
-        count: 0
-      },
-      {
-        id: 'audit-center',
-        title: 'Audit Center',
-        shortDesc: 'Immutable audit and activity logs.',
-        desc: 'Agency-scoped audit reporting with filters by source, category, action, and date.',
-        cta: 'Open →',
-        to: orgTo('/admin/audit-center'),
-        tone: 'rose',
-        icon: icon.audit,
-        tour: null,
-        show: isTrueAdmin.value && !isAffiliationContext.value,
-        count: 0
-      },
-      {
-        id: 'executive-report',
-        title: 'Executive Report',
-        shortDesc: 'High-level financial and ops report.',
-        desc: 'Top-level executive summary of agency financials, operations, and performance.',
-        cta: 'Open →',
-        to: orgTo('/admin/executive-report'),
-        tone: 'orange',
-        icon: icon.clipboard,
-        tour: null,
-        show: user.value?.role === 'super_admin',
-        count: 0
-      }
-    ].filter((c) => c.show)
-  },
-  {
-    id: 'public-facing',
-    label: 'Public & Community',
-    desc: 'Shareable pages for careers, new client intake, and community outreach.',
+    id: 'portals-onboarding',
+    label: 'Portals & Onboarding',
+    desc: 'Portals, onboarding, and school clients.',
     tone: 'green',
-    icon: icon.globe,
+    icon: icon.portal,
     cards: [
       {
-        id: 'public-careers',
-        title: 'Careers Page',
-        shortDesc: 'Open roles and team applications.',
-        desc: 'Your public careers hub — open positions, culture highlights, and job applications for prospective team members.',
-        cta: 'View site ↗',
-        to: publicCareersTo.value,
+        id: 'school-overview',
+        title: 'School Portals Overview',
+        shortDesc: 'School overview and metrics.',
+        desc: 'Overview dashboard for school portals, metrics, and staffing snapshots.',
+        cta: 'Open →',
+        to: orgTo('/admin/schools/overview?orgType=school'),
         tone: 'green',
-        icon: icon.briefcase,
+        icon: icon.portal,
         tour: null,
-        show: canSeePublicFacing.value,
-        external: true,
+        show: canSeeSchoolOpsContent.value,
         count: 0
       },
       {
-        id: 'public-office-join',
-        title: 'Office Join',
-        shortDesc: 'Adaptive intake for new clients.',
-        desc: 'The public entry point where families choose a service and start the office intake flow — counseling, tutoring, and more.',
-        cta: 'View site ↗',
-        to: publicJoinTo.value,
+        id: 'all-school-portals',
+        title: 'All School Portals',
+        shortDesc: 'Browse every school portal.',
+        desc: 'Open the full list of school portals for this agency.',
+        cta: 'Open →',
+        to: orgTo('/admin/school-portals'),
         tone: 'teal',
-        icon: icon.door,
+        icon: icon.school,
         tour: null,
-        show: canSeePublicFacing.value,
-        external: true,
+        show: canSeeSchoolOpsContent.value,
         count: 0
       },
       {
-        id: 'public-office-intake',
-        title: 'Office Appointment Request',
-        shortDesc: 'Quick scheduling interest form.',
-        desc: 'A lightweight public form for scheduling interest — captures contact info and preferences before your team follows up.',
-        cta: 'View site ↗',
-        to: publicOfficeIntakeTo.value,
-        tone: 'blue',
-        icon: icon.calendar,
-        tour: null,
-        show: canSeePublicFacing.value,
-        external: true,
-        count: 0
-      }
-    ].filter((c) => c.show)
-  },
-  {
-    id: 'office-buildings',
-    label: 'Office & Buildings',
-    desc: 'Manage buildings, offices, requests, and settings.',
-    tone: 'slate',
-    icon: icon.building,
-    cards: [
-      {
-        id: 'buildings-grid',
-        title: 'Buildings master grid',
-        shortDesc: 'Building-centric room schedule.',
-        desc: 'All rooms in a building — building-centric schedule view (find availability, company holds).',
+        id: 'school-onboarding',
+        title: 'Onboarding',
+        shortDesc: 'School onboarding administration.',
+        desc: 'Manage school onboarding workflows, review submissions, and track onboarding status.',
         cta: 'Open →',
-        to: orgTo('/buildings/schedule'),
+        to: orgTo('/admin/school-onboarding'),
         tone: 'blue',
-        icon: icon.building,
-        tour: 'schedule-hub-card-buildings-schedule',
-        show: canOpenPrivilegedScheduleTools.value,
+        icon: icon.onboard,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
         count: 0
       },
       {
-        id: 'office',
-        title: 'Approve office requests',
-        shortDesc: 'Office requests and TN conflicts.',
-        desc: 'Dedicated inbox for office requests and reported Therapy Notes coverage conflicts.',
-        cta: officePending.value > 0 ? `Review ${officePending.value} →` : 'Open →',
-        to: officeApprovalsTo.value,
+        id: 'school-clients',
+        title: 'School Clients',
+        shortDesc: 'Pending school client onboarding.',
+        desc: 'Track pending school clients and ROI expiration status.',
+        cta: schoolClientsPending.value > 0 ? `Review ${schoolClientsPending.value} →` : 'Open →',
+        to: orgTo('/admin/school-clients'),
         tone: 'orange',
-        icon: icon.mail,
-        tour: 'schedule-hub-card-approvals',
-        show: canOpenPrivilegedScheduleTools.value,
-        count: officePending.value
-      },
-      {
-        id: 'buildings-admin',
-        title: 'Buildings settings',
-        shortDesc: 'Buildings, review workflows, settings.',
-        desc: 'Building selection, review workflows, and building settings.',
-        cta: 'Open →',
-        to: orgTo('/buildings'),
-        tone: 'cyan',
-        icon: icon.gear,
-        tour: 'schedule-hub-card-buildings-admin',
-        show: canOpenPrivilegedScheduleTools.value,
-        count: 0
+        icon: icon.clients,
+        tour: null,
+        show: canSeeSchoolClients.value,
+        count: schoolClientsPending.value
       }
     ].filter((c) => c.show)
   }
@@ -930,11 +609,11 @@ const activeSection = computed(() =>
   visibleSections.value.find((s) => s.id === activeSectionId.value) || null
 );
 
-const centerTitle = computed(() => (activeSection.value ? activeSection.value.label : 'Workforce Operations'));
+const centerTitle = computed(() => (activeSection.value ? activeSection.value.label : 'School Operations'));
 const centerDesc = computed(() =>
   activeSection.value
     ? activeSection.value.desc
-    : 'Everything connected. Everything in sync.'
+    : 'Schools, portals, events, and requests — connected.'
 );
 const centerIcon = computed(() => (activeSection.value ? activeSection.value.icon : icon.hub));
 
@@ -964,7 +643,6 @@ const orbitNodes = computed(() => {
 const ORBIT_RADIUS_SVG = 195;
 const SVG_CENTER = 300;
 
-/** Deterministic scatter — stable positions, feels random. */
 function hubRand(seed) {
   return ((seed * 9301 + 49297) % 233280) / 233280;
 }
@@ -987,7 +665,6 @@ const ambientDots = Array.from({ length: 32 }, (_, i) => {
   };
 });
 
-/** Shared polar layout — keeps satellites on the same ring as the SVG connectors. */
 function getOrbitLayout(idx, count) {
   const startAngle = -90;
   const angleDeg = startAngle + (360 / count) * idx;
@@ -1022,7 +699,6 @@ const orbitStyle = (idx, count) => {
 
 const previewPosition = (idx, count) => {
   const { angleDeg } = getOrbitLayout(idx, count);
-  // Top of the orbit: open sideways so the preview isn't clipped by the page header
   if (angleDeg >= -135 && angleDeg <= -45) {
     return angleDeg < -90 ? 'right' : 'left';
   }
@@ -1056,17 +732,28 @@ const clearHover = () => {
 };
 
 const loadPendingCounts = async () => {
-  if (!canOpenPrivilegedScheduleTools.value) return;
+  if (!canSeeHub.value) return;
   try {
     const { data } = await api.get('/availability/admin/pending-counts', {
       params: agencyId.value ? { agencyId: agencyId.value } : undefined,
       skipGlobalLoading: true
     });
-    officePending.value = Number(data?.officeRequestsPending || 0);
     schoolPending.value = Number(data?.schoolRequestsPending || 0);
   } catch {
-    officePending.value = 0;
     schoolPending.value = 0;
+  }
+  if (agencyId.value && canSeeSchoolClients.value) {
+    try {
+      const { data } = await api.get('/compliance-corner/pending-clients', {
+        params: { agencyId: agencyId.value, minPendingEnteredAt: MIN_PENDING_CLIENT_DATE },
+        skipGlobalLoading: true
+      });
+      schoolClientsPending.value = Number(data?.count || 0);
+    } catch {
+      schoolClientsPending.value = 0;
+    }
+  } else {
+    schoolClientsPending.value = 0;
   }
 };
 
@@ -1078,11 +765,11 @@ watch(visibleSections, (sections) => {
 });
 onMounted(() => {
   loadPendingCounts();
-  // If landing on the slug-less flat route but a tenant is selected in the store,
-  // silently redirect to the org-scoped URL so refresh keeps the tenant context.
+  // Silently redirect to the org-scoped URL on mount if a tenant is active
+  // but the URL is the flat slug-less route. This preserves tenant context on refresh.
   if (!route.params.organizationSlug && agencyStore.currentAgency) {
     const slug = agencyStore.currentAgency.slug || agencyStore.currentAgency.portal_url;
-    if (slug) router.replace(`/${slug}/workforce-operations`);
+    if (slug) router.replace(`/${slug}/school-operations`);
   }
 });
 </script>
@@ -1104,8 +791,8 @@ onMounted(() => {
   min-height: calc(100vh - 72px);
   min-height: calc(100dvh - 72px);
   background:
-    radial-gradient(circle at 20% 10%, rgba(15, 118, 110, 0.05), transparent 40%),
-    radial-gradient(circle at 80% 20%, rgba(30, 58, 138, 0.04), transparent 35%),
+    radial-gradient(circle at 20% 10%, rgba(34, 197, 94, 0.05), transparent 40%),
+    radial-gradient(circle at 80% 20%, rgba(20, 184, 166, 0.04), transparent 35%),
     radial-gradient(circle at 50% 90%, rgba(14, 116, 144, 0.04), transparent 40%),
     var(--hub-bg);
   overflow: hidden;
@@ -1135,8 +822,8 @@ onMounted(() => {
     box-shadow: 0 0 10px rgba(34, 197, 94, 0.55);
   }
   66% {
-    background: #2563eb;
-    box-shadow: 0 0 10px rgba(37, 99, 235, 0.55);
+    background: #3b82f6;
+    box-shadow: 0 0 10px rgba(59, 130, 246, 0.55);
   }
 }
 @keyframes hub-dot-float {
@@ -1235,19 +922,26 @@ onMounted(() => {
 }
 
 .hub-alert {
-  display: flex; justify-content: space-between; gap: 16px;
+  display: flex; justify-content: space-between; gap: 10px;
   align-items: center; flex-wrap: wrap;
-  margin: 0 0 20px; padding: 14px 16px;
-  border: 1px solid #fecaca; border-radius: 16px; background: #fef2f2;
+  margin: 0 0 16px; padding: 9px 14px;
+  border: 1px solid #fecaca; border-radius: 12px; background: #fef2f2;
 }
-.hub-alert-copy { display: flex; flex-direction: column; gap: 2px; }
-.hub-alert-copy strong { color: #991b1b; font-size: 15px; }
-.hub-alert-copy span { color: #b91c1c; font-size: 13px; }
-.hub-alert-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hub-alert-copy strong { color: #991b1b; font-size: 13px; font-weight: 700; }
+.hub-alert-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .hub-pill {
-  display: inline-flex; padding: 5px 10px; border-radius: 999px;
+  display: inline-flex; padding: 4px 10px; border-radius: 999px;
   background: #fff; border: 1px solid #fecaca;
   color: #991b1b; font-size: 12px; font-weight: 700;
+}
+.hub-pill-link {
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.hub-pill-link:hover {
+  background: #fee2e2;
+  border-color: #f87171;
 }
 
 .hub-layout {
@@ -1398,12 +1092,12 @@ onMounted(() => {
   height: 100%;
   aspect-ratio: 1;
   border-radius: 50%;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #e9d5ff;
   background:
     radial-gradient(circle at 50% 30%, #f8fafc 0%, #ffffff 58%);
   box-shadow:
     0 0 0 8px rgba(255, 255, 255, 0.65),
-    0 0 48px rgba(14, 116, 144, 0.12),
+    0 0 48px rgba(14, 116, 144, 0.14),
     0 20px 50px rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
@@ -1420,7 +1114,7 @@ onMounted(() => {
   transform: scale(1.02);
   box-shadow:
     0 0 0 8px rgba(255, 255, 255, 0.75),
-    0 0 56px rgba(14, 116, 144, 0.18),
+    0 0 56px rgba(14, 116, 144, 0.2),
     0 24px 56px rgba(15, 23, 42, 0.12);
 }
 .hub-center.is-clickable {
@@ -1431,8 +1125,8 @@ onMounted(() => {
   background: radial-gradient(circle at 50% 30%, #f8fafc 0%, #ffffff 58%);
   box-shadow:
     0 0 0 8px rgba(255, 255, 255, 0.65),
-    0 0 48px rgba(100, 116, 139, 0.16),
-    0 20px 50px rgba(15, 23, 42, 0.08);
+    0 0 48px rgba(14, 116, 144, 0.2),
+    0 20px 50px rgba(14, 116, 144, 0.1);
 }
 .hub-center.tone-green {
   border-color: #bbf7d0;
@@ -1450,37 +1144,28 @@ onMounted(() => {
     0 0 48px rgba(59, 130, 246, 0.2),
     0 20px 50px rgba(59, 130, 246, 0.1);
 }
-.hub-center.tone-orange {
-  border-color: #fdba74;
-  background: radial-gradient(circle at 50% 30%, #fff7ed 0%, #ffffff 58%);
+.hub-center.tone-root .hub-center-icon { background: #ecfdf5; color: #16a34a; }
+.hub-center.tone-indigo {
+  border-color: #c7d2fe;
+  background: radial-gradient(circle at 50% 30%, #ecfeff 0%, #ffffff 58%);
   box-shadow:
     0 0 0 8px rgba(255, 255, 255, 0.65),
-    0 0 48px rgba(249, 115, 22, 0.2),
-    0 20px 50px rgba(249, 115, 22, 0.1);
+    0 0 48px rgba(14, 116, 144, 0.2),
+    0 20px 50px rgba(14, 116, 144, 0.1);
 }
-.hub-center.tone-root .hub-center-icon { background: #f1f5f9; color: #475569; }
-.hub-center.tone-purple .hub-center-icon { background: #f1f5f9; color: #475569; }
-.hub-center.tone-green .hub-center-icon { background: #ecfdf5; color: #16a34a; }
-.hub-center.tone-blue .hub-center-icon { background: #eff6ff; color: #2563eb; }
-.hub-center.tone-orange .hub-center-icon { background: #fff7ed; color: #c2410c; }
 .hub-center.tone-teal {
   border-color: #99f6e4;
   background: radial-gradient(circle at 50% 30%, #f0fdfa 0%, #ffffff 58%);
   box-shadow:
     0 0 0 8px rgba(255, 255, 255, 0.65),
     0 0 48px rgba(20, 184, 166, 0.2),
-    0 8px 32px rgba(15, 118, 110, 0.1);
+    0 20px 50px rgba(20, 184, 166, 0.1);
 }
-.hub-center.tone-indigo {
-  border-color: #99f6e4;
-  background: radial-gradient(circle at 50% 30%, #ecfeff 0%, #ffffff 58%);
-  box-shadow:
-    0 0 0 8px rgba(255, 255, 255, 0.65),
-    0 0 48px rgba(14, 116, 144, 0.18),
-    0 8px 32px rgba(15, 118, 110, 0.1);
-}
-.hub-center.tone-teal .hub-center-icon { background: #f0fdfa; color: #0f766e; }
 .hub-center.tone-indigo .hub-center-icon { background: #ecfeff; color: #0e7490; }
+.hub-center.tone-teal .hub-center-icon { background: #f0fdfa; color: #0f766e; }
+.hub-center.tone-purple .hub-center-icon { background: #f8fafc; color: #475569; }
+.hub-center.tone-green .hub-center-icon { background: #ecfdf5; color: #16a34a; }
+.hub-center.tone-blue .hub-center-icon { background: #eff6ff; color: #2563eb; }
 
 .hub-center-icon {
   width: 52px; height: 52px; border-radius: 16px;
@@ -1536,7 +1221,7 @@ onMounted(() => {
   opacity: 0.9;
 }
 .hub-orbit-node.tone-purple::before {
-  background: radial-gradient(circle, rgba(100, 116, 139, 0.28) 0%, rgba(100, 116, 139, 0.1) 42%, transparent 72%);
+  background: radial-gradient(circle, rgba(100, 116, 139, 0.38) 0%, rgba(100, 116, 139, 0.12) 42%, transparent 72%);
 }
 .hub-orbit-node.tone-green::before {
   background: radial-gradient(circle, rgba(74, 222, 128, 0.38) 0%, rgba(74, 222, 128, 0.12) 42%, transparent 72%);
@@ -1548,7 +1233,7 @@ onMounted(() => {
   background: radial-gradient(circle, rgba(251, 146, 60, 0.34) 0%, rgba(251, 146, 60, 0.1) 42%, transparent 72%);
 }
 .hub-orbit-node.tone-indigo::before {
-  background: radial-gradient(circle, rgba(14, 116, 144, 0.3) 0%, rgba(14, 116, 144, 0.1) 42%, transparent 72%);
+  background: radial-gradient(circle, rgba(14, 116, 144, 0.34) 0%, rgba(14, 116, 144, 0.1) 42%, transparent 72%);
 }
 .hub-orbit-node.tone-teal::before {
   background: radial-gradient(circle, rgba(45, 212, 191, 0.34) 0%, rgba(45, 212, 191, 0.1) 42%, transparent 72%);
@@ -1582,12 +1267,12 @@ onMounted(() => {
   color: inherit;
 }
 .hub-satellite.tone-purple {
-  border-color: #cbd5e1;
+  border-color: #c4b5fd;
   background: radial-gradient(circle at 50% 28%, #f8fafc 0%, #ffffff 65%);
   box-shadow:
-    0 0 0 5px rgba(100, 116, 139, 0.1),
-    0 0 28px rgba(71, 85, 105, 0.14),
-    0 12px 28px rgba(15, 23, 42, 0.06);
+    0 0 0 5px rgba(100, 116, 139, 0.14),
+    0 0 28px rgba(14, 116, 144, 0.22),
+    0 12px 28px rgba(14, 116, 144, 0.1);
 }
 .hub-satellite.tone-green {
   border-color: #86efac;
@@ -1614,12 +1299,12 @@ onMounted(() => {
     0 12px 28px rgba(249, 115, 22, 0.08);
 }
 .hub-satellite.tone-indigo {
-  border-color: #99f6e4;
+  border-color: #a5b4fc;
   background: radial-gradient(circle at 50% 28%, #ecfeff 0%, #ffffff 65%);
   box-shadow:
-    0 0 0 5px rgba(14, 116, 144, 0.1),
-    0 0 28px rgba(14, 116, 144, 0.16),
-    0 12px 28px rgba(15, 118, 110, 0.08);
+    0 0 0 5px rgba(14, 116, 144, 0.12),
+    0 0 28px rgba(14, 116, 144, 0.18),
+    0 12px 28px rgba(14, 116, 144, 0.08);
 }
 .hub-satellite.tone-teal {
   border-color: #5eead4;
@@ -1638,9 +1323,9 @@ onMounted(() => {
 .hub-satellite.tone-purple:hover,
 .hub-satellite.tone-purple.hovered {
   box-shadow:
-    0 0 0 7px rgba(100, 116, 139, 0.14),
-    0 0 40px rgba(71, 85, 105, 0.2),
-    0 18px 36px rgba(15, 23, 42, 0.1);
+    0 0 0 7px rgba(100, 116, 139, 0.2),
+    0 0 40px rgba(14, 116, 144, 0.32),
+    0 18px 36px rgba(14, 116, 144, 0.14);
 }
 .hub-satellite.tone-green:hover,
 .hub-satellite.tone-green.hovered {
@@ -1666,9 +1351,9 @@ onMounted(() => {
 .hub-satellite.tone-indigo:hover,
 .hub-satellite.tone-indigo.hovered {
   box-shadow:
-    0 0 0 7px rgba(14, 116, 144, 0.16),
-    0 0 40px rgba(14, 116, 144, 0.24),
-    0 18px 36px rgba(15, 118, 110, 0.1);
+    0 0 0 7px rgba(14, 116, 144, 0.18),
+    0 0 40px rgba(14, 116, 144, 0.28),
+    0 18px 36px rgba(14, 116, 144, 0.12);
 }
 .hub-satellite.tone-teal:hover,
 .hub-satellite.tone-teal.hovered {
@@ -1683,7 +1368,7 @@ onMounted(() => {
   display: grid; place-items: center; margin-bottom: 8px;
 }
 .hub-satellite-icon :deep(svg) { width: 20px; height: 20px; }
-.tone-purple .hub-satellite-icon { background: #f1f5f9; color: #475569; }
+.tone-purple .hub-satellite-icon { background: #f8fafc; color: #475569; }
 .tone-green .hub-satellite-icon { background: #ecfdf5; color: #16a34a; }
 .tone-blue .hub-satellite-icon { background: #eff6ff; color: #2563eb; }
 .tone-orange .hub-satellite-icon { background: #fff7ed; color: #c2410c; }
@@ -1716,12 +1401,9 @@ onMounted(() => {
   background: #f8fafc;
   color: var(--hub-muted);
 }
-.tone-purple .hub-satellite-pill { background: #f1f5f9; color: #475569; }
+.tone-purple .hub-satellite-pill { background: #f8fafc; color: #475569; }
 .tone-green .hub-satellite-pill { background: #ecfdf5; color: #15803d; }
 .tone-blue .hub-satellite-pill { background: #eff6ff; color: #1d4ed8; }
-.tone-orange .hub-satellite-pill { background: #fff7ed; color: #c2410c; }
-.tone-teal .hub-satellite-pill { background: #f0fdfa; color: #0f766e; }
-.tone-indigo .hub-satellite-pill { background: #ecfeff; color: #0e7490; }
 
 .hub-satellite-badge {
   position: absolute;
@@ -1805,7 +1487,8 @@ onMounted(() => {
 .hub-preview.tone-purple { border-color: #cbd5e1; }
 .hub-preview.tone-green { border-color: #bbf7d0; }
 .hub-preview.tone-blue { border-color: #bfdbfe; }
-.hub-preview.tone-orange { border-color: #fdba74; }
+.hub-preview.tone-indigo { border-color: #c7d2fe; }
+.hub-preview.tone-teal { border-color: #99f6e4; }
 
 .hub-preview-title {
   font-size: 12px;
@@ -2056,7 +1739,7 @@ onMounted(() => {
     display: grid; place-items: center; margin-bottom: 8px;
   }
   .hub-mobile-icon :deep(svg) { width: 18px; height: 18px; }
-  .tone-purple .hub-mobile-icon { background: #f1f5f9; color: #475569; }
+  .tone-purple .hub-mobile-icon { background: #f8fafc; color: #475569; }
   .tone-green .hub-mobile-icon { background: #ecfdf5; color: #16a34a; }
   .tone-blue .hub-mobile-icon { background: #eff6ff; color: #2563eb; }
   .tone-orange .hub-mobile-icon { background: #fff7ed; color: #c2410c; }

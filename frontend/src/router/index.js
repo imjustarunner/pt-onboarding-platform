@@ -52,6 +52,7 @@ function routeRequiresSchoolPortalsFeature(to) {
   const n = String(to?.name || '');
   if (n === 'SchoolPortals' || n === 'OrganizationSchoolPortals') return true;
   if (n === 'SchoolPortalsHub' || n === 'OrganizationSchoolPortalsHub') return true;
+  if (n === 'SchoolOperations' || n === 'OrganizationSchoolOperations') return true;
   if (n === 'SchoolClients' || n === 'OrganizationSchoolClients') return true;
   if (n === 'SchoolPortalDigitalIntakes' || n === 'OrganizationSchoolPortalDigitalIntakes') return true;
   if (n === 'SchoolOverviewDashboard' || n === 'OrganizationSchoolOverviewDashboard') {
@@ -1494,12 +1495,31 @@ const routes = [
     component: () => import('../views/MyScheduleView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
   },
-  // Backward-compatible: legacy schedule route
+  {
+    path: '/:organizationSlug/workforce-operations',
+    name: 'OrganizationWorkforceOperations',
+    component: () => import('../views/ScheduleHubView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_VIEW_ROLES, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/school-operations',
+    name: 'OrganizationSchoolOperations',
+    component: () => import('../views/SchoolOperationsHubView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
+  },
+  // Legacy redirect: /schedule → /workforce-operations
   {
     path: '/:organizationSlug/schedule',
     name: 'OrganizationScheduleHub',
-    component: () => import('../views/ScheduleHubView.vue'),
-    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_VIEW_ROLES, organizationSlug: true }
+    redirect: (to) => `/${to.params.organizationSlug}/workforce-operations`,
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  // Legacy redirect: /admin/caseload-hub (no sub-path) → /school-operations
+  {
+    path: '/:organizationSlug/admin/caseload-hub',
+    name: 'OrganizationCaseloadHubIndex',
+    redirect: (to) => `/${to.params.organizationSlug}/school-operations`,
+    meta: { requiresAuth: true, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/schedule/event-staffing',
@@ -2400,7 +2420,7 @@ const routes = [
     path: '/:organizationSlug/admin/find-providers',
     name: 'OrganizationAdminFindProviders',
     component: () => import('../views/SupervisorAvailabilityLabView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'supervisor'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'supervisor'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/supervisor/availability-lab',
@@ -2739,12 +2759,29 @@ const routes = [
     component: () => import('../views/MyScheduleView.vue'),
     meta: { requiresAuth: true }
   },
-  // Backward-compatible: legacy schedule route
+  {
+    path: '/workforce-operations',
+    name: 'WorkforceOperations',
+    component: () => import('../views/ScheduleHubView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_VIEW_ROLES }
+  },
+  {
+    path: '/school-operations',
+    name: 'SchoolOperations',
+    component: () => import('../views/SchoolOperationsHubView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
+  },
+  // Legacy redirect: /schedule → /workforce-operations
   {
     path: '/schedule',
     name: 'OfficeScheduleLegacy',
-    component: () => import('../views/ScheduleHubView.vue'),
-    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_VIEW_ROLES }
+    redirect: '/workforce-operations'
+  },
+  // Legacy redirect: /admin/caseload-hub → /school-operations
+  {
+    path: '/admin/caseload-hub',
+    name: 'CaseloadHubIndex',
+    redirect: '/school-operations'
   },
   {
     path: '/schedule/event-staffing',
@@ -3622,7 +3659,7 @@ const routes = [
     path: '/admin/find-providers',
     name: 'AdminFindProviders',
     component: () => import('../views/SupervisorAvailabilityLabView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'supervisor'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'supervisor'] }
   },
   {
     path: '/supervisor/availability-lab',
@@ -4785,7 +4822,7 @@ router.beforeEach(async (to, from, next) => {
     // School staff should not use the employee "Office Schedule" or "Payroll" surfaces.
     // They should stay within their school portal dashboard.
     if (userRoleNorm === 'school_staff') {
-      const blockedForSchoolStaff = ['/schedule', '/admin/payroll', '/payroll', '/dashboard'];
+      const blockedForSchoolStaff = ['/schedule', '/workforce-operations', '/school-operations', '/admin/payroll', '/payroll', '/dashboard'];
       if (blockedForSchoolStaff.some((p) => to.path === p || to.path.startsWith(`${p}/`))) {
         next(getDashboardRoute());
         return;

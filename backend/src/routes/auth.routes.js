@@ -27,7 +27,9 @@ import {
   recoverUsername,
   getRecoveryStatus,
   demoSwitchView,
-  demoLaunchWindow
+  demoLaunchWindow,
+  listTestAccounts,
+  switchTestAccount
 } from '../controllers/auth.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 import { requireAdminOrFirstUser } from '../middleware/conditionalAdmin.middleware.js';
@@ -173,6 +175,10 @@ router.post('/demo/launch-window', authenticate, [
   body('surface').optional().isString().trim(),
   body('targetPath').optional().isString().trim()
 ], demoLaunchWindow);
+router.get('/test-accounts', authenticate, listTestAccounts);
+router.post('/test-accounts/switch', authenticate, [
+  body('userId').isInt({ min: 1 }).withMessage('userId must be a positive integer')
+], switchTestAccount);
 router.get('/session-lock-config', authenticate, getSessionLockConfig);
 router.post('/platform-session/heartbeat', authenticate, platformSessionHeartbeat);
 router.post('/verify-session-pin', authenticate, [

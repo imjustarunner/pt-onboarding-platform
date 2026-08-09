@@ -68,7 +68,7 @@
           <div class="sidebar-section">
             <div class="section-header">CORE</div>
             <router-link :to="`/${slug}/operations-dashboard`" class="nav-item">Dashboard</router-link>
-            <router-link :to="`/${slug}/schedule`" class="nav-item">Schedule Hub</router-link>
+            <router-link :to="`/${slug}/workforce-operations`" class="nav-item">Workforce Operations</router-link>
             <router-link :to="`/${slug}/admin/communications`" class="nav-item">Communications</router-link>
           </div>
           <div class="sidebar-section">
@@ -80,9 +80,9 @@
             >School Portals</router-link>
             <router-link
               v-if="canSeeSchoolPortals"
-              :to="`/${slug}/admin/caseload-hub/schools-staff`"
+              :to="`/${slug}/workforce-operations`"
               class="nav-item"
-            >Caseload Hub</router-link>
+            >Workforce Operations</router-link>
             <router-link :to="`/${slug}/admin/provider-availability`" class="nav-item">Provider Management</router-link>
             <router-link
               :to="`/${slug}/admin/office-approvals`"
@@ -203,6 +203,7 @@
           >
             <AtAGlanceRow
               :cards="orderedGlanceCards"
+              :hub-links="hubQuickLinks"
               reorderable
               @navigate="go"
               @customize="openGlanceCustomizer"
@@ -474,6 +475,11 @@ import '../../styles/ops-board-card.css';
 import { useMomentumListAddon } from '../../composables/useMomentumListAddon';
 import { useSuperadminPlatformPreview } from '../../composables/useSuperadminPlatformPreview';
 import { canAccessSchoolPortalsSurfaces, parseFeatureFlags, isTruthyFeatureFlag } from '../../utils/schoolPortalsAccess.js';
+import {
+  buildDashboardQuickAccessLinks,
+  filterDashboardGlanceCards,
+  workspaceNavContextFromStores
+} from '../../utils/workspaceNavAccess.js';
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../../utils/skillBuildersSchoolProgramAccess.js';
 import {
   fetchCoverageWarnings,
@@ -791,12 +797,28 @@ const prefix = computed(() => (slug.value ? `/${slug.value}` : ''));
 const ticketsPath = computed(() => `${prefix.value}/tickets`);
 const notificationsPath = computed(() => `${prefix.value}/notifications`);
 
+const hubQuickLinks = computed(() => {
+  const agency = agencyStore.currentAgency;
+  const isAffiliationContext = String(agency?.organization_type || '').toLowerCase() === 'affiliation';
+  const ctx = workspaceNavContextFromStores({
+    role: roleLower.value,
+    slug: slug.value,
+    agency,
+    branding: brandingStore,
+    isAffiliationContext
+  });
+  return buildDashboardQuickAccessLinks({
+    ...ctx,
+    currentSurface: isOperationsMode.value ? 'operations' : 'management'
+  });
+});
+
 const summaryPaths = computed(() => ({
   prefix: prefix.value,
   communications: `${prefix.value}/admin/communications`,
   hiring: `${prefix.value}/admin/hiring`,
   notifications: notificationsPath.value,
-  schedule: `${prefix.value}/schedule`
+  schedule: `${prefix.value}/workforce-operations`
 }));
 
 const contextPaths = computed(() => ({
@@ -924,7 +946,7 @@ const glanceCards = computed(() => {
       metrics: [
         { label: 'New', value: supportTicketsNew.value, tone: 'danger' },
         { label: 'Need attention', value: supportTicketsActive.value, tone: 'warn' },
-        { label: 'Assigned to me', value: supportTicketsAssignedToMe.value, tone: 'accent' }
+        { label: 'Mine', value: supportTicketsAssignedToMe.value, tone: 'accent' }
       ],
       hint: 'Queue workload and tickets assigned to you',
       cta: 'View queue',
@@ -937,7 +959,7 @@ const glanceCards = computed(() => {
       metrics: [
         { label: 'Open', value: tasksOpen.value, tone: 'accent' },
         { label: 'Overdue', value: tasksOverdue.value, tone: 'danger' },
-        { label: 'Assigned to me', value: tasksAssignedToMe.value, tone: 'warn' }
+        { label: 'Mine', value: tasksAssignedToMe.value, tone: 'warn' }
       ],
       hint: 'Team and personal work queue',
       cta: 'Open Tasks',
@@ -986,7 +1008,7 @@ const glanceCards = computed(() => {
       metrics: [
         { label: 'New', value: escalationNew.value, tone: 'danger' },
         { label: 'Total', value: escalationTotal.value, tone: 'warn' },
-        { label: 'Assigned to me', value: escalationAssignedToMe.value, tone: 'accent' }
+        { label: 'Mine', value: escalationAssignedToMe.value, tone: 'accent' }
       ],
       hint: 'Leadership escalations — assignable workflow',
       cta: 'Open desk',
@@ -996,9 +1018,15 @@ const glanceCards = computed(() => {
   ];
 });
 
-const orderedGlanceCards = computed(() =>
-  applyGlanceOrder(glanceCards.value, { includeEscalations: canSeeEscalations.value })
-);
+const orderedGlanceCards = computed(() => {
+  const ordered = applyGlanceOrder(glanceCards.value, { includeEscalations: canSeeEscalations.value });
+  return filterDashboardGlanceCards(ordered, {
+    role: roleLower.value,
+    user: currentUser.value,
+    agencyId: currentAgencyId.value,
+    isOperationsMode: isOperationsMode.value
+  });
+});
 
 const glanceLabelsForCustomize = computed(() => {
   const keys = new Set((glanceCards.value || []).map((card) => card.key));
@@ -1158,9 +1186,9 @@ const quickActionsCatalog = computed(() => {
     },
     {
       id: 'schedule',
-      title: 'Schedule',
-      description: 'View schedule hub',
-      to: `${p}/schedule`,
+      title: 'Workforce Operations',
+      description: 'View workforce operations hub',
+      to: `${p}/workforce-operations`,
       emoji: '📅',
       iconKey: 'schedule',
       category: 'Scheduling',
@@ -2807,6 +2835,7 @@ const logout = () => {
   background: var(--ops-primary, #1f6b4a);
   color: #fff;
 }
+
 
 .momentum-panel {
   margin-top: 0;

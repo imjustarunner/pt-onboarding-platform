@@ -1,0 +1,236 @@
+/* Shared hub orbit tones + section satellite emphasis (Workforce + School Ops hubs) */
+
+/* ── Amber (warm — compliance, events) ───────────────────────────────────── */
+.hub-connector-line.tone-amber { stroke: #d97706; stroke-opacity: 0.82; }
+.hub-orbit-node.tone-amber::before {
+  background: radial-gradient(circle, rgba(251, 146, 60, 0.42) 0%, rgba(251, 146, 60, 0.12) 42%, transparent 72%);
+}
+.hub-center.tone-amber {
+  border-color: #fcd34d;
+  background: radial-gradient(circle at 50% 30%, #fffbeb 0%, #ffffff 58%);
+  box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.65), 0 0 48px rgba(217, 119, 6, 0.22), 0 20px 50px rgba(217, 119, 6, 0.1);
+}
+.hub-center.tone-amber .hub-center-icon { background: #fef3c7; color: #b45309; }
+.hub-satellite.tone-amber {
+  border-color: #fbbf24;
+  background: radial-gradient(circle at 50% 28%, #fffbeb 0%, #ffffff 65%);
+  box-shadow: 0 0 0 5px rgba(251, 191, 36, 0.16), 0 0 28px rgba(217, 119, 6, 0.22), 0 12px 28px rgba(217, 119, 6, 0.1);
+}
+.hub-satellite.tone-amber:hover,
+.hub-satellite.tone-amber.hovered {
+  box-shadow: 0 0 0 7px rgba(251, 191, 36, 0.22), 0 0 40px rgba(217, 119, 6, 0.3), 0 18px 36px rgba(217, 119, 6, 0.14);
+}
+.tone-amber .hub-satellite-icon { background: #fef3c7; color: #b45309; }
+.tone-amber .hub-satellite-pill { background: #fef3c7; color: #b45309; }
+.hub-preview.tone-amber { border-color: #fcd34d; }
+.tone-amber .hub-preview-dot { color: #d97706; }
+.tone-amber .hub-mobile-icon { background: #fef3c7; color: #b45309; }
+
+/* ── Slate (neutral — buildings, facilities) ─────────────────────────────── */
+.hub-connector-line.tone-slate { stroke: #475569; stroke-opacity: 0.82; }
+.hub-orbit-node.tone-slate::before {
+  background: radial-gradient(circle, rgba(100, 116, 139, 0.38) 0%, rgba(100, 116, 139, 0.12) 42%, transparent 72%);
+}
+.hub-center.tone-slate {
+  border-color: #cbd5e1;
+  background: radial-gradient(circle at 50% 30%, #f8fafc 0%, #ffffff 58%);
+  box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.65), 0 0 48px rgba(71, 85, 105, 0.18), 0 20px 50px rgba(15, 23, 42, 0.08);
+}
+.hub-center.tone-slate .hub-center-icon { background: #e2e8f0; color: #334155; }
+.hub-satellite.tone-slate {
+  border-color: #94a3b8;
+  background: radial-gradient(circle at 50% 28%, #f8fafc 0%, #ffffff 65%);
+  box-shadow: 0 0 0 5px rgba(148, 163, 184, 0.14), 0 0 28px rgba(71, 85, 105, 0.16), 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+.hub-satellite.tone-slate:hover,
+.hub-satellite.tone-slate.hovered {
+  box-shadow: 0 0 0 7px rgba(148, 163, 184, 0.2), 0 0 40px rgba(71, 85, 105, 0.24), 0 18px 36px rgba(15, 23, 42, 0.12);
+}
+.tone-slate .hub-satellite-icon { background: #e2e8f0; color: #334155; }
+.tone-slate .hub-satellite-pill { background: #e2e8f0; color: #334155; }
+.hub-preview.tone-slate { border-color: #cbd5e1; }
+.tone-slate .hub-preview-dot { color: #475569; }
+.tone-slate .hub-mobile-icon { background: #e2e8f0; color: #334155; }
+
+/* ── Section satellites: stronger identity at a glance ─────────────────────── */
+.hub-satellite.hub-satellite--section {
+  --section-accent: #64748b;
+  border-width: 3px;
+}
+.hub-satellite--section.tone-blue { --section-accent: #2563eb; border-color: #60a5fa; }
+.hub-satellite--section.tone-green { --section-accent: #16a34a; border-color: #4ade80; }
+.hub-satellite--section.tone-orange { --section-accent: #ea580c; border-color: #fb923c; }
+.hub-satellite--section.tone-teal { --section-accent: #0f766e; border-color: #2dd4bf; }
+.hub-satellite--section.tone-amber { --section-accent: #d97706; border-color: #fbbf24; }
+.hub-satellite--section.tone-slate { --section-accent: #475569; border-color: #94a3b8; }
+.hub-satellite--section.tone-indigo { --section-accent: #4f46e5; border-color: #818cf8; }
+.hub-satellite--section.tone-purple { --section-accent: #475569; border-color: #94a3b8; }
+
+.hub-satellite.hub-satellite--section::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 42px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--section-accent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--section-accent) 55%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.hub-satellite.hub-satellite--section .hub-satellite-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  color: #fff;
+  background: var(--section-accent);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--section-accent) 45%, transparent);
+}
+
+.hub-satellite.hub-satellite--section .hub-satellite-pill {
+  background: color-mix(in srgb, var(--section-accent) 12%, #fff);
+  color: color-mix(in srgb, var(--section-accent) 78%, #0f172a);
+  font-weight: 800;
+}
+
+.hub-satellite.hub-satellite--section.hovered,
+.hub-satellite.hub-satellite--section:hover,
+.hub-satellite.hub-satellite--section:focus-visible,
+.hub-satellite.hub-satellite--section.active {
+  border-color: var(--section-accent);
+}
+
+.hub-connector-line.active.tone-blue { stroke: #2563eb; stroke-opacity: 1; }
+.hub-connector-line.active.tone-green { stroke: #16a34a; stroke-opacity: 1; }
+.hub-connector-line.active.tone-orange { stroke: #ea580c; stroke-opacity: 1; }
+.hub-connector-line.active.tone-teal { stroke: #0f766e; stroke-opacity: 1; }
+.hub-connector-line.active.tone-amber { stroke: #d97706; stroke-opacity: 1; }
+.hub-connector-line.active.tone-slate { stroke: #475569; stroke-opacity: 1; }
+
+/* ── Rose (distinct warm red-pink — audits, calendars) ───────────────────── */
+.hub-connector-line.tone-rose { stroke: #e11d48; stroke-opacity: 0.82; }
+.hub-orbit-node.tone-rose::before {
+  background: radial-gradient(circle, rgba(251, 113, 133, 0.38) 0%, rgba(251, 113, 133, 0.12) 42%, transparent 72%);
+}
+.hub-center.tone-rose {
+  border-color: #fda4af;
+  background: radial-gradient(circle at 50% 30%, #fff1f2 0%, #ffffff 58%);
+  box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.65), 0 0 48px rgba(225, 29, 72, 0.18), 0 20px 50px rgba(225, 29, 72, 0.08);
+}
+.hub-center.tone-rose .hub-center-icon { background: #ffe4e6; color: #be123c; }
+.hub-satellite.tone-rose {
+  border-color: #fb7185;
+  background: radial-gradient(circle at 50% 28%, #fff1f2 0%, #ffffff 65%);
+  box-shadow: 0 0 0 5px rgba(251, 113, 133, 0.14), 0 0 28px rgba(225, 29, 72, 0.18), 0 12px 28px rgba(225, 29, 72, 0.08);
+}
+.hub-satellite.tone-rose:hover,
+.hub-satellite.tone-rose.hovered {
+  box-shadow: 0 0 0 7px rgba(251, 113, 133, 0.2), 0 0 40px rgba(225, 29, 72, 0.28), 0 18px 36px rgba(225, 29, 72, 0.12);
+}
+.tone-rose .hub-satellite-icon { background: #ffe4e6; color: #be123c; }
+.tone-rose .hub-satellite-pill { background: #ffe4e6; color: #be123c; }
+.hub-preview.tone-rose { border-color: #fda4af; }
+.tone-rose .hub-preview-dot { color: #e11d48; }
+.tone-rose .hub-mobile-icon { background: #ffe4e6; color: #be123c; }
+
+/* ── Cyan (bright aqua — settings, gear) ─────────────────────────────────── */
+.hub-connector-line.tone-cyan { stroke: #0891b2; stroke-opacity: 0.82; }
+.hub-orbit-node.tone-cyan::before {
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.38) 0%, rgba(34, 211, 238, 0.12) 42%, transparent 72%);
+}
+.hub-center.tone-cyan {
+  border-color: #67e8f9;
+  background: radial-gradient(circle at 50% 30%, #ecfeff 0%, #ffffff 58%);
+  box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.65), 0 0 48px rgba(8, 145, 178, 0.18), 0 20px 50px rgba(8, 145, 178, 0.08);
+}
+.hub-center.tone-cyan .hub-center-icon { background: #cffafe; color: #0e7490; }
+.hub-satellite.tone-cyan {
+  border-color: #22d3ee;
+  background: radial-gradient(circle at 50% 28%, #ecfeff 0%, #ffffff 65%);
+  box-shadow: 0 0 0 5px rgba(34, 211, 238, 0.14), 0 0 28px rgba(8, 145, 178, 0.18), 0 12px 28px rgba(8, 145, 178, 0.08);
+}
+.hub-satellite.tone-cyan:hover,
+.hub-satellite.tone-cyan.hovered {
+  box-shadow: 0 0 0 7px rgba(34, 211, 238, 0.2), 0 0 40px rgba(8, 145, 178, 0.28), 0 18px 36px rgba(8, 145, 178, 0.12);
+}
+.tone-cyan .hub-satellite-icon { background: #cffafe; color: #0e7490; }
+.tone-cyan .hub-satellite-pill { background: #cffafe; color: #0e7490; }
+.hub-preview.tone-cyan { border-color: #67e8f9; }
+.tone-cyan .hub-preview-dot { color: #0891b2; }
+.tone-cyan .hub-mobile-icon { background: #cffafe; color: #0e7490; }
+
+/* ── Tool cards (drilled-in orbit) ───────────────────────────────────────── */
+.hub-satellite.hub-satellite--card {
+  border-width: 2.5px;
+}
+
+.hub-satellite--card.tone-blue { --section-accent: #2563eb; border-color: #93c5fd; }
+.hub-satellite--card.tone-green { --section-accent: #16a34a; border-color: #86efac; }
+.hub-satellite--card.tone-orange { --section-accent: #ea580c; border-color: #fdba74; }
+.hub-satellite--card.tone-teal { --section-accent: #0f766e; border-color: #5eead4; }
+.hub-satellite--card.tone-amber { --section-accent: #d97706; border-color: #fbbf24; }
+.hub-satellite--card.tone-slate { --section-accent: #475569; border-color: #94a3b8; }
+.hub-satellite--card.tone-rose { --section-accent: #e11d48; border-color: #fb7185; }
+.hub-satellite--card.tone-cyan { --section-accent: #0891b2; border-color: #22d3ee; }
+.hub-satellite--card.tone-indigo { --section-accent: #4f46e5; border-color: #a5b4fc; }
+.hub-satellite--card.tone-purple { --section-accent: #475569; border-color: #94a3b8; }
+
+.hub-satellite.hub-satellite--card::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 34px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--section-accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--section-accent) 50%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.hub-satellite.hub-satellite--card .hub-satellite-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  color: #fff;
+  background: var(--section-accent);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--section-accent) 42%, transparent);
+}
+
+.hub-satellite.hub-satellite--card .hub-satellite-pill {
+  background: color-mix(in srgb, var(--section-accent) 12%, #fff);
+  color: color-mix(in srgb, var(--section-accent) 80%, #0f172a);
+  font-weight: 800;
+}
+
+.hub-satellite.hub-satellite--card.hovered,
+.hub-satellite.hub-satellite--card:hover,
+.hub-satellite.hub-satellite--card:focus-visible {
+  border-color: var(--section-accent);
+}
+
+.hub-connector-line.active.tone-rose { stroke: #e11d48; stroke-opacity: 1; }
+.hub-connector-line.active.tone-cyan { stroke: #0891b2; stroke-opacity: 1; }
+
+/* Mobile stacked cards — match filled icon treatment */
+.wo-hub .hub-mobile-card.tone-blue .hub-mobile-icon,
+.so-hub .hub-mobile-card.tone-blue .hub-mobile-icon { background: #2563eb; color: #fff; }
+.wo-hub .hub-mobile-card.tone-green .hub-mobile-icon,
+.so-hub .hub-mobile-card.tone-green .hub-mobile-icon { background: #16a34a; color: #fff; }
+.wo-hub .hub-mobile-card.tone-orange .hub-mobile-icon,
+.so-hub .hub-mobile-card.tone-orange .hub-mobile-icon { background: #ea580c; color: #fff; }
+.wo-hub .hub-mobile-card.tone-teal .hub-mobile-icon,
+.so-hub .hub-mobile-card.tone-teal .hub-mobile-icon { background: #0f766e; color: #fff; }
+.wo-hub .hub-mobile-card.tone-amber .hub-mobile-icon,
+.so-hub .hub-mobile-card.tone-amber .hub-mobile-icon { background: #d97706; color: #fff; }
+.wo-hub .hub-mobile-card.tone-slate .hub-mobile-icon,
+.so-hub .hub-mobile-card.tone-slate .hub-mobile-icon { background: #475569; color: #fff; }
+.wo-hub .hub-mobile-card.tone-rose .hub-mobile-icon,
+.so-hub .hub-mobile-card.tone-rose .hub-mobile-icon { background: #e11d48; color: #fff; }
+.wo-hub .hub-mobile-card.tone-cyan .hub-mobile-icon,
+.so-hub .hub-mobile-card.tone-cyan .hub-mobile-icon { background: #0891b2; color: #fff; }
