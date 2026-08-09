@@ -1319,11 +1319,6 @@ function statusLabel(s) {
   return map[s] || s || 'Open';
 }
 
-function formatDate(d) {
-  if (!d) return '';
-  return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
 function goBack() {
   router.push(`${orgPrefix.value}/tasks`);
 }
