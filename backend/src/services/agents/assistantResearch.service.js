@@ -5,6 +5,7 @@
 
 import { searchTrainingKnowledgeBase } from '../trainingKnowledgeBase.service.js';
 import { getKnowledgeBaseContext } from '../clinicalKnowledgeBase.service.js';
+import { detectAgeBucketFromText } from '../../utils/ageMatch.util.js';
 
 /**
  * Medicaid / HCPCS-style service codes used in this product (H2014, T1017, S9454, …).
@@ -95,6 +96,25 @@ export function looksLikeOperationalDataQuery(prompt) {
 }
 
 /**
+ * Provider directory / caseload match by client age — never answer from handbook PDFs.
+ * e.g. "who sees 10 year old kids", "which therapists work with teens".
+ */
+export function looksLikeProviderAgeMatchQuery(prompt) {
+  const lower = String(prompt || '').toLowerCase().trim();
+  if (!lower) return false;
+  if (!detectAgeBucketFromText(lower)) return false;
+  if (/\b(handbook|polic(?:y|ies)|document|pdf|training\s+knowledge|pto|vacation|sick\s+leave)\b/.test(lower)) {
+    return false;
+  }
+  const peopleAsk =
+    /\b(who|which|what|find|show|list|anyone|anybody)\b/.test(lower) &&
+    /\b(sees?|seeing|see|work(?:s|ing)?\s+with|take(?:s)?|accept(?:s)?|treat(?:s|ing)?|counsel(?:s|ing)?)\b/.test(lower);
+  const clientNoun = /\b(kid|kids|child|children|client|clients|student|students|year\s*olds?|yo|y\/o)\b/.test(lower);
+  const providerNoun = /\b(provider|therapist|clinician|counselor|staff)\b/.test(lower);
+  return peopleAsk && (clientNoun || providerNoun);
+}
+
+/**
  * Personal schedule / agenda / "my day" — never answer from handbook PDFs.
  */
 export function looksLikeMyDayScheduleQuery(prompt) {
@@ -175,6 +195,7 @@ export function shouldAttemptAgencyResearch(prompt) {
   const lower = String(prompt || '').toLowerCase().trim();
   if (!lower || lower.length < 2) return false;
   if (looksLikeOperationalDataQuery(lower)) return false;
+  if (looksLikeProviderAgeMatchQuery(lower)) return false;
   if (looksLikeTeamPresenceQuery(lower)) return false;
   if (looksLikeMyDayScheduleQuery(lower)) return false;
   if (looksLikeStartMeetingWithPerson(lower)) return false;

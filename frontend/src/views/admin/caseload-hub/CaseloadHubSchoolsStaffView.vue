@@ -955,6 +955,7 @@ import AvailabilityIntakeManagement from '../../../components/admin/Availability
 import ProviderYearUpdateAdminPanel from '../../../components/admin/ProviderYearUpdateAdminPanel.vue';
 import SchoolReinitAdminPanel from '../../../components/admin/SchoolReinitAdminPanel.vue';
 import { resolveScopedAgencyId } from '../../../utils/resolveScopedAgencyId.js';
+import { fireTabEvent } from '../../../utils/tabEventBeacon.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -1546,6 +1547,11 @@ function setTab(id) {
   tab.value = id;
   const q = { ...route.query, tab: id };
   router.replace({ query: q });
+  fireTabEvent({
+    page: 'caseload-hub-schools-staff',
+    tab: id,
+    agencyId: agencyId.value || undefined
+  });
 }
 
 function goCoverageNeeds(type) {

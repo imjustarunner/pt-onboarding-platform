@@ -44,6 +44,7 @@
         <div class="pthq-nav-section">System</div>
         <router-link class="pthq-nav-item" to="/admin/settings">Platform Settings</router-link>
         <router-link class="pthq-nav-item" to="/admin/audit-center">Audit Center</router-link>
+        <router-link class="pthq-nav-item" to="/admin/usage-analytics">Usage Analytics</router-link>
         <router-link class="pthq-nav-item" to="/admin/modules">Modules</router-link>
 
         <div class="pthq-nav-section">Developer &amp; Testing</div>

@@ -689,6 +689,7 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
         return roleAllowed(reqUser, AUDIT_SEARCH_TOOL_ROLES);
       case 'searchSchools':
       case 'getSchoolClientStats':
+      case 'listSchoolCoverage':
         return roleAllowed(reqUser, SCHOOL_PORTAL_SEARCH_ROLES);
       case 'searchEvents':
         return roleAllowed(reqUser, PROGRAM_EVENTS_SEARCH_ROLES);
@@ -737,6 +738,8 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
         // Anyone signed in: returns whatever events the actor is part of today.
         return true;
       case 'lookupPersonActivity':
+        return roleAllowed(reqUser, BACKOFFICE_USER_ENUM_ROLES);
+      case 'lookupProviderSchoolAssignments':
         return roleAllowed(reqUser, BACKOFFICE_USER_ENUM_ROLES);
       case 'listMyOpenTasks':
         // Anyone signed in can see their own open tasks.
@@ -1047,6 +1050,27 @@ export function getToolSchemas() {
           limit: { type: 'integer', description: 'Max matching schools (default 10, max 25).' }
         },
         required: ['query']
+      }
+    },
+    {
+      name: 'listSchoolCoverage',
+      description:
+        'List affiliated schools with live coverage metrics — clients without an assigned clinician, provider staffing by weekday, slots, and waitlist. Use for "which schools have clients not assigned to clinicians", "which schools have providers on Mondays", school coverage gaps. Not handbook search.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          filter: {
+            type: 'string',
+            enum: ['clients_without_provider', 'providers_on_day', 'all'],
+            description: 'clients_without_provider = schools with unassigned clients; providers_on_day = schools with active provider assignments on dayOfWeek.'
+          },
+          dayOfWeek: {
+            type: 'string',
+            description: 'Weekday name when filter=providers_on_day (e.g. Monday, Tuesday).'
+          },
+          limit: { type: 'integer', description: 'Max schools to return (default 25, max 50).' }
+        }
       }
     },
     {
@@ -1466,6 +1490,29 @@ export function getToolSchemas() {
           activeOnly: {
             type: 'boolean',
             description: 'If true, only events currently happening or starting within the next 30 minutes.'
+          }
+        }
+      }
+    },
+    {
+      name: 'lookupProviderSchoolAssignments',
+      description:
+        'Look up which school organizations a provider or staff member is assigned to (provider_school_assignments). Use for "which schools is Halle assigned to", "what schools does Jordan cover", "where is Sarah assigned". Do NOT use for who has open slots at a school — use findSchoolSlotAvailability.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Person name to look up (first name, last name, or email fragment).'
+          },
+          userId: {
+            type: 'integer',
+            description: 'Optional resolved user id when already known.'
+          },
+          activeOnly: {
+            type: 'boolean',
+            description: 'If true (default), only active school assignment rows.'
           }
         }
       }
@@ -2116,6 +2163,90 @@ export async function executeToolCall({ req, toolCall }) {
     return { ok: true, tool: name, result: { query, results } };
   }
 
+  if (name === 'listSchoolCoverage') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, SCHOOL_PORTAL_SEARCH_ROLES)) {
+      const err = new Error('School coverage is not available for your role');
+      err.status = 403;
+      throw err;
+    }
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) noAgencyContextError();
+    const filter = str(args.filter || 'all', 40).toLowerCase() || 'all';
+    const limit = Math.min(Math.max(1, intOrNull(args.limit) || 25), 50);
+    const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    let dayOfWeek = str(args.dayOfWeek, 16);
+    if (dayOfWeek) {
+      const hit = DAY_NAMES.find((d) => d.toLowerCase() === dayOfWeek.toLowerCase());
+      dayOfWeek = hit || null;
+    }
+
+    const { getSchoolCoverageSummary } = await import('../schoolCoverageMetrics.service.js');
+    const summary = await getSchoolCoverageSummary(agencyId);
+    let schools = Array.isArray(summary?.schools) ? summary.schools : [];
+
+    if (filter === 'clients_without_provider') {
+      schools = schools
+        .filter((s) => Number(s.clientsWithoutProvider || 0) > 0)
+        .sort(
+          (a, b) =>
+            Number(b.clientsWithoutProvider || 0) - Number(a.clientsWithoutProvider || 0)
+            || String(a.schoolName || '').localeCompare(String(b.schoolName || ''))
+        );
+    } else if (filter === 'providers_on_day') {
+      if (!dayOfWeek) {
+        return {
+          ok: true,
+          tool: name,
+          result: {
+            filter,
+            dayOfWeek: null,
+            schools: [],
+            totalSchools: 0,
+            note: 'Which weekday? Say Monday, Tuesday, etc.'
+          }
+        };
+      }
+      schools = schools
+        .filter((s) => {
+          const dayRow = (s.days || []).find((d) => d.dayOfWeek === dayOfWeek);
+          return Number(dayRow?.providersCount || 0) > 0;
+        })
+        .sort((a, b) => {
+          const aCount = Number((a.days || []).find((d) => d.dayOfWeek === dayOfWeek)?.providersCount || 0);
+          const bCount = Number((b.days || []).find((d) => d.dayOfWeek === dayOfWeek)?.providersCount || 0);
+          return bCount - aCount || String(a.schoolName || '').localeCompare(String(b.schoolName || ''));
+        });
+    }
+
+    schools = schools.slice(0, limit).map((s) => ({
+      schoolId: s.schoolId,
+      schoolName: s.schoolName,
+      slug: s.schoolSlug || null,
+      portalPath: s.schoolSlug ? `/${s.schoolSlug}/admin/school-portals` : null,
+      clientsCurrent: s.clientsCurrent ?? null,
+      clientsWithoutProvider: s.clientsWithoutProvider ?? null,
+      clientsWithProviderNoDay: s.clientsWithProviderNoDay ?? null,
+      providersCount: s.providersCount ?? null,
+      waitlistCount: s.waitlistCount ?? null,
+      slotsAvailable: s.slotsAvailable ?? null,
+      coverageStatus: s.coverageStatus || null,
+      days: s.days || []
+    }));
+
+    return {
+      ok: true,
+      tool: name,
+      result: {
+        filter,
+        dayOfWeek: filter === 'providers_on_day' ? dayOfWeek : null,
+        schools,
+        totalSchools: schools.length,
+        refreshedAt: summary?.refreshedAt || null
+      }
+    };
+  }
+
   if (name === 'searchEvents') {
     requireAuthed(req);
     const agencyId = currentAgencyId(req);
@@ -2529,7 +2660,8 @@ export async function executeToolCall({ req, toolCall }) {
       err.status = 403;
       throw err;
     }
-    const agencyId = intOrNull(args.agencyId);
+    const agencyId = currentAgencyId(req, args.agencyId);
+    if (!agencyId) noAgencyContextError();
     await ensureAgencyAccess(req.user, agencyId);
     const textQuery = args.textQuery == null ? '' : str(args.textQuery, 500);
     const filters = Array.isArray(args.filters) ? args.filters : [];
@@ -2554,7 +2686,8 @@ export async function executeToolCall({ req, toolCall }) {
       err.status = 403;
       throw err;
     }
-    const agencyId = intOrNull(args.agencyId);
+    const agencyId = currentAgencyId(req, args.agencyId);
+    if (!agencyId) noAgencyContextError();
     const providerId = intOrNull(args.providerId);
     await ensureAgencyAccess(req.user, agencyId);
     await ensureUserInAgency(providerId, agencyId);
@@ -2588,7 +2721,8 @@ export async function executeToolCall({ req, toolCall }) {
       err.status = 403;
       throw err;
     }
-    const agencyId = intOrNull(args.agencyId);
+    const agencyId = currentAgencyId(req, args.agencyId);
+    if (!agencyId) noAgencyContextError();
     const providerId = intOrNull(args.providerId);
     await ensureAgencyAccess(req.user, agencyId);
     await ensureUserInAgency(providerId, agencyId);
@@ -3290,6 +3424,7 @@ export async function executeToolCall({ req, toolCall }) {
       'pt_specialties_max25',
       'specialties_general',
       'age_specialty',
+      'provider_marketing_age_specialty',
       'mental_health',
       'other_issues',
       'sexuality',
@@ -3301,6 +3436,7 @@ export async function executeToolCall({ req, toolCall }) {
       pt_specialties_max25:   'Specialty',
       specialties_general:    'General specialty',
       age_specialty:          'Age specialty',
+      provider_marketing_age_specialty: 'Age specialty',
       mental_health:          'Mental health focus',
       other_issues:           'Other issues',
       sexuality:              'Sexuality specialty',
@@ -3843,6 +3979,211 @@ export async function executeToolCall({ req, toolCall }) {
       nameQuery
     });
     return { ok: true, tool: name, result: snapshot };
+  }
+
+  // lookupProviderSchoolAssignments — which schools a provider is assigned to.
+  // ---------------------------------------------------------------------
+  if (name === 'lookupProviderSchoolAssignments') {
+    assertBackofficeAdmin(req.user);
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) noAgencyContextError();
+
+    const explicitUserId = intOrNull(args.userId);
+    const query = str(args.query, 200);
+    const activeOnly = args.activeOnly !== false;
+    const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    const credJoin = `
+      LEFT JOIN (
+        SELECT uiv.user_id,
+               MAX(uiv.value) AS cred_value
+        FROM user_info_values uiv
+        JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+        WHERE uifd.field_key IN ('provider_credential', 'provider_credential_license_type_number')
+        GROUP BY uiv.user_id
+      ) cred ON cred.user_id = u.id`;
+
+    const mapUserRow = (r) => ({
+      id: Number(r.id),
+      name: [r.firstName, r.lastName].filter(Boolean).join(' ').trim() || r.email,
+      role: r.role,
+      email: r.email,
+      credential: r.credential || null,
+      profilePath: `/admin/users/${r.id}`
+    });
+
+    const searchUsers = async (searchQuery, limit = 5) => {
+      const q = String(searchQuery || '').trim();
+      if (!q) return [];
+
+      const runLike = async (likeArg) => {
+        const params = [agencyId];
+        let where =
+          `(u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))`;
+        if (likeArg) {
+          where += ` AND (
+            u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?
+            OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?
+            OR COALESCE(cred.cred_value, '') LIKE ?
+            OR LOWER(COALESCE(u.role, '')) LIKE ?
+          )`;
+          params.push(likeArg, likeArg, likeArg, likeArg, likeArg, likeArg.toLowerCase());
+        }
+        const [rs] = await pool.execute(
+          `SELECT u.id,
+                  u.first_name AS firstName,
+                  u.last_name  AS lastName,
+                  u.email,
+                  u.role,
+                  cred.cred_value AS credential
+           FROM users u
+           JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+           ${credJoin}
+           WHERE ${where}
+           ORDER BY u.last_name, u.first_name
+           LIMIT ${Math.min(Math.max(1, limit), 25)}`,
+          params
+        );
+        return rs || [];
+      };
+
+      let rows = await runLike(`%${q}%`);
+      if (!rows.length && q.includes(' ')) {
+        const tokens = q.toLowerCase().split(/\s+/).filter((t) => t.length >= 2);
+        if (tokens.length > 1) {
+          rows = await runLike(`%${tokens[tokens.length - 1]}%`);
+          if (!rows.length) rows = await runLike(`%${tokens[0]}%`);
+        }
+      }
+      return rows.map(mapUserRow);
+    };
+
+    let targetUser = null;
+    let ambiguousMatches = [];
+
+    if (explicitUserId) {
+      const [idRows] = await pool.execute(
+        `SELECT u.id,
+                u.first_name AS firstName,
+                u.last_name  AS lastName,
+                u.email,
+                u.role,
+                cred.cred_value AS credential
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+         ${credJoin}
+         WHERE u.id = ?
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+         LIMIT 1`,
+        [agencyId, explicitUserId]
+      );
+      if (idRows?.[0]) targetUser = mapUserRow(idRows[0]);
+    } else if (query) {
+      const matches = await searchUsers(query, 5);
+      if (matches.length === 1) targetUser = matches[0];
+      else if (matches.length > 1) ambiguousMatches = matches;
+    }
+
+    if (!targetUser && !ambiguousMatches.length) {
+      return {
+        ok: true,
+        tool: name,
+        result: {
+          query: query || null,
+          user: null,
+          schools: [],
+          totalSchools: 0,
+          ambiguousMatches: []
+        }
+      };
+    }
+
+    if (!targetUser) {
+      return {
+        ok: true,
+        tool: name,
+        result: {
+          query,
+          user: null,
+          schools: [],
+          totalSchools: 0,
+          ambiguousMatches
+        }
+      };
+    }
+
+    const activeFilter = activeOnly ? 'AND psa.is_active = TRUE' : '';
+    const [rows] = await pool.execute(
+      `SELECT psa.school_organization_id,
+              psa.day_of_week,
+              psa.slots_total,
+              psa.slots_available,
+              psa.start_time,
+              psa.end_time,
+              psa.is_active,
+              a.name AS school_name,
+              a.slug AS school_slug
+       FROM provider_school_assignments psa
+       JOIN agencies a ON a.id = psa.school_organization_id
+       JOIN user_agencies ua ON ua.user_id = psa.provider_user_id AND ua.agency_id = ?
+       WHERE psa.provider_user_id = ?
+         ${activeFilter}
+         AND a.is_active = TRUE
+       ORDER BY a.name ASC, psa.day_of_week ASC`,
+      [agencyId, targetUser.id]
+    );
+
+    const bySchool = new Map();
+    for (const r of rows || []) {
+      const sid = Number(r.school_organization_id);
+      if (!bySchool.has(sid)) {
+        const slug = r.school_slug || null;
+        bySchool.set(sid, {
+          schoolId: sid,
+          schoolName: r.school_name,
+          slug,
+          portalPath: slug ? `/${slug}/admin/school-portals` : null,
+          openSlots: 0,
+          totalSlots: 0,
+          days: []
+        });
+      }
+      const school = bySchool.get(sid);
+      const avail = Number(r.slots_available || 0);
+      const total = Number(r.slots_total || 0);
+      school.openSlots += avail;
+      school.totalSlots += total;
+      const dow = Number(r.day_of_week);
+      const startHm = r.start_time != null ? String(r.start_time).slice(0, 5) : null;
+      const endHm = r.end_time != null ? String(r.end_time).slice(0, 5) : null;
+      school.days.push({
+        dayOfWeek: Number.isFinite(dow) ? dow : null,
+        dayLabel: Number.isFinite(dow) ? (DAY_LABELS[dow] || String(dow)) : null,
+        slotsAvailable: avail,
+        slotsTotal: total,
+        startTime: startHm,
+        endTime: endHm,
+        isActive: r.is_active == null ? true : Boolean(r.is_active)
+      });
+    }
+
+    const schools = Array.from(bySchool.values());
+
+    return {
+      ok: true,
+      tool: name,
+      result: {
+        query: query || null,
+        user: targetUser,
+        activeOnly,
+        schools,
+        totalSchools: schools.length,
+        ambiguousMatches: []
+      }
+    };
   }
 
   // lookupPersonActivity — presence + schedule for a named agency user (admin directory).

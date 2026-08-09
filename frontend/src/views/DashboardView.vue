@@ -371,6 +371,13 @@
       </div>
 
       <div class="dashboard-detail">
+        <!-- Frequent pages bar — admin/support/cpa/provider_plus roles only -->
+        <FrequentPagesBar
+          v-if="!previewMode && ['super_admin','admin','support','cpa','provider_plus'].includes(authStore.user?.role)"
+          :limit="6"
+          class="fpb-my-dashboard"
+        />
+
         <!-- Card Content (for content cards) -->
         <div
           class="card-content"
@@ -1231,6 +1238,7 @@ import { setDarkMode } from '../utils/darkMode';
 import { useSummitStatsChallengeChrome } from '../composables/useSummitStatsChallengeChrome';
 import { usePlotTwistHqShell } from '../composables/usePlotTwistHqShell';
 import { isBookClubAgency as isBookClubPortalOrg } from '../utils/bookClubAgency.js';
+import FrequentPagesBar from '../components/admin/FrequentPagesBar.vue';
 
 const props = defineProps({
   previewMode: {

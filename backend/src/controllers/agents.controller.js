@@ -916,6 +916,81 @@ function buildNextCardsFromToolResults({ toolResults, allowedToolNames }) {
     }
   }
 
+  const psaRes = lastOkToolResult(toolResults, 'lookupProviderSchoolAssignments');
+  const psaSchools = psaRes?.result?.schools;
+  if (Array.isArray(psaSchools) && psaSchools.length && canOpen) {
+    for (const s of psaSchools.slice(0, 8)) {
+      const id = s?.schoolId == null ? null : Number(s.schoolId);
+      if (!id) continue;
+      const name = safeTitle(s.schoolName, 'School');
+      const dayBits = (s.days || [])
+        .filter((d) => d.isActive !== false)
+        .slice(0, 5)
+        .map((d) => {
+          const when = d.startTime && d.endTime ? ` ${d.startTime}–${d.endTime}` : '';
+          return `${d.dayLabel || '?'}${when}`;
+        });
+      const slotsNote = s.openSlots != null ? `${s.openSlots} open slot${s.openSlots === 1 ? '' : 's'}` : '';
+      const subtitle = [slotsNote, dayBits.length ? dayBits.join('; ') : ''].filter(Boolean).join(' · ') || 'School assignment';
+      pushCard({
+        kind: 'school',
+        title: name,
+        subtitle,
+        details: {
+          slug: s.slug || null,
+          portalPath: s.portalPath || null,
+          openSlots: s.openSlots ?? null,
+          totalSlots: s.totalSlots ?? null,
+          days: s.days || []
+        },
+        actions: [
+          { type: 'tool', label: 'Open portal', toolCall: { name: 'openEntity', args: { kind: 'school', id } } },
+          ...(canNav ? [{ type: 'tool', label: 'School Portals Hub', toolCall: { name: 'navigateTo', args: { routeName: 'SchoolPortalsHub' } } }] : [])
+        ]
+      });
+    }
+  }
+
+  const covRes = lastOkToolResult(toolResults, 'listSchoolCoverage');
+  const covSchools = covRes?.result?.schools;
+  if (Array.isArray(covSchools) && covSchools.length && canOpen) {
+    const covFilter = covRes?.result?.filter || '';
+    const covDay = covRes?.result?.dayOfWeek || null;
+    for (const s of covSchools.slice(0, 8)) {
+      const id = s?.schoolId == null ? null : Number(s.schoolId);
+      if (!id) continue;
+      const name = safeTitle(s.schoolName, 'School');
+      let subtitle = 'School coverage';
+      if (covFilter === 'clients_without_provider') {
+        subtitle = `${Number(s.clientsWithoutProvider || 0)} without clinician · ${Number(s.clientsCurrent || 0)} current`;
+      } else if (covFilter === 'providers_on_day' && covDay) {
+        const dayRow = (s.days || []).find((d) => d.dayOfWeek === covDay);
+        subtitle = `${Number(dayRow?.providersCount || 0)} provider(s) on ${covDay}`;
+      }
+      pushCard({
+        kind: 'school',
+        title: name,
+        subtitle,
+        details: {
+          slug: s.slug || null,
+          portalPath: s.portalPath || null,
+          clientsWithoutProvider: s.clientsWithoutProvider ?? null,
+          clientsCurrent: s.clientsCurrent ?? null,
+          providersCount: s.providersCount ?? null,
+          coverageStatus: s.coverageStatus || null
+        },
+        actions: [
+          { type: 'tool', label: 'Open portal', toolCall: { name: 'openEntity', args: { kind: 'school', id } } },
+          ...(canNav ? [{
+            type: 'tool',
+            label: 'Caseload hub',
+            toolCall: { name: 'navigateTo', args: { routeName: 'CaseloadHubSchoolsStaff' } }
+          }] : [])
+        ]
+      });
+    }
+  }
+
   const eventRes = lastOkToolResult(toolResults, 'searchEvents');
   const events = eventRes?.result?.results;
   if (Array.isArray(events) && events.length && canOpen) {
@@ -1565,6 +1640,79 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
           lines.push(
             `${header}${who} has ${events.length} events on ${dateLabel}:\n${ordered.join('\n')}`
           );
+        }
+      }
+    } else if (r.tool === 'listSchoolCoverage') {
+      const out = r.result || {};
+      const schools = out.schools || [];
+      const filter = out.filter || '';
+      if (out.note) {
+        lines.push(String(out.note));
+      } else if (!schools.length) {
+        if (filter === 'clients_without_provider') {
+          lines.push('No affiliated schools have current clients without an assigned clinician.');
+        } else if (filter === 'providers_on_day') {
+          lines.push(`No schools have providers assigned on ${out.dayOfWeek || 'that day'}.`);
+        } else {
+          lines.push('No school coverage data found for your agency.');
+        }
+      } else if (filter === 'clients_without_provider') {
+        const items = schools.slice(0, 15).map(
+          (s) =>
+            `• ${s.schoolName}: ${Number(s.clientsWithoutProvider || 0)} without clinician (${Number(s.clientsCurrent || 0)} current)`
+        );
+        lines.push(`${schools.length} school(s) with clients not assigned to a clinician:\n${items.join('\n')}`);
+      } else if (filter === 'providers_on_day') {
+        const day = out.dayOfWeek || 'that day';
+        const items = schools.slice(0, 15).map((s) => {
+          const dayRow = (s.days || []).find((d) => d.dayOfWeek === day);
+          return `• ${s.schoolName}: ${Number(dayRow?.providersCount || 0)} provider(s)`;
+        });
+        lines.push(`${schools.length} school(s) with providers assigned on ${day}:\n${items.join('\n')}`);
+      } else {
+        const items = schools.slice(0, 12).map((s) => `• ${s.schoolName}`);
+        lines.push(`${schools.length} school(s):\n${items.join('\n')}`);
+      }
+    } else if (r.tool === 'lookupProviderSchoolAssignments') {
+      const out = r.result || {};
+      const ambiguous = out.ambiguousMatches || [];
+      if (ambiguous.length > 1) {
+        const names = ambiguous
+          .map((u) => u.name || u.email)
+          .filter(Boolean)
+          .join(', ');
+        lines.push(`Several people match "${out.query || 'that name'}" — ${names}. Which one did you mean?`);
+      } else if (!out.user) {
+        lines.push(
+          out.query
+            ? `I couldn't find anyone matching "${out.query}" in your agency.`
+            : 'No matching person found in your agency.'
+        );
+      } else {
+        const who = out.user.name || out.user.email || `User #${out.user.id}`;
+        const list = out.schools || [];
+        if (!list.length) {
+          lines.push(`${who} has no active school assignments in your agency.`);
+        } else if (list.length === 1) {
+          const sch = list[0];
+          const dayBits = (sch.days || [])
+            .filter((d) => d.isActive !== false)
+            .map((d) => {
+              const when = d.startTime && d.endTime ? ` ${d.startTime}–${d.endTime}` : '';
+              return `${d.dayLabel || '?'}${when}`;
+            });
+          const days = dayBits.length ? ` (${dayBits.join('; ')})` : '';
+          lines.push(`${who} is assigned to ${sch.schoolName}${days}.`);
+        } else {
+          const items = list.slice(0, 12).map((sch) => {
+            const dayBits = (sch.days || [])
+              .filter((d) => d.isActive !== false)
+              .slice(0, 4)
+              .map((d) => d.dayLabel || '?');
+            const days = dayBits.length ? ` — ${dayBits.join(', ')}` : '';
+            return `• ${sch.schoolName}${days}`;
+          });
+          lines.push(`${who} is assigned to ${list.length} schools:\n${items.join('\n')}`);
         }
       }
     } else if (r.tool === 'listTeamPresence') {

@@ -178,6 +178,7 @@ export const COMMAND_SURFACES = {
       'school_portal_lookup',
       'intake_openings',
       'people_directory_lookup',
+      'providers_by_age',
       'events_lookup',
       'agency_activity'
     ]

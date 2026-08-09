@@ -26,9 +26,9 @@ export function detectAgeBucketFromText(raw) {
   }
 
   const m =
-    text.match(/\b(\d{1,2})\s*(?:yo|y\/o|yr|yrs|year|years)\s*old?\b/i) ||
+    text.match(/\b(\d{1,2})\s*(?:yo|y\/o|yr|yrs|year|years)\s*olds?\b/i) ||
     text.match(/\b(?:age|aged)\s*(\d{1,2})\b/i) ||
-    text.match(/\b(\d{1,2})\s*year\s*old\b/i);
+    text.match(/\b(\d{1,2})\s*year\s*olds?\b/i);
   const n = m?.[1] ? parseInt(m[1], 10) : NaN;
   if (Number.isFinite(n)) {
     if (n <= 5) return 'Toddler (0-5)';

@@ -294,6 +294,7 @@
 
         <section class="hub-sidebar-panel">
           <h2>Quick links</h2>
+          <FrequentPagesBar :limit="5" class="fpb-hub" />
           <div class="hub-quick-links">
             <router-link :to="officeApprovalsTo" class="hub-quick-link">
               <span>Approve office requests</span>
@@ -359,6 +360,7 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
+import FrequentPagesBar from '../components/admin/FrequentPagesBar.vue';
 import {
   buildHubSwitcherLinks,
   workspaceNavContextFromStores

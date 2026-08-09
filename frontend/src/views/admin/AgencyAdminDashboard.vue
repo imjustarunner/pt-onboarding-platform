@@ -186,6 +186,8 @@
         :default-action-ids="defaultQuickActionIds"
         :icon-resolver="resolveQuickActionIcon"
         compact
+        :frequencies="quickActionFrequencies"
+        tracking-page="agency-dashboard"
       />
 
       <ClubAddMemberModal
@@ -253,6 +255,7 @@ const props = defineProps({
 });
 
 const myOpenTickets = ref('—');
+const quickActionFrequencies = ref({});
 
 const route = useRoute();
 const router = useRouter();
@@ -1269,7 +1272,22 @@ watch(
   }
 );
 
+async function loadQuickActionFrequencies() {
+  try {
+    const res = await fetch('/api/user-nav/action-frequencies?trackingPage=agency-dashboard&days=30', {
+      credentials: 'include',
+    });
+    if (res.ok) {
+      const data = await res.json();
+      quickActionFrequencies.value = data.frequencies || {};
+    }
+  } catch {
+    // non-critical
+  }
+}
+
 onMounted(async () => {
+  void loadQuickActionFrequencies();
   // Do not block first paint on branding / agency catalog — shell + quick actions should appear immediately.
   if (!brandingStore.platformBranding) {
     void brandingStore.fetchPlatformBranding();

@@ -49,6 +49,8 @@ test('deterministic acceptance matrix for top prompts', async () => {
     'listMyRecentActivity',
     'listTeamPresence',
     'lookupPersonActivity',
+    'lookupProviderSchoolAssignments',
+    'listSchoolCoverage',
     'searchTrainingKnowledgeBase'
   );
 
@@ -60,6 +62,10 @@ test('deterministic acceptance matrix for top prompts', async () => {
     ['what is on halle brimms schedule', 'lookupPersonActivity'],
     ['@halle brimm schedule today', 'lookupPersonActivity'],
     ['halle brimm schedule today', 'lookupPersonActivity'],
+    ['which schools is halle assigned to?', 'lookupProviderSchoolAssignments'],
+    ['what schools does jordan cover', 'lookupProviderSchoolAssignments'],
+    ['which schools have clients not assigned to clinicians?', 'listSchoolCoverage'],
+    ['Which schools have providers assigned on Mondays?', 'listSchoolCoverage'],
     ['start a meeting with Sarah', 'searchUsers'],
     ['start a virtual meeting with melissa', 'searchUsers'],
     ['schedule a meeting with melissa', 'searchUsers'],
@@ -78,6 +84,8 @@ test('deterministic acceptance matrix for top prompts', async () => {
     ['cancel the rest of my day because I am sick', null],
     ['who has an intake opening today', 'findIntakeOpenings'],
     ['who uses cbt', 'findProvidersByApproach'],
+    ['Who sees 10 year old kids?', 'findProvidersByApproach'],
+    ['which providers work with 8 year olds', 'findProvidersByApproach'],
     ['find pediatric psychiatry referrals', 'searchReferralDirectory'],
     ['open Twain school portal', 'searchSchools'],
     ['open upcoming events', 'navigateTo'],
@@ -160,7 +168,9 @@ test('drift guard: every visible prompt maps to a deterministic capability and c
     'getAgencyActivityStats',
     'listMyRecentActivity',
     'searchTrainingKnowledgeBase',
-    'lookupPersonActivity'
+    'lookupPersonActivity',
+    'lookupProviderSchoolAssignments',
+    'listSchoolCoverage'
   );
   const catalogIds = new Set(getCapabilityCatalogForTests().map((c) => c.id));
 

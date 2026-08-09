@@ -195,6 +195,8 @@
           </div>
         </div>
 
+        <FrequentPagesBar :limit="6" class="fpb-dashboard" />
+
         <div class="dashboard-stack">
           <div
             v-if="isVisible('atGlance')"
@@ -241,6 +243,8 @@
                   :default-action-ids="defaultQuickActionIds"
                   :icon-resolver="resolveQuickActionIcon"
                   :badge-counts="quickActionBadges"
+                  :frequencies="quickActionFrequencies"
+                  :tracking-page="isOperationsMode ? 'admin-dashboard-ops' : 'admin-dashboard'"
                 />
               </div>
 
@@ -460,6 +464,7 @@ import { useDashboardLayout } from '../../composables/useDashboardLayout';
 import { useCommunicationsCountsStore } from '../../store/communicationsCounts';
 import api from '../../services/api';
 import BrandingLogo from '../../components/BrandingLogo.vue';
+import FrequentPagesBar from '../../components/admin/FrequentPagesBar.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
 import OpsDaySchedulePanel from '../../components/admin/opsDashboard/OpsDaySchedulePanel.vue';
 import AtAGlanceRow from '../../components/admin/opsDashboard/AtAGlanceRow.vue';
@@ -510,6 +515,7 @@ const showLoadingChip = ref(false);
 let loadingChipTimer = null;
 const scheduleLoading = ref(false);
 const quickActionsRef = ref(null);
+const quickActionFrequencies = ref({});
 const nowTick = ref(Date.now());
 let nowTimer = null;
 
@@ -1637,6 +1643,17 @@ const quickActionsCatalog = computed(() => {
       category: 'People Ops',
       roles: ['admin', 'support', 'super_admin'],
       capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'usage_analytics',
+      title: 'Usage Analytics',
+      description: 'Heatmap: who visits which pages and which tabs they click most',
+      to: '/admin/usage-analytics',
+      emoji: '📊',
+      iconKey: 'progress_dashboard',
+      category: 'Management',
+      roles: ['super_admin'],
+      capabilities: ['canAccessPlatform']
     }
   ];
 
@@ -2237,9 +2254,25 @@ const loadDashboard = async () => {
   }
 };
 
+async function loadQuickActionFrequencies() {
+  try {
+    const page = isOperationsMode.value ? 'admin-dashboard-ops' : 'admin-dashboard';
+    const res = await fetch(`/api/user-nav/action-frequencies?trackingPage=${encodeURIComponent(page)}&days=30`, {
+      credentials: 'include',
+    });
+    if (res.ok) {
+      const data = await res.json();
+      quickActionFrequencies.value = data.frequencies || {};
+    }
+  } catch {
+    // non-critical; heatmap just stays off
+  }
+}
+
 onMounted(() => {
   nowTimer = setInterval(() => { nowTick.value = Date.now(); }, 30000);
   loadDashboard();
+  loadQuickActionFrequencies();
 });
 
 watch(
@@ -2526,8 +2559,13 @@ const logout = () => {
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
-  margin-bottom: 18px;
+  margin-bottom: 10px;
   flex-wrap: wrap;
+}
+.fpb-dashboard {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
 }
 .page-header h1 {
   margin: 0 0 4px;

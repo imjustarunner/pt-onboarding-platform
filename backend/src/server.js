@@ -64,6 +64,7 @@ import userAdminDocsRoutes from './routes/userAdminDocs.routes.js';
 import brandingTemplateRoutes from './routes/brandingTemplate.routes.js';
 import fontRoutes from './routes/font.routes.js';
 import activityLogRoutes from './routes/activityLog.routes.js';
+import userNavRoutes from './routes/userNav.routes.js';
 import supervisorAssignmentRoutes from './routes/supervisorAssignment.routes.js';
 import supervisionSessionsRoutes from './routes/supervisionSessions.routes.js';
 import teamMeetingsRoutes from './routes/teamMeetings.routes.js';
@@ -802,6 +803,7 @@ app.use('/api/users', userPreferencesRoutes);
 app.use('/api/branding-templates', brandingTemplateRoutes);
 app.use('/api/fonts', fontRoutes);
 app.use('/api/activity-log', activityLogRoutes);
+app.use('/api/user-nav', userNavRoutes);
 app.use('/api/supervisor-assignments', supervisorAssignmentRoutes);
 app.use('/api/agency-campaigns', agencyCampaignsRoutes);
 app.use('/api/organizations', referralUploadRoutes); // Organization routes (referral upload, etc.)

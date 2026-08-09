@@ -396,9 +396,9 @@
           <tr 
             v-for="client in pagedClients" 
             :key="client.id"
-            @click="openClientDetail(client)"
+            @click="pinClientPanel(client)"
             class="client-row cm-client-row"
-            :class="{ 'cm-client-row--active': quickViewClient?.id === client.id }"
+            :class="{ 'cm-client-row--active': quickViewClient?.id === client.id, 'cm-client-row--pinned': quickViewClient?.id === client.id && quickViewPinned }"
             :style="getClientRowStyle(client)"
           >
             <td class="select-cell" @click.stop>
@@ -406,11 +406,11 @@
             </td>
             <td
               class="initials-cell"
-              @click.stop="openClientDetail(client)"
+              @click.stop="pinClientPanel(client)"
               @mouseenter="scheduleQuickView(client)"
               @mouseleave="cancelQuickView"
               style="cursor:pointer;"
-              title="Hover: preview · Click: open profile"
+              title="Hover: preview · Click: pin panel"
             >
               <span class="cm-initials-badge" :style="getInitialsStyle(client)">{{ getClientDisplay(client) }}</span>
             </td>
@@ -953,13 +953,14 @@
 
     </template><!-- /v-else cmViewMode=clients -->
 
-    <!-- Quick-view drawer (hover-triggered) -->
+    <!-- Quick-view / pinned side panel -->
     <transition name="cm-drawer">
       <div
         v-if="quickViewClient"
         class="cm-drawer"
+        :class="{ 'cm-drawer--pinned': quickViewPinned }"
         role="complementary"
-        aria-label="Client quick view"
+        aria-label="Client detail panel"
         @mouseenter="cancelQuickViewClose"
         @mouseleave="scheduleQuickViewClose"
       >
@@ -972,6 +973,7 @@
               <div class="cm-drawer-sub">
                 <span v-if="quickViewClient.identifier_code" class="cm-drawer-code"># {{ quickViewClient.identifier_code }}</span>
                 <span class="cm-status-pill" :style="getStatusPillStyle(quickViewClient)">{{ formatClientStatus(quickViewClient) }}</span>
+                <span v-if="quickViewPinned" class="cm-drawer-pinned-badge" title="Pinned — click another row or ✕ to close">📌 Pinned</span>
               </div>
             </div>
             <div class="cm-drawer-actions">
@@ -979,9 +981,9 @@
                 class="cm-drawer-open-btn"
                 type="button"
                 @click="openClientDetail(quickViewClient)"
-                title="Open full profile"
-              >Open profile ↗</button>
-              <button class="cm-drawer-close" type="button" @click="quickViewClient = null" aria-label="Close">✕</button>
+                title="Open full profile page"
+              >Full view ↗</button>
+              <button class="cm-drawer-close" type="button" @click="closeClientPanel" aria-label="Close">✕</button>
             </div>
           </div>
           <div class="cm-drawer-body">
@@ -1032,7 +1034,69 @@
                 <span class="cm-drawer-dt">Last activity</span>
                 <span class="cm-drawer-dd">{{ formatDate(quickViewClient.last_activity_at) }}</span>
               </div>
+              <!-- ROI & school-specific fields -->
+              <div class="cm-drawer-row" v-if="quickViewClient.roi_expires_at">
+                <span class="cm-drawer-dt">ROI expires</span>
+                <span class="cm-drawer-dd">
+                  <span :class="roiExpiryClass(quickViewClient)">{{ formatDate(quickViewClient.roi_expires_at) }}</span>
+                </span>
+              </div>
+              <div class="cm-drawer-row">
+                <span class="cm-drawer-dt">Cleared</span>
+                <span class="cm-drawer-dd">
+                  <span class="cm-drawer-flag" :class="quickViewClient.cleared_to_start ? 'cm-flag--yes' : 'cm-flag--no'">
+                    {{ quickViewClient.cleared_to_start ? '✓ Cleared' : '✗ Not cleared' }}
+                  </span>
+                </span>
+              </div>
+              <div class="cm-drawer-row">
+                <span class="cm-drawer-dt">Portal</span>
+                <span class="cm-drawer-dd">
+                  <span class="cm-drawer-flag" :class="quickViewClient.guardian_portal_enabled ? 'cm-flag--yes' : 'cm-flag--no'">
+                    {{ quickViewClient.guardian_portal_enabled ? '✓ Enabled' : '○ Disabled' }}
+                  </span>
+                </span>
+              </div>
+              <div class="cm-drawer-row" v-if="quickViewClient.parents_contacted_at">
+                <span class="cm-drawer-dt">Parents contacted</span>
+                <span class="cm-drawer-dd">{{ formatDate(quickViewClient.parents_contacted_at) }}</span>
+              </div>
+              <div class="cm-drawer-row" v-if="quickViewClient.first_service_at">
+                <span class="cm-drawer-dt">First service</span>
+                <span class="cm-drawer-dd">{{ formatDate(quickViewClient.first_service_at) }}</span>
+              </div>
+              <div class="cm-drawer-row" v-if="quickViewClient.intake_at">
+                <span class="cm-drawer-dt">Intake date</span>
+                <span class="cm-drawer-dd">{{ formatDate(quickViewClient.intake_at) }}</span>
+              </div>
+              <div class="cm-drawer-row" v-if="quickViewClient.grade || quickViewClient.school_year">
+                <span class="cm-drawer-dt">Grade / Year</span>
+                <span class="cm-drawer-dd">{{ quickViewClient.grade || '—' }} / {{ quickViewClient.school_year || '—' }}</span>
+              </div>
+              <div class="cm-drawer-row" v-if="quickViewClient.service_day">
+                <span class="cm-drawer-dt">Service day</span>
+                <span class="cm-drawer-dd">{{ quickViewClient.service_day }}</span>
+              </div>
+              <div class="cm-drawer-row" v-if="quickViewClient.internal_notes">
+                <span class="cm-drawer-dt">Notes</span>
+                <span class="cm-drawer-dd cm-drawer-dd--notes">{{ quickViewClient.internal_notes }}</span>
+              </div>
             </div>
+          </div>
+          <!-- Quick actions footer -->
+          <div class="cm-drawer-footer">
+            <button
+              class="cm-drawer-footer-btn cm-drawer-footer-btn--primary"
+              type="button"
+              @click="openClientDetail(quickViewClient)"
+            >Open full profile ↗</button>
+            <button
+              v-if="canBackofficeEdit"
+              class="cm-drawer-footer-btn cm-drawer-footer-btn--secondary"
+              type="button"
+              @click="startEditStatus(quickViewClient); closeClientPanel()"
+              title="Quick-edit client status"
+            >Edit status</button>
           </div>
         </div>
     </transition>
@@ -1081,8 +1145,23 @@ const cmViewMode = ref('clients');
 const pendingIntakeCount = ref(0);
 const exchangeListingCount = ref(0);
 const quickViewClient = ref(null);
+const quickViewPinned = ref(false);
 let _hoverOpenTimer = null;
 let _hoverCloseTimer = null;
+
+/** Open the panel and pin it (triggered by row click). */
+function pinClientPanel(client) {
+  clearTimeout(_hoverOpenTimer);
+  clearTimeout(_hoverCloseTimer);
+  quickViewClient.value = client;
+  quickViewPinned.value = true;
+}
+
+/** Close the panel and clear pinned state. */
+function closeClientPanel() {
+  quickViewClient.value = null;
+  quickViewPinned.value = false;
+}
 
 function openQuickView(client) {
   quickViewClient.value = client;
@@ -1107,6 +1186,7 @@ function cancelQuickViewClose() {
 }
 
 function scheduleQuickViewClose() {
+  if (quickViewPinned.value) return; // pinned panels don't auto-close
   clearTimeout(_hoverCloseTimer);
   _hoverCloseTimer = setTimeout(() => {
     quickViewClient.value = null;
@@ -2518,6 +2598,16 @@ const cancelEdit = () => {
 
 // Workflow editing removed; "status" is now treated as an internal archive flag.
 
+/** ROI expiry CSS class — red if expired/within 30 days, amber if within 90 days. */
+function roiExpiryClass(client) {
+  if (!client?.roi_expires_at) return '';
+  const diffDays = (new Date(client.roi_expires_at) - Date.now()) / 86_400_000;
+  if (diffDays < 0) return 'cm-roi--expired';
+  if (diffDays < 30) return 'cm-roi--soon';
+  if (diffDays < 90) return 'cm-roi--warn';
+  return 'cm-roi--ok';
+}
+
 /** Full-page client profile (same pattern as admin user / provider profiles). */
 const openClientDetail = (client) => {
   const id = Number(client?.id || 0);
@@ -2975,13 +3065,17 @@ watch(() => currentPage.value, (newPage, oldPage) => {
 .cm-client-row--active {
   background: #f0fdf4 !important;
 }
-/* Quick-view drawer — non-blocking fixed side panel */
+.cm-client-row--pinned {
+  background: #dcfce7 !important;
+  box-shadow: inset 3px 0 0 #16a34a;
+}
+/* Quick-view / pinned side panel */
 .cm-drawer {
   position: fixed;
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(400px, 90vw);
+  width: min(420px, 92vw);
   background: #fff;
   box-shadow: -4px 0 28px rgba(0, 0, 0, 0.13);
   z-index: 500;
@@ -2990,6 +3084,50 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   overflow: hidden;
   border-left: 1px solid var(--border, #e5e7eb);
 }
+.cm-drawer--pinned {
+  border-left: 3px solid #16a34a;
+  box-shadow: -4px 0 36px rgba(22, 163, 74, 0.18);
+}
+.cm-drawer-pinned-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #16a34a;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  padding: 1px 7px;
+  letter-spacing: 0.01em;
+}
+.cm-drawer-footer {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border, #e5e7eb);
+  background: #fafafa;
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+.cm-drawer-footer-btn {
+  flex: 1;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-radius: 7px;
+  cursor: pointer;
+  border: 1px solid;
+  transition: background 0.15s;
+}
+.cm-drawer-footer-btn--primary {
+  background: var(--primary, #2d6a4f);
+  color: #fff;
+  border-color: var(--primary, #2d6a4f);
+}
+.cm-drawer-footer-btn--primary:hover { background: #1e4e39; }
+.cm-drawer-footer-btn--secondary {
+  background: #fff;
+  color: #374151;
+  border-color: #d1d5db;
+}
+.cm-drawer-footer-btn--secondary:hover { background: #f9fafb; }
 .cm-drawer-header {
   display: flex;
   align-items: flex-start;
@@ -3122,6 +3260,27 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   color: #94a3b8;
   font-weight: 400;
 }
+.cm-drawer-dd--notes {
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-height: 80px;
+  overflow-y: auto;
+  color: #475569;
+}
+.cm-drawer-flag {
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+.cm-flag--yes { background: #dcfce7; color: #15803d; }
+.cm-flag--no  { background: #f1f5f9; color: #64748b; }
+.cm-roi--expired { color: #dc2626; font-weight: 700; }
+.cm-roi--soon    { color: #f97316; font-weight: 700; }
+.cm-roi--warn    { color: #ca8a04; font-weight: 600; }
+.cm-roi--ok      { color: #15803d; }
 /* Drawer transition */
 .cm-drawer-enter-active,
 .cm-drawer-leave-active {

@@ -82,6 +82,11 @@ test('operational school client counts never go to document research', () => {
   assert.equal(shouldAttemptAgencyResearch('active clients at Lincoln Elementary'), false);
 });
 
+test('provider age match asks never go to document research', () => {
+  assert.equal(shouldAttemptAgencyResearch('Who sees 10 year old kids?'), false);
+  assert.equal(shouldAttemptAgencyResearch('which therapists work with 8 year olds'), false);
+});
+
 test('school client count prompts route to getSchoolClientStats', async () => {
   const { matchDeterministicCapabilityIntent } = await import('../assistantCapabilityCatalog.service.js');
   const tools = new Set(['getSchoolClientStats', 'searchSchools', 'searchTrainingKnowledgeBase', 'navigateTo']);

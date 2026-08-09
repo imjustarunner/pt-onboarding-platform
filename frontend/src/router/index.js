@@ -5,6 +5,7 @@ import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
 import { useOrganizationStore } from '../store/organization';
 import { getDashboardRoute } from '../utils/router';
+import { extractAdminPageFromPath } from '../utils/normalizeAdminPageKey.js';
 import { getLoginUrl, getCurrentPortalSlugFromHostCache } from '../utils/loginRedirect';
 import { buildOrgLoginPath } from '../utils/orgLoginPath';
 import { guessPortalSlugFromHostname } from '../utils/orgScopedPath';
@@ -3569,6 +3570,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['super_admin'] }
   },
   {
+    path: '/admin/usage-analytics',
+    name: 'UsageAnalytics',
+    component: () => import('../views/admin/UsageAnalyticsView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['super_admin'] }
+  },
+  {
     path: '/admin/payroll/wizard/:periodId?',
     name: 'PayrollWizard',
     component: () => import('../views/admin/PayrollWizardView.vue'),
@@ -4976,10 +4983,10 @@ router.afterEach((to) => {
   if (!authStore.isAuthenticated) return;
   const path = String(to?.path || '');
   if (!path.includes('/admin') && !path.includes('/club_manager_dashboard')) return;
-  const page = path.replace(/^\/[^/]+\/admin\/?/, '').replace(/^\/admin\/?/, '') || 'dashboard';
+  const page = extractAdminPageFromPath(path);
   api.post('/auth/activity-log', {
     actionType: 'admin_page_view',
-    metadata: { path, page: page || 'dashboard' }
+    metadata: { path, page }
   }, { skipGlobalLoading: true }).catch(() => {});
 });
 

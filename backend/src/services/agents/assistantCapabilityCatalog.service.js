@@ -16,6 +16,7 @@ import {
   extractServiceCodes,
   looksLikeServiceCodeQuery
 } from './assistantResearch.service.js';
+import { detectAgeBucketFromText } from '../../utils/ageMatch.util.js';
 import {
   pickBestCapabilityBySimilarity,
   rankCapabilitiesBySimilarity,
@@ -183,6 +184,60 @@ function parsePersonActivityQueryFromPrompt(promptLower, mentionCtx = null) {
     }
   }
   return '';
+}
+
+/** "which schools is Halle assigned to", "what schools does Jordan cover" */
+function parseProviderSchoolAssignmentsQueryFromPrompt(promptLower, mentionCtx = null) {
+  const mentions = mentionCtx?.mentions || [];
+  const s = String(promptLower || '').toLowerCase().trim();
+  if (!s) return '';
+
+  if (mentions.length === 1 && mentions[0]?.name) {
+    const label = String(mentions[0].name || '').trim();
+    if (label && !PERSON_ACTIVITY_SKIP_NAMES.test(label.toLowerCase())) return label.slice(0, 80);
+  }
+
+  const tryName = (raw) => {
+    const name = String(raw || '').trim();
+    if (!name || PERSON_ACTIVITY_SKIP_NAMES.test(name)) return '';
+    return name.slice(0, 80);
+  };
+
+  const nameChunk = '[a-z][a-z\'.-]{1,40}(?:\\s+[a-z][a-z\'.-]{1,40})*';
+  const patterns = [
+    /\bwhich\s+schools?\s+(?:is|are)\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)\s+assigned(?:\s+to)?\b/,
+    /\bwhat\s+schools?\s+(?:is|are|does|do)\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)\s+(?:assigned(?:\s+to)?|cover|covers|work(?:ing)?\s+at|serve|serves)\b/,
+    /\bwhere\s+is\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)\s+assigned\b/,
+    /\bwhich\s+schools?\s+(?:are\s+)?assigned\s+to\s+([a-z][a-z'.-]{1,40}(?:\s+[a-z][a-z'.-]{1,40})?)\b/,
+    new RegExp(`\\b(${nameChunk})\\s+school\\s+assignments?\\b`),
+    new RegExp(`\\bwhat\\s+schools?\\s+(?:is|are)\\s+(${nameChunk})\\s+at\\b`)
+  ];
+  for (const re of patterns) {
+    const m = s.match(re);
+    if (m?.[1]) {
+      const hit = tryName(m[1]);
+      if (hit) return hit;
+    }
+  }
+  return '';
+}
+
+/** Monday, Tuesday, … from natural language. */
+function parseDayOfWeekFromPrompt(promptLower) {
+  const s = String(promptLower || '').toLowerCase();
+  const days = [
+    ['monday', 'Monday'],
+    ['tuesday', 'Tuesday'],
+    ['wednesday', 'Wednesday'],
+    ['thursday', 'Thursday'],
+    ['friday', 'Friday'],
+    ['saturday', 'Saturday'],
+    ['sunday', 'Sunday']
+  ];
+  for (const [token, label] of days) {
+    if (new RegExp(`\\b${token}s?\\b`).test(s)) return label;
+  }
+  return null;
 }
 
 /**
@@ -732,7 +787,10 @@ const SURFACE_PLACEMENT_PREFS = {
       'payroll_analytics',
       'payroll_summary',
       'school_portal_lookup',
-      'school_client_counts'
+      'school_client_counts',
+      'provider_school_assignments',
+      'school_coverage_gaps',
+      'school_providers_by_day'
     ]
   },
   operations_dashboard: {
@@ -750,7 +808,10 @@ const SURFACE_PLACEMENT_PREFS = {
       'office_schedule',
       'agency_activity',
       'people_directory_lookup',
-      'providers_at_location'
+      'providers_at_location',
+      'provider_school_assignments',
+      'school_coverage_gaps',
+      'school_providers_by_day'
     ]
   },
   workforce_operations: {
@@ -776,6 +837,9 @@ const SURFACE_PLACEMENT_PREFS = {
     ids: [
       'school_client_counts',
       'school_portal_lookup',
+      'provider_school_assignments',
+      'school_coverage_gaps',
+      'school_providers_by_day',
       'intake_openings',
       'people_directory_lookup',
       'events_lookup',
@@ -1294,6 +1358,53 @@ function catalogEntries() {
       }
     },
     {
+      id: 'provider_school_assignments',
+      audience: ['admin_like'],
+      group: 'People / directory',
+      prompt: 'Which schools is Halle assigned to?',
+      requiredToolsAll: ['lookupProviderSchoolAssignments'],
+      subtitleTag: 'school assignments',
+      peopleBucket: true,
+      softRoute: false,
+      semanticExamples: [
+        'which schools is halle assigned to',
+        'what schools does jordan cover',
+        'where is sarah assigned',
+        'which schools are assigned to melissa',
+        'what schools is halle at',
+        'halle school assignments'
+      ],
+      matcher: (lower, allowedTools, scheduleCtx) => {
+        if (!allowedTools.has('lookupProviderSchoolAssignments')) return false;
+        if (!/\bschools?\b/.test(lower)) return false;
+        if (!/\b(assign|assigned|assignment|cover|covers|serves?|works?\s+at)\b/.test(lower)) return false;
+        // "what clinicians are at Twain" — school roster, not a person's assignments.
+        if (
+          /\b(provider|therapist|clinician|counselor|staff)s?\b/.test(lower) &&
+          /\b(at|in)\s+[a-z]/.test(lower) &&
+          !parseProviderSchoolAssignmentsQueryFromPrompt(lower, scheduleCtx?.mentionCtx)
+        ) {
+          return false;
+        }
+        return Boolean(parseProviderSchoolAssignmentsQueryFromPrompt(lower, scheduleCtx?.mentionCtx));
+      },
+      buildIntent: (lower, _allowedTools, scheduleCtx) => {
+        const name = parseProviderSchoolAssignmentsQueryFromPrompt(lower, scheduleCtx?.mentionCtx);
+        if (!name) return null;
+        const mentions = scheduleCtx?.mentionCtx?.mentions || [];
+        const args = { query: name };
+        if (mentions.length === 1 && mentions[0]?.userId) {
+          args.userId = Number(mentions[0].userId);
+        }
+        return {
+          intent: 'provider_school_assignments',
+          capabilityId: 'provider_school_assignments',
+          suppressUserAutoOpen: true,
+          toolCalls: [{ name: 'lookupProviderSchoolAssignments', args }]
+        };
+      }
+    },
+    {
       id: 'meeting_start',
       audience: ['provider_like', 'admin_like'],
       group: 'Schedule and meetings',
@@ -1669,6 +1780,8 @@ function catalogEntries() {
       ],
       matcher: (lower, allowedTools) => {
         if (!allowedTools.has('searchProviders')) return false;
+        // School-centric coverage / assignment asks — not "providers at Twain".
+        if (/\b(which|what)\s+schools?\b/.test(lower)) return false;
         if (!/\b(provider|therapist|clinician|staff)s?\b/.test(lower)) return false;
         if (!/\b(at|in|near|assigned to|is)\b/.test(lower)) return false;
         // Don't intercept availability queries
@@ -1688,6 +1801,68 @@ function catalogEntries() {
               textQuery: locationQuery || '',
               limit: 20
             }
+          }]
+        };
+      }
+    },
+    {
+      id: 'school_coverage_gaps',
+      audience: ['admin_like'],
+      group: 'Coverage and referrals',
+      prompt: 'Which schools have clients not assigned to clinicians?',
+      requiredToolsAll: ['listSchoolCoverage'],
+      subtitleTag: 'school coverage',
+      semanticExamples: [
+        'which schools have clients not assigned to clinicians',
+        'schools with unassigned students',
+        'where do we have clients without a provider',
+        'coverage gaps at schools without clinicians'
+      ],
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('listSchoolCoverage')) return false;
+        if (!/\b(which|what)\s+schools?\b/.test(lower)) return false;
+        if (!/\b(client|clients|student|students|kid|kids|caseload)\b/.test(lower)) return false;
+        return /\b(not\s+assigned|without\s+(a\s+)?(provider|clinician|therapist)|unassigned|no\s+provider|not\s+assigned\s+to)\b/.test(
+          lower
+        );
+      },
+      buildIntent: () => ({
+        intent: 'school_coverage_gaps',
+        capabilityId: 'school_coverage_gaps',
+        suppressUserAutoOpen: true,
+        toolCalls: [{ name: 'listSchoolCoverage', args: { filter: 'clients_without_provider', limit: 25 } }]
+      })
+    },
+    {
+      id: 'school_providers_by_day',
+      audience: ['admin_like'],
+      group: 'Coverage and referrals',
+      prompt: 'Which schools have providers assigned on Mondays?',
+      requiredToolsAll: ['listSchoolCoverage'],
+      subtitleTag: 'school staffing',
+      semanticExamples: [
+        'which schools have providers assigned on mondays',
+        'what schools have clinicians on wednesday',
+        'schools with provider coverage on friday',
+        'who is assigned to schools on tuesday'
+      ],
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('listSchoolCoverage')) return false;
+        if (!parseDayOfWeekFromPrompt(lower)) return false;
+        if (!/\b(which|what)\s+schools?\b/.test(lower)) return false;
+        if (!/\b(provider|providers|clinician|clinicians|therapist|staff)\b/.test(lower)) return false;
+        return /\b(assign|assigned|on\s+campus|scheduled|staffed|cover|coverage)\b/.test(lower);
+      },
+      buildIntent: (lower) => {
+        const dayOfWeek = parseDayOfWeekFromPrompt(lower);
+        if (!dayOfWeek) return null;
+        return {
+          intent: 'school_providers_by_day',
+          capabilityId: 'school_providers_by_day',
+          suppressUserAutoOpen: true,
+          toolCalls: [{
+            name: 'listSchoolCoverage',
+            args: { filter: 'providers_on_day', dayOfWeek, limit: 25 }
           }]
         };
       }
@@ -1750,6 +1925,44 @@ function catalogEntries() {
               ].filter(Boolean)
             }
           }]
+        };
+      }
+    },
+    {
+      id: 'providers_by_age',
+      audience: ['admin_like', 'provider_like'],
+      group: 'People / directory',
+      prompt: 'Who sees 10 year old kids?',
+      requiredToolsAll: ['findProvidersByApproach'],
+      subtitleTag: 'providers',
+      peopleBucket: true,
+      semanticExamples: [
+        'who sees 10 year old kids',
+        'which providers work with 8 year olds',
+        'who takes teenagers as clients',
+        'find therapists for 12 year old children',
+        'who sees kids that age',
+        'which clinicians treat preteens'
+      ],
+      matcher: (lower, allowedTools) => {
+        if (!allowedTools.has('findProvidersByApproach')) return false;
+        if (!detectAgeBucketFromText(lower)) return false;
+        if (/\b(handbook|polic(?:y|ies)|document|pdf|training\s+knowledge)\b/.test(lower)) return false;
+        if (/\b(most|top|highest|payroll|sessions?|notes?)\b/.test(lower)) return false;
+        return (
+          /\b(who|which|what|find|show|list)\b/.test(lower) &&
+          /\b(sees?|seeing|work(?:s|ing)?\s+with|take(?:s)?|accept(?:s)?|treat(?:s|ing)?)\b/.test(lower) &&
+          /\b(kid|kids|child|children|client|clients|student|students|year\s*olds?|yo|y\/o)\b/.test(lower)
+        );
+      },
+      buildIntent: (lower) => {
+        const ageBucket = detectAgeBucketFromText(lower);
+        if (!ageBucket) return null;
+        return {
+          intent: 'providers_by_age',
+          capabilityId: 'providers_by_age',
+          suppressUserAutoOpen: true,
+          toolCalls: [{ name: 'findProvidersByApproach', args: { approach: ageBucket, limit: 25 } }]
         };
       }
     },

@@ -2,17 +2,44 @@
   <div class="quick-actions" :class="{ compact, dense }">
     <div class="header">
       <h2>{{ title }}</h2>
-      <button v-if="canCustomize" class="btn-customize" type="button" @click="showCustomizer = true">
-        Customize
-      </button>
+      <div class="header-controls">
+        <button
+          v-if="hasFrequencyData"
+          class="btn-sort-freq"
+          :class="{ active: sortByFreq }"
+          type="button"
+          :title="sortByFreq ? 'Restore custom order' : 'Sort by most used'"
+          @click="sortByFreq = !sortByFreq"
+        >
+          {{ sortByFreq ? '↕ Custom order' : '🔥 Most used' }}
+        </button>
+        <button v-if="canCustomize" class="btn-customize" type="button" @click="showCustomizer = true">
+          Customize
+        </button>
+      </div>
+    </div>
+
+    <!-- Heat legend -->
+    <div v-if="hasFrequencyData" class="heat-legend">
+      <span class="heat-legend-label">Usage this month:</span>
+      <span
+        v-for="level in HEAT_LEVELS"
+        :key="level.level"
+        class="heat-legend-swatch"
+        :style="{ background: level.bg, borderColor: level.border, color: level.text }"
+        :title="level.desc"
+      >{{ level.label }}</span>
     </div>
 
     <div class="actions-grid">
       <router-link
-        v-for="action in selectedActions"
+        v-for="action in displayedActions"
         :key="action.id"
         :to="action.to"
         class="action-card"
+        :class="`heat-${heatLevel(action.id)}`"
+        :style="heatStyle(action.id)"
+        @click="trackActionClick(action)"
       >
         <div class="action-icon-wrap">
           <img
@@ -34,6 +61,9 @@
         <div class="action-content">
           <h3>{{ action.title }}</h3>
           <p v-if="!compact">{{ action.description }}</p>
+          <span v-if="heatLevel(action.id) > 0" class="heat-count-label">
+            {{ frequencies[action.id] || 0 }}× this month
+          </span>
         </div>
       </router-link>
     </div>
@@ -127,16 +157,33 @@
 import { computed, ref, watch, onMounted } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { fireTabEvent } from '../../utils/tabEventBeacon.js';
+
+// ── Heat-map level definitions ────────────────────────────────────────
+// Level 0 = white (never / ≤1 click/month)
+// Levels 1–5 = progressively darker greens
+const HEAT_LEVELS = [
+  { level: 0, min: 0,  max: 1,   label: '≤1×',    desc: 'Never or rarely used (0–1 clicks/month)',           bg: '#ffffff', border: '#e5e7eb', text: '#6b7280' },
+  { level: 1, min: 2,  max: 5,   label: '2–5×',   desc: 'Occasional — a few times this month',               bg: '#f0fdf4', border: '#bbf7d0', text: '#15803d' },
+  { level: 2, min: 6,  max: 14,  label: '6–14×',  desc: 'Regular — roughly once or twice a week',            bg: '#bbf7d0', border: '#4ade80', text: '#15803d' },
+  { level: 3, min: 15, max: 29,  label: '15–29×', desc: 'Frequent — multiple times per week',                bg: '#4ade80', border: '#16a34a', text: '#14532d' },
+  { level: 4, min: 30, max: 59,  label: '30–59×', desc: 'Heavy use — daily or near-daily',                   bg: '#16a34a', border: '#14532d', text: '#ffffff' },
+  { level: 5, min: 60, max: Infinity, label: '60+×', desc: 'Power tool — used constantly (60+ times/month)', bg: '#14532d', border: '#052e16', text: '#ffffff' },
+];
 
 const props = defineProps({
   title: { type: String, default: 'Quick Actions' },
-  contextKey: { type: String, required: true }, // e.g. platform|agency
-  actions: { type: Array, required: true }, // [{id,title,description,to,emoji,category,roles?,capabilities?,iconKey?}]
+  contextKey: { type: String, required: true },
+  actions: { type: Array, required: true },
   defaultActionIds: { type: Array, default: () => [] },
-  iconResolver: { type: Function, default: null }, // (action) => url|null
-  compact: { type: Boolean, default: false }, // icon + title only
-  dense: { type: Boolean, default: false }, // tighter admin dashboard tiles
-  badgeCounts: { type: Object, default: () => ({}) } // { actionId: number } for badge display
+  iconResolver: { type: Function, default: null },
+  compact: { type: Boolean, default: false },
+  dense: { type: Boolean, default: false },
+  badgeCounts: { type: Object, default: () => ({}) },
+  /** { actionId: clickCount } — drives heatmap coloring */
+  frequencies: { type: Object, default: () => ({}) },
+  /** Page key used when tracking clicks (e.g. 'admin-dashboard') */
+  trackingPage: { type: String, default: 'admin-dashboard' },
 });
 
 const authStore = useAuthStore();
@@ -337,6 +384,50 @@ const selectedActions = computed(() => {
 
 const badgeCounts = computed(() => props.badgeCounts && typeof props.badgeCounts === 'object' ? props.badgeCounts : {});
 
+// ── Heatmap ────────────────────────────────────────────────────────────
+const sortByFreq = ref(false);
+
+const hasFrequencyData = computed(
+  () => props.frequencies && Object.keys(props.frequencies).length > 0
+);
+
+const displayedActions = computed(() => {
+  if (!sortByFreq.value || !hasFrequencyData.value) return selectedActions.value;
+  return [...selectedActions.value].sort((a, b) => {
+    const fa = Number(props.frequencies[a.id] || 0);
+    const fb = Number(props.frequencies[b.id] || 0);
+    return fb - fa;
+  });
+});
+
+function heatLevel(actionId) {
+  const count = Number(props.frequencies?.[actionId] || 0);
+  for (let i = HEAT_LEVELS.length - 1; i >= 0; i--) {
+    if (count >= HEAT_LEVELS[i].min) return HEAT_LEVELS[i].level;
+  }
+  return 0;
+}
+
+function heatStyle(actionId) {
+  const level = heatLevel(actionId);
+  if (level === 0) return {};
+  const def = HEAT_LEVELS[level];
+  return {
+    background: def.bg,
+    borderColor: def.border,
+    color: def.text,
+  };
+}
+
+function trackActionClick(action) {
+  if (!props.trackingPage || !action?.id) return;
+  fireTabEvent({
+    page: props.trackingPage,
+    tab: action.id,
+    actionType: 'admin_action',
+  });
+}
+
 onMounted(() => hydrate());
 
 watch(availableActions, () => {
@@ -364,21 +455,76 @@ defineExpose({ openCustomizer });
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .btn-customize {
-  padding: 10px 12px;
+  padding: 6px 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: white;
   color: var(--text-primary);
   cursor: pointer;
-  font-weight: 800;
+  font-weight: 700;
+  font-size: 12px;
+}
+.btn-customize:hover { border-color: var(--primary); }
+
+.btn-sort-freq {
+  padding: 5px 11px;
+  border-radius: 10px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 12px;
+  transition: background 0.12s, border-color 0.12s;
+}
+.btn-sort-freq:hover { border-color: #16a34a; color: #15803d; background: #f0fdf4; }
+.btn-sort-freq.active { background: #dcfce7; border-color: #4ade80; color: #15803d; }
+
+/* Heat legend */
+.heat-legend {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.heat-legend-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+  margin-right: 3px;
+  white-space: nowrap;
+}
+.heat-legend-swatch {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: default;
 }
 
-.btn-customize:hover {
-  border-color: var(--primary);
+/* Per-card heat label */
+.heat-count-label {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.75;
 }
 
 .actions-grid {
@@ -427,6 +573,9 @@ defineExpose({ openCustomizer });
 }
 
 .quick-actions.dense .header {
+  margin-bottom: 6px;
+}
+.quick-actions.dense .heat-legend {
   margin-bottom: 8px;
 }
 .quick-actions.dense .header h2 {

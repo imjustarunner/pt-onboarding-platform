@@ -1,5 +1,6 @@
 import UserActivityLog from '../models/UserActivityLog.model.js';
 import User from '../models/User.model.js';
+import { normalizeAdminPageKey, extractAdminPageFromPath } from '../utils/normalizeAdminPageKey.js';
 
 /**
  * Centralized service for logging user activities
@@ -141,6 +142,18 @@ class ActivityLogService {
           durationSeconds: activityData.durationSeconds !== undefined ? activityData.durationSeconds : null,
           metadata: activityData.metadata || null
         };
+
+        if (finalData.actionType === 'admin_page_view' && finalData.metadata) {
+          const meta =
+            typeof finalData.metadata === 'object'
+              ? { ...finalData.metadata }
+              : { ...(JSON.parse(finalData.metadata) || {}) };
+          meta.page =
+            normalizeAdminPageKey(meta.page) ||
+            extractAdminPageFromPath(meta.path) ||
+            'dashboard';
+          finalData.metadata = meta;
+        }
 
         if (!finalData.agencyId && finalData.userId) {
           finalData.agencyId = await this.getPrimaryAgencyId(finalData.userId);
