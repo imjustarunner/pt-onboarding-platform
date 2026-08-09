@@ -720,6 +720,96 @@ const USER_MANAGER_DEMOTED_IDS = new Set([
   'my_activity'
 ]);
 
+/** Prefer capabilities that match the dashboard / hub the user is currently on. */
+const SURFACE_PLACEMENT_PREFS = {
+  admin_dashboard: {
+    groups: ['Operations', 'People / directory', 'Navigation and lookup', 'Payroll analytics'],
+    ids: [
+      'agency_activity',
+      'office_roster',
+      'people_directory_lookup',
+      'user_lookup',
+      'payroll_analytics',
+      'payroll_summary',
+      'school_portal_lookup',
+      'school_client_counts'
+    ]
+  },
+  operations_dashboard: {
+    groups: [
+      'Operations',
+      'Coverage and referrals',
+      'Availability',
+      'Schedule and meetings',
+      'People / directory'
+    ],
+    ids: [
+      'team_presence',
+      'intake_openings',
+      'office_roster',
+      'office_schedule',
+      'agency_activity',
+      'people_directory_lookup',
+      'providers_at_location'
+    ]
+  },
+  workforce_operations: {
+    groups: [
+      'Schedule and meetings',
+      'Availability',
+      'Coverage and referrals',
+      'Operations',
+      'Payroll analytics'
+    ],
+    ids: [
+      'team_presence',
+      'workspace_open',
+      'intake_openings',
+      'office_schedule',
+      'office_roster',
+      'payroll_analytics',
+      'provider_availability_at_location'
+    ]
+  },
+  school_operations: {
+    groups: ['Coverage and referrals', 'Navigation and lookup', 'Operations', 'People / directory'],
+    ids: [
+      'school_client_counts',
+      'school_portal_lookup',
+      'intake_openings',
+      'people_directory_lookup',
+      'events_lookup',
+      'agency_activity'
+    ]
+  },
+  my_dashboard: {
+    groups: ['Schedule and meetings', 'My activity', 'Availability', 'Handbook and policies'],
+    ids: [
+      'workspace_open',
+      'dashboard_tab_navigate',
+      'my_activity',
+      'team_presence',
+      'payroll_summary',
+      'my_compliance_status',
+      'training_kb_open'
+    ]
+  }
+};
+
+function normalizePlacementKey(placementKey, routeName) {
+  const p = String(placementKey || '').trim().toLowerCase();
+  if (p) return p;
+  const r = String(routeName || '').toLowerCase();
+  if (r.includes('schooloperations')) return 'school_operations';
+  if (r.includes('schedulehub') || r.includes('workforce')) return 'workforce_operations';
+  if (r.includes('operationsdashboard')) return 'operations_dashboard';
+  if (r === 'admindashboard' || r === 'organizationadmindashboard' || r === 'tenantadmindashboard') {
+    return 'admin_dashboard';
+  }
+  if (r === 'dashboard' || r === 'organizationdashboard') return 'my_dashboard';
+  return '';
+}
+
 function isUserManagerPlacement({ placementKey, routeName } = {}) {
   const p = String(placementKey || '').trim().toLowerCase();
   const r = String(routeName || '').trim().toLowerCase();
@@ -731,12 +821,31 @@ function isUserManagerPlacement({ placementKey, routeName } = {}) {
 }
 
 function placementSortEntries(entries, { placementKey, routeName } = {}) {
-  if (!isUserManagerPlacement({ placementKey, routeName })) return entries;
+  if (isUserManagerPlacement({ placementKey, routeName })) {
+    return [...entries].sort((a, b) => {
+      const rank = (e) => {
+        if (e?.peopleBucket || e?.group === 'People / directory') return 0;
+        if (USER_MANAGER_DEMOTED_IDS.has(String(e?.id || ''))) return 2;
+        return 1;
+      };
+      return rank(a) - rank(b);
+    });
+  }
+
+  const key = normalizePlacementKey(placementKey, routeName);
+  const prefs = SURFACE_PLACEMENT_PREFS[key];
+  if (!prefs) return entries;
+
+  const idRank = new Map((prefs.ids || []).map((id, i) => [id, i]));
+  const groupRank = new Map((prefs.groups || []).map((g, i) => [g, i]));
+
   return [...entries].sort((a, b) => {
     const rank = (e) => {
-      if (e?.peopleBucket || e?.group === 'People / directory') return 0;
-      if (USER_MANAGER_DEMOTED_IDS.has(String(e?.id || ''))) return 2;
-      return 1;
+      const id = String(e?.id || '');
+      if (idRank.has(id)) return idRank.get(id);
+      const g = String(e?.group || '');
+      if (groupRank.has(g)) return 100 + groupRank.get(g);
+      return 500;
     };
     return rank(a) - rank(b);
   });
@@ -2174,12 +2283,16 @@ export function rankCorrectionChoices({
 export function buildCapabilityUiPayload({ role, allowedToolNames, placementKey, routeName } = {}) {
   let entries = visibleEntriesForRoleAndTools(role, allowedToolNames);
   const onUserManager = isUserManagerPlacement({ placementKey, routeName });
+  const surfaceKey = normalizePlacementKey(placementKey, routeName);
+  const onSurface = !onUserManager && !!SURFACE_PLACEMENT_PREFS[surfaceKey];
   if (onUserManager) {
     // Soft-demote unrelated ops in help groups / suggestions for this placement.
     entries = placementSortEntries(
       entries.filter((e) => !USER_MANAGER_DEMOTED_IDS.has(String(e.id || ''))),
       { placementKey, routeName }
     );
+  } else if (onSurface) {
+    entries = placementSortEntries(entries, { placementKey, routeName });
   }
   const audience = roleAudience(role);
 
@@ -2190,11 +2303,22 @@ export function buildCapabilityUiPayload({ role, allowedToolNames, placementKey,
         .filter(Boolean)
     )
   );
+  const surfaceLabels = {
+    admin_dashboard: 'I prioritize admin / agency tools for this dashboard.',
+    operations_dashboard: 'I prioritize operations tools — coverage, presence, and staffing.',
+    workforce_operations: 'I prioritize workforce ops — schedules, payroll, and staffing.',
+    school_operations: 'I prioritize school ops — caseloads, portals, and coverage.',
+    my_dashboard: 'I prioritize your personal schedule, tasks, and account tools.'
+  };
   const subtitle = onUserManager
     ? 'I can help find people in your directory — by name, role, credential, or location.'
-    : subtitleParts.length > 0
-      ? `I can help with ${subtitleParts.slice(0, 5).join(', ')}.`
-      : 'I look up agency tools and documents — not free-form AI chat.';
+    : onSurface
+      ? surfaceLabels[surfaceKey] || (subtitleParts.length > 0
+        ? `I can help with ${subtitleParts.slice(0, 5).join(', ')}.`
+        : 'I look up agency tools and documents — not free-form AI chat.')
+      : subtitleParts.length > 0
+        ? `I can help with ${subtitleParts.slice(0, 5).join(', ')}.`
+        : 'I look up agency tools and documents — not free-form AI chat.';
 
   const groupedMap = new Map();
   for (const e of entries) {

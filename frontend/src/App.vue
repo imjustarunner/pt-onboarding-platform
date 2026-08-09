@@ -2157,6 +2157,7 @@
         @open-modal="openFocusMusic()"
       />
       <ActiveTaskDock v-if="isAuthenticated" />
+      <CommandPalette v-if="isAuthenticated" />
       </div>
     </div>
   </BrandingProvider>
@@ -2225,6 +2226,7 @@ import WeatherChip from './components/WeatherChip.vue';
 import IndirectTimeClockChip from './components/IndirectTimeClockChip.vue';
 import AskAssistantLauncher from './components/assistant/AskAssistantLauncher.vue';
 import NavSearchBar from './components/NavSearchBar.vue';
+import CommandPalette from './components/CommandPalette.vue';
 import { useAskAssistant } from './composables/useAskAssistant';
 import { useIndirectTimeSessionStore } from './store/indirectTimeSession';
 import SessionLockScreen from './components/SessionLockScreen.vue';
@@ -3683,11 +3685,11 @@ const closeMobileMenu = () => {
   affiliationsNavExpanded.value = false;
 };
 
-const { show: showAskAssistant } = useAskAssistant();
+const { openAsk: openAskAssistant } = useAskAssistant();
 
 const openAssistantFromMobile = () => {
   closeMobileMenu();
-  showAskAssistant();
+  openAskAssistant('', 'ask');
 };
 
 const affiliationMembershipOrgs = computed(() => {

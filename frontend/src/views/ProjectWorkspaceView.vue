@@ -292,7 +292,7 @@
               </div>
             </div>
 
-            <!-- Tasks by Priority -->
+            <!-- Tasks by Priority (summary link) -->
             <div class="ov-panel ov-panel--priority">
               <div class="ov-panel__head">
                 <span class="ov-panel__title">
@@ -378,129 +378,73 @@
               </div>
             </div>
           </div>
+
+          <!-- Row 4: full task list -->
+          <div class="ov-row-tasks">
+            <div class="ov-panel ov-panel--tasks-full">
+              <div class="ov-panel__head">
+                <span class="ov-panel__title">
+                  <svg viewBox="0 0 24 24" class="ov-panel__title-icon"><path d="M9 11l3 3L22 4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+                  All Tasks
+                </span>
+                <span class="muted">{{ tasks.length }} total</span>
+                <button type="button" class="ov-link" @click="tab = 'tasks'">Open tasks workspace →</button>
+              </div>
+              <div class="ov-tasks-table-wrap">
+                <ProjectTaskTable
+                  :tasks="sortedTasks"
+                  :selected-task-id="null"
+                  :selected-task-ids="emptyTaskSet"
+                  :compact="false"
+                  :show-checkboxes="false"
+                  :sort-key="taskSortKey"
+                  :sort-dir="taskSortDir"
+                  :assignee-name-fn="assigneeName"
+                  :type-label-fn="taskTypeLabel"
+                  @select="onOverviewTaskSelect"
+                  @sort="toggleTaskSort"
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- ── Tasks (redesigned) ── -->
-        <div v-else-if="tab === 'tasks'" class="tasks-workspace">
-
-          <!-- Left sidebar: lists → tasks hierarchy -->
-          <aside class="tasks-sidebar">
-            <div class="sidebar-head">
-              <input
-                v-if="tasks.length"
-                type="checkbox"
-                class="sidebar-head__select-all"
-                title="Select all"
-                :checked="allTasksSelected"
-                :indeterminate="someTasksSelected"
-                @change="toggleSelectAllTasks"
-              />
-              <span class="sidebar-head__label">Lists &amp; Tasks</span>
-              <button type="button" class="sidebar-head__all" @click="collapseAll">Collapse all</button>
-            </div>
-
-            <div v-if="!tasksByList.length" class="sidebar-empty">No tasks in this project yet.</div>
-
-            <div
-              v-for="group in tasksByList"
-              :key="group.listId"
-              class="list-group"
-              :class="group.isSharedList ? 'list-group--shared' : 'list-group--direct'"
-            >
+        <div v-else-if="tab === 'tasks'" class="tasks-workspace" :class="{ 'tasks-workspace--split': selectedTask }">
+          <div class="tasks-list-pane" :class="{ 'tasks-list-pane--compact': selectedTask }">
+            <div class="tasks-list-head">
+              <span class="tasks-list-head__label">
+                {{ tasks.length }} task{{ tasks.length !== 1 ? 's' : '' }}
+              </span>
               <button
+                v-if="selectedTask"
                 type="button"
-                class="list-group__head"
-                @click="toggleGroup(group.listId)"
+                class="tasks-list-head__close"
+                @click="selectedTask = null"
               >
-                <!-- Shared-list icon vs direct-tasks icon -->
-                <span v-if="group.isSharedList" class="list-group__type-icon list-group__type-icon--shared" title="Shared list">
-                  <svg viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><polyline points="16 6 12 2 8 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="2" x2="12" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-                </span>
-                <span v-else class="list-group__type-icon list-group__type-icon--direct" title="Direct project tasks">
-                  <svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </span>
-                <span class="list-group__chev">{{ expandedGroups[group.listId] ? '▾' : '▸' }}</span>
-                <span class="list-group__name">{{ group.listName }}</span>
-                <span v-if="group.isSharedList" class="list-group__badge">Shared</span>
-                <span class="list-group__count">{{ group.tasks.length }}</span>
+                Close detail
               </button>
-
-              <div v-show="expandedGroups[group.listId]" class="list-group__body">
-                <div
-                  v-for="task in group.tasks"
-                  :key="task.id"
-                  class="task-row"
-                  :class="{
-                    'task-row--selected': selectedTask?.id === task.id,
-                    'task-row--completed': task.status === 'completed',
-                    'task-row--waiting': task.status === 'waiting'
-                  }"
-                  @click="selectTask(task)"
-                >
-                  <input
-                    type="checkbox"
-                    class="task-row__select"
-                    title="Select"
-                    :checked="selectedTaskIds.has(task.id)"
-                    @click.stop
-                    @change="toggleTaskSelect(task)"
-                  />
-                  <div class="task-row__main">
-                    <span class="task-row__title">{{ task.title }}</span>
-                  </div>
-
-                  <div class="task-row__actions" @click.stop>
-                    <!-- Quick assign -->
-                    <button
-                      type="button"
-                      class="qa-btn qa-btn--assign"
-                      :class="{ 'qa-btn--assigned': task.assigned_to_user_id }"
-                      :title="assigneeName(task) || 'Assign'"
-                      @click="openAssignPopover($event, task)"
-                    >
-                      <span class="qa-btn__avatar" v-if="task.assigned_to_user_id">
-                        {{ assigneeInitials(task) }}
-                      </span>
-                      <span v-else class="qa-btn__label">+ Assign</span>
-                    </button>
-
-                    <!-- Quick priority -->
-                    <button
-                      type="button"
-                      class="qa-btn qa-btn--priority"
-                      :class="`qa-btn--priority-${task.urgency || 'medium'}`"
-                      :title="`Priority: ${task.urgency || 'medium'}`"
-                      @click="openPriorityPopover($event, task)"
-                    >{{ (task.urgency || 'medium').charAt(0).toUpperCase() + (task.urgency || 'medium').slice(1) }}</button>
-
-                    <!-- Quick due -->
-                    <button
-                      type="button"
-                      class="qa-btn qa-btn--due"
-                      :class="{ 'qa-btn--overdue': task.due_date && new Date(task.due_date) < new Date() && task.status !== 'completed' }"
-                      :title="task.due_date ? 'Change due date' : 'Set due date'"
-                      @click="openDuePopover($event, task)"
-                    >{{ task.due_date ? formatDate(task.due_date) : '+ Due' }}</button>
-
-                    <!-- Quick status -->
-                    <button
-                      type="button"
-                      class="status-pill"
-                      :class="`status-pill--${task.status || 'pending'}`"
-                      @click="openStatusPopover($event, task)"
-                    >
-                      {{ statusLabel(task.status) }}
-                    </button>
-                  </div>
-                </div>
-              </div>
             </div>
-          </aside>
+            <ProjectTaskTable
+              :tasks="sortedTasks"
+              :selected-task-id="selectedTask?.id || null"
+              :selected-task-ids="selectedTaskIds"
+              :compact="!!selectedTask"
+              :sort-key="taskSortKey"
+              :sort-dir="taskSortDir"
+              :all-selected="allTasksSelected"
+              :some-selected="someTasksSelected"
+              :assignee-name-fn="assigneeName"
+              :type-label-fn="taskTypeLabel"
+              @select="selectTask"
+              @toggle-select="toggleTaskSelect"
+              @toggle-select-all="toggleSelectAllTasks"
+              @sort="toggleTaskSort"
+            />
+          </div>
 
-          <!-- Right: task detail or empty state -->
-          <div class="tasks-detail">
+          <div v-if="selectedTask" class="tasks-detail">
             <TaskDetailSidePanel
-              v-if="selectedTask"
               :item="selectedTask"
               :agency-id="project?.agency_id || null"
               :type-defs="typeDefs"
@@ -513,10 +457,6 @@
               @changed="onTaskChanged"
               @list-created="onListCreated"
             />
-            <div v-else class="detail-empty">
-              <div class="detail-empty__icon">☑</div>
-              <p>Select a task from the list to view and edit details</p>
-            </div>
           </div>
 
           <BulkActionBar
@@ -851,6 +791,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import { formatDate } from '../utils/formatDate';
 import TaskDetailSidePanel from '../components/tasks/TaskDetailSidePanel.vue';
+import ProjectTaskTable from '../components/tasks/ProjectTaskTable.vue';
 import ProjectWhiteboard from '../components/tasks/ProjectWhiteboard.vue';
 import BulkActionBar from '../components/tasks/BulkActionBar.vue';
 
@@ -884,6 +825,9 @@ const newListName = ref('');
 const creatingNewList = ref(false);
 const tab = ref('overview');
 const selectedTask = ref(null);
+const taskSortKey = ref('due_date');
+const taskSortDir = ref('asc');
+const emptyTaskSet = new Set();
 
 // ── Projects rail ──
 const railOpen = ref(false);
@@ -905,9 +849,6 @@ const PROJECT_COLORS = ['#3b82f6','#8b5cf6','#22c55e','#f97316','#ec4899','#14b8
 function projectColor(id) {
   return PROJECT_COLORS[id % PROJECT_COLORS.length];
 }
-
-// Track which list groups are expanded (all open by default)
-const expandedGroups = ref({});
 
 const editForm = reactive({
   name: '',
@@ -1136,27 +1077,53 @@ function dueDateChip(dateStr) {
   return { label: d.toLocaleDateString(undefined, opts), cls: 'chip--blue' };
 }
 
-// ── Computed: group tasks by shared list ──
-const tasksByList = computed(() => {
-  const groups = {};
-  const order = [];
-  const sharedListIds = new Set((overview.value?.lists || []).map((l) => Number(l.id)));
+// ── Computed: flat sorted task list ──
+const sortedTasks = computed(() => {
+  const list = [...(tasks.value || [])];
+  const key = taskSortKey.value;
+  const dir = taskSortDir.value === 'asc' ? 1 : -1;
+  const urgencyOrder = { high: 0, medium: 1, low: 2 };
 
-  for (const t of tasks.value || []) {
-    const key = t.task_list_id ? String(t.task_list_id) : '__none__';
-    const name = t.task_list_name || (t.task_list_id ? `List ${t.task_list_id}` : 'Direct tasks');
-    if (!groups[key]) {
-      const isSharedList = key !== '__none__' && sharedListIds.has(Number(key));
-      groups[key] = { listId: key, listName: name, tasks: [], isSharedList };
-      order.push(key);
+  list.sort((a, b) => {
+    let av;
+    let bv;
+    switch (key) {
+      case 'title':
+        av = (a.title || '').toLowerCase();
+        bv = (b.title || '').toLowerCase();
+        break;
+      case 'list':
+        av = (a.task_list_name || '\uffff').toLowerCase();
+        bv = (b.task_list_name || '\uffff').toLowerCase();
+        break;
+      case 'status':
+        av = a.status || '';
+        bv = b.status || '';
+        break;
+      case 'urgency':
+        av = urgencyOrder[a.urgency] ?? 3;
+        bv = urgencyOrder[b.urgency] ?? 3;
+        break;
+      case 'assignee':
+        av = (assigneeName(a) || '').toLowerCase();
+        bv = (assigneeName(b) || '').toLowerCase();
+        break;
+      case 'due_date':
+        av = a.due_date ? new Date(a.due_date).getTime() : Number.POSITIVE_INFINITY;
+        bv = b.due_date ? new Date(b.due_date).getTime() : Number.POSITIVE_INFINITY;
+        break;
+      case 'type':
+        av = taskTypeLabel(a).toLowerCase();
+        bv = taskTypeLabel(b).toLowerCase();
+        break;
+      default:
+        return 0;
     }
-    groups[key].tasks.push(t);
-  }
-
-  // Sort: direct tasks first, shared lists after
-  return order
-    .map((k) => groups[k])
-    .sort((a, b) => (a.isSharedList ? 1 : 0) - (b.isSharedList ? 1 : 0));
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return (a.id || 0) - (b.id || 0);
+  });
+  return list;
 });
 
 const attachedListIds = computed(() => new Set((overview.value?.lists || []).map((l) => Number(l.id))));
@@ -1327,14 +1294,27 @@ function openSharedList(listId) {
   router.push(`${orgPrefix.value}/tasks/lists/${listId}`);
 }
 
-function toggleGroup(listId) {
-  expandedGroups.value[listId] = !expandedGroups.value[listId];
+function toggleTaskSort(key) {
+  if (taskSortKey.value === key) {
+    taskSortDir.value = taskSortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    taskSortKey.value = key;
+    taskSortDir.value = 'asc';
+  }
 }
 
-function collapseAll() {
-  for (const g of tasksByList.value) {
-    expandedGroups.value[g.listId] = false;
+function taskTypeLabel(task) {
+  if (!task) return 'General';
+  if (task.work_type_id && typeDefs.value?.length) {
+    const def = typeDefs.value.find((d) => Number(d.id) === Number(task.work_type_id));
+    if (def?.name) return def.name;
   }
+  return task.task_type || 'General';
+}
+
+function onOverviewTaskSelect(task) {
+  tab.value = 'tasks';
+  selectTask(task);
 }
 
 function selectTask(task) {
@@ -1563,14 +1543,6 @@ async function load() {
     overview.value = data?.overview || null;
     tasks.value = Array.isArray(tasksRes.data) ? tasksRes.data : [];
     clearTaskSelection();
-
-    // Default all groups to collapsed
-    const groups = {};
-    for (const t of tasks.value) {
-      const key = t.task_list_id ? String(t.task_list_id) : '__none__';
-      if (!(key in groups)) groups[key] = false;
-    }
-    expandedGroups.value = groups;
 
     syncEditForm();
     await Promise.all([loadAux(), loadActivity(), loadWhiteboards(), loadTypeDefs()]);
@@ -2501,7 +2473,7 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
 }
 .quick-btn:hover { background: #f0fdf4; border-color: #bbf7d0; }
 
-/* ── Tasks workspace: sidebar + detail ── */
+/* ── Tasks workspace: full table + optional detail split ── */
 .tasks-workspace {
   display: flex;
   gap: 0;
@@ -2514,15 +2486,75 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(15,23,42,.04);
 }
-
-/* Left sidebar */
-.tasks-sidebar {
-  width: 320px;
-  min-width: 280px;
-  flex-shrink: 0;
+.tasks-list-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.tasks-workspace--split .tasks-list-pane {
+  flex: 0 0 360px;
+  max-width: 380px;
   border-right: 1px solid #e2e8f0;
-  overflow-y: auto;
   background: #f8fafc;
+}
+.tasks-list-pane--compact {
+  background: #f8fafc;
+}
+.tasks-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+  flex-shrink: 0;
+}
+.tasks-workspace--split .tasks-list-head {
+  background: #f8fafc;
+}
+.tasks-list-head__label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.tasks-list-head__close {
+  border: 0;
+  background: none;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+.tasks-list-head__close:hover { text-decoration: underline; }
+.tasks-list-pane :deep(.ptt) {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+.tasks-list-pane :deep(.ptt-scroll) {
+  max-height: none;
+  height: 100%;
+}
+.tasks-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.ov-row-tasks { margin-top: 16px; }
+.ov-panel--tasks-full { width: 100%; }
+.ov-tasks-table-wrap {
+  max-height: 480px;
+  overflow: auto;
+  border-top: 1px solid #f1f5f9;
 }
 .sidebar-head {
   display: flex;
@@ -3129,7 +3161,13 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
   .attach-row { grid-template-columns: 1fr; }
   .project-workspace-shell { margin: -8px -12px 0; }
   .tasks-workspace { flex-direction: column; height: auto; }
-  .tasks-sidebar { width: 100%; min-width: 0; border-right: none; border-bottom: 1px solid #e2e8f0; max-height: 40vh; }
+  .tasks-workspace--split .tasks-list-pane {
+    flex: 0 0 auto;
+    max-width: none;
+    max-height: 40vh;
+    border-right: none;
+    border-bottom: 1px solid #e2e8f0;
+  }
   .tasks-detail { min-height: 50vh; }
   .wb-tab-wrap { height: calc(100vh - 100px); }
 }

@@ -8,6 +8,7 @@
 
 import { ACCOUNT_SECTIONS } from '../config/accountDisplaySections.js';
 import { isSupervisor } from '../utils/helpers.js';
+import { surfaceBoostForQuickNavEntry } from '../utils/resolveCommandSurface.js';
 
 export const QUICK_NAV_GROUP_ORDER = [
   'account',
@@ -792,9 +793,10 @@ export function scoreQuickNavEntry(query, entry) {
 
 /**
  * Search accessible entries; returns scored results grouped for UI.
+ * @param {object} [opts.surface] – active command surface (boosts matching groups/keywords)
  * @returns {{ flat: Array, groups: Array<{ group, label, items }> }}
  */
-export function searchQuickNav(query, ctx, { limit = 24 } = {}) {
+export function searchQuickNav(query, ctx, { limit = 24, surface = null } = {}) {
   const accessible = getAccessibleQuickNavEntries(ctx);
   const q = String(query || '').trim();
   if (!q) {
@@ -802,12 +804,16 @@ export function searchQuickNav(query, ctx, { limit = 24 } = {}) {
   }
 
   const scored = accessible
-    .map((entry) => ({
-      ...entry,
-      groupLabel: QUICK_NAV_GROUP_LABELS[entry.group] || entry.group,
-      score: scoreQuickNavEntry(q, entry)
-    }))
-    .filter((e) => e.score > 0)
+    .map((entry) => {
+      const base = scoreQuickNavEntry(q, entry);
+      if (!base) return null;
+      return {
+        ...entry,
+        groupLabel: QUICK_NAV_GROUP_LABELS[entry.group] || entry.group,
+        score: base + surfaceBoostForQuickNavEntry(entry, surface)
+      };
+    })
+    .filter(Boolean)
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       return String(a.label).localeCompare(String(b.label));

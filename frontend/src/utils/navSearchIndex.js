@@ -10,6 +10,8 @@
  *   desc     – one-line description shown under the title in results
  */
 
+import { surfaceBoostForNavItem } from './resolveCommandSurface.js';
+
 export const NAV_SEARCH_INDEX = [
   // ─── Workforce Operations Hub ────────────────────────────────────────────────
   {
@@ -512,10 +514,10 @@ export const NAV_SEARCH_INDEX = [
  * Returns items sorted by relevance (title match first, then keyword/desc match).
  *
  * @param {string} query - Search string
- * @param {{ orgSlug?: string | null }} opts
+ * @param {{ orgSlug?: string | null, surface?: object | null, limit?: number }} opts
  * @returns {{ title: string, section: string, path: string, desc: string, fullPath: string }[]}
  */
-export function searchNav(query, { orgSlug = null } = {}) {
+export function searchNav(query, { orgSlug = null, surface = null, limit = 12 } = {}) {
   const q = (query || '').toLowerCase().trim();
   if (!q || q.length < 2) return [];
 
@@ -541,6 +543,7 @@ export function searchNav(query, { orgSlug = null } = {}) {
       }
 
       if (!score) return null;
+      score += surfaceBoostForNavItem(item, surface);
 
       let fullPath;
       if (item.publicPath && orgSlug) {
@@ -558,5 +561,31 @@ export function searchNav(query, { orgSlug = null } = {}) {
     .filter(Boolean)
     .sort((a, b) => b.score - a.score);
 
-  return scored.slice(0, 12);
+  return scored.slice(0, limit);
+}
+
+/**
+ * Popular destinations for the current surface (empty-query suggestions).
+ */
+export function listNavForSurface(surface, { orgSlug = null, limit = 10 } = {}) {
+  if (!surface) return [];
+  const scored = NAV_SEARCH_INDEX
+    .map((item) => {
+      const boost = surfaceBoostForNavItem(item, surface);
+      if (!boost) return null;
+      let fullPath;
+      if (item.publicPath && orgSlug) {
+        if (item.publicPath === 'careers') fullPath = `/careers/${orgSlug}`;
+        else if (item.publicPath === 'join') fullPath = `/join/${orgSlug}`;
+        else if (item.publicPath === 'office-intake') fullPath = `/office-intake/${orgSlug}`;
+        else fullPath = item.path;
+      } else {
+        const prefix = orgSlug ? `/${orgSlug}` : '';
+        fullPath = `${prefix}${item.path}`;
+      }
+      return { ...item, score: boost, fullPath };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score);
+  return scored.slice(0, limit);
 }

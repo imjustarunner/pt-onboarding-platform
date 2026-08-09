@@ -1,14 +1,40 @@
 <template>
   <div class="aal-root" @mouseenter="handleEnter" @mouseleave="handleLeave">
+    <Transition name="aal-pop">
+      <div v-if="showModeMenu && !open" class="aal-mode-menu" role="menu" @mousedown.prevent>
+        <button type="button" class="aal-mode-btn aal-mode-btn--nav" role="menuitem" @click="openNav">
+          <span class="aal-mode-btn-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="7" /><path d="M21 21l-4.35-4.35" stroke-linecap="round" />
+            </svg>
+          </span>
+          <span class="aal-mode-btn-text">
+            <strong>Quick Nav</strong>
+            <span>Jump to pages instantly — no database lookup</span>
+          </span>
+        </button>
+        <button type="button" class="aal-mode-btn aal-mode-btn--ask" role="menuitem" @click="openAskPanel">
+          <span class="aal-mode-btn-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 3c-4.97 0-9 3.58-9 8 0 1.42.38 2.76 1.05 3.95L3 21l6.02-1.64A8.9 8.9 0 0012 19c4.97 0 9-3.58 9-8s-4.03-8-9-8Z" stroke-linejoin="round" />
+            </svg>
+          </span>
+          <span class="aal-mode-btn-text">
+            <strong>Ask</strong>
+            <span>Schedules, who's in, availability, coverage</span>
+          </span>
+        </button>
+      </div>
+    </Transition>
+
     <button
       type="button"
       class="aal-btn"
       :class="{ 'is-open': open }"
       :aria-expanded="open"
-      aria-label="Ask assistant"
-      title="Ask anything — hover or ⌘/Ctrl+Shift+A"
+      aria-label="Assistant — Quick Nav or Ask"
+      title="Quick Nav or Ask — ⌘/Ctrl+K"
       @click="onLauncherClick"
-      @focus="scheduleOpen"
     >
       <span class="aal-btn-glow" aria-hidden="true" />
       <span class="aal-btn-inner">
@@ -29,60 +55,66 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted } from 'vue';
+import { onBeforeUnmount, ref, watch } from 'vue';
 import AskAssistantPanel from './AskAssistantPanel.vue';
 import { useUserPreferencesStore } from '../../store/userPreferences';
 import { useAskAssistant } from '../../composables/useAskAssistant';
+import { useCommandPalette } from '../../composables/useCommandPalette';
 
-const OPEN_DELAY_MS = 300;
+const HOVER_DELAY_MS = 280;
 
 const prefsStore = useUserPreferencesStore();
-const { open, close: closeAssistant, toggle: toggleAssistant, show: showAssistant } = useAskAssistant();
-let hoverOpenTimer = null;
+const { open, close: closeAssistant, toggle: toggleAssistant, openAsk } = useAskAssistant();
+const { openPalette } = useCommandPalette();
+
+const showModeMenu = ref(false);
+let hoverTimer = null;
 
 function clearHoverTimer() {
-  if (hoverOpenTimer) {
-    clearTimeout(hoverOpenTimer);
-    hoverOpenTimer = null;
+  if (hoverTimer) {
+    clearTimeout(hoverTimer);
+    hoverTimer = null;
   }
 }
 
-function scheduleOpen() {
+function handleEnter() {
   if (open.value) return;
   if (prefsStore.navHoverMenusEnabled === false) return;
   clearHoverTimer();
-  hoverOpenTimer = setTimeout(() => {
-    showAssistant();
-  }, OPEN_DELAY_MS);
+  hoverTimer = setTimeout(() => {
+    showModeMenu.value = true;
+  }, HOVER_DELAY_MS);
+}
+
+function handleLeave() {
+  clearHoverTimer();
+  if (!open.value) showModeMenu.value = false;
+}
+
+watch(open, (isOpen) => {
+  if (isOpen) showModeMenu.value = false;
+});
+
+function openNav() {
+  clearHoverTimer();
+  showModeMenu.value = false;
+  openPalette('nav');
+}
+
+function openAskPanel() {
+  clearHoverTimer();
+  showModeMenu.value = false;
+  openAsk('', 'ask');
 }
 
 function onLauncherClick() {
   clearHoverTimer();
-  toggleAssistant();
+  showModeMenu.value = false;
+  openPalette(null);
 }
 
-function handleEnter() {
-  scheduleOpen();
-}
-
-function handleLeave() {
-  if (!open.value) clearHoverTimer();
-}
-
-function handleKeydown(e) {
-  const key = String(e.key || '').toLowerCase();
-  if ((e.metaKey || e.ctrlKey) && e.shiftKey && key === 'a') {
-    e.preventDefault();
-    toggleAssistant();
-  }
-}
-
-onMounted(() => {
-  window.addEventListener('keydown', handleKeydown);
-});
 onBeforeUnmount(() => {
   clearHoverTimer();
-  window.removeEventListener('keydown', handleKeydown);
 });
 </script>
 
@@ -92,6 +124,75 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
 }
+
+.aal-mode-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.16);
+  z-index: 50;
+}
+
+.aal-mode-btn {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.aal-mode-btn--nav {
+  background: linear-gradient(135deg, #f0fdfa, #ecfeff);
+  border-color: #99f6e4;
+}
+.aal-mode-btn--nav:hover { border-color: #0d9488; background: #ccfbf1; }
+
+.aal-mode-btn--ask {
+  background: linear-gradient(135deg, #f5f3ff, #ede9fe);
+  border-color: #c4b5fd;
+}
+.aal-mode-btn--ask:hover { border-color: #7c3aed; background: #ddd6fe; }
+
+.aal-mode-btn-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.aal-mode-btn--nav .aal-mode-btn-icon { background: #ccfbf1; color: #0f766e; }
+.aal-mode-btn--ask .aal-mode-btn-icon { background: #ddd6fe; color: #6d28d9; }
+.aal-mode-btn-icon svg { width: 18px; height: 18px; }
+
+.aal-mode-btn-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.aal-mode-btn-text strong { font-size: 13px; color: #0f172a; }
+.aal-mode-btn-text span { font-size: 11px; color: #64748b; line-height: 1.35; }
+
+.aal-pop-enter-active,
+.aal-pop-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; }
+.aal-pop-enter-from,
+.aal-pop-leave-to { opacity: 0; transform: translateY(6px); }
 
 .aal-btn {
   position: relative;
@@ -118,7 +219,7 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: -2px;
   border-radius: 16px;
-  background: linear-gradient(135deg, #0d9488, #2dd4bf, #6366f1);
+  background: linear-gradient(135deg, #0d9488, #2dd4bf, #7c3aed);
   opacity: 0.55;
   filter: blur(0);
   transition: opacity 0.2s ease;
@@ -152,7 +253,7 @@ onBeforeUnmount(() => {
 
 .aal-btn:hover .aal-btn-inner,
 .aal-btn.is-open .aal-btn-inner {
-  background: linear-gradient(165deg, #0f766e 0%, #0d9488 55%, #14b8a6 100%);
+  background: linear-gradient(165deg, #0f766e 0%, #0d9488 45%, #7c3aed 100%);
   color: #fff;
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.12) inset,

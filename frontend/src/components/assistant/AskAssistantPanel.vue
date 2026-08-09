@@ -90,11 +90,36 @@
             <div class="aap-empty-orbit" />
             <div class="aap-empty-core" />
           </div>
-          <h3 class="aap-empty-title">What can I help with?</h3>
+          <h3 class="aap-empty-title">{{ effectiveSurfaceMode === 'nav' ? 'Quick Nav' : effectiveSurfaceMode === 'ask' ? 'Ask' : 'What can I help with?' }}</h3>
           <p class="aap-empty-desc">
-            <strong>Start typing</strong> to jump to any page instantly — or tap a quick action below.
+            <template v-if="effectiveSurfaceMode === 'nav'">
+              <strong>Start typing</strong> to jump to any page — payroll, schedule, credentials, and more.
+            </template>
+            <template v-else-if="effectiveSurfaceMode === 'ask'">
+              <strong>Ask anything</strong> about schedules, availability, who's in, and who sees which clients.
+            </template>
+            <template v-else>
+              <strong>Start typing</strong> to jump to any page — or tap Ask for live schedule and team data.
+            </template>
           </p>
-          <div class="aap-capabilities">
+          <div v-if="effectiveSurfaceMode === 'nav' && navQuickChips.length" class="aap-capabilities">
+            <div class="aap-capability">
+              <div class="aap-capability-title">Popular destinations</div>
+              <div class="aap-capability-prompts">
+                <button
+                  v-for="entry in navQuickChips"
+                  :key="entry.id"
+                  type="button"
+                  class="aap-capability-chip aap-action-chip aap-action-chip--nav"
+                  :disabled="busy"
+                  @click="goQuickNav(entry)"
+                >
+                  {{ entry.label }}
+                </button>
+              </div>
+            </div>
+          </div>
+          <div v-else-if="effectiveSurfaceMode !== 'nav'" class="aap-capabilities">
             <div v-for="(group, i) in quickActionGroups" :key="i" class="aap-capability">
               <div class="aap-capability-title">{{ group.title }}</div>
               <div class="aap-capability-prompts">
@@ -437,7 +462,7 @@
             data-1p-ignore
             data-protonpass-ignore="true"
             data-form-type="other"
-            placeholder="Ask anything… Type @ to mention someone, or Payroll, Schedule…"
+            :placeholder="composerPlaceholder"
             role="combobox"
             :aria-expanded="quickNavPanelOpen ? 'true' : 'false'"
             aria-autocomplete="list"
@@ -498,10 +523,12 @@ import { isSupervisor } from '../../utils/helpers.js';
 import { getMyDashboardPath, resolveAssistantNavigationPath } from '../../utils/router.js';
 import {
   buildQuickNavContext,
+  getAccessibleQuickNavEntries,
   resolveQuickNavRoute,
   searchQuickNav
 } from '../../navigation/quickNavCatalog.js';
 import { searchNav as searchHubNav } from '../../utils/navSearchIndex.js';
+import { resolveCommandSurface } from '../../utils/resolveCommandSurface.js';
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -537,7 +564,13 @@ const {
   selectAgency
 } = useAssistantAgencyContext();
 
-const { interact: pinAssistantOpen } = useAskAssistant();
+const { interact: pinAssistantOpen, surfaceMode, seedPrompt: globalSeedPrompt, clearSeed } = useAskAssistant();
+
+const effectiveSurfaceMode = computed(() => surfaceMode.value || null);
+
+const commandSurface = computed(() =>
+  resolveCommandSurface({ path: route.path, fullPath: route.fullPath, name: route.name })
+);
 
 const isEmbedded = computed(() => props.variant === 'embedded');
 const showCloseButton = computed(() =>
@@ -555,10 +588,47 @@ const capabilityPayload = ref(null);
 const capabilityLoading = ref(false);
 
 const subtitle = computed(() => {
+  const surf = commandSurface.value;
+  if (effectiveSurfaceMode.value === 'nav') {
+    return surf
+      ? `Jumping pages — prioritizing ${surf.label} destinations first.`
+      : 'Type to jump to any page or tool — instant navigation, no database lookup.';
+  }
+  if (effectiveSurfaceMode.value === 'ask') {
+    return surf
+      ? `Ask about schedules & team data — leaning on ${surf.label} first.`
+      : 'Ask about schedules, availability, who\'s in, coverage, and client fit.';
+  }
   if (capabilityPayload.value?.subtitle) return String(capabilityPayload.value.subtitle);
-  if (isAdminLike.value) return 'I can navigate, search schools/events/users, run referrals, and review activity.';
-  if (isProviderLike.value) return 'I can help with schedule/workspace, meetings, referrals, and recent activity.';
-  return 'I can navigate, run referrals, and check recent activity.';
+  if (surf) return `Prioritizing ${surf.label} tools and questions first.`;
+  if (isAdminLike.value) return 'Quick Nav jumps to pages; Ask queries schedules, schools, users, and activity.';
+  if (isProviderLike.value) return 'Quick Nav for pages; Ask about your schedule, team availability, and meetings.';
+  return 'Quick Nav for pages; Ask about your team and schedule.';
+});
+
+const composerPlaceholder = computed(() => {
+  if (effectiveSurfaceMode.value === 'nav') return 'Jump to payroll, schedule, credentials…';
+  if (effectiveSurfaceMode.value === 'ask') return 'Who is free today? What is Hale\'s schedule?';
+  return 'Jump to a page or ask a question…';
+});
+
+const navQuickChips = computed(() => {
+  const surface = commandSurface.value;
+  const all = getAccessibleQuickNavEntries(quickNavCtx.value);
+  if (!surface) return all.slice(0, 10);
+  const preferred = all.filter(
+    (e) =>
+      (surface.quickNavGroups || []).includes(e.group) ||
+      (surface.quickNavKeywords || []).some((kw) => {
+        const k = kw.toLowerCase();
+        return (
+          String(e.label || '').toLowerCase().includes(k) ||
+          (e.keywords || []).some((x) => String(x).toLowerCase().includes(k))
+        );
+      })
+  );
+  const rest = all.filter((e) => !preferred.includes(e));
+  return [...preferred, ...rest].slice(0, 10);
 });
 
 /** Everyday one-click actions — always tool/prefill (never free-text submit that can hit doc search). */
@@ -666,16 +736,25 @@ const quickActionGroups = computed(() => {
 });
 
 const moreExamplePrompts = computed(() => {
-  const s = [];
+  if (effectiveSurfaceMode.value === 'nav') return [];
+  const surf = commandSurface.value;
+  if (surf?.askExamples?.length) return surf.askExamples.slice(0, 6);
+  const s = [
+    'Who is free today?',
+    "What is Hale's schedule today?",
+    'Who is in right now?',
+    'Who sees 10 year old kids?'
+  ];
   if (isAdminLike.value) {
     s.push('What activity happened in my agency this week?');
-    s.push('Open upcoming events');
+    s.push('Who has an intake opening today?');
   }
   if (isProviderLike.value) {
     s.push('Move my next meeting back 30 minutes');
+    s.push("What's on my agenda today?");
   }
   s.push('Open Training Knowledge Base');
-  return s.slice(0, 4);
+  return [...new Set(s)].slice(0, 6);
 });
 
 /** Remember auto-join preference for the next meeting-ready response. */
@@ -979,7 +1058,9 @@ const quickNavCtx = computed(() => {
   });
 });
 
-const quickNavSearch = computed(() => searchQuickNav(prompt.value, quickNavCtx.value, { limit: 8 }));
+const quickNavSearch = computed(() =>
+  searchQuickNav(prompt.value, quickNavCtx.value, { limit: 8, surface: commandSurface.value })
+);
 
 /**
  * Returns true when the query looks like a conversational question rather than
@@ -999,6 +1080,7 @@ function looksLikeQuestion(q) {
 
 /** Admin hub pages merged from navSearchIndex — shown only when user is admin-like. */
 const hubNavResults = computed(() => {
+  if (effectiveSurfaceMode.value === 'ask') return [];
   if (!isAdminLike.value) return [];
   const q = String(prompt.value || '').trim();
   if (q.length < 2) return [];
@@ -1007,7 +1089,7 @@ const hubNavResults = computed(() => {
   const orgSlug = route.params?.organizationSlug || null;
   // Require a meaningful score so loose substring matches (e.g. "schedule" in
   // "whats halle's schedule tomorrow") don't crowd out the conversational path.
-  return searchHubNav(q, { orgSlug })
+  return searchHubNav(q, { orgSlug, surface: commandSurface.value })
     .filter((item) => item.score >= 50)
     .slice(0, 5)
     .map((item) => ({
@@ -1023,6 +1105,7 @@ const hubNavResults = computed(() => {
 });
 
 const quickNavGroups = computed(() => {
+  if (effectiveSurfaceMode.value === 'ask') return [];
   const q = String(prompt.value || '').trim();
   if (looksLikeQuestion(q)) return [];
   const base = quickNavSearch.value.groups;
@@ -1032,6 +1115,7 @@ const quickNavGroups = computed(() => {
 });
 
 const quickNavFlat = computed(() => {
+  if (effectiveSurfaceMode.value === 'ask') return [];
   const q = String(prompt.value || '').trim();
   if (looksLikeQuestion(q)) return [];
   const base = quickNavSearch.value.flat;
@@ -1041,6 +1125,7 @@ const quickNavFlat = computed(() => {
 
 const quickNavPanelOpen = computed(
   () =>
+    effectiveSurfaceMode.value !== 'ask' &&
     !mentionPanelOpen.value &&
     String(prompt.value || '').trim().length > 0 &&
     quickNavFlat.value.length > 0 &&
@@ -1569,12 +1654,21 @@ async function submit() {
 function buildContextPayload() {
   const path = String(route?.fullPath || route?.path || '');
   const profileUserId = Number(route?.params?.userId || 0) || null;
+  const surf = commandSurface.value;
+  // Prefer page surface placement so Ask ranks capabilities for this dashboard first.
+  // Keep explicit prop placements (e.g. user_manager) when they aren't the generic default.
+  const propPlacement = String(props.placementKey || '').trim();
+  const placementKey =
+    propPlacement && propPlacement !== 'ask_assistant'
+      ? propPlacement
+      : (surf?.placementKey || propPlacement || 'ask_assistant');
   return {
     routeName: route?.name ? String(route.name) : '',
     path,
     fullPath: path,
     profileUserId,
-    placementKey: String(props.placementKey || 'ask_assistant').trim() || 'ask_assistant',
+    placementKey,
+    surfaceKey: surf?.key || null,
     agencyId: effectiveAgencyId.value || null
   };
 }
@@ -1802,6 +1896,27 @@ watch(
       textareaRef.value?.focus?.();
       autoGrow();
     });
+  }
+);
+
+watch(
+  [() => props.open, globalSeedPrompt, surfaceMode],
+  async ([isOpen, seed, mode]) => {
+    const t = String(seed || '').trim();
+    if (!isOpen || !t) return;
+    if (mode === 'ask') {
+      await nextTick();
+      await setPromptAndSubmit(t, { submitNow: true });
+      clearSeed();
+      return;
+    }
+    if (mode === 'nav') {
+      prompt.value = t;
+      clearSeed();
+      await nextTick();
+      textareaRef.value?.focus?.();
+      autoGrow();
+    }
   }
 );
 
