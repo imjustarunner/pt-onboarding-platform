@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { paperPacketRoiExpiresAtYmd } from '../utils/paperPacketRoiExpiry.js';
 
 function normalizeAccessLevel(level) {
   const normalized = String(level || '').trim().toLowerCase();
@@ -264,10 +265,7 @@ class ClientSchoolStaffRoiAccess {
     }
 
     return (rows || []).map((row) => {
-      let effectiveState = getEffectiveSchoolStaffRoiState(row, roiExpiresAt);
-      if (effectiveState === 'none' && !isRoiExpired(roiExpiresAt)) {
-        effectiveState = 'limited';
-      }
+      const effectiveState = getEffectiveSchoolStaffRoiState(row, roiExpiresAt);
       return {
         school_staff_user_id: Number(row.school_staff_user_id),
         first_name: row.first_name || null,
@@ -279,7 +277,7 @@ class ClientSchoolStaffRoiAccess {
         access_record_id: row.access_record_id ? Number(row.access_record_id) : null,
         access_level: row.access_record_id && toBool(row.is_active)
           ? normalizeAccessLevel(row.access_level)
-          : (effectiveState === 'limited' ? 'limited' : 'none'),
+          : 'none',
         is_active: toBool(row.is_active),
         effective_access_state: effectiveState,
         can_open_client: effectiveState === 'limited' ? true : schoolStaffCanOpenClient(row, roiExpiresAt),
@@ -390,43 +388,40 @@ class ClientSchoolStaffRoiAccess {
     );
     const row = rows?.[0] || null;
     if (row) {
-      const effective = getEffectiveSchoolStaffRoiState(row, row.roi_expires_at || null);
-      if (effective === 'none' && !isRoiExpired(row.roi_expires_at || null)) {
-        return 'limited';
-      }
-      return effective;
+      return getEffectiveSchoolStaffRoiState(row, row.roi_expires_at || null);
     }
 
-    // No explicit row: while ROI is active, school staff in the same school org gets LIMITED access.
-    const [clientRows] = await pool.execute(
-      `SELECT roi_expires_at
-       FROM clients
-       WHERE id = ?
-         AND organization_id = ?
-       LIMIT 1`,
-      [cid, sid]
-    );
-    const client = clientRows?.[0] || null;
-    if (!client || isRoiExpired(client.roi_expires_at || null)) return 'none';
-
-    const inSchool = await this.schoolStaffBelongsToOrganization({
-      schoolStaffUserId: uid,
-      schoolOrganizationId: sid
-    });
-    return inSchool ? 'limited' : 'none';
+    // No explicit grant: blocked until configured (schedulers get limited via portal layer).
+    return 'none';
   }
 
-  static async resetForNewPacket({ clientId, schoolOrganizationId, uploaderUserId, actorUserId = null }) {
+  /**
+   * Paper packet upload defaults:
+   * - School-staff uploader → limited (open client + own uploaded documents only)
+   * - Other school staff → no grant (scheduler portal accounts still get scheduler constraints)
+   * - Set clients.roi_expires_at using paper-packet rules (1y before 2026-08-09, else 3y)
+   * - Flag client for school-admin / general staff to configure per-staff ROI from paper form
+   */
+  static async resetForNewPacket({
+    clientId,
+    schoolOrganizationId,
+    uploaderUserId = null,
+    actorUserId = null,
+    packetDate = null
+  }) {
     const cid = Number(clientId || 0);
     const sid = Number(schoolOrganizationId || 0);
-    const uploaderId = Number(uploaderUserId || 0);
+    const uploaderId = Number(uploaderUserId || 0) || null;
     const actorId = Number(actorUserId || 0) || null;
-    if (!cid || !sid || !uploaderId) return false;
+    if (!cid || !sid) return false;
+
+    const roiExpiresYmd = paperPacketRoiExpiresAtYmd(packetDate || new Date());
 
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
 
+      // Clear prior active grants for this client/school, then grant uploader only.
       await connection.execute(
         `UPDATE client_school_staff_roi_access
          SET is_active = FALSE,
@@ -438,23 +433,40 @@ class ClientSchoolStaffRoiAccess {
         [actorId, cid, sid]
       );
 
+      if (uploaderId) {
+        const uploaderIsSchoolStaff = await this.schoolStaffBelongsToOrganization({
+          schoolStaffUserId: uploaderId,
+          schoolOrganizationId: sid
+        });
+        if (uploaderIsSchoolStaff) {
+          await connection.execute(
+            `INSERT INTO client_school_staff_roi_access
+              (client_id, school_organization_id, school_staff_user_id, access_level, is_active,
+               granted_by_user_id, granted_at, revoked_by_user_id, revoked_at,
+               last_packet_uploaded_by_user_id, last_packet_uploaded_at)
+             VALUES (?, ?, ?, 'limited', TRUE, ?, CURRENT_TIMESTAMP, NULL, NULL, ?, CURRENT_TIMESTAMP)
+             ON DUPLICATE KEY UPDATE
+               access_level = 'limited',
+               is_active = TRUE,
+               granted_by_user_id = VALUES(granted_by_user_id),
+               granted_at = VALUES(granted_at),
+               revoked_by_user_id = NULL,
+               revoked_at = NULL,
+               last_packet_uploaded_by_user_id = VALUES(last_packet_uploaded_by_user_id),
+               last_packet_uploaded_at = VALUES(last_packet_uploaded_at),
+               updated_at = CURRENT_TIMESTAMP`,
+            [cid, sid, uploaderId, actorId, uploaderId]
+          );
+        }
+      }
+
       await connection.execute(
-        `INSERT INTO client_school_staff_roi_access
-          (client_id, school_organization_id, school_staff_user_id, access_level, is_active,
-           granted_by_user_id, granted_at, revoked_by_user_id, revoked_at,
-           last_packet_uploaded_by_user_id, last_packet_uploaded_at)
-         VALUES (?, ?, ?, 'packet', TRUE, NULL, NULL, NULL, NULL, ?, CURRENT_TIMESTAMP)
-         ON DUPLICATE KEY UPDATE
-           access_level = 'packet',
-           is_active = TRUE,
-           granted_by_user_id = NULL,
-           granted_at = NULL,
-           revoked_by_user_id = NULL,
-           revoked_at = NULL,
-           last_packet_uploaded_by_user_id = VALUES(last_packet_uploaded_by_user_id),
-           last_packet_uploaded_at = VALUES(last_packet_uploaded_at),
-           updated_at = CURRENT_TIMESTAMP`,
-        [cid, sid, uploaderId, uploaderId]
+        `UPDATE clients
+         SET roi_expires_at = ?,
+             paper_packet_staff_roi_pending = 1,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [roiExpiresYmd, cid]
       );
 
       await connection.commit();

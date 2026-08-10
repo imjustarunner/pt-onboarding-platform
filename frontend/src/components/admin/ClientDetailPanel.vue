@@ -39,9 +39,19 @@
                 >
                   {{ isClientArchived ? 'Archived' : (client.client_status_label || 'No status') }}
                 </span>
-                <span class="cdp-pill cdp-pill--type">
+                <span class="cdp-pill cdp-pill--type" :class="{ 'is-editable': canEditClientType }">
                   <span class="cdp-pill__dot"></span>
                   {{ clientTypeLabel }}
+                  <button
+                    v-if="canEditClientType"
+                    type="button"
+                    class="cdp-pill-edit-btn"
+                    title="Change client type"
+                    aria-label="Change client type"
+                    @click="openAdminSettings"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                  </button>
                 </span>
                 <span v-if="client.organization_name" class="cdp-pill cdp-pill--org">
                   {{ client.organization_name }}
@@ -52,12 +62,13 @@
               </div>
               <details
                 v-if="canEditClientType || (isBackofficeRole && (switchableAgencies.length > 1 || clientAgenciesNote))"
+                ref="adminDetailsEl"
                 class="cdp-admin-details"
               >
-              <summary>Admin settings</summary>
+              <summary>{{ canEditClientType ? 'Client type & admin settings' : 'Admin settings' }}</summary>
               <div v-if="canEditClientType" class="cdp-inline-controls">
                 <span class="cdp-inline-controls__label">Client type</span>
-                <select v-model="clientTypeDraft" class="inline-select cdp-inline-select" :disabled="savingClientType">
+                <select ref="clientTypeSelectEl" v-model="clientTypeDraft" class="inline-select cdp-inline-select" :disabled="savingClientType">
                   <option v-for="opt in clientTypeOptions" :key="opt.value" :value="opt.value">
                     {{ opt.label }}
                   </option>
@@ -132,7 +143,7 @@
               <h3 class="cdp-section-title">At a glance</h3>
             </div>
             <div v-if="canEditAccount" class="form-actions" style="margin: 0;">
-              <button v-if="!editingOverview" class="cdp-btn-soft" type="button" @click="startEditOverview">
+              <button v-if="!editingOverview" class="cdp-btn-soft" type="button" @click="startEditOverview(true)">
                 Edit client
               </button>
               <template v-else>
@@ -310,10 +321,22 @@
             </div>
           </div>
 
-          <details class="cdp-profile-details" :open="schoolProfileDetailsOpen || undefined">
+          <details
+            ref="profileDetailsEl"
+            class="cdp-profile-details"
+            :class="{
+              'is-flagged': editHighlightActive,
+              'cdp-profile-details--hint': profileDetailsPulseHint
+            }"
+            :open="schoolProfileDetailsOpen || undefined"
+            @toggle="onProfileDetailsToggle"
+          >
             <summary>
-              <span>Profile details</span>
-              <span class="cdp-profile-details__hint">Identity, status, education, languages</span>
+              <span class="cdp-profile-details__title">
+                Profile details
+                <span v-if="profileDetailsPulseHint" class="cdp-profile-details__badge">Click to expand</span>
+              </span>
+              <span class="cdp-profile-details__hint">Identity, demographics, status, education, languages</span>
             </summary>
           <div class="ov-sections">
 
@@ -411,6 +434,79 @@
                       </select>
                     </template>
                     <template v-else>{{ formatSource(client.source) }}</template>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- Demographics -->
+            <section class="ov-card">
+              <header class="ov-card-header">
+                <h3>Demographics</h3>
+                <span class="muted" style="font-size: 12px;">Also shown on the Demographics tab</span>
+              </header>
+              <div class="ov-card-body">
+                <div class="ov-row">
+                  <div class="ov-row-label">Date of Birth</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <input v-model="overviewForm.date_of_birth" type="date" class="inline-input" />
+                    </template>
+                    <template v-else>{{ clientDobLabel || '-' }}</template>
+                  </div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Sex</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <select v-model="overviewForm.gender" class="inline-select">
+                        <option value="">Prefer not to say</option>
+                        <option v-for="o in sexSelectOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+                      </select>
+                    </template>
+                    <template v-else>{{ formatDemoLookupValue(client.gender, sexSelectOptions) || '-' }}</template>
+                  </div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Race / Ethnicity</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <select v-model="overviewForm.ethnicity" class="inline-select">
+                        <option value="">Prefer not to say</option>
+                        <option v-for="o in ethnicitySelectOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+                      </select>
+                    </template>
+                    <template v-else>{{ formatDemoLookupValue(client.ethnicity, ethnicitySelectOptions) || '-' }}</template>
+                  </div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">Preferred Language</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <select v-model="overviewForm.preferred_language" class="inline-select">
+                        <option value="">—</option>
+                        <option v-for="o in languageSelectOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+                      </select>
+                    </template>
+                    <template v-else>{{ formatDemoLookupValue(client.preferred_language, languageSelectOptions) || '-' }}</template>
+                  </div>
+                </div>
+                <div class="ov-row ov-row--block">
+                  <div class="ov-row-label">Address</div>
+                  <div class="ov-row-value">
+                    <template v-if="editingOverview">
+                      <div class="address-grid">
+                        <input v-model="overviewForm.address_street" class="inline-input" placeholder="Street address" style="grid-column: 1 / -1;" />
+                        <input v-model="overviewForm.address_apt" class="inline-input" placeholder="Apt / unit (optional)" />
+                        <input v-model="overviewForm.address_city" class="inline-input" placeholder="City" />
+                        <input v-model="overviewForm.address_state" class="inline-input" placeholder="State" />
+                        <input v-model="overviewForm.address_zip" class="inline-input" placeholder="Zip code" />
+                      </div>
+                    </template>
+                    <template v-else>
+                      <span v-if="clientAddressLine">{{ clientAddressLine }}</span>
+                      <span v-else class="muted">Not set</span>
+                    </template>
                   </div>
                 </div>
               </div>
@@ -536,7 +632,7 @@
               </header>
               <div class="ov-card-body">
                 <div class="ov-row">
-                  <div class="ov-row-label">Document Status</div>
+                  <div class="ov-row-label">Ongoing paperwork</div>
                   <div class="ov-row-value">
                     <template v-if="editingOverview">
                       <details ref="docStatusDetailsEl" class="doc-dropdown">
@@ -624,6 +720,22 @@
                       </span>
                       <span v-else>{{ client.insurance_type_label || '-' }}</span>
                     </template>
+                  </div>
+                </div>
+                <div class="ov-row">
+                  <div class="ov-row-label">New insurance needed</div>
+                  <div class="ov-row-value">
+                    <label class="check-row" style="margin: 0;">
+                      <input
+                        type="checkbox"
+                        :checked="!!newInsuranceNeededItem?.is_needed"
+                        :disabled="!canEditPaperwork || docChecklistSaving || !newInsuranceNeededItem"
+                        @change="onToggleDocNeeded(newInsuranceNeededItem, $event)"
+                      />
+                      <span class="muted" style="font-size: 12px;">
+                        Post-readiness flag — acquire updated insurance for this client
+                      </span>
+                    </label>
                   </div>
                 </div>
                 <div class="ov-row">
@@ -1175,62 +1287,87 @@
 
         <!-- Demographics Tab -->
         <div v-if="activeTab === 'demographics'" class="detail-section">
+          <div class="tab-meta-bar">
+            <div class="muted" style="font-size: 13px;">
+              Core demographics from the client record
+              <template v-if="demoCapturedAt">
+                · Latest intake {{ new Date(demoCapturedAt).toLocaleDateString() }}
+              </template>
+            </div>
+            <button v-if="canEditAccount" type="button" class="btn btn-primary btn-sm" @click="jumpToEditDemographics">
+              Edit demographics
+            </button>
+          </div>
+
           <div v-if="demoLoading" class="loading">Loading demographics…</div>
           <div v-else-if="demoError" class="error">{{ demoError }}</div>
-          <div v-else-if="!demoProfileFields.length && !demoIntakeFields.length" class="empty-state">
-            <p>No demographic data on file yet.</p>
-            <p class="muted" style="font-size: 13px; margin-top: 8px;">
-              Demographics are captured automatically from completed intakes when a Demographics step is included,
-              or when fields like address, date of birth, and gender are answered in any question step.
-            </p>
-          </div>
-          <div v-else>
-            <div class="tab-meta-bar">
-              <div class="muted" style="font-size: 13px;">
-                <span v-if="demoCapturedAt">
-                  Latest intake: {{ new Date(demoCapturedAt).toLocaleDateString() }} ·
-                </span>
-                Showing {{ demoVisibleCount }} of {{ demoTotalCount }} fields.
-              </div>
-              <label v-if="demoHasDuplicates" class="demo-toggle">
-                <input type="checkbox" v-model="showDemoDuplicates" />
-                Show duplicates ({{ demoDuplicateCount }})
-              </label>
-            </div>
-
-            <div class="ov-sections">
-              <section
-                v-for="group in demoGroupedSections"
-                v-show="group.fields.length"
-                :key="group.id"
-                class="ov-card"
-                :class="demoGroupCardClass(group)"
-              >
-                <header class="ov-card-header">
-                  <h3>{{ group.title }}</h3>
-                  <span v-if="group.subtitle" class="muted" style="font-size: 12px;">
-                    {{ group.subtitle }}
-                  </span>
-                </header>
-                <div class="ov-card-body">
-                  <div
-                    v-for="f in group.fields"
-                    :key="`${group.id}-${f.key}`"
-                    class="ov-row"
-                    :class="{ 'is-duplicate': !!f.duplicateOf }"
-                  >
-                    <div class="ov-row-label">
-                      {{ prettyDemoLabel(f) }}
-                      <span
-                        v-if="f.duplicateOf"
-                        class="demo-dup-chip"
-                        :title="`Also present in ${f.duplicateOf}`"
-                      >dup</span>
-                    </div>
-                    <div class="ov-row-value" style="white-space: pre-wrap;">{{ f.value }}</div>
+          <div v-else class="ov-sections">
+            <section class="ov-card ov-card--demo-client">
+              <header class="ov-card-header">
+                <h3>Demographics</h3>
+                <span class="muted" style="font-size: 12px;">From the client record</span>
+              </header>
+              <div class="ov-card-body">
+                <div
+                  v-for="row in clientDemoDisplayRows"
+                  :key="row.key"
+                  class="ov-row"
+                  :class="{ 'ov-row--missing': row.missing && canEditAccount }"
+                >
+                  <div class="ov-row-label">
+                    {{ row.label }}
+                    <span v-if="row.missing && canEditAccount" class="demo-missing-chip">Not set</span>
+                  </div>
+                  <div class="ov-row-value" :class="{ muted: row.missing }">
+                    {{ row.display }}
                   </div>
                 </div>
-              </section>
+              </div>
+            </section>
+
+            <section
+              v-for="group in demoSupplementalSections"
+              v-show="group.fields.length"
+              :key="group.id"
+              class="ov-card"
+              :class="demoGroupCardClass(group)"
+            >
+              <header class="ov-card-header">
+                <h3>{{ group.title }}</h3>
+                <span v-if="group.subtitle" class="muted" style="font-size: 12px;">{{ group.subtitle }}</span>
+              </header>
+              <div class="ov-card-body">
+                <div
+                  v-for="f in group.fields"
+                  :key="`${group.id}-${f.key}`"
+                  class="ov-row"
+                  :class="{ 'is-duplicate': !!f.duplicateOf }"
+                >
+                  <div class="ov-row-label">
+                    {{ prettyDemoLabel(f) }}
+                    <span v-if="f.duplicateOf" class="demo-dup-chip" :title="`Also present in ${f.duplicateOf}`">dup</span>
+                  </div>
+                  <div class="ov-row-value" style="white-space: pre-wrap;">{{ f.value }}</div>
+                </div>
+              </div>
+            </section>
+
+            <div
+              v-if="!clientDemoHasAnyData && !demoSupplementalSections.some((g) => g.fields.length)"
+              class="empty-state"
+              style="margin-top: 8px;"
+            >
+              <p class="muted">No additional intake demographics on file yet.</p>
+              <button v-if="canEditAccount" type="button" class="btn btn-secondary btn-sm" style="margin-top: 8px;" @click="jumpToEditDemographics">
+                Enter demographics
+              </button>
+            </div>
+
+            <div v-if="demoHasDuplicates" class="demo-dup-toggle-wrap">
+              <label class="demo-toggle">
+                <input type="checkbox" v-model="showDemoDuplicates" />
+                Show duplicate intake fields ({{ demoDuplicateCount }})
+              </label>
             </div>
           </div>
         </div>
@@ -2012,6 +2149,7 @@
         <ClientDocumentsTab
           v-if="activeTab === 'phi'"
           :client-id="Number(client.id)"
+          :client="client"
           :can-edit-paperwork="canEditPaperwork"
           :highlight-document-id="initialDocumentId"
         />
@@ -2031,7 +2169,7 @@
             v-if="canEditAccount && !isClientArchived"
             type="button"
             class="cdp-footer-link"
-            @click="startEditOverview(); activeTab = 'overview'"
+            @click="activeTab = 'overview'; startEditOverview(true)"
           >
             Edit profile
           </button>
@@ -2322,7 +2460,16 @@ const overviewForm = ref({
   referral_date: '',
   primary_client_language: '',
   primary_parent_language: '',
-  source: ''
+  source: '',
+  date_of_birth: '',
+  gender: '',
+  ethnicity: '',
+  preferred_language: '',
+  address_street: '',
+  address_apt: '',
+  address_city: '',
+  address_state: '',
+  address_zip: ''
 });
 
 const overviewGradeSelectOptions = computed(() => gradeSelectOptionsForModel(overviewForm.value.grade));
@@ -2420,6 +2567,48 @@ const clientDobLabel = computed(() => {
   const raw = props.client?.date_of_birth;
   if (!raw) return '';
   return formatDate(raw);
+});
+
+const sexSelectOptions = [
+  { value: 'male', label: 'Male' },
+  { value: 'female', label: 'Female' },
+  { value: 'nonbinary', label: 'Non-binary' },
+  { value: 'other', label: 'Other / self-describe' }
+];
+const ethnicitySelectOptions = [
+  { value: 'american_indian', label: 'American Indian or Alaska Native' },
+  { value: 'asian', label: 'Asian' },
+  { value: 'black', label: 'Black or African American' },
+  { value: 'hispanic', label: 'Hispanic or Latino' },
+  { value: 'nhpi', label: 'Native Hawaiian or Other Pacific Islander' },
+  { value: 'white', label: 'White' },
+  { value: 'two_or_more', label: 'Two or more races' },
+  { value: 'other', label: 'Other / self-describe' }
+];
+const languageSelectOptions = [
+  { value: 'english', label: 'English' },
+  { value: 'spanish', label: 'Spanish' },
+  { value: 'french', label: 'French' },
+  { value: 'mandarin', label: 'Mandarin' },
+  { value: 'arabic', label: 'Arabic' },
+  { value: 'other', label: 'Other' }
+];
+// Existing values may be free-text from older intakes/imports that don't match the
+// standard option value keys above — fall back to showing the raw stored value.
+const formatDemoLookupValue = (raw, options) => {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  const match = options.find((o) => o.value === value.toLowerCase());
+  return match ? match.label : value;
+};
+
+const clientAddressLine = computed(() => {
+  const c = props.client || {};
+  const line1 = [c.address_street, c.address_apt].filter((v) => String(v || '').trim()).join(' ');
+  const line2 = [c.address_city, c.address_state].filter((v) => String(v || '').trim()).join(', ');
+  return [line1, [line2, c.address_zip].filter((v) => String(v || '').trim()).join(' ')]
+    .filter((v) => String(v || '').trim())
+    .join(' · ');
 });
 
 const clientAgeLabel = computed(() => {
@@ -2613,6 +2802,15 @@ const canEditClientType = computed(
 );
 const clientTypeDraft = ref('basic_nonclinical');
 const savingClientType = ref(false);
+const adminDetailsEl = ref(null);
+const clientTypeSelectEl = ref(null);
+
+const openAdminSettings = async () => {
+  const el = adminDetailsEl.value;
+  if (el) el.open = true;
+  await nextTick();
+  clientTypeSelectEl.value?.focus();
+};
 
 const isSchoolClientByPrimaryOrg = computed(() => isSchoolLikeOrgType(props.client?.organization_type));
 
@@ -3245,6 +3443,10 @@ const {
   loadTabData: loadPaperworkTabData
 } = clientPaperwork;
 
+const newInsuranceNeededItem = computed(() =>
+  (docChecklistItems.value || []).find((x) => String(x?.status_key || '').toLowerCase() === 'new_insurance') || null
+);
+
 const onMarkDocsCompletedFromOverview = async () => {
   if (!canEditPaperwork.value) return;
   const updated = await markAllDocsCompleted();
@@ -3650,18 +3852,50 @@ const hydrateOverviewForm = () => {
   overviewForm.value.skills = isSkillsClientFlag(props.client?.skills);
   overviewForm.value.referral_date = props.client?.referral_date ? String(props.client.referral_date).slice(0, 10) : '';
   overviewForm.value.source = String(props.client?.source || '');
+  overviewForm.value.date_of_birth = props.client?.date_of_birth ? String(props.client.date_of_birth).slice(0, 10) : '';
+  overviewForm.value.gender = String(props.client?.gender || '');
+  overviewForm.value.ethnicity = String(props.client?.ethnicity || '');
+  overviewForm.value.preferred_language = String(props.client?.preferred_language || '');
+  overviewForm.value.address_street = String(props.client?.address_street || '');
+  overviewForm.value.address_apt = String(props.client?.address_apt || '');
+  overviewForm.value.address_city = String(props.client?.address_city || '');
+  overviewForm.value.address_state = String(props.client?.address_state || '');
+  overviewForm.value.address_zip = String(props.client?.address_zip || '');
 };
 
-const startEditOverview = () => {
+const profileDetailsEl = ref(null);
+const editHighlightActive = ref(false);
+const profileDetailsPulseHint = ref(true);
+
+const onProfileDetailsToggle = (e) => {
+  if (e?.target?.open) profileDetailsPulseHint.value = false;
+};
+
+const startEditOverview = async (scrollToFields = false) => {
   editingOverview.value = true;
+  profileDetailsPulseHint.value = false;
   hydrateOverviewForm();
   loadOverviewOptions();
   fetchDocChecklist();
+  if (scrollToFields) {
+    await nextTick();
+    const el = profileDetailsEl.value;
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    editHighlightActive.value = true;
+    setTimeout(() => { editHighlightActive.value = false; }, 1600);
+  }
 };
 
 const cancelEditOverview = () => {
   editingOverview.value = false;
   hydrateOverviewForm();
+};
+
+const jumpToEditDemographics = async () => {
+  activeTab.value = 'overview';
+  await startEditOverview(true);
 };
 
 const saveOverview = async () => {
@@ -3689,7 +3923,16 @@ const saveOverview = async () => {
       primary_parent_language: String(overviewForm.value.primary_parent_language || '').trim() || null,
       skills: isSchoolClientType.value ? !!overviewForm.value.skills : false,
       referral_date: overviewForm.value.referral_date ? String(overviewForm.value.referral_date) : null,
-      source: String(overviewForm.value.source || '').trim() || null
+      source: String(overviewForm.value.source || '').trim() || null,
+      date_of_birth: overviewForm.value.date_of_birth ? String(overviewForm.value.date_of_birth) : null,
+      gender: String(overviewForm.value.gender || '').trim() || null,
+      ethnicity: String(overviewForm.value.ethnicity || '').trim() || null,
+      preferred_language: String(overviewForm.value.preferred_language || '').trim() || null,
+      address_street: String(overviewForm.value.address_street || '').trim() || null,
+      address_apt: String(overviewForm.value.address_apt || '').trim() || null,
+      address_city: String(overviewForm.value.address_city || '').trim() || null,
+      address_state: String(overviewForm.value.address_state || '').trim() || null,
+      address_zip: String(overviewForm.value.address_zip || '').trim() || null
     };
     if (isTerminatedStatusSelected.value) {
       payload.termination_reason = String(overviewForm.value.termination_reason || '').trim();
@@ -4533,7 +4776,7 @@ watch(() => activeTab.value, (newTab) => {
     loadPaperworkTabData();
   } else if (newTab === 'clinical') {
     fetchBillingDiagnoses();
-  } else if (newTab === 'demographics' && !demoProfileFields.value.length && !demoIntakeFields.value.length) {
+  } else if (newTab === 'demographics') {
     fetchDemographics();
   } else if (newTab === 'surveys' && clientSurveyResponses.value.length === 0) {
     fetchClientSurveyResponses();
@@ -4648,9 +4891,101 @@ const demoLoading = ref(false);
 const demoError = ref('');
 const showDemoDuplicates = ref(false);
 
-// Render groups derived from the structured `sections` payload, merged with
-// the legacy address bag for clarity. Address & Contact gets pulled out of
-// Profile so it reads as its own subsection per the design.
+// Render intake supplement groups on the Demographics tab (core record fields
+// are shown separately in clientDemoDisplayRows).
+const demoSupplementalSections = computed(() => {
+  const include = (f) => (showDemoDuplicates.value ? true : !f.duplicateOf);
+  const clientIntake = (demoSections.value.find((s) => s.id === 'client_intake')?.fields) || [];
+  const guardianIntake = (demoSections.value.find((s) => s.id === 'guardian_intake')?.fields) || [];
+  return [
+    {
+      id: 'client_intake',
+      title: 'Client (intake)',
+      subtitle: 'From the latest submitted intake form',
+      fields: clientIntake.filter(include)
+    },
+    {
+      id: 'guardian_intake',
+      title: 'Guardian (intake)',
+      subtitle: 'Reported by the guardian',
+      fields: guardianIntake.filter(include)
+    }
+  ];
+});
+
+const clientDemoDisplayRows = computed(() => {
+  const c = props.client || {};
+  const rows = [
+    {
+      key: 'date_of_birth',
+      label: 'Date of Birth',
+      value: clientDobLabel.value,
+      important: true
+    },
+    {
+      key: 'age',
+      label: 'Age',
+      value: clientAgeLabel.value ? `${clientAgeLabel.value} years` : '',
+      important: false
+    },
+    {
+      key: 'sex',
+      label: 'Sex',
+      value: formatDemoLookupValue(c.gender, sexSelectOptions),
+      important: true
+    },
+    {
+      key: 'ethnicity',
+      label: 'Race / Ethnicity',
+      value: formatDemoLookupValue(c.ethnicity, ethnicitySelectOptions),
+      important: false
+    },
+    {
+      key: 'preferred_language',
+      label: 'Preferred Language',
+      value: formatDemoLookupValue(c.preferred_language, languageSelectOptions),
+      important: false
+    },
+    {
+      key: 'primary_client_language',
+      label: 'Client Primary Language',
+      value: String(c.primary_client_language || '').trim(),
+      important: false
+    },
+    {
+      key: 'primary_parent_language',
+      label: 'Guardian Primary Language',
+      value: String(c.primary_parent_language || guardianIntakeProfile.value?.primaryLanguage || '').trim(),
+      important: false
+    },
+    {
+      key: 'contact_phone',
+      label: 'Phone',
+      value: String(c.contact_phone || '').trim(),
+      important: false
+    },
+    {
+      key: 'address',
+      label: 'Address',
+      value: clientAddressLine.value,
+      important: false
+    }
+  ];
+  return rows.map((row) => {
+    const hasValue = !!String(row.value || '').trim();
+    return {
+      ...row,
+      missing: !hasValue && row.important,
+      display: hasValue ? row.value : 'Not set'
+    };
+  });
+});
+
+const clientDemoHasAnyData = computed(() =>
+  clientDemoDisplayRows.value.some((row) => String(row.value || '').trim())
+);
+
+// Legacy grouped view — kept for duplicate counting.
 const demoGroupedSections = computed(() => {
   const include = (f) => (showDemoDuplicates.value ? true : !f.duplicateOf);
   const profileAll = (demoSections.value.find((s) => s.id === 'profile')?.fields) || demoProfileFields.value;
@@ -4700,7 +5035,7 @@ const FRIENDLY_DEMO_LABELS = {
   client_first: 'First Name',
   client_last: 'Last Name',
   client_dob: 'Date of Birth',
-  client_sex: 'Sex / Gender',
+  client_sex: 'Sex',
   client_grade: 'Grade',
   client_school: 'School',
   client_street: 'Street Address',
@@ -4730,7 +5065,8 @@ const FRIENDLY_DEMO_LABELS = {
   address_apt: 'Apt / Unit',
   address_city: 'City',
   address_state: 'State',
-  address_zip: 'Zip Code'
+  address_zip: 'Zip Code',
+  gender: 'Sex'
 };
 
 // Convert a raw snake/camel-case key into a readable title-case label.
@@ -4753,7 +5089,8 @@ const humanizeDemoKey = (raw) => {
 const prettyDemoLabel = (field) => {
   if (!field) return '';
   const key = String(field.key || '').trim();
-  const label = String(field.label || '').trim();
+  let label = String(field.label || '').trim();
+  if (label.toLowerCase() === 'gender') label = 'Sex';
   // Treat the label as "raw" if it's empty, equal to the key, or all
   // lowercase snake_case (the typical fallback shape).
   const looksRaw = !label
@@ -4846,6 +5183,9 @@ const fetchClientSurveyResponses = async () => {
 };
 
 onMounted(async () => {
+  if (isSchoolPortalContext.value) {
+    profileDetailsPulseHint.value = false;
+  }
   if (isBackofficeRole.value) {
     await fetchProviders();
   }
@@ -5184,6 +5524,27 @@ watch(
   border-color: rgba(198, 154, 43, 0.42);
   color: #6b4d10;
 }
+.cdp-pill--type.is-editable {
+  padding-right: 4px;
+}
+.cdp-pill-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(198, 154, 43, 0.28);
+  color: #6b4d10;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.cdp-pill-edit-btn:hover {
+  background: rgba(198, 154, 43, 0.5);
+}
 
 .cdp-pill--success {
   background: rgba(47, 143, 131, 0.12);
@@ -5231,18 +5592,27 @@ watch(
 }
 .cdp-admin-details > summary {
   cursor: pointer;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0.03em;
   color: var(--accent, #3A4C6B);
   list-style: none;
   user-select: none;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(58, 76, 107, 0.28);
+}
+.cdp-admin-details > summary:hover {
+  background: rgba(58, 76, 107, 0.08);
 }
 .cdp-admin-details > summary::-webkit-details-marker { display: none; }
 .cdp-admin-details > summary::after {
-  content: ' ▾';
+  content: '▾';
   color: var(--primary, #C69A2B);
 }
 .cdp-admin-details[open] > summary::after { content: ' ▴'; }
@@ -5690,6 +6060,28 @@ watch(
   border-radius: 12px;
   background: #fff;
   overflow: hidden;
+  scroll-margin-top: 16px;
+  transition: box-shadow 0.3s, border-color 0.3s;
+}
+.cdp-profile-details.is-flagged {
+  border-color: var(--primary, #C69A2B);
+  box-shadow: 0 0 0 3px rgba(198, 154, 43, 0.28);
+  animation: cdp-profile-flag-pulse 1.6s ease-out;
+}
+.cdp-profile-details--hint:not([open]) {
+  animation: cdp-profile-hint-pulse 2.8s ease-in-out infinite;
+  border-color: rgba(198, 154, 43, 0.38);
+}
+.cdp-profile-details--hint:not([open]) > summary {
+  background: linear-gradient(90deg, rgba(198, 154, 43, 0.08), rgba(255, 255, 255, 0));
+}
+@keyframes cdp-profile-flag-pulse {
+  0% { box-shadow: 0 0 0 6px rgba(198, 154, 43, 0.32); }
+  100% { box-shadow: 0 0 0 3px rgba(198, 154, 43, 0.28); }
+}
+@keyframes cdp-profile-hint-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(198, 154, 43, 0); border-color: rgba(198, 154, 43, 0.28); }
+  50% { box-shadow: 0 0 0 6px rgba(198, 154, 43, 0.2); border-color: rgba(198, 154, 43, 0.62); }
 }
 .cdp-profile-details > summary {
   display: flex;
@@ -5703,6 +6095,28 @@ watch(
   font-weight: 750;
   color: var(--secondary, #1D2633);
   user-select: none;
+}
+.cdp-profile-details__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cdp-profile-details__badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 999px;
+  padding: 2px 8px;
+  animation: cdp-profile-badge-blink 2.8s ease-in-out infinite;
+}
+@keyframes cdp-profile-badge-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 .cdp-profile-details > summary::-webkit-details-marker { display: none; }
 .cdp-profile-details > summary::after {
@@ -5724,6 +6138,30 @@ watch(
 .cdp-profile-details .ov-sections {
   padding: 14px;
   margin-bottom: 0;
+}
+
+.ov-row--missing {
+  background: rgba(254, 243, 199, 0.35);
+  border-radius: 8px;
+  margin: 0 -6px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+.demo-missing-chip {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #b45309;
+  background: #fef3c7;
+  border-radius: 999px;
+  padding: 1px 6px;
+  vertical-align: middle;
+}
+.demo-dup-toggle-wrap {
+  margin-top: 12px;
 }
 
 .cdp-overview-aside {
@@ -6086,6 +6524,12 @@ watch(
 .ov-row--block {
   grid-template-columns: 1fr;
   gap: 6px;
+}
+
+.address-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
 }
 
 .ov-row-label {

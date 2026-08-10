@@ -267,8 +267,8 @@
         </section>
 
         <section class="hub-sidebar-panel">
-          <h2>Quick links</h2>
-          <FrequentPagesBar :limit="5" class="fpb-hub" />
+          <h2>Your top 5</h2>
+          <HubTopCardsBar :cards="allHubCards" :limit="5" class="htcb-hub" />
           <div class="hub-quick-links">
             <router-link :to="schoolApprovalsTo" class="hub-quick-link">
               <span>Approve school requests</span>
@@ -296,7 +296,7 @@
         </h2>
         <div class="hub-mobile-grid">
           <router-link
-            v-for="card in section.cards"
+            v-for="card in sortCardsByVisits(section.cards)"
             :key="card.id"
             class="hub-mobile-card"
             :class="[`tone-${card.tone}`]"
@@ -320,7 +320,8 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
-import FrequentPagesBar from '../components/admin/FrequentPagesBar.vue';
+import HubTopCardsBar from '../components/admin/HubTopCardsBar.vue';
+import { useHubTopCards } from '../composables/useHubTopCards.js';
 import {
   buildHubSwitcherLinks,
   canSeeSchoolClientsHubCard,
@@ -563,7 +564,7 @@ const allSections = computed(() => [
   {
     id: 'portals-onboarding',
     label: 'Portals & Onboarding',
-    desc: 'Portals, onboarding, and school clients.',
+    desc: 'Portals and school organization onboarding.',
     tone: 'green',
     icon: icon.portal,
     cards: [
@@ -605,25 +606,77 @@ const allSections = computed(() => [
         tour: null,
         show: canSeeSchoolOpsContent.value,
         count: 0
-      },
+      }
+    ].filter((c) => c.show)
+  },
+  {
+    id: 'clients-guardians',
+    label: 'Clients & Guardians',
+    desc: 'School clients, guardians, new intakes, and exchange.',
+    tone: 'cyan',
+    icon: icon.clients,
+    cards: [
       {
         id: 'school-clients',
         title: 'School Clients',
-        shortDesc: 'Pending school client onboarding.',
-        desc: 'Track pending school clients and ROI expiration status.',
+        shortDesc: 'Pending school clients and ROI renewals.',
+        desc: 'Track pending school clients and ROI expiration status, sorted by school affiliation.',
         cta: schoolClientsPending.value > 0 ? `Review ${schoolClientsPending.value} →` : 'Open →',
         to: orgTo('/admin/school-clients'),
-        tone: 'orange',
+        tone: 'cyan',
         icon: icon.clients,
         tour: null,
         show: canSeeSchoolClients.value,
         count: schoolClientsPending.value
+      },
+      {
+        id: 'school-guardians',
+        title: 'School Guardians',
+        shortDesc: 'Guardians linked to school clients.',
+        desc: 'Guardians affiliated with school clients, grouped by school.',
+        cta: 'Open →',
+        to: orgTo('/admin/guardians?scope=school'),
+        tone: 'teal',
+        icon: icon.people,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: 0
+      },
+      {
+        id: 'client-onboarding',
+        title: 'Client Readiness',
+        shortDesc: 'Staff checklist for school intakes.',
+        desc: 'ROI staff access, documents, provider/day, insurance — then mark staff readiness complete for providers.',
+        cta: 'Open →',
+        to: orgTo('/admin/client-onboarding?scope=school'),
+        tone: 'blue',
+        icon: icon.onboard,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: schoolClientsPending.value
+      },
+      {
+        id: 'client-exchange',
+        title: 'Client Exchange',
+        shortDesc: 'Reassign or exchange clients.',
+        desc: 'Client exchange for reassignment and handoff without exposing unnecessary identity.',
+        cta: 'Open →',
+        to: orgTo('/client-exchange'),
+        tone: 'amber',
+        icon: icon.clients,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: 0
       }
     ].filter((c) => c.show)
   }
 ]);
 
 const visibleSections = computed(() => allSections.value.filter((s) => s.cards.length > 0));
+
+const allHubCards = computed(() => visibleSections.value.flatMap((section) => section.cards));
+
+const { sortCardsByVisits } = useHubTopCards(allHubCards, { limit: 5 });
 
 const activeSection = computed(() =>
   visibleSections.value.find((s) => s.id === activeSectionId.value) || null
@@ -639,7 +692,7 @@ const centerIcon = computed(() => (activeSection.value ? activeSection.value.ico
 
 const orbitNodes = computed(() => {
   if (activeSection.value) {
-    return activeSection.value.cards.map((card) => ({
+    return sortCardsByVisits(activeSection.value.cards).map((card) => ({
       type: 'card',
       key: card.id,
       ...card
@@ -1087,6 +1140,10 @@ onMounted(() => {
   stroke: #14b8a6;
   stroke-opacity: 0.72;
 }
+.hub-connector-line.tone-cyan {
+  stroke: #06b6d4;
+  stroke-opacity: 0.72;
+}
 .hub-connector-line.active {
   stroke-width: 2.75;
   stroke-opacity: 1;
@@ -1181,8 +1238,17 @@ onMounted(() => {
     0 0 48px rgba(20, 184, 166, 0.2),
     0 20px 50px rgba(20, 184, 166, 0.1);
 }
+.hub-center.tone-cyan {
+  border-color: #67e8f9;
+  background: radial-gradient(circle at 50% 30%, #ecfeff 0%, #ffffff 58%);
+  box-shadow:
+    0 0 0 8px rgba(255, 255, 255, 0.65),
+    0 0 48px rgba(6, 182, 212, 0.22),
+    0 20px 50px rgba(6, 182, 212, 0.12);
+}
 .hub-center.tone-indigo .hub-center-icon { background: #ecfeff; color: #0e7490; }
 .hub-center.tone-teal .hub-center-icon { background: #f0fdfa; color: #0f766e; }
+.hub-center.tone-cyan .hub-center-icon { background: #ecfeff; color: #0e7490; }
 .hub-center.tone-purple .hub-center-icon { background: #f8fafc; color: #475569; }
 .hub-center.tone-green .hub-center-icon { background: #ecfdf5; color: #16a34a; }
 .hub-center.tone-blue .hub-center-icon { background: #eff6ff; color: #2563eb; }
@@ -1263,6 +1329,9 @@ onMounted(() => {
 .hub-orbit-node.tone-teal::before {
   background: radial-gradient(circle, rgba(45, 212, 191, 0.34) 0%, rgba(45, 212, 191, 0.1) 42%, transparent 72%);
 }
+.hub-orbit-node.tone-cyan::before {
+  background: radial-gradient(circle, rgba(6, 182, 212, 0.36) 0%, rgba(6, 182, 212, 0.12) 42%, transparent 72%);
+}
 
 .hub-satellite {
   width: 164px;
@@ -1339,6 +1408,14 @@ onMounted(() => {
     0 0 28px rgba(20, 184, 166, 0.18),
     0 12px 28px rgba(20, 184, 166, 0.08);
 }
+.hub-satellite.tone-cyan {
+  border-color: #22d3ee;
+  background: radial-gradient(circle at 50% 28%, #ecfeff 0%, #ffffff 65%);
+  box-shadow:
+    0 0 0 5px rgba(34, 211, 238, 0.14),
+    0 0 28px rgba(6, 182, 212, 0.2),
+    0 12px 28px rgba(6, 182, 212, 0.1);
+}
 .hub-satellite-link { text-decoration: none; }
 .hub-satellite:hover,
 .hub-satellite.hovered,
@@ -1387,6 +1464,13 @@ onMounted(() => {
     0 0 40px rgba(20, 184, 166, 0.28),
     0 18px 36px rgba(20, 184, 166, 0.12);
 }
+.hub-satellite.tone-cyan:hover,
+.hub-satellite.tone-cyan.hovered {
+  box-shadow:
+    0 0 0 7px rgba(34, 211, 238, 0.22),
+    0 0 40px rgba(6, 182, 212, 0.32),
+    0 18px 36px rgba(6, 182, 212, 0.14);
+}
 
 .hub-satellite-icon {
   width: 40px; height: 40px; border-radius: 12px;
@@ -1399,6 +1483,7 @@ onMounted(() => {
 .tone-orange .hub-satellite-icon { background: #fff7ed; color: #c2410c; }
 .tone-indigo .hub-satellite-icon { background: #ecfeff; color: #0e7490; }
 .tone-teal .hub-satellite-icon { background: #f0fdfa; color: #0f766e; }
+.tone-cyan .hub-satellite-icon { background: #ecfeff; color: #0e7490; }
 
 .hub-satellite-title {
   font-size: 12px;
@@ -1515,6 +1600,7 @@ onMounted(() => {
 .hub-preview.tone-blue { border-color: #bfdbfe; }
 .hub-preview.tone-indigo { border-color: #c7d2fe; }
 .hub-preview.tone-teal { border-color: #99f6e4; }
+.hub-preview.tone-cyan { border-color: #67e8f9; }
 
 .hub-preview-title {
   font-size: 12px;
@@ -1775,6 +1861,7 @@ onMounted(() => {
   .tone-orange .hub-mobile-icon { background: #fff7ed; color: #c2410c; }
   .tone-indigo .hub-mobile-icon { background: #ecfeff; color: #0e7490; }
   .tone-teal .hub-mobile-icon { background: #f0fdfa; color: #0f766e; }
+  .tone-cyan .hub-mobile-icon { background: #ecfeff; color: #0e7490; }
   .hub-mobile-title { font-weight: 800; font-size: 14px; margin-bottom: 4px; }
   .hub-mobile-card p {
     margin: 0;

@@ -514,7 +514,19 @@ class Client {
       'terminated_at',
       'terminated_by_user_id',
       'last_returning_match_submission_id',
-      'date_of_birth'
+      'date_of_birth',
+      'ethnicity',
+      'preferred_language',
+      'address_street',
+      'address_apt',
+      'address_city',
+      'address_state',
+      'address_zip',
+      'paper_packet_staff_roi_pending',
+      'onboarding_docs_json',
+      'staff_onboarding_completed_at',
+      'staff_onboarding_completed_by_user_id',
+      'disclosure_required'
     ];
 
     for (const field of allowedFields) {
@@ -525,7 +537,9 @@ class Client {
         } else if (
           field === 'skills' ||
           field === 'skill_builders_intake_complete' ||
-          field === 'skill_builders_treatment_plan_complete'
+          field === 'skill_builders_treatment_plan_complete' ||
+          field === 'paper_packet_staff_roi_pending' ||
+          field === 'disclosure_required'
         ) {
           values.push(clientData[field] ? 1 : 0);
         } else if (field === 'grade') {

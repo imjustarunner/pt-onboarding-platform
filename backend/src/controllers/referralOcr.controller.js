@@ -248,17 +248,15 @@ export const processReferralOcrRequest = async (req, res, next) => {
     const encryptedBuffer = await StorageService.readObject(doc.storage_path);
     let buffer = encryptedBuffer;
     if (doc.is_encrypted) {
-      buffer = await DocumentEncryptionService.decryptBuffer({
+      buffer = await DocumentEncryptionService.decryptReferralPacketBuffer({
         encryptedBuffer,
         encryptionKeyId: doc.encryption_key_id,
         encryptionWrappedKeyB64: doc.encryption_wrapped_key,
         encryptionIvB64: doc.encryption_iv,
         encryptionAuthTagB64: doc.encryption_auth_tag,
-        aad: JSON.stringify({
-          organizationId: doc.school_organization_id,
-          uploadType: 'referral_packet',
-          filename: StorageService.sanitizeFilename(doc.original_name || '')
-        })
+        organizationId: doc.school_organization_id,
+        originalName: doc.original_name || '',
+        sanitizeFilename: (name) => StorageService.sanitizeFilename(name)
       });
     }
 

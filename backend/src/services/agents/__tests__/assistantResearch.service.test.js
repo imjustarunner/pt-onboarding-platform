@@ -2,11 +2,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   looksLikeServiceCodeQuery,
+  looksLikeProviderAgeMatchQuery,
   shouldAttemptAgencyResearch,
   buildResearchAssistantText,
   looksLikeBillingOrServiceCodeTopic,
   hitMatchesResearchQuery
 } from '../assistantResearch.service.js';
+import { detectAgeBucketFromText } from '../../../utils/ageMatch.util.js';
+
+test.after(async () => {
+  try {
+    const pool = (await import('../../../config/database.js')).default;
+    await pool.end();
+  } catch {
+    // Pool may not have been opened.
+  }
+});
 
 test('service code detection', () => {
   assert.equal(looksLikeServiceCodeQuery('what is h2014'), true);
@@ -83,6 +94,10 @@ test('operational school client counts never go to document research', () => {
 });
 
 test('provider age match asks never go to document research', () => {
+  assert.equal(detectAgeBucketFromText('Who sees 10 year old kids?'), 'Children (6-10)');
+  assert.equal(detectAgeBucketFromText('which therapists work with 8 year olds'), 'Children (6-10)');
+  assert.equal(looksLikeProviderAgeMatchQuery('Who sees 10 year old kids?'), true);
+  assert.equal(looksLikeProviderAgeMatchQuery('which therapists work with 8 year olds'), true);
   assert.equal(shouldAttemptAgencyResearch('Who sees 10 year old kids?'), false);
   assert.equal(shouldAttemptAgencyResearch('which therapists work with 8 year olds'), false);
 });

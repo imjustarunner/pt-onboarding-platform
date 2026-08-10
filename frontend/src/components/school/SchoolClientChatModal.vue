@@ -42,6 +42,11 @@
         <strong>Termination reason:</strong> {{ props.client?.termination_reason || fullClient?.termination_reason }}
       </div>
 
+      <div v-if="props.client?.paper_packet_staff_roi_notice" class="paper-packet-staff-notice-banner">
+        <strong>Paper packet — staff ROI needs setup.</strong>
+        Update school staff access levels for this student to match the signed paper packet. Contact your ITSCO team if you need help.
+      </div>
+
       <div v-if="showActionBar" class="modal-actions-bar">
         <button
           v-if="subView !== 'default'"
@@ -1167,6 +1172,15 @@ watch(
   background: #fef2f2;
   border: 1px solid #fecaca;
   color: #991b1b;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+.paper-packet-staff-notice-banner {
+  margin: 12px 16px 0 16px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
   padding: 10px 12px;
   border-radius: 10px;
   font-size: 13px;

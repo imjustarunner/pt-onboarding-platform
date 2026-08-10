@@ -557,17 +557,15 @@ export const viewPhiDocument = async (req, res, next) => {
 
     if (doc.is_encrypted) {
       const encryptedBuffer = await StorageService.readObject(doc.storage_path);
-      const decryptedBuffer = await DocumentEncryptionService.decryptBuffer({
+      const decryptedBuffer = await DocumentEncryptionService.decryptReferralPacketBuffer({
         encryptedBuffer,
         encryptionKeyId: doc.encryption_key_id,
         encryptionWrappedKeyB64: doc.encryption_wrapped_key,
         encryptionIvB64: doc.encryption_iv,
         encryptionAuthTagB64: doc.encryption_auth_tag,
-        aad: JSON.stringify({
-          organizationId: doc.school_organization_id,
-          uploadType: 'referral_packet',
-          filename: StorageService.sanitizeFilename(doc.original_name || '')
-        })
+        organizationId: doc.school_organization_id,
+        originalName: doc.original_name || '',
+        sanitizeFilename: (name) => StorageService.sanitizeFilename(name)
       });
 
       const safeName = StorageService.sanitizeFilename(doc.original_name || `document-${doc.id}`);

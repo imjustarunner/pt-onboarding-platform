@@ -7,10 +7,9 @@ import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import pool from '../config/database.js';
 
 const DEFAULT_SUBTASKS = [
-  { id: '1', title: 'Review client packet', is_completed: false },
-  { id: '2', title: 'Contact guardian/parent', is_completed: false },
-  { id: '3', title: 'Schedule first session', is_completed: false },
-  { id: '4', title: 'Complete intake checklist', is_completed: false }
+  { id: '1', title: 'Contact guardian/parent (record contact date + success)', is_completed: false },
+  { id: '2', title: 'Set first intake completed date', is_completed: false },
+  { id: '3', title: 'Set first service / success date (marks Current when done)', is_completed: false }
 ];
 
 /**

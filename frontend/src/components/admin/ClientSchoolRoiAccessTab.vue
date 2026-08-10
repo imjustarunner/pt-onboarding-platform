@@ -40,6 +40,12 @@
       ROI is expired or missing. School staff remain code-only and blocked until the ROI expiration date is updated or a newly signed ROI completes.
     </div>
 
+    <div v-if="paperPacketStaffRoiPending" class="warning-card paper-packet-staff-notice">
+      <strong>Paper packet uploaded.</strong>
+      Set each school staff member’s ROI access below to match the signed paper packet (who may receive coordination vs. documents).
+      Schedulers use scheduling-only portal access until configured here.
+    </div>
+
     <div v-if="error" class="error" style="margin-bottom: 12px;">{{ error }}</div>
     <div v-if="loading" class="loading">Loading school ROI access…</div>
     <template v-else>
@@ -398,6 +404,7 @@ const draftStates = ref({});
 const savingUserId = ref(null);
 const roiExpiresAt = ref(null);
 const roiExpired = ref(false);
+const paperPacketStaffRoiPending = ref(false);
 const schoolName = ref('');
 const availableLinks = ref([]);
 const savedIntakeLinkId = ref('');
@@ -625,6 +632,7 @@ const load = async () => {
     programmedRecipientPhone.value = '';
     roiExpiresAt.value = null;
     roiExpired.value = false;
+    paperPacketStaffRoiPending.value = false;
     return;
   }
 
@@ -648,6 +656,7 @@ const load = async () => {
     roiExpiresAt.value = payload.roi_expires_at || null;
     roiExpiryDraft.value = normalizeDateInputValue(payload.roi_expires_at || null);
     roiExpired.value = payload.roi_expired !== false;
+    paperPacketStaffRoiPending.value = payload.paper_packet_staff_roi_pending === true;
     schoolName.value = payload.school_name || props.client?.organization_name || '—';
     draftStates.value = rows.value.reduce((acc, row) => {
       acc[row.school_staff_user_id] = normalizeState(row.access_level);

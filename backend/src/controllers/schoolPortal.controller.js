@@ -751,6 +751,9 @@ export const getSchoolClients = async (req, res, next) => {
            c.first_service_at,
            c.continuation_services_json,
            c.roi_expires_at,
+           c.paper_packet_staff_roi_pending,
+           c.onboarding_docs_json,
+           c.staff_onboarding_completed_at,
            c.skills,
            c.status,
            MIN(cpa.created_at) AS provider_assigned_at
@@ -988,6 +991,13 @@ export const getSchoolClients = async (req, res, next) => {
       actorEmail: req.user?.email || req.user?.username || null,
       orgId
     });
+    const viewerSchoolFlags = String(userRole || '').toLowerCase() === 'school_staff'
+      ? await getActorSchoolRoleFlags({
+          actorUserId: userId,
+          actorEmail: req.user?.email || req.user?.username || null,
+          orgId
+        })
+      : null;
     if (String(userRole || '').toLowerCase() === 'school_staff') {
       await Promise.all(
         (clients || []).map(async (client) => {
@@ -1130,6 +1140,22 @@ export const getSchoolClients = async (req, res, next) => {
         first_service_at: canViewOperationalChecklist ? (client.first_service_at || null) : null,
         continuation_services_json: canViewOperationalChecklist ? parseJsonMaybe(client.continuation_services_json) : null,
         roi_expires_at: client.roi_expires_at || null,
+        paper_packet_staff_roi_pending: client.paper_packet_staff_roi_pending === 1
+          || client.paper_packet_staff_roi_pending === true,
+        paper_packet_staff_roi_notice: (() => {
+          const pending = client.paper_packet_staff_roi_pending === 1
+            || client.paper_packet_staff_roi_pending === true;
+          if (!pending || !viewerSchoolFlags) return false;
+          if (viewerSchoolFlags.isScheduler) return false;
+          return true;
+        })(),
+        onboarding_docs_json: (() => {
+          const raw = client.onboarding_docs_json;
+          if (!raw) return null;
+          if (typeof raw === 'object') return raw;
+          try { return JSON.parse(raw); } catch { return null; }
+        })(),
+        staff_onboarding_completed_at: client.staff_onboarding_completed_at || null,
         skills: client.skills === 1 || client.skills === true,
         unread_notes_count: unreadCountsByClientId.get(clientId) || 0,
         notes_count: totalNotesByClientId.get(clientId) || 0,
@@ -4734,6 +4760,8 @@ export const getSchoolPortalClientSchoolStaffRoiSummary = async (req, res, next)
       school_organization_id: orgId,
       roi_expires_at: roiExpiresAt ? String(roiExpiresAt).slice(0, 10) : null,
       roi_expired: isRoiExpired(roiExpiresAt),
+      paper_packet_staff_roi_pending: client.paper_packet_staff_roi_pending === 1
+        || client.paper_packet_staff_roi_pending === true,
       staff
     });
   } catch (e) {

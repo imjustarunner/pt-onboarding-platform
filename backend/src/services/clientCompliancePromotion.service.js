@@ -27,9 +27,18 @@ export default class ClientCompliancePromotionService {
          LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
          WHERE c.first_service_at IS NOT NULL
            AND c.first_service_at <= ?
+           AND c.parents_contacted_at IS NOT NULL
+           AND COALESCE(c.parents_contacted_successful, 0) = 1
+           AND c.intake_at IS NOT NULL
            AND UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
-           AND (LOWER(COALESCE(cs.status_key, '')) = 'pending'
-                OR UPPER(COALESCE(c.status, '')) = 'PENDING_REVIEW')`,
+           AND (
+             LOWER(COALESCE(cs.status_key, '')) = 'onboarded'
+             OR (
+               (LOWER(COALESCE(cs.status_key, '')) = 'pending'
+                 OR UPPER(COALESCE(c.status, '')) = 'PENDING_REVIEW')
+               AND c.staff_onboarding_completed_at IS NULL
+             )
+           )`,
         [todayStr]
       );
       rows = r || [];

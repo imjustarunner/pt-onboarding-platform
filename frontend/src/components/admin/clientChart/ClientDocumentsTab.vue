@@ -14,6 +14,11 @@
       Documentation may contain PHI. Access is logged. Only open files when you have a legitimate need.
     </div>
 
+    <ClientDisclosurePanel
+      :client-id="clientId"
+      :client="client"
+    />
+
     <div class="cc-docs-kpi-row">
       <div class="cc-enc-kpi">
         <div class="cc-enc-kpi__label">Files on file</div>
@@ -321,11 +326,13 @@
 import { computed, inject, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
 import PhiDocumentsPanel from '../PhiDocumentsPanel.vue';
+import ClientDisclosurePanel from './ClientDisclosurePanel.vue';
 import '../../../styles/client-documents-tab.css';
 import '../../../styles/client-encounters-tab.css';
 
 const props = defineProps({
   clientId: { type: Number, required: true },
+  client: { type: Object, default: null },
   canEditPaperwork: { type: Boolean, default: false },
   highlightDocumentId: { type: Number, default: null }
 });

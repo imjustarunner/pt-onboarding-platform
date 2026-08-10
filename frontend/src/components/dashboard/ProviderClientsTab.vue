@@ -261,7 +261,11 @@
             </span>
           </div>
           <p class="muted tiny">
-            School-assigned clients still needing attention (no day, missing first session, etc.). Assign a day on School Clients when ready.
+            School-assigned clients still needing attention (no day, missing first session, etc.).
+            <router-link class="pct-inline-link" :to="providerOnboardingTo">
+              Open Client Readiness
+            </router-link>
+            for your steps (staff setup is view-only).
           </p>
           <div v-if="!pendingClientsFiltered.length" class="muted empty-state compact">No pending school clients.</div>
           <div v-else class="pending-strip-table-wrap">
@@ -413,6 +417,12 @@ const activeSection = ref(
 );
 
 const organizationSlug = computed(() => String(route.params.organizationSlug || '').trim());
+const providerOnboardingTo = computed(() => {
+  if (organizationSlug.value) {
+    return { path: `/${organizationSlug.value}/provider/client-onboarding` };
+  }
+  return { path: '/provider/client-onboarding' };
+});
 const agencyId = computed(() => {
   if (props.subjectAgencyId) return Number(props.subjectAgencyId);
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
@@ -1393,6 +1403,12 @@ watch(skillBuildersOnlyFilter, async () => {
 }
 
 .tiny { font-size: 0.8rem; }
+.pct-inline-link {
+  color: #0e7490;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .pct-acceptance {
   display: grid;
   gap: 4px;

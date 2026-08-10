@@ -1,7 +1,7 @@
 <template>
   <div class="container">
     <div class="page-header">
-      <h1>Guardians</h1>
+      <h1>{{ schoolAffiliatedOnly ? 'School Guardians' : 'Guardians' }}</h1>
       <div class="header-actions">
         <button
           v-if="selectedIds.size > 0"
@@ -356,11 +356,20 @@ const fetchAgencies = async () => {
   agencies.value = Array.isArray(response?.data) ? response.data : [];
 };
 
+const schoolAffiliatedOnly = computed(() => {
+  const scope = String(route.query.scope || '').toLowerCase();
+  return scope === 'school'
+    || route.query.schoolAffiliated === '1'
+    || route.query.schoolAffiliated === 'true';
+});
+
 const fetchGuardians = async () => {
   loading.value = true;
   error.value = '';
   try {
-    const response = await api.get('/users/guardians');
+    const params = {};
+    if (schoolAffiliatedOnly.value) params.schoolAffiliated = '1';
+    const response = await api.get('/users/guardians', { params });
     guardians.value = Array.isArray(response?.data) ? response.data : [];
   } catch (err) {
     error.value = err?.response?.data?.error?.message || 'Failed to load guardians';
@@ -475,6 +484,10 @@ watch(
     }
   }
 );
+
+watch(schoolAffiliatedOnly, () => {
+  fetchGuardians();
+});
 
 onMounted(async () => {
   await Promise.all([fetchAgencies(), fetchGuardians()]);

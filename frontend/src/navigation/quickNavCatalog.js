@@ -250,6 +250,28 @@ function buildAppEntries() {
       ]
     },
     {
+      id: 'client-onboarding-workspace',
+      routeName: 'ClientOnboardingWorkspace',
+      label: 'Client Readiness',
+      description: 'Staff checklist: docs, ROI access, provider/day, insurance → staff readiness complete.',
+      group: 'clients',
+      keywords: ['client readiness', 'client onboarding', 'onboarding workspace', 'packet docs', 'onboarded'],
+      kind: 'path',
+      path: '/admin/client-onboarding?scope=school',
+      rolesAny: ['admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus']
+    },
+    {
+      id: 'provider-client-onboarding',
+      routeName: 'ProviderClientOnboarding',
+      label: 'Client Readiness',
+      description: 'View staff setup progress and complete provider contact, intake, and first service.',
+      group: 'clients',
+      keywords: ['client readiness', 'client onboarding', 'provider onboarding', 'my steps', 'first service'],
+      kind: 'path',
+      path: '/provider/client-onboarding',
+      rolesAny: ['provider', 'provider_plus', 'intern', 'supervisor']
+    },
+    {
       id: 'clients-admin',
       routeName: 'ClientManagement',
       label: 'Client Management',

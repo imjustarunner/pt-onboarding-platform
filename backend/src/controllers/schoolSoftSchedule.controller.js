@@ -308,13 +308,13 @@ function buildDefaultSlots({ slotCount, startTime, endTime }) {
 
 /**
  * Assign-day write-path: when a client is placed on a provider's schedule, advance their
- * school_year/grade for the current school year (once per year) and evaluate doc/compliance
- * status — promoting `pending` → `current` when docs are complete, otherwise leaving them
- * `pending` with a doc-status message. Never touches waitlist/terminated/other statuses.
+ * school_year/grade for the current school year (once per year) and promote
+ * pending/onboarded → current. Never touches waitlist/terminated/other statuses.
  */
 async function promoteClientForAssignedDay({ clientId, actorUserId }) {
   const [rows] = await pool.execute(
     `SELECT c.id, c.agency_id, c.school_year, c.grade, c.client_status_id,
+            c.staff_onboarding_completed_at, c.provider_id, c.status AS workflow_status,
             cs.status_key AS client_status_key
      FROM clients c
      LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
@@ -337,15 +337,34 @@ async function promoteClientForAssignedDay({ clientId, actorUserId }) {
   }
 
   let compliance = null;
-  const eligibleForStatusUpdate = !statusKey || statusKey === 'pending';
+  const eligibleForStatusUpdate = !statusKey
+    || statusKey === 'pending'
+    || statusKey === 'onboarded'
+    || statusKey === 'packet';
+  let promotedToCurrent = false;
   if (eligibleForStatusUpdate) {
-    compliance = await evaluateClientDocCompliance({ clientId: client.id, agencyId: client.agency_id });
-    const targetKey = compliance.ok ? 'current' : 'pending';
-    if (targetKey !== statusKey) {
-      const targetStatusId = await getClientStatusIdByKey({ agencyId: client.agency_id, statusKey: targetKey });
+    // Day assignment is the operational signal to become Current when staff readiness
+    // is already done (or client is in a pre-current pipeline status).
+    const staffReady = !!client.staff_onboarding_completed_at
+      || statusKey === 'onboarded'
+      || statusKey === 'pending'
+      || statusKey === 'packet'
+      || !statusKey;
+    if (staffReady) {
+      const targetStatusId = await getClientStatusIdByKey({ agencyId: client.agency_id, statusKey: 'current' });
       if (targetStatusId && Number(targetStatusId) !== Number(client.client_status_id || 0)) {
         patch.client_status_id = targetStatusId;
+        promotedToCurrent = true;
       }
+      const wf = String(client.workflow_status || '').toUpperCase();
+      if (['PENDING_REVIEW', 'PACKET', 'SCREENER', ''].includes(wf)) {
+        patch.status = 'ACTIVE';
+      }
+      if (!client.staff_onboarding_completed_at) {
+        patch.staff_onboarding_completed_at = new Date();
+      }
+    } else {
+      compliance = await evaluateClientDocCompliance({ clientId: client.id, agencyId: client.agency_id });
     }
   }
 
@@ -358,9 +377,9 @@ async function promoteClientForAssignedDay({ clientId, actorUserId }) {
         field_changed: 'client_status_id',
         from_value: client.client_status_id ? String(client.client_status_id) : null,
         to_value: String(patch.client_status_id),
-        note: compliance?.ok
-          ? 'Auto-promoted to current on day assignment (school year rollover)'
-          : `Auto-set to pending on day assignment — missing: ${(compliance?.missing || []).join(', ') || 'documents'}`
+        note: promotedToCurrent
+          ? 'Auto-promoted to current on day assignment (school year / readiness)'
+          : `Day assignment status update`
       }).catch(() => {});
     }
   }
@@ -368,16 +387,17 @@ async function promoteClientForAssignedDay({ clientId, actorUserId }) {
   return {
     school_year: patch.school_year || client.school_year || null,
     grade: patch.grade !== undefined ? patch.grade : (client.grade || null),
-    client_status_key: patch.client_status_id ? (compliance?.ok ? 'current' : 'pending') : (statusKey || null),
-    doc_compliance_ok: compliance?.ok ?? null,
+    client_status_key: promotedToCurrent ? 'current' : (statusKey || null),
+    doc_compliance_ok: compliance?.ok ?? (promotedToCurrent ? true : null),
     doc_status_missing: compliance?.missing ?? [],
     year_advanced: yearIsStale
   };
 }
 
 /**
- * Un-assign-day write-path: when a client's last active day assignment (any provider/school)
- * is removed, auto-set status to `pending` (skips waitlist/terminated/already-pending clients).
+ * Un-assign-day write-path: when a client's last active day is removed, move Current →
+ * onboarded (staff readiness complete, awaiting day again). Do not yank historical
+ * caseload clients back to pending.
  */
 async function demoteClientToPendingIfNoActiveDay({ clientId, actorUserId }) {
   const [cntRows] = await pool.execute(
@@ -399,25 +419,23 @@ async function demoteClientToPendingIfNoActiveDay({ clientId, actorUserId }) {
   const client = rows?.[0];
   if (!client) return null;
 
-  // Only auto-demote clients that were actively "current" (or never classified); never touch
-  // waitlist/terminated/archived/pending/other lifecycle stages.
   const statusKey = String(client.client_status_key || '').toLowerCase();
-  if (statusKey !== 'current' && statusKey !== '') return null;
+  if (statusKey !== 'current') return null;
 
-  const pendingStatusId = await getClientStatusIdByKey({ agencyId: client.agency_id, statusKey: 'pending' });
-  if (!pendingStatusId || Number(pendingStatusId) === Number(client.client_status_id || 0)) return null;
+  const onboardedStatusId = await getClientStatusIdByKey({ agencyId: client.agency_id, statusKey: 'onboarded' });
+  if (!onboardedStatusId || Number(onboardedStatusId) === Number(client.client_status_id || 0)) return null;
 
-  await Client.update(client.id, { client_status_id: pendingStatusId }, actorUserId);
+  await Client.update(client.id, { client_status_id: onboardedStatusId }, actorUserId);
   await ClientStatusHistory.create({
     client_id: client.id,
     changed_by_user_id: actorUserId,
     field_changed: 'client_status_id',
     from_value: client.client_status_id ? String(client.client_status_id) : null,
-    to_value: String(pendingStatusId),
-    note: 'Auto-set to pending — no assigned day remaining'
+    to_value: String(onboardedStatusId),
+    note: 'Auto-set to onboarded — no assigned day remaining (readiness retained)'
   }).catch(() => {});
 
-  return { client_status_key: 'pending' };
+  return { client_status_key: 'onboarded' };
 }
 
 /**

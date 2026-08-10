@@ -2124,6 +2124,26 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'staff', 'super_admin'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/client-onboarding',
+    name: 'OrganizationClientOnboardingWorkspace',
+    component: () => import('../views/admin/ClientOnboardingWorkspaceView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'],
+      organizationSlug: true
+    }
+  },
+  {
+    path: '/:organizationSlug/provider/client-onboarding',
+    name: 'OrganizationProviderClientOnboarding',
+    component: () => import('../views/provider/ProviderClientOnboardingView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['provider', 'provider_plus', 'intern', 'supervisor'],
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/admin/school-digital-intakes',
     name: 'OrganizationSchoolPortalDigitalIntakes',
     component: () => import('../views/admin/SchoolPortalDigitalIntakesView.vue'),
@@ -3413,6 +3433,21 @@ const routes = [
     name: 'SchoolClients',
     component: () => import('../views/admin/SchoolClientsView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'staff', 'super_admin'] }
+  },
+  {
+    path: '/admin/client-onboarding',
+    name: 'ClientOnboardingWorkspace',
+    component: () => import('../views/admin/ClientOnboardingWorkspaceView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'] }
+  },
+  {
+    path: '/provider/client-onboarding',
+    name: 'ProviderClientOnboarding',
+    component: () => import('../views/provider/ProviderClientOnboardingView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['provider', 'provider_plus', 'intern', 'supervisor']
+    }
   },
   {
     path: '/admin/school-digital-intakes',
@@ -4982,11 +5017,24 @@ router.afterEach((to) => {
   const authStore = useAuthStore();
   if (!authStore.isAuthenticated) return;
   const path = String(to?.path || '');
-  if (!path.includes('/admin') && !path.includes('/club_manager_dashboard')) return;
+  const trackable =
+    path.includes('/admin')
+    || path.includes('/club_manager_dashboard')
+    || /\/client-exchange(\/|$)/i.test(path)
+    || path.includes('/schedule/')
+    || /\/buildings(\/|$)/i.test(path);
+  if (!trackable) return;
+
+  const query = to?.query || {};
+  const queryKeys = Object.keys(query).filter((k) => query[k] != null && query[k] !== '');
+  const queryString = queryKeys.length
+    ? `?${new URLSearchParams(queryKeys.sort().map((k) => [k, String(query[k])])).toString()}`
+    : '';
+  const fullPath = `${path}${queryString}`;
   const page = extractAdminPageFromPath(path);
   api.post('/auth/activity-log', {
     actionType: 'admin_page_view',
-    metadata: { path, page }
+    metadata: { path: fullPath, page }
   }, { skipGlobalLoading: true }).catch(() => {});
 });
 

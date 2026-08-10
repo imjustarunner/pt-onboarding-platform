@@ -70,6 +70,70 @@ class DocumentEncryptionService {
     decipher.setAuthTag(authTag);
     return Buffer.concat([decipher.update(encryptedBuffer), decipher.final()]);
   }
+
+  /**
+   * Referral packet AAD has varied over time (filename sanitization changed Apr 2026).
+   * Try current + legacy candidates so older encrypted docs still open.
+   */
+  static buildReferralPacketAadCandidates({ organizationId, originalName, sanitizeFilename }) {
+    const orgNum = Number(organizationId || 0) || organizationId;
+    const orgStr = organizationId != null ? String(organizationId) : '';
+    const rawName = String(originalName || '');
+    const sanitized = typeof sanitizeFilename === 'function'
+      ? String(sanitizeFilename(rawName) || '')
+      : rawName;
+    // Pre-Apr-25-2026 sanitize: path chars only (kept spaces/commas).
+    const legacySanitized = rawName
+      .replace(/[\/\\\?\*\|"<>:]/g, '_')
+      .replace(/^[\s.]+|[\s.]+$/g, '');
+
+    const filenames = [...new Set([sanitized, rawName, legacySanitized].filter(Boolean))];
+    const orgIds = [...new Set([orgNum, orgStr].filter((v) => v !== '' && v != null))];
+    const candidates = [];
+    for (const organizationIdValue of orgIds) {
+      for (const filename of filenames) {
+        candidates.push(JSON.stringify({
+          organizationId: organizationIdValue,
+          uploadType: 'referral_packet',
+          filename
+        }));
+      }
+    }
+    return candidates;
+  }
+
+  static async decryptReferralPacketBuffer({
+    encryptedBuffer,
+    encryptionKeyId,
+    encryptionWrappedKeyB64,
+    encryptionIvB64,
+    encryptionAuthTagB64,
+    organizationId,
+    originalName,
+    sanitizeFilename
+  }) {
+    const candidates = this.buildReferralPacketAadCandidates({
+      organizationId,
+      originalName,
+      sanitizeFilename
+    });
+    let lastError = null;
+    for (const aad of candidates) {
+      try {
+        return await this.decryptBuffer({
+          encryptedBuffer,
+          encryptionKeyId,
+          encryptionWrappedKeyB64,
+          encryptionIvB64,
+          encryptionAuthTagB64,
+          aad
+        });
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw lastError || new Error('Unable to decrypt referral packet');
+  }
 }
 
 export default DocumentEncryptionService;

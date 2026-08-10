@@ -25,7 +25,16 @@ export function normalizeAdminPageKey(pageOrPath) {
  * @returns {string} canonical page key
  */
 export function extractAdminPageFromPath(path) {
-  const stripped = String(path || '')
+  const raw = String(path || '');
+  if (/\/client-exchange(\/|$)/i.test(raw)) return 'client-exchange';
+  if (/\/schedule\//i.test(raw)) {
+    const match = raw.match(/\/schedule\/([^/?]+)/i);
+    return match ? `schedule/${match[1].toLowerCase()}` : 'schedule';
+  }
+  if (/\/buildings\/schedule/i.test(raw)) return 'buildings/schedule';
+  if (/\/buildings(\/|$)/i.test(raw)) return 'buildings';
+
+  const stripped = raw
     .replace(/^\/[^/]+\/admin\/?/, '')
     .replace(/^\/admin\/?/, '');
   return normalizeAdminPageKey(stripped || 'dashboard');

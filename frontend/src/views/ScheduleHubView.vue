@@ -293,8 +293,8 @@
         </section>
 
         <section class="hub-sidebar-panel">
-          <h2>Quick links</h2>
-          <FrequentPagesBar :limit="5" class="fpb-hub" />
+          <h2>Your top 5</h2>
+          <HubTopCardsBar :cards="allHubCards" :limit="5" class="htcb-hub" />
           <div class="hub-quick-links">
             <router-link :to="officeApprovalsTo" class="hub-quick-link">
               <span>Approve office requests</span>
@@ -321,7 +321,7 @@
           </span>
         </h2>
         <div class="hub-mobile-grid">
-          <template v-for="card in section.cards" :key="card.id">
+          <template v-for="card in sortCardsByVisits(section.cards)" :key="card.id">
             <a
               v-if="card.external"
               class="hub-mobile-card"
@@ -360,11 +360,13 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
-import FrequentPagesBar from '../components/admin/FrequentPagesBar.vue';
+import HubTopCardsBar from '../components/admin/HubTopCardsBar.vue';
+import { useHubTopCards } from '../composables/useHubTopCards.js';
 import {
   buildHubSwitcherLinks,
   workspaceNavContextFromStores
 } from '../utils/workspaceNavAccess.js';
+import { canSeeClientExchangeNav, clientExchangePath } from '../utils/clientExchangeNav.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -411,6 +413,23 @@ const publicOfficeIntakeTo = computed(() =>
 );
 
 const canSeePublicFacing = computed(() => !isAffiliationContext.value);
+
+const canSeeClientsManagementHub = computed(
+  () => (isAdmin.value || ['provider', 'provider_plus', 'staff'].includes(actorRole.value))
+    && !isAffiliationContext.value
+);
+const canSeeGuardiansHub = computed(
+  () => (isAdmin.value || actorRole.value === 'support') && !isAffiliationContext.value
+);
+const canSeeClientOnboardingHub = computed(
+  () => canOpenPrivilegedScheduleTools.value
+    && !isAffiliationContext.value
+    && ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(actorRole.value)
+);
+const canSeeClientExchangeHub = computed(
+  () => canSeeClientExchangeNav(actorRole.value) && !isAffiliationContext.value
+);
+const clientExchangeTo = computed(() => clientExchangePath(orgSlug.value));
 
 const hubSwitcherLinks = computed(() => {
   const ctx = workspaceNavContextFromStores({
@@ -549,7 +568,9 @@ const icon = {
   booking: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5" stroke-linecap="round"/><path d="M8 11h6M11 8v6" stroke-linecap="round"/></svg>',
   globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" stroke-linecap="round"/></svg>',
   briefcase: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M12 12v3" stroke-linecap="round"/></svg>',
-  door: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M5 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M9 21h6M12 11v2" stroke-linecap="round"/></svg>'
+  door: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M5 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M9 21h6M12 11v2" stroke-linecap="round"/></svg>',
+  clients: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v1"/><path d="M16 11h5M18.5 8.5v5" stroke-linecap="round"/></svg>',
+  onboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/><path d="M7 8h10M7 11h6" stroke-linecap="round"/></svg>'
 };
 
 const allSections = computed(() => [
@@ -598,6 +619,19 @@ const allSections = computed(() => [
         tone: 'blue',
         icon: icon.people,
         tour: 'schedule-hub-card-provider-management',
+        show: canOpenPrivilegedScheduleTools.value,
+        count: 0
+      },
+      {
+        id: 'school-staff',
+        title: 'School Staff',
+        shortDesc: 'School portal staff accounts and roles.',
+        desc: 'Manage school staff accounts, School Admin / Scheduler flags, and portal access for schools.',
+        cta: 'Open →',
+        to: orgTo('/admin/caseload-hub/schools-staff'),
+        tone: 'teal',
+        icon: icon.people,
+        tour: null,
         show: canOpenPrivilegedScheduleTools.value,
         count: 0
       },
@@ -664,6 +698,67 @@ const allSections = computed(() => [
         icon: icon.booking,
         tour: null,
         show: canSeeProviderBooking.value,
+        count: 0
+      }
+    ].filter((c) => c.show)
+  },
+  {
+    id: 'clients-guardians',
+    label: 'Clients & Guardians',
+    desc: 'Agency clients, guardians, new intakes, and exchange.',
+    tone: 'cyan',
+    icon: icon.clients,
+    cards: [
+      {
+        id: 'clients',
+        title: 'Clients',
+        shortDesc: 'Full agency client directory.',
+        desc: 'Client management, caseload assignment, documents, and provider routing across school and office.',
+        cta: 'Open →',
+        to: orgTo('/admin/clients'),
+        tone: 'cyan',
+        icon: icon.clients,
+        tour: null,
+        show: canSeeClientsManagementHub.value,
+        count: 0
+      },
+      {
+        id: 'guardians',
+        title: 'Guardians',
+        shortDesc: 'All guardian accounts and contacts.',
+        desc: 'Guardian and parent contact management for every client in the agency.',
+        cta: 'Open →',
+        to: orgTo('/admin/guardians'),
+        tone: 'teal',
+        icon: icon.people,
+        tour: null,
+        show: canSeeGuardiansHub.value,
+        count: 0
+      },
+      {
+        id: 'client-onboarding',
+        title: 'Client Readiness',
+        shortDesc: 'Staff checklist for school and office intakes.',
+        desc: 'ROI staff access, documents, provider/day, insurance — then mark staff readiness complete for providers.',
+        cta: 'Open →',
+        to: orgTo('/admin/client-onboarding?scope=all'),
+        tone: 'blue',
+        icon: icon.onboard,
+        tour: null,
+        show: canSeeClientOnboardingHub.value,
+        count: 0
+      },
+      {
+        id: 'client-exchange',
+        title: 'Client Exchange',
+        shortDesc: 'Reassign or exchange clients.',
+        desc: 'Client exchange for reassignment and handoff without exposing unnecessary identity.',
+        cta: 'Open →',
+        to: clientExchangeTo.value,
+        tone: 'amber',
+        icon: icon.clients,
+        tour: null,
+        show: canSeeClientExchangeHub.value,
         count: 0
       }
     ].filter((c) => c.show)
@@ -928,6 +1023,10 @@ const allSections = computed(() => [
 
 const visibleSections = computed(() => allSections.value.filter((s) => s.cards.length > 0));
 
+const allHubCards = computed(() => visibleSections.value.flatMap((section) => section.cards));
+
+const { sortCardsByVisits } = useHubTopCards(allHubCards, { limit: 5 });
+
 const activeSection = computed(() =>
   visibleSections.value.find((s) => s.id === activeSectionId.value) || null
 );
@@ -942,7 +1041,7 @@ const centerIcon = computed(() => (activeSection.value ? activeSection.value.ico
 
 const orbitNodes = computed(() => {
   if (activeSection.value) {
-    return activeSection.value.cards.map((card) => ({
+    return sortCardsByVisits(activeSection.value.cards).map((card) => ({
       type: 'card',
       key: card.id,
       ...card

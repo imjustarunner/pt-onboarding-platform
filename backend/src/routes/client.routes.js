@@ -67,6 +67,19 @@ import {
   getClientCommunicationBody,
   listClientSmsAudit
 } from '../controllers/clientCommunications.controller.js';
+import {
+  getOnboardingChecklist,
+  putOnboardingDocs,
+  postMarkPacketSignature,
+  postAcknowledgeRoiStaff,
+  postCompleteStaffOnboarding,
+  getOnboardingQueue,
+  getProviderOnboardingQueue
+} from '../controllers/clientOnboarding.controller.js';
+import {
+  getClientDisclosure,
+  requireClientDisclosure
+} from '../controllers/clientDisclosure.controller.js';
 import { authenticate, requireBackofficeAdmin, requireGuardianListAccess } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -78,6 +91,10 @@ router.use(authenticate);
 router.get('/', getClients);
 router.get('/for-user/:userId', getClientsForUser);
 router.get('/archived', getArchivedClients);
+
+// New Client Onboarding queue (must be before /:id)
+router.get('/onboarding-queue', getOnboardingQueue);
+router.get('/provider-onboarding-queue', getProviderOnboardingQueue);
 
 // Delete bulk-imported clients for an agency (admin only)
 // DELETE /api/clients/bulk-import?agencyId=123&confirm=true
@@ -172,6 +189,17 @@ router.post('/:id/notes/read', markClientNotesRead);
 
 // Compliance checklist (provider/admin/staff)
 router.put('/:id/compliance-checklist', updateClientComplianceChecklist);
+
+// New Client Onboarding checklist
+router.get('/:id/onboarding-checklist', getOnboardingChecklist);
+router.put('/:id/onboarding-docs', putOnboardingDocs);
+router.post('/:id/onboarding/mark-packet-signature', postMarkPacketSignature);
+router.post('/:id/onboarding/acknowledge-roi-staff', postAcknowledgeRoiStaff);
+router.post('/:id/onboarding/complete-staff', postCompleteStaffOnboarding);
+
+// Smart Disclosure status / require re-sign
+router.get('/:id/disclosure', getClientDisclosure);
+router.post('/:id/disclosure/require', requireClientDisclosure);
 
 // Multi-org affiliations (admin/staff/support/super_admin)
 router.get('/:id/affiliations', listClientAffiliations);

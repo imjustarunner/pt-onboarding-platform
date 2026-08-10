@@ -126,7 +126,21 @@ let activePointerId = null;
 let suppressOpenUntil = 0;
 let closeTimer = null;
 
-const drawerStyle = computed(() => dockToStyle(dock.value, isDragging.value ? dragPoint.value : null));
+const drawerStyle = computed(() => {
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1200;
+  const panelHeight = isOpen.value
+    ? Math.min(vh - 24, Math.max(460, vh * 0.78))
+    : 0;
+  const panelWidth = isOpen.value
+    ? (hasActiveChatLocal.value ? Math.min(720, vw - 56) : Math.min(320, vw - 56))
+    : 0;
+  return dockToStyle(dock.value, isDragging.value ? dragPoint.value : null, {
+    isOpen: isOpen.value,
+    panelHeight,
+    panelWidth
+  });
+});
 
 const railTitle = computed(() => {
   const modeHint = openMode.value === 'hover' ? 'hover to open' : 'tap to open';

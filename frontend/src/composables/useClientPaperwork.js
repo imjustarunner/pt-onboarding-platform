@@ -55,8 +55,22 @@ export function useClientPaperwork(client, canEditPaperwork, onClientUpdated) {
     () => (docChecklistItems.value || []).find((x) => String(x?.status_key || '').toLowerCase() === 'completed') || null
   );
   const docIsCompleted = computed(() => !!docCompletedRow.value?.is_completed);
+  // Ongoing chart paperwork only — readiness packet / emailed packet / disclosure live elsewhere.
+  const ONGOING_PAPERWORK_KEYS = new Set([
+    'renewal',
+    'new_docs',
+    'new_insurance',
+    're_auth',
+    'balance',
+    'roi'
+  ]);
   const docNeededOptions = computed(() =>
-    (docChecklistItems.value || []).filter((x) => String(x?.status_key || '').toLowerCase() !== 'completed')
+    (docChecklistItems.value || []).filter((x) => {
+      const key = String(x?.status_key || '').toLowerCase();
+      if (key === 'completed') return false;
+      if (['emailed_packet', 'disclosure_consent', 'insurance_payment_auth'].includes(key)) return false;
+      return ONGOING_PAPERWORK_KEYS.has(key) || !key;
+    })
   );
   const docNeededCount = computed(() =>
     (docChecklistItems.value || []).filter((x) => {

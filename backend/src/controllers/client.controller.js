@@ -1396,6 +1396,20 @@ export const createClient = async (req, res, next) => {
       resolvedProviderId = parsedProviderId;
     }
 
+    // New school/office clients with no explicit status default to Packet (Packet Sent).
+    let resolvedClientStatusId = client_status_id ? parseInt(client_status_id, 10) : null;
+    if (!resolvedClientStatusId) {
+      try {
+        const packetStatusId = await getClientStatusIdByKey({
+          agencyId: parsedAgencyId,
+          statusKey: 'packet'
+        });
+        if (packetStatusId) resolvedClientStatusId = Number(packetStatusId);
+      } catch {
+        // best-effort
+      }
+    }
+
     const clientCreatePayload = {
       organization_id: parsedOrganizationId,
       agency_id: parsedAgencyId,
@@ -1412,7 +1426,7 @@ export const createClient = async (req, res, next) => {
       document_status,
       source,
       created_by_user_id: userId,
-      client_status_id: client_status_id ? parseInt(client_status_id, 10) : null,
+      client_status_id: resolvedClientStatusId,
       insurance_type_id: insurance_type_id ? parseInt(insurance_type_id, 10) : null,
       school_year: resolvedClientType === 'school' ? (school_year ? String(school_year).trim() : null) : null,
       grade: normalizeGradeForSave(grade),
@@ -3273,8 +3287,28 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
           currentStatusKey = String(rows?.[0]?.status_key || '').toLowerCase();
         }
         const workflowStatus = String(currentClient.status || '').toUpperCase();
-        const isPendingStatus = currentStatusKey === 'pending' || workflowStatus === 'PENDING_REVIEW';
-        if (isPendingStatus) {
+        const staffReady =
+          !!currentClient.staff_onboarding_completed_at
+          || currentStatusKey === 'onboarded';
+        const isPromotableStatus =
+          currentStatusKey === 'onboarded'
+          || currentStatusKey === 'pending'
+          || workflowStatus === 'PENDING_REVIEW';
+        // Prefer new pipeline: staff onboarded + full provider checklist → current.
+        // Legacy pending clients without staff_onboarding still promote on first_service for backward compat.
+        let canPromote = false;
+        if (staffReady && isPromotableStatus) {
+          try {
+            const { maybePromoteOnboardedToCurrent } = await import(
+              '../services/clientOnboardingChecklist.service.js'
+            );
+            const result = await maybePromoteOnboardedToCurrent({ clientId, actorUserId: userId });
+            canPromote = !!result?.promoted;
+            if (canPromote) promotedToCurrent = true;
+          } catch {
+            canPromote = false;
+          }
+        } else if (!staffReady && (currentStatusKey === 'pending' || workflowStatus === 'PENDING_REVIEW') && firstServicePassed) {
           if (currentStatusId && parseInt(currentClient.client_status_id || 0, 10) !== parseInt(currentStatusId, 10)) {
             await Client.update(clientId, { client_status_id: currentStatusId }, userId);
           }
@@ -3283,6 +3317,7 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
           }
           promotedToCurrent = true;
         }
+        void canPromote;
       } catch {
         // best-effort only
       }
@@ -3618,6 +3653,17 @@ export const assignProvider = async (req, res, next) => {
           serviceDay: updatedClient.service_day || null,
           actorUserId: userId
         }).catch(() => {});
+      }
+      if (finalProviderId && oldProviderId !== finalProviderId) {
+        try {
+          const { syncDisclosureRequiredForProviderAssign } = await import('../services/smartDisclosure.service.js');
+          await syncDisclosureRequiredForProviderAssign({
+            clientId: parseInt(id, 10),
+            providerUserId: finalProviderId
+          });
+        } catch {
+          // best-effort
+        }
       }
       res.json(updatedClient);
     } finally {
@@ -5860,7 +5906,7 @@ export const getClientDemographics = async (req, res, next) => {
       { key: 'initials',                label: 'Initials',              value: clientRow.initials || '' },
       { key: 'identifier_code',         label: 'Client Code',           value: clientRow.identifier_code || '' },
       { key: 'date_of_birth',           label: 'Date of Birth',         value: formatDateOnly(clientRow.date_of_birth) },
-      { key: 'gender',                  label: 'Gender',                value: clientRow.gender || '' },
+      { key: 'gender',                  label: 'Sex',                   value: clientRow.gender || '' },
       { key: 'ethnicity',               label: 'Race / Ethnicity',      value: clientRow.ethnicity || '' },
       { key: 'preferred_language',      label: 'Preferred Language',    value: clientRow.preferred_language || '' },
       { key: 'primary_client_language', label: 'Client Primary Language', value: clientRow.primary_client_language || '' },
@@ -7403,6 +7449,13 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
           serviceDay,
           assignedByUserId: userId
         }).catch(() => {});
+      }
+
+      try {
+        const { syncDisclosureRequiredForProviderAssign } = await import('../services/smartDisclosure.service.js');
+        await syncDisclosureRequiredForProviderAssign({ clientId, providerUserId });
+      } catch {
+        // best-effort
       }
 
       res.status(201).json({ ok: true });

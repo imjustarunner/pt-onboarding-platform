@@ -676,7 +676,7 @@
             @mousedown.prevent="doAssign(m)"
           >
             <span v-if="m.profile_photo_path" class="pop__avatar">
-              <img :src="m.profile_photo_path" :alt="m.first_name" />
+              <img :src="toUploadsUrl(m.profile_photo_path)" :alt="m.first_name" />
             </span>
             <span v-else class="pop__initials">{{ (m.first_name?.[0] || '') + (m.last_name?.[0] || '') }}</span>
             {{ m.first_name }} {{ m.last_name }}
@@ -696,7 +696,7 @@
             @mousedown.prevent="doAssign(m)"
           >
             <span v-if="m.profile_photo_path" class="pop__avatar">
-              <img :src="m.profile_photo_path" :alt="m.first_name" />
+              <img :src="toUploadsUrl(m.profile_photo_path)" :alt="m.first_name" />
             </span>
             <span v-else class="pop__initials">{{ (m.first_name?.[0] || '') + (m.last_name?.[0] || '') }}</span>
             {{ m.first_name }} {{ m.last_name }}
@@ -874,6 +874,7 @@ import api from '../services/api';
 import { formatDate } from '../utils/formatDate';
 import { exportProjectFull, printProjectScope } from '../utils/projectWorkspacePrint';
 import { TASK_CATEGORIES, formatTaskCategoriesShort, getTaskCategories, normalizeTaskCategories } from '../utils/taskCategories';
+import { toUploadsUrl } from '../utils/uploadsUrl';
 import TaskDetailSidePanel from '../components/tasks/TaskDetailSidePanel.vue';
 import ProjectTaskTable from '../components/tasks/ProjectTaskTable.vue';
 import ProjectWhiteboard from '../components/tasks/ProjectWhiteboard.vue';

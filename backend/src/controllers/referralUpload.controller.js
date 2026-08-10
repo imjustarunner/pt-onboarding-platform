@@ -374,14 +374,15 @@ export const submitReferralPacketDraft = async (req, res, next) => {
     });
     await seedClientPaperworkItems({ clientId: client.id, agencyId });
 
-    if (uploaderId && String(req.user?.role || '').toLowerCase() === 'school_staff') {
-      await ClientSchoolStaffRoiAccess.resetForNewPacket({
-        clientId: client.id,
-        schoolOrganizationId: organization.id,
-        uploaderUserId: uploaderId,
-        actorUserId: req.user?.id || uploaderId
-      });
-    }
+    // Paper packet defaults: all school staff → limited; school-staff uploader → packet;
+    // set paper-packet ROI expiry (1y before 2026-08-09, else 3y).
+    await ClientSchoolStaffRoiAccess.resetForNewPacket({
+      clientId: client.id,
+      schoolOrganizationId: organization.id,
+      uploaderUserId: String(req.user?.role || '').toLowerCase() === 'school_staff' ? uploaderId : null,
+      actorUserId: req.user?.id || uploaderId,
+      packetDate: submissionDate || new Date()
+    });
 
     await ClientStatusHistory.create({
       client_id: client.id,

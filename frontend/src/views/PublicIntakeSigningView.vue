@@ -247,6 +247,18 @@
           :bound-client="boundClient"
           @completed="handleSmartRoiCompleted"
         />
+        <SmartDisclosureFlow
+          v-else-if="isSmartDisclosure"
+          :public-key="publicKey"
+          :session-token="sessionToken"
+          :submission-id="submissionId"
+          :disclosure-context="disclosureContext"
+          :link="link"
+          :bound-client="boundClient"
+          :locale="inPageLocale || link?.language_code || 'en'"
+          mode="standalone"
+          @completed="handleSmartDisclosureCompleted"
+        />
         <div v-else class="intake-step-body">
         <h3 class="df-section-title">{{ t('questions') || "Welcome! Let's get started" }}</h3>
         <p class="df-section-help">{{ tx('Tell us a bit about you so we can prepare the right forms.') || 'Tell us a bit about you so we can prepare the right forms.' }}</p>
@@ -743,6 +755,9 @@
         <h3 v-if="currentFlowStep?.type === 'document'">{{ t('document') }}</h3>
         <h3 v-else-if="currentFlowStep?.type === 'upload'">{{ tx(currentFlowStep?.label) || t('upload') }}</h3>
         <h3 v-else-if="currentFlowStep?.type === 'school_roi'">School ROI</h3>
+        <h3 v-else-if="currentFlowStep?.type === 'smart_disclosure' || currentFlowStep?.type === 'disclosure'">
+          {{ tx(currentFlowStep?.label) || 'Disclosure' }}
+        </h3>
         <h3 v-else-if="currentFlowStep?.type === 'registration'">{{ tx(currentFlowStep?.label) || t('registration') }}</h3>
         <h3 v-else-if="currentFlowStep?.type === 'guardian_waiver'">
           {{ tx(currentFlowStep?.label) || t('guardianWaiversSafety') }}
@@ -777,6 +792,22 @@
             :prefill="embeddedSmartRoiPrefill"
             mode="embedded"
             @captured="handleEmbeddedSchoolRoiCaptured"
+          />
+        </div>
+        <div
+          v-if="currentFlowStep?.type === 'smart_disclosure' || currentFlowStep?.type === 'disclosure'"
+          class="smart-disclosure-step"
+        >
+          <SmartDisclosureFlow
+            :public-key="publicKey"
+            :session-token="sessionToken"
+            :submission-id="submissionId"
+            :disclosure-context="disclosureContext"
+            :link="link"
+            :bound-client="boundClient"
+            :locale="inPageLocale || link?.language_code || 'en'"
+            mode="embedded"
+            @captured="handleEmbeddedDisclosureCaptured"
           />
         </div>
         <div v-if="currentFlowStep?.type === 'upload'" class="upload-step">
@@ -1285,7 +1316,11 @@
             {{ t('next') }}
           </button>
         </div>
-        <div v-if="currentFlowStep?.type !== 'school_roi'" class="actions" style="margin-top: 10px;">
+        <div
+          v-if="currentFlowStep?.type !== 'school_roi' && currentFlowStep?.type !== 'smart_disclosure' && currentFlowStep?.type !== 'disclosure'"
+          class="actions"
+          style="margin-top: 10px;"
+        >
           <button class="btn btn-outline" type="button" @click="cancelIntake" :disabled="submitLoading">
             {{ t('cancelDelete') }}
           </button>
@@ -1419,7 +1454,10 @@
           </div>
         </div>
 
-        <div v-if="currentFlowStep?.type !== 'school_roi'" class="actions">
+        <div
+          v-if="currentFlowStep?.type !== 'school_roi' && currentFlowStep?.type !== 'smart_disclosure' && currentFlowStep?.type !== 'disclosure'"
+          class="actions"
+        >
           <button
             v-if="currentFlowIndex > 0"
             class="btn btn-outline"
@@ -1763,6 +1801,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import SignaturePad from '../components/SignaturePad.vue';
 import SmartSchoolRoiFlow from '../components/public/SmartSchoolRoiFlow.vue';
+import SmartDisclosureFlow from '../components/public/SmartDisclosureFlow.vue';
 import PDFPreview from '../components/documents/PDFPreview.vue';
 import PublicIntakeGuardianWaiverStep from '../components/public-intake/PublicIntakeGuardianWaiverStep.vue';
 import PublicIntakeInsuranceStep from '../components/public-intake/PublicIntakeInsuranceStep.vue';
@@ -2862,6 +2901,8 @@ const FLOW_STEP_PROGRESS_LABELS = {
   upload: 'Uploads',
   registration: 'Registration',
   school_roi: 'School ROI',
+  smart_disclosure: 'Disclosure',
+  disclosure: 'Disclosure',
   guardian_waiver: 'Waivers',
   insurance_info: 'Insurance',
   payment_collection: 'Payment',
@@ -2883,6 +2924,7 @@ const shellFormSubtitle = computed(() => {
   const ft = formTypeKey.value;
   if (ft === 'job_application') return 'Job Application';
   if (ft === 'smart_school_roi') return 'Release of Information';
+  if (ft === 'smart_disclosure') return 'Disclosure';
   if (ft === 'smart_registration') return 'Registration';
   if (ft === 'medical_records_request') return 'Medical Records Request';
   if (ft === 'public_form') return 'Form';
@@ -2971,6 +3013,12 @@ const intakeSteps = computed(() =>
 const hasProgrammedSchoolRoiStep = computed(() =>
   intakeSteps.value.some((step) => String(step?.type || '').trim().toLowerCase() === 'school_roi')
 );
+const hasProgrammedDisclosureStep = computed(() =>
+  intakeSteps.value.some((step) => {
+    const type = String(step?.type || '').trim().toLowerCase();
+    return type === 'smart_disclosure' || type === 'disclosure';
+  })
+);
 const hasRegistrationStep = computed(() =>
   intakeSteps.value.some((step) => String(step?.type || '').trim().toLowerCase() === 'registration')
 );
@@ -3026,6 +3074,8 @@ const flowSteps = computed(() => {
           s?.type === 'document'
           || s?.type === 'upload'
           || s?.type === 'school_roi'
+          || s?.type === 'smart_disclosure'
+          || s?.type === 'disclosure'
           || s?.type === 'registration'
           || s?.type === 'guardian_waiver'
           || s?.type === 'insurance_info'
@@ -3046,6 +3096,7 @@ const flowSteps = computed(() => {
       .map((s) => {
         if (s.type === 'upload') return { ...s };
         if (s.type === 'school_roi') return { ...s };
+        if (s.type === 'smart_disclosure' || s.type === 'disclosure') return { ...s };
         if (s.type === 'registration') return { ...s };
         if (s.type === 'guardian_waiver') return { ...s };
         if (s.type === 'insurance_info') return { ...s };
@@ -3460,6 +3511,7 @@ const referencesRequiredCount = computed(() => {
   return Math.max(1, Number(s.minReferences || 3) || 3);
 });
 const embeddedSmartSchoolRoi = ref(null);
+const embeddedSmartDisclosure = ref(null);
 const agencyRegistrationCatalog = ref([]);
 
 /**
@@ -3705,6 +3757,7 @@ let draftRestoredBannerTimer = null;
 const signerInitials = ref('');
 const boundClient = ref(null);
 const roiContext = ref(null);
+const disclosureContext = ref(null);
 const organizationId = ref('');
 
 const guardianFirstName = ref('');
@@ -3898,6 +3951,7 @@ const buildDraftSnapshot = () => ({
     clients: intakeResponses.clients || []
   },
   embeddedSmartSchoolRoi: embeddedSmartSchoolRoi.value || null,
+  embeddedSmartDisclosure: embeddedSmartDisclosure.value || null,
   multiClientPlan: {
     choice: multiClientPlanChoice.value || 'one',
     consentAccepted: !!multiClientConsentAccepted.value,
@@ -4001,6 +4055,7 @@ const hasMeaningfulDraftSnapshot = (snapshot) => {
     String(c?.firstName || '').trim() || String(c?.lastName || '').trim()
   )) return true;
   if (snapshot.embeddedSmartSchoolRoi && typeof snapshot.embeddedSmartSchoolRoi === 'object') return true;
+  if (snapshot.embeddedSmartDisclosure && typeof snapshot.embeddedSmartDisclosure === 'object') return true;
   return false;
 };
 
@@ -4096,6 +4151,7 @@ const restoreDraftSnapshot = () => {
       }
     }
     embeddedSmartSchoolRoi.value = parsed.embeddedSmartSchoolRoi || null;
+    embeddedSmartDisclosure.value = parsed.embeddedSmartDisclosure || null;
     submissionId.value = parsed.submissionId || submissionId.value || null;
     // Rehydrate document-template field values + per-doc completion status
     // so a parent who hits Back (or refreshes) still sees every PDF field
@@ -4318,6 +4374,7 @@ const requiresOrganizationId = computed(() => {
   return scope === 'agency';
 });
 const isSmartSchoolRoi = computed(() => String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi');
+const isSmartDisclosure = computed(() => String(link.value?.form_type || '').toLowerCase() === 'smart_disclosure');
 const isSmartRegistration = computed(() => String(link.value?.form_type || '').toLowerCase() === 'smart_registration');
 /** Catalog, account lookup, client match, enrollment — Smart Registration or Intake that includes a Registration step. */
 const usesRegistrationFeatures = computed(
@@ -4927,6 +4984,10 @@ const loadLink = async () => {
     } catch { /* ignore */ }
     boundClient.value = resp.data?.boundClient || null;
     roiContext.value = resp.data?.roiContext || null;
+    disclosureContext.value = resp.data?.disclosureContext
+      || resp.data?.link?.disclosureContext
+      || link.value?.disclosureContext
+      || null;
     templates.value = resp.data?.templates || [];
     agencyInfo.value = resp.data?.agency || null;
     organizationInfo.value = resp.data?.organization || null;
@@ -4942,14 +5003,18 @@ const loadLink = async () => {
       !templates.value.length
       && !intakeSteps.value.length
       && String(link.value?.form_type || '').toLowerCase() !== 'smart_school_roi'
+      && String(link.value?.form_type || '').toLowerCase() !== 'smart_disclosure'
       && String(link.value?.form_type || '').toLowerCase() !== 'smart_registration'
       && !hasProgrammedSchoolRoiStep.value
+      && !hasProgrammedDisclosureStep.value
       && !hasRegistrationStep.value
     ) {
       fatalError.value = 'No documents configured for this intake link.';
     } else if (String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi') {
       fatalError.value = '';
-    } else if (hasProgrammedSchoolRoiStep.value) {
+    } else if (String(link.value?.form_type || '').toLowerCase() === 'smart_disclosure') {
+      fatalError.value = '';
+    } else if (hasProgrammedSchoolRoiStep.value || hasProgrammedDisclosureStep.value) {
       fatalError.value = '';
     }
     if (String(link.value?.form_type || '').toLowerCase() === 'job_application') {
@@ -5478,7 +5543,8 @@ const submitConsent = async () => {
           relationship: intakeForSelf.value ? 'Self' : guardianRelationship.value
         },
         approval: approvalContext.value || null,
-        smartSchoolRoi: embeddedSmartSchoolRoi.value || null
+        smartSchoolRoi: embeddedSmartSchoolRoi.value || null,
+        smartDisclosure: embeddedSmartDisclosure.value || null
       }
     };
     const resp = await api.post(`/public-intake/${publicKey}/consent`, payload);
@@ -6412,6 +6478,7 @@ const finalizePacket = async () => {
             }
           : null,
         smartSchoolRoi: embeddedSmartSchoolRoi.value || null,
+        smartDisclosure: embeddedSmartDisclosure.value || null,
         coverLetterText: String(coverLetterPastedText.value || '').trim() || null,
         referencesJson: referencesEntries.value
           .map((r) => ({
@@ -6562,6 +6629,7 @@ const resetIntakeState = () => {
   intakeResponses.submission = {};
   intakeResponses.clients = [{}];
   embeddedSmartSchoolRoi.value = null;
+  embeddedSmartDisclosure.value = null;
   jobDescriptionSummary.value = null;
   downloadUrl.value = '';
   emailDeliveryStatus.value = null;
@@ -7361,6 +7429,7 @@ watch(
     clients: clients.value,
     intakeResponses,
     embeddedSmartSchoolRoi: embeddedSmartSchoolRoi.value,
+    embeddedSmartDisclosure: embeddedSmartDisclosure.value,
     // Include PDF-template field values + per-doc completion so typing in
     // document field overlays triggers a draft save (previously these were
     // reactive but never watched, so Back/refresh silently lost answers).
@@ -7439,6 +7508,27 @@ const handleEmbeddedSchoolRoiCaptured = async ({ smartSchoolRoi } = {}) => {
   intakeResponses.submission = {
     ...(intakeResponses.submission || {}),
     smartSchoolRoi: smartSchoolRoi || null
+  };
+  stepError.value = '';
+  await nextFlowStep();
+};
+
+const handleSmartDisclosureCompleted = ({ submissionId: nextSubmissionId, downloadUrl: nextDownloadUrl, emailDelivery }) => {
+  submissionId.value = nextSubmissionId || null;
+  downloadUrl.value = nextDownloadUrl || '';
+  emailDeliveryStatus.value = emailDelivery || null;
+  step.value = 3;
+  clearPersistedDraft();
+  if (!downloadUrl.value && !jobApplicationSubmitted.value) {
+    pollForDownloadUrl();
+  }
+};
+
+const handleEmbeddedDisclosureCaptured = async ({ smartDisclosure } = {}) => {
+  embeddedSmartDisclosure.value = smartDisclosure || null;
+  intakeResponses.submission = {
+    ...(intakeResponses.submission || {}),
+    smartDisclosure: smartDisclosure || null
   };
   stepError.value = '';
   await nextFlowStep();

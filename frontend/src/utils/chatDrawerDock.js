@@ -67,7 +67,16 @@ export function snapPointerToEdge(clientX, clientY, vw = window.innerWidth, vh =
 }
 
 /** Fixed positioning styles for a docked (or dragging) rail. */
-export function dockToStyle(dock, dragPoint = null) {
+export function dockToStyle(dock, dragPoint = null, options = {}) {
+  const {
+    isOpen = false,
+    panelHeight = 0,
+    panelWidth = 0,
+    margin = 12
+  } = options;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1200;
+
   if (dragPoint && Number.isFinite(dragPoint.x) && Number.isFinite(dragPoint.y)) {
     return {
       left: `${dragPoint.x}px`,
@@ -79,14 +88,51 @@ export function dockToStyle(dock, dragPoint = null) {
   }
   const { edge, along } = normalizeDock(dock);
   const pct = `${(along * 100).toFixed(2)}%`;
+
   if (edge === 'left') {
-    return { left: '0', top: pct, right: 'auto', bottom: 'auto', transform: 'translateY(-50%)' };
+    const topPx = isOpen && panelHeight > 0
+      ? clamp(along * vh, margin + panelHeight / 2, vh - margin - panelHeight / 2)
+      : along * vh;
+    return {
+      left: '0',
+      top: isOpen && panelHeight > 0 ? `${topPx}px` : pct,
+      right: 'auto',
+      bottom: 'auto',
+      transform: 'translateY(-50%)'
+    };
   }
   if (edge === 'right') {
-    return { right: '0', left: 'auto', top: pct, bottom: 'auto', transform: 'translateY(-50%)' };
+    const topPx = isOpen && panelHeight > 0
+      ? clamp(along * vh, margin + panelHeight / 2, vh - margin - panelHeight / 2)
+      : along * vh;
+    return {
+      right: '0',
+      left: 'auto',
+      top: isOpen && panelHeight > 0 ? `${topPx}px` : pct,
+      bottom: 'auto',
+      transform: 'translateY(-50%)'
+    };
   }
   if (edge === 'top') {
-    return { top: '0', left: pct, right: 'auto', bottom: 'auto', transform: 'translateX(-50%)' };
+    const leftPx = isOpen && panelWidth > 0
+      ? clamp(along * vw, margin + panelWidth / 2, vw - margin - panelWidth / 2)
+      : along * vw;
+    return {
+      top: '0',
+      left: isOpen && panelWidth > 0 ? `${leftPx}px` : pct,
+      right: 'auto',
+      bottom: 'auto',
+      transform: 'translateX(-50%)'
+    };
   }
-  return { bottom: '0', top: 'auto', left: pct, right: 'auto', transform: 'translateX(-50%)' };
+  const leftPx = isOpen && panelWidth > 0
+    ? clamp(along * vw, margin + panelWidth / 2, vw - margin - panelWidth / 2)
+    : along * vw;
+  return {
+    bottom: '0',
+    top: 'auto',
+    left: isOpen && panelWidth > 0 ? `${leftPx}px` : pct,
+    right: 'auto',
+    transform: 'translateX(-50%)'
+  };
 }

@@ -1,5 +1,5 @@
 <template>
-  <div class="client-list-grid">
+  <div class="client-list-grid" :class="{ 'is-overview-split': !!overviewClient }">
     <div v-if="loading && clients.length === 0" class="loading-state">
       <p>Loading clients...</p>
     </div>
@@ -7,6 +7,41 @@
     <div v-else-if="error && clients.length === 0" class="error-state">
       <p>{{ error }}</p>
     </div>
+
+    <template v-else-if="overviewClient">
+      <aside class="roster-quicklist" aria-label="Client names">
+        <div class="roster-quicklist-head">
+          <strong>{{ sortedClients.length }} clients</strong>
+          <button type="button" class="btn-link" @click="closeOverview">View all</button>
+        </div>
+        <input
+          v-if="showSearch"
+          v-model="searchQuery"
+          type="search"
+          class="roster-quicklist-search"
+          :placeholder="searchPlaceholder"
+        />
+        <button
+          v-for="client in sortedClients"
+          :key="`ql-${client.id}`"
+          type="button"
+          class="roster-quicklist-row"
+          :class="{ active: Number(client.id) === Number(overviewClient?.id) }"
+          :disabled="!canOpenSchoolClient(client)"
+          @click="openOverview(client)"
+        >
+          <span class="roster-quicklist-name">{{ formatRosterLabel(client) }}</span>
+          <span class="roster-quicklist-meta">{{ formatOnboardingSummary(client) }}</span>
+        </button>
+      </aside>
+      <SchoolClientOverviewPanel
+        :client="overviewClient"
+        :can-edit-action="canEditClients"
+        @close="closeOverview"
+        @open-comments="(c) => openClient(c, 'comments')"
+        @open-profile="goEdit"
+      />
+    </template>
 
     <div v-else class="clients-table-wrapper">
       <div v-if="showSearch" class="table-toolbar">
@@ -155,7 +190,7 @@
               <span class="sort-indicator" v-if="sortKey === 'organization_name'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
             <th class="sortable" @click="toggleSort('document_status')" role="button" tabindex="0">
-              Doc Status
+              Readiness
               <span class="sort-indicator" v-if="sortKey === 'document_status'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
             <th
@@ -222,12 +257,13 @@
             :key="client.id"
             class="client-row"
             :class="{
-              'client-row-clickable': isSchoolStaff && canOpenSchoolClient(client),
+              'client-row-clickable': canOpenSchoolClient(client),
               'client-row-newly-assigned': isNewlyAssigned(client),
-              'client-row-locked': isSchoolStaff && isSchoolClientLocked(client)
+              'client-row-locked': isSchoolStaff && isSchoolClientLocked(client),
+              'client-row-paper-packet-notice': isSchoolStaff && client?.paper_packet_staff_roi_notice
             }"
-            :role="isSchoolStaff && canOpenSchoolClient(client) ? 'button' : undefined"
-            :tabindex="isSchoolStaff && canOpenSchoolClient(client) ? 0 : undefined"
+            :role="canOpenSchoolClient(client) ? 'button' : undefined"
+            :tabindex="canOpenSchoolClient(client) ? 0 : undefined"
             @click="handleRowActivate(client)"
             @keydown.enter.prevent="handleRowActivate(client)"
             @keydown.space.prevent="handleRowActivate(client)"
@@ -240,7 +276,7 @@
                   :disabled="!canOpenSchoolClient(client)"
                   :title="canOpenSchoolClient(client) ? rosterLabelTitle(client) : lockedInitialsTitle(client)"
                   :data-locked-reason="!canOpenSchoolClient(client) ? lockedInitialsTitle(client) : ''"
-                  @click.stop="openClient(client, 'comments')"
+                  @click.stop="openOverview(client)"
                 >
                   {{ formatRosterLabel(client) }}
                 </button>
@@ -250,6 +286,13 @@
                   :title="`Assigned ${formatDate(client.provider_assigned_at)}`"
                 >
                   New
+                </span>
+                <span
+                  v-if="client.paper_packet_staff_roi_notice"
+                  class="paper-packet-staff-badge"
+                  title="Paper packet uploaded — set school staff ROI access to match the signed form"
+                >
+                  Staff ROI setup
                 </span>
                 <span
                   v-if="client.compliance_pending"
@@ -349,7 +392,16 @@
               </div>
             </td>
             <td v-if="showSchoolColumn">{{ client.organization_name || organizationName || '—' }}</td>
-            <td>{{ formatDocSummary(client) }}</td>
+            <td>
+              <button
+                type="button"
+                class="btn-link onboarding-status-link"
+                title="Open readiness checklist"
+                @click.stop="openOnboardingChecklist(client)"
+              >
+                {{ formatOnboardingSummary(client) }}
+              </button>
+            </td>
             <td v-if="rosterScope === 'school' && !isProviderUser">{{ client.provider_name || '—' }}</td>
             <td v-else>
               <button
@@ -498,6 +550,22 @@
       @saved="onQuickChecklistSaved"
     />
 
+    <div
+      v-if="onboardingChecklistClient"
+      class="modal-overlay"
+      style="z-index: 10000;"
+      @click.self="onboardingChecklistClient = null"
+    >
+      <ClientOnboardingChecklistPanel
+        as-modal
+        :client-id="onboardingChecklistClient.id"
+        :client-label="formatRosterLabel(onboardingChecklistClient)"
+        :can-edit-docs="!isSchoolStaff"
+        @close="onboardingChecklistClient = null"
+        @updated="onOnboardingChecklistUpdated"
+      />
+    </div>
+
     <div v-if="roiStatusModalClient" class="modal-overlay" style="z-index: 10000;" @click.self="closeRoiStatusModal">
       <div class="modal-content" style="max-width: 920px;" @click.stop>
         <div class="modal-header">
@@ -585,9 +653,12 @@ import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import SchoolClientChatModal from './SchoolClientChatModal.vue';
+import SchoolClientOverviewPanel from './SchoolClientOverviewPanel.vue';
 import WaitlistNoteModal from './WaitlistNoteModal.vue';
 import QuickChecklistModal from './QuickChecklistModal.vue';
 import AssignDayModal from './AssignDayModal.vue';
+import ClientOnboardingChecklistPanel from '../clients/ClientOnboardingChecklistPanel.vue';
+import { formatOnboardingSummary } from '../../utils/clientOnboardingSummary.js';
 import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
@@ -686,6 +757,7 @@ const rosterRefreshing = ref(false);
 const error = ref('');
 const selectedClient = ref(null);
 const selectedClientInitialPane = ref(null); // null | 'comments' | 'messages'
+const overviewClient = ref(null);
 const roiStatusModalClient = ref(null);
 const roiStatusLoading = ref(false);
 const roiStatusError = ref('');
@@ -705,6 +777,7 @@ const authStore = useAuthStore();
 
 const canEditClients = ref(false);
 const quickChecklistClient = ref(null);
+const onboardingChecklistClient = ref(null);
 const terminateModalClient = ref(null);
 const terminateReasonDraft = ref('');
 const terminateSaving = ref(false);
@@ -1336,7 +1409,7 @@ const sortValue = (client, key) => {
     return Number.isFinite(t) ? t : 0;
   }
   if (key === 'status') return String(client.client_status_label || client.status || '').toLowerCase();
-  if (key === 'document_status') return String(formatDocSummary(client) || '').toLowerCase();
+  if (key === 'document_status') return String(formatOnboardingSummary(client) || '').toLowerCase();
   if (key === 'organization_name') return String(props.organizationName || client.organization_name || '').toLowerCase();
   if (key === 'provider_name') return String(client.provider_name || '').toLowerCase();
   if (key === 'skills') return client.skills ? 1 : 0;
@@ -1713,45 +1786,16 @@ const getRoiExpirationCountdownLabel = (client) => {
   return `ROI expires in ${diffDays} days`;
 };
 
-const formatDocSummary = (client) => {
-  const source = String(client?.source || '').trim().toLowerCase();
-  const isLinkedPacketUpload = source.includes('public_intake_link') || source.includes('intake_link');
-  const accessState = String(client?.school_staff_effective_access_state || '').toLowerCase();
-  if (accessState === 'expired') {
-    return 'ROI expired · New packet upload and ROI approval are required.';
-  }
-  if (client?.school_portal_can_open === false && isLinkedPacketUpload) {
-    return 'New packet upload · ROI has not been updated by staff yet.';
-  }
-  // Prefer paperwork status (new model) so the portal reflects bulk upload fields:
-  // paperwork_status / paperwork_delivery / doc_date.
-  const status = String(client?.paperwork_status_label || '').trim();
-  const delivery = String(client?.paperwork_delivery_method_label || '').trim();
-  const date = client?.doc_date ? new Date(client.doc_date).toLocaleDateString() : '';
-  const statusKey = String(client?.paperwork_status_key || '').toLowerCase();
-  const roiCountdown = getRoiExpirationCountdownLabel(client);
-  const roiExpiresAt = client?.roi_expires_at ? new Date(String(client.roi_expires_at)) : null;
-  const roiExpired =
-    statusKey === 'roi' && roiExpiresAt ? (roiExpiresAt.getTime() < new Date().setHours(0, 0, 0, 0)) : false;
-
-  const parts = [];
-  if (roiCountdown) parts.push(roiCountdown);
-  const normalizedStatus =
-    statusKey === 'new_docs' ? 'Docs Needed' :
-    statusKey === 'all_needed' ? 'All Needed' :
-    statusKey === 'completed' ? 'Received' :
-    (roiExpired ? 'ROI Expired' : status);
-  if (normalizedStatus) parts.push(normalizedStatus);
-  if (delivery) parts.push(delivery);
-  if (date) parts.push(date);
-  if (parts.length) return parts.join(' · ');
-
-  // Fallback: legacy document_status
-  const v = String(client?.document_status || '').trim();
-  if (!v) return '—';
-  if (v.toUpperCase() === 'NONE') return 'None';
-  return v.replace(/_/g, ' ');
+const openOnboardingChecklist = (client) => {
+  if (!client?.id) return;
+  onboardingChecklistClient.value = client;
 };
+
+const onOnboardingChecklistUpdated = () => {
+  fetchClients().catch(() => {});
+};
+
+const formatDocSummary = (client) => formatOnboardingSummary(client);
 
 const psychotherapyCell = (client) => {
   const m = props.psychotherapyTotalsByClientId || null;
@@ -1804,10 +1848,28 @@ const onClientUpdatedFromModal = (payload) => {
   }
 };
 
+const openOverview = (client) => {
+  if (!canOpenSchoolClient(client)) return;
+  if (props.clientOpenMode === 'detail-panel') {
+    emit('open-profile', client);
+    return;
+  }
+  overviewClient.value = client;
+};
+
+const closeOverview = () => {
+  overviewClient.value = null;
+};
+
 const openClient = (client, initialPane = null) => {
   if (!canOpenSchoolClient(client)) return;
   if (props.clientOpenMode === 'detail-panel') {
     emit('open-profile', client);
+    return;
+  }
+  // Explicit comments/messages keep the modal; bare open uses the side overview.
+  if (!initialPane) {
+    openOverview(client);
     return;
   }
   selectedClient.value = client;
@@ -1845,10 +1907,8 @@ const onWaitlistSaved = (note) => {
 };
 
 const handleRowActivate = (client) => {
-  // School staff only have one action on roster rows: view/comment thread.
-  // Make the entire row clickable for them to reduce friction.
-  if (!isSchoolStaff.value || !canOpenSchoolClient(client)) return;
-  openClient(client, 'comments');
+  if (!canOpenSchoolClient(client)) return;
+  openOverview(client);
 };
 
 const openClientEditorFromModal = (client) => {
@@ -2104,6 +2164,24 @@ onMounted(() => {
   font-weight: 800;
   letter-spacing: 0.02em;
 }
+.paper-packet-staff-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(217, 119, 6, 0.45);
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.client-row-paper-packet-notice td {
+  box-shadow: inset 3px 0 0 #f59e0b;
+}
 .unread-badge-comments {
   background: rgba(45, 156, 219, 0.12);
   border-color: rgba(45, 156, 219, 0.35);
@@ -2188,6 +2266,84 @@ onMounted(() => {
   width: 100%;
   max-width: 100%;
   min-width: 0;
+}
+.client-list-grid.is-overview-split {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+  min-height: 520px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+.roster-quicklist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: #fff;
+  border-right: 1px solid var(--border, #e2e8f0);
+  max-height: 70vh;
+  overflow: auto;
+}
+.roster-quicklist-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+}
+.roster-quicklist-search {
+  width: 100%;
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 0.85rem;
+  margin-bottom: 4px;
+}
+.roster-quicklist-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.roster-quicklist-row:hover { background: #f8fafc; }
+.roster-quicklist-row.active {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.roster-quicklist-row:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.roster-quicklist-name {
+  font-weight: 800;
+  font-size: 0.9rem;
+  color: #0f172a;
+}
+.roster-quicklist-meta {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+@media (max-width: 860px) {
+  .client-list-grid.is-overview-split {
+    grid-template-columns: 1fr;
+  }
+  .roster-quicklist {
+    max-height: 220px;
+    border-right: none;
+    border-bottom: 1px solid var(--border, #e2e8f0);
+  }
 }
 
 .loading-state,

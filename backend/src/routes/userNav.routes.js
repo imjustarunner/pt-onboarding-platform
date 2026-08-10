@@ -52,6 +52,39 @@ function mergePageVisitRows(rows) {
 router.use(authenticate);
 
 /**
+ * GET /api/user-nav/path-visits
+ * Returns the current user's most-visited paths (last 90 days), including query strings.
+ * Used to rank individual hub cards (not just broad page keys).
+ */
+router.get('/path-visits', async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthenticated' });
+
+    const safeLimit = Math.min(Math.max(1, Number(req.query.limit) || 100), 200);
+    const [rows] = await pool.execute(
+      `SELECT
+         JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.path')) AS path,
+         COUNT(*)                                          AS visit_count
+       FROM user_activity_log
+       WHERE user_id = ?
+         AND action_type = 'admin_page_view'
+         AND created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.path')) IS NOT NULL
+       GROUP BY path
+       ORDER BY visit_count DESC
+       LIMIT ${safeLimit}`,
+      [userId]
+    );
+
+    res.json({ visits: rows });
+  } catch (err) {
+    console.error('[userNav] path-visits error:', err);
+    res.status(500).json({ error: 'Failed to load path visits' });
+  }
+});
+
+/**
  * GET /api/user-nav/shortcuts
  * Returns the current user's most-visited admin pages (last 90 days).
  * Used to render the "Frequent Pages" shortcut bar on dashboards.

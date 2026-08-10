@@ -3,6 +3,10 @@ import { body } from 'express-validator';
 import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, deleteAgencyHard, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl, listAffiliatedOrganizations, resolvePortalByHost, getAgencyNotificationSender, putAgencyNotificationSender } from '../controllers/agency.controller.js';
 import { getTenantPeopleSnapshot } from '../controllers/agencyTenantPeopleSnapshot.controller.js';
 import {
+  getAgencyDisclosureSettings,
+  putAgencyDisclosureSettings
+} from '../controllers/clientDisclosure.controller.js';
+import {
   getAgencyAnnouncements,
   updateAgencyAnnouncements,
   getAgencyDashboardBanner,
@@ -499,6 +503,8 @@ router.get('/management-team/eligible-users', authenticate, requireSuperAdmin, l
 router.get('/management-team/role-types', authenticate, getRoleTypes);
 router.get('/:id/affiliated-organizations', authenticate, requireBackofficeAdmin, listAffiliatedOrganizations);
 router.get('/:id/settings-people-snapshot', authenticate, requireBackofficeAdmin, getTenantPeopleSnapshot);
+router.get('/:id/disclosure-settings', authenticate, getAgencyDisclosureSettings);
+router.put('/:id/disclosure-settings', authenticate, putAgencyDisclosureSettings);
 router.get('/:id', authenticate, getAgencyById);
 
 // School Staff admin (school orgs only). Includes staff role support.

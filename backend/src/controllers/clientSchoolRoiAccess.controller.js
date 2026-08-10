@@ -7,6 +7,7 @@ import ClientSchoolStaffRoiAccess, {
   getEffectiveSchoolStaffRoiState,
   isRoiExpired
 } from '../models/ClientSchoolStaffRoiAccess.model.js';
+import { paperPacketRoiExpiresAtYmd } from '../utils/paperPacketRoiExpiry.js';
 import SchoolRoiIntakeLinkConfig from '../models/SchoolRoiIntakeLinkConfig.model.js';
 import ClientSchoolRoiSigningLink from '../models/ClientSchoolRoiSigningLink.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -466,6 +467,8 @@ export const listClientSchoolRoiAccess = async (req, res, next) => {
       default_guardian_email: guardianEmails.find((guardian) => guardian.access_enabled)?.email || guardianEmails[0]?.email || null,
       roi_expires_at: client.roi_expires_at || null,
       roi_expired: isRoiExpired(client.roi_expires_at),
+      paper_packet_staff_roi_pending: client.paper_packet_staff_roi_pending === 1
+        || client.paper_packet_staff_roi_pending === true,
       staff,
       school_roi_signing: {
         available_links: availableRoiLinks,
@@ -525,6 +528,22 @@ export const updateClientSchoolRoiAccess = async (req, res, next) => {
       actorUserId: req.user?.id || null
     });
 
+    try {
+      await Client.update(clientId, { paper_packet_staff_roi_pending: 0 }, req.user?.id || null);
+    } catch (pendingErr) {
+      if (pendingErr?.code !== 'ER_BAD_FIELD_ERROR') throw pendingErr;
+    }
+
+    // Staff ROI grants are gated by clients.roi_expires_at. A null date is treated as
+    // expired, so hand-selecting roi/roi_docs without a date makes the UI show "ROI expired".
+    // Paper-packet hand grants use paper defaults (1y before 2026-08-09, else 3y).
+    let roiExpiresAt = client.roi_expires_at || null;
+    if (['roi', 'roi_docs'].includes(nextState) && !roiExpiresAt) {
+      const ymd = paperPacketRoiExpiresAtYmd(new Date());
+      await Client.update(clientId, { roi_expires_at: ymd }, req.user?.id || null);
+      roiExpiresAt = ymd;
+    }
+
     await logAuditEvent(req, {
       actionType: 'client_school_staff_roi_access_updated',
       agencyId: client.agency_id || null,
@@ -532,14 +551,15 @@ export const updateClientSchoolRoiAccess = async (req, res, next) => {
         clientId,
         schoolOrganizationId,
         schoolStaffUserId,
-        nextState
+        nextState,
+        roiExpiresAt: roiExpiresAt || null
       }
     });
 
     const staff = await ClientSchoolStaffRoiAccess.listSchoolStaffRosterForClient({
       clientId,
       schoolOrganizationId,
-      roiExpiresAt: client.roi_expires_at || null
+      roiExpiresAt
     });
     const updatedStaff = staff.find((row) => Number(row.school_staff_user_id) === schoolStaffUserId) || null;
 
@@ -547,11 +567,11 @@ export const updateClientSchoolRoiAccess = async (req, res, next) => {
       ok: true,
       client_id: clientId,
       school_organization_id: schoolOrganizationId,
-      roi_expires_at: client.roi_expires_at || null,
-      roi_expired: isRoiExpired(client.roi_expires_at),
+      roi_expires_at: roiExpiresAt || null,
+      roi_expired: isRoiExpired(roiExpiresAt),
       staff: updatedStaff,
       effective_access_state: updatedStaff
-        ? getEffectiveSchoolStaffRoiState(updatedStaff, client.roi_expires_at || null)
+        ? getEffectiveSchoolStaffRoiState(updatedStaff, roiExpiresAt)
         : 'none'
     });
   } catch (error) {

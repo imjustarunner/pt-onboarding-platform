@@ -12,25 +12,49 @@
       <p>
         The app will log the release, protect access, and apply permissions based on the responses entered here.
       </p>
-      <p class="required-fields-note">{{ tr('Required fields are highlighted. The highlight turns off as each required field is completed.', 'Los campos requeridos estan resaltados. El resaltado se quita cuando cada campo requerido se completa.') }}</p>
+      <p class="required-fields-note">
+        <span class="required-fields-note__dot" aria-hidden="true"></span>
+        {{ tr('Fields outlined in amber are required. The outline clears as each one is completed.', 'Los campos con borde ambar son requeridos. El borde desaparece cuando cada uno se completa.') }}
+      </p>
 
-      <div class="subject-choice-row">
-        <label class="choice-card" :class="{ 'required-highlight': form.intakeForSelf === null }">
-          <input id="roi-intake-self-yes" name="intakeForSelf" v-model="form.intakeForSelf" :value="true" type="radio" :disabled="isSubjectChoiceLocked" />
-          <span>{{ tr('I am the client', 'Yo soy el cliente') }}</span>
-        </label>
-        <label class="choice-card" :class="{ 'required-highlight': form.intakeForSelf === null }">
-          <input id="roi-intake-self-no" name="intakeForSelf" v-model="form.intakeForSelf" :value="false" type="radio" :disabled="isSubjectChoiceLocked" />
-          <span>{{ tr('My dependent is the client', 'Mi dependiente es el cliente') }}</span>
-        </label>
-      </div>
-      <p v-if="!isSubjectChoiceLocked" class="subject-choice-hint">{{ tr('Choose who the client is for this release so the signer and relationship fields are labeled correctly.', 'Elija quien es el cliente para esta autorizacion para que los campos de firma y parentesco se etiqueten correctamente.') }}</p>
-      <p v-else class="subject-choice-hint">{{ tr('Client/guardian role was carried in from earlier intake details.', 'El rol de cliente/tutor se arrastro desde los datos previos de admision.') }}</p>
+      <template v-if="isSubjectChoiceLocked">
+        <div class="subject-choice-locked">
+          <span class="subject-choice-locked__icon" aria-hidden="true">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 0 1 0 1.414l-8 8a1 1 0 0 1-1.414 0l-4-4a1 1 0 1 1 1.414-1.414L8 12.586l7.293-7.293a1 1 0 0 1 1.414 0z" clip-rule="evenodd"/></svg>
+          </span>
+          <span>
+            {{ form.intakeForSelf === true ? tr('I am the client', 'Yo soy el cliente') : tr('My dependent is the client', 'Mi dependiente es el cliente') }}
+            <span class="subject-choice-locked__note">{{ tr('· carried in from earlier intake details', '· se arrastro desde los datos previos de admision') }}</span>
+          </span>
+        </div>
+      </template>
+      <template v-else>
+        <p class="subject-choice-hint subject-choice-hint--lead">{{ tr('First, choose who the client is:', 'Primero, elija quien es el cliente:') }}</p>
+        <div class="subject-choice-row" :class="{ 'is-unanswered': form.intakeForSelf === null }">
+          <label class="choice-card choice-card--subject" :class="{ 'is-selected': form.intakeForSelf === true, 'required-highlight': form.intakeForSelf === null }">
+            <input id="roi-intake-self-yes" name="intakeForSelf" v-model="form.intakeForSelf" :value="true" type="radio" />
+            <span class="choice-card__radio" aria-hidden="true"></span>
+            <span>{{ tr('I am the client', 'Yo soy el cliente') }}</span>
+          </label>
+          <label class="choice-card choice-card--subject" :class="{ 'is-selected': form.intakeForSelf === false, 'required-highlight': form.intakeForSelf === null }">
+            <input id="roi-intake-self-no" name="intakeForSelf" v-model="form.intakeForSelf" :value="false" type="radio" />
+            <span class="choice-card__radio" aria-hidden="true"></span>
+            <span>{{ tr('My dependent is the client', 'Mi dependiente es el cliente') }}</span>
+          </label>
+        </div>
+        <p class="subject-choice-hint">{{ tr('This determines how the signer and relationship fields below are labeled.', 'Esto determina como se etiquetan los campos de firma y parentesco a continuacion.') }}</p>
+      </template>
 
       <div class="summary-grid">
         <div>
-          <label for="roi-client-full-name">{{ tr('Client', 'Cliente') }}</label>
-          <div v-if="isClientNameLocked" class="summary-value">{{ form.clientFullName || '—' }}</div>
+          <label for="roi-client-full-name">
+            {{ tr('Client', 'Cliente') }}
+            <span v-if="!isClientNameLocked && !hasRequiredValue(form.clientFullName)" class="req-mark">*</span>
+          </label>
+          <div v-if="isClientNameLocked" class="summary-value">
+            <svg class="summary-value__lock" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 1a4 4 0 0 0-4 4v2H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1V5a4 4 0 0 0-4-4zm2 6V5a2 2 0 1 0-4 0v2h4z" clip-rule="evenodd"/></svg>
+            {{ form.clientFullName || '—' }}
+          </div>
           <input
             v-else
             id="roi-client-full-name"
@@ -38,31 +62,74 @@
             v-model="form.clientFullName"
             :class="['roi-input', requiredFieldClass(form.clientFullName)]"
             type="text"
-            :placeholder="tr('Client full name', 'Nombre completo del cliente')"
+            :placeholder="tr('Click to type client full name', 'Toque para escribir el nombre completo del cliente')"
           />
         </div>
         <div>
-          <label for="roi-client-dob">{{ subjectDobLabel }}</label>
+          <label for="roi-client-dob">
+            {{ subjectDobLabel }}
+            <span v-if="!hasRequiredValue(form.clientDateOfBirth)" class="req-mark">*</span>
+          </label>
           <input id="roi-client-dob" name="clientDateOfBirth" v-model="form.clientDateOfBirth" :class="['roi-input', requiredFieldClass(form.clientDateOfBirth)]" type="date" />
         </div>
         <div>
-          <label for="roi-signer-first-name">{{ signerFirstNameLabel }}</label>
-          <input id="roi-signer-first-name" name="signerFirstName" v-model="form.signer.firstName" :class="['roi-input', requiredFieldClass(form.signer.firstName)]" type="text" />
+          <label for="roi-signer-first-name">
+            {{ signerFirstNameLabel }}
+            <span v-if="!hasRequiredValue(form.signer.firstName)" class="req-mark">*</span>
+          </label>
+          <input
+            id="roi-signer-first-name"
+            name="signerFirstName"
+            v-model="form.signer.firstName"
+            :class="['roi-input', requiredFieldClass(form.signer.firstName)]"
+            type="text"
+            :placeholder="tr('Click to type', 'Toque para escribir')"
+          />
         </div>
         <div>
-          <label for="roi-signer-last-name">{{ signerLastNameLabel }}</label>
-          <input id="roi-signer-last-name" name="signerLastName" v-model="form.signer.lastName" :class="['roi-input', requiredFieldClass(form.signer.lastName)]" type="text" />
+          <label for="roi-signer-last-name">
+            {{ signerLastNameLabel }}
+            <span v-if="!hasRequiredValue(form.signer.lastName)" class="req-mark">*</span>
+          </label>
+          <input
+            id="roi-signer-last-name"
+            name="signerLastName"
+            v-model="form.signer.lastName"
+            :class="['roi-input', requiredFieldClass(form.signer.lastName)]"
+            type="text"
+            :placeholder="tr('Click to type', 'Toque para escribir')"
+          />
         </div>
         <div>
-          <label for="roi-signer-email">{{ tr('Email', 'Correo electronico') }}</label>
-          <input id="roi-signer-email" name="signerEmail" v-model="form.signer.email" :class="['roi-input', requiredFieldClass(form.signer.email)]" type="email" />
+          <label for="roi-signer-email">
+            {{ tr('Email', 'Correo electronico') }}
+            <span v-if="!hasRequiredValue(form.signer.email)" class="req-mark">*</span>
+          </label>
+          <input
+            id="roi-signer-email"
+            name="signerEmail"
+            v-model="form.signer.email"
+            :class="['roi-input', requiredFieldClass(form.signer.email)]"
+            type="email"
+            :placeholder="tr('Click to type', 'Toque para escribir')"
+          />
         </div>
         <div>
-          <label for="roi-signer-phone">{{ tr('Phone', 'Telefono') }}</label>
-          <input id="roi-signer-phone" name="signerPhone" v-model="form.signer.phone" class="roi-input" type="tel" />
+          <label for="roi-signer-phone">{{ tr('Phone', 'Telefono') }} <span class="optional-mark">{{ tr('(optional)', '(opcional)') }}</span></label>
+          <input
+            id="roi-signer-phone"
+            name="signerPhone"
+            v-model="form.signer.phone"
+            class="roi-input"
+            type="tel"
+            :placeholder="tr('Click to type', 'Toque para escribir')"
+          />
         </div>
         <div>
-          <label for="roi-signer-relationship">{{ tr('Relationship to Client', 'Relacion con el cliente') }}</label>
+          <label for="roi-signer-relationship">
+            {{ tr('Relationship to Client', 'Relacion con el cliente') }}
+            <span v-if="form.intakeForSelf !== true && !hasRequiredValue(form.signer.relationship)" class="req-mark">*</span>
+          </label>
           <input
             v-if="form.intakeForSelf !== true"
             id="roi-signer-relationship"
@@ -72,23 +139,38 @@
             type="text"
             :placeholder="tr('Parent, guardian, self, etc.', 'Padre, tutor, yo mismo, etc.')"
           />
-          <div v-else class="summary-value">Self</div>
+          <div v-else class="summary-value">
+            <svg class="summary-value__lock" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 1a4 4 0 0 0-4 4v2H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1V5a4 4 0 0 0-4-4zm2 6V5a2 2 0 1 0-4 0v2h4z" clip-rule="evenodd"/></svg>
+            Self
+          </div>
         </div>
         <div>
           <label>{{ tr('School', 'Escuela') }}</label>
-          <div class="summary-value">{{ schoolName }}</div>
+          <div class="summary-value">
+            <svg class="summary-value__lock" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 1a4 4 0 0 0-4 4v2H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1V5a4 4 0 0 0-4-4zm2 6V5a2 2 0 1 0-4 0v2h4z" clip-rule="evenodd"/></svg>
+            {{ schoolName }}
+          </div>
         </div>
         <div>
           <label>{{ tr('School address', 'Direccion de la escuela') }}</label>
-          <div class="summary-value">{{ schoolAddress || '—' }}</div>
+          <div class="summary-value">
+            <svg class="summary-value__lock" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 1a4 4 0 0 0-4 4v2H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1V5a4 4 0 0 0-4-4zm2 6V5a2 2 0 1 0-4 0v2h4z" clip-rule="evenodd"/></svg>
+            {{ schoolAddress || '—' }}
+          </div>
         </div>
         <div>
           <label>{{ tr('School contact', 'Contacto escolar') }}</label>
-          <div class="summary-value">{{ schoolContactLine || '—' }}</div>
+          <div class="summary-value">
+            <svg class="summary-value__lock" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 1a4 4 0 0 0-4 4v2H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1V5a4 4 0 0 0-4-4zm2 6V5a2 2 0 1 0-4 0v2h4z" clip-rule="evenodd"/></svg>
+            {{ schoolContactLine || '—' }}
+          </div>
         </div>
         <div>
           <label>{{ tr('Relationship to party', 'Relacion con la parte') }}</label>
-          <div class="summary-value">{{ relationshipToParty }}</div>
+          <div class="summary-value">
+            <svg class="summary-value__lock" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 1a4 4 0 0 0-4 4v2H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1V5a4 4 0 0 0-4-4zm2 6V5a2 2 0 1 0-4 0v2h4z" clip-rule="evenodd"/></svg>
+            {{ relationshipToParty }}
+          </div>
         </div>
       </div>
 
@@ -1117,24 +1199,99 @@ const submitRoi = async () => {
   min-height: 40px;
   display: flex;
   align-items: center;
+  gap: 6px;
   padding: 10px 12px;
-  border: 1px solid var(--border);
+  border: 1px dashed var(--border);
   border-radius: 8px;
   background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+.summary-value__lock {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  opacity: 0.55;
 }
 
 .required-fields-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   margin-top: 10px;
   margin-bottom: 0;
   color: #9a6700;
   font-size: 13px;
+  font-weight: 600;
+}
+.required-fields-note__dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: 3px;
+  border: 2px solid #f59e0b;
+  background: #fffbeb;
+}
+
+.req-mark {
+  color: #d97706;
+  font-weight: 800;
+  margin-left: 2px;
+}
+.optional-mark {
+  color: var(--text-secondary);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+}
+
+.subject-choice-locked {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 0.85rem 1.1rem;
+  border-radius: var(--df-radius, 14px);
+  border: 1.5px solid #86efac;
+  background: #f0fdf4;
+  color: #14532d;
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+.subject-choice-locked__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: #22c55e;
+  color: #fff;
+}
+.subject-choice-locked__icon svg { width: 14px; height: 14px; }
+.subject-choice-locked__note {
+  display: block;
+  font-weight: 500;
+  font-size: 0.78rem;
+  color: #166534;
+  margin-top: 2px;
+}
+
+.subject-choice-hint--lead {
+  margin-top: 4px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 14px;
 }
 
 .subject-choice-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 @media (max-width: 640px) {
   .subject-choice-row {
@@ -1149,18 +1306,66 @@ const submitRoi = async () => {
   font-size: 13px;
 }
 
+.choice-card--subject {
+  padding: 1.15rem 1.2rem;
+  font-weight: 700;
+  font-size: 1rem;
+}
+.choice-card__radio {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 2px solid #cbd5e1;
+  background: #fff;
+  position: relative;
+  margin-top: 1px;
+}
+.choice-card--subject.is-selected .choice-card__radio {
+  border-color: var(--df-accent, var(--df-primary, #1e4d3b));
+  background: var(--df-accent, var(--df-primary, #1e4d3b));
+}
+.choice-card--subject.is-selected .choice-card__radio::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 999px;
+  background: #fff;
+}
+.choice-card--subject input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.choice-card--subject.is-selected {
+  border-color: var(--df-accent, var(--df-primary, #1e4d3b));
+  box-shadow: 0 0 0 1px var(--df-accent, var(--df-primary, #1e4d3b));
+  background: color-mix(in srgb, var(--df-primary, #1e4d3b) 6%, #fff);
+}
+
 .roi-input {
   width: 100%;
-  border: 1px solid var(--df-border, var(--border)) !important;
-  background: var(--df-input-bg, #f4f6f5) !important;
+  border: 1.5px solid #94a3b8 !important;
+  background: #ffffff !important;
   border-radius: var(--df-radius-sm, 10px) !important;
   padding: 0.65rem 0.85rem !important;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.roi-input::placeholder {
+  color: #94a3b8;
+  font-style: italic;
+}
+.roi-input:focus {
+  outline: none;
+  border-color: var(--df-accent, var(--df-primary, #1e4d3b)) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--df-primary, #1e4d3b) 18%, transparent);
 }
 
 .required-highlight {
-  border: 2px solid #f59e0b;
-  background: #fffbeb;
-  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.15);
+  border: 2px solid #f59e0b !important;
+  background: #fffbeb !important;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18) !important;
 }
 
 .info-panel,

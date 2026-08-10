@@ -98,6 +98,15 @@ import {
   normalizeSmartSchoolRoiResponse,
   validateSmartSchoolRoiResponse
 } from '../services/smartSchoolRoi.service.js';
+import {
+  buildSmartDisclosureContext,
+  buildSmartDisclosureHtml,
+  hasProgrammedDisclosureStep,
+  isSmartDisclosureForm,
+  normalizeSmartDisclosureResponse,
+  persistDisclosureAcknowledgement,
+  validateSmartDisclosureResponse
+} from '../services/smartDisclosure.service.js';
 import { persistIntakeGuardianWaiversFromFinalize } from '../services/guardianWaivers.service.js';
 
 const normalizeName = (name) => String(name || '').trim();
@@ -966,13 +975,54 @@ const persistClientDateOfBirthIfMissing = async ({ clientId, dateOfBirth }) => {
   const dob = normalizeDateOnly(dateOfBirth);
   if (!cid || !dob) return;
   if (!await hasClientDateOfBirthColumn()) return;
+  // DATE columns cannot be compared to '' in MySQL strict mode (ER_TRUNCATED_WRONG_VALUE).
   await pool.execute(
     `UPDATE clients
      SET date_of_birth = ?
      WHERE id = ?
-       AND (date_of_birth IS NULL OR date_of_birth = '')`,
+       AND date_of_birth IS NULL`,
     [dob, cid]
   );
+};
+
+const parseSubmissionIntakeData = (submission) => {
+  if (!submission?.intake_data) return null;
+  try {
+    return typeof submission.intake_data === 'string'
+      ? JSON.parse(submission.intake_data)
+      : submission.intake_data;
+  } catch {
+    return null;
+  }
+};
+
+/** Best-effort repair when a submitted smart ROI already has a bundle but client DOB was never synced. */
+const repairSmartSchoolRoiClientDateOfBirthFromSubmission = async ({
+  submission,
+  link,
+  clientId,
+  roiContext = null
+} = {}) => {
+  const cid = Number(clientId || 0);
+  if (!cid || !submission) return;
+  const formType = String(link?.form_type || '').toLowerCase();
+  const intakeData = parseSubmissionIntakeData(submission);
+  const hasRoiPayload = intakeData?.smartSchoolRoi && typeof intakeData.smartSchoolRoi === 'object';
+  if (formType !== 'smart_school_roi' && !hasRoiPayload) return;
+  const roiResponse = normalizeSmartSchoolRoiResponse({
+    roiContext: roiContext || {},
+    intakeData: intakeData || {},
+    signedAt: submission.submitted_at || submission.updated_at || new Date()
+  });
+  if (!roiResponse?.clientDateOfBirth) return;
+  try {
+    await persistClientDateOfBirthIfMissing({
+      clientId: cid,
+      dateOfBirth: roiResponse.clientDateOfBirth
+    });
+  } catch (e) {
+    console.warn('[publicIntake] smart ROI DOB repair failed', { clientId: cid, message: e?.message });
+  }
 };
 const parseIntakeYesNo = (val) => {
   const s = String(val ?? '').trim().toLowerCase();
@@ -4467,7 +4517,10 @@ const resolveSmartSchoolRoiTemplate = async ({ roiContext, templates }) => {
 export const getPublicIntakeLink = async (req, res, next) => {
   try {
     const publicKey = String(req.params.publicKey || '').trim();
-    const { link, issuedRoiLink, boundClient } = await resolvePublicIntakeContext(publicKey);
+    const resolved = await resolvePublicIntakeContext(publicKey);
+    let link = resolved.link;
+    const issuedRoiLink = resolved.issuedRoiLink;
+    const boundClient = resolved.boundClient;
     if (!link) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
@@ -4527,6 +4580,48 @@ export const getPublicIntakeLink = async (req, res, next) => {
           agency,
           templates,
           issuedConfig: issuedRoiLink?.roi_context_json?.issuedConfig || issuedRoiLink?.roi_context_json || null
+        })
+      : null;
+    // Hogwarts rollout: strip static disclosure PDF document steps and ensure a
+    // programmed smart_disclosure step exists on the public payload.
+    if (organization && String(organization.organization_type || '').toLowerCase() === 'school') {
+      const { isSmartDisclosureDemoSchool } = await import('../services/smartDisclosure.service.js');
+      if (isSmartDisclosureDemoSchool(organization)) {
+        const disclosureTemplateIds = new Set(
+          (templates || [])
+            .filter((t) => String(t?.document_type || '').toLowerCase() === 'disclosure')
+            .map((t) => Number(t.id))
+            .filter(Boolean)
+        );
+        let steps = link.intake_steps;
+        if (typeof steps === 'string') {
+          try { steps = JSON.parse(steps); } catch { steps = []; }
+        }
+        steps = Array.isArray(steps) ? steps : [];
+        steps = steps.filter((s) => {
+          const t = String(s?.type || '').toLowerCase();
+          if (t === 'smart_disclosure' || t === 'disclosure') return true;
+          if (t === 'document' && disclosureTemplateIds.has(Number(s?.templateId || s?.template_id || 0))) {
+            return false;
+          }
+          return true;
+        });
+        if (!steps.some((s) => ['smart_disclosure', 'disclosure'].includes(String(s?.type || '').toLowerCase()))) {
+          steps.push({ type: 'smart_disclosure', title: 'Disclosure Statement' });
+        }
+        link = { ...link, intake_steps: steps };
+      }
+    }
+
+    const shouldIncludeDisclosureContext = isSmartDisclosureForm(link)
+      || hasProgrammedDisclosureStep(link);
+    const disclosureContext = shouldIncludeDisclosureContext
+      ? await buildSmartDisclosureContext({
+          link,
+          boundClient,
+          organization,
+          agency,
+          locale: link.language_code || 'en'
         })
       : null;
     let linkedEsInfo = null;
@@ -4600,6 +4695,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
         date_of_birth: boundClient.date_of_birth || boundClient.dob || boundClient.birthdate || boundClient.birth_date || null
       } : null,
       roiContext,
+      disclosureContext,
       jobDescription,
       templates: templates.map(t => ({
         id: t.id,
@@ -5568,6 +5664,15 @@ export const finalizePublicIntake = async (req, res, next) => {
             completedClientPhiDocumentId: phiDocs?.[0]?.id || null
           });
         }
+        for (const c of _existingClientRows || []) {
+          if (c?.client_id) {
+            await repairSmartSchoolRoiClientDateOfBirthFromSubmission({
+              submission,
+              link,
+              clientId: c.client_id
+            });
+          }
+        }
         return res.json({
           success: true,
           submission,
@@ -6275,6 +6380,204 @@ export const finalizePublicIntake = async (req, res, next) => {
           downloadUrl
         }]
       });
+    }
+
+    // Smart Disclosure (standalone form_type) — Hogwarts-gated living disclosure.
+    if (isSmartDisclosureForm(link)) {
+      const boundClientId = Number(
+        issuedRoiLink?.client_id
+        || updatedSubmission.client_id
+        || req.body?.clientId
+        || 0
+      );
+      const boundClient = boundClientId ? await Client.findById(boundClientId, { includeSensitive: true }) : null;
+      const disclosureContext = await buildSmartDisclosureContext({
+        link,
+        boundClient,
+        organization,
+        agency,
+        locale: link.language_code || 'en'
+      });
+      if (!disclosureContext) {
+        return res.status(400).json({ error: { message: 'Smart Disclosure is not enabled for this school yet.' } });
+      }
+      const disclosureResponse = normalizeSmartDisclosureResponse({
+        disclosureContext,
+        intakeData,
+        signedAt: now
+      });
+      const disclosureValidation = validateSmartDisclosureResponse(disclosureResponse);
+      if (!disclosureValidation.valid) {
+        return res.status(400).json({
+          error: { message: `Missing required disclosure responses: ${disclosureValidation.missing.join(', ')}` }
+        });
+      }
+      const html = buildSmartDisclosureHtml({
+        disclosureContext,
+        response: disclosureResponse,
+        signedAt: now
+      });
+      const signer = buildSignerFromSubmission(updatedSubmission);
+      const signedResult = await PublicIntakeSigningService.generateSignedDocument({
+        template: {
+          id: null,
+          name: 'Disclosure Statement',
+          template_type: 'html',
+          html_content: html,
+          document_action_type: 'signature',
+          document_type: 'disclosure'
+        },
+        signatureData: disclosureResponse.signatureData || req.body?.signatureData || null,
+        signer,
+        auditTrail: buildAuditTrail({
+          link,
+          submission: {
+            ...updatedSubmission,
+            submitted_at: now,
+            client_name: boundClient?.full_name || null
+          }
+        }),
+        workflowData: buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } }),
+        submissionId
+      });
+      await IntakeSubmissionDocument.create({
+        intakeSubmissionId: submissionId,
+        clientId: boundClient?.id || null,
+        documentTemplateId: null,
+        signedPdfPath: signedResult.storagePath,
+        pdfHash: signedResult.pdfHash,
+        signedAt: now,
+        auditTrail: {
+          smartDisclosure: true,
+          disclosureResponse,
+          documentReference: signedResult.referenceNumber || null
+        }
+      });
+      let phiDoc = null;
+      if (boundClient?.id) {
+        const phiDocAttach = await attachSignedPdfToClient({
+          clientId: boundClient.id,
+          agencyId: boundClient.agency_id || agency?.id || null,
+          storagePath: signedResult.storagePath,
+          originalFilename: `disclosure-${boundClient.id}.pdf`,
+          title: 'Disclosure Statement (Signed)',
+          documentType: 'disclosure',
+          mimeType: 'application/pdf',
+          uploadedByUserId: null,
+          intakeSubmissionId: submissionId,
+          source: 'smart_disclosure'
+        }).catch(() => null);
+        phiDoc = phiDocAttach?.document || phiDocAttach || null;
+        await persistDisclosureAcknowledgement({
+          clientId: boundClient.id,
+          agencyId: boundClient.agency_id || agency?.id,
+          schoolOrganizationId: boundClient.organization_id || organization?.id || null,
+          intakeSubmissionId: submissionId,
+          clientPhiDocumentId: phiDoc?.id || null,
+          languageCode: disclosureResponse.locale,
+          signedAt: now,
+          signerName: disclosureResponse.signerName || updatedSubmission.signer_name || null,
+          signerEmail: disclosureResponse.signerEmail || updatedSubmission.signer_email || null,
+          contentHash: disclosureResponse.contentHash,
+          providers: disclosureResponse.providers
+        });
+      }
+      await IntakeSubmission.updateById(submissionId, {
+        combined_pdf_path: signedResult.storagePath,
+        status: 'submitted',
+        submitted_at: now
+      }).catch(() => {});
+      let downloadUrl = null;
+      try {
+        downloadUrl = await StorageService.getSignedUrl(signedResult.storagePath, 60 * 24 * 7);
+      } catch {
+        downloadUrl = null;
+      }
+      return res.json({
+        success: true,
+        submission: await IntakeSubmission.findById(submissionId),
+        downloadUrl,
+        smartDisclosure: true,
+        clientBundles: boundClient?.id ? [{
+          clientId: boundClient.id,
+          clientName: boundClient.full_name || null,
+          filename: 'disclosure-signed.pdf',
+          downloadUrl
+        }] : []
+      });
+    }
+
+    // Embedded Smart Disclosure in a packet — persist acknowledgment when payload present.
+    if (intakeData?.smartDisclosure && (updatedSubmission.client_id || issuedRoiLink?.client_id)) {
+      try {
+        const cid = Number(updatedSubmission.client_id || issuedRoiLink?.client_id || 0);
+        const boundClient = cid ? await Client.findById(cid, { includeSensitive: true }) : null;
+        if (boundClient?.id) {
+          const disclosureContext = await buildSmartDisclosureContext({
+            link,
+            boundClient,
+            organization,
+            agency,
+            locale: link.language_code || 'en'
+          });
+          if (disclosureContext) {
+            const disclosureResponse = normalizeSmartDisclosureResponse({
+              disclosureContext,
+              intakeData,
+              signedAt: now
+            });
+            if (validateSmartDisclosureResponse(disclosureResponse).valid) {
+              const html = buildSmartDisclosureHtml({
+                disclosureContext,
+                response: disclosureResponse,
+                signedAt: now
+              });
+              const signedResult = await PublicIntakeSigningService.generateSignedDocument({
+                template: {
+                  id: null,
+                  name: 'Disclosure Statement',
+                  template_type: 'html',
+                  html_content: html,
+                  document_action_type: 'signature',
+                  document_type: 'disclosure'
+                },
+                signatureData: disclosureResponse.signatureData || null,
+                signer: buildSignerFromSubmission(updatedSubmission),
+                auditTrail: { smartDisclosure: true, embeddedStep: true, disclosureResponse },
+                workflowData: buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } }),
+                submissionId
+              });
+              const phiDocAttach = await attachSignedPdfToClient({
+                clientId: boundClient.id,
+                agencyId: boundClient.agency_id || agency?.id || null,
+                storagePath: signedResult.storagePath,
+                originalFilename: `disclosure-${boundClient.id}.pdf`,
+                title: 'Disclosure Statement (Signed)',
+                documentType: 'disclosure',
+                mimeType: 'application/pdf',
+                uploadedByUserId: null,
+                intakeSubmissionId: submissionId,
+                source: 'smart_disclosure'
+              }).catch(() => null);
+              await persistDisclosureAcknowledgement({
+                clientId: boundClient.id,
+                agencyId: boundClient.agency_id || agency?.id,
+                schoolOrganizationId: boundClient.organization_id || organization?.id || null,
+                intakeSubmissionId: submissionId,
+                clientPhiDocumentId: phiDocAttach?.document?.id || phiDocAttach?.id || null,
+                languageCode: disclosureResponse.locale,
+                signedAt: now,
+                signerName: disclosureResponse.signerName || updatedSubmission.signer_name || null,
+                signerEmail: disclosureResponse.signerEmail || updatedSubmission.signer_email || null,
+                contentHash: disclosureResponse.contentHash,
+                providers: disclosureResponse.providers
+              });
+            }
+          }
+        }
+      } catch (discErr) {
+        console.warn('[publicIntake] embedded smart disclosure persist failed', discErr?.message || discErr);
+      }
     }
 
     let newGuardianCreated = false;

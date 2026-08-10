@@ -64,6 +64,7 @@
 .hub-satellite--section.tone-amber { --section-accent: #d97706; border-color: #fbbf24; }
 .hub-satellite--section.tone-slate { --section-accent: #475569; border-color: #94a3b8; }
 .hub-satellite--section.tone-indigo { --section-accent: #4f46e5; border-color: #818cf8; }
+.hub-satellite--section.tone-cyan { --section-accent: #0891b2; border-color: #22d3ee; }
 .hub-satellite--section.tone-purple { --section-accent: #475569; border-color: #94a3b8; }
 
 .hub-satellite.hub-satellite--section::before {
@@ -109,6 +110,7 @@
 .hub-connector-line.active.tone-teal { stroke: #0f766e; stroke-opacity: 1; }
 .hub-connector-line.active.tone-amber { stroke: #d97706; stroke-opacity: 1; }
 .hub-connector-line.active.tone-slate { stroke: #475569; stroke-opacity: 1; }
+.hub-connector-line.active.tone-cyan { stroke: #0891b2; stroke-opacity: 1; }
 
 /* ── Rose (distinct warm red-pink — audits, calendars) ───────────────────── */
 .hub-connector-line.tone-rose { stroke: #e11d48; stroke-opacity: 0.82; }
@@ -215,7 +217,6 @@
 }
 
 .hub-connector-line.active.tone-rose { stroke: #e11d48; stroke-opacity: 1; }
-.hub-connector-line.active.tone-cyan { stroke: #0891b2; stroke-opacity: 1; }
 
 /* Mobile stacked cards — match filled icon treatment */
 .wo-hub .hub-mobile-card.tone-blue .hub-mobile-icon,

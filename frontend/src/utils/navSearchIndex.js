@@ -338,10 +338,73 @@ export const NAV_SEARCH_INDEX = [
   },
   {
     title: 'School Clients',
-    section: 'School Ops › Portals & Onboarding',
+    section: 'School Ops › Clients & Guardians',
     path: '/admin/school-clients',
     keywords: ['school clients', 'clients', 'pending clients', 'roi expiration', 'client onboarding'],
     desc: 'Track pending school clients and ROI expiration.'
+  },
+  {
+    title: 'School Guardians',
+    section: 'School Ops › Clients & Guardians',
+    path: '/admin/guardians?scope=school',
+    keywords: ['school guardians', 'guardians', 'parents', 'school parents'],
+    desc: 'Guardians linked to school-affiliated clients.'
+  },
+  {
+    title: 'Client Readiness',
+    section: 'School Ops › Clients & Guardians',
+    path: '/admin/client-onboarding?scope=school',
+    keywords: ['client readiness', 'client onboarding', 'new clients', 'intake checklist', 'onboarded', 'packet docs'],
+    desc: 'Staff readiness checklist for school and office intakes.'
+  },
+  {
+    title: 'Client Readiness (Provider)',
+    section: 'Clients',
+    path: '/provider/client-onboarding',
+    keywords: ['client readiness', 'client onboarding', 'provider onboarding', 'my steps', 'first service', 'parent contact'],
+    desc: 'View staff setup progress and complete provider contact, intake, and first service.'
+  },
+  {
+    title: 'Client Exchange',
+    section: 'School Ops › Clients & Guardians',
+    path: '/client-exchange',
+    keywords: ['client exchange', 'reassign client', 'handoff'],
+    desc: 'Exchange or reassign clients between providers.'
+  },
+  {
+    title: 'School Staff',
+    section: 'Workforce Ops › Staff & Scheduling',
+    path: '/admin/caseload-hub/schools-staff',
+    keywords: ['school staff', 'scheduler', 'school admin', 'portal staff'],
+    desc: 'Manage school staff accounts and School Admin / Scheduler roles.'
+  },
+  {
+    title: 'Clients',
+    section: 'Workforce Ops › Clients & Guardians',
+    path: '/admin/clients',
+    keywords: ['clients', 'client management', 'agency clients', 'caseload'],
+    desc: 'Full agency client directory and management.'
+  },
+  {
+    title: 'Guardians',
+    section: 'Workforce Ops › Clients & Guardians',
+    path: '/admin/guardians',
+    keywords: ['guardians', 'parents', 'family contacts'],
+    desc: 'All guardian accounts and parent contacts.'
+  },
+  {
+    title: 'Client Readiness',
+    section: 'Workforce Ops › Clients & Guardians',
+    path: '/admin/client-onboarding?scope=all',
+    keywords: ['client readiness', 'client onboarding', 'new clients', 'intake checklist', 'onboarded', 'office intake'],
+    desc: 'Staff readiness checklist for school and office intakes.'
+  },
+  {
+    title: 'Client Exchange',
+    section: 'Workforce Ops › Clients & Guardians',
+    path: '/client-exchange',
+    keywords: ['client exchange', 'reassign client', 'handoff'],
+    desc: 'Exchange or reassign clients between providers.'
   },
 
   // ─── Directory ────────────────────────────────────────────────────────────────

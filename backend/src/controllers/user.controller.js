@@ -824,6 +824,10 @@ export const getAllUsers = async (req, res, next) => {
 export const getGuardianUsers = async (req, res, next) => {
   try {
     const includeArchived = req.query.includeArchived === 'true';
+    const schoolAffiliated =
+      req.query.schoolAffiliated === 'true'
+      || req.query.schoolAffiliated === '1'
+      || String(req.query.scope || '').toLowerCase() === 'school';
     const roleNorm = String(req.user?.role || '').toLowerCase();
     const isSuperAdmin = roleNorm === 'super_admin';
 
@@ -854,6 +858,29 @@ export const getGuardianUsers = async (req, res, next) => {
       archiveSql = ' AND (u.is_archived = FALSE OR u.is_archived IS NULL)';
     }
 
+    let schoolSql = '';
+    if (schoolAffiliated) {
+      schoolSql = ` AND EXISTS (
+        SELECT 1
+        FROM client_guardians cg_school
+        JOIN clients c_school ON c_school.id = cg_school.client_id
+        LEFT JOIN agencies org_school ON org_school.id = c_school.organization_id
+        WHERE cg_school.guardian_user_id = u.id
+          AND (
+            LOWER(COALESCE(c_school.client_type, '')) = 'school'
+            OR LOWER(COALESCE(org_school.organization_type, '')) = 'school'
+            OR EXISTS (
+              SELECT 1
+              FROM client_organization_assignments coa
+              JOIN agencies o2 ON o2.id = coa.organization_id
+              WHERE coa.client_id = c_school.id
+                AND coa.is_active = TRUE
+                AND LOWER(COALESCE(o2.organization_type, '')) = 'school'
+            )
+          )
+      )`;
+    }
+
     const [rows] = await pool.execute(
       `
         SELECT
@@ -870,6 +897,7 @@ export const getGuardianUsers = async (req, res, next) => {
           u.created_at,
           GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') AS agencies,
           GROUP_CONCAT(DISTINCT a.id ORDER BY a.id SEPARATOR ',') AS agency_ids,
+          GROUP_CONCAT(DISTINCT org_client.name ORDER BY org_client.name SEPARATOR ', ') AS school_names,
           COUNT(DISTINCT CASE WHEN cg.access_enabled = 1 THEN cg.client_id ELSE NULL END) AS linked_clients_count,
           GROUP_CONCAT(
             DISTINCT CASE
@@ -888,9 +916,12 @@ export const getGuardianUsers = async (req, res, next) => {
         LEFT JOIN agencies a ON a.id = ua.agency_id
         LEFT JOIN client_guardians cg ON cg.guardian_user_id = u.id
         LEFT JOIN clients c ON c.id = cg.client_id
+        LEFT JOIN agencies org_client ON org_client.id = c.organization_id
+          AND LOWER(COALESCE(org_client.organization_type, '')) = 'school'
         WHERE LOWER(COALESCE(u.role, '')) = 'client_guardian'
         ${archiveSql}
         ${scopeSql}
+        ${schoolSql}
         GROUP BY
           u.id, u.email, u.role, u.status, u.completed_at, u.terminated_at, u.status_expires_at,
           u.is_active, u.first_name, u.last_name, u.created_at
@@ -899,7 +930,7 @@ export const getGuardianUsers = async (req, res, next) => {
       params
     );
 
-    const shaped = (rows || []).map((r) => {
+    let shaped = (rows || []).map((r) => {
       const linkedClients = String(r.linked_clients_raw || '')
         .split('||')
         .map((part) => part.trim())
@@ -914,6 +945,18 @@ export const getGuardianUsers = async (req, res, next) => {
       const { linked_clients_raw: _raw, ...rest } = r;
       return { ...rest, linked_clients: linkedClients };
     });
+
+    if (schoolAffiliated) {
+      shaped = shaped.sort((a, b) => {
+        const sa = String(a.school_names || '');
+        const sb = String(b.school_names || '');
+        if (sa !== sb) return sa.localeCompare(sb);
+        const la = String(a.last_name || '');
+        const lb = String(b.last_name || '');
+        if (la !== lb) return la.localeCompare(lb);
+        return String(a.first_name || '').localeCompare(String(b.first_name || ''));
+      });
+    }
 
     res.json(shaped);
   } catch (error) {

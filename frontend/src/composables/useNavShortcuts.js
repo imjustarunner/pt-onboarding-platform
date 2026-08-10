@@ -40,6 +40,10 @@ const PAGE_META = {
   'agency-progress':                { label: 'Training Progress',    icon: '📊' },
   'unassigned-documents':           { label: 'Unassigned Docs',      icon: '📄' },
   'documents':                      { label: 'Documents',            icon: '📄' },
+  'client-onboarding':              { label: 'Client Readiness',     icon: '📋' },
+  'provider-client-onboarding':     { label: 'Client Readiness',     icon: '📋' },
+  'client-exchange':                { label: 'Client Exchange',      icon: '🔄' },
+  'guardians':                      { label: 'Guardians',            icon: '👪' },
   'usage-analytics':                { label: 'Usage Analytics',      icon: '📊' },
 };
 
