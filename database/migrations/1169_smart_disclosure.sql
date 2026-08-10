@@ -56,8 +56,8 @@ WHERE a.organization_type IN ('agency', 'life_coach', 'consultant')
           SELECT school_organization_id FROM agency_schools WHERE agency_id = a.id AND is_active = 1
         )
         OR s.id IN (
-          SELECT child_organization_id FROM organization_affiliations
-          WHERE parent_organization_id = a.id AND is_active = 1
+          SELECT organization_id FROM organization_affiliations
+          WHERE agency_id = a.id AND is_active = 1
         )
       )
   )
@@ -77,8 +77,8 @@ WHERE a.organization_type IN ('agency', 'life_coach', 'consultant')
           SELECT school_organization_id FROM agency_schools WHERE agency_id = a.id AND is_active = 1
         )
         OR s.id IN (
-          SELECT child_organization_id FROM organization_affiliations
-          WHERE parent_organization_id = a.id AND is_active = 1
+          SELECT organization_id FROM organization_affiliations
+          WHERE agency_id = a.id AND is_active = 1
         )
       )
   )
