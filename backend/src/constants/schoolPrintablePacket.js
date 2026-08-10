@@ -20,6 +20,15 @@ export function isHogwartsDemoSchoolOrg(org = {}) {
 }
 
 /**
+ * Gate for the dedicated "Digital Forms" + "Printable Packets" two-section
+ * layout on the School Portal Docs/Links panel. Strictly Hogwarts only while
+ * this rollout is being piloted — not Durmstrang, unlike the broader demo gate.
+ */
+export function isHogwartsPacketHubOrg(org = {}) {
+  return resolveOrganizationSlug(org) === 'hogwarts';
+}
+
+/**
  * Enabled for school/program/learning orgs (real schools + Hogwarts/Durmstrang demo).
  * Demo people are filtered out of generated roster content, not the Docs/Links entry.
  */

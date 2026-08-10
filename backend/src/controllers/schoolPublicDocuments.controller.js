@@ -8,7 +8,8 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import { isSupervisorActor, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
 import {
   buildVirtualPrintablePacketDocument,
-  isSchoolPrintablePacketEnabled
+  isSchoolPrintablePacketEnabled,
+  isHogwartsPacketHubOrg
 } from '../constants/schoolPrintablePacket.js';
 import {
   buildSchoolPrintablePacketContext,
@@ -212,7 +213,11 @@ export const listSchoolPublicDocuments = async (req, res, next) => {
         [sid]
       );
       const documents = Array.isArray(rows) ? [...rows] : [];
-      if (isSchoolPrintablePacketEnabled(org)) {
+      const packetHubEnabled = isHogwartsPacketHubOrg(org);
+      // Hogwarts pilot: the smart printable packet is surfaced via the dedicated
+      // "Printable Packets" section (EN + ES) instead of this generic Library,
+      // so it isn't shown twice.
+      if (isSchoolPrintablePacketEnabled(org) && !packetHubEnabled) {
         let templateVersion = null;
         let templateUpdatedAt = null;
         try {
@@ -231,7 +236,7 @@ export const listSchoolPublicDocuments = async (req, res, next) => {
           updatedAt: templateUpdatedAt
         }));
       }
-      res.json({ schoolOrganizationId: sid, documents });
+      res.json({ schoolOrganizationId: sid, documents, packetHubEnabled });
     } catch (e) {
       if (e?.code === 'ER_NO_SUCH_TABLE') {
         return res.status(400).json({ error: { message: 'Public documents are not enabled (missing school_public_documents table).' } });
@@ -544,7 +549,8 @@ export const getSchoolPrintablePacketTemplate = async (req, res, next) => {
     const { organizationId } = req.params;
     await assertSchoolPortalAccess(req, organizationId);
     assertPacketTemplateEditorRole(req);
-    const template = await getSchoolPacketTemplateForOrganization(organizationId);
+    const locale = String(req.query?.locale || req.query?.lang || 'en').trim();
+    const template = await getSchoolPacketTemplateForOrganization(organizationId, { locale });
     res.json(template);
   } catch (e) {
     if (e?.statusCode || e?.status) {
@@ -563,10 +569,12 @@ export const updateSchoolPrintablePacketTemplate = async (req, res, next) => {
     if (htmlContent === undefined || htmlContent === null) {
       return res.status(400).json({ error: { message: 'html_content is required' } });
     }
+    const locale = String(req.body?.locale || req.query?.locale || req.query?.lang || 'en').trim();
     const saved = await saveSchoolPacketTemplateForOrganization({
       organizationId,
       htmlContent,
-      actorUserId: req.user?.id || null
+      actorUserId: req.user?.id || null,
+      locale
     });
     res.json(saved);
   } catch (e) {

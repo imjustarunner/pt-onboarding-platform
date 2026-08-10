@@ -56,6 +56,7 @@ function routeRequiresSchoolPortalsFeature(to) {
   if (n === 'SchoolOperations' || n === 'OrganizationSchoolOperations') return true;
   if (n === 'SchoolClients' || n === 'OrganizationSchoolClients') return true;
   if (n === 'SchoolPortalDigitalIntakes' || n === 'OrganizationSchoolPortalDigitalIntakes') return true;
+  if (n === 'SchoolReferralHub' || n === 'OrganizationSchoolReferralHub') return true;
   if (n === 'SchoolOverviewDashboard' || n === 'OrganizationSchoolOverviewDashboard') {
     return String(to.query?.orgType || 'school').toLowerCase() === 'school';
   }
@@ -2150,6 +2151,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/school-referral-hub',
+    name: 'OrganizationSchoolReferralHub',
+    component: () => import('../views/school/SchoolReferralHubView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/skill-builders-availability',
     name: 'OrganizationSkillBuildersAvailability',
     component: () => import('../views/admin/SkillBuildersAvailabilityView.vue'),
@@ -3454,6 +3461,12 @@ const routes = [
     name: 'SchoolPortalDigitalIntakes',
     redirect: () => ({ path: '/dashboard' }),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/admin/school-referral-hub',
+    name: 'SchoolReferralHub',
+    component: () => import('../views/school/SchoolReferralHubView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
   },
   {
     path: '/admin/skill-builders-availability',

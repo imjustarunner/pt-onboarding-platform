@@ -201,6 +201,8 @@ VALUES (2, 1, '<section class="school-packet-template">
   <p>Please state the relationship to dependent AND authority to consent (if client, "self") ________________________________________________________________________________________________________</p>
   <p>Client''s or Responsible Party''s Signature ____________________________ Date __________________</p>
   <p>Signature of Parent/Guardian #2 (if applicable) Relationship Date ______________________________________________</p>
+
+  <div class="page-break"></div>
   <p>Please retain these documents for your personal records. They include crucial information regarding your rights, our policies, and the specific services offered. Your acknowledgement and signatures pertaining to these matters have been captured in the Acknowledgement and Consent Summary page. Keeping a copy of these documents will ensure you have ready access to important details of our agreement and your privacy protections as we proceed with our professional relationship.</p>
 
   <h2>INSURANCE INFORMATION</h2>
@@ -210,6 +212,7 @@ VALUES (2, 1, '<section class="school-packet-template">
   <p>Counseling services for minors require clear legal authorization. This includes the consent and approval for treatment from both parents or guardians, unless there is specific documentation provided at intake that states otherwise, or in cases where the parents are married and share dual full custody. The signature of a legal custodial parent or guardian on the intake documentation authorizes ITSCO to conduct a mental health assessment and provide treatment to the named minor child. This authorization remains valid until the professional relationship is terminated or the consent is explicitly revoked.</p>
   <p>It''s essential for ITSCO to ensure that the individual seeking services for a minor has the legal right to do so. In situations of divorce, both parents'' consent is necessary for the minor to receive services. Divorced parents, step-parents, grandparents, guardians, or others may need to provide a copy of the court order that establishes them as the legal custodian of the minor. This process is in place to safeguard the therapeutic environment and to uphold the minor''s right to privacy and confidential therapy, in accordance with legal requirements and professional ethics.</p>
 
+  <div class="page-break"></div>
   <h2>INFORMED CONSENT</h2>
   <p>This document contains important information about the client''s rights and the responsibilities of each of us as we enter in the counselor-client relationship. We believe that a well formed therapeutic relationship is the vehicle for progress and necessary to the healing process.</p>
   <p>Please ensure you carefully review and understand the information contained in this document. It is part of a comprehensive set of documents detailing our professional services, policies, and your rights as a client or guardian. We encourage you to take your time reading through this material and discuss any topics or questions you may have with your assigned counselor or facilitator. Your understanding and questions are crucial to us, as they help establish a clear and informed therapeutic relationship. Your formal acknowledgment and consent to this and other related documents will be captured on a summary page provided for your signature.</p>
@@ -255,6 +258,7 @@ VALUES (2, 1, '<section class="school-packet-template">
   <h3>Emergency Contacts</h3>
   <p>Your counselor will establish emergency contacts for you, such as a family member, a mobile phone, or work phone number. These contacts may be used if your counselor perceives a need. If you are actively suicidal or if you are in crisis and cannot reach your counselor, please go to your nearest emergency room, call 1-844-493-TALK, or call/text 988.</p>
 
+  <div class="page-break"></div>
   <h2>GROUP CONSENT</h2>
   <p>Our program primarily utilizes Skill Builders to enhance mental health, social functioning, and community integration through structured activities. However, group work may also encompass other forms of engagement beyond skill development.</p>
   <p>Please ensure you carefully review and understand the information contained in this document. It is part of a comprehensive set of documents detailing our professional services, policies, and your rights as a client or guardian. We encourage you to take your time reading through this material and discuss any topics or questions you may have with your assigned counselor or facilitator. Your understanding and questions are crucial to us, as they help establish a clear and informed therapeutic relationship. Your formal acknowledgment and consent to this and other related documents will be captured on a summary page provided for your signature.</p>
@@ -316,6 +320,7 @@ VALUES (2, 1, '<section class="school-packet-template">
   <h3>Acknowledgment</h3>
   <p>By signing, you acknowledge understanding the rights, responsibilities, and potential outcomes of participating in our group work, including the Skill Builders program.</p>
 
+  <div class="page-break"></div>
   <h2>POLICY AND SERVICES AGREEMENT</h2>
   <p>This document contains important information about our professional services and business policies.</p>
   <p>Please ensure you carefully review and understand the information contained in this document. It is part of a comprehensive set of documents detailing our professional services, policies, and your rights as a client or guardian. We encourage you to take your time reading through this material and discuss any topics or questions you may have with your assigned counselor or facilitator. Your understanding and questions are crucial to us, as they help establish a clear and informed therapeutic relationship. Your formal acknowledgment and consent to this and other related documents will be captured on a summary page provided for your signature.</p>
@@ -352,7 +357,7 @@ VALUES (2, 1, '<section class="school-packet-template">
 
   <div class="page-break"></div>
 
-  <h2>Client Rights and Disclosures</h2>
+  <h2>Client Rights</h2>
   <p>(I) I understand that I am entitled to receive information about the methods of therapy, the techniques used, the duration of therapy, if known, and the fee structure.</p>
   <p>(II) I understand that I may seek a second opinion from another therapist or may terminate therapy at any time.</p>
   <p>(III) I understand that in a professional relationship such as this, sexual intimacy is never appropriate and should be reported to the board that licenses, registers, or certifies the licensee, registrant, or certificate holder.</p>
@@ -377,6 +382,7 @@ VALUES (2, 1, '<section class="school-packet-template">
   <p>If your clinician or provider is listed as an "Unlicensed Psychotherapist", that individual is listed in the state''s database and is authorized to practice psychotherapy in Colorado but is not licensed by the state and is not required to satisfy any standardized educational testing requirements to obtain registration from the state.</p>
   <p>I have read the preceding information on our Disclosure Statement and understand my rights as a client or as the client''s responsible party.</p>
 
+  <div class="page-break"></div>
   <h2>Disclosure Statement</h2>
   <p>This document is mandatory for all mental health professions in Colorado. The specific agency within the Department that has responsibility specifically for licensed and unlicensed psychotherapists is the Department of Regulatory Agencies, Division of Profession and Occupations, Healthcare Professions Programs, State Board Specific to Each Clinician/Provider is Listed with Each Individual, 1560 Broadway, Suite 1350 Denver, Colorado 80202 (303) 894-7800.</p>
   <p>The purpose of this document is to explain the levels of regulation applicable to mental health professionals under the Mental Health Practice Act and the differences between licensure, registration, and certification, including the educational, experience, and training requirements applicable to the particular level of regulation. The direct entity, ITSCO LLC, covered by this document can be found below, as well as the clinicians and providers who are employees of ITSCO LLC.</p>
@@ -388,6 +394,7 @@ VALUES (2, 1, '<section class="school-packet-template">
   <p>The roster below is where the live provider and disclosure team will be merged in at intake time.</p>
   <p>{{DISCLOSURE_CARE_TEAM}}</p>
 
+  <div class="page-break"></div>
   <h2>HIPAA Privacy Policy &amp; Notice of Privacy Practices</h2>
   <p>The Mental Range Collective (including ITSCO, Next Level Up, The Inner Strength Institute, PlotTwistCo, and MH4kidz)</p>
   <p>THIS NOTICE DESCRIBES HOW MEDICAL INFORMATION ABOUT YOU MAY BE USED AND DISCLOSED AND HOW YOU CAN GET ACCESS TO THIS INFORMATION. PLEASE REVIEW IT CAREFULLY.</p>

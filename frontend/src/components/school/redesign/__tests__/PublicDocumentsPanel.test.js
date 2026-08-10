@@ -137,7 +137,7 @@ describe('PublicDocumentsPanel', () => {
             documents: [{
               id: 'smart-printable-packet',
               kind: 'system_printable_packet',
-              title: 'Springfield High — Blank Referral Packet (Smart)',
+              title: 'Springfield High — School Packet (Smart)',
               category_key: 'referral_packet',
               packet_version: '1',
               updated_at: new Date().toISOString()
@@ -172,7 +172,7 @@ describe('PublicDocumentsPanel', () => {
             documents: [{
               id: 'smart-printable-packet',
               kind: 'system_printable_packet',
-              title: 'Springfield High — Blank Referral Packet (Smart)',
+              title: 'Springfield High — School Packet (Smart)',
               category_key: 'referral_packet',
               packet_version: '1',
               updated_at: new Date().toISOString()

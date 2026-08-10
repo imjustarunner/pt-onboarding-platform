@@ -23,7 +23,7 @@
 
     <div v-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
 
-    <div class="card" style="margin-top: 12px;">
+    <div v-if="!packetHubEnabled" class="card" style="margin-top: 12px;">
       <div class="card-header" style="display:flex; align-items:center; justify-content: space-between; gap: 10px;">
         <h3 style="margin:0;">Affiliated digital forms</h3>
         <div class="muted" style="font-size: 12px;">{{ intakeLinks.length }} item(s)</div>
@@ -69,7 +69,96 @@
       </div>
     </div>
 
-    <div class="add-panels">
+    <div v-else class="two-section-grid" style="margin-top: 12px;">
+      <div class="card two-section-col">
+        <div class="card-header" style="display:flex; align-items:center; justify-content: space-between; gap: 10px;">
+          <h3 style="margin:0;">Digital Forms</h3>
+          <div class="muted" style="font-size: 12px;">{{ intakeLinks.length }} item(s)</div>
+        </div>
+
+        <div v-if="intakeLinksError" class="error" style="margin-top: 10px;">{{ intakeLinksError }}</div>
+        <div v-else-if="loading" class="loading" style="margin-top: 10px;">Loading digital forms…</div>
+        <div v-else-if="!sortedDigitalFormLinks.length" class="empty-state" style="margin-top: 10px;">
+          No digital forms assigned to this school yet.
+        </div>
+        <ul v-else class="digital-form-list">
+          <li v-for="l in sortedDigitalFormLinks" :key="l.id" class="digital-form-row">
+            <div class="digital-form-row-main">
+              <strong>{{ l.title || `Form #${l.id}` }}</strong>
+              <span class="lang-badge" :class="`lang-badge-${langCodeOf(l)}`">{{ langCodeOf(l).toUpperCase() }}</span>
+              <div class="muted" style="font-size: 12px; margin-top: 2px;">
+                {{ intakeLinkUrlFor(l) || '—' }}
+              </div>
+            </div>
+            <div class="digital-form-row-actions">
+              <button class="btn btn-secondary btn-sm" type="button" @click="openIntakeLink(l)" :disabled="!intakeLinkUrlFor(l)">
+                Open
+              </button>
+              <button class="btn btn-secondary btn-sm" type="button" @click="copyIntakeLink(l)" :disabled="!intakeLinkUrlFor(l)">
+                Copy
+              </button>
+              <button class="btn btn-secondary btn-sm" type="button" @click="openIntakeQr(l)" :disabled="!intakeLinkUrlFor(l)">
+                QR
+              </button>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <div class="card two-section-col">
+        <div class="card-header" style="display:flex; align-items:center; justify-content: space-between; gap: 10px;">
+          <h3 style="margin:0;">Printable Packets</h3>
+          <div class="muted" style="font-size: 12px;">2 item(s)</div>
+        </div>
+        <ul class="digital-form-list">
+          <li v-for="row in printablePacketRows" :key="row.locale" class="digital-form-row">
+            <div class="digital-form-row-main">
+              <strong>{{ row.title }}</strong>
+              <span class="lang-badge" :class="`lang-badge-${row.locale}`">{{ row.locale.toUpperCase() }}</span>
+              <div class="muted" style="font-size: 12px; margin-top: 2px;">
+                Auto-generated from live school data
+              </div>
+            </div>
+            <div class="digital-form-row-actions">
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="viewPrintablePacketLocale(row.locale)"
+                :disabled="printablePacketLoading[row.locale]"
+              >
+                View
+              </button>
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="printPrintablePacketLocale(row.locale)"
+                :disabled="printablePacketLoading[row.locale]"
+              >
+                {{ printablePacketLoading[row.locale] ? 'Preparing…' : 'Print' }}
+              </button>
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="downloadPrintablePacketLocale(row.locale)"
+                :disabled="printablePacketLoading[row.locale]"
+              >
+                Download
+              </button>
+              <button
+                v-if="canEditPacketTemplate"
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="showPacketEditor = true"
+              >
+                Edit
+              </button>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div v-if="canManageDocs" class="add-panels">
       <div class="card">
         <div class="card-header" style="display:flex; align-items:center; justify-content: space-between; gap: 10px;">
           <h3 style="margin:0;">Add file</h3>
@@ -269,53 +358,55 @@
                 >
                   Download
                 </a>
-                <button
-                  v-if="editingId !== d.id"
-                  class="btn btn-secondary btn-sm"
-                  type="button"
-                  @click="startEdit(d)"
-                >
-                  Edit
-                </button>
-                <button
-                  v-if="editingId === d.id"
-                  class="btn btn-primary btn-sm"
-                  type="button"
-                  @click="saveMeta(d)"
-                  :disabled="savingId === d.id"
-                >
-                  {{ savingId === d.id ? 'Saving…' : 'Save' }}
-                </button>
-                <button
-                  v-if="editingId === d.id"
-                  class="btn btn-secondary btn-sm"
-                  type="button"
-                  @click="cancelEdit"
-                  :disabled="savingId === d.id"
-                >
-                  Cancel
-                </button>
+                <template v-if="canManageDocs">
+                  <button
+                    v-if="editingId !== d.id"
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    @click="startEdit(d)"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    v-if="editingId === d.id"
+                    class="btn btn-primary btn-sm"
+                    type="button"
+                    @click="saveMeta(d)"
+                    :disabled="savingId === d.id"
+                  >
+                    {{ savingId === d.id ? 'Saving…' : 'Save' }}
+                  </button>
+                  <button
+                    v-if="editingId === d.id"
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    @click="cancelEdit"
+                    :disabled="savingId === d.id"
+                  >
+                    Cancel
+                  </button>
 
-                <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
-                  <template v-if="String(d.kind || '').toLowerCase() !== 'link'">
-                    {{ replacingId === d.id ? 'Replacing…' : 'Replace' }}
-                    <input
-                      type="file"
-                      style="display:none;"
-                      :disabled="replacingId === d.id"
-                      @change="onReplaceFile(d, $event)"
-                    />
-                  </template>
-                </label>
+                  <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
+                    <template v-if="String(d.kind || '').toLowerCase() !== 'link'">
+                      {{ replacingId === d.id ? 'Replacing…' : 'Replace' }}
+                      <input
+                        type="file"
+                        style="display:none;"
+                        :disabled="replacingId === d.id"
+                        @change="onReplaceFile(d, $event)"
+                      />
+                    </template>
+                  </label>
 
-                <button
-                  class="btn btn-danger btn-sm"
-                  type="button"
-                  @click="remove(d)"
-                  :disabled="deletingId === d.id"
-                >
-                  {{ deletingId === d.id ? 'Deleting…' : 'Delete' }}
-                </button>
+                  <button
+                    class="btn btn-danger btn-sm"
+                    type="button"
+                    @click="remove(d)"
+                    :disabled="deletingId === d.id"
+                  >
+                    {{ deletingId === d.id ? 'Deleting…' : 'Delete' }}
+                  </button>
+                </template>
                 </template>
               </td>
             </tr>
@@ -367,6 +458,12 @@ const props = defineProps({
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const canEditPacketTemplate = computed(() => roleNorm.value === 'super_admin' || roleNorm.value === 'admin');
+/** School staff see finished links/docs only; mutate UI stays with agency roles. */
+const canManageDocs = computed(() => {
+  const r = roleNorm.value;
+  if (r === 'school_staff') return false;
+  return ['super_admin', 'admin', 'support', 'staff'].includes(r);
+});
 const showPacketEditor = ref(false);
 
 const docs = ref([]);
@@ -399,6 +496,35 @@ const deletingId = ref(null);
 const smartPacketLoading = ref(false);
 
 const SMART_PRINTABLE_PACKET_KIND = 'system_printable_packet';
+const packetHubEnabled = ref(false);
+
+const printablePacketRows = [
+  { locale: 'en', title: 'Paper Packet — English' },
+  { locale: 'es', title: 'Paper Packet — Spanish' }
+];
+const printablePacketLoading = ref({ en: false, es: false });
+
+const langCodeOf = (link) => {
+  const raw = String(link?.language_code || 'en').trim().toLowerCase();
+  return raw.startsWith('es') ? 'es' : 'en';
+};
+
+/** Referral packet forms first, then ROI forms; English before Spanish within each group. */
+const sortedDigitalFormLinks = computed(() => {
+  const rank = (l) => {
+    const ft = String(l?.form_type || 'intake').toLowerCase();
+    if (ft === 'smart_school_roi') return 1;
+    return 0;
+  };
+  return [...(intakeLinks.value || [])].sort((a, b) => {
+    const r = rank(a) - rank(b);
+    if (r !== 0) return r;
+    const la = langCodeOf(a);
+    const lb = langCodeOf(b);
+    if (la !== lb) return la === 'en' ? -1 : 1;
+    return String(a.title || '').localeCompare(String(b.title || ''));
+  });
+});
 
 const onPacketTemplateSaved = ({ version } = {}) => {
   const docsList = Array.isArray(docs.value) ? docs.value : [];
@@ -474,13 +600,82 @@ const normalizePacketBlob = async (blob) => {
   return blob;
 };
 
-const fetchSmartPacketBlob = async () => {
+const fetchSmartPacketBlob = async (locale = 'en') => {
   const res = await api.get(`/school-portal/${props.schoolOrganizationId}/printable-packet`, {
-    params: { _ts: Date.now() },
+    params: { locale, _ts: Date.now() },
     responseType: 'blob',
     timeout: 120000
   });
   return normalizePacketBlob(res.data);
+};
+
+const viewPrintablePacketLocale = async (locale) => {
+  const popup = openPopupWithLoading('Generating your school referral packet…');
+  if (!popup) {
+    error.value = 'Pop-up blocked. Allow pop-ups for this site, then try View again.';
+    return;
+  }
+  try {
+    printablePacketLoading.value = { ...printablePacketLoading.value, [locale]: true };
+    error.value = '';
+    const blob = await fetchSmartPacketBlob(locale);
+    const url = URL.createObjectURL(blob);
+    popup.location.replace(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+  } catch (e) {
+    const message = e?.message || e?.response?.data?.error?.message || 'Failed to open printable packet';
+    showPopupError(popup, message);
+    error.value = message;
+  } finally {
+    printablePacketLoading.value = { ...printablePacketLoading.value, [locale]: false };
+  }
+};
+
+const printPrintablePacketLocale = async (locale) => {
+  const popup = openPopupWithLoading('Preparing packet for print…');
+  if (!popup) {
+    error.value = 'Pop-up blocked. Allow pop-ups for this site, then try Print again.';
+    return;
+  }
+  try {
+    printablePacketLoading.value = { ...printablePacketLoading.value, [locale]: true };
+    error.value = '';
+    const blob = await fetchSmartPacketBlob(locale);
+    const url = URL.createObjectURL(blob);
+    openPrintWindow({
+      url,
+      title: locale === 'es' ? 'Paquete de Referencia Escolar' : 'School Referral Packet',
+      existingWindow: popup
+    });
+    window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+  } catch (e) {
+    const message = e?.message || e?.response?.data?.error?.message || 'Failed to prepare printable packet';
+    showPopupError(popup, message);
+    error.value = message;
+  } finally {
+    printablePacketLoading.value = { ...printablePacketLoading.value, [locale]: false };
+  }
+};
+
+const downloadPrintablePacketLocale = async (locale) => {
+  try {
+    printablePacketLoading.value = { ...printablePacketLoading.value, [locale]: true };
+    error.value = '';
+    const blob = await fetchSmartPacketBlob(locale);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `school-referral-packet-${locale}.pdf`;
+    a.rel = 'noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) {
+    error.value = e?.message || e?.response?.data?.error?.message || 'Failed to download printable packet';
+  } finally {
+    printablePacketLoading.value = { ...printablePacketLoading.value, [locale]: false };
+  }
 };
 
 const openSmartPacket = async () => {
@@ -680,6 +875,9 @@ const load = async () => {
 
     if (docsRes.status === 'fulfilled') {
       docs.value = Array.isArray(docsRes.value.data?.documents) ? docsRes.value.data.documents : [];
+      if (typeof docsRes.value.data?.packetHubEnabled === 'boolean') {
+        packetHubEnabled.value = docsRes.value.data.packetHubEnabled;
+      }
     } else {
       docs.value = [];
       const e = docsRes.reason;
@@ -688,6 +886,9 @@ const load = async () => {
 
     if (intakeRes.status === 'fulfilled') {
       intakeLinks.value = Array.isArray(intakeRes.value.data?.links) ? intakeRes.value.data.links : [];
+      if (typeof intakeRes.value.data?.packetHubEnabled === 'boolean') {
+        packetHubEnabled.value = intakeRes.value.data.packetHubEnabled;
+      }
     } else {
       intakeLinks.value = [];
       const e = intakeRes.reason;
@@ -892,6 +1093,71 @@ onMounted(load);
   .add-panels {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
+}
+
+/* Hogwarts pilot: Digital Forms (left) + Printable Packets (right) as their
+   own two sections, distinct from the general document Library below. */
+.two-section-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: start;
+}
+@media (min-width: 900px) {
+  .two-section-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+.two-section-col {
+  margin-top: 0;
+}
+.digital-form-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.digital-form-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: #fafafa;
+}
+.digital-form-row-main {
+  min-width: 0;
+  flex: 1 1 220px;
+}
+.digital-form-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.lang-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
+}
+.lang-badge-en {
+  background: #eef2ff;
+  color: #3730a3;
+}
+.lang-badge-es {
+  background: #ecfdf5;
+  color: #065f46;
 }
 
 .public-docs-form-grid {

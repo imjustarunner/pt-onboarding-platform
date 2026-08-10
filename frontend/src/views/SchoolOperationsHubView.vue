@@ -448,7 +448,9 @@ const icon = {
   year: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/><path d="M12 3v2M12 19v2" stroke-linecap="round"/></svg>',
   collab: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke-linecap="round"/></svg>',
   approve: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  onboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/><path d="M7 8h10M7 11h6" stroke-linecap="round"/></svg>'
+  onboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/><path d="M7 8h10M7 11h6" stroke-linecap="round"/></svg>',
+  docs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8M8 9h2" stroke-linecap="round"/></svg>',
+  form: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h6M7 16h8" stroke-linecap="round"/></svg>'
 };
 
 const allSections = computed(() => [
@@ -664,6 +666,60 @@ const allSections = computed(() => [
         to: orgTo('/client-exchange'),
         tone: 'amber',
         icon: icon.clients,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: 0
+      }
+    ].filter((c) => c.show)
+  },
+  {
+    id: 'documents-forms',
+    label: 'Documents & Forms',
+    desc: 'School referral packet, Smart ROI, and Smart Disclosure.',
+    tone: 'indigo',
+    icon: icon.docs,
+    cards: [
+      {
+        id: 'school-referral-hub',
+        title: 'School Referral Hub',
+        shortDesc: 'Packet editing, links, and consent steps.',
+        desc: 'Edit the EN/ES referral packet, manage digital + printable links, and toggle digital consent steps per school.',
+        cta: 'Open →',
+        to: orgTo('/admin/school-referral-hub'),
+        tone: 'indigo',
+        icon: icon.docs,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: 0
+      },
+      {
+        id: 'school-smart-roi',
+        title: 'School Smart ROI',
+        shortDesc: 'Programmed school release of information.',
+        desc: 'Open Digital Forms filtered to Smart School ROI links for school-based releases.',
+        cta: 'Open →',
+        to: {
+          path: orgTo('/admin/digital-forms'),
+          query: { formType: 'smart_school_roi' }
+        },
+        tone: 'teal',
+        icon: icon.form,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: 0
+      },
+      {
+        id: 'school-smart-disclosure',
+        title: 'School Smart Disclosure',
+        shortDesc: 'Living disclosure settings and forms.',
+        desc: 'Manage agency disclosure settings and Smart Disclosure intake forms used in school packets.',
+        cta: 'Open →',
+        to: {
+          path: orgTo('/admin/digital-forms'),
+          query: { formType: 'smart_disclosure' }
+        },
+        tone: 'indigo',
+        icon: icon.shield,
         tour: null,
         show: canSeeSchoolOpsContent.value,
         count: 0

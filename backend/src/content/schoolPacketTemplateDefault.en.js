@@ -7,21 +7,33 @@ export const SCHOOL_PACKET_TEMPLATE_TOKENS = [
 
 export const DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML = `
 <section class="school-packet-template">
+<div class="intake-compact">
+  <h1>INTAKE QUESTIONNAIRE</h1>
   <table class="form-table">
+    <colgroup>
+      <col style="width:22%" />
+      <col style="width:18%" />
+      <col style="width:12%" />
+      <col style="width:16%" />
+      <col style="width:14%" />
+      <col style="width:18%" />
+    </colgroup>
     <tbody>
       <tr>
         <td>Dependent's Name</td>
-        <td class="form-blank"></td>
-        <td>Dependent's Sex</td>
-        <td class="form-blank form-blank-sm"></td>
+        <td class="form-blank" colspan="5"></td>
       </tr>
       <tr>
         <td>Dependent's Date of Birth</td>
-        <td class="form-blank"></td>
+        <td class="form-blank" colspan="2"></td>
         <td>Dependent's Age</td>
-        <td class="form-blank form-blank-sm"></td>
+        <td class="form-blank" colspan="2"></td>
+      </tr>
+      <tr>
+        <td>Dependent's Sex</td>
+        <td class="form-blank" colspan="2"></td>
         <td>Dependent's Grade</td>
-        <td class="form-blank form-blank-sm"></td>
+        <td class="form-blank" colspan="2"></td>
       </tr>
       <tr>
         <td>Dependent's Address</td>
@@ -29,11 +41,11 @@ export const DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML = `
       </tr>
       <tr>
         <td>Dependent's City</td>
-        <td class="form-blank"></td>
+        <td class="form-blank" colspan="1"></td>
         <td>State</td>
-        <td class="form-blank form-blank-sm"></td>
+        <td class="form-blank" colspan="1"></td>
         <td>Zip Code</td>
-        <td class="form-blank form-blank-sm"></td>
+        <td class="form-blank" colspan="1"></td>
       </tr>
     </tbody>
   </table>
@@ -43,28 +55,21 @@ export const DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML = `
   <p>In instances of divorce, it is important that both parents of the minor grant permission for services. You may be asked to provide a copy of the court order which names you as the legal custodian of the above minor.</p>
   <p>Are you willing to provide documentation? ___ Yes ___ No</p>
 
-  <table class="form-table">
-    <tbody>
-      <tr>
-        <td>Your name</td>
-        <td class="form-blank"></td>
-      </tr>
-      <tr>
-        <td>Your phone number</td>
-        <td class="form-blank"></td>
-      </tr>
-      <tr>
-        <td>Your email address</td>
-        <td class="form-blank"></td>
-      </tr>
-      <tr>
-        <td>Other parent/guardian name, phone, and email</td>
-        <td class="form-blank"></td>
-      </tr>
-    </tbody>
-  </table>
+  <div class="plain-fill-rows">
+    <div class="plain-fill-row"><span class="inline-fill-label">Your name</span><span class="inline-fill-line"></span></div>
+    <div class="plain-fill-row"><span class="inline-fill-label">Your phone number</span><span class="inline-fill-line"></span></div>
+    <div class="plain-fill-row"><span class="inline-fill-label">Your email address</span><span class="inline-fill-line"></span></div>
+    <div class="plain-fill-row"><span class="inline-fill-label">Other parent/guardian name, phone, and email</span><span class="inline-fill-line"></span></div>
+    <div class="plain-fill-row"><span class="inline-fill-label">&nbsp;</span><span class="inline-fill-line"></span></div>
+  </div>
 
   <table class="form-table insurance-table">
+    <colgroup>
+      <col style="width:22%" />
+      <col style="width:28%" />
+      <col style="width:22%" />
+      <col style="width:28%" />
+    </colgroup>
     <tbody>
       <tr>
         <td>Primary Insurance</td>
@@ -96,11 +101,22 @@ export const DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML = `
   <p>History of physical abuse _______ Yes _______ No</p>
   <p>History of neglect _______ Yes ________ No</p>
   <p>History of Emotional/Mental Abuse ________ Yes ________ No</p>
-  <p>Please explain __________________________________________________________________________________________________</p>
-  <p>______________________________________________________________________________________________________________________________________________________________________________________________________________________________________</p>
+  <p>Please explain:</p>
+  <div class="answer-lines"><div class="answer-line"></div><div class="answer-line"></div><div class="answer-line"></div></div>
 
+  <p>Please list any necessary medical information, including food allergens.</p>
+  <div class="answer-lines"><div class="answer-line"></div><div class="answer-line"></div></div>
+</div>
+
+  <div class="page-break"></div>
   <h3>Please select the answer that best fits your dependent:</h3>
   <table class="form-table">
+    <colgroup>
+      <col style="width:58%" />
+      <col style="width:14%" />
+      <col style="width:14%" />
+      <col style="width:14%" />
+    </colgroup>
     <tbody>
       <tr><td>Fidgety, unable to sit still</td><td>Never</td><td>Sometimes</td><td>Often</td></tr>
       <tr><td>Acts as if driven by a motor</td><td>Never</td><td>Sometimes</td><td>Often</td></tr>
@@ -122,16 +138,16 @@ export const DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML = `
     </tbody>
   </table>
 
+  <div class="intake-compact">
   <p>How long has this been a concern?</p>
-  <p>__________________________________________________________________________________________________________________</p>
+  <div class="answer-lines"><div class="answer-line"></div></div>
+
   <p>What do you hope to gain from counseling?</p>
-  <p>__________________________________________________________________________________________________________________</p>
-  <p>__________________________________________________________________________________________________________________</p>
+  <div class="answer-lines"><div class="answer-line"></div><div class="answer-line"></div></div>
+
   <p>Has anything been helpful in the past?</p>
-  <p>__________________________________________________________________________________________________________________</p>
-  <p>Please list any necessary medical information, including food allergens.</p>
-  <p>__________________________________________________________________________________________________________________</p>
-  <p>__________________________________________________________________________________________________________________</p>
+  <div class="answer-lines"><div class="answer-line"></div></div>
+  </div>
 
   <div class="page-break"></div>
   <h2>CONSENT TO RELEASE AND EXCHANGE PROTECTED HEALTH INFORMATION</h2>
@@ -155,6 +171,7 @@ export const DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML = `
   <h3>Term of authorization</h3>
   <p>This authorization is valid for 36 months from date signed, unless revoked earlier in writing.</p>
 
+  <div class="page-break"></div>
   <h3>Authorized School Staff</h3>
   <p>All listed staff are authorized unless Deny is checked.</p>
   <p>{{SCHOOL_STAFF_TABLE}}</p>
@@ -171,7 +188,15 @@ export const DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML = `
   <p>Questions or privacy concerns: Privacy@ITSCO.health</p>
   <p>Primary address: 437 Windchime Pl, Colorado Springs, CO 80919</p>
 
-  <p>Client's or Responsible Party's Signature ____________________________ Date __________________</p>
+  <div class="signature-box">
+    <div class="signature-box-title">Sign here — required</div>
+    <div class="sig-row">
+      <span class="sig-label">Client's or Responsible Party's Signature</span>
+      <span class="sig-line"></span>
+      <span class="sig-date-label">Date</span>
+      <span class="sig-date-line"></span>
+    </div>
+  </div>
 
   <div class="page-break"></div>
   <h2>ACKNOWLEDGEMENT AND CONSENT SUMMARY</h2>
@@ -186,17 +211,39 @@ export const DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML = `
     <li>Personal Declaration: I hereby declare that all the information and signatures provided for the documents listed above are solely related to the individual mentioned and their personal information. No other individual's information or signature is included or implied in any way.</li>
     <li>Law Compliance: Where this summary and acknowledgement differ from relevant state or federal laws, those laws will govern.</li>
   </ul>
-  <p>Your Printed Name _____________________________________________________________________________________________</p>
-  <p>Please state the relationship to dependent AND authority to consent (if client, "self") ________________________________________________________________________________________________________</p>
-  <p>Client's or Responsible Party's Signature ____________________________ Date __________________</p>
-  <p>Signature of Parent/Guardian #2 (if applicable) Relationship Date ______________________________________________</p>
-  <p>Please retain these documents for your personal records. They include crucial information regarding your rights, our policies, and the specific services offered. Your acknowledgement and signatures pertaining to these matters have been captured in the Acknowledgement and Consent Summary page. Keeping a copy of these documents will ensure you have ready access to important details of our agreement and your privacy protections as we proceed with our professional relationship.</p>
+  <div class="signature-box">
+    <div class="signature-box-title">Sign here — required (all signatures on this page)</div>
+    <div class="sig-row">
+      <span class="sig-label">Your Printed Name</span>
+      <span class="sig-line"></span>
+    </div>
+    <div class="sig-row">
+      <span class="sig-label">Relationship to dependent AND authority to consent (if client, "self")</span>
+      <span class="sig-line"></span>
+    </div>
+    <div class="sig-row">
+      <span class="sig-label">Client's or Responsible Party's Signature</span>
+      <span class="sig-line"></span>
+      <span class="sig-date-label">Date</span>
+      <span class="sig-date-line"></span>
+    </div>
+    <div class="sig-row">
+      <span class="sig-label">Signature of Parent/Guardian #2 (if applicable)</span>
+      <span class="sig-line"></span>
+      <span class="sig-date-label">Date</span>
+      <span class="sig-date-line"></span>
+    </div>
+  </div>
 
   <div class="page-break"></div>
+  <div class="packet-records-banner">
+    <div class="packet-records-banner-title">Pages 6 and on — for your records only</div>
+    <p class="packet-note-gray">Please retain these documents for your personal records. They include crucial information regarding your rights, our policies, and the specific services offered. Your acknowledgement and signatures pertaining to these matters have been captured in the Acknowledgement and Consent Summary page. Keeping a copy of these documents will ensure you have ready access to important details of our agreement and your privacy protections as we proceed with our professional relationship.</p>
+  </div>
+
   <h2>INSURANCE INFORMATION</h2>
   <p>I grant ITSCO, LLC permission to disclose necessary information to the insurers listed on this form for the purpose of filing claims. This permission includes sharing details relevant to securing payment for services rendered, such as mental health, substance use, or HIV-related information. Furthermore, I assign any eligible benefits directly to ITSCO, LLC and allow payments from my insurers, Medicare, or other payers to be made directly to them. I acknowledge my responsibility for any charges not covered by my insurance, including copays, coinsurance, deductibles, services not approved by my insurance, and fees for services considered not medically necessary.</p>
 
-  <div class="page-break"></div>
   <h2>MINOR CONSENT</h2>
   <p>Counseling services for minors require clear legal authorization. This includes the consent and approval for treatment from both parents or guardians, unless there is specific documentation provided at intake that states otherwise, or in cases where the parents are married and share dual full custody. The signature of a legal custodial parent or guardian on the intake documentation authorizes ITSCO to conduct a mental health assessment and provide treatment to the named minor child. This authorization remains valid until the professional relationship is terminated or the consent is explicitly revoked.</p>
   <p>It's essential for ITSCO to ensure that the individual seeking services for a minor has the legal right to do so. In situations of divorce, both parents' consent is necessary for the minor to receive services. Divorced parents, step-parents, grandparents, guardians, or others may need to provide a copy of the court order that establishes them as the legal custodian of the minor. This process is in place to safeguard the therapeutic environment and to uphold the minor's right to privacy and confidential therapy, in accordance with legal requirements and professional ethics.</p>
@@ -247,7 +294,6 @@ export const DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML = `
   <h3>Emergency Contacts</h3>
   <p>Your counselor will establish emergency contacts for you, such as a family member, a mobile phone, or work phone number. These contacts may be used if your counselor perceives a need. If you are actively suicidal or if you are in crisis and cannot reach your counselor, please go to your nearest emergency room, call 1-844-493-TALK, or call/text 988.</p>
 
-  <div class="page-break"></div>
   <h2>GROUP CONSENT</h2>
   <p>Our program primarily utilizes Skill Builders to enhance mental health, social functioning, and community integration through structured activities. However, group work may also encompass other forms of engagement beyond skill development.</p>
   <p>Please ensure you carefully review and understand the information contained in this document. It is part of a comprehensive set of documents detailing our professional services, policies, and your rights as a client or guardian. We encourage you to take your time reading through this material and discuss any topics or questions you may have with your assigned counselor or facilitator. Your understanding and questions are crucial to us, as they help establish a clear and informed therapeutic relationship. Your formal acknowledgment and consent to this and other related documents will be captured on a summary page provided for your signature.</p>
@@ -346,7 +392,9 @@ export const DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML = `
 
   <div class="page-break"></div>
 
-  <h2>Client Rights and Disclosures</h2>
+<div class="packet-dense-tight">
+  <h2>CLIENT RIGHTS</h2>
+  <h3 class="packet-subhead">Disclosure Statement Part 1</h3>
   <p>(I) I understand that I am entitled to receive information about the methods of therapy, the techniques used, the duration of therapy, if known, and the fee structure.</p>
   <p>(II) I understand that I may seek a second opinion from another therapist or may terminate therapy at any time.</p>
   <p>(III) I understand that in a professional relationship such as this, sexual intimacy is never appropriate and should be reported to the board that licenses, registers, or certifies the licensee, registrant, or certificate holder.</p>
@@ -370,9 +418,12 @@ export const DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML = `
   </ul>
   <p>If your clinician or provider is listed as an "Unlicensed Psychotherapist", that individual is listed in the state's database and is authorized to practice psychotherapy in Colorado but is not licensed by the state and is not required to satisfy any standardized educational testing requirements to obtain registration from the state.</p>
   <p>I have read the preceding information on our Disclosure Statement and understand my rights as a client or as the client's responsible party.</p>
+</div>
 
   <div class="page-break"></div>
-  <h2>Disclosure Statement</h2>
+<div class="packet-dense">
+  <h2>MENTAL HEALTH PROFESSIONAL INFORMATION</h2>
+  <h3 class="packet-subhead">Disclosure Statement Part 2</h3>
   <p>This document is mandatory for all mental health professions in Colorado. The specific agency within the Department that has responsibility specifically for licensed and unlicensed psychotherapists is the Department of Regulatory Agencies, Division of Profession and Occupations, Healthcare Professions Programs, State Board Specific to Each Clinician/Provider is Listed with Each Individual, 1560 Broadway, Suite 1350 Denver, Colorado 80202 (303) 894-7800.</p>
   <p>The purpose of this document is to explain the levels of regulation applicable to mental health professionals under the Mental Health Practice Act and the differences between licensure, registration, and certification, including the educational, experience, and training requirements applicable to the particular level of regulation. The direct entity, ITSCO LLC, covered by this document can be found below, as well as the clinicians and providers who are employees of ITSCO LLC.</p>
   <p>Note: The clinicians and providers listed below are subject to change. This document will be sent, acknowledged, and signed by clients or their parent/guardian at the time of intake and accurate information about their specific clinician/provider will be listed.</p>
@@ -453,5 +504,6 @@ export const DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML = `
   <p>You may contact our Privacy Officer with any questions about this notice or to exercise any of your rights described herein. We are here to help you understand this policy and your rights. If you have questions about the use of AI tools, digital apps, or any other aspect of your privacy, please do not hesitate to reach out. We will gladly explain more and ensure you feel comfortable with how your information is handled.</p>
   <p>Effective Date of This Notice: 4-2-2026 (This notice replaces any prior versions. Last revised on 2-24-2026.)</p>
   <p><strong>Version 1.15</strong></p>
+</div>
 </section>
 `.trim();

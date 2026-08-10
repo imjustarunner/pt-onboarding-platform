@@ -1,11 +1,15 @@
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { PDFDocument } from 'pdf-lib';
 import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
-import SchoolPacketTemplate from '../models/SchoolPacketTemplate.model.js';
+import SchoolPacketTemplate, {
+  normalizeLocale,
+  defaultHtmlForLocale
+} from '../models/SchoolPacketTemplate.model.js';
 import DocumentSigningService from './documentSigning.service.js';
 import {
   listDisclosureProviders,
@@ -32,8 +36,9 @@ const HEADER_LOGO_CANDIDATES = [
   path.join(BRAND_DIR, 'image1.jpg'),
   path.join(BRAND_FALLBACK_ROOT, 'images', 'image1.jpg')
 ];
-/** Bottom-left footer mark: ITSCOpnginvisiblebackgroundBW. */
+/** Bottom-left footer mark: ITSCOpnginvisiblebackgroundBW (black ITSCO mark). */
 const FOOTER_MARK_CANDIDATES = [
+  path.join(BRAND_DIR, 'footer-mark-from-bw.png'),
   path.join(BRAND_DIR, 'footer-mark-bw.png'),
   path.join(BRAND_DIR, 'ITSCOpnginvisiblebackgroundBW.png'),
   path.join(BRAND_FALLBACK_ROOT, 'ITSCOpnginvisiblebackgroundBW.png')
@@ -222,23 +227,78 @@ export async function expandYourCareTeamProviders(providers = [], { agencyId } =
   return out;
 }
 
-function renderProviderCardHtml(provider = {}) {
+/**
+ * Labels for the dynamically-generated sections (staff roster, care team).
+ * These are the two sections that change often (new staff/providers), so
+ * they're localized once in code here rather than in the editable template
+ * text — new rows never need a manual translation pass.
+ */
+const CARE_TEAM_LABELS = {
+  en: {
+    yourCareTeam: 'Your Care Team',
+    potentialCareTeam: 'Potential Care Team Members',
+    fullyLicensed: 'Fully Licensed',
+    preLicensed: 'Pre-Licensed',
+    unlicensedOther: 'Unlicensed / Other',
+    credential: 'Credential:',
+    licenseNumber: 'License #:',
+    serviceProvider: 'Service Provider:',
+    education: 'Education:',
+    supervisor: 'Supervisor:',
+    regulatoryBoard: 'Specific Regulatory Board:',
+    noSchoolAssigned: 'No school-assigned providers are listed at this time.',
+    noAdditionalAgency: 'No additional agency providers are listed at this time.'
+  },
+  es: {
+    yourCareTeam: 'Su Equipo de Atención',
+    potentialCareTeam: 'Posibles Miembros del Equipo de Atención',
+    fullyLicensed: 'Con Licencia Completa',
+    preLicensed: 'Pre-Licenciado',
+    unlicensedOther: 'Sin Licencia / Otro',
+    credential: 'Credencial:',
+    licenseNumber: 'Núm. de Licencia:',
+    serviceProvider: 'Proveedor de Servicio:',
+    education: 'Educación:',
+    supervisor: 'Supervisor:',
+    regulatoryBoard: 'Junta Regulatoria Específica:',
+    noSchoolAssigned: 'No hay proveedores asignados a la escuela en este momento.',
+    noAdditionalAgency: 'No hay proveedores adicionales de la agencia en este momento.'
+  }
+};
+
+const STAFF_TABLE_LABELS = {
+  en: { deny: 'Deny', name: 'Name', role: 'Relationship / Role', phone: 'Phone', email: 'Email' },
+  es: { deny: 'Denegar', name: 'Nombre', role: 'Relación / Rol', phone: 'Teléfono', email: 'Correo Electrónico' }
+};
+
+function careTeamLabels(locale) {
+  const loc = String(locale || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
+  return CARE_TEAM_LABELS[loc];
+}
+
+function staffTableLabels(locale) {
+  const loc = String(locale || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
+  return STAFF_TABLE_LABELS[loc];
+}
+
+function renderProviderCardHtml(provider = {}, locale = 'en') {
+  const L = careTeamLabels(locale);
   const detailLines = [];
   if (provider.title) detailLines.push(`<div class="packet-provider-line"><em>${escapeHtml(provider.title)}</em></div>`);
-  if (provider.credential) detailLines.push(`<div class="packet-provider-line"><strong>Credential:</strong> ${escapeHtml(provider.credential)}</div>`);
-  if (provider.licenseNumber) detailLines.push(`<div class="packet-provider-line"><strong>License #:</strong> ${escapeHtml(provider.licenseNumber)}</div>`);
+  if (provider.credential) detailLines.push(`<div class="packet-provider-line"><strong>${L.credential}</strong> ${escapeHtml(provider.credential)}</div>`);
+  if (provider.licenseNumber) detailLines.push(`<div class="packet-provider-line"><strong>${L.licenseNumber}</strong> ${escapeHtml(provider.licenseNumber)}</div>`);
   if (provider.serviceProvider && provider.category === 'UNLICENSED') {
-    detailLines.push(`<div class="packet-provider-line"><strong>Service Provider:</strong> ${escapeHtml(provider.serviceProvider)}</div>`);
+    detailLines.push(`<div class="packet-provider-line"><strong>${L.serviceProvider}</strong> ${escapeHtml(provider.serviceProvider)}</div>`);
   }
-  if (provider.education) detailLines.push(`<div class="packet-provider-line"><strong>Education:</strong> ${escapeHtml(provider.education)}</div>`);
+  if (provider.education) detailLines.push(`<div class="packet-provider-line"><strong>${L.education}</strong> ${escapeHtml(provider.education)}</div>`);
   for (const s of provider.supervisors || []) {
     const typeLabel = formatSupervisorTypeLabel(s.type || 'clinical');
     detailLines.push(
-      `<div class="packet-provider-line"><strong>Supervisor:</strong> ${escapeHtml(s.fullName)}${typeLabel ? `, ${escapeHtml(typeLabel)}` : ''}</div>`
+      `<div class="packet-provider-line"><strong>${L.supervisor}</strong> ${escapeHtml(s.fullName)}${typeLabel ? `, ${escapeHtml(typeLabel)}` : ''}</div>`
     );
   }
   if (provider.regulatoryBoard) {
-    detailLines.push(`<div class="packet-provider-line"><strong>Specific Regulatory Board:</strong> ${escapeHtml(provider.regulatoryBoard)}</div>`);
+    detailLines.push(`<div class="packet-provider-line"><strong>${L.regulatoryBoard}</strong> ${escapeHtml(provider.regulatoryBoard)}</div>`);
   }
 
   return `
@@ -249,11 +309,12 @@ function renderProviderCardHtml(provider = {}) {
   `;
 }
 
-function renderProviderGroupHtml(providers = []) {
+function renderProviderGroupHtml(providers = [], locale = 'en') {
+  const L = careTeamLabels(locale);
   const groups = [
-    { key: 'FULLY_LICENSED', label: 'Fully Licensed', items: [] },
-    { key: 'PRE_LICENSED', label: 'Pre-Licensed', items: [] },
-    { key: 'UNLICENSED', label: 'Unlicensed / Other', items: [] }
+    { key: 'FULLY_LICENSED', label: L.fullyLicensed, items: [] },
+    { key: 'PRE_LICENSED', label: L.preLicensed, items: [] },
+    { key: 'UNLICENSED', label: L.unlicensedOther, items: [] }
   ];
   for (const p of providers) {
     const g = groups.find((x) => x.key === p.category) || groups[2];
@@ -263,54 +324,78 @@ function renderProviderGroupHtml(providers = []) {
     if (!g.items.length) return '';
     return `
       <h4 class="packet-subhead">${escapeHtml(g.label)}</h4>
-      ${g.items.map((p) => renderProviderCardHtml(p)).join('')}
+      ${g.items.map((p) => renderProviderCardHtml(p, locale)).join('')}
     `;
   }).join('');
 }
 
-export function buildDisclosureCareTeamHtml(providers = []) {
+export function buildDisclosureCareTeamHtml(providers = [], locale = 'en') {
+  const L = careTeamLabels(locale);
   const { yourCareTeam, potentialCareTeam } = groupDisclosureProvidersByCareTeam(providers);
   return `
     <section class="packet-care-team">
-      <h3 class="packet-section-title">Your Care Team</h3>
+      <h3 class="packet-section-title">${L.yourCareTeam}</h3>
       ${yourCareTeam.length
-        ? renderProviderGroupHtml(yourCareTeam)
-        : '<p><em>No school-assigned providers are listed at this time.</em></p>'}
-      <h3 class="packet-section-title">Potential Care Team Members</h3>
-      ${potentialCareTeam.length
-        ? renderProviderGroupHtml(potentialCareTeam)
-        : '<p><em>No additional agency providers are listed at this time.</em></p>'}
+        ? renderProviderGroupHtml(yourCareTeam, locale)
+        : `<p><em>${L.noSchoolAssigned}</em></p>`}
+      <div class="packet-potential-team">
+        <h3 class="packet-section-title">${L.potentialCareTeam}</h3>
+        ${potentialCareTeam.length
+          ? renderProviderGroupHtml(potentialCareTeam, locale)
+          : `<p><em>${L.noAdditionalAgency}</em></p>`}
+      </div>
     </section>
   `;
 }
 
-export function buildSchoolStaffTableHtml(staffRows = []) {
+function blankStaffRowHtml(locale = 'en') {
+  const L = staffTableLabels(locale);
+  return `<tr>
+          <td class="deny-cell"><label class="deny-label"><span class="deny-box">☐</span> ${L.deny}</label></td>
+          <td class="form-blank"></td>
+          <td class="form-blank"></td>
+          <td class="form-blank"></td>
+          <td class="form-blank"></td>
+        </tr>`;
+}
+
+export function buildSchoolStaffTableHtml(staffRows = [], locale = 'en') {
+  const L = staffTableLabels(locale);
   const rows = Array.isArray(staffRows) ? staffRows : [];
-  const body = rows.length
-    ? rows.map((r) => {
-        const name = String(`${r.first_name || ''} ${r.last_name || ''}`).trim() || '—';
-        const title = String(r.role_title || '').trim() || '—';
-        const phone = String(r.phone_number || '').trim() || '—';
-        const email = String(r.email || '').trim() || '—';
-        return `<tr>
-          <td class="deny-cell"><label class="deny-label"><span class="deny-box">☐</span> Deny</label></td>
+  // Always leave handwritten fill-ins: 4 when empty (rare), otherwise +2 blank rows.
+  const blankCount = rows.length === 0 ? 4 : 2;
+  const filled = rows.map((r) => {
+    const name = String(`${r.first_name || ''} ${r.last_name || ''}`).trim() || '—';
+    const title = String(r.role_title || '').trim() || '—';
+    const phone = String(r.phone_number || '').trim() || '—';
+    const email = String(r.email || '').trim() || '—';
+    return `<tr>
+          <td class="deny-cell"><label class="deny-label"><span class="deny-box">☐</span> ${L.deny}</label></td>
           <td>${escapeHtml(name)}</td>
           <td>${escapeHtml(title)}</td>
           <td>${escapeHtml(phone)}</td>
           <td>${escapeHtml(email)}</td>
         </tr>`;
-      }).join('')
-    : `<tr><td colspan="5"><em>No authorized school staff listed.</em></td></tr>`;
+  }).join('');
+  const blanks = Array.from({ length: blankCount }, () => blankStaffRowHtml(locale)).join('');
+  const body = `${filled}${blanks}`;
 
   return `
     <table class="packet-staff-table">
+      <colgroup>
+        <col style="width:12%" />
+        <col style="width:22%" />
+        <col style="width:22%" />
+        <col style="width:20%" />
+        <col style="width:24%" />
+      </colgroup>
       <thead>
         <tr>
-          <th class="deny-col">Deny</th>
-          <th>Name</th>
-          <th>Relationship / Role</th>
-          <th>Phone</th>
-          <th>Email</th>
+          <th class="deny-col">${L.deny}</th>
+          <th>${L.name}</th>
+          <th>${L.role}</th>
+          <th>${L.phone}</th>
+          <th>${L.email}</th>
         </tr>
       </thead>
       <tbody>${body}</tbody>
@@ -319,20 +404,23 @@ export function buildSchoolStaffTableHtml(staffRows = []) {
 }
 
 function buildCoverPageHtml(packetContext = {}) {
-  // Uneditable cover: exact photo of page 1 from the master packet PDF.
+  // Uneditable cover: exact copy of page 1 from the master packet PDF, plus a
+  // dynamic school title header. No watermark, header/footer chrome, or page
+  // number belongs on this page — it is rendered as its own standalone PDF.
   const cover = coverPageDataUrl();
   const schoolName = String(packetContext?.organization?.name || 'School').trim();
+  const title = `<h1 class="cover-page-title">${escapeHtml(schoolName)} School Packet</h1>`;
   if (!cover) {
     return `
       <section class="packet-cover packet-cover-fallback">
-        <h1 class="cover-title">${escapeHtml(schoolName)} School Packet</h1>
+        ${title}
       </section>
     `;
   }
   return `
     <section class="packet-cover">
       <img class="cover-photo" src="${cover}" alt="${escapeHtml(schoolName)} School Packet cover" />
-      <div class="cover-school-banner">${escapeHtml(schoolName)} School Packet</div>
+      ${title}
     </section>
   `;
 }
@@ -346,9 +434,10 @@ function substituteTokens(templateHtml, tokens = {}) {
   return html;
 }
 
-export async function buildSchoolPrintablePacketContext({ organizationId } = {}) {
+export async function buildSchoolPrintablePacketContext({ organizationId, locale = 'en' } = {}) {
   const orgId = Number(organizationId || 0);
   if (!orgId) throw new Error('Invalid organizationId');
+  const loc = normalizeLocale(locale);
 
   const organization = await Agency.findById(orgId);
   if (!organization) {
@@ -364,10 +453,11 @@ export async function buildSchoolPrintablePacketContext({ organizationId } = {})
 
   const agencyId = await resolveAgencyIdForSchool(orgId);
   const template = agencyId
-    ? await SchoolPacketTemplate.getOrCreateForAgency(agencyId)
+    ? await SchoolPacketTemplate.getOrCreateForAgency(agencyId, { locale: loc })
     : {
         version: 1,
-        html_content: DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML,
+        locale: loc,
+        html_content: defaultHtmlForLocale(loc),
         is_default_fallback: true
       };
 
@@ -390,6 +480,7 @@ export async function buildSchoolPrintablePacketContext({ organizationId } = {})
 
   return {
     version: Number(template?.version || 1),
+    locale: loc,
     packetVersionLabel: SCHOOL_PRINTABLE_PACKET_VERSION,
     generatedAt: new Date(),
     agencyId: agencyId || null,
@@ -399,36 +490,14 @@ export async function buildSchoolPrintablePacketContext({ organizationId } = {})
       slug: String(organization.portal_url || organization.slug || '').trim(),
       address: buildSchoolAddress(organization)
     },
-    templateHtml: String(template?.html_content || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML),
+    templateHtml: String(template?.html_content || defaultHtmlForLocale(loc) || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML),
     staffRows,
     providers
   };
 }
 
-export function buildSchoolPrintablePacketHtml(packetContext = {}) {
-  const schoolName = packetContext?.organization?.name || '';
-  const schoolAddress = packetContext?.organization?.address || '';
-
-  const staffTableHtml = buildSchoolStaffTableHtml(packetContext?.staffRows || []);
-  const disclosureHtml = buildDisclosureCareTeamHtml(packetContext?.providers || []);
-  const watermark = watermarkDataUrl();
-
-  const bodyHtml = substituteTokens(
-    packetContext?.templateHtml || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML,
-    {
-      SCHOOL_NAME: escapeHtml(schoolName),
-      SCHOOL_ADDRESS: escapeHtml(schoolAddress),
-      SCHOOL_STAFF_TABLE: staffTableHtml,
-      DISCLOSURE_CARE_TEAM: disclosureHtml
-    }
-  );
-
-  return `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>${escapeHtml(schoolName || 'School')} — Intake Packet</title>
-    <style>
+function buildPacketStyleBlock() {
+  return `
       @font-face {
         font-family: 'Comfortaa';
         src: url('${comfortaaDataUrl()}');
@@ -441,9 +510,12 @@ export function buildSchoolPrintablePacketHtml(packetContext = {}) {
         font-weight: 400;
         font-display: swap;
       }
+      /* No explicit @page margin here: Chrome's PDF engine honors an @page
+         margin (even 0) over Puppeteer's page.pdf() margin option, which was
+         collapsing our 0.5in print margins to nothing. Margins are controlled
+         solely via the margin option passed to page.pdf() in this service. */
       @page {
         size: ${PAGE_SIZE.widthIn}in ${PAGE_SIZE.heightIn}in;
-        margin: 0;
       }
       * { box-sizing: border-box; }
       html, body {
@@ -451,69 +523,52 @@ export function buildSchoolPrintablePacketHtml(packetContext = {}) {
         padding: 0;
         color: #111;
         font-family: 'Comfortaa', Arial, sans-serif;
-        font-size: 11.5px;
-        line-height: 1.45;
+        font-size: 13.3px; /* ~10pt */
+        line-height: 1.5;
       }
       .packet-cover {
         width: 100%;
-        min-height: 9.2in;
+        min-height: 10in;
+        height: 10in;
         margin: 0;
-        padding: 0.2in 0.35in 0.4in;
+        padding: 0.25in 0;
         page-break-after: always;
         position: relative;
         overflow: hidden;
+        background: #fff;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
       }
-      .cover-banner {
-        display: block;
-        width: 78%;
-        max-width: 6.4in;
-        height: auto;
-        margin: 0.15in auto 0.45in;
-      }
-      .cover-hero {
-        position: relative;
-        width: 100%;
-        height: 5.4in;
-        margin: 0 auto;
-      }
-      .cover-square {
-        position: absolute;
-        left: 8%;
-        top: 8%;
-        width: 58%;
-        height: auto;
-      }
-      .cover-figure {
-        position: absolute;
-        right: 2%;
-        bottom: 0;
-        width: 48%;
-        height: auto;
-      }
-      .cover-title-block {
-        position: absolute;
-        left: 0.5in;
-        right: 0.5in;
-        bottom: 0.55in;
+      .cover-page-title {
+        margin: 0.3in 0 0;
         text-align: center;
-      }
-      .cover-kicker {
+        font-family: 'Comfortaa', Arial, sans-serif;
         font-weight: 700;
-        letter-spacing: 0.08em;
-        font-size: 13px;
-        margin-bottom: 0.15in;
+        font-size: 30px;
+        letter-spacing: 0.03em;
+      }
+      .cover-photo {
+        display: block;
+        width: 100%;
+        max-height: 8.6in;
+        height: auto;
+        object-fit: contain;
+        object-position: center center;
       }
       .cover-title {
-        margin: 0;
-        font-size: 34px;
+        margin: 1in auto;
+        text-align: center;
+        font-size: 28px;
         font-weight: 700;
-        letter-spacing: 0.04em;
       }
       .packet-body {
         max-width: 100%;
         position: relative;
         z-index: 1;
       }
+      /* Fixed watermark paints on every printed content page (never on the cover, which is its own PDF). */
       .packet-watermark {
         position: fixed;
         left: 50%;
@@ -536,34 +591,219 @@ export function buildSchoolPrintablePacketHtml(packetContext = {}) {
         text-align: center;
         font-weight: 700;
       }
-      .packet-body h1 { font-size: 22px; margin: 0 0 14px; letter-spacing: 0.03em; }
-      .packet-body h2 { font-size: 17px; margin: 18px 0 10px; letter-spacing: 0.02em; }
+      .packet-body h1 { font-size: 30px; margin: 0 0 16px; letter-spacing: 0.03em; }
+      .packet-body h2 { font-size: 22px; margin: 20px 0 12px; letter-spacing: 0.02em; }
       .packet-body h3,
-      .packet-section-title { font-size: 16px; margin: 18px 0 12px; letter-spacing: 0.03em; }
-      .packet-subhead { font-size: 14px; margin: 16px 0 10px; }
-      .packet-body p, .packet-body li { margin: 0 0 8px; }
+      .packet-section-title { font-size: 18px; margin: 18px 0 12px; letter-spacing: 0.03em; }
+      .packet-subhead { font-size: 16px; margin: 16px 0 10px; }
+      .packet-body p, .packet-body li { margin: 0 0 9px; }
+      /* table-layout:fixed + no min-width blanks keeps tables from overflowing
+         the page. border-collapse:separate (not collapse) is deliberate: with
+         collapsed borders, a table sized to exactly 100% of its container has
+         its shared right/bottom border line centered ON the boundary, so half
+         of it renders past the edge — Chromium's print-to-PDF then clips that
+         half, making the right/bottom border of the table disappear. Separate
+         borders paint fully inside each cell's own box, so they can never be
+         clipped by the page margin. border-spacing:0 plus right/bottom-only
+         cell borders (with top/left on the table itself) recreate a normal
+         1px grid without doubling the interior lines. */
       .packet-body table {
         width: 100%;
-        border-collapse: collapse;
-        margin: 10px 0 14px;
+        max-width: 100%;
+        table-layout: fixed;
+        border-collapse: separate;
+        border-spacing: 0;
+        border-top: 1px solid #111;
+        border-left: 1px solid #111;
+        margin: 10px 0 16px;
       }
       .packet-body th, .packet-body td {
-        border: 1px solid #333;
-        padding: 6px 8px;
+        border-right: 1px solid #111;
+        border-bottom: 1px solid #111;
+        padding: 7px 9px;
         vertical-align: top;
         text-align: left;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
       }
       .form-blank {
-        min-width: 1.4in;
-        height: 22px;
+        min-width: 0;
+        height: 25px;
         background: #fff;
       }
-      .form-blank-sm { min-width: 0.7in; }
+      .form-blank-sm { min-width: 0; }
       .form-blank::after { content: none !important; }
+      /* Label + writing line in one cell so the line starts right after the label. */
+      .inline-fill {
+        display: flex;
+        align-items: flex-end;
+        gap: 6px;
+        width: 100%;
+      }
+      .inline-fill-label {
+        flex: 0 0 auto;
+        white-space: nowrap;
+        font-weight: 600;
+      }
+      .inline-fill-line {
+        flex: 1 1 auto;
+        border-bottom: 1.5px solid #111;
+        min-height: 20px;
+      }
+      /* Plain (non-boxed) label + line, one per row — used for "Your name",
+         "Your phone number", etc. so there's exactly one line, not a bordered
+         table cell around it plus a second inline writing line inside. */
+      .plain-fill-rows { margin: 4px 0 14px; }
+      .plain-fill-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 6px;
+        padding: 3px 0;
+      }
+      .plain-fill-row .inline-fill-label { font-weight: 600; }
+      .plain-fill-row .inline-fill-line {
+        border-bottom: 1px solid #111;
+        min-height: 22px;
+      }
+      /* Ruled writing lines for free-response questions, in place of literal underscore text. */
+      .answer-lines { margin: 4px 0 12px; }
+      .answer-line {
+        border-bottom: 1px solid #333;
+        height: 26px;
+        margin-bottom: 8px;
+      }
+      .answer-line:last-child { margin-bottom: 0; }
+      /* Dense intake form: tighter vertical rhythm and a slightly smaller font
+         so it reliably fits in exactly two pages. */
+      .intake-compact { font-size: 12.5px; line-height: 1.3; }
+      .intake-compact h1 { margin-bottom: 10px; }
+      .intake-compact p { margin: 0 0 5px; }
+      .intake-compact table { margin: 6px 0 10px; }
+      .intake-compact th, .intake-compact td { padding: 5px 7px; }
+      .intake-compact .plain-fill-rows { margin: 2px 0 10px; }
+      .intake-compact .plain-fill-row { padding: 2px 0; }
+      .intake-compact .plain-fill-row .inline-fill-line { min-height: 18px; }
+      .intake-compact .form-blank { height: 20px; }
+      .intake-compact .answer-lines { margin: 2px 0 8px; }
+      .intake-compact .answer-line { height: 20px; margin-bottom: 6px; }
+      /* Compact so the roster (with its handwritten blank rows) fits on one page. */
+      .packet-staff-table { font-size: 11px; }
+      .packet-staff-table th, .packet-staff-table td { padding: 4px 6px; }
       .packet-staff-table th { background: #f3f4f6; font-weight: 700; }
       .deny-col, .deny-cell { width: 0.85in; text-align: center; white-space: nowrap; }
       .deny-label { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
-      .deny-box { font-size: 14px; line-height: 1; }
+      .deny-box { font-size: 13px; line-height: 1; }
+      /* Signature callouts: thin gray box + faint hatch — noticeable without
+         being a heavy black block, so it stays obvious in B&W without looking
+         like an error/warning callout. */
+      .signature-box {
+        margin: 18px 0 10px;
+        border: 1px solid #9ca3af;
+        border-radius: 4px;
+        padding: 10px 12px 12px;
+        background: repeating-linear-gradient(
+          -45deg,
+          #ffffff,
+          #ffffff 7px,
+          #f3f4f6 7px,
+          #f3f4f6 14px
+        );
+        page-break-inside: avoid;
+      }
+      .signature-box-title {
+        font-weight: 700;
+        font-size: 12px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        text-align: left;
+        color: #4b5563;
+        margin: 0 0 8px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid #9ca3af;
+      }
+      .sig-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        margin: 16px 0 0;
+      }
+      .sig-label {
+        flex: 0 0 auto;
+        white-space: nowrap;
+        font-weight: 700;
+        font-size: 12.5px;
+      }
+      .sig-line {
+        flex: 1 1 auto;
+        border-bottom: 1.75px solid #000;
+        min-height: 22px;
+      }
+      .sig-date-label {
+        flex: 0 0 auto;
+        font-weight: 700;
+        font-size: 12.5px;
+        white-space: nowrap;
+      }
+      .sig-date-line {
+        flex: 0 0 1.35in;
+        border-bottom: 1.75px solid #000;
+        min-height: 22px;
+      }
+      /* Fallback for older templates that still use <p class="signature-line"> */
+      .packet-body p.signature-line {
+        margin-top: 18px;
+        margin-bottom: 10px;
+        padding: 10px 12px;
+        border: 1px solid #9ca3af;
+        border-radius: 4px;
+        background: repeating-linear-gradient(
+          -45deg,
+          #ffffff,
+          #ffffff 7px,
+          #f3f4f6 7px,
+          #f3f4f6 14px
+        );
+        font-weight: 700;
+        page-break-inside: avoid;
+      }
+      /* High-contrast banner: pages after the acknowledgement are keep-copies. */
+      .packet-records-banner {
+        border: 3px solid #000;
+        padding: 10px 12px;
+        margin: 0 0 14px;
+        background: #fff;
+        page-break-inside: avoid;
+      }
+      .packet-records-banner-title {
+        font-weight: 800;
+        font-size: 15px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        text-align: center;
+        margin: 0 0 8px;
+        padding-bottom: 6px;
+        border-bottom: 2px solid #000;
+      }
+      /* Muted informational note, not part of the legal/consent text itself. */
+      .packet-note-gray { color: #374151; margin: 0; }
+      /* Dense legal prose (Mental Health Professional Info / Disclosure Part 2,
+         HIPAA) shrinks back down since it runs long; provider cards below keep
+         their own fixed font sizes so "Your Care Team" is unaffected. */
+      .packet-dense { font-size: 11.5px; line-height: 1.4; }
+      .packet-dense p, .packet-dense li { margin: 0 0 7px; }
+      .packet-dense h2 { font-size: 19px; }
+      .packet-dense h3, .packet-dense .packet-subhead { font-size: 15px; margin: 14px 0 8px; }
+      /* Client Rights (Disclosure Part 1): between prior too-large and 9px too-small. */
+      .packet-dense-tight { font-size: 10px; line-height: 1.38; }
+      .packet-dense-tight p, .packet-dense-tight li { margin: 0 0 5.5px; }
+      .packet-dense-tight h2 { font-size: 16px; margin: 0 0 4px; }
+      .packet-dense-tight h3, .packet-dense-tight .packet-subhead { font-size: 12px; margin: 10px 0 6px; }
+      /* "Potential Care Team Members" (non-primary providers) read smaller than
+         "Your Care Team", whose card sizes are left untouched. */
+      .packet-potential-team .packet-provider-name { font-size: 11.5px; }
+      .packet-potential-team .packet-provider-line { font-size: 10px; }
+      .packet-potential-team .packet-section-title { font-size: 15px; }
+      .packet-potential-team .packet-subhead { font-size: 12.5px; }
       .packet-provider {
         margin: 0 0 14px;
         padding: 0 0 10px;
@@ -573,13 +813,13 @@ export function buildSchoolPrintablePacketHtml(packetContext = {}) {
       .packet-provider:last-child { border-bottom: 0; }
       .packet-provider-name {
         font-weight: 700;
-        font-size: 12.5px;
+        font-size: 14px;
         margin: 0 0 2px;
       }
       .packet-provider-line {
         margin: 0;
-        line-height: 1.25;
-        font-size: 11px;
+        line-height: 1.3;
+        font-size: 12.5px;
       }
       .page-break {
         display: block;
@@ -602,60 +842,151 @@ export function buildSchoolPrintablePacketHtml(packetContext = {}) {
           min-height: ${PAGE_SIZE.heightIn}in;
           margin: 16px auto;
           box-shadow: 0 2px 10px rgba(0,0,0,0.15);
-          padding: 0.6in 0.7in;
+          padding: 0.5in;
         }
-        .packet-cover { padding: 0.35in; }
+        .packet-cover {
+          padding: 0.5in;
+        }
+        .packet-watermark { display: none; }
       }
-    </style>
-  </head>
-  <body>
-    ${buildCoverPageHtml()}
+  `;
+}
+
+function buildPacketBodyContentHtml(packetContext = {}) {
+  const schoolName = packetContext?.organization?.name || '';
+  const schoolAddress = packetContext?.organization?.address || '';
+
+  const bodyLocale = packetContext?.locale || 'en';
+  const staffTableHtml = buildSchoolStaffTableHtml(packetContext?.staffRows || [], bodyLocale);
+  const disclosureHtml = buildDisclosureCareTeamHtml(packetContext?.providers || [], bodyLocale);
+  const watermark = watermarkDataUrl();
+
+  const bodyHtml = substituteTokens(
+    packetContext?.templateHtml || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML,
+    {
+      SCHOOL_NAME: escapeHtml(schoolName),
+      SCHOOL_ADDRESS: escapeHtml(schoolAddress),
+      SCHOOL_STAFF_TABLE: staffTableHtml,
+      DISCLOSURE_CARE_TEAM: disclosureHtml
+    }
+  );
+
+  return `
     <div class="packet-body-wrap">
       ${watermark ? `<img class="packet-watermark" src="${watermark}" alt="" />` : ''}
       <div class="packet-body">
         ${bodyHtml}
       </div>
     </div>
+  `;
+}
+
+function wrapPacketHtmlDocument(schoolName, innerHtml) {
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(schoolName || 'School')} School Packet</title>
+    <style>
+${buildPacketStyleBlock()}
+    </style>
+  </head>
+  <body>
+    ${innerHtml}
   </body>
 </html>`;
 }
 
+export function buildSchoolPrintablePacketHtml(packetContext = {}) {
+  const schoolName = packetContext?.organization?.name || '';
+  return wrapPacketHtmlDocument(
+    schoolName,
+    `${buildCoverPageHtml(packetContext)}${buildPacketBodyContentHtml(packetContext)}`
+  );
+}
+
+// Cover is rendered as its own single-page PDF: an exact copy of page 1 plus the
+// dynamic school title — no watermark, no header/footer chrome, no page number.
+function buildSchoolPrintablePacketCoverDocument(packetContext = {}) {
+  const schoolName = packetContext?.organization?.name || '';
+  return wrapPacketHtmlDocument(schoolName, buildCoverPageHtml(packetContext));
+}
+
+// Content pages are rendered separately so the header logo, footer, page
+// numbers, and watermark only ever apply to these pages — never the cover.
+function buildSchoolPrintablePacketBodyDocument(packetContext = {}) {
+  const schoolName = packetContext?.organization?.name || '';
+  return wrapPacketHtmlDocument(schoolName, buildPacketBodyContentHtml(packetContext));
+}
+
 function buildPdfChromeTemplates(packetContext = {}) {
   const packetVersionLabel = packetContext?.packetVersionLabel || SCHOOL_PRINTABLE_PACKET_VERSION;
-  const templateVersion = packetContext?.version || 1;
   const logo = headerLogoDataUrl();
   const footerMark = footerMarkDataUrl();
-  // Single large wordmark only (image1). Do not also inject a body header logo.
+  // Header logo back to its ~50%-of-original size now that the 0.75in top
+  // margin gives it comfortable clearance above body content.
   const headerTemplate = `
-    <div style="width:100%; padding:0 0.75in; box-sizing:border-box; text-align:center;">
-      <img src="${logo}" style="height:36px; width:auto; max-width:5.8in; object-fit:contain;" />
+    <div style="width:100%; box-sizing:border-box; margin:0; padding:0 0.5in; text-align:center; line-height:0;">
+      <img src="${logo}" style="height:46px; width:auto; max-width:3.5in; object-fit:contain; vertical-align:top;" />
     </div>
   `;
+  // Bottom-left: ITSCOpnginvisiblebackgroundBW. Center: Version only. Right: page.
   const footerTemplate = `
-    <div style="width:100%; padding:0 0.75in; box-sizing:border-box; color:#222; display:flex; justify-content:space-between; align-items:center; font-size:10px;">
-      <div style="display:flex; align-items:center; gap:8px; font-family: Impact, Anton, Arial Black, sans-serif;">
-        ${footerMark ? `<img src="${footerMark}" style="height:16px; width:auto; object-fit:contain;" />` : ''}
-        <span>Version ${escapeHtml(String(packetVersionLabel))} · Template v${escapeHtml(String(templateVersion))}</span>
+    <div style="width:100%; box-sizing:border-box; padding:0 0.5in; color:#111; display:flex; justify-content:space-between; align-items:center; font-size:10px;">
+      <div style="width:28%; text-align:left;">
+        ${footerMark ? `<img src="${footerMark}" style="height:18px; width:auto; max-width:1in; object-fit:contain;" />` : ''}
       </div>
-      <span style="font-family: Impact, Anton, Arial Black, sans-serif;">PAGE <span class="pageNumber"></span></span>
+      <div style="width:44%; text-align:center; font-family: Impact, Anton, Arial Black, sans-serif; letter-spacing:0.02em;">
+        Version ${escapeHtml(String(packetVersionLabel))}
+      </div>
+      <div style="width:28%; text-align:right; font-family: Impact, Anton, Arial Black, sans-serif;">
+        PAGE <span class="pageNumber"></span>
+      </div>
     </div>
   `;
   return { headerTemplate, footerTemplate };
 }
 
+const COVER_PDF_MARGIN = { top: '0.5in', right: '0.5in', bottom: '0.5in', left: '0.5in' };
+// Body pages get a taller 0.75in top margin (sides/bottom stay 0.5in) so the
+// header logo has clearance above the content.
+const BODY_PDF_MARGIN = { top: '0.75in', right: '0.5in', bottom: '0.5in', left: '0.5in' };
+
 export async function generateSchoolPrintablePacketPdf(packetContext) {
-  const html = buildSchoolPrintablePacketHtml(packetContext);
+  const coverHtml = buildSchoolPrintablePacketCoverDocument(packetContext);
+  const bodyHtml = buildSchoolPrintablePacketBodyDocument(packetContext);
   const { headerTemplate, footerTemplate } = buildPdfChromeTemplates(packetContext);
-  return DocumentSigningService.convertHTMLToPDF(html, {
+
+  // Cover is generated as its own PDF with no header/footer chrome so it is an
+  // exact, unmodified copy of page 1 — no logo duplication, no page number.
+  const coverPdfBytes = await DocumentSigningService.convertHTMLToPDF(coverHtml, {
     printBackground: true,
-    // ~1" top/bottom so header/footer never overlap body text.
-    margin: { top: '1in', right: '0.7in', bottom: '1in', left: '0.7in' },
-    preferCSSPageSize: true,
+    margin: COVER_PDF_MARGIN,
+    preferCSSPageSize: false,
+    displayHeaderFooter: false,
+    disableFallback: true
+  });
+
+  // Content pages get the header logo, footer, page numbers, and watermark.
+  const bodyPdfBytes = await DocumentSigningService.convertHTMLToPDF(bodyHtml, {
+    printBackground: true,
+    margin: BODY_PDF_MARGIN,
+    preferCSSPageSize: false,
     displayHeaderFooter: true,
     headerTemplate,
     footerTemplate,
     disableFallback: true
   });
+
+  const merged = await PDFDocument.create();
+  const coverDoc = await PDFDocument.load(coverPdfBytes);
+  const bodyDoc = await PDFDocument.load(bodyPdfBytes);
+  const coverPages = await merged.copyPages(coverDoc, coverDoc.getPageIndices());
+  coverPages.forEach((p) => merged.addPage(p));
+  const bodyPages = await merged.copyPages(bodyDoc, bodyDoc.getPageIndices());
+  bodyPages.forEach((p) => merged.addPage(p));
+
+  return Buffer.from(await merged.save());
 }
 
 export async function getSchoolPrintablePacketAvailability(organizationId) {
@@ -669,15 +1000,16 @@ export async function getSchoolPrintablePacketAvailability(organizationId) {
     available: true,
     version: Number(template?.version || 1),
     packetVersionLabel: SCHOOL_PRINTABLE_PACKET_VERSION,
-    title: `${String(organization.name || 'School').trim()} — Blank Referral Packet (Smart)`,
+    title: `${String(organization.name || 'School').trim()} — School Packet (Smart)`,
     updatedAt: template?.updated_at
       ? new Date(template.updated_at).toISOString()
       : new Date().toISOString()
   };
 }
 
-export async function getSchoolPacketTemplateForOrganization(organizationId) {
+export async function getSchoolPacketTemplateForOrganization(organizationId, { locale = 'en' } = {}) {
   const orgId = Number(organizationId || 0);
+  const loc = normalizeLocale(locale);
   const organization = await Agency.findById(orgId);
   if (!organization) {
     const err = new Error('Organization not found');
@@ -695,10 +1027,11 @@ export async function getSchoolPacketTemplateForOrganization(organizationId) {
     err.statusCode = 409;
     throw err;
   }
-  const template = await SchoolPacketTemplate.getOrCreateForAgency(agencyId);
+  const template = await SchoolPacketTemplate.getOrCreateForAgency(agencyId, { locale: loc });
   return {
     agencyId,
-    html_content: String(template?.html_content || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML),
+    locale: loc,
+    html_content: String(template?.html_content || defaultHtmlForLocale(loc) || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML),
     version: Number(template?.version || 1),
     updatedAt: template?.updated_at ? new Date(template.updated_at).toISOString() : null,
     updatedByUserId: template?.updated_by_user_id || null
@@ -708,9 +1041,11 @@ export async function getSchoolPacketTemplateForOrganization(organizationId) {
 export async function saveSchoolPacketTemplateForOrganization({
   organizationId,
   htmlContent,
-  actorUserId = null
+  actorUserId = null,
+  locale = 'en'
 }) {
   const orgId = Number(organizationId || 0);
+  const loc = normalizeLocale(locale);
   const organization = await Agency.findById(orgId);
   if (!organization) {
     const err = new Error('Organization not found');
@@ -731,10 +1066,12 @@ export async function saveSchoolPacketTemplateForOrganization({
   const saved = await SchoolPacketTemplate.upsertContent({
     agencyId,
     htmlContent,
-    actorUserId
+    actorUserId,
+    locale: loc
   });
   return {
     agencyId,
+    locale: loc,
     html_content: String(saved?.html_content || ''),
     version: Number(saved?.version || 1),
     updatedAt: saved?.updated_at ? new Date(saved.updated_at).toISOString() : null,

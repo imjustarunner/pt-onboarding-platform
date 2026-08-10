@@ -6,6 +6,7 @@ import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js'
 import AgencySchool from '../models/AgencySchool.model.js';
 import IntakeLink from '../models/IntakeLink.model.js';
 import { isSupervisorActor, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
+import { isHogwartsPacketHubOrg } from '../constants/schoolPrintablePacket.js';
 
 // Keep access rules aligned with schoolPublicDocuments.controller.js
 async function resolveActiveAgencyIdForOrg(orgId) {
@@ -215,7 +216,8 @@ export const listSchoolPortalIntakeLinks = async (req, res, next) => {
     try {
       const activeClause = includeInactive ? '' : 'AND is_active = 1';
       const [rows] = await pool.execute(
-        `SELECT id, public_key, title, description, language_code, scope_type, organization_id, program_id, is_active, created_at, updated_at
+        `SELECT id, public_key, title, description, language_code, scope_type, organization_id, program_id,
+                form_type, is_active, linked_es_form_id, created_at, updated_at
          FROM intake_links
          WHERE scope_type = ?
            AND organization_id = ?
@@ -223,7 +225,12 @@ export const listSchoolPortalIntakeLinks = async (req, res, next) => {
          ORDER BY updated_at DESC, id DESC`,
         [scopeType, sid]
       );
-      res.json({ scopeType, organizationId: sid, links: rows || [] });
+      res.json({
+        scopeType,
+        organizationId: sid,
+        links: rows || [],
+        packetHubEnabled: isHogwartsPacketHubOrg(org)
+      });
     } catch (e) {
       if (e?.code === 'ER_NO_SUCH_TABLE') {
         return res.status(400).json({ error: { message: 'Intake links are not enabled (missing intake_links table).' } });

@@ -41,6 +41,8 @@ test('builds virtual library document metadata with template version', () => {
   });
   assert.equal(doc.kind, 'system_printable_packet');
   assert.match(doc.title, /Springfield High/);
+  assert.match(doc.title, /School Packet/);
+  assert.doesNotMatch(doc.title, /Blank Referral Packet/i);
   assert.equal(doc.packet_version, '3');
   assert.equal(doc.packet_content_version, SCHOOL_PRINTABLE_PACKET_VERSION);
   assert.equal(doc.is_virtual, true);
@@ -91,6 +93,15 @@ test('builds authorized school staff table from non-scheduler roster rows', () =
   assert.match(html, /Jane Doe/);
   assert.match(html, /Special Education Director/);
   assert.match(html, /jane@school\.org/);
+  // One staff row + two handwritten blank rows
+  assert.equal((html.match(/<tr>/g) || []).length, 1 + 1 + 2); // header + jane + 2 blanks
+  assert.equal((html.match(/form-blank/g) || []).length, 8); // 2 blank rows × 4 cells
+});
+
+test('builds four empty fill-in rows when no school staff are attached', () => {
+  const html = buildSchoolStaffTableHtml([]);
+  assert.doesNotMatch(html, /No authorized school staff listed/);
+  assert.equal((html.match(/form-blank/g) || []).length, 16); // 4 blank rows × 4 cells
 });
 
 test('builds disclosure care team HTML with bold names and centered section titles', () => {
@@ -143,7 +154,9 @@ test('merges live tokens into agency template HTML with cover and fonts', () => 
   });
 
   assert.match(html, /packet-cover/);
-  assert.match(html, /packet-watermark|Comfortaa/);
+  assert.match(html, /cover-photo|cover-title/);
+  assert.match(html, /Springfield High School Packet/);
+  assert.doesNotMatch(html, /BLANK SCHOOL PACKET/);
   assert.match(html, /Comfortaa/);
   assert.match(html, /Anton/);
   assert.match(html, /form-blank/);
@@ -154,9 +167,12 @@ test('merges live tokens into agency template HTML with cover and fonts', () => 
   assert.match(html, /Jane Doe/);
   assert.match(html, /Your Care Team/);
   assert.match(html, /Alex Provider/);
-  assert.match(html, /Client Rights and Disclosures/i);
+  assert.match(html, /Client Rights/i);
+  assert.match(html, /Please retain these documents for your personal records/i);
+  assert.match(html, /INSURANCE INFORMATION/);
+  assert.match(html, /MINOR CONSENT/);
   assert.match(html, /page-break/);
-  assert.doesNotMatch(html, /INTAKE QUESTIONNAIRE/);
+  assert.match(html, /INTAKE QUESTIONNAIRE/);
   assert.doesNotMatch(html, /\{\{SCHOOL_NAME\}\}/);
   assert.doesNotMatch(html, /\{\{SCHOOL_STAFF_TABLE\}\}/);
   assert.doesNotMatch(html, /\{\{DISCLOSURE_CARE_TEAM\}\}/);

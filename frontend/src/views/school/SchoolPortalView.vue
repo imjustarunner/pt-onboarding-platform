@@ -1041,7 +1041,7 @@
                   <div v-else class="dash-card-icon-fallback" aria-hidden="true">DF</div>
                 </div>
                 <div class="dash-card-title">Manage school digital forms</div>
-                <div class="dash-card-desc">Create or copy English/Spanish intake links for this portal only.</div>
+                <div class="dash-card-desc">View ready-to-share English/Spanish links. Full packet editing lives in School Operations → Documents &amp; Forms.</div>
                 <div class="dash-card-meta">
                   <span class="dash-card-cta">Open ›</span>
                 </div>

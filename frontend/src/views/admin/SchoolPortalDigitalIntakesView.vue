@@ -18,11 +18,18 @@
         </div>
         <div class="spd-header-actions">
           <router-link class="btn btn-secondary btn-sm" :to="backTo">Back to portal</router-link>
-          <router-link v-if="advancedDigitalFormsTo" class="btn btn-secondary btn-sm" :to="advancedDigitalFormsTo">
+          <router-link
+            v-if="canManageDigitalIntakes && advancedDigitalFormsTo"
+            class="btn btn-secondary btn-sm"
+            :to="advancedDigitalFormsTo"
+          >
             Advanced edit (Digital Forms)
           </router-link>
         </div>
       </header>
+      <p v-if="!canManageDigitalIntakes" class="muted spd-readonly-note">
+        Ready-to-share links for this school. Create and edit forms from the agency School Referral Hub.
+      </p>
 
       <section v-for="lane in lanes" :key="lane.lang" class="spd-lane">
         <h2 class="spd-lane-title">{{ lane.title }}</h2>
@@ -42,8 +49,25 @@
               </span>
             </div>
             <div class="spd-link-actions">
+              <a
+                v-if="publicUrlFor(link)"
+                class="btn btn-secondary btn-sm"
+                :href="publicUrlFor(link)"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open
+              </a>
               <button
-                v-if="!link.is_active"
+                v-if="publicUrlFor(link)"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="copyPublicUrl(link)"
+              >
+                Copy
+              </button>
+              <button
+                v-if="canManageDigitalIntakes && !link.is_active"
                 type="button"
                 class="btn btn-primary btn-sm"
                 :disabled="savingId === link.id"
@@ -56,7 +80,7 @@
         </ul>
         <p v-else class="muted">No links yet for this language.</p>
 
-        <div class="spd-lane-actions">
+        <div v-if="canManageDigitalIntakes" class="spd-lane-actions">
           <button
             type="button"
             class="btn btn-primary btn-sm"
@@ -125,10 +149,31 @@ import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.js';
 import { getDashboardRoute } from '../../utils/router';
+import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 
 const route = useRoute();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
+const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const canManageDigitalIntakes = computed(() => {
+  const r = roleNorm.value;
+  if (r === 'school_staff') return false;
+  return ['super_admin', 'admin', 'support', 'staff'].includes(r);
+});
+
+function publicUrlFor(link) {
+  return buildPublicIntakeUrl(link?.public_key || link?.publicKey || '');
+}
+
+async function copyPublicUrl(link) {
+  const url = publicUrlFor(link);
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    /* ignore */
+  }
+}
 
 const loading = ref(true);
 const loadError = ref('');

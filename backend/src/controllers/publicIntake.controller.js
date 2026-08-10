@@ -107,7 +107,178 @@ import {
   persistDisclosureAcknowledgement,
   validateSmartDisclosureResponse
 } from '../services/smartDisclosure.service.js';
+import {
+  PACKET_SECTION_KEYS,
+  buildPacketSectionContext,
+  hasProgrammedPacketSectionStep,
+  persistPacketSectionAcknowledgement,
+  sectionTitle
+} from '../services/schoolPacketSections.service.js';
 import { persistIntakeGuardianWaiversFromFinalize } from '../services/guardianWaivers.service.js';
+
+function buildPacketSectionSignedHtml({ sectionContext, response, signedAt }) {
+  const title = sectionContext?.title || sectionTitle(sectionContext?.sectionKey, sectionContext?.locale);
+  const body = String(sectionContext?.html || response?.snapshotHtml || '');
+  const signerName = String(response?.signerName || '').trim();
+  const when = signedAt instanceof Date ? signedAt.toISOString() : String(signedAt || '');
+  const sigImg = response?.signatureData
+    ? `<div style="margin-top:24px;"><img src="${response.signatureData}" alt="Signature" style="max-width:320px;height:auto;" /></div>`
+    : '';
+  return `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>${title}</title>
+<style>body{font-family:Arial,sans-serif;font-size:12px;color:#111;line-height:1.45;padding:24px;} h2{font-size:16px;} h3{font-size:14px;}</style>
+</head><body>
+${body}
+<div style="margin-top:32px;border-top:1px solid #ccc;padding-top:16px;">
+  <p><strong>Acknowledged and signed electronically</strong></p>
+  <p>Signer: ${signerName || '—'}</p>
+  <p>Signed at: ${when}</p>
+  ${sigImg}
+</div>
+</body></html>`;
+}
+
+async function persistPacketSectionFromIntakeData({
+  intakeData,
+  updatedSubmission,
+  issuedRoiLink,
+  organization,
+  agency,
+  link,
+  submissionId,
+  now
+}) {
+  const sectionsPayload = intakeData?.packetSections && typeof intakeData.packetSections === 'object'
+    ? intakeData.packetSections
+    : null;
+  const candidates = [];
+  if (sectionsPayload?.[PACKET_SECTION_KEYS.INFORMED_GROUP_CONSENT]) {
+    candidates.push({
+      sectionKey: PACKET_SECTION_KEYS.INFORMED_GROUP_CONSENT,
+      response: sectionsPayload[PACKET_SECTION_KEYS.INFORMED_GROUP_CONSENT]
+    });
+  }
+  if (sectionsPayload?.[PACKET_SECTION_KEYS.POLICY_SERVICES]) {
+    candidates.push({
+      sectionKey: PACKET_SECTION_KEYS.POLICY_SERVICES,
+      response: sectionsPayload[PACKET_SECTION_KEYS.POLICY_SERVICES]
+    });
+  }
+  // Also accept flat keys for convenience
+  if (sectionsPayload?.[PACKET_SECTION_KEYS.HIPAA_NOTICE]) {
+    candidates.push({
+      sectionKey: PACKET_SECTION_KEYS.HIPAA_NOTICE,
+      response: sectionsPayload[PACKET_SECTION_KEYS.HIPAA_NOTICE]
+    });
+  }
+  if (intakeData?.packetInformedGroupConsent) {
+    candidates.push({
+      sectionKey: PACKET_SECTION_KEYS.INFORMED_GROUP_CONSENT,
+      response: intakeData.packetInformedGroupConsent
+    });
+  }
+  if (intakeData?.packetPolicyServices) {
+    candidates.push({
+      sectionKey: PACKET_SECTION_KEYS.POLICY_SERVICES,
+      response: intakeData.packetPolicyServices
+    });
+  }
+  if (intakeData?.packetHipaaNotice) {
+    candidates.push({
+      sectionKey: PACKET_SECTION_KEYS.HIPAA_NOTICE,
+      response: intakeData.packetHipaaNotice
+    });
+  }
+
+  if (!candidates.length) return;
+
+  const cid = Number(updatedSubmission.client_id || issuedRoiLink?.client_id || 0);
+  if (!cid) return;
+  const boundClient = await Client.findById(cid, { includeSensitive: true }).catch(() => null);
+  if (!boundClient?.id) return;
+
+  const schoolOrgId = Number(
+    boundClient.organization_id
+    || organization?.id
+    || link?.organization_id
+    || 0
+  ) || null;
+  const agencyId = Number(boundClient.agency_id || agency?.id || 0) || null;
+  if (!agencyId || !schoolOrgId) return;
+
+  const seen = new Set();
+  for (const { sectionKey, response } of candidates) {
+    if (!response || seen.has(sectionKey)) continue;
+    seen.add(sectionKey);
+    if (!response.acknowledged || !response.signatureData) continue;
+
+    const sectionContext = await buildPacketSectionContext({
+      organizationId: schoolOrgId,
+      agencyId,
+      locale: response.locale || link.language_code || 'en',
+      sectionKey
+    });
+
+    const html = buildPacketSectionSignedHtml({
+      sectionContext,
+      response: {
+        ...response,
+        signerName: response.signerName || updatedSubmission.signer_name || null,
+        snapshotHtml: response.snapshotHtml || sectionContext.html
+      },
+      signedAt: now
+    });
+
+    const signedResult = await PublicIntakeSigningService.generateSignedDocument({
+      template: {
+        id: null,
+        name: sectionContext.title,
+        template_type: 'html',
+        html_content: html,
+        document_action_type: 'signature',
+        document_type: sectionKey
+      },
+      signatureData: response.signatureData || null,
+      signer: buildSignerFromSubmission(updatedSubmission),
+      auditTrail: {
+        packetSection: true,
+        sectionKey,
+        contentHash: response.contentHash || sectionContext.contentHash,
+        packetVersion: response.packetVersion || sectionContext.packetVersion
+      },
+      workflowData: buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } }),
+      submissionId
+    });
+
+    const phiDocAttach = await attachSignedPdfToClient({
+      clientId: boundClient.id,
+      agencyId,
+      storagePath: signedResult.storagePath,
+      originalFilename: `${sectionKey}-${boundClient.id}.pdf`,
+      title: `${sectionContext.title} (Signed)`,
+      documentType: sectionKey,
+      mimeType: 'application/pdf',
+      uploadedByUserId: null,
+      intakeSubmissionId: submissionId,
+      source: `packet_section_${sectionKey}`
+    }).catch(() => null);
+
+    await persistPacketSectionAcknowledgement({
+      clientId: boundClient.id,
+      agencyId,
+      schoolOrganizationId: schoolOrgId,
+      intakeSubmissionId: submissionId,
+      clientPhiDocumentId: phiDocAttach?.document?.id || phiDocAttach?.id || null,
+      sectionKey,
+      languageCode: response.locale || link.language_code || 'en',
+      signedAt: now,
+      signerName: response.signerName || updatedSubmission.signer_name || null,
+      signerEmail: response.signerEmail || updatedSubmission.signer_email || null,
+      contentHash: response.contentHash || sectionContext.contentHash,
+      packetVersion: response.packetVersion || sectionContext.packetVersion,
+      snapshotHtml: response.snapshotHtml || sectionContext.html
+    });
+  }
+}
 
 const normalizeName = (name) => String(name || '').trim();
 const normalizeDateOnly = (value) => {
@@ -4624,6 +4795,37 @@ export const getPublicIntakeLink = async (req, res, next) => {
           locale: link.language_code || 'en'
         })
       : null;
+
+    let packetSectionContexts = null;
+    if (hasProgrammedPacketSectionStep(link)) {
+      const schoolOrgId = Number(
+        organization?.id
+        || link.organization_id
+        || boundClient?.organization_id
+        || 0
+      );
+      const agencyIdForPacket = Number(agency?.id || 0) || null;
+      const localeForPacket = link.language_code || 'en';
+      packetSectionContexts = {};
+      for (const sectionKey of [
+        PACKET_SECTION_KEYS.INFORMED_GROUP_CONSENT,
+        PACKET_SECTION_KEYS.POLICY_SERVICES,
+        PACKET_SECTION_KEYS.HIPAA_NOTICE
+      ]) {
+        if (!hasProgrammedPacketSectionStep(link, sectionKey)) continue;
+        try {
+          packetSectionContexts[sectionKey] = await buildPacketSectionContext({
+            organizationId: schoolOrgId,
+            agencyId: agencyIdForPacket,
+            locale: localeForPacket,
+            sectionKey
+          });
+        } catch (sectionErr) {
+          console.warn('[publicIntake] packet section context failed', sectionKey, sectionErr?.message || sectionErr);
+        }
+      }
+      if (!Object.keys(packetSectionContexts).length) packetSectionContexts = null;
+    }
     let linkedEsInfo = null;
     const linkedEsFormId = Number(link.linked_es_form_id || 0);
     if (linkedEsFormId > 0) {
@@ -4696,6 +4898,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
       } : null,
       roiContext,
       disclosureContext,
+      packetSectionContexts,
       jobDescription,
       templates: templates.map(t => ({
         id: t.id,
@@ -6747,6 +6950,27 @@ export const finalizePublicIntake = async (req, res, next) => {
         });
       }
       } // end if (!createdClients.length)
+    }
+
+    // After clients exist, persist packet-derived consent sections captured earlier in the flow.
+    if (
+      (intakeData?.packetSections || intakeData?.packetInformedGroupConsent || intakeData?.packetPolicyServices)
+      && (updatedSubmission.client_id || issuedRoiLink?.client_id)
+    ) {
+      try {
+        await persistPacketSectionFromIntakeData({
+          intakeData,
+          updatedSubmission,
+          issuedRoiLink,
+          organization,
+          agency,
+          link,
+          submissionId,
+          now
+        });
+      } catch (packetSectionErr) {
+        console.warn('[publicIntake] post-create packet section persist failed', packetSectionErr?.message || packetSectionErr);
+      }
     }
 
     const signedDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);

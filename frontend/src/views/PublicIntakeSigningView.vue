@@ -758,6 +758,9 @@
         <h3 v-else-if="currentFlowStep?.type === 'smart_disclosure' || currentFlowStep?.type === 'disclosure'">
           {{ tx(currentFlowStep?.label) || 'Disclosure' }}
         </h3>
+        <h3 v-else-if="isPacketSectionStepType(currentFlowStep?.type)">
+          {{ tx(currentFlowStep?.label) || packetSectionTitleForStep(currentFlowStep) }}
+        </h3>
         <h3 v-else-if="currentFlowStep?.type === 'registration'">{{ tx(currentFlowStep?.label) || t('registration') }}</h3>
         <h3 v-else-if="currentFlowStep?.type === 'guardian_waiver'">
           {{ tx(currentFlowStep?.label) || t('guardianWaiversSafety') }}
@@ -808,6 +811,16 @@
             :locale="inPageLocale || link?.language_code || 'en'"
             mode="embedded"
             @captured="handleEmbeddedDisclosureCaptured"
+          />
+        </div>
+        <div
+          v-if="isPacketSectionStepType(currentFlowStep?.type)"
+          class="packet-section-step"
+        >
+          <PacketSectionConsentFlow
+            :section-context="packetSectionContextForStep(currentFlowStep)"
+            :locale="inPageLocale || link?.language_code || 'en'"
+            @captured="handleEmbeddedPacketSectionCaptured"
           />
         </div>
         <div v-if="currentFlowStep?.type === 'upload'" class="upload-step">
@@ -1317,7 +1330,7 @@
           </button>
         </div>
         <div
-          v-if="currentFlowStep?.type !== 'school_roi' && currentFlowStep?.type !== 'smart_disclosure' && currentFlowStep?.type !== 'disclosure'"
+          v-if="currentFlowStep?.type !== 'school_roi' && currentFlowStep?.type !== 'smart_disclosure' && currentFlowStep?.type !== 'disclosure' && !isPacketSectionStepType(currentFlowStep?.type)"
           class="actions"
           style="margin-top: 10px;"
         >
@@ -1455,7 +1468,7 @@
         </div>
 
         <div
-          v-if="currentFlowStep?.type !== 'school_roi' && currentFlowStep?.type !== 'smart_disclosure' && currentFlowStep?.type !== 'disclosure'"
+          v-if="currentFlowStep?.type !== 'school_roi' && currentFlowStep?.type !== 'smart_disclosure' && currentFlowStep?.type !== 'disclosure' && !isPacketSectionStepType(currentFlowStep?.type)"
           class="actions"
         >
           <button
@@ -1802,6 +1815,7 @@ import api from '../services/api';
 import SignaturePad from '../components/SignaturePad.vue';
 import SmartSchoolRoiFlow from '../components/public/SmartSchoolRoiFlow.vue';
 import SmartDisclosureFlow from '../components/public/SmartDisclosureFlow.vue';
+import PacketSectionConsentFlow from '../components/public/PacketSectionConsentFlow.vue';
 import PDFPreview from '../components/documents/PDFPreview.vue';
 import PublicIntakeGuardianWaiverStep from '../components/public-intake/PublicIntakeGuardianWaiverStep.vue';
 import PublicIntakeInsuranceStep from '../components/public-intake/PublicIntakeInsuranceStep.vue';
@@ -2903,6 +2917,8 @@ const FLOW_STEP_PROGRESS_LABELS = {
   school_roi: 'School ROI',
   smart_disclosure: 'Disclosure',
   disclosure: 'Disclosure',
+  packet_informed_group_consent: 'Informed + Group Consent',
+  packet_policy_services: 'Policy & Services',
   guardian_waiver: 'Waivers',
   insurance_info: 'Insurance',
   payment_collection: 'Payment',
@@ -2911,6 +2927,16 @@ const FLOW_STEP_PROGRESS_LABELS = {
   demographics: 'Demographics',
   clinical_questions: 'Clinical'
 };
+
+const PACKET_SECTION_STEP_TO_KEY = {
+  packet_informed_group_consent: 'informed_group_consent',
+  packet_policy_services: 'policy_services'
+};
+
+const isPacketSectionStepType = (type) => Object.prototype.hasOwnProperty.call(
+  PACKET_SECTION_STEP_TO_KEY,
+  String(type || '').trim().toLowerCase()
+);
 
 const shellProgramTitle = computed(() => {
   const branded = String(formBranding.value?.programTitle || '').trim();
@@ -3076,6 +3102,8 @@ const flowSteps = computed(() => {
           || s?.type === 'school_roi'
           || s?.type === 'smart_disclosure'
           || s?.type === 'disclosure'
+          || s?.type === 'packet_informed_group_consent'
+          || s?.type === 'packet_policy_services'
           || s?.type === 'registration'
           || s?.type === 'guardian_waiver'
           || s?.type === 'insurance_info'
@@ -3097,6 +3125,7 @@ const flowSteps = computed(() => {
         if (s.type === 'upload') return { ...s };
         if (s.type === 'school_roi') return { ...s };
         if (s.type === 'smart_disclosure' || s.type === 'disclosure') return { ...s };
+        if (s.type === 'packet_informed_group_consent' || s.type === 'packet_policy_services') return { ...s };
         if (s.type === 'registration') return { ...s };
         if (s.type === 'guardian_waiver') return { ...s };
         if (s.type === 'insurance_info') return { ...s };
@@ -3512,6 +3541,8 @@ const referencesRequiredCount = computed(() => {
 });
 const embeddedSmartSchoolRoi = ref(null);
 const embeddedSmartDisclosure = ref(null);
+const embeddedPacketSections = ref({});
+const packetSectionContexts = ref(null);
 const agencyRegistrationCatalog = ref([]);
 
 /**
@@ -4988,6 +5019,7 @@ const loadLink = async () => {
       || resp.data?.link?.disclosureContext
       || link.value?.disclosureContext
       || null;
+    packetSectionContexts.value = resp.data?.packetSectionContexts || null;
     templates.value = resp.data?.templates || [];
     agencyInfo.value = resp.data?.agency || null;
     organizationInfo.value = resp.data?.organization || null;
@@ -6479,6 +6511,9 @@ const finalizePacket = async () => {
           : null,
         smartSchoolRoi: embeddedSmartSchoolRoi.value || null,
         smartDisclosure: embeddedSmartDisclosure.value || null,
+        packetSections: Object.keys(embeddedPacketSections.value || {}).length
+          ? embeddedPacketSections.value
+          : null,
         coverLetterText: String(coverLetterPastedText.value || '').trim() || null,
         referencesJson: referencesEntries.value
           .map((r) => ({
@@ -6630,6 +6665,7 @@ const resetIntakeState = () => {
   intakeResponses.clients = [{}];
   embeddedSmartSchoolRoi.value = null;
   embeddedSmartDisclosure.value = null;
+  embeddedPacketSections.value = {};
   jobDescriptionSummary.value = null;
   downloadUrl.value = '';
   emailDeliveryStatus.value = null;
@@ -7529,6 +7565,39 @@ const handleEmbeddedDisclosureCaptured = async ({ smartDisclosure } = {}) => {
   intakeResponses.submission = {
     ...(intakeResponses.submission || {}),
     smartDisclosure: smartDisclosure || null
+  };
+  stepError.value = '';
+  await nextFlowStep();
+};
+
+const packetSectionContextForStep = (stepObj) => {
+  const key = PACKET_SECTION_STEP_TO_KEY[String(stepObj?.type || '').trim().toLowerCase()];
+  if (!key) return null;
+  return packetSectionContexts.value?.[key] || null;
+};
+
+const packetSectionTitleForStep = (stepObj) => {
+  const ctx = packetSectionContextForStep(stepObj);
+  if (ctx?.title) return ctx.title;
+  const t = String(stepObj?.type || '').trim().toLowerCase();
+  if (t === 'packet_informed_group_consent') return 'Informed Consent + Group Consent';
+  if (t === 'packet_policy_services') return 'Policy and Services Agreement';
+  return 'Agreement';
+};
+
+const handleEmbeddedPacketSectionCaptured = async (payload = {}) => {
+  const key = String(payload?.sectionKey || '').trim();
+  if (!key) {
+    stepError.value = 'Unable to save this agreement step.';
+    return;
+  }
+  embeddedPacketSections.value = {
+    ...(embeddedPacketSections.value || {}),
+    [key]: payload
+  };
+  intakeResponses.submission = {
+    ...(intakeResponses.submission || {}),
+    packetSections: embeddedPacketSections.value
   };
   stepError.value = '';
   await nextFlowStep();
