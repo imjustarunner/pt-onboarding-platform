@@ -1,7 +1,8 @@
-const COL_STORAGE_KEY = 'planned_outs_column_order_v1';
+const COL_STORAGE_KEY = 'planned_outs_column_order_v2';
 
 export const PLANNED_OUT_COLUMNS = [
   { id: 'person', label: 'Person' },
+  { id: 'submitted', label: 'Submitted' },
   { id: 'when', label: 'When' },
   { id: 'availability', label: 'Availability' },
   { id: 'emergencies', label: 'Emergencies' },
@@ -58,6 +59,16 @@ function fmtTime(raw) {
   const ap = h >= 12 ? 'pm' : 'am';
   h = h % 12 || 12;
   return min === 0 ? `${h}${ap}` : `${h}:${String(min).padStart(2, '0')}${ap}`;
+}
+
+export function formatPlannedOutSubmitted(row) {
+  const raw = row?.created_at || row?.submitted_at;
+  if (!raw) return '—';
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) return '—';
+  const date = d.toLocaleDateString([], { month: 'numeric', day: 'numeric' });
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return `${date} ${time}`;
 }
 
 export function formatPlannedOutWhen(row) {
@@ -120,12 +131,18 @@ export function displayName(row) {
 export function cellValue(row, colId) {
   switch (colId) {
     case 'person': return displayName(row);
+    case 'submitted': return formatPlannedOutSubmitted(row);
     case 'when': return `Out ${formatPlannedOutWhen(row)}`;
     case 'availability': return formatAvailability(row);
     case 'emergencies': return formatEmergencies(row);
     case 'contact': return formatContact(row);
     default: return '';
   }
+}
+
+export function canReviewPlannedOut(row) {
+  const s = String(row?.status || '').toLowerCase();
+  return s === 'pending' || s === 'revision';
 }
 
 export function statusLabel(status) {

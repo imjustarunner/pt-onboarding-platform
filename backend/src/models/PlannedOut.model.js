@@ -17,12 +17,13 @@ class PlannedOut {
 
   static mapRow(row) {
     if (!row) return null;
+    const approvalStatus = row.approval_status ?? row.status;
     return {
       id: row.id,
       agency_id: row.agency_id,
       user_id: row.user_id,
       submitted_by_user_id: row.submitted_by_user_id,
-      status: row.status,
+      status: approvalStatus,
       span_type: row.span_type,
       half_day_part: row.half_day_part,
       all_day: !!row.all_day,
@@ -86,6 +87,7 @@ class PlannedOut {
     if (!eid) return null;
     const [rows] = await pool.execute(
       `SELECT po.*,
+              po.status AS approval_status,
               ${USER_NAME_SQL} AS user_name,
               u.first_name AS user_first_name,
               u.last_name AS user_last_name,
@@ -126,6 +128,7 @@ class PlannedOut {
     }
     const [rows] = await pool.execute(
       `SELECT po.*,
+              po.status AS approval_status,
               ${USER_NAME_SQL} AS user_name,
               u.first_name AS user_first_name,
               u.last_name AS user_last_name,
@@ -210,6 +213,7 @@ class PlannedOut {
     }
     const [rows] = await pool.execute(
       `SELECT po.*,
+              po.status AS approval_status,
               ${USER_NAME_SQL} AS user_name,
               u.first_name AS user_first_name,
               u.last_name AS user_last_name,
@@ -252,7 +256,10 @@ function parseStoredInstant(value) {
 export function isPlannedOutActiveNow(plannedOut, now = new Date()) {
   if (!plannedOut || String(plannedOut.status || '').toLowerCase() !== 'approved') return false;
   if (plannedOut.all_day) {
-    const today = now.toISOString().slice(0, 10);
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const today = `${y}-${m}-${d}`;
     const start = String(plannedOut.start_date || '').slice(0, 10);
     const end = String(plannedOut.end_date || '').slice(0, 10);
     if (!start || !end) return false;

@@ -205,6 +205,11 @@ export const DURATION_CHIPS = [
 export function availabilityBandForPerson(person) {
   if (!person) return 'offline';
   const expiredAway = isTimedAwayExpired(person);
+  if (person.planned_out_active) {
+    const plannedBand = String(person.availability_band || '').toLowerCase();
+    if (plannedBand === 'away_reachable' || plannedBand === 'unavailable') return plannedBand;
+    return 'unavailable';
+  }
   const band = String(person.availability_band || '').toLowerCase();
   // Trust API band unless a timed Away timer has already expired client-side.
   if (band && AVAILABILITY_BANDS[band] && !expiredAway) return band;
@@ -312,6 +317,10 @@ export function formatReturnAt(iso) {
  */
 export function statusSubtitle(person) {
   if (!person) return '';
+  if (person.planned_out_active) {
+    const label = String(person.status_label || person.presence_display_label || '').trim();
+    if (label) return label;
+  }
   const band = availabilityBandForPerson(person);
   let label = String(person.status_label || '').trim() || availabilityBandLabel(band);
   // Rich Away detail only while actually Idle/Away — not for offline or plain available.
@@ -336,7 +345,7 @@ export function presenceDetailLines(person) {
   const band = availabilityBandForPerson(person);
   const lines = [availabilityBandLabel(band)];
   if (person.planned_out_active) {
-    lines.push('Approved planned out');
+    lines.push('Out for planned out');
   }
   const rich = teamBoardStatusLabel(person);
   if (rich && rich !== lines[0]) lines.push(rich);

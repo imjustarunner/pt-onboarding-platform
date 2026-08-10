@@ -1,6 +1,6 @@
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
-import PlannedOut from '../models/PlannedOut.model.js';
+import PlannedOut, { isPlannedOutActiveNow } from '../models/PlannedOut.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import UserPresenceStatus from '../models/UserPresenceStatus.model.js';
 import {
@@ -9,9 +9,10 @@ import {
   DEFAULT_SCHEDULE_TZ,
   isValidTimeZone
 } from '../utils/zonedWallTime.util.js';
+import { plannedOutStatusLabel } from '../services/plannedOutPresence.service.js';
 
 function roleOf(req) {
-  return String(req.user?.role || '').toLowerCase();
+  return String(req.user?.effectiveRole || req.user?.role || '').toLowerCase();
 }
 
 function isManager(req) {
@@ -328,13 +329,40 @@ export const reviewPlannedOut = async (req, res, next) => {
     }
 
     const status = action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'revision';
-    const updated = await PlannedOut.updateById(row.id, {
+    const patch = {
       status,
-      adminComment: comment,
       reviewedByUserId: req.user.id,
       reviewedAt: asMysqlDateTime(new Date()),
       scheduleEventId: action === 'reject' ? null : row.schedule_event_id
-    });
+    };
+    if (action === 'reject' || action === 'revision') {
+      patch.adminComment = comment;
+    }
+    const updated = await PlannedOut.updateById(row.id, patch);
+
+    if (action === 'approve' && isPlannedOutActiveNow(updated)) {
+      const label = plannedOutStatusLabel(updated);
+      const richStatus =
+        updated.span_type === 'half_day' && String(updated.half_day_part || '').toLowerCase() === 'pm'
+          ? 'out_pm'
+          : updated.span_type === 'half_day'
+            ? 'out_am'
+            : updated.all_day
+              ? 'out_full_day'
+              : 'out_quick';
+      try {
+        await UserPresenceStatus.upsertForUser(row.user_id, {
+          status: richStatus,
+          reason: 'out_day',
+          display_label: label,
+          note: null,
+          expected_return_at: updated.end_at || null,
+          ends_at: updated.end_at || null
+        });
+      } catch {
+        /* presence columns may be unavailable on older DBs */
+      }
+    }
 
     if (action === 'reject') {
       const remaining = await PlannedOut.listActiveApprovedNowForAgency(row.agency_id, {

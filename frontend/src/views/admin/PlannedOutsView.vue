@@ -43,7 +43,7 @@
           <td class="details">{{ row.details || row.admin_comment || '—' }}</td>
           <td class="actions">
             <button v-if="canDelete(row)" type="button" class="link" @click="remove(row)">Delete</button>
-            <template v-if="canReview">
+            <template v-if="canReview && canReviewPlannedOut(row)">
               <button type="button" class="link" @click="review(row, 'approve')">Approve</button>
               <button type="button" class="link danger" @click="review(row, 'reject')">Reject</button>
               <button type="button" class="link warn" @click="review(row, 'revision')">Revise</button>
@@ -72,6 +72,7 @@ import PlannedOutModal from '../../components/admin/opsDashboard/PlannedOutModal
 import {
   PLANNED_OUT_COLUMNS,
   cellValue,
+  canReviewPlannedOut,
   loadColumnOrder,
   saveColumnOrder,
   statusLabel
@@ -157,11 +158,16 @@ async function review(row, action) {
     if (!comment.trim()) return;
   }
   try {
-    await api.post(
+    const res = await api.post(
       `/planned-outs/${row.id}/review`,
       { action, comment: comment.trim() || undefined },
       { skipGlobalLoading: true }
     );
+    const updated = res.data?.plannedOut;
+    if (updated?.id) {
+      const idx = items.value.findIndex((item) => Number(item.id) === Number(updated.id));
+      if (idx >= 0) items.value[idx] = { ...items.value[idx], ...updated };
+    }
     await load();
   } catch (e) {
     window.alert(e.response?.data?.error?.message || 'Review failed');

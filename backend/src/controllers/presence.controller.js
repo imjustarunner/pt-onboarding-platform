@@ -14,7 +14,11 @@ import {
   attachCalendarBusyToPresenceRows,
   getCurrentCalendarBusyForUser
 } from '../services/calendarPresence.service.js';
-import PlannedOut, { isPlannedOutActiveNow } from '../models/PlannedOut.model.js';
+import PlannedOut from '../models/PlannedOut.model.js';
+import {
+  attachPlannedOutsToPresenceRows,
+  plannedOutStatusLabel
+} from '../services/plannedOutPresence.service.js';
 
 /**
  * Chat / Messages presence (new model):
@@ -798,7 +802,7 @@ async function attachSharedAgencyMemberships(rows, viewerUserId, { viewerRole } 
   }
 }
 
-async function finalizeChatPresenceRows(rows, viewerUserId, viewerRole) {
+async function finalizeChatPresenceRows(rows, viewerUserId, viewerRole, agencyId = null) {
   // Best-effort: drop stale timed Away before mapping so directory/board stay current.
   try {
     await UserPresenceStatus.clearExpiredTimedAwayStatuses();
@@ -807,7 +811,9 @@ async function finalizeChatPresenceRows(rows, viewerUserId, viewerRole) {
   }
   const withSchools = await attachSchoolNames(rows);
   const withShared = await attachSharedAgencyMemberships(withSchools, viewerUserId, { viewerRole });
-  return attachCalendarBusyToPresenceRows(mapChatPresenceRows(withShared, viewerRole));
+  const mapped = mapChatPresenceRows(withShared, viewerRole);
+  const withPlannedOuts = await attachPlannedOutsToPresenceRows(mapped, agencyId);
+  return attachCalendarBusyToPresenceRows(withPlannedOuts, { preservePrimaryStatus: true });
 }
 
 function mapChatPresenceRows(rows, viewerRole) {
@@ -996,7 +1002,7 @@ export const listAgencyPresence = async (req, res, next) => {
       if (roleFilter) {
         rows = rows.filter((r) => String(r.role || '').toLowerCase() === roleFilter);
       }
-      return res.json(await finalizeChatPresenceRows(rows, req.user.id, viewerRole));
+      return res.json(await finalizeChatPresenceRows(rows, req.user.id, viewerRole, agencyId));
     }
 
     // Privileged "directory" toggle: school staff / other non-default roles by type.
@@ -1044,7 +1050,7 @@ export const listAgencyPresence = async (req, res, next) => {
           rows = Array.from(dedup.values());
         }
       }
-      return res.json(await finalizeChatPresenceRows(rows, req.user.id, viewerRole));
+      return res.json(await finalizeChatPresenceRows(rows, req.user.id, viewerRole, agencyId));
     }
 
     // Default: team employees only
@@ -1105,7 +1111,7 @@ export const listAgencyPresence = async (req, res, next) => {
     if (roleFilter) {
       rows = rows.filter((r) => String(r.role || '').toLowerCase() === roleFilter);
     }
-    res.json(await finalizeChatPresenceRows(rows, req.user.id, viewerRole));
+    res.json(await finalizeChatPresenceRows(rows, req.user.id, viewerRole, agencyId));
   } catch (e) {
     next(e);
   }
@@ -1286,47 +1292,6 @@ export const listPrivilegedPresence = async (req, res, next) => {
  * Super-admin: all users. Admin: agency-scoped when agency has presenceEnabled.
  * GET /api/presence (root) or GET /api/presence/agency/:agencyId
  */
-function availabilityBandFromPlannedOut(plannedOut) {
-  const avail = String(plannedOut?.availability || 'unavailable').toLowerCase();
-  return avail === 'available' ? 'away_reachable' : 'unavailable';
-}
-
-function plannedOutStatusLabel(plannedOut) {
-  const avail = String(plannedOut?.availability || 'unavailable').toLowerCase();
-  return avail === 'available' ? 'Planned out · available' : 'Planned out · unavailable';
-}
-
-function overlayPlannedOutsOnPresenceRows(rows, plannedOuts) {
-  if (!Array.isArray(rows) || !rows.length || !Array.isArray(plannedOuts) || !plannedOuts.length) {
-    return rows;
-  }
-  const now = new Date();
-  const activeByUser = new Map();
-  for (const po of plannedOuts) {
-    if (!isPlannedOutActiveNow(po, now)) continue;
-    const uid = Number(po.user_id);
-    if (!uid) continue;
-    const existing = activeByUser.get(uid);
-    if (!existing || String(po.availability || '').toLowerCase() !== 'available') {
-      activeByUser.set(uid, po);
-    }
-  }
-  if (!activeByUser.size) return rows;
-  return rows.map((person) => {
-    const po = activeByUser.get(Number(person.id));
-    if (!po) return person;
-    const band = availabilityBandFromPlannedOut(po);
-    const label = plannedOutStatusLabel(po);
-    return {
-      ...person,
-      availability_band: band,
-      status_label: label,
-      presence_display_label: label,
-      planned_out_active: true,
-      planned_out_id: po.id
-    };
-  });
-}
 
 const mapPresenceRows = (rows) => {
   return (rows || []).map((r) => {
@@ -1452,11 +1417,7 @@ async function mapPresenceRowsWithPlannedOuts(rows, agencyId) {
   const aid = Number(agencyId || 0);
   if (!aid) return mapped;
   try {
-    let withPlanned = mapped;
-    if (await PlannedOut.tableExists()) {
-      const plannedOuts = await PlannedOut.listActiveApprovedNowForAgency(aid);
-      withPlanned = overlayPlannedOutsOnPresenceRows(mapped, plannedOuts);
-    }
+    let withPlanned = await attachPlannedOutsToPresenceRows(mapped, aid);
     withPlanned = await healStalePlannedOutPresence(withPlanned, aid);
     return attachCalendarBusyToPresenceRows(withPlanned, { preservePrimaryStatus: true });
   } catch {
