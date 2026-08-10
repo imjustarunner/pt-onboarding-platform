@@ -209,7 +209,10 @@ import { useCommandPalette } from '../composables/useCommandPalette';
 import { useAskAssistant } from '../composables/useAskAssistant';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
+import { useBrandingStore } from '../store/branding';
+import { useSchoolPortalQuickNavCache } from '../composables/useSchoolPortalQuickNavCache';
 import { listNavForSurface, searchNav } from '../utils/navSearchIndex';
+import { canUseSchoolPortalQuickNav, searchSchoolPortalQuickNav } from '../utils/schoolPortalQuickNav';
 import {
   buildQuickNavContext,
   getAccessibleQuickNavEntries,
@@ -232,6 +235,9 @@ const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const brandingStore = useBrandingStore();
+const { schoolsRef: schoolPortalSchoolsRef, ensureCache: ensureSchoolPortalQuickNavCache } =
+  useSchoolPortalQuickNavCache();
 
 const { open, mode, seedQuery, closePalette, openPalette, setMode } = useCommandPalette();
 const { openAsk } = useAskAssistant();
@@ -256,6 +262,25 @@ const isAdminLike = computed(() =>
 const isProviderLike = computed(() =>
   ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'supervisor'].includes(roleNorm.value)
 );
+
+const schoolPortalQuickNavEligible = computed(() => {
+  const agency = agencyStore.currentAgency || {};
+  const pb = brandingStore.platformBranding || {};
+  return canUseSchoolPortalQuickNav({
+    role: authStore.user?.role,
+    agencyFeatureFlags: agency.feature_flags ?? agency.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
+  });
+});
+
+const schoolPortalNavResults = computed(() => {
+  if (!schoolPortalQuickNavEligible.value) return [];
+  const q = String(query.value || '').trim();
+  if (q.length < 2) return [];
+  return searchSchoolPortalQuickNav(q, schoolPortalSchoolsRef.value, { limit: 6 });
+});
 
 const quickNavCtx = computed(() => {
   const u = authStore.user;
@@ -312,6 +337,9 @@ const navResults = computed(() => {
     score: item.score
   }));
   for (const item of qn) {
+    if (!items.some((x) => x.id === item.id)) items.push(item);
+  }
+  for (const item of schoolPortalNavResults.value) {
     if (!items.some((x) => x.id === item.id)) items.push(item);
   }
   return items.sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 14);
@@ -384,6 +412,10 @@ watch(open, async (isOpen) => {
     query.value = '';
     pickerFocus.value = 0;
     return;
+  }
+  if (schoolPortalQuickNavEligible.value) {
+    const agencyId = agencyStore.currentAgency?.id;
+    if (agencyId) ensureSchoolPortalQuickNavCache(agencyId);
   }
   if (seedQuery.value) query.value = seedQuery.value;
   await nextTick();

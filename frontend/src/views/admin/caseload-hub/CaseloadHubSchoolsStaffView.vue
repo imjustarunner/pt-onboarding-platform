@@ -210,7 +210,7 @@
           <router-link
             v-if="schoolDetail.schoolSlug"
             class="btn btn-primary"
-            :to="`/${schoolDetail.schoolSlug}/school-portal`"
+            :to="`/${schoolDetail.schoolSlug}/dashboard`"
           >Open school portal</router-link>
           <router-link class="btn btn-secondary" :to="orgTo('/admin/caseload-hub/events')">School events</router-link>
           <button type="button" class="btn btn-secondary" @click="setTab('open-spots')">Open school spots</button>

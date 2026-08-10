@@ -516,9 +516,11 @@ import { useRouter, useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { useBrandingStore } from '../../store/branding';
 import { useSpeechToText } from '../../composables/useSpeechToText';
 import { useAssistantAgencyContext } from '../../composables/useAssistantAgencyContext';
 import { useAskAssistant } from '../../composables/useAskAssistant';
+import { useSchoolPortalQuickNavCache } from '../../composables/useSchoolPortalQuickNavCache';
 import { isSupervisor } from '../../utils/helpers.js';
 import { getMyDashboardPath, resolveAssistantNavigationPath } from '../../utils/router.js';
 import {
@@ -528,6 +530,7 @@ import {
   searchQuickNav
 } from '../../navigation/quickNavCatalog.js';
 import { searchNav as searchHubNav } from '../../utils/navSearchIndex.js';
+import { canUseSchoolPortalQuickNav, searchSchoolPortalQuickNav } from '../../utils/schoolPortalQuickNav.js';
 import { resolveCommandSurface } from '../../utils/resolveCommandSurface.js';
 
 const props = defineProps({
@@ -551,6 +554,9 @@ const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const brandingStore = useBrandingStore();
+const { schoolsRef: schoolPortalSchoolsRef, ensureCache: ensureSchoolPortalQuickNavCache } =
+  useSchoolPortalQuickNavCache();
 
 const {
   tenantOptions,
@@ -583,6 +589,26 @@ const isAdminLike = computed(() => ['admin', 'support', 'staff'].includes(roleNo
 const isProviderLike = computed(() =>
   ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'supervisor'].includes(roleNorm.value)
 );
+
+const schoolPortalQuickNavEligible = computed(() => {
+  const agency = agencyStore.currentAgency || {};
+  const pb = brandingStore.platformBranding || {};
+  return canUseSchoolPortalQuickNav({
+    role: authStore.user?.role,
+    agencyFeatureFlags: agency.feature_flags ?? agency.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      agency.tenant_available_agency_features_json ?? agency.tenantAvailableAgencyFeaturesJson
+  });
+});
+
+const schoolPortalNavResults = computed(() => {
+  if (effectiveSurfaceMode.value === 'ask') return [];
+  if (!schoolPortalQuickNavEligible.value) return [];
+  const q = String(prompt.value || '').trim();
+  if (q.length < 2 || looksLikeQuestion(q)) return [];
+  return searchSchoolPortalQuickNav(q, schoolPortalSchoolsRef.value, { limit: 5 });
+});
 
 const capabilityPayload = ref(null);
 const capabilityLoading = ref(false);
@@ -1110,8 +1136,11 @@ const quickNavGroups = computed(() => {
   if (looksLikeQuestion(q)) return [];
   const base = quickNavSearch.value.groups;
   const hub = hubNavResults.value;
-  if (!hub.length) return base;
-  return [{ group: 'hub', label: 'Pages', items: hub }, ...base];
+  const schools = schoolPortalNavResults.value;
+  const groups = [];
+  if (hub.length) groups.push({ group: 'hub', label: 'Pages', items: hub });
+  if (schools.length) groups.push({ group: 'school-portal', label: 'School Portals', items: schools });
+  return [...groups, ...base];
 });
 
 const quickNavFlat = computed(() => {
@@ -1120,7 +1149,8 @@ const quickNavFlat = computed(() => {
   if (looksLikeQuestion(q)) return [];
   const base = quickNavSearch.value.flat;
   const hub = hubNavResults.value;
-  return [...hub, ...base];
+  const schools = schoolPortalNavResults.value;
+  return [...hub, ...schools, ...base];
 });
 
 const quickNavPanelOpen = computed(
@@ -1873,6 +1903,10 @@ watch(
     }
     resetSessionEngagement();
     loadCapabilities();
+    if (schoolPortalQuickNavEligible.value) {
+      const agencyId = agencyStore.currentAgency?.id || selectedAgencyId.value;
+      if (agencyId) ensureSchoolPortalQuickNavCache(agencyId);
+    }
     if (!isEmbedded.value) {
       pinAssistantOpen();
       ensureAgencyOptionsLoaded().then(() => tryAutoSelectSingleTenant());
