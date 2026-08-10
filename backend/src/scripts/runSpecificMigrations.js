@@ -1,67 +1,46 @@
-import fs from 'fs';
+#!/usr/bin/env node
+/**
+ * DEPRECATED SHIM — do not execute raw migration SQL from here.
+ * Runs each file through database/run-migrations.js so migrations_log is respected.
+ */
+import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import pool from '../config/database.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SAFE_RUNNER = path.resolve(__dirname, '../../../database/run-migrations.js');
 
-const migrationsDir = path.join(__dirname, '../../../database/migrations');
-
-async function runSpecificMigrations(filenames) {
-  try {
-    for (const filename of filenames) {
-      const filePath = path.join(migrationsDir, filename);
-      if (!fs.existsSync(filePath)) {
-        console.error(`Migration file not found: ${filename}`);
-        continue;
-      }
-
-      console.log(`Running migration: ${filename}`);
-      const sql = fs.readFileSync(filePath, 'utf8');
-      
-      // Split by semicolons and execute each statement
-      const statements = sql.split(';').filter(s => s.trim().length > 0);
-      
-      for (const statement of statements) {
-        if (statement.trim()) {
-          try {
-            await pool.execute(statement.trim() + ';');
-          } catch (error) {
-            if (error.message.includes('already exists') || 
-                error.message.includes('Duplicate key') ||
-                error.message.includes('Duplicate column') ||
-                error.message.includes("doesn't exist") ||
-                error.message.includes('Unknown key') ||
-                error.message.includes('check that it exists') ||
-                error.message.includes('Duplicate entry')) {
-              console.log(`⚠️  Skipping (already handled): ${error.message}`);
-            } else {
-              console.error(`Error in ${filename}:`, error.message);
-              throw error;
-            }
-          }
-        }
-      }
-      
-      console.log(`✅ Completed: ${filename}`);
-    }
-    
-    console.log('✅ All specified migrations completed successfully');
-  } catch (error) {
-    console.error('❌ Migration failed:', error);
-    throw error;
-  } finally {
-    await pool.end();
-    process.exit(0);
-  }
-}
-
-// Get migrations from command line args
 const migrations = process.argv.slice(2);
 if (migrations.length === 0) {
-  console.error('Please specify migration files to run');
+  console.error('Usage: node src/scripts/runSpecificMigrations.js <migration.sql|N> [...]');
   process.exit(1);
 }
 
-runSpecificMigrations(migrations);
+console.warn(
+  '[deprecated] runSpecificMigrations.js is a shim — prefer `npm run migrate` for pending only.\n'
+);
+
+function runOne(spec) {
+  const needle = String(spec).replace(/\.sql$/i, '');
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [SAFE_RUNNER, `--migration=${needle}`],
+      { stdio: 'inherit', env: process.env }
+    );
+    child.on('exit', (code, signal) => {
+      if (signal) reject(new Error(`killed by ${signal}`));
+      else if (code === 0) resolve();
+      else reject(new Error(`migration ${needle} exited ${code}`));
+    });
+  });
+}
+
+for (const spec of migrations) {
+  try {
+    await runOne(spec);
+  } catch (err) {
+    console.error(err.message || err);
+    process.exit(1);
+  }
+}
