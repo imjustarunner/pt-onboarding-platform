@@ -181,7 +181,7 @@
           <DigitalFormActions
             :primary-label="beginIntakeButtonText"
             :primary-disabled="(requiresCaptchaAtStart && (!showRecaptchaWidget || !captchaToken)) || consentLoading"
-            :hint="tx('Press Enter ↵ to continue') || 'Press Enter ↵ to continue'"
+            :hint="t('pressEnterToContinue')"
             @primary="beginIntakeSession"
           />
           <div v-if="beginError" class="error" style="margin-top: 10px;">{{ beginError }}</div>
@@ -255,7 +255,7 @@
           :disclosure-context="disclosureContext"
           :link="link"
           :bound-client="boundClient"
-          :locale="inPageLocale || link?.language_code || 'en'"
+          :locale="intakeLocale"
           mode="standalone"
           @completed="handleSmartDisclosureCompleted"
         />
@@ -808,7 +808,7 @@
             :disclosure-context="disclosureContext"
             :link="link"
             :bound-client="boundClient"
-            :locale="inPageLocale || link?.language_code || 'en'"
+            :locale="intakeLocale"
             mode="embedded"
             @captured="handleEmbeddedDisclosureCaptured"
           />
@@ -819,7 +819,7 @@
         >
           <PacketSectionConsentFlow
             :section-context="packetSectionContextForStep(currentFlowStep)"
-            :locale="inPageLocale || link?.language_code || 'en'"
+            :locale="intakeLocale"
             @captured="handleEmbeddedPacketSectionCaptured"
           />
         </div>
@@ -2088,7 +2088,8 @@ const INTAKE_TRANSLATIONS = {
     draftRestored: 'Draft restored from this browser session (saved within the last hour).',
     beginSubtitleRegistration: 'Register for one program, class, or event from this secure link. Some links let you choose from multiple options.',
     beginSubtitleProgramEnrollment:
-      'Enroll in an individual program or service from this secure link. This is for becoming a client — not for signing up for a group class or dated event unless your provider included that here.'
+      'Enroll in an individual program or service from this secure link. This is for becoming a client — not for signing up for a group class or dated event unless your provider included that here.',
+    pressEnterToContinue: 'Press Enter ↵ to continue'
   },
   es: {
     loadingLink: 'Cargando enlace de admisión...',
@@ -2240,7 +2241,8 @@ const INTAKE_TRANSLATIONS = {
     restartConfirm: '¿Reiniciar esta admisión y borrar todos los campos?',
     endSessionConfirm: '¿Terminar esta sesión y borrar esta admisión de este navegador?',
     unableToStartSession: 'No se pudo iniciar una nueva sesión de admisión. Por favor intente de nuevo.',
-    dailyLimitReached: 'Se alcanzó el límite diario de inicio de admisión. Por favor intente mañana.'
+    dailyLimitReached: 'Se alcanzó el límite diario de inicio de admisión. Por favor intente mañana.',
+    pressEnterToContinue: 'Presione Enter ↵ para continuar'
   }
 };
 
@@ -2919,6 +2921,7 @@ const FLOW_STEP_PROGRESS_LABELS = {
   disclosure: 'Disclosure',
   packet_informed_group_consent: 'Informed + Group Consent',
   packet_policy_services: 'Policy & Services',
+  packet_hipaa_notice: 'HIPAA Notice',
   guardian_waiver: 'Waivers',
   insurance_info: 'Insurance',
   payment_collection: 'Payment',
@@ -2930,7 +2933,8 @@ const FLOW_STEP_PROGRESS_LABELS = {
 
 const PACKET_SECTION_STEP_TO_KEY = {
   packet_informed_group_consent: 'informed_group_consent',
-  packet_policy_services: 'policy_services'
+  packet_policy_services: 'policy_services',
+  packet_hipaa_notice: 'hipaa_notice'
 };
 
 const isPacketSectionStepType = (type) => Object.prototype.hasOwnProperty.call(
@@ -3104,6 +3108,7 @@ const flowSteps = computed(() => {
           || s?.type === 'disclosure'
           || s?.type === 'packet_informed_group_consent'
           || s?.type === 'packet_policy_services'
+          || s?.type === 'packet_hipaa_notice'
           || s?.type === 'registration'
           || s?.type === 'guardian_waiver'
           || s?.type === 'insurance_info'
@@ -3125,7 +3130,7 @@ const flowSteps = computed(() => {
         if (s.type === 'upload') return { ...s };
         if (s.type === 'school_roi') return { ...s };
         if (s.type === 'smart_disclosure' || s.type === 'disclosure') return { ...s };
-        if (s.type === 'packet_informed_group_consent' || s.type === 'packet_policy_services') return { ...s };
+        if (s.type === 'packet_informed_group_consent' || s.type === 'packet_policy_services' || s.type === 'packet_hipaa_notice') return { ...s };
         if (s.type === 'registration') return { ...s };
         if (s.type === 'guardian_waiver') return { ...s };
         if (s.type === 'insurance_info') return { ...s };
@@ -7582,6 +7587,7 @@ const packetSectionTitleForStep = (stepObj) => {
   const t = String(stepObj?.type || '').trim().toLowerCase();
   if (t === 'packet_informed_group_consent') return 'Informed Consent + Group Consent';
   if (t === 'packet_policy_services') return 'Policy and Services Agreement';
+  if (t === 'packet_hipaa_notice') return 'HIPAA Privacy Policy and Notice of Privacy Practices';
   return 'Agreement';
 };
 

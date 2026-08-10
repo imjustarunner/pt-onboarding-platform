@@ -45,33 +45,31 @@ const SECTION_HEADING_MAP = {
     ]
   },
   [PACKET_SECTION_KEYS.HIPAA_NOTICE]: {
-    // Last major legal section in the packet — runs through end of document,
-    // so no endExclusive boundary is needed.
-    start: ['HIPAA'],
+    start: [
+      'HIPAA Privacy Policy & Notice of Privacy Practices',
+      'Política de Privacidad de HIPAA y Aviso de Prácticas de Privacidad',
+      'Politica de Privacidad de HIPAA y Aviso de Practicas de Privacidad',
+      'HIPAA PRIVACY POLICY'
+    ],
     endExclusive: []
   }
 };
 
-/**
- * Finds the index of the first <h2> heading (searching from `fromIndex`)
- * whose text CONTAINS any of the given marker substrings (case-insensitive).
- * Substring matching (not exact-equals) so markers like "HIPAA" match real
- * headings such as "HIPAA Privacy Policy &amp; Notice of Privacy Practices".
- */
-function findHeadingIndex(html, headings, fromIndex = 0) {
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function findHeadingIndex(html, headings) {
   const source = String(html || '');
-  const h2Re = /<h2[^>]*>([\s\S]*?)<\/h2>/gi;
-  h2Re.lastIndex = Math.max(0, fromIndex);
-  let match;
-  while ((match = h2Re.exec(source))) {
-    const headingText = match[1].replace(/<[^>]+>/g, ' ').trim().toUpperCase();
-    for (const heading of headings || []) {
-      if (headingText.includes(String(heading).toUpperCase())) {
-        return match.index;
-      }
+  let best = -1;
+  for (const heading of headings || []) {
+    const re = new RegExp(`<h2[^>]*>\\s*${escapeRegExp(heading)}\\s*<\\/h2>`, 'i');
+    const match = re.exec(source);
+    if (match && (best < 0 || match.index < best)) {
+      best = match.index;
     }
   }
-  return -1;
+  return best;
 }
 
 /**
@@ -96,9 +94,15 @@ export function extractPacketSectionHtml(htmlContent, sectionKey) {
   }
 
   let end = html.length;
-  if (cfg.endExclusive?.length) {
-    const boundary = findHeadingIndex(html, cfg.endExclusive, start + 1);
-    if (boundary >= 0 && boundary < end) end = boundary;
+  for (const heading of cfg.endExclusive || []) {
+    const re = new RegExp(`<h2[^>]*>\\s*${escapeRegExp(heading)}\\s*<\\/h2>`, 'i');
+    const from = start + 1;
+    const slice = html.slice(from);
+    const match = re.exec(slice);
+    if (match) {
+      const abs = from + match.index;
+      if (abs < end) end = abs;
+    }
   }
 
   let slice = html.slice(start, end).trim();
@@ -140,8 +144,8 @@ export function sectionTitle(sectionKey, locale = 'en') {
   }
   if (sectionKey === PACKET_SECTION_KEYS.HIPAA_NOTICE) {
     return loc === 'es'
-      ? 'Política de Privacidad de HIPAA'
-      : 'HIPAA Privacy Policy & Notice of Privacy Practices';
+      ? 'Política de Privacidad de HIPAA y Aviso de Prácticas de Privacidad'
+      : 'HIPAA Privacy Policy and Notice of Privacy Practices';
   }
   return 'Packet Section';
 }

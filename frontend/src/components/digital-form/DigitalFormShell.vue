@@ -70,7 +70,7 @@
             </div>
             <div class="df-sidebar-spacer" />
             <div class="df-trust-list">
-              <div v-for="item in trustItems" :key="item.label" class="df-trust-item">
+              <div v-for="item in resolvedTrustItems" :key="item.icon" class="df-trust-item">
                 <span class="df-trust-icon" aria-hidden="true">
                   <svg v-if="item.icon === 'lock'" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>
                   <svg v-else-if="item.icon === 'check'" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-5"/></svg>
@@ -215,6 +215,21 @@ const props = defineProps({
 });
 
 defineEmits(['update:language']);
+
+const TRUST_LABEL_ES = {
+  'Your information is secure': 'Su información está segura',
+  'HIPAA Protected': 'Protegido por HIPAA',
+  'Only takes a few minutes': 'Solo toma unos minutos'
+};
+
+const resolvedTrustItems = computed(() => {
+  const isEs = String(props.language || 'en').toLowerCase().startsWith('es');
+  if (!isEs) return props.trustItems;
+  return props.trustItems.map(item => ({
+    ...item,
+    label: TRUST_LABEL_ES[item.label] || item.label
+  }));
+});
 
 const { shellVars, logoUrl, programTitle: themeProgramTitle } = useDigitalFormTheme(
   computed(() => props.branding)

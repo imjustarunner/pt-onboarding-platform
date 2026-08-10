@@ -73,16 +73,16 @@
       <div class="card two-section-col">
         <div class="card-header" style="display:flex; align-items:center; justify-content: space-between; gap: 10px;">
           <h3 style="margin:0;">Digital Forms</h3>
-          <div class="muted" style="font-size: 12px;">{{ intakeLinks.length }} item(s)</div>
+          <div class="muted" style="font-size: 12px;">{{ primaryDigitalFormLinks.length }} item(s)</div>
         </div>
 
         <div v-if="intakeLinksError" class="error" style="margin-top: 10px;">{{ intakeLinksError }}</div>
         <div v-else-if="loading" class="loading" style="margin-top: 10px;">Loading digital forms…</div>
-        <div v-else-if="!sortedDigitalFormLinks.length" class="empty-state" style="margin-top: 10px;">
+        <div v-else-if="!primaryDigitalFormLinks.length" class="empty-state" style="margin-top: 10px;">
           No digital forms assigned to this school yet.
         </div>
         <ul v-else class="digital-form-list">
-          <li v-for="l in sortedDigitalFormLinks" :key="l.id" class="digital-form-row">
+          <li v-for="l in primaryDigitalFormLinks" :key="l.id" class="digital-form-row">
             <div class="digital-form-row-main">
               <strong>{{ l.title || `Form #${l.id}` }}</strong>
               <span class="lang-badge" :class="`lang-badge-${langCodeOf(l)}`">{{ langCodeOf(l).toUpperCase() }}</span>
@@ -525,6 +525,15 @@ const sortedDigitalFormLinks = computed(() => {
     return String(a.title || '').localeCompare(String(b.title || ''));
   });
 });
+
+/**
+ * For the Hogwarts two-column panel only: show primary (English) links.
+ * Spanish forms are accessible via the language toggle on the English form,
+ * so we hide standalone Spanish links from this view to avoid duplication.
+ */
+const primaryDigitalFormLinks = computed(() =>
+  sortedDigitalFormLinks.value.filter((l) => langCodeOf(l) !== 'es')
+);
 
 const onPacketTemplateSaved = ({ version } = {}) => {
   const docsList = Array.isArray(docs.value) ? docs.value : [];

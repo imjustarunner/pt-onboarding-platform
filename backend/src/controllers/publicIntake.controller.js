@@ -163,13 +163,13 @@ async function persistPacketSectionFromIntakeData({
       response: sectionsPayload[PACKET_SECTION_KEYS.POLICY_SERVICES]
     });
   }
-  // Also accept flat keys for convenience
   if (sectionsPayload?.[PACKET_SECTION_KEYS.HIPAA_NOTICE]) {
     candidates.push({
       sectionKey: PACKET_SECTION_KEYS.HIPAA_NOTICE,
       response: sectionsPayload[PACKET_SECTION_KEYS.HIPAA_NOTICE]
     });
   }
+  // Also accept flat keys for convenience
   if (intakeData?.packetInformedGroupConsent) {
     candidates.push({
       sectionKey: PACKET_SECTION_KEYS.INFORMED_GROUP_CONSENT,

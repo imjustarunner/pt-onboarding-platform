@@ -171,7 +171,8 @@ const stepToggles = reactive({
   school_roi: true,
   smart_disclosure: true,
   packet_informed_group_consent: false,
-  packet_policy_services: false
+  packet_policy_services: false,
+  packet_hipaa_notice: false
 });
 const savingSteps = ref(false);
 const stepsMessage = ref('');
@@ -182,7 +183,8 @@ const stepToggleOptions = [
   { key: 'school_roi', label: 'School ROI', hint: 'programmed school release of information' },
   { key: 'smart_disclosure', label: 'Smart Disclosure', hint: 'living disclosure statement' },
   { key: 'packet_informed_group_consent', label: 'Informed + Group Consent', hint: 'live from packet template' },
-  { key: 'packet_policy_services', label: 'Policy & Services', hint: 'live from packet template' }
+  { key: 'packet_policy_services', label: 'Policy & Services', hint: 'live from packet template' },
+  { key: 'packet_hipaa_notice', label: 'HIPAA Notice', hint: 'live from packet template' }
 ];
 
 const orgSlug = computed(() => (typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : ''));
@@ -285,6 +287,7 @@ function syncTogglesFromLink(link) {
   stepToggles.smart_disclosure = types.has('smart_disclosure') || types.has('disclosure');
   stepToggles.packet_informed_group_consent = types.has('packet_informed_group_consent');
   stepToggles.packet_policy_services = types.has('packet_policy_services');
+  stepToggles.packet_hipaa_notice = types.has('packet_hipaa_notice');
 }
 
 async function loadSchools() {
@@ -357,6 +360,7 @@ function applyStepToggles(existingSteps) {
     if (t === 'smart_disclosure' || t === 'disclosure') return !!stepToggles.smart_disclosure;
     if (t === 'packet_informed_group_consent') return !!stepToggles.packet_informed_group_consent;
     if (t === 'packet_policy_services') return !!stepToggles.packet_policy_services;
+    if (t === 'packet_hipaa_notice') return !!stepToggles.packet_hipaa_notice;
     if (t === 'questions' || Array.isArray(s?.fields)) return !!stepToggles.questions;
     return true;
   });
@@ -379,6 +383,13 @@ function applyStepToggles(existingSteps) {
     steps.push({
       type: 'packet_policy_services',
       label: 'Policy and Services Agreement',
+      visibility: 'always'
+    });
+  }
+  if (stepToggles.packet_hipaa_notice && !hasType('packet_hipaa_notice')) {
+    steps.push({
+      type: 'packet_hipaa_notice',
+      label: 'HIPAA Privacy Policy and Notice of Privacy Practices',
       visibility: 'always'
     });
   }

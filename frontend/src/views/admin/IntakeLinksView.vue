@@ -696,6 +696,13 @@
                 >
                   + Add Policy &amp; Services
                 </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="addStep('packet_hipaa_notice')"
+                >
+                  + Add HIPAA Notice
+                </button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('upload')">+ Add Upload</button>
                 <button
                   v-if="form.formType === 'job_application'"
@@ -1805,6 +1812,13 @@
                 >
                   + Add Policy &amp; Services
                 </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="addStep('packet_hipaa_notice')"
+                >
+                  + Add HIPAA Notice
+                </button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('upload')">+ Add Upload</button>
                 <button
                   v-if="form.formType === 'job_application'"
@@ -2722,6 +2736,7 @@ const addOnPreviewItems = computed(() => ([
   { id: 'school_roi', label: '+ Add School ROI', description: 'Participant-facing school ROI preview.' },
   { id: 'packet_informed_group_consent', label: '+ Add Informed + Group Consent', description: 'Live packet section: Informed Consent + Group Consent.' },
   { id: 'packet_policy_services', label: '+ Add Policy & Services', description: 'Live packet section: Policy and Services Agreement.' },
+  { id: 'packet_hipaa_notice', label: '+ Add HIPAA Notice', description: 'Live packet section: HIPAA Privacy Policy and Notice of Privacy Practices.' },
   { id: 'upload', label: '+ Add Upload', description: 'Participant-facing file upload preview.' },
   { id: 'references', label: '+ Add References', description: 'Participant-facing references preview.' },
   { id: 'guardian_waiver', label: '+ Add Guardian waivers', description: 'Participant-facing guardian waiver preview.' },
@@ -3385,6 +3400,7 @@ const getStepTypeLabel = (t) => {
     school_roi: 'School ROI (Programmed)',
     packet_informed_group_consent: 'Informed + Group Consent (Packet)',
     packet_policy_services: 'Policy & Services (Packet)',
+    packet_hipaa_notice: 'HIPAA Notice (Packet)',
     upload: 'Upload',
     references: 'Professional references',
     guardian_waiver: 'Guardian waivers & safety',
@@ -5000,6 +5016,9 @@ const addStep = (type, options = {}) => {
     step.visibility = 'always';
   } else if (type === 'packet_policy_services') {
     step.label = 'Policy and Services Agreement';
+    step.visibility = 'always';
+  } else if (type === 'packet_hipaa_notice') {
+    step.label = 'HIPAA Privacy Policy and Notice of Privacy Practices';
     step.visibility = 'always';
   } else if (type === 'guardian_waiver') {
     step.label = 'Guardian waivers & safety';
