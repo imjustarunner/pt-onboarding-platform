@@ -21,6 +21,12 @@
               {{ initials(m) }}
             </span>
           </div>
+          <ProjectWorkspaceShareMenu
+            :share-url="shareUrl"
+            :current-tab="tab"
+            @print="onSharePrint"
+            @export="onShareExport"
+          />
           <button type="button" class="btn-edit" @click="showEdit = true">Edit</button>
         </div>
       </div>
@@ -403,6 +409,10 @@
                   :type-label-fn="taskTypeLabel"
                   @select="onOverviewTaskSelect"
                   @sort="toggleTaskSort"
+                  @open-assign="openAssignPopover"
+                  @open-status="openStatusPopover"
+                  @open-priority="openPriorityPopover"
+                  @open-due="openDuePopover"
                 />
               </div>
             </div>
@@ -440,6 +450,10 @@
               @toggle-select="toggleTaskSelect"
               @toggle-select-all="toggleSelectAllTasks"
               @sort="toggleTaskSort"
+              @open-assign="openAssignPopover"
+              @open-status="openStatusPopover"
+              @open-priority="openPriorityPopover"
+              @open-due="openDuePopover"
             />
           </div>
 
@@ -642,21 +656,44 @@
         :style="{ top: assignPopover.top + 'px', left: assignPopover.left + 'px' }"
       >
         <p class="pop__head">Assign to</p>
-        <button
-          v-for="m in (overview?.members || [])"
-          :key="m.user_id"
-          type="button"
-          class="pop__row"
-          :class="{ 'pop__row--active': assignPopover.task?.assigned_to_user_id === m.user_id }"
-          @mousedown.prevent="doAssign({ id: m.user_id, first_name: m.first_name, last_name: m.last_name })"
-        >
-          <span v-if="m.profile_photo_path" class="pop__avatar">
-            <img :src="m.profile_photo_path" :alt="m.first_name" />
-          </span>
-          <span v-else class="pop__initials">{{ (m.first_name?.[0] || '') + (m.last_name?.[0] || '') }}</span>
-          {{ m.first_name }} {{ m.last_name }}
-          <span class="pop__role">{{ m.role }}</span>
-        </button>
+        <template v-if="assignPopoverGroups.project.length">
+          <p class="pop__section">Project members</p>
+          <button
+            v-for="m in assignPopoverGroups.project"
+            :key="`p-${m.user_id}`"
+            type="button"
+            class="pop__row"
+            :class="{ 'pop__row--active': assignPopover.task?.assigned_to_user_id === m.user_id }"
+            @mousedown.prevent="doAssign(m)"
+          >
+            <span v-if="m.profile_photo_path" class="pop__avatar">
+              <img :src="m.profile_photo_path" :alt="m.first_name" />
+            </span>
+            <span v-else class="pop__initials">{{ (m.first_name?.[0] || '') + (m.last_name?.[0] || '') }}</span>
+            {{ m.first_name }} {{ m.last_name }}
+            <span class="pop__role">{{ m.role }}</span>
+          </button>
+        </template>
+        <template v-if="assignPopoverGroups.list.length">
+          <p class="pop__section">
+            Shared list<span v-if="assignPopoverGroups.listLabel"> · {{ assignPopoverGroups.listLabel }}</span>
+          </p>
+          <button
+            v-for="m in assignPopoverGroups.list"
+            :key="`l-${m.user_id}`"
+            type="button"
+            class="pop__row"
+            :class="{ 'pop__row--active': assignPopover.task?.assigned_to_user_id === m.user_id }"
+            @mousedown.prevent="doAssign(m)"
+          >
+            <span v-if="m.profile_photo_path" class="pop__avatar">
+              <img :src="m.profile_photo_path" :alt="m.first_name" />
+            </span>
+            <span v-else class="pop__initials">{{ (m.first_name?.[0] || '') + (m.last_name?.[0] || '') }}</span>
+            {{ m.first_name }} {{ m.last_name }}
+            <span class="pop__role">{{ m.role }}</span>
+          </button>
+        </template>
         <button
           v-if="assignPopover.task?.assigned_to_user_id"
           type="button"
@@ -665,7 +702,9 @@
         >
           Remove assignment
         </button>
-        <p v-if="!(overview?.members || []).length" class="pop__empty">No project members yet</p>
+        <p v-if="!assignPopoverGroups.project.length && !assignPopoverGroups.list.length" class="pop__empty">
+          No project or shared-list members found
+        </p>
       </div>
     </div>
 
@@ -786,14 +825,16 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import { formatDate } from '../utils/formatDate';
+import { exportProjectFull, printProjectScope } from '../utils/projectWorkspacePrint';
 import TaskDetailSidePanel from '../components/tasks/TaskDetailSidePanel.vue';
 import ProjectTaskTable from '../components/tasks/ProjectTaskTable.vue';
 import ProjectWhiteboard from '../components/tasks/ProjectWhiteboard.vue';
 import BulkActionBar from '../components/tasks/BulkActionBar.vue';
+import ProjectWorkspaceShareMenu from '../components/tasks/ProjectWorkspaceShareMenu.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -812,6 +853,7 @@ const overview = ref(null);
 const tasks = ref([]);
 const allLists = ref([]);
 const agencyUsers = ref([]);
+const listMembersByListId = ref({});
 const typeDefs = ref([]);
 
 // ─── Multi-select / bulk actions (Tasks tab) ─────────────────────────────
@@ -862,6 +904,8 @@ const editForm = reactive({
   existingListIds: []
 });
 
+const VALID_TABS = new Set(['overview', 'tasks', 'lists', 'documents', 'activity', 'whiteboard']);
+
 const tabs = [
   { id: 'overview', label: 'Overview' },
   { id: 'tasks', label: 'Tasks' },
@@ -870,6 +914,51 @@ const tabs = [
   { id: 'activity', label: 'Activity' },
   { id: 'whiteboard', label: 'Whiteboard' }
 ];
+
+const shareUrl = computed(() => {
+  const base = typeof window !== 'undefined' ? window.location.origin : '';
+  const path = `${orgPrefix.value}/tasks/projects/${projectId.value}`;
+  const q = tab.value && tab.value !== 'overview' ? `?tab=${encodeURIComponent(tab.value)}` : '';
+  return `${base}${path}${q}`;
+});
+
+const printSnapshot = computed(() => ({
+  project: project.value,
+  overview: overview.value,
+  tasks: (tasks.value || []).map((t) => ({
+    ...t,
+    assigneeLabel: assigneeName(t),
+    typeLabel: taskTypeLabel(t),
+    statusLabel: statusLabel(t.status),
+    priorityLabel: urgencyLabel(t.urgency)
+  })),
+  activity: activity.value,
+  whiteboards: whiteboards.value,
+  listMembersByListId: listMembersByListId.value,
+  healthStatus: healthStatus.value,
+  healthItems: healthItems.value,
+  upcomingDeadlines: upcomingDeadlines.value.map((t) => ({
+    ...t,
+    assigneeLabel: assigneeName(t),
+    statusLabel: statusLabel(t.status)
+  })),
+  priorityBars: priorityBars.value
+}));
+
+function onSharePrint(scope) {
+  printProjectScope(printSnapshot.value, scope);
+}
+
+function onShareExport() {
+  exportProjectFull(printSnapshot.value);
+}
+
+function syncTabToRoute(nextTab) {
+  const q = { ...route.query };
+  if (nextTab === 'overview') delete q.tab;
+  else q.tab = nextTab;
+  router.replace({ query: q }).catch(() => {});
+}
 
 const statusOptions = [
   { value: 'pending', label: 'Open' },
@@ -883,6 +972,48 @@ const assignPopover = reactive({ open: false, task: null, top: 0, left: 0 });
 const statusPopover = reactive({ open: false, task: null, top: 0, left: 0 });
 const priorityPopover = reactive({ open: false, task: null, top: 0, left: 0 });
 const duePopover = reactive({ open: false, task: null, top: 0, left: 0 });
+
+function assignCandidatesForTask(task) {
+  if (!task) return [];
+  const byId = new Map();
+  const add = (raw, source) => {
+    const userId = Number(raw?.user_id || raw?.id || 0);
+    if (!userId || byId.has(userId)) return;
+    byId.set(userId, {
+      user_id: userId,
+      id: userId,
+      first_name: raw?.first_name || '',
+      last_name: raw?.last_name || '',
+      role: raw?.role || '',
+      profile_photo_path: raw?.profile_photo_path || null,
+      source
+    });
+  };
+  for (const m of overview.value?.members || []) add(m, 'project');
+  const listId = Number(task.task_list_id || 0);
+  if (listId > 0) {
+    for (const m of listMembersByListId.value[listId] || []) add(m, 'list');
+  }
+  return Array.from(byId.values()).sort((a, b) =>
+    String(a.first_name || '').localeCompare(String(b.first_name || ''))
+      || String(a.last_name || '').localeCompare(String(b.last_name || ''))
+  );
+}
+
+const assignPopoverGroups = computed(() => {
+  const task = assignPopover.task;
+  const all = assignCandidatesForTask(task);
+  const listId = Number(task?.task_list_id || 0);
+  const listLabel =
+    task?.task_list_name
+    || overview.value?.lists?.find((l) => Number(l.id) === listId)?.name
+    || '';
+  return {
+    project: all.filter((m) => m.source === 'project'),
+    list: all.filter((m) => m.source === 'list'),
+    listLabel
+  };
+});
 
 // ── Whiteboards ──
 const whiteboards = ref([]);
@@ -1399,9 +1530,8 @@ async function doAssign(user) {
   const task = assignPopover.task;
   if (!task) return;
   try {
-    const userId = user ? Number(user.id) : null;
+    const userId = user ? Number(user.user_id || user.id) : null;
     await api.put(`/me/tasks/${task.id}`, { assigned_to_user_id: userId }, { skipGlobalLoading: true });
-    // Update in-place
     const t = tasks.value.find((t) => t.id === task.id);
     if (t) {
       t.assigned_to_user_id = userId;
@@ -1409,7 +1539,12 @@ async function doAssign(user) {
       t.assignee_last_name = user?.last_name || null;
     }
     if (selectedTask.value?.id === task.id) {
-      selectedTask.value = { ...selectedTask.value, assigned_to_user_id: userId };
+      selectedTask.value = {
+        ...selectedTask.value,
+        assigned_to_user_id: userId,
+        assignee_first_name: user?.first_name || null,
+        assignee_last_name: user?.last_name || null
+      };
     }
   } catch (e) {
     console.error('[ProjectWorkspace] doAssign:', e);
@@ -1498,6 +1633,27 @@ function syncEditForm() {
   editForm.actionIds = [];
 }
 
+async function loadListMembers() {
+  const lists = overview.value?.lists || [];
+  if (!lists.length) {
+    listMembersByListId.value = {};
+    return;
+  }
+  const entries = await Promise.all(
+    lists.map(async (l) => {
+      const listId = Number(l.id);
+      if (!listId) return [0, []];
+      try {
+        const { data } = await api.get(`/task-lists/${listId}`, { skipGlobalLoading: true });
+        return [listId, data?.members || []];
+      } catch {
+        return [listId, []];
+      }
+    })
+  );
+  listMembersByListId.value = Object.fromEntries(entries.filter(([id]) => id > 0));
+}
+
 async function loadAux() {
   const agencyId = project.value?.agency_id;
   try {
@@ -1545,7 +1701,7 @@ async function load() {
     clearTaskSelection();
 
     syncEditForm();
-    await Promise.all([loadAux(), loadActivity(), loadWhiteboards(), loadTypeDefs()]);
+    await Promise.all([loadAux(), loadListMembers(), loadActivity(), loadWhiteboards(), loadTypeDefs()]);
   } catch (e) {
     console.error(e);
   } finally {
@@ -1629,8 +1785,21 @@ async function saveEdit() {
   }
 }
 
+watch(tab, (next) => {
+  if (VALID_TABS.has(next)) syncTabToRoute(next);
+});
+
+watch(
+  () => route.query.tab,
+  (q) => {
+    const next = typeof q === 'string' && VALID_TABS.has(q) ? q : 'overview';
+    if (tab.value !== next) tab.value = next;
+  }
+);
+
 onMounted(() => {
-  if (route.query.tab) tab.value = route.query.tab;
+  const qTab = route.query.tab;
+  if (typeof qTab === 'string' && VALID_TABS.has(qTab)) tab.value = qTab;
   load();
   loadAllProjects();
 });
@@ -2998,6 +3167,16 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
   margin: 0 0 6px;
   padding: 0 6px;
 }
+.pop__section {
+  margin: 8px 0 4px;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.pop__section:first-of-type { margin-top: 0; }
 .pop__row {
   display: flex;
   align-items: center;

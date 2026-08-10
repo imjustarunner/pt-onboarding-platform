@@ -78,19 +78,74 @@
               <span v-if="task.task_list_name" class="ptt-list-chip">{{ task.task_list_name }}</span>
               <span v-else class="ptt-muted">—</span>
             </td>
-            <td class="ptt-td">
-              <span class="ptt-status" :class="`ptt-status--${task.status || 'pending'}`">
-                {{ statusLabel(task.status) }}
-              </span>
+            <td class="ptt-td ptt-td--quick" @click.stop>
+              <div class="ptt-quick">
+                <button
+                  type="button"
+                  class="ptt-quick__value ptt-status"
+                  :class="`ptt-status--${task.status || 'pending'}`"
+                  title="Change status"
+                  @click="$emit('open-status', $event, task)"
+                >
+                  {{ statusLabel(task.status) }}
+                </button>
+                <button
+                  type="button"
+                  class="ptt-plus"
+                  title="Change status"
+                  @click="$emit('open-status', $event, task)"
+                >±</button>
+              </div>
             </td>
-            <td v-if="!compact" class="ptt-td">
-              <span class="ptt-priority" :class="`ptt-priority--${task.urgency || 'none'}`">
-                {{ priorityLabel(task.urgency) }}
-              </span>
+            <td v-if="!compact" class="ptt-td ptt-td--quick" @click.stop>
+              <div class="ptt-quick">
+                <button
+                  type="button"
+                  class="ptt-quick__value ptt-priority"
+                  :class="`ptt-priority--${task.urgency || 'none'}`"
+                  title="Change priority"
+                  @click="$emit('open-priority', $event, task)"
+                >
+                  {{ priorityLabel(task.urgency) }}
+                </button>
+                <button
+                  type="button"
+                  class="ptt-plus"
+                  title="Change priority"
+                  @click="$emit('open-priority', $event, task)"
+                >±</button>
+              </div>
             </td>
-            <td v-if="!compact" class="ptt-td">{{ assigneeName(task) || '—' }}</td>
-            <td v-if="!compact" class="ptt-td" :class="{ 'ptt-overdue': isOverdue(task) }">
-              {{ task.due_date ? formatDate(task.due_date) : '—' }}
+            <td v-if="!compact" class="ptt-td ptt-td--quick" @click.stop>
+              <div class="ptt-quick">
+                <span class="ptt-quick__value ptt-assignee">{{ assigneeName(task) || '—' }}</span>
+                <button
+                  type="button"
+                  class="ptt-plus ptt-plus--always"
+                  :title="assigneeName(task) ? 'Change assignee' : 'Assign'"
+                  @click="$emit('open-assign', $event, task)"
+                >{{ assigneeName(task) ? '±' : '+' }}</button>
+              </div>
+            </td>
+            <td v-if="!compact" class="ptt-td ptt-td--quick" @click.stop>
+              <div class="ptt-quick">
+                <button
+                  type="button"
+                  class="ptt-quick__value"
+                  :class="{ 'ptt-overdue': isOverdue(task) }"
+                  :title="task.due_date ? 'Change due date' : 'Set due date'"
+                  @click="$emit('open-due', $event, task)"
+                >
+                  {{ task.due_date ? formatDate(task.due_date) : '—' }}
+                </button>
+                <button
+                  type="button"
+                  class="ptt-plus"
+                  :class="{ 'ptt-plus--always': !task.due_date }"
+                  :title="task.due_date ? 'Change due date' : 'Set due date'"
+                  @click="$emit('open-due', $event, task)"
+                >+</button>
+              </div>
             </td>
             <td v-if="!compact" class="ptt-td ptt-td--type">{{ typeLabel(task) }}</td>
           </tr>
@@ -118,7 +173,16 @@ const props = defineProps({
   typeLabelFn: { type: Function, default: null }
 });
 
-defineEmits(['select', 'toggle-select', 'toggle-select-all', 'sort']);
+defineEmits([
+  'select',
+  'toggle-select',
+  'toggle-select-all',
+  'sort',
+  'open-assign',
+  'open-status',
+  'open-priority',
+  'open-due'
+]);
 
 const colSpan = computed(() => {
   if (props.compact) return props.showCheckboxes ? 3 : 2;
@@ -218,6 +282,55 @@ function isOverdue(task) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ptt-td--quick { padding: 8px 10px; }
+.ptt-quick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+.ptt-quick__value {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.ptt-quick__value:hover { opacity: 0.85; }
+.ptt-assignee {
+  display: inline-block;
+  max-width: 140px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #334155;
+}
+.ptt-plus {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.ptt-row:hover .ptt-plus,
+.ptt-plus:focus-visible,
+.ptt-plus--always {
+  opacity: 1;
+}
+.ptt-plus:hover {
+  border-color: #0f766e;
+  color: #0f766e;
+  background: #ecfdf5;
 }
 .ptt-status {
   display: inline-block;
