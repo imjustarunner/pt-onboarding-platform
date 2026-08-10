@@ -138,11 +138,105 @@ function pickInfoValue(info, keys = []) {
   return '';
 }
 
+/**
+ * Disclosure packets only need graduate-level education: degree, school, and
+ * when (completed / expected). Strip GPAs, honors, dean's lists, minors, etc.
+ */
+export function formatDisclosureEducation(rawEducation) {
+  const raw = String(rawEducation || '').replace(/\r/g, '\n').trim();
+  if (!raw) return null;
+
+  const cleaned = raw
+    .replace(/\bGPA\s*[:#]?\s*\d+(\.\d+)?\b/gi, ' ')
+    .replace(/\bDeans?\s+Academic\s+Honor\s+List\b/gi, ' ')
+    .replace(/\bDean'?s\s+List\b/gi, ' ')
+    .replace(/\b(Cum\s+Laude|Magna\s+Cum\s+Laude|Summa\s+Cum\s+Laude|With\s+Honors?|Honor(?:s)?\s+Roll)\b/gi, ' ')
+    .replace(/\bMinor(?:s)?\s*:\s*[^\n|;]+/gi, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  const chunks = cleaned
+    .split(/\n+|(?<=\.)\s+(?=[A-Z])|(?<=\))\s+(?=[A-Z])/)
+    .map((s) => s.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  const mastersLike = chunks.filter((line) =>
+    /\b(master(?:'?s)?|masters|m\.?a\.?\b|m\.?s\.?\b|m\.?s\.?w\.?\b|m\.?ed\.?\b|graduate\s+program|grad(?:uate)?\s+program|in[- ]process)\b/i.test(line)
+  );
+
+  if (!mastersLike.length) {
+    // Prefer a compact master's sentence if the blob mentions one but line-splitting missed it.
+    const compact = cleaned.replace(/\s+/g, ' ').trim();
+    const masterSentence = compact.match(
+      /[^.]{0,120}\b(master(?:'?s)?|m\.?a\.?\b|m\.?s\.?\b|m\.?s\.?w\.?\b|m\.?ed\.?\b)[^.]{0,160}/i
+    );
+    return masterSentence ? masterSentence[0].trim() : null;
+  }
+
+  return mastersLike
+    .filter((line) => !/\b(high\s+school|secondary)\b/i.test(line))
+    .slice(0, 2)
+    .join(' · ');
+}
+
 function resolveProviderEducation(info, { role = '' } = {}) {
   const education = pickInfoValue(info, ['education_history', 'grad_program_info']);
-  if (education) return education;
+  const formatted = formatDisclosureEducation(education);
+  if (formatted) return formatted;
   if (String(role || '').toLowerCase() === 'intern') return 'In-Process';
   return null;
+}
+
+function isDisclosureEligibleUserStatus(status) {
+  const s = String(status || '').trim().toUpperCase();
+  if (!s) return true;
+  return !['ARCHIVED', 'PROSPECTIVE', 'INACTIVE_EMPLOYEE', 'TERMINATED_PENDING', 'PREHIRE_OPEN', 'PREHIRE_CLOSED', 'DENIED', 'WITHDRAWN'].includes(s);
+}
+
+const HOGWARTS_DEMO_FULL_NAMES = new Set([
+  'sirius black',
+  'alastor moody',
+  'kingsley shacklebolt',
+  'nymphadora tonks',
+  'severus snape',
+  'minerva mcgonagall',
+  'albus dumbledore',
+  'harry potter',
+  'hermione granger',
+  'ron weasley',
+  'rubeus hagrid',
+  'filius flitwick',
+  'pomona sprout',
+  'draco malfoy',
+  'luna lovegood',
+  'neville longbottom',
+  'remus lupin',
+  'dolores umbridge'
+]);
+
+function isHogwartsDemoIdentity(row = {}) {
+  const first = String(row.first_name || '').trim().toLowerCase();
+  const last = String(row.last_name || '').trim().toLowerCase();
+  const full = String(row.fullName || `${first} ${last}`).trim().toLowerCase().replace(/\s+/g, ' ');
+  const hay = [first, last, row.email, row.username, full]
+    .map((v) => String(v || '').toLowerCase())
+    .join(' ');
+  if (/\bhogwarts\b|\bdurmstrang\b|@hogwarts\.|@durmstrang\./i.test(hay)) return true;
+  if (HOGWARTS_DEMO_FULL_NAMES.has(full)) return true;
+  if (/^super\s*admin$|^admin\s*user$|^test\s*user$/i.test(full)) return true;
+  return false;
+}
+
+/** Exported for packet roster filtering. */
+export function isDemoPacketIdentity(row = {}) {
+  return isHogwartsDemoIdentity(row);
+}
+
+export function formatSupervisorTypeLabel(type) {
+  const raw = String(type || '').trim();
+  if (!raw) return 'Clinical';
+  return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
 }
 
 function resolveProviderTitle(row, info) {
@@ -312,21 +406,30 @@ async function loadUserInfoMap(userIds) {
   return map;
 }
 
-async function listDisclosureProviders({ agencyId, schoolOrganizationId, regulatoryBoardOverrides = {} }) {
+export async function listDisclosureProviders({ agencyId, schoolOrganizationId, regulatoryBoardOverrides = {} }) {
   const schoolId = Number(schoolOrganizationId || 0);
   const aid = Number(agencyId || 0);
   if (!aid) return [];
+
+  const activeUserClause = `
+    AND COALESCE(u.is_active, 1) = 1
+    AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+    AND UPPER(COALESCE(u.status, 'ACTIVE_EMPLOYEE')) NOT IN (
+      'ARCHIVED', 'PROSPECTIVE', 'INACTIVE_EMPLOYEE', 'TERMINATED_PENDING',
+      'PREHIRE_OPEN', 'PREHIRE_CLOSED', 'DENIED', 'WITHDRAWN'
+    )
+  `;
 
   const schoolProviders = [];
   if (schoolId) {
     try {
       const [rows] = await pool.execute(
-        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.credential, u.email, u.role, u.title
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.credential, u.email, u.role, u.title, u.status
          FROM provider_school_assignments psa
          JOIN users u ON u.id = psa.provider_user_id
          WHERE psa.school_organization_id = ?
            AND COALESCE(psa.is_active, 1) = 1
-           AND COALESCE(u.is_active, 1) = 1
+           ${activeUserClause}
          ORDER BY u.last_name ASC, u.first_name ASC`,
         [schoolId]
       );
@@ -339,12 +442,12 @@ async function listDisclosureProviders({ agencyId, schoolOrganizationId, regulat
   let agencyProviders = [];
   try {
     const [rows] = await pool.execute(
-      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.credential, u.email, u.role, u.title
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.credential, u.email, u.role, u.title, u.status
        FROM user_agencies ua
        JOIN users u ON u.id = ua.user_id
        WHERE ua.agency_id = ?
          AND COALESCE(ua.is_active, 1) = 1
-         AND COALESCE(u.is_active, 1) = 1
+         ${activeUserClause}
          AND LOWER(COALESCE(u.role, '')) IN ('provider', 'provider_plus', 'intern', 'supervisor', 'admin', 'super_admin')
        ORDER BY u.last_name ASC, u.first_name ASC`,
       [aid]
@@ -359,7 +462,8 @@ async function listDisclosureProviders({ agencyId, schoolOrganizationId, regulat
   for (const row of [...schoolProviders, ...agencyProviders]) {
     const id = Number(row.id);
     if (!id || seen.has(id)) continue;
-    seen.add(id);
+    if (!isDisclosureEligibleUserStatus(row.status)) continue;
+    if (isHogwartsDemoIdentity(row)) continue;
     ordered.push({ ...row, _schoolFirst: schoolProviders.some((s) => Number(s.id) === id) });
   }
 
@@ -370,13 +474,28 @@ async function listDisclosureProviders({ agencyId, schoolOrganizationId, regulat
     let supervisors = [];
     try {
       const assignments = await SupervisorAssignment.findBySupervisee(row.id, aid);
-      supervisors = (assignments || []).map((a) => ({
-        fullName: String(`${a.supervisor_first_name || a.first_name || ''} ${a.supervisor_last_name || a.last_name || ''}`).trim()
-          || String(a.supervisor_name || '').trim()
-          || 'Supervisor',
-        type: String(a.supervisor_type || a.type || 'clinical').trim(),
-        credential: String(a.supervisor_credential || a.credential || '').trim() || null
-      }));
+      supervisors = (assignments || [])
+        .filter((a) => {
+          const status = String(a.supervisor_status || a.status || '').toUpperCase();
+          const active = a.supervisor_is_active == null ? true : !!a.supervisor_is_active;
+          if (!active) return false;
+          if (status && !isDisclosureEligibleUserStatus(status)) return false;
+          const name = String(`${a.supervisor_first_name || ''} ${a.supervisor_last_name || ''}`).trim();
+          if (isHogwartsDemoIdentity({
+            first_name: a.supervisor_first_name,
+            last_name: a.supervisor_last_name,
+            email: a.supervisor_email,
+            fullName: name
+          })) return false;
+          return true;
+        })
+        .map((a) => ({
+          fullName: String(`${a.supervisor_first_name || a.first_name || ''} ${a.supervisor_last_name || a.last_name || ''}`).trim()
+            || String(a.supervisor_name || '').trim()
+            || 'Supervisor',
+          type: formatSupervisorTypeLabel(a.supervisor_type || a.type || 'clinical'),
+          credential: String(a.supervisor_credential || a.credential || '').trim() || null
+        }));
     } catch {
       supervisors = [];
     }

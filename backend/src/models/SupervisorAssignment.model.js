@@ -207,11 +207,19 @@ class SupervisorAssignment {
              u.last_name as supervisor_last_name,
              u.email as supervisor_email,
              u.role as supervisor_role,
+             u.status as supervisor_status,
+             u.is_active as supervisor_is_active,
              a.name as agency_name
       FROM supervisor_assignments sa
       INNER JOIN users u ON sa.supervisor_id = u.id
       INNER JOIN agencies a ON sa.agency_id = a.id
       WHERE sa.supervisee_id = ?
+        AND COALESCE(u.is_active, 1) = 1
+        AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+        AND UPPER(COALESCE(u.status, 'ACTIVE_EMPLOYEE')) NOT IN (
+          'ARCHIVED', 'PROSPECTIVE', 'INACTIVE_EMPLOYEE', 'TERMINATED_PENDING',
+          'PREHIRE_OPEN', 'PREHIRE_CLOSED', 'DENIED', 'WITHDRAWN'
+        )
     `;
     const params = [superviseeId];
 

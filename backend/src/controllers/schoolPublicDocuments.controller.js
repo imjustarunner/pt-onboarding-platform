@@ -6,6 +6,18 @@ import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import { isSupervisorActor, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
+import {
+  buildVirtualPrintablePacketDocument,
+  isSchoolPrintablePacketEnabled
+} from '../constants/schoolPrintablePacket.js';
+import {
+  buildSchoolPrintablePacketContext,
+  buildSchoolPrintablePacketHtml,
+  generateSchoolPrintablePacketPdf,
+  getSchoolPrintablePacketAvailability,
+  getSchoolPacketTemplateForOrganization,
+  saveSchoolPacketTemplateForOrganization
+} from '../services/schoolPrintablePacket.service.js';
 
 // Configure multer for memory storage (files will be uploaded to GCS or local fallback)
 const upload = multer({
@@ -189,7 +201,7 @@ async function ensureSupervisorReadOnlyWriteDenied(req) {
 export const listSchoolPublicDocuments = async (req, res, next) => {
   try {
     const { organizationId } = req.params;
-    const { sid } = await assertSchoolPortalAccess(req, organizationId);
+    const { sid, org } = await assertSchoolPortalAccess(req, organizationId);
 
     try {
       const [rows] = await pool.execute(
@@ -199,7 +211,27 @@ export const listSchoolPublicDocuments = async (req, res, next) => {
          ORDER BY updated_at DESC, id DESC`,
         [sid]
       );
-      res.json({ schoolOrganizationId: sid, documents: rows || [] });
+      const documents = Array.isArray(rows) ? [...rows] : [];
+      if (isSchoolPrintablePacketEnabled(org)) {
+        let templateVersion = null;
+        let templateUpdatedAt = null;
+        try {
+          const availability = await getSchoolPrintablePacketAvailability(sid);
+          if (availability?.available) {
+            templateVersion = availability.version;
+            templateUpdatedAt = availability.updatedAt || null;
+          }
+        } catch {
+          // ignore — still show the virtual doc with the default label
+        }
+        documents.unshift(buildVirtualPrintablePacketDocument({
+          schoolOrganizationId: sid,
+          org,
+          templateVersion,
+          updatedAt: templateUpdatedAt
+        }));
+      }
+      res.json({ schoolOrganizationId: sid, documents });
     } catch (e) {
       if (e?.code === 'ER_NO_SUCH_TABLE') {
         return res.status(400).json({ error: { message: 'Public documents are not enabled (missing school_public_documents table).' } });
@@ -454,6 +486,93 @@ export const deleteSchoolPublicDocument = async (req, res, next) => {
       conn.release();
     }
   } catch (e) {
+    next(e);
+  }
+};
+
+export const getSchoolPrintablePacketAvailabilityHandler = async (req, res, next) => {
+  try {
+    const { organizationId } = req.params;
+    await assertSchoolPortalAccess(req, organizationId);
+    const availability = await getSchoolPrintablePacketAvailability(organizationId);
+    res.json(availability);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const renderSchoolPrintablePacket = async (req, res, next) => {
+  try {
+    const { organizationId } = req.params;
+    await assertSchoolPortalAccess(req, organizationId);
+    const format = String(req.query?.format || 'pdf').trim().toLowerCase();
+    const locale = String(req.query?.locale || 'en').trim();
+    const packetContext = await buildSchoolPrintablePacketContext({ organizationId, locale });
+
+    if (format === 'html') {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(buildSchoolPrintablePacketHtml(packetContext));
+    }
+
+    const pdfBytes = await generateSchoolPrintablePacketPdf(packetContext);
+    const schoolSlug = String(packetContext?.organization?.slug || 'school').replace(/[^a-z0-9-]+/gi, '-');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${schoolSlug}-referral-packet-v${packetContext.version}.pdf"`
+    );
+    return res.send(Buffer.from(pdfBytes));
+  } catch (e) {
+    if (e?.statusCode) {
+      return res.status(e.statusCode).json({ error: { message: e.message } });
+    }
+    next(e);
+  }
+};
+
+function assertPacketTemplateEditorRole(req) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role !== 'super_admin' && role !== 'admin') {
+    const err = new Error('Only agency admins can edit the printable packet template');
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+export const getSchoolPrintablePacketTemplate = async (req, res, next) => {
+  try {
+    const { organizationId } = req.params;
+    await assertSchoolPortalAccess(req, organizationId);
+    assertPacketTemplateEditorRole(req);
+    const template = await getSchoolPacketTemplateForOrganization(organizationId);
+    res.json(template);
+  } catch (e) {
+    if (e?.statusCode || e?.status) {
+      return res.status(e.statusCode || e.status).json({ error: { message: e.message } });
+    }
+    next(e);
+  }
+};
+
+export const updateSchoolPrintablePacketTemplate = async (req, res, next) => {
+  try {
+    const { organizationId } = req.params;
+    await assertSchoolPortalAccess(req, organizationId);
+    assertPacketTemplateEditorRole(req);
+    const htmlContent = req.body?.html_content ?? req.body?.htmlContent;
+    if (htmlContent === undefined || htmlContent === null) {
+      return res.status(400).json({ error: { message: 'html_content is required' } });
+    }
+    const saved = await saveSchoolPacketTemplateForOrganization({
+      organizationId,
+      htmlContent,
+      actorUserId: req.user?.id || null
+    });
+    res.json(saved);
+  } catch (e) {
+    if (e?.statusCode || e?.status) {
+      return res.status(e.statusCode || e.status).json({ error: { message: e.message } });
+    }
     next(e);
   }
 };

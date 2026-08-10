@@ -1,5 +1,13 @@
 <template>
   <div class="public-docs">
+    <SchoolPacketTemplateEditor
+      v-if="showPacketEditor"
+      :school-organization-id="schoolOrganizationId"
+      @close="showPacketEditor = false"
+      @saved="onPacketTemplateSaved"
+    />
+
+    <template v-else>
     <div class="public-docs-header">
       <div>
         <h2 style="margin:0;">Docs / Links</h2>
@@ -164,7 +172,10 @@
                 <template v-else>
                   <strong>{{ d.title || d.original_filename || `Document #${d.id}` }}</strong>
                   <div class="muted" style="font-size: 12px; margin-top: 2px;">
-                    <span v-if="String(d.kind || '').toLowerCase() === 'link'">{{ d.link_url || '—' }}</span>
+                    <span v-if="isSmartPrintablePacket(d)">
+                      Auto-generated from live school data · Version {{ d.packet_version || '1.15' }}
+                    </span>
+                    <span v-else-if="String(d.kind || '').toLowerCase() === 'link'">{{ d.link_url || '—' }}</span>
                     <span v-else>{{ d.original_filename || '—' }}</span>
                   </div>
                 </template>
@@ -185,6 +196,41 @@
               </td>
               <td class="muted">{{ formatDate(d.updated_at) }}</td>
               <td class="right">
+                <template v-if="isSmartPrintablePacket(d)">
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    @click="openSmartPacket(d)"
+                    :disabled="smartPacketLoading"
+                  >
+                    View
+                  </button>
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    @click="printSmartPacket(d)"
+                    :disabled="smartPacketLoading"
+                  >
+                    {{ smartPacketLoading ? 'Preparing…' : 'Print' }}
+                  </button>
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    @click="downloadSmartPacket(d)"
+                    :disabled="smartPacketLoading"
+                  >
+                    Download
+                  </button>
+                  <button
+                    v-if="canEditPacketTemplate"
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    @click="showPacketEditor = true"
+                  >
+                    Edit
+                  </button>
+                </template>
+                <template v-else>
                 <a
                   v-if="String(d.kind || '').toLowerCase() === 'link' && d.link_url"
                   class="btn btn-secondary btn-sm"
@@ -270,6 +316,7 @@
                 >
                   {{ deletingId === d.id ? 'Deleting…' : 'Delete' }}
                 </button>
+                </template>
               </td>
             </tr>
           </tbody>
@@ -300,19 +347,27 @@
         </div>
       </div>
     </div>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import api from '../../../services/api';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
 import { buildPublicIntakeUrl } from '../../../utils/publicIntakeUrl';
 import QRCode from 'qrcode';
+import { useAuthStore } from '../../../store/auth';
+import SchoolPacketTemplateEditor from './SchoolPacketTemplateEditor.vue';
 
 const props = defineProps({
   schoolOrganizationId: { type: [Number, String], required: true }
 });
+
+const authStore = useAuthStore();
+const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const canEditPacketTemplate = computed(() => roleNorm.value === 'super_admin' || roleNorm.value === 'admin');
+const showPacketEditor = ref(false);
 
 const docs = ref([]);
 const loading = ref(false);
@@ -341,6 +396,19 @@ const editDraft = ref({ title: '', categoryKey: '' });
 const savingId = ref(null);
 const replacingId = ref(null);
 const deletingId = ref(null);
+const smartPacketLoading = ref(false);
+
+const SMART_PRINTABLE_PACKET_KIND = 'system_printable_packet';
+
+const onPacketTemplateSaved = ({ version } = {}) => {
+  const docsList = Array.isArray(docs.value) ? docs.value : [];
+  for (const d of docsList) {
+    if (isSmartPrintablePacket(d) && version != null) {
+      d.packet_version = String(version);
+      d.updated_at = new Date().toISOString();
+    }
+  }
+};
 
 const formatDate = (iso) => {
   const s = String(iso || '').trim();
@@ -360,16 +428,139 @@ const formatCategory = (k) => {
   if (v === 'district_calendar') return 'District calendar';
   if (v === 'school_calendar') return 'School calendar';
   if (v === 'bell_schedule') return 'Bell schedule';
+  if (v === 'referral_packet') return 'Referral packet';
   return v;
 };
 
-const openPrintWindow = ({ url, title }) => {
+const isSmartPrintablePacket = (d) => String(d?.kind || '').toLowerCase() === SMART_PRINTABLE_PACKET_KIND;
+
+const openPopupWithLoading = (message = 'Generating packet…') => {
+  const popup = window.open('about:blank', '_blank');
+  if (!popup) return null;
+  try {
+    popup.document.write(`<!doctype html><html><head><meta charset="utf-8" /><title>Preparing packet</title></head><body style="font-family:system-ui,-apple-system,sans-serif;padding:24px;color:#374151;"><p>${message}</p></body></html>`);
+    popup.document.close();
+  } catch {
+    // ignore
+  }
+  return popup;
+};
+
+const showPopupError = (popup, message) => {
+  if (!popup || popup.closed) return;
+  try {
+    popup.document.body.innerHTML = `<p style="font-family:system-ui,-apple-system,sans-serif;padding:24px;color:#b91c1c;">${String(message || 'Failed to open packet').replace(/</g, '&lt;')}</p>`;
+  } catch {
+    try { popup.close(); } catch { /* ignore */ }
+  }
+};
+
+const normalizePacketBlob = async (blob) => {
+  if (!blob || blob.size === 0) {
+    throw new Error('The server returned an empty packet.');
+  }
+  const type = String(blob.type || '').toLowerCase();
+  if (type.includes('json') || (type.includes('text') && !type.includes('pdf'))) {
+    const text = await blob.text();
+    let message = 'Failed to generate printable packet';
+    try {
+      const parsed = JSON.parse(text);
+      message = parsed?.error?.message || parsed?.message || message;
+    } catch {
+      if (text.trim()) message = text.trim().slice(0, 240);
+    }
+    throw new Error(message);
+  }
+  return blob;
+};
+
+const fetchSmartPacketBlob = async () => {
+  const res = await api.get(`/school-portal/${props.schoolOrganizationId}/printable-packet`, {
+    params: { _ts: Date.now() },
+    responseType: 'blob',
+    timeout: 120000
+  });
+  return normalizePacketBlob(res.data);
+};
+
+const openSmartPacket = async () => {
+  const popup = openPopupWithLoading('Generating your school referral packet…');
+  if (!popup) {
+    error.value = 'Pop-up blocked. Allow pop-ups for this site, then try View again.';
+    return;
+  }
+
+  try {
+    smartPacketLoading.value = true;
+    error.value = '';
+    const blob = await fetchSmartPacketBlob();
+    const url = URL.createObjectURL(blob);
+    popup.location.replace(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+  } catch (e) {
+    const message = e?.message || e?.response?.data?.error?.message || 'Failed to open printable packet';
+    showPopupError(popup, message);
+    error.value = message;
+  } finally {
+    smartPacketLoading.value = false;
+  }
+};
+
+const printSmartPacket = async (d) => {
+  const popup = openPopupWithLoading('Preparing packet for print…');
+  if (!popup) {
+    error.value = 'Pop-up blocked. Allow pop-ups for this site, then try Print again.';
+    return;
+  }
+
+  try {
+    smartPacketLoading.value = true;
+    error.value = '';
+    const blob = await fetchSmartPacketBlob();
+    const url = URL.createObjectURL(blob);
+    openPrintWindow({
+      url,
+      title: d?.title || 'School Referral Packet',
+      existingWindow: popup
+    });
+    window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+  } catch (e) {
+    const message = e?.message || e?.response?.data?.error?.message || 'Failed to prepare printable packet';
+    showPopupError(popup, message);
+    error.value = message;
+  } finally {
+    smartPacketLoading.value = false;
+  }
+};
+
+const downloadSmartPacket = async (d) => {
+  try {
+    smartPacketLoading.value = true;
+    error.value = '';
+    const blob = await fetchSmartPacketBlob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${String(d?.title || 'school-referral-packet').replace(/[^\w.-]+/g, '-')}.pdf`;
+    a.rel = 'noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) {
+    error.value = e?.message || e?.response?.data?.error?.message || 'Failed to download printable packet';
+  } finally {
+    smartPacketLoading.value = false;
+  }
+};
+
+const openPrintWindow = ({ url, title, existingWindow = null }) => {
   const href = String(url || '').trim();
   if (!href) return;
 
   // Same-origin wrapper so users can print PDFs/images reliably.
   // For cross-origin links that block iframes, the user can still click Open.
-  const w = window.open('', '_blank', 'noopener,noreferrer');
+  const w = existingWindow || window.open('', '_blank', 'noopener,noreferrer');
   if (!w) return;
 
   const safeTitle = String(title || 'Document')
@@ -459,6 +650,7 @@ const isGoogleDocsOrDriveLink = (d) => {
 };
 
 const canPrintItem = (d) => {
+  if (isSmartPrintablePacket(d)) return true;
   // Printing Google Docs/Drive share links is unreliable (formatting/scale).
   // For these, we only allow Open and let the user print from Google.
   if (isGoogleDocsOrDriveLink(d)) return false;

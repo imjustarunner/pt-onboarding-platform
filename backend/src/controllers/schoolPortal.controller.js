@@ -3083,7 +3083,7 @@ const normalizeEmail = (value) => {
 async function getSchoolContactRowsByOrg(orgId) {
   try {
     const [rows] = await pool.execute(
-      `SELECT id, email, is_primary, is_school_admin, is_scheduler
+      `SELECT id, email, role_title, is_primary, is_school_admin, is_scheduler
        FROM school_contacts
        WHERE school_organization_id = ?`,
       [orgId]
@@ -3093,7 +3093,7 @@ async function getSchoolContactRowsByOrg(orgId) {
     if (err?.code !== 'ER_BAD_FIELD_ERROR' && err?.code !== 'ER_NO_SUCH_TABLE') throw err;
     try {
       const [rows] = await pool.execute(
-        `SELECT id, email, is_primary, 0 AS is_school_admin, 0 AS is_scheduler
+        `SELECT id, email, NULL AS role_title, is_primary, 0 AS is_school_admin, 0 AS is_scheduler
          FROM school_contacts
          WHERE school_organization_id = ?`,
         [orgId]
@@ -3113,6 +3113,7 @@ async function getSchoolStaffRoleFlagsForOrg(orgId) {
     if (!email) continue;
     byEmail.set(email, {
       contactId: Number(r?.id || 0) || null,
+      roleTitle: String(r?.role_title || '').trim() || null,
       isPrimary: Number(r?.is_primary || 0) === 1,
       isSchoolAdmin: Number(r?.is_school_admin || 0) === 1 || Number(r?.is_primary || 0) === 1,
       isScheduler: Number(r?.is_scheduler || 0) === 1
@@ -3153,7 +3154,14 @@ async function isSchedulerSchoolStaff({ userId, role, actorEmail, orgId }) {
   return flags.isScheduler === true;
 }
 
-async function upsertSchoolContactRoleFlags({ orgId, email, fullName = null, isSchoolAdmin, isScheduler }) {
+async function upsertSchoolContactRoleFlags({
+  orgId,
+  email,
+  fullName = null,
+  isSchoolAdmin,
+  isScheduler,
+  roleTitle = undefined
+}) {
   const normalized = normalizeEmail(email);
   if (!normalized) return;
   const conn = await pool.getConnection();
@@ -3166,6 +3174,9 @@ async function upsertSchoolContactRoleFlags({ orgId, email, fullName = null, isS
        LIMIT 1`,
       [orgId, normalized]
     );
+    const normalizedRoleTitle = roleTitle !== undefined
+      ? (String(roleTitle || '').trim() || null)
+      : undefined;
     if (existingRows?.length) {
       const row = existingRows[0];
       const updates = [];
@@ -3182,6 +3193,10 @@ async function upsertSchoolContactRoleFlags({ orgId, email, fullName = null, isS
         updates.push('is_scheduler = ?');
         values.push(isScheduler ? 1 : 0);
       }
+      if (normalizedRoleTitle !== undefined) {
+        updates.push('role_title = ?');
+        values.push(normalizedRoleTitle);
+      }
       if (updates.length) {
         updates.push('updated_at = CURRENT_TIMESTAMP');
         values.push(row.id, orgId);
@@ -3194,8 +3209,15 @@ async function upsertSchoolContactRoleFlags({ orgId, email, fullName = null, isS
       await conn.execute(
         `INSERT INTO school_contacts
           (school_organization_id, full_name, email, role_title, notes, is_primary, is_school_admin, is_scheduler)
-         VALUES (?, ?, ?, NULL, NULL, 0, ?, ?)`,
-        [orgId, fullName || null, normalized, isSchoolAdmin ? 1 : 0, isScheduler ? 1 : 0]
+         VALUES (?, ?, ?, ?, NULL, 0, ?, ?)`,
+        [
+          orgId,
+          fullName || null,
+          normalized,
+          normalizedRoleTitle !== undefined ? normalizedRoleTitle : null,
+          isSchoolAdmin ? 1 : 0,
+          isScheduler ? 1 : 0
+        ]
       );
     }
     await conn.commit();
@@ -3282,6 +3304,7 @@ export const listSchoolStaff = async (req, res, next) => {
       const emailNorm = normalizeEmail(r.email);
       const flags = roleFlagsByEmail.get(emailNorm) || {
         contactId: null,
+        roleTitle: null,
         isPrimary: false,
         isSchoolAdmin: false,
         isScheduler: false
@@ -3312,6 +3335,7 @@ export const listSchoolStaff = async (req, res, next) => {
         is_primary: flags.isPrimary,
         is_school_admin: flags.isSchoolAdmin,
         is_scheduler: flags.isScheduler,
+        role_title: flags.roleTitle || null,
         school_contact_id: flags.contactId || null
       };
     });
@@ -3606,6 +3630,7 @@ export const addSchoolStaff = async (req, res, next) => {
     const email = emailRaw ? String(emailRaw).trim().toLowerCase() : '';
     const assignSchoolAdmin = req.body?.isSchoolAdmin === true;
     const assignScheduler = req.body?.isScheduler === true;
+    const roleTitle = req.body?.roleTitle !== undefined ? String(req.body.roleTitle || '').trim() : undefined;
     if (!email || !email.includes('@')) {
       return res.status(400).json({ error: { message: 'Invalid email address' } });
     }
@@ -3678,7 +3703,8 @@ export const addSchoolStaff = async (req, res, next) => {
       email,
       fullName: fullName || `${user.first_name || ''} ${user.last_name || ''}`.trim() || null,
       isSchoolAdmin: assignSchoolAdmin,
-      isScheduler: assignScheduler
+      isScheduler: assignScheduler,
+      roleTitle: roleTitle !== undefined ? roleTitle : undefined
     });
 
     const setupLink = await User.generatePasswordlessToken(user.id, 24 * 7, 'setup');
@@ -3842,6 +3868,7 @@ export const updateSchoolStaff = async (req, res, next) => {
     const firstName = req.body?.firstName !== undefined ? String(req.body.firstName || '').trim() : undefined;
     const lastName = req.body?.lastName !== undefined ? String(req.body.lastName || '').trim() : undefined;
     const email = req.body?.email !== undefined ? String(req.body.email || '').trim().toLowerCase() : undefined;
+    const roleTitle = req.body?.roleTitle !== undefined ? String(req.body.roleTitle || '').trim() : undefined;
     if (email !== undefined && (!email || !email.includes('@'))) {
       return res.status(400).json({ error: { message: 'Invalid email address' } });
     }
@@ -3858,10 +3885,11 @@ export const updateSchoolStaff = async (req, res, next) => {
     const nextIsSchoolAdmin = req.body?.isSchoolAdmin;
     const nextIsScheduler = req.body?.isScheduler;
     const hasRoleFlagUpdate = typeof nextIsSchoolAdmin === 'boolean' || typeof nextIsScheduler === 'boolean';
+    const hasRoleTitleUpdate = roleTitle !== undefined;
 
     const oldEmail = user.email ? String(user.email).trim().toLowerCase() : '';
     const newEmail = email || oldEmail;
-    if (newEmail && (updates.email !== undefined || updates.firstName !== undefined || updates.lastName !== undefined || hasRoleFlagUpdate)) {
+    if (newEmail && (updates.email !== undefined || updates.firstName !== undefined || updates.lastName !== undefined || hasRoleFlagUpdate || hasRoleTitleUpdate)) {
       try {
         const fullName =
           updates.firstName !== undefined || updates.lastName !== undefined
@@ -3877,7 +3905,8 @@ export const updateSchoolStaff = async (req, res, next) => {
           email: newEmail,
           fullName: fullName || `${user.first_name || ''} ${user.last_name || ''}`.trim() || null,
           isSchoolAdmin: typeof nextIsSchoolAdmin === 'boolean' ? nextIsSchoolAdmin : currentFlags.isSchoolAdmin,
-          isScheduler: typeof nextIsScheduler === 'boolean' ? nextIsScheduler : currentFlags.isScheduler
+          isScheduler: typeof nextIsScheduler === 'boolean' ? nextIsScheduler : currentFlags.isScheduler,
+          roleTitle: hasRoleTitleUpdate ? roleTitle : undefined
         });
       } catch (e) {
         if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;

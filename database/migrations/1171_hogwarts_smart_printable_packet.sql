@@ -1,0 +1,3 @@
+-- Migration 1171: Hogwarts smart printable school referral packet (demo preview)
+-- The packet is generated on demand via /school-portal/:id/printable-packet and appears
+-- as a virtual Docs / Links library item for Hogwarts only (no stored file row required).

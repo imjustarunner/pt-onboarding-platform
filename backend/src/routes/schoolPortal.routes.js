@@ -90,7 +90,11 @@ import {
   createSchoolPublicDocument,
   updateSchoolPublicDocumentMeta,
   replaceSchoolPublicDocumentFile,
-  deleteSchoolPublicDocument
+  deleteSchoolPublicDocument,
+  getSchoolPrintablePacketAvailabilityHandler,
+  renderSchoolPrintablePacket,
+  getSchoolPrintablePacketTemplate,
+  updateSchoolPrintablePacketTemplate
 } from '../controllers/schoolPublicDocuments.controller.js';
 import {
   listSchoolPortalIntakeLinks,
@@ -189,6 +193,10 @@ router.post('/:organizationId/intake-links/create', authenticate, createSchoolPo
 router.post('/:organizationId/intake-links/duplicate-from', authenticate, duplicateSchoolPortalIntakeLinkFrom);
 router.get('/:organizationId/intake-links', authenticate, listSchoolPortalIntakeLinks);
 router.get('/:organizationId/public-documents', authenticate, listSchoolPublicDocuments);
+router.get('/:organizationId/printable-packet/availability', authenticate, getSchoolPrintablePacketAvailabilityHandler);
+router.get('/:organizationId/printable-packet/template', authenticate, getSchoolPrintablePacketTemplate);
+router.put('/:organizationId/printable-packet/template', authenticate, updateSchoolPrintablePacketTemplate);
+router.get('/:organizationId/printable-packet', authenticate, renderSchoolPrintablePacket);
 router.post('/:organizationId/public-documents', authenticate, createSchoolPublicDocument);
 router.put('/:organizationId/public-documents/:documentId', authenticate, updateSchoolPublicDocumentMeta);
 router.put('/:organizationId/public-documents/:documentId/file', authenticate, replaceSchoolPublicDocumentFile);

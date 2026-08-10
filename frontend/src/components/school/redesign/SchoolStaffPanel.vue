@@ -252,6 +252,13 @@
             <input v-model="addEmail" type="email" placeholder="e.g., jane@school.org" />
           </div>
         </label>
+        <label class="ssp-field">
+          <span>Title (optional)</span>
+          <div class="ssp-input-wrap">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M8 7v10M16 7v10M6 17h4M14 17h4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
+            <input v-model="addRoleTitle" type="text" placeholder="e.g., Special Education Director" />
+          </div>
+        </label>
         <label class="ssp-field ssp-field-role">
           <span>Access role</span>
           <select v-model="addAccessRole" class="ssp-select">
@@ -362,6 +369,10 @@
           <label class="ssp-field">
             <span>Email</span>
             <input v-model="editForm.email" class="ssp-plain-input" type="email" placeholder="Email" />
+          </label>
+          <label class="ssp-field">
+            <span>Title</span>
+            <input v-model="editForm.roleTitle" class="ssp-plain-input" type="text" placeholder="e.g., Special Education Director" />
           </label>
           <div class="ssp-modal-actions">
             <button class="ssp-btn ssp-btn-primary" type="button" :disabled="savingEdit" @click="saveEdit">
@@ -486,13 +497,14 @@ const success = ref('');
 const adding = ref(false);
 const addName = ref('');
 const addEmail = ref('');
+const addRoleTitle = ref('');
 const addAccessRole = ref('standard');
 const addSuccess = ref('');
 const addFormRef = ref(null);
 
 const showEditModal = ref(false);
 const editTarget = ref(null);
-const editForm = ref({ firstName: '', lastName: '', email: '' });
+const editForm = ref({ firstName: '', lastName: '', email: '', roleTitle: '' });
 const savingEdit = ref(false);
 const settingPrimaryId = ref(null);
 const settingSchedulerId = ref(null);
@@ -791,7 +803,8 @@ const openEdit = (u) => {
   editForm.value = {
     firstName: u.first_name || '',
     lastName: u.last_name || '',
-    email: u.email || ''
+    email: u.email || '',
+    roleTitle: u.role_title || ''
   };
   showEditModal.value = true;
 };
@@ -817,6 +830,7 @@ const saveEdit = async () => {
   const firstName = String(editForm.value.firstName || '').trim();
   const lastName = String(editForm.value.lastName || '').trim();
   const email = String(editForm.value.email || '').trim().toLowerCase();
+  const roleTitle = String(editForm.value.roleTitle || '').trim();
   if (!email || !email.includes('@')) {
     error.value = 'Please enter a valid email address.';
     return;
@@ -828,6 +842,7 @@ const saveEdit = async () => {
       firstName: firstName || undefined,
       lastName: lastName || undefined,
       email,
+      roleTitle,
       isSchoolAdmin: !!u.is_school_admin,
       isScheduler: !!u.is_scheduler
     });
@@ -945,11 +960,13 @@ const addStaff = async () => {
     await api.post(`/school-portal/${props.schoolOrganizationId}/school-staff`, {
       email,
       fullName: addName.value.trim() || undefined,
+      roleTitle: addRoleTitle.value.trim() || undefined,
       isSchoolAdmin: roleFlags.isSchoolAdmin,
       isScheduler: roleFlags.isScheduler
     });
     addName.value = '';
     addEmail.value = '';
+    addRoleTitle.value = '';
     addAccessRole.value = 'standard';
     addSuccess.value = 'Staff added. Setup email sent.';
     await load();

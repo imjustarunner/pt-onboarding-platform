@@ -102,7 +102,15 @@ class ClientSchoolStaffRoiAccess {
            u.email,
            u.phone_number,
            u.role AS role_key,
-           u.status
+           u.status,
+           (
+             SELECT sc.role_title
+             FROM school_contacts sc
+             WHERE sc.school_organization_id = ua.agency_id
+               AND LOWER(COALESCE(sc.email, '')) = LOWER(COALESCE(u.email, ''))
+             ORDER BY sc.id DESC
+             LIMIT 1
+           ) AS role_title
          FROM user_agencies ua
          JOIN users u
            ON u.id = ua.user_id
@@ -131,7 +139,8 @@ class ClientSchoolStaffRoiAccess {
            u.email,
            u.phone_number,
            u.role AS role_key,
-           u.status
+           u.status,
+           NULL AS role_title
          FROM user_agencies ua
          JOIN users u
            ON u.id = ua.user_id
@@ -152,6 +161,7 @@ class ClientSchoolStaffRoiAccess {
       email: row.email || null,
       phone_number: row.phone_number || null,
       role_key: row.role_key || 'school_staff',
+      role_title: row.role_title || null,
       status: row.status || null
     }));
   }

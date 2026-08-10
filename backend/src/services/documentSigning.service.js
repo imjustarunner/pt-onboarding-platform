@@ -180,10 +180,23 @@ class DocumentSigningService {
    * Convert HTML to PDF using Puppeteer with fallback to simple PDF generation
    */
   static async convertHTMLToPDF(htmlContent, options = {}) {
+    const disableFallback = options.disableFallback === true;
+    const failNoRender = () => {
+      const err = new Error(
+        'PDF rendering is unavailable (no working Chromium/Puppeteer). This document requires real ' +
+        'browser rendering and cannot use the plain-text fallback — set PUPPETEER_EXECUTABLE_PATH to a ' +
+        'local Chrome/Chromium binary to render it in this environment.'
+      );
+      err.statusCode = 503;
+      err.code = 'PDF_RENDERER_UNAVAILABLE';
+      throw err;
+    };
+
     // Circuit-breaker: if Puppeteer failed recently, skip directly to fallback
     if (_puppeteerCircuitOpen) {
       if (Date.now() - _puppeteerLastFailure < CIRCUIT_RESET_MS) {
         console.log('DocumentSigningService.convertHTMLToPDF: circuit open — skipping Puppeteer, using fallback');
+        if (disableFallback) return failNoRender();
         return this.convertHTMLToPDFFallback(htmlContent, options);
       }
       _puppeteerCircuitOpen = false;
@@ -195,7 +208,12 @@ class DocumentSigningService {
     try {
       let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
       if (!executablePath) {
-        const chromiumPaths = ['/usr/bin/chromium-browser', '/usr/bin/chromium'];
+        const chromiumPaths = [
+          '/usr/bin/chromium-browser',
+          '/usr/bin/chromium',
+          '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+          '/Applications/Chromium.app/Contents/MacOS/Chromium'
+        ];
         for (const chromiumPath of chromiumPaths) {
           try {
             await fs.stat(chromiumPath);
@@ -210,6 +228,7 @@ class DocumentSigningService {
         console.warn('DocumentSigningService.convertHTMLToPDF: no Chromium found — using fallback');
         _puppeteerCircuitOpen = true;
         _puppeteerLastFailure = Date.now();
+        if (disableFallback) return failNoRender();
         return this.convertHTMLToPDFFallback(htmlContent, options);
       }
 
@@ -236,10 +255,14 @@ class DocumentSigningService {
       await page.waitForTimeout(500);
 
       const pdf = await page.pdf({
-        format: 'Letter',
-        printBackground: true,
-        margin: { top: '1in', right: '1in', bottom: '1in', left: '1in' },
-        timeout: 20000
+        format: options.format || 'Letter',
+        printBackground: options.printBackground !== undefined ? options.printBackground : true,
+        margin: options.margin || { top: '1in', right: '1in', bottom: '1in', left: '1in' },
+        preferCSSPageSize: options.preferCSSPageSize || false,
+        displayHeaderFooter: options.displayHeaderFooter === true,
+        headerTemplate: options.headerTemplate || '<div></div>',
+        footerTemplate: options.footerTemplate || '<div></div>',
+        timeout: options.pdfTimeout || 20000
       });
 
       console.log(`DocumentSigningService.convertHTMLToPDF: PDF generated, size: ${pdf.length} bytes`);
@@ -252,6 +275,7 @@ class DocumentSigningService {
       if (browser) {
         try { await browser.close(); } catch { /* ignore */ }
       }
+      if (disableFallback) return failNoRender();
     }
 
     console.warn('DocumentSigningService.convertHTMLToPDF: using fallback PDF generation');
