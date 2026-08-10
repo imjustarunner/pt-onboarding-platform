@@ -2082,7 +2082,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, provide, ref, watch, nextTick } from 'vue';
+import { computed, onMounted, provide, reactive, ref, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   formatSchoolEventWhen as formatSchoolEventWhenUtil,
