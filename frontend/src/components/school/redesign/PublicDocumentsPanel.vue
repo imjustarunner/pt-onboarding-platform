@@ -85,7 +85,8 @@
           <li v-for="l in primaryDigitalFormLinks" :key="l.id" class="digital-form-row">
             <div class="digital-form-row-main">
               <strong>{{ l.title || `Form #${l.id}` }}</strong>
-              <span class="lang-badge" :class="`lang-badge-${langCodeOf(l)}`">{{ langCodeOf(l).toUpperCase() }}</span>
+              <span v-if="l.linked_es_form_id" class="lang-badge lang-badge-bilingual">EN &amp; ES</span>
+              <span v-else class="lang-badge" :class="`lang-badge-${langCodeOf(l)}`">{{ langCodeOf(l).toUpperCase() }}</span>
               <div class="muted" style="font-size: 12px; margin-top: 2px;">
                 {{ intakeLinkUrlFor(l) || '—' }}
               </div>
@@ -1167,6 +1168,11 @@ onMounted(load);
 .lang-badge-es {
   background: #ecfdf5;
   color: #065f46;
+}
+.lang-badge-bilingual {
+  background: linear-gradient(90deg, #eef2ff 0%, #ecfdf5 100%);
+  color: #1e3a5f;
+  font-weight: 700;
 }
 
 .public-docs-form-grid {
