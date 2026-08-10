@@ -11,7 +11,7 @@ import EmailService from './email.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityResolver.service.js';
 import { validatePasswordStrength } from '../utils/passwordValidation.js';
-import { bootstrapDigitalIntakeFormsForSchool } from './schoolOnboardingIntakeBootstrap.service.js';
+import { ensureDigitalIntakeFormsForSchool } from './schoolOnboardingIntakeBootstrap.service.js';
 
 async function notifySchoolPortalOnboardingCompleted(invite) {
   if (!invite?.agency_id || !invite?.id) return;
@@ -197,6 +197,23 @@ async function uniqueSchoolSlug(baseSlug) {
     slug = `${baseSlug}-${crypto.randomBytes(2).toString('hex')}`;
   }
   return `${baseSlug}-${Date.now().toString(36)}`;
+}
+
+async function ensureSchoolDigitalIntakeForms(invite, { createdByUserId = null } = {}) {
+  if (!invite?.school_organization_id || !invite?.agency_id) return null;
+  try {
+    return await ensureDigitalIntakeFormsForSchool({
+      agencyId: invite.agency_id,
+      schoolOrganizationId: invite.school_organization_id,
+      schoolName: invite.school_name || invite.school_org_name,
+      createdByUserId,
+      onlyIfMissing: true,
+      reuseSourcePublicKey: true
+    });
+  } catch (e) {
+    console.warn('[schoolOnboarding] intake ensure failed:', e?.message || e);
+    return { errors: [e?.message || 'intake ensure failed'] };
+  }
 }
 
 async function setSchoolDraftFlag(schoolId, isDraft) {
@@ -543,11 +560,13 @@ export async function createInvite({
     // Seed EN/ES digital intake forms from the agency's most recent school forms
     let intakeBootstrap = null;
     try {
-      intakeBootstrap = await bootstrapDigitalIntakeFormsForSchool({
+      intakeBootstrap = await ensureDigitalIntakeFormsForSchool({
         agencyId,
         schoolOrganizationId: schoolId,
         schoolName: name,
-        createdByUserId: invitedByUserId || null
+        createdByUserId: invitedByUserId || null,
+        onlyIfMissing: false,
+        reuseSourcePublicKey: true
       });
     } catch (e) {
       console.warn('[schoolOnboarding] intake bootstrap failed:', e?.message || e);
@@ -602,10 +621,14 @@ export async function resendInvite(inviteId, agencyId, invitedByUserId) {
   const invitedByName = `${inviter?.first_name || ''} ${inviter?.last_name || ''}`.trim() || 'Our team';
   const agency = await Agency.findById(agencyId);
   const emailResult = await sendInviteEmail(updated, { agency, invitedByName });
+  const intakeBootstrap = await ensureSchoolDigitalIntakeForms(updated, {
+    createdByUserId: invitedByUserId || null
+  });
   return {
     invite: serializeInvite(updated, { admin: true }),
     link: buildOnboardingLink(updated.token),
-    emailSent: !!emailResult.sent
+    emailSent: !!emailResult.sent,
+    intakeBootstrap
   };
 }
 
@@ -621,10 +644,14 @@ export async function sendInviteEmailOnly(inviteId, agencyId, invitedByUserId) {
   const invitedByName = `${inviter?.first_name || ''} ${inviter?.last_name || ''}`.trim() || 'Our team';
   const agency = await Agency.findById(agencyId);
   const emailResult = await sendInviteEmail(invite, { agency, invitedByName });
+  const intakeBootstrap = await ensureSchoolDigitalIntakeForms(invite, {
+    createdByUserId: invitedByUserId || null
+  });
   return {
     invite: serializeInvite(invite, { admin: true }),
     link: buildOnboardingLink(invite.token),
-    emailSent: !!emailResult.sent
+    emailSent: !!emailResult.sent,
+    intakeBootstrap
   };
 }
 
@@ -800,8 +827,12 @@ export async function getPublicInvite(token) {
     throw Object.assign(new Error(usable.message), { status: usable.code === 'revoked' ? 403 : 410, code: usable.code });
   }
   await SchoolOnboardingInvite.touchViewed(invite.id);
-  if (invite.status === 'invited') {
+  const onboardingJustStarted = invite.status === 'invited';
+  if (onboardingJustStarted) {
     await SchoolOnboardingInvite.update(invite.id, { status: 'in_progress' });
+  }
+  if (onboardingJustStarted) {
+    await ensureSchoolDigitalIntakeForms(invite);
   }
   const fresh = await reconcileStepProgress(await SchoolOnboardingInvite.findByToken(token));
   const profile = await getSchoolProfile(fresh.school_organization_id);
