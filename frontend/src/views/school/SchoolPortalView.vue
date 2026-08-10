@@ -1061,7 +1061,7 @@
                 class="dash-card"
                 type="button"
                 data-tour="school-home-card-manage-digital-intakes"
-                @click="setPortalMode('printable_packets')"
+                @click="openPrintableModal()"
               >
                 <div class="dash-card-icon">
                   <img
@@ -1968,6 +1968,75 @@
           <div class="intake-modal-footer">
             <button class="btn btn-secondary btn-sm" type="button" @click="goToDocsPanel">
               View all docs &amp; links
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Printable Forms modal ──────────────────────────────────────────── -->
+    <div v-if="showPrintableModal" class="modal-overlay" @click.self="showPrintableModal = false">
+      <div class="modal printable-modal" @click.stop>
+        <div class="modal-header">
+          <strong>Printable Forms</strong>
+          <button class="btn btn-secondary btn-sm" type="button" @click="showPrintableModal = false">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="printable-modal-notice">
+            🖨️ <strong>For printing only.</strong>
+            Do not share this link digitally. Completed forms must be submitted via
+            <button
+              class="printable-hub-inline-btn"
+              type="button"
+              @click="showPrintableModal = false; showUploadModal = true"
+            >Upload Packet</button>.
+          </div>
+
+          <div v-if="printablePacketError" class="error" style="margin-bottom:12px;">{{ printablePacketError }}</div>
+
+          <div v-for="locale in ['es', 'en']" :key="locale" class="intake-link-block">
+            <div class="intake-link-meta">
+              <span class="badge badge-outline">{{ locale === 'en' ? 'ENGLISH' : 'SPANISH' }}</span>
+            </div>
+            <div class="intake-link-row">
+              <input class="intake-link-input" :value="printablePacketApiUrl(locale)" readonly />
+              <button class="btn btn-secondary btn-sm" type="button" @click="copyPrintableUrl(locale)">Copy</button>
+              <button
+                class="btn btn-primary btn-sm"
+                type="button"
+                :disabled="printablePacketLoading[locale]"
+                @click="openPrintablePacket(locale)"
+              >
+                {{ printablePacketLoading[locale] ? 'Opening…' : 'Open PDF' }}
+              </button>
+            </div>
+            <div class="printable-qr-section">
+              <div class="printable-qr-img-wrap">
+                <img
+                  v-if="currentPrintableQr(locale)"
+                  :src="currentPrintableQr(locale)"
+                  class="printable-qr-img"
+                  :alt="`QR code for ${locale === 'en' ? 'English' : 'Spanish'} printable packet`"
+                />
+                <div v-else class="printable-qr-placeholder">Generating QR…</div>
+              </div>
+              <div class="printable-qr-actions">
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  :disabled="!currentPrintableQr(locale)"
+                  @click="downloadQr(locale)"
+                >↓ Download QR</button>
+                <button class="btn btn-ghost btn-sm" type="button" @click="toggleQrMode(locale)">
+                  {{ fancyQrMode[locale] ? 'Switch to black & simple' : 'Switch to branded' }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="intake-modal-footer">
+            <button class="btn btn-secondary btn-sm" type="button" @click="showPrintableModal = false; openIntakeModal('qr')">
+              Looking for digital forms? Open ›
             </button>
           </div>
         </div>
@@ -4488,21 +4557,126 @@ const referralPacketHubTo = computed(() => {
     : `/admin/school-referral-hub`;
 });
 
-// ── Printable Packet Hub panel ────────────────────────────────────────────────
-const printablePacketQr = reactive({ en: '', es: '' });
+// ── Printable Forms modal + fancy QR ─────────────────────────────────────────
+const showPrintableModal = ref(false);
+const fancyQrMode = reactive({ en: true, es: true });
+const printableQrFancy = reactive({ en: '', es: '' });
+const printableQrSimple = reactive({ en: '', es: '' });
 const printablePacketLoading = reactive({ en: false, es: false });
 const printablePacketError = ref('');
 
-async function generatePrintableQr(locale) {
-  if (!organizationId.value) return;
+function printablePacketApiUrl(locale) {
   const base = String(api.defaults.baseURL || '/api').replace(/\/$/, '');
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const fullBase = base.startsWith('http') ? base : `${origin}${base}`;
-  const url = `${fullBase}/school-portal/${organizationId.value}/printable-packet?locale=${locale}`;
+  return `${fullBase}/school-portal/${organizationId.value}/printable-packet?locale=${locale}`;
+}
+
+function currentPrintableQr(locale) {
+  return fancyQrMode[locale] ? printableQrFancy[locale] : printableQrSimple[locale];
+}
+function toggleQrMode(locale) {
+  fancyQrMode[locale] = !fancyQrMode[locale];
+}
+async function copyPrintableUrl(locale) {
+  try { await navigator.clipboard.writeText(printablePacketApiUrl(locale)); } catch { /* silent */ }
+}
+function downloadQr(locale) {
+  const dataUrl = currentPrintableQr(locale);
+  if (!dataUrl) return;
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = `referral-packet-qr-${locale}.png`;
+  a.click();
+}
+
+async function generateFancyQr(locale) {
+  const url = printablePacketApiUrl(locale);
+  const size = 300;
+
+  // Simple QR (black on white)
   try {
-    printablePacketQr[locale] = await QRCode.toDataURL(url, { width: 220, margin: 1 });
+    printableQrSimple[locale] = await QRCode.toDataURL(url, { width: size, margin: 2 });
+  } catch { return; }
+
+  // Fancy QR: gradient fill + logo center
+  try {
+    // Draw QR to temp canvas
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = size;
+    tempCanvas.height = size;
+    await new Promise((res, rej) => {
+      QRCode.toCanvas(tempCanvas, url, { width: size, margin: 2 }, (err) => err ? rej(err) : res());
+    });
+
+    // Make white pixels transparent so gradient shows through
+    const tempCtx = tempCanvas.getContext('2d');
+    const imgData = tempCtx.getImageData(0, 0, size, size);
+    const d = imgData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i] > 180 && d[i + 1] > 180 && d[i + 2] > 180) d[i + 3] = 0;
+    }
+    tempCtx.putImageData(imgData, 0, 0);
+
+    // Build gradient layer clipped to dark QR pixels
+    const gradLayer = document.createElement('canvas');
+    gradLayer.width = size;
+    gradLayer.height = size;
+    const glCtx = gradLayer.getContext('2d');
+    const grad = glCtx.createLinearGradient(0, 0, size, size);
+    grad.addColorStop(0, '#14b8a6');
+    grad.addColorStop(0.5, '#22c55e');
+    grad.addColorStop(1, '#eab308');
+    glCtx.fillStyle = grad;
+    glCtx.fillRect(0, 0, size, size);
+    glCtx.globalCompositeOperation = 'destination-in';
+    glCtx.drawImage(tempCanvas, 0, 0);
+
+    // Compose onto white background
+    const finalCanvas = document.createElement('canvas');
+    finalCanvas.width = size;
+    finalCanvas.height = size;
+    const fCtx = finalCanvas.getContext('2d');
+    fCtx.fillStyle = '#ffffff';
+    fCtx.fillRect(0, 0, size, size);
+    fCtx.drawImage(gradLayer, 0, 0);
+
+    // White circle + logo in center
+    const cx = size / 2, cy = size / 2, logoR = 26, circleR = logoR + 6;
+    fCtx.beginPath();
+    fCtx.arc(cx, cy, circleR, 0, Math.PI * 2);
+    fCtx.fillStyle = '#ffffff';
+    fCtx.fill();
+
+    const logoSrc = homeIconUrl.value;
+    if (logoSrc) {
+      const logo = new Image();
+      logo.crossOrigin = 'anonymous';
+      logo.src = logoSrc;
+      await new Promise(r => { logo.onload = r; logo.onerror = r; });
+      fCtx.save();
+      fCtx.beginPath();
+      fCtx.arc(cx, cy, logoR, 0, Math.PI * 2);
+      fCtx.clip();
+      fCtx.drawImage(logo, cx - logoR, cy - logoR, logoR * 2, logoR * 2);
+      fCtx.restore();
+    }
+
+    printableQrFancy[locale] = finalCanvas.toDataURL('image/png');
   } catch {
-    printablePacketQr[locale] = '';
+    printableQrFancy[locale] = printableQrSimple[locale]; // fall back to simple
+  }
+}
+
+async function openPrintableModal() {
+  printablePacketError.value = '';
+  Object.assign(printableQrFancy, { en: '', es: '' });
+  Object.assign(printableQrSimple, { en: '', es: '' });
+  Object.assign(fancyQrMode, { en: true, es: true });
+  showPrintableModal.value = true;
+  if (organizationId.value) {
+    generateFancyQr('en');
+    generateFancyQr('es');
   }
 }
 
@@ -4512,56 +4686,18 @@ async function openPrintablePacket(locale) {
   printablePacketError.value = '';
   try {
     const res = await api.get(`/school-portal/${organizationId.value}/printable-packet`, {
-      params: { locale },
-      responseType: 'blob',
-      timeout: 120000
+      params: { locale }, responseType: 'blob', timeout: 120000
     });
     const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
-    window.open(url, '_blank', 'noopener');
-    setTimeout(() => URL.revokeObjectURL(url), 120000);
+    const blobUrl = URL.createObjectURL(blob);
+    window.open(blobUrl, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
   } catch (e) {
     printablePacketError.value = e?.response?.data?.error?.message || e?.message || 'Failed to open packet.';
   } finally {
     printablePacketLoading[locale] = false;
   }
 }
-
-async function downloadPrintablePacket(locale) {
-  if (printablePacketLoading[locale]) return;
-  printablePacketLoading[locale] = true;
-  printablePacketError.value = '';
-  try {
-    const res = await api.get(`/school-portal/${organizationId.value}/printable-packet`, {
-      params: { locale },
-      responseType: 'blob',
-      timeout: 120000
-    });
-    const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `referral-packet-${locale}.pdf`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
-  } catch (e) {
-    printablePacketError.value = e?.response?.data?.error?.message || e?.message || 'Failed to download packet.';
-  } finally {
-    printablePacketLoading[locale] = false;
-  }
-}
-
-watch(
-  [portalMode, organizationId],
-  ([mode, orgId]) => {
-    if (mode === 'printable_packets' && orgId) {
-      printablePacketError.value = '';
-      generatePrintableQr('en');
-      generatePrintableQr('es');
-    }
-  },
-  { immediate: false }
-);
 // ─────────────────────────────────────────────────────────────────────────────
 
 const canSeeManageSchoolDigitalIntakesLink = computed(() => {
@@ -6762,6 +6898,72 @@ watch(() => store.selectedWeekday, async (weekday) => {
 .so-demo-banner-btn.ghost {
   background: #eef2ff;
   color: #1e3a8a;
+}
+
+/* ── Printable Forms modal ─────────────────────────────────────────────────── */
+.printable-modal {
+  max-width: 600px;
+}
+.printable-modal-notice {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  font-size: 0.91rem;
+  color: #78350f;
+  line-height: 1.5;
+}
+.printable-qr-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.printable-qr-img-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.printable-qr-img {
+  width: 220px;
+  height: 220px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.printable-qr-placeholder {
+  width: 220px;
+  height: 220px;
+  border: 1px dashed #d1d5db;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  color: #9ca3af;
+  background: #f9fafb;
+}
+.printable-qr-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.btn-ghost {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 0.82rem;
+  padding: 4px 10px;
+  border-radius: 5px;
+  transition: background 0.15s;
+}
+.btn-ghost:hover {
+  background: #f3f4f6;
+  color: #374151;
 }
 
 /* ── Referral Packet Hub panel ─────────────────────────────────────────────── */
