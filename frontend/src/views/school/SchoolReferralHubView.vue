@@ -1,5 +1,5 @@
 <template>
-  <div class="container srh-page">
+  <div class="srh-page">
     <header class="srh-header">
       <div>
         <h1>School Referral Hub</h1>
@@ -146,7 +146,6 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
-import { fetchSchoolCoverageSummary } from '../../services/schoolCoverageApi';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import SchoolPacketTemplateEditor from '../../components/school/redesign/SchoolPacketTemplateEditor.vue';
 
@@ -298,14 +297,12 @@ async function loadSchools() {
       loadError.value = 'No agency context. Open School Operations from an agency portal.';
       return;
     }
-    const data = await fetchSchoolCoverageSummary(agencyId.value);
-    const rows = Array.isArray(data?.schools)
-      ? data.schools
-      : (Array.isArray(data) ? data : (data?.items || []));
+    const resp = await api.get(`/agencies/${agencyId.value}/schools`);
+    const rows = Array.isArray(resp.data) ? resp.data : [];
     schools.value = rows
       .map((s) => ({
-        id: Number(s.id || s.organization_id || s.school_organization_id || 0),
-        name: String(s.name || s.school_name || s.organization_name || '').trim() || `School #${s.id}`
+        id: Number(s.school_organization_id ?? s.id ?? 0),
+        name: String(s.school_name || s.name || '').trim() || `School #${s.school_organization_id || s.id}`
       }))
       .filter((s) => s.id)
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -479,8 +476,9 @@ onMounted(loadSchools);
 
 <style scoped>
 .srh-page {
-  max-width: 1100px;
-  padding-bottom: 48px;
+  padding: 24px 40px 48px;
+  max-width: 1800px;
+  margin: 0 auto;
 }
 .srh-header {
   display: flex;
