@@ -23,8 +23,15 @@ const __dirname = path.dirname(__filename);
 // Migrations are in the root database/migrations folder, go up 3 levels from backend/src/scripts
 const migrationsDir = path.join(__dirname, '../../../database/migrations');
 
-// Check for --collect-errors flag
+// Check for --collect-errors / --force flags
 const collectErrors = process.argv.includes('--collect-errors');
+const forceRerun = process.argv.includes('--force');
+
+const FORBIDDEN_LIVE_MIGRATIONS = new Set([
+  // Fresh-DB bootstrap dump. Re-running against a live DB collapses users.role to the
+  // ancient ENUM(default clinician) and wipes provider/school_staff/guardian/etc.
+  '000_consolidated_fresh_database.sql'
+]);
 
 function parseOnlyArg(argv) {
   // Supports:
@@ -82,11 +89,32 @@ async function runMigrations() {
 
   const errors = [];
   let hasErrors = false;
+  let ran = 0;
+  let skipped = 0;
 
   try {
-    // Get all migration files sorted
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS migrations_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        migration_name VARCHAR(255) NOT NULL UNIQUE,
+        executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        execution_time_ms INT,
+        success BOOLEAN DEFAULT TRUE,
+        error_message TEXT,
+        INDEX idx_migration_name (migration_name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    const [logRows] = await pool.query(
+      'SELECT migration_name FROM migrations_log WHERE success = 1'
+    );
+    const applied = new Set((logRows || []).map((r) => String(r.migration_name || '')));
+
+    // Get all migration files sorted.
+    // NEVER auto-run the fresh-DB bootstrap dump against a live database — it rewrites
+    // users.role back to the ancient ENUM(default clinician) and collapses everyone's roles.
     let files = fs.readdirSync(migrationsDir)
-      .filter(file => file.endsWith('.sql'))
+      .filter((file) => file.endsWith('.sql') && !FORBIDDEN_LIVE_MIGRATIONS.has(file))
       .sort();
 
     if (only) {
@@ -124,13 +152,29 @@ async function runMigrations() {
       console.log(`🔎 --from enabled: running ${files.length} migration(s) starting at ${start}`);
     }
 
-    console.log(`Found ${files.length} migration files`);
+    console.log(`Found ${files.length} migration files (${applied.size} already applied in migrations_log)`);
     if (collectErrors) {
       console.log('📋 Running in collect-errors mode: will continue after failures\n');
     }
+    if (forceRerun) {
+      console.log('⚠️  --force enabled: will re-run migrations even if already logged as success\n');
+    }
 
     for (const file of files) {
+      if (FORBIDDEN_LIVE_MIGRATIONS.has(file)) {
+        console.log(`🚫 Skipping forbidden live migration: ${file}`);
+        skipped++;
+        continue;
+      }
+
+      const migrationName = file.replace(/\.sql$/, '');
+      if (!forceRerun && applied.has(migrationName)) {
+        skipped++;
+        continue;
+      }
+
       console.log(`Running migration: ${file}`);
+      const startTime = Date.now();
       const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
       
       // Handle CREATE TRIGGER and DROP TRIGGER specially - they can't be split by semicolons
@@ -317,19 +361,38 @@ async function runMigrations() {
         } // Close for loop
       } // Close else (non-trigger path)
       
+      const ms = Date.now() - startTime;
       if (!fileHasError) {
+        await pool.query(
+          `INSERT INTO migrations_log (migration_name, execution_time_ms, success, error_message)
+           VALUES (?, ?, 1, NULL)
+           ON DUPLICATE KEY UPDATE executed_at = CURRENT_TIMESTAMP, execution_time_ms = ?, success = 1, error_message = NULL`,
+          [migrationName, ms, ms]
+        );
+        applied.add(migrationName);
+        ran++;
         console.log(`✅ Completed: ${file}`);
+      } else {
+        const errMsg = errors.filter((e) => e.filename === file).map((e) => e.sqlMessage).join(' | ') || 'failed';
+        await pool.query(
+          `INSERT INTO migrations_log (migration_name, execution_time_ms, success, error_message)
+           VALUES (?, ?, 0, ?)
+           ON DUPLICATE KEY UPDATE executed_at = CURRENT_TIMESTAMP, execution_time_ms = ?, success = 0, error_message = ?`,
+          [migrationName, ms, errMsg.slice(0, 2000), ms, errMsg.slice(0, 2000)]
+        ).catch(() => {});
       }
     }
+
+    console.log(`\n✅ Migrations finished — ${ran} applied, ${skipped} skipped (already run)`);
 
     // Print summary if in collect-errors mode
     if (collectErrors && errors.length > 0) {
       console.log('\n' + '='.repeat(60));
       console.log('📊 MIGRATION ERROR SUMMARY');
       console.log('='.repeat(60));
-      console.log(`Total migrations processed: ${files.length}`);
+      console.log(`Total migrations considered: ${files.length}`);
       console.log(`Failed migrations: ${errors.length}`);
-      console.log(`Successful migrations: ${files.length - errors.length}`);
+      console.log(`Successful migrations this run: ${ran}`);
       console.log('\nFailed migrations:');
       errors.forEach((error, index) => {
         console.log(`\n${index + 1}. ${error.filename}`);

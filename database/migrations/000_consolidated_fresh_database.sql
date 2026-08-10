@@ -3,6 +3,13 @@
 -- This migration combines all essential schema changes
 -- Data-only migrations and negated migrations have been excluded
 --
+-- ⛔ DO NOT RUN AGAINST A LIVE / STAGE / PRODUCTION DATABASE.
+-- Re-executing this file collapses users.role back to
+-- ENUM('admin','supervisor','clinician','facilitator','intern') DEFAULT 'clinician'
+-- and wipes provider / school_staff / client_guardian / athlete / super_admin.
+-- runMigrations.js and bootstrap.js both skip this file on purpose.
+-- Fresh empty DB only.
+--
 -- Total migrations analyzed: 107
 -- Essential migrations included: 85
 -- Redundant migrations excluded: 73
