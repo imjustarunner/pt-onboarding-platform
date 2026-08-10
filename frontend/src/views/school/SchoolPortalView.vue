@@ -1947,7 +1947,8 @@
           <div v-else-if="intakeLinkError" class="error">{{ intakeLinkError }}</div>
           <div v-else-if="!intakePacketLinks.length" class="muted">No intake packet forms configured for this school yet.</div>
           <div v-else class="intake-link-body">
-            <div v-for="link in intakePacketLinks" :key="link.id" class="intake-link-block">
+            <!-- URL + action row per language link -->
+            <div v-for="link in intakePacketLinks" :key="link.id" class="intake-link-block intake-link-block--url-only">
               <div class="intake-link-meta">
                 <span class="badge badge-outline">{{ getIntakeLanguageLabel(link.language_code) }}</span>
               </div>
@@ -1956,37 +1957,39 @@
                 <button class="btn btn-secondary btn-sm" type="button" @click="copyIntakeLink(link)">Copy</button>
                 <button class="btn btn-primary btn-sm" type="button" @click="openIntakeApproval(link)">Approve & Launch</button>
               </div>
-              <div v-if="intakeModalMode === 'qr'" class="intake-qr">
-                <img
-                  v-if="intakeQrFancyMode[link.public_key] && intakeQrFancyByKey[link.public_key]"
-                  :src="intakeQrFancyByKey[link.public_key]"
-                  alt="Intake QR code"
-                  class="intake-qr-img"
-                />
-                <img
-                  v-else-if="!intakeQrFancyMode[link.public_key] && intakeQrByKey[link.public_key]"
-                  :src="intakeQrByKey[link.public_key]"
-                  alt="Intake QR code"
-                  class="intake-qr-img"
-                />
-                <div v-else class="muted">Generating QR…</div>
-                <div v-if="intakeQrByKey[link.public_key] || intakeQrFancyByKey[link.public_key]" class="printable-qr-actions" style="margin-top:8px;">
-                  <button
-                    class="btn btn-secondary btn-sm"
-                    type="button"
-                    @click="() => { const d = document.createElement('a'); d.href = (intakeQrFancyMode[link.public_key] && intakeQrFancyByKey[link.public_key]) ? intakeQrFancyByKey[link.public_key] : intakeQrByKey[link.public_key]; d.download = `intake-qr-${link.language_code || 'en'}.png`; d.click(); }"
-                  >↓ Download QR</button>
-                  <button
-                    class="btn btn-ghost btn-sm"
-                    type="button"
-                    @click="intakeQrFancyMode[link.public_key] = !intakeQrFancyMode[link.public_key]"
-                  >
-                    {{ intakeQrFancyMode[link.public_key] ? 'Switch to black & simple' : 'Switch to branded' }}
-                  </button>
-                </div>
+            </div>
+
+            <!-- Single shared QR for the primary (English) form -->
+            <div v-if="intakeModalMode === 'qr' && primaryIntakeLink" class="intake-qr intake-qr--standalone">
+              <div class="intake-qr-note">
+                📱 Scan to open — the form includes a language toggle at the top to switch to Spanish.
               </div>
-              <div v-else class="muted">
-                Share the link above or open it with the parent to complete the intake packet.
+              <img
+                v-if="intakeQrFancyMode[primaryIntakeLink.public_key] && intakeQrFancyByKey[primaryIntakeLink.public_key]"
+                :src="intakeQrFancyByKey[primaryIntakeLink.public_key]"
+                alt="Intake QR code"
+                class="intake-qr-img"
+              />
+              <img
+                v-else-if="!intakeQrFancyMode[primaryIntakeLink.public_key] && intakeQrByKey[primaryIntakeLink.public_key]"
+                :src="intakeQrByKey[primaryIntakeLink.public_key]"
+                alt="Intake QR code"
+                class="intake-qr-img"
+              />
+              <div v-else class="muted">Generating QR…</div>
+              <div v-if="intakeQrByKey[primaryIntakeLink.public_key] || intakeQrFancyByKey[primaryIntakeLink.public_key]" class="printable-qr-actions">
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="() => { const src = (intakeQrFancyMode[primaryIntakeLink.public_key] && intakeQrFancyByKey[primaryIntakeLink.public_key]) ? intakeQrFancyByKey[primaryIntakeLink.public_key] : intakeQrByKey[primaryIntakeLink.public_key]; const a = document.createElement('a'); a.href = src; a.download = 'intake-qr.png'; a.click(); }"
+                >↓ Download QR</button>
+                <button
+                  class="btn btn-ghost btn-sm"
+                  type="button"
+                  @click="intakeQrFancyMode[primaryIntakeLink.public_key] = !intakeQrFancyMode[primaryIntakeLink.public_key]"
+                >
+                  {{ intakeQrFancyMode[primaryIntakeLink.public_key] ? 'Switch to black & simple' : 'Switch to branded' }}
+                </button>
               </div>
             </div>
           </div>
@@ -2019,41 +2022,68 @@
 
           <div v-if="printablePacketError" class="error" style="margin-bottom:12px;">{{ printablePacketError }}</div>
 
-          <div v-for="locale in ['es', 'en']" :key="locale" class="intake-link-block">
+          <!-- English section (always visible) -->
+          <div class="intake-link-block">
             <div class="intake-link-meta">
-              <span class="badge badge-outline">{{ locale === 'en' ? 'ENGLISH' : 'SPANISH' }}</span>
+              <span class="badge badge-outline">ENGLISH</span>
             </div>
             <div class="intake-link-row">
-              <input class="intake-link-input" :value="printablePacketApiUrl(locale)" readonly />
-              <button class="btn btn-secondary btn-sm" type="button" @click="copyPrintableUrl(locale)">Copy</button>
+              <input class="intake-link-input" :value="printablePacketApiUrl('en')" readonly />
+              <button class="btn btn-secondary btn-sm" type="button" @click="copyPrintableUrl('en')">Copy</button>
               <button
                 class="btn btn-primary btn-sm"
                 type="button"
-                :disabled="printablePacketLoading[locale]"
-                @click="openPrintablePacket(locale)"
-              >
-                {{ printablePacketLoading[locale] ? 'Opening…' : 'Open PDF' }}
-              </button>
+                :disabled="printablePacketLoading.en"
+                @click="openPrintablePacket('en')"
+              >{{ printablePacketLoading.en ? 'Opening…' : 'Open PDF' }}</button>
             </div>
             <div class="printable-qr-section">
               <div class="printable-qr-img-wrap">
-                <img
-                  v-if="currentPrintableQr(locale)"
-                  :src="currentPrintableQr(locale)"
-                  class="printable-qr-img"
-                  :alt="`QR code for ${locale === 'en' ? 'English' : 'Spanish'} printable packet`"
-                />
+                <img v-if="currentPrintableQr('en')" :src="currentPrintableQr('en')" class="printable-qr-img" alt="English printable packet QR" />
                 <div v-else class="printable-qr-placeholder">Generating QR…</div>
               </div>
               <div class="printable-qr-actions">
-                <button
-                  class="btn btn-secondary btn-sm"
-                  type="button"
-                  :disabled="!currentPrintableQr(locale)"
-                  @click="downloadQr(locale)"
-                >↓ Download QR</button>
-                <button class="btn btn-ghost btn-sm" type="button" @click="toggleQrMode(locale)">
-                  {{ fancyQrMode[locale] ? 'Switch to black & simple' : 'Switch to branded' }}
+                <button class="btn btn-secondary btn-sm" type="button" :disabled="!currentPrintableQr('en')" @click="downloadQr('en')">↓ Download QR</button>
+                <button class="btn btn-ghost btn-sm" type="button" @click="toggleQrMode('en')">
+                  {{ fancyQrMode.en ? 'Switch to black & simple' : 'Switch to branded' }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Spanish reveal toggle -->
+          <button
+            class="printable-es-toggle"
+            type="button"
+            @click="showSpanishPrintable = !showSpanishPrintable"
+          >
+            <span>{{ showSpanishPrintable ? '▲ Hide Spanish / Ocultar Español' : '🇲🇽 Click here for Spanish / Haga clic aquí para el Español' }}</span>
+          </button>
+
+          <!-- Spanish section (revealed on toggle) -->
+          <div v-if="showSpanishPrintable" class="intake-link-block" style="margin-top: 0; border-top: none;">
+            <div class="intake-link-meta">
+              <span class="badge badge-outline">ESPAÑOL</span>
+            </div>
+            <div class="intake-link-row">
+              <input class="intake-link-input" :value="printablePacketApiUrl('es')" readonly />
+              <button class="btn btn-secondary btn-sm" type="button" @click="copyPrintableUrl('es')">Copy</button>
+              <button
+                class="btn btn-primary btn-sm"
+                type="button"
+                :disabled="printablePacketLoading.es"
+                @click="openPrintablePacket('es')"
+              >{{ printablePacketLoading.es ? 'Opening…' : 'Open PDF' }}</button>
+            </div>
+            <div class="printable-qr-section">
+              <div class="printable-qr-img-wrap">
+                <img v-if="currentPrintableQr('es')" :src="currentPrintableQr('es')" class="printable-qr-img" alt="Spanish printable packet QR" />
+                <div v-else class="printable-qr-placeholder">Generating QR…</div>
+              </div>
+              <div class="printable-qr-actions">
+                <button class="btn btn-secondary btn-sm" type="button" :disabled="!currentPrintableQr('es')" @click="downloadQr('es')">↓ Download QR</button>
+                <button class="btn btn-ghost btn-sm" type="button" @click="toggleQrMode('es')">
+                  {{ fancyQrMode.es ? 'Switch to black & simple' : 'Switch to branded' }}
                 </button>
               </div>
             </div>
@@ -2685,6 +2715,12 @@ const intakePacketLinks = computed(() =>
     return ft !== 'smart_school_roi';
   })
 );
+
+// Primary (English) link used for the single shared QR code
+const primaryIntakeLink = computed(() => {
+  const links = intakePacketLinks.value;
+  return links.find(l => (l.language_code || '').toLowerCase() === 'en') || links[0] || null;
+});
 
 const getIntakeLinkUrl = (link) => {
   const key = link?.public_key || '';
@@ -4596,6 +4632,7 @@ const referralPacketHubTo = computed(() => {
 
 // ── Printable Forms modal + fancy QR ─────────────────────────────────────────
 const showPrintableModal = ref(false);
+const showSpanishPrintable = ref(false);
 const fancyQrMode = reactive({ en: true, es: true });
 const printableQrFancy = reactive({ en: '', es: '' });
 const printableQrSimple = reactive({ en: '', es: '' });
@@ -4704,12 +4741,14 @@ async function generateFancyQr(locale) {
 
 async function openPrintableModal() {
   printablePacketError.value = '';
+  showSpanishPrintable.value = false;
   Object.assign(printableQrFancy, { en: '', es: '' });
   Object.assign(printableQrSimple, { en: '', es: '' });
   Object.assign(fancyQrMode, { en: true, es: true });
   showPrintableModal.value = true;
   if (organizationId.value) {
     generateFancyQr('en');
+    // Pre-generate Spanish in background so it's ready when expanded
     generateFancyQr('es');
   }
 }
@@ -6942,6 +6981,22 @@ watch(() => store.selectedWeekday, async (weekday) => {
   color: #1e3a8a;
 }
 
+/* ── Digital forms modal tweaks ────────────────────────────────────────────── */
+.intake-link-block--url-only {
+  padding-bottom: 8px;
+  border-bottom: none;
+}
+.intake-qr--standalone {
+  margin-top: 12px;
+}
+.intake-qr-note {
+  font-size: 0.82rem;
+  color: #6b7280;
+  text-align: center;
+  line-height: 1.4;
+  padding: 0 8px 6px;
+}
+
 /* ── Printable Forms modal ─────────────────────────────────────────────────── */
 .printable-modal {
   max-width: 600px;
@@ -7006,6 +7061,24 @@ watch(() => store.selectedWeekday, async (weekday) => {
 .btn-ghost:hover {
   background: #f3f4f6;
   color: #374151;
+}
+.printable-es-toggle {
+  width: 100%;
+  margin: 16px 0 0;
+  padding: 14px 18px;
+  border: 2px dashed #86efac;
+  border-radius: 10px;
+  background: #f0fdf4;
+  color: #166534;
+  font-size: 0.97rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+.printable-es-toggle:hover {
+  background: #dcfce7;
+  border-color: #4ade80;
 }
 
 /* ── Referral Packet Hub panel ─────────────────────────────────────────────── */
