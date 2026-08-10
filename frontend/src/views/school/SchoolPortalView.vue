@@ -1056,11 +1056,12 @@
                 </div>
               </button>
 
-              <router-link
-                v-if="canSeeManageSchoolDigitalIntakesLink"
+              <button
+                v-if="canSeePrintablePacketHub"
                 class="dash-card"
-                :to="referralPacketHubTo"
+                type="button"
                 data-tour="school-home-card-manage-digital-intakes"
+                @click="setPortalMode('printable_packets')"
               >
                 <div class="dash-card-icon">
                   <img
@@ -1078,26 +1079,21 @@
                           <stop offset="100%" stop-color="#eab308"/>
                         </linearGradient>
                       </defs>
-                      <!-- paper input feed -->
                       <rect x="10" y="2" width="12" height="9" rx="1.5" fill="url(#pr-grad)" opacity="0.55"/>
-                      <!-- printer body -->
                       <rect x="4" y="9" width="24" height="13" rx="2.5" fill="url(#pr-grad)"/>
-                      <!-- printer status window -->
                       <rect x="7" y="13" width="4" height="3" rx="0.75" fill="white" opacity="0.55"/>
-                      <!-- paper output -->
                       <rect x="9" y="19" width="14" height="11" rx="1.5" fill="url(#pr-grad)" opacity="0.55"/>
-                      <!-- lines on output paper -->
                       <rect x="11" y="22" width="10" height="1.5" rx="0.75" fill="url(#pr-grad)"/>
                       <rect x="11" y="25.5" width="7" height="1.5" rx="0.75" fill="url(#pr-grad)"/>
                     </svg>
                   </div>
                 </div>
                 <div class="dash-card-title">Referral Packet Hub</div>
-                <div class="dash-card-desc">Edit EN/ES printable packet, manage ready-to-share links, and configure digital consent steps.</div>
+                <div class="dash-card-desc">View and download the EN/ES printable referral packet for parents.</div>
                 <div class="dash-card-meta">
                   <span class="dash-card-cta">Open ›</span>
                 </div>
-              </router-link>
+              </button>
             </div>
           </div>
 
@@ -1384,6 +1380,116 @@
               @open-client="openClientFromNotification"
             />
             <div v-else class="empty-state">Organization not loaded.</div>
+          </div>
+
+          <!-- ── Referral Packet Hub panel ─────────────────────────────────── -->
+          <div v-else-if="portalMode === 'printable_packets'">
+            <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
+            <div v-else class="printable-hub-panel">
+
+              <!-- warning banner -->
+              <div class="printable-hub-notice">
+                <span class="printable-hub-notice-icon" aria-hidden="true">🖨️</span>
+                <div>
+                  <strong>For printing only.</strong>
+                  These are paper-form versions of the school referral packet.
+                  Do not share digitally unless on a device whose sole purpose is to print and submit.
+                  Completed paper forms must be returned via the
+                  <button class="printable-hub-inline-btn" type="button" @click="showUploadModal = true">Upload Packet</button>
+                  function.
+                </div>
+              </div>
+
+              <div v-if="printablePacketError" class="printable-hub-error">{{ printablePacketError }}</div>
+
+              <!-- packet rows -->
+              <div class="printable-hub-cards">
+                <!-- English -->
+                <div class="printable-hub-card">
+                  <div class="printable-hub-card-header">
+                    <span class="printable-hub-lang-badge printable-hub-lang-en">EN</span>
+                    <div class="printable-hub-card-title">Referral Packet — English</div>
+                  </div>
+                  <div class="printable-hub-card-body">
+                    <div class="printable-hub-qr-wrap">
+                      <img
+                        v-if="printablePacketQr.en"
+                        :src="printablePacketQr.en"
+                        alt="QR code for English printable packet"
+                        class="printable-hub-qr"
+                      />
+                      <div v-else class="printable-hub-qr-placeholder">Generating QR…</div>
+                      <div class="printable-hub-qr-hint">Scan to open on another device<br>(must be logged in to portal)</div>
+                    </div>
+                    <div class="printable-hub-actions">
+                      <button
+                        class="btn btn-primary btn-sm"
+                        type="button"
+                        :disabled="printablePacketLoading.en"
+                        @click="openPrintablePacket('en')"
+                      >
+                        {{ printablePacketLoading.en ? 'Opening…' : 'View / Print' }}
+                      </button>
+                      <button
+                        class="btn btn-secondary btn-sm"
+                        type="button"
+                        :disabled="printablePacketLoading.en"
+                        @click="downloadPrintablePacket('en')"
+                      >
+                        {{ printablePacketLoading.en ? 'Downloading…' : 'Download PDF' }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Spanish -->
+                <div class="printable-hub-card">
+                  <div class="printable-hub-card-header">
+                    <span class="printable-hub-lang-badge printable-hub-lang-es">ES</span>
+                    <div class="printable-hub-card-title">Paquete de Referencia — Español</div>
+                  </div>
+                  <div class="printable-hub-card-body">
+                    <div class="printable-hub-qr-wrap">
+                      <img
+                        v-if="printablePacketQr.es"
+                        :src="printablePacketQr.es"
+                        alt="QR code for Spanish printable packet"
+                        class="printable-hub-qr"
+                      />
+                      <div v-else class="printable-hub-qr-placeholder">Generating QR…</div>
+                      <div class="printable-hub-qr-hint">Scan to open on another device<br>(must be logged in to portal)</div>
+                    </div>
+                    <div class="printable-hub-actions">
+                      <button
+                        class="btn btn-primary btn-sm"
+                        type="button"
+                        :disabled="printablePacketLoading.es"
+                        @click="openPrintablePacket('es')"
+                      >
+                        {{ printablePacketLoading.es ? 'Opening…' : 'View / Print' }}
+                      </button>
+                      <button
+                        class="btn btn-secondary btn-sm"
+                        type="button"
+                        :disabled="printablePacketLoading.es"
+                        @click="downloadPrintablePacket('es')"
+                      >
+                        {{ printablePacketLoading.es ? 'Downloading…' : 'Download PDF' }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- digital forms footer link -->
+              <div class="printable-hub-footer">
+                Looking for digital forms instead?
+                <button class="printable-hub-inline-btn" type="button" @click="openIntakeModal('qr')">
+                  Open Digital Forms ›
+                </button>
+              </div>
+
+            </div>
           </div>
 
           <div v-else class="empty-state">Organization not loaded.</div>
@@ -4317,6 +4423,7 @@ const portalSectionLabel = computed(() => {
     case 'documents': return 'Docs / Links';
     case 'faq': return 'FAQ';
     case 'notifications': return 'Notifications';
+    case 'printable_packets': return 'Referral Packet Hub';
     default: return 'School Portal';
   }
 });
@@ -4381,10 +4488,101 @@ const referralPacketHubTo = computed(() => {
     : `/admin/school-referral-hub`;
 });
 
+// ── Printable Packet Hub panel ────────────────────────────────────────────────
+const printablePacketQr = reactive({ en: '', es: '' });
+const printablePacketLoading = reactive({ en: false, es: false });
+const printablePacketError = ref('');
+
+async function generatePrintableQr(locale) {
+  if (!organizationId.value) return;
+  const base = String(api.defaults.baseURL || '/api').replace(/\/$/, '');
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const fullBase = base.startsWith('http') ? base : `${origin}${base}`;
+  const url = `${fullBase}/school-portal/${organizationId.value}/printable-packet?locale=${locale}`;
+  try {
+    printablePacketQr[locale] = await QRCode.toDataURL(url, { width: 220, margin: 1 });
+  } catch {
+    printablePacketQr[locale] = '';
+  }
+}
+
+async function openPrintablePacket(locale) {
+  if (printablePacketLoading[locale]) return;
+  printablePacketLoading[locale] = true;
+  printablePacketError.value = '';
+  try {
+    const res = await api.get(`/school-portal/${organizationId.value}/printable-packet`, {
+      params: { locale },
+      responseType: 'blob',
+      timeout: 120000
+    });
+    const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  } catch (e) {
+    printablePacketError.value = e?.response?.data?.error?.message || e?.message || 'Failed to open packet.';
+  } finally {
+    printablePacketLoading[locale] = false;
+  }
+}
+
+async function downloadPrintablePacket(locale) {
+  if (printablePacketLoading[locale]) return;
+  printablePacketLoading[locale] = true;
+  printablePacketError.value = '';
+  try {
+    const res = await api.get(`/school-portal/${organizationId.value}/printable-packet`, {
+      params: { locale },
+      responseType: 'blob',
+      timeout: 120000
+    });
+    const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `referral-packet-${locale}.pdf`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  } catch (e) {
+    printablePacketError.value = e?.response?.data?.error?.message || e?.message || 'Failed to download packet.';
+  } finally {
+    printablePacketLoading[locale] = false;
+  }
+}
+
+watch(
+  [portalMode, organizationId],
+  ([mode, orgId]) => {
+    if (mode === 'printable_packets' && orgId) {
+      printablePacketError.value = '';
+      generatePrintableQr('en');
+      generatePrintableQr('es');
+    }
+  },
+  { immediate: false }
+);
+// ─────────────────────────────────────────────────────────────────────────────
+
 const canSeeManageSchoolDigitalIntakesLink = computed(() => {
   const r = roleNorm.value;
   if (!['super_admin', 'admin', 'support', 'staff'].includes(r)) return false;
   if (!organizationSlug.value || !organizationId.value) return false;
+  const parent = cardIconOrg.value;
+  if (!parent?.id) return false;
+  const pb = brandingStore.platformBranding || {};
+  return canAccessSchoolPortalsSurfaces({
+    userRole: authStore.user?.role,
+    agencyFeatureFlags: parent.feature_flags ?? parent.featureFlags,
+    platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
+    tenantAvailableAgencyFeaturesOverrideJson:
+      parent.tenant_available_agency_features_json ?? parent.tenantAvailableAgencyFeaturesJson
+  });
+});
+
+// Printable Packet Hub is visible to all portal users (admins + school_staff).
+const canSeePrintablePacketHub = computed(() => {
+  if (!organizationId.value) return false;
   const parent = cardIconOrg.value;
   if (!parent?.id) return false;
   const pb = brandingStore.platformBranding || {};
@@ -6564,5 +6762,144 @@ watch(() => store.selectedWeekday, async (weekday) => {
 .so-demo-banner-btn.ghost {
   background: #eef2ff;
   color: #1e3a8a;
+}
+
+/* ── Referral Packet Hub panel ─────────────────────────────────────────────── */
+.printable-hub-panel {
+  padding: 24px 0;
+  max-width: 900px;
+}
+.printable-hub-notice {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 28px;
+  font-size: 0.93rem;
+  color: #78350f;
+  line-height: 1.5;
+}
+.printable-hub-notice-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.printable-hub-inline-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: #0f766e;
+  font-weight: 600;
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.printable-hub-inline-btn:hover {
+  color: #134e4a;
+}
+.printable-hub-error {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  color: #991b1b;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  margin-bottom: 18px;
+}
+.printable-hub-cards {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.printable-hub-card {
+  flex: 1 1 320px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+.printable-hub-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px 12px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  background: #f9fafb;
+}
+.printable-hub-card-title {
+  font-weight: 600;
+  font-size: 1rem;
+  color: #111827;
+}
+.printable-hub-lang-badge {
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+.printable-hub-lang-en {
+  background: #eef2ff;
+  color: #3730a3;
+}
+.printable-hub-lang-es {
+  background: #ecfdf5;
+  color: #065f46;
+}
+.printable-hub-card-body {
+  padding: 20px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.printable-hub-qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.printable-hub-qr {
+  width: 160px;
+  height: 160px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+.printable-hub-qr-placeholder {
+  width: 160px;
+  height: 160px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #f3f4f6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  color: #6b7280;
+}
+.printable-hub-qr-hint {
+  font-size: 0.75rem;
+  color: #6b7280;
+  text-align: center;
+  line-height: 1.4;
+}
+.printable-hub-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.printable-hub-footer {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border, #e5e7eb);
+  font-size: 0.9rem;
+  color: #6b7280;
 }
 </style>
