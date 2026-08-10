@@ -29,6 +29,11 @@
               </button>
             </th>
             <th v-if="!compact" class="ptt-th">
+              <button type="button" class="ptt-sort" @click="$emit('sort', 'category')">
+                Category<span class="ptt-sort-ind">{{ sortIndicator('category') }}</span>
+              </button>
+            </th>
+            <th v-if="!compact" class="ptt-th">
               <button type="button" class="ptt-sort" @click="$emit('sort', 'urgency')">
                 Priority<span class="ptt-sort-ind">{{ sortIndicator('urgency') }}</span>
               </button>
@@ -101,6 +106,24 @@
               <div class="ptt-quick">
                 <button
                   type="button"
+                  class="ptt-quick__value ptt-category"
+                  :title="categoryTitle(task)"
+                  @click="$emit('open-categories', $event, task)"
+                >
+                  {{ categorySummary(task) }}
+                </button>
+                <button
+                  type="button"
+                  class="ptt-plus ptt-plus--always"
+                  title="Change categories"
+                  @click="$emit('open-categories', $event, task)"
+                >±</button>
+              </div>
+            </td>
+            <td v-if="!compact" class="ptt-td ptt-td--quick" @click.stop>
+              <div class="ptt-quick">
+                <button
+                  type="button"
                   class="ptt-quick__value ptt-priority"
                   :class="`ptt-priority--${task.urgency || 'none'}`"
                   title="Change priority"
@@ -158,6 +181,7 @@
 <script setup>
 import { computed } from 'vue';
 import { formatDate } from '../../utils/formatDate';
+import { formatTaskCategoriesShort, getTaskCategories, taskCategoryLabel } from '../../utils/taskCategories';
 
 const props = defineProps({
   tasks: { type: Array, default: () => [] },
@@ -181,12 +205,13 @@ defineEmits([
   'open-assign',
   'open-status',
   'open-priority',
-  'open-due'
+  'open-due',
+  'open-categories'
 ]);
 
 const colSpan = computed(() => {
   if (props.compact) return props.showCheckboxes ? 3 : 2;
-  return props.showCheckboxes ? 8 : 7;
+  return props.showCheckboxes ? 9 : 8;
 });
 
 function sortIndicator(key) {
@@ -215,6 +240,15 @@ function typeLabel(task) {
 function isOverdue(task) {
   if (!task?.due_date || task.status === 'completed') return false;
   return new Date(task.due_date) < new Date();
+}
+
+function categorySummary(task) {
+  return formatTaskCategoriesShort(task);
+}
+
+function categoryTitle(task) {
+  const labels = getTaskCategories(task).map(taskCategoryLabel);
+  return labels.join(', ');
 }
 </script>
 
@@ -349,6 +383,15 @@ function isOverdue(task) {
 .ptt-priority--medium { color: #ea580c; }
 .ptt-priority--low { color: #2563eb; }
 .ptt-priority--none { color: #94a3b8; }
+.ptt-category {
+  display: inline-block;
+  max-width: 120px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: #4338ca;
+}
 .ptt-overdue { color: #dc2626; font-weight: 700; }
 .ptt-td--type { color: #64748b; font-size: 12px; }
 .ptt-empty {

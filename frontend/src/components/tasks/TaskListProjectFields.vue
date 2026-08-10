@@ -1,18 +1,40 @@
 <template>
   <div class="task-list-project-fields">
-    <label class="field">
-      <span>Shared list</span>
-      <select
-        :value="listSelectValue"
-        class="form-control"
-        :disabled="disabled"
-        @change="onListSelectChange"
-      >
-        <option value="">None</option>
-        <option v-for="l in lists" :key="l.id" :value="String(l.id)">{{ l.name }}</option>
-        <option value="__new__">+ Create new shared list…</option>
-      </select>
-    </label>
+    <div class="task-list-project-fields__pair">
+      <label class="field field--inline">
+        <span>Shared list</span>
+        <select
+          :value="listSelectValue"
+          class="form-control"
+          :disabled="disabled"
+          @change="onListSelectChange"
+        >
+          <option value="">None</option>
+          <option v-for="l in lists" :key="l.id" :value="String(l.id)">{{ l.name }}</option>
+          <option value="__new__">+ Create new shared list…</option>
+        </select>
+      </label>
+
+      <label class="field field--inline">
+        <span>Project</span>
+        <select
+          :value="projectSelectValue"
+          class="form-control"
+          :disabled="disabled"
+          @change="onProjectSelectChange"
+        >
+          <option value="">None</option>
+          <option
+            v-for="p in projects"
+            :key="p.id"
+            :value="String(p.id)"
+            :disabled="isProjectOptionDisabled(p.id)"
+          >
+            {{ p.name }}{{ isProjectOptionDisabled(p.id) ? ' (not available for this list)' : '' }}
+          </option>
+        </select>
+      </label>
+    </div>
 
     <div v-if="showNewListForm" class="inline-create">
       <input
@@ -37,26 +59,6 @@
         </button>
       </div>
     </div>
-
-    <label class="field">
-      <span>Project</span>
-      <select
-        :value="projectSelectValue"
-        class="form-control"
-        :disabled="disabled"
-        @change="onProjectSelectChange"
-      >
-        <option value="">None</option>
-        <option
-          v-for="p in projects"
-          :key="p.id"
-          :value="String(p.id)"
-          :disabled="isProjectOptionDisabled(p.id)"
-        >
-          {{ p.name }}{{ isProjectOptionDisabled(p.id) ? ' (not available for this list)' : '' }}
-        </option>
-      </select>
-    </label>
 
     <p v-if="notice" class="list-project-notice" :class="`list-project-notice--${notice.kind}`">
       {{ notice.text }}
@@ -242,10 +244,28 @@ watch(
   gap: 0.65rem;
 }
 
+.task-list-project-fields__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+}
+
 .field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  display: block;
+  margin: 0;
+}
+
+.field--inline {
+  display: grid;
+  grid-template-columns: minmax(72px, 88px) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+@media (max-width: 520px) {
+  .task-list-project-fields__pair {
+    grid-template-columns: 1fr;
+  }
 }
 
 .field span {

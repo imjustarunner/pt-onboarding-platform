@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { normalizeTaskCategories } from '../constants/taskCategories.js';
 
 class Task {
   static toMySQLDateTime(dueDate) {
@@ -53,7 +54,8 @@ class Task {
       workTypeId,
       workTypeIconKey,
       isPrivate,
-      projectId
+      projectId,
+      categories
     } = taskData;
 
     console.log('Task.create: Creating task with data', {
@@ -72,6 +74,8 @@ class Task {
     const typicalTimeVal = typicalTime != null ? String(typicalTime) : null; // e.g. "09:00" or "09:00:00"
 
     const targetCountVal = targetCount != null ? Math.max(0, parseInt(targetCount, 10) || 0) : null;
+    const categoriesVal = normalizeTaskCategories(categories);
+    const primaryCategory = categoriesVal[0] || 'general';
     const baseParams = [
       taskType,
       documentActionType ?? (taskType === 'document' ? 'signature' : null),
@@ -102,9 +106,9 @@ class Task {
           assigned_to_role, assigned_to_agency_id, assigned_by_user_id, 
           due_date, reference_id, metadata,
           task_list_id, project_id, urgency, is_recurring, recurring_rule, typical_day_of_week, typical_time,
-          department_id, work_type_id, work_type_icon_key, source_ref_type, source_ref_id, linked_schedule_event_id,
+          department_id, work_type_id, work_type_icon_key, category, categories, source_ref_type, source_ref_id, linked_schedule_event_id,
           target_count, is_required, is_private
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           ...baseParams.slice(0, 12),
           projectId != null ? parseInt(projectId, 10) || null : null,
@@ -112,6 +116,8 @@ class Task {
           departmentId != null ? parseInt(departmentId, 10) || null : null,
           workTypeId != null ? parseInt(workTypeId, 10) || null : null,
           workTypeIconKey != null ? String(workTypeIconKey) : null,
+          primaryCategory,
+          JSON.stringify(categoriesVal),
           sourceRefType ?? null,
           sourceRefId != null ? String(sourceRefId) : null,
           linkedScheduleEventId != null ? parseInt(linkedScheduleEventId, 10) || null : null,
@@ -820,7 +826,8 @@ class Task {
     metadata,
     isPrivate,
     projectId,
-    workTypeId
+    workTypeId,
+    categories
   }) {
     const parts = [];
     const params = [];
@@ -851,6 +858,13 @@ class Task {
     if (workTypeId !== undefined) {
       parts.push('work_type_id = ?');
       params.push(workTypeId != null && workTypeId !== '' ? parseInt(workTypeId, 10) || null : null);
+    }
+    if (categories !== undefined) {
+      const cats = normalizeTaskCategories(categories);
+      parts.push('category = ?');
+      params.push(cats[0] || 'general');
+      parts.push('categories = ?');
+      params.push(JSON.stringify(cats));
     }
     if (isRecurring !== undefined) {
       parts.push('is_recurring = ?');

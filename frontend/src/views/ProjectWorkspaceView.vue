@@ -413,6 +413,7 @@
                   @open-status="openStatusPopover"
                   @open-priority="openPriorityPopover"
                   @open-due="openDuePopover"
+                  @open-categories="openCategoryPopover"
                 />
               </div>
             </div>
@@ -454,6 +455,7 @@
               @open-status="openStatusPopover"
               @open-priority="openPriorityPopover"
               @open-due="openDuePopover"
+              @open-categories="openCategoryPopover"
             />
           </div>
 
@@ -475,13 +477,14 @@
 
           <BulkActionBar
             :count="selectedTaskIds.size"
-            :users="agencyUsers"
+            :users="bulkAssignableUsers"
             :type-defs="typeDefs"
             :busy="bulkBusy"
             @complete="bulkCompleteTasks"
             @assign="bulkAssignTasks"
             @due-date="bulkDueDateTasks"
             @priority="bulkPriorityTasks"
+            @categories="bulkCategoryTasks"
             @type="bulkTypeTasks"
             @status="bulkStatusTasks"
             @clear="clearTaskSelection"
@@ -656,6 +659,12 @@
         :style="{ top: assignPopover.top + 'px', left: assignPopover.left + 'px' }"
       >
         <p class="pop__head">Assign to</p>
+        <p
+          v-if="assignPopover.task && selectedTaskIds.size > 1 && selectedTaskIds.has(assignPopover.task.id)"
+          class="pop__bulk-hint"
+        >
+          Assigning {{ selectedTaskIds.size }} selected tasks
+        </p>
         <template v-if="assignPopoverGroups.project.length">
           <p class="pop__section">Project members</p>
           <button
@@ -705,6 +714,40 @@
         <p v-if="!assignPopoverGroups.project.length && !assignPopoverGroups.list.length" class="pop__empty">
           No project or shared-list members found
         </p>
+      </div>
+    </div>
+
+    <!-- Category popover -->
+    <div
+      v-if="categoryPopover.open"
+      class="pop-backdrop"
+      @mousedown.self="categoryPopover.open = false"
+    >
+      <div
+        class="pop pop--wide"
+        :style="{ top: categoryPopover.top + 'px', left: categoryPopover.left + 'px' }"
+      >
+        <p class="pop__head">Categories</p>
+        <p
+          v-if="categoryPopover.task && selectedTaskIds.size > 1 && selectedTaskIds.has(categoryPopover.task.id)"
+          class="pop__bulk-hint"
+        >
+          Updating {{ selectedTaskIds.size }} selected tasks
+        </p>
+        <label
+          v-for="c in taskCategoryOptions"
+          :key="c.value"
+          class="pop__row pop__row--check"
+          :class="{ 'pop__row--active': isCategoryPopoverSelected(c.value) }"
+        >
+          <input
+            type="checkbox"
+            :checked="isCategoryPopoverSelected(c.value)"
+            @mousedown.prevent
+            @change="toggleCategoryInPopover(c.value)"
+          />
+          {{ c.label }}
+        </label>
       </div>
     </div>
 
@@ -830,6 +873,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import { formatDate } from '../utils/formatDate';
 import { exportProjectFull, printProjectScope } from '../utils/projectWorkspacePrint';
+import { TASK_CATEGORIES, formatTaskCategoriesShort, getTaskCategories, normalizeTaskCategories } from '../utils/taskCategories';
 import TaskDetailSidePanel from '../components/tasks/TaskDetailSidePanel.vue';
 import ProjectTaskTable from '../components/tasks/ProjectTaskTable.vue';
 import ProjectWhiteboard from '../components/tasks/ProjectWhiteboard.vue';
@@ -972,6 +1016,8 @@ const assignPopover = reactive({ open: false, task: null, top: 0, left: 0 });
 const statusPopover = reactive({ open: false, task: null, top: 0, left: 0 });
 const priorityPopover = reactive({ open: false, task: null, top: 0, left: 0 });
 const duePopover = reactive({ open: false, task: null, top: 0, left: 0 });
+const categoryPopover = reactive({ open: false, task: null, top: 0, left: 0, selected: [] });
+const taskCategoryOptions = TASK_CATEGORIES;
 
 function assignCandidatesForTask(task) {
   if (!task) return [];
@@ -1014,6 +1060,36 @@ const assignPopoverGroups = computed(() => {
     listLabel
   };
 });
+
+function mergeAssignableUsers(extraLists = []) {
+  const byId = new Map();
+  const add = (raw) => {
+    const id = Number(raw?.user_id || raw?.id || 0);
+    if (!id || byId.has(id)) return;
+    byId.set(id, {
+      id,
+      user_id: id,
+      first_name: raw?.first_name || '',
+      last_name: raw?.last_name || '',
+      email: raw?.email || '',
+      role: raw?.role || ''
+    });
+  };
+  for (const m of overview.value?.members || []) add(m);
+  for (const members of Object.values(listMembersByListId.value || {})) {
+    for (const m of members || []) add(m);
+  }
+  for (const members of extraLists) {
+    for (const m of members || []) add(m);
+  }
+  for (const u of agencyUsers.value || []) add(u);
+  return Array.from(byId.values()).sort((a, b) =>
+    String(a.first_name || '').localeCompare(String(b.first_name || ''))
+      || String(a.last_name || '').localeCompare(String(b.last_name || ''))
+  );
+}
+
+const bulkAssignableUsers = computed(() => mergeAssignableUsers());
 
 // ── Whiteboards ──
 const whiteboards = ref([]);
@@ -1231,6 +1307,10 @@ const sortedTasks = computed(() => {
         av = a.status || '';
         bv = b.status || '';
         break;
+      case 'category':
+        av = formatTaskCategoriesShort(a).toLowerCase();
+        bv = formatTaskCategoriesShort(b).toLowerCase();
+        break;
       case 'urgency':
         av = urgencyOrder[a.urgency] ?? 3;
         bv = urgencyOrder[b.urgency] ?? 3;
@@ -1316,6 +1396,22 @@ async function bulkPriorityTasks(urgency) {
   bulkBusy.value = true;
   try {
     await Promise.all(selectedTaskObjs.value.map((t) => api.put(`/me/tasks/${t.id}`, { urgency }, { skipGlobalLoading: true }).catch(() => {})));
+    await load();
+  } finally {
+    bulkBusy.value = false;
+    clearTaskSelection();
+  }
+}
+
+async function bulkCategoryTasks(categories) {
+  bulkBusy.value = true;
+  try {
+    const normalized = normalizeTaskCategories(categories);
+    await Promise.all(
+      selectedTaskObjs.value.map((t) =>
+        api.put(`/me/tasks/${t.id}`, { categories: normalized }, { skipGlobalLoading: true }).catch(() => {})
+      )
+    );
     await load();
   } finally {
     bulkBusy.value = false;
@@ -1452,10 +1548,16 @@ function selectTask(task) {
   selectedTask.value = task;
 }
 
-function positionPopover(ev) {
+function positionPopover(ev, { maxHeight = 280 } = {}) {
   const rect = ev.currentTarget.getBoundingClientRect();
-  const left = Math.min(rect.left, window.innerWidth - 240);
-  const top = rect.bottom + window.scrollY + 4;
+  const popoverWidth = 240;
+  const gap = 4;
+  const left = Math.min(Math.max(8, rect.left), window.innerWidth - popoverWidth);
+  // Backdrop is position:fixed — use viewport coords only (no scrollY).
+  let top = rect.bottom + gap;
+  if (top + maxHeight > window.innerHeight - 8 && rect.top > maxHeight + gap) {
+    top = rect.top - maxHeight - gap;
+  }
   return { top, left };
 }
 
@@ -1464,6 +1566,7 @@ function closeAllPops() {
   statusPopover.open = false;
   priorityPopover.open = false;
   duePopover.open = false;
+  categoryPopover.open = false;
 }
 
 function openAssignPopover(ev, task) {
@@ -1488,6 +1591,68 @@ function openDuePopover(ev, task) {
   const pos = positionPopover(ev);
   closeAllPops();
   Object.assign(duePopover, { open: true, task, ...pos });
+}
+
+function openCategoryPopover(ev, task) {
+  const pos = positionPopover(ev);
+  closeAllPops();
+  Object.assign(categoryPopover, {
+    open: true,
+    task,
+    ...pos,
+    selected: [...getTaskCategories(task)]
+  });
+}
+
+function isCategoryPopoverSelected(value) {
+  return categoryPopover.selected.includes(value);
+}
+
+function tasksForBulkCategory(anchorTask) {
+  if (!anchorTask) return [];
+  if (selectedTaskIds.value.size > 1 && selectedTaskIds.value.has(anchorTask.id)) {
+    return tasks.value.filter((t) => selectedTaskIds.value.has(t.id));
+  }
+  return [anchorTask];
+}
+
+function applyCategoriesLocally(task, categories) {
+  task.categories = [...categories];
+  task.category = categories[0] || 'general';
+}
+
+async function toggleCategoryInPopover(value) {
+  let next = [...categoryPopover.selected];
+  const idx = next.indexOf(value);
+  if (idx >= 0) next.splice(idx, 1);
+  else next.push(value);
+  next = normalizeTaskCategories(next);
+  categoryPopover.selected = next;
+
+  const anchor = categoryPopover.task;
+  if (!anchor) return;
+  const targets = tasksForBulkCategory(anchor);
+  try {
+    await Promise.all(
+      targets.map((t) =>
+        api.put(`/me/tasks/${t.id}`, { categories: next }, { skipGlobalLoading: true })
+      )
+    );
+    for (const t of targets) {
+      const row = tasks.value.find((x) => x.id === t.id);
+      if (row) applyCategoriesLocally(row, next);
+      if (selectedTask.value?.id === t.id) {
+        selectedTask.value = {
+          ...selectedTask.value,
+          categories: [...next],
+          category: next[0] || 'general'
+        };
+      }
+    }
+    if (targets.length > 1) clearTaskSelection();
+  } catch (e) {
+    console.error('[ProjectWorkspace] toggleCategoryInPopover:', e);
+  }
 }
 
 function pwEndOfTodayDate() {
@@ -1525,27 +1690,45 @@ async function doDue(dateStr) {
   } catch (e) { console.error('[ProjectWorkspace] doDue:', e); }
 }
 
+function tasksForBulkAssign(anchorTask) {
+  if (!anchorTask) return [];
+  if (selectedTaskIds.value.size > 1 && selectedTaskIds.value.has(anchorTask.id)) {
+    return tasks.value.filter((t) => selectedTaskIds.value.has(t.id));
+  }
+  return [anchorTask];
+}
+
+function applyAssignLocally(task, userId, user) {
+  task.assigned_to_user_id = userId;
+  task.assignee_first_name = user?.first_name || null;
+  task.assignee_last_name = user?.last_name || null;
+}
+
 async function doAssign(user) {
   assignPopover.open = false;
-  const task = assignPopover.task;
-  if (!task) return;
+  const anchor = assignPopover.task;
+  if (!anchor) return;
+  const targets = tasksForBulkAssign(anchor);
+  const userId = user ? Number(user.user_id || user.id) : null;
   try {
-    const userId = user ? Number(user.user_id || user.id) : null;
-    await api.put(`/me/tasks/${task.id}`, { assigned_to_user_id: userId }, { skipGlobalLoading: true });
-    const t = tasks.value.find((t) => t.id === task.id);
-    if (t) {
-      t.assigned_to_user_id = userId;
-      t.assignee_first_name = user?.first_name || null;
-      t.assignee_last_name = user?.last_name || null;
+    await Promise.all(
+      targets.map((t) =>
+        api.put(`/me/tasks/${t.id}`, { assigned_to_user_id: userId }, { skipGlobalLoading: true })
+      )
+    );
+    for (const t of targets) {
+      const row = tasks.value.find((x) => x.id === t.id);
+      if (row) applyAssignLocally(row, userId, user);
+      if (selectedTask.value?.id === t.id) {
+        selectedTask.value = {
+          ...selectedTask.value,
+          assigned_to_user_id: userId,
+          assignee_first_name: user?.first_name || null,
+          assignee_last_name: user?.last_name || null
+        };
+      }
     }
-    if (selectedTask.value?.id === task.id) {
-      selectedTask.value = {
-        ...selectedTask.value,
-        assigned_to_user_id: userId,
-        assignee_first_name: user?.first_name || null,
-        assignee_last_name: user?.last_name || null
-      };
-    }
+    if (targets.length > 1) clearTaskSelection();
   } catch (e) {
     console.error('[ProjectWorkspace] doAssign:', e);
   }
@@ -3144,7 +3327,7 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
 .pop-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 200;
+  z-index: 960;
 }
 .pop {
   position: absolute;
@@ -3156,7 +3339,7 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
   min-width: 200px;
   max-height: 280px;
   overflow-y: auto;
-  z-index: 201;
+  z-index: 961;
 }
 .pop__head {
   font-size: 10px;
@@ -3166,6 +3349,15 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
   color: #94a3b8;
   margin: 0 0 6px;
   padding: 0 6px;
+}
+.pop__bulk-hint {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #ecfdf5;
+  color: #166534;
+  font-size: 11px;
+  font-weight: 600;
 }
 .pop__section {
   margin: 8px 0 4px;
@@ -3197,6 +3389,13 @@ h1 { margin: 4px 0 6px; font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; }
 .pop__row--clear { color: #ef4444; font-size: 12px; }
 .pop__row--clear:hover { background: #fef2f2; }
 .pop__row--status { font-size: 13px; }
+.pop--wide { min-width: 220px; max-width: 280px; }
+.pop__row--check {
+  justify-content: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+.pop__row--check input { flex: 0 0 auto; margin: 0; }
 .pop__initials {
   width: 24px; height: 24px;
   border-radius: 50%;

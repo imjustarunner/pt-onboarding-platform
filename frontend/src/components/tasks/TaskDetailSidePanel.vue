@@ -21,59 +21,98 @@
             {{ (draft.urgency || 'medium') }}
           </span>
           <span v-if="Number(draft.is_private)" class="chip chip--private">Private</span>
+          <template v-if="!isActionItem">
+            <span v-for="c in displayDraftCategories" :key="c" class="chip chip--category">
+              {{ taskCategoryLabel(c) }}
+            </span>
+          </template>
         </div>
 
-        <label class="field">
-          <span>Status</span>
-          <select v-model="draft.status" class="form-control" @change="saveStatus">
-            <option value="pending">Open</option>
-            <option value="in_progress">In Progress</option>
-            <option value="waiting">Waiting</option>
-            <option value="completed">Completed</option>
-          </select>
-        </label>
+        <div class="detail-fields detail-fields--row">
+          <label class="field field--inline field--compact">
+            <span>Status</span>
+            <select v-model="draft.status" class="form-control" @change="saveStatus">
+              <option value="pending">Open</option>
+              <option value="in_progress">In Progress</option>
+              <option value="waiting">Waiting</option>
+              <option value="completed">Completed</option>
+            </select>
+          </label>
 
-        <!-- Waiting state notice -->
-        <div v-if="draft.status === 'waiting'" class="waiting-notice">
-          <span class="waiting-notice__icon">⏳</span>
-          <div class="waiting-notice__body">
-            <strong>This task is waiting</strong>
-            <p v-if="blockers.length">
-              It will become active when the following task{{ blockers.length > 1 ? 's are' : ' is' }} completed:
-            </p>
-            <ul v-if="blockers.length" class="blockers-list">
-              <li v-for="b in blockers" :key="b.id" :class="{ 'blocker--done': b.status === 'completed' || b.status === 'overridden' }">
-                <span class="blocker-status">{{ b.status === 'completed' || b.status === 'overridden' ? '✓' : '○' }}</span>
-                {{ b.title }}
-              </li>
-            </ul>
-            <p v-else class="muted">No blockers set — you can edit or complete this task at any time.</p>
+          <div v-if="!isActionItem" class="field field--inline field--compact field--category">
+            <span>Category</span>
+            <div class="category-picker">
+              <button type="button" class="form-control category-picker__btn" @click="categoryMenuOpen = !categoryMenuOpen">
+                {{ formatTaskCategoriesShort(categoryDraftTask, 1) }}
+              </button>
+              <div v-if="categoryMenuOpen" class="category-picker__menu">
+                <label
+                  v-for="c in taskCategories"
+                  :key="c.value"
+                  class="category-picker__option"
+                  :class="{ on: draftCategories.includes(c.value) }"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="draftCategories.includes(c.value)"
+                    @change="toggleDraftCategory(c.value)"
+                  />
+                  {{ c.label }}
+                </label>
+              </div>
+            </div>
           </div>
+
+          <label class="field field--inline field--compact field--grow">
+            <span>Title</span>
+            <input v-model="draft.title" class="form-control" @change="saveCore" />
+          </label>
+
+          <label class="field field--inline field--compact">
+            <span>Assigned to</span>
+            <select
+              v-model="assigneeUserId"
+              class="form-control"
+              :disabled="isActionItem"
+              @change="saveAssignee"
+            >
+              <option value="">Unassigned</option>
+              <option v-for="u in assigneeOptions" :key="u.id" :value="String(u.id)">
+                {{ u.first_name }} {{ u.last_name }}
+              </option>
+            </select>
+          </label>
+
+          <label v-if="!isActionItem" class="field field--inline field--compact">
+            <span>Type</span>
+            <select v-model="draft.work_type_id" class="form-control" @change="saveCore">
+              <option value="">{{ draft.task_type || 'General' }}</option>
+              <option v-for="t in typeDefs" :key="t.id" :value="String(t.id)">{{ t.label }}</option>
+            </select>
+          </label>
         </div>
 
-        <label class="field">
-          <span>Title</span>
-          <input v-model="draft.title" class="form-control" @change="saveCore" />
-        </label>
+        <div v-if="draft.status === 'waiting'" class="waiting-notice">
+            <span class="waiting-notice__icon">⏳</span>
+            <div class="waiting-notice__body">
+              <strong>This task is waiting</strong>
+              <p v-if="blockers.length">
+                It will become active when the following task{{ blockers.length > 1 ? 's are' : ' is' }} completed:
+              </p>
+              <ul v-if="blockers.length" class="blockers-list">
+                <li v-for="b in blockers" :key="b.id" :class="{ 'blocker--done': b.status === 'completed' || b.status === 'overridden' }">
+                  <span class="blocker-status">{{ b.status === 'completed' || b.status === 'overridden' ? '✓' : '○' }}</span>
+                  {{ b.title }}
+                </li>
+              </ul>
+              <p v-else class="muted">No blockers set — you can edit or complete this task at any time.</p>
+            </div>
+          </div>
 
-        <label class="field">
-          <span>Assigned to</span>
-          <select
-            v-model="assigneeUserId"
-            class="form-control"
-            :disabled="isActionItem"
-            @change="saveAssignee"
-          >
-            <option value="">Unassigned</option>
-            <option v-for="u in assigneeOptions" :key="u.id" :value="String(u.id)">
-              {{ u.first_name }} {{ u.last_name }}
-            </option>
-          </select>
-          <span v-if="!assigneeOptions.length" class="hint">No teammates loaded for this tenant</span>
-          <span v-if="assigneeError" class="error">{{ assigneeError }}</span>
-        </label>
+        <span v-if="!assigneeOptions.length" class="hint field-hint field-hint--row">No teammates loaded for this tenant</span>
+        <span v-if="assigneeError" class="error field-hint field-hint--row">{{ assigneeError }}</span>
 
-        <label v-if="showCollaborators" class="field">
+        <label v-if="showCollaborators" class="field field--stack">
           <span>Collaborators</span>
           <p class="hint collaborator-hint">
             Optional — must be {{ collaboratorScopeLabel }} members (not the assignee).
@@ -98,12 +137,9 @@
           <span v-if="collaboratorError" class="error">{{ collaboratorError }}</span>
         </label>
 
-        <label class="field">
-          <span>Type</span>
-          <select v-model="draft.work_type_id" class="form-control" @change="saveCore">
-            <option value="">{{ draft.task_type || 'General' }}</option>
-            <option v-for="t in typeDefs" :key="t.id" :value="String(t.id)">{{ t.label }}</option>
-          </select>
+        <label class="field field--stack">
+          <span>Description / Notes</span>
+          <textarea v-model="draft.description" class="form-control" rows="3" @change="saveCore" />
         </label>
 
         <div class="assoc-box">
@@ -127,11 +163,6 @@
             </button>
           </div>
         </div>
-
-        <label class="field">
-          <span>Description / Notes</span>
-          <textarea v-model="draft.description" class="form-control" rows="3" @change="saveCore" />
-        </label>
 
         <label class="private-toggle">
           <input v-model="draft.is_private" type="checkbox" true-value="1" false-value="0" @change="saveCore" />
@@ -278,6 +309,7 @@
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { formatDate } from '../../utils/formatDate';
+import { TASK_CATEGORIES, formatTaskCategoriesShort, getTaskCategories, normalizeTaskCategories, taskCategoryLabel } from '../../utils/taskCategories';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import TaskListProjectFields from './TaskListProjectFields.vue';
 import { useActiveTaskDockStore } from '../../store/activeTaskDock';
@@ -294,6 +326,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'complete', 'incomplete', 'changed', 'view-project', 'open-project', 'list-created']);
 
 const activeTaskDock = useActiveTaskDockStore();
+const taskCategories = TASK_CATEGORIES;
 
 function pinToDock() {
   const projectMatch = props.projects.find((p) => Number(p.id) === Number(draft.project_id));
@@ -326,6 +359,8 @@ const collaboratorError = ref('');
 const assocError = ref('');
 const postingComment = ref(false);
 const blockers = ref([]);
+const categoryMenuOpen = ref(false);
+const draftCategories = ref(['general']);
 
 const isActionItem = computed(() => !!props.item?._isActionItem);
 
@@ -336,6 +371,15 @@ const collaboratorScopeLabel = computed(() => {
   if (draft.task_list_id) return 'shared list';
   return 'project';
 });
+
+const displayDraftCategories = computed(() =>
+  draftCategories.value.filter((c) => c && c !== 'general')
+);
+
+const categoryDraftTask = computed(() => ({
+  categories: draftCategories.value,
+  category: draftCategories.value[0] || 'general'
+}));
 
 const assigneeOptions = computed(() => {
   const scoped = showCollaborators.value;
@@ -409,7 +453,9 @@ function syncDraft() {
   draft.is_private = Number(t.is_private) ? 1 : 0;
   draft.work_type_id = t.work_type_id != null ? String(t.work_type_id) : '';
   draft.task_type = t.task_type || '';
-  draft.status = t.status === 'completed' ? 'completed' : 'pending';
+  draftCategories.value = getTaskCategories(t);
+  categoryMenuOpen.value = false;
+  draft.status = ['completed', 'in_progress', 'waiting', 'pending'].includes(t.status) ? t.status : 'pending';
   draft.created_at = t.created_at || null;
   draft.updated_at = t.updated_at || null;
   const meta = t.metadata && typeof t.metadata === 'object' ? t.metadata : {};
@@ -525,6 +571,15 @@ async function loadExtras() {
   }
 }
 
+async function toggleDraftCategory(value) {
+  let next = [...draftCategories.value];
+  const idx = next.indexOf(value);
+  if (idx >= 0) next.splice(idx, 1);
+  else next.push(value);
+  draftCategories.value = normalizeTaskCategories(next);
+  await saveCore();
+}
+
 async function saveCore() {
   assocError.value = '';
   try {
@@ -544,7 +599,8 @@ async function saveCore() {
         projectId: draft.project_id || null,
         isPrivate: !!Number(draft.is_private),
         urgency: draft.urgency,
-        work_type_id: draft.work_type_id || null
+        work_type_id: draft.work_type_id || null,
+        categories: draftCategories.value
       }, { skipGlobalLoading: true });
     }
     emit('changed');
@@ -818,9 +874,89 @@ watch(
   text-transform: capitalize;
 }
 .chip--private { background: #fef3c7; color: #92400e; }
+.chip--category { background: #e0e7ff; color: #3730a3; }
 .prio-high { background: #fee2e2; color: #b91c1c; }
 .prio-medium { background: #ffedd5; color: #c2410c; }
 .field { display: block; margin-bottom: 10px; }
+.field--inline {
+  display: grid;
+  grid-template-columns: minmax(72px, 96px) minmax(0, 1fr);
+  gap: 8px 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.field--stack { display: block; }
+.field--stack > span {
+  display: block;
+  margin-bottom: 3px;
+}
+.detail-fields { margin-bottom: 4px; }
+.detail-fields--row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 8px;
+  overflow-x: auto;
+  margin-bottom: 8px;
+  padding-bottom: 2px;
+}
+.detail-fields__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin-bottom: 2px;
+}
+.field--compact { flex: 0 0 auto; min-width: 88px; }
+.field--grow { flex: 1 1 140px; min-width: 120px; }
+.field--category { flex: 0 0 132px; max-width: 160px; position: relative; }
+.field-hint--row { padding-left: 0; margin-top: -4px; }
+.category-picker { position: relative; }
+.category-picker__btn {
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.category-picker__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 200px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+.category-picker__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.category-picker__option:hover,
+.category-picker__option.on { background: #eef2ff; color: #3730a3; }
+.category-picker__option input { margin: 0; }
+.field-hint {
+  display: block;
+  margin: -2px 0 8px;
+  padding-left: 106px;
+}
+@media (max-width: 520px) {
+  .detail-fields--row { flex-wrap: wrap; }
+  .detail-fields__pair { grid-template-columns: 1fr; }
+  .field-hint { padding-left: 0; }
+}
+.field--inline > span {
+  margin-bottom: 0;
+}
 .field > span {
   display: block;
   font-size: 10px;

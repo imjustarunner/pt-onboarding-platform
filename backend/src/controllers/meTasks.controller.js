@@ -22,6 +22,7 @@ import {
   notifyTaskAssigned,
   resolveAssignmentNotificationForWaiting
 } from '../services/taskNotifications.service.js';
+import { normalizeTaskCategory, normalizeTaskCategories } from '../constants/taskCategories.js';
 import pool from '../config/database.js';
 
 function ensureCustomTaskOwnedByUser(task, userId) {
@@ -137,7 +138,8 @@ export const createCustomTask = async (req, res, next) => {
       workTypeId: req.body?.work_type_id ?? metadataIn?.work_type_id ?? null,
       workTypeIconKey: req.body?.work_type_icon_key ?? null,
       isPrivate: !!(req.body?.isPrivate ?? req.body?.is_private),
-      projectId: resolvedProjectId
+      projectId: resolvedProjectId,
+      categories: normalizeTaskCategories(req.body?.categories ?? req.body?.category)
     });
 
     await TaskAuditLog.logAction({
@@ -208,6 +210,9 @@ export const updateCustomTask = async (req, res, next) => {
     if (urgency !== undefined && ['low', 'medium', 'high'].includes(urgency)) updates.urgency = urgency;
     if (body.work_type_id !== undefined || body.workTypeId !== undefined) {
       updates.workTypeId = body.work_type_id ?? body.workTypeId ?? null;
+    }
+    if (body.categories !== undefined || body.category !== undefined) {
+      updates.categories = normalizeTaskCategories(body.categories ?? body.category);
     }
     if (is_recurring !== undefined) updates.isRecurring = !!is_recurring;
     if (recurring_rule !== undefined) updates.recurringRule = recurring_rule || null;
