@@ -206,7 +206,7 @@ export const listSchoolPublicDocuments = async (req, res, next) => {
 
     try {
       const [rows] = await pool.execute(
-        `SELECT id, school_organization_id, kind, title, category_key, file_path, link_url, mime_type, original_filename, uploaded_by_user_id, created_at, updated_at
+        `SELECT id, school_organization_id, kind, title, category_key, school_year, file_path, link_url, mime_type, original_filename, uploaded_by_user_id, created_at, updated_at
          FROM school_public_documents
          WHERE school_organization_id = ?
          ORDER BY updated_at DESC, id DESC`,
@@ -258,6 +258,7 @@ export const createSchoolPublicDocument = [
 
       const title = req.body?.title !== undefined ? String(req.body.title || '').trim() : '';
       const categoryKey = req.body?.categoryKey !== undefined ? String(req.body.categoryKey || '').trim() : '';
+      const schoolYear = req.body?.schoolYear !== undefined ? (String(req.body.schoolYear || '').trim() || null) : null;
       const linkUrlRaw = req.body?.linkUrl !== undefined ? req.body.linkUrl : req.body?.link_url;
       const linkUrl = normalizeUrl(linkUrlRaw);
 
@@ -290,13 +291,14 @@ export const createSchoolPublicDocument = [
       try {
         const [result] = await pool.execute(
           `INSERT INTO school_public_documents
-            (school_organization_id, kind, title, category_key, file_path, link_url, mime_type, original_filename, uploaded_by_user_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (school_organization_id, kind, title, category_key, school_year, file_path, link_url, mime_type, original_filename, uploaded_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             sid,
             kind,
             safeTitle || null,
             categoryKey || null,
+            schoolYear || null,
             saved?.path || null,
             linkUrl || null,
             req.file?.mimetype || null,
@@ -306,7 +308,7 @@ export const createSchoolPublicDocument = [
         );
         const id = Number(result?.insertId || 0);
         const [rows] = await pool.execute(
-          `SELECT id, school_organization_id, kind, title, category_key, file_path, link_url, mime_type, original_filename, uploaded_by_user_id, created_at, updated_at
+          `SELECT id, school_organization_id, kind, title, category_key, school_year, file_path, link_url, mime_type, original_filename, uploaded_by_user_id, created_at, updated_at
            FROM school_public_documents WHERE id = ? AND school_organization_id = ? LIMIT 1`,
           [id, sid]
         );
@@ -335,6 +337,7 @@ export const updateSchoolPublicDocumentMeta = async (req, res, next) => {
 
     const title = req.body?.title !== undefined ? String(req.body.title || '').trim() : undefined;
     const categoryKey = req.body?.categoryKey !== undefined ? String(req.body.categoryKey || '').trim() : undefined;
+    const schoolYearPatch = req.body?.schoolYear !== undefined ? (String(req.body.schoolYear || '').trim() || null) : undefined;
     const linkUrlRaw = req.body?.linkUrl !== undefined ? req.body.linkUrl : (req.body?.link_url !== undefined ? req.body.link_url : undefined);
     const linkUrl = linkUrlRaw === undefined ? undefined : normalizeUrl(linkUrlRaw);
     if (linkUrlRaw !== undefined && !linkUrl) {
@@ -351,6 +354,10 @@ export const updateSchoolPublicDocumentMeta = async (req, res, next) => {
       updates.push('category_key = ?');
       values.push(categoryKey || null);
     }
+    if (schoolYearPatch !== undefined) {
+      updates.push('school_year = ?');
+      values.push(schoolYearPatch);
+    }
     if (linkUrl !== undefined) {
       updates.push('link_url = ?');
       values.push(linkUrl || null);
@@ -366,7 +373,7 @@ export const updateSchoolPublicDocumentMeta = async (req, res, next) => {
         [...values, docId, sid]
       );
       const [rows] = await pool.execute(
-        `SELECT id, school_organization_id, kind, title, category_key, file_path, link_url, mime_type, original_filename, uploaded_by_user_id, created_at, updated_at
+        `SELECT id, school_organization_id, kind, title, category_key, school_year, file_path, link_url, mime_type, original_filename, uploaded_by_user_id, created_at, updated_at
          FROM school_public_documents WHERE id = ? AND school_organization_id = ? LIMIT 1`,
         [docId, sid]
       );

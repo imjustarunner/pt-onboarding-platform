@@ -180,6 +180,13 @@
             </select>
           </div>
           <div class="form-group">
+            <label>School Year</label>
+            <select v-model="newDoc.schoolYear" :disabled="uploading">
+              <option value="">Evergreen (no year)</option>
+              <option v-for="y in schoolYearOptions" :key="y" :value="y">{{ y }}</option>
+            </select>
+          </div>
+          <div class="form-group">
             <label>File</label>
             <input ref="newFileInput" type="file" @change="onPickNewFile" :disabled="uploading" />
             <small class="form-help">PDF, JPG, PNG, DOCX, XLSX (max 15MB).</small>
@@ -213,6 +220,13 @@
             </select>
           </div>
           <div class="form-group">
+            <label>School Year</label>
+            <select v-model="newLink.schoolYear" :disabled="linkSaving">
+              <option value="">Evergreen (no year)</option>
+              <option v-for="y in schoolYearOptions" :key="y" :value="y">{{ y }}</option>
+            </select>
+          </div>
+          <div class="form-group">
             <label>URL</label>
             <input v-model="newLink.linkUrl" type="url" placeholder="https://…" :disabled="linkSaving" />
             <small class="form-help">Must be http(s). Consider using a share link.</small>
@@ -229,13 +243,16 @@
 
     <div class="card" style="margin-top: 12px;">
       <div class="card-header" style="display:flex; align-items:center; justify-content: space-between; gap: 10px;">
-        <h3 style="margin:0;">Library</h3>
-        <div class="muted" style="font-size: 12px;">{{ docs.length }} item(s)</div>
+        <h3 style="margin:0;">Library — {{ CUR_YEAR }}</h3>
+        <div class="muted" style="font-size: 12px;">{{ currentYearDocs.length }} item(s)</div>
       </div>
 
       <div v-if="loading" class="loading" style="margin-top: 10px;">Loading documents…</div>
-      <div v-else-if="!docs.length" class="empty-state" style="margin-top: 10px;">
+      <div v-else-if="!currentYearDocs.length && !archivedDocs.length" class="empty-state" style="margin-top: 10px;">
         No documents yet.
+      </div>
+      <div v-else-if="!currentYearDocs.length" class="empty-state" style="margin-top: 10px;">
+        No {{ CUR_YEAR }} documents yet — see archived docs below.
       </div>
       <div v-else class="table-wrap" style="margin-top: 10px;">
         <table class="table">
@@ -248,7 +265,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="d in docs" :key="d.id">
+            <tr v-for="d in currentYearDocs" :key="d.id">
               <td>
                 <template v-if="editingId === d.id">
                   <div class="edit-stack">
@@ -279,9 +296,14 @@
                     <option value="bell_schedule">Bell schedule</option>
                     <option value="other">Other</option>
                   </select>
+                  <select v-model="editDraft.schoolYear" style="margin-top:4px;">
+                    <option value="">Evergreen (no year)</option>
+                    <option v-for="y in schoolYearOptions" :key="y" :value="y">{{ y }}</option>
+                  </select>
                 </template>
                 <template v-else>
                   <span class="muted">{{ formatCategory(d.category_key) }}</span>
+                  <div v-if="d.school_year" class="muted" style="font-size:11px;">{{ d.school_year }}</div>
                 </template>
               </td>
               <td class="muted">{{ formatDate(d.updated_at) }}</td>
@@ -414,6 +436,124 @@
           </tbody>
         </table>
       </div>
+
+      <!-- ── Archived docs (previous school years) ──────────────────────────── -->
+      <div v-if="archivedDocs.length" style="margin-top: 16px;">
+        <button
+          class="archived-toggle-btn"
+          type="button"
+          @click="showArchivedDocs = !showArchivedDocs"
+        >
+          {{ showArchivedDocs ? '▲ Hide' : '▼ Show' }} archived documents
+          <span class="archived-count-badge">{{ archivedDocs.length }}</span>
+        </button>
+
+        <div v-if="showArchivedDocs" class="archived-section">
+          <div class="archived-search-row">
+            <input
+              v-model="archivedSearch"
+              type="search"
+              placeholder="Search archived docs…"
+              class="archived-search-input"
+            />
+            <span class="muted" style="font-size:12px;">{{ filteredArchivedDocs.length }} result(s)</span>
+          </div>
+          <table class="table" style="margin-top:8px;">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Year</th>
+                <th>Category</th>
+                <th class="right"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="d in filteredArchivedDocs" :key="d.id" class="archived-row">
+                <td>
+                  <template v-if="editingId === d.id">
+                    <input v-model="editDraft.title" type="text" />
+                  </template>
+                  <template v-else>
+                    <strong>{{ d.title || d.original_filename || `Document #${d.id}` }}</strong>
+                    <div class="muted" style="font-size:12px;">
+                      <span v-if="String(d.kind || '').toLowerCase() === 'link'">{{ d.link_url || '—' }}</span>
+                      <span v-else>{{ d.original_filename || '—' }}</span>
+                    </div>
+                  </template>
+                </td>
+                <td>
+                  <template v-if="editingId === d.id">
+                    <select v-model="editDraft.schoolYear">
+                      <option value="">Evergreen</option>
+                      <option v-for="y in schoolYearOptions" :key="y" :value="y">{{ y }}</option>
+                    </select>
+                  </template>
+                  <template v-else>
+                    <span class="badge badge-outline" style="font-size:11px;">{{ d.school_year || '—' }}</span>
+                  </template>
+                </td>
+                <td>
+                  <template v-if="editingId === d.id">
+                    <select v-model="editDraft.categoryKey">
+                      <option value="">General</option>
+                      <option value="district_calendar">District calendar</option>
+                      <option value="school_calendar">School calendar</option>
+                      <option value="bell_schedule">Bell schedule</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </template>
+                  <template v-else>
+                    <span class="muted">{{ formatCategory(d.category_key) }}</span>
+                  </template>
+                </td>
+                <td class="right">
+                  <a
+                    v-if="String(d.kind || '').toLowerCase() === 'link' && d.link_url"
+                    class="btn btn-secondary btn-sm"
+                    :href="d.link_url"
+                    target="_blank"
+                    rel="noreferrer"
+                  >Open</a>
+                  <a
+                    v-else
+                    class="btn btn-secondary btn-sm"
+                    :href="toUploadsUrl(d.file_path)"
+                    target="_blank"
+                    rel="noreferrer"
+                  >View</a>
+                  <template v-if="canManageDocs">
+                    <button
+                      v-if="editingId !== d.id"
+                      class="btn btn-secondary btn-sm"
+                      type="button"
+                      @click="startEdit(d)"
+                    >Edit</button>
+                    <button
+                      v-if="editingId === d.id"
+                      class="btn btn-primary btn-sm"
+                      type="button"
+                      @click="saveMeta(d)"
+                      :disabled="savingId === d.id"
+                    >{{ savingId === d.id ? 'Saving…' : 'Save' }}</button>
+                    <button
+                      v-if="editingId === d.id"
+                      class="btn btn-secondary btn-sm"
+                      type="button"
+                      @click="cancelEdit"
+                    >Cancel</button>
+                    <button
+                      class="btn btn-danger btn-sm"
+                      type="button"
+                      @click="deleteDoc(d)"
+                      :disabled="deletingId === d.id"
+                    >{{ deletingId === d.id ? 'Deleting…' : 'Delete' }}</button>
+                  </template>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <div v-if="qrModalOpen" class="modal-overlay" @click.self="closeQrModal">
@@ -479,18 +619,33 @@ const qrModalTitle = ref('');
 const qrModalUrl = ref('');
 const qrModalDataUrl = ref('');
 
-const newDoc = ref({ title: '', categoryKey: '' });
+// ── School-year helpers ───────────────────────────────────────────────────────
+function currentSchoolYear() {
+  const now = new Date();
+  const year = now.getFullYear();
+  return (now.getMonth() + 1) >= 8 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
+}
+const CUR_YEAR = currentSchoolYear();
+const schoolYearOptions = (() => {
+  const [sy] = CUR_YEAR.split('-').map(Number);
+  return [CUR_YEAR, `${sy - 1}-${sy}`, `${sy - 2}-${sy - 1}`];
+})();
+// ─────────────────────────────────────────────────────────────────────────────
+
+const newDoc = ref({ title: '', categoryKey: '', schoolYear: CUR_YEAR });
 const newFileInput = ref(null);
 const newFile = ref(null);
 const uploading = ref(false);
 const uploadError = ref('');
 
-const newLink = ref({ title: '', categoryKey: '', linkUrl: '' });
+const newLink = ref({ title: '', categoryKey: '', schoolYear: CUR_YEAR, linkUrl: '' });
 const linkSaving = ref(false);
 const linkError = ref('');
 
 const editingId = ref(null);
-const editDraft = ref({ title: '', categoryKey: '' });
+const editDraft = ref({ title: '', categoryKey: '', schoolYear: '' });
+const showArchivedDocs = ref(false);
+const archivedSearch = ref('');
 const savingId = ref(null);
 const replacingId = ref(null);
 const deletingId = ref(null);
@@ -536,6 +691,25 @@ const sortedDigitalFormLinks = computed(() => {
 const primaryDigitalFormLinks = computed(() =>
   sortedDigitalFormLinks.value.filter((l) => langCodeOf(l) !== 'es')
 );
+
+// ── Year-based library filters ────────────────────────────────────────────────
+const currentYearDocs = computed(() =>
+  docs.value.filter(d => !d.school_year || d.school_year === CUR_YEAR)
+);
+const archivedDocs = computed(() =>
+  docs.value.filter(d => d.school_year && d.school_year !== CUR_YEAR)
+    .sort((a, b) => (b.school_year || '').localeCompare(a.school_year || '') || (b.id - a.id))
+);
+const filteredArchivedDocs = computed(() => {
+  const q = archivedSearch.value.toLowerCase().trim();
+  if (!q) return archivedDocs.value;
+  return archivedDocs.value.filter(d =>
+    (d.title || '').toLowerCase().includes(q) ||
+    (d.school_year || '').includes(q) ||
+    (d.category_key || '').toLowerCase().includes(q)
+  );
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 const onPacketTemplateSaved = ({ version } = {}) => {
   const docsList = Array.isArray(docs.value) ? docs.value : [];
@@ -978,10 +1152,11 @@ const upload = async () => {
     fd.append('file', newFile.value);
     fd.append('title', String(newDoc.value.title || '').trim());
     fd.append('categoryKey', String(newDoc.value.categoryKey || '').trim());
+    if (newDoc.value.schoolYear) fd.append('schoolYear', newDoc.value.schoolYear);
     await api.post(`/school-portal/${props.schoolOrganizationId}/public-documents`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
-    newDoc.value = { title: '', categoryKey: '' };
+    newDoc.value = { title: '', categoryKey: '', schoolYear: CUR_YEAR };
     newFile.value = null;
     if (newFileInput.value) newFileInput.value.value = '';
     await load();
@@ -1001,9 +1176,10 @@ const createLink = async () => {
     await api.post(`/school-portal/${props.schoolOrganizationId}/public-documents`, {
       title: String(newLink.value.title || '').trim(),
       categoryKey: String(newLink.value.categoryKey || '').trim(),
+      schoolYear: newLink.value.schoolYear || null,
       linkUrl
     });
-    newLink.value = { title: '', categoryKey: '', linkUrl: '' };
+    newLink.value = { title: '', categoryKey: '', schoolYear: CUR_YEAR, linkUrl: '' };
     await load();
   } catch (e) {
     linkError.value = e.response?.data?.error?.message || 'Failed to add link';
@@ -1017,13 +1193,14 @@ const startEdit = (d) => {
   editDraft.value = {
     title: d.title || '',
     categoryKey: d.category_key || '',
+    schoolYear: d.school_year || '',
     linkUrl: d.link_url || ''
   };
 };
 
 const cancelEdit = () => {
   editingId.value = null;
-  editDraft.value = { title: '', categoryKey: '' };
+  editDraft.value = { title: '', categoryKey: '', schoolYear: '' };
 };
 
 const saveMeta = async (d) => {
@@ -1032,7 +1209,8 @@ const saveMeta = async (d) => {
     savingId.value = d.id;
     const payload = {
       title: String(editDraft.value.title || '').trim(),
-      categoryKey: String(editDraft.value.categoryKey || '').trim()
+      categoryKey: String(editDraft.value.categoryKey || '').trim(),
+      schoolYear: editDraft.value.schoolYear || null
     };
     if (String(d.kind || '').toLowerCase() === 'link') {
       payload.linkUrl = String(editDraft.value.linkUrl || '').trim();
@@ -1353,6 +1531,59 @@ onMounted(load);
 .edit-subrow-label {
   font-size: 11px;
   font-weight: 600;
+}
+
+/* ── Archived docs section ─────────────────────────────────────────────────── */
+.archived-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 7px;
+  padding: 8px 14px;
+  font-size: 0.88rem;
+  color: #6b7280;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: background 0.15s;
+}
+.archived-toggle-btn:hover {
+  background: #f9fafb;
+  color: #374151;
+}
+.archived-count-badge {
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  font-size: 11px;
+  padding: 1px 7px;
+  color: #6b7280;
+  font-weight: 600;
+}
+.archived-section {
+  margin-top: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #fafafa;
+}
+.archived-search-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.archived-search-input {
+  flex: 1;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.87rem;
+  background: #fff;
+}
+.archived-row td {
+  opacity: 0.8;
 }
 </style>
 
