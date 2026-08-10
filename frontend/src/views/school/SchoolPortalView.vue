@@ -2022,8 +2022,8 @@
 
           <div v-if="printablePacketError" class="error" style="margin-bottom:12px;">{{ printablePacketError }}</div>
 
-          <!-- English section (always visible) -->
-          <div class="intake-link-block">
+          <!-- English section (shown when NOT in Spanish mode) -->
+          <div v-if="!showSpanishPrintable" class="intake-link-block">
             <div class="intake-link-meta">
               <span class="badge badge-outline">ENGLISH</span>
             </div>
@@ -2051,17 +2051,8 @@
             </div>
           </div>
 
-          <!-- Spanish reveal toggle -->
-          <button
-            class="printable-es-toggle"
-            type="button"
-            @click="showSpanishPrintable = !showSpanishPrintable"
-          >
-            <span>{{ showSpanishPrintable ? '▲ Hide Spanish / Ocultar Español' : '🇲🇽 Click here for Spanish / Haga clic aquí para el Español' }}</span>
-          </button>
-
-          <!-- Spanish section (revealed on toggle) -->
-          <div v-if="showSpanishPrintable" class="intake-link-block" style="margin-top: 0; border-top: none;">
+          <!-- Spanish section (shown when in Spanish mode) -->
+          <div v-if="showSpanishPrintable" class="intake-link-block">
             <div class="intake-link-meta">
               <span class="badge badge-outline">ESPAÑOL</span>
             </div>
@@ -2088,6 +2079,16 @@
               </div>
             </div>
           </div>
+
+          <!-- Language swap button -->
+          <button
+            class="printable-es-toggle"
+            type="button"
+            @click="showSpanishPrintable = !showSpanishPrintable"
+          >
+            <span v-if="!showSpanishPrintable">🇲🇽 Switch to Spanish / Cambiar a Español</span>
+            <span v-else>🇺🇸 Switch to English / Cambiar a Inglés</span>
+          </button>
 
           <div class="intake-modal-footer">
             <button class="btn btn-secondary btn-sm" type="button" @click="showPrintableModal = false; openIntakeModal('qr')">
