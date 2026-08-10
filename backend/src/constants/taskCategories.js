@@ -36,3 +36,52 @@ export function parseTaskCategoriesFromRow(row) {
   if (row.category) return normalizeTaskCategories([row.category]);
   return ['general'];
 }
+
+/** Infer category from auto-filed test task titles (for create defaults / backfill). */
+export function inferTaskCategoryFromTitle(title) {
+  const t = String(title || '');
+  const lower = t.toLowerCase();
+  if (lower.includes('payroll') || lower.includes('additional pay') || lower.includes('supervision pay') || lower.includes('direct/indirect')) {
+    return 'payroll';
+  }
+  if (lower.includes('school') || lower.includes('year update') || lower.includes('coverage') || lower.includes('reinit')) {
+    return 'schools';
+  }
+  if (lower.includes('ask assistant') || lower.includes('assistant routing')) {
+    return 'assistant';
+  }
+  if (lower.includes('usage analytics') || lower.includes('nav shortcut') || lower.includes('quick nav')) {
+    return 'analytics';
+  }
+  if (
+    lower.includes('project workspace')
+    || lower.includes('bulk assign')
+    || lower.includes('bulk category')
+    || lower.includes('shared list')
+    || lower.includes('inline quick-edit')
+    || lower.includes('task table')
+    || lower.includes('task category')
+    || lower.includes('category column')
+    || lower.includes('popover')
+    || lower.includes('categories')
+  ) {
+    return 'tasks_hub';
+  }
+  if (lower.includes('layout') || lower.includes('one-line') || lower.includes('ui/ux') || lower.includes(' ui ')) {
+    return 'ui_ux';
+  }
+  if (t.startsWith('Test:')) return 'qa_testing';
+  return 'general';
+}
+
+export function resolveTaskCategories(categories, title) {
+  if (categories !== undefined && categories !== null) {
+    const normalized = normalizeTaskCategories(categories);
+    if (normalized.length === 1 && normalized[0] === 'general') {
+      const inferred = inferTaskCategoryFromTitle(title);
+      if (inferred !== 'general') return normalizeTaskCategories(inferred);
+    }
+    return normalized;
+  }
+  return normalizeTaskCategories(inferTaskCategoryFromTitle(title));
+}

@@ -1,5 +1,5 @@
 import pool from '../config/database.js';
-import { normalizeTaskCategories } from '../constants/taskCategories.js';
+import { normalizeTaskCategories, resolveTaskCategories } from '../constants/taskCategories.js';
 
 class Task {
   static toMySQLDateTime(dueDate) {
@@ -74,7 +74,7 @@ class Task {
     const typicalTimeVal = typicalTime != null ? String(typicalTime) : null; // e.g. "09:00" or "09:00:00"
 
     const targetCountVal = targetCount != null ? Math.max(0, parseInt(targetCount, 10) || 0) : null;
-    const categoriesVal = normalizeTaskCategories(categories);
+    const categoriesVal = resolveTaskCategories(categories, title);
     const primaryCategory = categoriesVal[0] || 'general';
     const baseParams = [
       taskType,

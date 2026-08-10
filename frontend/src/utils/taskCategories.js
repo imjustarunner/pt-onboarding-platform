@@ -75,8 +75,11 @@ export function inferTaskCategoryFromTitle(title) {
   if (lower.includes('usage analytics') || lower.includes('nav shortcut') || lower.includes('quick nav')) {
     return 'analytics';
   }
-  if (lower.includes('project workspace') || lower.includes('bulk assign') || lower.includes('shared list') || lower.includes('inline quick-edit')) {
+  if (lower.includes('project workspace') || lower.includes('bulk assign') || lower.includes('bulk category') || lower.includes('shared list') || lower.includes('inline quick-edit') || lower.includes('task table') || lower.includes('task category') || lower.includes('category column') || lower.includes('popover') || lower.includes('categories')) {
     return 'tasks_hub';
+  }
+  if (lower.includes('layout') || lower.includes('one-line') || lower.includes('ui/ux')) {
+    return 'ui_ux';
   }
   if (t.startsWith('Test:')) return 'qa_testing';
   return 'general';

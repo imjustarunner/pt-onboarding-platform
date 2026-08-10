@@ -72,6 +72,31 @@
           <option value="medium">Medium</option>
           <option value="high">High</option>
         </select>
+        <div class="slw__add-category">
+          <button
+            type="button"
+            class="form-control slw__add-category-btn"
+            @click="newTaskCategoryOpen = !newTaskCategoryOpen"
+          >
+            {{ formatTaskCategoriesShort(newTaskCategoryTask) }}
+          </button>
+          <div v-if="newTaskCategoryOpen" class="slw__pop slw__pop--category" @click.stop>
+            <p class="slw__pop-label">Categories</p>
+            <label
+              v-for="c in taskCategoryOptions"
+              :key="`new-${c.value}`"
+              class="slw__pop-cat-option"
+              :class="{ 'slw__pop-cat-option--on': newTaskCategories.includes(c.value) }"
+            >
+              <input
+                type="checkbox"
+                :checked="newTaskCategories.includes(c.value)"
+                @change="toggleNewTaskCategory(c.value)"
+              />
+              {{ c.label }}
+            </label>
+          </div>
+        </div>
         <input v-model="newTaskDueDate" type="date" class="form-control" />
         <button type="button" class="btn-primary" :disabled="!newTaskTitle.trim() || adding" @click="addTask">
           {{ adding ? '…' : 'Add task' }}
@@ -99,6 +124,7 @@
                 <th class="slw__col-check" title="Mark complete"></th>
                 <th class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'title' }" @click="setSort('title')">Task <span class="slw__sort-arrow">{{ slwSortIndicator('title') }}</span></th>
                 <th class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'assignee' }" @click="setSort('assignee')">Assignee <span class="slw__sort-arrow">{{ slwSortIndicator('assignee') }}</span></th>
+                <th class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'category' }" @click="setSort('category')">Category <span class="slw__sort-arrow">{{ slwSortIndicator('category') }}</span></th>
                 <th class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'due_date' }" @click="setSort('due_date')">Due <span class="slw__sort-arrow">{{ slwSortIndicator('due_date') }}</span></th>
                 <th class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'priority' }" @click="setSort('priority')">Priority <span class="slw__sort-arrow">{{ slwSortIndicator('priority') }}</span></th>
                 <th class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'status' }" @click="setSort('status')">Status <span class="slw__sort-arrow">{{ slwSortIndicator('status') }}</span></th>
@@ -169,6 +195,36 @@
                       <span v-if="t.assigned_to_user_id === m.user_id" class="slw__pop-check">✓</span>
                     </button>
                     <button v-if="t.assigned_to_user_id" type="button" class="slw__pop-unassign" @click="quickAssign(t, null)">Remove assignment</button>
+                  </div>
+                </td>
+
+                <!-- Category cell with inline multi-select -->
+                <td class="slw__cell-category" @click.stop>
+                  <div class="slw__quick-wrap">
+                    <span class="slw__category" :title="categoryTitle(t)">{{ formatTaskCategoriesShort(t) }}</span>
+                    <button
+                      type="button"
+                      class="slw__inline-plus"
+                      :class="{ 'slw__inline-plus--open': categoryPopoverTaskId === t.id }"
+                      title="Change categories"
+                      @click.stop="toggleCategoryPopover(t.id)"
+                    >±</button>
+                  </div>
+                  <div v-if="categoryPopoverTaskId === t.id" class="slw__pop slw__pop--category" @click.stop>
+                    <p class="slw__pop-label">Categories</p>
+                    <label
+                      v-for="c in taskCategoryOptions"
+                      :key="`${t.id}-${c.value}`"
+                      class="slw__pop-cat-option"
+                      :class="{ 'slw__pop-cat-option--on': isCategoryDraftSelected(c.value) }"
+                    >
+                      <input
+                        type="checkbox"
+                        :checked="isCategoryDraftSelected(c.value)"
+                        @change="toggleTaskCategoryDraft(c.value, t)"
+                      />
+                      {{ c.label }}
+                    </label>
                   </div>
                 </td>
 
@@ -297,7 +353,7 @@
       </div>
 
       <!-- backdrop to close popovers on outside click -->
-      <div v-if="assignPopoverTaskId || duePopoverTaskId || priorityPopoverTaskId || statusPopoverTaskId" class="slw__pop-backdrop" @click="closePopovers" />
+      <div v-if="assignPopoverTaskId || duePopoverTaskId || priorityPopoverTaskId || statusPopoverTaskId || categoryPopoverTaskId || newTaskCategoryOpen" class="slw__pop-backdrop" @click="closePopovers" />
 
       <BulkActionBar
         :count="selectedIds.size"
@@ -308,6 +364,7 @@
         @assign="bulkAssign"
         @due-date="bulkDueDate"
         @priority="bulkPriority"
+        @categories="bulkCategory"
         @type="bulkType"
         @status="bulkStatus"
         @clear="clearSelection"
@@ -364,6 +421,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import { formatDate } from '../utils/formatDate';
+import { TASK_CATEGORIES, formatTaskCategoriesShort, getTaskCategories, normalizeTaskCategories, taskCategoryLabel } from '../utils/taskCategories';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import TaskDetailSidePanel from '../components/tasks/TaskDetailSidePanel.vue';
 import BulkActionBar from '../components/tasks/BulkActionBar.vue';
@@ -399,10 +457,18 @@ const newTaskTitle = ref('');
 const newTaskUrgency = ref('medium');
 const newTaskAssignee = ref(null);
 const newTaskDueDate = ref('');
+const newTaskCategories = ref(['general']);
+const newTaskCategoryOpen = ref(false);
 const adding = ref(false);
 const addTaskError = ref('');
 const togglingId = ref(null);
 const typeDefs = ref([]);
+const taskCategoryOptions = TASK_CATEGORIES;
+
+const newTaskCategoryTask = computed(() => ({
+  categories: newTaskCategories.value,
+  category: newTaskCategories.value[0] || 'general'
+}));
 
 // ─── Multi-select / bulk actions ─────────────────────────────────────────
 const selectedIds = ref(new Set());
@@ -465,6 +531,22 @@ async function bulkPriority(urgency) {
   bulkBusy.value = true;
   try {
     await Promise.all(selectedTaskObjs.value.map((t) => api.put(`/me/tasks/${t.id}`, { urgency }, { skipGlobalLoading: true }).catch(() => {})));
+    await loadTasks();
+  } finally {
+    bulkBusy.value = false;
+    clearSelection();
+  }
+}
+
+async function bulkCategory(categories) {
+  bulkBusy.value = true;
+  try {
+    const normalized = normalizeTaskCategories(categories);
+    await Promise.all(
+      selectedTaskObjs.value.map((t) =>
+        api.put(`/me/tasks/${t.id}`, { categories: normalized }, { skipGlobalLoading: true }).catch(() => {})
+      )
+    );
     await loadTasks();
   } finally {
     bulkBusy.value = false;
@@ -540,6 +622,8 @@ const assignPopoverTaskId = ref(null);
 const duePopoverTaskId = ref(null);
 const priorityPopoverTaskId = ref(null);
 const statusPopoverTaskId = ref(null);
+const categoryPopoverTaskId = ref(null);
+const categoryPopoverDraft = ref([]);
 
 const statusOptions = [
   { val: 'pending', label: 'Open' },
@@ -552,6 +636,9 @@ function closePopovers() {
   duePopoverTaskId.value = null;
   priorityPopoverTaskId.value = null;
   statusPopoverTaskId.value = null;
+  categoryPopoverTaskId.value = null;
+  categoryPopoverDraft.value = [];
+  newTaskCategoryOpen.value = false;
 }
 
 function toggleAssignPopover(taskId) {
@@ -576,6 +663,56 @@ function toggleStatusPopover(taskId) {
   const next = statusPopoverTaskId.value === taskId ? null : taskId;
   closePopovers();
   statusPopoverTaskId.value = next;
+}
+
+function toggleCategoryPopover(taskId) {
+  const next = categoryPopoverTaskId.value === taskId ? null : taskId;
+  closePopovers();
+  if (next) {
+    const task = tasks.value.find((t) => t.id === taskId);
+    categoryPopoverDraft.value = task ? [...getTaskCategories(task)] : ['general'];
+    categoryPopoverTaskId.value = next;
+  }
+}
+
+function isCategoryDraftSelected(value) {
+  return categoryPopoverDraft.value.includes(value);
+}
+
+function categoryTitle(task) {
+  return getTaskCategories(task).map(taskCategoryLabel).join(', ');
+}
+
+function toggleNewTaskCategory(value) {
+  let next = [...newTaskCategories.value];
+  const idx = next.indexOf(value);
+  if (idx >= 0) next.splice(idx, 1);
+  else next.push(value);
+  newTaskCategories.value = normalizeTaskCategories(next);
+}
+
+function applyCategoriesLocally(task, categories) {
+  task.categories = [...categories];
+  task.category = categories[0] || 'general';
+}
+
+async function toggleTaskCategoryDraft(value, task) {
+  let next = [...categoryPopoverDraft.value];
+  const idx = next.indexOf(value);
+  if (idx >= 0) next.splice(idx, 1);
+  else next.push(value);
+  next = normalizeTaskCategories(next);
+  categoryPopoverDraft.value = next;
+  try {
+    await api.put(`/me/tasks/${task.id}`, { categories: next }, { skipGlobalLoading: true });
+    const row = tasks.value.find((x) => x.id === task.id);
+    if (row) applyCategoriesLocally(row, next);
+    if (selectedTask.value?.id === task.id) {
+      selectedTask.value = { ...selectedTask.value, categories: [...next], category: next[0] || 'general' };
+    }
+  } catch (e) {
+    console.error('toggleTaskCategoryDraft failed', e);
+  }
 }
 
 // Quick due-date helpers — uses browser local time so it reflects the current user's timezone
@@ -713,6 +850,8 @@ const sortedTasks = computed(() => {
         return d * String(a.status || '').localeCompare(String(b.status || ''));
       case 'assignee':
         return d * assigneeName(a).localeCompare(assigneeName(b));
+      case 'category':
+        return d * formatTaskCategoriesShort(a).localeCompare(formatTaskCategoriesShort(b));
       default:
         return 0;
     }
@@ -786,11 +925,14 @@ async function addTask() {
       title,
       urgency: newTaskUrgency.value || 'medium',
       assigned_to_user_id: newTaskAssignee.value,
-      due_date: newTaskDueDate.value || null
+      due_date: newTaskDueDate.value || null,
+      categories: newTaskCategories.value
     });
     newTaskTitle.value = '';
     newTaskDueDate.value = '';
     newTaskUrgency.value = 'medium';
+    newTaskCategories.value = ['general'];
+    newTaskCategoryOpen.value = false;
     await loadTasks();
   } catch (e) {
     addTaskError.value = e?.response?.data?.error?.message || 'Could not add task. Please try again.';
@@ -1002,9 +1144,18 @@ onMounted(() => {
 
 .slw__add-task {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr auto;
+  grid-template-columns: 2fr 1fr 0.9fr 1.1fr 1fr auto;
   gap: 8px;
   margin: 14px 28px 0;
+}
+.slw__add-category { position: relative; min-width: 0; }
+.slw__add-category-btn {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .slw__error { margin: 8px 28px 0; font-size: 12px; color: #dc2626; }
 
@@ -1191,9 +1342,39 @@ tr:hover .slw__inline-plus { opacity: 1; }
 .slw__pop-unassign:hover { background: #fef2f2; }
 
 .slw__cell-priority,
-.slw__cell-status { position: relative; }
+.slw__cell-status,
+.slw__cell-category { position: relative; }
 
 .slw__pop--due { min-width: 220px; }
+.slw__pop--category {
+  min-width: 210px;
+  max-width: 260px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.slw__pop-cat-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.slw__pop-cat-option:hover,
+.slw__pop-cat-option--on { background: #eef2ff; color: #3730a3; }
+.slw__pop-cat-option input { margin: 0; }
+.slw__category {
+  display: inline-block;
+  max-width: 120px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #4338ca;
+  font-size: 12px;
+  font-weight: 600;
+}
 
 /* Quick date option buttons (End of day / End of week) */
 .slw__pop-quick {

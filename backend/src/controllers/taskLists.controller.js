@@ -14,6 +14,7 @@ import Task from '../models/Task.model.js';
 import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import User from '../models/User.model.js';
 import { notifyTaskAddedToList } from '../services/taskNotifications.service.js';
+import { normalizeTaskCategories } from '../constants/taskCategories.js';
 
 async function requireMembership(req, res, next) {
   const listId = parseInt(req.params.id || req.params.listId, 10);
@@ -457,7 +458,8 @@ export const createTaskInList = async (req, res, next) => {
       typicalDayOfWeek: typical_day_of_week ?? null,
       typicalTime: typical_time || null,
       targetCount: target_count ?? null,
-      projectId: resolvedProjectId
+      projectId: resolvedProjectId,
+      categories: normalizeTaskCategories(req.body?.categories ?? req.body?.category)
     });
 
     await TaskAuditLog.logAction({

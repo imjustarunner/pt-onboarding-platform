@@ -28,71 +28,44 @@
           </template>
         </div>
 
-        <div class="detail-fields detail-fields--row">
-          <label class="field field--inline field--compact">
-            <span>Status</span>
-            <select v-model="draft.status" class="form-control" @change="saveStatus">
-              <option value="pending">Open</option>
-              <option value="in_progress">In Progress</option>
-              <option value="waiting">Waiting</option>
-              <option value="completed">Completed</option>
-            </select>
-          </label>
+        <div class="detail-fields">
+          <div class="detail-fields__pair">
+            <label class="field field--inline">
+              <span>Status</span>
+              <select v-model="draft.status" class="form-control" @change="saveStatus">
+                <option value="pending">Open</option>
+                <option value="in_progress">In Progress</option>
+                <option value="waiting">Waiting</option>
+                <option value="completed">Completed</option>
+              </select>
+            </label>
 
-          <div v-if="!isActionItem" class="field field--inline field--compact field--category">
-            <span>Category</span>
-            <div class="category-picker">
-              <button type="button" class="form-control category-picker__btn" @click="categoryMenuOpen = !categoryMenuOpen">
-                {{ formatTaskCategoriesShort(categoryDraftTask, 1) }}
-              </button>
-              <div v-if="categoryMenuOpen" class="category-picker__menu">
-                <label
-                  v-for="c in taskCategories"
-                  :key="c.value"
-                  class="category-picker__option"
-                  :class="{ on: draftCategories.includes(c.value) }"
-                >
-                  <input
-                    type="checkbox"
-                    :checked="draftCategories.includes(c.value)"
-                    @change="toggleDraftCategory(c.value)"
-                  />
-                  {{ c.label }}
-                </label>
+            <div v-if="!isActionItem" class="field field--inline field--category">
+              <span>Category</span>
+              <div class="category-picker">
+                <button type="button" class="form-control category-picker__btn" @click="categoryMenuOpen = !categoryMenuOpen">
+                  {{ formatTaskCategoriesShort(categoryDraftTask, 2) }}
+                </button>
+                <div v-if="categoryMenuOpen" class="category-picker__menu">
+                  <label
+                    v-for="c in taskCategories"
+                    :key="c.value"
+                    class="category-picker__option"
+                    :class="{ on: draftCategories.includes(c.value) }"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="draftCategories.includes(c.value)"
+                      @change="toggleDraftCategory(c.value)"
+                    />
+                    {{ c.label }}
+                  </label>
+                </div>
               </div>
             </div>
           </div>
 
-          <label class="field field--inline field--compact field--grow">
-            <span>Title</span>
-            <input v-model="draft.title" class="form-control" @change="saveCore" />
-          </label>
-
-          <label class="field field--inline field--compact">
-            <span>Assigned to</span>
-            <select
-              v-model="assigneeUserId"
-              class="form-control"
-              :disabled="isActionItem"
-              @change="saveAssignee"
-            >
-              <option value="">Unassigned</option>
-              <option v-for="u in assigneeOptions" :key="u.id" :value="String(u.id)">
-                {{ u.first_name }} {{ u.last_name }}
-              </option>
-            </select>
-          </label>
-
-          <label v-if="!isActionItem" class="field field--inline field--compact">
-            <span>Type</span>
-            <select v-model="draft.work_type_id" class="form-control" @change="saveCore">
-              <option value="">{{ draft.task_type || 'General' }}</option>
-              <option v-for="t in typeDefs" :key="t.id" :value="String(t.id)">{{ t.label }}</option>
-            </select>
-          </label>
-        </div>
-
-        <div v-if="draft.status === 'waiting'" class="waiting-notice">
+          <div v-if="draft.status === 'waiting'" class="waiting-notice">
             <span class="waiting-notice__icon">⏳</span>
             <div class="waiting-notice__body">
               <strong>This task is waiting</strong>
@@ -109,8 +82,39 @@
             </div>
           </div>
 
-        <span v-if="!assigneeOptions.length" class="hint field-hint field-hint--row">No teammates loaded for this tenant</span>
-        <span v-if="assigneeError" class="error field-hint field-hint--row">{{ assigneeError }}</span>
+          <label class="field field--inline">
+            <span>Title</span>
+            <input v-model="draft.title" class="form-control" @change="saveCore" />
+          </label>
+
+          <div class="detail-fields__pair">
+            <label class="field field--inline">
+              <span>Assigned to</span>
+              <select
+                v-model="assigneeUserId"
+                class="form-control"
+                :disabled="isActionItem"
+                @change="saveAssignee"
+              >
+                <option value="">Unassigned</option>
+                <option v-for="u in assigneeOptions" :key="u.id" :value="String(u.id)">
+                  {{ u.first_name }} {{ u.last_name }}
+                </option>
+              </select>
+            </label>
+
+            <label v-if="!isActionItem" class="field field--inline">
+              <span>Type</span>
+              <select v-model="draft.work_type_id" class="form-control" @change="saveCore">
+                <option value="">{{ draft.task_type || 'General' }}</option>
+                <option v-for="t in typeDefs" :key="t.id" :value="String(t.id)">{{ t.label }}</option>
+              </select>
+            </label>
+          </div>
+
+          <span v-if="!assigneeOptions.length" class="hint field-hint">No teammates loaded for this tenant</span>
+          <span v-if="assigneeError" class="error field-hint">{{ assigneeError }}</span>
+        </div>
 
         <label v-if="showCollaborators" class="field field--stack">
           <span>Collaborators</span>
@@ -891,26 +895,19 @@ watch(
   margin-bottom: 3px;
 }
 .detail-fields { margin-bottom: 4px; }
-.detail-fields--row {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: flex-end;
-  gap: 8px;
-  overflow-x: auto;
-  margin-bottom: 8px;
-  padding-bottom: 2px;
-}
 .detail-fields__pair {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px 12px;
   margin-bottom: 2px;
 }
-.field--compact { flex: 0 0 auto; min-width: 88px; }
-.field--grow { flex: 1 1 140px; min-width: 120px; }
-.field--category { flex: 0 0 132px; max-width: 160px; position: relative; }
-.field-hint--row { padding-left: 0; margin-top: -4px; }
-.category-picker { position: relative; }
+.field--category { position: relative; min-width: 0; }
+.field-hint {
+  display: block;
+  margin: -2px 0 8px;
+  padding-left: 106px;
+}
+.category-picker { position: relative; min-width: 0; }
 .category-picker__btn {
   text-align: left;
   cursor: pointer;
@@ -944,13 +941,7 @@ watch(
 .category-picker__option:hover,
 .category-picker__option.on { background: #eef2ff; color: #3730a3; }
 .category-picker__option input { margin: 0; }
-.field-hint {
-  display: block;
-  margin: -2px 0 8px;
-  padding-left: 106px;
-}
 @media (max-width: 520px) {
-  .detail-fields--row { flex-wrap: wrap; }
   .detail-fields__pair { grid-template-columns: 1fr; }
   .field-hint { padding-left: 0; }
 }

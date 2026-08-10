@@ -60,15 +60,21 @@ script via the Shell tool, like `node -e "..."` importing
 context.
 
 ```js
+import { inferTaskCategoryFromTitle, normalizeTaskCategories } from '../constants/taskCategories.js';
+
+const title = 'Test: <short description of what changed>';
+const categories = normalizeTaskCategories(inferTaskCategoryFromTitle(title));
+
 const task = await Task.create({
   taskType: 'custom',
-  title: 'Test: <short description of what changed>',
+  title,
   description: `What was happening: ...\n\nWhy it happened: ...\n\nWhat was fixed: ...\n\nPlease test: <specific steps to verify in the app>`,
   assignedByUserId: 501, // Michael Mendez, unless another user is clearly the requester
   taskListId: 10,
   projectId: 3,
   urgency: 'medium',
-  isPrivate: false
+  isPrivate: false,
+  categories
 });
 await TaskLink.create({
   taskId: task.id,
@@ -82,6 +88,10 @@ await TaskLink.create({
   happening, why, what was fixed, and concrete steps to test it.
 - Always attach a `task_link` with the production URL (`https://plottwisthq.com/...`)
   of the page most directly affected, when one exists.
+- **Always set `categories`** when filing (infer from the title via
+  `inferTaskCategoryFromTitle` — e.g. workspace tasks → `tasks_hub`, layout →
+  `ui_ux`, otherwise `qa_testing` for `Test:` titles). `Task.create` will infer
+  automatically if omitted, but prefer passing explicitly in the script.
 - One task per distinct fix — don't bundle unrelated fixes into one task.
 
 ## On request: "log everything from this chat"
