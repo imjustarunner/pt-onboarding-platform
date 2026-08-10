@@ -3,6 +3,7 @@ import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
 import auditActionRegistry from '../config/auditActionRegistry.js';
+import { isSupervisorOnlyActor } from '../utils/supervisorSchoolAccess.js';
 
 const clamp = (value, min, max, fallback) => {
   const n = parseInt(value, 10);
@@ -828,19 +829,24 @@ const checkActivityLogPermission = async (req, targetUserId) => {
       return false;
     }
 
-    // Check if requesting user is a supervisor using boolean as source of truth
+    const requestingRoleNorm = String(requestingRole || '').toLowerCase();
     const isRequestingSupervisor = User.isSupervisor(requestingUser);
-    
+    const isSupervisorOnly = await isSupervisorOnlyActor({
+      userId: requestingUserIdInt,
+      role: requestingRoleNorm,
+      user: requestingUser
+    });
+
     // Only supervisors, CPAs, provider_plus (same-agency managers), admin, super_admin, and support can view other users' activity
     if (
       !isRequestingSupervisor &&
-      !['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'support'].includes(requestingRole)
+      !['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'support'].includes(requestingRoleNorm)
     ) {
       return false;
     }
 
     // Super admin can view all users
-    if (requestingRole === 'super_admin') {
+    if (requestingRoleNorm === 'super_admin') {
       return true;
     }
 
@@ -858,10 +864,40 @@ const checkActivityLogPermission = async (req, targetUserId) => {
       return false;
     }
 
-    // Supervisors can only view activity for assigned supervisees
-    if (isRequestingSupervisor) {
+    const usersShareAgency = async () => {
+      const requestingUserAgencies = await User.getAgencies(requestingUserIdInt);
+      const targetUserAgencies = await User.getAgencies(targetUserIdInt);
+      const requestingAgencyIds = requestingUserAgencies.map((a) => a.id);
+      const targetUserAgencyIds = targetUserAgencies.map((a) => a.id);
+      return requestingAgencyIds.some((id) => targetUserAgencyIds.includes(id));
+    };
+
+    // Tenant admins/support trump supervisor-only restrictions (matches getUserById).
+    if (requestingRoleNorm === 'admin' || requestingRoleNorm === 'support') {
       try {
-        // Check if supervisor has access to this user (is assigned)
+        return await usersShareAgency();
+      } catch (err) {
+        console.error('[checkActivityLogPermission] Error checking admin/support access:', err);
+        return false;
+      }
+    }
+
+    // CPAs and provider_plus (e.g. club assistant managers) can view activity for eligible users in shared agencies
+    if (requestingRoleNorm === 'clinical_practice_assistant' || requestingRoleNorm === 'provider_plus') {
+      try {
+        if (!['staff', 'provider', 'school_staff', 'facilitator', 'intern'].includes(targetUser.role)) {
+          return false;
+        }
+        return await usersShareAgency();
+      } catch (err) {
+        console.error('[checkActivityLogPermission] Error checking CPA/provider_plus access:', err);
+        return false;
+      }
+    }
+
+    // Supervisors without admin-like role can only view activity for assigned supervisees
+    if (isSupervisorOnly) {
+      try {
         const supervisorAgencies = await User.getAgencies(requestingUserIdInt);
         for (const agency of supervisorAgencies) {
           const hasAccess = await User.supervisorHasAccess(requestingUserIdInt, targetUserIdInt, agency.id);
@@ -876,40 +912,7 @@ const checkActivityLogPermission = async (req, targetUserId) => {
       }
     }
 
-    // CPAs and provider_plus (e.g. club assistant managers) can view activity for eligible users in shared agencies
-    if (requestingRole === 'clinical_practice_assistant' || requestingRole === 'provider_plus') {
-      try {
-        if (!['staff', 'provider', 'school_staff', 'facilitator', 'intern'].includes(targetUser.role)) {
-          return false;
-        }
-        const requestingUserAgencies = await User.getAgencies(requestingUserIdInt);
-        const targetUserAgencies = await User.getAgencies(targetUserIdInt);
-
-        const requestingAgencyIds = requestingUserAgencies.map(a => a.id);
-        const targetUserAgencyIds = targetUserAgencies.map(a => a.id);
-        const sharedAgencies = requestingAgencyIds.filter(id => targetUserAgencyIds.includes(id));
-
-        return sharedAgencies.length > 0;
-      } catch (err) {
-        console.error('[checkActivityLogPermission] Error checking CPA/provider_plus access:', err);
-        return false;
-      }
-    }
-
-    // Admin and support: check if requesting user and target user share an agency
-    try {
-      const requestingUserAgencies = await User.getAgencies(requestingUserIdInt);
-      const targetUserAgencies = await User.getAgencies(targetUserIdInt);
-      
-      const requestingAgencyIds = requestingUserAgencies.map(a => a.id);
-      const targetUserAgencyIds = targetUserAgencies.map(a => a.id);
-      const sharedAgencies = requestingAgencyIds.filter(id => targetUserAgencyIds.includes(id));
-
-      return sharedAgencies.length > 0;
-    } catch (err) {
-      console.error('[checkActivityLogPermission] Error checking admin/support access:', err);
-      return false;
-    }
+    return false;
   } catch (error) {
     console.error('[checkActivityLogPermission] Unexpected error:', error);
     console.error('[checkActivityLogPermission] Error stack:', error.stack);

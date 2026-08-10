@@ -561,9 +561,19 @@ async function listSupervisorClientIdsForOrg({ supervisorUserId, orgId }) {
 async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, user = null, schoolOrganizationId }) {
   if (!userId) return false;
   const roleNorm = String(role || '').toLowerCase();
+  if (roleNorm === 'super_admin') return true;
+
   const userOrgs = await User.getAgencies(userId);
-  const hasDirect = (userOrgs || []).some((org) => parseInt(org.id, 10) === parseInt(schoolOrganizationId, 10));
+  const schoolOrgId = parseInt(schoolOrganizationId, 10);
+  const hasDirect = (userOrgs || []).some((org) => parseInt(org.id, 10) === schoolOrgId);
   if (hasDirect) return true;
+
+  // Admin-like agency roles get school access via parent agency membership (trumps supervisor-only path).
+  if (isAdminLikeRole(roleNorm)) {
+    const activeAgencyId = await resolveActiveAgencyIdForOrg(schoolOrganizationId);
+    if (!activeAgencyId) return false;
+    return (userOrgs || []).some((org) => parseInt(org.id, 10) === parseInt(activeAgencyId, 10));
+  }
 
   const hasSupervisorCapability = await isSupervisorActor({ userId, role, user });
 
@@ -3223,7 +3233,14 @@ async function upsertSchoolContactRoleFlags({
     await conn.commit();
   } catch (err) {
     try { await conn.rollback(); } catch {}
-    if (err?.code !== 'ER_NO_SUCH_TABLE') throw err;
+    const code = String(err?.code || '');
+    const msg = String(err?.message || '');
+    const missing =
+      code === 'ER_NO_SUCH_TABLE' ||
+      code === 'ER_BAD_FIELD_ERROR' ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column');
+    if (!missing) throw err;
   } finally {
     conn.release();
   }
@@ -3385,6 +3402,7 @@ export const removeSchoolStaff = async (req, res, next) => {
       const ok = await userHasOrgOrAffiliatedAgencyAccess({
         userId: actorId,
         role: actorRole,
+        user: req.user,
         schoolOrganizationId: orgId
       });
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
@@ -3493,6 +3511,7 @@ export const sendSchoolStaffResetPassword = async (req, res, next) => {
       const ok = await userHasOrgOrAffiliatedAgencyAccess({
         userId: actorId,
         role: actorRole,
+        user: req.user,
         schoolOrganizationId: orgId
       });
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
@@ -3620,6 +3639,7 @@ export const addSchoolStaff = async (req, res, next) => {
       const ok = await userHasOrgOrAffiliatedAgencyAccess({
         userId: actorId,
         role: actorRole,
+        user: req.user,
         schoolOrganizationId: orgId
       });
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
@@ -3786,15 +3806,19 @@ export const addSchoolStaff = async (req, res, next) => {
     }).catch(() => {});
     if (activeAgencyId) {
       const orgName = org?.name || org?.official_name || `School #${orgId}`;
-      await notifyAgencyAdmins({
-        agencyId: activeAgencyId,
-        title: 'School staff account added',
-        message: `${user.first_name || ''} ${user.last_name || ''} (${user.email || email}) was added to ${orgName}` +
-          `${assignSchoolAdmin ? ' as School Admin' : ''}${assignScheduler ? `${assignSchoolAdmin ? ' and ' : ' as '}Scheduler` : ''}.`,
-        actorUserId: actorId,
-        relatedEntityType: 'user',
-        relatedEntityId: user.id
-      });
+      try {
+        await notifyAgencyAdmins({
+          agencyId: activeAgencyId,
+          title: 'School staff account added',
+          message: `${user.first_name || ''} ${user.last_name || ''} (${user.email || email}) was added to ${orgName}` +
+            `${assignSchoolAdmin ? ' as School Admin' : ''}${assignScheduler ? `${assignSchoolAdmin ? ' and ' : ' as '}Scheduler` : ''}.`,
+          actorUserId: actorId,
+          relatedEntityType: 'user',
+          relatedEntityId: user.id
+        });
+      } catch (err) {
+        console.error('[addSchoolStaff] notifyAgencyAdmins failed:', err?.message || err);
+      }
     }
 
     res.status(201).json({
@@ -3849,12 +3873,15 @@ export const updateSchoolStaff = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only a School Admin or agency admin/staff can edit school staff from the portal' } });
     }
 
-    const ok = await userHasOrgOrAffiliatedAgencyAccess({
-      userId: actorId,
-      role: actorRole,
-      schoolOrganizationId: orgId
-    });
-    if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    if (!isAgencyAdmin) {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({
+        userId: actorId,
+        role: actorRole,
+        user: req.user,
+        schoolOrganizationId: orgId
+      });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
 
     const user = await User.findById(targetUserId);
     if (!user) return res.status(404).json({ error: { message: 'User not found' } });
@@ -4080,8 +4107,15 @@ export const updateSchoolStaffRoleFlags = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only a School Admin or agency admin/staff can change school role flags' } });
     }
 
-    const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId: actorId, role: actorRole, schoolOrganizationId: orgId });
-    if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    if (!isAgencyAdmin) {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({
+        userId: actorId,
+        role: actorRole,
+        user: req.user,
+        schoolOrganizationId: orgId
+      });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
 
     const user = await User.findById(targetUserId);
     if (!user) return res.status(404).json({ error: { message: 'User not found' } });

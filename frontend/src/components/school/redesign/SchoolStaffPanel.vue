@@ -970,6 +970,10 @@ const addStaff = async () => {
     addAccessRole.value = 'standard';
     addSuccess.value = 'Staff added. Setup email sent.';
     await load();
+    if (error.value) {
+      addSuccess.value = 'Staff added, but the roster could not be refreshed. Please reload the page.';
+      error.value = '';
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to add staff';
   } finally {
