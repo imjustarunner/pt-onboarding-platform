@@ -25,7 +25,9 @@ class IntakeLink {
       customMessages = null,
       linkedEsFormId = null,
       documentTranslationMap = null,
-      createdByUserId = null
+      createdByUserId = null,
+      inheritsSchoolMaster = false,
+      isSchoolMaster = false
     } = data;
 
     const [result] = await pool.execute(
@@ -59,7 +61,20 @@ class IntakeLink {
         createdByUserId
       ]
     );
-    return this.findById(result.insertId);
+    const newId = result.insertId;
+    if (inheritsSchoolMaster || isSchoolMaster) {
+      try {
+        await pool.execute(
+          `UPDATE intake_links
+           SET inherits_school_master = ?, is_school_master = ?
+           WHERE id = ?`,
+          [inheritsSchoolMaster ? 1 : 0, isSchoolMaster ? 1 : 0, newId]
+        );
+      } catch {
+        // columns may not exist yet
+      }
+    }
+    return this.findById(newId);
   }
 
   static async findById(id) {
@@ -157,6 +172,8 @@ class IntakeLink {
       ...row,
       language_code: row.language_code || 'en',
       form_type: row.form_type || 'intake',
+      inherits_school_master: Number(row.inherits_school_master || 0) === 1 ? 1 : 0,
+      is_school_master: Number(row.is_school_master || 0) === 1 ? 1 : 0,
       linked_es_form_id: row.linked_es_form_id ?? null,
       document_translation_map: documentTranslationMap,
       allowed_document_template_ids: allowed,

@@ -31,6 +31,9 @@ import EmailService from '../services/email.service.js';
 import EmailTemplate from '../models/EmailTemplate.model.js';
 import Agency from '../models/Agency.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
+import AgencySchoolIntakeMaster from '../models/AgencySchoolIntakeMaster.model.js';
+import ClientSignedSchoolPacket from '../models/ClientSignedSchoolPacket.model.js';
+import SchoolPacketTemplate from '../models/SchoolPacketTemplate.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import User from '../models/User.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -4728,6 +4731,26 @@ export const getPublicIntakeLink = async (req, res, next) => {
       }
     }
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
+    // Live-inherit agency school digital form master onto school shells.
+    if (
+      String(link.scope_type || '').toLowerCase() === 'school'
+      && String(link.form_type || 'intake').toLowerCase() === 'intake'
+      && (Number(link.inherits_school_master || 0) === 1 || agency?.id)
+    ) {
+      try {
+        if (agency?.id && Number(link.inherits_school_master || 0) !== 1) {
+          // Ensure masters exist and flip shells on first public open after deploy.
+          await AgencySchoolIntakeMaster.getOrCreateForAgency(agency.id, {
+            languageCode: link.language_code || 'en'
+          });
+          const refreshed = await IntakeLink.findById(link.id);
+          if (refreshed) link = refreshed;
+        }
+        link = await AgencySchoolIntakeMaster.applyMasterToLink(link, { agencyId: agency?.id || null });
+      } catch (inheritErr) {
+        console.warn('[publicIntake] school master inherit failed', inheritErr?.message || inheritErr);
+      }
+    }
     if (jobDescription && agency?.id) {
       try {
         const [agencyRows] = await pool.execute(
@@ -5771,12 +5794,27 @@ export const finalizePublicIntake = async (req, res, next) => {
     }
 
     const publicKey = String(req.params.publicKey || '').trim();
-    const { link, issuedRoiLink } = await resolvePublicIntakeContext(publicKey);
+    let { link, issuedRoiLink } = await resolvePublicIntakeContext(publicKey);
     if (!link) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
     if (!link.is_active && !issuedRoiLink) {
       return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
+    }
+    try {
+      if (String(link.scope_type || '').toLowerCase() === 'school' && String(link.form_type || 'intake').toLowerCase() === 'intake') {
+        const agencyIdForMaster = await AgencySchool.getActiveAgencyIdForSchool(link.organization_id);
+        if (agencyIdForMaster) {
+          await AgencySchoolIntakeMaster.getOrCreateForAgency(agencyIdForMaster, {
+            languageCode: link.language_code || 'en'
+          });
+          const refreshed = await IntakeLink.findById(link.id);
+          if (refreshed) link = refreshed;
+          link = await AgencySchoolIntakeMaster.applyMasterToLink(link, { agencyId: agencyIdForMaster });
+        }
+      }
+    } catch (inheritErr) {
+      console.warn('[publicIntake] finalize master inherit failed', inheritErr?.message || inheritErr);
     }
 
     const submissionId = parseInt(req.params.submissionId || req.body.submissionId, 10);
@@ -6954,7 +6992,10 @@ export const finalizePublicIntake = async (req, res, next) => {
 
     // After clients exist, persist packet-derived consent sections captured earlier in the flow.
     if (
-      (intakeData?.packetSections || intakeData?.packetInformedGroupConsent || intakeData?.packetPolicyServices)
+      (intakeData?.packetSections
+        || intakeData?.packetInformedGroupConsent
+        || intakeData?.packetPolicyServices
+        || intakeData?.packetHipaaNotice)
       && (updatedSubmission.client_id || issuedRoiLink?.client_id)
     ) {
       try {
@@ -9709,6 +9750,118 @@ export const submitPublicIntake = async (req, res, next) => {
         emailSent: !!emailDelivery?.sent,
         timings: submitTimings
       });
+    }
+
+    // Versioned signed school referral packet bundles for staff Documents UI.
+    try {
+      if (
+        String(link.scope_type || '').toLowerCase() === 'school'
+        && String(link.form_type || 'intake').toLowerCase() === 'intake'
+      ) {
+        const locale = String(link.language_code || 'en').trim() || 'en';
+        let agencyIdForPacket = link.organization_id
+          ? await AgencySchool.getActiveAgencyIdForSchool(link.organization_id)
+          : null;
+        let packetVersion = null;
+        let masterFormVersion = Number(link.master_form_version || 0) || null;
+        if (agencyIdForPacket) {
+          const tmpl = await SchoolPacketTemplate.findByAgencyId(agencyIdForPacket, locale);
+          packetVersion = tmpl?.version != null ? Number(tmpl.version) : null;
+          if (!masterFormVersion) {
+            const master = await AgencySchoolIntakeMaster.findByAgencyLanguage(agencyIdForPacket, locale);
+            masterFormVersion = master?.version != null ? Number(master.version) : null;
+          }
+        }
+        const contents = [];
+        for (const d of signedDocs || []) {
+          contents.push({
+            type: 'signed_document',
+            label: d.document_name || d.original_filename || 'Signed document',
+            intakeSubmissionDocumentId: d.id || null,
+            templateId: d.document_template_id || null
+          });
+        }
+        for (const sectionKey of [
+          'informed_group_consent',
+          'policy_services',
+          'hipaa_notice'
+        ]) {
+          const flat =
+            sectionKey === 'informed_group_consent' ? intakeData?.packetInformedGroupConsent
+              : sectionKey === 'policy_services' ? intakeData?.packetPolicyServices
+                : intakeData?.packetHipaaNotice;
+          const nested = intakeData?.packetSections?.[sectionKey];
+          const resp = nested || flat;
+          if (resp?.acknowledged) {
+            contents.push({
+              type: 'packet_section',
+              sectionKey,
+              label: sectionKey.replace(/_/g, ' '),
+              packetVersion: resp.packetVersion || packetVersion,
+              contentHash: resp.contentHash || null
+            });
+          }
+        }
+        if (intakeData?.smartSchoolRoi) {
+          contents.push({ type: 'school_roi', label: 'School Release of Information' });
+        }
+        if (intakeData?.smartDisclosure || intakeData?.disclosure) {
+          contents.push({ type: 'smart_disclosure', label: 'Disclosure Statement' });
+        }
+        contents.push({ type: 'questionnaire', label: 'Intake questionnaire / responses' });
+
+        const clientIds = new Set();
+        for (const c of rawClients || []) {
+          if (c?.id) clientIds.add(Number(c.id));
+        }
+        if (updatedSubmission?.client_id) clientIds.add(Number(updatedSubmission.client_id));
+        for (const cid of clientIds) {
+          if (!cid) continue;
+          // Attach recent PHI docs for this client from this submission window
+          let phiRows = [];
+          try {
+            phiRows = await ClientPhiDocument.listByClientId?.(cid) || [];
+          } catch {
+            try {
+              const [rows] = await pool.execute(
+                `SELECT id, document_type, title, created_at
+                 FROM client_phi_documents
+                 WHERE client_id = ?
+                 ORDER BY id DESC
+                 LIMIT 40`,
+                [cid]
+              );
+              phiRows = rows || [];
+            } catch {
+              phiRows = [];
+            }
+          }
+          const phiContents = [...contents];
+          for (const p of phiRows) {
+            const created = p.created_at ? new Date(p.created_at).getTime() : 0;
+            if (created && now && created < new Date(now).getTime() - 2 * 60 * 60 * 1000) continue;
+            phiContents.push({
+              type: 'phi_document',
+              label: p.title || p.document_type || `Document #${p.id}`,
+              phiDocumentId: p.id,
+              documentType: p.document_type || null
+            });
+          }
+          await ClientSignedSchoolPacket.create({
+            clientId: cid,
+            intakeSubmissionId: submissionId,
+            schoolOrganizationId: Number(link.organization_id || 0) || null,
+            agencyId: agencyIdForPacket,
+            packetVersion,
+            masterFormVersion,
+            locale,
+            signedAt: now || new Date(),
+            contents: phiContents
+          });
+        }
+      }
+    } catch (signedPacketErr) {
+      console.warn('[publicIntake] signed school packet bundle failed', signedPacketErr?.message || signedPacketErr);
     }
 
     res.json({

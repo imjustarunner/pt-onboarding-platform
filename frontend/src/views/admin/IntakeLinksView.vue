@@ -300,10 +300,14 @@
     <div v-if="showForm" class="modal-overlay" @click.self="closeForm">
       <div class="modal" @click.stop>
         <div class="modal-header">
-          <strong>{{ editingId ? 'Edit Digital Form' : 'Create Digital Form' }}</strong>
+          <strong>{{ editingId ? (editingSchoolMaster ? 'Edit School Referral Master' : 'Edit Digital Form') : 'Create Digital Form' }}</strong>
           <button class="btn btn-secondary btn-sm" type="button" @click="closeForm">Close</button>
         </div>
         <div class="modal-body">
+          <div v-if="editingSchoolMaster" class="success" style="margin-bottom:12px; padding:10px 12px; border-radius:8px; background:#ecfdf5; border:1px solid #a7f3d0; color:#065f46;">
+            This is the <strong>agency master school digital form</strong>. Saving updates every school’s live inheritance
+            (each school keeps its own public link). Include packet HIPAA / Policy / Informed Consent steps here — not uploaded HIPAA PDFs.
+          </div>
           <div class="form-grid">
             <div class="form-group">
               <label>Title</label>
@@ -2418,6 +2422,7 @@ const showForm = ref(false);
 const saving = ref(false);
 const formError = ref('');
 const editingId = ref(null);
+const editingSchoolMaster = ref(false);
 const autosaveTimer = ref(null);
 const lastAutosaveAt = ref(null);
 const showAddOnPreviewModal = ref(false);
@@ -3603,6 +3608,7 @@ const resetForm = () => {
   form.intakeSteps = [];
   formError.value = '';
   editingId.value = null;
+  editingSchoolMaster.value = false;
   companyEventsPickerAgencyId.value = null;
   companyEventsPickerOptions.value = [];
   companyEventsPickerLoading.value = false;
@@ -3937,6 +3943,7 @@ const editLink = (link) => {
   isHydratingEdit.value = true;
   resetForm();
   editingId.value = link.id;
+  editingSchoolMaster.value = Number(link.is_school_master || 0) === 1;
   form.title = link.title || '';
   form.description = link.description || '';
   form.languageCode = link.language_code || 'en';

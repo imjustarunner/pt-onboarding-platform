@@ -5,6 +5,67 @@
       <p class="hint">Opening documentation requires confirmation and will be audited.</p>
     </div>
 
+    <div v-if="signedSchoolPackets.length" class="signed-packet-section">
+      <h4 class="embedded-section-title">School referral packets (signed)</h4>
+      <p class="hint">Versioned bundles from digital school referral intake — click to see what was signed.</p>
+      <div class="signed-packet-list">
+        <button
+          v-for="p in signedSchoolPackets"
+          :key="p.id"
+          type="button"
+          class="signed-packet-card"
+          @click="openSignedPacket(p)"
+        >
+          <div class="signed-packet-title">
+            School referral packet — V{{ p.packet_version || '—' }}
+          </div>
+          <div class="signed-packet-meta">
+            Signed {{ formatDateTime(p.signed_at) }}
+            <span v-if="p.master_form_version"> · Form V{{ p.master_form_version }}</span>
+            <span v-if="p.locale"> · {{ String(p.locale).toUpperCase() }}</span>
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <div
+      v-if="selectedSignedPacket"
+      class="modal-overlay"
+      @click.self="selectedSignedPacket = null"
+    >
+      <div class="modal signed-packet-modal" @click.stop>
+        <div class="modal-header">
+          <strong>
+            School referral packet — V{{ selectedSignedPacket.packet_version || '—' }}
+          </strong>
+          <button class="btn btn-secondary btn-sm" type="button" @click="selectedSignedPacket = null">Close</button>
+        </div>
+        <div class="modal-body">
+          <p class="hint">
+            Signed {{ formatDateTime(selectedSignedPacket.signed_at) }}
+            <span v-if="selectedSignedPacket.master_form_version">
+              · Digital form V{{ selectedSignedPacket.master_form_version }}
+            </span>
+          </p>
+          <ul class="signed-packet-contents">
+            <li v-for="(c, idx) in (selectedSignedPacket.contents || [])" :key="idx">
+              <strong>{{ c.label || c.type }}</strong>
+              <span class="muted"> — {{ c.type }}</span>
+              <button
+                v-if="c.phiDocumentId"
+                class="btn btn-secondary btn-sm"
+                type="button"
+                style="margin-left:8px;"
+                @click="openPhiFromBundle(c.phiDocumentId)"
+              >
+                Open
+              </button>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showFilesSection">
       <div v-if="embedded" class="embedded-section-head">
         <h4 class="embedded-section-title">Files (optional)</h4>
@@ -360,6 +421,8 @@ const docs = ref([]);
 const auditStatements = ref([]);
 const ocrRequests = ref([]);
 const intakeSubmissions = ref([]);
+const signedSchoolPackets = ref([]);
+const selectedSignedPacket = ref(null);
 const confirmingDoc = ref(null);
 const openModalError = ref('');
 const openModalLink = ref('');
@@ -441,8 +504,37 @@ const reloadIntakeResponses = async () => {
   }
 };
 
+const reloadSignedSchoolPackets = async () => {
+  try {
+    const resp = await api.get(`/phi-documents/clients/${props.clientId}/signed-school-packets`);
+    signedSchoolPackets.value = Array.isArray(resp.data?.packets) ? resp.data.packets : [];
+  } catch {
+    signedSchoolPackets.value = [];
+  }
+};
+
+const openSignedPacket = async (p) => {
+  try {
+    const resp = await api.get(`/phi-documents/signed-school-packets/${p.id}`);
+    selectedSignedPacket.value = resp.data?.packet || p;
+  } catch {
+    selectedSignedPacket.value = p;
+  }
+};
+
+const openPhiFromBundle = (phiDocumentId) => {
+  const doc = (docs.value || []).find((d) => Number(d.id) === Number(phiDocumentId));
+  if (doc) confirmOpen(doc);
+};
+
 const reload = async () => {
-  await Promise.all([reloadDocs(), reloadOcr(), reloadAudit(), reloadIntakeResponses()]);
+  await Promise.all([
+    reloadDocs(),
+    reloadOcr(),
+    reloadAudit(),
+    reloadIntakeResponses(),
+    reloadSignedSchoolPackets()
+  ]);
   emitDocsLoaded();
 };
 
@@ -1148,6 +1240,57 @@ tr.doc-highlight {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+.signed-packet-section {
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.signed-packet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.signed-packet-card {
+  text-align: left;
+  border: 1px solid #dbeafe;
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.signed-packet-card:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+.signed-packet-title {
+  font-weight: 700;
+  color: #1e3a8a;
+}
+.signed-packet-meta {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+.signed-packet-modal {
+  width: min(640px, 94vw);
+}
+.signed-packet-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.signed-packet-contents {
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+.signed-packet-contents li {
+  margin: 6px 0;
 }
 </style>
 

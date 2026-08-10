@@ -7,6 +7,12 @@ import {
   putAgencyDisclosureSettings
 } from '../controllers/clientDisclosure.controller.js';
 import {
+  getAgencySchoolIntakeMaster,
+  putAgencySchoolIntakeMaster,
+  listAgencySchoolPacketTemplateVersions,
+  getAgencySchoolPacketTemplateVersion
+} from '../controllers/agencySchoolIntakeMaster.controller.js';
+import {
   getAgencyAnnouncements,
   updateAgencyAnnouncements,
   getAgencyDashboardBanner,
@@ -505,6 +511,10 @@ router.get('/:id/affiliated-organizations', authenticate, requireBackofficeAdmin
 router.get('/:id/settings-people-snapshot', authenticate, requireBackofficeAdmin, getTenantPeopleSnapshot);
 router.get('/:id/disclosure-settings', authenticate, getAgencyDisclosureSettings);
 router.put('/:id/disclosure-settings', authenticate, putAgencyDisclosureSettings);
+router.get('/:agencyId/school-intake-master', authenticate, getAgencySchoolIntakeMaster);
+router.put('/:agencyId/school-intake-master', authenticate, putAgencySchoolIntakeMaster);
+router.get('/:agencyId/school-packet-template-versions', authenticate, listAgencySchoolPacketTemplateVersions);
+router.get('/:agencyId/school-packet-template-versions/:version', authenticate, getAgencySchoolPacketTemplateVersion);
 router.get('/:id', authenticate, getAgencyById);
 
 // School Staff admin (school orgs only). Includes staff role support.

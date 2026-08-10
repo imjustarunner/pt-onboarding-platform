@@ -363,8 +363,25 @@ export const createSchoolPortalIntakeLink = async (req, res, next) => {
       intakeSteps: null,
       retentionPolicy: null,
       customMessages: null,
-      createdByUserId: req.user?.id || null
+      createdByUserId: req.user?.id || null,
+      inheritsSchoolMaster: true,
+      isSchoolMaster: false
     });
+
+    // Ensure agency master exists so this shell resolves live content immediately.
+    try {
+      const AgencySchool = (await import('../models/AgencySchool.model.js')).default;
+      const AgencySchoolIntakeMaster = (await import('../models/AgencySchoolIntakeMaster.model.js')).default;
+      const agencyId = await AgencySchool.getActiveAgencyIdForSchool(sid);
+      if (agencyId) {
+        await AgencySchoolIntakeMaster.getOrCreateForAgency(agencyId, {
+          languageCode,
+          actorUserId: req.user?.id || null
+        });
+      }
+    } catch (e) {
+      console.warn('[schoolPortalIntakeLinks] ensure master failed', e?.message || e);
+    }
 
     res.status(201).json({ link });
   } catch (e) {

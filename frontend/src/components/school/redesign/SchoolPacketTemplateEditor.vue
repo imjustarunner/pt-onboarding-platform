@@ -40,7 +40,10 @@
         </p>
       </div>
       <div class="packet-editor-actions">
-        <span class="version-pill">{{ localeLabel }} · Version {{ version || '—' }}</span>
+        <span class="version-pill">{{ localeLabel }} · V{{ version || '—' }}</span>
+        <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || saving" @click="toggleHistory">
+          {{ showHistory ? 'Hide history' : 'Version history' }}
+        </button>
         <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || saving" @click="$emit('close')">
           Close
         </button>
@@ -53,6 +56,28 @@
     <div v-if="error" class="error" style="margin-top:10px;">{{ error }}</div>
     <div v-if="success" class="success" style="margin-top:10px;">{{ success }}</div>
     <div v-if="loading" class="loading" style="margin-top:10px;">Loading template…</div>
+
+    <div v-else-if="showHistory" class="version-history">
+      <div v-if="historyLoading" class="muted">Loading versions…</div>
+      <div v-else-if="!versions.length" class="muted">No archived versions yet. Save the template to create V1.</div>
+      <ul v-else class="version-list">
+        <li v-for="v in versions" :key="v.id || v.version" class="version-row">
+          <div>
+            <strong>V{{ v.version }}</strong>
+            <span class="muted" style="margin-left:8px;">{{ formatWhen(v.created_at) }}</span>
+            <span v-if="Number(v.version) === Number(version)" class="current-badge">current</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" type="button" @click="viewVersion(v.version)">View HTML</button>
+        </li>
+      </ul>
+      <div v-if="previewHtml" class="version-preview">
+        <div class="version-preview-head">
+          <strong>V{{ previewVersion }} (read-only)</strong>
+          <button class="btn btn-ghost btn-sm" type="button" @click="previewHtml = ''; previewVersion = null">Close preview</button>
+        </div>
+        <iframe class="version-preview-frame" :srcdoc="previewHtml" title="Packet version preview" />
+      </div>
+    </div>
 
     <div v-else class="packet-editor-body">
       <HtmlDocumentBuilder v-model="htmlContent" placeholder="Packet template HTML…" />
@@ -85,15 +110,65 @@ const success = ref('');
 const htmlContent = ref('');
 const originalHtml = ref('');
 const version = ref(null);
+const showHistory = ref(false);
+const historyLoading = ref(false);
+const versions = ref([]);
+const previewHtml = ref('');
+const previewVersion = ref(null);
 
 const dirty = computed(() => htmlContent.value !== originalHtml.value);
 const localeLabel = computed(() => (locale.value === 'es' ? 'ES' : 'EN'));
+
+function formatWhen(v) {
+  if (!v) return '';
+  try {
+    return new Date(v).toLocaleString();
+  } catch {
+    return String(v);
+  }
+}
+
+const loadVersions = async () => {
+  historyLoading.value = true;
+  try {
+    const res = await api.get(`/school-portal/${props.schoolOrganizationId}/printable-packet/template/versions`, {
+      params: { locale: locale.value }
+    });
+    versions.value = Array.isArray(res.data?.versions) ? res.data.versions : [];
+  } catch {
+    versions.value = [];
+  } finally {
+    historyLoading.value = false;
+  }
+};
+
+const toggleHistory = async () => {
+  showHistory.value = !showHistory.value;
+  previewHtml.value = '';
+  previewVersion.value = null;
+  if (showHistory.value) await loadVersions();
+};
+
+const viewVersion = async (ver) => {
+  try {
+    const res = await api.get(
+      `/school-portal/${props.schoolOrganizationId}/printable-packet/template/versions/${ver}`,
+      { params: { locale: locale.value } }
+    );
+    previewHtml.value = String(res.data?.version?.html_content || '');
+    previewVersion.value = Number(ver);
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to load version';
+  }
+};
 
 const load = async () => {
   try {
     loading.value = true;
     error.value = '';
     success.value = '';
+    showHistory.value = false;
+    previewHtml.value = '';
     const res = await api.get(`/school-portal/${props.schoolOrganizationId}/printable-packet/template`, {
       params: { locale: locale.value }
     });
@@ -130,8 +205,9 @@ const save = async () => {
     htmlContent.value = String(res.data?.html_content || htmlContent.value);
     originalHtml.value = htmlContent.value;
     version.value = Number(res.data?.version || version.value || 1);
-    success.value = `Saved ${localeLabel.value} as version ${version.value}.`;
+    success.value = `Saved ${localeLabel.value} as V${version.value} (archived).`;
     emit('saved', { version: version.value, locale: locale.value });
+    if (showHistory.value) await loadVersions();
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to save packet template';
   } finally {
@@ -212,6 +288,56 @@ onMounted(load);
   border: 1px solid #e5e7eb;
   border-radius: 10px;
   padding: 10px;
+}
+.version-history {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fafafa;
+}
+.version-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.version-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+.current-badge {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #047857;
+  background: #ecfdf5;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.version-preview {
+  margin-top: 12px;
+}
+.version-preview-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.version-preview-frame {
+  width: 100%;
+  height: 420px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+}
+.btn-ghost {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #6b7280;
+  cursor: pointer;
 }
 .muted { color: #6b7280; font-size: 13px; }
 .error { color: #b91c1c; font-size: 13px; }

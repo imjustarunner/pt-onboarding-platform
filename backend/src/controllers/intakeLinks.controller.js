@@ -510,6 +510,11 @@ export const updateIntakeLink = async (req, res, next) => {
     }
 
     const filtered = Object.fromEntries(Object.entries(updates).filter(([k, v]) => v !== undefined));
+    // School shells that live-inherit the agency master cannot store their own steps.
+    if (Number(existing.inherits_school_master || 0) === 1 && Number(existing.is_school_master || 0) !== 1) {
+      delete filtered.intake_steps;
+      delete filtered.intake_fields;
+    }
     if (!Object.keys(filtered).length) {
       return res.status(400).json({ error: { message: 'No updates provided' } });
     }
@@ -519,9 +524,35 @@ export const updateIntakeLink = async (req, res, next) => {
     const values = fields.map((f) => filtered[f]);
     const setClause = fields.map((f) => `${f} = ?`).join(', ');
     values.push(id);
+
     await pool.execute(`UPDATE intake_links SET ${setClause} WHERE id = ?`, values);
 
-    const link = await IntakeLink.findById(id);
+    let link = await IntakeLink.findById(id);
+
+    // Editing the shadow master link syncs back to agency_school_intake_masters.
+    if (Number(link?.is_school_master || 0) === 1 && (req.body.intakeSteps !== undefined || req.body.intakeFields !== undefined)) {
+      try {
+        const AgencySchoolIntakeMaster = (await import('../models/AgencySchoolIntakeMaster.model.js')).default;
+        const master = await AgencySchoolIntakeMaster.findByEditorLinkId(link.id);
+        const agencyId = master?.agency_id || Number(link.organization_id || 0);
+        if (agencyId) {
+          await AgencySchoolIntakeMaster.upsertContent({
+            agencyId,
+            languageCode: link.language_code || master?.language_code || 'en',
+            title: link.title || master?.title || null,
+            intakeSteps: link.intake_steps,
+            intakeFields: link.intake_fields,
+            actorUserId: req.user?.id || null,
+            bumpVersion: true
+          });
+          await AgencySchoolIntakeMaster.markAgencySchoolLinksInheriting(agencyId);
+          link = await IntakeLink.findById(id);
+        }
+      } catch (syncErr) {
+        console.warn('[intakeLinks] master sync failed', syncErr?.message || syncErr);
+      }
+    }
+
     res.json({ link });
   } catch (error) {
     next(error);

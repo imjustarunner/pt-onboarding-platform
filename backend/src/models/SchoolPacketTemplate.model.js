@@ -130,8 +130,70 @@ class SchoolPacketTemplate {
     return this.findByAgencyId(aid, loc);
   }
 
+  static async versionsTableExists() {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT COUNT(*) AS cnt FROM information_schema.tables
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'school_packet_template_versions'`
+      );
+      return Number(rows?.[0]?.cnt || 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  static async archiveVersion({ agencyId, locale, version, htmlContent, actorUserId = null }) {
+    if (!(await this.versionsTableExists())) return;
+    const aid = Number(agencyId || 0);
+    const ver = Number(version || 0);
+    if (!aid || !ver) return;
+    const loc = normalizeLocale(locale);
+    try {
+      await pool.execute(
+        `INSERT INTO school_packet_template_versions
+           (agency_id, locale, version, html_content, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE html_content = VALUES(html_content)`,
+        [aid, loc, ver, String(htmlContent ?? ''), actorUserId || null]
+      );
+    } catch (e) {
+      console.warn('[SchoolPacketTemplate] archiveVersion failed', e?.message || e);
+    }
+  }
+
+  static async listVersions(agencyId, locale = 'en') {
+    const aid = Number(agencyId || 0);
+    if (!aid || !(await this.versionsTableExists())) return [];
+    const loc = normalizeLocale(locale);
+    const [rows] = await pool.execute(
+      `SELECT id, agency_id, locale, version, created_by_user_id, created_at,
+              CHAR_LENGTH(html_content) AS html_length
+       FROM school_packet_template_versions
+       WHERE agency_id = ? AND locale = ?
+       ORDER BY version DESC`,
+      [aid, loc]
+    );
+    return rows || [];
+  }
+
+  static async getVersion(agencyId, locale, version) {
+    const aid = Number(agencyId || 0);
+    const ver = Number(version || 0);
+    if (!aid || !ver || !(await this.versionsTableExists())) return null;
+    const loc = normalizeLocale(locale);
+    const [rows] = await pool.execute(
+      `SELECT id, agency_id, locale, version, html_content, created_by_user_id, created_at
+       FROM school_packet_template_versions
+       WHERE agency_id = ? AND locale = ? AND version = ?
+       LIMIT 1`,
+      [aid, loc, ver]
+    );
+    return rows?.[0] || null;
+  }
+
   /**
    * Saves new HTML content and bumps version by 1 (in-place) for a locale.
+   * Archives the new version row for history.
    */
   static async upsertContent({ agencyId, htmlContent, actorUserId = null, locale = 'en' }) {
     const aid = Number(agencyId || 0);
@@ -157,8 +219,10 @@ class SchoolPacketTemplate {
     const loc = normalizeLocale(locale);
     const hasLocale = await this.hasLocaleColumn();
     const existing = await this.findByAgencyId(aid, loc);
+    let savedVersion = 1;
     if (existing) {
       const nextVersion = Number(existing.version || 1) + 1;
+      savedVersion = nextVersion;
       if (hasLocale) {
         await pool.execute(
           `UPDATE school_packet_templates
@@ -195,6 +259,13 @@ class SchoolPacketTemplate {
         [aid, html, actorUserId || null]
       );
     }
+    await this.archiveVersion({
+      agencyId: aid,
+      locale: loc,
+      version: savedVersion,
+      htmlContent: html,
+      actorUserId
+    });
     return this.findByAgencyId(aid, loc);
   }
 }

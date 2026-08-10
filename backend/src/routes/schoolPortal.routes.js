@@ -94,7 +94,9 @@ import {
   getSchoolPrintablePacketAvailabilityHandler,
   renderSchoolPrintablePacket,
   getSchoolPrintablePacketTemplate,
-  updateSchoolPrintablePacketTemplate
+  updateSchoolPrintablePacketTemplate,
+  listSchoolPrintablePacketTemplateVersions,
+  getSchoolPrintablePacketTemplateVersion
 } from '../controllers/schoolPublicDocuments.controller.js';
 import {
   listSchoolPortalIntakeLinks,
@@ -196,6 +198,8 @@ router.get('/:organizationId/public-documents', authenticate, listSchoolPublicDo
 router.get('/:organizationId/printable-packet/availability', authenticate, getSchoolPrintablePacketAvailabilityHandler);
 router.get('/:organizationId/printable-packet/template', authenticate, getSchoolPrintablePacketTemplate);
 router.put('/:organizationId/printable-packet/template', authenticate, updateSchoolPrintablePacketTemplate);
+router.get('/:organizationId/printable-packet/template/versions', authenticate, listSchoolPrintablePacketTemplateVersions);
+router.get('/:organizationId/printable-packet/template/versions/:version', authenticate, getSchoolPrintablePacketTemplateVersion);
 router.get('/:organizationId/printable-packet', authenticate, renderSchoolPrintablePacket);
 router.post('/:organizationId/public-documents', authenticate, createSchoolPublicDocument);
 router.put('/:organizationId/public-documents/:documentId', authenticate, updateSchoolPublicDocumentMeta);

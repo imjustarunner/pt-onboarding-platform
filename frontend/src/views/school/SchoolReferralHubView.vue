@@ -4,8 +4,8 @@
       <div>
         <h1>School Referral Hub</h1>
         <p class="muted srh-sub">
-          Edit the agency school referral packet (EN/ES), manage ready-to-share digital and printable links,
-          and choose which consent steps appear on each school’s digital form.
+          Edit the agency printable packet (EN/ES) and the one master digital form all schools inherit.
+          Each school still has its own shareable links below.
         </p>
       </div>
       <router-link class="btn btn-secondary btn-sm" :to="backTo">Back to School Operations</router-link>
@@ -83,10 +83,11 @@
 
         <section class="srh-card">
           <div class="srh-card-head">
-            <h2>Digital form steps</h2>
+            <h2>Master digital form (agency-wide)</h2>
             <p class="muted">
-              Toggle which steps are included on the selected language’s digital intake form.
-              Questionnaire fields are not edited here.
+              One questionnaire and consent flow for all schools. Each school keeps its own shareable link above;
+              every open uses this master live. Edit with the same Digital Forms builder (questions, guardian steps,
+              insurance, packet HIPAA, etc.).
             </p>
           </div>
           <div class="srh-step-toolbar">
@@ -95,46 +96,42 @@
                 type="button"
                 class="locale-tab"
                 :class="{ active: stepsLocale === 'en' }"
-                @click="stepsLocale = 'en'"
+                @click="stepsLocale = 'en'; loadMaster()"
               >
-                English form
+                English master
               </button>
               <button
                 type="button"
                 class="locale-tab"
                 :class="{ active: stepsLocale === 'es' }"
-                @click="stepsLocale = 'es'"
+                @click="stepsLocale = 'es'; loadMaster()"
               >
-                Spanish form
+                Spanish master
               </button>
             </div>
             <button
               class="btn btn-primary btn-sm"
               type="button"
-              :disabled="!activeStepsLink || savingSteps"
-              @click="saveStepToggles"
+              :disabled="!masterEditorLinkId || masterLoading"
+              @click="openMasterEditor"
             >
-              {{ savingSteps ? 'Saving…' : 'Save step toggles' }}
+              Edit master in Digital Forms
             </button>
           </div>
-          <div v-if="!activeStepsLink" class="muted" style="margin-top:10px;">
-            Create a {{ stepsLocale === 'es' ? 'Spanish' : 'English' }} digital form above before configuring steps.
+          <div v-if="masterLoading" class="muted" style="margin-top:10px;">Loading master form…</div>
+          <div v-else-if="masterError" class="error" style="margin-top:10px;">{{ masterError }}</div>
+          <div v-else class="srh-master-meta" style="margin-top:12px;">
+            <div>
+              <strong>{{ masterTitle || 'School Referral Master' }}</strong>
+              <span class="version-pill" style="margin-left:8px;">V{{ masterVersion || 1 }}</span>
+            </div>
+            <p class="muted" style="margin:8px 0 0;">
+              {{ masterStepCount }} step(s) · live inheritance for all school digital links · packet HIPAA is included from the printable packet template
+            </p>
+            <p class="muted" style="margin:8px 0 0;">
+              Tip: remove duplicate insurance / permission one-time questions in the builder — use Insurance info / Communications / Guardian steps instead.
+            </p>
           </div>
-          <div v-else class="srh-step-list">
-            <label v-for="opt in stepToggleOptions" :key="opt.key" class="srh-step-row">
-              <input v-model="stepToggles[opt.key]" type="checkbox" />
-              <span>
-                <strong>{{ opt.label }}</strong>
-                <span class="muted"> — {{ opt.hint }}</span>
-              </span>
-            </label>
-          </div>
-          <div v-if="stepsMessage" class="success" style="margin-top:10px;">{{ stepsMessage }}</div>
-          <div v-if="stepsError" class="error" style="margin-top:10px;">{{ stepsError }}</div>
-          <p class="muted" style="margin-top:12px;">
-            Advanced builder:
-            <router-link :to="digitalFormsTo">Digital Forms</router-link>
-          </p>
         </section>
       </template>
     </template>
@@ -142,14 +139,15 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import SchoolPacketTemplateEditor from '../../components/school/redesign/SchoolPacketTemplateEditor.vue';
 
 const route = useRoute();
+const router = useRouter();
 const agencyStore = useAgencyStore();
 
 const loadingSchools = ref(true);
@@ -165,31 +163,23 @@ const creatingLang = ref('');
 const printableLoadingLang = ref('');
 
 const stepsLocale = ref('en');
-const stepToggles = reactive({
-  questions: true,
-  school_roi: true,
-  smart_disclosure: true,
-  packet_informed_group_consent: false,
-  packet_policy_services: false,
-  packet_hipaa_notice: false
-});
-const savingSteps = ref(false);
-const stepsMessage = ref('');
-const stepsError = ref('');
-
-const stepToggleOptions = [
-  { key: 'questions', label: 'Questionnaire', hint: 'existing question steps stay as-is' },
-  { key: 'school_roi', label: 'School ROI', hint: 'programmed school release of information' },
-  { key: 'smart_disclosure', label: 'Smart Disclosure', hint: 'living disclosure statement' },
-  { key: 'packet_informed_group_consent', label: 'Informed + Group Consent', hint: 'live from packet template' },
-  { key: 'packet_policy_services', label: 'Policy & Services', hint: 'live from packet template' },
-  { key: 'packet_hipaa_notice', label: 'HIPAA Notice', hint: 'live from packet template' }
-];
+const masterLoading = ref(false);
+const masterError = ref('');
+const masterTitle = ref('');
+const masterVersion = ref(null);
+const masterEditorLinkId = ref(null);
+const masterStepCount = ref(0);
 
 const orgSlug = computed(() => (typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : ''));
 const agencyId = computed(() => Number(agencyStore.currentAgency?.id || route.query?.agencyId || 0));
 const backTo = computed(() => (orgSlug.value ? `/${orgSlug.value}/school-operations` : '/school-operations'));
-const digitalFormsTo = computed(() => (orgSlug.value ? `/${orgSlug.value}/admin/digital-forms` : '/admin/digital-forms'));
+const digitalFormsTo = computed(() => {
+  const base = orgSlug.value ? `/${orgSlug.value}/admin/digital-forms` : '/admin/digital-forms';
+  if (masterEditorLinkId.value) {
+    return `${base}?editIntakeLinkId=${masterEditorLinkId.value}`;
+  }
+  return base;
+});
 
 const selectedSchoolName = computed(() => {
   const id = Number(selectedSchoolId.value || 0);
@@ -210,8 +200,6 @@ const activeDigitalByLang = computed(() => {
   }
   return out;
 });
-
-const activeStepsLink = computed(() => activeDigitalByLang.value[stepsLocale.value] || null);
 
 const linkLanes = computed(() => {
   const en = activeDigitalByLang.value.en;
@@ -260,33 +248,31 @@ const linkLanes = computed(() => {
   ];
 });
 
-function normalizeSteps(raw) {
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
+async function loadMaster() {
+  if (!agencyId.value) return;
+  masterLoading.value = true;
+  masterError.value = '';
+  try {
+    const res = await api.get(`/agencies/${agencyId.value}/school-intake-master`, {
+      params: { locale: stepsLocale.value }
+    });
+    const m = res.data?.master || null;
+    masterTitle.value = m?.title || '';
+    masterVersion.value = m?.version ?? null;
+    masterEditorLinkId.value = m?.editor_intake_link_id || null;
+    const steps = Array.isArray(m?.intake_steps) ? m.intake_steps : [];
+    masterStepCount.value = steps.length;
+  } catch (e) {
+    masterError.value = e?.response?.data?.error?.message || e.message || 'Failed to load master form';
+    masterEditorLinkId.value = null;
+  } finally {
+    masterLoading.value = false;
   }
-  return [];
 }
 
-function syncTogglesFromLink(link) {
-  const steps = normalizeSteps(link?.intake_steps);
-  const types = new Set(steps.map((s) => String(s?.type || '').toLowerCase()));
-  stepToggles.questions = types.has('questions') || steps.some((s) => s?.type === 'questions' || s?.fields);
-  // questions may be represented as question fields without a dedicated type in some forms —
-  // treat presence of any questions-typed step OR any step with fields as questionnaire on.
-  if (!types.has('questions')) {
-    stepToggles.questions = steps.some((s) => Array.isArray(s?.fields) && s.fields.length);
-  }
-  stepToggles.school_roi = types.has('school_roi');
-  stepToggles.smart_disclosure = types.has('smart_disclosure') || types.has('disclosure');
-  stepToggles.packet_informed_group_consent = types.has('packet_informed_group_consent');
-  stepToggles.packet_policy_services = types.has('packet_policy_services');
-  stepToggles.packet_hipaa_notice = types.has('packet_hipaa_notice');
+function openMasterEditor() {
+  if (!masterEditorLinkId.value) return;
+  router.push(digitalFormsTo.value);
 }
 
 async function loadSchools() {
@@ -328,7 +314,6 @@ async function loadLinks() {
       params: { includeInactive: '1' }
     });
     intakeLinks.value = Array.isArray(res.data?.links) ? res.data.links : [];
-    syncTogglesFromLink(activeStepsLink.value);
   } catch (e) {
     linksError.value = e?.response?.data?.error?.message || e.message || 'Failed to load links';
     intakeLinks.value = [];
@@ -347,83 +332,6 @@ async function createDigitalLink(lang) {
     linksError.value = e?.response?.data?.error?.message || e.message || 'Failed to create form';
   } finally {
     creatingLang.value = '';
-  }
-}
-
-function applyStepToggles(existingSteps) {
-  const steps = normalizeSteps(existingSteps).filter((s) => {
-    const t = String(s?.type || '').toLowerCase();
-    if (t === 'school_roi') return !!stepToggles.school_roi;
-    if (t === 'smart_disclosure' || t === 'disclosure') return !!stepToggles.smart_disclosure;
-    if (t === 'packet_informed_group_consent') return !!stepToggles.packet_informed_group_consent;
-    if (t === 'packet_policy_services') return !!stepToggles.packet_policy_services;
-    if (t === 'packet_hipaa_notice') return !!stepToggles.packet_hipaa_notice;
-    if (t === 'questions' || Array.isArray(s?.fields)) return !!stepToggles.questions;
-    return true;
-  });
-
-  const hasType = (type) => steps.some((s) => String(s?.type || '').toLowerCase() === type);
-  if (stepToggles.school_roi && !hasType('school_roi')) {
-    steps.push({ type: 'school_roi', title: 'School ROI', visibility: 'always' });
-  }
-  if (stepToggles.smart_disclosure && !hasType('smart_disclosure') && !hasType('disclosure')) {
-    steps.push({ type: 'smart_disclosure', title: 'Disclosure Statement', visibility: 'always' });
-  }
-  if (stepToggles.packet_informed_group_consent && !hasType('packet_informed_group_consent')) {
-    steps.push({
-      type: 'packet_informed_group_consent',
-      label: 'Informed Consent + Group Consent',
-      visibility: 'always'
-    });
-  }
-  if (stepToggles.packet_policy_services && !hasType('packet_policy_services')) {
-    steps.push({
-      type: 'packet_policy_services',
-      label: 'Policy and Services Agreement',
-      visibility: 'always'
-    });
-  }
-  if (stepToggles.packet_hipaa_notice && !hasType('packet_hipaa_notice')) {
-    steps.push({
-      type: 'packet_hipaa_notice',
-      label: 'HIPAA Privacy Policy and Notice of Privacy Practices',
-      visibility: 'always'
-    });
-  }
-  return steps;
-}
-
-async function saveStepToggles() {
-  const link = activeStepsLink.value;
-  if (!link?.id) return;
-  savingSteps.value = true;
-  stepsMessage.value = '';
-  stepsError.value = '';
-  try {
-    const nextSteps = applyStepToggles(link.intake_steps);
-    await api.put(`/intake-links/${link.id}`, {
-      title: link.title || 'School referral form',
-      description: link.description || '',
-      languageCode: link.language_code || stepsLocale.value,
-      formType: link.form_type || 'intake',
-      scopeType: link.scope_type || 'school',
-      organizationId: Number(link.organization_id || selectedSchoolId.value || 0) || undefined,
-      isActive: !!link.is_active,
-      createClient: !!link.create_client,
-      createGuardian: !!link.create_guardian,
-      intakeSteps: nextSteps,
-      intakeFields: link.intake_fields || undefined,
-      allowedDocumentTemplateIds: link.allowed_document_template_ids || undefined,
-      customMessages: link.custom_messages || undefined,
-      linkedEsFormId: link.linked_es_form_id || null,
-      documentTranslationMap: link.document_translation_map || undefined
-    });
-    stepsMessage.value = 'Step toggles saved.';
-    await loadLinks();
-  } catch (e) {
-    stepsError.value = e?.response?.data?.error?.message || e.message || 'Failed to save steps';
-  } finally {
-    savingSteps.value = false;
   }
 }
 
@@ -461,17 +369,14 @@ watch(selectedSchoolId, () => {
   loadLinks();
 });
 
-watch(stepsLocale, () => {
-  syncTogglesFromLink(activeStepsLink.value);
-  stepsMessage.value = '';
-  stepsError.value = '';
-});
+watch(agencyId, (id) => {
+  if (id) loadMaster();
+}, { immediate: true });
 
-watch(activeStepsLink, (link) => {
-  syncTogglesFromLink(link);
+onMounted(async () => {
+  await loadSchools();
+  if (agencyId.value) await loadMaster();
 });
-
-onMounted(loadSchools);
 </script>
 
 <style scoped>

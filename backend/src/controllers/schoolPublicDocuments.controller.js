@@ -592,3 +592,45 @@ export const updateSchoolPrintablePacketTemplate = async (req, res, next) => {
   }
 };
 
+export const listSchoolPrintablePacketTemplateVersions = async (req, res, next) => {
+  try {
+    const { organizationId } = req.params;
+    await assertSchoolPortalAccess(req, organizationId);
+    assertPacketTemplateEditorRole(req);
+    const locale = String(req.query?.locale || 'en').trim();
+    const AgencySchool = (await import('../models/AgencySchool.model.js')).default;
+    const SchoolPacketTemplate = (await import('../models/SchoolPacketTemplate.model.js')).default;
+    const agencyId = await AgencySchool.getActiveAgencyIdForSchool(organizationId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'No parent agency for this school' } });
+    const versions = await SchoolPacketTemplate.listVersions(agencyId, locale);
+    const current = await SchoolPacketTemplate.findByAgencyId(agencyId, locale);
+    res.json({ agencyId, locale, currentVersion: current?.version ?? null, versions });
+  } catch (e) {
+    if (e?.statusCode || e?.status) {
+      return res.status(e.statusCode || e.status).json({ error: { message: e.message } });
+    }
+    next(e);
+  }
+};
+
+export const getSchoolPrintablePacketTemplateVersion = async (req, res, next) => {
+  try {
+    const { organizationId, version } = req.params;
+    await assertSchoolPortalAccess(req, organizationId);
+    assertPacketTemplateEditorRole(req);
+    const locale = String(req.query?.locale || 'en').trim();
+    const AgencySchool = (await import('../models/AgencySchool.model.js')).default;
+    const SchoolPacketTemplate = (await import('../models/SchoolPacketTemplate.model.js')).default;
+    const agencyId = await AgencySchool.getActiveAgencyIdForSchool(organizationId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'No parent agency for this school' } });
+    const row = await SchoolPacketTemplate.getVersion(agencyId, locale, version);
+    if (!row) return res.status(404).json({ error: { message: 'Version not found' } });
+    res.json({ version: row });
+  } catch (e) {
+    if (e?.statusCode || e?.status) {
+      return res.status(e.statusCode || e.status).json({ error: { message: e.message } });
+    }
+    next(e);
+  }
+};
+

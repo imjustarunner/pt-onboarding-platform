@@ -9,6 +9,10 @@ import {
   viewPhiDocument,
   uploadClientPhiDocument
 } from '../controllers/phiDocuments.controller.js';
+import {
+  listClientSignedSchoolPackets,
+  getClientSignedSchoolPacket
+} from '../controllers/agencySchoolIntakeMaster.controller.js';
 
 const router = express.Router();
 
@@ -16,6 +20,8 @@ const router = express.Router();
 router.get('/clients/:clientId', authenticate, listClientPhiDocuments);
 router.get('/clients/:clientId/audit', authenticate, listClientPhiDocumentAudit);
 router.get('/clients/:clientId/intake-responses', authenticate, listClientIntakeResponses);
+router.get('/clients/:clientId/signed-school-packets', authenticate, listClientSignedSchoolPackets);
+router.get('/signed-school-packets/:packetId', authenticate, getClientSignedSchoolPacket);
 
 // Upload a PHI doc for a client (authenticated)
 router.post('/clients/:clientId/upload', authenticate, uploadClientPhiDocument);
