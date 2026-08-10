@@ -163,7 +163,12 @@ const redirectNestedAwayFromFullDashboard = async () => {
 const ensureOrgLoaded = async () => {
   const slug = route.params.organizationSlug;
   if (typeof slug === 'string' && slug) {
-    if (organizationStore.organizationContext?.slug !== slug) {
+    const ctx = organizationStore.organizationContext;
+    const target = String(slug).trim().toLowerCase();
+    const ctxSlug = String(ctx?.slug || '').trim().toLowerCase();
+    const ctxPortal = String(ctx?.portalUrl || '').trim().toLowerCase();
+    const matches = ctx && (ctxSlug === target || ctxPortal === target);
+    if (!matches) {
       await organizationStore.fetchBySlug(slug);
     }
   }

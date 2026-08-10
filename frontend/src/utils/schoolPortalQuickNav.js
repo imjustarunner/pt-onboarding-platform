@@ -17,12 +17,25 @@ export function canUseSchoolPortalQuickNav(opts = {}) {
 }
 
 export function schoolPortalDashboardPath(slug) {
-  const s = String(slug || '').trim();
+  const s = String(slug || '').trim().toLowerCase();
   return s ? `/${s}/dashboard` : null;
 }
 
+/** Public URL segment for a school portal (portal_url when set, else slug). */
+export function resolveSchoolPortalSlug(row) {
+  return String(
+    row?.school_portal_url ||
+    row?.portal_url ||
+    row?.school_slug ||
+    row?.slug ||
+    ''
+  )
+    .trim()
+    .toLowerCase();
+}
+
 export function mapSchoolOverviewToQuickNavEntry(row) {
-  const slug = String(row?.school_slug || row?.slug || '').trim();
+  const slug = resolveSchoolPortalSlug(row);
   const name = String(row?.school_name || row?.name || '').trim();
   const district = String(row?.district_name || '').trim();
   if (!slug || !name) return null;

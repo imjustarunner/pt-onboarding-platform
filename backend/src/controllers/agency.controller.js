@@ -312,7 +312,9 @@ export const getAgencyBySlug = withBrandingCache(
   async (req, res, next) => {
     try {
       const { slug } = req.params;
-      const agency = await Agency.findBySlug(slug);
+      const agency =
+        (await Agency.findBySlug(slug)) ||
+        (await Agency.findByPortalUrl(slug));
 
       if (!agency) {
         return res.status(404).json({ error: { message: 'Organization not found' } });

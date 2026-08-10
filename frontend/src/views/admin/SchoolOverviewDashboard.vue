@@ -849,6 +849,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.js';
+import { resolveSchoolPortalSlug, schoolPortalDashboardPath } from '../../utils/schoolPortalQuickNav.js';
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../../utils/skillBuildersSchoolProgramAccess.js';
 import AddSchoolScopedModal from '../../components/admin/AddSchoolScopedModal.vue';
 import SchoolReinitAdminPanel from '../../components/admin/SchoolReinitAdminPanel.vue';
@@ -1504,9 +1505,10 @@ const formatOrgType = (t) => {
 };
 
 const openSchool = (school) => {
-  const slug = String(school?.school_slug || '').trim();
-  if (!slug) return;
-  router.push(`/${slug}/dashboard`);
+  const slug = resolveSchoolPortalSlug(school);
+  const path = schoolPortalDashboardPath(slug);
+  if (!path) return;
+  router.push(path);
 };
 
 const tokenCopyFlashId = ref('');
@@ -1642,22 +1644,22 @@ const skillBuildersIconUrl = computed(() => {
 });
 
 const goToSchoolSkillsGroups = (school) => {
-  const slug = String(school?.school_slug || '').trim();
-  if (!slug) return;
-  router.push(`/${slug}/dashboard?sp=skills`);
+  const path = schoolPortalDashboardPath(resolveSchoolPortalSlug(school));
+  if (!path) return;
+  router.push(`${path}?sp=skills`);
 };
 
 const openSchoolNotifications = (school) => {
-  const slug = String(school?.school_slug || '').trim();
-  if (!slug) return;
-  router.push(`/${slug}/dashboard?sp=notifications`);
+  const path = schoolPortalDashboardPath(resolveSchoolPortalSlug(school));
+  if (!path) return;
+  router.push(`${path}?sp=notifications`);
 };
 
 const openSchoolNotificationsFiltered = (school, filter) => {
-  const slug = String(school?.school_slug || '').trim();
-  if (!slug) return;
+  const path = schoolPortalDashboardPath(resolveSchoolPortalSlug(school));
+  if (!path) return;
   const key = filter === 'messages' ? 'messages' : 'comments';
-  router.push(`/${slug}/dashboard?sp=notifications&notif=${key}`);
+  router.push(`${path}?sp=notifications&notif=${key}`);
 };
 
 const cycleStudentStatus = (school) => {
@@ -1675,9 +1677,9 @@ const sumSkillsParticipants = (school) => {
 };
 
 const openSkillsUnassigned = (school) => {
-  const slug = String(school?.school_slug || '').trim();
-  if (!slug) return;
-  router.push(`/${slug}/dashboard?sp=skills&skillsUnassigned=1`);
+  const path = schoolPortalDashboardPath(resolveSchoolPortalSlug(school));
+  if (!path) return;
+  router.push(`${path}?sp=skills&skillsUnassigned=1`);
 };
 
 watch(

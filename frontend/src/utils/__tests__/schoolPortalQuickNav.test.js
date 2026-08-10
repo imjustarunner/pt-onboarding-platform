@@ -27,6 +27,19 @@ describe('schoolPortalQuickNav', () => {
     expect(schoolPortalDashboardPath('cheyenne-jh')).toBe('/cheyenne-jh/dashboard');
   });
 
+  it('prefers portal_url over internal slug for navigation', () => {
+    const entry = mapSchoolOverviewToQuickNavEntry({
+      school_id: 99,
+      school_name: 'Colorado Springs School of Technology',
+      school_slug: 'csst',
+      school_portal_url: 'csst',
+      slug: 'colorado-springs-school-of-technology',
+      district_name: 'D11'
+    });
+    expect(entry.slug).toBe('csst');
+    expect(entry.path).toBe('/csst/dashboard');
+  });
+
   it('search matches school names for quick nav', () => {
     const schools = [
       { school_id: 1, school_name: 'Cheyenne JH', school_slug: 'cheyenne-jh', district_name: 'D12' },

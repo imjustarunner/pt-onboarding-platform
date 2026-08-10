@@ -153,7 +153,8 @@ export const getSchoolOverview = async (req, res, next) => {
       bySchoolId.set(sid, {
         school_id: sid,
         school_name: s?.name || null,
-        school_slug: s?.slug || s?.portal_url || null,
+        school_slug: s?.portal_url || s?.slug || null,
+        school_portal_url: s?.portal_url || null,
         organization_type: s?.organization_type || null,
         logo_path: s?.logo_path || null,
         logo_url: s?.logo_url || null,
