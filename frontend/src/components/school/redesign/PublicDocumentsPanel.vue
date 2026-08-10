@@ -510,16 +510,17 @@ const langCodeOf = (link) => {
   return raw.startsWith('es') ? 'es' : 'en';
 };
 
-/** Referral packet forms first, then ROI forms; English before Spanish within each group. */
+/**
+ * Smart School ROI generic links are excluded from the Docs/Links panel.
+ * ROIs should always be sent from each client's individual profile as a
+ * client-specific link — the generic link has no identity-matching and
+ * cannot attach itself to a client record.
+ */
 const sortedDigitalFormLinks = computed(() => {
-  const rank = (l) => {
-    const ft = String(l?.form_type || 'intake').toLowerCase();
-    if (ft === 'smart_school_roi') return 1;
-    return 0;
-  };
-  return [...(intakeLinks.value || [])].sort((a, b) => {
-    const r = rank(a) - rank(b);
-    if (r !== 0) return r;
+  const nonRoi = (intakeLinks.value || []).filter(
+    (l) => String(l?.form_type || '').toLowerCase() !== 'smart_school_roi'
+  );
+  return [...nonRoi].sort((a, b) => {
     const la = langCodeOf(a);
     const lb = langCodeOf(b);
     if (la !== lb) return la === 'en' ? -1 : 1;
