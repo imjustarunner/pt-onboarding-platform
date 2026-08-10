@@ -1088,7 +1088,7 @@
                     </svg>
                   </div>
                 </div>
-                <div class="dash-card-title">Referral Packet Hub</div>
+                <div class="dash-card-title">Printable Forms</div>
                 <div class="dash-card-desc">View and download the EN/ES printable referral packet for parents.</div>
                 <div class="dash-card-meta">
                   <span class="dash-card-cta">Open ›</span>
@@ -1957,8 +1957,33 @@
                 <button class="btn btn-primary btn-sm" type="button" @click="openIntakeApproval(link)">Approve & Launch</button>
               </div>
               <div v-if="intakeModalMode === 'qr'" class="intake-qr">
-                <img v-if="intakeQrByKey[link.public_key]" :src="intakeQrByKey[link.public_key]" alt="Intake QR code" />
+                <img
+                  v-if="intakeQrFancyMode[link.public_key] && intakeQrFancyByKey[link.public_key]"
+                  :src="intakeQrFancyByKey[link.public_key]"
+                  alt="Intake QR code"
+                  class="intake-qr-img"
+                />
+                <img
+                  v-else-if="!intakeQrFancyMode[link.public_key] && intakeQrByKey[link.public_key]"
+                  :src="intakeQrByKey[link.public_key]"
+                  alt="Intake QR code"
+                  class="intake-qr-img"
+                />
                 <div v-else class="muted">Generating QR…</div>
+                <div v-if="intakeQrByKey[link.public_key] || intakeQrFancyByKey[link.public_key]" class="printable-qr-actions" style="margin-top:8px;">
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    @click="() => { const d = document.createElement('a'); d.href = (intakeQrFancyMode[link.public_key] && intakeQrFancyByKey[link.public_key]) ? intakeQrFancyByKey[link.public_key] : intakeQrByKey[link.public_key]; d.download = `intake-qr-${link.language_code || 'en'}.png`; d.click(); }"
+                  >↓ Download QR</button>
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    type="button"
+                    @click="intakeQrFancyMode[link.public_key] = !intakeQrFancyMode[link.public_key]"
+                  >
+                    {{ intakeQrFancyMode[link.public_key] ? 'Switch to black & simple' : 'Switch to branded' }}
+                  </button>
+                </div>
               </div>
               <div v-else class="muted">
                 Share the link above or open it with the parent to complete the intake packet.
@@ -2604,6 +2629,8 @@ const intakeLink = ref(null);
 const intakeLinks = ref([]);
 const intakeQrDataUrl = ref('');
 const intakeQrByKey = ref({});
+const intakeQrFancyByKey = ref({});
+const intakeQrFancyMode = ref({});
 const selectedIntakeLink = ref(null);
 const showIntakeApprovalModal = ref(false);
 const intakeApprovalChecked = ref(false);
@@ -2692,11 +2719,21 @@ const loadIntakeLink = async () => {
     intakeLinks.value = links;
     intakeLink.value = links[0] || null;
     intakeQrByKey.value = {};
+    intakeQrFancyByKey.value = {};
+    intakeQrFancyMode.value = {};
     if (links.length) {
       for (const link of links) {
         const url = getIntakeLinkUrl(link);
         if (!url) continue;
-        intakeQrByKey.value[link.public_key] = await QRCode.toDataURL(url, { width: 240, margin: 1 });
+        intakeQrFancyMode.value[link.public_key] = true;
+        // Generate simple first so modal has something to show immediately
+        const simpleDataUrl = await QRCode.toDataURL(url, { width: 240, margin: 1 });
+        intakeQrByKey.value[link.public_key] = simpleDataUrl;
+        // Fancy QR in background
+        buildFancyQrDataUrl(url).then(({ simple, fancy }) => {
+          intakeQrByKey.value = { ...intakeQrByKey.value, [link.public_key]: simple };
+          intakeQrFancyByKey.value = { ...intakeQrFancyByKey.value, [link.public_key]: fancy };
+        }).catch(() => {});
       }
       intakeQrDataUrl.value = links[0] ? intakeQrByKey.value[links[0].public_key] || '' : '';
     } else {
@@ -4492,7 +4529,7 @@ const portalSectionLabel = computed(() => {
     case 'documents': return 'Docs / Links';
     case 'faq': return 'FAQ';
     case 'notifications': return 'Notifications';
-    case 'printable_packets': return 'Referral Packet Hub';
+    case 'printable_packets': return 'Printable Forms';
     default: return 'School Portal';
   }
 });
@@ -4590,64 +4627,53 @@ function downloadQr(locale) {
   a.click();
 }
 
-async function generateFancyQr(locale) {
-  const url = printablePacketApiUrl(locale);
+// Shared fancy QR builder — gradient + tenant logo center. Used by both modals.
+async function buildFancyQrDataUrl(url) {
   const size = 300;
+  const simple = await QRCode.toDataURL(url, { width: size, margin: 2 });
 
-  // Simple QR (black on white)
   try {
-    printableQrSimple[locale] = await QRCode.toDataURL(url, { width: size, margin: 2 });
-  } catch { return; }
-
-  // Fancy QR: gradient fill + logo center
-  try {
-    // Draw QR to temp canvas
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = size;
     tempCanvas.height = size;
     await new Promise((res, rej) => {
       QRCode.toCanvas(tempCanvas, url, { width: size, margin: 2 }, (err) => err ? rej(err) : res());
     });
-
-    // Make white pixels transparent so gradient shows through
-    const tempCtx = tempCanvas.getContext('2d');
-    const imgData = tempCtx.getImageData(0, 0, size, size);
-    const d = imgData.data;
-    for (let i = 0; i < d.length; i += 4) {
-      if (d[i] > 180 && d[i + 1] > 180 && d[i + 2] > 180) d[i + 3] = 0;
+    // Make white pixels transparent
+    const tCtx = tempCanvas.getContext('2d');
+    const img = tCtx.getImageData(0, 0, size, size);
+    for (let i = 0; i < img.data.length; i += 4) {
+      if (img.data[i] > 180 && img.data[i + 1] > 180 && img.data[i + 2] > 180) img.data[i + 3] = 0;
     }
-    tempCtx.putImageData(imgData, 0, 0);
+    tCtx.putImageData(img, 0, 0);
 
-    // Build gradient layer clipped to dark QR pixels
-    const gradLayer = document.createElement('canvas');
-    gradLayer.width = size;
-    gradLayer.height = size;
-    const glCtx = gradLayer.getContext('2d');
-    const grad = glCtx.createLinearGradient(0, 0, size, size);
+    // Gradient layer clipped to dark pixels
+    const gL = document.createElement('canvas');
+    gL.width = size; gL.height = size;
+    const gCtx = gL.getContext('2d');
+    const grad = gCtx.createLinearGradient(0, 0, size, size);
     grad.addColorStop(0, '#14b8a6');
     grad.addColorStop(0.5, '#22c55e');
     grad.addColorStop(1, '#eab308');
-    glCtx.fillStyle = grad;
-    glCtx.fillRect(0, 0, size, size);
-    glCtx.globalCompositeOperation = 'destination-in';
-    glCtx.drawImage(tempCanvas, 0, 0);
+    gCtx.fillStyle = grad;
+    gCtx.fillRect(0, 0, size, size);
+    gCtx.globalCompositeOperation = 'destination-in';
+    gCtx.drawImage(tempCanvas, 0, 0);
 
-    // Compose onto white background
-    const finalCanvas = document.createElement('canvas');
-    finalCanvas.width = size;
-    finalCanvas.height = size;
-    const fCtx = finalCanvas.getContext('2d');
+    // Composite onto white
+    const fin = document.createElement('canvas');
+    fin.width = size; fin.height = size;
+    const fCtx = fin.getContext('2d');
     fCtx.fillStyle = '#ffffff';
     fCtx.fillRect(0, 0, size, size);
-    fCtx.drawImage(gradLayer, 0, 0);
+    fCtx.drawImage(gL, 0, 0);
 
-    // White circle + logo in center
-    const cx = size / 2, cy = size / 2, logoR = 26, circleR = logoR + 6;
+    // White circle + logo
+    const cx = size / 2, cy = size / 2, logoR = 26;
     fCtx.beginPath();
-    fCtx.arc(cx, cy, circleR, 0, Math.PI * 2);
+    fCtx.arc(cx, cy, logoR + 6, 0, Math.PI * 2);
     fCtx.fillStyle = '#ffffff';
     fCtx.fill();
-
     const logoSrc = homeIconUrl.value;
     if (logoSrc) {
       const logo = new Image();
@@ -4661,11 +4687,19 @@ async function generateFancyQr(locale) {
       fCtx.drawImage(logo, cx - logoR, cy - logoR, logoR * 2, logoR * 2);
       fCtx.restore();
     }
-
-    printableQrFancy[locale] = finalCanvas.toDataURL('image/png');
+    return { simple, fancy: fin.toDataURL('image/png') };
   } catch {
-    printableQrFancy[locale] = printableQrSimple[locale]; // fall back to simple
+    return { simple, fancy: simple };
   }
+}
+
+async function generateFancyQr(locale) {
+  const url = printablePacketApiUrl(locale);
+  try {
+    const { simple, fancy } = await buildFancyQrDataUrl(url);
+    printableQrSimple[locale] = simple;
+    printableQrFancy[locale] = fancy;
+  } catch { /* silent */ }
 }
 
 async function openPrintableModal() {
@@ -6440,11 +6474,19 @@ watch(() => store.selectedWeekday, async (weekday) => {
 
 .intake-qr {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg-alt);
+}
+.intake-qr-img {
+  width: 220px;
+  height: 220px;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
 
 .settings-drawer-overlay {
