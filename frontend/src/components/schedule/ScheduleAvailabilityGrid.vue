@@ -2261,7 +2261,7 @@
                     :title="canEditScheduleTiming ? 'End' : 'Only the host can change the time'"
                   />
                 </div>
-                <span v-if="bookingTimezoneLabel" class="nr-tz-under">{{ bookingTimezoneLabel }}</span>
+                <span v-if="editorDisplayTimezoneLabel" class="nr-tz-under">{{ editorDisplayTimezoneLabel }}</span>
                 <span v-if="!canEditScheduleTiming" class="nr-tz-under muted">Only the host can change date &amp; time</span>
               </template>
               <template v-else-if="isSupervisionEditMode">
@@ -4709,6 +4709,7 @@
                           :disabled="!canRescheduleScheduleStackItem(item)"
                         />
                       </div>
+                      <span v-if="stackItemTimezoneLabel(item)" class="nr-tz-under">{{ stackItemTimezoneLabel(item) }}</span>
                     </div>
                     <div class="nr-info-cell">
                       <span class="nr-info-label">Organization</span>
@@ -5379,7 +5380,7 @@ import { createCounselingSession, openCounselingFromAppointment } from '../../se
 import { isSupervisor, canScheduleGroupSupervision } from '../../utils/helpers.js';
 import api from '../../services/api';
 import { getScheduleSummary, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
-import { timezoneLabelFor, isoToZonedDatetimeLocal } from '../../utils/timezones.js';
+import { timezoneLabelFor, isoToZonedDatetimeLocal, zonedDatetimeLocalToIso } from '../../utils/timezones.js';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
@@ -13341,10 +13342,14 @@ const editorInfoWhenTimeLabel = computed(() => {
 });
 const editorDisplayTimezoneLabel = computed(() => {
   if (editorIsMeeting.value || (isScheduleEventEditMode.value && isMeetingStackItem(editingScheduleStackItem.value))) {
-    return timezoneLabelFor(scheduleMeetingTimeZone());
+    return timezoneLabelFor(teamMeetingTimeZone());
   }
   return bookingTimezoneLabel.value;
 });
+/** Timezone label shown next to a stack-list item's inline time editor — must match whatever timeZone is actually sent on save. */
+const stackItemTimezoneLabel = (item) => {
+  return timezoneLabelFor(isMeetingStackItem(item) ? teamMeetingTimeZone() : scheduleMeetingTimeZone());
+};
 const editorInfoTypeLabel = computed(() => {
   if (editorIsClinical.value) {
     const sid = Number(editorTenantServiceId.value || 0);
@@ -20031,7 +20036,7 @@ const submitRequest = async () => {
       }
       const isPrivate = !!scheduleEventPrivate.value;
       const meetingTimeZone = (normalizedAction === 'agency_meeting' || normalizedAction === 'huddle')
-        ? scheduleMeetingTimeZone()
+        ? teamMeetingTimeZone()
         : null;
       const isMeetingAction = normalizedAction === 'agency_meeting' || normalizedAction === 'huddle';
       const recurrence = isMeetingAction
@@ -21293,10 +21298,31 @@ watch(supervisionFacilitatorUserId, () => {
   }
 });
 
-watch(meetingIncludeAllAgencies, () => {
-  if (!['agency_meeting', 'huddle'].includes(String(requestType.value || '')) || !showRequestModal.value) return;
-  selectedMeetingParticipantIds.value = [];
-  selectedMeetingInviteGroupIds.value = [];
+watch(meetingIncludeAllAgencies, (includingAllAgencies) => {
+  // NOTE: guard on editorIsMeeting (not requestType === 'agency_meeting'/'huddle') — editing an
+  // *existing* meeting sets requestType to 'edit_schedule_event', so that check alone silently
+  // skipped this cleanup during edits, letting cross-agency picks stick around after unchecking.
+  if (!editorIsMeeting.value || !showRequestModal.value) return;
+  if (!includingAllAgencies) {
+    // Turning OFF "all agencies": drop only the participants who aren't actually in the
+    // current single-agency scope, so they can't silently stay invited after uncheck.
+    // (Previously this cleared the *entire* selection, which discouraged fixing the mistake
+    // in place — the fastest workaround was often to re-add everyone, reproducing the bug.)
+    const scopeAgencyId = Number(
+      (isScheduleEventEditMode.value ? scheduleEventEditForm.value?.agencyId : 0)
+      || editorAgencyId.value
+      || effectiveAgencyId.value
+      || 0
+    );
+    const rosterById = new Map((meetingCandidates.value || []).map((u) => [Number(u?.id || 0), u]));
+    selectedMeetingParticipantIds.value = (selectedMeetingParticipantIds.value || []).filter((id) => {
+      const row = rosterById.get(Number(id));
+      // Unknown roster membership (not in the last fetched roster) — safer to drop than keep.
+      if (!row) return false;
+      return (row.agencyIds || []).includes(scopeAgencyId);
+    });
+    selectedMeetingInviteGroupIds.value = [];
+  }
   meetingParticipantSearch.value = '';
   void loadMeetingCandidates();
 });
@@ -21858,18 +21884,30 @@ const parseScheduleInstant = (raw) => {
   const d = new Date(normalized);
   return Number.isNaN(d.getTime()) ? null : d;
 };
-/** IANA zone for meeting wall-clock (My Schedule = browser; admin views = office TZ). */
+/** IANA zone for non-meeting schedule items' wall-clock (My Schedule = browser; admin views = office TZ). */
 const scheduleMeetingTimeZone = () => {
   if (props.mode === 'self') {
     return String(browserIanaTimeZone() || bookingTimezoneIana.value || 'America/Denver').trim();
   }
   return String(bookingTimezoneIana.value || browserIanaTimeZone() || 'America/Denver').trim();
 };
+/**
+ * IANA zone for TEAM_MEETING / HUDDLE wall-clock. Always anchors to the selected
+ * tenant/office timezone (the one shown right next to the time fields) rather than
+ * the scheduler's own browser timezone. Meetings involve other people's calendars —
+ * if "My Schedule" silently used the creator's browser zone, a time typed while the
+ * displayed timezone label said "Mountain Time" could actually get saved as Central,
+ * shifting the meeting for everyone. See: 11am-Mountain meeting saved as 11am Central.
+ */
+const teamMeetingTimeZone = () => {
+  return String(bookingTimezoneIana.value || browserIanaTimeZone() || 'America/Denver').trim();
+};
 
-const toDatetimeLocalValue = (raw) => {
+const toDatetimeLocalValue = (raw, isMeeting = false) => {
+  const tz = isMeeting ? teamMeetingTimeZone() : scheduleMeetingTimeZone();
   if (raw instanceof Date) {
     if (Number.isNaN(raw.getTime())) return '';
-    return isoToZonedDatetimeLocal(raw.toISOString(), scheduleMeetingTimeZone());
+    return isoToZonedDatetimeLocal(raw.toISOString(), tz);
   }
   const s = String(raw || '').trim();
   if (!s) return '';
@@ -21878,7 +21916,7 @@ const toDatetimeLocalValue = (raw) => {
   if (wall && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) {
     return `${wall[1]}T${wall[2]}:${wall[3]}`;
   }
-  const zoned = isoToZonedDatetimeLocal(s, scheduleMeetingTimeZone());
+  const zoned = isoToZonedDatetimeLocal(s, tz);
   if (zoned) return zoned;
   const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
   if (Number.isNaN(d.getTime())) return '';
@@ -23566,11 +23604,12 @@ const beginEditScheduleStackItem = async (item) => {
   const clientId = parseClientIdFromScheduleEvent(item);
   const hostProviderId = resolveBookedProviderIdForEvent(item);
   if (hostProviderId > 0) bookingTargetUserId.value = hostProviderId;
+  const isMeetingItem = isMeetingStackItem(item);
   scheduleEventEditForm.value = {
     title: String(item?.label || '').trim(),
     description: String(item?.description || '').trim(),
-    startAt: toDatetimeLocalValue(item?.startAt),
-    endAt: toDatetimeLocalValue(item?.endAt),
+    startAt: toDatetimeLocalValue(item?.startAt, isMeetingItem),
+    endAt: toDatetimeLocalValue(item?.endAt, isMeetingItem),
     agencyId,
     clientId,
     isPrivate: !!item?.isPrivate
@@ -23715,12 +23754,13 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
     if (canFullEdit && isMeeting && saveAgencyId > 0) {
       await syncToggledInviteGroupMemberships(saveAgencyId);
     }
+    const saveTimeZone = isMeeting ? teamMeetingTimeZone() : scheduleMeetingTimeZone();
     // Admin-meeting invitees may PATCH time only; hosts keep full edit payload.
     const patchBody = canRescheduleOnly
       ? {
           startAt: startAt.length === 16 ? `${startAt}:00` : startAt,
           endAt: endAt.length === 16 ? `${endAt}:00` : endAt,
-          timeZone: scheduleMeetingTimeZone(),
+          timeZone: saveTimeZone,
           ...(scope ? { scope } : {})
         }
       : {
@@ -23728,8 +23768,10 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
           description,
           startAt: startAt.length === 16 ? `${startAt}:00` : startAt,
           endAt: endAt.length === 16 ? `${endAt}:00` : endAt,
+          // Meetings always save in the tenant/office timezone (not the editor's browser
+          // timezone) so the number shown next to "When" matches what actually gets stored.
           // Required so Google-synced meetings store UTC correctly (avoids 7:30 → 1:30 drift).
-          timeZone: scheduleMeetingTimeZone(),
+          timeZone: saveTimeZone,
           agencyId: saveAgencyId,
           isPrivate: !!scheduleEventEditForm.value.isPrivate,
           allDay: false,
@@ -23756,12 +23798,17 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
         };
     const patchResp = await api.patch(`/users/${uid}/schedule-events/${eid}`, patchBody, { skipGlobalLoading: true });
     const savedEvent = patchResp?.data?.event || {};
+    // Fallback only fires if the server response is missing startAt/endAt — convert the wall
+    // clock we sent using the same timeZone as the save, so it's never mistaken for raw UTC
+    // digits (that mistake is what previously turned "12pm" into "7am" after saving).
+    const fallbackStartAt = zonedDatetimeLocalToIso(startAt, saveTimeZone) || startAt;
+    const fallbackEndAt = zonedDatetimeLocalToIso(endAt, saveTimeZone) || endAt;
     patchScheduleEventInSummary({
       eventId: eid,
       title: savedEvent.title || title,
       description: savedEvent.description ?? description,
-      startAt: savedEvent.startAt || startAt,
-      endAt: savedEvent.endAt || endAt,
+      startAt: savedEvent.startAt || fallbackStartAt,
+      endAt: savedEvent.endAt || fallbackEndAt,
       agencyId: saveAgencyId,
       isPrivate: !!scheduleEventEditForm.value.isPrivate,
       attendeeUserIds: isMeeting ? savedAttendeeIds : null,
@@ -24342,11 +24389,11 @@ const deleteGoogleEvent = async () => {
   }
 };
 
-const formatRangeFromRaw = (startAt, endAt) => {
+const formatRangeFromRaw = (startAt, endAt, isMeeting = false) => {
   const st = parseMaybeDate(startAt);
   const en = parseMaybeDate(endAt);
   if (!st || !en) return '';
-  const tz = scheduleMeetingTimeZone();
+  const tz = isMeeting ? teamMeetingTimeZone() : scheduleMeetingTimeZone();
   const opts = { hour: 'numeric', minute: '2-digit', timeZone: tz };
   const sLabel = st.toLocaleTimeString([], opts);
   const eLabel = en.toLocaleTimeString([], opts);
@@ -24502,7 +24549,7 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
   return {
     id: `sevt-${targetKind || 'evt'}-${String(ev?.id || ev?.googleEventId || Date.now())}`,
     label: String(ev?.title || '').trim() || 'Schedule event',
-    subLabel: ev?.allDay ? 'All day' : formatRangeFromRaw(ev?.startAt, ev?.endAt),
+    subLabel: ev?.allDay ? 'All day' : formatRangeFromRaw(ev?.startAt, ev?.endAt, ['TEAM_MEETING', 'HUDDLE'].includes(targetKind)),
     kindLabel: cancelled ? `${baseKindLabel} · Cancelled` : baseKindLabel,
     detailText: buildScheduleEventDetailText(ev),
     description: String(ev?.description || '').trim() || '',
@@ -24563,7 +24610,7 @@ const buildScheduleEventDetailText = (ev) => {
   lines.push(`Type: ${scheduleKindLabel(kind, ev)}`);
   const when = ev?.allDay
     ? `All day (${String(ev?.startDate || '').slice(0, 10)} – ${String(ev?.endDate || '').slice(0, 10)})`
-    : formatRangeFromRaw(ev?.startAt, ev?.endAt);
+    : formatRangeFromRaw(ev?.startAt, ev?.endAt, ['TEAM_MEETING', 'HUDDLE'].includes(kind));
   if (when) lines.push(`When: ${when}`);
   const clientId = parseClientIdFromScheduleEvent(ev);
   if (clientId) lines.push(`Client: ${scheduleEventClientDisplayName(clientId)}`);

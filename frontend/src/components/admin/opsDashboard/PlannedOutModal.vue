@@ -24,6 +24,9 @@
             <input v-model="endLocal" type="datetime-local" required />
           </label>
         </div>
+        <p v-if="spanType === 'hours' || spanType === 'half_day'" class="pom-tz-note">
+          Times are in your local time zone — <strong>{{ myTimezoneLabel }}</strong>. Everyone else will see this converted to their own time zone.
+        </p>
 
         <div v-else-if="spanType === 'half_day'" class="pom-row-2">
           <label class="field">
@@ -102,12 +105,16 @@
 <script setup>
 import { ref } from 'vue';
 import api from '../../../services/api';
+import { detectLocalTimezone, timezoneLabelFor } from '../../../utils/timezones.js';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true }
 });
 
 const emit = defineEmits(['close', 'created']);
+
+const myTimezone = detectLocalTimezone();
+const myTimezoneLabel = timezoneLabelFor(myTimezone);
 
 const spanType = ref('hours');
 const startLocal = ref('');
@@ -147,6 +154,9 @@ async function submit() {
     const body = {
       agencyId: Number(props.agencyId),
       spanType: spanType.value,
+      // Submitter's own browser time zone — backend interprets Start/End (and half-day
+      // 8am-12pm / 12pm-5pm windows) in this zone, not the agency's configured time zone.
+      timeZone: myTimezone,
       availability: availability.value,
       emergencies: emergencies.value,
       emergenciesRedirectName: emergencies.value === 'redirect' ? emergenciesRedirectName.value.trim() : undefined,
@@ -257,6 +267,13 @@ async function submit() {
   font-weight: 500;
   color: #0f172a;
 }
+.pom-tz-note {
+  margin: -4px 0 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #64748b;
+}
+.pom-tz-note strong { color: #1f6b4a; }
 .pom-err { margin: 0; color: #b91c1c; font-size: 13px; font-weight: 700; }
 .pom-foot {
   display: flex;

@@ -206,9 +206,15 @@ export const createPlannedOut = async (req, res, next) => {
     }
 
     const agencyTz = String(access.agency?.timezone || '').trim() || DEFAULT_SCHEDULE_TZ;
+    // Prefer the submitter's own browser timezone (sent from the form) so "11am" means 11am
+    // where they actually are, not 11am in the agency's configured timezone. Falls back to the
+    // agency timezone for older clients or admin-on-behalf-of-someone-else submissions that
+    // don't send one.
+    const requestTz = String(req.body?.timeZone || '').trim();
+    const submitTz = (requestTz && isValidTimeZone(requestTz)) ? requestTz : agencyTz;
     let payload;
     try {
-      payload = normalizePayload(req.body || {}, agencyTz);
+      payload = normalizePayload(req.body || {}, submitTz);
     } catch (err) {
       return res.status(err.status || 400).json({ error: { message: err.message } });
     }
@@ -409,6 +415,8 @@ export const updatePlannedOut = async (req, res, next) => {
     }
 
     const agencyTz = String(access.agency?.timezone || '').trim() || DEFAULT_SCHEDULE_TZ;
+    const requestTz = String(req.body?.timeZone || '').trim();
+    const submitTz = (requestTz && isValidTimeZone(requestTz)) ? requestTz : agencyTz;
     // Existing DB times are UTC — pass as ISO-Z so we do not wall-convert again.
     const keepStart = req.body?.startAt == null && row.start_at
       ? (String(row.start_at).includes('T') ? row.start_at : `${String(row.start_at).replace(' ', 'T')}Z`)
@@ -432,7 +440,7 @@ export const updatePlannedOut = async (req, res, next) => {
         emergenciesRedirectName: req.body?.emergenciesRedirectName ?? row.emergencies_redirect_name,
         contactPreference: req.body?.contactPreference ?? row.contact_preference,
         details: req.body?.details !== undefined ? req.body.details : row.details
-      }, agencyTz);
+      }, submitTz);
     } catch (err) {
       return res.status(err.status || 400).json({ error: { message: err.message } });
     }

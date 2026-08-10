@@ -42,6 +42,19 @@ function fmtMd(ymd) {
   return `${Number(m)}/${Number(d)}`;
 }
 
+/** Viewer's own local time zone abbreviation (e.g. "MST"/"MDT") — memoized since it can't change mid-session. */
+let cachedViewerTzAbbrev;
+export function viewerTimezoneAbbrev() {
+  if (cachedViewerTzAbbrev !== undefined) return cachedViewerTzAbbrev;
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' }).formatToParts(new Date());
+    cachedViewerTzAbbrev = String(parts.find((p) => p.type === 'timeZoneName')?.value || '').trim();
+  } catch {
+    cachedViewerTzAbbrev = '';
+  }
+  return cachedViewerTzAbbrev;
+}
+
 function fmtTime(raw) {
   if (!raw) return '';
   const d = new Date(raw);
@@ -54,6 +67,8 @@ function fmtTime(raw) {
     h = h % 12 || 12;
     return min === '00' ? `${h}${ap}` : `${h}:${min}${ap}`;
   }
+  // Dates from the API always carry a real UTC instant (ISO with Z), so this
+  // getHours()/getMinutes() call converts to the *viewer's own* local time zone.
   let h = d.getHours();
   const min = d.getMinutes();
   const ap = h >= 12 ? 'pm' : 'am';
@@ -68,7 +83,8 @@ export function formatPlannedOutSubmitted(row) {
   if (!Number.isFinite(d.getTime())) return '—';
   const date = d.toLocaleDateString([], { month: 'numeric', day: 'numeric' });
   const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  return `${date} ${time}`;
+  const tz = viewerTimezoneAbbrev();
+  return tz ? `${date} ${time} ${tz}` : `${date} ${time}`;
 }
 
 export function formatPlannedOutWhen(row) {
@@ -95,7 +111,8 @@ export function formatPlannedOutWhen(row) {
   const day = fmtMd(row.start_at || row.start_date);
   const from = fmtTime(row.start_at);
   const to = fmtTime(row.end_at);
-  if (day && from && to) return `${day} ${from}-${to}`;
+  const tz = viewerTimezoneAbbrev();
+  if (day && from && to) return tz ? `${day} ${from}-${to} ${tz}` : `${day} ${from}-${to}`;
   return day || from || '—';
 }
 
