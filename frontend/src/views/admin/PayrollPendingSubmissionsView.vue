@@ -333,10 +333,18 @@
                     {{ statusLabel(row.claim?.status || 'submitted') }}
                   </span>
                   <span
-                    v-if="row.submission.wasEdited && row.bucket === 'direct'"
+                    v-if="row.submission.wasEdited && row.isFirstRow"
                     class="pps-edited-mark"
-                    title="Values changed from auto-submitted"
-                  >✎ Edited</span>
+                    :title="row.submission.lastEditedByRole ? `Edited by ${row.submission.lastEditedByRole}${row.submission.lastEditedAt ? ' on ' + new Date(row.submission.lastEditedAt).toLocaleString() : ''}` : 'Values changed from auto-submitted'"
+                  >✎ {{
+                    (row.submission.editedFields || []).includes('clockIn') && (row.submission.editedFields || []).includes('clockOut')
+                      ? 'Both times edited'
+                      : (row.submission.editedFields || []).includes('clockIn')
+                        ? 'Start time edited'
+                        : (row.submission.editedFields || []).includes('clockOut')
+                          ? 'End time edited'
+                          : 'Edited'
+                  }}</span>
                 </td>
                 <td class="muted" style="font-size:12px;">{{ eventTimePeriodLabel(row.claim) }}</td>
                 <td class="right">
@@ -354,8 +362,10 @@
                         </option>
                       </select>
                     </template>
+                    <!-- Edit time: show on the first row of this session whenever any claim is pending.
+                         This handles school events where only an indirect claim exists (direct hours = 0). -->
                     <button
-                      v-if="row.bucket === 'direct' && row.canApprove"
+                      v-if="row.isFirstRow && row.sessionHasPendingClaim"
                       type="button"
                       class="btn btn-secondary btn-sm"
                       :disabled="busyId === `event-${row.submission.punchInId}`"
@@ -373,7 +383,7 @@
                       {{ busyId === `event-${row.submission.punchInId}` ? '…' : `Approve ${row.bucketLabel.toLowerCase()}` }}
                     </button>
                     <button
-                      v-if="row.bucket === 'direct' && row.canApprove"
+                      v-if="row.isFirstRow && row.sessionHasPendingClaim"
                       type="button"
                       class="btn btn-secondary btn-sm"
                       :disabled="busyId === `event-${row.submission.punchInId}`"
@@ -382,7 +392,7 @@
                       Send back…
                     </button>
                     <button
-                      v-if="row.bucket === 'direct' && row.canApprove"
+                      v-if="row.isFirstRow && row.sessionHasPendingClaim"
                       type="button"
                       class="btn btn-danger btn-sm"
                       :disabled="busyId === `event-${row.submission.punchInId}`"
@@ -391,7 +401,7 @@
                       Reject
                     </button>
                     <button
-                      v-if="row.bucket === 'direct' && !row.canApprove && row.claim?.status === 'approved'"
+                      v-if="row.isFirstRow && !row.sessionHasPendingClaim && (row.claim?.status === 'approved' || row.submission.directClaim?.status === 'approved' || row.submission.indirectClaim?.status === 'approved')"
                       type="button"
                       class="btn btn-secondary btn-sm"
                       :disabled="busyId === `event-${row.submission.punchInId}`"
@@ -965,6 +975,12 @@ const eventTimeBucketRows = computed(() => {
     !!claim?.id && pendingStatuses.has(String(claim?.status || '').toLowerCase());
   for (const s of eventTimeSubmissions.value || []) {
     const lateMinutes = calcLateMinutes(s.clockInAt, s.eventStartsAt, s.eventEmployeeReportTime);
+    // A session has a pending claim if either bucket claim is in submitted/deferred.
+    const sessionHasPendingClaim = canApproveBucket(s.directClaim) || canApproveBucket(s.indirectClaim);
+    // isFirstRow: show per-session controls (Edit, Send back, Reject) on the first
+    // row that makes sense. Prefer direct if it has a claim; fall back to indirect.
+    // For school events where only an indirect claim exists, indirect gets isFirstRow.
+    const directHasClaim = !!s.directClaim?.id;
     rows.push({
       submission: s,
       rowKey: `${s.punchInId}-direct`,
@@ -973,6 +989,8 @@ const eventTimeBucketRows = computed(() => {
       bucketHours: s.directHours,
       claim: s.directClaim,
       canApprove: canApproveBucket(s.directClaim),
+      sessionHasPendingClaim,
+      isFirstRow: directHasClaim || !s.indirectClaim?.id, // first if direct claim exists or neither exists
       lateMinutes
     });
     rows.push({
@@ -983,6 +1001,8 @@ const eventTimeBucketRows = computed(() => {
       bucketHours: s.indirectHours,
       claim: s.indirectClaim,
       canApprove: canApproveBucket(s.indirectClaim),
+      sessionHasPendingClaim,
+      isFirstRow: !directHasClaim && !!s.indirectClaim?.id, // first only if no direct claim
       lateMinutes
     });
   }

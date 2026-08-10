@@ -63,6 +63,7 @@ function groupClaimsIntoSubmissions(claimRows, eventTitlesById, eventStartById =
         lastEditedByRole: payload.lastEditedByRole || null,
         lastEditedAt: payload.lastEditedAt || null,
         originalValues: payload.originalValues || null,
+        editedFields: Array.isArray(payload.editedFields) ? payload.editedFields : null,
         directClaim: null,
         indirectClaim: null
       });
@@ -76,7 +77,8 @@ function groupClaimsIntoSubmissions(claimRows, eventTitlesById, eventStartById =
       bucket: bucket || null,
       creditsHours: row.credits_hours != null ? Number(row.credits_hours) : null,
       targetPayrollPeriodId: row.target_payroll_period_id != null ? Number(row.target_payroll_period_id) : null,
-      suggestedPayrollPeriodId: row.suggested_payroll_period_id != null ? Number(row.suggested_payroll_period_id) : null
+      suggestedPayrollPeriodId: row.suggested_payroll_period_id != null ? Number(row.suggested_payroll_period_id) : null,
+      rejectionReason: row.rejection_reason || null
     };
 
     if (bucket === 'direct' || (!entry.directClaim && payload.bucketRole === 'direct')) {
@@ -132,6 +134,7 @@ export async function listEventTimeSubmissionsForAgency({
   const [rows] = await pool.execute(
     `SELECT c.id, c.user_id, c.status, c.bucket, c.credits_hours, c.payload_json,
             c.suggested_payroll_period_id, c.target_payroll_period_id,
+            c.rejection_reason,
             u.first_name, u.last_name
      FROM payroll_time_claims c
      INNER JOIN users u ON u.id = c.user_id
@@ -288,6 +291,16 @@ export async function updateEventTimeSubmission({
 
   const byRole = editedBy?.role ?? (ownerUserId != null ? 'employee' : 'payroll');
 
+  // Determine which specific fields were changed so the UI can display precisely
+  // "Clock in edited", "Clock out edited", or "Both times edited" rather than
+  // a generic "Edited" badge. Accumulate across multiple edits (keep prior fields).
+  const prevEditedFields = new Set(Array.isArray(basePayload.editedFields) ? basePayload.editedFields : []);
+  const prevClockIn = basePayload.clockInAt || null;
+  const prevClockOut = basePayload.clockOutAt || null;
+  if (clockInAt && clockInAt !== prevClockIn) prevEditedFields.add('clockIn');
+  if (clockOutAt && clockOutAt !== prevClockOut) prevEditedFields.add('clockOut');
+  const editedFields = prevEditedFields.size > 0 ? [...prevEditedFields] : null;
+
   const nextPayloadBase = {
     ...basePayload,
     clockInAt: resolvedClockIn || basePayload.clockInAt,
@@ -298,6 +311,7 @@ export async function updateEventTimeSubmission({
     directHoursCap: split.directHoursCap,
     originalValues: original,
     wasEdited: true,
+    editedFields,
     lastEditedByRole: byRole,
     lastEditedAt: new Date().toISOString(),
     // Manual edit clears the auto-clock-out verification flag.

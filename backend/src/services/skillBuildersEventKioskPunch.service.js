@@ -787,7 +787,7 @@ export async function listPairedEventProviderAttendance(eventId, { userId = null
   if (claimIds.size) {
     const ph = [...claimIds].map(() => '?').join(',');
     const [claimRows] = await pool.execute(
-      `SELECT id, status, bucket, credits_hours, target_payroll_period_id, payload_json
+      `SELECT id, status, bucket, credits_hours, target_payroll_period_id, payload_json, rejection_reason
        FROM payroll_time_claims WHERE id IN (${ph})`,
       [...claimIds]
     );
@@ -851,6 +851,10 @@ export async function listPairedEventProviderAttendance(eventId, { userId = null
       || claimSource === 'auto_all_clients_out';
     const adminAdded = claimPayload.adminAdded === true || claimSource === 'admin_attendance_manual';
 
+    // Surface rejection reason so the employee can see the payroll note when
+    // their submission is sent back (status = deferred).
+    const rejectionReason = directClaim?.rejection_reason || indirectClaim?.rejection_reason || null;
+
     paired.push({
       userId: uidKey,
       providerName: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
@@ -870,7 +874,13 @@ export async function listPairedEventProviderAttendance(eventId, { userId = null
       source: claimSource,
       autoClockOut,
       needsVerification,
-      adminAdded
+      adminAdded,
+      wasEdited: claimPayload.wasEdited === true,
+      editedFields: Array.isArray(claimPayload.editedFields) ? claimPayload.editedFields : null,
+      lastEditedByRole: claimPayload.lastEditedByRole || null,
+      lastEditedAt: claimPayload.lastEditedAt || null,
+      originalValues: claimPayload.originalValues || null,
+      rejectionReason
     });
   }
 

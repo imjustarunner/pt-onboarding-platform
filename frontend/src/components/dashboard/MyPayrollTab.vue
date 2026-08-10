@@ -926,14 +926,36 @@
                     title="An administrator added these times — please verify and update if needed."
                     style="margin-left:4px;background:#fef3c7;color:#92400e;font-size:0.7rem;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;"
                   >Added by Admin</span>
+                  <span
+                    v-if="s.wasEdited"
+                    :title="s.lastEditedByRole ? `Edited by ${s.lastEditedByRole}` + (s.lastEditedAt ? ' on ' + new Date(s.lastEditedAt).toLocaleString() : '') : 'Times were manually adjusted'"
+                    style="margin-left:4px;background:#ede9fe;color:#5b21b6;font-size:0.7rem;font-weight:700;padding:1px 5px;border-radius:4px;white-space:nowrap;"
+                  >✎ {{
+                    (s.editedFields || []).includes('clockIn') && (s.editedFields || []).includes('clockOut')
+                      ? 'Both times edited'
+                      : (s.editedFields || []).includes('clockIn')
+                        ? 'Start edited'
+                        : (s.editedFields || []).includes('clockOut')
+                          ? 'End edited'
+                          : 'Edited'
+                  }}</span>
                 </td>
                 <td class="right">{{ s.workedHours ?? '—' }}</td>
                 <td class="right">{{ s.directHours ?? '—' }}</td>
                 <td class="right">{{ s.indirectHours ?? '—' }}</td>
                 <td>
-                  <span v-if="s.directClaimStatus">D: {{ s.directClaimStatus }}</span>
-                  <span v-if="s.indirectClaimStatus"> · I: {{ s.indirectClaimStatus }}</span>
-                  <span v-if="!s.directClaimStatus && !s.indirectClaimStatus" class="muted">Open</span>
+                  <div>
+                    <span v-if="s.directClaimStatus">D: {{ s.directClaimStatus }}</span>
+                    <span v-if="s.indirectClaimStatus"> · I: {{ s.indirectClaimStatus }}</span>
+                    <span v-if="!s.directClaimStatus && !s.indirectClaimStatus" class="muted">Open</span>
+                  </div>
+                  <!-- Send-back note from payroll — show when any claim is deferred -->
+                  <div
+                    v-if="s.rejectionReason && (s.directClaimStatus === 'deferred' || s.indirectClaimStatus === 'deferred')"
+                    style="font-size:0.75rem;color:#92400e;background:#fef3c7;border-radius:4px;padding:3px 6px;margin-top:3px;max-width:220px;word-break:break-word;"
+                  >
+                    💬 <strong>Payroll note:</strong> {{ s.rejectionReason }}
+                  </div>
                 </td>
                 <td class="right">
                   <button
@@ -942,7 +964,7 @@
                     class="pay-hub__btn pay-hub__btn--ghost pay-hub__btn--sm"
                     @click="openEventTimeEdit(s)"
                   >
-                    Edit time
+                    {{ (s.directClaimStatus === 'deferred' || s.indirectClaimStatus === 'deferred') ? 'Adjust & resubmit' : 'Edit time' }}
                   </button>
                   <span v-else class="muted small">Locked</span>
                 </td>
@@ -968,9 +990,30 @@
           <button class="btn btn-secondary btn-sm" type="button" @click="closeEventTimeEdit">Close</button>
         </div>
         <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
-          <div class="warn-box">
+          <!-- Deferred (sent back by payroll): show the payroll note prominently -->
+          <div
+            v-if="eventTimeEditTarget && (eventTimeEditTarget.directClaimStatus === 'deferred' || eventTimeEditTarget.indirectClaimStatus === 'deferred') && eventTimeEditTarget.rejectionReason"
+            style="background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;padding:10px 14px;font-size:0.875rem;color:#78350f;"
+          >
+            <strong>💬 Payroll sent this back:</strong> {{ eventTimeEditTarget.rejectionReason }}<br>
+            <span style="font-size:0.8rem;color:#92400e;">Please correct the times below and save to resubmit.</span>
+          </div>
+          <!-- Auto clock-out warning: only show when not deferred and time was auto-filled -->
+          <div
+            v-else-if="eventTimeEditTarget && (eventTimeEditTarget.autoClockOut || eventTimeEditTarget.needsVerification)"
+            class="warn-box"
+          >
             Heads up: this time was filled in automatically when you clocked out. Any change you
             make here is recorded and reviewed by payroll, who can see the original times.
+          </div>
+          <!-- Show original values if they exist (first edit snapshot) -->
+          <div
+            v-if="eventTimeEditTarget?.originalValues"
+            style="font-size:0.8rem;color:#64748b;background:#f8fafc;border-radius:4px;padding:6px 10px;"
+          >
+            <strong>Original times:</strong>
+            In {{ eventTimeEditTarget.originalValues.clockInAt ? new Date(eventTimeEditTarget.originalValues.clockInAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—' }}
+            · Out {{ eventTimeEditTarget.originalValues.clockOutAt ? new Date(eventTimeEditTarget.originalValues.clockOutAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—' }}
           </div>
           <div v-if="eventTimeEditError" class="warn-box">{{ eventTimeEditError }}</div>
           <label class="field">
