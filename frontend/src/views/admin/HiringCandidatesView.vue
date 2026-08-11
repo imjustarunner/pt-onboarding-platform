@@ -14,7 +14,7 @@
             </option>
           </select>
         </div>
-        <button class="btn btn-secondary" @click="router.push(orgPath('/admin/hiring'))">Dashboard</button>
+        <button class="btn btn-secondary" @click="router.push(orgPath('/admin/hiring'))">PO Dashboard</button>
         <button class="btn btn-secondary" @click="refresh" :disabled="loading">Refresh</button>
         <button class="btn btn-primary" @click="openCreate">New applicant</button>
         <span v-if="newForMeInView > 0" class="pill unread-pill">
@@ -147,8 +147,11 @@
                 <div class="more-actions">
                   <button type="button" class="btn btn-secondary" @click="showMoreActions = !showMoreActions">···</button>
                   <div v-if="showMoreActions" class="more-menu">
-                    <button type="button" @click="generatePreScreenReport(); showMoreActions = false" :disabled="generatingPreScreen">
+                    <button type="button" @click="openAssessment('prescreen'); generatePreScreenReport(); showMoreActions = false" :disabled="generatingPreScreen">
                       {{ generatingPreScreen ? 'Generating…' : 'Generate Pre-Screen' }}
+                    </button>
+                    <button type="button" @click="openAssessment('summary'); generateResumeSummary(); showMoreActions = false" :disabled="resumeSummaryGenerating">
+                      {{ resumeSummaryGenerating ? 'Generating…' : 'Generate resume summary' }}
                     </button>
                     <button type="button" @click="markNotHired(); showMoreActions = false" :disabled="markingNotHired">
                       Not hired
@@ -174,38 +177,29 @@
 
             <div class="tabs" data-tour="hiring-detail-tabs">
               <button class="tab" :class="{ active: tab === 'overview' }" @click="tab = 'overview'">Overview</button>
-              <button class="tab" :class="{ active: tab === 'resume' }" @click="tab = 'resume'">Resume</button>
+              <button class="tab" :class="{ active: tab === 'assessment' }" @click="openAssessment('resume')">Candidate Assessment</button>
               <button class="tab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Notes</button>
               <button class="tab" :class="{ active: tab === 'tasks' }" @click="tab = 'tasks'">Tasks</button>
               <button class="tab" :class="{ active: tab === 'interview' }" @click="tab = 'interview'">Interviews</button>
               <button class="tab" :class="{ active: tab === 'reviews' }" @click="tab = 'reviews'">Reviews</button>
-              <button class="tab" :class="{ active: tab === 'prescreen' }" @click="tab = 'prescreen'">Pre-Screen</button>
               <button class="tab" :class="{ active: tab === 'references' }" @click="openReferencesTab">References</button>
-              <button class="tab" :class="{ active: tab === 'resumeSummary' }" @click="tab = 'resumeSummary'">Summary</button>
               <button class="tab" :class="{ active: tab === 'profile' }" @click="tab = 'profile'">Profile</button>
             </div>
 
             <!-- Overview -->
             <div v-if="tab === 'overview'" class="tab-body">
-              <CandidateResumeWorkspace
-                variant="overview"
-                :resumes="resumes"
-                :loading="resumesLoading"
-                :uploading="resumeUploading"
-                :pasting="resumePasting"
-                :error="resumeError"
-                :notes="detail.notes || []"
-                :tasks="tasks || []"
-                :activity-items="candidateActivityItems"
+              <CandidateOverviewPanel
+                :profile="detail.profile"
+                :user="detail.user"
+                :job-title="detail.jobDescription?.title || detail.profile?.applied_role || ''"
+                :resume-summary="resumeSummary"
                 :summary-bullets="quickResumeBullets"
-                :summary-error="resumeSummaryError"
-                :summary-generating="resumeSummaryGenerating"
-                :resolve-viewer-url="resolveResumeViewerUrl"
-                @upload="onResumeWorkspaceUpload"
-                @paste="onResumeWorkspacePaste"
-                @delete="deleteResume"
-                @goto-tab="(t) => { tab = t; }"
-                @generate-summary="generateResumeSummary"
+                :latest-pre-screen="detail.latestPreScreen"
+                :interviews="hubInterviews"
+                :average-interview-score="averageHubInterviewScore"
+                :activity-items="candidateActivityItems"
+                @goto-tab="onDetailGotoTab"
+                @schedule-interview="openInterviewSchedule"
               />
             </div>
 
@@ -219,8 +213,7 @@
                 <div class="k">Interview</div>
                 <div class="v">
                   <div class="muted small">
-                    Use the <button type="button" class="linkish" @click="tab = 'interview'">Interview</button> tab to schedule Interview Hub meetings (calendar + join link + scorecard).
-                    Legacy splash fields remain available there as well for reference follow-ups.
+                    Use the <button type="button" class="linkish" @click="tab = 'interview'">Interviews</button> tab (or Overview → Schedule interview) for Interview Hub meetings.
                   </div>
                 </div>
               </div>
@@ -280,9 +273,9 @@
               </div>
             </div>
 
-            <!-- Resume -->
-            <div v-if="tab === 'resume'" class="tab-body">
-              <CandidateResumeWorkspace
+            <!-- Candidate Assessment (resume + AI summary + pre-screen) -->
+            <div v-if="tab === 'assessment'" class="tab-body">
+              <CandidateAssessmentWorkspace
                 :resumes="resumes"
                 :loading="resumesLoading"
                 :uploading="resumeUploading"
@@ -293,12 +286,30 @@
                 :summary-bullets="quickResumeBullets"
                 :summary-error="resumeSummaryError"
                 :summary-generating="resumeSummaryGenerating"
+                :re-extracting="resumeReExtracting"
+                :summary-loading="resumeSummaryLoading"
+                :resume-summary="resumeSummary"
+                :job-title="detail.jobDescription?.title || detail.profile?.applied_role || ''"
+                :latest-pre-screen="detail.latestPreScreen"
+                :prescreen-generating="generatingPreScreen"
+                :prescreen-html="preScreenHtml"
+                :search-suggestions-html="searchSuggestionsHtml"
+                :linked-in-url="preScreenLinkedInUrl"
+                :psychology-today-url="preScreenPsychologyTodayUrl"
+                :location="preScreenLocation"
+                :initial-panel="assessmentPanel"
                 :resolve-viewer-url="resolveResumeViewerUrl"
                 @upload="onResumeWorkspaceUpload"
                 @paste="onResumeWorkspacePaste"
                 @delete="deleteResume"
-                @goto-tab="(t) => { tab = t; }"
-                @generate-summary="generateResumeSummary"
+                @goto-tab="onDetailGotoTab"
+                @generate-summary="() => generateResumeSummary()"
+                @generate-prescreen="() => generatePreScreenReport()"
+                @re-extract="reExtractResume"
+                @update:linkedInUrl="(v) => { preScreenLinkedInUrl = v; }"
+                @update:psychologyTodayUrl="(v) => { preScreenPsychologyTodayUrl = v; }"
+                @update:location="(v) => { preScreenLocation = v; }"
+                @panel-change="(p) => { assessmentPanel = p; }"
               />
             </div>
 
@@ -311,11 +322,18 @@
                 :assignees="assignees"
                 :job-description-id="detail.jobDescription?.id || detail.profile?.job_description_id || null"
                 :candidate-stage="detail.profile?.stage || ''"
+                :hiring-profile-id="detail.profile?.id || null"
+                :schedule-pulse="interviewSchedulePulse"
+                @interviews-updated="onHubInterviewsUpdated"
               />
-              <div class="legacy-interview" style="margin-top:18px;">
+              <div v-if="!hasLegacyInterviewData && !showLegacyInterview" class="muted small" style="margin-top:12px;">
+                New applicants use Interview Hub above. Legacy profile schedule (for older reference-form flows) is hidden unless needed.
+                <button type="button" class="linkish" style="margin-left:6px;" @click="showLegacyInterview = true">Show legacy reference schedule</button>
+              </div>
+              <div v-if="hasLegacyInterviewData || showLegacyInterview" class="legacy-interview" style="margin-top:18px;">
                 <h4 style="margin:0 0 8px;">Legacy reference interview fields</h4>
                 <div class="muted small" style="margin-bottom:8px;">
-                  Profile-only schedule used for reference forms (not a video meeting). Prefer Interview Hub above for live interviews. Use End Interview in the live room to close candidate access.
+                  Profile-only schedule used for reference forms (not a video meeting). Prefer Interview Hub above for live interviews.
                 </div>
                 <div class="interview-grid">
                   <label class="small">Start (local)</label>
@@ -349,103 +367,6 @@
                       Cancel interview
                     </button>
                   </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Resume Summary -->
-            <div v-if="tab === 'resumeSummary'" class="tab-body">
-              <div class="info-banner">
-                <strong>Internal-only.</strong> This is an AI-structured summary from the uploaded/pasted resume text. Verify against the source resume.
-              </div>
-              <div class="row-actions" style="margin-bottom:10px;">
-                <button class="btn btn-primary" @click="generateResumeSummary" :disabled="resumeSummaryGenerating">
-                  {{ resumeSummaryGenerating ? 'Generating…' : 'Generate from resume' }}
-                </button>
-              </div>
-              <div v-if="resumeSummaryError" class="error-banner">{{ resumeSummaryError }}</div>
-              <div v-if="resumeSummaryLoading" class="loading">Loading…</div>
-              <div v-else-if="!resumeSummary" class="empty">
-                No resume summary yet. Upload a resume (text-based file) or use pasted resume text, then click “Generate from resume”.
-              </div>
-              <div v-else class="summary-grid">
-                <div class="summary-card summary-snapshot">
-                  <div class="summary-title">Resume snapshot</div>
-                  <ul v-if="quickResumeBullets.length" class="summary-bullets">
-                    <li v-for="(bullet, idx) in quickResumeBullets" :key="`resume_snapshot_${idx}`">{{ bullet }}</li>
-                  </ul>
-                  <div v-else class="empty">No quick snapshot available yet.</div>
-                </div>
-
-                <div class="summary-card">
-                  <div class="summary-title">Credentialing hints</div>
-                  <div class="muted small">Suggested only; verify.</div>
-                  <div class="kv">
-                    <div class="k">Likely licensure status</div>
-                    <div class="v">{{ resumeSummary?.summary?.credentialingHints?.likelyLicensureStatus || 'unknown' }}</div>
-                  </div>
-                  <div class="kv">
-                    <div class="k">States mentioned</div>
-                    <div class="v">{{ (resumeSummary?.summary?.credentialingHints?.statesMentioned || []).join(', ') || '—' }}</div>
-                  </div>
-                  <div class="kv">
-                    <div class="k">Needs supervision</div>
-                    <div class="v">
-                      {{ resumeSummary?.summary?.credentialingHints?.needsSupervision === null || resumeSummary?.summary?.credentialingHints?.needsSupervision === undefined
-                        ? '—'
-                        : (resumeSummary?.summary?.credentialingHints?.needsSupervision ? 'Yes' : 'No') }}
-                    </div>
-                  </div>
-                  <div v-if="resumeSummary?.summary?.credentialingHints?.notesForCredentialingTeam" class="muted small" style="margin-top:6px;">
-                    {{ resumeSummary.summary.credentialingHints.notesForCredentialingTeam }}
-                  </div>
-                </div>
-
-                <div class="summary-card">
-                  <div class="summary-title">Work history</div>
-                  <div v-if="(resumeSummary?.summary?.workHistory || []).length === 0" class="empty">No work history extracted.</div>
-                  <div v-else class="summary-list">
-                    <div v-for="(w, idx) in resumeSummary.summary.workHistory" :key="idx" class="summary-item">
-                      <div class="name">{{ w.title || 'Role' }} <span class="muted small">at</span> {{ w.employer || '—' }}</div>
-                      <div class="muted small">{{ [w.startDate, w.endDate].filter(Boolean).join(' – ') || '—' }} <span v-if="w.location">• {{ w.location }}</span></div>
-                      <div v-if="w.summary" class="small">{{ w.summary }}</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="summary-card">
-                  <div class="summary-title">Education</div>
-                  <div v-if="(resumeSummary?.summary?.education || []).length === 0" class="empty">No education extracted.</div>
-                  <div v-else class="summary-list">
-                    <div v-for="(ed, idx) in resumeSummary.summary.education" :key="idx" class="summary-item">
-                      <div class="name">{{ ed.school || '—' }}</div>
-                      <div class="muted small">{{ [ed.degree, ed.field].filter(Boolean).join(' • ') || '—' }}</div>
-                      <div class="muted small">{{ [ed.startDate, ed.endDate].filter(Boolean).join(' – ') || '—' }}</div>
-                      <div v-if="ed.notes" class="small">{{ ed.notes }}</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="summary-card">
-                  <div class="summary-title">Licenses & certifications</div>
-                  <div v-if="(resumeSummary?.summary?.licensesAndCertifications || []).length === 0" class="empty">No licenses/certs extracted.</div>
-                  <div v-else class="summary-list">
-                    <div v-for="(lic, idx) in resumeSummary.summary.licensesAndCertifications" :key="idx" class="summary-item">
-                      <div class="name">{{ lic.name || '—' }}</div>
-                      <div class="muted small">
-                        {{ [lic.state, lic.status].filter(Boolean).join(' • ') || '—' }}
-                        <span v-if="lic.licenseNumber">• #{{ lic.licenseNumber }}</span>
-                      </div>
-                      <div class="muted small">
-                        {{ [lic.issuedDate ? ('Issued: ' + lic.issuedDate) : null, lic.expirationDate ? ('Expires: ' + lic.expirationDate) : null].filter(Boolean).join(' • ') || '—' }}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="summary-card">
-                  <div class="summary-title">Skills</div>
-                  <div class="small">{{ (resumeSummary?.summary?.skills || []).join(', ') || '—' }}</div>
                 </div>
               </div>
             </div>
@@ -571,60 +492,6 @@
                   <div class="muted small">Due: {{ t.due_date ? formatDate(t.due_date) : '—' }}</div>
                 </div>
                 <div v-if="tasks.length === 0" class="empty">No hiring tasks yet.</div>
-              </div>
-            </div>
-
-            <!-- Pre-Screen -->
-            <div v-if="tab === 'prescreen'" class="tab-body">
-              <div class="info-banner">
-                <strong>AI-Generated Summary.</strong> Information may be inaccurate. Verify all details manually. Do not use as the sole basis for employment decisions.
-              </div>
-
-              <div class="kv">
-                <div class="k">LinkedIn URL</div>
-                <div class="v">
-                  <input v-model="preScreenLinkedInUrl" class="input" placeholder="https://www.linkedin.com/in/..." />
-                </div>
-              </div>
-              <div class="kv">
-                <div class="k">City / State</div>
-                <div class="v">
-                  <input v-model="preScreenLocation" class="input" placeholder="e.g., Denver, CO (optional, helps match)" />
-                </div>
-              </div>
-              <div class="kv">
-                <div class="k">Psychology Today URL</div>
-                <div class="v">
-                  <input v-model="preScreenPsychologyTodayUrl" class="input" placeholder="https://www.psychologytoday.com/us/therapists/..." />
-                  <div class="muted small" style="margin-top:6px;">Optional. If blank, the report will try to find a matching public profile via search.</div>
-                </div>
-              </div>
-              <div class="kv">
-                <div class="k">Resume text</div>
-                <div class="v">
-                  <div class="muted small">
-                    Uses the latest uploaded resume (text is extracted server-side). If the resume is a scanned PDF/image, extraction may be empty until we add OCR.
-                  </div>
-                </div>
-              </div>
-
-              <div class="kv">
-                <div class="k">Latest status</div>
-                <div class="v">{{ detail.latestPreScreen?.status || '—' }}</div>
-              </div>
-              <div class="kv">
-                <div class="k">Created</div>
-                <div class="v">{{ detail.latestPreScreen?.created_at ? formatTime(detail.latestPreScreen.created_at) : '—' }}</div>
-              </div>
-
-              <div v-if="searchSuggestionsHtml" class="search-suggestions">
-                <div class="muted small" style="margin-bottom:6px;">Search suggestions (from Google Search grounding):</div>
-                <div v-html="searchSuggestionsHtml"></div>
-              </div>
-
-              <div class="research-box">
-                <div v-if="preScreenHtml" class="markdown" v-html="preScreenHtml"></div>
-                <div v-else class="muted small">No pre-screen report yet. Click “Generate Pre-Screen Report”.</div>
               </div>
             </div>
 
@@ -868,8 +735,10 @@ import { useAuthStore } from '../../store/auth';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import UserAvatar from '../../components/common/UserAvatar.vue';
 import MarkHiredModal from '../../components/hiring/MarkHiredModal.vue';
-import CandidateResumeWorkspace from '../../components/hiring/CandidateResumeWorkspace.vue';
+import CandidateOverviewPanel from '../../components/hiring/CandidateOverviewPanel.vue';
+import CandidateAssessmentWorkspace from '../../components/hiring/CandidateAssessmentWorkspace.vue';
 import CandidateInterviewPanel from '../../components/hiring/CandidateInterviewPanel.vue';
+import { buildQuickResumeBullets } from '../../utils/hiringResumeSummaryBullets.js';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -928,6 +797,10 @@ const candidatesInView = computed(() => {
 });
 
 const selectedId = ref(null);
+const assessmentPanel = ref('resume');
+const hubInterviews = ref([]);
+const showLegacyInterview = ref(false);
+const interviewSchedulePulse = ref(0);
 const detailLoading = ref(false);
 const detail = ref({
   user: null,
@@ -992,6 +865,67 @@ const candidateActivityItems = computed(() => {
   }
   return items.slice(0, 6);
 });
+
+const hasLegacyInterviewData = computed(() => {
+  const p = detail.value?.profile;
+  if (!p) return false;
+  if (p.interview_starts_at) return true;
+  const ids = parseInterviewerJson(p.interview_interviewer_user_ids);
+  return ids.length > 0;
+});
+
+const averageHubInterviewScore = computed(() => {
+  const scores = (hubInterviews.value || [])
+    .map((i) => Number(i.average_score ?? i.averageScore))
+    .filter((n) => Number.isFinite(n));
+  if (!scores.length) return null;
+  return (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1);
+});
+
+const openAssessment = (panel = 'resume') => {
+  assessmentPanel.value = ['resume', 'summary', 'prescreen'].includes(panel) ? panel : 'resume';
+  tab.value = 'assessment';
+};
+
+const openInterviewSchedule = () => {
+  tab.value = 'interview';
+  interviewSchedulePulse.value += 1;
+};
+
+const onDetailGotoTab = (t) => {
+  if (t === 'assessment' || t === 'resume') {
+    openAssessment(t === 'resume' ? 'resume' : assessmentPanel.value || 'resume');
+    return;
+  }
+  if (t === 'resumeSummary' || t === 'summary') {
+    openAssessment('summary');
+    return;
+  }
+  if (t === 'prescreen') {
+    openAssessment('prescreen');
+    return;
+  }
+  tab.value = t;
+};
+
+const onHubInterviewsUpdated = (list) => {
+  hubInterviews.value = Array.isArray(list) ? list : [];
+};
+
+const loadHubInterviews = async () => {
+  if (!selectedId.value || !effectiveAgencyId.value) {
+    hubInterviews.value = [];
+    return;
+  }
+  try {
+    const r = await api.get(`/hiring/interview-hub/candidates/${selectedId.value}/interviews`, {
+      params: { agencyId: effectiveAgencyId.value }
+    });
+    hubInterviews.value = r.data?.data || r.data || [];
+  } catch {
+    hubInterviews.value = [];
+  }
+};
 
 const agencyChoices = computed(() => {
   // Super admin: can browse all agencies. Others: only assigned agencies.
@@ -1366,19 +1300,31 @@ const selectCandidate = async (id) => {
   }
   selectedId.value = id;
   tab.value = 'overview';
+  assessmentPanel.value = 'resume';
+  showLegacyInterview.value = false;
+  interviewSchedulePulse.value = 0;
   showMoreActions.value = false;
   referenceRequests.value = [];
   referenceActivity.value = [];
   promoteResult.value = null;
   lastHireTokenLink.value = '';
   preScreenLinkedInUrl.value = '';
+  hubInterviews.value = [];
   await loadAssignees();
   await loadDetail();
   await loadCandidatePhoto();
   await loadResumes();
   await loadResumeSummary();
+  await loadHubInterviews();
   await loadTasks();
   syncInterviewFromProfile();
+  // If resume text already exists but summary was never built, generate in the background.
+  const hasParsedResume = (resumes.value || []).some(
+    (r) => String(r.resumeParseStatus || '').toLowerCase() === 'completed'
+  );
+  if (hasParsedResume && !resumeSummary.value?.summary) {
+    maybeAutoAssessAfterResumeChange();
+  }
 };
 
 const loadDetail = async () => {
@@ -1408,56 +1354,7 @@ const resumeSummaryLoading = ref(false);
 const resumeSummaryGenerating = ref(false);
 const resumeSummaryError = ref('');
 const resumeSummary = ref(null);
-const quickResumeBullets = computed(() => {
-  const s = resumeSummary.value?.summary || {};
-  const work = Array.isArray(s.workHistory) ? s.workHistory : [];
-  const education = Array.isArray(s.education) ? s.education : [];
-  const licenses = Array.isArray(s.licensesAndCertifications) ? s.licensesAndCertifications : [];
-  const skills = Array.isArray(s.skills) ? s.skills.filter(Boolean) : [];
-  const hints = s.credentialingHints || {};
-  const bullets = [];
-
-  const recent = work[0] || null;
-  if (recent) {
-    const role = String(recent.title || '').trim() || 'Recent role';
-    const employer = String(recent.employer || '').trim();
-    const when = [recent.startDate, recent.endDate].filter(Boolean).join(' - ');
-    bullets.push(
-      `Most recent: ${role}${employer ? ` at ${employer}` : ''}${when ? ` (${when})` : ''}.`
-    );
-  }
-
-  if (education[0]) {
-    const ed = education[0];
-    const degree = [ed.degree, ed.field].filter(Boolean).join(' in ');
-    const school = String(ed.school || '').trim();
-    if (degree || school) {
-      bullets.push(`Education: ${degree || 'Degree listed'}${school ? ` (${school})` : ''}.`);
-    }
-  }
-
-  if (licenses.length) {
-    const names = licenses
-      .map((l) => String(l?.name || '').trim())
-      .filter(Boolean)
-      .slice(0, 3);
-    if (names.length) bullets.push(`Licenses/certs: ${names.join(', ')}${licenses.length > 3 ? ', ...' : ''}.`);
-  }
-
-  if (skills.length) {
-    bullets.push(`Top skills: ${skills.slice(0, 8).join(', ')}${skills.length > 8 ? ', ...' : ''}.`);
-  }
-
-  const licensure = String(hints.likelyLicensureStatus || '').trim();
-  const states = Array.isArray(hints.statesMentioned) ? hints.statesMentioned.filter(Boolean) : [];
-  if (licensure || states.length) {
-    bullets.push(
-      `Credentialing hint: ${licensure || 'unknown'}${states.length ? ` • states: ${states.join(', ')}` : ''}.`
-    );
-  }
-
-  return bullets.slice(0, 6);
-});
+const quickResumeBullets = computed(() => buildQuickResumeBullets(resumeSummary.value));
 
 const loadResumeSummary = async () => {
   if (!selectedId.value || !effectiveAgencyId.value) return;
@@ -1474,21 +1371,32 @@ const loadResumeSummary = async () => {
   }
 };
 
-const generateResumeSummary = async () => {
-  if (!selectedId.value || !effectiveAgencyId.value) return;
+const generateResumeSummary = async (opts = {}) => {
+  if (!selectedId.value || !effectiveAgencyId.value) return false;
+  const { autoPrescreen = false, openPanel = true } = opts;
   try {
     resumeSummaryGenerating.value = true;
     resumeSummaryError.value = '';
     const r = await api.post(`/hiring/candidates/${selectedId.value}/resume-summary`, {}, { params: { agencyId: effectiveAgencyId.value } });
     resumeSummary.value = r.data?.summary || null;
-    tab.value = 'resumeSummary';
+    if (openPanel) openAssessment('summary');
+    if (autoPrescreen && !detail.value?.latestPreScreen) {
+      await generatePreScreenReport({ openPanel: false, quiet: true });
+    }
+    return true;
   } catch (e) {
     const details = e.response?.data?.error?.details;
     const msg = e.response?.data?.error?.message || 'Failed to generate resume summary';
     resumeSummaryError.value = details ? `${msg}: ${String(details).slice(0, 300)}` : msg;
+    return false;
   } finally {
     resumeSummaryGenerating.value = false;
   }
+};
+
+const maybeAutoAssessAfterResumeChange = async () => {
+  // After upload/paste: build AI summary automatically, then first pre-screen if missing.
+  await generateResumeSummary({ autoPrescreen: true, openPanel: false });
 };
 
 // Notes
@@ -1515,8 +1423,9 @@ const generatingPreScreen = ref(false);
 const preScreenLinkedInUrl = ref('');
 const preScreenPsychologyTodayUrl = ref('');
 const preScreenLocation = ref('');
-const generatePreScreenReport = async () => {
-  if (!selectedId.value || !effectiveAgencyId.value) return;
+const generatePreScreenReport = async (opts = {}) => {
+  if (!selectedId.value || !effectiveAgencyId.value) return false;
+  const { openPanel = true, quiet = false } = opts;
   try {
     generatingPreScreen.value = true;
     const body = {
@@ -1526,12 +1435,15 @@ const generatePreScreenReport = async () => {
       candidateLocation: String(preScreenLocation.value || '').trim().slice(0, 180)
     };
     const r = await api.post(`/hiring/candidates/${selectedId.value}/prescreen`, body, { params: { agencyId: effectiveAgencyId.value } });
-    // Optimistic update + refresh for canonical latest report.
     detail.value.latestPreScreen = r.data || null;
     await loadDetail();
-    tab.value = 'prescreen';
+    if (openPanel) openAssessment('prescreen');
+    return true;
   } catch (e) {
-    alert(e.response?.data?.error?.message || 'Failed to generate pre-screen report');
+    if (!quiet) {
+      alert(e.response?.data?.error?.message || 'Failed to generate pre-screen report');
+    }
+    return false;
   } finally {
     generatingPreScreen.value = false;
   }
@@ -1570,6 +1482,7 @@ const resumeFile = ref(null);
 const resumeSelectedFile = ref(null);
 const resumeUploading = ref(false);
 const resumePasting = ref(false);
+const resumeReExtracting = ref(false);
 const resumeTitle = ref('');
 
 const onResumeFileChange = (e) => {
@@ -1605,6 +1518,7 @@ const onResumeWorkspacePaste = async ({ resumeText, title }) => {
       { params: { agencyId: effectiveAgencyId.value } }
     );
     await loadResumes();
+    await maybeAutoAssessAfterResumeChange();
   } catch (e) {
     resumeError.value = e.response?.data?.error?.message || 'Failed to save pasted resume';
   } finally {
@@ -1640,6 +1554,7 @@ const uploadResume = async () => {
     resumeTitle.value = '';
     if (resumeFile.value) resumeFile.value.value = '';
     await loadResumes();
+    await maybeAutoAssessAfterResumeChange();
   } catch (e) {
     resumeError.value = e.response?.data?.error?.message || 'Failed to upload resume';
   } finally {
@@ -1670,6 +1585,25 @@ const deleteResume = async (r) => {
     await loadResumes();
   } catch (e) {
     alert(e.response?.data?.error?.message || 'Failed to delete resume');
+  }
+};
+
+const reExtractResume = async (r) => {
+  if (!selectedId.value || !effectiveAgencyId.value || !r?.id) return;
+  try {
+    resumeReExtracting.value = true;
+    resumeError.value = '';
+    await api.post(
+      `/hiring/candidates/${selectedId.value}/resumes/${r.id}/re-extract`,
+      {},
+      { params: { agencyId: effectiveAgencyId.value } }
+    );
+    await loadResumes();
+    await generateResumeSummary({ openPanel: false, autoPrescreen: !detail.value?.latestPreScreen });
+  } catch (e) {
+    resumeError.value = e.response?.data?.error?.message || 'Failed to extract text from resume file';
+  } finally {
+    resumeReExtracting.value = false;
   }
 };
 

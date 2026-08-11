@@ -19,6 +19,7 @@ import {
   pasteCandidateResume,
   viewCandidateResume,
   deleteCandidateResume,
+  reExtractCandidateResume,
   getCandidatePhoto,
   getCandidateResumeSummary,
   generateCandidateResumeSummary,
@@ -148,6 +149,7 @@ router.get('/candidates/:userId/resumes', listCandidateResumes);
 router.post('/candidates/:userId/resumes/upload', upload.single('file'), uploadCandidateResume);
 router.post('/candidates/:userId/resumes/paste', pasteCandidateResume);
 router.get('/candidates/:userId/resumes/:docId/view', viewCandidateResume);
+router.post('/candidates/:userId/resumes/:docId/re-extract', reExtractCandidateResume);
 router.delete('/candidates/:userId/resumes/:docId', deleteCandidateResume);
 router.get('/candidates/:userId/photo', getCandidatePhoto);
 router.get('/candidates/:userId/resume-summary', getCandidateResumeSummary);

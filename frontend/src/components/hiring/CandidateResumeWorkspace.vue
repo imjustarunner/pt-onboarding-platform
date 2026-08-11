@@ -73,8 +73,12 @@
       </div>
 
       <div v-if="error" class="error-banner">{{ error }}</div>
-      <div v-if="!isOverview && needsTextHint" class="info-banner">
-        We couldn’t extract text from the latest resume. Paste the resume text above, or upload a text-based PDF/DOCX.
+      <div v-if="!isOverview && needsTextHint && activeResume" class="info-banner">
+        Text wasn’t extracted from this file on upload.
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="reExtracting" @click="emitReExtract">
+          {{ reExtracting ? 'Extracting…' : 'Extract text from file' }}
+        </button>
+        Or paste the resume below — if you can copy it from the preview, we can use that text too.
       </div>
 
       <div v-if="loading" class="loading">Loading resumes…</div>
@@ -166,20 +170,31 @@
 
       <section v-else class="side-card">
         <div class="side-card-head">
-          <h4>Summary</h4>
-          <button type="button" class="linkish" @click="$emit('goto-tab', 'resumeSummary')">Open</button>
+          <h4>AI Summary</h4>
+          <button type="button" class="linkish" @click="$emit('goto-tab', 'summary')">Open</button>
         </div>
         <div v-if="summaryGenerating" class="muted small">Generating…</div>
         <div v-else-if="summaryError" class="error-banner compact">{{ summaryError }}</div>
         <div v-else-if="!summaryBullets.length" class="muted small">
-          No AI summary yet.
-          <button type="button" class="btn btn-primary btn-sm" style="margin-top:8px;" :disabled="summaryGenerating" @click="$emit('generate-summary')">
-            Generate
-          </button>
+          No AI summary yet. Upload/paste a text-based resume to auto-generate, or generate now.
+          <div class="side-actions">
+            <button type="button" class="btn btn-primary btn-sm" :disabled="summaryGenerating" @click="$emit('generate-summary')">
+              Generate summary
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" @click="$emit('goto-tab', 'prescreen')">
+              Pre-screen
+            </button>
+          </div>
         </div>
-        <ul v-else class="side-list bullets">
-          <li v-for="(b, idx) in summaryBullets.slice(0, 4)" :key="idx">{{ b }}</li>
-        </ul>
+        <template v-else>
+          <ul class="side-list bullets">
+            <li v-for="(b, idx) in summaryBullets.slice(0, 4)" :key="idx">{{ b }}</li>
+          </ul>
+          <div class="side-actions">
+            <button type="button" class="btn btn-secondary btn-sm" @click="$emit('goto-tab', 'summary')">Full summary</button>
+            <button type="button" class="btn btn-secondary btn-sm" @click="$emit('goto-tab', 'prescreen')">Pre-screen</button>
+          </div>
+        </template>
       </section>
     </aside>
   </div>
@@ -200,11 +215,12 @@ const props = defineProps({
   summaryBullets: { type: Array, default: () => [] },
   summaryError: { type: String, default: '' },
   summaryGenerating: { type: Boolean, default: false },
+  reExtracting: { type: Boolean, default: false },
   variant: { type: String, default: 'full' },
   resolveViewerUrl: { type: Function, required: true }
 });
 
-const emit = defineEmits(['upload', 'paste', 'delete', 'goto-tab', 'generate-summary']);
+const emit = defineEmits(['upload', 'paste', 'delete', 'goto-tab', 'generate-summary', 're-extract']);
 const isOverview = computed(() => String(props.variant || 'full') === 'overview');
 
 const fileInput = ref(null);
@@ -294,6 +310,11 @@ function emitPaste() {
   if (!text) return;
   emit('paste', { resumeText: text, title: title.value || 'Resume (pasted text)' });
   pasteText.value = '';
+}
+
+function emitReExtract() {
+  if (!activeResume.value) return;
+  emit('re-extract', activeResume.value);
 }
 
 function parseLabel(r) {
@@ -458,6 +479,12 @@ function truncate(s, n) {
 .side-body {
   font-size: 13px;
   line-height: 1.35;
+}
+.side-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
 }
 .linkish {
   background: none;

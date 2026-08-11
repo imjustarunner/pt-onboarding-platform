@@ -426,7 +426,7 @@
                     <span class="nav-dropdown-label">People Ops</span> <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="peopleOpsMenuOpen" class="nav-dropdown-menu">
-                    <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')">Dashboard</router-link>
+                    <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')">PO Dashboard</router-link>
                     <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring/applicants')">Applicants</router-link>
                     <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/interview-hub')">Interview Hub</router-link>
                     <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/pre-hire')" >Pre-Hire</router-link>
@@ -1465,7 +1465,7 @@
                   <span class="mobile-nav-group-caret" :class="{ open: mobilePeopleOpsExpanded }" aria-hidden="true">▸</span>
                 </button>
                 <template v-if="mobilePeopleOpsExpanded">
-                  <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Dashboard</router-link>
+                  <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">PO Dashboard</router-link>
                   <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring/applicants')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Applicants</router-link>
                   <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/interview-hub')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Interview Hub</router-link>
                   <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/pre-hire')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Pre-Hire</router-link>

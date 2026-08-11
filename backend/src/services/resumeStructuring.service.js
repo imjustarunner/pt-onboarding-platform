@@ -68,6 +68,7 @@ function buildFallbackSummaryFromText(resumeText) {
     : [];
 
   return {
+    bioHighlights: [],
     workHistory: [],
     education: [],
     licensesAndCertifications: [],
@@ -193,6 +194,7 @@ export async function generateResumeSummaryJson({ candidateName, resumeText }) {
     '',
     'Schema (strict):',
     '{',
+    '  "bioHighlights": [string],',
     '  "workHistory": [ { "employer": string|null, "title": string|null, "startDate": string|null, "endDate": string|null, "location": string|null, "summary": string|null } ],',
     '  "education": [ { "school": string|null, "degree": string|null, "field": string|null, "startDate": string|null, "endDate": string|null, "notes": string|null } ],',
     '  "licensesAndCertifications": [ { "name": string|null, "state": string|null, "licenseNumber": string|null, "issuedDate": string|null, "expirationDate": string|null, "status": string|null } ],',
@@ -203,7 +205,10 @@ export async function generateResumeSummaryJson({ candidateName, resumeText }) {
     '     "needsSupervision": boolean|null,',
     '     "notesForCredentialingTeam": string|null',
     '  }',
-    '}'
+    '}',
+    '',
+    'bioHighlights: short bullets from a professional summary/objective/profile section if present (empty array if none).',
+    'For each workHistory item, put a concise role summary in "summary" when the resume includes duties/achievements for that job.'
   ].join('\n');
 
   const userPrompt = [
@@ -244,7 +249,7 @@ export async function generateResumeSummaryJson({ candidateName, resumeText }) {
         'If values are missing, use null or empty arrays.',
         '',
         'Target schema keys:',
-        'workHistory, education, licensesAndCertifications, skills, credentialingHints',
+        'bioHighlights, workHistory, education, licensesAndCertifications, skills, credentialingHints',
         '',
         'Malformed content:',
         text

@@ -2262,6 +2262,98 @@ export const getCandidatePhoto = async (req, res, next) => {
   }
 };
 
+async function tryReextractResumeTextForCandidate(candidateUserId, { preferredDocId = null, createdByUserId = null } = {}) {
+  let docs = [];
+  if (preferredDocId) {
+    const [rows] = await pool.execute(
+      `SELECT id, storage_path, mime_type, original_name
+       FROM user_admin_docs
+       WHERE id = ? AND user_id = ? AND doc_type = 'resume' AND storage_path IS NOT NULL
+       LIMIT 1`,
+      [preferredDocId, candidateUserId]
+    );
+    docs = rows || [];
+  } else {
+    const [rows] = await pool.execute(
+      `SELECT id, storage_path, mime_type, original_name
+       FROM user_admin_docs
+       WHERE user_id = ? AND doc_type = 'resume' AND storage_path IS NOT NULL
+       ORDER BY created_at DESC, id DESC
+       LIMIT 8`,
+      [candidateUserId]
+    );
+    docs = rows || [];
+  }
+
+  for (const doc of docs) {
+    try {
+      const buf = await StorageService.readObject(doc.storage_path);
+      const extraction = await extractResumeTextFromUpload({ buffer: buf, mimeType: doc.mime_type });
+      try {
+        await HiringResumeParse.upsertByResumeDocId({
+          candidateUserId,
+          resumeDocId: doc.id,
+          method: extraction.method,
+          status: extraction.status,
+          extractedText: extraction.text || null,
+          extractedJson: null,
+          errorText: extraction.errorText || null,
+          createdByUserId
+        });
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+      const text = String(extraction.text || '').trim();
+      if (extraction.status === 'completed' && text) {
+        return { resumeDocId: doc.id, resumeText: text, method: extraction.method };
+      }
+    } catch {
+      // try next resume doc
+    }
+  }
+  return null;
+}
+
+export const reExtractCandidateResume = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    const docId = parseIntParam(req.params.docId);
+    if (!candidateUserId || !docId) {
+      return res.status(400).json({ error: { message: 'Invalid userId or docId' } });
+    }
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const result = await tryReextractResumeTextForCandidate(candidateUserId, {
+      preferredDocId: docId,
+      createdByUserId: req.user?.id || null
+    });
+    if (!result) {
+      const parseRow = await HiringResumeParse.findByResumeDocId(docId);
+      return res.status(400).json({
+        error: {
+          message:
+            'Could not extract text from this file. If you can select text in the preview, paste it using Paste resume — or upload a text-based PDF/DOCX.',
+          details: parseRow?.error_text || parseRow?.status || null
+        }
+      });
+    }
+
+    res.json({
+      ok: true,
+      resumeDocId: result.resumeDocId,
+      method: result.method,
+      textLength: result.resumeText.length
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const getCandidateResumeSummary = async (req, res, next) => {
   try {
     const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
@@ -2348,6 +2440,15 @@ export const generateCandidateResumeSummary = async (req, res, next) => {
         } catch {
           // try next resume doc
         }
+      }
+    }
+    if (!resumeText || !resumeDocId) {
+      const reextracted = await tryReextractResumeTextForCandidate(candidateUserId, {
+        createdByUserId: req.user?.id || null
+      });
+      if (reextracted) {
+        resumeText = reextracted.resumeText;
+        resumeDocId = reextracted.resumeDocId;
       }
     }
     if (!resumeText || !resumeDocId) {

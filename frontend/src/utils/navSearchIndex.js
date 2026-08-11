@@ -475,7 +475,7 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Agency documents — view, sign, and manage.'
   },
   {
-    title: 'Hiring Dashboard',
+    title: 'PO Dashboard',
     section: 'People Ops › Hiring',
     path: '/admin/hiring',
     keywords: ['hiring', 'dashboard', 'pipeline', 'hiring overview', 'recruiting'],

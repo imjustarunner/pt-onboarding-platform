@@ -1,5 +1,47 @@
 <template>
   <div class="ilw" :class="{ dark: dark }">
+    <div class="ilw-brief">
+      <div class="ilw-brief-nav">
+        <button type="button" class="ilw-brief-tab" :class="{ active: briefPage === 0 }" @click="briefPage = 0">
+          Resume
+        </button>
+        <button type="button" class="ilw-brief-tab" :class="{ active: briefPage === 1 }" @click="briefPage = 1">
+          Research
+        </button>
+        <button type="button" class="ilw-brief-tab" :class="{ active: briefPage === 2 }" @click="briefPage = 2">
+          Strengths / gaps
+        </button>
+      </div>
+      <div class="ilw-brief-body">
+        <div v-show="briefPage === 0">
+          <div class="ilw-brief-title">Resume snapshot</div>
+          <ul v-if="resumeBullets.length" class="ilw-resume-list">
+            <li v-for="(b, idx) in resumeBullets" :key="`rs_${idx}`">{{ b }}</li>
+          </ul>
+          <p v-else class="muted small">No resume summary yet.</p>
+        </div>
+        <div v-show="briefPage === 1">
+          <div class="ilw-brief-title">Candidate research (condensed)</div>
+          <ul v-if="researchBrief.length" class="ilw-resume-list">
+            <li v-for="(b, idx) in researchBrief" :key="`rb_${idx}`">{{ b }}</li>
+          </ul>
+          <p v-else class="muted small">No pre-screen report yet. Run pre-screen in Candidate Assessment.</p>
+        </div>
+        <div v-show="briefPage === 2">
+          <div class="ilw-brief-title">Strengths</div>
+          <ul v-if="strengthItems.length" class="ilw-resume-list ilw-strengths">
+            <li v-for="(s, idx) in strengthItems" :key="`st_${idx}`">{{ s }}</li>
+          </ul>
+          <p v-else class="muted small">No strengths listed in pre-screen yet.</p>
+          <div class="ilw-brief-title" style="margin-top:10px;">Weaknesses / discussion points</div>
+          <ul v-if="weaknessItems.length" class="ilw-resume-list ilw-weaknesses">
+            <li v-for="(w, idx) in weaknessItems" :key="`wk_${idx}`">{{ w }}</li>
+          </ul>
+          <p v-else class="muted small">No gaps flagged in pre-screen yet.</p>
+        </div>
+      </div>
+    </div>
+
     <div class="ilw-tabs">
       <button
         v-for="t in tabs"
@@ -139,6 +181,8 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { buildQuickResumeBullets } from '../../utils/hiringResumeSummaryBullets.js';
+import { digestPreScreenReport } from '../../utils/hiringPreScreenDigest.js';
 
 const props = defineProps({
   eventId: { type: [Number, String], required: true },
@@ -172,6 +216,12 @@ const teamChat = ref([]);
 const chatDraft = ref('');
 const unreadChat = ref(0);
 const chatScroll = ref(null);
+const candidateUserId = ref(null);
+const resumeBullets = ref([]);
+const researchBrief = ref([]);
+const strengthItems = ref([]);
+const weaknessItems = ref([]);
+const briefPage = ref(0);
 let autosaveTimer = null;
 
 const averageDisplay = computed(() => {
@@ -199,6 +249,7 @@ async function load() {
     });
     const data = r.data?.data || r.data || {};
     interviewId.value = data.interview?.id || null;
+    candidateUserId.value = data.interview?.candidate_user_id || data.interview?.candidateUserId || null;
     const flow = data.flow || data.artifact?.flow_state_json || {};
     flowSections.value = Array.isArray(flow.sections) ? flow.sections : normalizeFlow(flow);
     const doneMap = flow.completed || data.artifact?.flow_state_json?.completed || {};
@@ -225,6 +276,7 @@ async function load() {
 
     teamChat.value = Array.isArray(data.artifact?.team_chat_json) ? data.artifact.team_chat_json : [];
     guestAccessEnded.value = !!(data?.interview?.guest_access_ended_at);
+    await loadResumeSummary();
     emit('loaded', data);
   } catch (e) {
     error.value = e.response?.data?.error?.message
@@ -232,6 +284,38 @@ async function load() {
       || 'Interview workspace unavailable for this meeting.';
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadResumeSummary() {
+  const uid = candidateUserId.value;
+  if (!uid || !props.agencyId) {
+    resumeBullets.value = [];
+    researchBrief.value = [];
+    strengthItems.value = [];
+    weaknessItems.value = [];
+    return;
+  }
+  try {
+    const [summaryR, candidateR] = await Promise.all([
+      api.get(`/hiring/candidates/${uid}/resume-summary`, {
+        params: { agencyId: props.agencyId }
+      }),
+      api.get(`/hiring/candidates/${uid}`, {
+        params: { agencyId: props.agencyId }
+      })
+    ]);
+    resumeBullets.value = buildQuickResumeBullets(summaryR.data?.summary || null);
+    const reportText = candidateR.data?.latestPreScreen?.report_text || '';
+    const digest = digestPreScreenReport(reportText);
+    researchBrief.value = digest.researchBrief;
+    strengthItems.value = digest.strengths;
+    weaknessItems.value = digest.weaknesses;
+  } catch {
+    resumeBullets.value = [];
+    researchBrief.value = [];
+    strengthItems.value = [];
+    weaknessItems.value = [];
   }
 }
 
@@ -551,6 +635,64 @@ function formatWhen(v) {
   gap: 8px;
   justify-content: flex-end;
 }
+.ilw-resume {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: rgba(15, 23, 42, 0.35);
+}
+.ilw-brief {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: rgba(15, 23, 42, 0.35);
+}
+.ilw-brief-nav {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.ilw-brief-tab {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0.85;
+}
+.ilw-brief-tab.active {
+  background: rgba(99, 102, 241, 0.35);
+  border-color: rgba(129, 140, 248, 0.6);
+  opacity: 1;
+}
+.ilw-brief-title {
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.75;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.ilw-brief-body {
+  max-height: 200px;
+  overflow: auto;
+}
+.ilw-resume-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ilw-strengths li { color: #86efac; }
+.ilw-weaknesses li { color: #fdba74; }
 .ilw-btn {
   border: 1px solid rgba(148, 163, 184, 0.4);
   background: transparent;

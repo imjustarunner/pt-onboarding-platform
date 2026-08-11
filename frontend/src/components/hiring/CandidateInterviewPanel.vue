@@ -3,45 +3,56 @@
     <div class="cip-head">
       <div>
         <h3>Interviews</h3>
-        <p class="muted small">Schedule via Interview Hub or here. Results (scorecard, notes, flow) appear after finalize.</p>
+        <p class="muted small">Schedule a live Interview Hub meeting here (calendar, join link, scorecard). Results appear after finalize.</p>
       </div>
       <div class="cip-actions">
         <router-link class="btn btn-secondary btn-sm" :to="hubPath">Open Interview Hub</router-link>
-        <button type="button" class="btn btn-primary btn-sm" @click="showSchedule = !showSchedule">
+        <button type="button" class="btn btn-primary btn-sm" @click="openScheduleForm">
           {{ showSchedule ? 'Hide schedule' : 'Schedule interview' }}
         </button>
       </div>
     </div>
 
-    <div v-if="showSchedule" class="cip-schedule">
-      <div class="cip-grid">
-        <label class="small">Start (local)</label>
-        <input v-model="startsLocal" class="input" type="datetime-local" />
-        <label class="small">Timezone</label>
-        <input v-model="timezone" class="input" placeholder="America/Denver" />
-        <label class="small">Duration (min)</label>
-        <input v-model.number="durationMinutes" class="input" type="number" min="15" max="240" />
-        <label class="small">Job-specific questions</label>
-        <select v-model="jobQuestionSetId" class="input">
-          <option value="">None (standard only)</option>
-          <option v-for="s in jobSets" :key="s.id" :value="String(s.id)">{{ s.title }}</option>
-        </select>
-        <label class="small">Interviewers</label>
-        <select v-model="interviewerPick" class="input" @change="addInterviewer">
-          <option value="">Add interviewer…</option>
-          <option v-for="u in assignees" :key="u.id" :value="String(u.id)" :disabled="interviewerIds.includes(Number(u.id))">
-            {{ u.first_name }} {{ u.last_name }}
-          </option>
-        </select>
-        <div class="chips">
-          <span v-for="id in interviewerIds" :key="id" class="chip">
-            {{ interviewerName(id) }}
-            <button type="button" class="chip-x" @click="removeInterviewer(id)">×</button>
-          </span>
+    <div v-if="showSchedule" ref="scheduleSectionRef" class="cip-schedule">
+      <div class="cip-schedule-title">New Interview Hub meeting</div>
+      <div class="cip-schedule-form">
+        <div class="cip-field">
+          <label for="cip-starts">Start (local)</label>
+          <input id="cip-starts" v-model="startsLocal" class="cip-input" type="datetime-local" />
         </div>
-        <label class="check-row">
+        <div class="cip-field">
+          <label for="cip-tz">Timezone</label>
+          <input id="cip-tz" v-model="timezone" class="cip-input" placeholder="America/Denver" />
+        </div>
+        <div class="cip-field">
+          <label for="cip-duration">Duration (minutes)</label>
+          <input id="cip-duration" v-model.number="durationMinutes" class="cip-input" type="number" min="15" max="240" />
+        </div>
+        <div class="cip-field">
+          <label for="cip-questions">Job-specific questions</label>
+          <select id="cip-questions" v-model="jobQuestionSetId" class="cip-input">
+            <option value="">None (standard only)</option>
+            <option v-for="s in jobSets" :key="s.id" :value="String(s.id)">{{ s.title }}</option>
+          </select>
+        </div>
+        <div class="cip-field cip-field--full">
+          <label for="cip-interviewers">Interviewers</label>
+          <select id="cip-interviewers" v-model="interviewerPick" class="cip-input" @change="addInterviewer">
+            <option value="">Add interviewer…</option>
+            <option v-for="u in assignees" :key="u.id" :value="String(u.id)" :disabled="interviewerIds.includes(Number(u.id))">
+              {{ u.first_name }} {{ u.last_name }}
+            </option>
+          </select>
+          <div v-if="interviewerIds.length" class="chips">
+            <span v-for="id in interviewerIds" :key="id" class="chip">
+              {{ interviewerName(id) }}
+              <button type="button" class="chip-x" aria-label="Remove interviewer" @click="removeInterviewer(id)">×</button>
+            </span>
+          </div>
+        </div>
+        <label class="cip-check cip-field--full">
           <input v-model="sendInvites" type="checkbox" />
-          Send calendar + email invites
+          <span>Send calendar + email invites</span>
         </label>
       </div>
       <div class="row-actions">
@@ -101,7 +112,6 @@
         <div v-if="artifact.finalized_at" class="muted small">Finalized {{ formatWhen(artifact.finalized_at) }}</div>
       </template>
 
-      <div class="legacy-divider muted small">Also keep the classic profile splash interview fields in sync when you schedule from Hub.</div>
     </div>
 
     <div v-if="!isHired" class="cip-capsule">
@@ -160,25 +170,29 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
   candidateUserId: { type: [Number, String], required: true },
   agencyId: { type: [Number, String], required: true },
   assignees: { type: Array, default: () => [] },
   jobDescriptionId: { type: [Number, String], default: null },
-  candidateStage: { type: String, default: '' }
+  candidateStage: { type: String, default: '' },
+  hiringProfileId: { type: [Number, String], default: null },
+  schedulePulse: { type: Number, default: 0 }
 });
 
-const route = useRoute();
+const authStore = useAuthStore();
 const interviews = ref([]);
 const loading = ref(false);
 const selectedId = ref(null);
 const artifact = ref(null);
 const artifactLoading = ref(false);
-const showSchedule = ref(false);
+const showSchedule = ref(true);
+const emit = defineEmits(['interviews-updated']);
 const scheduling = ref(false);
 const scheduleError = ref('');
 const startsLocal = ref('');
@@ -197,6 +211,9 @@ const prediction6m = ref('');
 const prediction12m = ref('');
 const capsuleOpeningId = ref(null);
 const openedCapsuleBody = ref('');
+const scheduleSectionRef = ref(null);
+
+const route = useRoute();
 
 const hubPath = computed(() => {
   const slug = String(route.params?.organizationSlug || '').trim();
@@ -224,6 +241,42 @@ watch(() => props.candidateUserId, async () => {
   await Promise.all([loadInterviews(), loadCapsules()]);
 });
 
+watch(() => props.schedulePulse, (n) => {
+  if (n > 0) openScheduleForm();
+}, { immediate: true, flush: 'post' });
+
+function toDatetimeLocalValue(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function suggestDefaultStartLocal() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(10, 0, 0, 0);
+  return toDatetimeLocalValue(d);
+}
+
+function ensureDefaultInterviewer() {
+  const me = Number(authStore.user?.id || 0);
+  if (!me) return;
+  if (!interviewerIds.value.includes(me)) {
+    interviewerIds.value = [...interviewerIds.value, me];
+  }
+}
+
+function openScheduleForm() {
+  showSchedule.value = true;
+  scheduleError.value = '';
+  if (!startsLocal.value) startsLocal.value = suggestDefaultStartLocal();
+  ensureDefaultInterviewer();
+  nextTick(() => {
+    scheduleSectionRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  });
+}
+
+defineExpose({ openScheduleForm });
+
 async function loadInterviews() {
   if (!props.candidateUserId || !props.agencyId) return;
   loading.value = true;
@@ -232,11 +285,15 @@ async function loadInterviews() {
       params: { agencyId: props.agencyId }
     });
     interviews.value = r.data?.data || r.data || [];
+    if (!interviews.value.length) showSchedule.value = true;
     if (interviews.value.length && !selectedId.value) {
       await selectInterview(interviews.value[0]);
     }
+    emit('interviews-updated', interviews.value);
   } catch {
     interviews.value = [];
+    showSchedule.value = true;
+    emit('interviews-updated', []);
   } finally {
     loading.value = false;
   }
@@ -289,14 +346,22 @@ async function scheduleInterview() {
   scheduling.value = true;
   scheduleError.value = '';
   try {
+    const startsAt = startsLocal.value
+      ? new Date(startsLocal.value).toISOString()
+      : '';
+    if (!startsAt || Number.isNaN(new Date(startsAt).getTime())) {
+      scheduleError.value = 'Pick a valid start date and time.';
+      return;
+    }
     await api.post('/hiring/interview-hub/interviews', {
       agencyId: props.agencyId,
       candidateUserId: props.candidateUserId,
-      startsAt: startsLocal.value,
+      startsAt,
       timezone: timezone.value,
       durationMinutes: durationMinutes.value,
       interviewerUserIds: interviewerIds.value,
       jobQuestionSetId: jobQuestionSetId.value || null,
+      hiringProfileId: props.hiringProfileId || null,
       sendInvites: sendInvites.value
     });
     showSchedule.value = false;
@@ -392,16 +457,75 @@ async function openCapsule(c) {
 </script>
 
 <style scoped>
-.cip { display: flex; flex-direction: column; gap: 14px; }
+.cip {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-family: inherit;
+  color: #0f172a;
+}
 .cip-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
-.cip-head h3 { margin: 0 0 4px; }
+.cip-head h3 { margin: 0 0 4px; font-size: 1.05rem; font-weight: 700; color: #0f172a; }
+.cip-head .muted { color: #64748b; font-size: 13px; line-height: 1.45; }
 .cip-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .cip-schedule, .cip-detail, .cip-card {
-  border: 1px solid var(--border-color, #e5e7eb);
-  border-radius: 12px;
-  padding: 12px;
-  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 16px;
+  background: #f8fafc;
 }
+.cip-schedule-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 12px;
+  letter-spacing: 0.01em;
+}
+.cip-schedule-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+.cip-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.cip-field--full { grid-column: 1 / -1; }
+.cip-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  letter-spacing: 0.02em;
+}
+.cip-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.35;
+  color: #0f172a;
+  background: #fff;
+  font-family: inherit;
+}
+.cip-input:focus {
+  outline: none;
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
+}
+.cip-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+  margin: 0;
+}
+.cip-check input { width: 16px; height: 16px; accent-color: #5b21b6; }
 .cip-grid { display: grid; gap: 8px; }
 .cip-list { display: grid; gap: 8px; }
 .cip-card { cursor: pointer; }
@@ -412,11 +536,13 @@ async function openCapsule(c) {
 .badge.scheduled { background: #ede9fe; color: #5b21b6; }
 .badge.in_progress { background: #ffedd5; color: #9a3412; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { background: #f3f4f6; border-radius: 999px; padding: 2px 8px; font-size: 12px; display: inline-flex; gap: 4px; align-items: center; }
-.chip-x { border: 0; background: none; cursor: pointer; }
+.chip { background: #fff; border: 1px solid #e2e8f0; border-radius: 999px; padding: 4px 10px; font-size: 13px; display: inline-flex; gap: 6px; align-items: center; color: #334155; }
+.chip-x { border: 0; background: none; cursor: pointer; color: #64748b; font-size: 16px; line-height: 1; padding: 0; }
 .check-row { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 .kv { display: grid; grid-template-columns: 140px 1fr; gap: 8px; margin: 6px 0; font-size: 13px; }
-.k { color: #6b7280; }
+.k { color: #64748b; }
+.muted { color: #64748b; }
+.small { font-size: 13px; }
 .score-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
 .pre { white-space: pre-wrap; font-size: 12px; background: #f9fafb; padding: 8px; border-radius: 8px; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -454,5 +580,8 @@ async function openCapsule(c) {
   margin-bottom: 8px;
   font-size: 13px;
 }
-.row-actions { display: flex; gap: 8px; margin-top: 10px; }
+.row-actions { display: flex; gap: 8px; margin-top: 14px; }
+@media (max-width: 720px) {
+  .cip-schedule-form { grid-template-columns: 1fr; }
+}
 </style>
