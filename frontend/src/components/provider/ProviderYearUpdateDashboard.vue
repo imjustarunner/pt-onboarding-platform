@@ -21,7 +21,7 @@
             <div class="pyu__title-block">
               <h1>Provider Year Update</h1>
               <p class="pyu__sub">
-                The school year is quickly approaching! Complete each section below — your progress is saved as you go.
+                The school year is quickly approaching! Complete all {{ visibleSectionMeta.length }} sections below — your progress is saved as you go.
               </p>
             </div>
             <div class="pyu__user-block">
@@ -42,17 +42,23 @@
 
       <div class="pyu__layout">
         <nav class="pyu__nav" aria-label="Year update sections">
+          <div class="pyu__nav-progress">
+            {{ sectionsDoneCount }} of {{ visibleSectionMeta.length }} sections complete
+          </div>
           <button
-            v-for="meta in visibleSectionMeta"
+            v-for="(meta, idx) in visibleSectionMeta"
             :key="meta.key"
             type="button"
             class="pyu__nav-item"
             :class="{ active: activeSection === meta.key, done: sectionDone(meta.key) }"
-            @click="activeSection = meta.key"
+            @click="goToSection(meta.key)"
           >
-            <span class="pyu__nav-dot" />
+            <span class="pyu__nav-marker" :class="{ done: sectionDone(meta.key) }">
+              <span v-if="sectionDone(meta.key)" class="pyu__nav-check" aria-hidden="true">✓</span>
+              <span v-else>{{ idx + 1 }}</span>
+            </span>
             <span>
-              <strong>{{ meta.shortTitle }}</strong>
+              <strong>{{ idx + 1 }}. {{ meta.shortTitle }}</strong>
               <small>{{ meta.hint }}</small>
             </span>
           </button>
@@ -69,6 +75,34 @@
         </nav>
 
         <main class="pyu__main">
+          <nav class="pyu__section-map" aria-label="Section progress">
+            <template v-for="(meta, idx) in visibleSectionMeta" :key="meta.key">
+              <button
+                type="button"
+                class="pyu__map-step"
+                :class="{
+                  active: activeSection === meta.key,
+                  done: sectionDone(meta.key),
+                }"
+                :aria-current="activeSection === meta.key ? 'step' : undefined"
+                @click="goToSection(meta.key)"
+              >
+                <span class="pyu__map-marker">
+                  <span v-if="sectionDone(meta.key)" class="pyu__map-check" aria-hidden="true">✓</span>
+                  <span v-else>{{ idx + 1 }}</span>
+                </span>
+                <span class="pyu__map-label">{{ meta.shortTitle }}</span>
+                <span v-if="sectionDone(meta.key)" class="pyu__map-status">Complete</span>
+              </button>
+              <span
+                v-if="idx < visibleSectionMeta.length - 1"
+                class="pyu__map-line"
+                :class="{ done: sectionDone(meta.key) }"
+                aria-hidden="true"
+              />
+            </template>
+          </nav>
+
           <!-- Reminders -->
           <section v-if="activeSection === 'reminders'" class="pyu__panel">
             <h2>Step-by-Step Reminders</h2>
@@ -1089,11 +1123,23 @@ const allSectionsDone = computed(() => {
   return sections.length > 0 && sections.every((s) => s.reviewed || s.completed);
 });
 
+const sectionsDoneCount = computed(() =>
+  visibleSectionMeta.value.filter((m) => sectionDone(m.key)).length
+);
+
 const remindersSectionComplete = computed(() => sectionDone('reminders'));
 
 function sectionDone(key) {
   const s = (payload.value?.sections || []).find((x) => x.sectionKey === key);
   return Boolean(s?.reviewed || s?.completed);
+}
+
+function goToSection(key) {
+  if (!visibleSectionMeta.value.some((m) => m.key === key)) return;
+  activeSection.value = key;
+  if (typeof window !== 'undefined') {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 }
 
 function formatDt(v) {
@@ -1333,7 +1379,7 @@ function goToNextSection(currentKey) {
   const meta = visibleSectionMeta.value;
   const idx = meta.findIndex((m) => m.key === currentKey);
   if (idx < 0 || idx >= meta.length - 1) return;
-  activeSection.value = meta[idx + 1].key;
+  goToSection(meta[idx + 1].key);
 }
 
 function gearStatusHint(key) {
@@ -2286,6 +2332,12 @@ defineExpose({ load, reload: load });
   flex-direction: column;
   gap: 6px;
 }
+.pyu__nav-progress {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  padding: 0 4px 6px;
+}
 .pyu__nav-item {
   display: flex;
   gap: 10px;
@@ -2296,21 +2348,38 @@ defineExpose({ load, reload: load });
   border-radius: 12px;
   padding: 10px 12px;
   cursor: pointer;
+  font: inherit;
+  color: inherit;
 }
 .pyu__nav-item.active {
   border-color: var(--pyu-primary);
   box-shadow: 0 0 0 1px var(--pyu-primary);
 }
-.pyu__nav-item.done .pyu__nav-dot {
-  background: #16a34a;
+.pyu__nav-item.done {
+  border-color: color-mix(in srgb, #16a34a 35%, #e2e8f0);
 }
-.pyu__nav-dot {
-  width: 10px;
-  height: 10px;
+.pyu__nav-marker {
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  background: #cbd5e1;
-  margin-top: 4px;
+  border: 2px solid #cbd5e1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #64748b;
   flex-shrink: 0;
+  background: #fff;
+}
+.pyu__nav-marker.done {
+  border-color: #16a34a;
+  background: #16a34a;
+  color: #fff;
+}
+.pyu__nav-check {
+  font-size: 0.85rem;
+  line-height: 1;
 }
 .pyu__nav-item strong {
   display: block;
@@ -2319,6 +2388,94 @@ defineExpose({ load, reload: load });
 .pyu__nav-item small {
   color: #64748b;
   font-size: 0.75rem;
+}
+.pyu__section-map {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 16px;
+  padding: 14px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow-x: auto;
+}
+.pyu__map-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 0;
+  min-width: 84px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 10px;
+  font: inherit;
+  color: #64748b;
+  text-align: center;
+}
+.pyu__map-step:hover {
+  background: #eef2f7;
+}
+.pyu__map-step.active {
+  background: color-mix(in srgb, var(--pyu-primary) 8%, white);
+  color: var(--pyu-primary);
+}
+.pyu__map-step.done {
+  color: #166534;
+}
+.pyu__map-step.done.active {
+  color: #166534;
+  background: color-mix(in srgb, #16a34a 10%, white);
+}
+.pyu__map-marker {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid #cbd5e1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  font-weight: 800;
+  background: #fff;
+  flex-shrink: 0;
+}
+.pyu__map-step.active .pyu__map-marker {
+  border-color: var(--pyu-primary);
+  color: var(--pyu-primary);
+}
+.pyu__map-step.done .pyu__map-marker {
+  border-color: #16a34a;
+  background: #16a34a;
+  color: #fff;
+}
+.pyu__map-check {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.pyu__map-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.pyu__map-status {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #16a34a;
+}
+.pyu__map-line {
+  flex: 0 0 16px;
+  height: 2px;
+  background: #cbd5e1;
+  margin-top: -18px;
+}
+.pyu__map-line.done {
+  background: #16a34a;
 }
 .pyu__finalize {
   margin-top: 10px;
