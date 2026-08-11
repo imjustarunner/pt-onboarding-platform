@@ -1910,6 +1910,10 @@
         v-if="isAuthenticated"
         :login-trigger="privilegedLoginBriefingTrigger"
       />
+      <ProviderLoginBriefingModal
+        v-if="isAuthenticated"
+        :login-trigger="privilegedLoginBriefingTrigger"
+      />
       <PoweredByFooter v-if="isAuthenticated && !isImmersiveJoinRoute" />
       <Teleport to="body">
         <div
@@ -2250,6 +2254,8 @@ import TestAccountSwitcher from './components/TestAccountSwitcher.vue';
 import OpsCycleNavCoachmark from './components/OpsCycleNavCoachmark.vue';
 import LoginSplashModal from './components/LoginSplashModal.vue';
 import PrivilegedLoginBriefingModal from './components/admin/PrivilegedLoginBriefingModal.vue';
+import ProviderLoginBriefingModal from './components/provider/ProviderLoginBriefingModal.vue';
+import { isProviderLoginBriefingUser } from './utils/providerLoginBriefing';
 import { usePresenceSessionStore } from './store/presenceSession';
 import { availabilityBandForPerson } from './utils/presenceStatus';
 import { getStatusPromptMode, subscribeStatusPrompt } from './utils/statusPromptBridge';
@@ -5769,7 +5775,9 @@ const showNotificationsCompactBadge = computed(() => {
 const shouldUseLoginNotificationsModal = computed(() => {
   if (!isAuthenticated.value) return false;
   if (hideGlobalNavForSchoolStaff.value) return false;
-  return !isAdminLike.value;
+  if (isAdminLike.value) return false;
+  if (isProviderLoginBriefingUser(user.value)) return false;
+  return true;
 });
 const isOnNotificationsRoute = computed(() => String(route.path || '').includes('/notifications'));
 const notificationsUnreadLabel = computed(() => (
@@ -6019,6 +6027,11 @@ const maybeShowLoginNotificationsModal = () => {
     return;
   }
   if (!justLoggedIn) return;
+
+  if (isProviderLoginBriefingUser(user.value)) {
+    clearJustLoggedIn();
+    return;
+  }
 
   // Consume immediately so duplicate count fetches cannot re-open the modal.
   loginNotificationGateConsumed.value = true;
