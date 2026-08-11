@@ -1583,6 +1583,80 @@ function mergeRemindersWithDefaults(savedData) {
   };
 }
 
+function areAllSectionsComplete(sections, effectiveKeys) {
+  return (effectiveKeys || []).every((key) => {
+    const s = (sections || []).find((x) => x.sectionKey === key);
+    return Boolean(s?.reviewed || s?.completed);
+  });
+}
+
+/**
+ * Validate reminder sub-items for finalize.
+ * When the reminders section is marked reviewed/completed, trust section-level completion
+ * (fixes stale item JSON where section shows done but item flags were never persisted).
+ */
+export function validateRemindersForFinalize(remindersSection) {
+  const merged = mergeRemindersWithDefaults(remindersSection?.data);
+  const sectionMarkedDone = Boolean(remindersSection?.reviewed || remindersSection?.completed);
+  for (const item of merged.items) {
+    if (sectionMarkedDone) continue;
+    if (item.mode === 'reviewed' && !item.reviewed && !item.completed) {
+      throw new Error(`Reminder not reviewed: ${item.title || item.key}`);
+    }
+    if (item.mode === 'complete' && !item.completed) {
+      throw new Error(`Reminder not completed: ${item.title || item.key}`);
+    }
+  }
+}
+
+function normalizeRemindersSectionData(sectionData, { markingDone = false } = {}) {
+  const merged = mergeRemindersWithDefaults(sectionData);
+  if (!markingDone) return merged;
+  const nowIso = new Date().toISOString();
+  merged.items = merged.items.map((item) => {
+    if (item.mode === 'reviewed') {
+      return {
+        ...item,
+        reviewed: true,
+        reviewedAt: item.reviewedAt || nowIso,
+      };
+    }
+    if (item.mode === 'complete' && item.completed) {
+      return {
+        ...item,
+        reviewed: true,
+        completedAt: item.completedAt || nowIso,
+      };
+    }
+    return item;
+  });
+  return merged;
+}
+
+/** Finalize automatically when every applicable section is done (no separate button required). */
+export async function tryAutoFinalizeCycle(cycleId, actor) {
+  const cycle = await getCycleById(cycleId);
+  if (!cycle || cycle.status === 'finalized') return cycle;
+
+  const effectiveKeys = await effectiveSectionKeysForProvider(
+    cycle.provider_user_id,
+    cycle.agency_id
+  );
+  const sections = await getSectionProgress(cycleId);
+  if (!areAllSectionsComplete(sections, effectiveKeys)) return cycle;
+
+  try {
+    validateRemindersForFinalize(sections.find((s) => s.sectionKey === 'reminders'));
+  } catch {
+    return cycle;
+  }
+
+  return finalizeCycle({
+    cycleId,
+    actor: actor || { actorType: 'auto', displayName: 'System', userId: cycle.provider_user_id },
+  });
+}
+
 function normalizeLicenseDateYmd(value) {
   if (value == null || value === '') return '';
   const s = String(value).trim();
@@ -1930,6 +2004,25 @@ export async function upsertSectionProgress({
   }
 
   let sectionData = data;
+  if (sectionKey === 'reminders' && sectionData && typeof sectionData === 'object') {
+    const markingDone = Boolean(reviewed || completed);
+    sectionData = normalizeRemindersSectionData(sectionData, { markingDone });
+    if (markingDone) {
+      for (const item of sectionData.items || []) {
+        if (item.mode === 'reviewed' && !item.reviewed && !item.completed) {
+          throw Object.assign(
+            new Error(`Please confirm you understand: ${item.title || item.key}`),
+            { status: 400 }
+          );
+        }
+        if (item.mode === 'complete' && !item.completed) {
+          throw Object.assign(new Error(`Please complete: ${item.title || item.key}`), {
+            status: 400,
+          });
+        }
+      }
+    }
+  }
   if (sectionKey === 'licenses') {
     const licenseContext = await loadLicenseContextForProvider(
       cycle.provider_user_id,
@@ -2032,6 +2125,8 @@ export async function upsertSectionProgress({
       });
     }
   }
+
+  await tryAutoFinalizeCycle(cycleId, actor).catch(() => null);
 
   return getSectionProgress(cycleId);
 }
@@ -2164,17 +2259,7 @@ export async function finalizeCycle({ cycleId, actor }) {
     throw new Error(`Sections not reviewed: ${incomplete.map((s) => s.sectionKey).join(', ')}`);
   }
 
-  const reminders = sections.find((s) => s.sectionKey === 'reminders')?.data;
-  const items = Array.isArray(reminders?.items) ? reminders.items : [];
-  for (const item of items) {
-    const mode = item.mode || 'complete';
-    if (mode === 'reviewed' && !item.reviewed && !item.completed) {
-      throw new Error(`Reminder not reviewed: ${item.title || item.key}`);
-    }
-    if (mode === 'complete' && !item.completed) {
-      throw new Error(`Reminder not completed: ${item.title || item.key}`);
-    }
-  }
+  validateRemindersForFinalize(sections.find((s) => s.sectionKey === 'reminders'));
 
   const payload = await buildDashboardPayload(cycle);
   const snapshot = {
@@ -2259,6 +2344,17 @@ export async function listAgencyReport(agencyId, schoolYear) {
 
     if (cycle) {
       sections = await getSectionProgress(cycle.id);
+      if (cycle.status !== 'finalized' && areAllSectionsComplete(sections, effectiveKeys)) {
+        const repaired = await tryAutoFinalizeCycle(cycle.id, {
+          actorType: 'auto',
+          displayName: 'System',
+          userId: providerUserId,
+        }).catch(() => null);
+        if (repaired?.status === 'finalized') {
+          cycle = repaired;
+          sections = await getSectionProgress(cycle.id);
+        }
+      }
       const [tokRows] = await pool.execute(
         `SELECT id, token, marked_sent_at, locked_at, click_count, last_viewed_at, created_at, expires_at
          FROM provider_year_update_tokens WHERE cycle_id = ? ORDER BY id DESC`,
@@ -2507,19 +2603,66 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
     new Date(dismissal.dismiss_until).getTime() > Date.now();
 
   const effectiveKeys = await effectiveSectionKeysForProvider(providerUserId, agencyId);
-  const sections = await getSectionProgress(cycle.id);
-  const reviewedCount = sections.filter((s) => s.reviewed || s.completed).length;
-  const allSectionsDone =
-    sections.length >= effectiveKeys.length &&
-    effectiveKeys.every((key) => {
-      const s = sections.find((x) => x.sectionKey === key);
-      return Boolean(s?.reviewed || s?.completed);
-    });
+  let sections = await getSectionProgress(cycle.id);
+  let reviewedCount = sections.filter((s) => s.reviewed || s.completed).length;
+  let allSectionsDone = areAllSectionsComplete(sections, effectiveKeys);
+
+  if (allSectionsDone && cycle.status !== 'finalized') {
+    const finalized = await tryAutoFinalizeCycle(cycle.id, {
+      actorType: 'auto',
+      displayName: 'System',
+      userId: providerUserId,
+    }).catch(() => null);
+    if (finalized?.status === 'finalized') {
+      cycle = finalized;
+      sections = await getSectionProgress(cycle.id);
+      reviewedCount = sections.filter((s) => s.reviewed || s.completed).length;
+      allSectionsDone = true;
+    }
+  }
+
+  const userFinalizedNow = cycle?.status === 'finalized';
+
+  if (userFinalizedNow) {
+    return {
+      available: true,
+      showPulse: false,
+      showSplash: false,
+      userFinalized: true,
+      dismissed: false,
+      allSectionsDone: true,
+      campaign: {
+        ...campaignPayload,
+        status: campaign?.status || 'enabled',
+        isEnabled: true,
+        isPushed: true,
+        pushedAt: campaign?.pushed_at || cycle.pushed_at || null,
+      },
+      cycle: {
+        id: cycle.id,
+        status: cycle.status,
+        schoolYear: cycle.school_year,
+        finalizedAt: cycle.finalized_at || null,
+        pushedAt: cycle.pushed_at || null,
+        adminCompletedAt: cycle.admin_completed_at || null,
+      },
+      sectionPercent: 100,
+      reviewedCount: effectiveKeys.length,
+      sectionTotal: effectiveKeys.length,
+      shareToken: tokenRow
+        ? {
+            token: tokenRow.token,
+            tokenId: tokenRow.id,
+            path: `/provider-year-update/${tokenRow.token}`,
+          }
+        : null,
+    };
+  }
 
   return {
     available: true,
     showPulse: !allSectionsDone,
-    showSplash: true,
+    showSplash: !allSectionsDone,
     dismissed: Boolean(dismissed),
     userFinalized: false,
     allSectionsDone,

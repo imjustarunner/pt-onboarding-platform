@@ -546,7 +546,10 @@ async function loadBriefing() {
     const noNoteCount = Number(unpaid?.noNoteNotes ?? unpaid?.noNoteUnits ?? 0) || 0;
     const draftCount = Number(unpaid?.draftNotes ?? unpaid?.draftUnits ?? 0) || 0;
 
-    const yearUpdatePending = yearUpdateStatus?.available && !yearUpdateStatus?.userFinalized;
+    const yearUpdatePending =
+      yearUpdateStatus?.available &&
+      !yearUpdateStatus?.userFinalized &&
+      !yearUpdateStatus?.allSectionsDone;
     tierLabel.value = String(tierData?.tier?.label || tierData?.label || '').trim();
     const periodStart = payrollSummary?.lastPaycheck?.periodStart || tierData?.periodStart;
     const periodEnd = payrollSummary?.lastPaycheck?.periodEnd || tierData?.periodEnd;

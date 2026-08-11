@@ -1276,10 +1276,24 @@ async function saveSection(sectionKey, data, { reviewed = true, completed = true
     if (res.data?.sections) {
       payload.value = { ...payload.value, sections: res.data.sections };
     }
-    saveFlash.value = 'Saved.';
+    if (res.data?.cycle && payload.value?.cycle) {
+      payload.value = {
+        ...payload.value,
+        cycle: {
+          ...payload.value.cycle,
+          status: res.data.cycle.status,
+          finalizedAt: res.data.cycle.finalizedAt || res.data.cycle.finalized_at || null,
+        },
+      };
+    }
+    if (res.data?.autoFinalized) {
+      saveFlash.value = 'Year Update marked complete. Thank you!';
+    } else {
+      saveFlash.value = 'Saved.';
+    }
     setTimeout(() => {
       saveFlash.value = '';
-    }, 2000);
+    }, res.data?.autoFinalized ? 5000 : 2000);
     return true;
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || e.message || 'Save failed';

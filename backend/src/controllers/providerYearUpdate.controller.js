@@ -613,6 +613,7 @@ export async function updateMySection(req, res, next) {
       completed: req.body?.completed !== undefined ? Boolean(req.body.completed) : undefined,
       actor,
     });
+    const updatedCycle = await S.getCycleById(cycle.id);
     await S.recordViewEvent({
       cycleId: cycle.id,
       userId: req.user.id,
@@ -620,7 +621,18 @@ export async function updateMySection(req, res, next) {
       sectionKey,
       eventType: 'section_open',
     });
-    res.json({ ok: true, sections });
+    res.json({
+      ok: true,
+      sections,
+      cycle: updatedCycle
+        ? {
+            id: updatedCycle.id,
+            status: updatedCycle.status,
+            finalizedAt: updatedCycle.finalized_at || null,
+          }
+        : null,
+      autoFinalized: updatedCycle?.status === 'finalized',
+    });
   } catch (e) {
     if (e?.status === 400) {
       return res.status(400).json({ error: { message: e.message } });
@@ -741,7 +753,19 @@ export async function updatePublicSection(req, res, next) {
       completed: req.body?.completed !== undefined ? Boolean(req.body.completed) : undefined,
       actor,
     });
-    res.json({ ok: true, sections });
+    const updatedCycle = await S.getCycleById(cycle.id);
+    res.json({
+      ok: true,
+      sections,
+      cycle: updatedCycle
+        ? {
+            id: updatedCycle.id,
+            status: updatedCycle.status,
+            finalizedAt: updatedCycle.finalized_at || null,
+          }
+        : null,
+      autoFinalized: updatedCycle?.status === 'finalized',
+    });
   } catch (e) {
     if (e?.status === 400) {
       return res.status(400).json({ error: { message: e.message } });
