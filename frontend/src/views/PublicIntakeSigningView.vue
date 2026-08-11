@@ -2307,6 +2307,15 @@ const authStore = useAuthStore();
 // Keep link initialized before any computed/translation helpers that read link.value.
 // Prevents TDZ crashes in production minified bundles.
 const link = ref(null);
+const step = ref(1);
+const inPageLocale = ref('en');
+const intakeSteps = computed(() =>
+  Array.isArray(link.value?.intake_steps) ? link.value.intake_steps : []
+);
+const hasDocumentTranslationMap = computed(() => {
+  const map = link.value?.document_translation_map;
+  return map != null && typeof map === 'object' && Object.keys(map).length > 0;
+});
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 
@@ -2326,13 +2335,6 @@ const currentFormLanguage = computed(() => {
 });
 
 const linkedLanguageEnglishPublicKey = ref('');
-
-/**
- * In-page locale override for forms that use per-document Spanish PDFs +
- * AI text translation (no separate linked Spanish form required).
- * Starts as the form's own language_code; user can flip to 'es' in-page.
- */
-const inPageLocale = ref('en');
 
 /**
  * Content-addressed translation cache for all inline strings (field labels,
@@ -2630,12 +2632,6 @@ async function fetchStringTranslations() {
     stringTranslationsLoading.value = false;
   }
 }
-
-/** True if this form uses the per-document map approach (no whole-form link). */
-const hasDocumentTranslationMap = computed(() => {
-  const map = link.value?.document_translation_map;
-  return map != null && typeof map === 'object' && Object.keys(map).length > 0;
-});
 
 /**
  * Shows the in-page EN/ES toggle when:
@@ -3126,9 +3122,6 @@ const approvalContext = computed(() => {
     approvedAt: approvedAt || null
   };
 });
-const intakeSteps = computed(() =>
-  Array.isArray(link.value?.intake_steps) ? link.value.intake_steps : []
-);
 const hasProgrammedSchoolRoiStep = computed(() =>
   intakeSteps.value.some((step) => String(step?.type || '').trim().toLowerCase() === 'school_roi')
 );
@@ -3563,7 +3556,6 @@ const currentRegistrationScheduleBlocks = computed(() => {
       sequenceDays: Math.max(1, Number(sb.sequenceDays || 1) || 1)
     }));
 });
-const step = ref(1);
 const submissionId = ref(null);
 const consentLoading = ref(false);
 const submitLoading = ref(false);
