@@ -271,7 +271,8 @@
             <p class="hint">
               Skill Builders / program event kiosk check-in/out with direct and indirect hour split.
               Includes submitted and deferred rows (same queue as Payroll Stage), including auto clock-outs that need verify.
-              Each session appears as two rows (direct + indirect). Approving posts to the selected pay period.
+              Clock times and late warnings use the <strong>event timezone</strong> (shown next to each time, e.g. MDT) — not your browser’s local timezone.
+              School / back-to-school events are Indirect-only (empty Direct rows are hidden). Approving posts to the selected pay period.
             </p>
           </div>
           <div class="pps-filter-bar">
@@ -317,14 +318,26 @@
                 <td>{{ row.submission.providerName || nameForUserId(row.submission.userId) }}</td>
                 <td>{{ row.submission.eventTitle || '—' }}</td>
                 <td>
-                  {{ formatEventTimeIso(row.submission.clockInAt) }}
+                  {{ formatEventTimeIso(row.submission.clockInAt, row.submission.eventTimezone) }}
                   <span
-                    v-if="row.bucket === 'direct' && row.lateMinutes > 0"
+                    v-if="row.eventTzAbbrev"
+                    class="pps-tz-abbr"
+                    :title="`Times shown in event timezone (${row.submission.eventTimezone || 'America/Denver'})`"
+                  >{{ row.eventTzAbbrev }}</span>
+                  <span
+                    v-if="row.isFirstRow && row.lateMinutes > 0"
                     class="pps-late-badge"
-                    title="Expected report time on this date"
+                    :title="`Late vs report time in ${row.eventTzAbbrev || 'event'} timezone`"
                   >+{{ row.lateMinutes }}m late</span>
                 </td>
-                <td>{{ formatEventTimeIso(row.submission.clockOutAt) }}</td>
+                <td>
+                  {{ formatEventTimeIso(row.submission.clockOutAt, row.submission.eventTimezone) }}
+                  <span
+                    v-if="row.eventTzAbbrev"
+                    class="pps-tz-abbr"
+                    :title="`Times shown in event timezone (${row.submission.eventTimezone || 'America/Denver'})`"
+                  >{{ row.eventTzAbbrev }}</span>
+                </td>
                 <td class="right">{{ row.submission.workedHours ?? '—' }}</td>
                 <td>{{ row.bucketLabel }}</td>
                 <td class="right">{{ row.bucketHours ?? '—' }}</td>
@@ -761,12 +774,16 @@
               <strong>⚠ Changed from auto-submitted</strong>
               ({{ eventTimeEditSubmission?.lastEditedByRole || 'unknown' }} edited{{ eventTimeEditSubmission?.lastEditedAt ? ' ' + new Date(eventTimeEditSubmission.lastEditedAt).toLocaleString() : '' }})<br>
               Original: Direct {{ eventTimeEditOriginal.directHours ?? '—' }} h · Indirect {{ eventTimeEditOriginal.indirectHours ?? '—' }} h ·
-              In {{ eventTimeEditOriginal.clockInAt ? new Date(eventTimeEditOriginal.clockInAt).toLocaleTimeString() : '—' }} ·
-              Out {{ eventTimeEditOriginal.clockOutAt ? new Date(eventTimeEditOriginal.clockOutAt).toLocaleTimeString() : '—' }}
+              In {{ eventTimeEditOriginal.clockInAt ? formatEventTimeIso(eventTimeEditOriginal.clockInAt, eventTimeEditSubmission?.eventTimezone) : '—' }} ·
+              Out {{ eventTimeEditOriginal.clockOutAt ? formatEventTimeIso(eventTimeEditOriginal.clockOutAt, eventTimeEditSubmission?.eventTimezone) : '—' }}
             </div>
             <div v-if="eventTimeEditLateArrival" class="pps-late-notice">
-              <strong>⏰ Late arrival detected</strong> — event started at {{ eventTimeEditLateArrival.eventStartDisplay }},
-              employee clocked in <strong>{{ eventTimeEditLateArrival.lateMinutes }} min late</strong>.
+              <strong>⏰ Late arrival detected</strong> — report/start at {{ eventTimeEditLateArrival.eventStartDisplay }}
+              <span v-if="eventTimeEditLateArrival.tzAbbrev">({{ eventTimeEditLateArrival.tzAbbrev }})</span>,
+              employee clocked in <strong>{{ eventTimeEditLateArrival.lateMinutes }} min late</strong>
+              <span class="hint" style="display:block;margin-top:4px;">
+                All times are in the event timezone — not your browser/local timezone.
+              </span>
               <span v-if="eventTimeEditLateArrival.adjustedCap != null">
                 Adjusted direct cap: <strong>{{ eventTimeEditLateArrival.adjustedCap }} h</strong>
                 (reduced from {{ eventTimeEditDirectCap }} h).
@@ -777,6 +794,11 @@
                 </button>
               </div>
             </div>
+            <p class="hint" style="margin:0 0 8px;">
+              Edit times in
+              <strong>{{ eventTimeEditTzAbbrev || 'event' }}</strong>
+              (event timezone{{ eventTimeEditSubmission?.eventTimezone ? `: ${eventTimeEditSubmission.eventTimezone}` : '' }}).
+            </p>
             <label class="field">
               <span>Clock in</span>
               <input v-model="eventTimeEditClockIn" class="input" type="datetime-local" :disabled="eventTimeEditSaving">
@@ -824,6 +846,13 @@ import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import IndirectTimeClaimDetailFields from '../../components/payroll/IndirectTimeClaimDetailFields.vue';
 import { logTimeActivitiesSummary } from '../../utils/logTimeClaimDetails';
+import {
+  formatBusinessDateTime,
+  isoToZonedDatetimeLocal,
+  zonedDatetimeLocalToIso,
+  timezoneAbbrevAt,
+  SCHOOL_EVENT_FALLBACK_TIMEZONE
+} from '../../utils/timezones';
 
 const route = useRoute();
 const router = useRouter();
@@ -924,12 +953,20 @@ const ptoVisible = computed(() => {
   return list;
 });
 
+const isEmptyDirectBucket = (s) => {
+  const hours = Number(s?.directHours || 0);
+  const credits = Number(s?.directClaim?.creditsHours ?? 0);
+  return hours === 0 && credits === 0;
+};
+
 const eventTimePendingCount = computed(() => {
   const pendingStatuses = new Set(['submitted', 'deferred']);
   return (eventTimeSubmissions.value || []).filter((s) => {
     const stDirect = String(s?.directClaim?.status || '').toLowerCase();
     const stIndirect = String(s?.indirectClaim?.status || '').toLowerCase();
-    return pendingStatuses.has(stDirect) || pendingStatuses.has(stIndirect);
+    const directPending = pendingStatuses.has(stDirect) && !isEmptyDirectBucket(s);
+    const indirectPending = pendingStatuses.has(stIndirect);
+    return directPending || indirectPending;
   }).length;
 });
 
@@ -943,10 +980,13 @@ const totalPending = computed(
     medClaims.value.length
 );
 
-const calcLateMinutes = (clockInAt, eventStartsAt, employeeReportTime) => {
+/** Late minutes in the EVENT timezone (not the viewer's browser timezone). */
+const calcLateMinutes = (clockInAt, eventStartsAt, employeeReportTime, eventTimezone) => {
   if (!clockInAt) return 0;
   const cin = new Date(clockInAt);
   if (!Number.isFinite(cin.getTime())) return 0;
+  const tz = eventTimezone || SCHOOL_EVENT_FALLBACK_TIMEZONE;
+
   let h = null;
   let m = 0;
   let s = 0;
@@ -956,15 +996,26 @@ const calcLateMinutes = (clockInAt, eventStartsAt, employeeReportTime) => {
     m = Number(parts[1] || 0);
     s = Number(parts[2] || 0);
   } else if (eventStartsAt) {
-    const start = new Date(eventStartsAt);
-    if (Number.isFinite(start.getTime())) {
-      h = start.getHours();
-      m = start.getMinutes();
-      s = start.getSeconds();
+    const local = isoToZonedDatetimeLocal(eventStartsAt, tz);
+    const mm = String(local || '').match(/T(\d{2}):(\d{2})/);
+    if (mm) {
+      h = Number(mm[1]);
+      m = Number(mm[2]);
+      s = 0;
     }
   }
   if (h === null || !Number.isFinite(h)) return 0;
-  const expected = new Date(cin.getFullYear(), cin.getMonth(), cin.getDate(), h, m, s, 0);
+
+  const cinLocal = isoToZonedDatetimeLocal(clockInAt, tz);
+  const ymd = String(cinLocal || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return 0;
+  const expectedIso = zonedDatetimeLocalToIso(
+    `${ymd}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`,
+    tz
+  );
+  if (!expectedIso) return 0;
+  const expected = new Date(expectedIso);
+  if (!Number.isFinite(expected.getTime())) return 0;
   return Math.max(0, Math.round((cin.getTime() - expected.getTime()) / 60000));
 };
 
@@ -974,25 +1025,37 @@ const eventTimeBucketRows = computed(() => {
   const canApproveBucket = (claim) =>
     !!claim?.id && pendingStatuses.has(String(claim?.status || '').toLowerCase());
   for (const s of eventTimeSubmissions.value || []) {
-    const lateMinutes = calcLateMinutes(s.clockInAt, s.eventStartsAt, s.eventEmployeeReportTime);
-    // A session has a pending claim if either bucket claim is in submitted/deferred.
-    const sessionHasPendingClaim = canApproveBucket(s.directClaim) || canApproveBucket(s.indirectClaim);
-    // isFirstRow: show per-session controls (Edit, Send back, Reject) on the first
-    // row that makes sense. Prefer direct if it has a claim; fall back to indirect.
-    // For school events where only an indirect claim exists, indirect gets isFirstRow.
-    const directHasClaim = !!s.directClaim?.id;
-    rows.push({
-      submission: s,
-      rowKey: `${s.punchInId}-direct`,
-      bucket: 'direct',
-      bucketLabel: 'Direct',
-      bucketHours: s.directHours,
-      claim: s.directClaim,
-      canApprove: canApproveBucket(s.directClaim),
-      sessionHasPendingClaim,
-      isFirstRow: directHasClaim || !s.indirectClaim?.id, // first if direct claim exists or neither exists
-      lateMinutes
-    });
+    const lateMinutes = calcLateMinutes(
+      s.clockInAt,
+      s.eventStartsAt,
+      s.eventEmployeeReportTime,
+      s.eventTimezone
+    );
+    const tz = s.eventTimezone || SCHOOL_EVENT_FALLBACK_TIMEZONE;
+    const eventTzAbbrev = timezoneAbbrevAt(s.clockInAt || s.eventStartsAt || new Date(), tz);
+
+    // School / back-to-school events have directHoursCap = 0. Skip empty Direct
+    // rows (no hours and no payable claim) so they don't appear "stuck".
+    const directDisabled = isEmptyDirectBucket(s);
+    const actionableDirect = canApproveBucket(s.directClaim) && !directDisabled;
+    const actionableIndirect = canApproveBucket(s.indirectClaim);
+    const sessionHasPendingClaim = actionableDirect || actionableIndirect;
+
+    if (!directDisabled) {
+      rows.push({
+        submission: s,
+        rowKey: `${s.punchInId}-direct`,
+        bucket: 'direct',
+        bucketLabel: 'Direct',
+        bucketHours: s.directHours,
+        claim: s.directClaim,
+        canApprove: canApproveBucket(s.directClaim),
+        sessionHasPendingClaim,
+        isFirstRow: true,
+        lateMinutes,
+        eventTzAbbrev
+      });
+    }
     rows.push({
       submission: s,
       rowKey: `${s.punchInId}-indirect`,
@@ -1002,27 +1065,29 @@ const eventTimeBucketRows = computed(() => {
       claim: s.indirectClaim,
       canApprove: canApproveBucket(s.indirectClaim),
       sessionHasPendingClaim,
-      isFirstRow: !directHasClaim && !!s.indirectClaim?.id, // first only if no direct claim
-      lateMinutes
+      // When Direct is omitted (school events), Indirect carries Edit / Send-back / Reject.
+      isFirstRow: directDisabled,
+      lateMinutes,
+      eventTzAbbrev
     });
   }
   return rows;
 });
 
-const isoToDatetimeLocalInput = (iso) => {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return '';
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
+const eventTimeEditTz = () =>
+  eventTimeEditSubmission.value?.eventTimezone || SCHOOL_EVENT_FALLBACK_TIMEZONE;
 
-const datetimeLocalInputToIso = (value) => {
-  const raw = String(value || '').trim();
-  if (!raw) return null;
-  const d = new Date(raw);
-  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
-};
+const eventTimeEditTzAbbrev = computed(() => {
+  const sub = eventTimeEditSubmission.value;
+  if (!sub) return '';
+  return timezoneAbbrevAt(sub.clockInAt || sub.eventStartsAt || new Date(), eventTimeEditTz());
+});
+
+const isoToDatetimeLocalInput = (iso, timezone) =>
+  isoToZonedDatetimeLocal(iso, timezone || eventTimeEditTz());
+
+const datetimeLocalInputToIso = (value, timezone) =>
+  zonedDatetimeLocalToIso(value, timezone || eventTimeEditTz());
 
 const eventTimeEditOriginal = computed(() => {
   const sub = eventTimeEditSubmission.value;
@@ -1033,35 +1098,34 @@ const eventTimeEditOriginal = computed(() => {
 const eventTimeEditLateArrival = computed(() => {
   const sub = eventTimeEditSubmission.value;
   if (!sub?.clockInAt) return null;
-  const cin = new Date(sub.clockInAt);
-  if (!Number.isFinite(cin.getTime())) return null;
-  let h = null;
-  let m = 0;
-  let s = 0;
+  const lateMinutes = calcLateMinutes(
+    sub.clockInAt,
+    sub.eventStartsAt,
+    sub.eventEmployeeReportTime,
+    sub.eventTimezone
+  );
+  if (!(lateMinutes > 0)) return null;
+  const tz = sub.eventTimezone || SCHOOL_EVENT_FALLBACK_TIMEZONE;
+  let eventStartDisplay = '—';
   if (sub.eventEmployeeReportTime) {
     const parts = String(sub.eventEmployeeReportTime).split(':');
-    h = Number(parts[0]);
-    m = Number(parts[1] || 0);
-    s = Number(parts[2] || 0);
-  } else if (sub.eventStartsAt) {
-    const start = new Date(sub.eventStartsAt);
-    if (Number.isFinite(start.getTime())) {
-      h = start.getHours();
-      m = start.getMinutes();
-      s = start.getSeconds();
+    const h = Number(parts[0]);
+    const m = Number(parts[1] || 0);
+    if (Number.isFinite(h)) {
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const h12 = h % 12 || 12;
+      eventStartDisplay = `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
     }
+  } else if (sub.eventStartsAt) {
+    eventStartDisplay = formatBusinessDateTime(sub.eventStartsAt, tz).replace(/^.*,\s*/, '');
   }
-  if (h === null || !Number.isFinite(h)) return null;
-  const expected = new Date(cin.getFullYear(), cin.getMonth(), cin.getDate(), h, m, s, 0);
-  const lateMs = cin.getTime() - expected.getTime();
-  if (lateMs <= 0) return null;
-  const lateMinutes = Math.round(lateMs / 60000);
   const cap = Number(eventTimeEditDirectCap.value);
   const adjustedCap =
     Number.isFinite(cap) && cap > 0 ? Math.max(0, Math.round((cap - lateMinutes / 60) * 100) / 100) : null;
   return {
     lateMinutes,
-    eventStartDisplay: expected.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    eventStartDisplay,
+    tzAbbrev: timezoneAbbrevAt(sub.clockInAt || sub.eventStartsAt || new Date(), tz),
     adjustedCap
   };
 });
@@ -1091,14 +1155,8 @@ const eventTimeEditPreview = computed(() => {
   };
 });
 
-const formatEventTimeIso = (iso) => {
-  if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return String(iso);
-  }
-};
+const formatEventTimeIso = (iso, timezone) =>
+  formatBusinessDateTime(iso, timezone || SCHOOL_EVENT_FALLBACK_TIMEZONE);
 
 const eventTimePeriodLabel = (claim) => {
   if (!claim) return '—';
@@ -1474,7 +1532,23 @@ const loadEventTimeSubmissions = async () => {
         status: eventTimeShowApproved.value ? 'submitted,approved,rejected,deferred' : 'submitted,deferred'
       }
     });
-    const submissions = Array.isArray(resp.data?.submissions) ? resp.data.submissions : [];
+    let submissions = Array.isArray(resp.data?.submissions) ? resp.data.submissions : [];
+
+    // Quietly dismiss leftover 0h Direct claims (school/back-to-school are Indirect-only).
+    if (!eventTimeShowApproved.value) {
+      const empties = submissions.filter((s) => {
+        const st = String(s?.directClaim?.status || '').toLowerCase();
+        return isEmptyDirectBucket(s) && s?.directClaim?.id && ['submitted', 'deferred'].includes(st);
+      });
+      if (empties.length) {
+        await Promise.all(empties.map((s) => dismissEmptyDirectClaim(s).catch(() => null)));
+        const refreshed = await api.get('/payroll/event-time-submissions', {
+          params: { agencyId: agencyId.value, status: 'submitted,deferred' }
+        });
+        submissions = Array.isArray(refreshed.data?.submissions) ? refreshed.data.submissions : submissions;
+      }
+    }
+
     eventTimeSubmissions.value = submissions;
     const aligned = (periods.value || []).filter((p) => Number(p.schedule_aligned) === 1);
     const def = Number(defaultTargetPeriodId.value || 0) || null;
@@ -1792,8 +1866,9 @@ const rejectMed = (c) => {
 const openEventTimeEdit = (submission) => {
   if (!submission?.punchInId) return;
   eventTimeEditSubmission.value = submission;
-  eventTimeEditClockIn.value = isoToDatetimeLocalInput(submission.clockInAt);
-  eventTimeEditClockOut.value = isoToDatetimeLocalInput(submission.clockOutAt);
+  const tz = submission.eventTimezone || SCHOOL_EVENT_FALLBACK_TIMEZONE;
+  eventTimeEditClockIn.value = isoToDatetimeLocalInput(submission.clockInAt, tz);
+  eventTimeEditClockOut.value = isoToDatetimeLocalInput(submission.clockOutAt, tz);
   eventTimeEditDirectCap.value = submission.directHoursCap != null ? String(submission.directHoursCap) : '';
   eventTimeEditError.value = '';
   eventTimeEditOpen.value = true;
@@ -1811,8 +1886,9 @@ const closeEventTimeEdit = () => {
 const saveEventTimeEdit = async () => {
   const submission = eventTimeEditSubmission.value;
   if (!submission?.punchInId || !agencyId.value) return;
-  const clockInAt = datetimeLocalInputToIso(eventTimeEditClockIn.value);
-  const clockOutAt = datetimeLocalInputToIso(eventTimeEditClockOut.value);
+  const tz = submission.eventTimezone || SCHOOL_EVENT_FALLBACK_TIMEZONE;
+  const clockInAt = datetimeLocalInputToIso(eventTimeEditClockIn.value, tz);
+  const clockOutAt = datetimeLocalInputToIso(eventTimeEditClockOut.value, tz);
   if (!clockInAt || !clockOutAt) {
     eventTimeEditError.value = 'Enter valid clock in and clock out times.';
     return;
@@ -1836,6 +1912,19 @@ const saveEventTimeEdit = async () => {
   }
 };
 
+/** Reject leftover 0h Direct claims (school events no longer use Direct). */
+const dismissEmptyDirectClaim = async (submission) => {
+  const claim = submission?.directClaim;
+  if (!claim?.id) return;
+  if (!isEmptyDirectBucket(submission)) return;
+  const st = String(claim.status || '').toLowerCase();
+  if (!['submitted', 'deferred'].includes(st)) return;
+  await api.patch(`/payroll/time-claims/${claim.id}`, {
+    action: 'reject',
+    rejectionReason: 'Dismissed empty Direct row (school/back-to-school events are Indirect-only).'
+  });
+};
+
 const approveEventTimeSubmission = (submission, bucket) => {
   if (!agencyId.value || !submission) return;
   const targetPayrollPeriodId = Number(eventTimeTargetPeriodByPunchId[submission.punchInId] || 0);
@@ -1847,14 +1936,19 @@ const approveEventTimeSubmission = (submission, bucket) => {
   if (!claim?.id) return;
   return withBusy(
     `event-${submission.punchInId}`,
-    (override = {}) =>
-      api.patch(`/payroll/time-claims/${claim.id}`, {
+    async (override = {}) => {
+      await api.patch(`/payroll/time-claims/${claim.id}`, {
         action: 'approve',
         targetPayrollPeriodId,
         bucket,
         creditsHours: bucket === 'direct' ? submission.directHours : submission.indirectHours,
         ...override
-      }),
+      });
+      // Approving Indirect for school events: clear any stuck 0h Direct claim.
+      if (bucket === 'indirect') {
+        await dismissEmptyDirectClaim(submission).catch(() => null);
+      }
+    },
     loadEventTimeSubmissions
   );
 };
@@ -2150,6 +2244,14 @@ onMounted(async () => {
 .field label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
 .hint { font-size: 13px; color: var(--text-secondary, #64748b); }
 .muted { color: #64748b; font-size: 13px; }
+.pps-tz-abbr {
+  margin-left: 4px;
+  color: #475569;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
 .pps-late-badge {
   margin-left: 4px;
   background: #fef3c7;

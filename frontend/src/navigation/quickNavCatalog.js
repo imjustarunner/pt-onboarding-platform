@@ -461,6 +461,25 @@ function buildAppEntries() {
       requires: ['canManagePayroll']
     },
     {
+      id: 'admin-payroll-pending',
+      routeName: 'PayrollPendingSubmissions',
+      label: 'Payroll Pending Submissions',
+      description: 'Approve PTO, event time, mileage, reimbursements, and MedCancel.',
+      group: 'admin',
+      keywords: [
+        'payroll pending',
+        'pending submissions',
+        'event times',
+        'approve time',
+        'pto approve',
+        'mileage approve',
+        'payroll submissions'
+      ],
+      kind: 'path',
+      path: '/admin/payroll/pending',
+      requires: ['canManagePayroll']
+    },
+    {
       id: 'admin-gear-inventory',
       routeName: 'GearInventory',
       label: 'Gear & Inventory',

@@ -150,6 +150,21 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Payroll runs, pending submissions, PTO, and mileage.'
   },
   {
+    title: 'Payroll Pending Submissions',
+    section: 'Workforce Ops › Payroll & Expenses',
+    path: '/admin/payroll/pending',
+    keywords: [
+      'pending submissions',
+      'payroll pending',
+      'event times',
+      'approve pto',
+      'approve time',
+      'mileage approve',
+      'reimbursement approve'
+    ],
+    desc: 'Approve PTO, event time, mileage, reimbursements, and MedCancel.'
+  },
+  {
     title: 'Expense / Reimbursements',
     section: 'Workforce Ops › Payroll & Expenses',
     path: '/admin/expenses',

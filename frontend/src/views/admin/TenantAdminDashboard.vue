@@ -1601,6 +1601,17 @@ const quickActionsCatalog = computed(() => {
       capabilities: ['canAccessPlatform']
     },
     {
+      id: 'payroll_pending',
+      title: 'Pending Submissions',
+      description: 'Approve event time, PTO, mileage, and reimbursements',
+      to: `${p}/admin/payroll/pending`,
+      emoji: '✅',
+      iconKey: 'dashboard_payroll',
+      category: 'Management',
+      roles: ['admin', 'super_admin'],
+      capabilities: ['canAccessPlatform']
+    },
+    {
       id: 'billing',
       title: 'Billing',
       description: 'Plan usage and QuickBooks',
@@ -1661,7 +1672,7 @@ const quickActionsCatalog = computed(() => {
     if (isOperationsMode.value) {
       // No Engagement Feed on Operations; Communications Center covers messaging.
       if (a.id === 'chats') return false;
-      if (a.id === 'payroll' || a.id === 'billing' || a.id === 'billing_policy_rules') return false;
+      if (a.id === 'payroll' || a.id === 'payroll_pending' || a.id === 'billing' || a.id === 'billing_policy_rules') return false;
       if (a.id === 'audit_center' || a.id === 'settings' || a.id === 'management_team') return false;
       if (a.id === 'school_marketing_campaigns') return false;
     }
@@ -1678,6 +1689,7 @@ const quickActionBadges = computed(() => ({
   communications: unreadMessages.value,
   unassigned_documents: unassignedDocs.value,
   payroll: payrollSubmissions.value,
+  payroll_pending: payrollSubmissions.value,
   review_applications: newApplications.value,
   notifications: unreadCount.value
 }));

@@ -133,6 +133,10 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
               Manage Imports
             </button>
+            <button class="pr-quick-btn" type="button" @click="openPendingFromDashboard" :disabled="!agencyId">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              Pending Submissions
+            </button>
             <button class="pr-quick-btn" type="button" @click="openTodoModal" :disabled="!selectedPeriodId">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
               Add Note
@@ -161,6 +165,7 @@
           </div>
 
           <div class="pr-secondary-actions">
+            <button class="btn btn-secondary btn-sm" type="button" @click="openPendingFromDashboard" :disabled="!agencyId">Pending Submissions</button>
             <button class="btn btn-secondary btn-sm" type="button" @click="showStageModal = true" :disabled="!selectedPeriodId">Payroll Stage</button>
             <button class="btn btn-secondary btn-sm" type="button" @click="openRawModal" :disabled="!selectedPeriodId">Raw Import Audit</button>
             <button class="btn btn-secondary btn-sm" type="button" @click="openRunsSideBySideModal" :disabled="!selectedPeriodId">Runs Side-by-Side</button>
