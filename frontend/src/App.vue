@@ -735,6 +735,11 @@
                       @click="closeAllNavMenus"
                     >Workforce Operations</router-link>
                     <router-link
+                      v-if="canSeeCredentialing"
+                      :to="orgTo('/admin/credentialing')"
+                      @click="closeAllNavMenus"
+                    >Credentialing</router-link>
+                    <router-link
                       v-if="canSeeSchoolPortalsNav || canSeeSchoolClientsNav"
                       :to="orgTo('/school-operations')"
                       class="school-mgmt-trigger"
@@ -1717,6 +1722,12 @@
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
                   >Workforce Operations</router-link>
+                  <router-link
+                    v-if="canSeeCredentialing"
+                    :to="orgTo('/admin/credentialing')"
+                    @click="closeMobileMenu"
+                    class="mobile-nav-link mobile-nav-sublink"
+                  >Credentialing</router-link>
                   <router-link
                     v-if="canSeeSchoolPortalsNav || canSeeSchoolClientsNav"
                     :to="orgTo('/school-operations')"
@@ -4966,6 +4977,7 @@ const canSeeProviderManagementNav = computed(() => {
 const canSeeManagementHubsNav = computed(
   () =>
     canSeeWorkforceOperationsNav.value
+    || canSeeCredentialing.value
     || canSeeSchoolPortalsNav.value
     || canSeeSchoolClientsNav.value
     || canSeeProviderManagementNav.value
