@@ -652,7 +652,12 @@ const isHourlyUser = computed(() => {
   return raw === true || raw === 1 || raw === '1';
 });
 const isSupervisorUser = computed(() => isSupervisor(authStore.user));
-const showIndirectColumn = computed(() => isHourlyUser.value);
+const showIndirectColumn = computed(() => {
+  if (isHourlyUser.value) return true;
+  return (serviceTypes.value || []).some(
+    (t) => normalizePayBucket(t.payBucket || t.pay_bucket) === 'indirect' && !isExcludedIndirectType(t)
+  );
+});
 const showSupervisionColumn = computed(() => isSupervisorUser.value);
 const showThreeColumns = computed(() => showIndirectColumn.value && showSupervisionColumn.value);
 

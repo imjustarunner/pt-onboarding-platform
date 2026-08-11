@@ -3,8 +3,18 @@
     class="join-team-meeting-view join-team-meeting-view--branded"
     :class="{ 'join-team-meeting-view--video-fs': videoFullscreen }"
   >
+    <InterviewEndedGuestPanel
+      v-if="interviewGuestEnded"
+      :headline="interviewGuestEnded.headline"
+      :message="interviewGuestEnded.message"
+      :people-ops-label="interviewGuestEnded.peopleOpsLabel"
+      :agency-name="interviewGuestEnded.agencyName"
+      :contact-email="interviewGuestEnded.contactEmail"
+      :contact-phone="interviewGuestEnded.contactPhone"
+      @done="goToScheduleFromExit"
+    />
     <MeetingSessionExitPanel
-      v-if="sessionExit || (meetingCompletedAt && !token)"
+      v-else-if="sessionExit || (meetingCompletedAt && !token)"
       :variant="sessionExit?.variant || 'host-ended'"
       :can-rejoin="sessionExit ? sessionExit.canRejoin : false"
       meeting-label="meeting"
@@ -238,6 +248,7 @@
               @connected="onVideoConnected"
               @disconnected="onDisconnected"
               @meeting-ended="onMeetingEnded"
+              @interview-guest-ended="onInterviewGuestEndedSignal"
               @hands-map-change="onHandsMapChange"
               @audio-map-change="onAudioMapChange"
               @transcript-control="onRemoteTranscriptControl"
@@ -287,6 +298,7 @@
               :event-id="resolvedEventId"
               :agency-id="agencyStore.currentAgency?.id || authStore.user?.agencyId || null"
               :dark="true"
+              @guest-access-ended="onGuestAccessEndedByInterviewer"
             />
             <section v-if="showAttendanceTab" class="join-stack-section">
               <MeetingAttendancePanel
@@ -399,23 +411,47 @@
 
     <div v-if="showHostLeaveModal" class="join-modal-backdrop" role="dialog" aria-modal="true">
       <div class="join-modal">
-        <h3>Mark Session as Completed and Close Meeting?</h3>
-        <p>
-          Individuals who are compensated for attending will continue to be compensated while this
-          meeting is occurring. It is recommended that you mark this session as completed and close.
-        </p>
-        <p v-if="completeError" class="error-inline">{{ completeError }}</p>
-        <div class="join-modal-actions">
-          <button type="button" class="btn btn-primary" :disabled="completing" @click="markCompletedAndLeave">
-            {{ completing ? 'Closing…' : 'Mark Completed & Close' }}
-          </button>
-          <button type="button" class="btn btn-secondary" :disabled="completing" @click="leaveWithoutClosing">
-            Leave without closing
-          </button>
-          <button type="button" class="btn btn-ghost" :disabled="completing" @click="showHostLeaveModal = false">
-            Cancel
-          </button>
-        </div>
+        <template v-if="isInterviewMeeting">
+          <h3>Leave interview meeting?</h3>
+          <p>
+            Use <strong>End Interview</strong> to close candidate access while your team stays in the room.
+            Or end the call for everyone when the host is ready to leave.
+          </p>
+          <p v-if="completeError" class="error-inline">{{ completeError }}</p>
+          <div class="join-modal-actions">
+            <button type="button" class="btn btn-primary" :disabled="completing || endingInterviewGuest" @click="endInterviewGuestFromLeaveModal">
+              {{ endingInterviewGuest ? 'Ending…' : 'End Interview (candidate only)' }}
+            </button>
+            <button type="button" class="btn btn-danger" :disabled="completing || endingInterviewGuest" @click="markCompletedAndLeave">
+              {{ completing ? 'Closing…' : 'End call for everyone' }}
+            </button>
+            <button type="button" class="btn btn-secondary" :disabled="completing || endingInterviewGuest" @click="leaveWithoutClosing">
+              Leave without closing
+            </button>
+            <button type="button" class="btn btn-ghost" :disabled="completing || endingInterviewGuest" @click="showHostLeaveModal = false">
+              Cancel
+            </button>
+          </div>
+        </template>
+        <template v-else>
+          <h3>Mark Session as Completed and Close Meeting?</h3>
+          <p>
+            Individuals who are compensated for attending will continue to be compensated while this
+            meeting is occurring. It is recommended that you mark this session as completed and close.
+          </p>
+          <p v-if="completeError" class="error-inline">{{ completeError }}</p>
+          <div class="join-modal-actions">
+            <button type="button" class="btn btn-primary" :disabled="completing" @click="markCompletedAndLeave">
+              {{ completing ? 'Closing…' : 'Mark Completed & Close' }}
+            </button>
+            <button type="button" class="btn btn-secondary" :disabled="completing" @click="leaveWithoutClosing">
+              Leave without closing
+            </button>
+            <button type="button" class="btn btn-ghost" :disabled="completing" @click="showHostLeaveModal = false">
+              Cancel
+            </button>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -479,6 +515,7 @@ import MeetingNotesPanel from '../../components/meetings/MeetingNotesPanel.vue';
 import MeetingLiveActivityPanel from '../../components/meetings/MeetingLiveActivityPanel.vue';
 import MeetingSessionExitPanel from '../../components/meetings/MeetingSessionExitPanel.vue';
 import InterviewLiveWorkspace from '../../components/hiring/InterviewLiveWorkspace.vue';
+import InterviewEndedGuestPanel from '../../components/hiring/InterviewEndedGuestPanel.vue';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import api from '../../services/api';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath';
@@ -578,8 +615,11 @@ const joiningPhase = ref('');
 const JOIN_TIMEOUT_MS = 25000;
 const showHostLeaveModal = ref(false);
 const completing = ref(false);
+const endingInterviewGuest = ref(false);
 const completeError = ref('');
 const intentionalLeave = ref(false);
+const interviewGuestEnded = ref(null);
+const interviewRecordId = ref(null);
 const sessionExit = ref(null);
 const exitBannerDismissed = ref(false);
 const videoRoomRef = ref(null);
@@ -1111,14 +1151,19 @@ async function resolveAndRedirect() {
     router.replace(`/${slug}/join/team-meeting/${encodeURIComponent(joinKey)}`);
     return 'redirected';
   } catch (e) {
-    if (Number(e?.response?.status || 0) === 410 || e?.response?.data?.meetingCompletedAt) {
-      applyClosurePayload(e?.response?.data || {});
+    const data = e?.response?.data || {};
+    if (Number(e?.response?.status || 0) === 410 && (data.interviewGuestEnded || data.interview_guest_ended)) {
+      applyInterviewGuestEnded(data);
+      return 'error';
+    }
+    if (Number(e?.response?.status || 0) === 410 || data.meetingCompletedAt) {
+      applyClosurePayload(data);
       meetingCompletedAt.value = meetingCompletedAt.value || new Date().toISOString();
       intentionalLeave.value = true;
       showSessionExit({ variant: 'host-ended', canRejoin: false });
       return 'error';
     }
-    error.value = e?.response?.data?.error?.message || e?.message || 'Meeting not found';
+    error.value = data?.error?.message || e?.message || 'Meeting not found';
     joinAttemptedForPath.value = '';
     return 'error';
   } finally {
@@ -1179,14 +1224,19 @@ async function fetchTokenAndJoin() {
         return;
       }
     }
-    if (status === 410 || e?.response?.data?.meetingCompletedAt) {
-      applyClosurePayload(e?.response?.data || {});
+    const data = e?.response?.data || {};
+    if (status === 410 && (data.interviewGuestEnded || data.interview_guest_ended)) {
+      applyInterviewGuestEnded(data);
+      return;
+    }
+    if (status === 410 || data.meetingCompletedAt) {
+      applyClosurePayload(data);
       meetingCompletedAt.value = meetingCompletedAt.value || new Date().toISOString();
       intentionalLeave.value = true;
       showSessionExit({ variant: 'host-ended', canRejoin: false });
       return;
     }
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room';
+    error.value = data?.error?.message || e?.message || 'Failed to join video room';
     joinAttemptedForPath.value = '';
   } finally {
     joiningPhase.value = '';
@@ -1565,18 +1615,94 @@ function leaveWithoutClosing() {
 }
 
 function onMeetingEnded(payload = {}) {
-  if (sessionExit.value || intentionalLeave.value) return;
+  if (sessionExit.value || intentionalLeave.value || interviewGuestEnded.value) return;
   applyClosurePayload(payload || {});
   meetingCompletedAt.value = meetingCompletedAt.value || new Date().toISOString();
   void finishLeave({ variant: 'host-ended', canRejoin: false });
 }
 
-function onDisconnected() {
-  if (intentionalLeave.value || sessionExit.value) return;
+function applyInterviewGuestEnded(payload = {}) {
+  intentionalLeave.value = true;
+  interviewGuestEnded.value = {
+    headline: payload.headline || 'Your interview has ended',
+    message: payload.message
+      || 'Thank you for your time today — we truly appreciate you meeting with us. If you have any follow-up questions, please reach out to the People Operations team.',
+    peopleOpsLabel: payload.peopleOpsLabel || payload.people_ops_label || 'People Operations',
+    agencyName: payload.agencyName || payload.agency_name || '',
+    contactEmail: payload.contactEmail || payload.contact_email || '',
+    contactPhone: payload.contactPhone || payload.contact_phone || ''
+  };
+  token.value = '';
+  void teardownLiveSession();
+}
+
+function onInterviewGuestEndedSignal(payload = {}) {
+  // Interviewers ignore this; only the candidate/guest leaves.
+  if (canSeeFullWorkspace.value || isHost.value) return;
+  if (interviewGuestEnded.value || intentionalLeave.value) return;
+  applyInterviewGuestEnded(payload || {});
+}
+
+function onGuestAccessEndedByInterviewer(payload = {}) {
+  // Host/interviewers stay; optionally stash interview id for leave-modal end.
+  if (payload?.interview?.id) interviewRecordId.value = payload.interview.id;
+}
+
+async function endInterviewGuestFromLeaveModal() {
+  const eid = resolvedEventId.value || eventId.value;
+  if (!eid) return;
+  endingInterviewGuest.value = true;
+  completeError.value = '';
+  try {
+    let id = interviewRecordId.value;
+    if (!id) {
+      const r = await api.get(`/hiring/interview-hub/by-schedule-event/${eid}`, {
+        params: {
+          agencyId: agencyStore.currentAgency?.id || authStore.user?.agencyId || undefined
+        },
+        skipGlobalLoading: true
+      });
+      id = r.data?.data?.interview?.id || r.data?.interview?.id || null;
+      interviewRecordId.value = id;
+    }
+    if (!id) {
+      completeError.value = 'Interview record not found for this meeting.';
+      return;
+    }
+    await api.post(
+      `/hiring/interview-hub/interviews/${id}/end-guest-access`,
+      { agencyId: agencyStore.currentAgency?.id || authStore.user?.agencyId || undefined },
+      { skipGlobalLoading: true }
+    );
+    showHostLeaveModal.value = false;
+  } catch (e) {
+    completeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to end interview access';
+  } finally {
+    endingInterviewGuest.value = false;
+  }
+}
+
+async function onDisconnected() {
+  if (intentionalLeave.value || sessionExit.value || interviewGuestEnded.value) return;
   videoConnected.value = false;
   if (meetingCompletedAt.value) {
     void finishLeave({ variant: 'host-ended', canRejoin: false });
     return;
+  }
+  // Interview guests may be force-disconnected when End Interview runs.
+  if (isInterviewMeeting.value && !canSeeFullWorkspace.value && !isHost.value) {
+    try {
+      const eid = resolvedEventId.value || eventId.value;
+      if (eid) {
+        await api.get(`/team-meetings/join-info/${encodeURIComponent(eid)}`, { skipGlobalLoading: true, skipAuthRedirect: true });
+      }
+    } catch (e) {
+      const data = e?.response?.data || {};
+      if (Number(e?.response?.status || 0) === 410 && (data.interviewGuestEnded || data.interview_guest_ended)) {
+        applyInterviewGuestEnded(data);
+        return;
+      }
+    }
   }
   if (isHost.value) {
     showHostLeaveModal.value = true;

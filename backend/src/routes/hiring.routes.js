@@ -32,6 +32,8 @@ import {
   listCandidateTasks,
   createCandidateTask,
   patchCandidateInterview,
+  patchCandidateStage,
+  getDashboardStats,
   listCandidateReferenceRequests,
   listCandidateReferenceActivity,
   postCandidateReferenceRequestsSend,
@@ -46,6 +48,9 @@ import {
   postTimeCapsuleRevealOpen,
   postTimeCapsuleRevealAcknowledge,
   postTimeCapsuleRevealSnooze,
+  listCandidateTimeCapsules,
+  createCandidateTimeCapsule,
+  openCandidateTimeCapsule,
   getHiringSettings,
   updateHiringSettings,
   listSignerRoles,
@@ -73,6 +78,7 @@ import {
   getInterviewArtifacts,
   upsertInterviewArtifacts,
   finalizeInterviewHandler,
+  endInterviewGuestAccess,
   getInterviewByScheduleEvent,
   listCandidateInterviews,
   randomIcebreaker,
@@ -104,8 +110,10 @@ const upload = multer({
   }
 });
 
+router.get('/dashboard', getDashboardStats);
 router.get('/candidates', listCandidates);
 router.post('/candidates', createCandidate);
+router.patch('/candidates/:userId/stage', patchCandidateStage);
 router.get('/me/pending-interview-splashes', getMyPendingInterviewSplashes);
 router.post('/me/interview-splash', submitMyInterviewSplash);
 router.get('/me/pending-time-capsule-reveals', getMyPendingTimeCapsuleReveals);
@@ -133,6 +141,9 @@ router.post('/candidates/:userId/notes/:noteId/reactions', setHiringNoteReaction
 router.delete('/candidates/:userId/notes/:noteId/reactions', deleteHiringNoteReaction);
 router.get('/candidates/:userId/tasks', listCandidateTasks);
 router.post('/candidates/:userId/tasks', createCandidateTask);
+router.get('/candidates/:userId/time-capsules', listCandidateTimeCapsules);
+router.post('/candidates/:userId/time-capsules', createCandidateTimeCapsule);
+router.post('/candidates/:userId/time-capsules/:entryId/open', openCandidateTimeCapsule);
 router.get('/candidates/:userId/resumes', listCandidateResumes);
 router.post('/candidates/:userId/resumes/upload', upload.single('file'), uploadCandidateResume);
 router.post('/candidates/:userId/resumes/paste', pasteCandidateResume);
@@ -180,6 +191,7 @@ router.patch('/interview-hub/interviews/:id', patchInterview);
 router.get('/interview-hub/interviews/:id/artifacts', getInterviewArtifacts);
 router.put('/interview-hub/interviews/:id/artifacts', upsertInterviewArtifacts);
 router.post('/interview-hub/interviews/:id/finalize', finalizeInterviewHandler);
+router.post('/interview-hub/interviews/:id/end-guest-access', endInterviewGuestAccess);
 router.get('/interview-hub/candidates/:userId/interviews', listCandidateInterviews);
 router.post('/interview-hub/icebreaker/random', randomIcebreaker);
 router.post('/interview-hub/salutation/random', randomSalutation);

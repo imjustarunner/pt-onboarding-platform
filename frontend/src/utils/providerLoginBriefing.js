@@ -100,6 +100,16 @@ export function activeProviderBriefingSections(source = {}) {
     .map((key) => ({ key, ...source[key] }));
 }
 
+/** Provider briefing cards — always include today's schedule so the day agenda is visible even when empty. */
+export function providerBriefingDisplaySections(source = {}) {
+  const active = activeProviderBriefingSections(source);
+  const calendar = source.calendar;
+  if (!calendar) return active;
+
+  const withoutCalendar = active.filter((section) => section.key !== 'calendar');
+  return [{ key: 'calendar', ...calendar }, ...withoutCalendar];
+}
+
 export function splitProviderBriefingNotifications(notifications = []) {
   const schoolRows = schoolBriefingItemsFromNotifications(notifications);
   const tenantRows = tenantBriefingNotifications(notifications);

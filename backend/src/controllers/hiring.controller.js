@@ -19,13 +19,15 @@ import { generateResumeSummaryJson } from '../services/resumeStructuring.service
 import { extractResumePhotoPngFromPdf } from '../services/resumePhotoExtraction.service.js';
 import config from '../config/config.js';
 import {
-  listPendingInterviewSplashesForUser,
   submitInterviewSplashAttendance,
   submitInterviewSplashCapsule,
   listPendingTimeCapsuleRevealsForUser,
   openTimeCapsuleReveal,
   acknowledgeTimeCapsuleReveal,
-  snoozeTimeCapsuleReveal
+  snoozeTimeCapsuleReveal,
+  listTimeCapsulesForHiringProfile,
+  createTimeCapsulePredictions,
+  openTimeCapsuleForApplicant
 } from '../services/hiringInterviewCapsule.service.js';
 import HiringReferenceRequest from '../models/HiringReferenceRequest.model.js';
 import EmailService from '../services/email.service.js';
@@ -318,6 +320,12 @@ export const listCandidates = async (req, res, next) => {
         WHERE (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL))
           AND LOWER(COALESCE(hp.stage, 'applied')) = 'hired'
       `;
+    } else if (['applied', 'review', 'interview', 'offered'].includes(stageFilter)) {
+      whereSql = `
+        WHERE (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL))
+          AND LOWER(COALESCE(hp.stage, 'applied')) = ?
+      `;
+      params.push(stageFilter);
     } else if (stageFilter === 'all') {
       whereSql = `
         WHERE (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL))
@@ -451,6 +459,383 @@ export const listCandidates = async (req, res, next) => {
         }
       });
     }
+    next(e);
+  }
+};
+
+const PIPELINE_STAGES = ['applied', 'review', 'interview', 'offered', 'hired', 'not_hired'];
+
+export const getDashboardStats = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const viewerId = parseIntParam(req.user?.id) || 0;
+
+    const stageCounts = {
+      applied: 0,
+      review: 0,
+      interview: 0,
+      offered: 0,
+      hired: 0,
+      not_hired: 0,
+      other: 0,
+      totalActive: 0,
+      totalAll: 0
+    };
+
+    try {
+      const [stageRows] = await pool.execute(
+        `SELECT LOWER(COALESCE(hp.stage, 'applied')) AS stage, COUNT(*) AS cnt
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+         JOIN hiring_profiles hp
+           ON hp.id = (
+             SELECT hp_latest.id
+             FROM hiring_profiles hp_latest
+             WHERE hp_latest.candidate_user_id = u.id
+             ORDER BY hp_latest.updated_at DESC, hp_latest.id DESC
+             LIMIT 1
+           )
+         WHERE (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL))
+         GROUP BY LOWER(COALESCE(hp.stage, 'applied'))`,
+        [agencyId]
+      );
+      for (const row of stageRows || []) {
+        const stage = String(row.stage || 'applied').trim().toLowerCase();
+        const cnt = Number(row.cnt) || 0;
+        stageCounts.totalAll += cnt;
+        if (Object.prototype.hasOwnProperty.call(stageCounts, stage)) {
+          stageCounts[stage] += cnt;
+        } else {
+          stageCounts.other += cnt;
+        }
+        if (!['hired', 'not_hired'].includes(stage)) {
+          stageCounts.totalActive += cnt;
+        }
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    let openJobs = 0;
+    let jobs = [];
+    try {
+      const [jobCountRows] = await pool.execute(
+        `SELECT COUNT(*) AS cnt
+         FROM hiring_job_descriptions
+         WHERE agency_id = ? AND (is_active = 1 OR is_active = TRUE)`,
+        [agencyId]
+      );
+      openJobs = Number(jobCountRows?.[0]?.cnt) || 0;
+
+      const [jobRows] = await pool.execute(
+        `SELECT
+           jd.id,
+           jd.title,
+           jd.application_deadline,
+           COUNT(c.candidate_user_id) AS applicant_count,
+           SUM(CASE WHEN c.is_new_for_me = 1 THEN 1 ELSE 0 END) AS new_for_me_count
+         FROM hiring_job_descriptions jd
+         LEFT JOIN (
+           SELECT
+             hp.job_description_id,
+             hp.candidate_user_id,
+             CASE WHEN hcv.first_viewed_at IS NULL THEN 1 ELSE 0 END AS is_new_for_me
+           FROM hiring_profiles hp
+           JOIN user_agencies ua ON ua.user_id = hp.candidate_user_id AND ua.agency_id = ?
+           JOIN users u ON u.id = hp.candidate_user_id
+           LEFT JOIN hiring_candidate_views hcv
+             ON hcv.agency_id = ua.agency_id
+            AND hcv.candidate_user_id = hp.candidate_user_id
+            AND hcv.viewer_user_id = ?
+           WHERE hp.id = (
+               SELECT hp_latest.id
+               FROM hiring_profiles hp_latest
+               WHERE hp_latest.candidate_user_id = hp.candidate_user_id
+               ORDER BY hp_latest.updated_at DESC, hp_latest.id DESC
+               LIMIT 1
+             )
+             AND (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL))
+             AND LOWER(COALESCE(hp.stage, 'applied')) NOT IN ('hired', 'not_hired')
+             AND hp.job_description_id IS NOT NULL
+         ) c ON c.job_description_id = jd.id
+         WHERE jd.agency_id = ?
+           AND (jd.is_active = 1 OR jd.is_active = TRUE)
+         GROUP BY jd.id, jd.title, jd.application_deadline
+         ORDER BY applicant_count DESC, jd.title ASC
+         LIMIT 20`,
+        [agencyId, viewerId, agencyId]
+      );
+      jobs = (jobRows || []).map((j) => ({
+        id: j.id,
+        title: j.title,
+        applicationDeadline: j.application_deadline || null,
+        applicantCount: Number(j.applicant_count) || 0,
+        newForMeCount: Number(j.new_for_me_count) || 0
+      }));
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE' && String(e?.message || '').includes('hiring_candidate_views')) {
+        const [jobRows] = await pool.execute(
+          `SELECT
+             jd.id,
+             jd.title,
+             jd.application_deadline,
+             COUNT(c.candidate_user_id) AS applicant_count,
+             0 AS new_for_me_count
+           FROM hiring_job_descriptions jd
+           LEFT JOIN (
+             SELECT
+               hp.job_description_id,
+               hp.candidate_user_id
+             FROM hiring_profiles hp
+             JOIN user_agencies ua ON ua.user_id = hp.candidate_user_id AND ua.agency_id = ?
+             JOIN users u ON u.id = hp.candidate_user_id
+             WHERE hp.id = (
+                 SELECT hp_latest.id
+                 FROM hiring_profiles hp_latest
+                 WHERE hp_latest.candidate_user_id = hp.candidate_user_id
+                 ORDER BY hp_latest.updated_at DESC, hp_latest.id DESC
+                 LIMIT 1
+               )
+               AND (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL))
+               AND LOWER(COALESCE(hp.stage, 'applied')) NOT IN ('hired', 'not_hired')
+               AND hp.job_description_id IS NOT NULL
+           ) c ON c.job_description_id = jd.id
+           WHERE jd.agency_id = ?
+             AND (jd.is_active = 1 OR jd.is_active = TRUE)
+           GROUP BY jd.id, jd.title, jd.application_deadline
+           ORDER BY applicant_count DESC, jd.title ASC
+           LIMIT 20`,
+          [agencyId, agencyId]
+        );
+        jobs = (jobRows || []).map((j) => ({
+          id: j.id,
+          title: j.title,
+          applicationDeadline: j.application_deadline || null,
+          applicantCount: Number(j.applicant_count) || 0,
+          newForMeCount: 0
+        }));
+      } else if (e?.code !== 'ER_NO_SUCH_TABLE') {
+        throw e;
+      }
+    }
+
+    let upcomingInterviewsCount = 0;
+    let upcomingInterviews = [];
+    try {
+      const [countRows] = await pool.execute(
+        `SELECT COUNT(*) AS cnt
+         FROM hiring_interviews hi
+         WHERE hi.agency_id = ?
+           AND hi.status IN ('scheduled', 'in_progress')
+           AND hi.interview_starts_at IS NOT NULL
+           AND hi.interview_starts_at >= NOW()
+           AND hi.interview_starts_at < DATE_ADD(NOW(), INTERVAL 7 DAY)`,
+        [agencyId]
+      );
+      upcomingInterviewsCount = Number(countRows?.[0]?.cnt) || 0;
+
+      const [ivRows] = await pool.execute(
+        `SELECT
+           hi.id,
+           hi.candidate_user_id,
+           hi.status,
+           hi.interview_starts_at,
+           hi.interview_timezone,
+           hi.public_join_url,
+           u.first_name,
+           u.last_name,
+           u.email,
+           u.personal_email,
+           jd.title AS job_title,
+           hp.applied_role,
+           hp.stage
+         FROM hiring_interviews hi
+         JOIN users u ON u.id = hi.candidate_user_id
+         LEFT JOIN hiring_profiles hp
+           ON hp.id = (
+             SELECT hp_latest.id
+             FROM hiring_profiles hp_latest
+             WHERE hp_latest.candidate_user_id = hi.candidate_user_id
+             ORDER BY hp_latest.updated_at DESC, hp_latest.id DESC
+             LIMIT 1
+           )
+         LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id
+         WHERE hi.agency_id = ?
+           AND hi.status IN ('scheduled', 'in_progress')
+           AND hi.interview_starts_at IS NOT NULL
+           AND hi.interview_starts_at >= NOW()
+           AND hi.interview_starts_at < DATE_ADD(NOW(), INTERVAL 7 DAY)
+         ORDER BY hi.interview_starts_at ASC
+         LIMIT 10`,
+        [agencyId]
+      );
+      upcomingInterviews = (ivRows || []).map((r) => ({
+        id: r.id,
+        candidateUserId: r.candidate_user_id,
+        status: r.status,
+        startsAt: r.interview_starts_at,
+        timezone: r.interview_timezone || null,
+        publicJoinUrl: r.public_join_url || null,
+        firstName: r.first_name,
+        lastName: r.last_name,
+        email: r.personal_email || r.email,
+        jobTitle: r.job_title || r.applied_role || null,
+        stage: r.stage || 'applied',
+        stageLabel: hiringStageLabel(r.stage)
+      }));
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    let recentApplicants = [];
+    try {
+      const [recentRows] = await pool.execute(
+        `SELECT
+           u.id,
+           u.first_name,
+           u.last_name,
+           u.email,
+           u.personal_email,
+           hp.stage,
+           hp.applied_role,
+           hp.source,
+           hp.created_at AS hiring_created_at,
+           hp.updated_at AS hiring_updated_at,
+           jd.title AS job_title
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+         JOIN hiring_profiles hp
+           ON hp.id = (
+             SELECT hp_latest.id
+             FROM hiring_profiles hp_latest
+             WHERE hp_latest.candidate_user_id = u.id
+             ORDER BY hp_latest.updated_at DESC, hp_latest.id DESC
+             LIMIT 1
+           )
+         LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id
+         WHERE (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL))
+         ORDER BY COALESCE(hp.created_at, hp.updated_at) DESC, u.id DESC
+         LIMIT 10`,
+        [agencyId]
+      );
+      recentApplicants = (recentRows || []).map((r) => ({
+        id: r.id,
+        firstName: r.first_name,
+        lastName: r.last_name,
+        email: r.personal_email || r.email,
+        stage: r.stage || 'applied',
+        stageLabel: hiringStageLabel(r.stage),
+        jobTitle: r.job_title || r.applied_role || null,
+        source: r.source || null,
+        createdAt: r.hiring_created_at,
+        updatedAt: r.hiring_updated_at
+      }));
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    const pendingReviews = stageCounts.applied + stageCounts.review;
+
+    res.json({
+      agencyId,
+      openJobs,
+      totalApplicants: stageCounts.totalActive,
+      pendingReviews,
+      upcomingInterviewsCount,
+      stageCounts,
+      jobs,
+      upcomingInterviews,
+      recentApplicants,
+      pipeline: [
+        { stage: 'applied', label: 'Applied', count: stageCounts.applied },
+        { stage: 'review', label: 'Review', count: stageCounts.review },
+        { stage: 'interview', label: 'Interview', count: stageCounts.interview },
+        { stage: 'offered', label: 'Offer', count: stageCounts.offered },
+        { stage: 'hired', label: 'Hired', count: stageCounts.hired }
+      ]
+    });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE' || String(e?.message || '').includes('hiring_profiles')) {
+      return res.status(503).json({
+        error: {
+          message:
+            'Hiring feature not available (database migrations not run yet). Run migrations 268-271 (and 270 for hiring tables).'
+        }
+      });
+    }
+    next(e);
+  }
+};
+
+export const patchCandidateStage = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.body?.agencyId || req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const stageRaw = String(req.body?.stage || '').trim().toLowerCase().replace(/\s+/g, '_');
+    if (!PIPELINE_STAGES.includes(stageRaw)) {
+      return res.status(400).json({
+        error: { message: `stage must be one of: ${PIPELINE_STAGES.join(', ')}` }
+      });
+    }
+
+    if (stageRaw === 'hired') {
+      return res.status(400).json({
+        error: { message: 'Use Mark hired to move a candidate to hired (starts onboarding setup).' }
+      });
+    }
+    if (stageRaw === 'not_hired') {
+      return res.status(400).json({
+        error: { message: 'Use Not hired to mark a candidate as not hired.' }
+      });
+    }
+
+    const existing = await HiringProfile.findByCandidateUserId(candidateUserId);
+    if (!existing) {
+      return res.status(404).json({ error: { message: 'Hiring profile not found' } });
+    }
+
+    const safeJson = (value) => {
+      if (value == null) return null;
+      if (typeof value === 'object') return value;
+      if (typeof value !== 'string' || !value.trim()) return null;
+      try {
+        return JSON.parse(value);
+      } catch {
+        return null;
+      }
+    };
+
+    const updated = await HiringProfile.upsert({
+      candidateUserId,
+      stage: stageRaw,
+      appliedRole: existing.applied_role ?? null,
+      source: existing.source ?? null,
+      jobDescriptionId: existing.job_description_id ?? null,
+      coverLetterText: existing.cover_letter_text ?? null,
+      referencesJson: safeJson(existing.references_json),
+      referencesConsentJson: safeJson(existing.references_consent_json),
+      referencesConsentAt: existing.references_consent_at ?? null,
+      jobAcknowledged: !!(existing.job_acknowledged === 1 || existing.job_acknowledged === true),
+      fluentLanguagesJson: safeJson(existing.fluent_languages_json)
+    });
+
+    res.json({
+      profile: updated
+        ? {
+            ...updated,
+            stage_label: hiringStageLabel(updated.stage)
+          }
+        : updated
+    });
+  } catch (e) {
     next(e);
   }
 };
@@ -2703,12 +3088,9 @@ export const deleteHiringNoteReaction = async (req, res, next) => {
 
 export const getMyPendingInterviewSplashes = async (req, res, next) => {
   try {
-    const rows = await listPendingInterviewSplashesForUser(req.user.id);
-    res.json(rows);
+    // Interview attendance follow-up splash retired — use End Interview + applicant time capsule instead.
+    res.json([]);
   } catch (e) {
-    if (e?.code === 'ER_NO_SUCH_TABLE') {
-      return res.json([]);
-    }
     next(e);
   }
 };
@@ -2753,8 +3135,18 @@ export const postTimeCapsuleRevealSnooze = async (req, res, next) => {
   try {
     const entryId = parseIntParam(req.params.entryId);
     if (!entryId) return res.status(400).json({ error: { message: 'Invalid entryId' } });
-    const days = req.body?.days != null ? parseInt(req.body.days, 10) : 1;
-    const out = await snoozeTimeCapsuleReveal(entryId, req.user.id, days);
+    // Prefer hours (1 default). Legacy `days` still accepted and converted.
+    if (req.body?.hours != null) {
+      const hours = parseInt(req.body.hours, 10);
+      const out = await snoozeTimeCapsuleReveal(entryId, req.user.id, hours, { unit: 'hours' });
+      return res.json(out);
+    }
+    const days = req.body?.days != null ? parseInt(req.body.days, 10) : null;
+    if (days != null) {
+      const out = await snoozeTimeCapsuleReveal(entryId, req.user.id, days, { unit: 'days' });
+      return res.json(out);
+    }
+    const out = await snoozeTimeCapsuleReveal(entryId, req.user.id, 1, { unit: 'hours' });
     res.json(out);
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
@@ -2802,6 +3194,82 @@ export const submitMyInterviewSplash = async (req, res, next) => {
     });
 
     res.json({ ok: true, completed: true });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const listCandidateTimeCapsules = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const profile = await HiringProfile.findByCandidateUserId(candidateUserId);
+    if (!profile?.id) return res.json([]);
+
+    const stage = String(profile.stage || '').toLowerCase();
+    if (stage === 'hired') {
+      return res.json({ capsules: [], available: false, reason: 'hired' });
+    }
+
+    const capsules = await listTimeCapsulesForHiringProfile(profile.id);
+    res.json({ capsules, available: true, hiringProfileId: profile.id });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+      return res.json({ capsules: [], available: false });
+    }
+    next(e);
+  }
+};
+
+export const createCandidateTimeCapsule = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.body?.agencyId || req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const profile = await HiringProfile.findByCandidateUserId(candidateUserId);
+    if (!profile?.id) return res.status(404).json({ error: { message: 'Hiring profile not found' } });
+    if (String(profile.stage || '').toLowerCase() === 'hired') {
+      return res.status(400).json({ error: { message: 'Time capsules are only available before the candidate is hired.' } });
+    }
+
+    const capsules = await createTimeCapsulePredictions({
+      hiringProfileId: profile.id,
+      authorUserId: req.user.id,
+      prediction6m: req.body?.prediction6m,
+      prediction12m: req.body?.prediction12m,
+      anchorAt: profile.interview_starts_at || profile.created_at || null
+    });
+    res.status(201).json({ capsules, hiringProfileId: profile.id });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const openCandidateTimeCapsule = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const candidateUserId = parseIntParam(req.params.userId);
+    const entryId = parseIntParam(req.params.entryId);
+    if (!candidateUserId || !entryId) {
+      return res.status(400).json({ error: { message: 'Invalid userId or entryId' } });
+    }
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const opened = await openTimeCapsuleForApplicant(entryId, req.user.id);
+    res.json(opened);
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);

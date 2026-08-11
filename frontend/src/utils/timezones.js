@@ -608,3 +608,85 @@ export function msUntilMysqlWallDatetime(closesAtMysql, timeZone = SCHEDULE_WALL
   return closes.getTime() - nowMs;
 }
 
+/** Viewer's local timezone abbreviation (e.g. MST/MDT/EDT) — memoized per session. */
+let cachedViewerTzAbbrev;
+export function viewerTimezoneAbbrev() {
+  if (cachedViewerTzAbbrev !== undefined) return cachedViewerTzAbbrev;
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' }).formatToParts(new Date());
+    cachedViewerTzAbbrev = String(parts.find((p) => p.type === 'timeZoneName')?.value || '').trim();
+  } catch {
+    cachedViewerTzAbbrev = '';
+  }
+  return cachedViewerTzAbbrev;
+}
+
+/**
+ * Parse a UTC instant from API/DB (ISO-Z or naked MySQL DATETIME stored as UTC).
+ * Use for planned outs, schedule-summary instants, etc. — always display via
+ * toLocale* in the viewer's browser timezone.
+ */
+export function parseUtcInstant(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value : null;
+  }
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)) {
+    const d = new Date(raw.includes(' ') && !raw.includes('T') ? raw.replace(' ', 'T') : raw);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(raw)) {
+    const d = new Date(`${raw.replace(' ', 'T')}Z`);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
+  const d = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T'));
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+/** Local calendar date M/D from a UTC instant or YYYY-MM-DD date-only field. */
+export function formatViewerLocalDate(value) {
+  const d = parseUtcInstant(value);
+  if (d) {
+    return d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+  }
+  const s = String(value || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [, m, day] = s.split('-');
+    return `${Number(m)}/${Number(day)}`;
+  }
+  return '';
+}
+
+/** Clock time in the viewer's timezone, optionally with abbreviation (e.g. "11:45 AM EDT"). */
+export function formatViewerClockTime(value, { withAbbrev = true } = {}) {
+  const d = parseUtcInstant(value);
+  if (!d) return '';
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  if (!withAbbrev) return time;
+  const abbr = viewerTimezoneAbbrev();
+  return abbr ? `${time} ${abbr}` : time;
+}
+
+/** Time range in the viewer's timezone from epoch ms, e.g. "11:45 AM – 3:30 PM EDT". */
+export function formatViewerTimeRangeMs(startMs, endMs, { withAbbrev = true } = {}) {
+  if (startMs == null && endMs == null) return '';
+  const opts = { hour: 'numeric', minute: '2-digit', hour12: true };
+  const start = startMs != null ? new Date(startMs).toLocaleTimeString('en-US', opts) : '';
+  const end = endMs != null ? new Date(endMs).toLocaleTimeString('en-US', opts) : '';
+  const range = [start, end].filter(Boolean).join(' – ');
+  if (!range) return '';
+  if (!withAbbrev) return range;
+  const abbr = viewerTimezoneAbbrev();
+  return abbr ? `${range} ${abbr}` : range;
+}
+
+/** Time range in the viewer's timezone from UTC instants. */
+export function formatViewerTimeRange(start, end, opts = {}) {
+  const a = parseUtcInstant(start);
+  const b = parseUtcInstant(end);
+  if (!a || !b) return '';
+  return formatViewerTimeRangeMs(a.getTime(), b.getTime(), opts);
+}
+

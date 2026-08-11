@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   activeProviderBriefingSections,
+  providerBriefingDisplaySections,
   briefingPathPrefix,
   isProviderLoginBriefingUser,
   providerBriefingDashboardPath,
@@ -67,5 +68,13 @@ describe('provider login briefing rules', () => {
     ]);
     expect(schoolRows.map((row) => row.id)).toEqual([1]);
     expect(tenantRows.map((row) => row.id)).toEqual([2]);
+  });
+
+  it('always includes today schedule in provider briefing display', () => {
+    const sections = providerBriefingDisplaySections({
+      calendar: { count: 0, items: [], title: 'Today’s schedule' },
+      notifications: { count: 2, items: [{ id: 'n1' }] }
+    });
+    expect(sections.map((section) => section.key)).toEqual(['calendar', 'notifications']);
   });
 });

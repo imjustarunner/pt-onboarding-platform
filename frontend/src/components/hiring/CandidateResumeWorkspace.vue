@@ -1,5 +1,5 @@
 <template>
-  <div class="resume-workspace">
+  <div class="resume-workspace" :class="{ 'is-overview': isOverview }">
     <div class="resume-main">
       <div class="resume-toolbar">
         <div class="resume-toolbar-left">
@@ -20,9 +20,10 @@
             class="btn btn-secondary btn-sm"
             @click="openExternal"
           >
-            Open
+            {{ isOverview ? 'Download' : 'Open' }}
           </button>
           <button
+            v-if="!isOverview"
             type="button"
             class="btn btn-secondary btn-sm"
             :class="{ active: showPaste }"
@@ -30,10 +31,18 @@
           >
             {{ showPaste ? 'Hide paste' : 'Paste resume' }}
           </button>
+          <button
+            v-if="isOverview"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            @click="$emit('goto-tab', 'resume')"
+          >
+            Full resume
+          </button>
         </div>
       </div>
 
-      <div class="resume-actions">
+      <div v-if="!isOverview" class="resume-actions">
         <input type="file" ref="fileInput" accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" @change="onFileChange" />
         <input v-model="title" class="input" placeholder="Title (optional)" />
         <button class="btn btn-primary" type="button" :disabled="uploading || !selectedFile" @click="emitUpload">
@@ -41,7 +50,7 @@
         </button>
       </div>
 
-      <div v-if="showPaste" class="paste-panel">
+      <div v-if="!isOverview && showPaste" class="paste-panel">
         <p class="muted small">
           Use this when a DOCX/PDF can’t be read. Pasted text becomes the resume source for summaries and pre-screen.
         </p>
@@ -64,15 +73,20 @@
       </div>
 
       <div v-if="error" class="error-banner">{{ error }}</div>
-      <div v-if="needsTextHint" class="info-banner">
+      <div v-if="!isOverview && needsTextHint" class="info-banner">
         We couldn’t extract text from the latest resume. Paste the resume text above, or upload a text-based PDF/DOCX.
       </div>
 
       <div v-if="loading" class="loading">Loading resumes…</div>
       <template v-else>
-        <div v-if="!resumes.length" class="empty">No resumes uploaded yet.</div>
+        <div v-if="!resumes.length" class="empty">
+          No resumes uploaded yet.
+          <button v-if="isOverview" type="button" class="linkish" style="margin-left:6px;" @click="$emit('goto-tab', 'resume')">
+            Upload one
+          </button>
+        </div>
         <div v-else class="resume-viewer-wrap">
-          <div class="resume-select-row">
+          <div v-if="!isOverview" class="resume-select-row">
             <label class="small">Document</label>
             <select class="input" :value="activeResumeId || ''" @change="onSelectResume">
               <option v-for="r in resumes" :key="r.id" :value="String(r.id)">
@@ -88,6 +102,7 @@
           <iframe
             v-else-if="canEmbed && viewerUrl"
             class="resume-iframe"
+            :class="{ compact: isOverview }"
             :src="viewerUrl"
             title="Resume viewer"
           />
@@ -107,7 +122,9 @@
       <section class="side-card">
         <div class="side-card-head">
           <h4>Notes</h4>
-          <button type="button" class="linkish" @click="$emit('goto-tab', 'notes')">Open</button>
+          <button type="button" class="linkish" @click="$emit('goto-tab', 'notes')">
+            {{ isOverview ? '+ Add Note' : 'Open' }}
+          </button>
         </div>
         <div v-if="!(notes || []).length" class="muted small">No notes yet.</div>
         <ul v-else class="side-list">
@@ -120,8 +137,10 @@
 
       <section class="side-card">
         <div class="side-card-head">
-          <h4>Tasks</h4>
-          <button type="button" class="linkish" @click="$emit('goto-tab', 'tasks')">Open</button>
+          <h4>{{ isOverview ? 'Assigned Tasks' : 'Tasks' }}</h4>
+          <button type="button" class="linkish" @click="$emit('goto-tab', 'tasks')">
+            {{ isOverview ? '+ Add Task' : 'Open' }}
+          </button>
         </div>
         <div v-if="!(tasks || []).length" class="muted small">No tasks yet.</div>
         <ul v-else class="side-list">
@@ -132,7 +151,20 @@
         </ul>
       </section>
 
-      <section class="side-card">
+      <section v-if="isOverview" class="side-card">
+        <div class="side-card-head">
+          <h4>Activity</h4>
+        </div>
+        <div v-if="!(activityItems || []).length" class="muted small">No recent activity.</div>
+        <ul v-else class="side-list">
+          <li v-for="(a, idx) in activityItems.slice(0, 5)" :key="idx">
+            <div class="side-body">{{ a.title }}</div>
+            <div class="side-meta">{{ a.meta }}</div>
+          </li>
+        </ul>
+      </section>
+
+      <section v-else class="side-card">
         <div class="side-card-head">
           <h4>Summary</h4>
           <button type="button" class="linkish" @click="$emit('goto-tab', 'resumeSummary')">Open</button>
@@ -164,13 +196,16 @@ const props = defineProps({
   error: { type: String, default: '' },
   notes: { type: Array, default: () => [] },
   tasks: { type: Array, default: () => [] },
+  activityItems: { type: Array, default: () => [] },
   summaryBullets: { type: Array, default: () => [] },
   summaryError: { type: String, default: '' },
   summaryGenerating: { type: Boolean, default: false },
+  variant: { type: String, default: 'full' },
   resolveViewerUrl: { type: Function, required: true }
 });
 
 const emit = defineEmits(['upload', 'paste', 'delete', 'goto-tab', 'generate-summary']);
+const isOverview = computed(() => String(props.variant || 'full') === 'overview');
 
 const fileInput = ref(null);
 const selectedFile = ref(null);
@@ -196,8 +231,8 @@ const needsTextHint = computed(() => {
   return status === 'failed' || status === 'no_text' || status === 'unsupported';
 });
 
-const notesPreview = computed(() => (props.notes || []).slice(0, 3));
-const tasksPreview = computed(() => (props.tasks || []).slice(0, 3));
+const notesPreview = computed(() => (props.notes || []).slice(0, isOverview.value ? 2 : 3));
+const tasksPreview = computed(() => (props.tasks || []).slice(0, isOverview.value ? 3 : 3));
 
 watch(
   () => props.resumes,
@@ -309,8 +344,12 @@ function truncate(s, n) {
   gap: 16px;
   align-items: start;
 }
+.resume-workspace.is-overview {
+  grid-template-columns: minmax(0, 1.6fr) 300px;
+}
 @media (max-width: 960px) {
-  .resume-workspace { grid-template-columns: 1fr; }
+  .resume-workspace,
+  .resume-workspace.is-overview { grid-template-columns: 1fr; }
 }
 .resume-main {
   min-width: 0;
@@ -374,6 +413,9 @@ function truncate(s, n) {
   min-height: 640px;
   border: 0;
   background: #f3f4f6;
+}
+.resume-iframe.compact {
+  min-height: 520px;
 }
 .viewer-fallback { padding: 24px; }
 .resume-side {

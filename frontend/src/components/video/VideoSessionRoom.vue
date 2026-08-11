@@ -542,6 +542,7 @@ const emit = defineEmits([
   'update:videoFullscreen',
   'activity-notice-click',
   'meeting-ended',
+  'interview-guest-ended',
   'hand-raised-change',
   'hands-map-change',
   'audio-map-change',
@@ -2026,6 +2027,17 @@ async function connect() {
         // Parent handles navigation via meeting-ended; avoid a second disconnected race.
         disconnect(false);
       } catch { /* ignore */ }
+    });
+
+    // Interviewers end guest access: interviewee is signaled/disconnected; hosts stay in.
+    session.on('signal:interview_guest_ended', (event) => {
+      let payload = null;
+      try {
+        payload = event?.data ? JSON.parse(event.data) : null;
+      } catch {
+        payload = { raw: event?.data || null };
+      }
+      emit('interview-guest-ended', payload);
     });
 
     session.on('signal:hand_raised', (event) => {

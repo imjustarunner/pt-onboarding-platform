@@ -47,6 +47,7 @@ import PayrollReimbursementClaim from '../models/PayrollReimbursementClaim.model
 import PayrollCompanyCardExpense from '../models/PayrollCompanyCardExpense.model.js';
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
 import PayrollIndirectServiceType from '../models/PayrollIndirectServiceType.model.js';
+import PayrollUserIndirectServiceAssignment from '../models/PayrollUserIndirectServiceAssignment.model.js';
 import PayrollHolidayBonusClaim from '../models/PayrollHolidayBonusClaim.model.js';
 import {
   isDualRateContractPilotUser,
@@ -17879,7 +17880,19 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
         if (hint === 'other_1') categoryGroup = 'support_activity';
       }
 
-      if (categoryGroup === 'indirect_service' && !isHourly && !isAdminRole(req.user?.role) && !isSupervisionFinalize) {
+      const preAllocations = Array.isArray(payload?.allocations) ? payload.allocations : [];
+      const preTypeIds = preAllocations
+        .map((row) => Number(row?.serviceTypeId || row?.id || 0))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      const hasAssignedIndirectAccess = categoryGroup === 'indirect_service' && !isHourly && preTypeIds.length
+        ? await PayrollUserIndirectServiceAssignment.hasEnabledAssignmentsForTypes({
+          agencyId,
+          userId,
+          serviceTypeIds: preTypeIds
+        })
+        : false;
+
+      if (categoryGroup === 'indirect_service' && !isHourly && !isAdminRole(req.user?.role) && !isSupervisionFinalize && !hasAssignedIndirectAccess) {
         return res.status(403).json({
           error: { message: 'Indirect Service Time is for hourly employees only. Use Support Activity Time instead.' }
         });

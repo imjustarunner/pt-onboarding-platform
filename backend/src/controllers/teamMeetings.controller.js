@@ -8,6 +8,7 @@ import User from '../models/User.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import ProviderScheduleEventAttendee from '../models/ProviderScheduleEventAttendee.model.js';
 import ProviderScheduleEventArtifact from '../models/ProviderScheduleEventArtifact.model.js';
+import HiringInterview from '../models/HiringInterview.model.js';
 import { joinUrlForTeamMeeting } from '../utils/joinToken.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import {
@@ -21,6 +22,42 @@ import {
   getVideoClientDiagnostics
 } from '../services/video.service.js';
 import { isAttendanceTrackingEnabledForEvent } from '../services/meetingAttendanceSegments.service.js';
+import { buildInterviewEndedGuestPayload } from './interviewHub.controller.js';
+
+/**
+ * If this is an interview and guest access was ended, block the candidate from
+ * joining while interviewers may remain in the room.
+ */
+async function interviewGuestAccessBlock(event, { actorUserId = null, tokenRole = null } = {}) {
+  const subtype = String(event?.meeting_subtype || event?.meetingSubtype || '').toLowerCase();
+  if (subtype !== 'interview') return null;
+  let interview = null;
+  try {
+    interview = await HiringInterview.findByScheduleEventId(event.id);
+  } catch {
+    return null;
+  }
+  if (!interview?.guest_access_ended_at) return null;
+
+  const candidateId = Number(interview.candidate_user_id || 0);
+  const actorId = Number(actorUserId || 0);
+  const role = String(tokenRole || '').toLowerCase();
+
+  // Host link / authenticated interviewers always stay allowed.
+  if (role === 'host') return null;
+  if (actorId && candidateId && actorId !== candidateId) return null;
+
+  const payload = await buildInterviewEndedGuestPayload(interview.agency_id);
+  return {
+    status: 410,
+    body: {
+      error: { message: 'Your interview has ended.' },
+      interviewGuestEnded: true,
+      guestAccessEndedAt: interview.guest_access_ended_at,
+      ...payload
+    }
+  };
+}
 
 const JOIN_PRESENCE_STALE_SECONDS = 45;
 
@@ -532,6 +569,15 @@ export const getTeamMeetingJoinInfo = async (req, res, next) => {
       });
     }
 
+    const tokenRoleEarly = ProviderScheduleEvent.classifyJoinTokenRole(event, ref);
+    const guestBlock = await interviewGuestAccessBlock(event, {
+      actorUserId: req.user?.id || null,
+      tokenRole: tokenRoleEarly
+    });
+    if (guestBlock) {
+      return res.status(guestBlock.status).json(guestBlock.body);
+    }
+
     const [rows] = await pool.execute(
       `SELECT a.slug, a.portal_url
        FROM agencies a
@@ -611,6 +657,13 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
 
     const projectId = resolveVideoProjectId();
     const tokenRole = ProviderScheduleEvent.classifyJoinTokenRole(row, ref);
+    const guestBlock = await interviewGuestAccessBlock(row, {
+      actorUserId: actorUserId,
+      tokenRole
+    });
+    if (guestBlock) {
+      return res.status(guestBlock.status).json(guestBlock.body);
+    }
     const actorRole = String(req.user?.role || '').toLowerCase();
     const privilegedHost = [
       'super_admin',

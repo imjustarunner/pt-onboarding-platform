@@ -6,6 +6,7 @@ import { computed, ref, watch } from 'vue';
 import api from '../services/api';
 import { buildRecentSubmissionActivityItems } from '../utils/submitSubmissionHistory';
 import { shouldShowOnProviderDashboardEvents } from '../utils/companyEventStaffing';
+import { formatViewerTimeRangeMs } from '../utils/timezones.js';
 
 function localYmd(d = new Date()) {
   const y = d.getFullYear();
@@ -35,11 +36,8 @@ function isSameLocalDay(ms, ymd) {
 }
 
 function formatTimeRange(startMs, endMs) {
-  const opts = { hour: 'numeric', minute: '2-digit' };
-  const start = startMs != null ? new Date(startMs).toLocaleTimeString([], opts) : '';
-  const end = endMs != null ? new Date(endMs).toLocaleTimeString([], opts) : '';
-  if (start && end) return `${start} – ${end}`;
-  return start || end || 'Time TBD';
+  const range = formatViewerTimeRangeMs(startMs, endMs);
+  return range || 'Time TBD';
 }
 
 function statusForWindow(startMs, endMs, now = Date.now()) {

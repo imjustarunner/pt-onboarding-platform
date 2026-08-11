@@ -27,6 +27,7 @@ export async function listPendingTimeCapsuleRevealsForUser(userId) {
        INNER JOIN users u ON u.id = hp.candidate_user_id
        WHERE tce.author_user_id = ?
          AND tce.reveal_at <= UTC_TIMESTAMP()
+         AND tce.reveal_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR)
          AND tce.splash_acknowledged_at IS NULL
          AND (tce.splash_snooze_until IS NULL OR tce.splash_snooze_until <= UTC_TIMESTAMP())
        ORDER BY tce.reveal_at ASC, tce.id ASC`,
@@ -142,32 +143,45 @@ export async function acknowledgeTimeCapsuleReveal(entryId, authorUserId) {
   }
 }
 
-export async function snoozeTimeCapsuleReveal(entryId, authorUserId, daysRaw) {
+/**
+ * Dismiss/snooze splash for 1 hour (default). Splash auto-expires 24 hours after reveal_at.
+ * Accepts hours (preferred) or legacy days (converted to hours, max 24).
+ */
+export async function snoozeTimeCapsuleReveal(entryId, authorUserId, hoursOrDaysRaw, { unit = 'hours' } = {}) {
   const eid = parseInt(entryId, 10);
   const uid = parseInt(authorUserId, 10);
-  let days = parseInt(daysRaw, 10);
-  if (!Number.isFinite(days) || days < 1) days = 1;
-  if (days > 30) days = 30;
+  let hours = parseInt(hoursOrDaysRaw, 10);
+  if (String(unit || 'hours').toLowerCase() === 'days') {
+    hours = (Number.isFinite(hours) ? hours : 1) * 24;
+  }
+  if (!Number.isFinite(hours) || hours < 1) hours = 1;
+  if (hours > 24) hours = 24;
   if (!Number.isFinite(eid) || !Number.isFinite(uid)) {
     const err = new Error('Invalid entry');
     err.status = 400;
     throw err;
   }
   try {
+    // Cap snooze so splash never returns after the 24h reveal window.
     const [result] = await pool.execute(
       `UPDATE time_capsule_entries
-       SET splash_snooze_until = DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? DAY)
+       SET splash_snooze_until = LEAST(
+         DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? HOUR),
+         DATE_ADD(reveal_at, INTERVAL 24 HOUR)
+       )
        WHERE id = ? AND author_user_id = ? AND subject_type = ?
          AND splash_acknowledged_at IS NULL
+         AND reveal_at <= UTC_TIMESTAMP()
+         AND reveal_at > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR)
        LIMIT 1`,
-      [days, eid, uid, HIRING_INTERVIEW_CAPSULE_SUBJECT]
+      [hours, eid, uid, HIRING_INTERVIEW_CAPSULE_SUBJECT]
     );
     if (!result.affectedRows) {
-      const err = new Error('Reveal not found or already acknowledged');
+      const err = new Error('Reveal not found, already acknowledged, or outside the 24-hour window');
       err.status = 404;
       throw err;
     }
-    return { ok: true, snoozeDays: days };
+    return { ok: true, snoozeHours: hours };
   } catch (e) {
     if (e?.status) throw e;
     if (e?.code === 'ER_BAD_FIELD_ERROR' || e?.code === 'ER_NO_SUCH_TABLE') {
@@ -413,4 +427,152 @@ export async function submitInterviewSplashCapsule({
   } finally {
     conn.release();
   }
+}
+
+/**
+ * Applicant UI: list capsules for a hiring profile (available until candidate is hired).
+ * Due capsules can be opened; sealed ones show metadata only.
+ */
+export async function listTimeCapsulesForHiringProfile(hiringProfileId, { authorUserId = null } = {}) {
+  const pid = parseInt(hiringProfileId, 10);
+  if (!Number.isFinite(pid)) return [];
+  try {
+    const params = [HIRING_INTERVIEW_CAPSULE_SUBJECT, pid];
+    let authorClause = '';
+    if (authorUserId != null) {
+      authorClause = ' AND tce.author_user_id = ? ';
+      params.push(parseInt(authorUserId, 10));
+    }
+    const [rows] = await pool.execute(
+      `SELECT
+         tce.id,
+         tce.author_user_id,
+         tce.horizon_months,
+         tce.body_text,
+         tce.anchor_at,
+         tce.reveal_at,
+         tce.splash_acknowledged_at,
+         tce.splash_snooze_until,
+         tce.created_at,
+         u.first_name AS author_first_name,
+         u.last_name AS author_last_name,
+         CASE WHEN tce.reveal_at <= UTC_TIMESTAMP() THEN 1 ELSE 0 END AS is_due
+       FROM time_capsule_entries tce
+       INNER JOIN users u ON u.id = tce.author_user_id
+       WHERE tce.subject_type = ?
+         AND tce.subject_id = ?
+         ${authorClause}
+       ORDER BY tce.horizon_months ASC, tce.created_at DESC`,
+      params
+    );
+    return (rows || []).map((r) => ({
+      ...r,
+      is_due: !!(r.is_due === 1 || r.is_due === true),
+      body_text: (r.is_due === 1 || r.is_due === true) ? r.body_text : null
+    }));
+  } catch (e) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR' || e?.code === 'ER_NO_SUCH_TABLE') return [];
+    throw e;
+  }
+}
+
+/**
+ * Create sealed 6m/12m predictions from the applicant Interview tab (no attendance splash).
+ */
+export async function createTimeCapsulePredictions({
+  hiringProfileId,
+  authorUserId,
+  prediction6m,
+  prediction12m,
+  anchorAt = null
+}) {
+  const pid = parseInt(hiringProfileId, 10);
+  const uid = parseInt(authorUserId, 10);
+  const p6 = String(prediction6m || '').trim();
+  const p12 = String(prediction12m || '').trim();
+  if (!Number.isFinite(pid) || !Number.isFinite(uid)) {
+    const err = new Error('Invalid profile or author');
+    err.status = 400;
+    throw err;
+  }
+  if (!p6 || !p12) {
+    const err = new Error('prediction6m and prediction12m are required');
+    err.status = 400;
+    throw err;
+  }
+
+  let anchor = anchorAt;
+  if (!anchor) {
+    const [hpRows] = await pool.execute(
+      `SELECT interview_starts_at, created_at FROM hiring_profiles WHERE id = ? LIMIT 1`,
+      [pid]
+    );
+    anchor = hpRows[0]?.interview_starts_at || hpRows[0]?.created_at || new Date();
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(
+      `DELETE FROM time_capsule_entries
+       WHERE subject_type = ? AND subject_id = ? AND author_user_id = ?
+         AND horizon_months IN (6, 12)
+         AND reveal_at > UTC_TIMESTAMP()`,
+      [HIRING_INTERVIEW_CAPSULE_SUBJECT, pid, uid]
+    );
+    await conn.execute(
+      `INSERT INTO time_capsule_entries (
+         subject_type, subject_id, author_user_id, horizon_months, body_text, anchor_at, reveal_at
+       ) VALUES (?, ?, ?, 6, ?, ?, DATE_ADD(?, INTERVAL 6 MONTH))`,
+      [HIRING_INTERVIEW_CAPSULE_SUBJECT, pid, uid, p6, anchor, anchor]
+    );
+    await conn.execute(
+      `INSERT INTO time_capsule_entries (
+         subject_type, subject_id, author_user_id, horizon_months, body_text, anchor_at, reveal_at
+       ) VALUES (?, ?, ?, 12, ?, ?, DATE_ADD(?, INTERVAL 12 MONTH))`,
+      [HIRING_INTERVIEW_CAPSULE_SUBJECT, pid, uid, p12, anchor, anchor]
+    );
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+
+  return listTimeCapsulesForHiringProfile(pid, { authorUserId: uid });
+}
+
+/** Open a due capsule from the applicant UI (not limited to 24h splash window). */
+export async function openTimeCapsuleForApplicant(entryId, viewerUserId) {
+  const eid = parseInt(entryId, 10);
+  const uid = parseInt(viewerUserId, 10);
+  if (!Number.isFinite(eid) || !Number.isFinite(uid)) {
+    const err = new Error('Invalid entry');
+    err.status = 400;
+    throw err;
+  }
+  const [rows] = await pool.execute(
+    `SELECT tce.*, hp.candidate_user_id
+     FROM time_capsule_entries tce
+     INNER JOIN hiring_profiles hp ON hp.id = tce.subject_id AND tce.subject_type = ?
+     WHERE tce.id = ?
+       AND tce.reveal_at <= UTC_TIMESTAMP()
+     LIMIT 1`,
+    [HIRING_INTERVIEW_CAPSULE_SUBJECT, eid]
+  );
+  const row = rows[0];
+  if (!row) {
+    const err = new Error('Capsule not available yet');
+    err.status = 404;
+    throw err;
+  }
+  return {
+    id: row.id,
+    horizonMonths: row.horizon_months,
+    bodyText: String(row.body_text || '').trim(),
+    authorUserId: row.author_user_id,
+    revealAt: row.reveal_at,
+    anchorAt: row.anchor_at
+  };
 }

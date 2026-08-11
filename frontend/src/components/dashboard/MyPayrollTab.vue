@@ -889,14 +889,23 @@
         <div v-else class="muted" style="margin-top: 10px;">No time claims yet.</div>
       </PayrollHubSection>
 
-      <PayrollHubSection section-id="event_time" :open="false" :item-count="eventTimeSessions.length" count-label="sessions">
+      <PayrollHubSection section-id="event_time" :open="false" :item-count="visibleEventTimeSessions.length" count-label="sessions">
         <template #actions>
+          <label
+            v-if="eventTimeRejectedCount > 0"
+            class="pay-hub__inline-check"
+            style="margin-right: 8px;"
+            @click.stop
+          >
+            <input v-model="hideRejectedEventTimes" type="checkbox">
+            Hide rejected ({{ eventTimeRejectedCount }})
+          </label>
           <button type="button" class="pay-hub__btn pay-hub__btn--ghost pay-hub__btn--sm" @click.stop="loadEventTimeSessions" :disabled="eventTimeLoading">
             {{ eventTimeLoading ? 'Loading…' : 'Refresh' }}
           </button>
         </template>
         <div v-if="eventTimeError" class="warn-box" style="margin-top: 10px;">{{ eventTimeError }}</div>
-        <div v-if="eventTimeSessions.length" class="table-wrap" style="margin-top: 10px;">
+        <div v-if="visibleEventTimeSessions.length" class="table-wrap" style="margin-top: 10px;">
           <table class="table">
             <thead>
               <tr>
@@ -911,7 +920,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(s, idx) in eventTimeSessions" :key="`et-${idx}`">
+              <tr v-for="(s, idx) in visibleEventTimeSessions" :key="`et-${idx}`">
                 <td>{{ s.eventTitle || '—' }}</td>
                 <td>{{ fmtShortDateTime(s.clockInAt, s.eventTimezone) }}</td>
                 <td>
@@ -951,10 +960,16 @@
                   </div>
                   <!-- Send-back note from payroll — show when any claim is deferred -->
                   <div
-                    v-if="s.rejectionReason && (s.directClaimStatus === 'deferred' || s.indirectClaimStatus === 'deferred')"
+                    v-if="s.rejectionReason && eventTimeSessionDeferred(s)"
                     style="font-size:0.75rem;color:#92400e;background:#fef3c7;border-radius:4px;padding:3px 6px;margin-top:3px;max-width:220px;word-break:break-word;"
                   >
                     💬 <strong>Payroll note:</strong> {{ s.rejectionReason }}
+                  </div>
+                  <div
+                    v-else-if="s.rejectionReason && eventTimeSessionRejected(s)"
+                    style="font-size:0.75rem;color:#991b1b;background:#fee2e2;border-radius:4px;padding:3px 6px;margin-top:3px;max-width:220px;word-break:break-word;"
+                  >
+                    <strong>Rejected:</strong> {{ s.rejectionReason }}
                   </div>
                 </td>
                 <td class="right">
@@ -964,13 +979,17 @@
                     class="pay-hub__btn pay-hub__btn--ghost pay-hub__btn--sm"
                     @click="openEventTimeEdit(s)"
                   >
-                    {{ (s.directClaimStatus === 'deferred' || s.indirectClaimStatus === 'deferred') ? 'Adjust & resubmit' : 'Edit time' }}
+                    {{ eventTimeSessionDeferred(s) ? 'Adjust & resubmit' : 'Edit time' }}
                   </button>
+                  <span v-else-if="eventTimeSessionRejected(s)" class="muted small">Rejected</span>
                   <span v-else class="muted small">Locked</span>
                 </td>
               </tr>
             </tbody>
           </table>
+        </div>
+        <div v-else-if="eventTimeSessions.length && hideRejectedEventTimes" class="muted" style="margin-top: 10px;">
+          All visible event times are hidden. Uncheck “Hide rejected” to view rejected items.
         </div>
         <div v-else class="muted" style="margin-top: 10px;">No event time recorded yet.</div>
       </PayrollHubSection>
@@ -992,7 +1011,7 @@
         <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
           <!-- Deferred (sent back by payroll): show the payroll note prominently -->
           <div
-            v-if="eventTimeEditTarget && (eventTimeEditTarget.directClaimStatus === 'deferred' || eventTimeEditTarget.indirectClaimStatus === 'deferred') && eventTimeEditTarget.rejectionReason"
+            v-if="eventTimeEditTarget && eventTimeSessionDeferred(eventTimeEditTarget) && eventTimeEditTarget.rejectionReason"
             style="background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;padding:10px 14px;font-size:0.875rem;color:#78350f;"
           >
             <strong>💬 Payroll sent this back:</strong> {{ eventTimeEditTarget.rejectionReason }}<br>
@@ -2645,11 +2664,68 @@ const etLocalInputToIso = (value, timezone) =>
   zonedDatetimeLocalToIso(value, timezone || etSessionTz());
 
 const EVENT_TIME_LOCKED_STATUSES = new Set(['approved', 'posted', 'paid', 'finalized']);
+const HIDE_REJECTED_EVENT_TIME_KEY = 'payroll.eventTime.hideRejected';
+
+const eventTimeClaimStatuses = (s) =>
+  [s?.directClaimStatus, s?.indirectClaimStatus]
+    .map((st) => String(st || '').toLowerCase())
+    .filter(Boolean);
+
+const eventTimeSessionRejected = (s) => eventTimeClaimStatuses(s).includes('rejected');
+const eventTimeSessionDeferred = (s) => eventTimeClaimStatuses(s).includes('deferred');
+
 const eventTimeSessionEditable = (s) => {
   if (!s?.punchInId || !s.clockOutAt) return false;
-  const statuses = [s.directClaimStatus, s.indirectClaimStatus];
-  return !statuses.some((st) => EVENT_TIME_LOCKED_STATUSES.has(String(st || '').toLowerCase()));
+  const statuses = eventTimeClaimStatuses(s);
+  if (!statuses.length) return false;
+  if (statuses.some((st) => EVENT_TIME_LOCKED_STATUSES.has(st))) return false;
+  if (eventTimeSessionRejected(s)) return false;
+  return statuses.some((st) => st === 'submitted' || st === 'deferred');
 };
+
+const eventTimeEditBlockedMessage = (s) => {
+  if (eventTimeSessionRejected(s)) {
+    return 'This event time was rejected by payroll and cannot be edited. Contact payroll if you need it reopened.';
+  }
+  if (eventTimeClaimStatuses(s).some((st) => EVENT_TIME_LOCKED_STATUSES.has(st))) {
+    return 'This event time has already been approved by payroll and can no longer be edited.';
+  }
+  return 'This event time cannot be edited.';
+};
+
+const hideRejectedEventTimes = ref(false);
+
+const visibleEventTimeSessions = computed(() => {
+  const list = Array.isArray(eventTimeSessions.value) ? eventTimeSessions.value : [];
+  if (!hideRejectedEventTimes.value) return list;
+  return list.filter((s) => !eventTimeSessionRejected(s));
+});
+
+const eventTimeRejectedCount = computed(() =>
+  (eventTimeSessions.value || []).filter((s) => eventTimeSessionRejected(s)).length
+);
+
+const loadHideRejectedEventTimesPref = () => {
+  if (!userId.value) return;
+  try {
+    hideRejectedEventTimes.value = localStorage.getItem(`${HIDE_REJECTED_EVENT_TIME_KEY}:${userId.value}`) === '1';
+  } catch {
+    // ignore storage errors
+  }
+};
+
+watch(userId, () => {
+  loadHideRejectedEventTimesPref();
+}, { immediate: true });
+
+watch(hideRejectedEventTimes, (value) => {
+  if (!userId.value) return;
+  try {
+    localStorage.setItem(`${HIDE_REJECTED_EVENT_TIME_KEY}:${userId.value}`, value ? '1' : '0');
+  } catch {
+    // ignore storage errors
+  }
+});
 
 const eventTimeEditPreview = computed(() => {
   const clockInAt = etLocalInputToIso(eventTimeEditClockIn.value);
@@ -2670,7 +2746,7 @@ const eventTimeEditPreview = computed(() => {
 const openEventTimeEdit = (session) => {
   if (!session?.punchInId) return;
   if (!eventTimeSessionEditable(session)) {
-    eventTimeError.value = 'This event time has already been approved by payroll and can no longer be edited.';
+    eventTimeError.value = eventTimeEditBlockedMessage(session);
     return;
   }
   eventTimeEditTarget.value = session;
@@ -5824,6 +5900,16 @@ select {
   background: #fff;
   color: #374151;
   border: 1px solid #e5e7eb;
+}
+
+:deep(.pay-hub__inline-check) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
 }
 
 .modal-backdrop {

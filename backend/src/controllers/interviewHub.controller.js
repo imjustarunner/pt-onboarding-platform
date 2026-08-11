@@ -1,8 +1,13 @@
+import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import Agency from '../models/Agency.model.js';
 import InterviewHubTemplate from '../models/InterviewHubTemplate.model.js';
 import InterviewHubJobQuestionSet from '../models/InterviewHubJobQuestionSet.model.js';
 import HiringInterview from '../models/HiringInterview.model.js';
 import HiringInterviewArtifact from '../models/HiringInterviewArtifact.model.js';
+import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
+import VonageVideoService from '../services/vonageVideo.service.js';
+import EmailTemplateService from '../services/emailTemplate.service.js';
 import {
   ensureDefaultTemplate,
   buildInterviewFlow,
@@ -11,6 +16,27 @@ import {
   DEFAULT_SALUTATIONS,
   DEFAULT_ICEBREAKERS
 } from '../services/interviewHub.service.js';
+
+export async function buildInterviewEndedGuestPayload(agencyId) {
+  const agency = agencyId ? await Agency.findById(agencyId) : null;
+  const teamLabel = EmailTemplateService.getTerminologySettings(agency);
+  const orgName = String(agency?.name || agency?.official_name || 'our organization').trim();
+  const contactEmail = String(agency?.onboarding_team_email || agency?.people_ops_email || '').trim();
+  const ext = String(agency?.phone_extension || '').trim();
+  const rawPhone = String(agency?.phone_number || '').trim();
+  const phone = rawPhone ? (ext ? `${rawPhone} (ext. ${ext})` : rawPhone) : '';
+  return {
+    interviewGuestEnded: true,
+    headline: 'Your interview has ended',
+    message:
+      `Thank you for your time today — we truly appreciate you meeting with us. `
+      + `If you have any follow-up questions, please reach out to ${teamLabel} at ${orgName}.`,
+    peopleOpsLabel: teamLabel,
+    agencyName: orgName,
+    contactEmail: contactEmail || null,
+    contactPhone: phone || null
+  };
+}
 
 function parseIntParam(v) {
   const n = parseInt(v, 10);
@@ -409,6 +435,96 @@ export const finalizeInterviewHandler = async (req, res, next) => {
       transcriptSummary: req.body?.transcriptSummary ?? req.body?.transcript_summary
     });
     return res.json({ success: true, data: result });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+/**
+ * End interviewee access while interviewers remain in the room.
+ * Host can still leave later and end the meeting for everyone.
+ */
+export const endInterviewGuestAccess = async (req, res, next) => {
+  try {
+    const id = parseIntParam(req.params.id);
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'id required' });
+    }
+    const interview = await HiringInterview.findById(id);
+    if (!interview) {
+      return res.status(404).json({ success: false, message: 'Interview not found' });
+    }
+    await ensureAgencyAccess(req, interview.agency_id);
+
+    const endedAt = interview.guest_access_ended_at ? new Date(interview.guest_access_ended_at) : new Date();
+    const updated = interview.guest_access_ended_at
+      ? interview
+      : await HiringInterview.updateById(id, {
+          guestAccessEndedAt: endedAt,
+          guestAccessEndedByUserId: req.user?.id || null,
+          status: interview.status === 'cancelled' ? 'cancelled' : 'completed'
+        });
+
+    // Clear splash eligibility on the hiring profile (no more "Did you attend?" follow-up).
+    try {
+      if (interview.hiring_profile_id) {
+        await pool.execute(
+          `UPDATE hiring_profiles
+           SET interview_status = 'completed',
+               interview_updated_at = UTC_TIMESTAMP()
+           WHERE id = ?
+           LIMIT 1`,
+          [interview.hiring_profile_id]
+        );
+      } else if (interview.candidate_user_id) {
+        await pool.execute(
+          `UPDATE hiring_profiles
+           SET interview_status = 'completed',
+               interview_updated_at = UTC_TIMESTAMP()
+           WHERE id = (
+             SELECT id FROM (
+               SELECT id FROM hiring_profiles
+               WHERE candidate_user_id = ?
+               ORDER BY updated_at DESC, id DESC
+               LIMIT 1
+             ) latest_hp
+           )`,
+          [interview.candidate_user_id]
+        );
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') {
+        console.warn('[interviewHub] profile interview_status update failed', e?.message || e);
+      }
+    }
+
+    const guestPayload = await buildInterviewEndedGuestPayload(interview.agency_id);
+    let video = { ok: false, signaled: false, disconnected: 0 };
+    const eventId = interview.provider_schedule_event_id;
+    if (eventId) {
+      try {
+        const event = await ProviderScheduleEvent.findById(eventId);
+        const sessionId = String(event?.twilio_room_sid || '').trim();
+        if (sessionId) {
+          video = await VonageVideoService.endGuestInterviewAccess(sessionId, {
+            candidateUserId: interview.candidate_user_id,
+            details: guestPayload
+          });
+        }
+      } catch (e) {
+        console.warn('[interviewHub] guest video end failed', e?.message || e);
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        interview: updated,
+        guestAccessEndedAt: updated?.guest_access_ended_at || endedAt,
+        video,
+        ...guestPayload
+      }
+    });
   } catch (err) {
     return next(err);
   }

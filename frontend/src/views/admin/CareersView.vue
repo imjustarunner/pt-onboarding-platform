@@ -1302,7 +1302,7 @@ const openJobFile = async (row) => {
 
 const openApplicants = (row) => {
   router.push({
-    path: orgPath('/admin/hiring'),
+    path: orgPath('/admin/hiring/applicants'),
     query: { filterJobId: String(row.id) }
   });
 };

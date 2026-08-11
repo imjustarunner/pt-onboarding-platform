@@ -27,18 +27,13 @@ const horizonLabel = (m) => {
 const candidateName = (row) =>
   `${String(row?.candidate_first_name || '').trim()} ${String(row?.candidate_last_name || '').trim()}`.trim() || 'Applicant';
 
-const SNOOZE_DEFAULT_DAYS = 3;
+const SNOOZE_DEFAULT_HOURS = 1;
 
 async function loadQueue() {
   loading.value = true;
   err.value = '';
   openedPredictions.value = [];
   try {
-    const ir = await api.get('/hiring/me/pending-interview-splashes', { skipGlobalLoading: true });
-    if (Array.isArray(ir.data) && ir.data.length > 0) {
-      queue.value = [];
-      return;
-    }
     const r = await api.get('/hiring/me/pending-time-capsule-reveals', { skipGlobalLoading: true });
     queue.value = Array.isArray(r.data) ? r.data : [];
   } catch {
@@ -89,7 +84,7 @@ function snoozeWithReburyVideo() {
   err.value = '';
   const runSnooze = async () => {
     try {
-      await api.post(`/hiring/me/time-capsule-reveals/${current.value.id}/snooze`, { days: SNOOZE_DEFAULT_DAYS });
+      await api.post(`/hiring/me/time-capsule-reveals/${current.value.id}/snooze`, { hours: SNOOZE_DEFAULT_HOURS });
       await loadQueue();
     } catch (e) {
       err.value = e.response?.data?.error?.message || e.message || 'Could not snooze';
@@ -175,7 +170,7 @@ watch(
         <p v-if="opening" class="tcr-muted tcr-hint">Opening capsule…</p>
         <p v-else-if="saving" class="tcr-muted tcr-hint">Reburying capsule…</p>
         <p v-else class="tcr-muted tcr-hint">
-          Reveal later waits {{ SNOOZE_DEFAULT_DAYS }} days, then this splash returns.
+          Dismiss for {{ SNOOZE_DEFAULT_HOURS }} hour — splash can return for up to 24 hours after the reveal date, then it goes away. You can also open capsules from the applicant’s Interview tab.
         </p>
       </template>
 

@@ -254,7 +254,19 @@ export async function updateEventTimeSubmission({
 
   const pending = claims.filter((c) => ['submitted', 'deferred'].includes(String(c.status || '').toLowerCase()));
   if (!pending.length) {
-    return { error: { status: 409, message: 'This time has already been approved by payroll and can no longer be edited.' } };
+    const statuses = claims.map((c) => String(c.status || '').toLowerCase());
+    if (statuses.some((s) => s === 'rejected')) {
+      return {
+        error: {
+          status: 409,
+          message: 'This event time was rejected by payroll and cannot be edited. Contact payroll if you need it reopened.'
+        }
+      };
+    }
+    if (statuses.some((s) => ['approved', 'posted', 'paid', 'finalized'].includes(s))) {
+      return { error: { status: 409, message: 'This time has already been approved by payroll and can no longer be edited.' } };
+    }
+    return { error: { status: 409, message: 'This event time cannot be edited in its current status.' } };
   }
 
   // Ownership guard: when an employee edits their own time, every pending claim

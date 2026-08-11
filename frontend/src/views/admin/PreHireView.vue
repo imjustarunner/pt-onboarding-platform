@@ -553,7 +553,7 @@ const effectiveSlug = computed(() => {
   return String(agency?.portal_url || agency?.portalUrl || agency?.slug || '').trim().toLowerCase() || '';
 });
 
-const applicantsRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/hiring` : '/admin/hiring');
+const applicantsRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/hiring/applicants` : '/admin/hiring/applicants');
 const onboardingRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/onboarding` : '/admin/onboarding');
 const settingsRoute = computed(() => {
   const query = 'category=workflow&item=hiring-prehire';

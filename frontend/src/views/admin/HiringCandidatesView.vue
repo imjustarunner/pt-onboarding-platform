@@ -3,7 +3,7 @@
     <div class="header" data-tour="hiring-header">
       <div>
         <h2 data-tour="hiring-title">Applicants</h2>
-        <div class="subtle">Prospective candidates (internal)</div>
+        <div class="subtle">Review, sort, and move candidates through hiring</div>
       </div>
       <div class="header-actions" data-tour="hiring-actions">
         <div v-if="canChooseAgency" class="agency-picker" data-tour="hiring-agency-picker">
@@ -14,17 +14,8 @@
             </option>
           </select>
         </div>
-        <button class="btn btn-secondary" @click="router.push(orgPath('/admin/pre-hire'))">Pre-Hire</button>
-        <button class="btn btn-secondary" @click="router.push(orgPath('/admin/onboarding'))">Onboarding</button>
+        <button class="btn btn-secondary" @click="router.push(orgPath('/admin/hiring'))">Dashboard</button>
         <button class="btn btn-secondary" @click="refresh" :disabled="loading">Refresh</button>
-        <button
-          class="btn btn-secondary"
-          @click="goToCareers"
-          :disabled="!effectiveAgencyId"
-          title="Manage careers and job postings"
-        >
-          Careers
-        </button>
         <button class="btn btn-primary" @click="openCreate">New applicant</button>
         <span v-if="newForMeInView > 0" class="pill unread-pill">
           {{ newForMeInView }} new for you
@@ -34,64 +25,48 @@
 
     <div v-if="error" class="error-banner">{{ error }}</div>
 
-    <div v-if="effectiveAgencyId && jobDescriptions.length" class="job-dash">
-      <button
-        type="button"
-        class="job-card"
-        :class="{ selected: filterJobId === '' }"
-        @click="selectJobFilter('')"
-      >
-        <div class="job-card-title">All roles</div>
-        <div class="job-card-meta">{{ allCandidates.length }} in view</div>
-        <div v-if="newForMeInView > 0" class="job-card-badge">{{ newForMeInView }} new for you</div>
-      </button>
-      <button
-        v-for="j in jobDescriptions"
-        :key="j.id"
-        type="button"
-        class="job-card"
-        :class="{ selected: String(filterJobId) === String(j.id) }"
-        @click="selectJobFilter(String(j.id))"
-      >
-        <div class="job-card-title">{{ j.title }}</div>
-        <div class="job-card-meta">{{ jobListedCount(j.id) }} in view</div>
-        <div v-if="newForMeJobCount(j.id) > 0" class="job-card-badge">{{ newForMeJobCount(j.id) }} new</div>
-      </button>
-      <button
-        v-if="otherJobCount > 0"
-        type="button"
-        class="job-card job-card--other"
-        :class="{ selected: filterJobId === '__other__' }"
-        @click="selectJobFilter('__other__')"
-      >
-        <div class="job-card-title">Other / no role</div>
-        <div class="job-card-meta">{{ otherJobCount }} in view</div>
-        <div v-if="otherJobNewCount > 0" class="job-card-badge">{{ otherJobNewCount }} new</div>
-      </button>
-    </div>
-
     <div class="grid" data-tour="hiring-grid">
       <div class="panel list-panel" data-tour="hiring-list-panel">
+        <div class="stage-tabs" data-tour="hiring-stage-tabs">
+          <button
+            v-for="s in stageTabs"
+            :key="s.key"
+            type="button"
+            class="stage-tab"
+            :class="{ active: listStageTab === s.key }"
+            @click="setListStageTab(s.key)"
+          >
+            {{ s.label }}
+            <span class="stage-count">{{ s.count }}</span>
+          </button>
+        </div>
+
         <div class="list-controls" data-tour="hiring-search">
-          <select v-model="stageFilter" class="input" @change="refresh" style="max-width: 180px;">
-            <option value="active">Applicants</option>
-            <option value="all">All stages</option>
-            <option value="hired">Hired</option>
-            <option value="not_hired">Not hired</option>
-          </select>
-          <select v-model="filterJobId" class="input" style="max-width: 200px;">
-            <option value="">All jobs (list)</option>
+          <select v-model="filterJobId" class="input" style="max-width: 180px;">
+            <option value="">All jobs</option>
             <option v-for="j in jobDescriptions" :key="j.id" :value="String(j.id)">{{ j.title }}</option>
             <option v-if="otherJobCount > 0" value="__other__">Other / no role</option>
           </select>
+          <input v-model="q" class="input" placeholder="Search name/email…" @keyup.enter="refresh" />
+          <button class="btn btn-secondary btn-sm" type="button" :class="{ active: showFilters }" @click="showFilters = !showFilters">
+            Filter
+          </button>
+          <button class="btn btn-secondary btn-sm" @click="refresh" :disabled="loading">Search</button>
+        </div>
+        <div v-if="showFilters" class="list-filters-extra">
           <label class="toggle-new">
             <input v-model="filterNewOnly" type="checkbox" />
             New for me only
           </label>
-          <input v-model="q" class="input" placeholder="Search name/email…" @keyup.enter="refresh" />
-          <button class="btn btn-secondary" @click="refresh" :disabled="loading">Search</button>
-          <button class="btn btn-secondary btn-sm" @click="setStageFilter('active')" :disabled="stageFilter === 'active'">Applicants</button>
-          <button class="btn btn-secondary btn-sm" @click="setStageFilter('not_hired')" :disabled="stageFilter === 'not_hired'">Show not hired</button>
+          <button class="btn btn-secondary btn-sm" @click="setListStageTab('not_hired')" :disabled="listStageTab === 'not_hired'">
+            Show not hired
+          </button>
+          <button class="btn btn-secondary btn-sm" @click="setListStageTab('hired')" :disabled="listStageTab === 'hired'">
+            Show hired
+          </button>
+          <button class="btn btn-secondary btn-sm" type="button" @click="downloadApplicantsCsv">
+            Download CSV
+          </button>
         </div>
 
         <div v-if="loading" class="loading">Loading applicants…</div>
@@ -99,73 +74,96 @@
           <button
             v-for="c in filteredCandidates"
             :key="c.id"
-            class="list-item"
+            class="list-item modern-row"
             data-tour="hiring-candidate-row"
             :class="{ active: selectedId === c.id, 'list-item-duplicate': Number(c.duplicate_application_count || 0) > 1 }"
             @click="selectCandidate(c.id)"
           >
-            <div class="name">{{ c.first_name }} {{ c.last_name }}</div>
-            <div class="meta">
-              <span v-if="c.is_new_for_me" class="pill pill-new">New</span>
-              <span class="pill">{{ stageLabel(c) }}</span>
-              <span v-if="appliedAtLabel(c)" class="muted small applied-at">{{ appliedAtLabel(c) }}</span>
-              <span v-if="c.job_title" class="muted small">{{ c.job_title }}</span>
-              <span v-if="Number(c.duplicate_application_count || 0) > 1" class="pill pill-duplicate">Repeat applicant</span>
-              <span class="email">{{ c.personal_email || c.email }}</span>
+            <div class="row-avatar">{{ candidateInitials(c) }}</div>
+            <div class="row-body">
+              <div class="row-top">
+                <div class="name">{{ c.first_name }} {{ c.last_name }}</div>
+                <span class="pill" :class="stagePillClass(c)">{{ stageLabel(c) }}</span>
+              </div>
+              <div class="meta">
+                <span v-if="c.is_new_for_me" class="pill pill-new">New</span>
+                <span v-if="c.job_title" class="muted small">{{ c.job_title }}</span>
+                <span v-if="appliedAtLabel(c)" class="muted small applied-at">{{ appliedAtLabel(c) }}</span>
+                <span v-if="Number(c.duplicate_application_count || 0) > 1" class="pill pill-duplicate">Repeat</span>
+              </div>
             </div>
           </button>
 
           <div v-if="filteredCandidates.length === 0" class="empty">No applicants found.</div>
         </div>
-
-        <div v-if="!loading && candidatesInView.length > 0" class="report-section">
-          <div class="report-header">
-            <strong>Applicants by job</strong>
-            <button class="btn btn-secondary btn-sm" type="button" @click="downloadApplicantsCsv">
-              Download CSV
-            </button>
-          </div>
-          <div class="report-list">
-            <div v-for="g in applicantsByJob" :key="g.jobId || '_none'" class="report-row">
-              <span class="report-job">{{ g.jobTitle || 'No job' }}</span>
-              <span class="report-count">{{ g.count }}</span>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div class="panel detail-panel" data-tour="hiring-detail-panel">
-        <div v-if="!selectedId" class="empty">Select an applicant to view details.</div>
+        <div v-if="!selectedId" class="empty detail-empty">
+          <h3>Select an applicant</h3>
+          <p class="muted">Choose someone from the list to open their overview, resume, interviews, and notes.</p>
+        </div>
 
         <div v-else>
           <div v-if="detailLoading" class="loading">Loading profile…</div>
 
           <template v-else>
-            <div class="detail-header" data-tour="hiring-detail-header">
-              <div>
-                <div class="detail-title-row">
-                  <img v-if="candidatePhotoUrl" class="candidate-photo" :src="candidatePhotoUrl" alt="Candidate photo" />
-                  <h3 class="detail-name">{{ candidateName }}</h3>
-                </div>
-                <div class="detail-meta">
-                  <span class="pill">{{ detail.profile?.stage_label || stageLabel(detail.profile) }}</span>
-                  <span class="muted">{{ detail.user?.personal_email || detail.user?.email }}</span>
+            <div class="detail-header modern-detail-header" data-tour="hiring-detail-header">
+              <div class="detail-identity">
+                <img v-if="candidatePhotoUrl" class="candidate-photo" :src="candidatePhotoUrl" alt="Candidate photo" />
+                <div v-else class="candidate-photo avatar-fallback">{{ candidateInitials(detail.user || {}) }}</div>
+                <div>
+                  <div class="detail-title-row">
+                    <h3 class="detail-name">{{ candidateName }}</h3>
+                    <span class="pill" :class="stagePillClass(detail.profile)">{{ detail.profile?.stage_label || stageLabel(detail.profile) }}</span>
+                  </div>
+                  <div class="detail-role muted">
+                    {{ detail.jobDescription?.title || detail.profile?.applied_role || 'Applicant' }}
+                  </div>
+                  <div class="detail-meta contact-meta">
+                    <span v-if="detail.user?.personal_email || detail.user?.email">{{ detail.user?.personal_email || detail.user?.email }}</span>
+                    <span v-if="detail.user?.phone_number">{{ detail.user.phone_number }}</span>
+                  </div>
                 </div>
               </div>
               <div class="detail-actions" data-tour="hiring-detail-actions">
-                <button class="btn btn-secondary" @click="generatePreScreenReport" :disabled="generatingPreScreen || !selectedId">
-                  <span v-if="generatingPreScreen" class="spinner" aria-hidden="true"></span>
-                  {{ generatingPreScreen ? 'Generating…' : 'Generate Pre-Screen Report' }}
-                </button>
+                <div class="stage-move">
+                  <select
+                    class="input"
+                    :value="currentMoveStage"
+                    :disabled="stageSaving"
+                    @change="onMoveStageChange"
+                  >
+                    <option disabled value="">Move to…</option>
+                    <option value="applied">Applied</option>
+                    <option value="review">Review</option>
+                    <option value="interview">Interview</option>
+                    <option value="offered">Offered</option>
+                  </select>
+                </div>
                 <button class="btn btn-primary" @click="openMarkHiredModal" :disabled="!selectedId">
-                  Mark hired (start setup)
+                  Mark hired
                 </button>
-                <button class="btn btn-danger" @click="markNotHired" :disabled="markingNotHired || !selectedId">
-                  {{ markingNotHired ? 'Saving…' : 'Not hired' }}
-                </button>
-                <button v-if="canHardDeleteApplicant" class="btn btn-danger" @click="deleteApplicant" :disabled="deletingApplicant || !selectedId">
-                  {{ deletingApplicant ? 'Deleting…' : 'Delete' }}
-                </button>
+                <div class="more-actions">
+                  <button type="button" class="btn btn-secondary" @click="showMoreActions = !showMoreActions">···</button>
+                  <div v-if="showMoreActions" class="more-menu">
+                    <button type="button" @click="generatePreScreenReport(); showMoreActions = false" :disabled="generatingPreScreen">
+                      {{ generatingPreScreen ? 'Generating…' : 'Generate Pre-Screen' }}
+                    </button>
+                    <button type="button" @click="markNotHired(); showMoreActions = false" :disabled="markingNotHired">
+                      Not hired
+                    </button>
+                    <button
+                      v-if="canHardDeleteApplicant"
+                      type="button"
+                      class="danger"
+                      @click="deleteApplicant(); showMoreActions = false"
+                      :disabled="deletingApplicant"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -175,15 +173,40 @@
             </div>
 
             <div class="tabs" data-tour="hiring-detail-tabs">
-              <button class="tab" :class="{ active: tab === 'profile' }" @click="tab = 'profile'">Profile</button>
+              <button class="tab" :class="{ active: tab === 'overview' }" @click="tab = 'overview'">Overview</button>
               <button class="tab" :class="{ active: tab === 'resume' }" @click="tab = 'resume'">Resume</button>
-              <button class="tab" :class="{ active: tab === 'resumeSummary' }" @click="tab = 'resumeSummary'">Resume Summary</button>
-              <button class="tab" :class="{ active: tab === 'interview' }" @click="tab = 'interview'">Interview</button>
               <button class="tab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Notes</button>
-              <button class="tab" :class="{ active: tab === 'reviews' }" @click="tab = 'reviews'">Reviews</button>
               <button class="tab" :class="{ active: tab === 'tasks' }" @click="tab = 'tasks'">Tasks</button>
+              <button class="tab" :class="{ active: tab === 'interview' }" @click="tab = 'interview'">Interviews</button>
+              <button class="tab" :class="{ active: tab === 'reviews' }" @click="tab = 'reviews'">Reviews</button>
               <button class="tab" :class="{ active: tab === 'prescreen' }" @click="tab = 'prescreen'">Pre-Screen</button>
               <button class="tab" :class="{ active: tab === 'references' }" @click="openReferencesTab">References</button>
+              <button class="tab" :class="{ active: tab === 'resumeSummary' }" @click="tab = 'resumeSummary'">Summary</button>
+              <button class="tab" :class="{ active: tab === 'profile' }" @click="tab = 'profile'">Profile</button>
+            </div>
+
+            <!-- Overview -->
+            <div v-if="tab === 'overview'" class="tab-body">
+              <CandidateResumeWorkspace
+                variant="overview"
+                :resumes="resumes"
+                :loading="resumesLoading"
+                :uploading="resumeUploading"
+                :pasting="resumePasting"
+                :error="resumeError"
+                :notes="detail.notes || []"
+                :tasks="tasks || []"
+                :activity-items="candidateActivityItems"
+                :summary-bullets="quickResumeBullets"
+                :summary-error="resumeSummaryError"
+                :summary-generating="resumeSummaryGenerating"
+                :resolve-viewer-url="resolveResumeViewerUrl"
+                @upload="onResumeWorkspaceUpload"
+                @paste="onResumeWorkspacePaste"
+                @delete="deleteResume"
+                @goto-tab="(t) => { tab = t; }"
+                @generate-summary="generateResumeSummary"
+              />
             </div>
 
             <!-- Profile -->
@@ -287,11 +310,12 @@
                 :agency-id="effectiveAgencyId"
                 :assignees="assignees"
                 :job-description-id="detail.jobDescription?.id || detail.profile?.job_description_id || null"
+                :candidate-stage="detail.profile?.stage || ''"
               />
               <div class="legacy-interview" style="margin-top:18px;">
-                <h4 style="margin:0 0 8px;">Legacy splash / reference interview fields</h4>
+                <h4 style="margin:0 0 8px;">Legacy reference interview fields</h4>
                 <div class="muted small" style="margin-bottom:8px;">
-                  Profile-only schedule used for post-interview splash + reference forms (not a video meeting). Prefer Interview Hub above for live interviews.
+                  Profile-only schedule used for reference forms (not a video meeting). Prefer Interview Hub above for live interviews. Use End Interview in the live room to close candidate access.
                 </div>
                 <div class="interview-grid">
                   <label class="small">Start (local)</label>
@@ -863,7 +887,15 @@ const allCandidates = ref([]);
 const q = ref('');
 const filterJobId = ref('');
 const stageFilter = ref('active');
+const listStageTab = ref('all');
 const filterNewOnly = ref(false);
+const showFilters = ref(false);
+const showMoreActions = ref(false);
+const stageSaving = ref(false);
+const dashboardStats = ref({
+  stageCounts: {},
+  totalApplicants: 0
+});
 
 // Job descriptions (agency-scoped) — needed for job-dash counts
 const jobDescriptions = ref([]);
@@ -908,7 +940,58 @@ const detail = ref({
   latestPreScreen: null
 });
 
-const tab = ref('profile');
+const tab = ref('overview');
+
+const stageTabs = computed(() => {
+  const sc = dashboardStats.value?.stageCounts || {};
+  const applied = Number(sc.applied || 0);
+  const review = Number(sc.review || 0);
+  const interview = Number(sc.interview || 0);
+  const offered = Number(sc.offered || 0);
+  const total = Number(dashboardStats.value?.totalApplicants || applied + review + interview + offered + Number(sc.other || 0));
+  return [
+    { key: 'all', label: 'All Applicants', count: total },
+    { key: 'review', label: 'Review', count: review },
+    { key: 'interview', label: 'Interview', count: interview },
+    { key: 'offered', label: 'Offered', count: offered }
+  ];
+});
+
+const currentMoveStage = computed(() => {
+  const s = String(detail.value?.profile?.stage || 'applied').toLowerCase();
+  if (['applied', 'review', 'interview', 'offered'].includes(s)) return s;
+  return '';
+});
+
+const candidateActivityItems = computed(() => {
+  const items = [];
+  const profile = detail.value?.profile;
+  if (profile?.created_at || profile?.hiring_created_at) {
+    items.push({
+      title: 'Application submitted',
+      meta: formatActivityWhen(profile.created_at || profile.hiring_created_at)
+    });
+  }
+  if (profile?.stage && String(profile.stage).toLowerCase() !== 'applied') {
+    items.push({
+      title: `Moved to ${profile.stage_label || stageLabel(profile)}`,
+      meta: formatActivityWhen(profile.updated_at)
+    });
+  }
+  for (const n of (detail.value?.notes || []).slice(0, 3)) {
+    items.push({
+      title: `Note by ${[n.author_first_name, n.author_last_name].filter(Boolean).join(' ') || 'team'}`,
+      meta: formatActivityWhen(n.created_at || n.createdAt)
+    });
+  }
+  for (const rv of (detail.value?.reviews || []).slice(0, 2)) {
+    items.push({
+      title: `Review added (${rv.rating || '—'}★)`,
+      meta: formatActivityWhen(rv.created_at || rv.createdAt)
+    });
+  }
+  return items.slice(0, 6);
+});
 
 const agencyChoices = computed(() => {
   // Super admin: can browse all agencies. Others: only assigned agencies.
@@ -1019,7 +1102,40 @@ const stageLabel = (row) => {
   const s = String(row.stage || 'applied').toLowerCase();
   if (s === 'not_hired') return 'Not hired';
   if (s === 'hired') return 'Hired';
+  if (s === 'offered') return 'Offered';
+  if (s === 'interview') return 'Interview';
+  if (s === 'review') return 'Review';
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Applied';
+};
+
+const stagePillClass = (row) => {
+  const s = String(row?.stage || 'applied').toLowerCase();
+  if (s === 'review') return 'pill-review';
+  if (s === 'interview') return 'pill-interview';
+  if (s === 'offered') return 'pill-offered';
+  if (s === 'hired') return 'pill-hired';
+  if (s === 'not_hired') return 'pill-not-hired';
+  return 'pill-applied';
+};
+
+const candidateInitials = (row) => {
+  const a = String(row?.first_name || row?.firstName || '').trim().charAt(0);
+  const b = String(row?.last_name || row?.lastName || '').trim().charAt(0);
+  return `${a}${b}`.toUpperCase() || '?';
+};
+
+const formatActivityWhen = (raw) => {
+  if (!raw) return '';
+  try {
+    return new Date(raw).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  } catch {
+    return '';
+  }
 };
 
 const appliedAtLabel = (row) => {
@@ -1167,6 +1283,19 @@ const searchSuggestionsHtml = computed(() => {
   });
 });
 
+const loadDashboardStats = async () => {
+  if (!effectiveAgencyId.value) return;
+  try {
+    const r = await api.get('/hiring/dashboard', { params: { agencyId: effectiveAgencyId.value } });
+    dashboardStats.value = {
+      stageCounts: r.data?.stageCounts || {},
+      totalApplicants: r.data?.totalApplicants || 0
+    };
+  } catch {
+    // Non-blocking for the applicants list
+  }
+};
+
 const refresh = async () => {
   if (!effectiveAgencyId.value) {
     error.value = 'No agency selected. Please pick an agency in the header selector, then refresh.';
@@ -1185,6 +1314,7 @@ const refresh = async () => {
       }
     });
     allCandidates.value = r.data || [];
+    await loadDashboardStats();
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load applicants';
   } finally {
@@ -1197,6 +1327,37 @@ const setStageFilter = async (value) => {
   await refresh();
 };
 
+const setListStageTab = async (key) => {
+  const k = String(key || 'all');
+  listStageTab.value = k;
+  if (k === 'all') stageFilter.value = 'active';
+  else stageFilter.value = k;
+  await refresh();
+};
+
+const onMoveStageChange = async (e) => {
+  const next = String(e?.target?.value || '').trim().toLowerCase();
+  if (!next || !selectedId.value || !effectiveAgencyId.value) return;
+  if (next === String(detail.value?.profile?.stage || '').toLowerCase()) return;
+  stageSaving.value = true;
+  error.value = '';
+  try {
+    const r = await api.patch(
+      `/hiring/candidates/${selectedId.value}/stage`,
+      { stage: next, agencyId: effectiveAgencyId.value },
+      { params: { agencyId: effectiveAgencyId.value } }
+    );
+    if (r.data?.profile) {
+      detail.value = { ...detail.value, profile: r.data.profile };
+    }
+    await refresh();
+  } catch (err) {
+    error.value = err?.response?.data?.error?.message || err?.message || 'Failed to update stage';
+  } finally {
+    stageSaving.value = false;
+  }
+};
+
 const selectCandidate = async (id) => {
   if (!id) return;
   if (!effectiveAgencyId.value) {
@@ -1204,7 +1365,8 @@ const selectCandidate = async (id) => {
     return;
   }
   selectedId.value = id;
-  tab.value = 'profile';
+  tab.value = 'overview';
+  showMoreActions.value = false;
   referenceRequests.value = [];
   referenceActivity.value = [];
   promoteResult.value = null;
@@ -2257,6 +2419,25 @@ onMounted(async () => {
   if (route.query?.filterJobId) {
     filterJobId.value = String(route.query.filterJobId);
   }
+  if (route.query?.jobDescriptionId) {
+    filterJobId.value = String(route.query.jobDescriptionId);
+  }
+  if (route.query?.agencyId) {
+    const aid = parseInt(String(route.query.agencyId), 10);
+    if (aid && (agencyChoices.value || []).some((a) => Number(a?.id) === aid)) {
+      selectedAgencyId.value = String(aid);
+    }
+  }
+  if (route.query?.stage) {
+    const s = String(route.query.stage).toLowerCase();
+    if (['all', 'applied', 'review', 'interview', 'offered', 'hired', 'not_hired'].includes(s)) {
+      listStageTab.value = s === 'applied' ? 'all' : s;
+      stageFilter.value = s === 'all' ? 'active' : s;
+    }
+  }
+  if (route.query?.q) {
+    q.value = String(route.query.q);
+  }
   await loadJobDescriptions();
   await refresh();
 
@@ -2265,6 +2446,9 @@ onMounted(async () => {
     await selectCandidate(deepCandidateId);
     const nextQuery = { ...route.query };
     delete nextQuery.candidateId;
+    delete nextQuery.stage;
+    delete nextQuery.jobDescriptionId;
+    delete nextQuery.q;
     await router.replace({ query: nextQuery });
   }
 
@@ -2506,6 +2690,156 @@ onUnmounted(() => {
   flex-wrap: wrap;
   align-items: center;
 }
+.stage-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 8px;
+}
+.stage-tab {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.stage-tab:hover {
+  background: #f5f3ff;
+  color: #5b21b6;
+}
+.stage-tab.active {
+  color: #6d28d9;
+  background: #ede9fe;
+}
+.stage-count {
+  background: #e2e8f0;
+  color: #475569;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 11px;
+}
+.stage-tab.active .stage-count {
+  background: #ddd6fe;
+  color: #5b21b6;
+}
+.list-filters-extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: -2px 0 10px;
+}
+.list-controls .btn-sm.active {
+  outline: 2px solid #7c3aed;
+}
+.modern-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.row-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.row-body {
+  min-width: 0;
+  flex: 1;
+}
+.row-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+.detail-empty {
+  text-align: center;
+  padding: 48px 20px;
+}
+.modern-detail-header {
+  align-items: flex-start;
+}
+.detail-identity {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  min-width: 0;
+}
+.avatar-fallback {
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+}
+.detail-role {
+  margin-top: 2px;
+  font-size: 13px;
+}
+.contact-meta {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.stage-move .input {
+  min-width: 140px;
+  max-width: 160px;
+}
+.more-actions {
+  position: relative;
+}
+.more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  min-width: 180px;
+  z-index: 20;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+}
+.more-menu button {
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.more-menu button:hover {
+  background: #f8fafc;
+}
+.more-menu button.danger {
+  color: #b91c1c;
+}
+.pill-applied { background: #f1f5f9; color: #475569; }
+.pill-review { background: #ede9fe; color: #6d28d9; }
+.pill-interview { background: #ffedd5; color: #c2410c; }
+.pill-offered { background: #dbeafe; color: #1d4ed8; }
+.pill-hired { background: #dcfce7; color: #166534; }
+.pill-not-hired { background: #fee2e2; color: #991b1b; }
 .input, .textarea, select.input {
   width: 100%;
   padding: 10px 12px;
@@ -2559,8 +2893,9 @@ onUnmounted(() => {
   cursor: pointer;
 }
 .list-item.active {
-  border-color: #2563eb;
-  background: #eff6ff;
+  border-color: #8b5cf6;
+  background: #f5f3ff;
+  box-shadow: inset 3px 0 0 #7c3aed;
 }
 .list-item-duplicate {
   border-color: #dc2626;

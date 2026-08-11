@@ -224,6 +224,41 @@ async function loadEventStaffByEventIds(eventIds) {
   return out;
 }
 
+/** Latest open clock_in punch per user for an event (payroll source of truth). */
+async function loadOpenClockInsByUserId(eventId, userIds = []) {
+  const eid = parsePositiveInt(eventId);
+  const ids = [...new Set((userIds || []).map((id) => parsePositiveInt(id)).filter(Boolean))];
+  const out = new Map();
+  if (!eid || !ids.length) return out;
+  const placeholders = ids.map(() => '?').join(', ');
+  try {
+    const [rows] = await pool.execute(
+      `SELECT p.user_id, p.punched_at, p.id AS punch_id
+       FROM skill_builders_event_kiosk_punches p
+       INNER JOIN (
+         SELECT user_id, MAX(id) AS max_id
+         FROM skill_builders_event_kiosk_punches
+         WHERE company_event_id = ? AND user_id IN (${placeholders})
+         GROUP BY user_id
+       ) latest ON latest.max_id = p.id
+       WHERE p.punch_type = 'clock_in'`,
+      [eid, ...ids]
+    );
+    for (const r of rows || []) {
+      const uid = Number(r.user_id);
+      if (!uid) continue;
+      out.set(uid, {
+        clockedInAt: r.punched_at ? new Date(r.punched_at).toISOString() : null,
+        punchId: r.punch_id ? Number(r.punch_id) : null
+      });
+    }
+  } catch (err) {
+    if (err?.code === 'ER_NO_SUCH_TABLE') return out;
+    throw err;
+  }
+  return out;
+}
+
 async function loadEventStaff(eventId) {
   const eid = parsePositiveInt(eventId);
   if (!eid) return [];
@@ -276,10 +311,21 @@ async function syncEmployeeCheckin({ agencyId, eventId, userId, kioskDate, ip })
   if (punch.error && punch.error.status !== 409) {
     return { ok: false, error: punch.error };
   }
+  if (punch.error?.status === 409) {
+    const open = await loadOpenClockInsByUserId(eventId, [userId]);
+    const existing = open.get(Number(userId));
+    return {
+      ok: true,
+      punchId: existing?.punchId || null,
+      alreadyClockedIn: true,
+      clockedInAt: existing?.clockedInAt || null
+    };
+  }
   return {
     ok: true,
     punchId: punch.punchId || null,
-    alreadyClockedIn: punch.error?.status === 409
+    alreadyClockedIn: false,
+    clockedInAt: new Date().toISOString()
   };
 }
 
@@ -400,13 +446,23 @@ export const listSchoolEventsKioskStaff = async (req, res, next) => {
     if (!ev) return res.status(404).json({ error: { message: 'School event not found' } });
 
     const staffRows = await loadEventStaff(ev.id);
-    const staff = staffRows.map((u) => ({
-      id: Number(u.id),
-      firstName: u.first_name || '',
-      lastName: u.last_name || '',
-      displayName: `${u.first_name || ''} ${u.last_name || ''}`.trim(),
-      profilePhotoUrl: publicUploadsUrlFromStoredPath(u.profile_photo_path || null)
-    }));
+    const openClockIns = await loadOpenClockInsByUserId(
+      ev.id,
+      staffRows.map((u) => u.id)
+    );
+    const staff = staffRows.map((u) => {
+      const uid = Number(u.id);
+      const open = openClockIns.get(uid);
+      return {
+        id: uid,
+        firstName: u.first_name || '',
+        lastName: u.last_name || '',
+        displayName: `${u.first_name || ''} ${u.last_name || ''}`.trim(),
+        profilePhotoUrl: publicUploadsUrlFromStoredPath(u.profile_photo_path || null),
+        isClockedIn: !!open,
+        clockedInAt: open?.clockedInAt || null
+      };
+    });
 
     const day = eventAllowsPunchToday(ev);
     res.json({
@@ -469,7 +525,7 @@ export const schoolEventsKioskEmployeeCheckin = async (req, res, next) => {
     res.status(201).json({
       ok: true,
       userId,
-      checkedInAt: new Date().toISOString(),
+      checkedInAt: result.clockedInAt || new Date().toISOString(),
       punchId: result.punchId,
       alreadyClockedIn: !!result.alreadyClockedIn
     });
@@ -543,7 +599,7 @@ export const schoolEventsKioskEmployeeCheckinByPin = async (req, res, next) => {
       ok: true,
       userId: Number(user.id),
       displayName: `${user.first_name || ''} ${user.last_name || ''}`.trim(),
-      checkedInAt: new Date().toISOString(),
+      checkedInAt: result.clockedInAt || new Date().toISOString(),
       punchId: result.punchId,
       alreadyClockedIn: !!result.alreadyClockedIn
     });

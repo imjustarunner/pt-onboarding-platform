@@ -39,6 +39,8 @@ class PlannedOut {
       details: row.details,
       admin_comment: row.admin_comment,
       schedule_event_id: row.schedule_event_id,
+      schedule_event_start_at: row.schedule_event_start_at || null,
+      schedule_event_end_at: row.schedule_event_end_at || null,
       reviewed_by_user_id: row.reviewed_by_user_id,
       reviewed_at: row.reviewed_at,
       created_at: row.created_at,
@@ -88,12 +90,17 @@ class PlannedOut {
     const [rows] = await pool.execute(
       `SELECT po.*,
               po.status AS approval_status,
+              pse.start_at AS schedule_event_start_at,
+              pse.end_at AS schedule_event_end_at,
               ${USER_NAME_SQL} AS user_name,
               u.first_name AS user_first_name,
               u.last_name AS user_last_name,
               u.profile_photo_path AS profile_photo_url
        FROM planned_outs po
        JOIN users u ON u.id = po.user_id
+       LEFT JOIN provider_schedule_events pse
+         ON pse.id = po.schedule_event_id
+        AND UPPER(COALESCE(pse.status, 'ACTIVE')) <> 'CANCELLED'
        WHERE po.id = ?
        LIMIT 1`,
       [eid]
@@ -129,12 +136,17 @@ class PlannedOut {
     const [rows] = await pool.execute(
       `SELECT po.*,
               po.status AS approval_status,
+              pse.start_at AS schedule_event_start_at,
+              pse.end_at AS schedule_event_end_at,
               ${USER_NAME_SQL} AS user_name,
               u.first_name AS user_first_name,
               u.last_name AS user_last_name,
               u.profile_photo_path AS profile_photo_url
        FROM planned_outs po
        JOIN users u ON u.id = po.user_id
+       LEFT JOIN provider_schedule_events pse
+         ON pse.id = po.schedule_event_id
+        AND UPPER(COALESCE(pse.status, 'ACTIVE')) <> 'CANCELLED'
        WHERE po.agency_id = ?
          AND po.status IN (${placeholders})
          ${upcomingSql}

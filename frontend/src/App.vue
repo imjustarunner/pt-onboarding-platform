@@ -361,7 +361,7 @@
               <!-- Minimal top-nav for non-admin users with limited access -->
               <router-link
                 v-if="canSeeApplicantsTopNavLink"
-                :to="orgTo('/admin/hiring')"
+                :to="orgTo('/admin/hiring/applicants')"
                 @click="closeMobileMenu"
               >
                 Applicants
@@ -426,7 +426,8 @@
                     <span class="nav-dropdown-label">People Ops</span> <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="peopleOpsMenuOpen" class="nav-dropdown-menu">
-                    <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')" >Applicants</router-link>
+                    <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')">Dashboard</router-link>
+                    <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring/applicants')">Applicants</router-link>
                     <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/interview-hub')">Interview Hub</router-link>
                     <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/pre-hire')" >Pre-Hire</router-link>
                     <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/careers')" >Careers</router-link>
@@ -1367,7 +1368,7 @@
             </router-link>
             <router-link
               v-if="canSeeApplicantsTopNavLink"
-              :to="orgTo('/admin/hiring')"
+              :to="orgTo('/admin/hiring/applicants')"
               @click="closeMobileMenu"
               class="mobile-nav-link"
             >Applicants</router-link>
@@ -1464,7 +1465,8 @@
                   <span class="mobile-nav-group-caret" :class="{ open: mobilePeopleOpsExpanded }" aria-hidden="true">▸</span>
                 </button>
                 <template v-if="mobilePeopleOpsExpanded">
-                  <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Applicants</router-link>
+                  <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Dashboard</router-link>
+                  <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring/applicants')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Applicants</router-link>
                   <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/interview-hub')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Interview Hub</router-link>
                   <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/pre-hire')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Pre-Hire</router-link>
                   <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/careers')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Careers</router-link>
@@ -2093,7 +2095,6 @@
           ×
         </button>
       </div>
-      <InterviewCapsuleSplashModal v-if="isAuthenticated && hasCapability('canManageHiring')" />
       <TimeCapsuleRevealSplashModal v-if="isAuthenticated && hasCapability('canManageHiring')" />
       <ToolsAssignModal
         v-if="toolsAssignState"
@@ -2262,7 +2263,6 @@ import { usePresenceSessionStore } from './store/presenceSession';
 import { availabilityBandForPerson } from './utils/presenceStatus';
 import { getStatusPromptMode, subscribeStatusPrompt } from './utils/statusPromptBridge';
 import RegistrationPromoToastRail from './components/RegistrationPromoToastRail.vue';
-import InterviewCapsuleSplashModal from './components/hiring/InterviewCapsuleSplashModal.vue';
 import TimeCapsuleRevealSplashModal from './components/hiring/TimeCapsuleRevealSplashModal.vue';
 import PublicTranslateWidget from './components/public/PublicTranslateWidget.vue';
 import {
@@ -4652,7 +4652,7 @@ const goToPreHireFromToast = () => {
 
 const goToApplicantsFromToast = () => {
   applicantsToastVisible.value = false;
-  router.push({ path: orgTo('/admin/hiring') });
+  router.push({ path: orgTo('/admin/hiring/applicants') });
 };
 const MIN_PENDING_DATE = '2026-02-01';
 const fetchSchoolClientsPendingCount = async () => {

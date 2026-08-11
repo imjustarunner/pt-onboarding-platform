@@ -54,7 +54,8 @@ export function filterServiceTypesForUser(types, { isHourly, isSupervisor }) {
   const list = Array.isArray(types) ? types : [];
   return list.filter((t) => {
     const bucket = normalizePayBucket(t?.payBucket || t?.pay_bucket);
-    if (bucket === 'indirect') return !!isHourly;
+    const hasExplicitAssignment = t?.assignmentId != null || t?.assignment_id != null;
+    if (bucket === 'indirect') return !!isHourly || hasExplicitAssignment;
     if (bucket === 'support' || bucket === 'other_1') return true;
     if (bucket === 'supervision_note') return !!isSupervisor;
     return false;
@@ -84,12 +85,14 @@ export const listMyIndirectServiceTypes = async (req, res, next) => {
     const filtered = isAdminRole(req.user?.role)
       ? types
       : filterServiceTypesForUser(types, caps);
+    const showIndirectService = caps.isHourly
+      || filtered.some((t) => normalizePayBucket(t?.payBucket || t?.pay_bucket) === 'indirect');
     res.json({
       types: filtered,
       capabilities: {
         isHourly: caps.isHourly,
         isSupervisor: caps.isSupervisor,
-        showIndirectService: caps.isHourly,
+        showIndirectService,
         showSupportActivity: true,
         showSupervisionNote: caps.isSupervisor
       }

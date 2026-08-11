@@ -102,6 +102,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
+import { formatViewerTimeRangeMs } from '../../../utils/timezones.js';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null },
@@ -198,11 +199,8 @@ function allDayCoversLocalDay(startDate, endDate, ymd) {
 }
 
 function formatTimeRange(startMs, endMs) {
-  const opts = { hour: 'numeric', minute: '2-digit' };
-  const start = startMs != null ? new Date(startMs).toLocaleTimeString([], opts) : '';
-  const end = endMs != null ? new Date(endMs).toLocaleTimeString([], opts) : '';
-  if (start && end) return `${start} – ${end}`;
-  return start || end || 'TBD';
+  const range = formatViewerTimeRangeMs(startMs, endMs);
+  return range || 'TBD';
 }
 
 function statusForWindow(startMs, endMs, now = Date.now()) {

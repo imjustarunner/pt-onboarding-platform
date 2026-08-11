@@ -117,9 +117,18 @@
       </div>
 
       <div class="ilw-footer">
-        <button type="button" class="ilw-btn" :disabled="saving || finalizing" @click="saveArtifacts">Save progress</button>
-        <button type="button" class="ilw-btn primary" :disabled="saving || finalizing" @click="finalize">
-          {{ finalizing ? 'Finalizing…' : 'Finalize interview' }}
+        <button type="button" class="ilw-btn" :disabled="saving || finalizing || endingGuest" @click="saveArtifacts">Save progress</button>
+        <button
+          type="button"
+          class="ilw-btn danger"
+          :disabled="saving || finalizing || endingGuest || guestAccessEnded"
+          :title="guestAccessEnded ? 'Interviewee access already ended' : 'End interviewee access; interviewers can stay'"
+          @click="endGuestAccess"
+        >
+          {{ endingGuest ? 'Ending…' : (guestAccessEnded ? 'Interview ended for guest' : 'End Interview') }}
+        </button>
+        <button type="button" class="ilw-btn primary" :disabled="saving || finalizing || endingGuest" @click="finalize">
+          {{ finalizing ? 'Finalizing…' : 'Finalize scorecard' }}
         </button>
       </div>
     </template>
@@ -137,7 +146,7 @@ const props = defineProps({
   dark: { type: Boolean, default: true }
 });
 
-const emit = defineEmits(['finalized', 'loaded']);
+const emit = defineEmits(['finalized', 'loaded', 'guest-access-ended']);
 
 const authStore = useAuthStore();
 const tabs = [
@@ -150,6 +159,8 @@ const activeTab = ref('flow');
 const loading = ref(false);
 const saving = ref(false);
 const finalizing = ref(false);
+const endingGuest = ref(false);
+const guestAccessEnded = ref(false);
 const error = ref('');
 const interviewId = ref(null);
 const flowSections = ref([]);
@@ -213,6 +224,7 @@ async function load() {
     myNotes.value = notesMap[uid] || notesMap[authStore.user?.id] || '';
 
     teamChat.value = Array.isArray(data.artifact?.team_chat_json) ? data.artifact.team_chat_json : [];
+    guestAccessEnded.value = !!(data?.interview?.guest_access_ended_at);
     emit('loaded', data);
   } catch (e) {
     error.value = e.response?.data?.error?.message
@@ -379,6 +391,30 @@ async function finalize() {
   }
 }
 
+async function endGuestAccess() {
+  if (!interviewId.value || guestAccessEnded.value) return;
+  const ok = window.confirm(
+    'End interview access for the candidate? They will see a thank-you screen and cannot rejoin. Interviewers can stay in the room.'
+  );
+  if (!ok) return;
+  endingGuest.value = true;
+  error.value = '';
+  try {
+    await saveArtifacts();
+    const r = await api.post(
+      `/hiring/interview-hub/interviews/${interviewId.value}/end-guest-access`,
+      { agencyId: props.agencyId },
+      { params: agencyParam.value }
+    );
+    guestAccessEnded.value = true;
+    emit('guest-access-ended', r.data?.data || r.data || {});
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.response?.data?.message || 'Failed to end interview access';
+  } finally {
+    endingGuest.value = false;
+  }
+}
+
 function formatWhen(v) {
   if (!v) return '';
   try {
@@ -528,6 +564,15 @@ function formatWhen(v) {
   background: #7c3aed;
   border-color: #7c3aed;
   color: #fff;
+}
+.ilw-btn.danger {
+  background: #b91c1c;
+  border-color: #b91c1c;
+  color: #fff;
+}
+.ilw-btn.danger:disabled {
+  opacity: 0.65;
+  cursor: default;
 }
 .ilw-link {
   border: 0;

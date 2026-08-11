@@ -127,7 +127,9 @@
       </div>
 
       <template v-else>
-      <p class="muted" style="margin: 0 0 12px;">Tap your name to clock in.</p>
+      <p class="muted" style="margin: 0 0 12px;">
+        Tap your name to clock in{{ clockedInStaff.length ? ', or tap your name again to clock out.' : '.' }}
+      </p>
 
       <div class="staff-grid">
         <button
@@ -135,17 +137,25 @@
           :key="s.id"
           type="button"
           class="staff-chip"
-          @click="clockInUser(s)"
+          :class="{ 'is-clocked-in': s.isClockedIn, 'is-active': activeUser?.id === s.id }"
+          @click="selectStaffMember(s)"
         >
           <img v-if="s.profilePhotoUrl" :src="s.profilePhotoUrl" alt="" class="avatar" />
           <span v-else class="avatar fallback">{{ initials(s.displayName) }}</span>
           <span class="name">{{ s.displayName }}</span>
+          <span v-if="s.isClockedIn" class="clocked-badge">Clocked in</span>
+          <span v-if="s.isClockedIn && s.clockedInAt" class="clocked-at">{{ formatClockedInAt(s.clockedInAt) }}</span>
         </button>
       </div>
 
       <div v-if="activeUser" class="active-panel">
         <div class="checkout-bar">
-          <span>Clocked in: <strong>{{ activeUser.displayName }}</strong></span>
+          <span>
+            Clocked in: <strong>{{ activeUser.displayName }}</strong>
+            <span v-if="activeUser.clockedInAt" class="clocked-at-inline">
+              since {{ formatClockedInAt(activeUser.clockedInAt) }}
+            </span>
+          </span>
           <div class="checkout-actions">
             <button
               v-if="!hasPhoto"
@@ -288,6 +298,8 @@ const storageKey = computed(() => `schoolEventsKiosk.${slug.value || 'x'}`);
 
 const punchAllowedOnSelectedEvent = computed(() => !!selectedMeta.value?.punchAllowedToday);
 
+const clockedInStaff = computed(() => staff.value.filter((s) => s.isClockedIn));
+
 const displayedEvents = computed(() => {
   let list = events.value;
   if (agendaMode.value && showUpcomingAgenda.value) {
@@ -375,6 +387,44 @@ function formatEventStatus(e) {
 
 function assignedStaffLabel(e) {
   return (e.assignedStaff || []).map((s) => s.displayName).filter(Boolean).join(', ');
+}
+
+function formatClockedInAt(iso) {
+  if (!iso) return '';
+  try {
+    const tz = selectedMeta.value?.timezone || 'America/Denver';
+    const d = new Date(iso);
+    if (!Number.isFinite(d.getTime())) return '';
+    const time = d.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: tz
+    });
+    const abbr = timezoneAbbrevAt(iso, tz);
+    return abbr ? `${time} ${abbr}` : time;
+  } catch {
+    return '';
+  }
+}
+
+function applyStaffClockState(member, patch = {}) {
+  const idx = staff.value.findIndex((row) => Number(row.id) === Number(member.id));
+  const next = {
+    ...(idx >= 0 ? staff.value[idx] : member),
+    ...patch
+  };
+  if (idx >= 0) {
+    staff.value[idx] = next;
+  }
+  return next;
+}
+
+function setActiveStaffMember(member) {
+  activeUser.value = {
+    id: member.id,
+    displayName: member.displayName,
+    clockedInAt: member.clockedInAt || null
+  };
 }
 
 function resetPhotoUi() {
@@ -478,6 +528,19 @@ async function loadStaff() {
     if (selectedMeta.value && res.data?.punchAllowedToday === false) {
       selectedMeta.value = { ...selectedMeta.value, punchAllowedToday: false };
     }
+    if (activeUser.value?.id) {
+      const stillClockedIn = staff.value.find(
+        (s) => Number(s.id) === Number(activeUser.value.id) && s.isClockedIn
+      );
+      if (stillClockedIn) {
+        setActiveStaffMember(stillClockedIn);
+        await refreshPhotoStatus(stillClockedIn.id);
+      } else {
+        activeUser.value = null;
+        hasPhoto.value = false;
+        resetPhotoUi();
+      }
+    }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load staff';
   } finally {
@@ -501,6 +564,18 @@ async function refreshPhotoStatus(userId) {
   }
 }
 
+async function selectStaffMember(s) {
+  if (s.isClockedIn) {
+    error.value = '';
+    notice.value = '';
+    resetPhotoUi();
+    setActiveStaffMember(s);
+    await refreshPhotoStatus(s.id);
+    return;
+  }
+  await clockInUser(s);
+}
+
 async function clockInUser(s) {
   try {
     busy.value = true;
@@ -512,10 +587,15 @@ async function clockInUser(s) {
       { userId: s.id },
       { headers: authHeaders(), skipAuthRedirect: true, skipGlobalLoading: true }
     );
-    activeUser.value = { id: s.id, displayName: s.displayName };
+    const clockedInAt = res.data?.checkedInAt || new Date().toISOString();
+    const updated = applyStaffClockState(s, {
+      isClockedIn: true,
+      clockedInAt
+    });
+    setActiveStaffMember(updated);
     notice.value = res.data?.alreadyClockedIn
-      ? `${s.displayName} was already clocked in.`
-      : `${s.displayName} clocked in.`;
+      ? `${s.displayName} was already clocked in at ${formatClockedInAt(clockedInAt)}.`
+      : `${s.displayName} clocked in at ${formatClockedInAt(clockedInAt)}.`;
     await refreshPhotoStatus(s.id);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Clock-in failed';
@@ -642,6 +722,7 @@ async function clockOut(extra = {}) {
     activeUser.value = null;
     hasPhoto.value = false;
     resetPhotoUi();
+    await loadStaff();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Clock-out failed';
     if (e?.response?.data?.error?.code === 'SCHOOL_EVENT_PHOTO_REQUIRED' && photoPhase.value !== 'checkout') {
@@ -914,6 +995,34 @@ h2, h3 {
   border-radius: 12px;
   background: #f8fafc;
   cursor: pointer;
+}
+.staff-chip.is-clocked-in {
+  background: #ecfdf5;
+  border-color: #5eead4;
+}
+.staff-chip.is-active {
+  box-shadow: 0 0 0 2px #0f766e;
+}
+.clocked-badge {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #0f766e;
+  background: #ccfbf1;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+}
+.clocked-at,
+.clocked-at-inline {
+  font-size: 0.78rem;
+  color: #0f766e;
+  font-weight: 600;
+}
+.clocked-at-inline {
+  display: block;
+  margin-top: 0.15rem;
+  color: #047857;
 }
 .avatar {
   width: 48px;

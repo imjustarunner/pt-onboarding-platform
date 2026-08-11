@@ -30,7 +30,7 @@
             <div>
               <div class="briefing-eyebrow">{{ tenantContextLabel }}</div>
               <h1 id="provider-briefing-title">Welcome back, {{ firstName }}</h1>
-              <p>Here’s what needs your attention in {{ tenantAgency?.name || 'your organization' }} today.</p>
+              <p>Here’s your day in {{ tenantAgency?.name || 'your organization' }}.</p>
             </div>
             <time class="briefing-date" :datetime="todayIso">
               <span class="date-icon" aria-hidden="true">▦</span>
@@ -44,10 +44,6 @@
           </div>
 
           <template v-else>
-            <div v-if="loadError" class="briefing-warning" role="status">
-              Some live information could not be loaded. The available sections are shown below.
-            </div>
-
             <div class="briefing-layout">
               <div class="briefing-main">
                 <div v-if="sections.length" class="briefing-card-grid">
@@ -64,29 +60,32 @@
                         <div class="card-count"><strong>{{ section.count }}</strong> {{ section.countLabel }}</div>
                       </div>
                     </header>
-                    <button
-                      v-for="item in section.items.slice(0, 3)"
-                      :key="item.id"
-                      type="button"
-                      class="briefing-item"
-                      @click="navigate(section.to)"
-                    >
-                      <span class="item-dot" aria-hidden="true"></span>
-                      <span class="item-copy">
-                        <strong>{{ item.label }}</strong>
-                        <small v-if="item.meta">{{ item.meta }}</small>
-                      </span>
-                      <span v-if="item.badge" class="item-badge" :class="`item-badge--${item.badgeTone || 'neutral'}`">
-                        {{ item.badge }}
-                      </span>
-                    </button>
+                    <template v-if="section.items.length">
+                      <button
+                        v-for="item in section.items.slice(0, 3)"
+                        :key="item.id"
+                        type="button"
+                        class="briefing-item"
+                        @click="navigate(section.to)"
+                      >
+                        <span class="item-dot" aria-hidden="true"></span>
+                        <span class="item-copy">
+                          <strong>{{ item.label }}</strong>
+                          <small v-if="item.meta">{{ item.meta }}</small>
+                        </span>
+                        <span v-if="item.badge" class="item-badge" :class="`item-badge--${item.badgeTone || 'neutral'}`">
+                          {{ item.badge }}
+                        </span>
+                      </button>
+                    </template>
+                    <p v-else-if="section.key === 'calendar'" class="card-empty">Nothing scheduled on your calendar today.</p>
                     <button class="card-link" type="button" @click="navigate(section.to)">
                       {{ section.action }} <span aria-hidden="true">→</span>
                     </button>
                   </article>
                 </div>
 
-                <div v-else class="all-clear-card">
+                <div v-else-if="!hasCalendarSection" class="all-clear-card">
                   <span aria-hidden="true">✓</span>
                   <div><strong>You’re all caught up.</strong><small>No new items need your attention right now.</small></div>
                 </div>
@@ -148,6 +147,7 @@ import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath';
 import {
   activeProviderBriefingSections,
+  providerBriefingDisplaySections,
   briefingPathPrefix,
   isProviderLoginBriefingUser,
   parseBrandPalette,
@@ -167,7 +167,6 @@ const router = useRouter();
 
 const visible = ref(false);
 const loading = ref(false);
-const loadError = ref(false);
 const dontShowAgain = ref(false);
 const loginTenantAgency = ref(null);
 const tierLabel = ref('');
@@ -257,7 +256,8 @@ const prefix = computed(() => briefingPathPrefix({
   routeSlug: router.currentRoute.value.params?.organizationSlug
 }));
 
-const sections = computed(() => activeProviderBriefingSections(briefing.value));
+const sections = computed(() => providerBriefingDisplaySections(briefing.value));
+const hasCalendarSection = computed(() => !!briefing.value.calendar);
 
 const urgentCount = computed(() => {
   const overdueTasks = (briefing.value.tasks?.items || []).filter((item) => item.badgeTone === 'danger').length;
@@ -274,12 +274,23 @@ const urgentDestination = computed(() => {
   return `${prefix.value}/tasks`;
 });
 
-const glanceMetrics = computed(() => [
-  { value: tenantAgency.value?.name || '—', label: 'Tenant' },
-  { value: sections.value.reduce((sum, section) => sum + Number(section.count || 0), 0), label: 'Items needing attention' },
-  { value: Number(briefing.value.calendar?.count || 0), label: 'On your calendar today' },
-  { value: Number(briefing.value.messages?.count || 0), label: 'Unread messages' }
-]);
+const glanceMetrics = computed(() => {
+  const attentionCount = activeProviderBriefingSections(briefing.value)
+    .filter((section) => section.key !== 'calendar')
+    .reduce((sum, section) => sum + Number(section.count || 0), 0);
+  const metrics = [
+    { value: tenantAgency.value?.name || '—', label: 'Tenant' },
+    { value: Number(briefing.value.calendar?.count || 0), label: 'On your calendar today' }
+  ];
+  if (attentionCount > 0) {
+    metrics.push({ value: attentionCount, label: 'Items needing attention' });
+  }
+  const unreadMessages = Number(briefing.value.messages?.count || 0);
+  if (unreadMessages > 0) {
+    metrics.push({ value: unreadMessages, label: 'Unread messages' });
+  }
+  return metrics;
+});
 
 function storageKey() {
   return `pt.providerLoginBriefing.disabled:${userId.value || 0}`;
@@ -328,6 +339,31 @@ function unwrapList(data) {
   return [];
 }
 
+function isTodayScheduleItem(item) {
+  const ymd = item?.startDateYmd || item?.start_date_ymd;
+  if (ymd && /^\d{4}-\d{2}-\d{2}$/.test(String(ymd))) {
+    return String(ymd) === localYmd();
+  }
+  const startsAt = item?.startAt || item?.startsAt || item?.startDate;
+  const date = new Date(startsAt || 0);
+  if (Number.isNaN(date.getTime())) return false;
+  return localYmd(date) === localYmd();
+}
+
+function scheduleItemLabel(item) {
+  if (item?.title) return item.title;
+  if (item?.counterpartyName) {
+    const sessionType = String(item?.sessionType || '').trim().toLowerCase();
+    if (sessionType === 'group' || sessionType === 'triadic') {
+      return `Group supervision${item.counterpartyName ? ` · ${item.counterpartyName}` : ''}`;
+    }
+    return item.counterpartyName;
+  }
+  if (item?.buildingName) return item.buildingName;
+  if (item?.sessionTypeLabel) return item.sessionTypeLabel;
+  return 'Scheduled event';
+}
+
 function todayScheduleItems(data) {
   const rows = [
     ...(data?.officeEvents || []),
@@ -336,14 +372,14 @@ function todayScheduleItems(data) {
   ];
   return rows
     .map((item, index) => {
+      if (!isTodayScheduleItem(item)) return null;
       const startsAt = item.startAt || item.startsAt || item.startDate;
       const date = new Date(startsAt || 0);
-      if (Number.isNaN(date.getTime()) || localYmd(date) !== localYmd()) return null;
       return {
         id: `calendar-${item.id || index}`,
-        label: item.title || item.counterpartyName || item.buildingName || 'Scheduled event',
+        label: scheduleItemLabel(item),
         meta: formatTime(startsAt),
-        sortAt: date.getTime()
+        sortAt: Number.isFinite(date.getTime()) ? date.getTime() : 0
       };
     })
     .filter(Boolean)
@@ -353,18 +389,40 @@ function todayScheduleItems(data) {
 function todaySupervisionItems(rows = []) {
   return rows
     .map((item, index) => {
+      if (!isTodayScheduleItem(item)) return null;
       const startsAt = item.startAt || item.startsAt;
       const date = new Date(startsAt || 0);
-      if (Number.isNaN(date.getTime()) || localYmd(date) !== localYmd()) return null;
       return {
         id: `supervision-${item.id || index}`,
-        label: item.sessionTypeLabel || item.title || 'Supervision session',
+        label: item.sessionTypeLabel || scheduleItemLabel(item),
         meta: formatTime(startsAt),
-        sortAt: date.getTime()
+        sortAt: Number.isFinite(date.getTime()) ? date.getTime() : 0
       };
     })
     .filter(Boolean)
     .sort((a, b) => a.sortAt - b.sortAt);
+}
+
+function mergeTodayAgendaItems(scheduleData, supervisionPrompts = []) {
+  const merged = [...todayScheduleItems(scheduleData), ...todaySupervisionItems(supervisionPrompts)];
+  const seen = new Set();
+  return merged
+    .filter((item) => {
+      const key = `${item.sortAt}|${String(item.label || '').trim().toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => a.sortAt - b.sortAt);
+}
+
+async function safeRequest(requestPromise, fallback = null) {
+  try {
+    const response = await requestPromise;
+    return response?.data ?? fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function baseSection({ title, icon, tone, count, countLabel, items, action, to }) {
@@ -382,7 +440,6 @@ function mapNotificationItems(rows = []) {
 async function loadBriefing() {
   const generation = ++requestGeneration;
   loading.value = true;
-  loadError.value = false;
   tierLabel.value = '';
   payPeriodLabel.value = '';
   briefing.value = {
@@ -417,6 +474,11 @@ async function loadBriefing() {
     if (tenant?.id) agencyStore.setCurrentAgency(tenant);
 
     const agencyId = Number(tenant?.id || 0);
+    const pathPrefix = briefingPathPrefix({
+      agency: tenant,
+      hostPortalSlug: hostPortalSlug.value,
+      routeSlug: router.currentRoute.value.params?.organizationSlug
+    });
     const notificationParams = {
       isRead: false,
       isResolved: false,
@@ -424,21 +486,20 @@ async function loadBriefing() {
       ...(agencyId ? { agencyId } : {})
     };
 
-    const phase1 = await Promise.allSettled([
-      api.get('/notifications/counts', apiOpts(BRIEFING_PRIMARY_TIMEOUT_MS)),
-      api.get('/notifications', { params: notificationParams, ...apiOpts(BRIEFING_PRIMARY_TIMEOUT_MS) }),
+    const [notificationCounts, notificationPayload, messageData] = await Promise.all([
+      safeRequest(api.get('/notifications/counts', apiOpts(BRIEFING_PRIMARY_TIMEOUT_MS)), {}),
+      safeRequest(api.get('/notifications', { params: notificationParams, ...apiOpts(BRIEFING_PRIMARY_TIMEOUT_MS) }), []),
       agencyId
-        ? api.get('/messages/dashboard-summary', {
+        ? safeRequest(api.get('/messages/dashboard-summary', {
           params: { agencyId, allAgencies: 0 },
           ...apiOpts(BRIEFING_PRIMARY_TIMEOUT_MS)
-        })
-        : Promise.resolve({ data: { cards: { unread: 0 }, priority: [] } })
+        }), { cards: { unread: 0 }, priority: [] })
+        : { cards: { unread: 0 }, priority: [] }
     ]);
 
     if (generation !== requestGeneration) return;
 
-    const notificationCounts = phase1[0].status === 'fulfilled' ? (phase1[0].value?.data || {}) : {};
-    const notificationList = phase1[1].status === 'fulfilled' ? unwrapList(phase1[1].value?.data) : [];
+    const notificationList = unwrapList(notificationPayload);
     const unreadNotifications = notificationList.filter((item) => {
       const read = item._is_read_for_viewer ?? item.is_read;
       return !read && !item.is_resolved;
@@ -450,51 +511,52 @@ async function loadBriefing() {
       unreadNotifications.length
     );
 
-    briefing.value = {
-      ...briefing.value,
-      notifications: baseSection({
-        title: 'Notifications',
-        icon: '♢',
-        tone: 'slate',
-        count: tenantRows.length || notificationCount,
-        countLabel: tenantRows.length === 1 ? 'new' : 'new',
-        items: mapNotificationItems(tenantRows),
-        action: 'View all notifications',
-        to: `${prefix.value}/notifications`
-      }),
-      clientUpdates: baseSection({
-        title: 'Client & school updates',
-        icon: '▣',
-        tone: 'green',
-        count: schoolRows.length,
-        countLabel: schoolRows.length === 1 ? 'update' : 'updates',
-        items: mapNotificationItems(schoolRows),
-        action: 'View client updates',
-        to: `${prefix.value}/notifications`
-      })
-    };
-
-    const messageData = phase1[2].status === 'fulfilled' ? (phase1[2].value?.data || {}) : {};
     const messageCount = Number(messageData?.cards?.unread || 0);
+
     briefing.value = {
       ...briefing.value,
-      messages: baseSection({
-        title: 'Missed messages',
-        icon: '◌',
-        tone: 'blue',
-        count: messageCount,
-        countLabel: 'unread',
-        items: (messageData?.priority || []).slice(0, 3).map((item) => ({
-          id: item.id,
-          label: item.label || 'Conversation',
-          meta: [item.agencyName, relativeTime(item.occurredAt)].filter(Boolean).join(' · ')
-        })),
-        action: 'View all messages',
-        to: `${prefix.value}/messages`
-      })
+      notifications: tenantRows.length || notificationCount
+        ? baseSection({
+          title: 'Notifications',
+          icon: '♢',
+          tone: 'slate',
+          count: tenantRows.length || notificationCount,
+          countLabel: 'new',
+          items: mapNotificationItems(tenantRows),
+          action: 'View all notifications',
+          to: `${pathPrefix}/notifications`
+        })
+        : null,
+      clientUpdates: schoolRows.length
+        ? baseSection({
+          title: 'Client & school updates',
+          icon: '▣',
+          tone: 'green',
+          count: schoolRows.length,
+          countLabel: schoolRows.length === 1 ? 'update' : 'updates',
+          items: mapNotificationItems(schoolRows),
+          action: 'View client updates',
+          to: `${pathPrefix}/notifications`
+        })
+        : null,
+      messages: messageCount
+        ? baseSection({
+          title: 'Missed messages',
+          icon: '◌',
+          tone: 'blue',
+          count: messageCount,
+          countLabel: 'unread',
+          items: (messageData?.priority || []).slice(0, 3).map((item) => ({
+            id: item.id,
+            label: item.label || 'Conversation',
+            meta: [item.agencyName, relativeTime(item.occurredAt)].filter(Boolean).join(' · ')
+          })),
+          action: 'View all messages',
+          to: `${pathPrefix}/messages`
+        })
+        : null
     };
 
-    loadError.value = phase1[0].status === 'rejected' && phase1[1].status === 'rejected';
     loading.value = false;
 
     const scheduleParams = {
@@ -503,43 +565,47 @@ async function loadBriefing() {
       ...(agencyId ? { agencyId } : {})
     };
 
-    const phase2 = await Promise.allSettled([
-      api.get('/tasks', { params: agencyId ? { agencyId } : {}, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }),
-      api.get(`/users/${userId.value}/schedule-summary`, { params: scheduleParams, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }),
-      api.get('/me/notes-to-sign/count', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)),
-      api.get('/support-tickets/mine', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)),
-      api.get('/supervision/my-prompts', {
+    const [
+      taskPayload,
+      schedulePayload,
+      notesPayload,
+      ticketPayload,
+      supervisionPayload,
+      yearUpdateStatus,
+      payrollSummary,
+      tierData
+    ] = await Promise.all([
+      safeRequest(api.get('/tasks', { params: agencyId ? { agencyId } : {}, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), []),
+      safeRequest(api.get(`/users/${userId.value}/schedule-summary`, { params: scheduleParams, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), {}),
+      safeRequest(api.get('/me/notes-to-sign/count', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), { count: 0 }),
+      safeRequest(api.get('/support-tickets/mine', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), []),
+      safeRequest(api.get('/supervision/my-prompts', {
         params: agencyId ? { agencyId } : {},
         ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)
-      }),
+      }), []),
       agencyId
-        ? api.get('/provider-year-update/me/status', { params: { agencyId }, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) })
-        : Promise.resolve({ data: null }),
+        ? safeRequest(api.get('/provider-year-update/me/status', { params: { agencyId }, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), null)
+        : null,
       agencyId
-        ? api.get('/payroll/me/dashboard-summary', { params: { agencyId }, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) })
-        : Promise.resolve({ data: null }),
+        ? safeRequest(api.get('/payroll/me/dashboard-summary', { params: { agencyId }, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), null)
+        : null,
       agencyId
-        ? api.get('/payroll/me/current-tier', { params: { agencyId }, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) })
-        : Promise.resolve({ data: null })
+        ? safeRequest(api.get('/payroll/me/current-tier', { params: { agencyId }, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), null)
+        : null
     ]);
 
     if (generation !== requestGeneration) return;
 
-    const value = (index, fallback = null) => phase2[index].status === 'fulfilled'
-      ? phase2[index].value?.data
-      : fallback;
-
-    const taskRows = unwrapList(value(0, [])).filter((task) => {
+    const taskRows = unwrapList(taskPayload).filter((task) => {
       const status = String(task?.status || task?.task_status || 'pending').toLowerCase();
       return ['pending', 'in_progress', 'open'].includes(status);
     });
-    const calendarRows = todayScheduleItems(value(1, {}));
-    const notesCount = Number(value(2, {})?.count || 0);
-    const ticketRows = unwrapList(value(3, [])).filter((item) => String(item?.status || '').toLowerCase() !== 'closed');
-    const supervisionRows = todaySupervisionItems(Array.isArray(value(4, [])) ? value(4, []) : (value(4, {})?.items || []));
-    const yearUpdateStatus = value(5, null);
-    const payrollSummary = value(6, null);
-    const tierData = value(7, null);
+    const supervisionPromptRows = Array.isArray(supervisionPayload)
+      ? supervisionPayload
+      : (supervisionPayload?.items || []);
+    const calendarRows = mergeTodayAgendaItems(schedulePayload, supervisionPromptRows);
+    const notesCount = Number(notesPayload?.count || 0);
+    const ticketRows = unwrapList(ticketPayload).filter((item) => String(item?.status || '').toLowerCase() !== 'closed');
 
     const unpaid = payrollSummary?.unpaidNotes?.lastPayPeriod || null;
     const overdueNoteCount = Number(unpaid?.totalNotes ?? unpaid?.totalUnits ?? 0) || 0;
@@ -559,113 +625,122 @@ async function loadBriefing() {
 
     briefing.value = {
       ...briefing.value,
-      tasks: baseSection({
-        title: 'Assigned tasks',
-        icon: '☷',
-        tone: 'green',
-        count: taskRows.length,
-        countLabel: 'open',
-        items: taskRows.slice(0, 3).map((item) => {
-          const dueAt = item.due_date || item.dueDate;
-          const overdue = dueAt && new Date(dueAt).getTime() < Date.now();
-          return {
-            id: `task-${item.id}`,
-            label: item.title || 'Assigned task',
-            meta: dueAt ? `Due ${new Date(dueAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : '',
-            badge: overdue ? 'PAST DUE' : null,
-            badgeTone: overdue ? 'danger' : 'neutral'
-          };
-        }),
-        action: 'View all tasks',
-        to: `${prefix.value}/tasks`
-      }),
       calendar: baseSection({
         title: 'Today’s schedule',
         icon: '▦',
         tone: 'blue',
         count: calendarRows.length,
-        countLabel: 'scheduled',
+        countLabel: calendarRows.length === 1 ? 'scheduled' : 'scheduled',
         items: calendarRows,
         action: 'View full schedule',
-        to: `${prefix.value}/my-schedule`
+        to: `${pathPrefix}/my-schedule`
       }),
-      notesToSign: baseSection({
-        title: 'Notes to sign',
-        icon: '✎',
-        tone: 'orange',
-        count: notesCount,
-        countLabel: notesCount === 1 ? 'pending' : 'pending',
-        items: notesCount > 0
-          ? [{ id: 'notes-to-sign', label: `${notesCount} clinical note${notesCount === 1 ? '' : 's'} awaiting your signature`, meta: 'Open notes to sign' }]
-          : [],
-        action: 'Open notes to sign',
-        to: `${prefix.value}/notes-to-sign`
-      }),
-      tickets: baseSection({
-        title: 'Support tickets',
-        icon: '◇',
-        tone: 'slate',
-        count: ticketRows.length,
-        countLabel: 'open',
-        items: ticketRows.slice(0, 3).map((item) => ({
-          id: `ticket-${item.id}`,
-          label: item.subject || `Support ticket #${item.id}`,
-          meta: item.agency_name || '',
-          badge: String(item.priority || '').toUpperCase() || null,
-          badgeTone: String(item.priority || '').toLowerCase() === 'high' ? 'danger' : 'warning'
-        })),
-        action: 'View my tickets',
-        to: `${prefix.value}/tickets`
-      }),
-      supervision: baseSection({
-        title: 'Supervision today',
-        icon: '◎',
-        tone: 'blue',
-        count: supervisionRows.length,
-        countLabel: supervisionRows.length === 1 ? 'session' : 'sessions',
-        items: supervisionRows,
-        action: 'View supervision',
-        to: `${prefix.value}/my-schedule`
-      }),
-      yearUpdate: baseSection({
-        title: 'Year update',
-        icon: '↻',
-        tone: 'red',
-        count: yearUpdatePending ? 1 : 0,
-        countLabel: 'pending',
-        items: yearUpdatePending
-          ? [{ id: 'year-update', label: 'Complete your provider year update', meta: yearUpdateStatus?.schoolYear || '' }]
-          : [],
-        action: 'Continue year update',
-        to: `${prefix.value}/provider/year-update/flow`
-      }),
-      overdueNotes: baseSection({
-        title: 'Overdue documentation',
-        icon: '△',
-        tone: 'red',
-        count: overdueNoteCount,
-        countLabel: overdueNoteCount === 1 ? 'item' : 'items',
-        items: overdueNoteCount > 0
-          ? [{
+      tasks: taskRows.length
+        ? baseSection({
+          title: 'Assigned tasks',
+          icon: '☷',
+          tone: 'green',
+          count: taskRows.length,
+          countLabel: 'open',
+          items: taskRows.slice(0, 3).map((item) => {
+            const dueAt = item.due_date || item.dueDate;
+            const overdue = dueAt && new Date(dueAt).getTime() < Date.now();
+            return {
+              id: `task-${item.id}`,
+              label: item.title || 'Assigned task',
+              meta: dueAt ? `Due ${new Date(dueAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : '',
+              badge: overdue ? 'PAST DUE' : null,
+              badgeTone: overdue ? 'danger' : 'neutral'
+            };
+          }),
+          action: 'View all tasks',
+          to: `${pathPrefix}/tasks`
+        })
+        : null,
+      notesToSign: notesCount
+        ? baseSection({
+          title: 'Notes to sign',
+          icon: '✎',
+          tone: 'orange',
+          count: notesCount,
+          countLabel: 'pending',
+          items: [{
+            id: 'notes-to-sign',
+            label: `${notesCount} clinical note${notesCount === 1 ? '' : 's'} awaiting your signature`,
+            meta: 'Open notes to sign'
+          }],
+          action: 'Open notes to sign',
+          to: `${pathPrefix}/notes-to-sign`
+        })
+        : null,
+      tickets: ticketRows.length
+        ? baseSection({
+          title: 'Support tickets',
+          icon: '◇',
+          tone: 'slate',
+          count: ticketRows.length,
+          countLabel: 'open',
+          items: ticketRows.slice(0, 3).map((item) => ({
+            id: `ticket-${item.id}`,
+            label: item.subject || `Support ticket #${item.id}`,
+            meta: item.agency_name || '',
+            badge: String(item.priority || '').toUpperCase() || null,
+            badgeTone: String(item.priority || '').toLowerCase() === 'high' ? 'danger' : 'warning'
+          })),
+          action: 'View my tickets',
+          to: `${pathPrefix}/tickets`
+        })
+        : null,
+      yearUpdate: yearUpdatePending
+        ? baseSection({
+          title: 'Year update',
+          icon: '↻',
+          tone: 'red',
+          count: 1,
+          countLabel: 'pending',
+          items: [{ id: 'year-update', label: 'Complete your provider year update', meta: yearUpdateStatus?.schoolYear || '' }],
+          action: 'Continue year update',
+          to: `${pathPrefix}/provider/year-update/flow`
+        })
+        : null,
+      overdueNotes: overdueNoteCount
+        ? baseSection({
+          title: 'Overdue documentation',
+          icon: '△',
+          tone: 'red',
+          count: overdueNoteCount,
+          countLabel: overdueNoteCount === 1 ? 'item' : 'items',
+          items: [{
             id: 'overdue-notes',
             label: `${overdueNoteCount} unpaid note${overdueNoteCount === 1 ? '' : 's'} from last pay period`,
             meta: [noNoteCount ? `${noNoteCount} missing` : '', draftCount ? `${draftCount} draft` : ''].filter(Boolean).join(' · '),
             badge: 'OVERDUE',
             badgeTone: 'danger'
-          }]
-          : [],
-        action: 'Open payroll submit',
-        to: `${prefix.value}/payroll/submit`
-      })
+          }],
+          action: 'Open payroll submit',
+          to: `${pathPrefix}/payroll/submit`
+        })
+        : null
     };
-
-    if (phase2.some((request) => request.status === 'rejected')) {
-      loadError.value = true;
-    }
   } catch {
-    if (generation === requestGeneration) loadError.value = true;
+    /* Briefing should never block login — show whatever we have. */
   } finally {
     if (generation === requestGeneration) {
+      if (!briefing.value.calendar) {
+        briefing.value = {
+          ...briefing.value,
+          calendar: baseSection({
+            title: 'Today’s schedule',
+            icon: '▦',
+            tone: 'blue',
+            count: 0,
+            countLabel: 'scheduled',
+            items: [],
+            action: 'View full schedule',
+            to: `${prefix.value}/my-schedule`
+          })
+        };
+      }
       loading.value = false;
     }
   }
@@ -822,6 +897,7 @@ onBeforeUnmount(() => {
 .item-badge--danger { background: #fee2e2; color: #b91c1c; }
 .item-badge--warning { background: #ffedd5; color: #c2410c; }
 .card-link { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-top: auto; padding: 12px 0 0; border: 0; background: transparent; color: var(--card-color, var(--brief-primary)); font-size: 12px; font-weight: 800; cursor: pointer; }
+.card-empty { margin: 0 0 8px; color: #64748b; font-size: 12px; line-height: 1.45; }
 .all-clear-card { display: flex; align-items: center; gap: 14px; min-height: 120px; padding: 24px; border: 1px solid #dce2ea; border-radius: 12px; background: #fff; }
 .all-clear-card > span { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: #dcfce7; color: #166534; font-size: 22px; }
 .all-clear-card div { display: flex; flex-direction: column; gap: 4px; }

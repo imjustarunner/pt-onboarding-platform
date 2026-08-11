@@ -145,6 +145,74 @@ class VonageVideoService {
   }
 
   /**
+   * Signal guests that the interview ended, then force-disconnect matching identities
+   * (e.g. user-123). Hosts/interviewers are left connected.
+   */
+  static async endGuestInterviewAccess(sessionId, {
+    candidateUserId = null,
+    details = null
+  } = {}) {
+    const sid = String(sessionId || '').trim();
+    if (!sid || !this.isVideoConfigured()) {
+      return { ok: false, signaled: false, disconnected: 0 };
+    }
+    let signaled = false;
+    try {
+      await this.sendSignal(sid, {
+        type: 'interview_guest_ended',
+        data: JSON.stringify({
+          reason: 'interview_guest_access_ended',
+          at: new Date().toISOString(),
+          candidateUserId: candidateUserId != null ? Number(candidateUserId) : null,
+          ...(details || {})
+        })
+      });
+      signaled = true;
+    } catch (e) {
+      console.warn('[VonageVideo] sendSignal interview_guest_ended failed', e?.message || e);
+    }
+
+    const targetIdentity = candidateUserId != null ? `user-${Number(candidateUserId)}` : null;
+    let disconnected = 0;
+    if (targetIdentity) {
+      try {
+        const streams = await this.listStreams(sid);
+        const connectionIds = new Set();
+        for (const s of streams || []) {
+          const conn = s?.connection || {};
+          const cid = conn.id || s?.connectionId || conn.connectionId;
+          const dataRaw = conn.data || s?.connectionData || '';
+          let identity = '';
+          try {
+            const parsed = typeof dataRaw === 'string' && dataRaw.trim().startsWith('{')
+              ? JSON.parse(dataRaw)
+              : null;
+            identity = String(parsed?.identity || dataRaw || '').trim();
+          } catch {
+            identity = String(dataRaw || '').trim();
+          }
+          if (cid && (identity === targetIdentity || identity.includes(targetIdentity))) {
+            connectionIds.add(String(cid));
+          }
+        }
+        for (const cid of connectionIds) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            await this.disconnectClient(sid, cid);
+            disconnected += 1;
+          } catch (e) {
+            console.warn('[VonageVideo] disconnect guest failed', cid, e?.message || e);
+          }
+        }
+      } catch (e) {
+        console.warn('[VonageVideo] list/disconnect guest interview end failed', e?.message || e);
+      }
+    }
+
+    return { ok: true, signaled, disconnected };
+  }
+
+  /**
    * End a live room: signal meeting_ended, then disconnect every connection.
    */
   static async endLiveSession(sessionId, { reason = 'meeting_completed', details = null } = {}) {

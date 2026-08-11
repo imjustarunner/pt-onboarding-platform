@@ -6,6 +6,7 @@ import UserPresenceStatus from '../models/UserPresenceStatus.model.js';
 import {
   wallMysqlToUtcMysql,
   dateToMysqlUtcDateTime,
+  utcMysqlToIso,
   DEFAULT_SCHEDULE_TZ,
   isValidTimeZone
 } from '../utils/zonedWallTime.util.js';
@@ -17,6 +18,22 @@ function roleOf(req) {
 
 function isManager(req) {
   return ['super_admin', 'admin', 'support'].includes(roleOf(req));
+}
+
+/** API rows: UTC instants as ISO-Z so every client parses the same wall clock in the viewer's TZ. */
+function serializePlannedOutForApi(mapped) {
+  if (!mapped) return null;
+  const iso = (v) => utcMysqlToIso(v) || (v instanceof Date ? v.toISOString() : v);
+  return {
+    ...mapped,
+    start_at: iso(mapped.start_at),
+    end_at: iso(mapped.end_at),
+    created_at: iso(mapped.created_at),
+    updated_at: iso(mapped.updated_at),
+    reviewed_at: iso(mapped.reviewed_at),
+    schedule_event_start_at: iso(mapped.schedule_event_start_at),
+    schedule_event_end_at: iso(mapped.schedule_event_end_at)
+  };
 }
 
 async function ensureAgencyAccess(req, agencyId) {
@@ -183,7 +200,7 @@ export const listPlannedOuts = async (req, res, next) => {
       upcomingOnly,
       limit: Number(req.query.limit) || 100
     });
-    return res.json({ plannedOuts: items });
+    return res.json({ plannedOuts: items.map((row) => serializePlannedOutForApi(row)) });
   } catch (e) {
     return next(e);
   }
@@ -248,7 +265,7 @@ export const createPlannedOut = async (req, res, next) => {
       scheduleEventId: event?.id || null
     });
 
-    return res.status(201).json({ plannedOut: created });
+    return res.status(201).json({ plannedOut: serializePlannedOutForApi(created) });
   } catch (e) {
     return next(e);
   }
@@ -391,7 +408,7 @@ export const reviewPlannedOut = async (req, res, next) => {
       }
     }
 
-    return res.json({ plannedOut: updated });
+    return res.json({ plannedOut: serializePlannedOutForApi(updated) });
   } catch (e) {
     return next(e);
   }
@@ -469,7 +486,7 @@ export const updatePlannedOut = async (req, res, next) => {
       reviewedByUserId: null,
       reviewedAt: null
     });
-    return res.json({ plannedOut: updated });
+    return res.json({ plannedOut: serializePlannedOutForApi(updated) });
   } catch (e) {
     return next(e);
   }

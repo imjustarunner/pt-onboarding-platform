@@ -475,9 +475,16 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Agency documents — view, sign, and manage.'
   },
   {
-    title: 'Applicants',
+    title: 'Hiring Dashboard',
     section: 'People Ops › Hiring',
     path: '/admin/hiring',
+    keywords: ['hiring', 'dashboard', 'pipeline', 'hiring overview', 'recruiting'],
+    desc: 'Hiring overview with pipeline stats and upcoming interviews.'
+  },
+  {
+    title: 'Applicants',
+    section: 'People Ops › Hiring',
+    path: '/admin/hiring/applicants',
     keywords: ['applicants', 'hiring', 'applications', 'candidates', 'job applications'],
     desc: 'Hiring pipeline and applicant management.'
   },

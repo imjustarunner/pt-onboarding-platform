@@ -217,6 +217,16 @@ class HiringInterview {
       updates.push('public_join_url = ?');
       params.push(patch.publicJoinUrl != null ? String(patch.publicJoinUrl) : null);
     }
+    if (patch.guestAccessEndedAt !== undefined) {
+      updates.push('guest_access_ended_at = ?');
+      params.push(toSqlDatetime(patch.guestAccessEndedAt));
+    }
+    if (patch.guestAccessEndedByUserId !== undefined) {
+      updates.push('guest_access_ended_by_user_id = ?');
+      params.push(
+        patch.guestAccessEndedByUserId != null ? parseIntParam(patch.guestAccessEndedByUserId) : null
+      );
+    }
 
     if (!updates.length) return this.findById(id);
 

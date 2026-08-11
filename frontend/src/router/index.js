@@ -2402,6 +2402,12 @@ const routes = [
   },
   {
     path: '/:organizationSlug/admin/hiring',
+    name: 'OrganizationHiringDashboard',
+    component: () => import('../views/admin/HiringDashboardView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/hiring/applicants',
     name: 'OrganizationHiringCandidates',
     component: () => import('../views/admin/HiringCandidatesView.vue'),
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
@@ -3724,6 +3730,12 @@ const routes = [
   },
   {
     path: '/admin/hiring',
+    name: 'HiringDashboard',
+    component: () => import('../views/admin/HiringDashboardView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
+  },
+  {
+    path: '/admin/hiring/applicants',
     name: 'HiringCandidates',
     component: () => import('../views/admin/HiringCandidatesView.vue'),
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }

@@ -196,6 +196,22 @@ class PayrollUserIndirectServiceAssignment {
     return this.listForUser({ agencyId: aid, userId: uid });
   }
 
+  static async hasEnabledAssignmentsForTypes({ agencyId, userId, serviceTypeIds }) {
+    const aid = Number(agencyId);
+    const uid = Number(userId);
+    if (!aid || !uid) return false;
+    const enabledIds = new Set(
+      (await this.listForUser({ agencyId: aid, userId: uid }))
+        .filter((a) => a.isEnabled)
+        .map((a) => a.serviceTypeId)
+    );
+    const requested = (Array.isArray(serviceTypeIds) ? serviceTypeIds : [])
+      .map((n) => Number(n))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    if (!requested.length) return false;
+    return requested.every((id) => enabledIds.has(id));
+  }
+
   static async findRateOverride({ agencyId, userId, serviceTypeId }) {
     const aid = Number(agencyId);
     const uid = Number(userId);

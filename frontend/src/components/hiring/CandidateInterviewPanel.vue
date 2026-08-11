@@ -103,6 +103,59 @@
 
       <div class="legacy-divider muted small">Also keep the classic profile splash interview fields in sync when you schedule from Hub.</div>
     </div>
+
+    <div v-if="!isHired" class="cip-capsule">
+      <div class="cip-head">
+        <div>
+          <h3>Time capsule</h3>
+          <p class="muted small">
+            Seal 6- and 12-month predictions for this applicant. When due, a dismissable splash appears for up to 24 hours
+            (snooze 1 hour at a time), or open them here until they’re hired.
+          </p>
+        </div>
+      </div>
+      <div v-if="capsuleError" class="error-banner">{{ capsuleError }}</div>
+      <div class="cip-grid">
+        <label class="small">6-month prediction</label>
+        <textarea v-model="prediction6m" class="input" rows="2" placeholder="Where do you see this candidate in 6 months?" />
+        <label class="small">12-month prediction</label>
+        <textarea v-model="prediction12m" class="input" rows="2" placeholder="Where do you see this candidate in 12 months?" />
+      </div>
+      <div class="row-actions" style="margin-top:8px;">
+        <button
+          type="button"
+          class="btn btn-primary btn-sm"
+          :disabled="capsuleSaving || !prediction6m.trim() || !prediction12m.trim()"
+          @click="saveCapsule"
+        >
+          {{ capsuleSaving ? 'Saving…' : 'Seal time capsule' }}
+        </button>
+      </div>
+      <div v-if="capsuleLoading" class="loading" style="margin-top:10px;">Loading capsules…</div>
+      <ul v-else-if="capsules.length" class="cip-capsule-list">
+        <li v-for="c in capsules" :key="c.id">
+          <div>
+            <strong>{{ c.horizon_months }}-month</strong>
+            · {{ [c.author_first_name, c.author_last_name].filter(Boolean).join(' ') || 'Interviewer' }}
+            · {{ c.is_due ? 'Due' : `Opens ${formatWhen(c.reveal_at)}` }}
+          </div>
+          <button
+            v-if="c.is_due"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="capsuleOpeningId === c.id"
+            @click="openCapsule(c)"
+          >
+            {{ capsuleOpeningId === c.id ? 'Opening…' : 'Open' }}
+          </button>
+        </li>
+      </ul>
+      <div v-if="openedCapsuleBody" class="notes-block" style="margin-top:10px;">
+        <h5>Opened prediction</h5>
+        <pre class="pre">{{ openedCapsuleBody }}</pre>
+      </div>
+    </div>
+    <div v-else class="muted small">Time capsules are available on the applicant until they are hired.</div>
   </div>
 </template>
 
@@ -115,7 +168,8 @@ const props = defineProps({
   candidateUserId: { type: [Number, String], required: true },
   agencyId: { type: [Number, String], required: true },
   assignees: { type: Array, default: () => [] },
-  jobDescriptionId: { type: [Number, String], default: null }
+  jobDescriptionId: { type: [Number, String], default: null },
+  candidateStage: { type: String, default: '' }
 });
 
 const route = useRoute();
@@ -135,11 +189,21 @@ const jobQuestionSetId = ref('');
 const interviewerIds = ref([]);
 const interviewerPick = ref('');
 const sendInvites = ref(true);
+const capsules = ref([]);
+const capsuleLoading = ref(false);
+const capsuleSaving = ref(false);
+const capsuleError = ref('');
+const prediction6m = ref('');
+const prediction12m = ref('');
+const capsuleOpeningId = ref(null);
+const openedCapsuleBody = ref('');
 
 const hubPath = computed(() => {
   const slug = String(route.params?.organizationSlug || '').trim();
   return slug ? `/${slug}/admin/interview-hub` : '/admin/interview-hub';
 });
+
+const isHired = computed(() => String(props.candidateStage || '').toLowerCase() === 'hired');
 
 const selected = computed(() => interviews.value.find((i) => Number(i.id) === Number(selectedId.value)) || null);
 
@@ -153,10 +217,12 @@ const notesPreview = computed(() => {
 });
 
 onMounted(async () => {
-  await Promise.all([loadInterviews(), loadJobSets()]);
+  await Promise.all([loadInterviews(), loadJobSets(), loadCapsules()]);
 });
 
-watch(() => props.candidateUserId, loadInterviews);
+watch(() => props.candidateUserId, async () => {
+  await Promise.all([loadInterviews(), loadCapsules()]);
+});
 
 async function loadInterviews() {
   if (!props.candidateUserId || !props.agencyId) return;
@@ -265,6 +331,64 @@ async function copy(text) {
     /* ignore */
   }
 }
+
+async function loadCapsules() {
+  if (!props.candidateUserId || !props.agencyId || isHired.value) {
+    capsules.value = [];
+    return;
+  }
+  capsuleLoading.value = true;
+  capsuleError.value = '';
+  try {
+    const r = await api.get(`/hiring/candidates/${props.candidateUserId}/time-capsules`, {
+      params: { agencyId: props.agencyId }
+    });
+    capsules.value = r.data?.capsules || [];
+  } catch (e) {
+    capsules.value = [];
+    capsuleError.value = e.response?.data?.error?.message || '';
+  } finally {
+    capsuleLoading.value = false;
+  }
+}
+
+async function saveCapsule() {
+  capsuleSaving.value = true;
+  capsuleError.value = '';
+  try {
+    const r = await api.post(`/hiring/candidates/${props.candidateUserId}/time-capsules`, {
+      agencyId: props.agencyId,
+      prediction6m: prediction6m.value.trim(),
+      prediction12m: prediction12m.value.trim()
+    });
+    capsules.value = r.data?.capsules || [];
+    prediction6m.value = '';
+    prediction12m.value = '';
+  } catch (e) {
+    capsuleError.value = e.response?.data?.error?.message || e.message || 'Failed to seal capsule';
+  } finally {
+    capsuleSaving.value = false;
+  }
+}
+
+async function openCapsule(c) {
+  if (!c?.id) return;
+  capsuleOpeningId.value = c.id;
+  capsuleError.value = '';
+  openedCapsuleBody.value = '';
+  try {
+    const r = await api.post(
+      `/hiring/candidates/${props.candidateUserId}/time-capsules/${c.id}/open`,
+      {},
+      { params: { agencyId: props.agencyId } }
+    );
+    openedCapsuleBody.value = r.data?.bodyText || r.data?.body_text || '(empty)';
+  } catch (e) {
+    capsuleError.value = e.response?.data?.error?.message || e.message || 'Could not open capsule';
+  } finally {
+    capsuleOpeningId.value = null;
+  }
+}
 </script>
 
 <style scoped>
@@ -297,5 +421,38 @@ async function copy(text) {
 .pre { white-space: pre-wrap; font-size: 12px; background: #f9fafb; padding: 8px; border-radius: 8px; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .legacy-divider { margin-top: 12px; }
+.cip-capsule {
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+}
+.cip-capsule-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cip-capsule-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.error-banner {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
 .row-actions { display: flex; gap: 8px; margin-top: 10px; }
 </style>
