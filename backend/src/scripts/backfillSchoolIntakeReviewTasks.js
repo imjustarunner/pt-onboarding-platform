@@ -28,8 +28,18 @@ async function main() {
 
   if (dryRun) {
     for (const row of candidates) {
+      const submission = await IntakeSubmission.findById(row.submission_id);
+      const intakeData = submission?.intake_data || submission?.payload || {};
+      const { resolveSchoolIntakeInsuranceCategory } = await import('../services/schoolIntakeReviewTask.service.js');
+      const insuranceCategory = resolveSchoolIntakeInsuranceCategory({
+        client: {
+          insurance_type_key: row.insurance_type_key,
+          insurance_type_label: row.insurance_type_label
+        },
+        intakeData
+      });
       console.log(
-        `  would process client #${row.client_id} submission #${row.submission_id} (${row.school_name}) submitted ${row.submitted_at}`
+        `  would process client #${row.client_id} submission #${row.submission_id} (${row.school_name}) insurance=${insuranceCategory} submitted ${row.submitted_at}`
       );
     }
     console.log('Dry run — re-run with CONFIRM=1 to create tasks.');

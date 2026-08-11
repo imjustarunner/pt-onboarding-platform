@@ -1,7 +1,21 @@
 import pool from '../config/database.js';
 import { normalizeTaskCategories, resolveTaskCategories } from '../constants/taskCategories.js';
+import {
+  ENCRYPTED_TASK_DESCRIPTION_PLACEHOLDER,
+  encryptTaskDescriptionText,
+  resolveTaskDescriptionPlaintext
+} from '../services/taskDescriptionEncryption.service.js';
 
 class Task {
+  static hydrateSensitiveDescription(row) {
+    if (!row) return row;
+    const description = resolveTaskDescriptionPlaintext(row);
+    return { ...row, description };
+  }
+
+  static hydrateSensitiveDescriptions(rows) {
+    return (rows || []).map((row) => this.hydrateSensitiveDescription(row));
+  }
   static toMySQLDateTime(dueDate) {
     if (!dueDate) return null;
     try {
@@ -55,7 +69,8 @@ class Task {
       workTypeIconKey,
       isPrivate,
       projectId,
-      categories
+      categories,
+      encryptDescription
     } = taskData;
 
     console.log('Task.create: Creating task with data', {
@@ -76,11 +91,28 @@ class Task {
     const targetCountVal = targetCount != null ? Math.max(0, parseInt(targetCount, 10) || 0) : null;
     const categoriesVal = resolveTaskCategories(categories, title);
     const primaryCategory = categoriesVal[0] || 'general';
+
+    let descriptionVal = description;
+    let descriptionCiphertext = null;
+    let descriptionIv = null;
+    let descriptionAuthTag = null;
+    let descriptionEncryptionKeyId = null;
+    if (encryptDescription && descriptionVal) {
+      const encrypted = encryptTaskDescriptionText(descriptionVal);
+      if (encrypted) {
+        descriptionCiphertext = encrypted.ciphertextB64;
+        descriptionIv = encrypted.ivB64;
+        descriptionAuthTag = encrypted.authTagB64;
+        descriptionEncryptionKeyId = encrypted.keyId;
+        descriptionVal = ENCRYPTED_TASK_DESCRIPTION_PLACEHOLDER;
+      }
+    }
+
     const baseParams = [
       taskType,
       documentActionType ?? (taskType === 'document' ? 'signature' : null),
       title,
-      description,
+      descriptionVal,
       assignedToUserId ?? null,
       assignedToRole ?? null,
       assignedToAgencyId ?? null,
@@ -107,8 +139,9 @@ class Task {
           due_date, reference_id, metadata,
           task_list_id, project_id, urgency, is_recurring, recurring_rule, typical_day_of_week, typical_time,
           department_id, work_type_id, work_type_icon_key, category, categories, source_ref_type, source_ref_id, linked_schedule_event_id,
-          target_count, is_required, is_private
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          target_count, is_required, is_private,
+          description_ciphertext, description_iv, description_auth_tag, description_encryption_key_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           ...baseParams.slice(0, 12),
           projectId != null ? parseInt(projectId, 10) || null : null,
@@ -122,7 +155,11 @@ class Task {
           sourceRefId != null ? String(sourceRefId) : null,
           linkedScheduleEventId != null ? parseInt(linkedScheduleEventId, 10) || null : null,
           ...baseParams.slice(17),
-          isPrivateVal
+          isPrivateVal,
+          descriptionCiphertext,
+          descriptionIv,
+          descriptionAuthTag,
+          descriptionEncryptionKeyId
         ]
       );
     } catch (e) {
@@ -222,7 +259,7 @@ class Task {
     if (rows.length === 0) {
       console.warn(`Task.findById: No task found with id ${id}`);
     }
-    return rows[0] || null;
+    return this.hydrateSensitiveDescription(rows[0] || null);
   }
 
   static _appendHubFilters(query, params, filters = {}) {

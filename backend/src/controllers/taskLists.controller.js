@@ -387,7 +387,7 @@ export const listTasks = async (req, res, next) => {
        ORDER BY ${orderBy}`,
       params
     );
-    const tasks = (rows || []).map((r) => ({
+    const tasks = Task.hydrateSensitiveDescriptions(rows || []).map((r) => ({
       ...r,
       metadata: typeof r.metadata === 'string' ? (() => { try { return JSON.parse(r.metadata); } catch { return null; } })() : r.metadata
     }));

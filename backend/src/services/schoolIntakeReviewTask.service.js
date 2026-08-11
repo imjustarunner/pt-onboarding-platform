@@ -1,12 +1,12 @@
 /**
  * Creates shared-list tasks when a real ITSCO school digital packet intake
  * is submitted with PSC-17 questionnaire data (clinical summary for billing).
+ * Limited to Medicaid or unknown insurance. Description is encrypted at rest.
  */
 import pool from '../config/database.js';
 import Task from '../models/Task.model.js';
 import TaskList from '../models/TaskList.model.js';
 import TaskListMember from '../models/TaskListMember.model.js';
-import TaskLink from '../models/TaskLink.model.js';
 import Client from '../models/Client.model.js';
 import {
   isHogwartsDemoSchoolOrg,
@@ -18,7 +18,23 @@ const ITSCO_AGENCY_ID = Number(process.env.SCHOOL_INTAKE_REVIEW_AGENCY_ID || 2);
 const TASK_LIST_NAME = 'School Intake Review';
 const SOURCE_REF_TYPE = 'school_intake_review';
 const MIN_PSC_ANSWERS = Number(process.env.SCHOOL_INTAKE_REVIEW_MIN_PSC_ANSWERS || 10);
-const PUBLIC_BASE_URL = String(process.env.BACKEND_PUBLIC_URL || 'https://plottwisthq.com').replace(/\/$/, '');
+
+const MEDICAID_KEYWORDS = [
+  'medicaid',
+  'health first colorado',
+  'ccha',
+  'colorado community health alliance',
+  'chp+',
+  'child health plan',
+  'aetna better health',
+  'beacon health options',
+  'colorado access medicaid',
+  'denver health medicaid',
+  'rocky mountain health plans medicaid',
+  'intellisource',
+  'denver health advantage',
+  'colorado choice health plans'
+];
 
 function parseMemberUserIds() {
   const raw = process.env.SCHOOL_INTAKE_REVIEW_USER_IDS || '8,501';
@@ -59,6 +75,63 @@ function isExcludedDemoSchool(org) {
   const name = String(org.name || '').trim().toLowerCase();
   if (name.startsWith('demo ') || name === 'demo') return true;
   return false;
+}
+
+function isMedicaidInsurerName(name = '') {
+  const lower = String(name || '').trim().toLowerCase();
+  if (!lower) return false;
+  return MEDICAID_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+function normalizeIntakeSubmissionBag(intakeData) {
+  const responses = intakeData?.responses && typeof intakeData.responses === 'object'
+    ? intakeData.responses
+    : {};
+  const submission = responses?.submission && typeof responses.submission === 'object'
+    ? responses.submission
+    : (intakeData?.submission && typeof intakeData.submission === 'object' ? intakeData.submission : {});
+  return submission;
+}
+
+/**
+ * @returns {'medicaid'|'unknown'|'other'}
+ */
+export function resolveSchoolIntakeInsuranceCategory({ client = null, intakeData = null } = {}) {
+  const insuranceKey = String(client?.insurance_type_key || '').trim().toLowerCase();
+  if (insuranceKey === 'medicaid') return 'medicaid';
+  if (insuranceKey === 'unknown') return 'unknown';
+
+  const submission = normalizeIntakeSubmissionBag(intakeData);
+  const insInfo = submission?.insuranceInfo && typeof submission.insuranceInfo === 'object'
+    ? submission.insuranceInfo
+    : null;
+
+  const payerType = String(
+    submission?.registrationPayerType || submission?.registration_payer_type || ''
+  ).trim().toLowerCase();
+  if (payerType === 'medicaid') return 'medicaid';
+
+  if (insInfo?.primaryIsMedicaid) return 'medicaid';
+
+  const nestedPrimary = String(insInfo?.primary?.insurerName || '').trim();
+  if (isMedicaidInsurerName(nestedPrimary)) return 'medicaid';
+
+  const flatPrimary = String(
+    submission?.primary_insurance || submission?.primaryInsurance || ''
+  ).trim();
+  if (isMedicaidInsurerName(flatPrimary)) return 'medicaid';
+
+  if (!nestedPrimary && !flatPrimary) return 'unknown';
+
+  const combined = (nestedPrimary || flatPrimary).toLowerCase();
+  if (combined === 'unknown' || combined.includes('unknown insurance')) return 'unknown';
+  if (combined === 'other (not listed)' || combined === 'other not listed') return 'unknown';
+
+  return 'other';
+}
+
+export function isEligibleSchoolIntakeInsuranceCategory(category) {
+  return category === 'medicaid' || category === 'unknown';
 }
 
 async function findTaskBySource(submissionId, clientId) {
@@ -105,8 +178,19 @@ function formatDob(value) {
   return d.toISOString().slice(0, 10);
 }
 
-function buildClientChartUrl(clientId) {
-  return `${PUBLIC_BASE_URL}/itsco/admin/clients/${Number(clientId)}?tab=clinical`;
+function formatInsuranceLabel(category, { client, intakeData } = {}) {
+  if (category === 'medicaid') return 'Medicaid';
+  if (category === 'unknown') return 'Unknown';
+  const submission = normalizeIntakeSubmissionBag(intakeData);
+  const insInfo = submission?.insuranceInfo;
+  const name = String(
+    insInfo?.primary?.insurerName
+    || submission?.primary_insurance
+    || client?.insurance_type_label
+    || client?.primary_insurer_name
+    || 'Other'
+  ).trim();
+  return name || 'Other';
 }
 
 /**
@@ -136,11 +220,13 @@ export async function maybeCreateSchoolIntakeReviewTask({
     return { created: false, taskId: null, reason: `insufficient_psc_${pscCount}` };
   }
 
-  const existingTaskId = await findTaskBySource(sid, cid);
-  if (existingTaskId) return { created: false, taskId: existingTaskId, reason: 'already_exists' };
-
   const client = await Client.findById(cid, { includeSensitive: true });
   if (!client) return { created: false, taskId: null, reason: 'client_not_found' };
+
+  const insuranceCategory = resolveSchoolIntakeInsuranceCategory({ client, intakeData });
+  if (!isEligibleSchoolIntakeInsuranceCategory(insuranceCategory)) {
+    return { created: false, taskId: null, reason: `insurance_${insuranceCategory}` };
+  }
 
   const agencyId = Number(client.agency_id || link?.agency_id || 0);
   if (agencyId !== ITSCO_AGENCY_ID) {
@@ -160,6 +246,9 @@ export async function maybeCreateSchoolIntakeReviewTask({
     return { created: false, taskId: null, reason: 'demo_school' };
   }
 
+  const existingTaskId = await findTaskBySource(sid, cid);
+  if (existingTaskId) return { created: false, taskId: existingTaskId, reason: 'already_exists' };
+
   const { buildClinicalSummaryText } = await import('../controllers/publicIntake.controller.js');
   const clinicalSummaryText = buildClinicalSummaryText({ link, intakeData, clientIndex });
   const clientName =
@@ -170,6 +259,7 @@ export async function maybeCreateSchoolIntakeReviewTask({
   const submittedLabel = submittedAt
     ? new Date(submittedAt).toISOString()
     : new Date().toISOString();
+  const insuranceLabel = formatInsuranceLabel(insuranceCategory, { client, intakeData });
 
   const list = await ensureSchoolIntakeReviewTaskList({ actorUserId: actorUserId || 501 });
   const assigneeId = defaultAssigneeUserId();
@@ -180,21 +270,22 @@ export async function maybeCreateSchoolIntakeReviewTask({
     `Client: ${clientName}`,
     `DOB: ${formatDob(client.date_of_birth)}`,
     `School: ${schoolName}`,
+    `Insurance: ${insuranceLabel}`,
     `Submitted: ${submittedLabel}`,
     `Submission ID: ${sid}`,
     `Client ID: ${cid}`,
     `PSC-17 items answered: ${pscCount} / 17`,
     '',
     '--- Clinical summary (for note + claim) ---',
-    clinicalSummaryText || '(Clinical summary text unavailable — open client chart.)',
-    '',
-    `Open chart: ${buildClientChartUrl(cid)}`
+    clinicalSummaryText || '(Clinical summary text unavailable.)'
   ].join('\n');
 
   const task = await Task.create({
     taskType: 'custom',
     title,
     description,
+    encryptDescription: true,
+    isPrivate: true,
     assignedToUserId: assigneeId,
     assignedToAgencyId: ITSCO_AGENCY_ID,
     assignedByUserId: actorUserId || assigneeId,
@@ -209,15 +300,9 @@ export async function maybeCreateSchoolIntakeReviewTask({
       schoolOrganizationId: schoolOrgId || null,
       schoolName,
       pscAnswerCount: pscCount,
+      insuranceCategory,
       submittedAt: submittedLabel
     }
-  });
-
-  await TaskLink.create({
-    taskId: task.id,
-    url: buildClientChartUrl(cid),
-    label: 'Client clinical tab',
-    createdByUserId: actorUserId || assigneeId
   });
 
   notifyTaskAddedToList({
@@ -251,7 +336,10 @@ export async function listSchoolIntakeReviewBackfillCandidates({ since = null } 
         sch.name AS school_name,
         sch.slug AS school_slug,
         sch.portal_url AS school_portal_url,
-        sch.organization_type AS school_organization_type
+        sch.organization_type AS school_organization_type,
+        c.insurance_type_id,
+        it.insurance_key AS insurance_type_key,
+        it.label AS insurance_type_label
      FROM clients c
      JOIN agencies sch ON sch.id = c.organization_id
      JOIN intake_submissions s ON (
@@ -261,6 +349,7 @@ export async function listSchoolIntakeReviewBackfillCandidates({ since = null } 
        )
      )
      JOIN intake_links il ON il.id = s.intake_link_id
+     LEFT JOIN insurance_types it ON it.id = c.insurance_type_id
      WHERE c.agency_id = ?
        AND LOWER(COALESCE(c.client_type, '')) = 'school'
        AND UPPER(COALESCE(c.source, '')) = 'PUBLIC_INTAKE_LINK'
