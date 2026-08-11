@@ -4,6 +4,15 @@ function safeTruncate(s, maxLen) {
   return t.length > maxLen ? t.slice(0, maxLen) : t;
 }
 
+function isDocxMime(mt) {
+  return mt === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    || mt === 'application/docx';
+}
+
+function isLegacyDocMime(mt) {
+  return mt === 'application/msword';
+}
+
 export async function extractResumeTextFromUpload({ buffer, mimeType }) {
   const mt = String(mimeType || '').toLowerCase();
   if (!buffer || !(buffer instanceof Buffer) || buffer.length === 0) {
@@ -51,7 +60,35 @@ export async function extractResumeTextFromUpload({ buffer, mimeType }) {
     }
   }
 
-  // DOC/DOCX/images are not supported in the cheapest path.
+  if (isDocxMime(mt)) {
+    try {
+      const mammoth = await import('mammoth');
+      const extractRawText = mammoth?.default?.extractRawText || mammoth?.extractRawText;
+      if (typeof extractRawText !== 'function') {
+        return { status: 'failed', method: 'docx_text', text: '', errorText: 'mammoth extractRawText not found' };
+      }
+      const result = await extractRawText({ buffer });
+      const text = safeTruncate(result?.value || '', 200000);
+      return { status: text ? 'completed' : 'no_text', method: 'docx_text', text, errorText: null };
+    } catch (e) {
+      return {
+        status: 'failed',
+        method: 'docx_text',
+        text: '',
+        errorText: safeTruncate(e?.message || 'DOCX text extraction failed', 900)
+      };
+    }
+  }
+
+  if (isLegacyDocMime(mt)) {
+    return {
+      status: 'failed',
+      method: 'unsupported',
+      text: '',
+      errorText: 'Legacy .doc files are not supported. Please upload a PDF or DOCX, or paste the resume text.'
+    };
+  }
+
+  // Images/other are not supported in the cheapest path.
   return { status: 'failed', method: 'unsupported', text: '', errorText: `Unsupported resume type: ${mt || 'unknown'}` };
 }
-

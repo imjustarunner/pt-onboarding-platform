@@ -244,9 +244,18 @@ Connect `syncLifecycleItems(userId)` from `lifecycleSync.service.js` into these 
 
 ---
 
+## Future — People Ops records (post-hire)
+
+Hiring interview outcomes (scorecards, notes, team chat, transcripts) are stored today on `hiring_interviews` / `hiring_interview_artifacts` and shown on the Applicants **Interview** tab and Interview Hub.
+
+Longer term, this Lifecycle tab (or a sibling **PO** profile surface) should also host post-hire People Ops records such as reprimands, write-ups, and continuing employment notes — after hire, interview artifacts can deep-link here. Not built yet.
+
+---
+
 ## Out of Scope
 
 - Employee self-service lifecycle view
 - Replacing pre-hire/onboarding package checklists (`custom_checklist_items` + `tasks`)
 - Full IT deprovisioning automation
 - Leave of absence management (uses existing modal from the profile header)
+- Reprimands / disciplinary write-ups (deferred; see Future — People Ops records)

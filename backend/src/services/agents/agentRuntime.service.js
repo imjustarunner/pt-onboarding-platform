@@ -396,7 +396,7 @@ export async function runAgentAssist({ userId, prompt, context, agentConfig, all
   }
 
   // Fallback: Vertex model direct call (still Google-hosted, but not Agent Engine).
-  const modelId = String(process.env.VERTEX_AI_AGENT_MODEL || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
+  const modelId = String(process.env.VERTEX_AI_AGENT_MODEL || 'gemini-2.5-flash').trim() || 'gemini-2.5-flash';
   const txt = await callVertexModelJson({
     token,
     projectId,

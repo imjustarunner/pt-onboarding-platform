@@ -1706,6 +1706,73 @@ export const uploadCandidateResume = async (req, res, next) => {
   }
 };
 
+export const pasteCandidateResume = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.body?.agencyId || req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const resumeText = String(req.body?.resumeText || req.body?.text || '').trim().slice(0, 40000);
+    if (!resumeText) {
+      return res.status(400).json({ error: { message: 'resumeText is required' } });
+    }
+
+    const title = String(req.body?.title || 'Resume (pasted text)').trim() || 'Resume (pasted text)';
+    const noteText = req.body?.noteText !== undefined ? String(req.body.noteText || '').trim() : null;
+    const resumeBuffer = Buffer.from(resumeText, 'utf8');
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    const filename = `resume-${candidateUserId}-${uniqueSuffix}.txt`;
+
+    const storageResult = await StorageService.saveAdminDoc(resumeBuffer, filename, 'text/plain');
+
+    const [result] = await pool.execute(
+      `INSERT INTO user_admin_docs (
+        user_id, title, doc_type, note_text,
+        storage_path, original_name, mime_type,
+        created_by_user_id
+      ) VALUES (?, ?, 'resume', ?, ?, ?, ?, ?)`,
+      [
+        candidateUserId,
+        title,
+        noteText || null,
+        storageResult.relativePath,
+        'resume.txt',
+        'text/plain',
+        req.user.id
+      ]
+    );
+
+    try {
+      await HiringResumeParse.upsertByResumeDocId({
+        candidateUserId,
+        resumeDocId: result.insertId,
+        method: 'plain_text',
+        status: 'completed',
+        extractedText: resumeText,
+        extractedJson: null,
+        errorText: null,
+        createdByUserId: req.user.id
+      });
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT * FROM user_admin_docs WHERE id = ? LIMIT 1`,
+      [result.insertId]
+    );
+
+    res.status(201).json(rows[0] || null);
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const viewCandidateResume = async (req, res, next) => {
   try {
     const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);

@@ -427,6 +427,7 @@
                   </button>
                   <div v-if="peopleOpsMenuOpen" class="nav-dropdown-menu">
                     <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')" >Applicants</router-link>
+                    <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/interview-hub')">Interview Hub</router-link>
                     <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/pre-hire')" >Pre-Hire</router-link>
                     <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/careers')" >Careers</router-link>
                     <router-link v-if="hasPeopleOpsFeature && showOnDemandLink && !isSscSstcTenant" :to="orgTo('/my-learning')" >My Learning</router-link>
@@ -1464,6 +1465,7 @@
                 </button>
                 <template v-if="mobilePeopleOpsExpanded">
                   <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Applicants</router-link>
+                  <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/interview-hub')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Interview Hub</router-link>
                   <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/pre-hire')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Pre-Hire</router-link>
                   <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/careers')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Careers</router-link>
                   <router-link v-if="hasPeopleOpsFeature && showOnDemandLink && !isSscSstcTenant" :to="orgTo('/my-learning')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">My Learning</router-link>

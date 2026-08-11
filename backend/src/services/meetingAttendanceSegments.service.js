@@ -65,7 +65,7 @@ export function isAttendanceTrackingEnabledForEvent(event) {
   if (kind === 'HUDDLE') return true;
   if (kind !== 'TEAM_MEETING') return false;
   const subtype = String(event?.meeting_subtype || 'general').trim().toLowerCase();
-  if (subtype === 'admin' || subtype === 'town_hall') return true;
+  if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview') return true;
   return Number(event?.attendance_tracking_enabled || 0) === 1;
 }
 

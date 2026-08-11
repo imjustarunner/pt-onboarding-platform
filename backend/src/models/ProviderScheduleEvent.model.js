@@ -41,10 +41,14 @@ class ProviderScheduleEvent {
     const hostToken = needsJoinToken ? generateJoinToken().slice(0, 64) : null;
     const waitingRoomFlag = waitingRoomEnabled === false || waitingRoomEnabled === 0 ? 0 : 1;
     const requestedSubtype = String(meetingSubtype || '').trim().toLowerCase();
-    const subtype = kindUpper === 'TEAM_MEETING' && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall')
+    const subtype = kindUpper === 'TEAM_MEETING'
+      && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall' || requestedSubtype === 'interview')
       ? requestedSubtype
       : 'general';
-    const attendanceTrackingEnabled = kindUpper === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall'
+    const attendanceTrackingEnabled = kindUpper === 'HUDDLE'
+      || subtype === 'admin'
+      || subtype === 'town_hall'
+      || subtype === 'interview'
       ? 1
       : 0;
     const notifyFlag = notifyParticipants === false || notifyParticipants === 0 || notifyParticipants === '0' || notifyParticipants === 'false'

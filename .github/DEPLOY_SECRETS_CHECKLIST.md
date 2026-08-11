@@ -162,6 +162,7 @@ of clinical responses. Set both of the following:
 - `VERTEX_AUTH_SOURCE`
 - `VERTEX_AI_LOCATION`
 - `VERTEX_AI_MODEL`
+- `VERTEX_AI_RESUME_MODEL` (optional; defaults to `gemini-2.5-flash` for resume summaries)
 - `ADK_AGENT_URL`
 - `VERTEX_AI_AGENT_TIMEOUT_MS`
 - `VERTEX_AGENT_ENGINE_ID`

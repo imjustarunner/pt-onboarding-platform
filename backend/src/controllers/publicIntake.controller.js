@@ -75,6 +75,7 @@ async function getAgencyStripeConnectAccountId(agencyId) {
 }
 import HiringProfile from '../models/HiringProfile.model.js';
 import HiringResumeParse from '../models/HiringResumeParse.model.js';
+import { extractResumeTextFromUpload } from '../services/resumeTextExtraction.service.js';
 import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import ProgramStaffAssignment from '../models/ProgramStaffAssignment.model.js';
 import ProgramShiftSignup from '../models/ProgramShiftSignup.model.js';
@@ -6156,11 +6157,30 @@ export const finalizePublicIntake = async (req, res, next) => {
         const storageResult = await StorageService.saveAdminDoc(fileBuffer, filename, mimeType);
         const docType = (row.upload_label || '').toLowerCase().includes('resume') ? 'resume' : 'application_material';
         if (docType === 'resume') hasResumeDoc = true;
-        await pool.execute(
+        const [docInsert] = await pool.execute(
           `INSERT INTO user_admin_docs (user_id, title, doc_type, storage_path, original_name, mime_type, created_by_user_id)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [user.id, row.upload_label || 'Application material', docType, storageResult.relativePath, originalName, mimeType, user.id]
         );
+        if (docType === 'resume' && docInsert?.insertId) {
+          try {
+            const extraction = await extractResumeTextFromUpload({ buffer: fileBuffer, mimeType });
+            await HiringResumeParse.upsertByResumeDocId({
+              candidateUserId: user.id,
+              resumeDocId: docInsert.insertId,
+              method: extraction.method,
+              status: extraction.status,
+              extractedText: extraction.text || null,
+              extractedJson: null,
+              errorText: extraction.errorText || null,
+              createdByUserId: user.id
+            });
+          } catch (e) {
+            if (e?.code !== 'ER_NO_SUCH_TABLE') {
+              // best-effort parse; do not block application
+            }
+          }
+        }
       }
       if (!hasResumeDoc && resumeText) {
         try {
@@ -6169,30 +6189,18 @@ export const finalizePublicIntake = async (req, res, next) => {
           const filename = `resume-${user.id}-${uniqueSuffix}.txt`;
           const storageResult = await StorageService.saveAdminDoc(resumeBuffer, filename, 'text/plain');
           let resumeDocId = null;
-          await pool.execute(
+          const [pasteInsert] = await pool.execute(
             `INSERT INTO user_admin_docs (user_id, title, doc_type, storage_path, original_name, mime_type, created_by_user_id)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [user.id, 'Resume (pasted text)', 'resume', storageResult.relativePath, 'resume.txt', 'text/plain', user.id]
           );
-          try {
-            const [rows] = await pool.execute(
-              `SELECT id
-                 FROM user_admin_docs
-                WHERE user_id = ? AND doc_type = 'resume' AND storage_path = ?
-                ORDER BY id DESC
-                LIMIT 1`,
-              [user.id, storageResult.relativePath]
-            );
-            resumeDocId = Number(rows?.[0]?.id || 0) || null;
-          } catch {
-            resumeDocId = null;
-          }
+          resumeDocId = Number(pasteInsert?.insertId || 0) || null;
           if (resumeDocId) {
             try {
               await HiringResumeParse.upsertByResumeDocId({
                 candidateUserId: user.id,
                 resumeDocId,
-                method: 'pdf_text',
+                method: 'plain_text',
                 status: 'completed',
                 extractedText: resumeText,
                 extractedJson: null,

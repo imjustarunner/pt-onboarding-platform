@@ -178,6 +178,7 @@
               <button class="tab" :class="{ active: tab === 'profile' }" @click="tab = 'profile'">Profile</button>
               <button class="tab" :class="{ active: tab === 'resume' }" @click="tab = 'resume'">Resume</button>
               <button class="tab" :class="{ active: tab === 'resumeSummary' }" @click="tab = 'resumeSummary'">Resume Summary</button>
+              <button class="tab" :class="{ active: tab === 'interview' }" @click="tab = 'interview'">Interview</button>
               <button class="tab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Notes</button>
               <button class="tab" :class="{ active: tab === 'reviews' }" @click="tab = 'reviews'">Reviews</button>
               <button class="tab" :class="{ active: tab === 'tasks' }" @click="tab = 'tasks'">Tasks</button>
@@ -194,41 +195,9 @@
               <div class="kv">
                 <div class="k">Interview</div>
                 <div class="v">
-                  <div class="muted small" style="margin-bottom:8px;">
-                    Scheduled on the applicant profile only (not synced to calendar yet). Listed interviewers receive the post-interview follow-up.
-                  </div>
-                  <div class="interview-grid">
-                    <label class="small">Start (local)</label>
-                    <input v-model="interviewStartsLocal" class="input" type="datetime-local" />
-                    <label class="small">Timezone</label>
-                    <input v-model="interviewTimezone" class="input" placeholder="America/Denver" />
-                    <label class="small">Interviewers</label>
-                    <select v-model="interviewerPick" class="input" @change="addInterviewerFromPick">
-                      <option value="">Add interviewer…</option>
-                      <option v-for="u in assignees" :key="u.id" :value="String(u.id)" :disabled="interviewerIds.includes(Number(u.id))">
-                        {{ u.first_name }} {{ u.last_name }}
-                      </option>
-                    </select>
-                    <div class="chips">
-                      <span v-for="id in interviewerIds" :key="id" class="chip">
-                        {{ interviewerName(id) }}
-                        <button type="button" class="chip-x" @click="removeInterviewer(id)">×</button>
-                      </span>
-                    </div>
-                    <div class="interview-actions">
-                      <button type="button" class="btn btn-primary" :disabled="interviewSaving" @click="saveInterviewSchedule(false)">
-                        {{ interviewSaving ? 'Saving…' : 'Save interview' }}
-                      </button>
-                      <button type="button" class="btn btn-secondary" :disabled="interviewSaving" @click="saveInterviewSchedule(true)">
-                        {{ interviewSaving ? 'Saving…' : 'Save interview and send reference forms' }}
-                      </button>
-                      <button type="button" class="btn btn-secondary btn-sm" :disabled="interviewSaving" @click="sendReferenceRequestsOnly">
-                        Send references only
-                      </button>
-                      <button type="button" class="btn btn-secondary" :disabled="interviewSaving" @click="cancelInterviewSchedule">
-                        Cancel interview
-                      </button>
-                    </div>
+                  <div class="muted small">
+                    Use the <button type="button" class="linkish" @click="tab = 'interview'">Interview</button> tab to schedule Interview Hub meetings (calendar + join link + scorecard).
+                    Legacy splash fields remain available there as well for reference follow-ups.
                   </div>
                 </div>
               </div>
@@ -290,37 +259,71 @@
 
             <!-- Resume -->
             <div v-if="tab === 'resume'" class="tab-body">
-              <div class="resume-actions">
-                <input type="file" ref="resumeFile" @change="onResumeFileChange" />
-                <input v-model="resumeTitle" class="input" placeholder="Title (optional)" />
-                <button class="btn btn-primary" @click="uploadResume" :disabled="resumeUploading || !resumeSelectedFile">
-                  {{ resumeUploading ? 'Uploading…' : 'Upload resume' }}
-                </button>
-              </div>
-              <div v-if="resumeError" class="error-banner">{{ resumeError }}</div>
-              <div v-if="resumesLoading" class="loading">Loading resumes…</div>
-              <div v-else>
-                <div v-if="resumes.length === 0" class="empty">No resumes uploaded yet.</div>
-                <div v-else class="resume-list">
-                  <div v-for="r in resumes" :key="r.id" class="resume-row">
-                    <div>
-                      <div class="name">{{ r.title || 'Resume' }}</div>
-                      <div class="resume-meta">
-                        <span class="muted small">{{ r.originalName || '' }}</span>
-                        <span
-                          v-if="resumeParseLabel(r)"
-                          class="resume-badge"
-                          :class="resumeParseClass(r)"
-                          :title="resumeParseTitle(r)"
-                        >
-                          {{ resumeParseLabel(r) }}
-                        </span>
-                      </div>
-                    </div>
-                    <div class="row-actions">
-                      <button class="btn btn-secondary" @click="viewResume(r)">View</button>
-                      <button class="btn btn-danger" @click="deleteResume(r)">Delete</button>
-                    </div>
+              <CandidateResumeWorkspace
+                :resumes="resumes"
+                :loading="resumesLoading"
+                :uploading="resumeUploading"
+                :pasting="resumePasting"
+                :error="resumeError"
+                :notes="detail.notes || []"
+                :tasks="tasks || []"
+                :summary-bullets="quickResumeBullets"
+                :summary-error="resumeSummaryError"
+                :summary-generating="resumeSummaryGenerating"
+                :resolve-viewer-url="resolveResumeViewerUrl"
+                @upload="onResumeWorkspaceUpload"
+                @paste="onResumeWorkspacePaste"
+                @delete="deleteResume"
+                @goto-tab="(t) => { tab = t; }"
+                @generate-summary="generateResumeSummary"
+              />
+            </div>
+
+            <!-- Interview -->
+            <div v-if="tab === 'interview'" class="tab-body">
+              <CandidateInterviewPanel
+                v-if="selectedId && effectiveAgencyId"
+                :candidate-user-id="selectedId"
+                :agency-id="effectiveAgencyId"
+                :assignees="assignees"
+                :job-description-id="detail.jobDescription?.id || detail.profile?.job_description_id || null"
+              />
+              <div class="legacy-interview" style="margin-top:18px;">
+                <h4 style="margin:0 0 8px;">Legacy splash / reference interview fields</h4>
+                <div class="muted small" style="margin-bottom:8px;">
+                  Profile-only schedule used for post-interview splash + reference forms (not a video meeting). Prefer Interview Hub above for live interviews.
+                </div>
+                <div class="interview-grid">
+                  <label class="small">Start (local)</label>
+                  <input v-model="interviewStartsLocal" class="input" type="datetime-local" />
+                  <label class="small">Timezone</label>
+                  <input v-model="interviewTimezone" class="input" placeholder="America/Denver" />
+                  <label class="small">Interviewers</label>
+                  <select v-model="interviewerPick" class="input" @change="addInterviewerFromPick">
+                    <option value="">Add interviewer…</option>
+                    <option v-for="u in assignees" :key="u.id" :value="String(u.id)" :disabled="interviewerIds.includes(Number(u.id))">
+                      {{ u.first_name }} {{ u.last_name }}
+                    </option>
+                  </select>
+                  <div class="chips">
+                    <span v-for="id in interviewerIds" :key="id" class="chip">
+                      {{ interviewerName(id) }}
+                      <button type="button" class="chip-x" @click="removeInterviewer(id)">×</button>
+                    </span>
+                  </div>
+                  <div class="interview-actions">
+                    <button type="button" class="btn btn-primary" :disabled="interviewSaving" @click="saveInterviewSchedule(false)">
+                      {{ interviewSaving ? 'Saving…' : 'Save interview' }}
+                    </button>
+                    <button type="button" class="btn btn-secondary" :disabled="interviewSaving" @click="saveInterviewSchedule(true)">
+                      {{ interviewSaving ? 'Saving…' : 'Save interview and send reference forms' }}
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm" :disabled="interviewSaving" @click="sendReferenceRequestsOnly">
+                      Send references only
+                    </button>
+                    <button type="button" class="btn btn-secondary" :disabled="interviewSaving" @click="cancelInterviewSchedule">
+                      Cancel interview
+                    </button>
                   </div>
                 </div>
               </div>
@@ -841,6 +844,8 @@ import { useAuthStore } from '../../store/auth';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import UserAvatar from '../../components/common/UserAvatar.vue';
 import MarkHiredModal from '../../components/hiring/MarkHiredModal.vue';
+import CandidateResumeWorkspace from '../../components/hiring/CandidateResumeWorkspace.vue';
+import CandidateInterviewPanel from '../../components/hiring/CandidateInterviewPanel.vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -1316,8 +1321,9 @@ const generateResumeSummary = async () => {
     resumeSummary.value = r.data?.summary || null;
     tab.value = 'resumeSummary';
   } catch (e) {
-    resumeSummaryError.value = e.response?.data?.error?.message || 'Failed to generate resume summary';
-    alert(resumeSummaryError.value);
+    const details = e.response?.data?.error?.details;
+    const msg = e.response?.data?.error?.message || 'Failed to generate resume summary';
+    resumeSummaryError.value = details ? `${msg}: ${String(details).slice(0, 300)}` : msg;
   } finally {
     resumeSummaryGenerating.value = false;
   }
@@ -1401,10 +1407,47 @@ const resumeError = ref('');
 const resumeFile = ref(null);
 const resumeSelectedFile = ref(null);
 const resumeUploading = ref(false);
+const resumePasting = ref(false);
 const resumeTitle = ref('');
 
 const onResumeFileChange = (e) => {
   resumeSelectedFile.value = e?.target?.files?.[0] || null;
+};
+
+const resolveResumeViewerUrl = async (r) => {
+  if (!selectedId.value || !effectiveAgencyId.value || !r?.id) return null;
+  const resp = await api.get(`/hiring/candidates/${selectedId.value}/resumes/${r.id}/view`, {
+    params: { agencyId: effectiveAgencyId.value }
+  });
+  return {
+    url: resp.data?.url || null,
+    mimeType: resp.data?.mimeType || r.mimeType || r.mime_type || null
+  };
+};
+
+const onResumeWorkspaceUpload = async ({ file, title }) => {
+  if (!file) return;
+  resumeSelectedFile.value = file;
+  resumeTitle.value = title || '';
+  await uploadResume();
+};
+
+const onResumeWorkspacePaste = async ({ resumeText, title }) => {
+  if (!selectedId.value || !effectiveAgencyId.value || !String(resumeText || '').trim()) return;
+  try {
+    resumePasting.value = true;
+    resumeError.value = '';
+    await api.post(
+      `/hiring/candidates/${selectedId.value}/resumes/paste`,
+      { resumeText, title: title || 'Resume (pasted text)', agencyId: effectiveAgencyId.value },
+      { params: { agencyId: effectiveAgencyId.value } }
+    );
+    await loadResumes();
+  } catch (e) {
+    resumeError.value = e.response?.data?.error?.message || 'Failed to save pasted resume';
+  } finally {
+    resumePasting.value = false;
+  }
 };
 
 const loadResumes = async () => {
@@ -2384,6 +2427,15 @@ onUnmounted(() => {
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
+}
+.linkish {
+  border: none;
+  background: none;
+  color: #5b21b6;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
 }
 .capsule-hint {
   margin-top: 12px;

@@ -161,7 +161,7 @@ async function callVertexGenerateContent({
 export async function generateResumeSummaryJson({ candidateName, resumeText }) {
   const projectId = process.env.GCP_PROJECT_ID || process.env.GCS_PROJECT_ID || '';
   const location = String(process.env.VERTEX_AI_LOCATION || 'us-central1').trim() || 'us-central1';
-  const modelId = String(process.env.VERTEX_AI_RESUME_MODEL || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
+  const modelId = String(process.env.VERTEX_AI_RESUME_MODEL || 'gemini-2.5-flash').trim() || 'gemini-2.5-flash';
   const timeoutMs = Math.min(
     Math.max(parseInt(process.env.VERTEX_AI_RESUME_TIMEOUT_MS || '90000', 10) || 90000, 5000),
     180000

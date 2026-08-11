@@ -3769,7 +3769,7 @@
               <select
                 v-model="meetingSubtype"
                 class="input"
-                :disabled="!canSetAdminMeetingSubtype && meetingSubtype === 'general'"
+                :disabled="!canSetAdminMeetingSubtype && !canSetInterviewMeetingSubtype && meetingSubtype === 'general'"
               >
                 <option value="general">General team meeting</option>
                 <option v-if="canSetAdminMeetingSubtype || meetingSubtype === 'admin'" value="admin">
@@ -3778,9 +3778,15 @@
                 <option v-if="canSetAdminMeetingSubtype || meetingSubtype === 'town_hall'" value="town_hall">
                   Town Hall
                 </option>
+                <option v-if="canSetInterviewMeetingSubtype || meetingSubtype === 'interview'" value="interview">
+                  Interview
+                </option>
               </select>
-              <div v-if="!canSetAdminMeetingSubtype" class="muted nr-help" style="margin-top: 4px;">
+              <div v-if="!canSetAdminMeetingSubtype && !canSetInterviewMeetingSubtype" class="muted nr-help" style="margin-top: 4px;">
                 Only admin, support, or super admin can create Admin Meetings or Town Halls. Others may still be invited.
+              </div>
+              <div v-else-if="meetingSubtype === 'interview'" class="muted nr-help" style="margin-top: 4px;">
+                Interview meetings use the Interview Hub workspace (no goals/actions). Prefer scheduling from Interview Hub for invites and scorecards.
               </div>
             </div>
 
@@ -8633,20 +8639,28 @@ const huddleHostRoleKey = computed(() => {
 });
 const canMarkMeetingTrainingPay = computed(() => TRAINING_PAY_HOST_ROLES.has(bookingTargetRoleKey.value));
 const meetingIsTrainingPayEligible = ref(false);
-/** general | admin | town_hall — privileged subtypes only creatable by super_admin/admin/support */
+/** general | admin | town_hall | interview — privileged subtypes for admin/support; interview also for hiring */
 const meetingSubtype = ref('general');
 const canSetAdminMeetingSubtype = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['super_admin', 'superadmin', 'admin', 'support'].includes(role);
 });
+const canSetInterviewMeetingSubtype = computed(() => {
+  if (canSetAdminMeetingSubtype.value) return true;
+  return authStore.user?.capabilities?.canManageHiring === true;
+});
 function normalizeMeetingSubtype(value) {
   const subtype = String(value || 'general').trim().toLowerCase();
-  if (subtype === 'admin' || subtype === 'town_hall') return subtype;
+  if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview') return subtype;
   return 'general';
 }
 function meetingSubtypeForCreatePayload() {
+  const subtype = normalizeMeetingSubtype(meetingSubtype.value);
+  if (subtype === 'interview') {
+    return canSetInterviewMeetingSubtype.value ? 'interview' : 'general';
+  }
   if (!canSetAdminMeetingSubtype.value) return 'general';
-  return normalizeMeetingSubtype(meetingSubtype.value);
+  return subtype;
 }
 /** Hide Admin Time checkbox for Huddles — Huddle kind itself initiates Individual Meeting pay. */
 const showMeetingTrainingPayOption = computed(() => (
@@ -9982,6 +9996,7 @@ const meetingTypeDisplayLabel = (ev) => {
   if (eventKind === 'TEAM_MEETING') {
     if (subtype === 'admin') return 'Admin Meeting';
     if (subtype === 'town_hall') return 'Town Hall';
+    if (subtype === 'interview') return 'Interview';
     return multi ? 'Group Meeting' : 'Meeting';
   }
   return null;
@@ -13096,25 +13111,29 @@ const editorWorkspaceTabs = computed(() => {
   }
   if (editorIsMeeting.value && Number(scheduleEventEditId.value || 0) > 0) {
     const eventKind = String(editingScheduleStackItem.value?.eventKind || '').toUpperCase();
-    // Individual huddle (solo/1:1): agenda + goals. Group huddle: agenda only. Team meetings: all three.
-    if (eventKind === 'HUDDLE' && isIndividualHuddleEditor.value) {
-      tabs.splice(1, 0,
-        { id: 'agenda', label: 'Agenda', icon: '☰' },
-        { id: 'goals', label: 'Goals', icon: '◎' }
-      );
-    } else if (eventKind === 'HUDDLE') {
-      tabs.splice(1, 0, { id: 'agenda', label: 'Agenda', icon: '☰' });
-    } else {
-      tabs.splice(1, 0,
-        { id: 'agenda', label: 'Agenda', icon: '☰' },
-        { id: 'goals', label: 'Goals', icon: '◎' },
-        { id: 'actions', label: 'Action Items', icon: '☑' }
-      );
-    }
     const subtype = normalizeMeetingSubtype(meetingSubtype.value || editingScheduleStackItem.value?.meetingSubtype);
+    // Interview meetings stay basic on the schedule (no agenda/goals/actions).
+    if (subtype !== 'interview') {
+      // Individual huddle (solo/1:1): agenda + goals. Group huddle: agenda only. Team meetings: all three.
+      if (eventKind === 'HUDDLE' && isIndividualHuddleEditor.value) {
+        tabs.splice(1, 0,
+          { id: 'agenda', label: 'Agenda', icon: '☰' },
+          { id: 'goals', label: 'Goals', icon: '◎' }
+        );
+      } else if (eventKind === 'HUDDLE') {
+        tabs.splice(1, 0, { id: 'agenda', label: 'Agenda', icon: '☰' });
+      } else {
+        tabs.splice(1, 0,
+          { id: 'agenda', label: 'Agenda', icon: '☰' },
+          { id: 'goals', label: 'Goals', icon: '◎' },
+          { id: 'actions', label: 'Action Items', icon: '☑' }
+        );
+      }
+    }
     const showAttendance = eventKind === 'HUDDLE'
       || subtype === 'admin'
       || subtype === 'town_hall'
+      || subtype === 'interview'
       || !!editingScheduleStackItem.value?.attendanceTrackingEnabled;
     const showComp = eventKind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall';
     tabs.push({
@@ -15622,7 +15641,7 @@ const canOpenMeetingAttendanceTab = computed(() => {
   if (!editorIsMeeting.value || !Number(scheduleEventEditId.value || 0)) return false;
   const eventKind = String(editingScheduleStackItem.value?.eventKind || '').toUpperCase();
   const subtype = normalizeMeetingSubtype(meetingSubtype.value || editingScheduleStackItem.value?.meetingSubtype);
-  if (eventKind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall') return true;
+  if (eventKind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview') return true;
   return !!editingScheduleStackItem.value?.attendanceTrackingEnabled;
 });
 const supervisionCanUseAllAgencies = computed(
@@ -18566,6 +18585,12 @@ function meetingTypePalette(b, dark) {
       return dark
         ? { fill: 'rgba(129, 140, 248, 0.45)', border: 'rgba(165, 180, 252, 0.90)', stripe: 'rgba(199, 210, 254, 0.95)', text: 'rgba(224, 231, 255, 0.98)' }
         : { fill: 'rgba(79, 70, 229, 0.24)', border: 'rgba(67, 56, 202, 0.55)', stripe: 'rgba(79, 70, 229, 0.90)', text: 'rgba(49, 46, 129, 0.98)' };
+    }
+    if (subtype === 'interview') {
+      // Distinct grape/purple — matches Google Calendar colorId 3
+      return dark
+        ? { fill: 'rgba(167, 139, 250, 0.48)', border: 'rgba(196, 181, 253, 0.95)', stripe: 'rgba(221, 214, 254, 0.98)', text: 'rgba(237, 233, 254, 0.98)' }
+        : { fill: 'rgba(124, 58, 237, 0.26)', border: 'rgba(91, 33, 182, 0.58)', stripe: 'rgba(109, 40, 217, 0.92)', text: 'rgba(76, 29, 149, 0.98)' };
     }
     const isGroup = !!b?.isGroupMeeting || Number(b?.attendeeCount || 0) >= 2;
     if (isGroup) {

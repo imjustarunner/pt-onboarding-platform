@@ -1401,7 +1401,9 @@ export const getTeamMeetingWorkspace = async (req, res, next) => {
     const workspace = ProviderScheduleEventArtifact.toWorkspaceDto(artifact);
     const participants = await loadMeetingParticipants(event);
     const subtypeRaw = String(event.meeting_subtype || 'general').toLowerCase();
-    const meetingSubtype = (subtypeRaw === 'admin' || subtypeRaw === 'town_hall') ? subtypeRaw : 'general';
+    const meetingSubtype = (subtypeRaw === 'admin' || subtypeRaw === 'town_hall' || subtypeRaw === 'interview')
+      ? subtypeRaw
+      : 'general';
     res.json({
       ok: true,
       eventId,
@@ -1467,7 +1469,11 @@ export const upsertTeamMeetingWorkspace = async (req, res, next) => {
     res.json({
       ok: true,
       eventId,
-      meetingSubtype: String(event.meeting_subtype || 'general').toLowerCase() === 'admin' ? 'admin' : 'general',
+      meetingSubtype: (() => {
+        const subtypeRaw = String(event.meeting_subtype || 'general').toLowerCase();
+        if (subtypeRaw === 'admin' || subtypeRaw === 'town_hall' || subtypeRaw === 'interview') return subtypeRaw;
+        return 'general';
+      })(),
       participants,
       workspace
     });

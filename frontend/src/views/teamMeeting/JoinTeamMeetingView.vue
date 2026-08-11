@@ -231,7 +231,7 @@
               :activity-notice="videoFullscreenActivityNotice"
               :raised-hands-notice="videoFullscreenHandsNotice"
               layout="standard"
-              :equal-tiles-when-remote="true"
+              :equal-tiles-when-remote="!isInterviewMeeting"
               :local-display-name="localDisplayName"
               :local-role-label="localRoleLabel"
               :local-profile-photo-url="localProfilePhotoUrl"
@@ -247,7 +247,7 @@
             />
           </div>
           <section
-            v-if="resolvedEventId && !isInLobby"
+            v-if="resolvedEventId && !isInLobby && !isInterviewMeeting"
             class="join-live-activity"
             :class="{
               'join-live-activity--collapsed': !chatPanelOpen || videoFullscreen,
@@ -269,7 +269,7 @@
           </section>
         </div>
         <aside v-if="resolvedEventId && !isInLobby && canSeeFullWorkspace && !videoFullscreen" class="join-workspace">
-          <div v-if="workspaceBannerVisible" class="join-workspace__banner">
+          <div v-if="workspaceBannerVisible && !isInterviewMeeting" class="join-workspace__banner">
             <span class="join-workspace__lock" aria-hidden="true">🔒</span>
             <p>
               {{ workspaceBannerText }}
@@ -282,7 +282,28 @@
             >×</button>
           </div>
 
-          <div class="join-workspace__body join-workspace__body--stack">
+          <div v-if="isInterviewMeeting" class="join-workspace__body join-workspace__body--stack">
+            <InterviewLiveWorkspace
+              :event-id="resolvedEventId"
+              :agency-id="agencyStore.currentAgency?.id || authStore.user?.agencyId || null"
+              :dark="true"
+            />
+            <section v-if="showAttendanceTab" class="join-stack-section">
+              <MeetingAttendancePanel
+                ref="attendancePanelRef"
+                :event-id="resolvedEventId"
+                :live-poll="true"
+                :tracking-enabled="isAttendanceTrackingActive"
+                :raised-hands="raisedHandCount"
+                :raised-hand-names="raisedHandNames"
+                :muted-names="mutedParticipantNames"
+                :dark="true"
+                @tracking-status="onAttendanceTrackingStatus"
+              />
+            </section>
+          </div>
+
+          <div v-else class="join-workspace__body join-workspace__body--stack">
             <section class="join-stack-section">
               <MeetingAgendaPanel
                 meeting-type="provider_schedule_event"
@@ -445,6 +466,7 @@ import { ref, onMounted, onUnmounted, computed, watch, provide } from 'vue';
 import { t } from '../../composables/useMeetingI18n.js';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
 import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/activityTracker';
 import { useTeamMeetingLiveTranscript } from '../../composables/useTeamMeetingLiveTranscript';
 import SupervisionVideoRoom from '../../components/supervision/SupervisionVideoRoom.vue';
@@ -456,6 +478,7 @@ import MeetingAttendancePanel from '../../components/meetings/MeetingAttendanceP
 import MeetingNotesPanel from '../../components/meetings/MeetingNotesPanel.vue';
 import MeetingLiveActivityPanel from '../../components/meetings/MeetingLiveActivityPanel.vue';
 import MeetingSessionExitPanel from '../../components/meetings/MeetingSessionExitPanel.vue';
+import InterviewLiveWorkspace from '../../components/hiring/InterviewLiveWorkspace.vue';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import api from '../../services/api';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath';
@@ -465,6 +488,7 @@ import { useActiveMeeting } from '../../composables/useActiveMeeting';
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 
 const { setMiniMode } = useActiveMeeting();
 
@@ -599,7 +623,7 @@ const isAttendanceTrackingActive = computed(() => {
   const kind = String(meetingKind.value || '').toUpperCase();
   if (kind === 'HUDDLE') return true;
   const subtype = String(meetingSubtype.value || '').toLowerCase();
-  if (subtype === 'admin' || subtype === 'town_hall') return true;
+  if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview') return true;
   return attendanceTrackingEnabled.value;
 });
 
@@ -607,7 +631,7 @@ const isAttendanceTrackingActive = computed(() => {
 const isAutoTranscriptKind = computed(() => {
   const kind = String(meetingKind.value || '').toUpperCase();
   const subtype = String(meetingSubtype.value || '').toLowerCase();
-  return kind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall';
+  return kind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview';
 });
 
 const transcriptEnabled = computed(() => (
@@ -688,6 +712,7 @@ watch(videoFullscreen, (on) => {
 });
 
 const isAdminMeeting = computed(() => String(meetingSubtype.value || '').toLowerCase() === 'admin');
+const isInterviewMeeting = computed(() => String(meetingSubtype.value || '').toLowerCase() === 'interview');
 const isHuddle = computed(() => String(meetingKind.value || '').toUpperCase() === 'HUDDLE');
 /** 2+ invitees → group (3+ people). Solo/1:1 stay individual. */
 const isMultiParticipant = computed(() => Number(bookedParticipantCount.value || 0) >= 2);
@@ -700,6 +725,7 @@ const displayMeetingTitle = computed(() => {
   if (kind === 'HUDDLE') return isGroupHuddle.value ? 'Group Huddle' : 'Huddle';
   if (subtype === 'admin') return 'Admin Meeting';
   if (subtype === 'town_hall') return 'Town Hall';
+  if (subtype === 'interview') return 'Interview';
   if (kind === 'TEAM_MEETING') return isMultiParticipant.value ? 'Group Meeting' : 'Meeting';
   return waitingMeetingTitle.value || 'Meeting';
 });
@@ -770,6 +796,12 @@ const canManageMeetingLive = computed(() => (
 /** Host + admin-side roles see the full right-rail workspace. Providers see chat/polls only. */
 const canSeeFullWorkspace = computed(() => {
   if (isHost.value) return true;
+  // Interview meetings: hiring-capable staff see the interviewer workspace; guests do not.
+  if (isInterviewMeeting.value) {
+    if (authStore.user?.capabilities?.canManageHiring === true) return true;
+    if (FULL_WORKSPACE_ROLES.has(actorRole.value)) return true;
+    return false;
+  }
   return FULL_WORKSPACE_ROLES.has(actorRole.value);
 });
 
@@ -805,7 +837,7 @@ const showNotesTab = computed(() => {
   if (kind === 'HUDDLE') return true;
   if (kind !== 'TEAM_MEETING') return false;
   const subtype = String(meetingSubtype.value || '').toLowerCase();
-  if (subtype === 'admin' || subtype === 'town_hall') return true;
+  if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview') return true;
   return attendanceTrackingEnabled.value;
 });
 
@@ -895,6 +927,7 @@ function applyTokenPayload(data) {
   if (data.kind) meetingKind.value = String(data.kind).toUpperCase();
   if (data.meetingSubtype || data.meeting_subtype) {
     meetingSubtype.value = String(data.meetingSubtype || data.meeting_subtype || 'general').toLowerCase();
+    if (meetingSubtype.value === 'interview') tileFocus.value = 'remote';
   }
   if (data.attendanceTrackingEnabled != null) {
     attendanceTrackingEnabled.value = !!data.attendanceTrackingEnabled;
@@ -1599,7 +1632,8 @@ watch(
         skipAuthRedirect: true
       });
       const subtype = String(data?.meetingSubtype || 'general').toLowerCase();
-      meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall') ? subtype : 'general';
+      meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview') ? subtype : 'general';
+      if (subtype === 'interview') tileFocus.value = 'remote';
       if (data?.kind) meetingKind.value = String(data.kind).toUpperCase();
       if (data?.attendanceTrackingEnabled != null) {
         attendanceTrackingEnabled.value = !!data.attendanceTrackingEnabled;
@@ -1623,7 +1657,10 @@ watch(
       if (att?.kind) meetingKind.value = String(att.kind).toUpperCase();
       if (att?.meetingSubtype) {
         const subtype = String(att.meetingSubtype).toLowerCase();
-        meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall') ? subtype : meetingSubtype.value;
+        meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview')
+          ? subtype
+          : meetingSubtype.value;
+        if (subtype === 'interview') tileFocus.value = 'remote';
       }
       if (att?.attendanceTrackingEnabled != null) {
         attendanceTrackingEnabled.value = !!att.attendanceTrackingEnabled;

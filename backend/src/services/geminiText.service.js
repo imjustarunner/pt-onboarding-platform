@@ -38,7 +38,7 @@ function shouldUseVertex() {
 // gemini-1.5-*), so when a configured model name is rejected we retry with these
 // before giving up. This keeps shared callers (translation, agents, etc.) working
 // even if an env var still points at a sunset model.
-const VERTEX_FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-2.5-flash'];
+const VERTEX_FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro'];
 
 // HTTP statuses that indicate the *model* (not the request) is the problem, so a
 // retry with a different model name is worth attempting.
@@ -158,7 +158,7 @@ async function callViaApiKey({ prompt, temperature, maxOutputTokens }) {
     err.status = 503;
     throw err;
   }
-  const configuredModel = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
+  const configuredModel = String(process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim() || 'gemini-2.5-flash';
   const candidates = buildCandidateModels(configuredModel);
   let lastErr = null;
   for (const modelName of candidates) {
@@ -181,7 +181,7 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
     const projectId = getProjectId();
     const location = String(process.env.VERTEX_AI_LOCATION || 'us-central1').trim() || 'us-central1';
     const configuredModel =
-      String(process.env.GEMINI_MODEL || process.env.VERTEX_AI_MODEL || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
+      String(process.env.GEMINI_MODEL || process.env.VERTEX_AI_MODEL || 'gemini-2.5-flash').trim() || 'gemini-2.5-flash';
 
     // Vertex can be unusable for a project even when GCP creds exist: the project
     // may lack Gemini model access (403/404) or token minting can fail. In those

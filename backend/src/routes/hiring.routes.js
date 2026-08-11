@@ -16,6 +16,7 @@ import {
   createCandidateNote,
   listCandidateResumes,
   uploadCandidateResume,
+  pasteCandidateResume,
   viewCandidateResume,
   deleteCandidateResume,
   getCandidatePhoto,
@@ -57,6 +58,26 @@ import {
   sendOnboardingInvite,
   sendDocumentToCandidate
 } from '../controllers/hiring.controller.js';
+import {
+  listTemplates,
+  updateTemplate,
+  ensureDefaultTemplateHandler,
+  listJobQuestionSets,
+  createJobQuestionSet,
+  updateJobQuestionSet,
+  deleteJobQuestionSet,
+  listInterviews,
+  getInterview,
+  createInterview,
+  patchInterview,
+  getInterviewArtifacts,
+  upsertInterviewArtifacts,
+  finalizeInterviewHandler,
+  getInterviewByScheduleEvent,
+  listCandidateInterviews,
+  randomIcebreaker,
+  randomSalutation
+} from '../controllers/interviewHub.controller.js';
 
 const router = express.Router();
 
@@ -114,6 +135,7 @@ router.get('/candidates/:userId/tasks', listCandidateTasks);
 router.post('/candidates/:userId/tasks', createCandidateTask);
 router.get('/candidates/:userId/resumes', listCandidateResumes);
 router.post('/candidates/:userId/resumes/upload', upload.single('file'), uploadCandidateResume);
+router.post('/candidates/:userId/resumes/paste', pasteCandidateResume);
 router.get('/candidates/:userId/resumes/:docId/view', viewCandidateResume);
 router.delete('/candidates/:userId/resumes/:docId', deleteCandidateResume);
 router.get('/candidates/:userId/photo', getCandidatePhoto);
@@ -141,5 +163,25 @@ router.get('/signer-roles', listSignerRoles);
 router.post('/signer-roles', createSignerRole);
 router.put('/signer-roles/:roleId', updateSignerRole);
 router.delete('/signer-roles/:roleId', deleteSignerRole);
+
+// Interview Hub
+router.get('/interview-hub/templates', listTemplates);
+router.post('/interview-hub/templates/ensure-default', ensureDefaultTemplateHandler);
+router.put('/interview-hub/templates/:templateId', updateTemplate);
+router.get('/interview-hub/job-question-sets', listJobQuestionSets);
+router.post('/interview-hub/job-question-sets', createJobQuestionSet);
+router.put('/interview-hub/job-question-sets/:id', updateJobQuestionSet);
+router.delete('/interview-hub/job-question-sets/:id', deleteJobQuestionSet);
+router.get('/interview-hub/interviews', listInterviews);
+router.get('/interview-hub/by-schedule-event/:eventId', getInterviewByScheduleEvent);
+router.get('/interview-hub/interviews/:id', getInterview);
+router.post('/interview-hub/interviews', createInterview);
+router.patch('/interview-hub/interviews/:id', patchInterview);
+router.get('/interview-hub/interviews/:id/artifacts', getInterviewArtifacts);
+router.put('/interview-hub/interviews/:id/artifacts', upsertInterviewArtifacts);
+router.post('/interview-hub/interviews/:id/finalize', finalizeInterviewHandler);
+router.get('/interview-hub/candidates/:userId/interviews', listCandidateInterviews);
+router.post('/interview-hub/icebreaker/random', randomIcebreaker);
+router.post('/interview-hub/salutation/random', randomSalutation);
 
 export default router;

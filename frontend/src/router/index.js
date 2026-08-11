@@ -2425,6 +2425,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/interview-hub',
+    name: 'OrganizationInterviewHub',
+    component: () => import('../views/admin/InterviewHubView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/availability-intake',
     name: 'OrganizationAvailabilityIntake',
     component: () => import('../views/admin/AvailabilityIntakeView.vue'),
@@ -3738,6 +3744,12 @@ const routes = [
     path: '/admin/careers',
     name: 'Careers',
     component: () => import('../views/admin/CareersView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
+  },
+  {
+    path: '/admin/interview-hub',
+    name: 'InterviewHub',
+    component: () => import('../views/admin/InterviewHubView.vue'),
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
   },
   {

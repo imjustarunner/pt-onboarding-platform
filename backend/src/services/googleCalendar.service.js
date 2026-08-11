@@ -442,7 +442,9 @@ export class GoogleCalendarService {
     attendeeEmails = [],
     createMeetLink = false,
     /** Google Calendar invite emails: 'all' | 'externalOnly' | 'none' */
-    sendUpdates = 'all'
+    sendUpdates = 'all',
+    /** Google Calendar color id ("1"–"11"); e.g. "3" = grape for interviews */
+    colorId = null
   } = {}) {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     if (!subject) return { ok: false, reason: 'missing_subject_email' };
@@ -480,10 +482,14 @@ export class GoogleCalendarService {
     // back by 6 hours (11am → 5am).
     const wallDateTime = (value) => toRfc3339Local(value, null);
 
+    const normalizedColorId = colorId != null && String(colorId).trim()
+      ? String(colorId).trim()
+      : null;
     const requestBody = {
       summary: normalizedSummary,
       description: description ? String(description) : undefined,
       visibility: isPrivate ? 'private' : undefined,
+      ...(normalizedColorId ? { colorId: normalizedColorId } : {}),
       ...(isAllDay
         ? {
             start: { date: String(startDate).slice(0, 10) },
