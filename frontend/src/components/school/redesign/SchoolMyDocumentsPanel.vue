@@ -388,6 +388,7 @@ onBeforeUnmount(() => {
 
 .my-docs-header h2 {
   margin: 0;
+  color: #1d2633;
 }
 
 .waiver-card {
@@ -406,6 +407,7 @@ onBeforeUnmount(() => {
 
 .waiver-title {
   font-weight: 700;
+  color: #1d2633;
 }
 
 .waiver-sub {
@@ -514,6 +516,11 @@ onBeforeUnmount(() => {
   background: rgba(239, 68, 68, 0.08);
   color: #991b1b;
   padding: 10px 12px;
+}
+
+:global([data-theme="dark"]) .my-docs-header h2,
+:global([data-theme="dark"]) .waiver-title {
+  color: #e2e8f0;
 }
 </style>
 

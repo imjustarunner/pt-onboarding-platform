@@ -652,7 +652,8 @@ const deletingId = ref(null);
 const smartPacketLoading = ref(false);
 
 const SMART_PRINTABLE_PACKET_KIND = 'system_printable_packet';
-const packetHubEnabled = ref(false);
+/** Default true — all school orgs use the two-column hub; API may set false for legacy orgs. */
+const packetHubEnabled = ref(true);
 
 const printablePacketRows = [
   { locale: 'en', title: 'Paper Packet — English' },
@@ -1373,7 +1374,11 @@ onMounted(load);
   align-items: flex-start;
 }
 .muted {
-  color: var(--text-secondary);
+  color: #64748b;
+}
+
+.public-docs :is(h2, h3, strong, th, label) {
+  color: #1d2633;
 }
 
 /* Modal (for intake link QR) */
@@ -1584,6 +1589,17 @@ onMounted(load);
 }
 .archived-row td {
   opacity: 0.8;
+}
+
+:global([data-theme="dark"]) .public-docs :is(h2, h3, strong, th, label) {
+  color: #e2e8f0;
+}
+:global([data-theme="dark"]) .public-docs .muted {
+  color: #94a3b8;
+}
+:global([data-theme="dark"]) .public-docs .digital-form-row {
+  background: var(--bg-alt, #1f2937);
+  border-color: var(--border, #334155);
 }
 </style>
 

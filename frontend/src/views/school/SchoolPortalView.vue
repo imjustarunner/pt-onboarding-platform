@@ -5841,6 +5841,21 @@ watch(() => store.selectedWeekday, async (weekday) => {
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   border: 1px solid var(--border, #e5e7eb);
   flex: 1 1 auto;
+  /* Agency branding may set --text-primary to a light header tone; keep main
+     content readable on the white school-portal canvas. */
+  --text-primary: #1d2633;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  color: var(--text-primary);
+}
+
+.portal-content :is(h1, h2, h3, h4, h5, h6, strong, label, th) {
+  color: var(--text-primary);
+}
+
+.portal-content .muted,
+.portal-content .muted-small {
+  color: var(--text-secondary);
 }
 
 .portal-content.is-home {
@@ -6708,6 +6723,7 @@ watch(() => store.selectedWeekday, async (weekday) => {
 }
 .school-event-main strong {
   font-size: 0.95rem;
+  color: #1d2633;
 }
 .school-events-empty {
   display: flex;
@@ -6830,8 +6846,14 @@ watch(() => store.selectedWeekday, async (weekday) => {
 :global([data-theme="dark"]) .school-portal {
   background: var(--bg-alt, #0f172a);
 }
-:global([data-theme="dark"]) .portal-content,
-:global([data-theme="dark"]) .portal-content.is-home .top-row,
+:global([data-theme="dark"]) .school-portal .portal-content {
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  color: var(--text-primary);
+}
+:global([data-theme="dark"]) .school-portal .portal-content,
+:global([data-theme="dark"]) .school-portal .portal-content.is-home .top-row,
 :global([data-theme="dark"]) .home-metric,
 :global([data-theme="dark"]) .dash-card,
 :global([data-theme="dark"]) .sp-user-chip,
