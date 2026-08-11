@@ -279,14 +279,30 @@
           <table class="pyu-admin__table">
             <thead>
               <tr>
-                <th>Provider</th>
-                <th>Schools</th>
-                <th>Status</th>
-                <th>Progress</th>
-                <th>Sections</th>
-                <th>Views</th>
-                <th>Time in flow</th>
-                <th>Last activity</th>
+                <th class="th-sort" :class="sortColClass('provider')" @click="setSort('provider')">
+                  Provider <span class="sort-arrow">{{ sortArrow('provider') }}</span>
+                </th>
+                <th class="th-sort" :class="sortColClass('schools')" @click="setSort('schools')">
+                  Schools <span class="sort-arrow">{{ sortArrow('schools') }}</span>
+                </th>
+                <th class="th-sort" :class="sortColClass('status')" @click="setSort('status')">
+                  Status <span class="sort-arrow">{{ sortArrow('status') }}</span>
+                </th>
+                <th class="th-sort" :class="sortColClass('progress')" @click="setSort('progress')">
+                  Progress <span class="sort-arrow">{{ sortArrow('progress') }}</span>
+                </th>
+                <th class="th-sort" :class="sortColClass('sections')" @click="setSort('sections')">
+                  Sections <span class="sort-arrow">{{ sortArrow('sections') }}</span>
+                </th>
+                <th class="th-sort" :class="sortColClass('views')" @click="setSort('views')">
+                  Views <span class="sort-arrow">{{ sortArrow('views') }}</span>
+                </th>
+                <th class="th-sort" :class="sortColClass('time')" @click="setSort('time')">
+                  Time in flow <span class="sort-arrow">{{ sortArrow('time') }}</span>
+                </th>
+                <th class="th-sort" :class="sortColClass('activity')" @click="setSort('activity')">
+                  Last activity <span class="sort-arrow">{{ sortArrow('activity') }}</span>
+                </th>
                 <th>Link / Push</th>
               </tr>
             </thead>
@@ -503,6 +519,8 @@ const campaign = ref({ status: 'draft', isEnabled: false, isPushed: false, isDis
 const filterText = ref('');
 const filterStatus = ref('all');
 const filterCart = ref(false);
+const sortKey = ref('progress');
+const sortDir = ref('desc');
 const selectedRow = ref(null);
 const sectionKeys = SECTION_META.map((m) => m.key);
 
@@ -654,7 +672,7 @@ const campaignLabel = computed(() => {
 });
 
 const filteredRows = computed(() => {
-  let list = rows.value || [];
+  let list = [...(rows.value || [])];
   const q = filterText.value.trim().toLowerCase();
   if (q) {
     list = list.filter(
@@ -668,8 +686,52 @@ const filteredRows = computed(() => {
     list = list.filter((r) => (r.status || 'not_started') === filterStatus.value);
   }
   if (filterCart.value) list = list.filter((r) => r.needSchoolCart);
+
+  const STATUS_ORDER = { finalized: 0, in_progress: 1, not_started: 2 };
+  const dir = sortDir.value === 'asc' ? 1 : -1;
+  list.sort((a, b) => {
+    let cmp = 0;
+    if (sortKey.value === 'progress') {
+      cmp = (a.sectionPercent || 0) - (b.sectionPercent || 0);
+    } else if (sortKey.value === 'status') {
+      cmp = (STATUS_ORDER[a.status] ?? 3) - (STATUS_ORDER[b.status] ?? 3);
+    } else if (sortKey.value === 'sections') {
+      cmp = (a.reviewedCount || 0) - (b.reviewedCount || 0);
+    } else if (sortKey.value === 'views') {
+      cmp = (a.tokenClickCount || 0) - (b.tokenClickCount || 0);
+    } else if (sortKey.value === 'time') {
+      cmp = Number(a.activeSeconds || 0) - Number(b.activeSeconds || 0);
+    } else if (sortKey.value === 'activity') {
+      const ta = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0;
+      const tb = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0;
+      cmp = ta - tb;
+    } else if (sortKey.value === 'schools') {
+      cmp = String(a.schoolNames || '').localeCompare(String(b.schoolNames || ''));
+    } else {
+      cmp = String(a.providerName || '').localeCompare(String(b.providerName || ''));
+    }
+    return cmp * dir;
+  });
   return list;
 });
+
+function setSort(key) {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortKey.value = key;
+    sortDir.value = key === 'provider' || key === 'schools' || key === 'status' ? 'asc' : 'desc';
+  }
+}
+
+function sortArrow(key) {
+  if (sortKey.value !== key) return '↕';
+  return sortDir.value === 'asc' ? '↑' : '↓';
+}
+
+function sortColClass(key) {
+  return { 'th-sort--active': sortKey.value === key };
+}
 
 function statusLabel(s) {
   if (s === 'finalized') return 'Completed';
@@ -1116,6 +1178,29 @@ onMounted(load);
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
+}
+.th-sort {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.th-sort:hover {
+  background: #f0f4f8;
+  color: #334155;
+}
+.th-sort--active {
+  color: #2563eb;
+  background: #eff6ff;
+}
+.sort-arrow {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 0.65rem;
+  opacity: 0.55;
+  vertical-align: middle;
+}
+.th-sort--active .sort-arrow {
+  opacity: 1;
 }
 .pyu-admin__table th,
 .pyu-admin__table td {

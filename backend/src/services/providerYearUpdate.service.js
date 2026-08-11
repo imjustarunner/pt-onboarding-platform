@@ -33,6 +33,13 @@ import { notifyProviderYearUpdateCompleted } from './yearUpdateNotifications.ser
 import UserLifecycleChecklistItem from '../models/UserLifecycleChecklistItem.model.js';
 import LifecycleChecklistDefinition from '../models/LifecycleChecklistDefinition.model.js';
 
+/** Persist actor types allowed on provider_year_update *_by_actor_type ENUM columns. */
+export function persistedPyuActorType(actorType) {
+  const t = String(actorType || 'provider').toLowerCase();
+  if (t === 'admin' || t === 'token_guest' || t === 'auto') return t;
+  return 'provider';
+}
+
 export const SECTION_KEYS = [
   'reminders',
   'school_events',
@@ -2079,7 +2086,7 @@ export async function upsertSectionProgress({
         reviewedVal,
         reviewedVal,
         reviewedVal,
-        actor?.actorType || null,
+        persistedPyuActorType(actor?.actorType),
         reviewedVal,
         actor?.userId || null,
         reviewedVal,
@@ -2098,7 +2105,7 @@ export async function upsertSectionProgress({
         cycleId,
         sectionKey,
         reviewedVal,
-        actor?.actorType || null,
+        persistedPyuActorType(actor?.actorType),
         actor?.userId || null,
         actor?.displayName || null,
         completedVal,
@@ -2283,7 +2290,7 @@ export async function finalizeCycle({ cycleId, actor }) {
          snapshot_json = ?
      WHERE id = ?`,
     [
-      actor?.actorType || null,
+      persistedPyuActorType(actor?.actorType),
       actor?.userId || null,
       actor?.displayName || null,
       JSON.stringify(snapshot),
