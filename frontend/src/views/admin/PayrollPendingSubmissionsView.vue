@@ -272,7 +272,7 @@
               Skill Builders / program event kiosk check-in/out with direct and indirect hour split.
               Includes submitted and deferred rows (same queue as Payroll Stage), including auto clock-outs that need verify.
               Clock times and late warnings use the <strong>event timezone</strong> (shown next to each time, e.g. MDT) — not your browser’s local timezone.
-              School / back-to-school events are Indirect-only (empty Direct rows are hidden). Approving posts to the selected pay period.
+              Empty Direct rows are hidden only when the event has no Direct hours configured (cap = 0); events that use Direct still show Direct. Approving posts to the selected pay period.
             </p>
           </div>
           <div class="pps-filter-bar">
@@ -953,10 +953,24 @@ const ptoVisible = computed(() => {
   return list;
 });
 
+/** Events with no Direct pay (e.g. school / back-to-school) stamp directHoursCap = 0. */
+const isIndirectOnlyEvent = (s) => Number(s?.directHoursCap || 0) === 0;
+
 const isEmptyDirectBucket = (s) => {
   const hours = Number(s?.directHours || 0);
   const credits = Number(s?.directClaim?.creditsHours ?? 0);
   return hours === 0 && credits === 0;
+};
+
+/**
+ * Hide Direct only when:
+ * - phantom row (0h and no claim), or
+ * - this event is Indirect-only (cap = 0) and Direct is empty.
+ * Events that use Direct (cap > 0) keep their Direct rows even if hours are currently 0.
+ */
+const shouldHideDirectRow = (s) => {
+  if (Number(s?.directHours || 0) === 0 && !s?.directClaim) return true;
+  return isIndirectOnlyEvent(s) && isEmptyDirectBucket(s);
 };
 
 const eventTimePendingCount = computed(() => {
@@ -964,7 +978,7 @@ const eventTimePendingCount = computed(() => {
   return (eventTimeSubmissions.value || []).filter((s) => {
     const stDirect = String(s?.directClaim?.status || '').toLowerCase();
     const stIndirect = String(s?.indirectClaim?.status || '').toLowerCase();
-    const directPending = pendingStatuses.has(stDirect) && !isEmptyDirectBucket(s);
+    const directPending = pendingStatuses.has(stDirect) && !shouldHideDirectRow(s);
     const indirectPending = pendingStatuses.has(stIndirect);
     return directPending || indirectPending;
   }).length;
@@ -1034,9 +1048,9 @@ const eventTimeBucketRows = computed(() => {
     const tz = s.eventTimezone || SCHOOL_EVENT_FALLBACK_TIMEZONE;
     const eventTzAbbrev = timezoneAbbrevAt(s.clockInAt || s.eventStartsAt || new Date(), tz);
 
-    // School / back-to-school events have directHoursCap = 0. Skip empty Direct
-    // rows (no hours and no payable claim) so they don't appear "stuck".
-    const directDisabled = isEmptyDirectBucket(s);
+    // Skip Direct only for phantom rows or Indirect-only events (cap = 0).
+    // Skill Builders / events with a Direct cap still show Direct when present.
+    const directDisabled = shouldHideDirectRow(s);
     const actionableDirect = canApproveBucket(s.directClaim) && !directDisabled;
     const actionableIndirect = canApproveBucket(s.indirectClaim);
     const sessionHasPendingClaim = actionableDirect || actionableIndirect;
@@ -1534,11 +1548,17 @@ const loadEventTimeSubmissions = async () => {
     });
     let submissions = Array.isArray(resp.data?.submissions) ? resp.data.submissions : [];
 
-    // Quietly dismiss leftover 0h Direct claims (school/back-to-school are Indirect-only).
+    // Only auto-dismiss mistaken 0h Direct claims on Indirect-only events (cap = 0).
+    // Never touch Direct claims for events that still use a Direct hours cap.
     if (!eventTimeShowApproved.value) {
       const empties = submissions.filter((s) => {
         const st = String(s?.directClaim?.status || '').toLowerCase();
-        return isEmptyDirectBucket(s) && s?.directClaim?.id && ['submitted', 'deferred'].includes(st);
+        return (
+          isIndirectOnlyEvent(s) &&
+          isEmptyDirectBucket(s) &&
+          s?.directClaim?.id &&
+          ['submitted', 'deferred'].includes(st)
+        );
       });
       if (empties.length) {
         await Promise.all(empties.map((s) => dismissEmptyDirectClaim(s).catch(() => null)));
@@ -1912,16 +1932,16 @@ const saveEventTimeEdit = async () => {
   }
 };
 
-/** Reject leftover 0h Direct claims (school events no longer use Direct). */
+/** Reject mistaken 0h Direct claims only on Indirect-only events (directHoursCap = 0). */
 const dismissEmptyDirectClaim = async (submission) => {
   const claim = submission?.directClaim;
   if (!claim?.id) return;
-  if (!isEmptyDirectBucket(submission)) return;
+  if (!isIndirectOnlyEvent(submission) || !isEmptyDirectBucket(submission)) return;
   const st = String(claim.status || '').toLowerCase();
   if (!['submitted', 'deferred'].includes(st)) return;
   await api.patch(`/payroll/time-claims/${claim.id}`, {
     action: 'reject',
-    rejectionReason: 'Dismissed empty Direct row (school/back-to-school events are Indirect-only).'
+    rejectionReason: 'Dismissed empty Direct row (this event has no Direct hours; Indirect-only).'
   });
 };
 
@@ -1944,8 +1964,8 @@ const approveEventTimeSubmission = (submission, bucket) => {
         creditsHours: bucket === 'direct' ? submission.directHours : submission.indirectHours,
         ...override
       });
-      // Approving Indirect for school events: clear any stuck 0h Direct claim.
-      if (bucket === 'indirect') {
+      // Approving Indirect on Indirect-only events: clear mistaken 0h Direct claim if any.
+      if (bucket === 'indirect' && isIndirectOnlyEvent(submission)) {
         await dismissEmptyDirectClaim(submission).catch(() => null);
       }
     },
