@@ -5,6 +5,7 @@ import {
   updateClientOnboardingDocs,
   markPaperPacketSignatureReceived,
   acknowledgeRoiStaffOnboarding,
+  updateOnboardingRoiExpiration,
   completeStaffOnboarding,
   listOnboardingQueue,
   listProviderOnboardingQueue,
@@ -71,6 +72,7 @@ export const putOnboardingDocs = async (req, res, next) => {
     const checklist = await updateClientOnboardingDocs({
       clientId,
       items: req.body?.items,
+      roiExpiresAt: req.body?.roi_expires_at,
       actorUserId: req.user?.id || null
     });
     res.json(checklist);
@@ -128,6 +130,7 @@ export const postAcknowledgeRoiStaff = async (req, res, next) => {
     try {
       const checklist = await acknowledgeRoiStaffOnboarding({
         clientId,
+        roiExpiresAt: req.body?.roi_expires_at,
         actorUserId: req.user?.id || null
       });
       await logAuditEvent(req, {
@@ -168,6 +171,44 @@ export const postCompleteStaffOnboarding = async (req, res, next) => {
         metadata: { clientId, phase: checklist.phase }
       });
       res.json({ ok: true, checklist });
+    } catch (err) {
+      if (err?.status) return res.status(err.status).json({ error: { message: err.message } });
+      throw err;
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * PUT /api/clients/:id/onboarding/roi-expiration
+ */
+export const putOnboardingRoiExpiration = async (req, res, next) => {
+  try {
+    const clientId = Number(req.params.id || 0);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+    if (!isBackoffice(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Backoffice access required' } });
+    }
+    const access = await requireClientAccess(req, clientId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    try {
+      const checklist = await updateOnboardingRoiExpiration({
+        clientId,
+        roiExpiresAt: req.body?.roi_expires_at,
+        actorUserId: req.user?.id || null
+      });
+      await logAuditEvent(req, {
+        actionType: 'client_onboarding_roi_expiration_updated',
+        agencyId: access.client.agency_id || null,
+        metadata: {
+          clientId,
+          roiExpiresAt: req.body?.roi_expires_at || null,
+          roiEffectiveDate: req.body?.roi_effective_date || null,
+          roiTermMonths: req.body?.roi_term_months ?? null
+        }
+      });
+      res.json(checklist);
     } catch (err) {
       if (err?.status) return res.status(err.status).json({ error: { message: err.message } });
       throw err;

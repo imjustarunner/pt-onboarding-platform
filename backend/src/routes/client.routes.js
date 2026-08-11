@@ -72,6 +72,7 @@ import {
   putOnboardingDocs,
   postMarkPacketSignature,
   postAcknowledgeRoiStaff,
+  putOnboardingRoiExpiration,
   postCompleteStaffOnboarding,
   getOnboardingQueue,
   getProviderOnboardingQueue
@@ -195,6 +196,7 @@ router.get('/:id/onboarding-checklist', getOnboardingChecklist);
 router.put('/:id/onboarding-docs', putOnboardingDocs);
 router.post('/:id/onboarding/mark-packet-signature', postMarkPacketSignature);
 router.post('/:id/onboarding/acknowledge-roi-staff', postAcknowledgeRoiStaff);
+router.put('/:id/onboarding/roi-expiration', putOnboardingRoiExpiration);
 router.post('/:id/onboarding/complete-staff', postCompleteStaffOnboarding);
 
 // Smart Disclosure status / require re-sign

@@ -58,6 +58,17 @@
         </select>
         <span v-else class="ob-doc-pill">{{ statusLabel(roiDoc?.status) }}</span>
       </div>
+
+      <ClientOnboardingRoiExpiryEditor
+        v-if="showRoiExpiryEditor"
+        :client-id="clientId"
+        :roi-expires-at="localRoiExpiresAt"
+        :readonly="!canEdit"
+        @saved="onRoiExpirySaved"
+      />
+      <p v-if="showRoiExpiryEditor && !localRoiExpiresAt && canEdit" class="ob-roi-expiry-hint muted small">
+        Choose the effective date and term (36 months is the paper-packet default), then save. ROI received status saves automatically once the expiration is set.
+      </p>
     </div>
 
     <p v-if="docError" class="error small">{{ docError }}</p>
@@ -68,6 +79,7 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import { normalizeOnboardingDocItems } from '../../utils/paperPacketDocumentCatalog.js';
+import ClientOnboardingRoiExpiryEditor from './ClientOnboardingRoiExpiryEditor.vue';
 
 const props = defineProps({
   clientId: { type: [Number, String], required: true },
@@ -77,6 +89,7 @@ const props = defineProps({
 const emit = defineEmits(['updated']);
 
 const localItems = ref([]);
+const localRoiExpiresAt = ref(null);
 const savingSignature = ref(false);
 const savingKey = ref('');
 const docError = ref('');
@@ -86,11 +99,13 @@ const signatureDocs = computed(() =>
   (localItems.value || []).filter((d) => d.group === 'packet_signature')
 );
 const roiDoc = computed(() => (localItems.value || []).find((d) => d.key === 'roi') || null);
+const showRoiExpiryEditor = computed(() => roiDoc.value?.status === 'present');
 
 function syncFromChecklist() {
   localItems.value = normalizeOnboardingDocItems(
     { items: (props.checklist?.document_items || []).map((d) => ({ key: d.key, status: d.status })) }
   );
+  localRoiExpiresAt.value = props.checklist?.client?.roi_expires_at || null;
 }
 
 function statusLabel(status) {
@@ -109,10 +124,41 @@ function patchLocal(key, status) {
   ));
 }
 
-async function putItems(items) {
+async function putItems(items, { roiExpiresAt = undefined } = {}) {
   const id = Number(props.clientId || 0);
-  const { data } = await api.put(`/clients/${id}/onboarding-docs`, { items }, { skipGlobalLoading: true });
+  const body = { items };
+  if (roiExpiresAt !== undefined) body.roi_expires_at = roiExpiresAt;
+  const { data } = await api.put(`/clients/${id}/onboarding-docs`, body, { skipGlobalLoading: true });
   return data;
+}
+
+function onRoiExpirySaved(payload) {
+  localRoiExpiresAt.value = payload?.client?.roi_expires_at || localRoiExpiresAt.value;
+  mergeChecklist(payload);
+  const roi = localItems.value.find((d) => d.key === 'roi');
+  const serverDone = payload?.document_items?.find((d) => d.key === 'roi')?.done;
+  if (roi?.status === 'present' && !serverDone) {
+    void persistRoiReceived();
+  }
+}
+
+async function persistRoiReceived() {
+  const id = Number(props.clientId || 0);
+  if (!id || savingKey.value) return;
+  const expiry = localRoiExpiresAt.value || props.checklist?.client?.roi_expires_at || null;
+  if (!expiry) return;
+  savingKey.value = 'roi';
+  docError.value = '';
+  try {
+    const items = localItems.value.map((d) => ({ key: d.key, status: d.status }));
+    const data = await putItems(items, { roiExpiresAt: expiry });
+    mergeChecklist(data);
+    syncFromChecklist();
+  } catch (e) {
+    docError.value = e.response?.data?.error?.message || 'Failed to save ROI received status';
+  } finally {
+    savingKey.value = '';
+  }
 }
 
 async function markPacketSignature() {
@@ -143,9 +189,20 @@ async function onRoiStatus(status) {
   docError.value = '';
   const prev = [...localItems.value];
   patchLocal('roi', status);
+  if (status === 'present') {
+    const expiry = localRoiExpiresAt.value || props.checklist?.client?.roi_expires_at || null;
+    if (!expiry) {
+      savingKey.value = '';
+      return;
+    }
+  }
   try {
     const items = localItems.value.map((d) => ({ key: d.key, status: d.status }));
-    const data = await putItems(items);
+    const data = await putItems(items, {
+      roiExpiresAt: status === 'present'
+        ? (localRoiExpiresAt.value || props.checklist?.client?.roi_expires_at)
+        : undefined
+    });
     mergeChecklist(data);
     syncFromChecklist();
   } catch (e) {

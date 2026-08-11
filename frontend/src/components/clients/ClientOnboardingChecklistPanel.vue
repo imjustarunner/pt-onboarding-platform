@@ -56,6 +56,12 @@
             <span class="ob-meta-label">Submitted</span>
             <span class="ob-meta-value">{{ formatDate(checklist.client.submission_date) }}</span>
           </div>
+          <div v-if="checklist.client_type === 'school'" class="ob-meta-item">
+            <span class="ob-meta-label">ROI expires</span>
+            <span class="ob-meta-value" :class="{ warn: !checklist.client?.roi_expires_at }">
+              {{ checklist.client?.roi_expires_at ? formatDate(checklist.client.roi_expires_at) : 'Not set' }}
+            </span>
+          </div>
         </div>
         <div class="ob-progress-bar-wrap">
           <div class="ob-progress-bar">
@@ -108,6 +114,7 @@
           <ClientOnboardingRoiStaffPanel
             :client-id="clientId"
             :step-done="checklist.roi_staff_item.done"
+            :roi-expires-at="checklist.client?.roi_expires_at"
             :readonly="readonly"
             @updated="onRoiStaffUpdated"
             @mark-complete="onRoiStaffUpdated"

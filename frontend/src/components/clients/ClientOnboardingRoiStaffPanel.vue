@@ -16,6 +16,11 @@
     </template>
 
     <template v-else-if="stepDone && !editing">
+      <ClientOnboardingRoiExpiryEditor
+        :client-id="clientId"
+        :roi-expires-at="localRoiExpiresAt || roiExpiresAt"
+        readonly
+      />
       <div class="roi-complete-card">
         <div class="roi-complete-head">
           <span class="roi-complete-icon" aria-hidden="true">
@@ -36,6 +41,12 @@
       <p v-if="paperPacketPending" class="roi-inline-notice">
         Paper packet uploaded — set each staff member’s access to match the signed form, then save.
       </p>
+      <ClientOnboardingRoiExpiryEditor
+        :client-id="clientId"
+        :roi-expires-at="localRoiExpiresAt || roiExpiresAt"
+        :readonly="readonly"
+        @saved="onRoiExpirySaved"
+      />
       <div v-if="loading && !rows.length" class="muted small">Loading school staff…</div>
       <div v-else-if="error" class="error small">{{ error }}</div>
       <template v-else>
@@ -131,11 +142,13 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import ClientOnboardingRoiExpiryEditor from './ClientOnboardingRoiExpiryEditor.vue';
 
 const props = defineProps({
   clientId: { type: [Number, String], required: true },
   stepDone: { type: Boolean, default: false },
-  readonly: { type: Boolean, default: false }
+  readonly: { type: Boolean, default: false },
+  roiExpiresAt: { type: String, default: null }
 });
 const emit = defineEmits(['updated', 'mark-complete']);
 
@@ -147,6 +160,7 @@ const saveMsg = ref('');
 const rows = ref([]);
 const draftStates = ref({});
 const paperPacketPending = ref(false);
+const localRoiExpiresAt = ref(null);
 
 function normalizeState(value) {
   const normalized = String(value || '').trim().toLowerCase();
@@ -185,6 +199,11 @@ function isDirty(row) {
 
 const dirtyCount = computed(() => (rows.value || []).filter((r) => isDirty(r)).length);
 
+const hasRoiGrantDraft = computed(() => (rows.value || []).some((row) => {
+  const level = normalizeState(draftStates.value[row.school_staff_user_id] ?? row.access_level);
+  return level === 'roi' || level === 'roi_docs';
+}));
+
 const roiAccessCount = computed(() => (rows.value || []).filter((row) => {
   const level = normalizeState(row.access_level);
   return level === 'roi' || level === 'roi_docs';
@@ -211,6 +230,7 @@ async function load({ quiet = false } = {}) {
     const { data } = await api.get(`/clients/${clientId}/school-roi-access`, { skipGlobalLoading: true });
     rows.value = Array.isArray(data?.staff) ? data.staff : [];
     paperPacketPending.value = data?.paper_packet_staff_roi_pending === true;
+    localRoiExpiresAt.value = data?.roi_expires_at || props.roiExpiresAt || null;
     draftStates.value = rows.value.reduce((acc, row) => {
       acc[row.school_staff_user_id] = normalizeState(row.access_level);
       return acc;
@@ -288,9 +308,20 @@ async function saveAllDirty() {
   emit('updated');
 }
 
+function onRoiExpirySaved(payload) {
+  localRoiExpiresAt.value = payload?.client?.roi_expires_at || localRoiExpiresAt.value;
+  emit('updated', { checklist: payload });
+}
+
 async function markComplete() {
   const clientId = Number(props.clientId || 0);
   if (!clientId || saving.value) return;
+
+  const expiry = localRoiExpiresAt.value || props.roiExpiresAt || null;
+  if (hasRoiGrantDraft.value && !expiry) {
+    error.value = 'Set and save the ROI expiration date before marking complete.';
+    return;
+  }
 
   saving.value = true;
   error.value = '';
@@ -317,7 +348,9 @@ async function markComplete() {
       }
     }
 
-    const { data } = await api.post(`/clients/${clientId}/onboarding/acknowledge-roi-staff`, {}, { skipGlobalLoading: true });
+    const { data } = await api.post(`/clients/${clientId}/onboarding/acknowledge-roi-staff`, {
+      roi_expires_at: hasRoiGrantDraft.value ? expiry : undefined
+    }, { skipGlobalLoading: true });
     editing.value = false;
     await load({ quiet: true });
     emit('mark-complete', { checklist: data });
@@ -327,6 +360,10 @@ async function markComplete() {
     saving.value = false;
   }
 }
+
+watch(() => props.roiExpiresAt, (value) => {
+  if (value) localRoiExpiresAt.value = value;
+}, { immediate: true });
 
 watch(() => props.clientId, () => {
   if (props.readonly) {

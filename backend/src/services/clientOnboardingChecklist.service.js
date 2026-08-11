@@ -314,10 +314,43 @@ export async function getClientOnboardingChecklist(clientId) {
       submission_date: client.submission_date || null,
       client_status_label: client.client_status_label || null,
       client_status_key: statusKey || null,
-      provider_id: providerUserId || (client.provider_id ? Number(client.provider_id) : null)
+      provider_id: providerUserId || (client.provider_id ? Number(client.provider_id) : null),
+      roi_expires_at: client.roi_expires_at ? String(client.roi_expires_at).slice(0, 10) : null
     },
     provider_name: providerName
   };
+}
+
+function parseRoiExpiresAtYmd(raw) {
+  const value = raw === null || raw === undefined ? '' : String(raw).trim();
+  if (!value) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw Object.assign(new Error('roi_expires_at must be YYYY-MM-DD'), { status: 400 });
+  }
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    throw Object.assign(new Error('Invalid ROI expiration date'), { status: 400 });
+  }
+  return value;
+}
+
+/**
+ * Set client ROI expiration during readiness onboarding (feeds school portal access).
+ */
+export async function updateOnboardingRoiExpiration({ clientId, roiExpiresAt, actorUserId = null }) {
+  const cid = Number(clientId || 0);
+  if (!cid) throw new Error('clientId required');
+  const client = await Client.findById(cid, { includeSensitive: true });
+  if (!client) throw Object.assign(new Error('Client not found'), { status: 404 });
+  if (!isSchoolClient(client)) {
+    throw Object.assign(new Error('ROI expiration applies only to school clients'), { status: 400 });
+  }
+  const ymd = parseRoiExpiresAtYmd(roiExpiresAt);
+  if (!ymd) {
+    throw Object.assign(new Error('ROI expiration date is required'), { status: 400 });
+  }
+  await Client.update(cid, { roi_expires_at: ymd }, actorUserId);
+  return getClientOnboardingChecklist(cid);
 }
 
 /**
@@ -345,7 +378,7 @@ export async function markPaperPacketSignatureReceived({ clientId, actorUserId =
  * Clears the pending flag so the ROI staff step can complete even when every
  * staff member stays at Limited access.
  */
-export async function acknowledgeRoiStaffOnboarding({ clientId, actorUserId = null }) {
+export async function acknowledgeRoiStaffOnboarding({ clientId, roiExpiresAt = undefined, actorUserId = null }) {
   const cid = Number(clientId || 0);
   if (!cid) throw new Error('clientId required');
   const client = await Client.findById(cid, { includeSensitive: true });
@@ -353,11 +386,21 @@ export async function acknowledgeRoiStaffOnboarding({ clientId, actorUserId = nu
   if (!isSchoolClient(client) || !isPaperPacketClient(client)) {
     throw Object.assign(new Error('School ROI acknowledgment applies only to paper-packet school clients'), { status: 400 });
   }
-  await Client.update(cid, { paper_packet_staff_roi_pending: 0 }, actorUserId);
+  const updates = { paper_packet_staff_roi_pending: 0 };
+  if (roiExpiresAt !== undefined) {
+    const ymd = parseRoiExpiresAtYmd(roiExpiresAt);
+    if (!ymd) {
+      throw Object.assign(new Error('Set an ROI expiration date before completing school staff ROI'), { status: 400 });
+    }
+    updates.roi_expires_at = ymd;
+  } else if (!client.roi_expires_at && await hasConfiguredRoiStaff(cid, client.organization_id)) {
+    throw Object.assign(new Error('Set an ROI expiration date before completing school staff ROI'), { status: 400 });
+  }
+  await Client.update(cid, updates, actorUserId);
   return getClientOnboardingChecklist(cid);
 }
 
-export async function updateClientOnboardingDocs({ clientId, items, actorUserId = null }) {
+export async function updateClientOnboardingDocs({ clientId, items, roiExpiresAt = undefined, actorUserId = null }) {
   const cid = Number(clientId || 0);
   if (!cid) throw new Error('clientId required');
   const client = await Client.findById(cid, { includeSensitive: true });
@@ -374,6 +417,18 @@ export async function updateClientOnboardingDocs({ clientId, items, actorUserId 
     return { key: def.key, status: raw.status };
   });
   await persistOnboardingDocItems(client, next, actorUserId);
+  const roiMarkedPresent = next.some((d) => d.key === 'roi' && d.status === 'present');
+  if (roiExpiresAt !== undefined) {
+    const ymd = parseRoiExpiresAtYmd(roiExpiresAt);
+    if (roiMarkedPresent && !ymd) {
+      throw Object.assign(new Error('ROI expiration date is required when ROI is marked received'), { status: 400 });
+    }
+    if (ymd) {
+      await Client.update(cid, { roi_expires_at: ymd }, actorUserId);
+    }
+  } else if (roiMarkedPresent && !client.roi_expires_at) {
+    throw Object.assign(new Error('Set an ROI expiration date when marking ROI received'), { status: 400 });
+  }
   return getClientOnboardingChecklist(cid);
 }
 
@@ -675,6 +730,7 @@ export default {
   updateClientOnboardingDocs,
   markPaperPacketSignatureReceived,
   acknowledgeRoiStaffOnboarding,
+  updateOnboardingRoiExpiration,
   completeStaffOnboarding,
   maybePromoteOnboardedToCurrent,
   listOnboardingQueue,
