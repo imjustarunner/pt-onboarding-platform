@@ -241,25 +241,7 @@
       <!-- CHECK IN · EMPLOYEE -->
       <div v-else-if="mainMode === 'checkin' && personMode === 'employee'" class="pe-panel">
         <p class="pe-panel-lead muted">{{ pendingStaff.length }} not checked in yet</p>
-        <div class="pe-pin-box">
-          <label class="pe-pin-lbl">Or enter 4-digit personal PIN</label>
-          <div class="pe-pin-row">
-            <input
-              v-model="empPin"
-              class="input pe-pin-input"
-              type="password"
-              inputmode="numeric"
-              maxlength="4"
-              placeholder="••••"
-              :disabled="!kioskActive || empPinBusy"
-              @input="empPin = ($event.target?.value || '').replace(/\D/g, '').slice(0, 4)"
-            />
-            <button class="btn btn-primary btn-sm" :disabled="!kioskActive || empPinBusy || empPin.length !== 4" @click="checkinByPin">
-              {{ empPinBusy ? '…' : 'Go' }}
-            </button>
-          </div>
-          <p v-if="empPinError" class="pe-inline-err">{{ empPinError }}</p>
-        </div>
+        <p v-if="empPinError" class="pe-inline-err">{{ empPinError }}</p>
         <ul class="pe-roster pe-roster--emp">
           <li v-for="s in filteredPendingStaff" :key="s.id" class="pe-row pe-row--emp">
             <button
@@ -1270,8 +1252,6 @@ const checkingInUserId = ref(null);
 const checkingOutUserId = ref(null);
 const empConfirmOpen = ref(false);
 const empConfirmPerson = ref(null);
-const empPin = ref('');
-const empPinBusy = ref(false);
 const empPinError = ref('');
 
 function apiBase() {
@@ -2019,31 +1999,6 @@ async function confirmEmployeeCheckin() {
     empPinError.value = e.response?.data?.error?.message || 'Check-in failed';
   } finally {
     checkingInUserId.value = null;
-  }
-}
-
-async function checkinByPin() {
-  if (!kioskActive.value) return;
-  empPinError.value = '';
-  empPinBusy.value = true;
-  try {
-    const res = await api.post(`${apiBase()}/checkin/employee-pin`, { pin: empPin.value }, {
-      headers: authHeaders(),
-      skipGlobalLoading: true,
-      skipAuthRedirect: true
-    });
-    checkins.value.push({
-      clientId: null,
-      userId: res.data?.userId,
-      personType: 'employee',
-      action: 'check_in',
-      checkedInAt: res.data?.checkedInAt || new Date().toISOString()
-    });
-    empPin.value = '';
-  } catch (e) {
-    empPinError.value = e.response?.data?.error?.message || 'PIN not recognized';
-  } finally {
-    empPinBusy.value = false;
   }
 }
 

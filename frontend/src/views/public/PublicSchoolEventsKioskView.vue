@@ -127,20 +127,7 @@
       </div>
 
       <template v-else>
-      <div class="pin-row">
-        <input
-          v-model="staffPin"
-          class="pin-input sm"
-          type="password"
-          inputmode="numeric"
-          maxlength="4"
-          placeholder="Staff PIN"
-          @keyup.enter="clockInByPin"
-        />
-        <button type="button" class="btn-primary" :disabled="busy || staffPin.length !== 4" @click="clockInByPin">
-          Clock in with PIN
-        </button>
-      </div>
+      <p class="muted" style="margin: 0 0 12px;">Tap your name to clock in.</p>
 
       <div class="staff-grid">
         <button
@@ -282,7 +269,6 @@ function isStaffableKioskEvent(e) {
   return !KIOSK_CALENDAR_ONLY_EVENT_TYPES.has(typ);
 }
 const pin = ref('');
-const staffPin = ref('');
 const busy = ref(false);
 const error = ref('');
 const notice = ref('');
@@ -531,33 +517,6 @@ async function clockInUser(s) {
       ? `${s.displayName} was already clocked in.`
       : `${s.displayName} clocked in.`;
     await refreshPhotoStatus(s.id);
-  } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Clock-in failed';
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function clockInByPin() {
-  try {
-    busy.value = true;
-    error.value = '';
-    notice.value = '';
-    resetPhotoUi();
-    const res = await api.post(
-      `/public/school-events/agency/${encodeURIComponent(slug.value)}/kiosk/events/${selectedEventId.value}/checkin/employee-pin`,
-      { pin: staffPin.value },
-      { headers: authHeaders(), skipAuthRedirect: true, skipGlobalLoading: true }
-    );
-    activeUser.value = {
-      id: res.data?.userId,
-      displayName: res.data?.displayName || 'Staff'
-    };
-    notice.value = res.data?.alreadyClockedIn
-      ? `${activeUser.value.displayName} was already clocked in.`
-      : `${activeUser.value.displayName} clocked in.`;
-    staffPin.value = '';
-    await refreshPhotoStatus(activeUser.value.id);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Clock-in failed';
   } finally {
@@ -939,15 +898,6 @@ h2, h3 {
   color: #b45309;
   font-weight: 700;
   font-size: 0.85rem;
-}
-.pin-row {
-  display: flex;
-  gap: 0.5rem;
-  margin: 1rem 0;
-}
-.pin-row .btn-primary {
-  width: auto;
-  white-space: nowrap;
 }
 .staff-grid {
   display: grid;

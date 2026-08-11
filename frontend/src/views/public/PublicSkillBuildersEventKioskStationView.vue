@@ -51,22 +51,8 @@
 
       <div v-else-if="step === 4 || (step === 2 && action === 'out')" class="sbe-station-card">
         <h2 class="sbe-h2">{{ action === 'in' ? 'Who is clocking in?' : 'Who is clocking out?' }}</h2>
-        <p class="muted small">Enter the 4-digit kiosk PIN from your profile, or tap your name.</p>
+        <p class="muted small">Tap your name below.</p>
         <div v-if="formError" class="error-box">{{ formError }}</div>
-        <div class="sbe-pin-row">
-          <input
-            v-model="staffPin"
-            class="input sbe-pin"
-            type="password"
-            inputmode="numeric"
-            maxlength="4"
-            placeholder="PIN"
-            :disabled="working"
-          />
-          <button type="button" class="btn btn-primary" :disabled="working || staffPin.length !== 4" @click="submitPin">
-            {{ working ? '…' : 'Go' }}
-          </button>
-        </div>
         <div v-if="roster.providers.length" class="sbe-grid">
           <button
             v-for="p in roster.providers"
@@ -120,7 +106,6 @@ const step = ref(1);
 const action = ref('in');
 const sessionId = ref(0);
 const clientId = ref(0);
-const staffPin = ref('');
 const formError = ref('');
 const working = ref(false);
 const doneTitle = ref('');
@@ -225,7 +210,6 @@ async function loadAll() {
 function startFlow(dir) {
   action.value = dir;
   formError.value = '';
-  staffPin.value = '';
   if (dir === 'out') {
     step.value = 2;
     sessionId.value = 0;
@@ -239,7 +223,6 @@ function startFlow(dir) {
 
 function goBackFromIdentify() {
   formError.value = '';
-  staffPin.value = '';
   if (action.value === 'out') step.value = 1;
   else if (step.value === 4) step.value = 3;
 }
@@ -249,34 +232,9 @@ function resetFlow() {
   action.value = 'in';
   sessionId.value = 0;
   clientId.value = 0;
-  staffPin.value = '';
   formError.value = '';
   doneTitle.value = '';
   doneDetail.value = '';
-}
-
-async function submitPin() {
-  const pin = staffPin.value.replace(/\D/g, '').slice(0, 4);
-  if (pin.length !== 4) return;
-  formError.value = '';
-  working.value = true;
-  try {
-    const res = await api.post(
-      `/public/skill-builders/agency/${encodeURIComponent(slug.value.toLowerCase())}/kiosk/events/${eventId.value}/identify`,
-      { pin },
-      { headers: authHeaders(), skipGlobalLoading: true, skipAuthRedirect: true }
-    );
-    const uid = Number(res.data?.userId);
-    if (!uid) {
-      formError.value = 'Could not identify user.';
-      return;
-    }
-    await runClock(uid);
-  } catch (e) {
-    formError.value = e.response?.data?.error?.message || e.message || 'Identify failed';
-  } finally {
-    working.value = false;
-  }
 }
 
 async function pickProvider(p) {
@@ -373,18 +331,6 @@ onMounted(() => {
   gap: 10px;
   align-items: center;
   margin-top: 16px;
-}
-.sbe-pin-row {
-  display: flex;
-  gap: 10px;
-  margin-top: 12px;
-}
-.sbe-pin {
-  flex: 1;
-  max-width: 200px;
-  font-size: 1.2rem;
-  letter-spacing: 0.15em;
-  text-align: center;
 }
 .sbe-grid {
   display: grid;
