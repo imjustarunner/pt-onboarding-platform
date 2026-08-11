@@ -19,6 +19,7 @@ import { fetchRegistrationCatalogItems } from '../services/registrationCatalog.s
 import { enrollClientsInCompanyEvent } from '../services/skillBuildersIntakeEnrollment.service.js';
 import applyClientRoiCompletion from '../services/clientRoiCompletion.service.js';
 import applyClientIntakeCompletion from '../services/clientIntakeCompletion.service.js';
+import { maybeCreateSchoolIntakeReviewTask } from '../services/schoolIntakeReviewTask.service.js';
 import { getClientIpAddress } from '../utils/ipAddress.util.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import { attachSignedPdfToClient } from '../services/phiDocumentAttachment.service.js';
@@ -1496,6 +1497,32 @@ const persistChildIntakeData = async ({
   }
 
   return result;
+};
+
+const queueSchoolIntakeReviewTask = async ({
+  clientId,
+  submissionId,
+  clientIndex,
+  link,
+  intakeData,
+  submittedAt
+}) => {
+  try {
+    await maybeCreateSchoolIntakeReviewTask({
+      clientId,
+      submissionId,
+      clientIndex,
+      link,
+      intakeData,
+      submittedAt
+    });
+  } catch (err) {
+    console.warn('[publicIntake] school intake review task failed', {
+      clientId,
+      submissionId,
+      error: err?.message || err
+    });
+  }
 };
 
 const ensureGuardianAccountLinkedForClient = async ({ clientId, profile = {}, accessEnabled = false }) => {
@@ -7852,6 +7879,15 @@ export const finalizePublicIntake = async (req, res, next) => {
           flowLabel: 'school_roi',
           intakeCompletionNote: 'Marked received automatically after intake/ROI completion'
         });
+
+        await queueSchoolIntakeReviewTask({
+          clientId,
+          submissionId,
+          clientIndex: i,
+          link,
+          intakeData,
+          submittedAt: now
+        });
       }
     }
 
@@ -9055,6 +9091,15 @@ export const submitPublicIntake = async (req, res, next) => {
           completedAt: now,
           flowLabel: 'registration',
           intakeCompletionNote: 'Marked received automatically after intake/registration completion'
+        });
+
+        await queueSchoolIntakeReviewTask({
+          clientId,
+          submissionId,
+          clientIndex,
+          link,
+          intakeData,
+          submittedAt: now
         });
       }
     }
