@@ -6,16 +6,28 @@ import {
   GOOGLE_WORKSPACE_DIRECTORY_SCOPES
 } from './googleWorkspaceAuth.service.js';
 
+function resolveDirectoryImpersonateUser() {
+  return String(
+    process.env.GOOGLE_WORKSPACE_DIRECTORY_IMPERSONATE_USER ||
+      process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER ||
+      ''
+  )
+    .trim()
+    .toLowerCase();
+}
+
 class GoogleWorkspaceDirectoryService {
   static isConfigured() {
     const sa = parseGoogleWorkspaceServiceAccountFromEnv();
-    return !!(sa?.client_email && sa?.private_key && process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER);
+    return !!(sa?.client_email && sa?.private_key && resolveDirectoryImpersonateUser());
   }
 
   static async getClient() {
-    const impersonate = String(process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER || '').trim().toLowerCase();
+    const impersonate = resolveDirectoryImpersonateUser();
     if (!impersonate) {
-      throw new Error('Missing GOOGLE_WORKSPACE_IMPERSONATE_USER');
+      throw new Error(
+        'Missing GOOGLE_WORKSPACE_DIRECTORY_IMPERSONATE_USER (or GOOGLE_WORKSPACE_IMPERSONATE_USER fallback)'
+      );
     }
     const auth = await buildImpersonatedJwtClient({
       subjectEmail: impersonate,

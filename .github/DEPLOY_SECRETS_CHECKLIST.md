@@ -40,6 +40,7 @@ Each secret is only used if it exists (non-empty). Missing optional secrets = fe
 ### Google Workspace / OAuth
 - `GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64`
 - `GOOGLE_WORKSPACE_IMPERSONATE_USER`
+- `GOOGLE_WORKSPACE_DIRECTORY_IMPERSONATE_USER` — human super admin or Groups admin for Directory/group sync only (not `ai@`)
 - `GOOGLE_WORKSPACE_DRIVE_IMPERSONATE_USER`
 - `GMAIL_IMPERSONATE_USER`
 - `GOOGLE_WORKSPACE_FROM_NAME`

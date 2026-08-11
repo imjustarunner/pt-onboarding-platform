@@ -85,10 +85,14 @@ npm run sync-school-group-contacts
 
 Admin → Email Settings → **Sync Google Group members → school contacts**.
 
-Requires Google Admin SDK domain-wide delegation scopes on the service account (in addition to existing user scope):
+Requires Google Admin SDK domain-wide delegation scopes on the service account:
 
+- `https://www.googleapis.com/auth/admin.directory.user`
 - `https://www.googleapis.com/auth/admin.directory.group.readonly`
 - `https://www.googleapis.com/auth/admin.directory.group.member.readonly`
 
-`GOOGLE_WORKSPACE_IMPERSONATE_USER` must be a Workspace super admin.
+Directory sync does **not** use the Gmail mailbox (`ai@…`). Set a human admin separately:
+
+- `GOOGLE_WORKSPACE_DIRECTORY_IMPERSONATE_USER` — Workspace super admin **or** delegated **Groups** admin (read groups/members). Used only for group sync / Directory API.
+- Falls back to `GOOGLE_WORKSPACE_IMPERSONATE_USER` when unset (not recommended for `ai@` mailboxes).
 
