@@ -97,7 +97,12 @@ export const listSchoolStaffUsers = async (req, res, next) => {
       [orgId]
     );
 
-    res.json(Array.isArray(rows) ? rows : []);
+    res.json(
+      (Array.isArray(rows) ? rows : []).map((r) => ({
+        ...r,
+        needs_activation: String(r.status || '').toUpperCase() === 'PENDING_SETUP'
+      }))
+    );
   } catch (error) {
     next(error);
   }
@@ -412,6 +417,87 @@ export const createSchoolStaffUserFromContact = async (req, res, next) => {
         role: user.role,
         status: user.status
       },
+      temporaryPasswordExpiresAt: temporaryPasswordResult?.expiresAt || null
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Activate a PENDING_SETUP school_staff user for this school (title/flags + temp password).
+ */
+export const activateSchoolStaffUser = async (req, res, next) => {
+  try {
+    const orgId = parseInt(String(req.params.id || ''), 10);
+    const userId = parseInt(String(req.params.userId || ''), 10);
+    if (!Number.isFinite(orgId) || orgId <= 0 || !Number.isFinite(userId) || userId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid id' } });
+    }
+    await assertManageableSchoolOrg(req, orgId);
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+    if (String(user.role || '').toLowerCase() !== 'school_staff') {
+      return res.status(400).json({ error: { message: 'Only school_staff users can be activated' } });
+    }
+    const membership = await User.getAgencyMembership(userId, orgId);
+    if (!membership) {
+      return res.status(400).json({ error: { message: 'User is not assigned to this school.' } });
+    }
+
+    const roleTitle = req.body?.roleTitle !== undefined ? String(req.body.roleTitle || '').trim() : null;
+    const isSchoolAdmin = req.body?.isSchoolAdmin === true;
+    const isScheduler = req.body?.isScheduler === true;
+    let temporaryPassword = String(req.body?.temporaryPassword || '').trim();
+    if (!temporaryPassword) temporaryPassword = await User.generateTemporaryPassword();
+    if (temporaryPassword.length < 6) {
+      return res.status(400).json({ error: { message: 'Temporary password must be at least 6 characters' } });
+    }
+
+    const email = normalizeEmail(user.email || user.work_email);
+    const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || email;
+    if (email) {
+      try {
+        await pool.execute(
+          `INSERT INTO school_contacts
+            (school_organization_id, full_name, email, role_title, notes, raw_source_text, is_primary, is_school_admin, is_scheduler)
+           VALUES (?, ?, ?, ?, 'Activated from admin', 'school_staff_activate', 0, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             full_name = COALESCE(VALUES(full_name), full_name),
+             role_title = COALESCE(VALUES(role_title), role_title),
+             is_school_admin = VALUES(is_school_admin),
+             is_scheduler = VALUES(is_scheduler),
+             updated_at = CURRENT_TIMESTAMP`,
+          [orgId, fullName, email, roleTitle || null, isSchoolAdmin ? 1 : 0, isScheduler ? 1 : 0]
+        );
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+    }
+
+    const temporaryPasswordResult = await User.setTemporaryPassword(userId, temporaryPassword, 24 * 7);
+    try {
+      await User.updateStatus(userId, 'ACTIVE_EMPLOYEE', req.user?.id || null);
+    } catch {
+      // ignore
+    }
+    try {
+      await User.update(userId, { isActive: true });
+    } catch {
+      // ignore
+    }
+
+    res.json({
+      ok: true,
+      user: {
+        id: user.id,
+        email: user.email || email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        status: 'ACTIVE_EMPLOYEE'
+      },
+      temporaryPassword,
       temporaryPasswordExpiresAt: temporaryPasswordResult?.expiresAt || null
     });
   } catch (error) {

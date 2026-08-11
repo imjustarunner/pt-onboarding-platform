@@ -35,9 +35,48 @@
             <input v-model.trim="form.schoolName" required />
           </label>
         </div>
+
+        <div v-if="affiliationConflict" class="so-conflict">
+          <p class="so-conflict-title">We recognize this email</p>
+          <p class="muted">
+            You’re already a school staff account
+            <span v-if="priorSchoolNames"> at {{ priorSchoolNames }}</span>.
+            You’re creating a <strong>new</strong> school with us — choose how to handle your prior school(s).
+          </p>
+          <label class="so-radio">
+            <input v-model="priorSchoolDecision" type="radio" value="leave_prior" />
+            I’m only at this new school (remove prior school access)
+          </label>
+          <label class="so-radio">
+            <input v-model="priorSchoolDecision" type="radio" value="stay_at_both" />
+            I’m at both schools (keep prior access and add this one)
+          </label>
+          <label class="so-check">
+            <input v-model="resetPassword" type="checkbox" />
+            Reset my password (recommended if you don’t remember it)
+          </label>
+          <p v-if="issuedTempPassword" class="so-temp">
+            Temporary password (save this now — it won’t be shown again):
+            <code>{{ issuedTempPassword }}</code>
+          </p>
+        </div>
+
         <p v-if="actionError" class="error">{{ actionError }}</p>
-        <button type="submit" class="btn primary" :disabled="saving">
-          {{ saving ? 'Starting…' : 'Start onboarding →' }}
+        <button
+          v-if="pendingInviteToken"
+          type="button"
+          class="btn primary"
+          @click="continueAfterTempPassword"
+        >
+          I’ve saved my temporary password — continue →
+        </button>
+        <button
+          v-else
+          type="submit"
+          class="btn primary"
+          :disabled="saving || (affiliationConflict && !priorSchoolDecision)"
+        >
+          {{ saving ? 'Starting…' : (affiliationConflict ? 'Continue with this choice →' : 'Start onboarding →') }}
         </button>
       </form>
     </div>
@@ -58,6 +97,17 @@ const saving = ref(false);
 const error = ref('');
 const actionError = ref('');
 const meta = ref(null);
+const affiliationConflict = ref(false);
+const priorSchools = ref([]);
+const priorSchoolDecision = ref('');
+const resetPassword = ref(true);
+const issuedTempPassword = ref('');
+const pendingInviteToken = ref('');
+
+function continueAfterTempPassword() {
+  if (!pendingInviteToken.value) return;
+  router.replace(`/school-onboarding/${pendingInviteToken.value}/school_information`);
+}
 
 const form = reactive({
   contactFirstName: '',
@@ -73,6 +123,9 @@ const shellVars = computed(() => {
   const palette = meta.value?.agency?.colorPalette || {};
   return { '--so-primary': palette.primary || palette.primaryColor || '#1d4ed8' };
 });
+const priorSchoolNames = computed(() =>
+  (priorSchools.value || []).map((s) => s.name).filter(Boolean).join(', ')
+);
 
 async function load() {
   loading.value = true;
@@ -91,16 +144,36 @@ async function start() {
   actionError.value = '';
   saving.value = true;
   try {
-    const res = await api.post(`/public/school-onboarding/qr/${token.value}/start`, {
+    const payload = {
       contactFirstName: form.contactFirstName,
       contactLastName: form.contactLastName,
       contactEmail: form.contactEmail,
       schoolName: form.schoolName
-    });
+    };
+    if (affiliationConflict.value) {
+      payload.confirmExistingSchoolStaff = true;
+      payload.priorSchoolDecision = priorSchoolDecision.value;
+      payload.resetPassword = resetPassword.value === true;
+    }
+    const res = await api.post(`/public/school-onboarding/qr/${token.value}/start`, payload);
     const inviteToken = res.data?.inviteToken;
+    if (res.data?.temporaryPassword) {
+      issuedTempPassword.value = res.data.temporaryPassword;
+      pendingInviteToken.value = inviteToken;
+      actionError.value = '';
+      return;
+    }
     router.replace(`/school-onboarding/${inviteToken}/school_information`);
   } catch (e) {
-    actionError.value = e?.response?.data?.error?.message || 'Unable to start onboarding';
+    const err = e?.response?.data?.error || {};
+    if (err.code === 'SCHOOL_STAFF_ALREADY_AFFILIATED') {
+      affiliationConflict.value = true;
+      priorSchools.value = Array.isArray(err.details?.currentSchools) ? err.details.currentSchools : [];
+      if (!priorSchoolDecision.value) priorSchoolDecision.value = 'leave_prior';
+      actionError.value = 'Confirm how to handle your prior school(s), then continue.';
+    } else {
+      actionError.value = err.message || e?.message || 'Unable to start onboarding';
+    }
   } finally {
     saving.value = false;
   }
@@ -119,36 +192,38 @@ onMounted(load);
   background: linear-gradient(160deg, #eff6ff, #f8fafc 45%, #eef2ff);
 }
 .so-start-card {
-  width: min(640px, 100%);
+  width: min(560px, 100%);
   background: #fff;
-  border: 1px solid #e2e8f0;
   border-radius: 16px;
   padding: 1.5rem;
   box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
 }
 .so-brand {
   display: flex;
-  gap: 0.85rem;
+  gap: 0.75rem;
   align-items: center;
   margin-bottom: 1rem;
 }
-.so-brand img, .so-mark {
+.so-brand img,
+.so-mark {
   width: 48px;
   height: 48px;
   border-radius: 12px;
   object-fit: contain;
-  background: #f8fafc;
 }
 .so-mark {
   display: grid;
   place-items: center;
-  font-weight: 800;
-  color: var(--so-primary);
+  background: var(--so-primary);
+  color: #fff;
+  font-weight: 700;
 }
-h1 { margin: 0; font-size: 1.35rem; }
-.muted { color: #64748b; }
-.error { color: #b91c1c; }
-.so-form { display: flex; flex-direction: column; gap: 0.85rem; }
+.so-brand h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+.muted { color: #64748b; font-size: 0.9rem; }
+.error { color: #b91c1c; margin: 0.5rem 0; }
 .so-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -157,27 +232,60 @@ h1 { margin: 0; font-size: 1.35rem; }
 .so-grid label {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  font-size: 0.9rem;
+  gap: 0.25rem;
+  font-size: 0.85rem;
 }
-.span-2 { grid-column: span 2; }
-input {
+.so-grid .span-2 { grid-column: span 2; }
+.so-grid input {
   border: 1px solid #cbd5e1;
   border-radius: 8px;
-  padding: 0.55rem 0.7rem;
-  font: inherit;
+  padding: 0.55rem 0.65rem;
 }
-.btn {
+.so-conflict {
+  margin-top: 1rem;
+  padding: 0.85rem;
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  border-radius: 10px;
+}
+.so-conflict-title {
+  margin: 0 0 0.35rem;
+  font-weight: 700;
+}
+.so-radio,
+.so-check {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin: 0.45rem 0;
+  font-size: 0.9rem;
+}
+.so-temp {
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+}
+.so-temp code {
+  background: #fff;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+}
+.btn.primary {
+  margin-top: 1rem;
+  width: 100%;
   border: none;
-  border-radius: 8px;
-  padding: 0.65rem 1rem;
-  font: inherit;
+  border-radius: 10px;
+  padding: 0.7rem 1rem;
+  background: var(--so-primary);
+  color: #fff;
+  font-weight: 600;
   cursor: pointer;
 }
-.btn.primary { background: var(--so-primary); color: #fff; }
-.btn:disabled { opacity: 0.6; cursor: not-allowed; }
-@media (max-width: 640px) {
+.btn.primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+@media (max-width: 560px) {
   .so-grid { grid-template-columns: 1fr; }
-  .span-2 { grid-column: span 1; }
+  .so-grid .span-2 { grid-column: span 1; }
 }
 </style>

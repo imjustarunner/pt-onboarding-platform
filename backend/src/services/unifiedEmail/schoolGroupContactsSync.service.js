@@ -1,4 +1,5 @@
 import pool from '../../config/database.js';
+import User from '../../models/User.model.js';
 import GoogleWorkspaceDirectoryService from '../googleWorkspaceDirectory.service.js';
 import { syncSchoolEmailInboundForAgency } from './schoolEmailInboundSync.service.js';
 
@@ -119,8 +120,71 @@ async function upsertSchoolContact({
   return { action: 'unchanged' };
 }
 
+function parseName(fullName) {
+  const s = String(fullName || '').trim();
+  if (!s) return { firstName: 'School', lastName: 'Staff' };
+  const parts = s.split(/\s+/g).filter(Boolean);
+  if (parts.length === 1) return { firstName: parts[0], lastName: 'Staff' };
+  return { firstName: parts.slice(0, -1).join(' '), lastName: parts[parts.length - 1] };
+}
+
 /**
- * Sync Google Group members (for groups schoolreply belongs to) into school_contacts.
+ * Ensure a PENDING_SETUP school_staff user exists and is assigned to the school.
+ * Never creates duplicates; never demotes ACTIVE_EMPLOYEE; skips non-school_staff roles.
+ */
+async function ensurePendingSchoolStaffUser({
+  schoolOrganizationId,
+  fullName,
+  email,
+  dryRun = false
+}) {
+  const em = normalizeEmail(email);
+  if (!em) return { action: 'skipped', reason: 'no_email' };
+
+  const existing = await User.findByEmail(em);
+  if (existing?.id) {
+    const role = String(existing.role || '').toLowerCase();
+    if (role !== 'school_staff') {
+      return { action: 'skipped_other_role', reason: `role:${role}`, userId: existing.id };
+    }
+    const membership = await User.getAgencyMembership(existing.id, Number(schoolOrganizationId));
+    if (membership) {
+      return { action: 'already_member', userId: existing.id };
+    }
+    if (dryRun) return { action: 'would_assign', userId: existing.id };
+    await User.assignToAgency(existing.id, Number(schoolOrganizationId));
+    return { action: 'assigned', userId: existing.id };
+  }
+
+  if (dryRun) return { action: 'would_create_pending' };
+
+  const { firstName, lastName } = parseName(fullName);
+  const user = await User.create({
+    email: em,
+    passwordHash: null,
+    firstName,
+    lastName,
+    role: 'school_staff',
+    status: 'PENDING_SETUP',
+    personalEmail: em
+  });
+  try {
+    await User.setWorkEmail?.(user.id, em);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.execute('UPDATE users SET email = ?, username = ? WHERE id = ?', [em, em, user.id]);
+  } catch {
+    // ignore
+  }
+  await User.assignToAgency(user.id, Number(schoolOrganizationId));
+  return { action: 'created_pending', userId: user.id };
+}
+
+/**
+ * Sync Google Group members (for groups schoolreply belongs to) into school_contacts
+ * and ensure PENDING_SETUP school_staff memberships for external members.
  * Matches group email addresses to school_profiles.itsco_email for the agency.
  */
 export async function syncSchoolGroupContactsForAgency({
@@ -129,7 +193,8 @@ export async function syncSchoolGroupContactsForAgency({
   memberEmail = process.env.SCHOOL_GROUP_SYNC_MEMBER_EMAIL || DEFAULT_MEMBER_EMAIL,
   dryRun = false,
   fetchUserNames = true,
-  alsoSyncInboundRoutes = true
+  alsoSyncInboundRoutes = true,
+  createPendingStaff = true
 } = {}) {
   if (!GoogleWorkspaceDirectoryService.isConfigured()) {
     const err = new Error(
@@ -171,6 +236,10 @@ export async function syncSchoolGroupContactsForAgency({
     contactsCreated: 0,
     contactsUpdated: 0,
     contactsUnchanged: 0,
+    staffCreatedPending: 0,
+    staffAssigned: 0,
+    staffAlreadyMember: 0,
+    staffSkippedOtherRole: 0,
     dryRun,
     matchedGroups: [],
     unmatchedGroups: [],
@@ -200,7 +269,9 @@ export async function syncSchoolGroupContactsForAgency({
       schoolName: school.schoolName,
       membersScanned: 0,
       contactsCreated: 0,
-      contactsUpdated: 0
+      contactsUpdated: 0,
+      staffCreatedPending: 0,
+      staffAssigned: 0
     };
 
     let members = [];
@@ -266,6 +337,32 @@ export async function syncSchoolGroupContactsForAgency({
           groupStats.contactsUpdated += 1;
         } else {
           stats.contactsUnchanged += 1;
+        }
+
+        if (createPendingStaff) {
+          const staffResult = await ensurePendingSchoolStaffUser({
+            schoolOrganizationId: school.schoolOrganizationId,
+            fullName,
+            email,
+            dryRun
+          });
+          if (
+            staffResult.action === 'created_pending' ||
+            staffResult.action === 'would_create_pending'
+          ) {
+            stats.staffCreatedPending += 1;
+            groupStats.staffCreatedPending += 1;
+          } else if (
+            staffResult.action === 'assigned' ||
+            staffResult.action === 'would_assign'
+          ) {
+            stats.staffAssigned += 1;
+            groupStats.staffAssigned += 1;
+          } else if (staffResult.action === 'already_member') {
+            stats.staffAlreadyMember += 1;
+          } else if (staffResult.action === 'skipped_other_role') {
+            stats.staffSkippedOtherRole += 1;
+          }
         }
       } catch (e) {
         stats.errors.push({

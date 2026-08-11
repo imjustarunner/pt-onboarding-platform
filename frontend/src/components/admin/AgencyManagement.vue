@@ -1804,7 +1804,14 @@
                       <td style="color: var(--text-secondary);">{{ c.notes || '—' }}</td>
                       <td>
                         <template v-if="c.email && schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()]">
-                          <span style="display:inline-block; font-size: 12px; color: var(--text-secondary);">
+                          <span
+                            v-if="schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()].needs_activation"
+                            class="badge badge-warning"
+                            style="font-size: 11px;"
+                          >
+                            Needs activation
+                          </span>
+                          <span v-else style="display:inline-block; font-size: 12px; color: var(--text-secondary);">
                             Linked
                           </span>
                         </template>
@@ -1825,6 +1832,15 @@
                             :disabled="creatingSchoolStaffUserContactId === c.id"
                           >
                             {{ creatingSchoolStaffUserContactId === c.id ? 'Creating…' : 'Create user + temp password' }}
+                          </button>
+                          <button
+                            v-else-if="c.email && schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()]?.needs_activation"
+                            type="button"
+                            class="btn btn-primary btn-sm"
+                            @click="activateSchoolStaffUser(schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()], c)"
+                            :disabled="activatingSchoolStaffUserId === schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()].id"
+                          >
+                            {{ activatingSchoolStaffUserId === schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()].id ? 'Activating…' : 'Activate account' }}
                           </button>
                           <button
                             v-else-if="c.email && schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()]"
@@ -1878,16 +1894,30 @@
                   <tr v-for="u in schoolStaffUsers" :key="u.id">
                     <td>{{ [u.first_name, u.last_name].filter(Boolean).join(' ') || `User #${u.id}` }}</td>
                     <td style="color: var(--text-secondary);">{{ u.email || u.work_email || '—' }}</td>
-                    <td style="color: var(--text-secondary);">{{ u.status || '—' }}</td>
+                    <td style="color: var(--text-secondary);">
+                      <span v-if="u.needs_activation" class="badge badge-warning" style="font-size: 11px;">Needs activation</span>
+                      <template v-else>{{ u.status || '—' }}</template>
+                    </td>
                     <td class="right">
-                      <button
-                        type="button"
-                        class="btn btn-secondary btn-sm"
-                        @click="revokeSchoolStaffAccess(u)"
-                        :disabled="revokingSchoolStaffUserId === u.id"
-                      >
-                        {{ revokingSchoolStaffUserId === u.id ? 'Revoking…' : 'Revoke access' }}
-                      </button>
+                      <div class="contact-actions">
+                        <button
+                          v-if="u.needs_activation"
+                          type="button"
+                          class="btn btn-primary btn-sm"
+                          @click="activateSchoolStaffUser(u)"
+                          :disabled="activatingSchoolStaffUserId === u.id"
+                        >
+                          {{ activatingSchoolStaffUserId === u.id ? 'Activating…' : 'Activate account' }}
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-sm"
+                          @click="revokeSchoolStaffAccess(u)"
+                          :disabled="revokingSchoolStaffUserId === u.id"
+                        >
+                          {{ revokingSchoolStaffUserId === u.id ? 'Revoking…' : 'Revoke access' }}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -6950,6 +6980,7 @@ const savingSchoolContactId = ref(null);
 const deletingSchoolContactId = ref(null);
 const creatingSchoolStaffUserContactId = ref(null);
 const revokingSchoolStaffUserId = ref(null);
+const activatingSchoolStaffUserId = ref(null);
 
 const startEditSchoolContact = (c) => {
   if (!c?.id) return;
@@ -7061,6 +7092,41 @@ const revokeSchoolStaffAccess = async (u) => {
     alert(e.response?.data?.error?.message || 'Failed to revoke access');
   } finally {
     revokingSchoolStaffUserId.value = null;
+  }
+};
+
+const activateSchoolStaffUser = async (u, contact = null) => {
+  if (!editingAgency.value?.id || !u?.id) return;
+  const label = `${u.first_name || ''} ${u.last_name || ''}`.trim() || (u.email || `User #${u.id}`);
+  const temporaryPassword = window.prompt(
+    `Activate "${label}" and set a temporary password (expires in 7 days). Leave blank to auto-generate.`
+  );
+  if (temporaryPassword === null) return;
+  const trimmedPassword = String(temporaryPassword || '').trim();
+  if (trimmedPassword && trimmedPassword.length < 6) {
+    alert('Temporary password must be at least 6 characters (or leave blank to auto-generate).');
+    return;
+  }
+  const flags = contact ? roleFlagsFromAccess(roleAccessFromContact(contact)) : { isSchoolAdmin: false, isScheduler: false };
+  try {
+    activatingSchoolStaffUserId.value = u.id;
+    const res = await api.post(`/agencies/${editingAgency.value.id}/school-staff/users/${u.id}/activate`, {
+      roleTitle: contact?.role_title || null,
+      isSchoolAdmin: flags.isSchoolAdmin === true,
+      isScheduler: flags.isScheduler === true,
+      ...(trimmedPassword ? { temporaryPassword: trimmedPassword } : {})
+    });
+    const issued = res?.data?.temporaryPassword || trimmedPassword || '';
+    if (issued) {
+      window.prompt('Account activated. Copy the temporary password now:', issued);
+    } else {
+      alert('Account activated.');
+    }
+    await loadSchoolStaffUsers();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to activate account');
+  } finally {
+    activatingSchoolStaffUserId.value = null;
   }
 };
 

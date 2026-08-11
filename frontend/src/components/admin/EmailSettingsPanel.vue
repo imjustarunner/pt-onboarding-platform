@@ -870,6 +870,8 @@ const syncSchoolGroupContacts = async () => {
     senderSuccess.value =
       `Synced group contacts: ${data.groupsMatched || 0} school groups matched` +
       ` (${data.contactsCreated || 0} new, ${data.contactsUpdated || 0} updated)` +
+      `; pending staff +${data.staffCreatedPending || 0}, assigned +${data.staffAssigned || 0}` +
+      `${data.staffSkippedOtherRole ? `, skipped other roles ${data.staffSkippedOtherRole}` : ''}` +
       `${data.groupsUnmatched ? `, ${data.groupsUnmatched} groups unmatched` : ''}` +
       `${data.inboundSync?.schoolsRouted ? `; inbound routes: ${data.inboundSync.schoolsRouted} schools` : ''}.`;
     await loadSenderIdentities();

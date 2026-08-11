@@ -13,7 +13,11 @@ function agencyIdFromReq(req) {
 function handleServiceError(err, res, next) {
   if (err?.status) {
     return res.status(err.status).json({
-      error: { message: err.message, code: err.code || undefined }
+      error: {
+        message: err.message,
+        code: err.code || undefined,
+        details: err.details || undefined
+      }
     });
   }
   return next(err);
@@ -30,13 +34,20 @@ export async function createInvite(req, res, next) {
       contactEmail: req.body?.contactEmail,
       schoolName: req.body?.schoolName,
       invitedByUserId: req.user?.id || null,
-      sendEmail: req.body?.sendEmail === true
+      sendEmail: req.body?.sendEmail === true,
+      priorSchoolDecision: req.body?.priorSchoolDecision || null,
+      resetPassword: req.body?.resetPassword === true,
+      confirmExistingSchoolStaff: req.body?.confirmExistingSchoolStaff === true
     });
     res.status(201).json({
       invite: S.serializeInvite(result.invite, { admin: true }),
       link: result.link,
       emailSent: result.emailSent,
-      school: result.school
+      school: result.school,
+      intakeBootstrap: result.intakeBootstrap || null,
+      reusedExistingUser: !!result.reusedExistingUser,
+      temporaryPassword: result.temporaryPassword || undefined,
+      temporaryPasswordExpiresAt: result.temporaryPasswordExpiresAt || undefined
     });
   } catch (err) {
     handleServiceError(err, res, next);
@@ -347,7 +358,10 @@ export async function startFromQr(req, res, next) {
     res.status(201).json({
       inviteToken: result.inviteToken,
       link: result.link,
-      school: result.school
+      school: result.school,
+      reusedExistingUser: !!result.reusedExistingUser,
+      temporaryPassword: result.temporaryPassword || undefined,
+      temporaryPasswordExpiresAt: result.temporaryPasswordExpiresAt || undefined
     });
   } catch (err) {
     handleServiceError(err, res, next);

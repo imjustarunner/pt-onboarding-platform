@@ -120,6 +120,7 @@
           <div class="ssp-card-identity">
             <div class="ssp-name">{{ displayName(u) }}</div>
             <div class="ssp-badges">
+              <span v-if="u.needs_activation" class="ssp-badge ssp-badge-pending">Needs activation</span>
               <span v-if="u.is_school_admin" class="ssp-badge ssp-badge-admin">School Admin</span>
               <span v-if="u.is_scheduler" class="ssp-badge ssp-badge-scheduler">Scheduler</span>
             </div>
@@ -129,6 +130,7 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="18" r="1.5" fill="currentColor"/></svg>
             </button>
             <div v-if="openMenuId === u.id" class="ssp-menu">
+              <button v-if="canActivate(u)" type="button" @click="menuAction(() => openActivate(u))">Activate account</button>
               <button v-if="canEdit" type="button" @click="menuAction(() => openEdit(u))">Edit</button>
               <button v-if="canToggleSchoolRoles(u)" type="button" @click="menuAction(() => openPermissions(u))">Permissions</button>
               <button v-if="u.id !== currentUserId" type="button" @click="menuAction(() => openMessage(u))">Message</button>
@@ -147,6 +149,16 @@
         </div>
 
         <div class="ssp-quick-actions">
+          <button
+            v-if="canActivate(u)"
+            type="button"
+            class="ssp-quick-btn ssp-quick-activate"
+            title="Activate account"
+            :disabled="activatingId === u.id"
+            @click="openActivate(u)"
+          >
+            <span>{{ activatingId === u.id ? 'Activating…' : 'Activate' }}</span>
+          </button>
           <button v-if="canEdit" type="button" class="ssp-quick-btn" title="Edit" @click="openEdit(u)">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M13.5 6.5l3 3" stroke="currentColor" stroke-width="1.8"/></svg>
             <span>Edit</span>
@@ -302,6 +314,60 @@
         {{ submitting ? 'Sending…' : 'Request additional login' }}
       </button>
     </section>
+
+    <div v-if="showActivateModal" class="ssp-modal-overlay" @click.self="closeActivate">
+      <div class="ssp-modal ssp-modal-wide" @click.stop>
+        <div class="ssp-modal-head">
+          <div>
+            <strong>Activate account</strong>
+            <p class="ssp-modal-sub">{{ activateTarget ? displayName(activateTarget) : '' }}</p>
+          </div>
+          <button class="ssp-btn ssp-btn-outline" type="button" @click="closeActivate">Close</button>
+        </div>
+        <div class="ssp-modal-body">
+          <template v-if="!activateResult">
+            <p class="ssp-reset-lead">
+              This person is visible in the portal but cannot log in until you set their title/access and issue a temporary password.
+            </p>
+            <label class="ssp-field">
+              <span>Title / role</span>
+              <input v-model="activateForm.roleTitle" class="ssp-plain-input" type="text" placeholder="e.g. School social worker" />
+            </label>
+            <label class="ssp-check-row">
+              <input v-model="activateForm.isSchoolAdmin" type="checkbox" />
+              School Admin
+            </label>
+            <label class="ssp-check-row">
+              <input v-model="activateForm.isScheduler" type="checkbox" />
+              Scheduler
+            </label>
+            <div class="ssp-modal-actions">
+              <button class="ssp-btn ssp-btn-outline" type="button" @click="closeActivate">Cancel</button>
+              <button
+                class="ssp-btn ssp-btn-primary"
+                type="button"
+                :disabled="activatingId === activateTarget?.id"
+                @click="confirmActivate"
+              >
+                {{ activatingId === activateTarget?.id ? 'Activating…' : 'Activate & generate temp password' }}
+              </button>
+            </div>
+          </template>
+          <template v-else>
+            <div class="ssp-reset-success">
+              <p>Account activated. Copy the temporary password now.</p>
+              <button type="button" class="ssp-temp-password-display" @click="copyTempPassword(activateTarget, activateResult.temporaryPassword)">
+                <span class="ssp-temp-password-value">{{ activateResult.temporaryPassword }}</span>
+                <span class="ssp-temp-password-meta">{{ formatTempPasswordExpiry(activateResult.expiresAt) }} · Click to copy</span>
+              </button>
+            </div>
+            <div class="ssp-modal-actions">
+              <button class="ssp-btn ssp-btn-primary" type="button" @click="closeActivate">Done</button>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
 
     <div v-if="showResetModal" class="ssp-modal-overlay" @click.self="closeResetPasswordModal">
       <div class="ssp-modal ssp-modal-wide" @click.stop>
@@ -468,6 +534,9 @@ const canRemove = (u) =>
 const canSendReset = (u) =>
   (isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value)) &&
   u.id !== currentUserId.value;
+const canActivate = (u) =>
+  !!u?.needs_activation &&
+  (isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value));
 const canAdd = computed(
   () => isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value)
 );
@@ -525,6 +594,15 @@ const showResetModal = ref(false);
 const resetTarget = ref(null);
 const resetResult = ref(null);
 const issuedTempPasswords = ref({});
+const showActivateModal = ref(false);
+const activateTarget = ref(null);
+const activateResult = ref(null);
+const activatingId = ref(null);
+const activateForm = ref({
+  roleTitle: '',
+  isSchoolAdmin: false,
+  isScheduler: false
+});
 
 const roleFilterOptions = [
   { value: 'all', label: 'All roles' },
@@ -672,6 +750,52 @@ const closeResetPasswordModal = () => {
   showResetModal.value = false;
   resetTarget.value = null;
   resetResult.value = null;
+};
+
+const openActivate = (u) => {
+  activateTarget.value = u;
+  activateResult.value = null;
+  activateForm.value = {
+    roleTitle: u?.role_title || '',
+    isSchoolAdmin: !!u?.is_school_admin,
+    isScheduler: !!u?.is_scheduler
+  };
+  showActivateModal.value = true;
+};
+
+const closeActivate = () => {
+  showActivateModal.value = false;
+  activateTarget.value = null;
+  activateResult.value = null;
+};
+
+const confirmActivate = async () => {
+  const u = activateTarget.value;
+  const id = Number(u?.id);
+  if (!id) return;
+  try {
+    activatingId.value = id;
+    error.value = '';
+    const r = await api.post(`/school-portal/${props.schoolOrganizationId}/school-staff/${id}/activate`, {
+      roleTitle: activateForm.value.roleTitle || null,
+      isSchoolAdmin: activateForm.value.isSchoolAdmin === true,
+      isScheduler: activateForm.value.isScheduler === true
+    });
+    activateResult.value = {
+      temporaryPassword: r.data?.temporaryPassword,
+      expiresAt: r.data?.temporaryPasswordExpiresAt
+    };
+    if (r.data?.temporaryPassword) {
+      storeIssuedTempPassword(id, r.data.temporaryPassword, r.data.temporaryPasswordExpiresAt);
+    }
+    await load();
+    success.value = `Activated ${displayName(u)}. Share the temporary password privately.`;
+    setTimeout(() => { success.value = ''; }, 5000);
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to activate account';
+  } finally {
+    activatingId.value = null;
+  }
 };
 
 const confirmResetPassword = async () => {
@@ -1417,9 +1541,28 @@ export default {
   color: #1f4d2d;
 }
 
+.ssp-badge-pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .ssp-badge-scheduler {
   background: #eadcf7;
   color: #5b2c88;
+}
+
+.ssp-check-row {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  margin: 0.4rem 0;
+  font-size: 0.9rem;
+}
+
+.ssp-quick-activate {
+  background: #fff7ed !important;
+  border-color: #fdba74 !important;
+  color: #9a3412 !important;
 }
 
 .ssp-menu-wrap {

@@ -82,10 +82,31 @@
               <input v-model.trim="form.schoolName" required />
             </label>
           </div>
+          <div v-if="affiliationConflict" class="so-conflict">
+            <p><strong>Email already has a school staff account</strong>
+              <span v-if="priorSchoolNames"> at {{ priorSchoolNames }}</span>.
+            </p>
+            <label class="so-radio">
+              <input v-model="priorSchoolDecision" type="radio" value="leave_prior" />
+              Only at this new school (remove prior school access)
+            </label>
+            <label class="so-radio">
+              <input v-model="priorSchoolDecision" type="radio" value="stay_at_both" />
+              Keep prior school(s) and add this one
+            </label>
+            <label class="so-check">
+              <input v-model="resetPassword" type="checkbox" />
+              Reset password for this person (they can use a new temp password)
+            </label>
+          </div>
           <p v-if="formError" class="error">{{ formError }}</p>
           <div class="so-actions">
-            <button type="submit" class="btn primary" :disabled="creating">
-              {{ creating ? 'Creating…' : 'Create onboarding' }}
+            <button
+              type="submit"
+              class="btn primary"
+              :disabled="creating || (affiliationConflict && !priorSchoolDecision)"
+            >
+              {{ creating ? 'Creating…' : (affiliationConflict ? 'Continue with choice' : 'Create onboarding') }}
             </button>
           </div>
         </form>
@@ -96,6 +117,9 @@
         <p class="muted">
           Onboarding is ready for <strong>{{ pendingInvite.schoolName }}</strong>.
           Share the link directly or send it by email to {{ pendingInvite.contactEmail }}.
+        </p>
+        <p v-if="pendingInvite.temporaryPassword" class="success">
+          Temporary password (share once): <code>{{ pendingInvite.temporaryPassword }}</code>
         </p>
         <p v-if="pendingInvite.intakeNote" class="success">{{ pendingInvite.intakeNote }}</p>
         <p v-if="shareError" class="error">{{ shareError }}</p>
@@ -229,6 +253,14 @@ const listMessage = ref('');
 const shareError = ref('');
 const shareSuccess = ref('');
 const pendingInvite = ref(null);
+const affiliationConflict = ref(false);
+const priorSchools = ref([]);
+const priorSchoolDecision = ref('');
+const resetPassword = ref(true);
+const issuedTempPassword = ref('');
+const priorSchoolNames = computed(() =>
+  (priorSchools.value || []).map((s) => s.name).filter(Boolean).join(', ')
+);
 const qr = ref(null);
 const qrDataUrl = ref('');
 const qrLoading = ref(false);
@@ -341,29 +373,48 @@ async function createOnboarding() {
   listMessage.value = '';
   creating.value = true;
   try {
-    const res = await api.post('/school-onboarding/invites', {
+    const payload = {
       agencyId: resolvedAgencyId.value,
       contactFirstName: form.contactFirstName,
       contactLastName: form.contactLastName,
       contactEmail: form.contactEmail,
       schoolName: form.schoolName,
       sendEmail: false
-    });
+    };
+    if (affiliationConflict.value) {
+      payload.confirmExistingSchoolStaff = true;
+      payload.priorSchoolDecision = priorSchoolDecision.value;
+      payload.resetPassword = resetPassword.value === true;
+    }
+    const res = await api.post('/school-onboarding/invites', payload);
+    issuedTempPassword.value = res.data?.temporaryPassword || '';
     pendingInvite.value = {
       id: res.data?.invite?.id,
       schoolName: form.schoolName,
       contactEmail: form.contactEmail,
       link: res.data?.link || res.data?.invite?.link || '',
+      temporaryPassword: res.data?.temporaryPassword || '',
       intakeNote: intakeBootstrapNote(res.data?.intakeBootstrap)
     };
     form.contactFirstName = '';
     form.contactLastName = '';
     form.contactEmail = '';
     form.schoolName = '';
+    affiliationConflict.value = false;
+    priorSchools.value = [];
+    priorSchoolDecision.value = '';
     emit('school-created', res.data?.school || null);
     await loadInvites();
   } catch (e) {
-    formError.value = e?.response?.data?.error?.message || 'Failed to create onboarding';
+    const err = e?.response?.data?.error || {};
+    if (err.code === 'SCHOOL_STAFF_ALREADY_AFFILIATED') {
+      affiliationConflict.value = true;
+      priorSchools.value = Array.isArray(err.details?.currentSchools) ? err.details.currentSchools : [];
+      if (!priorSchoolDecision.value) priorSchoolDecision.value = 'leave_prior';
+      formError.value = 'Confirm prior-school choice, then continue.';
+    } else {
+      formError.value = err.message || e?.message || 'Failed to create onboarding';
+    }
   } finally {
     creating.value = false;
   }
@@ -658,6 +709,21 @@ onMounted(async () => {
 .tiny { font-size: 0.8rem; margin-top: 2px; }
 .error { color: #b91c1c; margin: 0.5rem 0 0; }
 .success { color: #047857; margin: 0.5rem 0 0; }
+.so-conflict {
+  margin-top: 0.85rem;
+  padding: 0.75rem;
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  border-radius: 8px;
+}
+.so-radio,
+.so-check {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+  margin: 0.4rem 0;
+  font-size: 0.9rem;
+}
 .so-materials-summary {
   font-size: 0.8rem;
   color: #334155;

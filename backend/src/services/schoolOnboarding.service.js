@@ -430,6 +430,29 @@ export async function sendInviteEmail(invite, { agency, invitedByName } = {}) {
   }
 }
 
+async function listSchoolMembershipsForUser(userId) {
+  const uid = Number(userId || 0);
+  if (!uid) return [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT a.id, a.name, a.slug, a.organization_type
+       FROM user_agencies ua
+       JOIN agencies a ON a.id = ua.agency_id
+       WHERE ua.user_id = ?
+         AND LOWER(COALESCE(a.organization_type, '')) IN ('school', 'program', 'learning')
+       ORDER BY a.name ASC`,
+      [uid]
+    );
+    return (rows || []).map((r) => ({
+      id: Number(r.id),
+      name: r.name || null,
+      slug: r.slug || null
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export async function createInvite({
   agencyId,
   contactFirstName,
@@ -439,7 +462,10 @@ export async function createInvite({
   invitedByUserId,
   sendEmail = false,
   source = 'invite',
-  qrLinkId = null
+  qrLinkId = null,
+  priorSchoolDecision = null,
+  resetPassword = false,
+  confirmExistingSchoolStaff = false
 }) {
   const email = String(contactEmail || '').trim().toLowerCase();
   const firstName = String(contactFirstName || '').trim();
@@ -453,13 +479,46 @@ export async function createInvite({
   if (!agency) throw Object.assign(new Error('Agency not found'), { status: 404 });
 
   const existingUser = await User.findByEmail(email);
+  let reusedExistingUser = false;
+  let temporaryPassword = null;
+  let temporaryPasswordExpiresAt = null;
+
   if (existingUser?.id) {
-    throw Object.assign(new Error('A user with this email already exists'), { status: 409 });
+    const role = String(existingUser.role || '').toLowerCase();
+    if (role !== 'school_staff') {
+      throw Object.assign(
+        new Error(`A user with this email already exists (role: ${existingUser.role}).`),
+        { status: 409, code: 'EMAIL_EXISTS_OTHER_ROLE' }
+      );
+    }
+    const currentSchools = await listSchoolMembershipsForUser(existingUser.id);
+    const decision = String(priorSchoolDecision || '').trim().toLowerCase();
+    if (
+      !confirmExistingSchoolStaff ||
+      !['stay_at_both', 'leave_prior'].includes(decision)
+    ) {
+      throw Object.assign(
+        new Error(
+          'This email is already a school staff account. Confirm whether you are only at the new school or at both, and optionally reset your password.'
+        ),
+        {
+          status: 409,
+          code: 'SCHOOL_STAFF_ALREADY_AFFILIATED',
+          details: {
+            userId: existingUser.id,
+            currentSchools,
+            allowedDecisions: ['stay_at_both', 'leave_prior']
+          }
+        }
+      );
+    }
+    reusedExistingUser = true;
   }
 
   const slug = await uniqueSchoolSlug(slugify(name));
   let schoolId = null;
   let user = null;
+  let createdNewUser = false;
   try {
     const [schoolResult] = await pool.execute(
       `INSERT INTO agencies (name, slug, portal_url, logo_url, color_palette, terminology_settings, is_active, organization_type, feature_flags)
@@ -490,30 +549,81 @@ export async function createInvite({
       primaryContactRole: 'Primary Contact'
     });
 
-    user = await User.create({
-      email,
-      passwordHash: null,
-      firstName,
-      lastName,
-      role: 'school_staff',
-      status: 'PENDING_SETUP',
-      personalEmail: email
-    });
-    try {
-      await pool.execute('UPDATE users SET email = ?, username = ? WHERE id = ?', [email, email, user.id]);
-    } catch {
-      // ignore
-    }
-    try {
-      await User.setWorkEmail?.(user.id, email);
-    } catch {
-      // ignore
-    }
-    await User.assignToAgency(user.id, schoolId);
-    try {
-      await User.assignToAgency(user.id, agencyId);
-    } catch {
-      // ignore
+    if (reusedExistingUser) {
+      user = await User.findById(existingUser.id);
+      // Optionally leave prior school memberships before joining the new school.
+      if (String(priorSchoolDecision || '').toLowerCase() === 'leave_prior') {
+        const priorSchools = await listSchoolMembershipsForUser(user.id);
+        let ClientSchoolStaffRoiAccess = null;
+        try {
+          ClientSchoolStaffRoiAccess = (await import('../models/ClientSchoolStaffRoiAccess.model.js')).default;
+        } catch {
+          ClientSchoolStaffRoiAccess = null;
+        }
+        for (const school of priorSchools) {
+          try {
+            if (ClientSchoolStaffRoiAccess) {
+              await ClientSchoolStaffRoiAccess.revokeForSchoolStaff({
+                schoolStaffUserId: user.id,
+                schoolOrganizationId: school.id,
+                actorUserId: invitedByUserId || null
+              });
+            }
+          } catch {
+            // best-effort
+          }
+          try {
+            await User.removeFromAgency(user.id, school.id);
+          } catch {
+            // best-effort
+          }
+        }
+      }
+
+      await User.assignToAgency(user.id, schoolId);
+      try {
+        await User.assignToAgency(user.id, agencyId);
+      } catch {
+        // ignore
+      }
+
+      if (resetPassword === true) {
+        temporaryPassword = await User.generateTemporaryPassword();
+        const pwResult = await User.setTemporaryPassword(user.id, temporaryPassword, 24 * 7);
+        temporaryPasswordExpiresAt = pwResult?.expiresAt || null;
+        try {
+          await User.updateStatus(user.id, 'ACTIVE_EMPLOYEE', invitedByUserId || null);
+        } catch {
+          // ignore
+        }
+      }
+    } else {
+      user = await User.create({
+        email,
+        passwordHash: null,
+        firstName,
+        lastName,
+        role: 'school_staff',
+        status: 'PENDING_SETUP',
+        personalEmail: email
+      });
+      createdNewUser = true;
+      try {
+        await pool.execute('UPDATE users SET email = ?, username = ? WHERE id = ?', [email, email, user.id]);
+      } catch {
+        // ignore
+      }
+      try {
+        await User.setWorkEmail?.(user.id, email);
+      } catch {
+        // ignore
+      }
+      await User.assignToAgency(user.id, schoolId);
+      try {
+        await User.assignToAgency(user.id, agencyId);
+      } catch {
+        // ignore
+      }
     }
 
     // Primary contact is School Admin + ROI-eligible (not scheduler)
@@ -529,7 +639,15 @@ export async function createInvite({
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 21);
 
-    const invite = await SchoolOnboardingInvite.create({
+    // Returning school_staff who already have credentials (or just received a reset)
+    // should not be forced through a brand-new password step.
+    let passwordAlreadyUsable = false;
+    if (reusedExistingUser) {
+      const refreshed = await User.findById(user.id);
+      passwordAlreadyUsable = !!(refreshed?.password_hash || temporaryPassword);
+    }
+
+    let invite = await SchoolOnboardingInvite.create({
       agencyId,
       schoolOrganizationId: schoolId,
       primaryUserId: user.id,
@@ -545,6 +663,9 @@ export async function createInvite({
       stepProgress: SchoolOnboardingInvite.defaultStepProgress(),
       stepPayload: {}
     });
+    if (passwordAlreadyUsable && invite?.id) {
+      invite = await SchoolOnboardingInvite.update(invite.id, { passwordSetAt: new Date() });
+    }
 
     let invitedByName = 'Our team';
     if (invitedByUserId) {
@@ -578,12 +699,16 @@ export async function createInvite({
       link: buildOnboardingLink(invite.token),
       emailSent: !!emailResult.sent,
       school: { id: schoolId, slug, name },
-      intakeBootstrap
+      intakeBootstrap,
+      reusedExistingUser,
+      temporaryPassword: temporaryPassword || undefined,
+      temporaryPasswordExpiresAt: temporaryPasswordExpiresAt || undefined
     };
   } catch (err) {
-    // Best-effort cleanup if draft school/user was partially created
+    // Best-effort cleanup if draft school/user was partially created.
+    // Never delete a pre-existing school_staff user we reused.
     try {
-      if (user?.id) await pool.execute('DELETE FROM users WHERE id = ?', [user.id]);
+      if (createdNewUser && user?.id) await pool.execute('DELETE FROM users WHERE id = ?', [user.id]);
     } catch {
       // ignore
     }
@@ -896,15 +1021,16 @@ export async function setPassword(token, password, identity = {}) {
   }
   const user = await User.findById(invite.primary_user_id);
   if (!user) throw Object.assign(new Error('User not found'), { status: 404 });
-  if (user.password_hash) {
-    throw Object.assign(new Error('Password already set'), { status: 400 });
-  }
   const username = user.username || user.email || invite.contact_email;
-  const pwCheck = await validatePasswordStrength(password, { accountId: username });
-  if (!pwCheck.valid) {
-    throw Object.assign(new Error(pwCheck.message), { status: 400 });
+  // Returning school staff who kept their password (or already received a reset)
+  // can skip setting a brand-new password during this onboarding.
+  if (!user.password_hash) {
+    const pwCheck = await validatePasswordStrength(password, { accountId: username });
+    if (!pwCheck.valid) {
+      throw Object.assign(new Error(pwCheck.message), { status: 400 });
+    }
+    await User.changePassword(user.id, password);
   }
-  await User.changePassword(user.id, password);
   // Keep PENDING_SETUP / in-progress until final submit; do not jump to PREHIRE.
   await SchoolOnboardingInvite.update(invite.id, {
     passwordSetAt: new Date(),
@@ -916,7 +1042,8 @@ export async function setPassword(token, password, identity = {}) {
     ok: true,
     username,
     user: updatedUser,
-    agencies
+    agencies,
+    passwordAlreadySet: !!user.password_hash
   };
 }
 
@@ -1386,7 +1513,14 @@ export async function submitOnboarding(token) {
     // ignore
   }
 
-  const fresh = await SchoolOnboardingInvite.findById(invite.id);
+  // Ensure EN/ES digital intake shells exist at activation (QR or invite start).
+  try {
+    await ensureSchoolDigitalIntakeForms(invite, { createdByUserId: invite.primary_user_id || null });
+  } catch (e) {
+    console.warn('[schoolOnboarding] ensure digital intakes on submit failed:', e?.message || e);
+  }
+
+  const fresh = await SchoolOnboardingInvite.findById(invite.id)
   await notifySchoolPortalOnboardingCompleted(fresh);
   const schoolSlug = fresh.school_slug || fresh.school_portal_url;
   const agencySlug = fresh.agency_slug || fresh.agency_portal_url;
@@ -1492,13 +1626,19 @@ export async function startFromQr(token, body = {}) {
     invitedByUserId: null,
     sendEmail: false,
     source: 'qr',
-    qrLinkId: link.id
+    qrLinkId: link.id,
+    priorSchoolDecision: body.priorSchoolDecision || null,
+    resetPassword: body.resetPassword === true,
+    confirmExistingSchoolStaff: body.confirmExistingSchoolStaff === true
   });
 
   return {
     inviteToken: result.invite.token,
     link: buildOnboardingLink(result.invite.token),
-    school: result.school
+    school: result.school,
+    reusedExistingUser: !!result.reusedExistingUser,
+    temporaryPassword: result.temporaryPassword || undefined,
+    temporaryPasswordExpiresAt: result.temporaryPasswordExpiresAt || undefined
   };
 }
 

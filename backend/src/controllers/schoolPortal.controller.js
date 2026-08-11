@@ -3353,7 +3353,8 @@ export const listSchoolStaff = async (req, res, next) => {
         is_school_admin: flags.isSchoolAdmin,
         is_scheduler: flags.isScheduler,
         role_title: flags.roleTitle || null,
-        school_contact_id: flags.contactId || null
+        school_contact_id: flags.contactId || null,
+        needs_activation: String(r.status || '').toUpperCase() === 'PENDING_SETUP'
       };
     });
 
@@ -3541,6 +3542,20 @@ export const sendSchoolStaffResetPassword = async (req, res, next) => {
     const temporaryPassword = await User.generateTemporaryPassword();
     const temporaryPasswordResult = await User.setTemporaryPassword(targetUserId, temporaryPassword, expiresInHours);
 
+    // Activating a pending school staff account via temp password.
+    if (String(user.status || '').toUpperCase() === 'PENDING_SETUP') {
+      try {
+        await User.updateStatus(targetUserId, 'ACTIVE_EMPLOYEE', actorId || null);
+      } catch {
+        // ignore
+      }
+      try {
+        await User.update(targetUserId, { isActive: true });
+      } catch {
+        // ignore
+      }
+    }
+
     try {
       await User.markTokenAsUsed(targetUserId);
     } catch {
@@ -3602,6 +3617,138 @@ export const sendSchoolStaffResetPassword = async (req, res, next) => {
         'On first login they will be prompted to choose a new permanent password.',
         `The temporary password expires in ${expiresInHours} hours.`
       ]
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Activate a PENDING_SETUP school staff member: set title/access flags + temp password → ACTIVE_EMPLOYEE.
+ * POST /api/school-portal/:organizationId/school-staff/:userId/activate
+ */
+export const activateSchoolStaff = async (req, res, next) => {
+  try {
+    const { organizationId, userId: targetUserIdParam } = req.params;
+    const orgId = parseInt(organizationId, 10);
+    const targetUserId = parseInt(targetUserIdParam, 10);
+    if (!orgId || !targetUserId) {
+      return res.status(400).json({ error: { message: 'Invalid organizationId or userId' } });
+    }
+
+    const actorId = req.user?.id;
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const actorEmail = req.user?.email || req.user?.username || null;
+
+    const isAgencyAdmin =
+      actorRole === 'super_admin' ||
+      actorRole === 'admin' ||
+      actorRole === 'staff' ||
+      actorRole === 'support' ||
+      actorRole === 'clinical_practice_assistant' ||
+      actorRole === 'provider_plus';
+    const actorFlags = actorRole === 'school_staff'
+      ? await getActorSchoolRoleFlags({ actorUserId: actorId, actorEmail, orgId })
+      : { isSchoolAdmin: false };
+    const isSchoolAdmin = actorRole === 'school_staff' && actorFlags.isSchoolAdmin === true;
+
+    if (!isAgencyAdmin && !isSchoolAdmin) {
+      return res.status(403).json({
+        error: { message: 'Only a School Admin or agency admin/staff can activate school staff accounts' }
+      });
+    }
+
+    if (!isAgencyAdmin) {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({
+        userId: actorId,
+        role: actorRole,
+        user: req.user,
+        schoolOrganizationId: orgId
+      });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    const user = await User.findById(targetUserId);
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+    if (String(user.role || '').toLowerCase() !== 'school_staff') {
+      return res.status(400).json({ error: { message: 'Only school_staff users can be activated via this endpoint' } });
+    }
+
+    const membership = await User.getAgencyMembership(targetUserId, orgId);
+    if (!membership) {
+      return res.status(400).json({ error: { message: 'User is not assigned to this school' } });
+    }
+
+    const roleTitle = req.body?.roleTitle !== undefined
+      ? String(req.body.roleTitle || '').trim()
+      : null;
+    const isSchoolAdminFlag = req.body?.isSchoolAdmin === true;
+    const isSchedulerFlag = req.body?.isScheduler === true;
+    let temporaryPassword = String(req.body?.temporaryPassword || '').trim();
+    if (!temporaryPassword) {
+      temporaryPassword = await User.generateTemporaryPassword();
+    }
+    if (temporaryPassword.length < 6) {
+      return res.status(400).json({ error: { message: 'Temporary password must be at least 6 characters' } });
+    }
+
+    const email = normalizeEmail(user.email || user.work_email);
+    const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || email;
+    if (email) {
+      try {
+        await pool.execute(
+          `INSERT INTO school_contacts
+            (school_organization_id, full_name, email, role_title, notes, raw_source_text, is_primary, is_school_admin, is_scheduler)
+           VALUES (?, ?, ?, ?, 'Activated from school portal', 'school_staff_activate', 0, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             full_name = COALESCE(VALUES(full_name), full_name),
+             role_title = COALESCE(VALUES(role_title), role_title),
+             is_school_admin = VALUES(is_school_admin),
+             is_scheduler = VALUES(is_scheduler),
+             updated_at = CURRENT_TIMESTAMP`,
+          [
+            orgId,
+            fullName,
+            email,
+            roleTitle || null,
+            isSchoolAdminFlag ? 1 : 0,
+            isSchedulerFlag ? 1 : 0
+          ]
+        );
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+    }
+
+    const expiresInHours = 24 * 7;
+    const temporaryPasswordResult = await User.setTemporaryPassword(
+      targetUserId,
+      temporaryPassword,
+      expiresInHours
+    );
+    try {
+      await User.updateStatus(targetUserId, 'ACTIVE_EMPLOYEE', actorId || null);
+    } catch {
+      // ignore
+    }
+    try {
+      await User.update(targetUserId, { isActive: true });
+    } catch {
+      // ignore
+    }
+
+    res.json({
+      ok: true,
+      user: {
+        id: user.id,
+        email: user.email || email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        status: 'ACTIVE_EMPLOYEE'
+      },
+      temporaryPassword,
+      temporaryPasswordExpiresAt: temporaryPasswordResult?.expiresAt || null,
+      expiresInHours
     });
   } catch (e) {
     next(e);

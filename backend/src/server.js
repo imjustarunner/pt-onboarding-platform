@@ -1615,6 +1615,39 @@ if (!isBootstrap) {
     setInterval(scheduleBackgroundCheckWatchdog, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight());
 
+  // Daily Google Group → school_contacts + PENDING_SETUP school_staff sync for ITSCO.
+  // Add-only / idempotent; does not remove members who left groups.
+  const scheduleSchoolGroupContactsSync = async () => {
+    try {
+      if (String(process.env.SCHOOL_GROUP_CONTACTS_SYNC_ENABLED || '1').toLowerCase() === '0') {
+        return;
+      }
+      const { syncSchoolGroupContactsForAgency } = await import(
+        './services/unifiedEmail/schoolGroupContactsSync.service.js'
+      );
+      const result = await syncSchoolGroupContactsForAgency({
+        agencySlug: process.env.SCHOOL_GROUP_SYNC_AGENCY_SLUG || 'itsco',
+        memberEmail: process.env.SCHOOL_GROUP_SYNC_MEMBER_EMAIL || 'schoolreply@itsco.health',
+        alsoSyncInboundRoutes: true,
+        createPendingStaff: true
+      });
+      console.log(
+        `[school_group_contacts_sync] matched=${result.groupsMatched || 0} ` +
+          `contacts+${result.contactsCreated || 0}/~${result.contactsUpdated || 0} ` +
+          `staffPending+${result.staffCreatedPending || 0} assigned+${result.staffAssigned || 0} ` +
+          `skippedOtherRole=${result.staffSkippedOtherRole || 0} errors=${(result.errors || []).length}`
+      );
+    } catch (error) {
+      console.error('Error in school group contacts sync:', error?.message || error);
+    }
+  };
+
+  // Do not run the full Directory sync on every boot (API-heavy). Once daily at ~4:00 AM.
+  setTimeout(() => {
+    scheduleSchoolGroupContactsSync();
+    setInterval(scheduleSchoolGroupContactsSync, 24 * 60 * 60 * 1000);
+  }, getMsUntilMidnight() + (4 * 60 * 60 * 1000));
+
   // Office scheduling watchdog (materialize horizon + EHR sync + coverage audit).
   // OFF by default — this job has caused Cloud Run 429s / "cooling down" by
   // monopolizing DB connections (especially when local npm run also hit stage).
