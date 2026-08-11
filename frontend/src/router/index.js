@@ -2157,6 +2157,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/master-school-form',
+    name: 'OrganizationMasterSchoolForm',
+    component: () => import('../views/school/MasterSchoolFormView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/skill-builders-availability',
     name: 'OrganizationSkillBuildersAvailability',
     component: () => import('../views/admin/SkillBuildersAvailabilityView.vue'),
@@ -3466,6 +3472,12 @@ const routes = [
     path: '/admin/school-referral-hub',
     name: 'SchoolReferralHub',
     component: () => import('../views/school/SchoolReferralHubView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
+  },
+  {
+    path: '/admin/master-school-form',
+    name: 'MasterSchoolForm',
+    component: () => import('../views/school/MasterSchoolFormView.vue'),
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
   },
   {

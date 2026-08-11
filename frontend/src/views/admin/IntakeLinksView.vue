@@ -1,5 +1,6 @@
 <template>
-  <div class="container df-admin-page">
+  <div class="container df-admin-page" :class="{ 'df-embedded-page': embedded }">
+    <template v-if="!embedded">
     <div class="page-header df-admin-header">
       <div>
         <h1>Digital Forms</h1>
@@ -13,6 +14,15 @@
         <button class="btn btn-secondary" type="button" @click="openAddOnPreviewModal">Preview Add-Ons</button>
         <button class="btn btn-primary" type="button" @click="openCreate">New Digital Form</button>
       </div>
+    </div>
+
+    <div class="df-school-forms-banner">
+      <strong>School referral intakes live elsewhere.</strong>
+      Shareable school links are in the
+      <router-link :to="schoolReferralHubPath">School Referral Hub</router-link>;
+      the agency questionnaire is
+      <router-link :to="masterSchoolFormPath">Master School Form</router-link>.
+      Those rows are hidden here so you can clean up the remaining agency / program / ROI / registration forms.
     </div>
 
     <!-- Question Sets Panel -->
@@ -134,9 +144,8 @@
         <div class="form-group">
           <label>Scope</label>
           <select v-model="quickScope">
-            <option value="school">School</option>
-            <option value="program">Program</option>
             <option value="agency">Agency</option>
+            <option value="program">Program</option>
           </select>
         </div>
         <div class="form-group" v-if="quickScope !== 'agency'">
@@ -187,6 +196,7 @@
         <option value="intake">Intake</option>
         <option value="public_form">Public Form</option>
         <option value="smart_school_roi">Smart School ROI</option>
+        <option value="smart_disclosure">Smart Disclosure</option>
         <option value="smart_registration">Smart Registration</option>
         <option value="job_application">Job Application</option>
         <option value="medical_records_request">Medical Records</option>
@@ -296,17 +306,22 @@
         </div>
       </div>
     </div>
+    </template>
 
-    <div v-if="showForm" class="modal-overlay" @click.self="closeForm">
-      <div class="modal" @click.stop>
+    <div
+      v-if="showForm"
+      :class="embedded ? 'df-embedded-editor' : 'modal-overlay'"
+      @click.self="onEditorOverlayClick"
+    >
+      <div :class="embedded ? 'df-embedded-modal' : 'modal'" @click.stop>
         <div class="modal-header">
-          <strong>{{ editingId ? (editingSchoolMaster ? 'Edit School Referral Master' : 'Edit Digital Form') : 'Create Digital Form' }}</strong>
-          <button class="btn btn-secondary btn-sm" type="button" @click="closeForm">Close</button>
+          <strong>{{ editingId ? (editingSchoolMaster ? 'Edit Master School Form' : 'Edit Digital Form') : 'Create Digital Form' }}</strong>
+          <button v-if="!embedded" class="btn btn-secondary btn-sm" type="button" @click="closeForm">Close</button>
         </div>
         <div class="modal-body">
           <div v-if="editingSchoolMaster" class="success" style="margin-bottom:12px; padding:10px 12px; border-radius:8px; background:#ecfdf5; border:1px solid #a7f3d0; color:#065f46;">
-            This is the <strong>agency master school digital form</strong>. Saving updates every school’s live inheritance
-            (each school keeps its own public link). Include packet HIPAA / Policy / Informed Consent steps here — not uploaded HIPAA PDFs.
+            This is the <strong>Master School Form</strong>. Saving updates every school’s live inheritance
+            (each school keeps its own public link in the Referral Hub). Include packet HIPAA / Policy / Informed Consent steps here — not uploaded HIPAA PDFs.
           </div>
           <div class="form-grid">
             <div class="form-group">
@@ -529,7 +544,7 @@
                 with the same event once selected.
               </small>
             </div>
-            <div class="form-group">
+            <div v-if="!embedded" class="form-group">
               <label>Active</label>
               <select v-model="form.isActive">
                 <option :value="true">Yes</option>
@@ -674,6 +689,14 @@
                 <span><strong>Green</strong> = adds a step tied to the <strong>guardian account</strong> (waivers today; more later).</span>
               </div>
               <div class="step-actions">
+                <button
+                  v-if="canAddSpanishClarificationStep"
+                  class="btn btn-secondary btn-sm btn-flow-add-spanish"
+                  type="button"
+                  @click="addStep('spanish_clarification')"
+                >
+                  + Spanish Clarification
+                </button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
                 <button v-if="questionSets.length" class="btn btn-secondary btn-sm" type="button" @click="openQSetPicker()" title="Insert a saved question set as a new step at the end of the form">+ Add Question Set (new step)</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('registration')">+ Add Registration</button>
@@ -790,12 +813,13 @@
                     <span v-if="step.type === 'guardian_waiver'" class="step-flow-pill step-flow-pill--guardian">Guardian</span>
                     <span v-if="step.type === 'clinical_questions'" class="step-flow-pill step-flow-pill--clinical">Clinical</span>
                     <span v-if="step.type === 'demographics'" class="step-flow-pill step-flow-pill--demographics">Demographics</span>
+                    <span v-if="step.type === 'spanish_clarification'" class="step-flow-pill step-flow-pill--spanish">Solo ES</span>
                   </div>
                   <div class="step-controls">
                     <button class="btn btn-xs btn-secondary" type="button" @click="moveStep(idx, -1)" :disabled="idx === 0">↑</button>
                     <button class="btn btn-xs btn-secondary" type="button" @click="moveStep(idx, 1)" :disabled="idx === form.intakeSteps.length - 1">↓</button>
                     <button
-                      v-if="['guardian_waiver','insurance_info','payment_collection','communications','demographics','clinical_questions'].includes(step.type)"
+                      v-if="['guardian_waiver','insurance_info','payment_collection','communications','demographics','clinical_questions','spanish_clarification'].includes(step.type)"
                       class="btn btn-xs btn-secondary"
                       type="button"
                       title="Preview exactly how this step looks to participants"
@@ -1565,6 +1589,32 @@
                   </div>
                 </div>
 
+                <div v-else-if="step.type === 'spanish_clarification'" class="form-grid">
+                  <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>Step title (Spanish — shown to families)</label>
+                    <input v-model="step.label" type="text" placeholder="Aclaración de idioma" />
+                    <div class="muted" style="font-size: 13px; margin-top: 6px;">
+                      Shown only when participants use the Spanish version of this form. Appears on the About You step,
+                      before questionnaire fields. Question text is fixed in Spanish.
+                    </div>
+                  </div>
+                  <div class="spanish-clarification-admin-en" style="grid-column: 1 / -1;">
+                    <h4>English guide (admin only — families see Spanish)</h4>
+                    <p class="muted">{{ SPANISH_CLARIFICATION_ADMIN_EN.intro }}</p>
+                    <section
+                      v-for="section in SPANISH_CLARIFICATION_ADMIN_EN.sections"
+                      :key="section.key"
+                      class="communications-campaign-card"
+                    >
+                      <h5>{{ section.title }}</h5>
+                      <p class="communications-disclosure"><strong>Asks:</strong> {{ section.question }}</p>
+                      <ul class="spanish-clarification-admin-options">
+                        <li v-for="(opt, idx) in section.options" :key="idx">{{ opt }}</li>
+                      </ul>
+                    </section>
+                  </div>
+                </div>
+
                 <div v-else-if="step.type === 'questions' || step.type === 'clinical_questions'" class="question-builder">
                   <div v-if="step.type === 'clinical_questions'" class="form-group" style="margin-bottom: 12px; padding: 10px 14px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; grid-column: 1 / -1;">
                     <p class="muted" style="margin: 0; font-size: 13px;">
@@ -1790,6 +1840,14 @@
               </div>
 
               <div v-if="safeSteps.length" class="step-actions step-actions-bottom">
+                <button
+                  v-if="canAddSpanishClarificationStep"
+                  class="btn btn-secondary btn-sm btn-flow-add-spanish"
+                  type="button"
+                  @click="addStep('spanish_clarification')"
+                >
+                  + Spanish Clarification
+                </button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
                 <button v-if="questionSets.length" class="btn btn-secondary btn-sm" type="button" @click="openQSetPicker()" title="Insert a saved question set as a new step at the end of the form">+ Add Question Set (new step)</button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="addStep('registration')">+ Add Registration</button>
@@ -2204,6 +2262,25 @@
               </div>
             </div>
 
+            <div v-else-if="selectedAddOnPreviewId === 'spanish_clarification'" class="addon-preview-form spanish-clarification-preview">
+              <h4 style="margin-top: 0;">{{ SPANISH_CLARIFICATION_COPY.title }}</h4>
+              <p class="muted communications-disclosure">{{ SPANISH_CLARIFICATION_COPY.intro }}</p>
+              <section
+                v-for="section in spanishClarificationPreviewSections"
+                :key="section.key"
+                class="communications-campaign-card"
+              >
+                <h4>{{ section.label }} <span class="required-indicator">*</span></h4>
+                <p v-if="section.disclosure" class="communications-disclosure">{{ section.disclosure }}</p>
+                <div class="radio-group">
+                  <label v-for="opt in section.options" :key="opt.value" class="radio-row">
+                    <input v-model="previewSpanishClarification[section.key]" type="radio" :value="opt.value" :name="`preview_sc_${section.key}`" />
+                    <span>{{ opt.label }}</span>
+                  </label>
+                </div>
+              </section>
+            </div>
+
             <!-- Fallback for questions, question_set, registration, document, school_roi, upload, references -->
             <div v-else class="addon-preview-form">
               <div class="form-group">
@@ -2292,6 +2369,11 @@ import {
   isActuallyTranslated,
   spanishExtrasForIntakeField
 } from '../../utils/intakeFieldSpanish.js';
+import {
+  DEFAULT_SPANISH_CLARIFICATION_STEP,
+  SPANISH_CLARIFICATION_ADMIN_EN,
+  SPANISH_CLARIFICATION_COPY
+} from '../../constants/spanishClarificationIntake.js';
 
 /** Stored on the intake link customMessages when the admin picks the built-in parent/class registration email preset. */
 const COMPLETION_EMAIL_PRESET_GUARDIAN_PARTNERSHIP = 'guardian_partnership';
@@ -2400,11 +2482,38 @@ const mergeSummerSkillsClinicalQuestionDefaults = () => {
 };
 const props = defineProps({
   /** When set (e.g. Settings tenant hub), lock digital forms to this agency id. */
-  scopedAgencyId: { type: Number, default: null }
+  scopedAgencyId: { type: Number, default: null },
+  /** Embed builder only (Master School Form page) — no list chrome. */
+  embedded: { type: Boolean, default: false },
+  /** Open this intake link in the builder after load (used with embedded). */
+  initialEditLinkId: { type: Number, default: null }
 });
+
+const emit = defineEmits(['saved']);
 
 const route = useRoute();
 const router = useRouter();
+
+const schoolReferralHubPath = computed(() => {
+  const slug = typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : '';
+  return slug ? `/${slug}/admin/school-referral-hub` : '/admin/school-referral-hub';
+});
+const masterSchoolFormPath = computed(() => {
+  const slug = typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : '';
+  return slug ? `/${slug}/admin/master-school-form` : '/admin/master-school-form';
+});
+
+/** School referral shells / master shadows — managed outside Digital Forms. */
+const isSchoolReferralManagedLink = (link) => {
+  if (!link) return false;
+  if (Number(link.is_school_master || 0) === 1) return true;
+  if (Number(link.inherits_school_master || 0) === 1) return true;
+  const scope = String(link.scope_type || '').toLowerCase();
+  const formType = String(link.form_type || 'intake').toLowerCase();
+  // Legacy per-school intake copies (pre-master) also belong in Referral Hub, not this list.
+  if (scope === 'school' && formType === 'intake') return true;
+  return false;
+};
 
 const lockAgencyPicker = computed(() => {
   const id = Number(props.scopedAgencyId || 0);
@@ -2749,7 +2858,8 @@ const addOnPreviewItems = computed(() => ([
   { id: 'payment_collection', label: '+ Add Payment collection', description: 'Participant-facing payment preview.' },
   { id: 'communications', label: '+ Add Communications', description: 'Participant-facing communications preview (all campaigns).' },
   { id: 'demographics', label: '+ Add Demographics', description: 'Participant-facing demographics preview.' },
-  { id: 'clinical_questions', label: '+ Add Clinical Questions', description: 'Participant-facing clinical questions preview.' }
+  { id: 'clinical_questions', label: '+ Add Clinical Questions', description: 'Participant-facing clinical questions preview.' },
+  { id: 'spanish_clarification', label: '+ Spanish Clarification', description: 'Spanish-only language clarification (ES forms).' }
 ]));
 const selectedAddOnPreview = computed(() =>
   addOnPreviewItems.value.find((item) => item.id === selectedAddOnPreviewId.value) || null
@@ -2760,6 +2870,27 @@ const previewCommunications = reactive({
   providerTextingOptIn: 'yes',
   programUpdatesOptIn: 'yes',
   internalWorkforceOptIn: 'yes'
+});
+const previewSpanishClarification = reactive({
+  guardianPrefersSpanishOnly: '',
+  clientNeedsSpanishOnly: '',
+  interpreterConsent: '',
+  sessionPrimaryLanguage: '',
+  providerLanguagePreference: '',
+  schoolDayVirtualCoordination: '',
+  afterSchoolSpanishVirtual: ''
+});
+const spanishClarificationPreviewSections = computed(() => {
+  const c = SPANISH_CLARIFICATION_COPY;
+  return [
+    { key: 'guardianPrefersSpanishOnly', ...c.guardianPrefersSpanishOnly },
+    { key: 'clientNeedsSpanishOnly', ...c.clientNeedsSpanishOnly },
+    { key: 'interpreterConsent', ...c.interpreterConsent },
+    { key: 'sessionPrimaryLanguage', ...c.sessionPrimaryLanguage },
+    { key: 'providerLanguagePreference', ...c.providerLanguagePreference },
+    { key: 'schoolDayVirtualCoordination', ...c.schoolDayVirtualCoordination },
+    { key: 'afterSchoolSpanishVirtual', ...c.afterSchoolSpanishVirtual }
+  ];
 });
 
 /** The step object being previewed via the per-step Preview button (null when using generic modal). */
@@ -2989,7 +3120,7 @@ const setPreviewPayment = (v) => {
   previewPayment.value = v && typeof v === 'object' ? v : {};
 };
 
-const quickScope = ref('school');
+const quickScope = ref('agency');
 const quickOrganizationId = ref(null);
 const quickTitle = ref('');
 const quickLanguageCode = ref('en');
@@ -3413,7 +3544,8 @@ const getStepTypeLabel = (t) => {
     payment_collection: 'Payment collection',
     communications: 'Communication preferences',
     demographics: 'Demographics',
-    clinical_questions: 'Clinical Questions'
+    clinical_questions: 'Clinical Questions',
+    spanish_clarification: 'Spanish Clarification'
   };
   return m[t] || t || 'Step';
 };
@@ -4226,7 +4358,12 @@ const saveFieldTemplate = async () => {
 };
 
 const closeForm = () => {
+  if (props.embedded) return;
   showForm.value = false;
+};
+
+const onEditorOverlayClick = () => {
+  if (!props.embedded) closeForm();
 };
 
 const formatApiError = (e, fallback) => {
@@ -4309,7 +4446,7 @@ const save = async () => {
       scopeType: ['job_application', 'medical_records_request', 'smart_registration'].includes(form.formType)
         ? 'agency'
         : (form.formType === 'smart_school_roi' ? 'school' : form.scopeType),
-      isActive: form.isActive,
+      isActive: props.embedded ? false : form.isActive,
       createClient: ['job_application', 'smart_school_roi'].includes(form.formType) ? false : form.createClient,
       createGuardian: ['job_application', 'smart_school_roi'].includes(form.formType) ? false : form.createGuardian,
       requiresAssignment: form.formType === 'smart_school_roi' ? false : form.requiresAssignment,
@@ -4356,7 +4493,13 @@ const save = async () => {
     }
     await fetchData();
     clearDraft();
-    showForm.value = false;
+    emit('saved', { id: editingId.value });
+    if (!props.embedded) {
+      showForm.value = false;
+    } else if (editingId.value) {
+      const refreshed = (links.value || []).find((l) => Number(l.id) === Number(editingId.value));
+      if (refreshed) editLink(refreshed);
+    }
   } catch (e) {
     formError.value = formatApiError(e, 'Failed to save digital form');
   } finally {
@@ -4631,6 +4774,12 @@ const defaultSchoolRoiTemplateId = computed(() => schoolRoiStepTemplates.value[0
 const canAddSchoolRoiStep = computed(() => form.formType === 'smart_school_roi' || form.scopeType === 'school');
 
 /** Guardian waiver intake step only when this link creates/links a guardian account (flexible for future waiver types). */
+const canAddSpanishClarificationStep = computed(() => {
+  const lang = String(form.languageCode || 'en').toLowerCase();
+  if (!lang.startsWith('es')) return false;
+  return !(form.intakeSteps || []).some((s) => String(s?.type || '').trim() === 'spanish_clarification');
+});
+
 const canAddGuardianWaiverStep = computed(() => {
   const ft = String(form.formType || '').toLowerCase();
   if (ft === 'job_application') return false;
@@ -4920,6 +5069,9 @@ const sanitizeSteps = (steps, { formType } = {}) => {
         next.nonMedicaidDisclaimerText = String(next.nonMedicaidDisclaimerText || '').trim();
         next.secondaryInsuranceDisclaimerText = String(next.secondaryInsuranceDisclaimerText || '').trim();
         next.requireSecondaryInsurance = !!next.requireSecondaryInsurance;
+      } else if (next.type === 'spanish_clarification') {
+        next.label = String(next.label || '').trim() || DEFAULT_SPANISH_CLARIFICATION_STEP.label;
+        next.visibility = 'always';
       }
       return next;
     });
@@ -4952,6 +5104,10 @@ const normalizeIntakeSteps = (link) => {
 };
 
 const addStep = (type, options = {}) => {
+  if (type === 'spanish_clarification') {
+    const exists = (form.intakeSteps || []).some((s) => String(s?.type || '').trim() === 'spanish_clarification');
+    if (exists) return null;
+  }
   const step = { id: createId('step'), type };
   if (type === 'questions') {
     step.fields = [];
@@ -5082,6 +5238,9 @@ const addStep = (type, options = {}) => {
     step.label = 'Clinical questions';
     step.visibility = 'always';
     step.fields = [];
+  } else if (type === 'spanish_clarification') {
+    step.label = DEFAULT_SPANISH_CLARIFICATION_STEP.label;
+    step.visibility = 'always';
   } else {
     step.templateId = options?.templateId ?? null;
     step.checkboxDisclaimer = '';
@@ -5823,6 +5982,8 @@ const filterStage = ref('all');
 const filterOrgId = ref('all');
 const filteredLinks = computed(() => {
   let list = links.value;
+  // Keep school referral masters/shells out of Digital Forms cleanup surface.
+  list = list.filter((l) => !isSchoolReferralManagedLink(l));
   if (filterStatus.value === 'active') {
     list = list.filter((l) => !!l.is_active);
   } else if (filterStatus.value === 'inactive') {
@@ -5849,8 +6010,50 @@ const filteredLinks = computed(() => {
   return list;
 });
 
+const openEmbeddedEditor = async () => {
+  if (!props.embedded) return;
+  const editId = Number(props.initialEditLinkId || 0);
+  if (!editId) return;
+  let existing = (links.value || []).find((l) => Number(l.id) === Number(editId));
+  if (!existing) {
+    try {
+      // Shadow masters are inactive / agency-scoped; scoped fetch should include them,
+      // but fall back to a full list lookup if needed.
+      const r = await api.get('/intake-links');
+      const all = Array.isArray(r.data) ? r.data : [];
+      existing = all.find((l) => Number(l.id) === Number(editId)) || null;
+      if (existing && !(links.value || []).some((l) => Number(l.id) === Number(editId))) {
+        links.value = [...(links.value || []), existing];
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  if (existing) editLink(existing);
+};
+
 onMounted(async () => {
   await fetchData();
+  if (props.embedded) {
+    await loadQuestionSets();
+    await openEmbeddedEditor();
+    return;
+  }
+  const queryFormType = String(route.query?.formType || '').trim();
+  const knownTypes = new Set([
+    'intake',
+    'public_form',
+    'smart_school_roi',
+    'smart_registration',
+    'job_application',
+    'medical_records_request',
+    'internal_preferences',
+    'life_balance_wheel',
+    'smart_disclosure'
+  ]);
+  if (queryFormType && knownTypes.has(queryFormType)) {
+    filterFormType.value = queryFormType;
+  }
   await openEditorFromQuery();
   if (!showForm.value) {
     await openCreateFromCompanyEventQuery();
@@ -5858,6 +6061,14 @@ onMounted(async () => {
     await clearCompanyEventEnrollmentQueryParams();
   }
 });
+
+watch(
+  () => [props.embedded, props.initialEditLinkId],
+  async () => {
+    if (!props.embedded) return;
+    await openEmbeddedEditor();
+  }
+);
 
 watch(
   () => [route.query?.editIntakeLinkId, route.query?.editId, route.query?.jobDescriptionId],
@@ -5876,6 +6087,46 @@ watch(
 </script>
 
 <style scoped>
+.df-school-forms-banner {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.df-school-forms-banner a {
+  font-weight: 700;
+  color: #1d4ed8;
+}
+.df-embedded-page {
+  max-width: none;
+  padding: 0;
+}
+.df-embedded-editor {
+  position: static;
+  inset: auto;
+  background: transparent;
+  display: block;
+  z-index: auto;
+}
+.df-embedded-modal {
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.df-embedded-modal .modal-body {
+  max-height: none;
+  overflow: visible;
+}
 .page-header {
   display: flex;
   justify-content: space-between;
@@ -6081,6 +6332,54 @@ watch(
   background: #fef9c3;
   color: #713f12;
   border: 1px solid #fde047;
+}
+
+.btn-flow-add-spanish {
+  background: linear-gradient(180deg, #fff7ed 0%, #ffedd5 100%) !important;
+  border-color: #fdba74 !important;
+  color: #9a3412 !important;
+  font-weight: 600;
+}
+
+.btn-flow-add-spanish:hover {
+  border-color: #fb923c !important;
+  color: #7c2d12 !important;
+  background: linear-gradient(180deg, #fffbeb 0%, #fed7aa 100%) !important;
+}
+
+.step-flow-pill--spanish {
+  background: #ffedd5;
+  color: #9a3412;
+  border: 1px solid #fdba74;
+}
+
+.spanish-clarification-admin-en {
+  margin-top: 4px;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid #dbeafe;
+  background: #f8fafc;
+}
+
+.spanish-clarification-admin-en h4 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.spanish-clarification-admin-en h5 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.spanish-clarification-admin-options {
+  margin: 0;
+  padding-left: 18px;
+  color: #374151;
+  font-size: 13px;
+}
+
+.spanish-clarification-admin-options li + li {
+  margin-top: 4px;
 }
 
 .form-group-guardian-toggle .form-help-guardian {

@@ -665,6 +665,37 @@
           </div>
         </div>
 
+        <div v-if="showSpanishClarificationBlock" class="spanish-clarification-step field-inputs">
+          <h4>{{ spanishClarificationCopy.title }}</h4>
+          <p class="muted communications-disclosure">{{ spanishClarificationCopy.intro }}</p>
+          <section
+            v-for="section in spanishClarificationSections"
+            :key="section.key"
+            class="communications-campaign-card"
+            :class="{ 'required-missing-glow': spanishClarificationMissingKey === section.key }"
+            :data-spanish-clarification-key="section.key"
+          >
+            <h4>{{ section.label }} <span class="required-indicator">*</span></h4>
+            <p v-if="section.disclosure" class="communications-disclosure">{{ section.disclosure }}</p>
+            <div class="radio-group">
+              <label
+                v-for="opt in section.options"
+                :key="opt.value"
+                class="radio-row"
+                :class="{ 'input-error': spanishClarificationMissingKey === section.key }"
+              >
+                <input
+                  v-model="intakeResponses.submission.spanishClarification[section.key]"
+                  type="radio"
+                  :value="opt.value"
+                  :name="`spanish_clarification_${section.key}`"
+                />
+                <span>{{ opt.label }}</span>
+              </label>
+            </div>
+          </section>
+        </div>
+
         <div v-if="visibleQuestionFields.length" class="field-inputs">
           <h4>{{ t('additionalQuestions') }}</h4>
           <div class="form-grid">
@@ -1065,8 +1096,8 @@
             <h4>{{ communicationsSmsTitle }} <span class="required-indicator">*</span></h4>
             <p class="communications-disclosure">
               {{ communicationsSmsDisclosure }}
-              Terms: <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
-              Privacy: <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
+              {{ tx('Terms:') }} <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
+              {{ tx('Privacy:') }} <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
             </p>
             <div class="radio-group">
               <label class="radio-row">
@@ -1833,6 +1864,15 @@ import {
 } from '../components/digital-form';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { isMedicaidInsurer } from '../utils/coloradoInsurances';
+import {
+  EMPTY_SPANISH_CLARIFICATION_RESPONSE,
+  firstMissingSpanishClarificationField,
+  SPANISH_CLARIFICATION_COPY
+} from '../constants/spanishClarificationIntake.js';
+import {
+  lookupStructuredIntakeTranslation,
+  txFmtStructuredIntake
+} from '../constants/structuredIntakeStepSpanish.js';
 import { useAuthStore } from '../store/auth';
 import {
   spanishQuestionLabelsEnabledFromLink,
@@ -2313,8 +2353,11 @@ provide('intakeStringTranslations', stringTranslations);
 const tx = (text) => {
   const s = String(text || '');
   if (intakeLocale.value !== 'es') return s;
-  return stringTranslations.value[s] || s;
+  return lookupStructuredIntakeTranslation(s, stringTranslations.value);
 };
+
+const txFmt = (template, vars = {}) =>
+  txFmtStructuredIntake(template, vars, stringTranslations.value, intakeLocale.value);
 
 /** Question label / helper with admin-saved Spanish overrides when enabled. */
 const txField = (field, prop = 'label') => {
@@ -2561,7 +2604,7 @@ async function fetchStringTranslations() {
       communicationsWorkforceNoLabel.value
     ].forEach(addString);
 
-    const arr = [...strings].filter(Boolean).slice(0, 500);
+    const arr = [...strings].filter(Boolean);
     if (!arr.length) {
       stringTranslations.value = {};
       return;
@@ -2614,6 +2657,54 @@ const intakeLocale = computed(() => {
   const code = String(link.value?.language_code || 'en').toLowerCase();
   return code.startsWith('es') ? 'es' : 'en';
 });
+
+provide('intakeLocale', intakeLocale);
+
+const spanishClarificationStep = computed(() => {
+  if (intakeLocale.value !== 'es') return null;
+  return (intakeSteps.value || []).find((s) => String(s?.type || '').trim() === 'spanish_clarification') || null;
+});
+const showSpanishClarificationBlock = computed(() => step.value === 1 && !!spanishClarificationStep.value);
+const spanishClarificationCopy = SPANISH_CLARIFICATION_COPY;
+const spanishClarificationSections = computed(() => {
+  const c = SPANISH_CLARIFICATION_COPY;
+  return [
+    { key: 'guardianPrefersSpanishOnly', ...c.guardianPrefersSpanishOnly },
+    { key: 'clientNeedsSpanishOnly', ...c.clientNeedsSpanishOnly },
+    { key: 'interpreterConsent', ...c.interpreterConsent },
+    { key: 'sessionPrimaryLanguage', ...c.sessionPrimaryLanguage },
+    { key: 'providerLanguagePreference', ...c.providerLanguagePreference },
+    { key: 'schoolDayVirtualCoordination', ...c.schoolDayVirtualCoordination },
+    { key: 'afterSchoolSpanishVirtual', ...c.afterSchoolSpanishVirtual }
+  ];
+});
+const spanishClarificationMissingKey = ref('');
+
+const ensureSpanishClarificationShape = () => {
+  if (!showSpanishClarificationBlock.value) return;
+  if (
+    !intakeResponses.submission.spanishClarification
+    || typeof intakeResponses.submission.spanishClarification !== 'object'
+  ) {
+    intakeResponses.submission.spanishClarification = { ...EMPTY_SPANISH_CLARIFICATION_RESPONSE };
+  }
+};
+
+watch(showSpanishClarificationBlock, (show) => {
+  if (show) ensureSpanishClarificationShape();
+}, { immediate: true });
+
+watch(
+  () => intakeResponses.submission?.spanishClarification,
+  () => {
+    if (!spanishClarificationMissingKey.value) return;
+    const missing = firstMissingSpanishClarificationField(intakeResponses.submission?.spanishClarification);
+    if (!missing || missing !== spanishClarificationMissingKey.value) {
+      spanishClarificationMissingKey.value = missing || '';
+    }
+  },
+  { deep: true }
+);
 
 watch(intakeLocale, () => {
   fetchStringTranslations();
@@ -2830,12 +2921,10 @@ const communicationsTenantName = computed(() => {
 const communicationsSmsDisclosure = computed(() => {
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.smsDisclosure?.trim();
   if (override) return tx(override);
-  return tx(
-    `${communicationsTenantName.value} utilizes PlotTwistHQ, a platform by PlotTwistCo (PTCo), to facilitate appointment scheduling, reminders, and related communication. ` +
-    `All messages you receive are scheduled, coordinated, and established directly by ${communicationsTenantName.value} — you will never receive any communications from PlotTwistCo (PTCo) directly. ` +
-    'Please select your preference for receiving text messages. If you opt in, you may receive messages related to scheduling and appointment reminders. ' +
-    'Message frequency varies; typically 7 days before and 24 hours before your appointment. You may be asked to reply with Yes or No regarding your attendance. ' +
-    'Message and data rates may apply. Reply STOP to unsubscribe. Reply HELP for help.'
+  const name = communicationsTenantName.value;
+  return txFmt(
+    '{tenant} utilizes PlotTwistHQ, a platform by PlotTwistCo (PTCo), to facilitate appointment scheduling, reminders, and related communication. All messages you receive are scheduled, coordinated, and established directly by {tenant} — you will never receive any communications from PlotTwistCo (PTCo) directly. Please select your preference for receiving text messages. If you opt in, you may receive messages related to scheduling and appointment reminders. Message frequency varies; typically 7 days before and 24 hours before your appointment. You may be asked to reply with Yes or No regarding your attendance. Message and data rates may apply. Reply STOP to unsubscribe. Reply HELP for help.',
+    { tenant: name }
   );
 });
 const communicationsEmailAllLabel = computed(() => {
@@ -5545,6 +5634,21 @@ const submitConsent = async () => {
     }
   }
 
+  if (showSpanishClarificationBlock.value) {
+    ensureSpanishClarificationShape();
+    const missingKey = firstMissingSpanishClarificationField(intakeResponses.submission.spanishClarification);
+    if (missingKey) {
+      spanishClarificationMissingKey.value = missingKey;
+      stepError.value = 'Por favor complete todas las preguntas de aclaración de idioma.';
+      error.value = '';
+      await nextTick();
+      const el = document.querySelector(`[data-spanish-clarification-key="${CSS.escape(missingKey)}"]`);
+      if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    spanishClarificationMissingKey.value = '';
+  }
+
   try {
     consentLoading.value = true;
     error.value = '';
@@ -5861,22 +5965,29 @@ const completeGuardianWaiverStep = () => {
   const savedSig = String(lastSignatureData.value || '').trim();
   const gw = intakeResponses.submission.guardianWaiverIntake;
   if (!gw?.clients?.length) {
-    stepError.value = 'Missing waiver data. Please refresh and try again.';
+    stepError.value = tx('Missing waiver data. Please refresh and try again.');
     return;
   }
 
   clearGuardianWaiverErrors();
+  const localizeWaiverMsg = (message, label) => {
+    if (typeof message !== 'string') return message;
+    if (message.includes('{label}')) return txFmt(message, { label });
+    return tx(message);
+  };
   // Collect ALL problems up front so each offending card gets a red banner
   // + the specific missing field gets highlighted, instead of just the first
   // one bubbling up to the page-level error.
   let firstErrorRef = null;
   let firstErrorMessage = '';
   const recordError = (cIdx, sectionKey, message, extra) => {
+    const label = guardianWaiverClientLabels.value[cIdx] || `${tx('Child')} ${cIdx + 1}`;
+    const localized = localizeWaiverMsg(message, label);
     if (!guardianWaiverErrors[cIdx]) guardianWaiverErrors[cIdx] = {};
-    guardianWaiverErrors[cIdx][sectionKey] = extra !== undefined ? extra : message;
+    guardianWaiverErrors[cIdx][sectionKey] = extra !== undefined ? extra : localized;
     if (!firstErrorRef) {
       firstErrorRef = { cIdx, sectionKey };
-      firstErrorMessage = message;
+      firstErrorMessage = localized;
     }
   };
 
@@ -5907,7 +6018,7 @@ const completeGuardianWaiverStep = () => {
           recordError(
             i,
             key,
-            `Please enter a real 10-digit phone number for every pickup contact you list for ${label} (we'll need to call them at check-out time).`
+            'Please enter a real 10-digit phone number for every pickup contact you list for {label} (we\'ll need to call them at check-out time).'
           );
           continue;
         }
@@ -5926,7 +6037,7 @@ const completeGuardianWaiverStep = () => {
             recordError(
               i,
               key,
-              `Please complete the walk-home authorization details for ${label}, or change your selection to "I do NOT authorize."`,
+              'Please complete the walk-home authorization details for {label}, or change your selection to "I do NOT authorize."',
               fieldErrors
             );
             continue;
@@ -5941,7 +6052,7 @@ const completeGuardianWaiverStep = () => {
           recordError(
             i,
             key,
-            `Please add at least one emergency contact for ${label}, or check "I do not want to list emergency contacts at this time."`
+            'Please add at least one emergency contact for {label}, or check "I do not want to list emergency contacts at this time."'
           );
           emergencyPulse.value = true;
           if (emergencyPulseTimer) clearTimeout(emergencyPulseTimer);
@@ -5958,7 +6069,7 @@ const completeGuardianWaiverStep = () => {
           recordError(
             i,
             key,
-            `Phone number is required for each emergency contact you list for ${label}.`
+            'Phone number is required for each emergency contact you list for {label}.'
           );
           emergencyPulse.value = true;
           if (emergencyPulseTimer) clearTimeout(emergencyPulseTimer);
@@ -6269,23 +6380,23 @@ const completeCommunicationsStep = () => {
   const step = currentFlowStep.value;
   if (!step || step.type !== 'communications') return;
   if (!communications.emailPreference) {
-    stepError.value = 'Please choose an email communication preference.';
+    stepError.value = tx('Please choose an email communication preference.');
     return;
   }
   if (!communications.smsPreference) {
-    stepError.value = 'Please choose an SMS communication preference.';
+    stepError.value = tx('Please choose an SMS communication preference.');
     return;
   }
   if (step?.campaigns?.providerTexting && !communications.providerTextingOptIn) {
-    stepError.value = 'Please choose whether to enable provider/care-team texting.';
+    stepError.value = tx('Please choose whether to enable provider/care-team texting.');
     return;
   }
   if (step?.campaigns?.programUpdates && !communications.programUpdatesOptIn) {
-    stepError.value = 'Please choose whether to enable optional program updates.';
+    stepError.value = tx('Please choose whether to enable optional program updates.');
     return;
   }
   if (step?.campaigns?.internalWorkforce && !communications.internalWorkforceOptIn) {
-    stepError.value = 'Please choose whether to enable internal workforce notifications.';
+    stepError.value = tx('Please choose whether to enable internal workforce notifications.');
     return;
   }
   intakeResponses.submission.communicationPreferences = {
@@ -8582,6 +8693,11 @@ onBeforeUnmount(() => {
 }
 
 .communications-step {
+  margin: 16px 0;
+  display: grid;
+  gap: 12px;
+}
+.spanish-clarification-step {
   margin: 16px 0;
   display: grid;
   gap: 12px;

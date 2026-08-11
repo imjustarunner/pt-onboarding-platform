@@ -2,7 +2,7 @@
   <div class="pi-ins">
     <!-- Step description + non-Medicaid disclaimer -->
     <p v-if="stepConfig.nonMedicaidDisclaimerText && !allMedicaid" class="pi-ins-disclaimer">
-      {{ stepConfig.nonMedicaidDisclaimerText }}
+      {{ tx(stepConfig.nonMedicaidDisclaimerText) }}
     </p>
 
     <!--
@@ -277,13 +277,13 @@
           </div>
           <input ref="secondaryFrontInput" type="file" accept="image/*" capture="environment" style="display:none"
             @change="(e) => onPhotoSelected(e, 'secondary_front')" />
-          <button v-if="secondaryFrontPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearPhoto('secondary_front')">Remove</button>
+          <button v-if="secondaryFrontPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearPhoto('secondary_front')">{{ tx('Remove') }}</button>
         </div>
         <div class="pi-ins-photo-slot">
           <label class="pi-ins-lbl">{{ tx('Secondary card – back') }}</label>
           <div class="pi-ins-photo-area" @click="triggerUpload('secondary_back')">
             <img v-if="secondaryBackPreview" :src="secondaryBackPreview" alt="Back of secondary card" class="pi-ins-photo-img" />
-            <div v-else class="pi-ins-photo-placeholder"><span>📷</span><span>Tap to upload</span></div>
+            <div v-else class="pi-ins-photo-placeholder"><span>📷</span><span>{{ tx('Tap to upload') }}</span></div>
           </div>
           <input ref="secondaryBackInput" type="file" accept="image/*" capture="environment" style="display:none"
             @change="(e) => onPhotoSelected(e, 'secondary_back')" />
@@ -407,15 +407,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, inject } from 'vue';
+import { ref, reactive, computed, watch } from 'vue';
 import { filterInsurances, isMedicaidInsurer } from '../../utils/coloradoInsurances.js';
+import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
 
-const intakeStringTranslations = inject('intakeStringTranslations', ref({}));
-/** Translate a string using the content-addressed cache provided by the parent view. */
-const tx = (text) => {
-  const s = String(text || '');
-  return intakeStringTranslations.value?.[s] || s;
-};
+const { tx } = useIntakeStepTx();
 
 const DEFAULT_SECONDARY_INSURANCE_NOTICE =
   'If your household carries secondary (supplemental) insurance in addition to the primary plan above, please add it using the option below or contact us promptly with complete policy information. Failure to provide complete and accurate coverage details—including applicable secondary insurance when it exists—may delay authorizations or benefit verification and could result in interruptions or delays in services.';

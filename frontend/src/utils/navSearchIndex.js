@@ -532,6 +532,26 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Digital form management.'
   },
   {
+    title: 'Master School Form',
+    section: 'School Operations',
+    path: '/admin/master-school-form',
+    keywords: [
+      'master school form',
+      'school digital form',
+      'school intake master',
+      'school questionnaire',
+      'documents and forms'
+    ],
+    desc: 'Agency-wide school referral questionnaire that all school links inherit.'
+  },
+  {
+    title: 'School Referral Hub',
+    section: 'School Operations',
+    path: '/admin/school-referral-hub',
+    keywords: ['school referral hub', 'printable packet', 'school links', 'documents and forms'],
+    desc: 'Printable packet editor and per-school shareable digital/printable links.'
+  },
+  {
     title: 'Agency Admin Dashboard',
     section: 'Management',
     path: '/admin/dashboard',

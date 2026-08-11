@@ -44,8 +44,15 @@ function documentStepLooksLikeReplacedPacketDoc(title) {
  * Strip legacy uploaded packet PDFs (HIPAA / informed / policy / disclosure)
  * now covered by live packet or smart_disclosure steps, and ensure packet_* steps exist.
  */
-export function sanitizeSchoolMasterSteps(steps, templateNameById = null) {
+const DEFAULT_SPANISH_CLARIFICATION_STEP = {
+  type: 'spanish_clarification',
+  label: 'Aclaración de idioma',
+  visibility: 'always'
+};
+
+export function sanitizeSchoolMasterSteps(steps, templateNameById = null, languageCode = 'en') {
   let list = Array.isArray(steps) ? [...steps] : [];
+  const lang = String(languageCode || 'en').toLowerCase();
   const hasSmartDisclosure = list.some((s) => ['smart_disclosure', 'disclosure'].includes(String(s?.type || '').toLowerCase()));
   list = list.filter((s) => {
     const t = String(s?.type || '').toLowerCase();
@@ -90,6 +97,9 @@ export function sanitizeSchoolMasterSteps(steps, templateNameById = null) {
   if (!hasType('smart_disclosure') && !hasType('disclosure')) {
     list.push({ type: 'smart_disclosure', title: 'Disclosure Statement', visibility: 'always' });
   }
+  if (lang === 'es' && !hasType('spanish_clarification')) {
+    list.unshift({ id: 'spanish_clarification', ...DEFAULT_SPANISH_CLARIFICATION_STEP });
+  }
   return list;
 }
 
@@ -112,9 +122,9 @@ async function loadTemplateNameMap(steps) {
   return map;
 }
 
-export async function sanitizeSchoolMasterStepsAsync(steps) {
+export async function sanitizeSchoolMasterStepsAsync(steps, languageCode = 'en') {
   const map = await loadTemplateNameMap(steps);
-  return sanitizeSchoolMasterSteps(steps, map);
+  return sanitizeSchoolMasterSteps(steps, map, languageCode);
 }
 
 class AgencySchoolIntakeMaster {
@@ -280,7 +290,7 @@ class AgencySchoolIntakeMaster {
       throw err;
     }
     const lang = normalizeLang(languageCode);
-    const steps = await sanitizeSchoolMasterStepsAsync(intakeSteps);
+    const steps = await sanitizeSchoolMasterStepsAsync(intakeSteps, lang);
     const existing = await this.findByAgencyLanguage(aid, lang);
     const nextVersion = existing && bumpVersion ? Number(existing.version || 1) + 1 : (existing?.version || 1);
     const safeTitle = title || existing?.title || `School Referral Master (${lang === 'es' ? 'ES' : 'EN'})`;
@@ -347,7 +357,7 @@ class AgencySchoolIntakeMaster {
     if (existing) {
       await this.markAgencySchoolLinksInheriting(aid);
       // Keep sanitization current (HIPAA cleanup) without bumping version if unchanged structure needed
-      const sanitized = await sanitizeSchoolMasterStepsAsync(existing.intake_steps);
+      const sanitized = await sanitizeSchoolMasterStepsAsync(existing.intake_steps, lang);
       const before = JSON.stringify(existing.intake_steps || []);
       const after = JSON.stringify(sanitized);
       if (before !== after) {
@@ -376,7 +386,7 @@ class AgencySchoolIntakeMaster {
     }
 
     const seed = await this.findBestSeedLink(aid, lang);
-    const steps = await sanitizeSchoolMasterStepsAsync(seed?.intake_steps || []);
+    const steps = await sanitizeSchoolMasterStepsAsync(seed?.intake_steps || [], lang);
     const fields = seed?.intake_fields || null;
     const title = lang === 'es'
       ? 'School Referral Master (ES)'
@@ -391,7 +401,7 @@ class AgencySchoolIntakeMaster {
             { type: 'questions', label: 'Questionnaire', visibility: 'always', fields: [] },
             { type: 'school_roi', label: 'School ROI', visibility: 'always' },
             { type: 'smart_disclosure', label: 'Disclosure Statement', visibility: 'always' }
-          ]),
+          ], lang),
       intakeFields: fields,
       actorUserId,
       bumpVersion: false

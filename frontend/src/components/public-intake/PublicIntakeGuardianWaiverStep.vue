@@ -50,7 +50,8 @@
             class="btn btn-secondary btn-sm"
             @click="copyFromPreviousChild(cIdx, def.key)"
           >
-            Copy {{ sectionShortName(def.key) }} from {{ clientLabels[cIdx - 1] || `Child ${cIdx}` }}
+            {{ def.key === 'pickup_authorization' ? tx('Copy pickup contacts from') : tx('Copy emergency contacts from') }}
+            {{ clientLabels[cIdx - 1] || `${tx('Child')} ${cIdx}` }}
           </button>
         </div>
 
@@ -60,12 +61,12 @@
               <span class="pi-gw-sig-check">&#10003;</span>
               <div class="pi-gw-sig-applied-text">
                 <div>
-                  <strong>Signed</strong>
-                  <span v-if="sectionSignerName(cIdx, def.key)"> by {{ sectionSignerName(cIdx, def.key) }}</span>
+                  <strong>{{ tx('Signed') }}</strong>
+                  <span v-if="sectionSignerName(cIdx, def.key)"> {{ tx(' by ') }}{{ sectionSignerName(cIdx, def.key) }}</span>
                 </div>
                 <div class="pi-gw-sig-stamp muted small">
-                  e-Signature applied {{ sectionSignedAtDisplay(cIdx, def.key) }} ·
-                  source: {{ sectionSignatureSourceLabel(cIdx, def.key) }}
+                  {{ tx('e-Signature applied') }} {{ sectionSignedAtDisplay(cIdx, def.key) }} ·
+                  {{ tx('source:') }} {{ sectionSignatureSourceLabel(cIdx, def.key) }}
                 </div>
               </div>
             </div>
@@ -74,7 +75,7 @@
               class="btn btn-secondary btn-sm pi-gw-sig-resign"
               @click="resignSection(cIdx, def.key)"
             >
-              Sign again
+              {{ tx('Sign again') }}
             </button>
           </div>
           <template v-else>
@@ -84,12 +85,12 @@
                 class="btn btn-primary btn-sm pi-gw-sig-apply pi-gw-sig-apply--pulse"
                 @click="applySavedSignature(cIdx, def.key)"
               >
-                Apply my signature to this section
+                {{ tx('Apply my signature to this section') }}
               </button>
-              <span class="muted small pi-gw-sig-hint">You must apply your signature here to record this waiver — it will be re-used from the signature you drew earlier.</span>
+              <span class="muted small pi-gw-sig-hint">{{ tx('You must apply your signature here to record this waiver — it will be re-used from the signature you drew earlier.') }}</span>
             </div>
             <div v-else class="muted small">
-              Complete the earlier signature step to sign waivers.
+              {{ tx('Complete the earlier signature step to sign waivers.') }}
             </div>
           </template>
         </div>
@@ -100,6 +101,7 @@
 
 <script setup>
 import { computed, toRef } from 'vue';
+import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
 import GwvFieldsPickup from '../../views/guardian/waivers/GwvFieldsPickup.vue';
 import GwvFieldsEmergency from '../../views/guardian/waivers/GwvFieldsEmergency.vue';
 import GwvFieldsAllergies from '../../views/guardian/waivers/GwvFieldsAllergies.vue';
@@ -137,11 +139,7 @@ const props = defineProps({
   translations: { type: Object, default: () => ({}) }
 });
 
-/** Look up a translated string; returns original text if not found. */
-const tx = (text) => {
-  const s = String(text || '');
-  return props.translations?.[s] || s;
-};
+const { tx, txFmt } = useIntakeStepTx();
 
 defineExpose({
   scrollToSection
@@ -335,22 +333,22 @@ function sectionSignerName(idx, key) {
 function sectionSignedAtDisplay(idx, key) {
   const sec = ensureSection(idx, key);
   const iso = sec?.signatureMeta?.signedAt;
-  if (!iso) return 'just now';
+  if (!iso) return tx('just now');
   try {
     const d = new Date(iso);
-    if (!Number.isFinite(d.getTime())) return 'just now';
+    if (!Number.isFinite(d.getTime())) return tx('just now');
     return d.toLocaleString();
   } catch {
-    return 'just now';
+    return tx('just now');
   }
 }
 
 function sectionSignatureSourceLabel(idx, key) {
   const sec = ensureSection(idx, key);
   const src = String(sec?.signatureMeta?.sourceMethod || 'reused_guardian_signature');
-  if (src === 'reused_guardian_signature') return 'reused signature drawn earlier in this session';
-  if (src === 'redrawn_for_section') return 'newly drawn for this section';
-  return src.replace(/_/g, ' ');
+  if (src === 'reused_guardian_signature') return tx('reused signature drawn earlier in this session');
+  if (src === 'redrawn_for_section') return tx('newly drawn for this section');
+  return tx(src.replace(/_/g, ' '));
 }
 
 // Map of section refs for scroll-to-first-error behavior. Key format is

@@ -1,16 +1,19 @@
 <template>
   <div class="gwv-f">
-    <label class="gwv-l">Meals / foods you approve</label>
+    <label class="gwv-l">{{ tx('Meals / foods you approve') }}</label>
     <textarea v-model="local.allowedMeals" class="input" rows="2" :disabled="disabled" @input="push" />
-    <label class="gwv-l">Meals / foods to avoid</label>
+    <label class="gwv-l">{{ tx('Meals / foods to avoid') }}</label>
     <textarea v-model="local.restrictedMeals" class="input" rows="2" :disabled="disabled" @input="push" />
-    <label class="gwv-l">Notes</label>
+    <label class="gwv-l">{{ tx('Notes') }}</label>
     <textarea v-model="local.notes" class="input" rows="2" :disabled="disabled" @input="push" />
   </div>
 </template>
 
 <script setup>
 import { reactive, watch } from 'vue';
+import { useIntakeStepTx } from '../../../composables/useIntakeStepTx.js';
+
+const { tx } = useIntakeStepTx();
 
 const props = defineProps({
   modelValue: { type: Object, required: true },

@@ -11,19 +11,19 @@
         <div>
           <h1>Digital intakes for this school</h1>
           <p class="muted spd-sub">
-            Create or copy <strong>English</strong> and <strong>Spanish</strong> intake links scoped to
-            <strong>{{ schoolName }}</strong>. Families see your school branding on the public form.
-            Full form builder remains under Digital Forms in settings.
+            Create or copy <strong>English</strong> and <strong>Spanish</strong> shareable intake links scoped to
+            <strong>{{ schoolName }}</strong>. Families see your school branding; the questionnaire comes from the
+            agency Master School Form.
           </p>
         </div>
         <div class="spd-header-actions">
           <router-link class="btn btn-secondary btn-sm" :to="backTo">Back to portal</router-link>
           <router-link
-            v-if="canManageDigitalIntakes && advancedDigitalFormsTo"
+            v-if="canManageDigitalIntakes && masterSchoolFormTo"
             class="btn btn-secondary btn-sm"
-            :to="advancedDigitalFormsTo"
+            :to="masterSchoolFormTo"
           >
-            Advanced edit (Digital Forms)
+            Edit Master School Form
           </router-link>
         </div>
       </header>
@@ -216,11 +216,11 @@ const hasSchoolPortalsAccess = computed(() => {
   });
 });
 
-const advancedDigitalFormsTo = computed(() => {
+const masterSchoolFormTo = computed(() => {
   const parent = gateParentAgency.value;
   const pslug = String(parent?.portal_url || parent?.portalUrl || parent?.slug || '').trim();
-  if (pslug) return `/${pslug}/admin/digital-forms`;
-  return orgSlug.value ? `/${orgSlug.value}/admin/digital-forms` : '/admin/digital-forms';
+  if (pslug) return `/${pslug}/admin/master-school-form`;
+  return orgSlug.value ? `/${orgSlug.value}/admin/master-school-form` : '/admin/master-school-form';
 });
 
 function normLang(lc) {

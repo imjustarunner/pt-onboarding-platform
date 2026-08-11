@@ -4,8 +4,8 @@
       <div>
         <h1>School Referral Hub</h1>
         <p class="muted srh-sub">
-          Edit the agency printable packet (EN/ES) and the one master digital form all schools inherit.
-          Each school still has its own shareable links below.
+          Edit the agency printable packet (EN/ES) and manage each school’s shareable digital + printable links.
+          The questionnaire itself lives on Master School Form (agency-wide, live inheritance).
         </p>
       </div>
       <router-link class="btn btn-secondary btn-sm" :to="backTo">Back to School Operations</router-link>
@@ -81,56 +81,24 @@
           </div>
         </section>
 
-        <section class="srh-card">
+        <section class="srh-card srh-master-card">
           <div class="srh-card-head">
-            <h2>Master digital form (agency-wide)</h2>
+            <h2>Master School Form</h2>
             <p class="muted">
-              One questionnaire and consent flow for all schools. Each school keeps its own shareable link above;
-              every open uses this master live. Edit with the same Digital Forms builder (questions, guardian steps,
-              insurance, packet HIPAA, etc.).
+              Agency-wide questionnaire and consents (EN/ES). School links above inherit it live — edit the form on its own page so you never leave for Digital Forms.
             </p>
           </div>
           <div class="srh-step-toolbar">
-            <div class="locale-tabs" role="tablist">
-              <button
-                type="button"
-                class="locale-tab"
-                :class="{ active: stepsLocale === 'en' }"
-                @click="stepsLocale = 'en'; loadMaster()"
-              >
-                English master
-              </button>
-              <button
-                type="button"
-                class="locale-tab"
-                :class="{ active: stepsLocale === 'es' }"
-                @click="stepsLocale = 'es'; loadMaster()"
-              >
-                Spanish master
-              </button>
-            </div>
-            <button
-              class="btn btn-primary btn-sm"
-              type="button"
-              :disabled="!masterEditorLinkId || masterLoading"
-              @click="openMasterEditor"
-            >
-              Edit master in Digital Forms
-            </button>
-          </div>
-          <div v-if="masterLoading" class="muted" style="margin-top:10px;">Loading master form…</div>
-          <div v-else-if="masterError" class="error" style="margin-top:10px;">{{ masterError }}</div>
-          <div v-else class="srh-master-meta" style="margin-top:12px;">
-            <div>
+            <div v-if="masterLoading" class="muted">Loading…</div>
+            <div v-else-if="masterError" class="error">{{ masterError }}</div>
+            <div v-else class="srh-master-meta">
               <strong>{{ masterTitle || 'School Referral Master' }}</strong>
-              <span class="version-pill" style="margin-left:8px;">V{{ masterVersion || 1 }}</span>
+              <span class="version-pill">V{{ masterVersion || 1 }}</span>
+              <span class="muted">{{ masterStepCount }} step(s)</span>
             </div>
-            <p class="muted" style="margin:8px 0 0;">
-              {{ masterStepCount }} step(s) · live inheritance for all school digital links · packet HIPAA is included from the printable packet template
-            </p>
-            <p class="muted" style="margin:8px 0 0;">
-              Tip: remove duplicate insurance / permission one-time questions in the builder — use Insurance info / Communications / Guardian steps instead.
-            </p>
+            <router-link class="btn btn-primary btn-sm" :to="masterSchoolFormTo">
+              Open Master School Form
+            </router-link>
           </div>
         </section>
       </template>
@@ -140,14 +108,13 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import SchoolPacketTemplateEditor from '../../components/school/redesign/SchoolPacketTemplateEditor.vue';
 
 const route = useRoute();
-const router = useRouter();
 const agencyStore = useAgencyStore();
 
 const loadingSchools = ref(true);
@@ -162,24 +129,18 @@ const intakeLinks = ref([]);
 const creatingLang = ref('');
 const printableLoadingLang = ref('');
 
-const stepsLocale = ref('en');
 const masterLoading = ref(false);
 const masterError = ref('');
 const masterTitle = ref('');
 const masterVersion = ref(null);
-const masterEditorLinkId = ref(null);
 const masterStepCount = ref(0);
 
 const orgSlug = computed(() => (typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : ''));
 const agencyId = computed(() => Number(agencyStore.currentAgency?.id || route.query?.agencyId || 0));
 const backTo = computed(() => (orgSlug.value ? `/${orgSlug.value}/school-operations` : '/school-operations'));
-const digitalFormsTo = computed(() => {
-  const base = orgSlug.value ? `/${orgSlug.value}/admin/digital-forms` : '/admin/digital-forms';
-  if (masterEditorLinkId.value) {
-    return `${base}?editIntakeLinkId=${masterEditorLinkId.value}`;
-  }
-  return base;
-});
+const masterSchoolFormTo = computed(() =>
+  orgSlug.value ? `/${orgSlug.value}/admin/master-school-form` : '/admin/master-school-form'
+);
 
 const selectedSchoolName = computed(() => {
   const id = Number(selectedSchoolId.value || 0);
@@ -254,25 +215,18 @@ async function loadMaster() {
   masterError.value = '';
   try {
     const res = await api.get(`/agencies/${agencyId.value}/school-intake-master`, {
-      params: { locale: stepsLocale.value }
+      params: { locale: 'en' }
     });
     const m = res.data?.master || null;
     masterTitle.value = m?.title || '';
     masterVersion.value = m?.version ?? null;
-    masterEditorLinkId.value = m?.editor_intake_link_id || null;
     const steps = Array.isArray(m?.intake_steps) ? m.intake_steps : [];
     masterStepCount.value = steps.length;
   } catch (e) {
     masterError.value = e?.response?.data?.error?.message || e.message || 'Failed to load master form';
-    masterEditorLinkId.value = null;
   } finally {
     masterLoading.value = false;
   }
-}
-
-function openMasterEditor() {
-  if (!masterEditorLinkId.value) return;
-  router.push(digitalFormsTo.value);
 }
 
 async function loadSchools() {
@@ -459,6 +413,10 @@ onMounted(async () => {
   gap: 8px;
   align-items: flex-start;
 }
+.srh-master-card {
+  background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 55%, #fff 100%);
+  border-color: #a7f3d0;
+}
 .srh-step-toolbar {
   display: flex;
   justify-content: space-between;
@@ -467,27 +425,22 @@ onMounted(async () => {
   align-items: center;
   margin-top: 8px;
 }
-.locale-tabs {
+.srh-master-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.version-pill {
   display: inline-flex;
-  gap: 4px;
-  padding: 3px;
+  align-items: center;
+  padding: 2px 8px;
   border-radius: 999px;
-  background: #f3f4f6;
-}
-.locale-tab {
-  border: 0;
-  background: transparent;
-  padding: 6px 14px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #4b5563;
-  cursor: pointer;
-}
-.locale-tab.active {
-  background: #fff;
-  color: #111827;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  font-size: 12px;
+  font-weight: 700;
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
 }
 .srh-step-list {
   display: flex;

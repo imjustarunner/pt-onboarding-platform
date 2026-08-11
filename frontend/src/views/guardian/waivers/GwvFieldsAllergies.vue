@@ -1,9 +1,9 @@
 <template>
   <div class="gwv-f">
     <div class="gwv-notice">
-      <p>This form provides your facilitating partner the necessary medical information for your participating child/dependent.</p>
-      <p>We do not administer any medication and special instructions or plans will need to be put in place for you to administer, or provide an alternative individual permission to administer any medications during the sessions and activities. Please detail below if you require special accommodations to schedule time to administer medications.</p>
-      <p>We do not have a nurse on staff, though we will have first aid kits available for minor incidents.</p>
+      <p>{{ tx('This form provides your facilitating partner the necessary medical information for your participating child/dependent.') }}</p>
+      <p>{{ tx('We do not administer any medication and special instructions or plans will need to be put in place for you to administer, or provide an alternative individual permission to administer any medications during the sessions and activities. Please detail below if you require special accommodations to schedule time to administer medications.') }}</p>
+      <p>{{ tx('We do not have a nurse on staff, though we will have first aid kits available for minor incidents.') }}</p>
     </div>
 
     <!--
@@ -20,12 +20,12 @@
         @change="toggleApplyNone"
       />
       <span>
-        <strong>No medical info to report</strong>
-        <span class="gwv-sub">— fill every field below with "None"</span>
+        <strong>{{ tx('No medical info to report') }}</strong>
+        <span class="gwv-sub">{{ tx('— fill every field below with "None"') }}</span>
       </span>
     </label>
 
-    <label class="gwv-l" :class="{ 'gwv-l--error': fieldError('allergies') }">Allergies / medical notes</label>
+    <label class="gwv-l" :class="{ 'gwv-l--error': fieldError('allergies') }">{{ tx('Allergies / medical notes') }}</label>
     <textarea
       v-model="local.allergies"
       class="input"
@@ -33,15 +33,15 @@
       rows="3"
       :disabled="disabled || local.applyNone"
       @input="onFieldInput"
-      placeholder="List any known allergies, dietary restrictions, or medical conditions staff should be aware of."
+      :placeholder="tx('List any known allergies, dietary restrictions, or medical conditions staff should be aware of.')"
     />
     <div v-if="fieldError('allergies')" class="gwv-inline-error">{{ fieldError('allergies') }}</div>
 
     <!-- Snack approval — dynamic checkboxes when the event has specific options -->
     <div class="gwv-snack-block">
       <label class="gwv-l" :class="{ 'gwv-l--error': fieldError('approvedSnacks') }">
-        Approved snacks
-        <span v-if="hasSnackOptions" class="gwv-sub">Select all snacks you approve for your child</span>
+        {{ tx('Approved snacks') }}
+        <span v-if="hasSnackOptions" class="gwv-sub">{{ tx('Select all snacks you approve for your child') }}</span>
       </label>
 
       <!-- Event has specific snack options: show checkboxes -->
@@ -64,7 +64,7 @@
               :disabled="disabled"
               @change="toggleAllSnacks"
             />
-            <span><strong>All of the above</strong></span>
+            <span><strong>{{ tx('All of the above') }}</strong></span>
           </label>
           <label class="gwv-checkbox-row">
             <input
@@ -73,22 +73,22 @@
               :disabled="disabled"
               @change="toggleNoSnacks"
             />
-            <span>My child should <strong>not</strong> have any snacks / please hold</span>
+            <span>{{ tx('My child should not have any snacks / please hold') }}</span>
           </label>
         </div>
         <div v-if="local.approvedSnacksList.length || local.noSnacks" class="gwv-snack-summary muted small">
-          <template v-if="local.noSnacks">No snacks approved.</template>
-          <template v-else-if="allSnacksSelected">All listed snacks approved.</template>
-          <template v-else>Approved: {{ local.approvedSnacksList.join(', ') }}</template>
+          <template v-if="local.noSnacks">{{ tx('No snacks approved.') }}</template>
+          <template v-else-if="allSnacksSelected">{{ tx('All listed snacks approved.') }}</template>
+          <template v-else>{{ tx('Approved:') }} {{ local.approvedSnacksList.join(', ') }}</template>
         </div>
-        <label class="gwv-l" style="margin-top: 8px;">Additional snack notes or restrictions (optional)</label>
+        <label class="gwv-l" style="margin-top: 8px;">{{ tx('Additional snack notes or restrictions (optional)') }}</label>
         <textarea
           v-model="local.approvedSnacks"
           class="input"
           rows="2"
           :disabled="disabled || local.applyNone"
           @input="onFieldInput"
-          placeholder="Any other snack notes, e.g. nut-free only, no red dye…"
+          :placeholder="tx('Any other snack notes, e.g. nut-free only, no red dye…')"
         />
       </template>
 
@@ -101,13 +101,13 @@
           rows="2"
           :disabled="disabled || local.applyNone"
           @input="onFieldInput"
-          placeholder="List snacks your child may have, or write 'none' if no snacks."
+          :placeholder="tx('List snacks your child may have, or write \'none\' if no snacks.')"
         />
       </template>
       <div v-if="fieldError('approvedSnacks')" class="gwv-inline-error">{{ fieldError('approvedSnacks') }}</div>
     </div>
 
-    <label class="gwv-l" :class="{ 'gwv-l--error': fieldError('notes') }">Other medical notes</label>
+    <label class="gwv-l" :class="{ 'gwv-l--error': fieldError('notes') }">{{ tx('Other medical notes') }}</label>
     <textarea
       v-model="local.notes"
       class="input"
@@ -115,7 +115,7 @@
       rows="2"
       :disabled="disabled || local.applyNone"
       @input="onFieldInput"
-      placeholder="Any additional information staff should know."
+      :placeholder="tx('Any additional information staff should know.')"
     />
     <div v-if="fieldError('notes')" class="gwv-inline-error">{{ fieldError('notes') }}</div>
   </div>
@@ -123,6 +123,9 @@
 
 <script setup>
 import { reactive, computed, watch } from 'vue';
+import { useIntakeStepTx } from '../../../composables/useIntakeStepTx.js';
+
+const { tx } = useIntakeStepTx();
 
 const props = defineProps({
   modelValue: { type: Object, required: true },
@@ -171,13 +174,13 @@ const errorMap = computed(() => {
 
 function fieldError(key) {
   const map = errorMap.value;
-  if (map[key]) return map[key];
+  if (map[key]) return tx(map[key]);
   // If a catch-all error is provided, show it on the first empty required field
   if (map['*']) {
     const firstEmpty = ['allergies', 'approvedSnacks', 'notes'].find(
       (k) => String(local[k] ?? '').trim().length === 0
     );
-    if (firstEmpty === key) return map['*'];
+    if (firstEmpty === key) return tx(map['*']);
   }
   return '';
 }

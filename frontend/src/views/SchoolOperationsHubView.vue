@@ -675,15 +675,28 @@ const allSections = computed(() => [
   {
     id: 'documents-forms',
     label: 'Documents & Forms',
-    desc: 'School referral packet, Smart ROI, and Smart Disclosure.',
+    desc: 'Master School Form, referral packet links, Smart ROI, and Smart Disclosure.',
     tone: 'indigo',
     icon: icon.docs,
     cards: [
       {
+        id: 'master-school-form',
+        title: 'Master School Form',
+        shortDesc: 'Agency-wide school questionnaire (EN/ES).',
+        desc: 'Edit the one master digital form all school public links inherit live — questions, guardian, insurance, packet HIPAA, and more.',
+        cta: 'Open →',
+        to: orgTo('/admin/master-school-form'),
+        tone: 'teal',
+        icon: icon.form,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: 0
+      },
+      {
         id: 'school-referral-hub',
         title: 'School Referral Hub',
-        shortDesc: 'Packet editing, links, and consent steps.',
-        desc: 'Edit the EN/ES referral packet, manage digital + printable links, and toggle digital consent steps per school.',
+        shortDesc: 'Packet editing and per-school share links.',
+        desc: 'Edit the EN/ES printable packet and manage each school’s digital + printable shareable links.',
         cta: 'Open →',
         to: orgTo('/admin/school-referral-hub'),
         tone: 'indigo',

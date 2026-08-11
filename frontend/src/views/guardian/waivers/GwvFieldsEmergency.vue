@@ -1,7 +1,7 @@
 <template>
   <div class="gwv-f">
     <p v-if="modelValue.contacts?.some(c => c.name)" class="gwv-edit-note">
-      Edit any contact below, or add/remove entries. Saving will replace the current list.
+      {{ tx('Edit any contact below, or add/remove entries. Saving will replace the current list.') }}
     </p>
     <label class="gwv-optout" :class="{ 'gwv-optout--pulse': pulse }">
       <input
@@ -10,7 +10,7 @@
         :disabled="disabled"
         @change="toggleDeclineEmergency($event.target.checked)"
       />
-      <span>I do not want to list emergency contacts at this time.</span>
+      <span>{{ tx('I do not want to list emergency contacts at this time.') }}</span>
     </label>
     <div v-for="(row, idx) in rows" :key="idx" class="gwv-row-block">
       <div class="gwv-grid">
@@ -18,7 +18,7 @@
           :value="row.name"
           class="input"
           type="text"
-          placeholder="Name"
+          :placeholder="tx('Name')"
           :disabled="disabled || declineEmergencyContacts"
           @input="patchRow(idx, 'name', $event.target.value)"
         />
@@ -29,7 +29,7 @@
           type="tel"
           inputmode="tel"
           autocomplete="tel"
-          placeholder="Phone * (10 digits)"
+          :placeholder="tx('Phone * (10 digits)')"
           :disabled="disabled || declineEmergencyContacts"
           :aria-required="!declineEmergencyContacts"
           @input="patchRow(idx, 'phone', $event.target.value)"
@@ -39,7 +39,7 @@
           :value="row.relationship"
           class="input"
           type="text"
-          placeholder="Relationship"
+          :placeholder="tx('Relationship')"
           :disabled="disabled || declineEmergencyContacts"
           @input="patchRow(idx, 'relationship', $event.target.value)"
         />
@@ -50,33 +50,29 @@
           :disabled="disabled || declineEmergencyContacts"
           @click="removeRow(idx)"
         >
-          Remove
+          {{ tx('Remove') }}
         </button>
       </div>
       <div v-if="phoneInvalid(row, idx)" class="gwv-row-err">
-        Please enter a real 10-digit phone number for {{ String(row.name || '').trim() || 'this contact' }}
-        (we'll need to call them in an emergency).
+        {{ txFmt('Please enter a real 10-digit phone number for {contact} (we\'ll need to call them in an emergency).', {
+          contact: String(row.name || '').trim() || tx('this contact')
+        }) }}
       </div>
     </div>
-    <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled || declineEmergencyContacts" @click="addRow">Add contact</button>
+    <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled || declineEmergencyContacts" @click="addRow">{{ tx('Add contact') }}</button>
   </div>
 </template>
 
 <script setup>
 import { computed, reactive, watch } from 'vue';
+import { useIntakeStepTx } from '../../../composables/useIntakeStepTx.js';
+
+const { tx, txFmt } = useIntakeStepTx();
 
 const props = defineProps({
   modelValue: { type: Object, required: true },
   disabled: { type: Boolean, default: false },
   pulse: { type: Boolean, default: false },
-  /**
-   * Either a string (top-level error message) or an object whose presence
-   * means "the parent already tried to advance and at least one row is bad".
-   * When the parent step is in this state we surface phone errors on every
-   * row that has ANY content, regardless of whether the user blurred it
-   * yet — otherwise the phone field would silently pass when the parent
-   * never blurred it (which is exactly the "78899902" bug).
-   */
   validationError: { type: [String, Object], default: '' }
 });
 const emit = defineEmits(['update:modelValue']);
@@ -88,10 +84,6 @@ const rows = computed(() =>
 );
 const declineEmergencyContacts = computed(() => !!props.modelValue.declineEmergencyContacts);
 
-// Track which rows the user has interacted with so we don't yell about
-// missing phone digits the moment the form renders. Once the parent submits
-// (validationError prop becomes truthy), we treat every row as touched so
-// the phone field with content shows its error inline next to the value.
 const touched = reactive(new Set());
 function markTouched(idx) { touched.add(idx); }
 watch(
@@ -103,10 +95,6 @@ function digitsOnly(v) {
   return String(v ?? '').replace(/\D+/g, '');
 }
 
-/**
- * A US-style number must be 10 digits (or 11 starting with 1).
- * "78899902" is 8 digits — that fails this check.
- */
 function isValidPhone(v) {
   const d = digitsOnly(v);
   if (d.length === 10) return true;

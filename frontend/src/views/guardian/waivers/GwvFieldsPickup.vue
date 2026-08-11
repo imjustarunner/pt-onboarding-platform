@@ -1,8 +1,8 @@
 <template>
   <div class="gwv-f">
     <div class="gwv-notice">
-      <p>We cannot release your child to individuals who are not approved in writing and never to an individual under the age of 18.</p>
-      <p>At any time you may update or submit additional individuals, though we request that you list any individuals whom you approve at the time of admission likely to be included to help our staff manage check out and release for these programs.</p>
+      <p>{{ tx('We cannot release your child to individuals who are not approved in writing and never to an individual under the age of 18.') }}</p>
+      <p>{{ tx('At any time you may update or submit additional individuals, though we request that you list any individuals whom you approve at the time of admission likely to be included to help our staff manage check out and release for these programs.') }}</p>
     </div>
     <label class="gwv-optout">
       <input
@@ -11,7 +11,7 @@
         :disabled="disabled"
         @change="toggleDeclinePickup($event.target.checked)"
       />
-      <span>I do not want to list additional pickup contacts at this time.</span>
+      <span>{{ tx('I do not want to list additional pickup contacts at this time.') }}</span>
     </label>
     <div v-for="(row, idx) in rows" :key="idx" class="gwv-row-block">
       <div class="gwv-grid">
@@ -19,7 +19,7 @@
           :value="row.name"
           class="input"
           type="text"
-          placeholder="Full name"
+          :placeholder="tx('Full name')"
           :disabled="disabled || declinePickupAuthorization"
           @input="patchRow(idx, 'name', $event.target.value)"
         />
@@ -27,7 +27,7 @@
           :value="row.relationship"
           class="input"
           type="text"
-          placeholder="Relationship"
+          :placeholder="tx('Relationship')"
           :disabled="disabled || declinePickupAuthorization"
           @input="patchRow(idx, 'relationship', $event.target.value)"
         />
@@ -38,7 +38,7 @@
           type="tel"
           inputmode="tel"
           autocomplete="tel"
-          placeholder="Phone (10 digits)"
+          :placeholder="tx('Phone (10 digits)')"
           :disabled="disabled || declinePickupAuthorization"
           @input="patchRow(idx, 'phone', $event.target.value)"
           @blur="markTouched(idx)"
@@ -50,20 +50,24 @@
           :disabled="disabled || declinePickupAuthorization"
           @click="removeRow(idx)"
         >
-          Remove
+          {{ tx('Remove') }}
         </button>
       </div>
       <div v-if="phoneInvalid(row, idx)" class="gwv-row-err">
-        Please enter a real 10-digit phone number for {{ String(row.name || '').trim() || 'this pickup contact' }}
-        (we'll need to call them at check-out time).
+        {{ txFmt('Please enter a real 10-digit phone number for {contact} (we\'ll need to call them at check-out time).', {
+          contact: String(row.name || '').trim() || tx('this pickup contact')
+        }) }}
       </div>
     </div>
-    <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled || declinePickupAuthorization" @click="addRow">Add person</button>
+    <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled || declinePickupAuthorization" @click="addRow">{{ tx('Add person') }}</button>
   </div>
 </template>
 
 <script setup>
 import { computed, reactive, watch } from 'vue';
+import { useIntakeStepTx } from '../../../composables/useIntakeStepTx.js';
+
+const { tx, txFmt } = useIntakeStepTx();
 
 const props = defineProps({
   modelValue: { type: Object, required: true },

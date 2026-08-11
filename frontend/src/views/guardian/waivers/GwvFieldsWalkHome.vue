@@ -2,14 +2,10 @@
   <div class="gwv-f">
     <div class="gwv-notice">
       <p>
-        We do not release children to walk home alone unless a parent or legal guardian has explicitly
-        authorized it in writing for this program. By signing this section, you assume responsibility
-        for your child's transportation home and agree that program staff are released from supervisory
-        duty as soon as your child leaves the program at the time(s) below.
+        {{ tx('We do not release children to walk home alone unless a parent or legal guardian has explicitly authorized it in writing for this program. By signing this section, you assume responsibility for your child\'s transportation home and agree that program staff are released from supervisory duty as soon as your child leaves the program at the time(s) below.') }}
       </p>
       <p class="muted small">
-        If you do <strong>not</strong> want your child to walk home alone, leave this section
-        un-authorized and complete the Pickup authorization section instead.
+        {{ tx('If you do not want your child to walk home alone, leave this section un-authorized and complete the Pickup authorization section instead.') }}
       </p>
     </div>
 
@@ -21,7 +17,7 @@
         :disabled="disabled"
         @change="setAllowed(false)"
       />
-      <span><strong>I do NOT authorize</strong> my child to walk home alone from this program. (Use the Pickup authorization section.)</span>
+      <span><strong>{{ tx('I do NOT authorize') }}</strong> {{ tx('my child to walk home alone from this program. (Use the Pickup authorization section.)') }}</span>
     </label>
     <label class="gwv-radio-row">
       <input
@@ -31,45 +27,45 @@
         :disabled="disabled"
         @change="setAllowed(true)"
       />
-      <span><strong>I authorize</strong> my child to walk home alone after this program ends.</span>
+      <span>{{ tx('I authorize my child to walk home alone after this program ends.') }}</span>
     </label>
 
     <div v-if="allowedToWalkHome === true" class="gwv-walk-details">
       <div v-if="validationError && typeof validationError === 'object'" class="gwv-walk-error-banner">
-        Please complete the highlighted fields below.
+        {{ tx('Please complete the highlighted fields below.') }}
       </div>
       <div v-else-if="validationError && typeof validationError === 'string'" class="gwv-walk-error-banner">
         {{ validationError }}
       </div>
 
-      <label class="gwv-walk-lbl">Approved release window <span class="req">*</span></label>
+      <label class="gwv-walk-lbl">{{ tx('Approved release window') }} <span class="req">*</span></label>
       <input
         :value="modelValue.allowedWindow || ''"
         class="input"
         :class="{ 'input-error': fieldError('allowedWindow') }"
         type="text"
-        placeholder="e.g. Monday–Friday after 3:30 pm"
+        :placeholder="tx('e.g. Monday–Friday after 3:30 pm')"
         :disabled="disabled"
         @input="patch('allowedWindow', $event.target.value)"
       />
       <div v-if="fieldError('allowedWindow')" class="gwv-walk-field-err">{{ fieldError('allowedWindow') }}</div>
 
-      <label class="gwv-walk-lbl">Route or destination <span class="muted small">(optional but recommended)</span></label>
+      <label class="gwv-walk-lbl">{{ tx('Route or destination') }} <span class="muted small">{{ tx('(optional but recommended)') }}</span></label>
       <input
         :value="modelValue.route || ''"
         class="input"
         type="text"
-        placeholder="e.g. Walks west on Main St to home — about 4 blocks"
+        :placeholder="tx('e.g. Walks west on Main St to home — about 4 blocks')"
         :disabled="disabled"
         @input="patch('route', $event.target.value)"
       />
 
-      <label class="gwv-walk-lbl">Conditions (weather, daylight, escort by older sibling, etc.)</label>
+      <label class="gwv-walk-lbl">{{ tx('Conditions (weather, daylight, escort by older sibling, etc.)') }}</label>
       <textarea
         :value="modelValue.conditions || ''"
         class="input gwv-walk-textarea"
         rows="2"
-        placeholder="Optional — note any conditions under which your child should NOT walk home (we'll call you instead)."
+        :placeholder="tx('Optional — note any conditions under which your child should NOT walk home (we\'ll call you instead).')"
         :disabled="disabled"
         @input="patch('conditions', $event.target.value)"
       />
@@ -82,9 +78,7 @@
           @change="patch('attestation', !!$event.target.checked)"
         />
         <span>
-          I confirm I am the parent or legal guardian and I assume responsibility for my child once
-          they are released to walk home at the time(s) above. I understand program staff are
-          released from supervisory duty at that point.
+          {{ tx('I confirm I am the parent or legal guardian and I assume responsibility for my child once they are released to walk home at the time(s) above. I understand program staff are released from supervisory duty at that point.') }}
         </span>
       </label>
       <div v-if="fieldError('attestation')" class="gwv-walk-field-err">{{ fieldError('attestation') }}</div>
@@ -94,6 +88,9 @@
 
 <script setup>
 import { computed } from 'vue';
+import { useIntakeStepTx } from '../../../composables/useIntakeStepTx.js';
+
+const { tx } = useIntakeStepTx();
 
 const props = defineProps({
   modelValue: { type: Object, required: true },
@@ -139,8 +136,8 @@ function patch(field, value) {
 function fieldError(name) {
   const v = props.validationError;
   if (!v) return '';
-  if (typeof v === 'object') return v[name] || '';
-  return '';
+  if (typeof v === 'object') return tx(v[name] || '');
+  return tx(v);
 }
 </script>
 
