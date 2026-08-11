@@ -309,6 +309,64 @@
       </div>
     </div>
 
+    <div v-else-if="stage === 'third_party'" class="smart-roi-card">
+      <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
+      <h3>{{ tr('Add third party / fill-in person', 'Agregar tercero / persona adicional') }}</h3>
+      <p>
+        {{ tr(
+          'Optional. Add school ROI people who are not on the staff roster yet (new counselor, principal, case manager, etc.). You can skip this if the roster above is complete.',
+          'Opcional. Agregue personas del ROI escolar que aun no estan en la lista (nuevo consejero, director, administrador de caso, etc.). Puede omitir esto si la lista anterior esta completa.'
+        ) }}
+      </p>
+      <div
+        v-for="(person, idx) in form.thirdPartyRecipients"
+        :key="`third-party-${idx}`"
+        class="staff-card"
+        style="margin-bottom: 12px;"
+      >
+        <div class="summary-grid" style="margin: 0;">
+          <div>
+            <label :for="`roi-third-name-${idx}`">{{ tr('Name', 'Nombre') }}</label>
+            <input :id="`roi-third-name-${idx}`" v-model="person.name" class="roi-input" type="text" :placeholder="tr('Person name', 'Nombre de la persona')" />
+          </div>
+          <div>
+            <label :for="`roi-third-role-${idx}`">{{ tr('Role / relationship', 'Rol / relacion') }}</label>
+            <input :id="`roi-third-role-${idx}`" v-model="person.relationship" class="roi-input" type="text" :placeholder="tr('e.g. School counselor', 'p. ej. Consejero escolar')" />
+          </div>
+          <div>
+            <label :for="`roi-third-email-${idx}`">{{ tr('Email', 'Correo electronico') }} <span class="optional-mark">{{ tr('(optional)', '(opcional)') }}</span></label>
+            <input :id="`roi-third-email-${idx}`" v-model="person.email" class="roi-input" type="email" />
+          </div>
+          <div>
+            <label :for="`roi-third-phone-${idx}`">{{ tr('Phone', 'Telefono') }} <span class="optional-mark">{{ tr('(optional)', '(opcional)') }}</span></label>
+            <input :id="`roi-third-phone-${idx}`" v-model="person.phone" class="roi-input" type="tel" />
+          </div>
+        </div>
+        <div class="choice-row" style="margin-top: 10px;">
+          <label class="choice-card">
+            <input v-model="person.allowed" :value="true" type="radio" />
+            <span>{{ tr('Approve release', 'Aprobar divulgacion') }}</span>
+          </label>
+          <label class="choice-card">
+            <input v-model="person.allowed" :value="false" type="radio" />
+            <span>{{ tr('Deny release', 'Denegar divulgacion') }}</span>
+          </label>
+        </div>
+        <div class="actions" style="justify-content: flex-end; margin-top: 8px;">
+          <button type="button" class="btn btn-secondary" @click="removeThirdPartyRecipient(idx)">
+            {{ tr('Remove', 'Eliminar') }}
+          </button>
+        </div>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn btn-secondary" @click="addThirdPartyRecipient">
+          {{ tr('Add third party', 'Agregar tercero') }}
+        </button>
+        <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
+        <button type="button" class="btn btn-primary" @click="goNext">{{ tr('Continue', 'Continuar') }}</button>
+      </div>
+    </div>
+
     <div v-else-if="stage === 'external_programmed'" class="smart-roi-card">
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
       <h3>{{ tr('Non-school recipient approval', 'Aprobacion de destinatario no escolar') }}</h3>
@@ -564,6 +622,7 @@ const stageOrder = computed(() => {
   waiverItems.value.forEach((item) => stages.push(`waiver:${item.id}`));
   stages.push('packet');
   staffRoster.value.forEach((staff) => stages.push(`staff:${staff.schoolStaffUserId}`));
+  stages.push('third_party');
   if (externalReleaseMode.value === 'sender_programmed') stages.push('external_programmed');
   if (externalReleaseMode.value === 'parent_defined') stages.push('external_parent');
   stages.push('guidelines');
@@ -648,6 +707,7 @@ const form = reactive({
   requiredAcknowledgements: Object.fromEntries(ackItems.value.map((item) => [item.id, null])),
   waiverItems: Object.fromEntries(waiverItems.value.map((item) => [item.id, null])),
   staffDecisions: Object.fromEntries(staffRoster.value.map((staff) => [staff.schoolStaffUserId, null])),
+  thirdPartyRecipients: [],
   programmedExternalAllowed: null,
   parentExternalRecipients: [{
     name: '',
@@ -758,6 +818,15 @@ const buildRoiPayload = () => ({
     schoolStaffUserId: staff.schoolStaffUserId,
     allowed: form.staffDecisions[staff.schoolStaffUserId] === true
   })),
+  thirdPartyRecipients: (form.thirdPartyRecipients || [])
+    .filter((row) => String(row?.name || '').trim() || String(row?.relationship || '').trim())
+    .map((row) => ({
+      name: String(row.name || '').trim(),
+      relationship: String(row.relationship || '').trim(),
+      email: String(row.email || '').trim(),
+      phone: String(row.phone || '').trim(),
+      allowed: row.allowed === true
+    })),
   externalReleaseMode: externalReleaseMode.value,
   programmedExternalRecipient: externalReleaseMode.value === 'sender_programmed'
     ? {
@@ -842,6 +911,15 @@ const buildDraftSnapshot = () => ({
     requiredAcknowledgements: { ...(form.requiredAcknowledgements || {}) },
     waiverItems: { ...(form.waiverItems || {}) },
     staffDecisions: { ...(form.staffDecisions || {}) },
+    thirdPartyRecipients: Array.isArray(form.thirdPartyRecipients)
+      ? form.thirdPartyRecipients.map((row) => ({
+          name: row?.name || '',
+          relationship: row?.relationship || '',
+          email: row?.email || '',
+          phone: row?.phone || '',
+          allowed: row?.allowed
+        }))
+      : [],
     programmedExternalAllowed: form.programmedExternalAllowed,
     parentExternalRecipients: Array.isArray(form.parentExternalRecipients)
       ? form.parentExternalRecipients.map((row) => ({
@@ -886,6 +964,15 @@ const restoreDraftSnapshot = () => {
   form.requiredAcknowledgements = { ...(form.requiredAcknowledgements || {}), ...(draftForm.requiredAcknowledgements || {}) };
   form.waiverItems = { ...(form.waiverItems || {}), ...(draftForm.waiverItems || {}) };
   form.staffDecisions = { ...(form.staffDecisions || {}), ...(draftForm.staffDecisions || {}) };
+  if (Array.isArray(draftForm.thirdPartyRecipients)) {
+    form.thirdPartyRecipients = draftForm.thirdPartyRecipients.map((row) => ({
+      name: String(row?.name || ''),
+      relationship: String(row?.relationship || ''),
+      email: String(row?.email || ''),
+      phone: String(row?.phone || ''),
+      allowed: row?.allowed === true ? true : (row?.allowed === false ? false : null)
+    }));
+  }
   form.programmedExternalAllowed = typeof draftForm.programmedExternalAllowed === 'boolean'
     ? draftForm.programmedExternalAllowed
     : form.programmedExternalAllowed;
@@ -949,6 +1036,20 @@ const validateCurrentStage = () => {
   if (stage.value === 'staff' && typeof form.staffDecisions[currentStaff.value.schoolStaffUserId] !== 'boolean') {
     error.value = 'Choose whether to approve or deny release for this staff member.';
     return false;
+  }
+  if (stage.value === 'third_party') {
+    for (const [idx, row] of (form.thirdPartyRecipients || []).entries()) {
+      const hasAny = String(row.name || '').trim() || String(row.relationship || '').trim()
+        || String(row.email || '').trim() || String(row.phone || '').trim();
+      if (!hasAny) continue;
+      if (!String(row.name || '').trim() || !String(row.relationship || '').trim() || typeof row.allowed !== 'boolean') {
+        error.value = tr(
+          `Complete third party ${idx + 1} name, role, and approve/deny before continuing.`,
+          `Complete el tercero ${idx + 1}: nombre, rol y aprobar/denegar antes de continuar.`
+        );
+        return false;
+      }
+    }
   }
   if (stage.value === 'external_programmed' && typeof form.programmedExternalAllowed !== 'boolean') {
     error.value = 'Choose whether to approve release for the programmed non-school recipient.';
@@ -1016,6 +1117,22 @@ const selectProgrammedExternalDecision = (allowed) => {
   form.programmedExternalAllowed = allowed === true;
   error.value = '';
   goNext();
+};
+
+const addThirdPartyRecipient = () => {
+  form.thirdPartyRecipients.push({
+    name: '',
+    relationship: '',
+    email: '',
+    phone: '',
+    allowed: null
+  });
+  error.value = '';
+};
+
+const removeThirdPartyRecipient = (index) => {
+  form.thirdPartyRecipients.splice(index, 1);
+  error.value = '';
 };
 
 const addExternalRecipient = () => {

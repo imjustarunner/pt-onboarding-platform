@@ -27,7 +27,10 @@ class IntakeLink {
       documentTranslationMap = null,
       createdByUserId = null,
       inheritsSchoolMaster = false,
-      isSchoolMaster = false
+      isSchoolMaster = false,
+      inheritsOfficeMaster = false,
+      isOfficeMaster = false,
+      masterChannel = null
     } = data;
 
     const [result] = await pool.execute(
@@ -69,6 +72,23 @@ class IntakeLink {
            SET inherits_school_master = ?, is_school_master = ?
            WHERE id = ?`,
           [inheritsSchoolMaster ? 1 : 0, isSchoolMaster ? 1 : 0, newId]
+        );
+      } catch {
+        // columns may not exist yet
+      }
+    }
+    if (inheritsOfficeMaster || isOfficeMaster || masterChannel) {
+      try {
+        await pool.execute(
+          `UPDATE intake_links
+           SET inherits_office_master = ?, is_office_master = ?, master_channel = ?
+           WHERE id = ?`,
+          [
+            inheritsOfficeMaster ? 1 : 0,
+            isOfficeMaster ? 1 : 0,
+            masterChannel || null,
+            newId
+          ]
         );
       } catch {
         // columns may not exist yet
@@ -174,6 +194,9 @@ class IntakeLink {
       form_type: row.form_type || 'intake',
       inherits_school_master: Number(row.inherits_school_master || 0) === 1 ? 1 : 0,
       is_school_master: Number(row.is_school_master || 0) === 1 ? 1 : 0,
+      inherits_office_master: Number(row.inherits_office_master || 0) === 1 ? 1 : 0,
+      is_office_master: Number(row.is_office_master || 0) === 1 ? 1 : 0,
+      master_channel: row.master_channel || null,
       linked_es_form_id: row.linked_es_form_id ?? null,
       document_translation_map: documentTranslationMap,
       allowed_document_template_ids: allowed,

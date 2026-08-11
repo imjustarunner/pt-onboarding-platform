@@ -180,6 +180,21 @@ export async function expandYourCareTeamProviders(providers = [], { agencyId } =
   const seedIds = new Set(
     [...byId.values()].filter((p) => p.schoolAssigned).map((p) => Number(p.id))
   );
+
+  // No school-assigned providers → treat the full agency roster as the care team
+  // ("everyone"), still excluding demo identities.
+  if (seedIds.size === 0) {
+    return [...byId.values()].map((p) => ({
+      ...p,
+      schoolAssigned: true,
+      careTeamExpanded: false,
+      supervisors: (p.supervisors || []).map((s) => ({
+        ...s,
+        type: formatSupervisorTypeLabel(s.type || 'clinical')
+      }))
+    }));
+  }
+
   const expandedIds = new Set(seedIds);
 
   for (const id of seedIds) {
@@ -331,19 +346,24 @@ function renderProviderGroupHtml(providers = [], locale = 'en') {
 
 export function buildDisclosureCareTeamHtml(providers = [], locale = 'en') {
   const L = careTeamLabels(locale);
-  const { yourCareTeam, potentialCareTeam } = groupDisclosureProvidersByCareTeam(providers);
+  let { yourCareTeam, potentialCareTeam } = groupDisclosureProvidersByCareTeam(providers);
+  // Empty school care team + agency providers available → show everyone as care team.
+  if (!yourCareTeam.length && potentialCareTeam.length) {
+    yourCareTeam = potentialCareTeam;
+    potentialCareTeam = [];
+  }
   return `
     <section class="packet-care-team">
       <h3 class="packet-section-title">${L.yourCareTeam}</h3>
       ${yourCareTeam.length
         ? renderProviderGroupHtml(yourCareTeam, locale)
         : `<p><em>${L.noSchoolAssigned}</em></p>`}
-      <div class="packet-potential-team">
+      ${potentialCareTeam.length
+        ? `<div class="packet-potential-team">
         <h3 class="packet-section-title">${L.potentialCareTeam}</h3>
-        ${potentialCareTeam.length
-          ? renderProviderGroupHtml(potentialCareTeam, locale)
-          : `<p><em>${L.noAdditionalAgency}</em></p>`}
-      </div>
+        ${renderProviderGroupHtml(potentialCareTeam, locale)}
+      </div>`
+        : ''}
     </section>
   `;
 }
@@ -1037,6 +1057,8 @@ export async function getSchoolPacketTemplateForOrganization(organizationId, { l
     updatedByUserId: template?.updated_by_user_id || null
   };
 }
+
+export { buildPacketStyleBlock, buildPdfChromeTemplates };
 
 export async function saveSchoolPacketTemplateForOrganization({
   organizationId,

@@ -172,6 +172,27 @@ function verticalFromOrgType(organizationType) {
 
 async function findFullIntakePublicKey(agencyId) {
   try {
+    const AgencyOfficeIntakeMaster = (await import('../models/AgencyOfficeIntakeMaster.model.js')).default;
+    const IntakeLink = (await import('../models/IntakeLink.model.js')).default;
+    // Prefer (and lazily create) the Master Office published shell for Join In-Depth.
+    let officeMaster = null;
+    try {
+      officeMaster = await AgencyOfficeIntakeMaster.getOrCreateForAgency(agencyId, {
+        languageCode: 'en'
+      });
+    } catch {
+      officeMaster = await AgencyOfficeIntakeMaster.findByAgencyLanguage(agencyId, 'en');
+    }
+    if (officeMaster?.published_intake_link_id) {
+      const shell = await IntakeLink.findById(officeMaster.published_intake_link_id);
+      if (shell?.is_active && shell.public_key) {
+        return {
+          publicKey: shell.public_key,
+          title: shell.title,
+          formType: shell.form_type || 'intake'
+        };
+      }
+    }
     // intake_links has no agency_id — organization_id is the tenant for agency-scoped links.
     const [rows] = await pool.execute(
       `SELECT public_key, title, form_type

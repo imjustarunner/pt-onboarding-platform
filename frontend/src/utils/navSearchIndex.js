@@ -567,6 +567,41 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Printable packet editor and per-school shareable digital/printable links.'
   },
   {
+    title: 'Master Office Digital Form',
+    section: 'Clients & Guardians',
+    path: '/admin/master-office-form',
+    keywords: ['master office form', 'office intake', 'in-depth intake', 'join packet', 'documents and forms'],
+    desc: 'Agency office digital intake master used by Join In-Depth Intake Packet.'
+  },
+  {
+    title: 'Master Office Paper',
+    section: 'Clients & Guardians',
+    path: '/admin/master-office-paper',
+    keywords: ['master office paper', 'printable office packet', 'in-depth intake packet', 'documents and forms'],
+    desc: 'Editable branded printable office intake packet for staff downloads.'
+  },
+  {
+    title: 'Master Digital Tutoring',
+    section: 'Clients & Guardians',
+    path: '/admin/master-channel-form/tutoring',
+    keywords: ['master digital tutoring', 'tutoring intake', 'framed master'],
+    desc: 'Framed master digital form channel for tutoring (coming online).'
+  },
+  {
+    title: 'Master Digital Consulting',
+    section: 'Clients & Guardians',
+    path: '/admin/master-channel-form/consulting',
+    keywords: ['master digital consulting', 'consulting intake', 'framed master'],
+    desc: 'Framed master digital form channel for consulting (coming online).'
+  },
+  {
+    title: 'Master Digital Coaching',
+    section: 'Clients & Guardians',
+    path: '/admin/master-channel-form/coaching',
+    keywords: ['master digital coaching', 'coaching intake', 'framed master'],
+    desc: 'Framed master digital form channel for coaching (coming online).'
+  },
+  {
     title: 'Agency Admin Dashboard',
     section: 'Management',
     path: '/admin/dashboard',

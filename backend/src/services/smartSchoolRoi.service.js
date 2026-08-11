@@ -469,6 +469,15 @@ export function normalizeSmartSchoolRoiResponse({ roiContext = {}, intakeData = 
     roi?.waiverItems || {}
   );
   const staffDecisions = normalizeStaffDecisions(roiContext?.staffRoster || [], roi);
+  const thirdPartyRecipients = (Array.isArray(roi?.thirdPartyRecipients) ? roi.thirdPartyRecipients : [])
+    .map((entry) => ({
+      name: String(entry?.name || '').trim(),
+      relationship: String(entry?.relationship || entry?.role || '').trim(),
+      email: String(entry?.email || '').trim() || null,
+      phone: String(entry?.phone || '').trim() || null,
+      allowed: normalizeBool(entry?.allowed)
+    }))
+    .filter((row) => row.name || row.relationship || row.email || row.phone);
   const schoolSchedulingSafetyLogisticsAuthorized =
     waiverItems.find((item) => item.id === 'school_scheduling_safety_logistics')?.decision === 'accept';
   const hipaaSafetyThreatDisclosureAcknowledged =
@@ -524,6 +533,7 @@ export function normalizeSmartSchoolRoiResponse({ roiContext = {}, intakeData = 
     requiredAcknowledgements,
     waiverItems,
     staffDecisions,
+    thirdPartyRecipients,
     schoolSchedulingSafetyLogisticsAuthorized,
     hipaaSafetyThreatDisclosureAcknowledged,
     approvedStaffCount,
@@ -559,8 +569,17 @@ export function validateSmartSchoolRoiResponse(response) {
 
   for (const staff of response?.staffDecisions || []) {
     if (typeof staff.allowed !== 'boolean') {
-      missing.push(`Staff decision: ${staff.fullName}`);
+      missing.push(`Staff decision: ${staff.fullName || staff.schoolStaffUserId || 'staff'}`);
     }
+  }
+
+  // Optional fill-in third parties: only validate rows the parent actually filled in.
+  for (const [idx, row] of (response?.thirdPartyRecipients || []).entries()) {
+    const label = row?.name || `Third party ${idx + 1}`;
+    if (!row?.name && !row?.relationship) continue;
+    if (!row?.name) missing.push(`Third party name (${label})`);
+    if (!row?.relationship) missing.push(`Third party role/relationship (${label})`);
+    if (typeof row?.allowed !== 'boolean') missing.push(`Third party decision (${label})`);
   }
 
   if (typeof response?.packetReleaseAllowed !== 'boolean') {

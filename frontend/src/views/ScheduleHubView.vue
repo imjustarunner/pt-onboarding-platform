@@ -570,7 +570,8 @@ const icon = {
   briefcase: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M12 12v3" stroke-linecap="round"/></svg>',
   door: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M5 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M9 21h6M12 11v2" stroke-linecap="round"/></svg>',
   clients: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v1"/><path d="M16 11h5M18.5 8.5v5" stroke-linecap="round"/></svg>',
-  onboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/><path d="M7 8h10M7 11h6" stroke-linecap="round"/></svg>'
+  onboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/><path d="M7 8h10M7 11h6" stroke-linecap="round"/></svg>',
+  docs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5" stroke-linecap="round"/></svg>'
 };
 
 const allSections = computed(() => [
@@ -759,6 +760,71 @@ const allSections = computed(() => [
         icon: icon.clients,
         tour: null,
         show: canSeeClientExchangeHub.value,
+        count: 0
+      },
+      {
+        id: 'master-office-form',
+        title: 'Master Office Digital Form',
+        shortDesc: 'Join In-Depth intake master.',
+        desc: 'Agency office digital intake master (EN/ES) used by Join → In-Depth Intake Packet. Separate from school masters.',
+        cta: 'Open →',
+        to: orgTo('/admin/master-office-form'),
+        tone: 'violet',
+        icon: icon.docs || icon.onboard || icon.clients,
+        tour: null,
+        show: canSeeClientsManagementHub.value,
+        count: 0
+      },
+      {
+        id: 'master-office-paper',
+        title: 'Master Office Paper',
+        shortDesc: 'Printable in-office packet.',
+        desc: 'Edit and download the branded blank office intake packet for staff to give clients and guardians.',
+        cta: 'Open →',
+        to: orgTo('/admin/master-office-paper'),
+        tone: 'indigo',
+        icon: icon.docs || icon.onboard || icon.clients,
+        tour: null,
+        show: canSeeClientsManagementHub.value,
+        count: 0
+      },
+      {
+        id: 'master-digital-tutoring',
+        title: 'Master Digital Tutoring',
+        shortDesc: 'Framed — coming online.',
+        desc: 'Future master digital form channel for tutoring intakes. Shell is ready; content activates later.',
+        cta: 'Open →',
+        to: orgTo('/admin/master-channel-form/tutoring'),
+        tone: 'teal',
+        icon: icon.docs || icon.clients,
+        tour: null,
+        show: canSeeClientsManagementHub.value,
+        count: 0
+      },
+      {
+        id: 'master-digital-consulting',
+        title: 'Master Digital Consulting',
+        shortDesc: 'Framed — coming online.',
+        desc: 'Future master digital form channel for consulting intakes. Shell is ready; content activates later.',
+        cta: 'Open →',
+        to: orgTo('/admin/master-channel-form/consulting'),
+        tone: 'cyan',
+        icon: icon.docs || icon.clients,
+        tour: null,
+        show: canSeeClientsManagementHub.value,
+        count: 0
+      },
+      {
+        id: 'master-digital-coaching',
+        title: 'Master Digital Coaching',
+        shortDesc: 'Framed — coming online.',
+        desc: 'Future master digital form channel for coaching intakes. Shell is ready; content activates later.',
+        cta: 'Open →',
+        to: orgTo('/admin/master-channel-form/coaching'),
+        tone: 'blue',
+        icon: icon.docs || icon.clients,
+        tour: null,
+        show: canSeeClientsManagementHub.value,
         count: 0
       }
     ].filter((c) => c.show)

@@ -13,6 +13,18 @@ import {
   getAgencySchoolPacketTemplateVersion
 } from '../controllers/agencySchoolIntakeMaster.controller.js';
 import {
+  getAgencyOfficeIntakeMaster,
+  putAgencyOfficeIntakeMaster,
+  getAgencyOfficePacketTemplate,
+  putAgencyOfficePacketTemplate,
+  downloadAgencyOfficePacketTemplatePdf,
+  listAgencyOfficePacketTemplateVersions,
+  getAgencyOfficePacketTemplateVersion,
+  listAgencyChannelIntakeMasters,
+  getAgencyChannelIntakeMaster,
+  putAgencyChannelIntakeMaster
+} from '../controllers/agencyOfficeIntakeMaster.controller.js';
+import {
   getAgencyAnnouncements,
   updateAgencyAnnouncements,
   getAgencyDashboardBanner,
@@ -76,7 +88,7 @@ import {
   detachCompanyEventSessionSurvey,
   copyCompanyEventToTarget
 } from '../controllers/companyEvents.controller.js';
-import { listSchoolStaffUsers, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, revokeSchoolStaffAccess } from '../controllers/schoolStaffAdmin.controller.js';
+import { listSchoolStaffUsers, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, activateSchoolStaffUser, revokeSchoolStaffAccess } from '../controllers/schoolStaffAdmin.controller.js';
 import {
   createBookClubBook,
   getBookClub,
@@ -515,6 +527,16 @@ router.get('/:agencyId/school-intake-master', authenticate, getAgencySchoolIntak
 router.put('/:agencyId/school-intake-master', authenticate, putAgencySchoolIntakeMaster);
 router.get('/:agencyId/school-packet-template-versions', authenticate, listAgencySchoolPacketTemplateVersions);
 router.get('/:agencyId/school-packet-template-versions/:version', authenticate, getAgencySchoolPacketTemplateVersion);
+router.get('/:agencyId/office-intake-master', authenticate, getAgencyOfficeIntakeMaster);
+router.put('/:agencyId/office-intake-master', authenticate, putAgencyOfficeIntakeMaster);
+router.get('/:agencyId/office-packet-template', authenticate, getAgencyOfficePacketTemplate);
+router.put('/:agencyId/office-packet-template', authenticate, putAgencyOfficePacketTemplate);
+router.get('/:agencyId/office-packet-template/pdf', authenticate, downloadAgencyOfficePacketTemplatePdf);
+router.get('/:agencyId/office-packet-template-versions', authenticate, listAgencyOfficePacketTemplateVersions);
+router.get('/:agencyId/office-packet-template-versions/:version', authenticate, getAgencyOfficePacketTemplateVersion);
+router.get('/:agencyId/channel-intake-masters', authenticate, listAgencyChannelIntakeMasters);
+router.get('/:agencyId/channel-intake-masters/:channel', authenticate, getAgencyChannelIntakeMaster);
+router.put('/:agencyId/channel-intake-masters/:channel', authenticate, putAgencyChannelIntakeMaster);
 router.get('/:id', authenticate, getAgencyById);
 
 // School Staff admin (school orgs only). Includes staff role support.
@@ -523,6 +545,7 @@ router.post('/:id/school-contacts', authenticate, createSchoolContact);
 router.put('/:id/school-contacts/:contactId', authenticate, updateSchoolContact);
 router.delete('/:id/school-contacts/:contactId', authenticate, deleteSchoolContact);
 router.post('/:id/school-contacts/:contactId/create-user', authenticate, createSchoolStaffUserFromContact);
+router.post('/:id/school-staff/users/:userId/activate', authenticate, activateSchoolStaffUser);
 router.post('/:id/school-staff/users/:userId/revoke-access', authenticate, revokeSchoolStaffAccess);
 
 router.get('/:id/announcements', authenticate, requireBackofficeAdmin, getAgencyAnnouncements);

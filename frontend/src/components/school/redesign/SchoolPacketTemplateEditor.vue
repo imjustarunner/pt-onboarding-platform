@@ -80,7 +80,12 @@
     </div>
 
     <div v-else class="packet-editor-body">
-      <HtmlDocumentBuilder v-model="htmlContent" placeholder="Packet template HTML…" />
+      <HtmlDocumentBuilder
+        v-model="htmlContent"
+        placeholder="Packet template HTML…"
+        paper-mode
+        :merge-tokens="mergeTokens"
+      />
     </div>
   </div>
 </template>
@@ -101,6 +106,13 @@ const tokenSchoolName = '{{' + 'SCHOOL_NAME}}';
 const tokenSchoolAddress = '{{' + 'SCHOOL_ADDRESS}}';
 const tokenStaffTable = '{{' + 'SCHOOL_STAFF_TABLE}}';
 const tokenDisclosure = '{{' + 'DISCLOSURE_CARE_TEAM}}';
+
+const mergeTokens = [
+  { token: '{{SCHOOL_NAME}}', label: 'School name' },
+  { token: '{{SCHOOL_ADDRESS}}', label: 'School address' },
+  { token: '{{SCHOOL_STAFF_TABLE}}', label: 'School staff ROI table' },
+  { token: '{{DISCLOSURE_CARE_TEAM}}', label: 'Disclosure care team' }
+];
 
 const locale = ref(String(props.initialLocale || 'en').toLowerCase() === 'es' ? 'es' : 'en');
 const loading = ref(false);

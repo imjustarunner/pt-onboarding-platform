@@ -32,6 +32,7 @@ import EmailTemplate from '../models/EmailTemplate.model.js';
 import Agency from '../models/Agency.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import AgencySchoolIntakeMaster from '../models/AgencySchoolIntakeMaster.model.js';
+import AgencyOfficeIntakeMaster from '../models/AgencyOfficeIntakeMaster.model.js';
 import ClientSignedSchoolPacket from '../models/ClientSignedSchoolPacket.model.js';
 import SchoolPacketTemplate from '../models/SchoolPacketTemplate.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -4751,6 +4752,25 @@ export const getPublicIntakeLink = async (req, res, next) => {
         console.warn('[publicIntake] school master inherit failed', inheritErr?.message || inheritErr);
       }
     }
+    if (
+      String(link.scope_type || '').toLowerCase() === 'agency'
+      && String(link.form_type || 'intake').toLowerCase() === 'intake'
+      && Number(link.inherits_office_master || 0) === 1
+    ) {
+      try {
+        const agencyIdForOffice = Number(link.organization_id || agency?.id || 0);
+        if (agencyIdForOffice) {
+          await AgencyOfficeIntakeMaster.getOrCreateForAgency(agencyIdForOffice, {
+            languageCode: link.language_code || 'en'
+          });
+          const refreshed = await IntakeLink.findById(link.id);
+          if (refreshed) link = refreshed;
+          link = await AgencyOfficeIntakeMaster.applyMasterToLink(link, { agencyId: agencyIdForOffice });
+        }
+      } catch (inheritErr) {
+        console.warn('[publicIntake] office master inherit failed', inheritErr?.message || inheritErr);
+      }
+    }
     if (jobDescription && agency?.id) {
       try {
         const [agencyRows] = await pool.execute(
@@ -5811,6 +5831,21 @@ export const finalizePublicIntake = async (req, res, next) => {
           const refreshed = await IntakeLink.findById(link.id);
           if (refreshed) link = refreshed;
           link = await AgencySchoolIntakeMaster.applyMasterToLink(link, { agencyId: agencyIdForMaster });
+        }
+      }
+      if (
+        String(link.scope_type || '').toLowerCase() === 'agency'
+        && String(link.form_type || 'intake').toLowerCase() === 'intake'
+        && Number(link.inherits_office_master || 0) === 1
+      ) {
+        const agencyIdForOffice = Number(link.organization_id || 0);
+        if (agencyIdForOffice) {
+          await AgencyOfficeIntakeMaster.getOrCreateForAgency(agencyIdForOffice, {
+            languageCode: link.language_code || 'en'
+          });
+          const refreshedOffice = await IntakeLink.findById(link.id);
+          if (refreshedOffice) link = refreshedOffice;
+          link = await AgencyOfficeIntakeMaster.applyMasterToLink(link, { agencyId: agencyIdForOffice });
         }
       }
     } catch (inheritErr) {

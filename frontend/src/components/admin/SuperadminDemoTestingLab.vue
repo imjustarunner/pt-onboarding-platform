@@ -112,6 +112,19 @@ const findTenant = (predicate) => {
 };
 
 const surfaceGroups = computed(() => {
+  const demoPlayground = findTenant((t) => {
+    const s = String(t.slug || t.portal_url || '').toLowerCase();
+    const n = String(t.name || '').toLowerCase();
+    return s === 'demo' || n === 'demo playground';
+  });
+
+  const demoPlaygroundSchool = findTenant((t) => {
+    const org = String(t.organization_type || '').toLowerCase();
+    const s = String(t.slug || t.portal_url || '').toLowerCase();
+    const n = String(t.name || '').toLowerCase();
+    return org === 'school' && (s === 'demo-school' || n.includes('demo k-8') || n.includes('demo school'));
+  });
+
   const demoItsco = findTenant((t) => {
     const s = String(t.slug || t.portal_url || '').toLowerCase();
     const n = String(t.name || '').toLowerCase();
@@ -154,6 +167,31 @@ const surfaceGroups = computed(() => {
   }) || findTenant((t) => String(t.organization_type || '').toLowerCase() === 'school');
 
   return [
+    {
+      id: 'demo_playground',
+      kind: 'agency',
+      kindLabel: 'Public full demo',
+      title: 'Demo Playground',
+      tenant: demoPlayground,
+      missingHint: 'Run migration 1152 (Demo Playground tenant) then npm run provision-demo-playground-masters',
+      actions: [
+        { id: 'demo_admin', label: 'Admin', meta: 'New window · admin', role: 'admin', pathSuffix: 'admin', variant: 'primary' },
+        { id: 'demo_provider', label: 'Provider', meta: 'New window · provider', role: 'provider', pathSuffix: 'dashboard', variant: 'ghost' },
+        { id: 'demo_staff', label: 'Staff', meta: 'New window · staff', role: 'staff', pathSuffix: 'dashboard', variant: 'ghost' },
+        ...(demoPlaygroundSchool ? [
+          { id: 'demo_school_staff', label: 'School Staff', meta: `New window · school_staff · ${demoPlaygroundSchool.slug || demoPlaygroundSchool.portal_url}`, role: 'school_staff', pathSuffix: 'dashboard', variant: 'ghost', tenantOverride: demoPlaygroundSchool },
+          { id: 'demo_guardian', label: 'Guardian', meta: `New window · client_guardian · ${demoPlaygroundSchool.slug || demoPlaygroundSchool.portal_url}`, role: 'client_guardian', pathSuffix: 'guardian', variant: 'ghost', tenantOverride: demoPlaygroundSchool }
+        ] : [])
+      ],
+      publicPages: [
+        { id: 'join', label: 'Join / In-Depth Intake', pathSuffix: 'join' },
+        { id: 'join_counseling', label: 'Join counseling', pathSuffix: 'join/counseling' },
+        { id: 'careers', label: 'Careers', pathSuffix: 'careers' },
+        { id: 'office_form', label: 'Master Office Digital', pathSuffix: 'admin/master-office-form' },
+        { id: 'office_paper', label: 'Master Office Paper', pathSuffix: 'admin/master-office-paper' },
+        { id: 'school_master', label: 'Master School Form', pathSuffix: 'admin/master-school-form' }
+      ]
+    },
     {
       id: 'demo_itsco',
       kind: 'agency',

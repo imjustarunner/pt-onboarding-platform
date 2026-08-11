@@ -555,14 +555,16 @@ export async function buildSmartDisclosureContext({
   locale = null
 } = {}) {
   const schoolOrg = organization || null;
+  const orgType = String(schoolOrg?.organization_type || 'school').trim().toLowerCase();
+  const isSchoolFamilyOrg = !!schoolOrg && ['school', 'program', 'learning'].includes(orgType);
+  // Enabled for any school-family org, programmed disclosure steps, or standalone smart_disclosure forms.
+  // Demo Hogwarts people remain filtered via isDemoPacketIdentity in listDisclosureProviders.
   const enabled = isSmartDisclosureDemoSchool(schoolOrg)
     || isSmartDisclosureForm(link)
-    || hasProgrammedDisclosureStep(link);
-  if (!enabled && schoolOrg) {
-    // Hard gate: only Hogwarts for now unless explicitly programmed on the link.
-    if (!isSmartDisclosureDemoSchool(schoolOrg)) {
-      return null;
-    }
+    || hasProgrammedDisclosureStep(link)
+    || isSchoolFamilyOrg;
+  if (!enabled) {
+    return null;
   }
 
   const agencyId = Number(agency?.id || boundClient?.agency_id || link?.agency_id || 0);

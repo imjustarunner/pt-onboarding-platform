@@ -143,6 +143,64 @@ export function resolveSchoolIntakeQrPublicKey(link = {}) {
   return resolveReferralQrPublicKey(link);
 }
 
+/**
+ * Create an active school intake shell that live-inherits the agency master.
+ * Used when no sibling school form exists to copy.
+ */
+async function createInheritingShellFromMaster({
+  agencyId,
+  targetOrgId,
+  schoolName,
+  languageCode,
+  createdByUserId
+}) {
+  const AgencySchoolIntakeMaster = (await import('../models/AgencySchoolIntakeMaster.model.js')).default;
+  const lang = languageCode === 'es' ? 'es' : 'en';
+  const label = lang === 'es' ? 'Spanish' : 'English';
+  const targetName = String(schoolName || 'School').trim() || 'School';
+  const master = await AgencySchoolIntakeMaster.getOrCreateForAgency(agencyId, {
+    languageCode: lang,
+    actorUserId: createdByUserId || null
+  });
+  const publicKey = crypto.randomBytes(24).toString('hex');
+  const link = await IntakeLink.create({
+    publicKey,
+    title: `${targetName} — Digital intake (${label})`,
+    description: master?.title
+      ? `Inherits agency master: ${master.title}`
+      : 'Inherits agency school referral master.',
+    languageCode: lang,
+    scopeType: 'school',
+    formType: 'intake',
+    organizationId: targetOrgId,
+    programId: null,
+    learningClassId: null,
+    companyEventId: null,
+    jobDescriptionId: null,
+    isActive: true,
+    createClient: true,
+    createGuardian: true,
+    requiresAssignment: true,
+    allowedDocumentTemplateIds: [],
+    intakeFields: null,
+    intakeSteps: null,
+    retentionPolicy: null,
+    customMessages: null,
+    createdByUserId: createdByUserId || null,
+    inheritsSchoolMaster: true,
+    isSchoolMaster: false
+  });
+  try {
+    await pool.execute(
+      `UPDATE intake_links SET inherits_school_master = 1, is_school_master = 0 WHERE id = ?`,
+      [link.id]
+    );
+  } catch {
+    // columns may not exist yet
+  }
+  return { link, qrPublicKey: publicKey, master };
+}
+
 async function duplicateAndActivate({
   source,
   targetOrgId,
@@ -252,42 +310,66 @@ export async function ensureDigitalIntakeFormsForSchool({
         if (onlyIfMissing) continue;
       }
 
-      const source = await findMostRecentSiblingIntakeLink({
-        agencyId,
-        excludeOrgId: schoolOrganizationId,
-        languageCode
-      });
-      if (!source) {
-        result.errors.push(`No active ${languageCode.toUpperCase()} school intake form found to copy`);
-        continue;
-      }
-
-      const sourceQrPublicKey = String(source.public_key || '').trim();
-      if (sourceQrPublicKey) qrKeysToPersist[languageCode] = sourceQrPublicKey;
-
       if (existing && !onlyIfMissing) {
         result[languageCode] = serializeBootstrapLink({
           link: existing,
           languageCode,
-          source,
+          source: null,
           skipped: true,
           qrPublicKey: resolveReferralQrPublicKey(existing)
         });
         continue;
       }
 
-      const { link, qrPublicKey } = await duplicateAndActivate({
-        source,
+      const source = await findMostRecentSiblingIntakeLink({
+        agencyId,
+        excludeOrgId: schoolOrganizationId,
+        languageCode
+      });
+
+      if (source) {
+        const sourceQrPublicKey = String(source.public_key || '').trim();
+        if (sourceQrPublicKey) qrKeysToPersist[languageCode] = sourceQrPublicKey;
+
+        const { link, qrPublicKey } = await duplicateAndActivate({
+          source,
+          targetOrgId: schoolOrganizationId,
+          schoolName,
+          languageCode,
+          createdByUserId,
+          reuseSourcePublicKey
+        });
+        // Prefer live inheritance of the agency master going forward.
+        try {
+          await pool.execute(
+            `UPDATE intake_links SET inherits_school_master = 1 WHERE id = ?`,
+            [link.id]
+          );
+        } catch {
+          // ignore
+        }
+        result[languageCode] = serializeBootstrapLink({
+          link,
+          languageCode,
+          source,
+          qrPublicKey
+        });
+        if (qrPublicKey) qrKeysToPersist[languageCode] = qrPublicKey;
+        continue;
+      }
+
+      // No sibling form — seed from agency master so onboarding never hard-fails.
+      const { link, qrPublicKey } = await createInheritingShellFromMaster({
+        agencyId,
         targetOrgId: schoolOrganizationId,
         schoolName,
         languageCode,
-        createdByUserId,
-        reuseSourcePublicKey
+        createdByUserId
       });
       result[languageCode] = serializeBootstrapLink({
         link,
         languageCode,
-        source,
+        source: { id: null, organization_id: agencyId },
         qrPublicKey
       });
       if (qrPublicKey) qrKeysToPersist[languageCode] = qrPublicKey;

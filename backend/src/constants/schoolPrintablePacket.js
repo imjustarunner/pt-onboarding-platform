@@ -20,21 +20,21 @@ export function isHogwartsDemoSchoolOrg(org = {}) {
 }
 
 /**
- * Gate for the dedicated "Digital Forms" + "Printable Packets" two-section
- * layout on the School Portal Docs/Links panel. Strictly Hogwarts only while
- * this rollout is being piloted — not Durmstrang, unlike the broader demo gate.
- */
-export function isHogwartsPacketHubOrg(org = {}) {
-  return resolveOrganizationSlug(org) === 'hogwarts';
-}
-
-/**
  * Enabled for school/program/learning orgs (real schools + Hogwarts/Durmstrang demo).
  * Demo people are filtered out of generated roster content, not the Docs/Links entry.
  */
 export function isSchoolPrintablePacketEnabled(org = {}) {
   const orgType = String(org?.organization_type || 'school').trim().toLowerCase();
   return ['school', 'program', 'learning'].includes(orgType);
+}
+
+/**
+ * Gate for the dedicated "Digital Forms" + "Printable Packets" two-section
+ * layout on the School Portal Docs/Links panel. Enabled for all school-type orgs.
+ * Kept as a named helper for call-site clarity / backward-compatible imports.
+ */
+export function isHogwartsPacketHubOrg(org = {}) {
+  return isSchoolPrintablePacketEnabled(org);
 }
 
 export function buildVirtualPrintablePacketDocument({

@@ -2163,6 +2163,24 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/master-office-form',
+    name: 'OrganizationMasterOfficeForm',
+    component: () => import('../views/admin/MasterOfficeFormView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/master-office-paper',
+    name: 'OrganizationMasterOfficePaper',
+    component: () => import('../views/admin/MasterOfficePaperView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/master-channel-form/:channel',
+    name: 'OrganizationMasterChannelForm',
+    component: () => import('../views/admin/MasterChannelFormView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/skill-builders-availability',
     name: 'OrganizationSkillBuildersAvailability',
     component: () => import('../views/admin/SkillBuildersAvailabilityView.vue'),
@@ -3478,6 +3496,24 @@ const routes = [
     path: '/admin/master-school-form',
     name: 'MasterSchoolForm',
     component: () => import('../views/school/MasterSchoolFormView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
+  },
+  {
+    path: '/admin/master-office-form',
+    name: 'MasterOfficeForm',
+    component: () => import('../views/admin/MasterOfficeFormView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
+  },
+  {
+    path: '/admin/master-office-paper',
+    name: 'MasterOfficePaper',
+    component: () => import('../views/admin/MasterOfficePaperView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
+  },
+  {
+    path: '/admin/master-channel-form/:channel',
+    name: 'MasterChannelForm',
+    component: () => import('../views/admin/MasterChannelFormView.vue'),
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
   },
   {
