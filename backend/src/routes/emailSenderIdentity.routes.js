@@ -6,7 +6,8 @@ import {
   createEmailSenderIdentity,
   updateEmailSenderIdentity,
   sendTestEmailFromIdentity,
-  syncSchoolEmailInbound
+  syncSchoolEmailInbound,
+  syncSchoolGroupContacts
 } from '../controllers/emailSenderIdentity.controller.js';
 
 const router = express.Router();
@@ -26,6 +27,20 @@ router.post(
     body('configureAiPolicy').optional().isBoolean()
   ],
   syncSchoolEmailInbound
+);
+
+router.post(
+  '/sync-school-group-contacts',
+  authenticate,
+  requireBackofficeAdmin,
+  [
+    body('agencyId').optional().custom((v) => v === null || v === '' || (Number.isFinite(Number(v)) && Number(v) >= 1)).withMessage('agencyId must be null or a positive integer'),
+    body('agencySlug').optional().isString(),
+    body('memberEmail').optional().isEmail(),
+    body('dryRun').optional().isBoolean(),
+    body('alsoSyncInboundRoutes').optional().isBoolean()
+  ],
+  syncSchoolGroupContacts
 );
 
 router.post(

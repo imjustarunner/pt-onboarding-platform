@@ -2,6 +2,7 @@ import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import User from '../models/User.model.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { syncSchoolEmailInboundForAgency } from '../services/unifiedEmail/schoolEmailInboundSync.service.js';
+import { syncSchoolGroupContactsForAgency } from '../services/unifiedEmail/schoolGroupContactsSync.service.js';
 import { validationResult } from 'express-validator';
 
 async function getAllowedAgencyIds(req) {
@@ -220,6 +221,48 @@ export const syncSchoolEmailInbound = async (req, res, next) => {
 
     res.json(result);
   } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Sync Google Group members (groups schoolreply belongs to) into school_contacts,
+ * matching group addresses to school_profiles.itsco_email. Also refreshes inbound routes.
+ */
+export const syncSchoolGroupContacts = async (req, res, next) => {
+  try {
+    const agencyIdRaw = req.body?.agencyId ?? req.query?.agencyId;
+    const agencySlug = String(req.body?.agencySlug || req.query?.agencySlug || 'itsco').trim() || 'itsco';
+    const agencyId = agencyIdRaw === undefined || agencyIdRaw === null || agencyIdRaw === ''
+      ? null
+      : Number(agencyIdRaw);
+    const memberEmail = String(
+      req.body?.memberEmail || req.query?.memberEmail || 'schoolreply@itsco.health'
+    ).trim().toLowerCase();
+    const dryRun = req.body?.dryRun === true || req.query?.dryRun === '1' || req.query?.dryRun === 'true';
+    const alsoSyncInboundRoutes = req.body?.alsoSyncInboundRoutes !== false;
+
+    const allowedAgencyIds = await getAllowedAgencyIds(req);
+    const isSuperAdmin = req.user?.role === 'super_admin';
+    if (!isSuperAdmin && agencyId) {
+      ensureAgencyAccess({ agencyId, allowedIds: allowedAgencyIds, allowNull: false });
+    }
+
+    const result = await syncSchoolGroupContactsForAgency({
+      agencyId: Number.isFinite(agencyId) && agencyId > 0 ? agencyId : null,
+      agencySlug,
+      memberEmail,
+      dryRun,
+      alsoSyncInboundRoutes
+    });
+
+    if (!isSuperAdmin && allowedAgencyIds && !allowedAgencyIds.includes(Number(result.agencyId))) {
+      return res.status(403).json({ error: { message: 'Access denied to this agency' } });
+    }
+
+    res.json(result);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 };

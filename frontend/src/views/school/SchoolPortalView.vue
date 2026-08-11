@@ -154,7 +154,18 @@
               alt=""
               class="sp-nav-icon-img"
             />
-            <span v-else aria-hidden="true">EV</span>
+            <div v-else class="sp-nav-icon-fallback" aria-hidden="true">
+              <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" fill="none">
+                <defs>
+                  <linearGradient id="sp-nav-ev-grad" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#14b8a6"/>
+                    <stop offset="55%" stop-color="#22c55e"/>
+                    <stop offset="100%" stop-color="#eab308"/>
+                  </linearGradient>
+                </defs>
+                <path fill="url(#sp-nav-ev-grad)" d="M16 2.5 19.6 10.2 28.1 11.4 22.1 17.2 23.5 25.7 16 21.9 8.5 25.7 9.9 17.2 3.9 11.4 12.4 10.2Z"/>
+              </svg>
+            </div>
           </span>
           <span class="sp-nav-label">Events</span>
         </button>
@@ -173,7 +184,27 @@
               alt=""
               class="sp-nav-icon-img"
             />
-            <span v-else aria-hidden="true">CL</span>
+            <div v-else class="sp-nav-icon-fallback" aria-hidden="true">
+              <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" fill="none">
+                <defs>
+                  <linearGradient id="sp-nav-cl-grad" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#14b8a6"/>
+                    <stop offset="55%" stop-color="#22c55e"/>
+                    <stop offset="100%" stop-color="#eab308"/>
+                  </linearGradient>
+                </defs>
+                <rect x="4" y="7" width="24" height="21" rx="3" fill="url(#sp-nav-cl-grad)"/>
+                <rect x="4" y="7" width="24" height="9" rx="3" fill="url(#sp-nav-cl-grad)"/>
+                <rect x="4" y="12" width="24" height="4" fill="url(#sp-nav-cl-grad)"/>
+                <rect x="10" y="3" width="3" height="7" rx="1.5" fill="url(#sp-nav-cl-grad)"/>
+                <rect x="19" y="3" width="3" height="7" rx="1.5" fill="url(#sp-nav-cl-grad)"/>
+                <rect x="8" y="18" width="3" height="3" rx="0.75" fill="white" opacity="0.85"/>
+                <rect x="14.5" y="18" width="3" height="3" rx="0.75" fill="white" opacity="0.85"/>
+                <rect x="21" y="18" width="3" height="3" rx="0.75" fill="white" opacity="0.85"/>
+                <rect x="8" y="23" width="3" height="3" rx="0.75" fill="white" opacity="0.85"/>
+                <rect x="14.5" y="23" width="3" height="3" rx="0.75" fill="white" opacity="0.85"/>
+              </svg>
+            </div>
           </span>
           <span class="sp-nav-label">School Calendar</span>
         </button>
@@ -329,6 +360,41 @@
             <span v-else aria-hidden="true">QR</span>
           </span>
           <span class="sp-nav-label">Digital Forms</span>
+        </button>
+
+        <button
+          v-if="canSeePrintablePacketHub"
+          data-tour="school-nav-printable-forms"
+          class="sp-nav-item"
+          type="button"
+          @click="navigateSidebar(() => openPrintableModal())"
+        >
+          <span class="sp-nav-icon">
+            <img
+              v-if="brandingStore.getSchoolPortalCardIconUrl('digital_forms', cardIconOrg)"
+              :src="brandingStore.getSchoolPortalCardIconUrl('digital_forms', cardIconOrg)"
+              alt=""
+              class="sp-nav-icon-img"
+            />
+            <div v-else class="sp-nav-icon-fallback" aria-hidden="true">
+              <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" fill="none">
+                <defs>
+                  <linearGradient id="sp-nav-pr-grad" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#14b8a6"/>
+                    <stop offset="55%" stop-color="#22c55e"/>
+                    <stop offset="100%" stop-color="#eab308"/>
+                  </linearGradient>
+                </defs>
+                <rect x="10" y="2" width="12" height="9" rx="1.5" fill="url(#sp-nav-pr-grad)" opacity="0.55"/>
+                <rect x="4" y="9" width="24" height="13" rx="2.5" fill="url(#sp-nav-pr-grad)"/>
+                <rect x="7" y="13" width="4" height="3" rx="0.75" fill="white" opacity="0.55"/>
+                <rect x="9" y="19" width="14" height="11" rx="1.5" fill="url(#sp-nav-pr-grad)" opacity="0.55"/>
+                <rect x="11" y="22" width="10" height="1.5" rx="0.75" fill="url(#sp-nav-pr-grad)"/>
+                <rect x="11" y="25.5" width="7" height="1.5" rx="0.75" fill="url(#sp-nav-pr-grad)"/>
+              </svg>
+            </div>
+          </span>
+          <span class="sp-nav-label">Printable Forms</span>
         </button>
 
         <button
@@ -5394,6 +5460,20 @@ watch(() => store.selectedWeekday, async (weekday) => {
   height: 100%;
   object-fit: cover;
   border-radius: 8px;
+  display: block;
+}
+
+.sp-nav-icon-fallback {
+  width: 100%;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sp-nav-icon-fallback svg {
+  width: 100%;
+  height: 100%;
   display: block;
 }
 

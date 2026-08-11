@@ -74,3 +74,21 @@ npm run sync-school-email-inbound
 
 Also available in Admin → Email Settings → **Sync school group emails → schoolreply**.
 
+## Sync Google Group members → school contacts
+
+Lists every Google Group `schoolreply@itsco.health` belongs to, matches group addresses to each school's `itsco_email`, and upserts member emails into `school_contacts`. Also refreshes inbound routes on `schoolreply`.
+
+```bash
+npm run sync-school-group-contacts
+# or: npm run sync-school-group-contacts -- itsco schoolreply@itsco.health
+```
+
+Admin → Email Settings → **Sync Google Group members → school contacts**.
+
+Requires Google Admin SDK domain-wide delegation scopes on the service account (in addition to existing user scope):
+
+- `https://www.googleapis.com/auth/admin.directory.group.readonly`
+- `https://www.googleapis.com/auth/admin.directory.group.member.readonly`
+
+`GOOGLE_WORKSPACE_IMPERSONATE_USER` must be a Workspace super admin.
+

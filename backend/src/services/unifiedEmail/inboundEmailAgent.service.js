@@ -18,6 +18,7 @@ import {
   applyReinitPatchesFromEmail,
   classifyReinitIntent
 } from './schoolReinitEmailIntake.service.js';
+import { suggestActionsForTicket } from './ticketActionSuggestion.service.js';
 
 function headerMap(headers = []) {
   const m = new Map();
@@ -605,6 +606,27 @@ async function createEmailDraftSupportTicket({
       [ticketId, Number(createdByUserId), truncate(bodyText, 8000)]
     );
   }
+
+  if (ticketId) {
+    // Propose staff/contact actions (create contact, staff account + temp password, etc.)
+    // Best-effort — never fail ticket creation if suggestion analysis fails.
+    await suggestActionsForTicket({
+      ticketId,
+      schoolOrganizationId,
+      schoolName: metadata?.schoolName || null,
+      fromEmail,
+      recipients: Array.isArray(recipients) ? recipients : [],
+      subject,
+      bodyText
+    }).catch((err) => {
+      console.warn(
+        `[EmailAgent] suggestActionsForTicket failed for ticket #${ticketId}:`,
+        err?.message || err
+      );
+      return null;
+    });
+  }
+
   return ticketId;
 }
 
@@ -729,8 +751,42 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         isKnownContact: sender.isKnownContact,
         isKnownAccount: sender.isKnownAccount
       });
+
+      const creatorUserId = sender.accountUserId || (await findFallbackCreatorUserId(agencyId));
+
+      // Unknown / not-yet-allowed senders still become support tickets so staff
+      // can review (e.g. "please add our new social worker") instead of silently
+      // dropping with only a Gmail label.
       if (!senderAllowed) {
         results.needsHuman += 1;
+        if (creatorUserId) {
+          const ticketId = await createEmailDraftSupportTicket({
+            schoolOrganizationId: schoolContext.schoolOrganizationId,
+            agencyId,
+            createdByUserId: creatorUserId,
+            subject,
+            bodyText,
+            fromEmail,
+            messageId: hdrs.get('message-id') || null,
+            threadId: full.data?.threadId || null,
+            receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
+            recipients: Array.from(new Set([...(routed.to || []), ...(routed.cc || [])])),
+            matchedClient: null,
+            draftResponse: null,
+            draftConfidence: null,
+            draftStatus: 'needs_review',
+            escalationReason: 'unknown_sender_needs_human',
+            metadata: {
+              policyMode: policy.mode,
+              policySource: policy.source,
+              knownContact: sender.isKnownContact,
+              knownAccount: sender.isKnownAccount,
+              detectedIntentClasses: ['other'],
+              recommendation: 'needs_review'
+            }
+          }).catch(() => 0);
+          if (ticketId) results.draftedToTickets += 1;
+        }
         await gmail.users.messages.modify({
           userId: 'me',
           id,
@@ -746,6 +802,36 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         const identityKeyNorm = String(identity?.identity_key || '').trim().toLowerCase();
         if (!allowedSenderIdentityKeys.includes(identityKeyNorm)) {
           results.needsHuman += 1;
+          if (creatorUserId) {
+            const ticketId = await createEmailDraftSupportTicket({
+              schoolOrganizationId: schoolContext.schoolOrganizationId,
+              agencyId,
+              createdByUserId: creatorUserId,
+              subject,
+              bodyText,
+              fromEmail,
+              messageId: hdrs.get('message-id') || null,
+              threadId: full.data?.threadId || null,
+              receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
+              recipients: Array.from(new Set([...(routed.to || []), ...(routed.cc || [])])),
+              matchedClient: null,
+              draftResponse: null,
+              draftConfidence: null,
+              draftStatus: 'needs_review',
+              escalationReason: 'sender_identity_not_allowed_by_policy',
+              metadata: {
+                policyMode: policy.mode,
+                policySource: policy.source,
+                allowedSenderIdentityKeys,
+                identityKey: identityKeyNorm,
+                knownContact: sender.isKnownContact,
+                knownAccount: sender.isKnownAccount,
+                detectedIntentClasses: ['other'],
+                recommendation: 'needs_review'
+              }
+            }).catch(() => 0);
+            if (ticketId) results.draftedToTickets += 1;
+          }
           await gmail.users.messages.modify({
             userId: 'me',
             id,
@@ -755,7 +841,6 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         }
       }
 
-      const creatorUserId = sender.accountUserId || (await findFallbackCreatorUserId(agencyId));
       if (!creatorUserId) {
         results.needsHuman += 1;
         await gmail.users.messages.modify({

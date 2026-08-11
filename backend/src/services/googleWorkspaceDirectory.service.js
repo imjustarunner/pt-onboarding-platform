@@ -39,6 +39,64 @@ class GoogleWorkspaceDirectoryService {
     }
   }
 
+  /**
+   * List Google Groups a user is a member of (paginated).
+   */
+  static async listGroupsForMember(memberEmail, { maxResults = 200 } = {}) {
+    const userKey = String(memberEmail || '').trim().toLowerCase();
+    if (!userKey) throw new Error('memberEmail is required');
+    const admin = await this.getClient();
+    const groups = [];
+    let pageToken = undefined;
+    try {
+      do {
+        const result = await admin.groups.list({
+          userKey,
+          maxResults: Math.min(200, maxResults),
+          pageToken
+        });
+        const batch = result?.data?.groups || [];
+        groups.push(...batch);
+        pageToken = result?.data?.nextPageToken || undefined;
+        if (groups.length >= maxResults) break;
+      } while (pageToken);
+      return groups.slice(0, maxResults);
+    } catch (e) {
+      logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceDirectoryService.listGroupsForMember' });
+      throw e;
+    }
+  }
+
+  /**
+   * List members of a Google Group (paginated).
+   */
+  static async listGroupMembers(groupEmail, { maxResults = 500 } = {}) {
+    const groupKey = String(groupEmail || '').trim().toLowerCase();
+    if (!groupKey) throw new Error('groupEmail is required');
+    const admin = await this.getClient();
+    const members = [];
+    let pageToken = undefined;
+    try {
+      do {
+        const result = await admin.members.list({
+          groupKey,
+          maxResults: Math.min(200, maxResults),
+          pageToken
+        });
+        const batch = result?.data?.members || [];
+        members.push(...batch);
+        pageToken = result?.data?.nextPageToken || undefined;
+        if (members.length >= maxResults) break;
+      } while (pageToken);
+      return members.slice(0, maxResults);
+    } catch (e) {
+      const status = e?.code || e?.response?.status || null;
+      if (status === 404) return [];
+      logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceDirectoryService.listGroupMembers' });
+      throw e;
+    }
+  }
+
   static async createUser({ primaryEmail, givenName, familyName, password, recoveryEmail }) {
     const email = String(primaryEmail || '').trim().toLowerCase();
     if (!email) throw new Error('primaryEmail is required');

@@ -326,6 +326,83 @@
                 </div>
               </div>
 
+              <div
+                v-if="canAnswer && (ticketActions.length || ticketActionsLoading || isEmailTicket)"
+                class="suggested-actions-banner"
+              >
+                <div class="suggested-actions-head">
+                  <strong>Suggested actions</strong>
+                  <span v-if="ticketActionsLoading" class="muted"> · loading…</span>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-xs"
+                    :disabled="suggestingActions || ticketActionsLoading"
+                    @click="rerunSuggestActions"
+                  >
+                    {{ suggestingActions ? 'Analyzing…' : (ticketActions.length ? 'Re-analyze' : 'Analyze') }}
+                  </button>
+                </div>
+                <div v-if="!ticketActions.length && !ticketActionsLoading" class="muted pad-sm">
+                  No proposed actions yet. Click Analyze to scan this email for staff/contact requests.
+                </div>
+                <div
+                  v-for="action in ticketActions"
+                  :key="action.id"
+                  class="suggested-action-row"
+                >
+                  <div class="suggested-action-main">
+                    <div class="suggested-action-title">{{ action.title }}</div>
+                    <div class="suggested-action-meta muted">
+                      {{ actionTypeLabel(action.action_type) }}
+                      · {{ action.status }}
+                      <span v-if="action.payload?.email"> · {{ action.payload.email }}</span>
+                      <span v-if="action.payload?.roleTitle"> · {{ action.payload.roleTitle }}</span>
+                    </div>
+                    <div
+                      v-if="oneTimePasswords[action.id]"
+                      class="temp-password-box"
+                    >
+                      <div class="temp-password-label">Temporary password (shown once)</div>
+                      <code class="temp-password-value">{{ oneTimePasswords[action.id] }}</code>
+                      <div class="suggested-action-buttons">
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-xs"
+                          @click="copyTempPassword(action.id)"
+                        >
+                          Copy password
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-primary btn-xs"
+                          @click="insertTempPasswordIntoDraft(action)"
+                        >
+                          Insert into reply draft
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-if="action.status === 'proposed' || action.status === 'failed'" class="suggested-action-buttons">
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-xs"
+                      :disabled="actionBusyId === action.id"
+                      @click="approveTicketAction(action)"
+                    >
+                      {{ actionBusyId === action.id ? 'Running…' : 'Approve & Run' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-xs"
+                      :disabled="actionBusyId === action.id"
+                      @click="rejectTicketAction(action)"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               <div v-if="selected.ai_draft_response && canAnswer" class="ai-draft-banner">
                 <div class="ai-draft-head">
                   <strong>AI draft</strong>
@@ -598,6 +675,9 @@ const canSetPriority = computed(() =>
 const canAnswer = computed(() =>
   ['admin', 'support', 'super_admin'].includes(role.value)
 );
+const isEmailTicket = computed(() =>
+  String(selected.value?.source_channel || '').toLowerCase() === 'email'
+);
 const canAssignOthers = computed(() =>
   ['school_staff', 'staff', 'admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'].includes(role.value)
 );
@@ -666,6 +746,12 @@ const assigneesForSelectedTopic = computed(() => {
 const generatingDraft = ref(false);
 const reviewingDraft = ref(false);
 const markingSent = ref(false);
+const ticketActions = ref([]);
+const ticketActionsLoading = ref(false);
+const suggestingActions = ref(false);
+const actionBusyId = ref(null);
+/** One-time plaintext passwords keyed by action id (never reloaded from server). */
+const oneTimePasswords = ref({});
 const showForward = ref(false);
 const forwardProviders = ref([]);
 const forwardProvidersLoading = ref(false);
@@ -1045,21 +1131,176 @@ function selectTicket(t) {
   forwardProviders.value = [];
   forwardSelectedIds.value = [];
   forwardNote.value = '';
+  ticketActions.value = [];
+  oneTimePasswords.value = {};
   emit('selection-change', t);
   const q = { ...route.query, ticketId: String(t.id) };
   router.replace({ query: q }).catch(() => {});
   loadMessages(t.id);
   if (canAssignOthers.value) loadAssignees(t);
+  if (canAnswer.value) loadTicketActions(t.id);
 }
 
 function clearSelection() {
   selectedId.value = null;
   selected.value = null;
   messages.value = [];
+  ticketActions.value = [];
+  oneTimePasswords.value = {};
   emit('selection-change', null);
   const q = { ...route.query };
   delete q.ticketId;
   router.replace({ query: q }).catch(() => {});
+}
+
+function actionTypeLabel(type) {
+  const t = String(type || '').toLowerCase();
+  if (t === 'create_school_contact') return 'Create contact';
+  if (t === 'create_school_staff_account') return 'Create staff account';
+  if (t === 'generate_temp_password') return 'Temp password';
+  if (t === 'update_school_contact') return 'Update contact';
+  return t || 'Action';
+}
+
+async function loadTicketActions(ticketId) {
+  const id = Number(ticketId || selected.value?.id || 0);
+  if (!id || !canAnswer.value) {
+    ticketActions.value = [];
+    return;
+  }
+  ticketActionsLoading.value = true;
+  try {
+    const r = await api.get(`/support-tickets/${id}/actions`, { skipGlobalLoading: true });
+    ticketActions.value = Array.isArray(r.data?.actions) ? r.data.actions : [];
+  } catch (e) {
+    // Table may not exist yet on older environments — keep quiet.
+    ticketActions.value = [];
+    if (e?.response?.status !== 404 && e?.response?.status !== 409) {
+      console.warn('Failed to load ticket actions', e?.message || e);
+    }
+  } finally {
+    ticketActionsLoading.value = false;
+  }
+}
+
+async function rerunSuggestActions() {
+  if (!selected.value?.id || !canAnswer.value) return;
+  suggestingActions.value = true;
+  actionError.value = '';
+  try {
+    const r = await api.post(`/support-tickets/${selected.value.id}/suggest-actions`, { force: true });
+    ticketActions.value = Array.isArray(r.data?.actions) ? r.data.actions : [];
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to suggest actions';
+  } finally {
+    suggestingActions.value = false;
+  }
+}
+
+async function approveTicketAction(action) {
+  if (!selected.value?.id || !action?.id) return;
+  actionBusyId.value = action.id;
+  actionError.value = '';
+  try {
+    const r = await api.post(`/support-tickets/${selected.value.id}/actions/${action.id}/approve`);
+    const updated = r.data?.action || null;
+    if (updated?.id) {
+      ticketActions.value = ticketActions.value.map((a) =>
+        Number(a.id) === Number(updated.id)
+          ? {
+              ...a,
+              ...updated,
+              payload: updated.payload || updated.payload_json || a.payload,
+              result: updated.result || updated.result_json || a.result
+            }
+          : a
+      );
+    } else {
+      await loadTicketActions(selected.value.id);
+    }
+    const temp = String(r.data?.temporaryPassword || '').trim();
+    if (temp) {
+      oneTimePasswords.value = { ...oneTimePasswords.value, [action.id]: temp };
+    }
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to approve action';
+    await loadTicketActions(selected.value.id);
+  } finally {
+    actionBusyId.value = null;
+  }
+}
+
+async function rejectTicketAction(action) {
+  if (!selected.value?.id || !action?.id) return;
+  actionBusyId.value = action.id;
+  actionError.value = '';
+  try {
+    const r = await api.post(`/support-tickets/${selected.value.id}/actions/${action.id}/reject`, {
+      reason: 'Rejected from ticket desk'
+    });
+    const updated = r.data?.action || null;
+    if (updated?.id) {
+      ticketActions.value = ticketActions.value.map((a) =>
+        Number(a.id) === Number(updated.id) ? { ...a, ...updated, status: 'rejected' } : a
+      );
+    } else {
+      await loadTicketActions(selected.value.id);
+    }
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to reject action';
+  } finally {
+    actionBusyId.value = null;
+  }
+}
+
+async function copyTempPassword(actionId) {
+  const text = String(oneTimePasswords.value?.[actionId] || '').trim();
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // ignore
+  }
+}
+
+function insertTempPasswordIntoDraft(action) {
+  const password = String(oneTimePasswords.value?.[action?.id] || '').trim();
+  if (!password) return;
+  const payload = action?.payload || {};
+  const result = action?.result || {};
+  const email = payload.email || result.email || '';
+  const name = payload.fullName || nameFromEmail(email) || 'your colleague';
+  const block = [
+    `We've set up school portal access for ${name}.`,
+    email ? `Login email: ${email}` : null,
+    `Temporary password: ${password}`,
+    'This password expires in 7 days — please sign in and change it on first login.',
+    'Portal: https://plottwisthq.com/login'
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const existing = draft.value.trim();
+  draft.value = existing ? `${existing}\n\n${block}` : block;
+  composerMode.value = 'answer';
+
+  // Also append into stored AI draft so "Use draft" stays consistent if present.
+  if (selected.value) {
+    const prior = String(selected.value.ai_draft_response || '').trim();
+    selected.value = {
+      ...selected.value,
+      ai_draft_response: prior ? `${prior}\n\n${block}` : block
+    };
+  }
+}
+
+function nameFromEmail(email) {
+  const local = String(email || '').split('@')[0] || '';
+  if (!local) return '';
+  return local
+    .replace(/[._-]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
 }
 
 async function sendMessage() {
@@ -1812,6 +2053,67 @@ defineExpose({ loadAll, clearSelection });
   margin-bottom: 8px;
 }
 .ai-draft-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.suggested-actions-banner {
+  margin: 0 12px 10px;
+  padding: 10px 12px;
+  border: 1px dashed #64b5f6;
+  border-radius: 10px;
+  background: #e3f2fd;
+}
+.suggested-actions-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.suggested-actions-head .btn { margin-left: auto; }
+.suggested-action-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-top: 1px solid rgba(25, 118, 210, 0.15);
+}
+.suggested-action-row:first-of-type { border-top: none; }
+.suggested-action-main { flex: 1; min-width: 0; }
+.suggested-action-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.suggested-action-meta {
+  font-size: 11px;
+  margin-top: 2px;
+}
+.suggested-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.temp-password-box {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+}
+.temp-password-label {
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.temp-password-value {
+  display: inline-block;
+  font-size: 13px;
+  padding: 2px 6px;
+  background: #fff;
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+.pad-sm { padding: 4px 0; }
 .assign-row {
   display: flex;
   gap: 6px;

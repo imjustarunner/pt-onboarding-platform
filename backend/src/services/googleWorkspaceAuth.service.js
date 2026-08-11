@@ -12,7 +12,9 @@ export const GOOGLE_WORKSPACE_SCOPES = [
 ];
 
 export const GOOGLE_WORKSPACE_DIRECTORY_SCOPES = [
-  'https://www.googleapis.com/auth/admin.directory.user'
+  'https://www.googleapis.com/auth/admin.directory.user',
+  'https://www.googleapis.com/auth/admin.directory.group.readonly',
+  'https://www.googleapis.com/auth/admin.directory.group.member.readonly'
 ];
 
 export function parseGoogleWorkspaceServiceAccountFromEnv() {

@@ -26,6 +26,12 @@ import {
 } from '../utils/supportTicketCrypto.js';
 import { allowedTopicsForCreatorRole, normalizeTicketTopic } from '../utils/ticketTopics.js';
 import { appendSupportTicketKindFilter } from '../utils/supportTicketKindFilter.js';
+import {
+  listTicketActionItems,
+  approveAndExecuteTicketAction,
+  rejectTicketAction,
+  suggestActionsForTicket
+} from '../services/unifiedEmail/ticketActionSuggestion.service.js';
 
 async function hasSupportTicketMessagesTable() {
   try {
@@ -3433,6 +3439,127 @@ export const forwardSupportTicketToProviders = async (req, res, next) => {
       forwardedToProviderIds: providerUserIds
     });
   } catch (e) {
+    next(e);
+  }
+};
+
+async function loadTicketForActionAccess(req, ticketId) {
+  const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
+  const ticket = rows?.[0] || null;
+  if (!ticket) return { ok: false, status: 404, message: 'Ticket not found' };
+  const access = await ensureOrgAccess(req, ticket.school_organization_id);
+  if (!access.ok) return { ok: false, status: access.status, message: access.message, ticket };
+  return { ok: true, ticket, access };
+}
+
+export const listSupportTicketActions = async (req, res, next) => {
+  try {
+    if (!isAgencyAdminUser(req) && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only admin/support can view ticket actions' } });
+    }
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+
+    const loaded = await loadTicketForActionAccess(req, ticketId);
+    if (!loaded.ok) return res.status(loaded.status).json({ error: { message: loaded.message } });
+
+    const actions = await listTicketActionItems(ticketId);
+    res.json({ actions });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const suggestSupportTicketActions = async (req, res, next) => {
+  try {
+    if (!isAgencyAdminUser(req) && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only admin/support can suggest ticket actions' } });
+    }
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+
+    const loaded = await loadTicketForActionAccess(req, ticketId);
+    if (!loaded.ok) return res.status(loaded.status).json({ error: { message: loaded.message } });
+
+    const force = req.body?.force === true || req.body?.force === 1 || req.body?.force === '1';
+    const schoolName = loaded.access?.org?.name || null;
+    const result = await suggestActionsForTicket({
+      ticketId,
+      schoolOrganizationId: loaded.ticket.school_organization_id,
+      schoolName,
+      force
+    });
+    const actions = await listTicketActionItems(ticketId);
+    res.json({ ...result, actions });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const approveSupportTicketAction = async (req, res, next) => {
+  try {
+    if (!isAgencyAdminUser(req) && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only admin/support can approve ticket actions' } });
+    }
+    const ticketId = parseInt(req.params.id, 10);
+    const actionId = parseInt(req.params.actionId, 10);
+    if (!ticketId || !actionId) {
+      return res.status(400).json({ error: { message: 'Invalid ticket or action id' } });
+    }
+
+    const loaded = await loadTicketForActionAccess(req, ticketId);
+    if (!loaded.ok) return res.status(loaded.status).json({ error: { message: loaded.message } });
+
+    const payloadOverrides =
+      req.body?.payload && typeof req.body.payload === 'object' ? req.body.payload : null;
+
+    const result = await approveAndExecuteTicketAction({
+      ticketId,
+      actionId,
+      approvedByUserId: req.user.id,
+      payloadOverrides
+    });
+
+    res.json({
+      ok: true,
+      action: result.action,
+      temporaryPassword: result.temporaryPassword || undefined
+    });
+  } catch (e) {
+    if (e?.statusCode) {
+      return res.status(e.statusCode).json({ error: { message: e.message } });
+    }
+    next(e);
+  }
+};
+
+export const rejectSupportTicketAction = async (req, res, next) => {
+  try {
+    if (!isAgencyAdminUser(req) && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only admin/support can reject ticket actions' } });
+    }
+    const ticketId = parseInt(req.params.id, 10);
+    const actionId = parseInt(req.params.actionId, 10);
+    if (!ticketId || !actionId) {
+      return res.status(400).json({ error: { message: 'Invalid ticket or action id' } });
+    }
+
+    const loaded = await loadTicketForActionAccess(req, ticketId);
+    if (!loaded.ok) return res.status(loaded.status).json({ error: { message: loaded.message } });
+
+    const reason = String(req.body?.reason || '').trim() || null;
+    const result = await rejectTicketAction({
+      ticketId,
+      actionId,
+      approvedByUserId: req.user.id,
+      reason
+    });
+
+    res.json({ ok: true, action: result.action });
+  } catch (e) {
+    if (e?.statusCode) {
+      return res.status(e.statusCode).json({ error: { message: e.message } });
+    }
     next(e);
   }
 };

@@ -27,7 +27,11 @@ import {
   updateSupportTicketPriority,
   closeSupportTicket,
   listClientAssignedProvidersForSupportTicket,
-  forwardSupportTicketToProviders
+  forwardSupportTicketToProviders,
+  listSupportTicketActions,
+  suggestSupportTicketActions,
+  approveSupportTicketAction,
+  rejectSupportTicketAction
 } from '../controllers/supportTickets.controller.js';
 
 const router = express.Router();
@@ -88,6 +92,12 @@ router.post('/:id/close', closeSupportTicket);
 
 // Tenant admin escalates an existing ticket to platform
 router.post('/:id/escalate-to-platform', escalateSupportTicketToPlatform);
+
+// Proposed action items (create staff contact/account, temp password, etc.)
+router.get('/:id/actions', requireAgencyAccess, listSupportTicketActions);
+router.post('/:id/suggest-actions', requireAgencyAccess, suggestSupportTicketActions);
+router.post('/:id/actions/:actionId/approve', requireAgencyAccess, approveSupportTicketAction);
+router.post('/:id/actions/:actionId/reject', requireAgencyAccess, rejectSupportTicketAction);
 
 export default router;
 

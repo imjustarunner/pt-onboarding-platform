@@ -102,15 +102,25 @@
             <button
               class="btn btn-secondary"
               type="button"
-              :disabled="!canEditAgencies || senderLoading || schoolInboundSyncing || !senderAgencyId"
+              :disabled="!canEditAgencies || senderLoading || schoolInboundSyncing || schoolGroupContactsSyncing || !senderAgencyId"
               @click="syncSchoolInboundRoutes"
             >
               {{ schoolInboundSyncing ? 'Syncing…' : 'Sync school group emails → schoolreply' }}
             </button>
+            <button
+              class="btn btn-secondary"
+              type="button"
+              :disabled="!canEditAgencies || senderLoading || schoolInboundSyncing || schoolGroupContactsSyncing || !senderAgencyId"
+              @click="syncSchoolGroupContacts"
+            >
+              {{ schoolGroupContactsSyncing ? 'Syncing…' : 'Sync Google Group members → school contacts' }}
+            </button>
             <small class="hint">
-              Creates/updates the <code>schoolreply</code> identity for this agency, attaches every school portal group email
-              (<code>(itsco_email)</code> as an inbound route, and enables AI ticket drafting for status + year-update emails.
-              Replies send as <code>schoolreply@itsco.health</code> (reply-to <code>schools@itsco.health</code>).
+              <strong>Inbound:</strong> creates/updates the <code>schoolreply</code> identity and attaches every school
+              <code>itsco_email</code> as an inbound route for ticket interception.
+              <strong>Contacts:</strong> lists every Google Group <code>schoolreply@itsco.health</code> belongs to,
+              matches group addresses to schools, and upserts member emails into each school's Contacts list
+              (also refreshes inbound routes).
             </small>
           </div>
         </div>
@@ -540,6 +550,7 @@ const senderSuccess = ref('');
 const senderSavingId = ref(null);
 const senderUploadingId = ref(null);
 const schoolInboundSyncing = ref(false);
+const schoolGroupContactsSyncing = ref(false);
 const includePlatformDefaults = ref(false);
 const testRecipient = ref('');
 const hiringRefSenderIdentityId = ref('');
@@ -838,6 +849,34 @@ const syncSchoolInboundRoutes = async () => {
     senderError.value = err?.response?.data?.error?.message || 'Failed to sync school inbound routes.';
   } finally {
     schoolInboundSyncing.value = false;
+  }
+};
+
+const syncSchoolGroupContacts = async () => {
+  if (!senderAgencyId.value) {
+    senderError.value = 'Select an agency before syncing school group contacts.';
+    return;
+  }
+  schoolGroupContactsSyncing.value = true;
+  senderError.value = '';
+  senderSuccess.value = '';
+  try {
+    const resp = await api.post('/email-senders/sync-school-group-contacts', {
+      agencyId: Number(senderAgencyId.value),
+      memberEmail: 'schoolreply@itsco.health',
+      alsoSyncInboundRoutes: true
+    });
+    const data = resp.data || {};
+    senderSuccess.value =
+      `Synced group contacts: ${data.groupsMatched || 0} school groups matched` +
+      ` (${data.contactsCreated || 0} new, ${data.contactsUpdated || 0} updated)` +
+      `${data.groupsUnmatched ? `, ${data.groupsUnmatched} groups unmatched` : ''}` +
+      `${data.inboundSync?.schoolsRouted ? `; inbound routes: ${data.inboundSync.schoolsRouted} schools` : ''}.`;
+    await loadSenderIdentities();
+  } catch (err) {
+    senderError.value = err?.response?.data?.error?.message || 'Failed to sync school group contacts.';
+  } finally {
+    schoolGroupContactsSyncing.value = false;
   }
 };
 
