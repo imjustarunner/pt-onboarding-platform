@@ -748,6 +748,7 @@
 
     <FocusSessionModal
       v-if="focusBlock"
+      ref="focusSessionRef"
       :block="focusBlock"
       :day-blocks="focusDayBlocks"
       :agency-id="agencyId"
@@ -859,6 +860,7 @@ const actionItemsLoading = ref(false);
 const selectedBlock = ref(null);
 const focusBlock = ref(null);
 const focusDayBlocks = ref([]);
+const focusSessionRef = ref(null);
 const timelineRef = ref(null);
 const searchInputRef = ref(null);
 const showHideAgencies = ref(false);
@@ -2062,7 +2064,9 @@ function onBoardDrag(ev, task) {
     ev.dataTransfer.setData('application/x-task-id', String(task.id));
     ev.dataTransfer.setData('application/x-assignable', JSON.stringify({
       assignableType: 'task',
-      assignableId: task.id
+      assignableId: task.id,
+      title: task.title,
+      status: task.status
     }));
   } catch { /* ignore */ }
 }
@@ -2084,10 +2088,17 @@ async function onSelectBlock(block) {
   } catch { /* keep existing */ }
 }
 
-function onAssignedToBlock() {
-  timelineRef.value?.refresh?.();
-  // Keep the list — only highlight via timeline keys (refresh updates counts).
-  refresh();
+function onAssignedToBlock({ assignableType, assignableId } = {}) {
+  const type = assignableType || 'task';
+  const id = assignableId != null ? Number(assignableId) : null;
+  if (id) {
+    const next = new Set(timelineAssignableKeys.value);
+    next.add(`${type}:${id}`);
+    timelineAssignableKeys.value = next;
+  }
+  if (focusBlock.value) {
+    focusSessionRef.value?.reloadTasks?.();
+  }
 }
 
 async function removeBlockAssignment(a) {

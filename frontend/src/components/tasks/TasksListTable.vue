@@ -483,7 +483,9 @@ function onDragStart(ev, task) {
     ev.dataTransfer.setData('application/x-task-id', String(task.id));
     ev.dataTransfer.setData('application/x-assignable', JSON.stringify({
       assignableType: task._assignableType || 'task',
-      assignableId: task._assignableId || task.id
+      assignableId: task._assignableId || task.id,
+      title: task.title,
+      status: task.status
     }));
     ev.dataTransfer.effectAllowed = 'copy';
   } catch { /* ignore */ }

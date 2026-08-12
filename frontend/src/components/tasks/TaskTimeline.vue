@@ -405,8 +405,26 @@ function weekStartFor(ymd) {
   return toYmd(d);
 }
 
-async function fetchBlocks() {
-  loading.value = true;
+function patchBlockAssignment(blockId, assignment) {
+  if (!blockId || !assignment) return;
+  const key = `${assignment.assignable_type}:${assignment.assignable_id}`;
+  blocks.value = blocks.value.map((b) => {
+    if (Number(b.id) !== Number(blockId)) return b;
+    const assignments = [...(b.assignments || [])];
+    if (!assignments.some((a) => `${a.assignable_type}:${a.assignable_id}` === key)) {
+      assignments.push(assignment);
+    }
+    return {
+      ...b,
+      assignments,
+      assignment_count: assignments.length
+    };
+  });
+  emit('blocks-changed', { blocks: blocks.value, assignedIds: assignedIds.value });
+}
+
+async function fetchBlocks({ silent = false } = {}) {
+  if (!silent) loading.value = true;
   try {
     const uid = authStore.user?.id;
     const [blockRes, summaryRes] = await Promise.all([
@@ -474,14 +492,21 @@ async function onDrop(ev, block) {
   const assignableId = payload?.assignableId || (taskId ? parseInt(taskId, 10) : null);
   if (!assignableId) return;
   try {
-    await api.post(`/schedule-block-assignments/${block.id}`, {
+    const { data: row } = await api.post(`/schedule-block-assignments/${block.id}`, {
       assignableType,
       assignableId
     }, { skipGlobalLoading: true });
-    await fetchBlocks();
+    patchBlockAssignment(block.id, {
+      id: row?.id,
+      assignable_type: assignableType,
+      assignable_id: assignableId,
+      title: row?.title || payload?.title || 'Task',
+      status: row?.status || payload?.status || null
+    });
     emit('assigned', { block, assignableType, assignableId });
   } catch (e) {
     console.error('Failed to assign to block', e);
+    await fetchBlocks({ silent: true });
   }
 }
 

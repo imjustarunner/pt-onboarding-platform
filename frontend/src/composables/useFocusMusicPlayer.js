@@ -466,7 +466,6 @@ export function useFocusMusicPlayer({ userIdRef } = {}) {
     currentTrackId.value = null;
     currentTime.value = 0;
     duration.value = 0;
-    prefs.value = { ...prefs.value, currentTrackId: null };
     persistPrefs();
   };
 

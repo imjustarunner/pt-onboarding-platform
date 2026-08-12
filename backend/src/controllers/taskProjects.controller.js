@@ -192,7 +192,7 @@ export const listProjectActivity = async (req, res, next) => {
     const access = await TaskProject.canView(id, userId, { canViewAll: isManager(req) });
     if (!access.ok) return res.status(403).json({ error: { message: 'Forbidden' } });
 
-    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
 
     // Include tasks directly on the project OR tasks inside attached lists.
     const [rows] = await pool.execute(
@@ -209,8 +209,8 @@ export const listProjectActivity = async (req, res, next) => {
          )
        )
        ORDER BY tal.created_at DESC
-       LIMIT ?`,
-      [id, id, limit]
+       LIMIT ${limit}`,
+      [id, id]
     );
     res.json(rows);
   } catch (err) {

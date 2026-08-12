@@ -480,8 +480,7 @@ class Task {
     if (filters.limit != null) {
       const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 50, 1), 200);
       const offset = Math.max(parseInt(filters.offset, 10) || 0, 0);
-      query += ' LIMIT ? OFFSET ?';
-      params.push(limit, offset);
+      query += ` LIMIT ${limit} OFFSET ${offset}`;
     }
 
     try {
@@ -591,8 +590,7 @@ class Task {
       if (filters.limit != null) {
         const limit = Math.min(Math.max(parseInt(filters.limit, 10) || 50, 1), 500);
         const offset = Math.max(parseInt(filters.offset, 10) || 0, 0);
-        query += ' LIMIT ? OFFSET ?';
-        params.push(limit, offset);
+        query += ` LIMIT ${limit} OFFSET ${offset}`;
       }
       try {
         const [rows] = await pool.execute(query, params);

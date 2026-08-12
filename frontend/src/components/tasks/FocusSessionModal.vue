@@ -351,7 +351,11 @@ function toggleMusic() {
 }
 
 function endMusic() {
-  focusMusic?.endSession?.() || focusMusic?.pause?.();
+  try {
+    focusMusic?.endSession?.();
+  } catch {
+    focusMusic?.pause?.();
+  }
 }
 
 function endSession() {
@@ -360,14 +364,22 @@ function endSession() {
 }
 
 onMounted(async () => {
-  focusMusic?.endSession?.() || focusMusic?.pause?.();
   try {
     intention.value = sessionStorage.getItem('focusSessionIntention') || '';
   } catch { /* ignore */ }
+  try {
+    if (focusMusic && !focusMusic.playing?.value) {
+      await focusMusic.startLooping?.();
+    }
+  } catch (e) {
+    console.warn('[FocusSession] focus music start failed:', e);
+  }
   await Promise.all([loadQuote(), loadTasks()]);
   quoteTimer = setInterval(loadQuote, 20 * 60 * 1000);
   tickTimer = setInterval(() => { nowTick.value = Date.now(); }, 1000);
 });
+
+defineExpose({ reloadTasks: loadTasks });
 
 watch(intention, (v) => {
   try { sessionStorage.setItem('focusSessionIntention', v); } catch { /* ignore */ }
