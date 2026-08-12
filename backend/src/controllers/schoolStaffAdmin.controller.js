@@ -5,10 +5,7 @@ import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.mod
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 
-const TEMP_PASSWORD_SET_ACTION_TYPES = [
-  'school_staff_temporary_password_set',
-  'school_portal_school_staff_temporary_password_set'
-];
+const TEMP_PASSWORD_SET_ACTION_TYPES = ['school_staff_temporary_password_set'];
 
 const parseActivityMetadata = (raw) => {
   if (!raw) return {};
