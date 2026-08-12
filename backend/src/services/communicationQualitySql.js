@@ -48,5 +48,9 @@ export function buildQualityIssueSqlClause(alias = 'uc') {
         )
       )
     )
+    OR (
+      JSON_EXTRACT(${b}.metadata, '$.usedFallbackSender') = true
+      OR ${b}.metadata LIKE '%"code":"fallback_sender"%'
+    )
   )`;
 }

@@ -87,6 +87,8 @@ import schoolOnboardingRoutes from './routes/schoolOnboarding.routes.js';
 import publicSchoolOnboardingRoutes from './routes/publicSchoolOnboarding.routes.js';
 import providerYearUpdateRoutes from './routes/providerYearUpdate.routes.js';
 import publicProviderYearUpdateRoutes from './routes/publicProviderYearUpdate.routes.js';
+import publicAdminUpdateRoutes from './routes/publicAdminUpdate.routes.js';
+import adminUpdateMeRoutes from './routes/adminUpdate.routes.js';
 import clientExchangeRoutes from './routes/clientExchange.routes.js';
 import publicOfficeIntakeRoutes from './routes/publicOfficeIntake.routes.js';
 import publicAdaptiveIntakeRoutes from './routes/publicAdaptiveIntake.routes.js';
@@ -684,6 +686,8 @@ app.use('/api/public/school-events', publicSchoolEventsKioskRoutes);
 app.use('/api/public/school-reinit', publicSchoolReinitRoutes);
 app.use('/api/public/school-onboarding', publicSchoolOnboardingRoutes);
 app.use('/api/public/provider-year-update', publicProviderYearUpdateRoutes);
+app.use('/api/public/admin-updates', publicAdminUpdateRoutes);
+app.use('/api/admin-updates', adminUpdateMeRoutes);
 app.use('/api/public/marketing-pages', publicMarketingPagesRoutes);
 app.use('/api/public/translations', publicTranslationsRoutes);
 app.use('/api/public/hiring/reference', publicHiringReferenceRoutes);
@@ -1336,6 +1340,32 @@ if (!isBootstrap) {
   };
   processPrehireNotifications();
   setInterval(processPrehireNotifications, 60 * 1000); // every 60 seconds
+
+  const processSchoolStaffAccountAccessEmails = async () => {
+    try {
+      const { processDueSchoolStaffAccountAccessEmails } = await import('./services/schoolStaffAccountAccessEmail.service.js');
+      await processDueSchoolStaffAccountAccessEmails();
+    } catch (err) {
+      if (err?.code !== 'ER_NO_SUCH_TABLE') {
+        console.error('[schoolStaffAccountAccessEmail] processor error:', err?.message);
+      }
+    }
+  };
+  processSchoolStaffAccountAccessEmails();
+  setInterval(processSchoolStaffAccountAccessEmails, 10 * 1000);
+
+  const processAdminUpdates = async () => {
+    try {
+      const { processDueAdminUpdates } = await import('./services/adminUpdate.service.js');
+      await processDueAdminUpdates();
+    } catch (err) {
+      if (err?.code !== 'ER_NO_SUCH_TABLE') {
+        console.error('[adminUpdate] processor error:', err?.message);
+      }
+    }
+  };
+  processAdminUpdates();
+  setInterval(processAdminUpdates, 60 * 1000);
 
   // Set up periodic processing of terminated and completed users
   // Run every hour to check for users that need to be marked inactive or archived

@@ -411,11 +411,6 @@ export const bulkSetAgencySchoolStaffTemporaryPasswords = async (req, res, next)
           results.push({ userId, ok: false, error: 'Cannot reset password for an archived user' });
           continue;
         }
-        // Do not overwrite a permanent password — the user has already logged in and set their own.
-        if (user.password_hash && !user.temporary_password_hash) {
-          results.push({ userId, ok: false, error: 'User already has a permanent password set — skipped' });
-          continue;
-        }
 
         const temporaryPasswordResult = await User.setTemporaryPassword(userId, temporaryPassword, expiresInHours);
 
@@ -474,6 +469,162 @@ export const bulkSetAgencySchoolStaffTemporaryPasswords = async (req, res, next)
       expiresInHours,
       results
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const previewSchoolStaffAccountAccessEmail = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(String(req.params.id || ''), 10);
+    if (!Number.isFinite(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+    await assertManageableAgency(req, agencyId);
+
+    const {
+      previewAccessEmail
+    } = await import('../services/schoolStaffAccountAccessEmail.service.js');
+
+    const senderName = `${req.user?.first_name || ''} ${req.user?.last_name || ''}`.trim()
+      || req.user?.email
+      || null;
+
+    const preview = await previewAccessEmail({
+      agencyId,
+      emailType: req.body?.emailType || req.query?.emailType || 'recovery',
+      userIds: Array.isArray(req.body?.userIds) ? req.body.userIds : [],
+      subject: req.body?.subject,
+      body: req.body?.body,
+      senderIdentityId: req.body?.senderIdentityId,
+      senderName
+    });
+    res.json(preview);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const saveSchoolStaffAccountAccessEmailTemplate = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(String(req.params.id || ''), 10);
+    if (!Number.isFinite(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+    await assertManageableAgency(req, agencyId);
+
+    const {
+      normalizeEmailType,
+      upsertAccessEmailTemplate
+    } = await import('../services/schoolStaffAccountAccessEmail.service.js');
+
+    const emailType = normalizeEmailType(req.body?.emailType);
+    if (!emailType) {
+      return res.status(400).json({ error: { message: 'emailType must be recovery or portal_access' } });
+    }
+
+    const template = await upsertAccessEmailTemplate({
+      agencyId,
+      emailType,
+      name: req.body?.name,
+      subject: req.body?.subject,
+      body: req.body?.body,
+      saveMode: req.body?.saveMode === 'new' ? 'new' : 'update',
+      actorUserId: req.user?.id || null
+    });
+    res.json({ ok: true, template });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const testSchoolStaffAccountAccessEmail = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(String(req.params.id || ''), 10);
+    if (!Number.isFinite(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+    await assertManageableAgency(req, agencyId);
+
+    const { sendAccessEmailTest } = await import('../services/schoolStaffAccountAccessEmail.service.js');
+    const senderName = `${req.user?.first_name || ''} ${req.user?.last_name || ''}`.trim()
+      || req.user?.email
+      || null;
+
+    const result = await sendAccessEmailTest({
+      agencyId,
+      emailType: req.body?.emailType,
+      to: req.body?.to,
+      subject: req.body?.subject,
+      body: req.body?.body,
+      senderIdentityId: req.body?.senderIdentityId,
+      senderName,
+      sampleUserId: req.body?.sampleUserId
+    });
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const queueSchoolStaffAccountAccessEmails = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(String(req.params.id || ''), 10);
+    if (!Number.isFinite(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+    await assertManageableAgency(req, agencyId);
+
+    const userIds = Array.isArray(req.body?.userIds)
+      ? req.body.userIds.map((id) => parseInt(String(id), 10)).filter((n) => Number.isFinite(n) && n > 0)
+      : [];
+    const eligibleUserIds = await getEligibleSchoolStaffUserIdsForAgency(agencyId, userIds);
+    const allowedIds = userIds.filter((id) => eligibleUserIds.has(id));
+    if (!allowedIds.length) {
+      return res.status(400).json({ error: { message: 'None of the selected users are school staff for this agency' } });
+    }
+
+    const { queueAccessEmails } = await import('../services/schoolStaffAccountAccessEmail.service.js');
+    const senderName = `${req.user?.first_name || ''} ${req.user?.last_name || ''}`.trim()
+      || req.user?.email
+      || null;
+
+    const result = await queueAccessEmails({
+      agencyId,
+      emailType: req.body?.emailType,
+      userIds: allowedIds,
+      subject: req.body?.subject,
+      body: req.body?.body,
+      senderIdentityId: req.body?.senderIdentityId,
+      staggerSeconds: req.body?.staggerSeconds,
+      createdByUserId: req.user?.id,
+      senderName,
+      saveTemplate: req.body?.saveTemplate || null
+    });
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getSchoolStaffAccountAccessEmailSend = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(String(req.params.id || ''), 10);
+    const sendId = parseInt(String(req.params.sendId || ''), 10);
+    if (!Number.isFinite(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+    if (!Number.isFinite(sendId) || sendId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid send id' } });
+    }
+    await assertManageableAgency(req, agencyId);
+
+    const { getAccessEmailSend } = await import('../services/schoolStaffAccountAccessEmail.service.js');
+    const send = await getAccessEmailSend(sendId, agencyId);
+    if (!send) {
+      return res.status(404).json({ error: { message: 'Send job not found' } });
+    }
+    res.json(send);
   } catch (error) {
     next(error);
   }

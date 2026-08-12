@@ -133,8 +133,8 @@ const isAllowedSscAuthenticatedPath = (path) => {
   // Summit tenant: member surfaces + club manager dashboard + operations.
   // `home` = participant portal (not "weekly challenges"); `season` = one season workspace. Legacy `challenges` redirects.
   const allowedOrgScoped =
-    /^\/[^/]+\/(home(?:\/|$)|my_club_dashboard(?:\/|$)|season(?:\/|$)|challenges(?:\/|$)|messages(?:\/|$)|clubs(?:\/[^/]+(?:\/(?:members|records))?)?(?:\/|$)|join(?:\/|$)|club\/settings(?:\/|$)|club\/seasons(?:\/|$)|dashboard(?:\/|$)|preferences(?:\/|$)|credentials(?:\/|$)|account-info(?:\/|$)|change-password(?:\/|$)|logout(?:\/|$)|club_manager_dashboard(?:\/|$)|operations-dashboard(?:\/|$))/;
-  const allowedGlobal = /^\/(dashboard|preferences|credentials|account-info|change-password|logout)(?:\/|$)/;
+    /^\/[^/]+\/(home(?:\/|$)|my_club_dashboard(?:\/|$)|season(?:\/|$)|challenges(?:\/|$)|messages(?:\/|$)|clubs(?:\/[^/]+(?:\/(?:members|records))?)?(?:\/|$)|join(?:\/|$)|club\/settings(?:\/|$)|club\/seasons(?:\/|$)|dashboard(?:\/|$)|preferences(?:\/|$)|credentials(?:\/|$)|account-info(?:\/|$)|change-password(?:\/|$)|logout(?:\/|$)|club_manager_dashboard(?:\/|$)|operations-dashboard(?:\/|$)|admin-update(?:\/|$))/;
+  const allowedGlobal = /^\/(dashboard|preferences|credentials|account-info|change-password|logout|admin-update)(?:\/|$)/;
   return allowedOrgScoped.test(normalized) || allowedGlobal.test(normalized);
 };
 
@@ -705,6 +705,18 @@ const routes = [
     name: 'OrganizationProviderYearUpdatePublic',
     component: () => import('../views/public/ProviderYearUpdatePublicView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/admin-update/:token',
+    name: 'AdminUpdatePublic',
+    component: () => import('../views/public/AdminUpdatePublicView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/:organizationSlug/admin-update/:token',
+    name: 'OrganizationAdminUpdatePublic',
+    component: () => import('../views/public/AdminUpdatePublicView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
   },
   {
     path: '/event-rsvp/:token',
@@ -2025,6 +2037,16 @@ const routes = [
     meta: {
       requiresAuth: true,
       requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'],
+      organizationSlug: true
+    }
+  },
+  {
+    path: '/:organizationSlug/admin/email-settings',
+    name: 'OrganizationAutomatedEmailSettings',
+    component: () => import('../views/admin/AutomatedEmailSettingsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'super_admin', 'support'],
       organizationSlug: true
     }
   },
@@ -3397,6 +3419,15 @@ const routes = [
     meta: {
       requiresAuth: true,
       requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus']
+    }
+  },
+  {
+    path: '/admin/email-settings',
+    name: 'AutomatedEmailSettings',
+    component: () => import('../views/admin/AutomatedEmailSettingsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'super_admin', 'support']
     }
   },
   {

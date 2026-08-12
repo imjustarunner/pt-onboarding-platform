@@ -14,9 +14,18 @@ class EmailTemplate {
 
     const [result] = await pool.execute(
       `INSERT INTO email_templates 
-       (name, type, subject, body, agency_id, platform_branding_id, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [name, type, subject, body, agencyId || null, platformBrandingId || null, createdByUserId || null]
+       (name, type, subject, body, agency_id, platform_branding_id, created_by_user_id, is_default)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        name,
+        type,
+        subject,
+        body,
+        agencyId || null,
+        platformBrandingId || null,
+        createdByUserId || null,
+        templateData.isDefault ? 1 : 0
+      ]
     );
 
     return this.findById(result.insertId);
@@ -61,9 +70,11 @@ class EmailTemplate {
   }
 
   static async findByTypeAndAgency(templateType, agencyId) {
-    // First try to find agency-specific template
     const [agencyRows] = await pool.execute(
-      'SELECT * FROM email_templates WHERE type = ? AND agency_id = ? LIMIT 1',
+      `SELECT * FROM email_templates
+       WHERE type = ? AND agency_id = ?
+       ORDER BY is_default DESC, updated_at DESC, id DESC
+       LIMIT 1`,
       [templateType, agencyId]
     );
 
@@ -71,13 +82,52 @@ class EmailTemplate {
       return agencyRows[0];
     }
 
-    // Fall back to platform default
     const [platformRows] = await pool.execute(
-      'SELECT * FROM email_templates WHERE type = ? AND agency_id IS NULL AND platform_branding_id IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+      `SELECT * FROM email_templates
+       WHERE type = ? AND agency_id IS NULL AND platform_branding_id IS NOT NULL
+       ORDER BY is_default DESC, created_at DESC, id DESC
+       LIMIT 1`,
       [templateType]
     );
 
     return platformRows[0] || null;
+  }
+
+  static async listForTypeAndAgency(templateType, agencyId) {
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM email_templates
+       WHERE type = ?
+         AND (agency_id = ? OR (agency_id IS NULL AND platform_branding_id IS NOT NULL))
+       ORDER BY agency_id IS NULL ASC, is_default DESC, updated_at DESC, id DESC`,
+      [templateType, agencyId]
+    );
+    return rows || [];
+  }
+
+  static async setDefault(id, { type, agencyId = null } = {}) {
+    const row = await this.findById(id);
+    if (!row) return null;
+    const templateType = type || row.type;
+    if (agencyId) {
+      await pool.execute(
+        `UPDATE email_templates SET is_default = 0 WHERE type = ? AND agency_id = ?`,
+        [templateType, agencyId]
+      );
+      if (Number(row.agency_id) === Number(agencyId)) {
+        await pool.execute(`UPDATE email_templates SET is_default = 1 WHERE id = ?`, [id]);
+        return this.findById(id);
+      }
+      return row;
+    }
+    await pool.execute(
+      `UPDATE email_templates
+       SET is_default = 0
+       WHERE type = ? AND agency_id IS NULL`,
+      [templateType]
+    );
+    await pool.execute(`UPDATE email_templates SET is_default = 1 WHERE id = ?`, [id]);
+    return this.findById(id);
   }
 
   static async findAll(filters = {}) {
@@ -121,7 +171,8 @@ class EmailTemplate {
       subject,
       body,
       agencyId,
-      platformBrandingId
+      platformBrandingId,
+      isDefault
     } = templateData;
 
     const updates = [];
@@ -150,6 +201,10 @@ class EmailTemplate {
     if (platformBrandingId !== undefined) {
       updates.push('platform_branding_id = ?');
       params.push(platformBrandingId);
+    }
+    if (isDefault !== undefined) {
+      updates.push('is_default = ?');
+      params.push(isDefault ? 1 : 0);
     }
 
     if (updates.length === 0) {

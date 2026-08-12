@@ -57,6 +57,96 @@ export const getTemplates = async (req, res, next) => {
   }
 };
 
+export const listTemplatesForType = async (req, res, next) => {
+  try {
+    const templateType = String(req.query.type || req.query.templateType || '').trim();
+    const agencyId = parseInt(String(req.query.agencyId || ''), 10);
+    if (!templateType) {
+      return res.status(400).json({ error: { message: 'type is required' } });
+    }
+    if (!Number.isFinite(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    await ensureAgencyAccess({ userId: req.user.id, userRole: req.user.role, agencyId });
+    const templates = await EmailTemplate.listForTypeAndAgency(templateType, agencyId);
+    const current = await EmailTemplate.findByTypeAndAgency(templateType, agencyId);
+    res.json({
+      templates,
+      currentId: current?.id || null
+    });
+  } catch (error) {
+    if (error?.status) {
+      return res.status(error.status).json({ error: { message: error.message } });
+    }
+    next(error);
+  }
+};
+
+export const setDefaultTemplate = async (req, res, next) => {
+  try {
+    const id = parseInt(String(req.params.id || ''), 10);
+    const agencyId = parseInt(String(req.body?.agencyId || ''), 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid template id' } });
+    if (!Number.isFinite(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    await ensureAgencyAccess({ userId: req.user.id, userRole: req.user.role, agencyId });
+    const source = await EmailTemplate.findById(id);
+    if (!source) return res.status(404).json({ error: { message: 'Template not found' } });
+
+    let current = source;
+    if (!source.agency_id || Number(source.agency_id) !== agencyId) {
+      current = await EmailTemplate.create({
+        name: source.name,
+        type: source.type,
+        subject: source.subject,
+        body: source.body,
+        agencyId,
+        createdByUserId: req.user.id,
+        isDefault: true
+      });
+    }
+    await EmailTemplate.setDefault(current.id, { type: source.type, agencyId });
+    const templates = await EmailTemplate.listForTypeAndAgency(source.type, agencyId);
+    res.json({ ok: true, current, templates, currentId: current.id });
+  } catch (error) {
+    if (error?.status) {
+      return res.status(error.status).json({ error: { message: error.message } });
+    }
+    next(error);
+  }
+};
+
+export const resolveTemplate = async (req, res, next) => {
+  try {
+    const templateType = String(req.query.type || req.query.templateType || '').trim();
+    const agencyId = parseInt(String(req.query.agencyId || ''), 10);
+    if (!templateType) {
+      return res.status(400).json({ error: { message: 'type is required' } });
+    }
+    if (!Number.isFinite(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+
+    await ensureAgencyAccess({
+      userId: req.user.id,
+      userRole: req.user.role,
+      agencyId
+    });
+
+    const template = await EmailTemplate.findByTypeAndAgency(templateType, agencyId);
+    if (!template) {
+      return res.status(404).json({ error: { message: `No template found for ${templateType}` } });
+    }
+    res.json(template);
+  } catch (error) {
+    if (error?.status) {
+      return res.status(error.status).json({ error: { message: error.message } });
+    }
+    next(error);
+  }
+};
+
 export const getTemplate = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -209,9 +299,21 @@ export const deleteTemplate = async (req, res, next) => {
       }
     }
 
+    const list = await EmailTemplate.listForTypeAndAgency(template.type, template.agency_id || 0);
+    const remaining = (list || []).filter((row) => Number(row.id) !== Number(id));
+    if (template.agency_id && remaining.filter((row) => row.agency_id).length === 0 && remaining.length === 0) {
+      return res.status(400).json({ error: { message: 'Cannot delete the last template for this email type' } });
+    }
+
     const deleted = await EmailTemplate.delete(id);
     if (!deleted) {
       return res.status(404).json({ error: { message: 'Template not found' } });
+    }
+    if (template.is_default && remaining[0]) {
+      await EmailTemplate.setDefault(remaining[0].id, {
+        type: template.type,
+        agencyId: template.agency_id || null
+      });
     }
 
     res.json({ message: 'Template deleted successfully' });

@@ -72,6 +72,8 @@
               <select v-model="templateForm.type" required class="form-select">
                 <option value="user_welcome">User Welcome</option>
                 <option value="password_reset">Password Reset</option>
+                <option value="school_staff_account_recovery">School Staff Recovery</option>
+                <option value="school_staff_portal_access">School Staff Portal Access</option>
                 <option value="invitation">Invitation</option>
                 <option value="intake_packet_default">Intake Packet Default</option>
                 <option value="school_full_intake_packet_default">School Full Intake Packet Default</option>

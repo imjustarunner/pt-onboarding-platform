@@ -473,6 +473,7 @@ export function resolveNavigateRouteNameFromPrompt(promptLower) {
   if (/\b(compliance corner|compliance|hipaa)\b/.test(s)) return 'ComplianceCorner';
   if (/\b(presence|team board|who is in|who's in)\b/.test(s)) return 'PresenceTeamBoard';
   if (/\b(audit center|audit log|audit activity)\b/.test(s)) return 'AuditCenter';
+  if (/\b(email settings|auto email|automated email|sender identity|from address)\b/.test(s)) return 'AutomatedEmailSettings';
   if (/\b(referral|referrals|referral directory)\b/.test(s)) return 'ReferralDirectory';
   if (/\b(client exchange|caseload (swap|exchange)|transfer client)\b/.test(s)) return 'ClientExchange';
   if (/\b(new clients?|pending clients?)\b/.test(s)) return 'NewClients';

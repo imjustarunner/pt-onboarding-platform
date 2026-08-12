@@ -169,7 +169,8 @@ class EmailTemplateService {
       passwordlessToken,
       documentDeadline,
       trainingDeadline,
-      senderName
+      senderName,
+      keepPortalLoginLink = false
     } = options;
 
     const parameters = {};
@@ -200,9 +201,9 @@ class EmailTemplateService {
     // Reset token link
     if (passwordlessToken && agency) {
       parameters.RESET_TOKEN_LINK = this.buildResetTokenLink(agency, passwordlessToken);
-      // Backward compatible: many templates use PORTAL_LOGIN_LINK as "the link to click".
-      // When a token is available, make PORTAL_LOGIN_LINK point to the token link.
-      parameters.PORTAL_LOGIN_LINK = parameters.RESET_TOKEN_LINK;
+      if (!keepPortalLoginLink) {
+        parameters.PORTAL_LOGIN_LINK = parameters.RESET_TOKEN_LINK;
+      }
     }
 
     // Deadlines

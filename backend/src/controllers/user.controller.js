@@ -9448,7 +9448,7 @@ export const sendResetPasswordLink = async (req, res, next) => {
       const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
       const CommunicationLoggingService = (await import('../services/communicationLogging.service.js')).default;
       const { sendEmailFromIdentity } = await import('../services/unifiedEmail/unifiedEmailSender.service.js');
-      const { resolvePreferredSenderIdentityForAgency } = await import('../services/emailSenderIdentityResolver.service.js');
+      const { resolveSenderIdentityForSend } = await import('../services/emailSenderIdentityResolver.service.js');
       const EmailService = (await import('../services/email.service.js')).default;
 
       const agencyId = userAgencies?.[0]?.id || null;
@@ -9459,7 +9459,8 @@ export const sendResetPasswordLink = async (req, res, next) => {
         .find((e) => e.includes('@'));
       if (to) {
         let subject = 'Reset your password';
-        let body = `Reset your password using this link (expires in ${tokenResult.expiresInHours} hours):\n${resetLink}\n\nIf you did not request this, you can ignore this email.`;
+        const junkNotice = 'Important: this message often lands in Junk or Spam. Please check Junk, move it to Inbox if you find it there, and mark the sender as safe so you do not miss future messages from us.';
+        let body = `Reset your password using this link (expires in ${tokenResult.expiresInHours} hours):\n${resetLink}\n\n${junkNotice}\n\nIf you did not request this, you can ignore this email.`;
         try {
           const template =
             (await EmailTemplateService.getTemplateForAgency(agencyId, 'admin_initiated_password_reset')) ||
@@ -9472,6 +9473,9 @@ export const sendResetPasswordLink = async (req, res, next) => {
             const rendered = EmailTemplateService.renderTemplate(template, params);
             subject = rendered.subject || subject;
             body = rendered.body || body;
+            if (!String(body).includes('Junk')) {
+              body = `${body}\n\n${junkNotice}`;
+            }
           }
         } catch {
           // keep default subject/body
@@ -9493,18 +9497,21 @@ export const sendResetPasswordLink = async (req, res, next) => {
           comm = null;
         }
         try {
-          const identity = await resolvePreferredSenderIdentityForAgency({
+          const resolved = await resolveSenderIdentityForSend({
             agencyId,
-            preferredKeys: ['login_recovery', 'system', 'default', 'notifications']
+            templateType: 'admin_initiated_password_reset',
+            preferredKeys: ['login_recovery', 'notifications']
           });
-          const sendResult = identity?.id
+          const sendResult = resolved?.identity?.id
             ? await sendEmailFromIdentity({
-                senderIdentityId: identity.id,
+                senderIdentityId: resolved.identity.id,
                 to,
                 subject,
                 text: body,
                 html: null,
-                source: 'auto'
+                source: 'auto',
+                templateType: 'admin_initiated_password_reset',
+                usedFallbackSender: false
               })
             : await EmailService.sendEmail({
                 to,
@@ -9515,7 +9522,9 @@ export const sendResetPasswordLink = async (req, res, next) => {
                 fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
                 replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
                 source: 'auto',
-                agencyId: agencyId || null
+                agencyId: agencyId || null,
+                templateType: 'admin_initiated_password_reset',
+                usedFallbackSender: true
               });
           if (comm?.id && sendResult?.id) {
             await CommunicationLoggingService.markAsSent(comm.id, sendResult.id, {

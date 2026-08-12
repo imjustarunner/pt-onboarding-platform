@@ -71,7 +71,14 @@ export function isSchoolRoiEmailTemplate(templateType) {
   return SCHOOL_ROI_EMAIL_TEMPLATE_TYPES.has(String(templateType || '').trim().toLowerCase());
 }
 
-export async function emailRequiresAdminApproval({ agencyId, templateType, triggerKey = null }) {
+export async function emailRequiresAdminApproval({
+  agencyId,
+  templateType,
+  triggerKey = null,
+  usedFallbackSender = false
+} = {}) {
+  if (usedFallbackSender) return true;
+
   if (isSchoolRoiEmailTemplate(templateType)) {
     const settings = await getAgencyEmailSettings(agencyId);
     if (settings.schoolRoiEmailsRequireApproval !== false) return true;

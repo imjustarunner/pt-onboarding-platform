@@ -1,6 +1,7 @@
 import GoogleWorkspaceEmailService from './googleWorkspaceEmail.service.js';
 import { getEmailSendingMode, isEmailNotificationsEnabled, emailRequiresAdminApproval } from './emailSettings.service.js';
 import { validateOutboundEmailQuality, formatQualityFlags } from './outboundEmailQuality.service.js';
+import { buildFallbackSenderMetadata } from '../constants/automatedEmailCatalog.js';
 
 /**
  * Look up a user_id by email address, best-effort. Used when callers don't
@@ -72,8 +73,17 @@ class EmailService {
     templateId = null,
     generatedByUserId = null,
     existingCommunicationId = null,
-    linkUrl = null
+    linkUrl = null,
+    usedFallbackSender = null
   }) {
+    const isManual = String(source || '').trim().toLowerCase() === 'manual';
+    const treatAsFallback = usedFallbackSender === true || (usedFallbackSender !== false && !isManual);
+    const fallbackMeta = treatAsFallback
+      ? buildFallbackSenderMetadata({
+        reason: 'env_or_unconfigured_from',
+        fromEmail: fromAddress || null
+      })
+      : {};
     const gate = await this.canSend({ source, agencyId });
     if (!gate.allowed) {
       // Write a visible "skipped" row so the attempted send shows up on the
@@ -183,7 +193,13 @@ class EmailService {
           body: html || text || '',
           generatedByUserId: generatedByUserId || null,
           channel: 'email',
-          recipientAddress: to
+          recipientAddress: to,
+          metadata: {
+            source,
+            ...(fromAddress ? { fromEmail: fromAddress } : {}),
+            ...(linkUrl ? { linkUrl } : {}),
+            ...fallbackMeta
+          }
         });
       } catch (logErr) {
         console.warn('[EmailService] pre-log to user_communications failed', logErr?.message || logErr);
@@ -191,12 +207,16 @@ class EmailService {
     }
 
     const resolvedTemplateType = templateType || 'transactional_email';
-    if (!existingCommunicationId && comm?.id && await emailRequiresAdminApproval({ agencyId, templateType: resolvedTemplateType })) {
+    if (!existingCommunicationId && comm?.id && await emailRequiresAdminApproval({
+      agencyId,
+      templateType: resolvedTemplateType,
+      usedFallbackSender: treatAsFallback
+    })) {
       return {
         queued: true,
         pendingApproval: true,
         communicationId: comm.id,
-        reason: 'school_roi_requires_approval'
+        reason: treatAsFallback ? 'fallback_sender_requires_approval' : 'requires_approval'
       };
     }
 

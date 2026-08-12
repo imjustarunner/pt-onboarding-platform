@@ -1,18 +1,23 @@
 <template>
-  <div class="initial-setup-container" :style="{ background: loginBackground }">
+  <div class="initial-setup-container" :style="pageStyle">
     <div class="setup-content">
       <div class="setup-card">
+        <PasswordRecoveryBrand
+          :tenant="tenantBrand"
+          :school="schoolBrand"
+          :fallback-logo-url="brandingStore.displayLogoUrl || brandingStore.logoUrl"
+        />
         <div v-if="loading" class="loading">
           <p>Loading...</p>
         </div>
         <div v-else-if="error" class="error">
           <h2>Setup Error</h2>
           <p>{{ error }}</p>
-          <router-link to="/login" class="btn btn-primary">Go to Login</router-link>
+          <router-link :to="loginTo" class="btn btn-primary">Go to Login</router-link>
         </div>
         <div v-else class="setup-form">
           <h2>Welcome, {{ userFirstName }}!</h2>
-          <p class="subtitle">Create your password to get started</p>
+          <p class="subtitle">Create your password to get started. You will be signed in automatically after you save it.</p>
 
           <form @submit.prevent="handleSetup" autocomplete="on">
             <!-- New password -->
@@ -67,7 +72,7 @@
               class="btn btn-primary"
               :disabled="setting || !!passwordMismatch || !password || !confirmPassword"
             >
-              {{ setting ? 'Setting Password…' : 'Create Password' }}
+              {{ setting ? 'Saving and signing you in…' : 'Create password and continue' }}
             </button>
           </form>
         </div>
@@ -81,16 +86,15 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
-import { getDashboardRoute } from '../utils/router';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
 import PasswordStrengthMeter from '../components/PasswordStrengthMeter.vue';
+import PasswordRecoveryBrand from '../components/PasswordRecoveryBrand.vue';
+import { completePasswordTokenLogin } from '../utils/completePasswordTokenLogin.js';
 
 const router = useRouter();
 const route = useRoute();
-const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 
 const loading = ref(true);
@@ -100,11 +104,19 @@ const password = ref('');
 const confirmPassword = ref('');
 const setting = ref(false);
 const setupError = ref('');
-
 const showPassword = ref(false);
 const showConfirm = ref(false);
+const tenantBrand = ref(null);
+const schoolBrand = ref(null);
 
 const loginBackground = computed(() => brandingStore.loginBackground);
+const pageStyle = computed(() => ({
+  background: loginBackground.value || 'linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%)'
+}));
+const loginTo = computed(() => {
+  const slug = route.params.organizationSlug || tenantBrand.value?.slug;
+  return slug ? `/${slug}/login` : '/login';
+});
 
 const passwordMismatch = computed(() =>
   password.value && confirmPassword.value && password.value !== confirmPassword.value
@@ -126,6 +138,10 @@ const validateToken = async () => {
     const first = response.data.firstName || 'User';
     const preferred = String(response.data?.preferredName || '').trim();
     userFirstName.value = preferred ? `${first} "${preferred}"` : first;
+    tenantBrand.value = response.data?.tenant || null;
+    schoolBrand.value = response.data?.school || null;
+    const slug = route.params.organizationSlug || response.data?.portalSlug || response.data?.tenant?.slug;
+    if (slug) await brandingStore.fetchAgencyTheme(slug);
     loading.value = false;
   } catch (err) {
     error.value = err.response?.data?.error?.message || err.message || 'Invalid or expired setup link. Please contact your administrator.';
@@ -164,29 +180,7 @@ const handleSetup = async () => {
     const response = await api.post(`/auth/initial-setup/${encodeURIComponent(token)}`, {
       password: password.value
     });
-
-    authStore.setAuth(response.data.token || null, response.data.user, response.data.sessionId);
-    sessionStorage.setItem('justLoggedIn', 'true');
-
-    if (authStore.user.role !== 'super_admin' && authStore.user.type !== 'approved_employee') {
-      try {
-        const { useAgencyStore } = await import('../store/agency');
-        const agencyStore = useAgencyStore();
-        await agencyStore.fetchUserAgencies();
-      } catch (err) {
-        console.error('Failed to fetch user agencies after initial setup:', err);
-      }
-    } else if (response.data.agencies && response.data.agencies.length > 0) {
-      const { useAgencyStore } = await import('../store/agency');
-      const agencyStore = useAgencyStore();
-      agencyStore.setCurrentAgency(response.data.agencies[0]);
-      const { storeUserAgencies } = await import('../utils/loginRedirect');
-      storeUserAgencies(response.data.agencies);
-    }
-
-    setTimeout(() => {
-      router.push(getDashboardRoute());
-    }, 500);
+    await completePasswordTokenLogin(response.data, router);
   } catch (err) {
     setupError.value = err.response?.data?.error?.message || err.message || 'Failed to set password. Please try again.';
     setting.value = false;
@@ -219,12 +213,12 @@ onMounted(async () => {
 }
 
 .setup-card {
-  background: white;
-  padding: 40px;
-  border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+  background: #fff;
+  padding: 36px 32px 32px;
+  border-radius: 16px;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.16);
   width: 100%;
-  max-width: 450px;
+  max-width: 460px;
   text-align: center;
 }
 

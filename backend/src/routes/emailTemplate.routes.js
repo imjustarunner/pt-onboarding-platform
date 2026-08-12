@@ -2,6 +2,9 @@ import express from 'express';
 import {
   getTemplates,
   getTemplate,
+  resolveTemplate,
+  listTemplatesForType,
+  setDefaultTemplate,
   createTemplate,
   updateTemplate,
   deleteTemplate,
@@ -19,6 +22,11 @@ router.use(authenticate);
 
 // Get available parameters (no template ID needed)
 router.get('/parameters', getAvailableParameters);
+
+// Resolve agency-or-platform template by type (must be before /:id)
+router.get('/resolve', resolveTemplate);
+router.get('/for-type', listTemplatesForType);
+router.post('/:id/set-default', setDefaultTemplate);
 
 // Get all templates
 router.get('/', getTemplates);

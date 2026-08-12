@@ -298,6 +298,11 @@ const emailTypeRows = [
     description: 'Fallback for automated emails when no more specific type is set.'
   },
   {
+    key: 'password_reset',
+    label: 'Forgot password',
+    description: 'Reset-link emails when someone clicks Forgot Password on login.'
+  },
+  {
     key: 'school_roi_signing',
     label: 'School ROI signing link',
     description: 'Release-of-information signing link emails to guardians.'

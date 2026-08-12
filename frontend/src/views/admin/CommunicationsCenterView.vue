@@ -6,7 +6,7 @@
       <div class="cc-brand">
         <p class="cc-eyebrow">{{ agencyLabel }} · Support</p>
         <h1>Communications Center</h1>
-        <p class="cc-tag">Home, Messages, Support Hub, Automation, and School alerts — one Communications Center</p>
+        <p class="cc-tag">Home, Messages, Support Hub, Automation, Admin Update, and School alerts — one Communications Center</p>
       </div>
       <nav class="cc-switch" role="tablist" aria-label="Communications Center sections">
         <button
@@ -56,6 +56,17 @@
             v-if="automationAttentionCount > 0"
             :class="{ 'cc-badge-quality': automationQualityCount > 0 }"
           >{{ automationAttentionCount > 99 ? '99+' : automationAttentionCount }}</em>
+        </button>
+        <button
+          v-if="canUseSupportHub"
+          type="button"
+          role="tab"
+          :aria-selected="activeMode === 'admin-update'"
+          class="cc-switch-btn"
+          :class="{ on: activeMode === 'admin-update' }"
+          @click.prevent.stop="setMode('admin-update')"
+        >
+          Admin Update
         </button>
         <button
           v-if="canUseSchoolAlerts"
@@ -282,6 +293,7 @@
               <li><router-link :to="campaignsPath">Broadcasts / campaigns</router-link></li>
               <li><router-link :to="textingSettingsPath">Message routing</router-link></li>
               <li v-if="canUseSupportHub"><button type="button" class="cc-text-btn" @click.prevent.stop="setMode('automation')">Automation &amp; system messages</button></li>
+              <li v-if="canUseSupportHub"><button type="button" class="cc-text-btn" @click.prevent.stop="setMode('admin-update')">Admin Update newsletter</button></li>
               <li v-if="canUseSchoolAlerts"><button type="button" class="cc-text-btn" @click.prevent.stop="setMode('school')">School alerts</button></li>
               <li v-if="canUseSupportHub"><button type="button" class="cc-text-btn" @click.prevent.stop="openAutomationFeed('pending')">Pending / failed deliveries</button></li>
             </ul>
@@ -424,6 +436,12 @@
         @counts-changed="load"
       />
 
+      <CommunicationsCenterAdminUpdate
+        v-if="activeMode === 'admin-update'"
+        :prefix="prefix"
+        @go-home="setMode('home')"
+      />
+
       <!-- ========== SCHOOL ALERTS ========== -->
       <CommunicationsCenterSchoolAlerts
         v-if="activeMode === 'school'"
@@ -443,6 +461,7 @@ import { useAgencyStore } from '../../store/agency';
 import MessagesDashboard from '../../components/messages/MessagesDashboard.vue';
 import CommunicationsCenterAutomation from '../../components/communications/CommunicationsCenterAutomation.vue';
 import CommunicationsCenterSchoolAlerts from '../../components/communications/CommunicationsCenterSchoolAlerts.vue';
+import CommunicationsCenterAdminUpdate from '../../components/communications/CommunicationsCenterAdminUpdate.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -466,7 +485,7 @@ const escalationSummary = ref({ counts: { open: 0 }, recent: [] });
 
 function modeFromQuery(raw) {
   const m = String(raw || 'home').toLowerCase();
-  if (['home', 'messages', 'support', 'automation', 'school'].includes(m)) return m;
+  if (['home', 'messages', 'support', 'automation', 'admin-update', 'school'].includes(m)) return m;
   // legacy feed deep-links
   if (m === 'dashboard') return 'home';
   return 'home';
@@ -590,6 +609,7 @@ const managementTools = computed(() => {
     { id: 'campaigns', label: 'Broadcasts', desc: 'Campaigns and one-time sends', to: campaignsPath.value, roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider', 'schedule_manager', 'supervisor'] },
     { id: 'contacts', label: 'Contacts', desc: 'Agency contact directory', to: contactsPath.value, roles: ['admin', 'support', 'super_admin'] },
     { id: 'routing', label: 'Message routing', desc: 'SMS numbers and assignments', to: textingSettingsPath.value, roles: ['admin', 'support', 'super_admin'] },
+    { id: 'admin-update', label: 'Admin Update', desc: 'Monthly branded staff newsletter', to: `${prefix.value}/admin/communications?mode=admin-update`, roles: ['admin', 'support', 'super_admin', 'staff'] },
     { id: 'school', label: 'School alerts', desc: 'School portal notifications', to: `${prefix.value}/admin/communications?mode=school`, roles: null, needsFeed: true },
     { id: 'compliance', label: 'Compliance', desc: 'Proof and opt-in surfaces', to: `${feedPath.value}?tab=proof`, roles: null, needsFeed: true },
     { id: 'sms', label: 'SMS inbox', desc: 'Clinical care threads', to: smsPath.value, roles: null, needsSms: true },
@@ -610,7 +630,7 @@ const managementTools = computed(() => {
 
 function setMode(next, extraQuery = {}) {
   let mode = modeFromQuery(next);
-  if ((mode === 'support' || mode === 'automation') && !canUseSupportHub.value) mode = 'messages';
+  if ((mode === 'support' || mode === 'automation' || mode === 'admin-update') && !canUseSupportHub.value) mode = 'messages';
   if (mode === 'school' && !canUseSchoolAlerts.value) mode = 'home';
   activeMode.value = mode;
   const query = { ...route.query, mode, ...extraQuery };

@@ -1042,6 +1042,29 @@
     </div>
 
     <div
+      v-if="!currentSplashAnnouncement && currentAdminUpdateSplash && !mandatorySupervisionPrompt"
+      class="blocking-splash"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Admin Update"
+    >
+      <div class="blocking-splash-card">
+        <div class="blocking-splash-head">
+          <BrandingLogo size="medium" class="blocking-splash-logo" />
+          <div class="blocking-splash-brand">{{ brandingStore.displayName || currentAgency?.name || 'Organization' }}</div>
+        </div>
+        <h3 class="blocking-splash-title">{{ currentAdminUpdateSplash.title || 'Admin Update' }}</h3>
+        <p class="blocking-splash-message">
+          {{ currentAdminUpdateSplash.subtitle || 'This month’s Admin Update is ready in the app. Open it to read the full newsletter.' }}
+        </p>
+        <div class="blocking-splash-actions">
+          <button type="button" class="btn btn-secondary" @click="dismissAdminUpdateSplash">Later</button>
+          <button type="button" class="btn btn-primary" @click="openAdminUpdateSplash">Open Admin Update</button>
+        </div>
+      </div>
+    </div>
+
+    <div
       v-if="currentSplashAnnouncement && !mandatorySupervisionPrompt"
       class="blocking-splash"
       role="dialog"
@@ -1071,7 +1094,7 @@
     </div>
 
     <div
-      v-if="!currentSplashAnnouncement && currentRoiReminderSplash && !mandatorySupervisionPrompt && !showProviderYearUpdateSplash"
+      v-if="!currentSplashAnnouncement && !currentAdminUpdateSplash && currentRoiReminderSplash && !mandatorySupervisionPrompt && !showProviderYearUpdateSplash"
       class="blocking-splash"
       role="dialog"
       aria-modal="true"
@@ -1098,7 +1121,7 @@
     </div>
 
     <div
-      v-if="showProviderYearUpdateSplash && !currentSplashAnnouncement && !mandatorySupervisionPrompt"
+      v-if="showProviderYearUpdateSplash && !currentSplashAnnouncement && !currentAdminUpdateSplash && !mandatorySupervisionPrompt"
       class="blocking-splash pyu-login-splash"
       role="dialog"
       aria-modal="true"
@@ -1900,6 +1923,7 @@ const dashboardBannerTexts = computed(() => {
 
 const SPLASH_DISMISS_STORAGE_PREFIX = 'dashboardSplashDismissed.v1';
 const splashDismissVersion = ref(0);
+const currentAdminUpdateSplash = ref(null);
 const ROI_REMINDER_SPLASH_DISMISS_PREFIX = 'dashboardRoiReminderDismissed.v1';
 const roiReminderDismissVersion = ref(0);
 const roiReminderNotifications = ref([]);
@@ -1972,6 +1996,40 @@ const dismissCurrentSplash = () => {
     // ignore persistence errors; user can still continue in-memory
   }
   splashDismissVersion.value += 1;
+};
+
+const loadAdminUpdateSplash = async () => {
+  if (props.previewMode || !authStore.isAuthenticated) {
+    currentAdminUpdateSplash.value = null;
+    return;
+  }
+  try {
+    const res = await api.get('/admin-updates/me/pending-splash', { skipGlobalLoading: true });
+    currentAdminUpdateSplash.value = res.data?.splash || null;
+  } catch {
+    currentAdminUpdateSplash.value = null;
+  }
+};
+
+const openAdminUpdateSplash = async () => {
+  const item = currentAdminUpdateSplash.value;
+  if (!item) return;
+  try {
+    await api.post(`/admin-updates/me/splash/${item.id}/open`, {}, { skipGlobalLoading: true });
+  } catch { /* ignore */ }
+  const slug = String(route.params?.organizationSlug || item.slug || item.portal_url || '').trim();
+  const path = slug ? `/${slug}/admin-update/${item.view_token}` : `/admin-update/${item.view_token}`;
+  currentAdminUpdateSplash.value = null;
+  router.push(path).catch(() => {});
+};
+
+const dismissAdminUpdateSplash = async () => {
+  const item = currentAdminUpdateSplash.value;
+  if (!item) return;
+  try {
+    await api.post(`/admin-updates/me/splash/${item.id}/dismiss`, {}, { skipGlobalLoading: true });
+  } catch { /* ignore */ }
+  currentAdminUpdateSplash.value = null;
 };
 
 const isProviderRole = computed(() => {
@@ -5116,6 +5174,7 @@ onMounted(async () => {
   if (!props.previewMode && authStore.isAuthenticated) {
     api.post('/auth/activity-log', { actionType: 'dashboard_view' }, { skipGlobalLoading: true }).catch(() => {});
     fetchUserTimeCategories();
+    loadAdminUpdateSplash();
   }
   // Remember Google quick-login only after a successful OAuth callback hit dashboard.
   if (String(route.query?.sso || '') === '1') {

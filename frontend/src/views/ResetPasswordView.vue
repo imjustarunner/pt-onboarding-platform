@@ -1,7 +1,13 @@
 <template>
-  <div class="reset-container" :style="{ background: loginBackground }">
+  <div class="reset-page" :style="pageStyle">
     <div class="reset-content">
       <div class="reset-card">
+        <PasswordRecoveryBrand
+          :tenant="tenantBrand"
+          :school="schoolBrand"
+          :fallback-logo-url="brandingStore.displayLogoUrl || brandingStore.logoUrl"
+        />
+
         <div v-if="loading" class="loading">
           <p>Loading…</p>
         </div>
@@ -9,16 +15,15 @@
         <div v-else-if="error" class="error">
           <h2>Reset Error</h2>
           <p>{{ error }}</p>
-          <router-link to="/login" class="btn btn-primary">Go to Login</router-link>
+          <router-link :to="loginTo" class="btn btn-primary">Go to Login</router-link>
         </div>
 
         <div v-else class="reset-form">
           <h2 v-if="firstName">Hi {{ firstName }},</h2>
-          <h2 v-else>Reset your password</h2>
-          <p class="subtitle">Please choose a new password to continue.</p>
+          <h2 v-else>Set your password</h2>
+          <p class="subtitle">Choose a new password. You will be signed in automatically after you save it.</p>
 
           <form @submit.prevent="handleReset" autocomplete="on">
-            <!-- New password -->
             <div class="form-group">
               <label for="password">New Password</label>
               <div class="input-wrap">
@@ -41,7 +46,6 @@
               <PasswordStrengthMeter :password="password" :confirm-password="confirmPassword" />
             </div>
 
-            <!-- Confirm password -->
             <div class="form-group">
               <label for="confirmPassword">Confirm New Password</label>
               <div class="input-wrap">
@@ -67,10 +71,10 @@
 
             <button
               type="submit"
-              class="btn btn-primary"
+              class="btn btn-primary reset-submit"
               :disabled="saving || !!passwordMismatch || !password || !confirmPassword"
             >
-              {{ saving ? 'Saving…' : 'Reset Password' }}
+              {{ saving ? 'Saving and signing you in…' : 'Save password and continue' }}
             </button>
           </form>
         </div>
@@ -84,16 +88,15 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
-import { getDashboardRoute } from '../utils/router';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
 import PasswordStrengthMeter from '../components/PasswordStrengthMeter.vue';
+import PasswordRecoveryBrand from '../components/PasswordRecoveryBrand.vue';
+import { completePasswordTokenLogin } from '../utils/completePasswordTokenLogin.js';
 
 const router = useRouter();
 const route = useRoute();
-const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 
 const loading = ref(true);
@@ -103,11 +106,19 @@ const password = ref('');
 const confirmPassword = ref('');
 const saving = ref(false);
 const formError = ref('');
-
 const showPassword = ref(false);
 const showConfirm = ref(false);
+const tenantBrand = ref(null);
+const schoolBrand = ref(null);
 
 const loginBackground = computed(() => brandingStore.loginBackground);
+const pageStyle = computed(() => ({
+  background: loginBackground.value || 'linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%)'
+}));
+const loginTo = computed(() => {
+  const slug = route.params.organizationSlug || tenantBrand.value?.slug;
+  return slug ? `/${slug}/login` : '/login';
+});
 
 const passwordMismatch = computed(() =>
   password.value && confirmPassword.value && password.value !== confirmPassword.value
@@ -120,6 +131,15 @@ const token = computed(() => {
   return typeof t === 'string' ? t : '';
 });
 
+const applyBranding = async (data) => {
+  tenantBrand.value = data?.tenant || null;
+  schoolBrand.value = data?.school || null;
+  const slug = route.params.organizationSlug || data?.portalSlug || data?.tenant?.slug;
+  if (slug) {
+    await brandingStore.fetchAgencyTheme(slug);
+  }
+};
+
 const validateToken = async () => {
   if (!token.value) {
     error.value = 'Invalid reset link. Token is missing.';
@@ -130,11 +150,7 @@ const validateToken = async () => {
   try {
     const resp = await api.get(`/auth/validate-reset-token/${encodeURIComponent(token.value)}`);
     firstName.value = resp.data.firstName || '';
-
-    if (!route.params.organizationSlug && resp.data.portalSlug) {
-      await brandingStore.fetchAgencyTheme(resp.data.portalSlug);
-    }
-
+    await applyBranding(resp.data);
     loading.value = false;
   } catch (err) {
     if (err?.message?.includes('Unexpected token') || err?.message?.includes('JSON')) {
@@ -171,23 +187,7 @@ const handleReset = async () => {
     const resp = await api.post(`/auth/reset-password/${encodeURIComponent(token.value)}`, {
       password: password.value
     });
-
-    authStore.setAuth(resp.data.token || null, resp.data.user, resp.data.sessionId);
-    sessionStorage.setItem('justLoggedIn', 'true');
-
-    if (authStore.user.role !== 'super_admin' && authStore.user.type !== 'approved_employee') {
-      try {
-        const { useAgencyStore } = await import('../store/agency');
-        const agencyStore = useAgencyStore();
-        await agencyStore.fetchUserAgencies();
-      } catch (e) {
-        // ignore
-      }
-    }
-
-    setTimeout(() => {
-      router.push(getDashboardRoute());
-    }, 400);
+    await completePasswordTokenLogin(resp.data, router);
   } catch (err) {
     formError.value = err.response?.data?.error?.message || err.message || 'Failed to reset password.';
     saving.value = false;
@@ -203,85 +203,79 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.reset-container {
+.reset-page {
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
-  align-items: stretch;
   min-height: 100vh;
-  padding: 24px 16px;
+  padding: 32px 16px 16px;
 }
-
 .reset-content {
   flex: 1;
   display: flex;
   justify-content: center;
   align-items: center;
 }
-
 .reset-card {
-  background: white;
-  padding: 40px;
-  border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+  background: #fff;
+  padding: 36px 32px 32px;
+  border-radius: 16px;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.16);
   width: 100%;
-  max-width: 450px;
+  max-width: 460px;
   text-align: center;
 }
-
-.subtitle {
-  color: #666;
-  margin-bottom: 30px;
-  font-size: 14px;
+.reset-form h2 {
+  margin: 0 0 8px;
+  color: var(--primary, #0f766e);
+  font-weight: 700;
 }
-
+.subtitle {
+  color: #64748b;
+  margin-bottom: 24px;
+  font-size: 14px;
+  line-height: 1.45;
+}
 .form-group {
-  margin-bottom: 20px;
+  margin-bottom: 18px;
   text-align: left;
 }
-
 .form-group label {
   display: block;
   margin-bottom: 8px;
-  color: #333;
-  font-weight: 500;
+  color: #0f172a;
+  font-weight: 600;
 }
-
 .input-wrap {
   position: relative;
   display: flex;
   align-items: center;
 }
-
 .form-input {
   width: 100%;
   padding: 12px 72px 12px 12px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
   font-size: 16px;
   box-sizing: border-box;
 }
-
 .toggle-vis {
   position: absolute;
   right: 10px;
   background: none;
   border: none;
-  color: #6366f1;
+  color: var(--primary, #0f766e);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   padding: 4px 6px;
   border-radius: 4px;
-  white-space: nowrap;
 }
-.toggle-vis:hover {
-  background: #f0f0ff;
-}
-
+.toggle-vis:hover { background: #f0fdfa; }
 .error-message {
   color: var(--error, #ef4444);
   font-size: 14px;
   margin: 10px 0;
 }
+.reset-submit { width: 100%; margin-top: 8px; }
+.error h2 { margin-top: 0; }
 </style>

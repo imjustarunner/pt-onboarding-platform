@@ -557,6 +557,10 @@
               </div>
               <div v-if="recoveryError" class="error">{{ recoveryError }}</div>
               <div v-if="recoverySuccess" class="success">{{ recoverySuccess }}</div>
+              <div v-if="recoverySuccess" class="recovery-junk-notice">
+                <strong>Check Junk / Spam.</strong>
+                This email often lands there. Open Junk, move the message to Inbox if you find it, and mark the sender as safe so future messages are delivered.
+              </div>
               <div v-if="recoveryDebug?.resetLink" class="debug">
                 <p><strong>Dev test link:</strong></p>
                 <a :href="recoveryDebug.resetLink" target="_blank" rel="noopener noreferrer">{{ recoveryDebug.resetLink }}</a>
@@ -3128,6 +3132,17 @@ const handleLogoError = (event) => {
   color: var(--text-secondary);
   font-size: 14px;
   line-height: 1.4;
+}
+
+.recovery-junk-notice {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .modal-form .btn {

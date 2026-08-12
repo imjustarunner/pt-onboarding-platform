@@ -694,6 +694,20 @@ export const NAV_SEARCH_INDEX = [
     keywords: ['messages', 'messaging', 'inbox', 'direct messages'],
     desc: 'Direct messages and communications.'
   },
+  {
+    title: 'Email Settings',
+    section: 'Communications',
+    path: '/admin/email-settings',
+    keywords: ['email settings', 'auto email', 'automated email', 'sender identity', 'from address', 'notifications@', 'fallback', 'forgot password', 'delivery settings'],
+    desc: 'Tenant automated emails — From identity, triggers, and approval vs. send.'
+  },
+  {
+    title: 'Communications Center',
+    section: 'Communications',
+    path: '/admin/communications',
+    keywords: ['communications center', 'automation', 'pending approval', 'quality issues', 'admin update', 'newsletter'],
+    desc: 'Home, messages, support, automation, Admin Update, and school alerts.'
+  },
 
   // ─── School Portal Pages ──────────────────────────────────────────────────────
   {

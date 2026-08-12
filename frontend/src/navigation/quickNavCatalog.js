@@ -628,6 +628,28 @@ function buildAppEntries() {
       requires: ['canManageHiring']
     },
     {
+      id: 'admin-email-settings',
+      routeName: 'AutomatedEmailSettings',
+      label: 'Email Settings',
+      description: 'Automated emails, sender identities, and approval vs. send.',
+      group: 'admin',
+      keywords: ['email settings', 'auto email', 'automated email', 'sender', 'from address', 'notifications', 'fallback', 'delivery', 'roi approval', 'templates'],
+      kind: 'path',
+      path: '/admin/email-settings',
+      rolesAny: ['admin', 'super_admin', 'support']
+    },
+    {
+      id: 'admin-update-newsletter',
+      routeName: 'CommunicationsCenter',
+      label: 'Admin Update',
+      description: 'Monthly branded staff newsletter from Communications Center.',
+      group: 'admin',
+      keywords: ['admin update', 'newsletter', 'staffing updates', 'departures', 'monthly email'],
+      kind: 'path',
+      path: '/admin/communications?mode=admin-update',
+      rolesAny: ['admin', 'super_admin', 'support', 'staff']
+    },
+    {
       id: 'admin-audit',
       routeName: 'AuditCenter',
       label: 'Audit Center',

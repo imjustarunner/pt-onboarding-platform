@@ -8,12 +8,13 @@ import UserCommunication from '../../models/UserCommunication.model.js';
 import CommunicationLoggingService from '../communicationLogging.service.js';
 import { logContactCommunicationIfApplicable } from '../contactCommsLogging.service.js';
 import { isAgencyTriggerChannelEnabled } from '../notificationTriggerSettings.service.js';
-import { emailRequiresAdminApproval } from '../emailSettings.service.js';
+import { emailRequiresAdminApproval, getEmailSendingMode, isEmailNotificationsEnabled } from '../emailSettings.service.js';
 import {
   validateOutboundEmailQuality,
   formatQualityFlags,
   scanStoredCommunicationQuality
 } from '../outboundEmailQuality.service.js';
+import { buildFallbackSenderMetadata } from '../../constants/automatedEmailCatalog.js';
 
 async function canSendEmail({ source, agencyId } = {}) {
   const mode = await getEmailSendingMode();
@@ -382,10 +383,10 @@ export async function sendNotificationEmail({
   }
 
   const delivery = await resolveTriggerDeliveryConfig({ agencyId, triggerKey });
-  const identity = delivery.identity;
+  let identity = delivery.identity;
+  let usedFallbackSender = false;
   if (!identity) {
-    // Record the missing-identity failure on the Communications tab so it's
-    // visible instead of only appearing in server logs.
+    usedFallbackSender = true;
     await logSkippedOrFailedEmail({
       to,
       subject,
@@ -397,11 +398,20 @@ export async function sendNotificationEmail({
       templateType: templateType || `trigger:${triggerKey}`,
       templateId,
       generatedByUserId,
-      deliveryStatus: 'failed',
-      errorMessage: `No sender identity configured for trigger "${triggerKey}"`,
-      metadata: { triggerKey, source, reason: 'missing_sender_identity' }
+      deliveryStatus: 'pending',
+      errorMessage: `Queued — no sender identity configured for trigger "${triggerKey}". Assign a From in Email Settings, then approve.`,
+      metadata: {
+        triggerKey,
+        source,
+        reason: 'missing_sender_identity',
+        ...buildFallbackSenderMetadata({ reason: 'missing_sender_identity' })
+      }
     });
-    throw new Error(`No sender identity configured for trigger "${triggerKey}" (agency ${agencyId})`);
+    return {
+      queued: true,
+      pendingApproval: true,
+      reason: 'fallback_sender_requires_approval'
+    };
   }
 
   const effectiveSubject = delivery.subjectOverride || subject;
@@ -559,7 +569,9 @@ export async function sendEmailFromIdentity({
   intakeSubmissionId = null,
   intakeLinkId = null,
   jobDescriptionId = null,
-  existingCommunicationId = null
+  existingCommunicationId = null,
+  usedFallbackSender = false,
+  fallbackReason = null
 }) {
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
@@ -636,6 +648,12 @@ export async function sendEmailFromIdentity({
   const trackingToken = signedContent.html ? UserCommunication.generateTrackingToken() : null;
   const htmlWithPixel = signedContent.html ? injectTrackingPixel(signedContent.html, trackingToken) : signedContent.html;
   const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+  const fallbackMeta = usedFallbackSender
+    ? buildFallbackSenderMetadata({
+      reason: fallbackReason || 'fallback_sender_identity',
+      fromEmail: identity.from_email
+    })
+    : {};
 
   let comm = null;
   if (existingCommunicationId) {
@@ -664,7 +682,8 @@ export async function sendEmailFromIdentity({
           ...(intakeSubmissionId ? { intakeSubmissionId: Number(intakeSubmissionId) } : {}),
           ...(intakeLinkId ? { intakeLinkId: Number(intakeLinkId) } : {}),
           ...(jobDescriptionId ? { jobDescriptionId: Number(jobDescriptionId) } : {}),
-          ...(hasAttachments ? { hadAttachments: true, attachmentCount: attachments.length } : {})
+          ...(hasAttachments ? { hadAttachments: true, attachmentCount: attachments.length } : {}),
+          ...fallbackMeta
         }
       });
     } catch (logErr) {
@@ -674,12 +693,17 @@ export async function sendEmailFromIdentity({
   }
 
   const resolvedTemplateType = templateType || 'identity_send';
-  if (!existingCommunicationId && comm?.id && await emailRequiresAdminApproval({ agencyId: identity?.agency_id, templateType: resolvedTemplateType })) {
+  const needsApproval = !existingCommunicationId && comm?.id && await emailRequiresAdminApproval({
+    agencyId: identity?.agency_id,
+    templateType: resolvedTemplateType,
+    usedFallbackSender
+  });
+  if (needsApproval) {
     return {
       queued: true,
       pendingApproval: true,
       communicationId: comm.id,
-      reason: 'school_roi_requires_approval'
+      reason: usedFallbackSender ? 'fallback_sender_requires_approval' : 'requires_approval'
     };
   }
 

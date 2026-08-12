@@ -120,7 +120,7 @@ export function parseCommunicationMetadata(raw) {
 export function scanStoredCommunicationQuality(row) {
   const meta = parseCommunicationMetadata(row?.metadata ?? row?.meta);
   const hadAttachments = !!(meta.hadAttachments || Number(meta.attachmentCount || 0) > 0);
-  const { flags } = validateOutboundEmailQuality({
+  const { flags: qualityFlags } = validateOutboundEmailQuality({
     subject: row?.subject,
     text: '',
     html: row?.body,
@@ -130,6 +130,13 @@ export function scanStoredCommunicationQuality(row) {
     clientId: row?.client_id,
     hadAttachments
   });
+  const flags = [...qualityFlags];
+  if (meta.usedFallbackSender) {
+    flags.push({
+      code: 'fallback_sender',
+      message: 'This email would send from a fallback From address. Assign a tenant sender identity in Email Settings, then approve.'
+    });
+  }
   return flags;
 }
 

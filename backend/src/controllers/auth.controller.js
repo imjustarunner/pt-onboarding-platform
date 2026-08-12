@@ -14,7 +14,7 @@ import EmailService from '../services/email.service.js';
 import EmailTemplateService from '../services/emailTemplate.service.js';
 import CommunicationLoggingService from '../services/communicationLogging.service.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
-import { resolvePreferredSenderIdentityForAgency } from '../services/emailSenderIdentityResolver.service.js';
+import { resolvePreferredSenderIdentityForAgency, resolveSenderIdentityForSend } from '../services/emailSenderIdentityResolver.service.js';
 import { getPlatformAgencyId } from './summitStats.controller.js';
 import pool from '../config/database.js';
 import ChallengeParticipantProfile from '../models/ChallengeParticipantProfile.model.js';
@@ -2481,13 +2481,17 @@ export const validateSetupToken = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Password already set' } });
     }
 
+    const { buildPasswordRecoveryBranding } = await import('../services/passwordRecoveryBranding.service.js');
+    const branding = await buildPasswordRecoveryBranding(req, user);
+
     // Return user info for welcome message
     res.json({
       firstName: user.first_name,
       lastName: user.last_name,
       preferredName: user.preferred_name || null,
       email: user.personal_email || user.email,
-      username: user.username || user.personal_email || user.email
+      username: user.username || user.personal_email || user.email,
+      ...branding
     });
   } catch (error) {
     next(error);
@@ -2515,12 +2519,12 @@ export const validateResetToken = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'This link is not a password reset link' } });
     }
 
-    const userAgencies = await User.getAgencies(user.id);
-    const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
+    const { buildPasswordRecoveryBranding } = await import('../services/passwordRecoveryBranding.service.js');
+    const branding = await buildPasswordRecoveryBranding(req, user);
 
     res.json({
       firstName: user.first_name,
-      portalSlug
+      ...branding
     });
   } catch (error) {
     next(error);
@@ -2694,10 +2698,13 @@ const getOrgAdminEmail = (agency) => {
   return candidates[0] || null;
 };
 
+const RECOVERY_JUNK_NOTICE = 'Important: this message often lands in Junk or Spam. Please check Junk, move it to Inbox if you find it there, and mark the sender as safe so you do not miss future messages from us.';
+
 const resolveRecoverySenderIdentity = async (agencyId) => {
-  return await resolvePreferredSenderIdentityForAgency({
+  return await resolveSenderIdentityForSend({
     agencyId: agencyId ? Number(agencyId) : null,
-    preferredKeys: ['login_recovery', 'system', 'default', 'notifications']
+    templateType: 'password_reset',
+    preferredKeys: ['login_recovery', 'notifications']
   });
 };
 
@@ -2749,17 +2756,22 @@ const sendRecoveryEmail = async ({
   html = null,
   source = 'auto'
 }) => {
-  const identity = await resolveRecoverySenderIdentity(agencyId);
-  if (identity?.id) {
+  const resolved = await resolveRecoverySenderIdentity(agencyId);
+  if (resolved?.identity?.id) {
     return await sendEmailFromIdentity({
-      senderIdentityId: identity.id,
+      senderIdentityId: resolved.identity.id,
       to,
       subject,
       text,
       html,
-      source
+      source,
+      agencyId,
+      templateType: 'password_reset',
+      usedFallbackSender: false
     });
   }
+  // No tenant login_recovery / notifications identity — queue for approval instead of
+  // sending from a generic fallback mailbox (spam risk).
   return await EmailService.sendEmail({
     to,
     subject,
@@ -2769,7 +2781,9 @@ const sendRecoveryEmail = async ({
     fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
     replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
     source,
-    agencyId: agencyId || null
+    agencyId: agencyId || null,
+    templateType: 'password_reset',
+    usedFallbackSender: true
   });
 };
 
@@ -2884,7 +2898,22 @@ export const requestPasswordReset = async (req, res, next) => {
 
     // Best-effort template support (falls back to simple text)
     let subject = 'Reset your password';
-    let body = `We received a request to reset your password.\n\nReset your password using this link (expires in ${expiresInHours} hours):\n${resetLink}\n\nIf you did not request this, you can ignore this email.`;
+    let body = [
+      'We received a request to reset your password.',
+      '',
+      `Reset your password using this link (expires in ${expiresInHours} hours):`,
+      resetLink,
+      '',
+      RECOVERY_JUNK_NOTICE,
+      '',
+      'If you did not request this, you can ignore this email.'
+    ].join('\n');
+    let html = [
+      '<p>We received a request to reset your password.</p>',
+      `<p><a href="${resetLink}">Reset your password</a> (expires in ${expiresInHours} hours)</p>`,
+      `<p><strong>${RECOVERY_JUNK_NOTICE}</strong></p>`,
+      '<p>If you did not request this, you can ignore this email.</p>'
+    ].join('');
     try {
       const template = await EmailTemplateService.getTemplateForAgency(agency?.id || null, 'password_reset');
       if (template?.body) {
@@ -2895,6 +2924,13 @@ export const requestPasswordReset = async (req, res, next) => {
         const rendered = EmailTemplateService.renderTemplate(template, params);
         subject = rendered.subject || subject;
         body = rendered.body || body;
+        if (!String(body).includes('Junk')) {
+          body = `${body}\n\n${RECOVERY_JUNK_NOTICE}`;
+        }
+        html = `<pre style="font-family:inherit;white-space:pre-wrap;">${String(body)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')}</pre>`;
       }
     } catch {
       // ignore
@@ -2928,7 +2964,7 @@ export const requestPasswordReset = async (req, res, next) => {
         to,
         subject,
         text: body,
-        html: null,
+        html,
         source: 'auto'
       });
     } catch (e) {

@@ -2,6 +2,7 @@ import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import NotificationTrigger from '../models/NotificationTrigger.model.js';
 import AgencyNotificationTriggerSetting from '../models/AgencyNotificationTriggerSetting.model.js';
 import { getAgencyEmailSettings } from './emailSettings.service.js';
+import { preferredIdentityKeysForTemplateType } from '../constants/automatedEmailCatalog.js';
 
 function normalizeKey(value) {
   return String(value || '').trim().toLowerCase();
@@ -14,6 +15,16 @@ export function pickPreferredSenderIdentity(list = [], preferredKeys = []) {
     if (match) return match;
   }
   return (list || [])[0] || null;
+}
+
+/** Like pickPreferredSenderIdentity but never returns an unrelated first-active identity. */
+export function pickPreferredSenderIdentityStrict(list = [], preferredKeys = []) {
+  const normalizedPreferred = (preferredKeys || []).map(normalizeKey).filter(Boolean);
+  for (const key of normalizedPreferred) {
+    const match = (list || []).find((identity) => normalizeKey(identity?.identity_key) === key);
+    if (match) return match;
+  }
+  return null;
 }
 
 async function resolveTriggerSenderIdentityId(agencyId, triggerKey) {
@@ -31,10 +42,11 @@ async function resolveTriggerSenderIdentityId(agencyId, triggerKey) {
   return null;
 }
 
-async function resolveConfiguredSenderIdentityId({
+export async function resolveConfiguredSenderIdentityId({
   agencyId,
   templateType = null,
-  triggerKey = null
+  triggerKey = null,
+  includeAgencyDefault = true
 }) {
   const aid = Number(agencyId || 0);
   if (!aid) return null;
@@ -49,7 +61,9 @@ async function resolveConfiguredSenderIdentityId({
   const tt = String(templateType || '').trim().toLowerCase();
   if (tt && byType[tt]) return Number(byType[tt]);
 
-  if (settings.defaultSenderIdentityId) return Number(settings.defaultSenderIdentityId);
+  if (includeAgencyDefault && settings.defaultSenderIdentityId) {
+    return Number(settings.defaultSenderIdentityId);
+  }
   return null;
 }
 
@@ -119,4 +133,60 @@ export async function resolvePreferredSenderIdentityForAgency({
 
 export async function resolvePreferredSenderIdentityForSchoolThenAgency(params = {}) {
   return await resolveConfiguredSenderIdentity(params);
+}
+
+/**
+ * Resolve a From identity for an outbound send without silently using an
+ * unrelated first-active mailbox. Preferred-key matches (e.g. login_recovery
+ * for password reset) count as configured. Agency default outbound does not.
+ */
+export async function resolveSenderIdentityForSend({
+  agencyId = null,
+  templateType = null,
+  triggerKey = null,
+  preferredKeys = null,
+  includePlatformDefaults = true,
+  onlyActive = true
+} = {}) {
+  const aid = Number(agencyId || 0) || null;
+  const keys = (preferredKeys && preferredKeys.length)
+    ? preferredKeys
+    : preferredIdentityKeysForTemplateType(templateType);
+
+  const configuredId = await resolveConfiguredSenderIdentityId({
+    agencyId: aid,
+    templateType,
+    triggerKey,
+    includeAgencyDefault: false
+  });
+  if (configuredId) {
+    const identity = await EmailSenderIdentity.findById(configuredId);
+    if (identity && (onlyActive ? identity.is_active !== 0 && identity.is_active !== false : true)) {
+      return { identity, usedFallback: false, resolution: 'configured' };
+    }
+  }
+
+  if (aid) {
+    const list = await EmailSenderIdentity.list({
+      agencyId: aid,
+      includePlatformDefaults,
+      onlyActive
+    });
+    const match = pickPreferredSenderIdentityStrict(list, keys);
+    if (match?.id) {
+      return { identity: match, usedFallback: false, resolution: 'preferred_key' };
+    }
+
+    const tt = String(templateType || '').trim().toLowerCase();
+    if (tt === 'password_reset' || tt === 'admin_initiated_password_reset') {
+      const notificationsMailbox = (list || []).find((identity) =>
+        String(identity?.from_email || '').trim().toLowerCase().startsWith('notifications@')
+      );
+      if (notificationsMailbox?.id) {
+        return { identity: notificationsMailbox, usedFallback: false, resolution: 'notifications_mailbox' };
+      }
+    }
+  }
+
+  return { identity: null, usedFallback: true, resolution: 'none' };
 }

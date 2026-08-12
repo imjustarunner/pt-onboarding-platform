@@ -7,7 +7,7 @@
       </div>
           <div class="cc-intro-actions">
             <button type="button" class="cc-btn outline" @click="$emit('go-home')">← Center Home</button>
-            <button type="button" class="cc-btn outline" @click="settingsOpen = true">Email settings</button>
+            <router-link class="cc-btn outline" :to="emailSettingsTo">Email settings</router-link>
             <button type="button" class="cc-btn outline" :disabled="loading" @click="loadRows">Refresh</button>
           </div>
     </div>
@@ -17,7 +17,7 @@
         <strong>School ROI emails paused</strong>
         <span> — release/signing emails queue for approval before they send</span>
       </div>
-      <button type="button" class="cc-alert-btn" @click="settingsOpen = true">Email settings</button>
+      <router-link class="cc-alert-btn" :to="emailSettingsTo">Email settings</router-link>
     </div>
 
     <div v-if="pendingCount > 0" class="cc-alert warn">
@@ -523,12 +523,6 @@
       </footer>
     </aside>
   </div>
-
-  <CommunicationsCenterEmailSettingsModal
-    :open="settingsOpen"
-    @close="settingsOpen = false"
-    @saved="onSettingsSaved"
-  />
 </template>
 
 <script setup>
@@ -536,7 +530,6 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
-import CommunicationsCenterEmailSettingsModal from './CommunicationsCenterEmailSettingsModal.vue';
 import {
   MESSAGE_CATEGORY_GROUPS,
   categoriesForGroup as getCategoriesForGroup,
@@ -560,6 +553,7 @@ const emit = defineEmits(['go-home', 'counts-changed']);
 
 const router = useRouter();
 const agencyStore = useAgencyStore();
+const emailSettingsTo = computed(() => `${props.prefix}/admin/email-settings`);
 
 const PAGE_SIZE = 50;
 
@@ -584,7 +578,6 @@ const detailLoading = ref(false);
 const actionLoading = ref(false);
 const actionError = ref('');
 const actionSuccess = ref('');
-const settingsOpen = ref(false);
 const roiPaused = ref(true);
 const categoryCounts = ref({});
 const resolveLoading = ref(false);
@@ -1014,11 +1007,6 @@ async function loadRoiSetting() {
   } catch {
     roiPaused.value = true;
   }
-}
-
-function onSettingsSaved() {
-  loadRoiSetting();
-  emit('counts-changed');
 }
 
 function listQueryParams(offset = 0) {
