@@ -22,6 +22,7 @@ import {
   previewTimelineImport,
   commitTimelineImport,
   bulkUpdateCompanyCarTrips,
+  bulkEditCompanyCarTrips,
   rechainCompanyCarTrips,
   deleteAllCompanyCarTrips,
   recalculateCompanyCarMiles
@@ -57,6 +58,7 @@ router.post('/import/timeline/preview', ...previewTimelineImport);
 router.post('/import/timeline/commit', commitTimelineImport);
 router.post('/import/undo', undoLastImport);
 router.patch('/company-car-trips/bulk', bulkUpdateCompanyCarTrips);
+router.post('/company-car-trips/bulk-edit', bulkEditCompanyCarTrips);
 router.post('/company-car-trips/rechain', rechainCompanyCarTrips);
 router.post('/company-car-trips/delete-all', deleteAllCompanyCarTrips);
 router.post('/company-car-trips/recalculate-miles', recalculateCompanyCarMiles);

@@ -4,22 +4,6 @@
       <h3 style="margin: 0;">Company Car Trips</h3>
       <div class="actions" style="gap: 8px;">
         <button
-          v-if="manageAccess"
-          type="button"
-          class="btn btn-secondary btn-sm"
-          @click="showSpreadsheetImport = true"
-        >
-          Import spreadsheet
-        </button>
-        <button
-          v-if="manageAccess"
-          type="button"
-          class="btn btn-secondary btn-sm"
-          @click="showTimelineImport = true"
-        >
-          Import Google Timeline
-        </button>
-        <button
           type="button"
           class="btn btn-secondary btn-sm"
           :disabled="exporting || !trips.length"
@@ -43,25 +27,17 @@
       @submitted="onTripSubmitted"
     />
 
-    <CompanyCarTimelineImportModal
-      v-if="showTimelineImport && props.agencyId"
-      :agency-id="Number(props.agencyId)"
-      :manage-access="props.manageAccess"
-      :cars="cars"
-      @close="showTimelineImport = false"
-      @imported="onImportComplete"
-    />
-
-    <CompanyCarSpreadsheetImportModal
-      v-if="showSpreadsheetImport && props.agencyId"
-      :agency-id="Number(props.agencyId)"
-      :cars="cars"
-      @close="showSpreadsheetImport = false"
-      @imported="onImportComplete"
-    />
-
-    <div v-if="totalMiles !== null" class="hint" style="margin-bottom: 12px;">
-      Total mileage: <strong>{{ totalMiles.toFixed(1) }}</strong> miles
+    <div v-if="endOdometerReadings.length" class="hint" style="margin-bottom: 12px;">
+      <template v-if="endOdometerReadings.length === 1">
+        Current odometer:
+        <strong>{{ formatOdometer(endOdometerReadings[0].endOdometerMiles) }}</strong> mi
+      </template>
+      <template v-else>
+        Current odometer:
+        <span v-for="(r, i) in endOdometerReadings" :key="r.companyCarId">
+          <strong>{{ r.companyCarName }}: {{ formatOdometer(r.endOdometerMiles) }}</strong> mi<span v-if="i < endOdometerReadings.length - 1"> · </span>
+        </span>
+      </template>
     </div>
 
     <div v-if="manageAccess" class="card company-cars-card" style="margin-bottom: 12px;">
@@ -109,11 +85,41 @@
     </div>
 
     <div v-if="loading" class="muted">Loading trips…</div>
-    <div v-else-if="!trips.length" class="muted">No trips yet. Log a trip or import from your spreadsheet.</div>
+    <div v-else-if="!trips.length" class="muted">No trips yet. Log a trip to get started.</div>
     <div v-else class="table-wrap trips-table-wrap">
+      <div v-if="manageAccess" class="trips-toolbar">
+        <label class="sort-label">
+          Sort
+          <select v-model="sortMode">
+            <option value="date">Date (newest)</option>
+            <option value="miles">Miles</option>
+            <option value="similar">Similar miles</option>
+          </select>
+        </label>
+        <label class="sort-label">
+          Similar ±
+          <input v-model.number="similarTolerance" type="number" min="0.1" step="0.1" class="tolerance-input" />
+          mi
+        </label>
+      </div>
+
+      <CompanyCarTripsBulkPanel
+        v-if="manageAccess"
+        :agency-id="Number(props.agencyId)"
+        :trip-ids="selectedTripIds"
+        :similar-tolerance="similarTolerance"
+        @clear="clearSelection"
+        @select-similar="selectSimilarMiles"
+        @select-filter="selectByFilter"
+        @applied="onBulkApplied"
+      />
+
       <table class="table trips-table">
         <thead>
           <tr>
+            <th v-if="manageAccess" class="col-check">
+              <input type="checkbox" :checked="allDisplayedSelected" @change="toggleSelectAllDisplayed" />
+            </th>
             <th class="col-date">Date</th>
             <th class="col-car">Car</th>
             <th class="col-driver">Driver</th>
@@ -126,15 +132,22 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="t in trips" :key="t.id">
-            <td class="col-date">{{ formatDate(t.drive_date) }}</td>
+          <tr
+            v-for="t in displayedTrips"
+            :key="t.id"
+            :class="{ 'row-selected': isSelected(t.id) }"
+          >
+            <td v-if="manageAccess" class="col-check">
+              <input type="checkbox" :checked="isSelected(t.id)" @change="toggleSelect(t.id)" />
+            </td>
+            <td class="col-date">{{ formatDateWithDay(t.drive_date) }}</td>
             <td class="col-car">{{ t.company_car_name || '—' }}</td>
             <td class="col-driver">{{ [t.user_first_name, t.user_last_name].filter(Boolean).join(' ') || '—' }}</td>
             <td class="col-num right">{{ formatOdometer(t.start_odometer_miles) }}</td>
             <td class="col-num right">{{ formatOdometer(t.end_odometer_miles) }}</td>
-            <td class="col-num right">{{ formatMiles(t) }}</td>
-            <td class="col-dest" :title="formatDestinations(t.destinations_json)">
-              <span class="cell-truncate">{{ formatDestinations(t.destinations_json) }}</span>
+            <td class="col-num right">{{ formatMilesDisplay(t) }}</td>
+            <td class="col-dest" :title="destinationsText(t)">
+              <span class="cell-truncate">{{ destinationsText(t) || '—' }}</span>
             </td>
             <td class="col-reason" :title="t.reason_for_travel || ''">
               <span class="cell-truncate">{{ t.reason_for_travel || '—' }}</span>
@@ -157,12 +170,20 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import {
+  getTripMiles,
+  getDestinationsText,
+  hasNoDestination,
+  hasNoReason,
+  formatDateWithDay,
+  sortTripsForDisplay,
+  findSimilarTripIds
+} from '../../utils/companyCarTrips.js';
 import CompanyCarMileageModal from './CompanyCarMileageModal.vue';
-import CompanyCarTimelineImportModal from './CompanyCarTimelineImportModal.vue';
-import CompanyCarSpreadsheetImportModal from './CompanyCarSpreadsheetImportModal.vue';
+import CompanyCarTripsBulkPanel from './CompanyCarTripsBulkPanel.vue';
 
 const props = defineProps({
   agencyId: { type: Number, required: true },
@@ -174,16 +195,84 @@ const emit = defineEmits(['submitted']);
 const loading = ref(true);
 const trips = ref([]);
 const cars = ref([]);
-const totalMiles = ref(null);
+const endOdometerReadings = ref([]);
 const newCarName = ref('');
 const showLogModal = ref(false);
-const showTimelineImport = ref(false);
-const showSpreadsheetImport = ref(false);
 const editingTrip = ref(null);
 const creatingCar = ref(false);
 const uploadingPhotoId = ref(null);
 const photoInputRefs = ref({});
 const exporting = ref(false);
+const sortMode = ref('date');
+const similarTolerance = ref(2);
+const selectedTripIds = ref([]);
+
+const displayedTrips = computed(() => sortTripsForDisplay(trips.value, sortMode.value));
+
+const allDisplayedSelected = computed(() => {
+  const ids = displayedTrips.value.map((t) => t.id);
+  return ids.length > 0 && ids.every((id) => selectedTripIds.value.includes(id));
+});
+
+function isSelected(id) {
+  return selectedTripIds.value.includes(id);
+}
+
+function toggleSelect(id) {
+  if (isSelected(id)) {
+    selectedTripIds.value = selectedTripIds.value.filter((x) => x !== id);
+  } else {
+    selectedTripIds.value = [...selectedTripIds.value, id];
+  }
+}
+
+function toggleSelectAllDisplayed() {
+  const ids = displayedTrips.value.map((t) => t.id);
+  if (allDisplayedSelected.value) {
+    selectedTripIds.value = selectedTripIds.value.filter((id) => !ids.includes(id));
+  } else {
+    const merged = new Set([...selectedTripIds.value, ...ids]);
+    selectedTripIds.value = [...merged];
+  }
+}
+
+function clearSelection() {
+  selectedTripIds.value = [];
+}
+
+function selectSimilarMiles() {
+  const tol = Number(similarTolerance.value) || 2;
+  if (!selectedTripIds.value.length) {
+    alert('Select at least one trip first, then click Select similar.');
+    return;
+  }
+  const ids = findSimilarTripIds(trips.value, selectedTripIds.value, tol);
+  selectedTripIds.value = [...new Set(ids)];
+}
+
+function selectByFilter(filter) {
+  let filtered = trips.value;
+  if (filter === 'no-dest') filtered = trips.value.filter((t) => hasNoDestination(t));
+  if (filter === 'no-reason') filtered = trips.value.filter((t) => hasNoReason(t));
+  if (filter === 'no-both') filtered = trips.value.filter((t) => hasNoDestination(t) && hasNoReason(t));
+  selectedTripIds.value = filtered.map((t) => t.id);
+}
+
+function onBulkApplied() {
+  clearSelection();
+  loadTrips();
+  emit('submitted');
+}
+
+function destinationsText(t) {
+  return getDestinationsText(t);
+}
+
+function formatMilesDisplay(t) {
+  const m = getTripMiles(t);
+  if (!Number.isFinite(m)) return '—';
+  return m % 1 === 0 ? String(Math.round(m)) : m.toFixed(1);
+}
 
 function carPhotoUrl(car) {
   if (!car?.photoUrl) return null;
@@ -219,40 +308,11 @@ async function onPhotoUpload(carId, ev) {
   }
 }
 
-function formatDate(val) {
-  if (!val) return '—';
-  const s = String(val);
-  return s.slice(0, 10) || '—';
-}
-
 function formatOdometer(val) {
   if (val == null || val === '') return '—';
   const n = Number(val);
   if (!Number.isFinite(n)) return '—';
   return n % 1 === 0 ? String(Math.round(n)) : n.toFixed(1);
-}
-
-function formatMiles(t) {
-  const miles = Number(t?.miles);
-  if (Number.isFinite(miles) && miles > 0) return miles % 1 === 0 ? String(Math.round(miles)) : miles.toFixed(1);
-  const start = Number(t?.start_odometer_miles);
-  const end = Number(t?.end_odometer_miles);
-  if (Number.isFinite(start) && Number.isFinite(end) && end >= start) {
-    const m = end - start;
-    return m % 1 === 0 ? String(Math.round(m)) : m.toFixed(1);
-  }
-  const m = Number(miles || 0);
-  return m % 1 === 0 ? String(Math.round(m)) : m.toFixed(1);
-}
-
-function formatDestinations(json) {
-  if (!json) return '—';
-  try {
-    const arr = typeof json === 'string' ? JSON.parse(json) : json;
-    return Array.isArray(arr) ? arr.join(', ') : '—';
-  } catch {
-    return '—';
-  }
 }
 
 async function loadCars() {
@@ -285,12 +345,17 @@ async function loadTrips() {
   loading.value = true;
   try {
     await loadCars();
-    const res = await api.get('/company-car/company-car-trips', { params: { agencyId: props.agencyId } });
+    const res = await api.get('/company-car/company-car-trips', {
+      params: { agencyId: props.agencyId, limit: 500 }
+    });
     trips.value = res.data?.trips || [];
-    totalMiles.value = res.data?.totalMiles ?? 0;
+    endOdometerReadings.value = res.data?.endOdometerReadings || [];
+    if (!endOdometerReadings.value.length && res.data?.totalMiles != null) {
+      endOdometerReadings.value = [{ companyCarId: null, companyCarName: 'Car', endOdometerMiles: res.data.totalMiles }];
+    }
   } catch {
     trips.value = [];
-    totalMiles.value = 0;
+    endOdometerReadings.value = [];
   } finally {
     loading.value = false;
   }
@@ -299,13 +364,6 @@ async function loadTrips() {
 function onTripSubmitted() {
   showLogModal.value = false;
   editingTrip.value = null;
-  loadTrips();
-  emit('submitted');
-}
-
-function onImportComplete() {
-  showTimelineImport.value = false;
-  showSpreadsheetImport.value = false;
   loadTrips();
   emit('submitted');
 }
@@ -412,7 +470,8 @@ watch(
   border-collapse: collapse;
 }
 
-.trips-table .col-date { width: 100px; }
+.trips-table .col-check { width: 36px; }
+.trips-table .col-date { width: 130px; }
 .trips-table .col-car { width: 100px; }
 .trips-table .col-driver { width: 110px; }
 .trips-table .col-num { width: 72px; }
@@ -455,5 +514,32 @@ watch(
 
 .trips-table .right {
   text-align: right;
+}
+
+.trips-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.sort-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.tolerance-input {
+  width: 56px;
+}
+
+.row-selected {
+  background: rgba(13, 110, 253, 0.06);
+}
+
+.col-check {
+  vertical-align: middle;
 }
 </style>

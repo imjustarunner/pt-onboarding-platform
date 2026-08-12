@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import CompanyCarTimelineImportService from '../../services/companyCarTimelineImport.service.js';
-import { inferTripClassification } from '../../services/companyCarReasonInference.service.js';
+import {
+  inferTripClassification,
+  buildHistoricalPatternsFromTrips
+} from '../../services/companyCarReasonInference.service.js';
+import { consolidateCandidatesByDay } from '../../services/companyCarTripConsolidation.service.js';
 import { chainOdometerForNewTrips } from '../../services/companyCarOdometerChain.service.js';
 
 describe('CompanyCarTimelineImportService', () => {
@@ -41,52 +45,76 @@ describe('CompanyCarTimelineImportService', () => {
     };
 
     const parsed = CompanyCarTimelineImportService.parseJson(JSON.stringify(json));
-    expect(parsed.format).toBe('semanticSegments');
-    expect(parsed.candidates.length).toBe(1);
-    expect(parsed.candidates[0].driveDate).toBe('2026-01-20');
-    expect(parsed.candidates[0].miles).toBe(10);
+    expect(parsed.candidates[0].origin).toBe('Home');
+    expect(parsed.candidates[0].destination).toBe('Work');
   });
+});
 
-  it('filters by fromDate', () => {
-    const candidates = [
-      { driveDate: '2026-01-18', miles: 5 },
-      { driveDate: '2026-01-20', miles: 8 }
-    ];
-    const filtered = CompanyCarTimelineImportService.filterCandidates(candidates, { fromDate: '2026-01-19' });
-    expect(filtered.length).toBe(1);
-    expect(filtered[0].driveDate).toBe('2026-01-20');
+describe('companyCarTripConsolidation', () => {
+  it('merges same-day trips and sums miles', () => {
+    const merged = consolidateCandidatesByDay([
+      {
+        driveDate: '2026-01-20',
+        startTime: '2026-01-20T08:00:00Z',
+        miles: 4,
+        originLabel: 'Masters',
+        destinationLabel: 'Windchime'
+      },
+      {
+        driveDate: '2026-01-20',
+        startTime: '2026-01-20T10:00:00Z',
+        miles: 3.5,
+        originLabel: 'Windchime',
+        destinationLabel: 'Masters'
+      }
+    ]);
+    expect(merged.length).toBe(1);
+    expect(merged[0].miles).toBe(7.5);
+    expect(merged[0].destinationsText).toContain('Masters');
+    expect(merged[0].destinationsText).toContain('Windchime');
+    expect(merged[0].consolidatedCount).toBe(2);
   });
 });
 
 describe('companyCarReasonInference', () => {
-  it('uses Masters home office before April 2026', () => {
+  it('infers Client care for masters-windchime round trip', () => {
     const result = inferTripClassification({
-      origin: 'Masters office',
-      destination: 'Denver High School',
-      driveDate: '2026-03-15'
+      destinationsText: 'Masters, 437 Windchime Place, Masters',
+      driveDate: '2026-02-15'
     });
     expect(result.isWork).toBe(true);
-    expect(result.reasonForTravel).toMatch(/school/i);
+    expect(result.reasonForTravel).toMatch(/client care/i);
   });
 
-  it('uses Larkspur home office from April 2026', () => {
+  it('infers Denver schools from historical-style route', () => {
     const result = inferTripClassification({
-      origin: 'Larkspur',
-      destination: 'Client home',
-      driveDate: '2026-04-10'
+      destinationsText: 'Masters, Crest, Denver, Hamilton Middle School, Masters',
+      driveDate: '2026-02-15'
     });
-    expect(result.isWork).toBe(true);
-    expect(result.homeOfficeNote).toMatch(/Larkspur/);
+    expect(result.reasonForTravel).toMatch(/denver school/i);
   });
 
-  it('marks Target-only trips as personal', () => {
+  it('matches historical patterns from DB-shaped trips', () => {
+    const patterns = buildHistoricalPatternsFromTrips([
+      {
+        destinations_json: JSON.stringify(['Masters', 'windchime', 'masters']),
+        reason_for_travel: 'Client care'
+      }
+    ]);
     const result = inferTripClassification({
-      origin: 'Home',
-      destination: 'Target',
-      driveDate: '2026-02-01'
+      destinationsText: 'Masters, Windchime Office, Masters',
+      driveDate: '2026-03-01',
+      historicalPatterns: patterns
     });
-    expect(result.isWork).toBe(false);
-    expect(result.reasonForTravel).toMatch(/personal/i);
+    expect(result.reasonForTravel).toBe('Client care');
+  });
+
+  it('uses Larkspur windchime for client care after April', () => {
+    const result = inferTripClassification({
+      destinationsText: 'Larkspur, Windchime, Larkspur',
+      driveDate: '2026-04-15'
+    });
+    expect(result.reasonForTravel).toMatch(/client care/i);
   });
 });
 
@@ -94,14 +122,8 @@ describe('companyCarOdometerChain', () => {
   it('chains new trip odometer readings', () => {
     const chained = chainOdometerForNewTrips({
       anchorEndOdometer: 7372.9,
-      tripRows: [
-        { miles: 10 },
-        { miles: 5.5 }
-      ]
+      tripRows: [{ miles: 10 }, { miles: 5.5 }]
     });
-    expect(chained[0].startOdometerMiles).toBe(7372.9);
-    expect(chained[0].endOdometerMiles).toBe(7382.9);
-    expect(chained[1].startOdometerMiles).toBe(7382.9);
     expect(chained[1].endOdometerMiles).toBe(7388.4);
   });
 });

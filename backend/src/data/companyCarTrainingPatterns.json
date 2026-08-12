@@ -1,0 +1,874 @@
+{
+  "patterns": [
+    {
+      "destinationsText": "437 Windchime Place Colorado Springs CO 80919",
+      "reason": "Office clients",
+      "miles": 13.9
+    },
+    {
+      "destinationsText": "Masters to Crest to Denver school visits and back to Masters for Charge",
+      "reason": "Visit multiple Denver schools- Bear Valley Middle, John F. Kennedy High School, Hamilton Middle School, Ellis Elementary School, University Park Elementary School, South High School",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to Denver school visits and back to Masters for Charge",
+      "reason": "Visit multiple Denver schools- Thomas Jefferson High School, Hill Campus of Arts & Science, Place Bridge Academy, Denver Green School Southeast, Palmer Elementary School,",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to Crest to Denver school visits and back to Masters for Charge",
+      "reason": "Visit multiple Denver schools- Montview High School, Abraham Lincoln High School, Kepner Middle School, Grant Beacon Middle School, Asbury Elementary School, Beach Court Elementary School",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Work lunch (Oliver's Deli) and Target with Loriana and Jacque",
+      "reason": "Working lunch to collaborate on Skills groups",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to D12 and D11 School Visits back to Masters",
+      "reason": "Visit multiple D12 and D11 schools, Cheyenne Mountain HS, Cheyenne Mountain JH, Gold Camp Elmentary, Canon School, Rudy Elementary School, Master's Drive",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Crest to Denver school visits and back to Masters for Charge",
+      "reason": "Pick up Jacque, visit multiple Denver schools- Montview HS & Middle School, Denver School of Arts, Odyssey E, Carson E, Hill Campus of Arts & Science, drop off Jacque",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Crest to Windchime and back to Crest",
+      "reason": "Sessions at Windchime",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to Crest",
+      "reason": "Transporting car",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; Crest; windchime; super carwash; Windchime; Crest; Masters",
+      "reason": "Windchime, carwash, return for charge",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to Denver school visits and back to Masters for Charge",
+      "reason": "Visit multiple Denver schools- Hamilton Middle School, George Washington High School, Merrill Middle School, Polaris Elementary School, Slavens K-8 School, Bromwell Elementary School, Steele Elementary School",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to Crest to Denver school visits and back to Masters for Charge",
+      "reason": "Pick up Jacque, visit multiple Denver schools- Morey Middle School, South High School, East High School, Bradley International School, McAuliffe International School, North High School, Skinner Middle School, Teller Elementary School,drop off Jacque",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; windchime; masters",
+      "reason": "Client care",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; the arc; Walmart; goodwill; Home Depot; windchime; masters",
+      "reason": "Office supplies",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; Sam's Club; windchime; masters",
+      "reason": "Snacks and office supplies",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; windchime; masters",
+      "reason": "Client care",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; Walmart; Windchime; Masters",
+      "reason": "More supplies",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; Walmart; Windchime",
+      "reason": "Buy organizers",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; windchime; masters",
+      "reason": "Client care",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; windchime; masters",
+      "reason": "Client care",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; Windchime; Travel for Client; Windchime; Masters",
+      "reason": "Clients and client travel during session",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; windchime; masters",
+      "reason": "Client care",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; Windchime; Masters",
+      "reason": "Client care",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; windchime; super carwash; Masters",
+      "reason": "Windchime check, carwash, return for charge",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; Montclair; Knapp; Green Valley; Masters",
+      "reason": "Denver recruiting trip",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime; Masters",
+      "reason": "Return home",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime; Client Drive around; Windchime",
+      "reason": "Client drive for rapport",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; Windchime; Sams; Windchime",
+      "reason": "Client care, sams and return",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Cole Arts and Sciences; DSST; Farrell B Howell; Cherry Creek School District",
+      "reason": "Expansion trip in Denver",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to crest to windchime",
+      "reason": "Pickup and stop for materials",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; Windchime; Masters",
+      "reason": "Client care",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Cheyenne Mountain Junior to Sam's to crest to masters",
+      "reason": "School visit and material purchase and drop off and return",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime to Cheyenne mountain Junior",
+      "reason": "School visits recruiting",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to crest to windchime",
+      "reason": "Pickup and stop for materials",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Crest to windchime to masters",
+      "reason": "Clients",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to crest to Denver travel then crest",
+      "reason": "Denver trip is for office viewing and schools",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; Windchime; Travel for Client; Windchime; Masters",
+      "reason": "Clients and client travel during session",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to superstar to masters",
+      "reason": "Car wash",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to windchime then Home Depot and windchime and masters",
+      "reason": "Clients and water refill",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to windchime and back",
+      "reason": "Clients",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to super star to windchime to the exchange then to masters",
+      "reason": "Car wash and office check then exchange for meeting and back to masers",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Crest to piñon valley to masters",
+      "reason": "RS intern observation and then charge",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Crest to Masters and back",
+      "reason": "Tesla swap",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Denver Public Schools",
+      "reason": "Denver Public School visits",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to windchime and back",
+      "reason": "Office check and clean",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to windchime and back",
+      "reason": "Material drop off",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Denver Public Schools",
+      "reason": "Denver Public School visits",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Crest to Masters",
+      "reason": "Charging",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Denver school visits",
+      "reason": "Visit Denver schools",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Business errands",
+      "reason": "Business errands",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Business errands",
+      "reason": "Business errands",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Business errands",
+      "reason": "Business errands",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; crest; Windchime; snooze",
+      "reason": "Pickup Rachel, drop materials at windchime, book club",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to windchime; client session; masters",
+      "reason": "Client and client sessions",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Car wash at super star and return to masters",
+      "reason": "Car wash",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Denver schools",
+      "reason": "Visiting Denver Schools",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Car wash at super star and return to masters",
+      "reason": "Car wash",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Crest to Masters & back",
+      "reason": "Car exchange",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime; Palmer Lake; Windchime",
+      "reason": "Company event",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to Crest",
+      "reason": "Car exchange",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to Windchime clients and client sessions return to masters",
+      "reason": "Client care and client sessions",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; crest; d12 schools; crest; masters",
+      "reason": "Visit schools, drop off intake packets",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; Windchime; Car Wash; masters",
+      "reason": "Office for client and car wash",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Crest to Masters",
+      "reason": "Car return",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Crest to Denver",
+      "reason": "Visiting DPS schools",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to crest",
+      "reason": "Tesla delivery",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to Windchime clients and client sessions return to masters",
+      "reason": "Client care and client sessions",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Trip to Crest",
+      "reason": "Take car from Masters to Crest",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Denver Trip",
+      "reason": "Visiting Denver schools",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to crest",
+      "reason": "Tesla drop off",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to Walmart to windchime",
+      "reason": "Materials acquisition and drop off",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters to windchime round trip",
+      "reason": "Material drop off",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime and target round trip",
+      "reason": "Clients and materials",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime",
+      "reason": "Test out charger",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Crest to masters for charging",
+      "reason": "Give Lindsey her cart in Denver",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters and Crest",
+      "reason": "Transport car back to Rachel's",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Masters; Windchime; Crest; Jenkins; Carver; Masters",
+      "reason": "Pickup outreach materials at windchime, pickup Rachel, school outreach Jenkins, school outreach at carver. Pass off Masters.",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime; Masters; CME; Crest",
+      "reason": "set out cart for clinician & school meeting",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime; Denver; Howell; GVE School; Howell to drop off packets; drive to Win; stop at Howell to drop off p",
+      "reason": "trip ackets dchime",
+      "miles": 0
+    },
+    {
+      "destinationsText": "crest office; Tesla",
+      "reason": "drop off",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime",
+      "reason": "clients roundtrip charge",
+      "miles": 0
+    },
+    {
+      "destinationsText": "windchime; Sam's Club",
+      "reason": "Sam’s club dropoff",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Michaels; drive back",
+      "reason": "Car exchange - drive",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime; Crest; Denver; Jacque's apartment; Denver Schools Outreach Event; Windchime to drop off Blanca; Nissi; Rachel at Crest",
+      "reason": "Chipotle back returned",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Crest; crest; Charging Station; crest to",
+      "reason": "back top off",
+      "miles": 0
+    },
+    {
+      "destinationsText": "supercharger",
+      "reason": "Drove park",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime; Colorado Springs Airport; Scott",
+      "reason": "Elementary Meeting Drop Katie office Drop fliers back off",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; School Event",
+      "reason": "Midl Elementary (Back )",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime; Crest; Denver; Garden Place; Howell; howell; Masters; Crest to Denver for outreach; Ted's then Maxwell",
+      "reason": "( school Ashley Gardenplace Montbello) working lunch drop Lindsey for clients then",
+      "miles": 0
+    },
+    {
+      "destinationsText": "windchime; Twain; Masters; DMV; DMV for registration; Twain Elementary for outreach",
+      "reason": "for clients",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime; Crest; Denver; masters; Jacque for outreach; school visits",
+      "reason": "Start materials pickup drop off charge",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Orton Academy",
+      "reason": "School Meeting - Orton Academy",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office",
+      "reason": "- Town Hall",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Por Favor Tacos",
+      "reason": "Lunch Meeting",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Crest",
+      "reason": "dropoff",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Denver; DIA; looked at Denver office space",
+      "reason": "Dropped Hannah Haley off",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Union Office; Twain",
+      "reason": "Skills Group - (Moving offices)",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Crest",
+      "reason": "Fuji Mountain",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Union Office; Twain",
+      "reason": "Skills Group - Lunch Meeting",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Skills Group - Twain",
+      "reason": "return",
+      "miles": 0
+    },
+    {
+      "destinationsText": "windchime; Master's; master's",
+      "reason": "client drives for sessions",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Tesla",
+      "reason": "Charge",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime; Walmart",
+      "reason": "(Supplies)",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Twain; Tesla",
+      "reason": "Skills Group - Elementary Driver's License Center (Try register ) )",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Twain",
+      "reason": "Skills Group - Elementary",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Twain",
+      "reason": "Skills Group - Elementary",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Tesla",
+      "reason": "Charge Coffee Run for Meeting",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Denver",
+      "reason": "Outreach - Employee Meetings",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office",
+      "reason": "- Carver Elementary Coffee Run for Meeting",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Carver Elementary",
+      "reason": "Skills Group - Carver Elementary (Tie Dye Supply Drop Off )",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Walmart",
+      "reason": "Hobby Lobby - Skills Group Supplies",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Carver Elementary",
+      "reason": "Charge Skills Group - Carver Elementary",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Carver Elementary",
+      "reason": "Skills Group - Carver Elementary",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Union Office; Carver Elementary",
+      "reason": "Skills Group - Carver Elementary",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Tesla",
+      "reason": "Charge",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime; Union Office",
+      "reason": "Sofia's Antojitos (Admin Meeting) - Mail Pick Up/Drop Off",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Sam's Club",
+      "reason": "Cosco (Supply Run)",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Carver Elementary",
+      "reason": "Skills Group - Carver Elementary",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Carver Elementary",
+      "reason": "Skills Group - Carver Elementary",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Carver Elementary",
+      "reason": "Skills Group - Carver Elementary",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Union Office; Tesla",
+      "reason": "Charge",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Union Office; Walmart",
+      "reason": "Coffee Run for Meeting (Supplies) (Mail Pick up)",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Walmart",
+      "reason": "(Office Supply Run)",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Union Office; Tesla; Master's; Master's Drive Office",
+      "reason": "Car Wash for Drop off mail",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Sam's Club",
+      "reason": "- Skills Group Supplies",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Tesla",
+      "reason": "Charge",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; West Middle School",
+      "reason": "Skills Group (Pizza Drop offs) - Jack Swigert Bear Creek -",
+      "miles": 0
+    },
+    {
+      "destinationsText": "West Middle School",
+      "reason": "Skills Group - - Jack Swigert (Tie Tye/Supplies drop off)",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Union Office",
+      "reason": "- Mail Pickup/Drop Off",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; West Middle School; Tesla",
+      "reason": "Charge Summer Skills Group -",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime; West Middle School; Master's",
+      "reason": "Summer Skills Group - Winchime Office Drive Office (Mail Drop Off)",
+      "miles": 0
+    },
+    {
+      "destinationsText": "West Middle School",
+      "reason": "Summer Skills Group -",
+      "miles": 0
+    },
+    {
+      "destinationsText": "West Middle School; Tesla",
+      "reason": "Charge Summer Skills Group -",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; West Middle School",
+      "reason": "Summer Skills Group -",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; West Middle School",
+      "reason": "Summer Skills Group -",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; West Middle School",
+      "reason": "Summer Skills Group -",
+      "miles": 0
+    },
+    {
+      "destinationsText": "West Middle School",
+      "reason": "- Summer Skills Group",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime office; Tesla",
+      "reason": "Charge",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Master's",
+      "reason": "Drive - Cart Pick up for groups",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime; Master's",
+      "reason": "Mail Pick up/Drop Office - Union Drive",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office",
+      "reason": "Summer Group - Jack Swigert Little Caesars For Groups",
+      "miles": 0
+    },
+    {
+      "destinationsText": "JackSwigert Academy",
+      "reason": "Summer Groups & Pizza Pick up - Jack Swigert, Rudy Elementary",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Master's",
+      "reason": "Summer Group - Jack Swigert Drive Office",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Tesla",
+      "reason": "Charge Summer Group - Jack Swigert Academy",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Denver",
+      "reason": "Outreach - 5 Schools",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime office; Tesla",
+      "reason": "Charge",
+      "miles": 0
+    },
+    {
+      "destinationsText": "JackSwigert Academy",
+      "reason": "Summer Groups - Jack Swigert",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Denver; Co",
+      "reason": "Outreach - 5 Schools",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime office; Tesla",
+      "reason": "Charge",
+      "miles": 0
+    },
+    {
+      "destinationsText": "JackSwigert Academy",
+      "reason": "Summer Groups - Jack Swigert.",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime; JackSwigert Academy",
+      "reason": "Summer Groups - Jack Swigert Rudy Winchime Office",
+      "miles": 0
+    },
+    {
+      "destinationsText": "JackSwigert Academy",
+      "reason": "Jack Swigert Academy-Summer Groups",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime",
+      "reason": "Target - Office Supples",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Tesla",
+      "reason": "Charge",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime Office; Walmart",
+      "reason": "- Employee BBQ",
+      "miles": 0
+    },
+    {
+      "destinationsText": "West Middle School",
+      "reason": "- Summer Skills Group",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime; Winchime Office",
+      "reason": "Travel",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Tesla",
+      "reason": "test drives training for Kaitlyn",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime",
+      "reason": "roundtrip for clients",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime",
+      "reason": "roundtrip for clients",
+      "miles": 0
+    },
+    {
+      "destinationsText": "windchime; Pahokee Court; Masters; Pahokee Court return to windchime then Ma",
+      "reason": "Client transportation sters",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Through CoSprings",
+      "reason": "Client transports for sessions",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Pahokee Court",
+      "reason": "Client transportation",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Denver; Garden Place; Tesla",
+      "reason": "School Site Gardenplace Charge",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime",
+      "reason": "roundtrip for clients",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime; Masters",
+      "reason": "Winchime Client transportation for sessions during sessions",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime",
+      "reason": "for Clients",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime",
+      "reason": "clients client transportation",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Through CoSprings",
+      "reason": "Client transportations during sessions",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Windchime",
+      "reason": "clients",
+      "miles": 0
+    },
+    {
+      "destinationsText": "windchime; Pahokee Court; Masters; Pahokee Court return to windchime then Ma",
+      "reason": "Client transportation sters",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Through CoSprings",
+      "reason": "Client transportation during session",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Pahokee Court",
+      "reason": "Client transportation",
+      "miles": 0
+    },
+    {
+      "destinationsText": "Tesla",
+      "reason": "delivery Charge Test Driving",
+      "miles": 0
+    }
+  ]
+}

@@ -145,6 +145,58 @@ class CompanyCarTrip {
     return Number(rows?.[0]?.total_miles || 0);
   }
 
+  /**
+   * Latest end odometer reading per company car (most recent trip by date).
+   */
+  static async getLatestEndOdometerReadings({
+    agencyId,
+    companyCarId = null,
+    userId = null,
+    fromDate = null,
+    toDate = null
+  }) {
+    const params = [agencyId];
+    const conditions = ['t.agency_id = ?'];
+
+    if (companyCarId) {
+      conditions.push('t.company_car_id = ?');
+      params.push(companyCarId);
+    }
+    if (userId) {
+      conditions.push('t.user_id = ?');
+      params.push(userId);
+    }
+    if (fromDate) {
+      conditions.push('t.drive_date >= ?');
+      params.push(fromDate);
+    }
+    if (toDate) {
+      conditions.push('t.drive_date <= ?');
+      params.push(toDate);
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT t.company_car_id, c.name AS company_car_name, t.end_odometer_miles
+       FROM company_car_trips t
+       LEFT JOIN company_cars c ON c.id = t.company_car_id
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY t.drive_date DESC, t.id DESC`,
+      params
+    );
+
+    const byCar = new Map();
+    for (const row of rows || []) {
+      const carId = row.company_car_id;
+      if (byCar.has(carId)) continue;
+      byCar.set(carId, {
+        companyCarId: carId,
+        companyCarName: row.company_car_name || 'Car',
+        endOdometerMiles: Number(row.end_odometer_miles) || 0
+      });
+    }
+    return [...byCar.values()];
+  }
+
   static async update({
     id,
     agencyId,

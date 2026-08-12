@@ -7,7 +7,12 @@ import CompanyCarTrip from '../models/CompanyCarTrip.model.js';
 import CompanyCarUsualPlace from '../models/CompanyCarUsualPlace.model.js';
 import CompanyCarImportParserService from '../services/companyCarImportParser.service.js';
 import CompanyCarTimelineImportService from '../services/companyCarTimelineImport.service.js';
-import { applyClassificationToCandidate } from '../services/companyCarReasonInference.service.js';
+import { consolidateCandidatesByDay } from '../services/companyCarTripConsolidation.service.js';
+import {
+  matchConsolidatedCandidate,
+  isDuplicateExistingTrip,
+  MATCH_TOLERANCE
+} from '../services/companyCarHistoricalMatch.service.js';
 import {
   chainOdometerForNewTrips,
   getAnchorEndOdometer,
@@ -382,7 +387,7 @@ export async function listCompanyCarTrips(req, res) {
       offset
     });
 
-    const totalMiles = await CompanyCarTrip.getTotalMiles({
+    const endOdometerReadings = await CompanyCarTrip.getLatestEndOdometerReadings({
       agencyId,
       companyCarId: Number.isFinite(companyCarId) ? companyCarId : null,
       userId: filterUserId,
@@ -390,7 +395,11 @@ export async function listCompanyCarTrips(req, res) {
       toDate: toDate || null
     });
 
-    res.json({ trips, totalMiles });
+    const totalMiles = endOdometerReadings.length === 1
+      ? endOdometerReadings[0].endOdometerMiles
+      : null;
+
+    res.json({ trips, totalMiles, endOdometerReadings });
   } catch (e) {
     console.error('[listCompanyCarTrips]', e);
     const msg = e.message || 'Failed to list trips';
@@ -1208,12 +1217,18 @@ async function loadSchoolOptionsForInference(agencyId) {
   return schools;
 }
 
-async function enrichCandidateGeocoding(candidate, { maxGeocodes = 40 } = {}) {
+async function enrichCandidateGeocoding(candidate, { maxGeocodes = 200 } = {}) {
   let geocoded = 0;
   const out = { ...candidate };
 
-  async function geocodeLatLng(latLng, field) {
+  const needsGeocode = (label) => {
+    if (!label) return true;
+    return /^-?\d+\.\d{4,6},\s*-?\d+\.\d{4,6}$/.test(String(label).trim());
+  };
+
+  async function geocodeLatLng(latLng, field, currentLabel) {
     if (!latLng || geocoded >= maxGeocodes) return;
+    if (!needsGeocode(currentLabel) && currentLabel) return;
     try {
       const geo = await reverseGeocodeWithGoogle(latLng);
       if (geo?.formattedAddress) {
@@ -1221,12 +1236,12 @@ async function enrichCandidateGeocoding(candidate, { maxGeocodes = 40 } = {}) {
         geocoded += 1;
       }
     } catch {
-      // keep coordinate label
+      if (!out[field] && latLng) out[field] = `${latLng.lat.toFixed(5)}, ${latLng.lng.toFixed(5)}`;
     }
   }
 
-  await geocodeLatLng(candidate.startLatLng, 'originLabel');
-  await geocodeLatLng(candidate.endLatLng, 'destinationLabel');
+  await geocodeLatLng(candidate.startLatLng, 'originLabel', out.originLabel || out.origin);
+  await geocodeLatLng(candidate.endLatLng, 'destinationLabel', out.destinationLabel || out.destination);
 
   if (out.originLabel) out.origin = out.originLabel;
   if (out.destinationLabel) {
@@ -1261,7 +1276,6 @@ export const previewTimelineImport = [
 
       const fromDate = req.body?.fromDate ? String(req.body.fromDate).slice(0, 10) : null;
       const toDate = req.body?.toDate ? String(req.body.toDate).slice(0, 10) : null;
-      const geocode = /^(true|1|yes)$/i.test(String(req.body?.geocode || 'true'));
 
       const parsed = CompanyCarTimelineImportService.parseJson(req.file.buffer);
       const filtered = CompanyCarTimelineImportService.filterCandidates(parsed.candidates, {
@@ -1269,32 +1283,59 @@ export const previewTimelineImport = [
         toDate
       });
 
-      const schoolOptions = await loadSchoolOptionsForInference(agencyId);
+      const consolidated = consolidateCandidatesByDay(filtered);
+
+      const historicalTrips = await CompanyCarTrip.list({ agencyId, limit: 500 });
+
       const anchorEnd = await getAnchorEndOdometer({
         agencyId,
         companyCarId,
         beforeDate: fromDate
       });
 
+      let matchedCount = 0;
       const rows = [];
-      for (const c of filtered) {
-        let enriched = c;
-        if (geocode) {
-          enriched = await enrichCandidateGeocoding(c);
+
+      for (const c of consolidated) {
+        const isDuplicate = isDuplicateExistingTrip(historicalTrips, c.driveDate, c.miles, MATCH_TOLERANCE);
+        if (isDuplicate) {
+          rows.push({
+            ...c,
+            destinations: [],
+            destinationsText: '',
+            reasonForTravel: '',
+            isWork: false,
+            include: false,
+            matched: false,
+            isDuplicate: true
+          });
+          continue;
         }
-        const classified = applyClassificationToCandidate(enriched, schoolOptions);
-        rows.push(classified);
+
+        const matched = matchConsolidatedCandidate(c, historicalTrips, MATCH_TOLERANCE);
+        if (matched.matched) matchedCount += 1;
+        rows.push(matched);
+      }
+
+      const includeAllFallback = matchedCount === 0 && rows.some((r) => !r.isDuplicate);
+      if (includeAllFallback) {
+        for (const r of rows) {
+          if (!r.isDuplicate) {
+            r.include = true;
+            r.isWork = true;
+          }
+        }
       }
 
       const chained = chainOdometerForNewTrips({
         anchorEndOdometer: anchorEnd,
-        tripRows: rows.filter((r) => r.include)
+        tripRows: rows.filter((r) => r.include && !r.isDuplicate)
       });
 
-      const chainedByKey = new Map(chained.map((r) => [`${r.driveDate}|${r.startTime}|${r.miles}`, r]));
+      const chainedByKey = new Map(chained.map((r) => [`${r.driveDate}|${r.miles}`, r]));
 
       const previewRows = rows.map((r) => {
-        const key = `${r.driveDate}|${r.startTime}|${r.miles}`;
+        const key = `${r.driveDate}|${r.miles}`;
         const chainedRow = chainedByKey.get(key);
         return {
           ...r,
@@ -1308,10 +1349,16 @@ export const previewTimelineImport = [
         segmentCount: parsed.segmentCount,
         candidateCount: parsed.candidates.length,
         filteredCount: filtered.length,
+        consolidatedCount: consolidated.length,
+        matchedCount,
+        includeAllFallback,
+        duplicateCount: previewRows.filter((r) => r.isDuplicate).length,
         anchorEndOdometer: anchorEnd,
         fromDate,
         toDate,
-        homeOfficeNote: 'Before April 2026: Masters/Windchime home office. From April 2026: Larkspur home office.',
+        homeOfficeNote: includeAllFallback
+          ? 'No historical matches — all new days are included for you to fill in destinations and reason.'
+          : 'Matched trips copied destinations and reason from your historical log (±0.7 mi). Unmatched rows are blank — fill in manually.',
         rows: previewRows
       });
     } catch (e) {
@@ -1355,9 +1402,13 @@ export async function commitTimelineImport(req, res) {
       .map((r) => ({
         driveDate: String(r.driveDate || r.drive_date || '').slice(0, 10),
         miles: Number(r.miles),
-        destinations: Array.isArray(r.destinations)
-          ? r.destinations
-          : (r.destination ? [r.destination] : []),
+        destinations: (() => {
+          if (Array.isArray(r.destinations) && r.destinations.length) return r.destinations;
+          if (r.destinationsText) {
+            return String(r.destinationsText).split(',').map((s) => s.trim()).filter(Boolean);
+          }
+          return r.destination ? [r.destination] : [];
+        })(),
         reasonForTravel: String(r.reasonForTravel || r.reason_for_travel || 'Business travel').trim(),
         notes: r.notes ? String(r.notes).trim() : null
       }))
@@ -1492,6 +1543,125 @@ export async function bulkUpdateCompanyCarTrips(req, res) {
     res.json({ updated: results.length, trips: results });
   } catch (e) {
     res.status(500).json({ error: { message: e.message || 'Bulk update failed' } });
+  }
+}
+
+function parseDestinationsInput(raw) {
+  if (raw == null) return undefined;
+  if (Array.isArray(raw)) {
+    return raw.map((d) => String(d || '').trim()).filter(Boolean);
+  }
+  const s = String(raw).trim();
+  if (!s) return [];
+  return s.split(/[,;]+/).map((p) => p.trim()).filter(Boolean);
+}
+
+function tripMilesFromRow(trip) {
+  const stored = Number(trip?.miles);
+  if (Number.isFinite(stored) && stored > 0) return Math.round(stored * 100) / 100;
+  const start = Number(trip?.start_odometer_miles);
+  const end = Number(trip?.end_odometer_miles);
+  if (Number.isFinite(start) && Number.isFinite(end) && end >= start) {
+    return Math.round((end - start) * 100) / 100;
+  }
+  return 0;
+}
+
+/**
+ * Bulk edit selected trips: shared fields, mile shift/set, then optional rechain.
+ */
+export async function bulkEditCompanyCarTrips(req, res) {
+  try {
+    const access = await requireCompanyCarAccess(req, res, { requireManage: true });
+    if (!access) return;
+    const { agencyId } = access;
+
+    const body = req.body || {};
+    const tripIds = (Array.isArray(body.tripIds) ? body.tripIds : [])
+      .map((id) => parseInt(id, 10))
+      .filter((id) => Number.isFinite(id));
+
+    if (!tripIds.length) {
+      return res.status(400).json({ error: { message: 'tripIds array is required' } });
+    }
+
+    const driveDate = body.driveDate != null ? String(body.driveDate).slice(0, 10) : null;
+    const destinations = body.destinations !== undefined ? parseDestinationsInput(body.destinations) : undefined;
+    const reasonForTravel = body.reasonForTravel !== undefined ? String(body.reasonForTravel).trim() : undefined;
+    const milesDelta = body.milesDelta != null ? Number(body.milesDelta) : null;
+    const milesSet = body.milesSet != null ? Number(body.milesSet) : null;
+    const rechain = body.rechain !== false;
+
+    if (driveDate && !/^\d{4}-\d{2}-\d{2}$/.test(driveDate)) {
+      return res.status(400).json({ error: { message: 'driveDate must be YYYY-MM-DD' } });
+    }
+    if (milesSet != null && (!Number.isFinite(milesSet) || milesSet < 0)) {
+      return res.status(400).json({ error: { message: 'milesSet must be 0 or greater' } });
+    }
+    if (milesDelta != null && !Number.isFinite(milesDelta)) {
+      return res.status(400).json({ error: { message: 'milesDelta must be a number' } });
+    }
+
+    let rechainCarId = null;
+    let earliestDate = null;
+    const results = [];
+
+    for (const id of tripIds) {
+      const trip = await CompanyCarTrip.findById(id);
+      if (!trip || trip.agency_id !== agencyId) continue;
+
+      rechainCarId = trip.company_car_id;
+      const start = Number(trip.start_odometer_miles) || 0;
+      let newMiles = tripMilesFromRow(trip);
+
+      if (milesSet != null && Number.isFinite(milesSet)) {
+        newMiles = Math.round(milesSet * 100) / 100;
+      } else if (milesDelta != null && Number.isFinite(milesDelta)) {
+        newMiles = Math.max(0, Math.round((newMiles + milesDelta) * 100) / 100);
+      }
+
+      const patch = {
+        id,
+        agencyId
+      };
+
+      if (driveDate) patch.driveDate = driveDate;
+      if (destinations !== undefined) patch.destinations = destinations;
+      if (reasonForTravel !== undefined) patch.reasonForTravel = reasonForTravel;
+
+      if (milesSet != null || milesDelta != null) {
+        patch.miles = newMiles;
+        patch.endOdometerMiles = Math.round((start + newMiles) * 100) / 100;
+      }
+
+      const updated = await CompanyCarTrip.update(patch);
+      if (updated) {
+        results.push(updated);
+        const d = driveDate || String(updated.drive_date).slice(0, 10);
+        if (!earliestDate || d < earliestDate) earliestDate = d;
+      }
+    }
+
+    if (rechain && rechainCarId && earliestDate) {
+      await rechainTripsFrom({
+        agencyId,
+        companyCarId: rechainCarId,
+        fromDate: earliestDate
+      });
+    }
+
+    const refreshed = [];
+    for (const r of results) {
+      refreshed.push(await CompanyCarTrip.findById(r.id));
+    }
+
+    res.json({
+      updated: refreshed.length,
+      trips: refreshed,
+      rechained: rechain && rechainCarId && earliestDate ? true : false
+    });
+  } catch (e) {
+    res.status(500).json({ error: { message: e.message || 'Bulk edit failed' } });
   }
 }
 
