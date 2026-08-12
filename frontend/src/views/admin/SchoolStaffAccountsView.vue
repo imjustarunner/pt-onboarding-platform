@@ -161,7 +161,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import api from '../../utils/api';
+import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { getStatusBadgeClass, getStatusLabel } from '../../utils/statusUtils.js';

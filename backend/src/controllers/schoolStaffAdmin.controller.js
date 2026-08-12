@@ -108,7 +108,7 @@ async function fetchAgencySchoolStaffRows(agencyId) {
          u.temporary_password_expires_at,
          u.created_at,
          school.id AS school_id,
-         COALESCE(school.display_name, school.name) AS school_name
+         school.name AS school_name
        FROM users u
        INNER JOIN user_agencies ua ON ua.user_id = u.id
        INNER JOIN agencies school ON school.id = ua.agency_id
