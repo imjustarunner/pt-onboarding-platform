@@ -123,7 +123,8 @@ const nextInterviewLabel = computed(() => {
   if (!iv) return 'None scheduled';
   try {
     const when = iv.interview_starts_at ? new Date(iv.interview_starts_at).toLocaleString() : '';
-    return `${iv.status || 'scheduled'}${when ? ` · ${when}` : ''}`;
+    const title = iv.display_title ? `${iv.display_title} · ` : '';
+    return `${title}${iv.status || 'scheduled'}${when ? ` · ${when}` : ''}`;
   } catch {
     return String(iv.status || 'scheduled');
   }

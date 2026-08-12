@@ -15,6 +15,8 @@ import {
 } from './interviewHub.service.js';
 import InterviewHubTemplate from '../models/InterviewHubTemplate.model.js';
 import InterviewHubJobQuestionSet from '../models/InterviewHubJobQuestionSet.model.js';
+import { isValidInterviewRoundKey } from '../constants/hiringInterviewRounds.js';
+import { buildHiringInterviewTitle } from '../utils/hiringInterviewTitle.js';
 
 /** Google Calendar event color: 3 = grape/purple (distinct from general meetings). */
 export const INTERVIEW_GOOGLE_COLOR_ID = '3';
@@ -56,7 +58,10 @@ export async function scheduleHiringInterview({
   jobQuestionSetId = null,
   hiringProfileId = null,
   sendInvites = true,
-  titleOverride = null
+  titleOverride = null,
+  interviewRound = 'initial',
+  roundLabelCustom = null,
+  jobTitleOverride = null
 }) {
   const agency = Number(agencyId);
   const candidateId = Number(candidateUserId);
@@ -99,13 +104,33 @@ export async function scheduleHiringInterview({
   }
 
   let profileId = hiringProfileId ? Number(hiringProfileId) : null;
-  if (!profileId) {
-    try {
-      const profile = await HiringProfile.findByCandidateUserId(candidateId);
-      profileId = profile?.id ? Number(profile.id) : null;
-    } catch {
-      profileId = null;
+  let profileRow = null;
+  try {
+    profileRow = await HiringProfile.findByCandidateUserId(candidateId);
+    if (!profileId && profileRow?.id) profileId = Number(profileRow.id);
+  } catch {
+    profileRow = null;
+  }
+
+  let jobTitle = String(jobTitleOverride || '').trim();
+  if (!jobTitle) {
+    const jobDescriptionId = profileRow?.job_description_id
+      ?? jobQuestionSet?.job_description_id
+      ?? null;
+    if (jobDescriptionId) {
+      try {
+        const [jobRows] = await pool.execute(
+          `SELECT title FROM job_descriptions WHERE id = ? LIMIT 1`,
+          [Number(jobDescriptionId)]
+        );
+        jobTitle = String(jobRows?.[0]?.title || '').trim();
+      } catch {
+        jobTitle = '';
+      }
     }
+  }
+  if (!jobTitle && profileRow?.applied_role) {
+    jobTitle = String(profileRow.applied_role).trim();
   }
 
   const tz = String(timezone || 'America/Denver').trim() || 'America/Denver';
@@ -128,7 +153,17 @@ export async function scheduleHiringInterview({
   const candidateName = [candidate.first_name, candidate.last_name].filter(Boolean).join(' ').trim()
     || candidate.email
     || `Candidate ${candidateId}`;
-  const title = String(titleOverride || `Interview: ${candidateName}`).trim();
+
+  const roundKey = isValidInterviewRoundKey(interviewRound)
+    ? String(interviewRound || 'initial').trim().toLowerCase() || 'initial'
+    : 'initial';
+  const title = String(titleOverride || '').trim()
+    || buildHiringInterviewTitle({
+      interviewRound: roundKey,
+      roundLabelCustom: roundLabelCustom,
+      candidateName,
+      jobTitle
+    });
 
   const wallStart = String(startsAt).trim().length === 16
     ? `${String(startsAt).trim()}:00`
@@ -273,6 +308,8 @@ export async function scheduleHiringInterview({
     hostJoinToken: hostToken,
     inviteSentAt: sendInvites ? new Date() : null,
     publicJoinUrl,
+    interviewRound: roundKey,
+    displayTitle: title,
     createdByUserId: hostId
   });
 

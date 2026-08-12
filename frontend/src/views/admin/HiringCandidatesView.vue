@@ -323,6 +323,8 @@
                 :job-description-id="detail.jobDescription?.id || detail.profile?.job_description_id || null"
                 :candidate-stage="detail.profile?.stage || ''"
                 :hiring-profile-id="detail.profile?.id || null"
+                :candidate-name="candidateName"
+                :job-title="detail.jobDescription?.title || detail.profile?.applied_role || ''"
                 :schedule-pulse="interviewSchedulePulse"
                 @interviews-updated="onHubInterviewsUpdated"
               />

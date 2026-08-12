@@ -329,7 +329,10 @@ export const createInterview = async (req, res, next) => {
       jobQuestionSetId: parseIntParam(body.jobQuestionSetId ?? body.job_question_set_id),
       hiringProfileId: parseIntParam(body.hiringProfileId ?? body.hiring_profile_id),
       sendInvites: body.sendInvites !== false && body.send_invites !== false,
-      titleOverride: body.title || null
+      titleOverride: body.title || body.displayTitle || body.display_title || null,
+      interviewRound: body.interviewRound ?? body.interview_round ?? 'initial',
+      roundLabelCustom: body.roundLabelCustom ?? body.round_label_custom ?? null,
+      jobTitleOverride: body.jobTitle ?? body.job_title ?? null
     });
 
     return res.status(201).json({ success: true, data: result });

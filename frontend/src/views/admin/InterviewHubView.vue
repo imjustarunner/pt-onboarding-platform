@@ -76,7 +76,7 @@
             :class="{ selected: selectedInterviewId === iv.id }"
             @click="selectInterview(iv.id)"
           >
-            <div class="ih-list-name">{{ candidateLabel(iv) }}</div>
+            <div class="ih-list-name">{{ interviewListLabel(iv) }}</div>
             <div class="ih-list-meta">
               <span class="ih-status" :class="`st-${iv.status}`">{{ iv.status || '—' }}</span>
               <span>{{ fmtDateTime(iv.interview_starts_at) }}</span>
@@ -92,7 +92,7 @@
         <div v-else class="ih-detail">
           <div class="ih-detail-head">
             <div>
-              <h3>{{ candidateLabel(selectedInterview) }}</h3>
+              <h3>{{ interviewListLabel(selectedInterview) }}</h3>
               <div class="ih-detail-meta">
                 <span class="ih-status" :class="`st-${selectedInterview.status}`">{{ selectedInterview.status }}</span>
                 <span>{{ fmtDateTime(selectedInterview.interview_starts_at) }}</span>
@@ -249,6 +249,25 @@
             </option>
           </select>
 
+          <label class="ih-label">Interview round</label>
+          <select v-model="scheduleForm.interviewRound" class="input">
+            <option v-for="r in roundOptions" :key="r.key" :value="r.key">{{ r.label }}</option>
+          </select>
+
+          <label v-if="scheduleForm.interviewRound === 'other'" class="ih-label">Custom round label</label>
+          <input
+            v-if="scheduleForm.interviewRound === 'other'"
+            v-model="scheduleForm.roundLabelCustom"
+            class="input"
+            type="text"
+            placeholder="e.g. Culture fit call"
+          />
+
+          <div class="ih-field-full">
+            <label class="ih-label">Calendar title</label>
+            <div class="ih-title-preview">{{ scheduleTitlePreview }}</div>
+          </div>
+
           <label class="ih-label">Start</label>
           <input v-model="scheduleForm.startsAt" class="input" type="datetime-local" />
 
@@ -296,6 +315,8 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import { HIRING_INTERVIEW_ROUNDS, suggestInterviewRound } from '../../constants/hiringInterviewRounds.js';
+import { buildHiringInterviewTitle } from '../../utils/hiringInterviewTitle.js';
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
@@ -383,8 +404,12 @@ const scheduleForm = ref({
   durationMinutes: 60,
   interviewerUserIds: [],
   jobQuestionSetId: '',
-  sendInvites: true
+  sendInvites: true,
+  interviewRound: 'initial',
+  roundLabelCustom: ''
 });
+
+const roundOptions = HIRING_INTERVIEW_ROUNDS;
 
 const candidateById = computed(() => {
   const map = new Map();
@@ -450,9 +475,11 @@ const filteredInterviews = computed(() => {
   });
 });
 
-const canSubmitSchedule = computed(() =>
-  !!scheduleForm.value.candidateUserId && !!scheduleForm.value.startsAt
-);
+const canSubmitSchedule = computed(() => {
+  if (!scheduleForm.value.candidateUserId || !scheduleForm.value.startsAt) return false;
+  if (scheduleForm.value.interviewRound === 'other' && !scheduleForm.value.roundLabelCustom.trim()) return false;
+  return true;
+});
 
 function flashSuccess(msg) {
   successMsg.value = msg;
@@ -519,6 +546,32 @@ function candidateLabel(iv) {
   return `Candidate #${iv.candidate_user_id}`;
 }
 
+function interviewListLabel(iv) {
+  if (!iv) return 'Interview';
+  if (iv.display_title) return iv.display_title;
+  const c = candidateById.value.get(Number(iv.candidate_user_id));
+  const candidateName = c ? (formatPerson(c) || formatPerson(c.user) || '') : '';
+  const jobTitle = c?.applied_role || c?.job_title || '';
+  return buildHiringInterviewTitle({
+    interviewRound: iv.interview_round || 'initial',
+    candidateName,
+    jobTitle
+  });
+}
+
+const scheduleTitlePreview = computed(() => {
+  const cid = Number(scheduleForm.value.candidateUserId);
+  const c = cid ? candidateById.value.get(cid) : null;
+  const candidateName = c ? (formatPerson(c) || formatPerson(c.user) || '') : '';
+  const jobTitle = c?.applied_role || c?.job_title || '';
+  return buildHiringInterviewTitle({
+    interviewRound: scheduleForm.value.interviewRound,
+    roundLabelCustom: scheduleForm.value.roundLabelCustom,
+    candidateName,
+    jobTitle
+  });
+});
+
 function interviewerLabels(iv) {
   const ids = Array.isArray(iv.interviewer_user_ids_json) ? iv.interviewer_user_ids_json : [];
   return ids.map((id) => {
@@ -556,10 +609,10 @@ async function copyText(text) {
 async function copyInvite() {
   const iv = selectedInterview.value;
   if (!iv?.public_join_url) return;
-  const name = candidateLabel(iv);
+  const name = interviewListLabel(iv);
   const when = fmtDateTime(iv.interview_starts_at);
   const body = [
-    `Interview with ${name}`,
+    name,
     when !== '—' ? `When: ${when}${iv.interview_timezone ? ` (${iv.interview_timezone})` : ''}` : null,
     `Join: ${iv.public_join_url}`
   ].filter(Boolean).join('\n');
@@ -756,7 +809,9 @@ async function openScheduleModal() {
     durationMinutes: 60,
     interviewerUserIds: [],
     jobQuestionSetId: '',
-    sendInvites: true
+    sendInvites: true,
+    interviewRound: 'initial',
+    roundLabelCustom: ''
   };
   if (!timezoneOptions.includes(scheduleForm.value.timezone)) {
     scheduleForm.value.timezone = 'America/Denver';
@@ -787,7 +842,11 @@ async function submitSchedule() {
       jobQuestionSetId: scheduleForm.value.jobQuestionSetId
         ? Number(scheduleForm.value.jobQuestionSetId)
         : null,
-      sendInvites: !!scheduleForm.value.sendInvites
+      sendInvites: !!scheduleForm.value.sendInvites,
+      interviewRound: scheduleForm.value.interviewRound,
+      roundLabelCustom: scheduleForm.value.interviewRound === 'other'
+        ? scheduleForm.value.roundLabelCustom.trim()
+        : null
     };
     const r = await api.post('/hiring/interview-hub/interviews', body);
     const created = r.data?.data?.interview || r.data?.data;
@@ -821,6 +880,13 @@ async function refresh() {
     loading.value = false;
   }
 }
+
+watch(() => scheduleForm.value.candidateUserId, (cid) => {
+  const id = Number(cid);
+  if (!id) return;
+  const prior = interviews.value.filter((iv) => Number(iv.candidate_user_id) === id);
+  scheduleForm.value.interviewRound = suggestInterviewRound(prior);
+});
 
 watch(effectiveAgencyId, async (v, prev) => {
   if (!v || v === prev) return;
@@ -1121,6 +1187,16 @@ onMounted(async () => {
 }
 .ih-modal-header h3 { margin: 0; font-size: 1.05rem; }
 .ih-modal-body { padding: 8px 16px 16px; max-height: min(70vh, 640px); overflow: auto; }
+.ih-field-full { grid-column: 1 / -1; }
+.ih-title-preview {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #111827;
+  background: #f9fafb;
+}
 .ih-modal-footer {
   display: flex;
   justify-content: flex-end;

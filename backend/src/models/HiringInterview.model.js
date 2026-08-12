@@ -127,6 +127,8 @@ class HiringInterview {
     hostJoinToken = null,
     inviteSentAt = null,
     publicJoinUrl = null,
+    interviewRound = null,
+    displayTitle = null,
     createdByUserId = null
   }) {
     const statusNorm = String(status || 'scheduled').trim().toLowerCase();
@@ -139,8 +141,8 @@ class HiringInterview {
         agency_id, candidate_user_id, hiring_profile_id, provider_schedule_event_id,
         template_id, job_question_set_id, status, interview_starts_at, interview_timezone,
         interviewer_user_ids_json, guest_join_token, host_join_token,
-        invite_sent_at, public_join_url, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        invite_sent_at, public_join_url, interview_round, display_title, created_by_user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         parseIntParam(agencyId),
         parseIntParam(candidateUserId),
@@ -156,6 +158,8 @@ class HiringInterview {
         String(hostTok).slice(0, 128),
         toSqlDatetime(inviteSentAt),
         publicJoinUrl != null ? String(publicJoinUrl) : null,
+        interviewRound != null ? String(interviewRound).trim().slice(0, 32) : null,
+        displayTitle != null ? String(displayTitle).trim().slice(0, 255) : null,
         parseIntParam(createdByUserId)
       ]
     );
@@ -216,6 +220,14 @@ class HiringInterview {
     if (patch.publicJoinUrl !== undefined) {
       updates.push('public_join_url = ?');
       params.push(patch.publicJoinUrl != null ? String(patch.publicJoinUrl) : null);
+    }
+    if (patch.interviewRound !== undefined) {
+      updates.push('interview_round = ?');
+      params.push(patch.interviewRound != null ? String(patch.interviewRound).trim().slice(0, 32) : null);
+    }
+    if (patch.displayTitle !== undefined) {
+      updates.push('display_title = ?');
+      params.push(patch.displayTitle != null ? String(patch.displayTitle).trim().slice(0, 255) : null);
     }
     if (patch.guestAccessEndedAt !== undefined) {
       updates.push('guest_access_ended_at = ?');

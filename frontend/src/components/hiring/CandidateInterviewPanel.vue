@@ -17,6 +17,21 @@
       <div class="cip-schedule-title">New Interview Hub meeting</div>
       <div class="cip-schedule-form">
         <div class="cip-field">
+          <label for="cip-round">Interview round</label>
+          <select id="cip-round" v-model="interviewRound" class="cip-input">
+            <option v-for="r in roundOptions" :key="r.key" :value="r.key">{{ r.label }}</option>
+          </select>
+        </div>
+        <div v-if="interviewRound === 'other'" class="cip-field">
+          <label for="cip-round-custom">Custom round label</label>
+          <input id="cip-round-custom" v-model="roundLabelCustom" class="cip-input" type="text" placeholder="e.g. Culture fit call" />
+        </div>
+        <div class="cip-field cip-field--full">
+          <label>Calendar title</label>
+          <div class="cip-title-preview">{{ scheduleTitlePreview }}</div>
+          <p class="muted small">Used on the calendar invite and Interview Hub list.</p>
+        </div>
+        <div class="cip-field">
           <label for="cip-starts">Start (local)</label>
           <input id="cip-starts" v-model="startsLocal" class="cip-input" type="datetime-local" />
         </div>
@@ -56,7 +71,7 @@
         </label>
       </div>
       <div class="row-actions">
-        <button type="button" class="btn btn-primary" :disabled="scheduling || !startsLocal" @click="scheduleInterview">
+        <button type="button" class="btn btn-primary" :disabled="scheduling || !startsLocal || !canSubmitSchedule" @click="scheduleInterview">
           {{ scheduling ? 'Scheduling…' : 'Create interview meeting' }}
         </button>
       </div>
@@ -68,16 +83,16 @@
     <div v-else class="cip-list">
       <div v-for="iv in interviews" :key="iv.id" class="cip-card" :class="{ active: Number(selectedId) === Number(iv.id) }" @click="selectInterview(iv)">
         <div class="cip-card-top">
-          <strong>{{ formatWhen(iv.interview_starts_at) }}</strong>
+          <strong>{{ interviewCardTitle(iv) }}</strong>
           <span class="badge" :class="iv.status">{{ iv.status }}</span>
         </div>
-        <div class="muted small">Timezone: {{ iv.interview_timezone || '—' }}</div>
+        <div class="muted small">{{ formatWhen(iv.interview_starts_at) }}</div>
         <div v-if="iv.public_join_url" class="muted small truncate">Join: {{ iv.public_join_url }}</div>
       </div>
     </div>
 
     <div v-if="selected" class="cip-detail">
-      <h4>Interview details</h4>
+      <h4>{{ interviewCardTitle(selected) }}</h4>
       <div class="kv"><div class="k">Status</div><div class="v">{{ selected.status }}</div></div>
       <div class="kv"><div class="k">When</div><div class="v">{{ formatWhen(selected.interview_starts_at) }} ({{ selected.interview_timezone || '—' }})</div></div>
       <div class="kv" v-if="selected.public_join_url">
@@ -174,6 +189,8 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { HIRING_INTERVIEW_ROUNDS, suggestInterviewRound } from '../../constants/hiringInterviewRounds.js';
+import { buildHiringInterviewTitle } from '../../utils/hiringInterviewTitle.js';
 
 const props = defineProps({
   candidateUserId: { type: [Number, String], required: true },
@@ -182,6 +199,8 @@ const props = defineProps({
   jobDescriptionId: { type: [Number, String], default: null },
   candidateStage: { type: String, default: '' },
   hiringProfileId: { type: [Number, String], default: null },
+  candidateName: { type: String, default: '' },
+  jobTitle: { type: String, default: '' },
   schedulePulse: { type: Number, default: 0 }
 });
 
@@ -203,6 +222,9 @@ const jobQuestionSetId = ref('');
 const interviewerIds = ref([]);
 const interviewerPick = ref('');
 const sendInvites = ref(true);
+const interviewRound = ref('initial');
+const roundLabelCustom = ref('');
+const roundOptions = HIRING_INTERVIEW_ROUNDS;
 const capsules = ref([]);
 const capsuleLoading = ref(false);
 const capsuleSaving = ref(false);
@@ -223,6 +245,18 @@ const hubPath = computed(() => {
 const isHired = computed(() => String(props.candidateStage || '').toLowerCase() === 'hired');
 
 const selected = computed(() => interviews.value.find((i) => Number(i.id) === Number(selectedId.value)) || null);
+
+const scheduleTitlePreview = computed(() => buildHiringInterviewTitle({
+  interviewRound: interviewRound.value,
+  roundLabelCustom: roundLabelCustom.value,
+  candidateName: props.candidateName,
+  jobTitle: props.jobTitle
+}));
+
+const canSubmitSchedule = computed(() => {
+  if (interviewRound.value === 'other' && !roundLabelCustom.value.trim()) return false;
+  return true;
+});
 
 const notesPreview = computed(() => {
   const map = artifact.value?.private_notes_json || {};
@@ -265,10 +299,15 @@ function ensureDefaultInterviewer() {
   }
 }
 
+function suggestRoundFromExisting() {
+  interviewRound.value = suggestInterviewRound(interviews.value);
+}
+
 function openScheduleForm() {
   showSchedule.value = true;
   scheduleError.value = '';
   if (!startsLocal.value) startsLocal.value = suggestDefaultStartLocal();
+  suggestRoundFromExisting();
   ensureDefaultInterviewer();
   nextTick(() => {
     scheduleSectionRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
@@ -286,6 +325,7 @@ async function loadInterviews() {
     });
     interviews.value = r.data?.data || r.data || [];
     if (!interviews.value.length) showSchedule.value = true;
+    if (showSchedule.value) suggestRoundFromExisting();
     if (interviews.value.length && !selectedId.value) {
       await selectInterview(interviews.value[0]);
     }
@@ -362,7 +402,9 @@ async function scheduleInterview() {
       interviewerUserIds: interviewerIds.value,
       jobQuestionSetId: jobQuestionSetId.value || null,
       hiringProfileId: props.hiringProfileId || null,
-      sendInvites: sendInvites.value
+      sendInvites: sendInvites.value,
+      interviewRound: interviewRound.value,
+      roundLabelCustom: interviewRound.value === 'other' ? roundLabelCustom.value.trim() : null
     });
     showSchedule.value = false;
     await loadInterviews();
@@ -373,6 +415,16 @@ async function scheduleInterview() {
   } finally {
     scheduling.value = false;
   }
+}
+
+function interviewCardTitle(iv) {
+  if (!iv) return 'Interview';
+  if (iv.display_title) return iv.display_title;
+  return buildHiringInterviewTitle({
+    interviewRound: iv.interview_round || 'initial',
+    candidateName: props.candidateName,
+    jobTitle: props.jobTitle
+  });
 }
 
 function labelForCriterion(key) {
@@ -493,6 +545,15 @@ async function openCapsule(c) {
   min-width: 0;
 }
 .cip-field--full { grid-column: 1 / -1; }
+.cip-title-preview {
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  background: #fff;
+}
 .cip-field label {
   font-size: 12px;
   font-weight: 600;
