@@ -43,6 +43,45 @@ export function getOrgSlug(org) {
   return slug || null;
 }
 
+/** School / program / learning portal shells — never My Dashboard. */
+export function isPortalShellOrgType(orgOrType) {
+  const t =
+    orgOrType && typeof orgOrType === 'object'
+      ? normalizeOrganizationType(orgOrType.organization_type || orgOrType.organizationType || '')
+      : normalizeOrganizationType(orgOrType || '');
+  return t === 'school' || t === 'program' || t === 'learning';
+}
+
+export function orgMatchesSlug(org, slug) {
+  const target = String(slug || '').trim().toLowerCase();
+  if (!target || !org) return false;
+  const candidates = [org.slug, org.portal_url, org.portalUrl]
+    .map((v) => String(v || '').trim().toLowerCase())
+    .filter(Boolean);
+  return candidates.includes(target);
+}
+
+/**
+ * Type for `/:slug/dashboard`. Returns null when the loaded context is a
+ * different org (e.g. parent tenant) so callers do not fall through to My Dashboard.
+ */
+export function resolveOrganizationTypeForSlug({
+  slug,
+  context = null,
+  currentOrganization = null,
+  memberships = []
+} = {}) {
+  const target = String(slug || '').trim().toLowerCase();
+  if (!target) return null;
+  const rows = [context, currentOrganization, ...(Array.isArray(memberships) ? memberships : [])];
+  for (const row of rows) {
+    if (!orgMatchesSlug(row, target)) continue;
+    const t = normalizeOrganizationType(row?.organization_type || row?.organizationType || '');
+    return t || 'agency';
+  }
+  return null;
+}
+
 export function nestedOrganizationTypeLabel(org) {
   if (isBookClubAgency(org)) return 'Book Club';
   const t = getOrganizationType(org);

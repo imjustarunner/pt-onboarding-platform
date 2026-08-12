@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../services/api';
+import { isPortalShellOrgType } from '../utils/organizationTypes.js';
 
 const normalizeSlug = (slug) => String(slug || '').trim().toLowerCase();
 
@@ -53,7 +54,7 @@ export const useOrganizationStore = defineStore('organization', () => {
       id: org.id,
       name: org.name,
       slug: org.slug,
-      organizationType: org.organization_type || 'agency',
+      organizationType: org.organization_type || org.organizationType || 'agency',
       logoUrl: org.logo_url,
       colorPalette: org.color_palette,
       themeSettings: org.theme_settings,
@@ -107,7 +108,14 @@ export const useOrganizationStore = defineStore('organization', () => {
         });
         const org = response.data;
 
-        if (!org || !org.is_active) {
+        if (!org) {
+          error.value = 'Organization not found or inactive';
+          return null;
+        }
+
+        // Draft school/program/learning portals are created inactive until onboarding
+        // submit. They must still load as portal shells — never as My Dashboard.
+        if (!org.is_active && !isPortalShellOrgType(org)) {
           error.value = 'Organization not found or inactive';
           return null;
         }
@@ -151,7 +159,7 @@ export const useOrganizationStore = defineStore('organization', () => {
         id: organization.id,
         name: organization.name,
         slug: organization.slug,
-        organizationType: organization.organization_type || 'agency',
+        organizationType: organization.organization_type || organization.organizationType || 'agency',
         logoUrl: organization.logo_url,
         colorPalette: organization.color_palette,
         themeSettings: organization.theme_settings,

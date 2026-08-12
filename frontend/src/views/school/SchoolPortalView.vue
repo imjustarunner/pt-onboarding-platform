@@ -584,6 +584,15 @@
                   {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
                 </button>
                 <button
+                  class="btn btn-sm"
+                  :class="isShowingFullNames ? 'btn-primary' : 'btn-secondary'"
+                  type="button"
+                  :title="fullNamesButtonTitle"
+                  @click="onShowFullNamesClick"
+                >
+                  {{ fullNamesButtonLabel }}
+                </button>
+                <button
                   class="btn btn-secondary btn-sm codes-info"
                   type="button"
                   :title="codesPrivacyHelp"
@@ -1643,6 +1652,39 @@
       @post="openPostSchoolEventFromPrompt"
     />
 
+    <div v-if="showFullNameWarning" class="modal-overlay" @click.self="cancelFullNameReveal">
+      <div class="modal hipaa-full-name-modal" role="dialog" aria-labelledby="hipaa-full-name-title" @click.stop>
+        <div class="modal-header">
+          <strong id="hipaa-full-name-title">Show full names</strong>
+          <button class="btn btn-secondary btn-sm" type="button" @click="cancelFullNameReveal">Cancel</button>
+        </div>
+        <div class="modal-body">
+          <p class="hipaa-full-name-warn">
+            Displaying full student names can significantly increase the inadvertent display of HIPAA-protected information
+            on this screen, in screenshots, and to anyone who can see your display.
+          </p>
+          <p class="muted">
+            Full names stay visible for 10 minutes, then labels return to initials or codes. You can turn names on again
+            after that by repeating this acknowledgment.
+          </p>
+          <label class="hipaa-full-name-ack">
+            <input v-model="fullNameAcknowledged" type="checkbox" />
+            <span>I understand this risk and still want to display full names for 10 minutes.</span>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" type="button" @click="cancelFullNameReveal">Cancel</button>
+          <button
+            class="btn btn-primary"
+            type="button"
+            :disabled="!fullNameAcknowledged"
+            @click="confirmFullNameReveal"
+          >
+            Show full names for 10 minutes
+          </button>
+        </div>
+      </div>
+    </div>
     <div v-if="showAnnouncementModal" class="modal-overlay" @click.self="closeAnnouncementModal">
       <div class="modal school-announcement-modal" @click.stop>
         <div class="modal-header">
@@ -2273,7 +2315,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, provide, reactive, ref, watch, nextTick } from 'vue';
+import { computed, onMounted, onUnmounted, provide, reactive, ref, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   formatSchoolEventWhen as formatSchoolEventWhenUtil,
@@ -2281,6 +2323,13 @@ import {
   timezoneAbbrevAt
 } from '../../utils/timezones';
 import { notifyHubSchoolEventsChanged } from '../../utils/hubSchoolEventsRefresh';
+import {
+  SCHOOL_PORTAL_FULL_NAME_MS,
+  SCHOOL_PORTAL_FULL_NAME_PREV_KEY,
+  SCHOOL_PORTAL_FULL_NAME_UNTIL_KEY,
+  formatFullNameCountdown,
+  formatSchoolPortalClientLabel
+} from '../../utils/schoolPortalClientLabel.js';
 import { useOrganizationStore } from '../../store/organization';
 import { useBrandingStore } from '../../store/branding';
 import { useAgencyStore } from '../../store/agency';
@@ -3494,18 +3543,121 @@ const bannerTexts = computed(() => {
     .slice(0, 10);
 });
 
-const clientLabelMode = ref('codes'); // 'codes' | 'initials'
+const clientLabelMode = ref('codes'); // 'codes' | 'initials' | 'full_name'
+const labelModeBeforeFullName = ref('codes');
 const showCodesHelp = ref(false);
+const showFullNameWarning = ref(false);
+const fullNameAcknowledged = ref(false);
+const fullNameUntil = ref(0);
+const fullNameRemainingMs = ref(0);
+let fullNameTickTimer = null;
 const codesPrivacyHelp =
-  'To further protect the anonymity of the students, you can turn codes on and then hover over their codes to display their initials.';
-const toggleClientLabelMode = () => {
-  clientLabelMode.value = clientLabelMode.value === 'codes' ? 'initials' : 'codes';
-  showCodesHelp.value = false;
+  'Codes hide identities more; initials are easier to recognize. Show full names only after acknowledging the HIPAA warning — names revert to codes or initials after 10 minutes.';
+const isShowingFullNames = computed(
+  () => clientLabelMode.value === 'full_name' && Date.now() < Number(fullNameUntil.value || 0)
+);
+const fullNamesButtonLabel = computed(() => {
+  if (!isShowingFullNames.value) return 'Show full names';
+  return `Hide full names (${formatFullNameCountdown(fullNameRemainingMs.value)})`;
+});
+const fullNamesButtonTitle = computed(() => {
+  if (isShowingFullNames.value) {
+    return `Full names are visible. They revert to ${labelModeBeforeFullName.value === 'initials' ? 'initials' : 'codes'} in ${formatFullNameCountdown(fullNameRemainingMs.value)}.`;
+  }
+  return 'Display full student names for 10 minutes after a HIPAA acknowledgment.';
+});
+
+const persistSafeLabelMode = (mode) => {
+  const safe = mode === 'initials' ? 'initials' : 'codes';
   try {
-    window.localStorage.setItem('schoolPortalClientLabelMode', clientLabelMode.value);
+    window.localStorage.setItem('schoolPortalClientLabelMode', safe);
   } catch {
     // ignore
   }
+};
+
+const clearFullNameSession = () => {
+  try {
+    window.sessionStorage.removeItem(SCHOOL_PORTAL_FULL_NAME_UNTIL_KEY);
+    window.sessionStorage.removeItem(SCHOOL_PORTAL_FULL_NAME_PREV_KEY);
+  } catch {
+    // ignore
+  }
+};
+
+const stopFullNameTimer = () => {
+  if (fullNameTickTimer) {
+    clearInterval(fullNameTickTimer);
+    fullNameTickTimer = null;
+  }
+};
+
+const revertFullNames = () => {
+  stopFullNameTimer();
+  const prev = labelModeBeforeFullName.value === 'initials' ? 'initials' : 'codes';
+  clientLabelMode.value = prev;
+  fullNameUntil.value = 0;
+  fullNameRemainingMs.value = 0;
+  persistSafeLabelMode(prev);
+  clearFullNameSession();
+};
+
+const tickFullNameTimer = () => {
+  const remaining = Number(fullNameUntil.value || 0) - Date.now();
+  if (remaining <= 0) {
+    revertFullNames();
+    return;
+  }
+  fullNameRemainingMs.value = remaining;
+};
+
+const startFullNameTimer = (untilTs) => {
+  stopFullNameTimer();
+  fullNameUntil.value = untilTs;
+  tickFullNameTimer();
+  fullNameTickTimer = setInterval(tickFullNameTimer, 1000);
+};
+
+const onShowFullNamesClick = () => {
+  showCodesHelp.value = false;
+  if (isShowingFullNames.value) {
+    revertFullNames();
+    return;
+  }
+  fullNameAcknowledged.value = false;
+  showFullNameWarning.value = true;
+};
+
+const cancelFullNameReveal = () => {
+  showFullNameWarning.value = false;
+  fullNameAcknowledged.value = false;
+};
+
+const confirmFullNameReveal = () => {
+  if (!fullNameAcknowledged.value) return;
+  const prev = clientLabelMode.value === 'initials' ? 'initials' : 'codes';
+  labelModeBeforeFullName.value = prev;
+  persistSafeLabelMode(prev);
+  const until = Date.now() + SCHOOL_PORTAL_FULL_NAME_MS;
+  try {
+    window.sessionStorage.setItem(SCHOOL_PORTAL_FULL_NAME_UNTIL_KEY, String(until));
+    window.sessionStorage.setItem(SCHOOL_PORTAL_FULL_NAME_PREV_KEY, prev);
+  } catch {
+    // ignore
+  }
+  clientLabelMode.value = 'full_name';
+  showFullNameWarning.value = false;
+  fullNameAcknowledged.value = false;
+  startFullNameTimer(until);
+};
+
+const toggleClientLabelMode = () => {
+  showCodesHelp.value = false;
+  if (isShowingFullNames.value) {
+    revertFullNames();
+  }
+  clientLabelMode.value = clientLabelMode.value === 'codes' ? 'initials' : 'codes';
+  persistSafeLabelMode(clientLabelMode.value);
 };
 
 const parseJsonMaybe = (v) => {
@@ -3578,8 +3730,15 @@ const loadNotificationsPreview = async () => {
       const code = String(it?.client_identifier_code || '').trim();
       const initials = String(it?.client_initials || '').trim();
       if (it?.client_force_code_only) return code || initials || '';
-      if (clientLabelMode.value === 'initials') return initials || code || '';
-      return code || initials || '';
+      return formatSchoolPortalClientLabel(
+        {
+          initials,
+          identifier_code: code,
+          full_name: it?.client_full_name,
+          client_force_code_only: it?.client_force_code_only
+        },
+        clientLabelMode.value
+      );
     };
     const formatNotificationMessage = (it) => {
       const raw = String(it?.message || '').trim();
@@ -5240,7 +5399,19 @@ const messageProvider = (providerUserId) => {
 onMounted(async () => {
   try {
     const saved = window.localStorage.getItem('schoolPortalClientLabelMode');
-    if (saved === 'codes' || saved === 'initials') clientLabelMode.value = saved;
+    if (saved === 'codes' || saved === 'initials') {
+      clientLabelMode.value = saved;
+      labelModeBeforeFullName.value = saved;
+    }
+    const until = Number(window.sessionStorage.getItem(SCHOOL_PORTAL_FULL_NAME_UNTIL_KEY) || 0);
+    const prev = window.sessionStorage.getItem(SCHOOL_PORTAL_FULL_NAME_PREV_KEY);
+    if (prev === 'codes' || prev === 'initials') labelModeBeforeFullName.value = prev;
+    if (Number.isFinite(until) && until > Date.now()) {
+      clientLabelMode.value = 'full_name';
+      startFullNameTimer(until);
+    } else {
+      clearFullNameSession();
+    }
   } catch {
     // ignore
   }
@@ -5263,6 +5434,10 @@ onMounted(async () => {
   if (organizationId.value) {
     await bootstrapSchoolPortal();
   }
+});
+
+onUnmounted(() => {
+  stopFullNameTimer();
 });
 
 watch(organizationId, async (id) => {
@@ -5970,6 +6145,38 @@ watch(() => store.selectedWeekday, async (weekday) => {
   color: var(--text-secondary);
   line-height: 1.35;
   z-index: 50;
+}
+.hipaa-full-name-modal {
+  max-width: 520px;
+}
+.hipaa-full-name-warn {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  color: #78350f;
+  font-size: 14px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+.hipaa-full-name-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+  font-size: 14px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.hipaa-full-name-ack input {
+  margin-top: 3px;
+}
+.hipaa-full-name-modal .modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px 16px;
 }
 
 .main-layout {

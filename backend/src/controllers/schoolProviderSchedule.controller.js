@@ -535,6 +535,7 @@ export const listAssignedClientsForProviderDay = async (req, res, next) => {
          c.id,
          c.initials,
          c.identifier_code,
+         c.full_name,
          c.status,
          c.document_status,
          c.provider_id,

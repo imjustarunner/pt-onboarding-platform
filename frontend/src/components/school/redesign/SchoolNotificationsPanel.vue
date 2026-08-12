@@ -553,10 +553,11 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../../services/api';
 import { useAuthStore } from '../../../store/auth';
+import { formatSchoolPortalClientLabel } from '../../../utils/schoolPortalClientLabel.js';
 
 const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },
-  clientLabelMode: { type: String, default: 'codes' }, // 'codes' | 'initials'
+  clientLabelMode: { type: String, default: 'codes' }, // 'codes' | 'initials' | 'full_name'
   initialFilter: { type: String, default: '' },
   initialCreateOpen: { type: Boolean, default: false }
 });
@@ -1068,11 +1069,7 @@ const itemCategoryClass = (it) => {
 
 const formatClientLabel = (it) => {
   if (it?.client_access_locked) return 'NO ROI';
-  const code = String(it?.client_identifier_code || '').trim();
-  const initials = String(it?.client_initials || '').trim();
-  if (it?.client_force_code_only) return code || initials || '';
-  if (props.clientLabelMode === 'initials') return initials || code || '';
-  return code || initials || '';
+  return formatSchoolPortalClientLabel(it, props.clientLabelMode);
 };
 
 const formatMessage = (it) => {

@@ -3906,6 +3906,8 @@ const hideGlobalNavForSchoolStaff = computed(() => {
   const role = String(user.value?.role || '').toLowerCase();
   // School staff should only use the School Portal UX (no global nav / personal dashboard).
   if (role === 'school_staff') return true;
+  // Admins/providers opening a school portal: hide tenant My Dashboard chrome.
+  if (isSchoolPortalShellActive.value) return true;
   // Life coach / consultant verticals use their own sidebar shells (no typical header).
   const orgType = String(
     organizationStore.organizationContext?.organizationType ||

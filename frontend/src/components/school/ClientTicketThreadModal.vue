@@ -122,11 +122,12 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import SupportTicketThreadMessage from './SupportTicketThreadMessage.vue';
 import { useAuthStore } from '../../store/auth';
+import { formatSchoolPortalClientLabel } from '../../utils/schoolPortalClientLabel.js';
 
 const props = defineProps({
   client: { type: Object, required: true },
   schoolOrganizationId: { type: Number, required: true },
-  clientLabelMode: { type: String, default: 'codes' }, // 'codes' | 'initials'
+  clientLabelMode: { type: String, default: 'codes' }, // 'codes' | 'initials' | 'full_name'
   ticketId: { type: [Number, String], default: null },
   initialMessageId: { type: [Number, String], default: null }
 });
@@ -157,12 +158,7 @@ const checklistAudit = ref('');
 
 const replyTo = ref(null); // { id, authorLabel }
 
-const clientLabel = computed(() => {
-  const initials = String(props.client?.initials || '').replace(/\s+/g, '').toUpperCase();
-  const code = String(props.client?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
-  if (props.clientLabelMode === 'initials') return initials || code || '—';
-  return code || initials || '—';
-});
+const clientLabel = computed(() => formatSchoolPortalClientLabel(props.client, props.clientLabelMode));
 
 const isClosed = computed(() => String(ticket.value?.status || '').toLowerCase() === 'closed');
 

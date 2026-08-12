@@ -92,11 +92,12 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import { formatSchoolPortalClientLabel } from '../../utils/schoolPortalClientLabel.js';
 
 const props = defineProps({
   orgKey: { type: String, required: true }, // numeric id or slug
   client: { type: Object, required: true },
-  clientLabelMode: { type: String, default: 'codes' } // 'codes' | 'initials'
+  clientLabelMode: { type: String, default: 'codes' } // 'codes' | 'initials' | 'full_name'
 });
 
 const emit = defineEmits(['close', 'saved']);
@@ -112,12 +113,7 @@ const draft = ref('');
 const saving = ref(false);
 const saveError = ref('');
 
-const clientLabel = computed(() => {
-  const initials = String(props.client?.initials || '').replace(/\s+/g, '').toUpperCase();
-  const code = String(props.client?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
-  if (props.clientLabelMode === 'initials') return initials || code || '—';
-  return code || initials || '—';
-});
+const clientLabel = computed(() => formatSchoolPortalClientLabel(props.client, props.clientLabelMode));
 
 const formatWhen = (ts) => {
   try {

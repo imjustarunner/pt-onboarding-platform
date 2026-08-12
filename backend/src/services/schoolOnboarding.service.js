@@ -520,6 +520,8 @@ export async function createInvite({
   let user = null;
   let createdNewUser = false;
   try {
+    // Nested school under the inviting tenant — never a standalone agency tenant.
+    // is_active stays false until submit; slug lookup still resolves school/program/learning drafts.
     const [schoolResult] = await pool.execute(
       `INSERT INTO agencies (name, slug, portal_url, logo_url, color_palette, terminology_settings, is_active, organization_type, feature_flags)
        VALUES (?, ?, ?, NULL, NULL, NULL, FALSE, 'school', ?)`,

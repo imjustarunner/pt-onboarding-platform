@@ -721,6 +721,7 @@ export const getSchoolClients = async (req, res, next) => {
            c.id,
            c.initials,
            c.identifier_code,
+           c.full_name,
            c.client_status_id,
            cs.label AS client_status_label,
            cs.status_key AS client_status_key,
@@ -1105,6 +1106,7 @@ export const getSchoolClients = async (req, res, next) => {
         id: client.id,
         initials: client.initials,
         identifier_code: client.identifier_code || null,
+        full_name: client.full_name || null,
         // "status" (workflow) is treated as an internal archive flag; schools should see the configured client status.
         client_status_id: client.client_status_id || null,
         client_status_label: client.client_status_label || null,
@@ -6117,7 +6119,8 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
               actor_name: signer,
               client_id: r.client_id ? Number(r.client_id) : null,
               client_initials: r.client_initials || null,
-              client_identifier_code: r.client_identifier_code || null
+              client_identifier_code: r.client_identifier_code || null,
+              client_full_name: r.client_full_name || null
             };
           });
       }

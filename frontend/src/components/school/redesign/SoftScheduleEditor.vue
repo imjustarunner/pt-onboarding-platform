@@ -70,13 +70,14 @@
 
 <script setup>
 import { ref, watch } from 'vue';
+import { formatSchoolPortalClientLabel } from '../../../utils/schoolPortalClientLabel.js';
 
 const props = defineProps({
   slots: { type: Array, default: () => [] },
   caseloadClients: { type: Array, default: () => [] },
   saving: { type: Boolean, default: false },
   error: { type: String, default: '' },
-  // 'codes' | 'initials'
+  // 'codes' | 'initials' | 'full_name'
   clientLabelMode: { type: String, default: 'codes' },
   highlightClientId: { type: [Number, String], default: null }
 });
@@ -119,19 +120,22 @@ const isLockedClientId = (clientId) => isLockedClient(getClientById(clientId));
 
 const displayClient = (c) => {
   const mode = String(props.clientLabelMode || 'codes');
-  const src = mode === 'initials' ? (c?.initials || c?.identifier_code) : (c?.identifier_code || c?.initials);
-  let raw = String(src || '').replace(/\s+/g, '');
-  if (mode !== 'initials') raw = raw.toUpperCase();
-  if (isLockedClient(c)) {
-    if (raw) {
-      if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
-      return raw;
+  if (isLockedClient(c) || mode !== 'full_name') {
+    const src = mode === 'initials' ? (c?.initials || c?.identifier_code) : (c?.identifier_code || c?.initials);
+    let raw = String(src || '').replace(/\s+/g, '');
+    if (mode !== 'initials') raw = raw.toUpperCase();
+    if (isLockedClient(c)) {
+      if (raw) {
+        if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
+        return raw;
+      }
+      return String(c?.school_portal_locked_label || 'NO ROI').trim() || 'NO ROI';
     }
-    return String(c?.school_portal_locked_label || 'NO ROI').trim() || 'NO ROI';
+    if (!raw) return `Client ${c?.id || ''}`.trim();
+    if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
+    return raw;
   }
-  if (!raw) return `Client ${c?.id || ''}`.trim();
-  if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
-  return raw;
+  return formatSchoolPortalClientLabel(c, 'full_name');
 };
 
 const save = () => {

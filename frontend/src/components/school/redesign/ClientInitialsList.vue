@@ -4,7 +4,7 @@
       v-for="c in clients"
       :key="c.id"
       :id="anchorIdFor(c)"
-      :class="['chip', { 'chip-locked': isLocked(c), 'chip-highlight': isHighlighted(c) }]"
+      :class="['chip', { 'chip-locked': isLocked(c), 'chip-highlight': isHighlighted(c), 'chip-full-name': String(clientLabelMode || '') === 'full_name' }]"
       type="button"
       :disabled="isLocked(c)"
       @click="$emit('select', c)"
@@ -19,9 +19,11 @@
 </template>
 
 <script setup>
+import { formatSchoolPortalClientLabel } from '../../../utils/schoolPortalClientLabel.js';
+
 const props = defineProps({
   clients: { type: Array, default: () => [] },
-  // 'codes' | 'initials' (codes are default with initials on hover)
+  // 'codes' | 'initials' | 'full_name'
   clientLabelMode: { type: String, default: 'codes' },
   highlightClientId: { type: [Number, String], default: null },
   scrollAnchorProviderUserId: { type: [Number, String], default: null }
@@ -41,19 +43,22 @@ const anchorIdFor = (c) => {
 
 const displayId = (c) => {
   const mode = String(props.clientLabelMode || 'codes');
-  const src = mode === 'initials' ? (c?.initials || c?.identifier_code) : (c?.identifier_code || c?.initials);
-  let raw = String(src || '').replace(/\s+/g, '');
-  if (mode !== 'initials') raw = raw.toUpperCase();
-  if (isLocked(c)) {
-    if (raw) {
-      if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
-      return raw;
+  if (isLocked(c) || mode !== 'full_name') {
+    const src = mode === 'initials' ? (c?.initials || c?.identifier_code) : (c?.identifier_code || c?.initials);
+    let raw = String(src || '').replace(/\s+/g, '');
+    if (mode !== 'initials') raw = raw.toUpperCase();
+    if (isLocked(c)) {
+      if (raw) {
+        if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
+        return raw;
+      }
+      return String(c?.school_portal_locked_label || 'NO ROI').trim() || 'NO ROI';
     }
-    return String(c?.school_portal_locked_label || 'NO ROI').trim() || 'NO ROI';
+    if (!raw) return '—';
+    if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
+    return raw;
   }
-  if (!raw) return '—';
-  if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
-  return raw;
+  return formatSchoolPortalClientLabel(c, 'full_name');
 };
 
 const chipTitle = (c) => {
@@ -89,6 +94,11 @@ const chipTitle = (c) => {
   font-weight: 800;
   letter-spacing: 0.05em;
   font-size: 12px;
+}
+.chip-full-name {
+  letter-spacing: 0;
+  font-weight: 700;
+  border-radius: 10px;
 }
 .chip-highlight {
   outline: 2px solid rgba(79, 70, 229, 0.85);

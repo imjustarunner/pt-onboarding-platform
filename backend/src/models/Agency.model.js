@@ -12,6 +12,12 @@ async function getAgencySchemaColumns() {
   return _agencySchemaColumns;
 }
 
+/** Nested school/program/learning portals stay resolvable by slug while onboarding (is_active=0). */
+function slugLookupVisibilitySql(alias = 'a') {
+  const p = alias ? `${alias}.` : '';
+  return `(${p}is_active = TRUE OR LOWER(COALESCE(${p}organization_type, '')) IN ('school', 'program', 'learning'))`;
+}
+
 /**
  * Agency Model
  * 
@@ -547,7 +553,7 @@ class Agency {
          LEFT JOIN icons mdchat_i ON a.my_dashboard_chats_icon_id = mdchat_i.id
          LEFT JOIN icons mdn_i ON a.my_dashboard_notifications_icon_id = mdn_i.id
           ${hasMyDashboardClinicalNoteGeneratorIcon ? '\n         LEFT JOIN icons mdcn_i ON a.my_dashboard_clinical_note_generator_icon_id = mdcn_i.id' : ''}
-         WHERE a.slug = ? AND a.is_active = TRUE`,
+         WHERE a.slug = ? AND ${slugLookupVisibilitySql('a')}`,
         [slug]
       );
       return rows[0] || null;
@@ -560,13 +566,16 @@ class Agency {
          LEFT JOIN organization_affiliations oa
            ON oa.organization_id = a.id
           AND oa.is_active = TRUE
-         WHERE a.slug = ? AND a.is_active = TRUE`,
+         WHERE a.slug = ? AND ${slugLookupVisibilitySql('a')}`,
         [slug]
       );
       return rows[0] || null;
     }
 
-    const [rows] = await pool.execute('SELECT * FROM agencies WHERE slug = ? AND is_active = TRUE', [slug]);
+    const [rows] = await pool.execute(
+      `SELECT * FROM agencies WHERE slug = ? AND ${slugLookupVisibilitySql('')}`,
+      [slug]
+    );
     return rows[0] || null;
   }
   
@@ -615,9 +624,9 @@ class Agency {
         master_i.file_path as icon_file_path, master_i.name as icon_name
         FROM agencies a
         LEFT JOIN icons master_i ON a.icon_id = master_i.id
-        WHERE a.portal_url = ? AND a.is_active = TRUE`;
+        WHERE a.portal_url = ? AND ${slugLookupVisibilitySql('a')}`;
     } else {
-      query = 'SELECT * FROM agencies WHERE portal_url = ? AND is_active = TRUE';
+      query = `SELECT * FROM agencies WHERE portal_url = ? AND ${slugLookupVisibilitySql('')}`;
     }
     
     const normalized = portalUrl.toLowerCase();

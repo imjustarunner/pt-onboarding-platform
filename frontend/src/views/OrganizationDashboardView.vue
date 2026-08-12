@@ -1,13 +1,20 @@
 <template>
   <!-- Programs get a dedicated dashboard; schools/learning use school portal;
        life_coach/consultant use practitioner shells; agencies use standard dashboard.
-       Nested affiliations (Book Club / clubs) never fall through to full My Dashboard. -->
+       Nested affiliations (Book Club / clubs) never fall through to full My Dashboard.
+       School portal slugs must never render My Dashboard — including onboarding drafts. -->
   <LifeCoachPractitionerDashboardView v-if="isLifeCoach" />
   <ConsultantPractitionerDashboardView v-else-if="isConsultant" />
   <ProgramPortalView v-else-if="isProgramPortal" :preview-mode="isSuperadminPreview" />
   <SchoolPortalView v-else-if="isPortalOrg" :preview-mode="isSuperadminPreview" />
   <div v-else-if="isNestedAffiliationRedirect" class="org-dash-redirect muted">
     Redirecting…
+  </div>
+  <div v-else-if="isResolvingOrg" class="org-dash-redirect muted">
+    Opening portal…
+  </div>
+  <div v-else-if="unresolvedPortalSlug" class="org-dash-redirect">
+    Couldn’t open this portal.
   </div>
   <DashboardView
     v-else
@@ -31,8 +38,11 @@ import {
   getParentAgencyFromOrg,
   getOrgSlug,
   isNestedOrganizationType,
+  isPortalShellOrgType,
   isTenantOrganizationType,
-  resolveNestedOrgNavigation
+  orgMatchesSlug,
+  resolveNestedOrgNavigation,
+  resolveOrganizationTypeForSlug
 } from '../utils/organizationTypes.js';
 import DashboardView from './DashboardView.vue';
 import SchoolPortalView from './school/SchoolPortalView.vue';
@@ -47,6 +57,7 @@ const organizationStore = useOrganizationStore();
 const agencyStore = useAgencyStore();
 const { isSuperadminPreview } = useSuperadminPlatformPreview({ route });
 const redirectingNested = ref(false);
+const orgLookupDone = ref(false);
 
 const previewStatus = computed(() => {
   if (!isSuperadminPreview.value) return null;
@@ -60,26 +71,46 @@ const previewData = computed(() => {
   return createMockDashboardData(previewStatus.value);
 });
 
+const memberships = () => ([
+  ...(Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : []),
+  ...(Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [])
+]);
+
 const organizationType = computed(() => {
-  return organizationStore.organizationContext?.organizationType
-    || organizationStore.currentOrganization?.organization_type
-    || organizationStore.currentOrganization?.organizationType
-    || 'agency';
+  return resolveOrganizationTypeForSlug({
+    slug: route.params.organizationSlug,
+    context: organizationStore.organizationContext,
+    currentOrganization: organizationStore.currentOrganization,
+    memberships: memberships()
+  }) || '';
+});
+
+const isResolvingOrg = computed(() => {
+  const slug = String(route.params.organizationSlug || '').trim();
+  if (!slug || organizationType.value) return false;
+  return !orgLookupDone.value || !!organizationStore.loading;
+});
+
+const unresolvedPortalSlug = computed(() => {
+  const slug = String(route.params.organizationSlug || '').trim();
+  if (!slug || organizationType.value || isResolvingOrg.value) return false;
+  return orgLookupDone.value;
 });
 
 const currentOrgRow = computed(() => {
-  return organizationStore.currentOrganization
-    || organizationStore.organizationContext
-    || null;
+  const slug = route.params.organizationSlug;
+  const cur = organizationStore.currentOrganization;
+  const ctx = organizationStore.organizationContext;
+  if (orgMatchesSlug(cur, slug)) return cur;
+  if (orgMatchesSlug(ctx, slug)) return ctx;
+  if (!slug) return cur || ctx || null;
+  return null;
 });
 
 const isLifeCoach = computed(() => isLifeCoachOrgType(organizationType.value));
 const isConsultant = computed(() => isConsultantOrgType(organizationType.value));
 
-const isPortalOrg = computed(() => {
-  const t = String(organizationType.value || '').toLowerCase();
-  return t === 'school' || t === 'program' || t === 'learning';
-});
+const isPortalOrg = computed(() => isPortalShellOrgType(organizationType.value));
 
 const isProgramPortal = computed(() => {
   return String(organizationType.value || '').toLowerCase() === 'program';
@@ -115,11 +146,6 @@ const isNestedAffiliationRedirect = computed(() => {
   // school/program/learning have portal shells above; clinical/affiliation must not use DashboardView.
   return isNestedOrganizationType(org) && (t === 'affiliation' || t === 'clubwebapp' || t === 'clinical');
 });
-
-const memberships = () => ([
-  ...(Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : []),
-  ...(Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [])
-]);
 
 const redirectNestedAwayFromFullDashboard = async () => {
   const org = currentOrgRow.value;
@@ -162,21 +188,26 @@ const redirectNestedAwayFromFullDashboard = async () => {
 
 const ensureOrgLoaded = async () => {
   const slug = route.params.organizationSlug;
-  if (typeof slug === 'string' && slug) {
-    const ctx = organizationStore.organizationContext;
-    const target = String(slug).trim().toLowerCase();
-    const ctxSlug = String(ctx?.slug || '').trim().toLowerCase();
-    const ctxPortal = String(ctx?.portalUrl || '').trim().toLowerCase();
-    const matches = ctx && (ctxSlug === target || ctxPortal === target);
-    if (!matches) {
-      await organizationStore.fetchBySlug(slug);
+  try {
+    if (typeof slug === 'string' && slug) {
+      const ctx = organizationStore.organizationContext;
+      const target = String(slug).trim().toLowerCase();
+      const ctxSlug = String(ctx?.slug || '').trim().toLowerCase();
+      const ctxPortal = String(ctx?.portalUrl || '').trim().toLowerCase();
+      const matches = ctx && (ctxSlug === target || ctxPortal === target);
+      if (!matches) {
+        await organizationStore.fetchBySlug(slug);
+      }
     }
+    await redirectNestedAwayFromFullDashboard();
+  } finally {
+    orgLookupDone.value = true;
   }
-  await redirectNestedAwayFromFullDashboard();
 };
 
 watch(() => route.params.organizationSlug, async () => {
   redirectingNested.value = false;
+  orgLookupDone.value = false;
   await ensureOrgLoaded();
 }, { immediate: true });
 
