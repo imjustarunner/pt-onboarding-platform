@@ -68,6 +68,285 @@ const parseName = (fullName) => {
   return { firstName: parts.slice(0, -1).join(' '), lastName: parts[parts.length - 1] };
 };
 
+const canManageAgencySchoolStaff = async (req, agencyId) => {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'super_admin') return true;
+  if (!['admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role)) {
+    return false;
+  }
+  const userAgencies = await User.getAgencies(req.user.id);
+  const userAgencyIds = new Set((userAgencies || []).map((a) => Number(a?.id)).filter((n) => Number.isFinite(n)));
+  return userAgencyIds.has(Number(agencyId));
+};
+
+const assertManageableAgency = async (req, agencyId) => {
+  const ok = await canManageAgencySchoolStaff(req, agencyId);
+  if (!ok) {
+    const e = new Error('Access denied');
+    e.statusCode = 403;
+    throw e;
+  }
+  const org = await Agency.findById(agencyId);
+  if (!org) {
+    const e = new Error('Agency not found');
+    e.statusCode = 404;
+    throw e;
+  }
+  return org;
+};
+
+async function fetchAgencySchoolStaffRows(agencyId) {
+  const baseSelect = `SELECT
+         u.id,
+         u.email,
+         u.work_email,
+         u.first_name,
+         u.last_name,
+         u.status,
+         u.is_active,
+         u.temporary_password_hash,
+         u.temporary_password_expires_at,
+         u.created_at,
+         school.id AS school_id,
+         COALESCE(school.display_name, school.name) AS school_name
+       FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id
+       INNER JOIN agencies school ON school.id = ua.agency_id
+         AND LOWER(COALESCE(school.organization_type, '')) = 'school'`;
+
+  const whereClause = `WHERE LOWER(COALESCE(u.role, '')) = 'school_staff'
+         AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+         AND (u.is_archived = FALSE OR u.is_archived IS NULL)`;
+
+  try {
+    const [rows] = await pool.execute(
+      `${baseSelect}
+       INNER JOIN organization_affiliations oa ON oa.organization_id = school.id
+         AND oa.agency_id = ?
+         AND oa.is_active = 1
+       ${whereClause}
+       ORDER BY u.last_name ASC, u.first_name ASC, school.name ASC`,
+      [agencyId]
+    );
+    return rows || [];
+  } catch (e) {
+    const [rows] = await pool.execute(
+      `${baseSelect}
+       INNER JOIN agency_schools ash ON ash.school_id = school.id AND ash.agency_id = ?
+       ${whereClause}
+       ORDER BY u.last_name ASC, u.first_name ASC, school.name ASC`,
+      [agencyId]
+    );
+    return rows || [];
+  }
+}
+
+async function getEligibleSchoolStaffUserIdsForAgency(agencyId, userIds) {
+  const ids = [...new Set((userIds || []).map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length) return new Set();
+
+  const rows = await fetchAgencySchoolStaffRows(agencyId);
+  const eligible = new Set((rows || []).map((r) => Number(r.id)).filter(Boolean));
+  return new Set(ids.filter((id) => eligible.has(id)));
+}
+
+function aggregateSchoolStaffRows(rows) {
+  const byUser = new Map();
+  for (const row of rows || []) {
+    const userId = Number(row.id);
+    if (!userId) continue;
+    const schoolEntry = row.school_id
+      ? { id: Number(row.school_id), name: row.school_name || `School #${row.school_id}` }
+      : null;
+
+    if (!byUser.has(userId)) {
+      byUser.set(userId, {
+        id: userId,
+        email: row.email || row.work_email || null,
+        first_name: row.first_name,
+        last_name: row.last_name,
+        status: row.status,
+        is_active: row.is_active,
+        temporary_password_hash: row.temporary_password_hash,
+        temporary_password_expires_at: row.temporary_password_expires_at,
+        created_at: row.created_at,
+        schools: schoolEntry ? [schoolEntry] : []
+      });
+      continue;
+    }
+
+    const existing = byUser.get(userId);
+    if (schoolEntry && !existing.schools.some((s) => s.id === schoolEntry.id)) {
+      existing.schools.push(schoolEntry);
+    }
+  }
+  return byUser;
+}
+
+async function attachLastLoginToStaffAccounts(byUser) {
+  const userIds = [...byUser.keys()];
+  if (!userIds.length) return byUser;
+
+  const placeholders = userIds.map(() => '?').join(',');
+  const [loginRows] = await pool.execute(
+    `SELECT user_id, MAX(created_at) AS last_login
+     FROM user_activity_log
+     WHERE user_id IN (${placeholders}) AND action_type = 'login'
+     GROUP BY user_id`,
+    userIds
+  );
+
+  const lastLoginByUser = {};
+  for (const row of loginRows || []) {
+    lastLoginByUser[row.user_id] = row.last_login;
+  }
+
+  const now = new Date();
+  return [...byUser.values()].map((user) => {
+    const tempExpiresAt = user.temporary_password_expires_at ? new Date(user.temporary_password_expires_at) : null;
+    const hasActiveTemporaryPassword =
+      !!user.temporary_password_hash &&
+      (!tempExpiresAt || tempExpiresAt.getTime() > now.getTime());
+    const lastLogin = lastLoginByUser[user.id] || null;
+
+    return {
+      id: user.id,
+      email: user.email,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      status: user.status,
+      is_active: user.is_active,
+      schools: user.schools,
+      school_names: user.schools.map((s) => s.name).join(', '),
+      last_login: lastLogin,
+      has_never_logged_in: !lastLogin,
+      has_active_temporary_password: hasActiveTemporaryPassword,
+      temporary_password_expires_at: hasActiveTemporaryPassword ? user.temporary_password_expires_at : null,
+      created_at: user.created_at
+    };
+  });
+}
+
+export const listAgencySchoolStaffAccounts = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(String(req.params.id || ''), 10);
+    if (!Number.isFinite(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+
+    await assertManageableAgency(req, agencyId);
+
+    const neverLoggedInOnly =
+      String(req.query.neverLoggedIn || '').toLowerCase() === '1' ||
+      String(req.query.neverLoggedIn || '').toLowerCase() === 'true';
+
+    const rows = await fetchAgencySchoolStaffRows(agencyId);
+    const byUser = aggregateSchoolStaffRows(rows);
+    let result = await attachLastLoginToStaffAccounts(byUser);
+
+    if (neverLoggedInOnly) {
+      result = result.filter((row) => row.has_never_logged_in);
+    }
+
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const bulkSetAgencySchoolStaffTemporaryPasswords = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(String(req.params.id || ''), 10);
+    if (!Number.isFinite(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+
+    await assertManageableAgency(req, agencyId);
+
+    const userIds = Array.isArray(req.body?.userIds)
+      ? req.body.userIds.map((id) => parseInt(String(id), 10)).filter((n) => Number.isFinite(n) && n > 0)
+      : [];
+    const temporaryPassword = String(req.body?.temporaryPassword || '').trim();
+    const expiresInHours = Math.min(720, Math.max(1, parseInt(String(req.body?.expiresInHours || '168'), 10) || 168));
+
+    if (!userIds.length) {
+      return res.status(400).json({ error: { message: 'At least one userId is required' } });
+    }
+    if (!temporaryPassword) {
+      return res.status(400).json({ error: { message: 'Temporary password is required' } });
+    }
+    if (temporaryPassword.length < 6) {
+      return res.status(400).json({ error: { message: 'Temporary password must be at least 6 characters' } });
+    }
+    if (temporaryPassword.length > 128) {
+      return res.status(400).json({ error: { message: 'Temporary password must be 128 characters or less' } });
+    }
+
+    const eligibleUserIds = await getEligibleSchoolStaffUserIdsForAgency(agencyId, userIds);
+    const results = [];
+
+    for (const userId of userIds) {
+      if (!eligibleUserIds.has(userId)) {
+        results.push({ userId, ok: false, error: 'User is not school staff for this agency' });
+        continue;
+      }
+
+      try {
+        const user = await User.findById(userId);
+        if (!user) {
+          results.push({ userId, ok: false, error: 'User not found' });
+          continue;
+        }
+        if (String(user.role || '').toLowerCase() !== 'school_staff') {
+          results.push({ userId, ok: false, error: 'Only school_staff users can receive temporary passwords' });
+          continue;
+        }
+        if (String(user.status || '').toUpperCase() === 'ARCHIVED') {
+          results.push({ userId, ok: false, error: 'Cannot reset password for an archived user' });
+          continue;
+        }
+
+        const temporaryPasswordResult = await User.setTemporaryPassword(userId, temporaryPassword, expiresInHours);
+
+        if (String(user.status || '').toUpperCase() === 'PENDING_SETUP') {
+          try {
+            await User.updateStatus(userId, 'ACTIVE_EMPLOYEE', req.user?.id || null);
+          } catch {
+            // ignore
+          }
+          try {
+            await User.update(userId, { isActive: true });
+          } catch {
+            // ignore
+          }
+        }
+
+        try {
+          await User.markTokenAsUsed(userId);
+        } catch {
+          // best-effort
+        }
+
+        results.push({
+          userId,
+          ok: true,
+          temporaryPasswordExpiresAt: temporaryPasswordResult?.expiresAt || null
+        });
+      } catch (err) {
+        results.push({ userId, ok: false, error: err?.message || 'Failed to set temporary password' });
+      }
+    }
+
+    res.json({
+      ok: results.every((row) => row.ok),
+      expiresInHours,
+      results
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const listSchoolStaffUsers = async (req, res, next) => {
   try {
     const orgId = parseInt(String(req.params.id || ''), 10);

@@ -2164,6 +2164,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/school-staff-accounts',
+    name: 'OrganizationSchoolStaffAccounts',
+    component: () => import('../views/admin/SchoolStaffAccountsView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/school-referral-hub',
     name: 'OrganizationSchoolReferralHub',
     component: () => import('../views/school/SchoolReferralHubView.vue'),
@@ -3534,6 +3540,12 @@ const routes = [
     name: 'SchoolPortalDigitalIntakes',
     redirect: () => ({ path: '/dashboard' }),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/admin/school-staff-accounts',
+    name: 'SchoolStaffAccounts',
+    component: () => import('../views/admin/SchoolStaffAccountsView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
   },
   {
     path: '/admin/school-referral-hub',

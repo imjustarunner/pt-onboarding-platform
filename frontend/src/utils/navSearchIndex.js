@@ -616,6 +616,20 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Printable packet editor and per-school shareable digital/printable links.'
   },
   {
+    title: 'School Staff',
+    section: 'School Ops › School Staff',
+    path: '/admin/users?persona=school_staff',
+    keywords: ['school staff', 'school staff users', 'staff directory', 'user management'],
+    desc: 'Users directory scoped to school staff only.'
+  },
+  {
+    title: 'School Staff Accounts',
+    section: 'School Ops › School Staff',
+    path: '/admin/school-staff-accounts',
+    keywords: ['school staff accounts', 'temporary password', 'never logged in', 'bulk password', 'login setup'],
+    desc: 'Bulk school staff account management — filter never-logged-in users and set temporary passwords.'
+  },
+  {
     title: 'Master Office Digital Form',
     section: 'Clients & Guardians',
     path: '/admin/master-office-form',

@@ -71,24 +71,6 @@
       </div>
     </header>
 
-    <div
-      v-if="hubPendingTotal > 0"
-      class="hub-alert"
-      role="status"
-    >
-      <div class="hub-alert-copy">
-        <strong>{{ hubPendingTotal }} item{{ hubPendingTotal === 1 ? '' : 's' }} need attention</strong>
-      </div>
-      <div class="hub-alert-meta">
-        <router-link v-if="applicationsPending > 0" :to="orgTo('/admin/hiring/applicants')" class="hub-pill hub-pill-link">
-          {{ applicationsPending }} application{{ applicationsPending === 1 ? '' : 's' }}
-        </router-link>
-        <router-link v-if="onboardingPending > 0" :to="orgTo('/admin/onboarding')" class="hub-pill hub-pill-link">
-          {{ onboardingPending }} in onboarding
-        </router-link>
-      </div>
-    </div>
-
     <div class="hub-layout" data-tour="people-ops-hub-grid">
       <div class="hub-stage-wrap">
         <div

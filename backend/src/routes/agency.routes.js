@@ -88,7 +88,7 @@ import {
   detachCompanyEventSessionSurvey,
   copyCompanyEventToTarget
 } from '../controllers/companyEvents.controller.js';
-import { listSchoolStaffUsers, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, activateSchoolStaffUser, revokeSchoolStaffAccess } from '../controllers/schoolStaffAdmin.controller.js';
+import { listSchoolStaffUsers, listAgencySchoolStaffAccounts, bulkSetAgencySchoolStaffTemporaryPasswords, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, activateSchoolStaffUser, revokeSchoolStaffAccess } from '../controllers/schoolStaffAdmin.controller.js';
 import {
   createBookClubBook,
   getBookClub,
@@ -540,6 +540,8 @@ router.put('/:agencyId/channel-intake-masters/:channel', authenticate, putAgency
 router.get('/:id', authenticate, getAgencyById);
 
 // School Staff admin (school orgs only). Includes staff role support.
+router.get('/:id/school-staff/accounts', authenticate, listAgencySchoolStaffAccounts);
+router.post('/:id/school-staff/accounts/bulk-temporary-password', authenticate, bulkSetAgencySchoolStaffTemporaryPasswords);
 router.get('/:id/school-staff/users', authenticate, listSchoolStaffUsers);
 router.post('/:id/school-contacts', authenticate, createSchoolContact);
 router.put('/:id/school-contacts/:contactId', authenticate, updateSchoolContact);

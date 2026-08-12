@@ -4393,6 +4393,10 @@ watch(selectedClubId, (newId, oldId) => {
 
 onMounted(async () => {
   loadUserFilters();
+  const personaFromQuery = String(route.query.persona || '').toLowerCase();
+  if (personaFromQuery === 'school_staff') {
+    setDirectoryPersona('school_staff');
+  }
   // Pre-filter from query params (e.g. ?filter=dormant from dashboard badges)
   if (route.query.filter === 'dormant') {
     userSearch.value = '';

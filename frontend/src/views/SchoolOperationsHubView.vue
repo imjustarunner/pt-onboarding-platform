@@ -66,24 +66,6 @@
       </div>
     </header>
 
-    <div
-      v-if="hubPendingTotal > 0"
-      class="hub-alert"
-      role="status"
-    >
-      <div class="hub-alert-copy">
-        <strong>{{ hubPendingTotal }} item{{ hubPendingTotal === 1 ? '' : 's' }} need attention</strong>
-      </div>
-      <div class="hub-alert-meta">
-        <router-link v-if="schoolPending > 0" :to="schoolApprovalsTo" class="hub-pill hub-pill-link">
-          {{ schoolPending }} school request{{ schoolPending === 1 ? '' : 's' }}
-        </router-link>
-        <router-link v-if="schoolClientsPending > 0" :to="orgTo('/admin/school-clients')" class="hub-pill hub-pill-link">
-          {{ schoolClientsPending }} school client{{ schoolClientsPending === 1 ? '' : 's' }}
-        </router-link>
-      </div>
-    </div>
-
     <div class="hub-layout" data-tour="school-ops-hub-grid">
       <div class="hub-stage-wrap">
         <div
@@ -454,7 +436,9 @@ const icon = {
   approve: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   onboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/><path d="M7 8h10M7 11h6" stroke-linecap="round"/></svg>',
   docs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8M8 9h2" stroke-linecap="round"/></svg>',
-  form: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h6M7 16h8" stroke-linecap="round"/></svg>'
+  form: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h6M7 16h8" stroke-linecap="round"/></svg>',
+  staff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke-linecap="round"/></svg>',
+  key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="8" cy="15" r="4"/><path d="M12 15h8M16 11l4 4" stroke-linecap="round"/></svg>'
 };
 
 const allSections = computed(() => [
@@ -737,6 +721,44 @@ const allSections = computed(() => [
         },
         tone: 'indigo',
         icon: icon.shield,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: 0
+      }
+    ].filter((c) => c.show)
+  },
+  {
+    id: 'school-staff',
+    label: 'School Staff',
+    desc: 'School staff users and account management.',
+    tone: 'violet',
+    icon: icon.staff,
+    cards: [
+      {
+        id: 'school-staff-users',
+        title: 'School Staff',
+        shortDesc: 'User directory scoped to school staff.',
+        desc: 'Browse and manage school staff user records — the Users directory filtered to school staff only.',
+        cta: 'Open →',
+        to: {
+          path: orgTo('/admin/users'),
+          query: { persona: 'school_staff' }
+        },
+        tone: 'violet',
+        icon: icon.staff,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: 0
+      },
+      {
+        id: 'school-staff-accounts',
+        title: 'School Staff Accounts',
+        shortDesc: 'Bulk login setup and temp passwords.',
+        desc: 'View all school staff accounts, filter never-logged-in users, and set the same temporary password in bulk.',
+        cta: 'Open →',
+        to: orgTo('/admin/school-staff-accounts'),
+        tone: 'purple',
+        icon: icon.key,
         tour: null,
         show: canSeeSchoolOpsContent.value,
         count: 0
