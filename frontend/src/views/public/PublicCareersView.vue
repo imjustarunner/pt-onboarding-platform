@@ -177,6 +177,36 @@
               :style="fieldStyle('lead')"
               @focus="styleTarget = 'lead'"
             />
+            <div class="cr-feature-cards">
+              <div
+                v-for="(card, i) in editDraft.featureCards"
+                :key="`feat-${i}`"
+                class="cr-feature-card cr-feature-card--editing"
+              >
+                <span class="cr-feature-icon" aria-hidden="true">
+                  <img v-if="featureIconSrc(card.icon)" class="cr-feature-icon-img" :src="featureIconSrc(card.icon)" alt="" />
+                  <template v-else>{{ cardIconEmoji(card.icon) }}</template>
+                </span>
+                <div class="cr-feature-edit">
+                  <input
+                    v-model="card.title"
+                    class="cr-inline-input cr-inline-input--block"
+                    type="text"
+                    placeholder="Feature title"
+                    :style="fieldStyle('featureTitle', { asHeading: true })"
+                    @focus="styleTarget = 'featureTitle'"
+                  />
+                  <textarea
+                    v-model="card.body"
+                    class="cr-inline-input cr-inline-input--area"
+                    rows="2"
+                    placeholder="Feature body"
+                    :style="fieldStyle('featureBody')"
+                    @focus="styleTarget = 'featureBody'"
+                  />
+                </div>
+              </div>
+            </div>
           </template>
           <template v-else>
             <span v-if="eyebrow" class="cr-eyebrow" :style="fieldStyle('eyebrow')">{{ eyebrow }}</span>
@@ -185,6 +215,18 @@
               <span v-if="heroSubheadline" class="cr-hero-subheadline" :style="fieldStyle('heroSubheadline', { asHeading: true })">{{ heroSubheadline }}</span>
             </h1>
             <p v-if="careersSubtitle" class="cr-hero-lead" :style="fieldStyle('lead')">{{ careersSubtitle }}</p>
+            <div v-if="agencyFeatureCards.length" class="cr-feature-cards">
+              <div v-for="card in agencyFeatureCards" :key="card.title" class="cr-feature-card">
+                <span class="cr-feature-icon" aria-hidden="true">
+                  <img v-if="featureIconSrc(card.icon)" class="cr-feature-icon-img" :src="featureIconSrc(card.icon)" alt="" />
+                  <template v-else>{{ cardIconEmoji(card.icon) }}</template>
+                </span>
+                <div>
+                  <strong class="cr-feature-title" :style="fieldStyle('featureTitle', { asHeading: true })">{{ card.title }}</strong>
+                  <span v-if="card.body" class="cr-feature-body" :style="fieldStyle('featureBody')">{{ card.body }}</span>
+                </div>
+              </div>
+            </div>
           </template>
         </div>
 
@@ -317,50 +359,6 @@
       <div v-if="!filteredJobs.length" id="jobs" class="cr-status">No roles match the selected filters.</div>
 
       <div v-else id="jobs" class="cr-jobs-section">
-        <!-- Highlights + banner live with the listings, not in the hero -->
-        <div v-if="editing && editDraft" class="cr-jobs-highlights">
-          <div
-            v-for="(card, i) in editDraft.featureCards"
-            :key="`feat-edit-${i}`"
-            class="cr-highlight-card cr-highlight-card--editing"
-          >
-            <span class="cr-feature-icon" aria-hidden="true">
-              <img v-if="featureIconSrc(card.icon)" class="cr-feature-icon-img" :src="featureIconSrc(card.icon)" alt="" />
-              <template v-else>{{ cardIconEmoji(card.icon) }}</template>
-            </span>
-            <div class="cr-feature-edit">
-              <input
-                v-model="card.title"
-                class="cr-inline-input cr-inline-input--block"
-                type="text"
-                placeholder="Highlight title"
-                :style="fieldStyle('featureTitle', { asHeading: true })"
-                @focus="styleTarget = 'featureTitle'"
-              />
-              <textarea
-                v-model="card.body"
-                class="cr-inline-input cr-inline-input--area"
-                rows="2"
-                placeholder="Highlight body"
-                :style="fieldStyle('featureBody')"
-                @focus="styleTarget = 'featureBody'"
-              />
-            </div>
-          </div>
-        </div>
-        <div v-else-if="agencyFeatureCards.length" class="cr-jobs-highlights">
-          <div v-for="card in agencyFeatureCards" :key="card.title" class="cr-highlight-card">
-            <span class="cr-feature-icon" aria-hidden="true">
-              <img v-if="featureIconSrc(card.icon)" class="cr-feature-icon-img" :src="featureIconSrc(card.icon)" alt="" />
-              <template v-else>{{ cardIconEmoji(card.icon) }}</template>
-            </span>
-            <div>
-              <strong class="cr-feature-title" :style="fieldStyle('featureTitle', { asHeading: true })">{{ card.title }}</strong>
-              <span v-if="card.body" class="cr-feature-body" :style="fieldStyle('featureBody')">{{ card.body }}</span>
-            </div>
-          </div>
-        </div>
-
         <div v-if="editing || bannerText" class="cr-banner-wrap">
           <div class="cr-banner cr-banner--slim" :class="{ 'cr-banner--editing': editing }">
             <img
@@ -1389,7 +1387,7 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-status { max-width: 760px; margin: 40px auto; padding: 0 24px; text-align: center; color: var(--muted); }
 .cr-status--error { color: #b91c1c; }
 
-.cr-banner-wrap { max-width: 1000px; margin: 0 auto 16px; padding: 0; }
+.cr-banner-wrap { max-width: none; width: 100%; margin: 0 0 16px; padding: 0; }
 .cr-banner { display: flex; align-items: center; gap: 16px; padding: 16px 20px; background: var(--accent-light); border: 1px solid var(--accent-border); border-radius: 16px; }
 .cr-banner--slim {
   background: #fff;
@@ -1405,24 +1403,7 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-banner-link:hover { text-decoration: underline; }
 
 .cr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
-.cr-jobs-section { max-width: 1000px; margin: 12px auto 0; padding: 0 24px; scroll-margin-top: 88px; }
-.cr-jobs-highlights {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.cr-highlight-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: 0 6px 18px -14px rgba(15, 23, 42, 0.12);
-}
-.cr-highlight-card--editing { align-items: stretch; }
+.cr-jobs-section { max-width: 1160px; margin: 12px auto 0; padding: 0 24px; scroll-margin-top: 88px; }
 .cr-item { display: block; }
 .cr-card { position: relative; display: grid; grid-template-columns: 72px 1fr auto; align-items: start; gap: 18px; padding: 22px; background: #fff; border: 1.5px solid var(--border); border-radius: var(--card-radius); transition: box-shadow 0.15s, border-color 0.15s, transform 0.15s; overflow: hidden; }
 .cr-card:hover { box-shadow: 0 10px 28px -12px rgba(15, 23, 42, 0.16); border-color: var(--accent-border); transform: translateY(-1px); }
@@ -1489,7 +1470,7 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-save-btn:hover { border-color: var(--accent); color: var(--accent); }
 .cr-save-btn--saved { color: var(--accent); border-color: var(--accent); background: var(--accent-light); }
 
-.cr-pagination { max-width: 1000px; margin: 24px auto 48px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.cr-pagination { max-width: 1160px; margin: 24px auto 48px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .cr-jobs-section .cr-pagination { max-width: none; margin: 24px 0 32px; padding: 0; }
 .cr-pagination-count { font-size: 0.85rem; color: var(--muted); margin: 0; }
 .cr-pagination-pages { display: flex; align-items: center; gap: 4px; }
@@ -1731,7 +1712,6 @@ watch(slug, () => loadCareers(), { immediate: true });
   .cr-hero-lead { max-width: 100%; }
   .cr-card { grid-template-columns: 56px 1fr; }
   .cr-card-actions { grid-column: 1 / -1; flex-direction: row; }
-  .cr-jobs-highlights { grid-template-columns: 1fr; }
   .cr-feature-cards { grid-template-columns: 1fr; }
   .cr-banner { flex-wrap: wrap; }
   .cr-why-grid, .cr-impact-stats, .cr-impact-bottom { grid-template-columns: 1fr 1fr; }

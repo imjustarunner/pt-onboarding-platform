@@ -510,6 +510,13 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Pre-hire checklists and onboarding tasks.'
   },
   {
+    title: 'Public careers page',
+    section: 'People Ops › Careers',
+    path: '/careers',
+    keywords: ['public careers', 'careers page', 'live careers', 'careers site', 'open roles public'],
+    desc: 'View the public careers page candidates see.'
+  },
+  {
     title: 'Career page settings',
     section: 'People Ops › Careers',
     path: '/admin/careers/page',

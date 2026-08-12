@@ -66,21 +66,6 @@
       </div>
     </header>
 
-    <div
-      v-if="canOpenPrivilegedScheduleTools && pendingTotal > 0"
-      class="hub-alert"
-      role="status"
-    >
-      <div class="hub-alert-copy">
-        <strong>{{ pendingTotal }} availability request{{ pendingTotal === 1 ? '' : 's' }} need review</strong>
-        <span>Stay on top of pending requests to keep everything running smoothly.</span>
-      </div>
-      <div class="hub-alert-meta">
-        <span class="hub-pill">{{ officePending }} office</span>
-        <span class="hub-pill">{{ schoolPending }} school</span>
-      </div>
-    </div>
-
     <div class="hub-layout" data-tour="schedule-hub-grid">
       <div class="hub-stage-wrap">
         <div
@@ -1344,7 +1329,6 @@ onMounted(() => {
 }
 
 .hub-header,
-.hub-alert,
 .hub-layout,
 .hub-mobile-fallback {
   position: relative;
@@ -1431,22 +1415,6 @@ onMounted(() => {
   border: 1px solid var(--hub-line); background: #fff;
   color: var(--hub-ink); text-decoration: none;
   font-weight: 700; font-size: 13px;
-}
-
-.hub-alert {
-  display: flex; justify-content: space-between; gap: 16px;
-  align-items: center; flex-wrap: wrap;
-  margin: 0 0 20px; padding: 14px 16px;
-  border: 1px solid #fecaca; border-radius: 16px; background: #fef2f2;
-}
-.hub-alert-copy { display: flex; flex-direction: column; gap: 2px; }
-.hub-alert-copy strong { color: #991b1b; font-size: 15px; }
-.hub-alert-copy span { color: #b91c1c; font-size: 13px; }
-.hub-alert-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.hub-pill {
-  display: inline-flex; padding: 5px 10px; border-radius: 999px;
-  background: #fff; border: 1px solid #fecaca;
-  color: #991b1b; font-size: 12px; font-weight: 700;
 }
 
 .hub-layout {

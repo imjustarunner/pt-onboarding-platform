@@ -45,7 +45,7 @@
       <div v-if="draftRestoredMessage" class="draft-restored-banner df-banner df-banner--info">{{ draftRestoredMessage }}</div>
 
       <div v-if="step === -1" class="step cover-step">
-        <div v-if="isJobApplication" class="job-landing-shell">
+        <div v-if="isJobApplication" class="job-landing-shell" :style="{ '--job-landing-accent': jobLandingAccent }">
           <header class="job-landing-header">
             <div class="job-landing-brand">
               <img v-if="jobLandingLogoUrl" :src="jobLandingLogoUrl" :alt="`${jobLandingAgencyName} logo`" />
@@ -71,28 +71,59 @@
                 <span v-if="jobLandingTitleHighlight" class="job-landing-title-highlight">{{ jobLandingTitleHighlight }}</span>
               </h1>
               <div v-if="jobLandingLead" class="job-landing-lead">{{ jobLandingLead }}</div>
-              <div v-if="jobLandingDescription" class="job-landing-accent"></div>
-              <p v-if="jobLandingDescription" class="job-landing-description">{{ jobLandingDescription }}</p>
+              <div v-if="jobLandingDescription && !jobLandingHasDescriptionSections" class="job-landing-accent"></div>
+              <p v-if="jobLandingDescription && !jobLandingHasDescriptionSections" class="job-landing-description">{{ jobLandingDescription }}</p>
               <div v-if="jobLandingMetaItems.length" class="job-landing-meta">
                 <span v-for="item in jobLandingMetaItems" :key="item.label" class="job-landing-meta-pill">
                   {{ item.label }}
                 </span>
               </div>
             </section>
-            <figure v-if="jobLandingHeroImageUrl" class="job-landing-image">
-              <div v-if="jobLandingShowLeafAccent" class="job-landing-leaf-accent" aria-hidden="true">
+            <figure
+              v-if="jobLandingHeroImageUrl"
+              class="job-landing-image"
+              :class="{
+                'job-landing-image--preframed': jobLandingHeroFrameStyle === 'preframed',
+                'job-landing-image--organic': jobLandingHeroFrameStyle === 'organic'
+              }"
+            >
+              <div
+                v-if="jobLandingShowLeafAccent && jobLandingHeroFrameStyle === 'organic'"
+                class="job-landing-leaf-accent"
+                aria-hidden="true"
+              >
                 <span></span><span></span><span></span><span></span><span></span>
               </div>
-              <img :src="jobLandingHeroImageUrl" :alt="jobLandingHeroImageAlt" :style="{ objectPosition: jobLandingHeroImagePosition }" />
+              <img
+                :src="jobLandingHeroImageUrl"
+                :alt="jobLandingHeroImageAlt"
+                :style="{ objectPosition: jobLandingHeroImagePosition }"
+              />
             </figure>
           </main>
 
           <section v-if="jobLandingFeatureCards.length" class="job-landing-feature-grid" aria-label="Job highlights">
             <article v-for="card in jobLandingFeatureCards" :key="`${card.title}-${card.body}`" class="job-landing-feature-card">
               <div v-if="card.icon && card.icon !== 'none'" class="job-landing-feature-icon"><JobLandingIcon :name="card.icon" /></div>
-              <h3>{{ card.title }}</h3>
-              <p v-if="card.body">{{ card.body }}</p>
+              <div class="job-landing-feature-copy">
+                <h3>{{ card.title }}</h3>
+                <p v-if="card.body">{{ card.body }}</p>
+              </div>
             </article>
+          </section>
+
+          <section v-if="jobLandingHasDescriptionSections" class="job-landing-description-section" aria-label="Role details">
+            <JobDescriptionSections
+              :sections="jobDescriptionSummary.descriptionSections"
+              :title="jobDescriptionSummary.title || 'Job description'"
+              :summary="jobDescriptionSummary.descriptionText || ''"
+              :role-type="jobDescriptionSummary.roleType || ''"
+              :location="[jobDescriptionSummary.city, jobDescriptionSummary.state].filter(Boolean).join(', ')"
+              :accent-color="jobLandingAccent"
+              :pdf-url="jobLandingPdfUrl"
+              :pdf-label="jobLandingPdfLabel"
+              compact
+            />
           </section>
 
           <section class="job-landing-start-card">
@@ -1920,6 +1951,7 @@ import {
   DigitalFormActions
 } from '../components/digital-form';
 import { toUploadsUrl } from '../utils/uploadsUrl';
+import { getHeroPresetByUrl } from '../utils/careersAssets.js';
 import { isMedicaidInsurer } from '../utils/coloradoInsurances';
 import {
   EMPTY_SPANISH_CLARIFICATION_RESPONSE,
@@ -2737,6 +2769,16 @@ const spanishClarificationSections = computed(() => {
 });
 const spanishClarificationMissingKey = ref('');
 
+// Shared intake state must be declared before any watch/computed that reads it.
+const clients = ref([
+  { firstName: '', lastName: '' }
+]);
+const intakeResponses = reactive({
+  guardian: {},
+  submission: {},
+  clients: [{}]
+});
+
 const ensureSpanishClarificationShape = () => {
   if (!showSpanishClarificationBlock.value) return;
   if (
@@ -2844,16 +2886,6 @@ const fatalError = ref('');
 const error = ref('');
 const stepError = ref('');
 const beginError = ref('');
-// Declare shared intake state early so setup-time computed/watch evaluation
-// cannot hit temporal dead zone errors in production bundles.
-const clients = ref([
-  { firstName: '', lastName: '' }
-]);
-const intakeResponses = reactive({
-  guardian: {},
-  submission: {},
-  clients: [{}]
-});
 const communications = reactive({
   emailPreference: '',
   smsPreference: '',
@@ -4721,13 +4753,21 @@ const jobLandingSecureSubtitle = computed(() =>
 );
 const jobLandingHeroImageUrl = computed(() => {
   const raw = String(jobApplicationPage.value?.heroImageUrl || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('/assets/')) return raw;
   return toUploadsUrl(raw) || raw;
+});
+const jobLandingHeroFrameStyle = computed(() => {
+  const explicit = String(jobApplicationPage.value?.heroFrameStyle || '').trim().toLowerCase();
+  if (['preframed', 'organic', 'rounded'].includes(explicit)) return explicit;
+  const preset = getHeroPresetByUrl(String(jobApplicationPage.value?.heroImageUrl || '').trim());
+  return preset?.frameStyle || 'preframed';
 });
 const jobLandingHeroImagePosition = computed(() =>
   String(jobApplicationPage.value?.heroImagePosition || 'center center').trim()
 );
 const jobLandingShowLeafAccent = computed(() =>
-  jobApplicationPage.value?.showLeafAccent !== false
+  jobLandingHeroFrameStyle.value === 'organic' && jobApplicationPage.value?.showLeafAccent !== false
 );
 const jobLandingHeroImageAlt = computed(() =>
   String(jobApplicationPage.value?.heroImageAlt || jobLandingTitle.value || 'Job application image').trim()
@@ -4747,6 +4787,26 @@ const jobLandingStartTimeNote = computed(() =>
 const jobLandingFeatureCards = computed(() =>
   normalizeJobLandingCards(jobApplicationPage.value?.featureCards, 4)
 );
+const jobLandingHasDescriptionSections = computed(() => {
+  const sections = jobDescriptionSummary.value?.descriptionSections;
+  const hasPdf = String(jobDescriptionSummary.value?.fileUrl || '').trim();
+  if (!sections || typeof sections !== 'object') return hasPdf;
+  const about = String(sections.aboutTheRole || '').trim();
+  const lists = ['responsibilities', 'qualifications', 'benefits'].some((key) =>
+    Array.isArray(sections[key]) && sections[key].some((item) => String(item || '').trim())
+  );
+  return about || lists || hasPdf;
+});
+const jobLandingPdfUrl = computed(() => {
+  const raw = String(jobDescriptionSummary.value?.fileUrl || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+  return toUploadsUrl(raw) || raw;
+});
+const jobLandingPdfLabel = computed(() => {
+  const name = String(jobDescriptionSummary.value?.fileName || '').trim();
+  return name ? `Download ${name}` : 'Download full PDF';
+});
 const jobLandingTrustItems = computed(() =>
   normalizeJobLandingCards(jobApplicationPage.value?.trustItems, 3)
 );
@@ -9607,12 +9667,31 @@ onBeforeUnmount(() => {
   position: relative;
   margin: 0;
   align-self: center;
+  width: 100%;
 }
 .job-landing-image img {
   position: relative;
   z-index: 2;
   display: block;
   width: 100%;
+  background: transparent;
+}
+.job-landing-image--preframed img {
+  width: 100%;
+  max-width: 560px;
+  margin-left: auto;
+  aspect-ratio: auto;
+  object-fit: contain;
+  border-radius: 0;
+  box-shadow: none;
+}
+.job-landing-image--organic img {
+  aspect-ratio: 1.45 / 1;
+  object-fit: cover;
+  border-radius: 42% 58% 40% 60% / 48% 40% 55% 45%;
+  box-shadow: 0 24px 60px -34px rgba(15, 23, 42, 0.58);
+}
+.job-landing-image:not(.job-landing-image--preframed):not(.job-landing-image--organic) img {
   aspect-ratio: 1.45 / 1;
   object-fit: cover;
   border-radius: 44px 44px 44px 8px;
@@ -9674,47 +9753,63 @@ onBeforeUnmount(() => {
 }
 .job-landing-feature-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0;
-  margin: 0 58px;
-  padding: 22px 10px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.88);
-  box-shadow: 0 18px 48px -38px rgba(15, 23, 42, 0.5);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 20px 58px 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .job-landing-feature-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   min-width: 0;
-  padding: 0 22px;
-  text-align: center;
-  border-right: 1px solid rgba(15, 23, 42, 0.1);
+  padding: 14px 16px;
+  text-align: left;
+  border: 1px solid color-mix(in srgb, var(--job-landing-accent, #1a8c54) 28%, #e2e8f0);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 20px -16px rgba(15, 23, 42, 0.35);
 }
-.job-landing-feature-card:last-child {
-  border-right: 0;
+.job-landing-feature-copy {
+  min-width: 0;
 }
 .job-landing-feature-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 50px;
-  height: 50px;
-  margin-bottom: 12px;
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  margin-bottom: 0;
   border-radius: 999px;
   background: #e8f7ee;
   color: #258451;
-  font-size: 24px;
+  font-size: 1.35rem;
 }
 .job-landing-feature-card h3 {
-  margin: 0 0 6px;
-  font-size: 17px;
+  margin: 0 0 3px;
+  font-size: 0.92rem;
   line-height: 1.25;
+  font-weight: 700;
   color: #102033;
 }
 .job-landing-feature-card p {
   margin: 0;
   color: #64748b;
-  line-height: 1.45;
-  font-size: 14px;
+  line-height: 1.4;
+  font-size: 0.82rem;
+}
+.job-landing-description-section {
+  margin: 24px 58px 0;
+  padding: 22px 24px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 10px 28px -18px rgba(15, 23, 42, 0.14);
 }
 .job-landing-start-card {
   display: grid;
@@ -9733,7 +9828,10 @@ onBeforeUnmount(() => {
   margin-top: 16px;
 }
 .job-landing-feature-grid + .job-landing-start-card {
-  margin-top: -1px;
+  margin-top: 16px;
+}
+.job-landing-description-section + .job-landing-start-card {
+  margin-top: 16px;
 }
 .job-landing-start-icon {
   display: flex;
@@ -9867,7 +9965,10 @@ onBeforeUnmount(() => {
   .job-landing-lead {
     font-size: 23px;
   }
-  .job-landing-image img {
+  .job-landing-image--organic img {
+    border-radius: 28px 28px 28px 8px;
+  }
+  .job-landing-image:not(.job-landing-image--preframed):not(.job-landing-image--organic) img {
     border-radius: 28px 28px 28px 8px;
   }
   .job-landing-leaf-accent {
@@ -9877,16 +9978,12 @@ onBeforeUnmount(() => {
     transform-origin: left bottom;
   }
   .job-landing-feature-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    margin: 0 24px;
+    grid-template-columns: 1fr;
+    margin: 16px 24px 0;
   }
-  .job-landing-feature-card {
-    border-right: 0;
-    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-    padding: 18px;
-  }
-  .job-landing-feature-card:nth-last-child(-n+2) {
-    border-bottom: 0;
+  .job-landing-description-section {
+    margin: 16px 24px 0;
+    padding: 18px 16px;
   }
   .job-landing-start-card {
     width: calc(100% - 32px);
@@ -9946,13 +10043,6 @@ onBeforeUnmount(() => {
   .job-landing-feature-grid {
     grid-template-columns: 1fr;
     margin: 0 14px;
-  }
-  .job-landing-feature-card,
-  .job-landing-feature-card:nth-last-child(-n+2) {
-    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-  }
-  .job-landing-feature-card:last-child {
-    border-bottom: 0;
   }
   .job-landing-start-card {
     width: calc(100% - 20px);

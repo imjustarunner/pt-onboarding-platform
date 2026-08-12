@@ -189,8 +189,24 @@
             </template>
 
             <template v-else>
+              <a
+                v-if="node.external && node.to"
+                class="hub-satellite hub-satellite-link hub-satellite--card"
+                :class="[`tone-${node.tone}`, { hovered: hoveredCardId === node.id }]"
+                :href="node.to"
+                target="_blank"
+                rel="noopener noreferrer"
+                :data-tour="node.tour"
+                @mouseenter="hoveredCardId = node.id"
+                @focus="hoveredCardId = node.id"
+              >
+                <div class="hub-satellite-icon" aria-hidden="true" v-html="node.icon" />
+                <div class="hub-satellite-title">{{ node.title }}</div>
+                <p class="hub-satellite-desc">{{ node.shortDesc }}</p>
+                <span class="hub-satellite-pill">{{ node.cta }}</span>
+              </a>
               <router-link
-                v-if="node.to && !node.disabled"
+                v-else-if="node.to && !node.disabled"
                 class="hub-satellite hub-satellite-link hub-satellite--card"
                 :class="[`tone-${node.tone}`, { hovered: hoveredCardId === node.id }]"
                 :to="node.to"
@@ -231,8 +247,20 @@
                 <div class="hub-preview-title">{{ node.label }}</div>
                 <ul class="hub-preview-list">
                   <li v-for="card in node.cards" :key="card.id">
+                    <a
+                      v-if="card.external && card.to"
+                      :href="card.to"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="hub-preview-link"
+                      @click="clearHover"
+                    >
+                      <span class="hub-preview-dot" />
+                      {{ card.title }}
+                      <span v-if="card.count > 0" class="hub-preview-count">{{ card.count }}</span>
+                    </a>
                     <router-link
-                      v-if="card.to && !card.disabled"
+                      v-else-if="card.to && !card.disabled"
                       :to="card.to"
                       class="hub-preview-link"
                       @click="clearHover"
@@ -293,6 +321,13 @@
           <h2>Your top 5</h2>
           <HubTopCardsBar :cards="allHubCards.filter((c) => c.to && !c.disabled)" :limit="5" class="htcb-hub" />
           <div class="hub-quick-links">
+            <a
+              v-if="canManageHiring && hasHiringFeature && publicCareersTo"
+              :href="publicCareersTo"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="hub-quick-link"
+            >Public careers page ↗</a>
             <router-link
               v-if="canManageHiring && hasHiringFeature"
               :to="orgTo('/admin/hiring')"
@@ -338,18 +373,32 @@
           </span>
         </h2>
         <div class="hub-mobile-grid">
-          <router-link
-            v-for="card in sortCardsByVisits(section.cards.filter((c) => c.to && !c.disabled))"
-            :key="card.id"
-            class="hub-mobile-card"
-            :class="[`tone-${card.tone}`]"
-            :to="card.to"
-          >
-            <span v-if="card.count > 0" class="hub-mobile-badge">{{ card.count }}</span>
-            <div class="hub-mobile-icon" v-html="card.icon" />
-            <div class="hub-mobile-title">{{ card.title }}</div>
-            <p>{{ card.desc }}</p>
-          </router-link>
+          <template v-for="card in sortCardsByVisits(section.cards.filter((c) => c.to && !c.disabled))" :key="card.id">
+            <a
+              v-if="card.external"
+              class="hub-mobile-card"
+              :class="[`tone-${card.tone}`]"
+              :href="card.to"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span v-if="card.count > 0" class="hub-mobile-badge">{{ card.count }}</span>
+              <div class="hub-mobile-icon" v-html="card.icon" />
+              <div class="hub-mobile-title">{{ card.title }}</div>
+              <p>{{ card.desc }}</p>
+            </a>
+            <router-link
+              v-else
+              class="hub-mobile-card"
+              :class="[`tone-${card.tone}`]"
+              :to="card.to"
+            >
+              <span v-if="card.count > 0" class="hub-mobile-badge">{{ card.count }}</span>
+              <div class="hub-mobile-icon" v-html="card.icon" />
+              <div class="hub-mobile-title">{{ card.title }}</div>
+              <p>{{ card.desc }}</p>
+            </router-link>
+          </template>
           <div
             v-for="card in section.cards.filter((c) => c.disabled || !c.to)"
             :key="card.id"
@@ -389,6 +438,19 @@ const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 const orgSlug = computed(() => (typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : null));
 const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
+
+const publicAgencySlug = computed(() =>
+  String(
+    agencyStore.currentAgency?.portal_url ||
+    agencyStore.currentAgency?.slug ||
+    orgSlug.value ||
+    ''
+  ).trim()
+);
+
+const publicCareersTo = computed(() =>
+  publicAgencySlug.value ? `/careers/${publicAgencySlug.value}` : ''
+);
 
 const user = computed(() => authStore.user);
 const actorRole = computed(() => String(user.value?.role || '').toLowerCase());
@@ -495,7 +557,8 @@ const icon = {
   policy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   relations: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
   page: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 13h6" stroke-linecap="round"/></svg>',
-  interview: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4M8 14h4M8 17h6" stroke-linecap="round"/></svg>'
+  interview: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4M8 14h4M8 17h6" stroke-linecap="round"/></svg>',
+  globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" stroke-linecap="round"/></svg>'
 };
 
 const allSections = computed(() => [
@@ -506,6 +569,20 @@ const allSections = computed(() => [
     tone: 'blue',
     icon: icon.careers,
     cards: [
+      {
+        id: 'public-careers',
+        title: 'Public careers page',
+        shortDesc: 'View the live careers site.',
+        desc: 'Open the public careers page candidates see — open roles, culture, and applications.',
+        cta: 'View site ↗',
+        to: publicCareersTo.value,
+        tone: 'green',
+        icon: icon.globe,
+        tour: 'people-ops-public-careers',
+        show: canManageHiring.value && hasHiringFeature.value && publicCareersTo.value,
+        external: true,
+        count: 0
+      },
       {
         id: 'career-page-settings',
         title: 'Career page settings',
