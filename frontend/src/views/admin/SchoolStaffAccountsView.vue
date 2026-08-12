@@ -99,6 +99,7 @@
               <th>Status</th>
               <th>Last login</th>
               <th>Temp password</th>
+              <th>Set by</th>
             </tr>
           </thead>
           <tbody>
@@ -125,14 +126,26 @@
                 <span v-else>{{ formatDateTime(staff.last_login) }}</span>
               </td>
               <td>
-                <span v-if="staff.has_active_temporary_password">
+                <span v-if="staff.temporary_password_status === 'active'" class="ssa-temp-active">
                   Active until {{ formatDateTime(staff.temporary_password_expires_at) }}
+                </span>
+                <span v-else-if="staff.temporary_password_status === 'expired'" class="ssa-temp-expired">
+                  Expired {{ formatDateTime(staff.temporary_password_expires_at) }}
                 </span>
                 <span v-else class="muted">None</span>
               </td>
+              <td>
+                <template v-if="staff.temporary_password_set_by_label || staff.temporary_password_set_at">
+                  <div>{{ staff.temporary_password_set_by_label || 'Unknown' }}</div>
+                  <div v-if="staff.temporary_password_set_at" class="muted ssa-set-meta">
+                    {{ formatDateTime(staff.temporary_password_set_at) }}
+                  </div>
+                </template>
+                <span v-else class="muted">—</span>
+              </td>
             </tr>
             <tr v-if="filteredStaff.length === 0">
-              <td colspan="7" class="empty-row">No school staff accounts found.</td>
+              <td colspan="8" class="empty-row">No school staff accounts found.</td>
             </tr>
           </tbody>
         </table>
@@ -439,6 +452,21 @@ onMounted(async () => {
 .ssa-never-login {
   color: #b45309;
   font-weight: 600;
+}
+
+.ssa-temp-active {
+  color: #047857;
+  font-weight: 600;
+}
+
+.ssa-temp-expired {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.ssa-set-meta {
+  font-size: 0.82rem;
+  margin-top: 2px;
 }
 
 .col-check {

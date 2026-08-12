@@ -5,6 +5,114 @@ import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.mod
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 
+const TEMP_PASSWORD_SET_ACTION_TYPES = [
+  'school_staff_temporary_password_set',
+  'school_portal_school_staff_temporary_password_set'
+];
+
+const parseActivityMetadata = (raw) => {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+};
+
+const displayNameFromUserRow = (row) => {
+  const name = `${row?.first_name || ''} ${row?.last_name || ''}`.trim();
+  return name || row?.email || null;
+};
+
+async function resolveUserDisplayNames(userIds) {
+  const ids = [...new Set((userIds || []).map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length) return new Map();
+
+  const placeholders = ids.map(() => '?').join(',');
+  const [rows] = await pool.execute(
+    `SELECT id, first_name, last_name, email
+     FROM users
+     WHERE id IN (${placeholders})`,
+    ids
+  );
+
+  const map = new Map();
+  for (const row of rows || []) {
+    map.set(Number(row.id), displayNameFromUserRow(row) || `User #${row.id}`);
+  }
+  return map;
+}
+
+async function fetchLatestTemporaryPasswordSetEvents(userIds) {
+  const ids = [...new Set((userIds || []).map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length) return new Map();
+
+  const placeholders = ids.map(() => '?').join(',');
+  const actionPlaceholders = TEMP_PASSWORD_SET_ACTION_TYPES.map(() => '?').join(', ');
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT ual.user_id, ual.created_at, ual.metadata
+       FROM user_activity_log ual
+       INNER JOIN (
+         SELECT user_id, MAX(id) AS max_id
+         FROM user_activity_log
+         WHERE user_id IN (${placeholders})
+           AND action_type IN (${actionPlaceholders})
+         GROUP BY user_id
+       ) latest ON latest.max_id = ual.id`,
+      [...ids, ...TEMP_PASSWORD_SET_ACTION_TYPES]
+    );
+
+    const map = new Map();
+    for (const row of rows || []) {
+      const meta = parseActivityMetadata(row.metadata);
+      map.set(Number(row.user_id), {
+        set_at: row.created_at || null,
+        set_by_user_id: meta?.performedByUserId != null ? Number(meta.performedByUserId) : null,
+        set_by_email: meta?.performedByEmail ? String(meta.performedByEmail) : null,
+        source: meta?.source ? String(meta.source) : null,
+        expires_at: meta?.expiresAt || null
+      });
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+function buildTemporaryPasswordFields(user, tempSetEvent, performerNames) {
+  const hasTemporaryPassword = !!user.temporary_password_hash;
+  const tempExpiresAt = user.temporary_password_expires_at ? new Date(user.temporary_password_expires_at) : null;
+  const now = new Date();
+  const hasActiveTemporaryPassword =
+    hasTemporaryPassword &&
+    (!tempExpiresAt || tempExpiresAt.getTime() > now.getTime());
+
+  let temporaryPasswordStatus = 'none';
+  if (hasTemporaryPassword) {
+    temporaryPasswordStatus = hasActiveTemporaryPassword ? 'active' : 'expired';
+  }
+
+  const setByUserId = tempSetEvent?.set_by_user_id || null;
+  const setByEmail = tempSetEvent?.set_by_email || null;
+  const setByName = setByUserId ? performerNames.get(setByUserId) || null : null;
+
+  return {
+    has_temporary_password: hasTemporaryPassword,
+    has_active_temporary_password: hasActiveTemporaryPassword,
+    temporary_password_status: temporaryPasswordStatus,
+    temporary_password_expires_at: hasTemporaryPassword ? user.temporary_password_expires_at : null,
+    temporary_password_set_at: tempSetEvent?.set_at || null,
+    temporary_password_set_by_user_id: setByUserId,
+    temporary_password_set_by_email: setByEmail,
+    temporary_password_set_by_name: setByName,
+    temporary_password_set_by_label: setByName || setByEmail || null,
+    temporary_password_set_source: tempSetEvent?.source || null
+  };
+}
+
 const normalizeEmail = (v) => {
   const s = String(v || '').trim().toLowerCase();
   return s.includes('@') ? s : '';
@@ -215,7 +323,7 @@ async function attachLastLoginToStaffAccounts(byUser) {
   if (!userIds.length) return [];
 
   const placeholders = userIds.map(() => '?').join(',');
-  const [loginRows, sessionRows] = await Promise.all([
+  const [loginRows, sessionRows, tempSetEvents] = await Promise.all([
     pool.execute(
       `SELECT user_id, MAX(created_at) AS last_login
        FROM user_activity_log
@@ -229,8 +337,14 @@ async function attachLastLoginToStaffAccounts(byUser) {
        WHERE user_id IN (${placeholders})
        GROUP BY user_id`,
       userIds
-    ).then(([rows]) => rows || []).catch(() => [])
+    ).then(([rows]) => rows || []).catch(() => []),
+    fetchLatestTemporaryPasswordSetEvents(userIds)
   ]);
+
+  const performerIds = [...tempSetEvents.values()]
+    .map((event) => event?.set_by_user_id)
+    .filter(Boolean);
+  const performerNames = await resolveUserDisplayNames(performerIds);
 
   const lastLoginByUser = {};
   for (const row of loginRows) {
@@ -242,17 +356,17 @@ async function attachLastLoginToStaffAccounts(byUser) {
     lastSessionByUser[row.user_id] = row.last_session_at;
   }
 
-  const now = new Date();
   return [...byUser.values()].map((user) => {
-    const tempExpiresAt = user.temporary_password_expires_at ? new Date(user.temporary_password_expires_at) : null;
-    const hasActiveTemporaryPassword =
-      !!user.temporary_password_hash &&
-      (!tempExpiresAt || tempExpiresAt.getTime() > now.getTime());
     const lastLoginAt = lastLoginByUser[user.id] || null;
     const lastSessionAt = lastSessionByUser[user.id] || null;
     const passwordChangedAt = user.password_changed_at || null;
     const lastLogin = pickLatestTimestamp(lastLoginAt, lastSessionAt, passwordChangedAt);
     const hasLoggedIn = userHasLoggedIn({ lastLoginAt, lastSessionAt, passwordChangedAt });
+    const tempFields = buildTemporaryPasswordFields(
+      user,
+      tempSetEvents.get(user.id) || null,
+      performerNames
+    );
 
     return {
       id: user.id,
@@ -265,9 +379,8 @@ async function attachLastLoginToStaffAccounts(byUser) {
       school_names: user.schools.map((s) => s.name).join(', '),
       last_login: lastLogin,
       has_never_logged_in: !hasLoggedIn,
-      has_active_temporary_password: hasActiveTemporaryPassword,
-      temporary_password_expires_at: hasActiveTemporaryPassword ? user.temporary_password_expires_at : null,
-      created_at: user.created_at
+      created_at: user.created_at,
+      ...tempFields
     };
   });
 }
@@ -368,6 +481,27 @@ export const bulkSetAgencySchoolStaffTemporaryPasswords = async (req, res, next)
 
         try {
           await User.markTokenAsUsed(userId);
+        } catch {
+          // best-effort
+        }
+
+        try {
+          const ActivityLogService = (await import('../services/activityLog.service.js')).default;
+          ActivityLogService.logActivity(
+            {
+              actionType: 'school_staff_temporary_password_set',
+              userId,
+              metadata: {
+                performedByUserId: req.user?.id || null,
+                performedByEmail: req.user?.email || req.user?.username || null,
+                source: 'school_staff_accounts_bulk',
+                agencyId,
+                expiresAt: temporaryPasswordResult?.expiresAt || null,
+                expiresInHours
+              }
+            },
+            req
+          );
         } catch {
           // best-effort
         }
