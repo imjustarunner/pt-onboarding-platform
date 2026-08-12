@@ -15,7 +15,7 @@ class PlatformRetentionSettings {
   static normalize(row) {
     if (!row) {
       return {
-        default_intake_retention_mode: 'days',
+        default_intake_retention_mode: 'never',
         default_intake_retention_days: 14,
         missingTable: true
       };

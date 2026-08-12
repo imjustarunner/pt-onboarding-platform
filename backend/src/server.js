@@ -1473,33 +1473,8 @@ if (!isBootstrap) {
     setInterval(scheduleSkillBuildersClinicalRetention, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight() + (3 * 60 * 60 * 1000));
 
-  // Public intake retention cleanup (hard delete expired submissions)
-  // Run daily at 2:30 AM (best-effort; safe if tables don't exist yet).
-  const scheduleIntakeRetentionCleanup = async () => {
-    try {
-      const IntakeRetentionCleanupService = (await import('./services/intakeRetentionCleanup.service.js')).default;
-      const result = await IntakeRetentionCleanupService.run({ limit: 300 });
-      const n = Number(result?.deletedSubmissions || 0);
-      if (n > 0) {
-        console.log(`[intake_retention] purged ${n} submissions, ${result?.deletedPhiDocs || 0} phi docs`);
-      }
-    } catch (error) {
-      if (error.code === 'ER_NO_SUCH_TABLE') {
-        console.warn('Intake retention tables not found. Run migration 362_intake_retention_policies.sql');
-      } else {
-        console.error('Error in intake retention cleanup:', error);
-      }
-    }
-  };
-
-  // Run immediately on startup (best-effort)
-  scheduleIntakeRetentionCleanup();
-
-  // Schedule daily at 2:30 AM using the midnight helper
-  setTimeout(() => {
-    scheduleIntakeRetentionCleanup();
-    setInterval(scheduleIntakeRetentionCleanup, 24 * 60 * 60 * 1000);
-  }, getMsUntilMidnight() + (2.5 * 60 * 60 * 1000));
+  // Public intake retention: automatic deletion of packets/PHI is disabled.
+  // IntakeRetentionCleanupService.run() is a no-op; do not schedule a purge job.
 
   // Client compliance: promote pending clients to "current" when first_service_at has passed.
   // Runs daily at 5:00 AM so clients are promoted even if nobody saves the checklist again.

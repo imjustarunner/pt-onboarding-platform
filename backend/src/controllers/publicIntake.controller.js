@@ -87,7 +87,6 @@ import config from '../config/config.js';
 import pool from '../config/database.js';
 import { verifyRecaptchaV3 } from '../services/captcha.service.js';
 import ActivityLogService from '../services/activityLog.service.js';
-import PlatformRetentionSettings from '../models/PlatformRetentionSettings.model.js';
 import Notification from '../models/Notification.model.js';
 import { notifyNewPacketUploaded, notifyCompanyEventRegistrationSubmitted } from '../services/clientNotifications.service.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
@@ -1606,49 +1605,10 @@ const isSubmissionExpired = (submission, { templatesCount = 0 } = {}) => {
 };
 
 const deleteSubmissionData = async (submissionId) => {
-  if (!submissionId) return;
-  const docs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
-  const clients = await IntakeSubmissionClient.listBySubmissionId(submissionId);
-  const phiDocs = await ClientPhiDocument.listByIntakeSubmissionId(submissionId);
-  let uploadPaths = [];
-  try {
-    const pool = (await import('../config/database.js')).default;
-    const [uploadRows] = await pool.execute(
-      'SELECT storage_path FROM intake_submission_uploads WHERE intake_submission_id = ?',
-      [submissionId]
-    );
-    uploadPaths = (uploadRows || []).map((r) => String(r?.storage_path || '').trim()).filter(Boolean);
-  } catch {
-    // table may not exist yet
-  }
-  const paths = new Set([
-    ...(Array.isArray(docs) ? docs.map((d) => String(d?.signed_pdf_path || '').trim()) : []),
-    ...(Array.isArray(clients) ? clients.map((c) => String(c?.bundle_pdf_path || '').trim()) : []),
-    ...uploadPaths
-  ].filter(Boolean));
-  for (const doc of phiDocs || []) {
-    const p = String(doc?.storage_path || '').trim();
-    if (p) paths.add(p);
-  }
-  for (const path of paths) {
-    try {
-      await StorageService.deleteObject(path);
-    } catch {
-      // best-effort
-    }
-  }
-  if (phiDocs?.length) {
-    try {
-      const ids = phiDocs.map((d) => d.id).filter(Boolean);
-      await ClientPhiDocument.deleteByIds(ids);
-    } catch {
-      // ignore
-    }
-  }
-  try {
-    await IntakeSubmission.deleteById(submissionId);
-  } catch {
-    // ignore
+  // Automatic deletion of intake packets, signed PDFs, and attached PHI is disabled.
+  // Expired in-progress sessions still return 410 so the signer can restart; records are kept.
+  if (submissionId) {
+    console.warn('[publicIntake] skipping automatic submission delete', { submissionId });
   }
 };
 
@@ -4489,46 +4449,9 @@ const resolveIntakeOrgContext = async (link, { issuedRoiLink = null, boundClient
   return { organization, agency };
 };
 
-const normalizeRetentionPolicy = (raw) => {
-  if (!raw) return { mode: 'inherit', days: null };
-  let parsed = raw;
-  if (typeof raw === 'string') {
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      parsed = null;
-    }
-  }
-  if (!parsed || typeof parsed !== 'object') return { mode: 'inherit', days: null };
-  const modeRaw = String(parsed.mode || 'inherit').toLowerCase();
-  const mode = ['inherit', 'days', 'never'].includes(modeRaw) ? modeRaw : 'inherit';
-  const days = Number.isFinite(Number(parsed.days)) ? Number(parsed.days) : null;
-  return { mode, days };
-};
-
-const resolveRetentionPolicy = async (link) => {
-  const platform = await PlatformRetentionSettings.get();
-  const platformPolicy = {
-    mode: String(platform.default_intake_retention_mode || 'days'),
-    days: Number(platform.default_intake_retention_days || 14)
-  };
-  const { agency } = await resolveIntakeOrgContext(link);
-  const agencyPolicy = normalizeRetentionPolicy(agency?.intake_retention_policy_json);
-  const linkPolicy = normalizeRetentionPolicy(link?.retention_policy_json);
-
-  const resolve = (policy, fallback) => {
-    if (!policy || policy.mode === 'inherit') return fallback;
-    if (policy.mode === 'never') return { mode: 'never', days: null };
-    if (policy.mode === 'days') {
-      const days = Number.isFinite(Number(policy.days)) ? Number(policy.days) : fallback?.days;
-      return { mode: 'days', days };
-    }
-    return fallback;
-  };
-
-  const base = resolve(platformPolicy, { mode: 'days', days: 14 });
-  const agencyResolved = resolve(agencyPolicy, base);
-  return resolve(linkPolicy, agencyResolved);
+const resolveRetentionPolicy = async (_link) => {
+  // Packets, signed documents, and attached PHI are never auto-deleted.
+  return { mode: 'never', days: null };
 };
 
 const buildRetentionExpiresAt = ({ policy, submittedAt }) => {

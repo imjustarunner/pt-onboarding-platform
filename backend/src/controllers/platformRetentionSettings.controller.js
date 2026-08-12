@@ -12,7 +12,8 @@ export const getPlatformRetentionSettings = async (req, res, next) => {
 export const updatePlatformRetentionSettings = async (req, res, next) => {
   try {
     const settings = await PlatformRetentionSettings.upsert({
-      defaultIntakeRetentionMode: req.body?.defaultIntakeRetentionMode,
+      // Packets and attached PHI must never be auto-deleted.
+      defaultIntakeRetentionMode: 'never',
       defaultIntakeRetentionDays: req.body?.defaultIntakeRetentionDays,
       actorUserId: req.user?.id || null
     });

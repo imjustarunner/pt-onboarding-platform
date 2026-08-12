@@ -516,21 +516,15 @@
             <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 12px; padding-top: 18px; border-top: 1px solid var(--border);">
               <h4 style="margin: 0; font-size: 16px;">Intake Data Retention</h4>
               <p class="section-description" style="margin-top: 6px;">
-                Overrides the platform default for this agency. Digital forms can override this per form.
+                Packets, signed documents, and intake submissions are never deleted automatically.
               </p>
             </div>
             <div class="form-grid">
               <div class="form-group">
                 <label>Retention policy</label>
-                <select v-model="agencyForm.intakeRetentionPolicy.mode">
-                  <option value="inherit">Use platform default</option>
-                  <option value="days">Delete after N days</option>
+                <select v-model="agencyForm.intakeRetentionPolicy.mode" disabled>
                   <option value="never">Never delete automatically</option>
                 </select>
-              </div>
-              <div class="form-group" v-if="agencyForm.intakeRetentionPolicy.mode === 'days'">
-                <label>Days to retain</label>
-                <input v-model.number="agencyForm.intakeRetentionPolicy.days" type="number" min="1" max="3650" />
               </div>
             </div>
 
@@ -6721,7 +6715,7 @@ const defaultAgencyForm = () => ({
     ongoingDevTerm: ''
   },
   intakeRetentionPolicy: {
-    mode: 'inherit',
+    mode: 'never',
     days: 14
   },
   sessionSettings: {
@@ -7992,9 +7986,6 @@ const editAgency = async (agency) => {
   const themeSettings = safeJsonObject(agency.theme_settings, {});
 
   const retentionPolicyRaw = safeJsonObject(agency.intake_retention_policy_json, {});
-  const retentionMode = ['inherit', 'days', 'never'].includes(String(retentionPolicyRaw.mode || '').toLowerCase())
-    ? String(retentionPolicyRaw.mode || 'inherit').toLowerCase()
-    : 'inherit';
   const retentionDays = Number.isFinite(Number(retentionPolicyRaw.days))
     ? Number(retentionPolicyRaw.days)
     : 14;
@@ -8208,7 +8199,7 @@ const editAgency = async (agency) => {
       ongoingDevTerm: terminology.ongoingDevTerm || ''
     },
     intakeRetentionPolicy: {
-      mode: retentionMode,
+      mode: 'never',
       days: retentionDays
     },
     sessionSettings: {
@@ -8957,16 +8948,7 @@ const saveAgency = async () => {
       }
     }
 
-    const retentionPolicyRaw = agencyForm.value.intakeRetentionPolicy || null;
-    const retentionPolicy =
-      retentionPolicyRaw && typeof retentionPolicyRaw === 'object'
-        ? {
-            mode: ['inherit', 'days', 'never'].includes(String(retentionPolicyRaw.mode || '').toLowerCase())
-              ? String(retentionPolicyRaw.mode || 'inherit').toLowerCase()
-              : 'inherit',
-            days: Number.isFinite(Number(retentionPolicyRaw.days)) ? Number(retentionPolicyRaw.days) : 14
-          }
-        : null;
+    const retentionPolicy = { mode: 'never', days: null };
 
     const sessionSettingsRaw = agencyForm.value.sessionSettings || null;
     const sessionSettings =

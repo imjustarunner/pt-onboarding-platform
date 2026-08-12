@@ -572,15 +572,10 @@
             </div>
             <div class="form-group">
               <label>Intake retention</label>
-              <select v-model="form.retentionPolicy.mode">
-                <option value="inherit">Use agency default</option>
-                <option value="days">Delete after N days</option>
+              <select v-model="form.retentionPolicy.mode" disabled>
                 <option value="never">Never delete automatically</option>
               </select>
-            </div>
-            <div class="form-group" v-if="form.retentionPolicy.mode === 'days'">
-              <label>Days to retain</label>
-              <input v-model.number="form.retentionPolicy.days" type="number" min="1" max="3650" />
+              <small class="form-help">Packets and signed documents are kept. Automatic deletion is disabled.</small>
             </div>
           </div>
 
@@ -2661,7 +2656,7 @@ const form = reactive({
   createClient: true,
   createGuardian: true,
   retentionPolicy: {
-    mode: 'inherit',
+    mode: 'never',
     days: 14
   },
   customMessages: {
@@ -3721,7 +3716,7 @@ const resetForm = () => {
   form.isActive = true;
   form.createClient = true;
   form.createGuardian = true;
-  form.retentionPolicy = { mode: 'inherit', days: 14 };
+  form.retentionPolicy = { mode: 'never', days: 14 };
   form.customMessages = {
     beginSubtitle: '',
     formTimeLimit: '',
@@ -3766,7 +3761,7 @@ const serializeDraft = () => ({
     isActive: form.isActive,
     createClient: form.createClient,
     createGuardian: form.createGuardian,
-    retentionPolicy: form.retentionPolicy ? { ...form.retentionPolicy } : null,
+    retentionPolicy: { mode: 'never', days: null },
     customMessages: form.customMessages ? { ...form.customMessages } : {
       beginSubtitle: '',
       formTimeLimit: '',
@@ -3814,9 +3809,7 @@ const applyDraft = (draft) => {
   form.isActive = data.isActive ?? true;
   form.createClient = data.createClient ?? true;
   form.createGuardian = data.createGuardian ?? true;
-  form.retentionPolicy = data.retentionPolicy
-    ? { mode: data.retentionPolicy.mode || 'inherit', days: data.retentionPolicy.days ?? 14 }
-    : { mode: 'inherit', days: 14 };
+  form.retentionPolicy = { mode: 'never', days: 14 };
   form.customMessages = data.customMessages
     ? {
         beginSubtitle: data.customMessages.beginSubtitle ?? '',
@@ -4089,15 +4082,7 @@ const editLink = (link) => {
   form.isActive = !!link.is_active;
   form.createClient = !!link.create_client;
   form.createGuardian = !!link.create_guardian;
-  form.retentionPolicy = (() => {
-    const raw = link.retention_policy_json || null;
-    if (!raw || typeof raw !== 'object') return { mode: 'inherit', days: 14 };
-    const mode = ['inherit', 'days', 'never'].includes(String(raw.mode || '').toLowerCase())
-      ? String(raw.mode || 'inherit').toLowerCase()
-      : 'inherit';
-    const days = Number.isFinite(Number(raw.days)) ? Number(raw.days) : 14;
-    return { mode, days };
-  })();
+  form.retentionPolicy = { mode: 'never', days: 14 };
   form.allowAllDocuments = false;
   form.allowedDocumentTemplateIds = link.allowed_document_template_ids || [];
   form.linkedEsFormId = link.linked_es_form_id != null ? Number(link.linked_es_form_id) || null : null;
@@ -4450,7 +4435,7 @@ const save = async () => {
       createClient: ['job_application', 'smart_school_roi'].includes(form.formType) ? false : form.createClient,
       createGuardian: ['job_application', 'smart_school_roi'].includes(form.formType) ? false : form.createGuardian,
       requiresAssignment: form.formType === 'smart_school_roi' ? false : form.requiresAssignment,
-      retentionPolicy: form.retentionPolicy ? { ...form.retentionPolicy } : null,
+      retentionPolicy: { mode: 'never', days: null },
       customMessages: customMessagesPayload,
       allowedDocumentTemplateIds,
       intakeFields,
