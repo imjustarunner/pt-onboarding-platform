@@ -118,4 +118,24 @@ describe('quickNavCatalog', () => {
     const loc = resolveQuickNavRoute({ kind: 'route', routeName: 'MyLearning' }, {});
     expect(loc).toEqual({ name: 'MyLearning' });
   });
+
+  it('resolves Tasks quick nav to org-scoped or flat tasks path', () => {
+    const flat = resolveQuickNavRoute(
+      { kind: 'path', path: '/tasks' },
+      { orgSlug: '' }
+    );
+    expect(flat).toBe('/tasks');
+
+    const scoped = resolveQuickNavRoute(
+      { kind: 'path', path: '/tasks' },
+      { orgSlug: 'itsco' }
+    );
+    expect(scoped).toBe('/itsco/tasks');
+
+    expect(resolveQuickNavRoute({ kind: 'route', routeName: 'OrganizationTasks' }, {})).toEqual({ name: 'Tasks' });
+    expect(resolveQuickNavRoute({ kind: 'route', routeName: 'OrganizationTasks' }, { orgSlug: 'itsco' })).toEqual({
+      name: 'OrganizationTasks',
+      params: { organizationSlug: 'itsco' }
+    });
+  });
 });

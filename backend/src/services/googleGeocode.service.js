@@ -52,3 +52,42 @@ export async function geocodeAddressWithGoogle({ addressText, postalCode = null,
   };
 }
 
+export async function reverseGeocodeWithGoogle({ latitude, longitude }) {
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new Error('latitude and longitude are required');
+  }
+
+  const apiKey = config.googleMaps?.apiKey || null;
+  if (!apiKey) {
+    const err = new Error('GOOGLE_MAPS_API_KEY is not configured');
+    err.code = 'MAPS_KEY_MISSING';
+    throw err;
+  }
+
+  const url = 'https://maps.googleapis.com/maps/api/geocode/json';
+  const resp = await axios.get(url, {
+    params: {
+      latlng: `${lat},${lng}`,
+      key: apiKey
+    },
+    timeout: 15000
+  });
+
+  const data = resp?.data || {};
+  const status = String(data.status || 'UNKNOWN');
+  const first = data?.results?.[0] || null;
+  if (status !== 'OK' || !first) {
+    const err = new Error(`Reverse geocoding failed (${status})`);
+    err.code = 'MAPS_GEOCODE_FAILED';
+    throw err;
+  }
+
+  return {
+    latitude: lat,
+    longitude: lng,
+    formattedAddress: first?.formatted_address || null
+  };
+}
+

@@ -811,6 +811,7 @@ const hubQuickLinks = computed(() => {
     slug: slug.value,
     agency,
     branding: brandingStore,
+    user: authStore.user,
     isAffiliationContext
   });
   return buildDashboardQuickAccessLinks({

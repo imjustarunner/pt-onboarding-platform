@@ -1,0 +1,33 @@
+# Schedule timezone contract
+
+All timed schedule data (`provider_schedule_events`, `planned_outs`, appointments, meetings) follows this contract:
+
+## Storage (backend / DB)
+
+- **Always UTC** — `DATETIME` columns hold UTC instants as naive `YYYY-MM-DD HH:MM:SS` (no offset suffix).
+- **Create / PATCH** — accept wall-clock `startAt` / `endAt` plus required `timeZone` (IANA). Convert with `wallInTimeZoneToMysqlUtc` / `wallMysqlToUtcMysql` before INSERT/UPDATE.
+- **API responses** — emit ISO-8601 with `Z` via `toIsoUtcForSchedule` / `utcMysqlToIso`. Never return naked DATETIME without documenting it as UTC.
+- **TEAM_MEETING / HUDDLE** — wall clock is always the **tenant/office timezone** (`bookingTimezoneIana`), not the editor's browser timezone. Resolve `timeZone` from `agencies.timezone` when the client omits it.
+
+## Display (frontend)
+
+- **Viewer wall clock** — parse API instants with `parseScheduleUtcInstant` / `parseUtcInstant`, then `toLocale*` in the viewer's browser timezone OR explicit office TZ for meetings.
+- **Always show abbrev** — use `formatViewerTimeRangeMs`, `formatViewerClockTime`, or meeting/office TZ labels so users see e.g. `12:00 PM – 1:00 PM MDT`.
+- **Never** append `Z` to naked wall strings from forms or optimistic updates.
+
+## Edit forms
+
+- **datetime-local inputs** — populate with `toZonedDatetimeLocalValue(iso, officeOrAgencyTz)`, not raw string slicing or browser `getHours()`.
+- **PATCH body** — send wall `startAt`/`endAt` + `timeZone`. If timing did not change, **omit** `startAt`/`endAt` so attendee-only edits cannot corrupt times.
+- **Drag / move** — build wall times with `wallDatetimeFromParts` in grid TZ; include `timeZone` on PATCH.
+
+## Planned outs
+
+- Source of truth: `planned_outs.start_at` / `end_at` (what submitter booked in their `timeZone`).
+- Linked `provider_schedule_events` must stay in sync (`plannedOutScheduleSync.service.js`).
+
+## Do not
+
+- Parse naked `YYYY-MM-DDTHH:mm:ss` as browser-local `new Date(s)` for schedule events.
+- Use `formatLocalDateTimeValue` (browser TZ) for meeting or office-grid moves.
+- Prefer `schedule_event_*` times over `planned_outs` for display when they differ.

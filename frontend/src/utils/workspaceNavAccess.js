@@ -10,6 +10,28 @@ function isAdminRole(role) {
   return r === 'admin' || r === 'support' || r === 'super_admin';
 }
 
+function isTruthyFlag(v) {
+  if (v === true || v === 1 || v === '1') return true;
+  if (typeof v === 'string' && v.trim().toLowerCase() === 'true') return true;
+  return false;
+}
+
+function resolveHiringFeature(opts = {}) {
+  if (opts.hasHiringFeature != null) return !!opts.hasHiringFeature;
+  const flags = opts.agencyFeatureFlags || {};
+  return isTruthyFlag(flags.hiringEnabled);
+}
+
+function resolvePeopleOpsFeature(opts = {}) {
+  if (opts.hasPeopleOpsFeature != null) return !!opts.hasPeopleOpsFeature;
+  const flags = opts.agencyFeatureFlags || {};
+  return isTruthyFlag(flags.peopleOpsEnabled);
+}
+
+function hasCapability(user, key) {
+  return !!(user?.capabilities || {})[key];
+}
+
 /** Management dashboard (TenantAdminDashboard) — admin, super_admin, and support. */
 export function canAccessManagementDashboard(opts = {}) {
   const r = normRole(opts.role);
@@ -57,6 +79,26 @@ export function canAccessSchoolOperationsHub(opts = {}) {
   ].includes(r);
 }
 
+/**
+ * People Operations hub — mirrors App.vue People Ops visibility loosely:
+ * not SSC/SSTC, not affiliation, and (hiring or peopleOps feature) for admin-like /
+ * canManageHiring users.
+ */
+export function canAccessPeopleOperationsHub(opts = {}) {
+  if (opts.isSscSstcTenant || opts.isAffiliationContext) return false;
+
+  const hasHiringFeature = resolveHiringFeature(opts);
+  const hasPeopleOpsFeature = resolvePeopleOpsFeature(opts);
+  if (!hasHiringFeature && !hasPeopleOpsFeature) return false;
+
+  const r = normRole(opts.role);
+  const user = opts.user || {};
+  if (isAdminRole(r) || r === 'super_admin') return true;
+  if (hasCapability(user, 'canManageHiring')) return true;
+  if (r === 'staff' && (hasHiringFeature || hasPeopleOpsFeature)) return true;
+  return false;
+}
+
 /** Roles that can open most school ops hub cards (matches common school route meta). */
 export function canSeeSchoolOpsHubCards(opts = {}) {
   return canAccessSchoolOperationsHub(opts);
@@ -78,10 +120,6 @@ function canManagePayrollForAgency(user, agencyId) {
   const id = Number(agencyId);
   if (!id) return false;
   return ids.includes(id);
-}
-
-function hasCapability(user, key) {
-  return !!(user?.capabilities || {})[key];
 }
 
 /**
@@ -138,7 +176,8 @@ export function resolveWorkspaceAccess(opts = {}) {
     management: canAccessManagementDashboard(opts),
     operations: canAccessOperationsDashboard(opts),
     workforce: canAccessWorkforceOperationsHub(opts),
-    school: canAccessSchoolOperationsHub(opts)
+    school: canAccessSchoolOperationsHub(opts),
+    people: canAccessPeopleOperationsHub(opts)
   };
 }
 
@@ -197,6 +236,16 @@ export function buildDashboardQuickAccessLinks(opts = {}) {
     });
   }
 
+  if (access.people) {
+    links.push({
+      key: 'people',
+      label: 'People Ops',
+      sub: 'Hiring',
+      to: `${prefix}/people-operations`,
+      icon: 'people'
+    });
+  }
+
   return links;
 }
 
@@ -235,6 +284,13 @@ export function buildHubSwitcherLinks(opts = {}) {
       to: `${prefix}/school-operations`,
       icon: 'school',
       show: access.school
+    },
+    {
+      key: 'people',
+      label: 'People Ops',
+      to: `${prefix}/people-operations`,
+      icon: 'people',
+      show: access.people
     }
   ];
 
@@ -289,18 +345,26 @@ export function workspaceNavContextFromStores({
   slug,
   agency,
   branding,
-  isAffiliationContext = false
+  user = null,
+  isAffiliationContext = false,
+  hasHiringFeature = null,
+  hasPeopleOpsFeature = null
 }) {
   const agencyRecord = agency?.value ?? agency ?? {};
   const pb = branding?.platformBranding ?? branding ?? {};
   const slugNorm = String(slug || agencyRecord.slug || agencyRecord.portal_url || '').trim();
+  const flags = agencyRecord.feature_flags ?? agencyRecord.featureFlags ?? {};
 
   return {
     role,
+    user: user?.value ?? user ?? null,
     prefix: slugNorm ? `/${slugNorm}` : '',
     isAffiliationContext,
     isSscSstcTenant: isSscSstcTenantFromSlug(slugNorm),
-    agencyFeatureFlags: agencyRecord.feature_flags ?? agencyRecord.featureFlags,
+    agencyFeatureFlags: flags,
+    hasHiringFeature: hasHiringFeature != null ? !!hasHiringFeature : isTruthyFlag(flags?.hiringEnabled),
+    hasPeopleOpsFeature:
+      hasPeopleOpsFeature != null ? !!hasPeopleOpsFeature : isTruthyFlag(flags?.peopleOpsEnabled),
     platformAvailableAgencyFeaturesJson: pb.available_agency_features_json ?? pb.availableAgencyFeaturesJson,
     tenantAvailableAgencyFeaturesOverrideJson:
       agencyRecord.tenant_available_agency_features_json ?? agencyRecord.tenantAvailableAgencyFeaturesJson

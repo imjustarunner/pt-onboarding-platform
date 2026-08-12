@@ -5386,7 +5386,15 @@ import { createCounselingSession, openCounselingFromAppointment } from '../../se
 import { isSupervisor, canScheduleGroupSupervision } from '../../utils/helpers.js';
 import api from '../../services/api';
 import { getScheduleSummary, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
-import { timezoneLabelFor, isoToZonedDatetimeLocal, zonedDatetimeLocalToIso } from '../../utils/timezones.js';
+import { timezoneLabelFor, isoToZonedDatetimeLocal, zonedDatetimeLocalToIso, timezoneAbbrevAt } from '../../utils/timezones.js';
+import {
+  parseScheduleUtcInstant as parseScheduleInstant,
+  toSummaryInstantIso,
+  toZonedDatetimeLocalValue,
+  wallDatetimeEndFromStart,
+  wallDatetimeFromParts,
+  wallDatetimeLocalToSummaryIso
+} from '../../utils/scheduleEventInstants.js';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
@@ -16666,6 +16674,7 @@ const patchScheduleEventInSummary = ({
   description = '',
   startAt = '',
   endAt = '',
+  wallTimeZone = '',
   agencyId = null,
   isPrivate = false,
   attendeeUserIds = null,
@@ -16674,22 +16683,6 @@ const patchScheduleEventInSummary = ({
 } = {}) => {
   const eid = Number(eventId || 0);
   if (!eid || !summary.value) return;
-  const normalizeWall = (raw) => {
-    const s = String(raw || '').trim();
-    if (!s) return '';
-    return s.includes('T') ? s.slice(0, 19) : s.replace(' ', 'T').slice(0, 19);
-  };
-  const toSummaryInstant = (raw, storesUtcInstant) => {
-    const s = String(raw || '').trim();
-    if (!s) return null;
-    if (storesUtcInstant) {
-      if (/[zZ]$/.test(s) || /[+-]\d{2}:?\d{2}$/.test(s)) return s;
-      const mysql = s.includes('T') ? s.replace('T', ' ').slice(0, 19) : s.slice(0, 19);
-      const d = new Date(`${mysql.replace(' ', 'T')}Z`);
-      return Number.isNaN(d.getTime()) ? normalizeWall(s) : d.toISOString();
-    }
-    return normalizeWall(s);
-  };
   const list = Array.isArray(summary.value.scheduleEvents) ? [...summary.value.scheduleEvents] : [];
   const idx = list.findIndex((row) => Number(row?.id || 0) === eid);
   if (idx < 0) return;
@@ -16698,8 +16691,10 @@ const patchScheduleEventInSummary = ({
   const storesUtcInstant = !!String(prev?.googleEventId || '').trim()
     || prevKind === 'TEAM_MEETING'
     || prevKind === 'HUDDLE';
-  const nextStart = toSummaryInstant(startAt, storesUtcInstant);
-  const nextEnd = toSummaryInstant(endAt, storesUtcInstant);
+  const tz = String(wallTimeZone || '').trim()
+    || (['TEAM_MEETING', 'HUDDLE'].includes(prevKind) ? teamMeetingTimeZone() : scheduleMeetingTimeZone());
+  const nextStart = toSummaryInstantIso(startAt, { storesUtcInstant, wallTimeZone: tz });
+  const nextEnd = toSummaryInstantIso(endAt, { storesUtcInstant, wallTimeZone: tz });
   if (!nextStart || !nextEnd) return;
   list[idx] = {
     ...prev,
@@ -21886,29 +21881,7 @@ const startTrackedSupvMeet = async () => {
   await startTrackedSupvMeetForSession(selectedSupvSession.value || null);
 };
 
-const parseMaybeDate = (raw) => {
-  const s = String(raw || '').trim();
-  if (!s) return null;
-  // Naked MySQL DATETIME from UTC storage → treat as UTC (append Z).
-  const normalized = (/^\d{4}-\d{2}-\d{2}[ ]\d{2}:\d{2}(:\d{2})?$/.test(s))
-    ? `${s.replace(' ', 'T')}${s.length === 16 ? ':00' : ''}Z`
-    : (s.includes('T') ? s : s.replace(' ', 'T'));
-  const d = new Date(normalized);
-  return Number.isNaN(d.getTime()) ? null : d;
-};
-
-/** Parse office/schedule instants; naked digits are UTC under the schedule contract. */
-const parseScheduleInstant = (raw) => {
-  const s = String(raw || '').trim();
-  if (!s) return null;
-  const normalized = (/^\d{4}-\d{2}-\d{2}[ ]\d{2}:\d{2}(:\d{2})?$/.test(s))
-    ? `${s.replace(' ', 'T')}${s.length === 16 ? ':00' : ''}Z`
-    : (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(s) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(s))
-      ? `${s.length === 16 ? `${s}:00` : s}Z`
-      : (s.includes('T') ? s : s.replace(' ', 'T'));
-  const d = new Date(normalized);
-  return Number.isNaN(d.getTime()) ? null : d;
-};
+const parseMaybeDate = (raw) => parseScheduleInstant(raw);
 /** IANA zone for non-meeting schedule items' wall-clock (My Schedule = browser; admin views = office TZ). */
 const scheduleMeetingTimeZone = () => {
   if (props.mode === 'self') {
@@ -21930,23 +21903,7 @@ const teamMeetingTimeZone = () => {
 
 const toDatetimeLocalValue = (raw, isMeeting = false) => {
   const tz = isMeeting ? teamMeetingTimeZone() : scheduleMeetingTimeZone();
-  if (raw instanceof Date) {
-    if (Number.isNaN(raw.getTime())) return '';
-    return isoToZonedDatetimeLocal(raw.toISOString(), tz);
-  }
-  const s = String(raw || '').trim();
-  if (!s) return '';
-  // Prefer wall-clock local (no Z) so datetime-local matches booked local times.
-  const wall = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})/.exec(s);
-  if (wall && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(s)) {
-    return `${wall[1]}T${wall[2]}:${wall[3]}`;
-  }
-  const zoned = isoToZonedDatetimeLocal(s, tz);
-  if (zoned) return zoned;
-  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
-  if (Number.isNaN(d.getTime())) return '';
-  const p2 = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  return toZonedDatetimeLocalValue(raw, tz);
 };
 
 /** Agenda surfaces once the session window has started (or join prompt window). */
@@ -22932,6 +22889,7 @@ const onCellBlockResizePointerDown = (e, b, dayName, hour, minute, edge) => {
     virtualHoursId: Number(b.virtualHoursId || 0),
     agencyId: Number(b.agencyId || 0),
     kind: String(b.kind),
+    eventKind: String(b.eventKind || '').toUpperCase(),
     providerId: Number(b.providerId || resolveBookedProviderIdForEvent(b) || props.userId || 0),
     seriesId: String(b.recurrenceSeriesId || '').trim(),
     label: String(b.shortLabel || b.title || 'Appointment').trim(),
@@ -23001,6 +22959,7 @@ const onCellBlockResizePointerUp = () => {
     agencyId: Number(rs.agencyId || 0),
     providerId: rs.providerId,
     seriesId: rs.seriesId,
+    eventKind: String(rs.eventKind || '').toUpperCase(),
     label: rs.label,
     startAt: rs.origStartAt,
     endAt: rs.origEndAt,
@@ -23104,11 +23063,11 @@ const onAppointmentPointerMove = (e) => {
 
 const openAppointmentMoveConfirm = (st, target) => {
   const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(target.dayName));
-  const newStart = new Date(`${dateYmd}T${pad2(target.hour)}:${pad2(target.minute)}:00`);
-  if (Number.isNaN(newStart.getTime())) return;
-  const newEnd = new Date(newStart.getTime() + Number(st.durationMs || 0));
-  const newStartAt = formatLocalDateTimeValue(newStart);
-  const newEndAt = formatLocalDateTimeValue(newEnd);
+  const moveTz = ['TEAM_MEETING', 'HUDDLE'].includes(String(st.eventKind || '').toUpperCase())
+    ? teamMeetingTimeZone()
+    : scheduleMeetingTimeZone();
+  const newStartAt = wallDatetimeFromParts(dateYmd, target.hour, target.minute);
+  const newEndAt = wallDatetimeEndFromStart(newStartAt, Number(st.durationMs || 0), moveTz);
   if (!newStartAt || !newEndAt) return;
   const oldNorm = String(st.startAt || '').replace(' ', 'T').slice(0, 16);
   if (oldNorm === newStartAt.slice(0, 16)) return;
@@ -23122,6 +23081,7 @@ const openAppointmentMoveConfirm = (st, target) => {
     agencyId: Number(st.agencyId || 0),
     providerId: st.providerId,
     seriesId: st.seriesId,
+    eventKind: String(st.eventKind || '').toUpperCase(),
     label: st.label,
     startAt: st.startAt,
     endAt: st.endAt,
@@ -23189,9 +23149,12 @@ const applyAppointmentMove = async (scope = null, { pastConfirmed = false } = {}
     } else {
       const uid = Number(draft.providerId || props.userId || authStore.user?.id || 0);
       if (!uid) throw new Error('Unable to resolve host for move.');
+      const isMeeting = ['TEAM_MEETING', 'HUDDLE'].includes(String(draft.eventKind || '').toUpperCase());
+      const moveTz = isMeeting ? teamMeetingTimeZone() : scheduleMeetingTimeZone();
       await api.patch(`/users/${uid}/schedule-events/${draft.eventId}`, {
         startAt: draft.newStartAt,
         endAt: draft.newEndAt,
+        timeZone: moveTz,
         ...(scope ? { scope } : {})
       }, { skipGlobalLoading: true });
     }
@@ -23780,23 +23743,26 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
       await syncToggledInviteGroupMemberships(saveAgencyId);
     }
     const saveTimeZone = isMeeting ? teamMeetingTimeZone() : scheduleMeetingTimeZone();
+    const wallStartAt = startAt.length === 16 ? `${startAt}:00` : startAt;
+    const wallEndAt = endAt.length === 16 ? `${endAt}:00` : endAt;
     // Admin-meeting invitees may PATCH time only; hosts keep full edit payload.
     const patchBody = canRescheduleOnly
       ? {
-          startAt: startAt.length === 16 ? `${startAt}:00` : startAt,
-          endAt: endAt.length === 16 ? `${endAt}:00` : endAt,
+          startAt: wallStartAt,
+          endAt: wallEndAt,
           timeZone: saveTimeZone,
           ...(scope ? { scope } : {})
         }
       : {
           title,
           description,
-          startAt: startAt.length === 16 ? `${startAt}:00` : startAt,
-          endAt: endAt.length === 16 ? `${endAt}:00` : endAt,
-          // Meetings always save in the tenant/office timezone (not the editor's browser
-          // timezone) so the number shown next to "When" matches what actually gets stored.
-          // Required so Google-synced meetings store UTC correctly (avoids 7:30 → 1:30 drift).
-          timeZone: saveTimeZone,
+          ...(timeChanged
+            ? {
+                startAt: wallStartAt,
+                endAt: wallEndAt,
+                timeZone: saveTimeZone
+              }
+            : {}),
           agencyId: saveAgencyId,
           isPrivate: !!scheduleEventEditForm.value.isPrivate,
           allDay: false,
@@ -23823,17 +23789,17 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
         };
     const patchResp = await api.patch(`/users/${uid}/schedule-events/${eid}`, patchBody, { skipGlobalLoading: true });
     const savedEvent = patchResp?.data?.event || {};
-    // Fallback only fires if the server response is missing startAt/endAt — convert the wall
-    // clock we sent using the same timeZone as the save, so it's never mistaken for raw UTC
-    // digits (that mistake is what previously turned "12pm" into "7am" after saving).
-    const fallbackStartAt = zonedDatetimeLocalToIso(startAt, saveTimeZone) || startAt;
-    const fallbackEndAt = zonedDatetimeLocalToIso(endAt, saveTimeZone) || endAt;
     patchScheduleEventInSummary({
       eventId: eid,
       title: savedEvent.title || title,
       description: savedEvent.description ?? description,
-      startAt: savedEvent.startAt || fallbackStartAt,
-      endAt: savedEvent.endAt || fallbackEndAt,
+      startAt: savedEvent.startAt
+        || wallDatetimeLocalToSummaryIso(wallStartAt, saveTimeZone)
+        || wallStartAt,
+      endAt: savedEvent.endAt
+        || wallDatetimeLocalToSummaryIso(wallEndAt, saveTimeZone)
+        || wallEndAt,
+      wallTimeZone: saveTimeZone,
       agencyId: saveAgencyId,
       isPrivate: !!scheduleEventEditForm.value.isPrivate,
       attendeeUserIds: isMeeting ? savedAttendeeIds : null,
@@ -24422,7 +24388,9 @@ const formatRangeFromRaw = (startAt, endAt, isMeeting = false) => {
   const opts = { hour: 'numeric', minute: '2-digit', timeZone: tz };
   const sLabel = st.toLocaleTimeString([], opts);
   const eLabel = en.toLocaleTimeString([], opts);
-  return `${sLabel}-${eLabel}`;
+  const abbr = timezoneAbbrevAt(st, tz);
+  const core = `${sLabel}-${eLabel}`;
+  return abbr ? `${core} ${abbr}` : core;
 };
 
 const SCHEDULE_EVENT_KIND_LABELS = {

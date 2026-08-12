@@ -69,6 +69,31 @@
               <p class="df-sidebar-quote">{{ quote }}</p>
             </div>
             <div class="df-sidebar-spacer" />
+            <div v-if="hasSidebarContact" class="df-sidebar-contact">
+              <div class="df-sidebar-contact-title">{{ contactTitle }}</div>
+              <a
+                v-if="contactPhoneDisplay && contactPhoneTel"
+                class="df-sidebar-contact-line"
+                :href="`tel:${contactPhoneTel}`"
+              >{{ contactPhoneDisplay }}</a>
+              <a
+                v-else-if="contactPhoneDisplay"
+                class="df-sidebar-contact-line"
+              >{{ contactPhoneDisplay }}</a>
+              <a
+                v-if="contactEmail"
+                class="df-sidebar-contact-line"
+                :href="`mailto:${contactEmail}`"
+              >{{ contactEmail }}</a>
+              <button
+                v-if="showContactSupportAction"
+                type="button"
+                class="df-sidebar-contact-btn"
+                @click="$emit('contact-support')"
+              >
+                {{ contactSupportLabel }}
+              </button>
+            </div>
             <div class="df-trust-list">
               <div v-for="item in resolvedTrustItems" :key="item.icon" class="df-trust-item">
                 <span class="df-trust-icon" aria-hidden="true">
@@ -211,10 +236,17 @@ const props = defineProps({
       { icon: 'lock', label: 'HIPAA Protected' },
       { icon: 'check', label: 'Only takes a few minutes' }
     ]
-  }
+  },
+  /** Cover-mode left panel contact block */
+  contactPhoneDisplay: { type: String, default: '' },
+  contactPhoneTel: { type: String, default: '' },
+  contactEmail: { type: String, default: '' },
+  contactTitle: { type: String, default: 'Need help?' },
+  showContactSupportAction: { type: Boolean, default: false },
+  contactSupportLabel: { type: String, default: 'Send a message' }
 });
 
-defineEmits(['update:language']);
+defineEmits(['update:language', 'contact-support']);
 
 const TRUST_LABEL_ES = {
   'Your information is secure': 'Su información está segura',
@@ -265,4 +297,60 @@ const showIntakeDecor = computed(
 const decorHeroImageStyle = computed(() => ({
   objectPosition: String(props.decorHeroImagePosition || 'center center').trim() || 'center center'
 }));
+
+const hasSidebarContact = computed(
+  () =>
+    !!String(props.contactPhoneDisplay || '').trim()
+    || !!String(props.contactEmail || '').trim()
+    || props.showContactSupportAction
+);
 </script>
+
+<style scoped>
+.df-sidebar-contact {
+  margin: 0 0 18px;
+  padding: 14px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.df-sidebar-contact-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.85;
+  margin-bottom: 8px;
+}
+
+.df-sidebar-contact-line {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.92rem;
+  margin-bottom: 6px;
+  word-break: break-word;
+}
+
+.df-sidebar-contact-line:hover {
+  text-decoration: underline;
+}
+
+.df-sidebar-contact-btn {
+  margin-top: 8px;
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.14);
+  color: inherit;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.df-sidebar-contact-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+</style>

@@ -49,11 +49,11 @@ function fmtMd(ymd) {
   return `${Number(m)}/${Number(d)}`;
 }
 
-/** Prefer linked schedule block times — they stay in sync with Today's Schedule / My Schedule. */
+/** Timed display uses planned_out instants — they reflect what the submitter booked. */
 function effectiveTimedInstants(row) {
   return {
-    start: row?.schedule_event_start_at || row?.start_at,
-    end: row?.schedule_event_end_at || row?.end_at
+    start: row?.start_at,
+    end: row?.end_at
   };
 }
 

@@ -4,7 +4,9 @@
     <div class="ona-header">
       <div>
         <h2 class="ona-title">Onboarding</h2>
-        <p class="ona-subtitle">Hired employees completing their onboarding checklist.</p>
+        <p class="ona-subtitle">
+          Hired employees completing their onboarding checklist. Use <strong>Send Invite</strong> on a row to resend the portal magic link or workspace login email.
+        </p>
       </div>
       <div class="ona-header-right">
         <div v-if="canChooseAgency" class="ona-agency-picker">

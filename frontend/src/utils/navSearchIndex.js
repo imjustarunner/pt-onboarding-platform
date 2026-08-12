@@ -99,11 +99,11 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Provider year-update campaign within School Management.'
   },
   {
-    title: 'Staff Roster',
+    title: 'Users',
     section: 'Workforce Ops › Staff & Scheduling',
     path: '/admin/users',
-    keywords: ['staff', 'roster', 'users', 'members', 'employees', 'providers'],
-    desc: 'All staff members and user accounts.'
+    keywords: ['users', 'members', 'staff', 'roster', 'accounts', 'employees', 'providers', 'people'],
+    desc: 'All user accounts and staff members.'
   },
   {
     title: 'Provider Year Update',
@@ -466,19 +466,26 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Overview of programs and staffing metrics.'
   },
 
-  // ─── People Ops ───────────────────────────────────────────────────────────────
+  // ─── People Operations Hub ────────────────────────────────────────────────────
+  {
+    title: 'People Operations',
+    section: 'Hub',
+    path: '/people-operations',
+    keywords: ['people ops', 'people operations', 'hiring hub', 'hr hub', 'onboarding hub'],
+    desc: 'Main People Operations hub — hiring, careers, onboarding, and development.'
+  },
   {
     title: 'Documents',
-    section: 'People Ops',
+    section: 'People Ops › Performance & Development',
     path: '/admin/documents',
     keywords: ['documents', 'docs', 'files', 'sign documents', 'document management'],
     desc: 'Agency documents — view, sign, and manage.'
   },
   {
-    title: 'PO Dashboard',
+    title: 'Hiring Dashboard',
     section: 'People Ops › Hiring',
     path: '/admin/hiring',
-    keywords: ['hiring', 'dashboard', 'pipeline', 'hiring overview', 'recruiting'],
+    keywords: ['hiring', 'dashboard', 'pipeline', 'hiring overview', 'recruiting', 'hiring dashboard', 'po dashboard'],
     desc: 'Hiring overview with pipeline stats and upcoming interviews.'
   },
   {
@@ -489,6 +496,13 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Hiring pipeline and applicant management.'
   },
   {
+    title: 'Interview Hub',
+    section: 'People Ops › Hiring',
+    path: '/admin/interview-hub',
+    keywords: ['interview hub', 'interviews', 'hiring interviews', 'interview scheduling'],
+    desc: 'Coordinate interviews and capture feedback.'
+  },
+  {
     title: 'Pre-Hire',
     section: 'People Ops › Hiring',
     path: '/admin/pre-hire',
@@ -496,22 +510,43 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Pre-hire checklists and onboarding tasks.'
   },
   {
-    title: 'Careers Page',
-    section: 'People Ops › Hiring',
-    path: '/admin/careers',
-    keywords: ['careers', 'career page', 'job listings', 'job postings', 'open positions'],
-    desc: 'Manage the agency careers page and job postings.'
+    title: 'Career page settings',
+    section: 'People Ops › Careers',
+    path: '/admin/careers/page',
+    keywords: ['careers', 'career page', 'careers settings', 'careers branding', 'page settings'],
+    desc: 'Configure the public careers page branding and content.'
+  },
+  {
+    title: 'Job postings',
+    section: 'People Ops › Careers',
+    path: '/admin/careers/jobs',
+    keywords: ['job postings', 'job listings', 'open positions', 'careers jobs', 'job descriptions'],
+    desc: 'Create and manage job postings on the careers page.'
+  },
+  {
+    title: 'Onboarding',
+    section: 'People Ops › Onboarding',
+    path: '/admin/onboarding',
+    keywords: ['onboarding', 'new hire onboarding', 'send invite', 'portal link', 'onboarding invite'],
+    desc: 'Track onboarding progress and resend portal / login invites.'
+  },
+  {
+    title: 'Engagement & Retention',
+    section: 'People Ops › Employee Relations',
+    path: '/admin/employee-relations',
+    keywords: ['employee relations', 'engagement', 'retention', 'service milestones', 'anniversary', 'gifts'],
+    desc: 'Service anniversary milestones, gifts owed, and acknowledgements.'
   },
   {
     title: 'Training Modules',
-    section: 'People Ops',
+    section: 'People Ops › Performance & Development',
     path: '/admin/modules',
     keywords: ['training', 'modules', 'courses', 'training modules', 'course builder', 'learning'],
     desc: 'Build and manage training courses and modules.'
   },
   {
     title: 'Progress (Training)',
-    section: 'People Ops',
+    section: 'People Ops › Performance & Development',
     path: '/admin/agency-progress',
     keywords: ['progress', 'training progress', 'completion', 'staff progress', 'learning progress'],
     desc: 'Track staff training completion and progress.'

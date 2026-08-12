@@ -34,6 +34,10 @@ import EmailService from '../services/email.service.js';
 import UserActivityLog from '../models/UserActivityLog.model.js';
 import { createAndSendReferenceRequests } from '../services/hiringReferenceRequests.service.js';
 import { sanitizeCareersPageJson } from '../utils/careersPageSanitize.js';
+import {
+  parseJobDescriptionSections,
+  sanitizeJobDescriptionSections
+} from '../utils/jobDescriptionSectionsSanitize.js';
 
 function parseIntParam(v) {
   const n = parseInt(v, 10);
@@ -1082,6 +1086,7 @@ export const listJobDescriptions = async (req, res, next) => {
         agencyId: r.agency_id,
         title: r.title,
         descriptionText: r.description_text || null,
+        descriptionSections: parseJobDescriptionSections(r.description_sections_json),
         hasFile: !!r.storage_path,
         originalName: r.original_name || null,
         mimeType: r.mime_type || null,
@@ -1112,6 +1117,13 @@ export const createJobDescription = async (req, res, next) => {
     const title = String(req.body?.title || '').trim().slice(0, 255);
     const descriptionTextRaw = req.body?.descriptionText !== undefined ? String(req.body.descriptionText || '') : '';
     let descriptionText = descriptionTextRaw.trim();
+    const descriptionSectionsJson = (() => {
+      const raw = req.body?.descriptionSectionsJson !== undefined
+        ? req.body.descriptionSectionsJson
+        : req.body?.description_sections_json;
+      if (raw === undefined) return null;
+      return sanitizeJobDescriptionSections(raw);
+    })();
     const postedDate = req.body?.postedDate !== undefined ? normalizeDateOnly(req.body.postedDate) : null;
     const applicationDeadline = req.body?.applicationDeadline !== undefined ? normalizeDateOnly(req.body.applicationDeadline) : null;
     const city = req.body?.city !== undefined ? String(req.body.city || '').trim().slice(0, 120) : null;
@@ -1163,6 +1175,7 @@ export const createJobDescription = async (req, res, next) => {
       agencyId,
       title,
       descriptionText: descriptionText || null,
+      descriptionSectionsJson,
       postedDate,
       applicationDeadline,
       city: city || null,
@@ -1179,7 +1192,10 @@ export const createJobDescription = async (req, res, next) => {
       isActive: true
     });
 
-    res.status(201).json(created);
+    res.status(201).json({
+      ...created,
+      descriptionSections: parseJobDescriptionSections(created?.description_sections_json)
+    });
   } catch (e) {
     next(e);
   }
@@ -1268,10 +1284,18 @@ export const updateJobDescription = async (req, res, next) => {
           vTagsJson = Array.isArray(parsed) ? parsed.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 20) : null;
         } catch { vTagsJson = null; }
       }
+      const vSections = (() => {
+        const raw = req.body?.descriptionSectionsJson !== undefined
+          ? req.body.descriptionSectionsJson
+          : req.body?.description_sections_json;
+        if (raw !== undefined) return sanitizeJobDescriptionSections(raw);
+        return parseJobDescriptionSections(existing.description_sections_json);
+      })();
       const created = await HiringJobDescription.create({
         agencyId,
         title,
         descriptionText: descriptionText || null,
+        descriptionSectionsJson: vSections,
         postedDate,
         applicationDeadline,
         city: city || null,
@@ -1290,6 +1314,7 @@ export const updateJobDescription = async (req, res, next) => {
       await HiringJobDescription.deactivateById(existing.id);
       return res.json({
         ...created,
+        descriptionSections: parseJobDescriptionSections(created?.description_sections_json),
         replacedJobDescriptionId: existing.id
       });
     }
@@ -1301,6 +1326,13 @@ export const updateJobDescription = async (req, res, next) => {
     const descriptionText = req.body?.descriptionText !== undefined
       ? String(req.body.descriptionText || '').trim()
       : existing.description_text;
+    const descriptionSectionsJson = (() => {
+      const raw = req.body?.descriptionSectionsJson !== undefined
+        ? req.body.descriptionSectionsJson
+        : req.body?.description_sections_json;
+      if (raw === undefined) return undefined;
+      return sanitizeJobDescriptionSections(raw);
+    })();
     const postedDate = req.body?.postedDate !== undefined ? normalizeDateOnly(req.body.postedDate) : undefined;
     const applicationDeadline = req.body?.applicationDeadline !== undefined
       ? normalizeDateOnly(req.body.applicationDeadline)
@@ -1335,6 +1367,7 @@ export const updateJobDescription = async (req, res, next) => {
     const updated = await HiringJobDescription.updateById(jdId, {
       title,
       descriptionText: descriptionText || null,
+      ...(descriptionSectionsJson !== undefined ? { descriptionSectionsJson } : {}),
       postedDate,
       applicationDeadline,
       city: city !== undefined ? (city || null) : undefined,
@@ -1347,7 +1380,10 @@ export const updateJobDescription = async (req, res, next) => {
       ...(isActive !== undefined ? { isActive } : {})
     });
 
-    res.json(updated);
+    res.json({
+      ...updated,
+      descriptionSections: parseJobDescriptionSections(updated?.description_sections_json)
+    });
   } catch (e) {
     next(e);
   }

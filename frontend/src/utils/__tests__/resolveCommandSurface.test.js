@@ -12,9 +12,11 @@ describe('resolveCommandSurface', () => {
     expect(normalizeAppPath('/workforce-operations')).toBe('/workforce-operations');
   });
 
-  it('detects workforce, school, operations, admin, and my dashboard', () => {
+  it('detects workforce, school, people, operations, admin, and my dashboard', () => {
     expect(resolveCommandSurface({ path: '/itsco/workforce-operations' })?.key).toBe('workforce_operations');
     expect(resolveCommandSurface({ path: '/school-operations' })?.key).toBe('school_operations');
+    expect(resolveCommandSurface({ path: '/people-operations' })?.key).toBe('people_operations');
+    expect(resolveCommandSurface({ path: '/itsco/admin/employee-relations' })?.key).toBe('people_operations');
     expect(resolveCommandSurface({ path: '/operations-dashboard' })?.key).toBe('operations_dashboard');
     expect(resolveCommandSurface({ path: '/admin-dashboard' })?.key).toBe('admin_dashboard');
     expect(resolveCommandSurface({ name: 'OrganizationAdminDashboard' })?.key).toBe('admin_dashboard');

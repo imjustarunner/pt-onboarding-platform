@@ -349,12 +349,13 @@ function buildAppEntries() {
     },
     {
       id: 'learning-tasks-hub',
-      routeName: 'OrganizationTasks',
+      routeName: null,
       label: 'Tasks',
       description: 'Assigned tasks, shared lists, escalations, and meeting actions.',
       group: 'learning',
       keywords: ['tasks', 'shared lists', 'escalation', 'action items', 'to do', 'todo'],
-      kind: 'route',
+      kind: 'path',
+      path: '/tasks',
       requires: ['showLearning']
     },
     {
@@ -912,6 +913,15 @@ export function resolveQuickNavRoute(entry, opts = {}) {
   const loc = resolveQuickNavLocation(entry, opts);
   if (loc) return loc;
   const name = String(entry?.routeName || '').trim();
-  if (name) return { name };
-  return null;
+  if (!name) return null;
+  const slug = String(opts.orgSlug || '').trim();
+  if (name === 'OrganizationTasks') {
+    return slug
+      ? { name, params: { organizationSlug: slug } }
+      : { name: 'Tasks' };
+  }
+  if (slug && name.startsWith('Organization')) {
+    return { name, params: { organizationSlug: slug } };
+  }
+  return { name };
 }

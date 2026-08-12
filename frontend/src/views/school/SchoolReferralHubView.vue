@@ -14,6 +14,32 @@
     <div v-if="loadError" class="error">{{ loadError }}</div>
     <div v-else-if="loadingSchools" class="muted">Loading schools…</div>
     <template v-else>
+      <section class="srh-card srh-public-finder-card">
+        <div class="srh-card-head">
+          <h2>Public school finder</h2>
+          <p class="muted">
+            Share this link or QR so families can find their school and start the referral packet.
+            Each school still uses its own intake link (with captcha / session protections).
+          </p>
+        </div>
+        <div v-if="!publicFinderUrl" class="muted">
+          Set an agency portal slug to enable the public finder URL.
+        </div>
+        <div v-else class="srh-public-finder-row">
+          <img v-if="publicFinderQrDataUrl" :src="publicFinderQrDataUrl" alt="Public school finder QR code" class="srh-qr-img" />
+          <div class="srh-public-finder-meta">
+            <input class="srh-link-input" :value="publicFinderUrl" readonly />
+            <div class="srh-link-row">
+              <button class="btn btn-secondary btn-sm" type="button" @click="copyText(publicFinderUrl)">Copy link</button>
+              <a class="btn btn-primary btn-sm" :href="publicFinderUrl" target="_blank" rel="noreferrer">Open</a>
+              <button class="btn btn-secondary btn-sm" type="button" :disabled="!publicFinderQrDataUrl" @click="printPublicFinderQr">
+                Print QR
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="srh-card">
         <label class="srh-label" for="srh-school">School</label>
         <select id="srh-school" v-model="selectedSchoolId" class="srh-select">
@@ -109,6 +135,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
+import QRCode from 'qrcode';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
@@ -116,6 +143,7 @@ import SchoolPacketTemplateEditor from '../../components/school/redesign/SchoolP
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
+const publicFinderQrDataUrl = ref('');
 
 const loadingSchools = ref(true);
 const loadError = ref('');
@@ -137,10 +165,60 @@ const masterStepCount = ref(0);
 
 const orgSlug = computed(() => (typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : ''));
 const agencyId = computed(() => Number(agencyStore.currentAgency?.id || route.query?.agencyId || 0));
+const agencyPortalSlug = computed(() => {
+  const fromRoute = orgSlug.value;
+  if (fromRoute) return fromRoute;
+  return String(
+    agencyStore.currentAgency?.slug
+    || agencyStore.currentAgency?.portal_url
+    || agencyStore.currentAgency?.portalUrl
+    || ''
+  ).trim();
+});
+const publicFinderUrl = computed(() => {
+  const slug = agencyPortalSlug.value;
+  if (!slug) return '';
+  const origin = String(window.location.origin || '').replace(/\/$/, '');
+  return `${origin}/${slug}/school-referral`;
+});
 const backTo = computed(() => (orgSlug.value ? `/${orgSlug.value}/school-operations` : '/school-operations'));
 const masterSchoolFormTo = computed(() =>
   orgSlug.value ? `/${orgSlug.value}/admin/master-school-form` : '/admin/master-school-form'
 );
+
+async function refreshPublicFinderQr() {
+  const url = publicFinderUrl.value;
+  if (!url) {
+    publicFinderQrDataUrl.value = '';
+    return;
+  }
+  try {
+    publicFinderQrDataUrl.value = await QRCode.toDataURL(url, { width: 280, margin: 1 });
+  } catch {
+    publicFinderQrDataUrl.value = '';
+  }
+}
+
+function printPublicFinderQr() {
+  if (!publicFinderQrDataUrl.value || !publicFinderUrl.value) return;
+  const w = window.open('', '_blank', 'noopener,noreferrer,width=480,height=640');
+  if (!w) return;
+  const doc = w.document;
+  doc.write(`<!doctype html><html><head><title>School Referral Finder QR</title>
+    <style>
+      body { font-family: system-ui, sans-serif; text-align: center; padding: 24px; }
+      img { width: 280px; height: 280px; }
+      .url { margin-top: 12px; font-size: 12px; word-break: break-all; color: #334155; }
+    </style></head><body>
+      <h1>School Referral Packet</h1>
+      <p>Scan to find your school</p>
+      <img src="${publicFinderQrDataUrl.value}" alt="QR" />
+      <div class="url">${publicFinderUrl.value}</div>
+    </body></html>`);
+  doc.close();
+  w.focus();
+  w.print();
+}
 
 const selectedSchoolName = computed(() => {
   const id = Number(selectedSchoolId.value || 0);
@@ -327,9 +405,14 @@ watch(agencyId, (id) => {
   if (id) loadMaster();
 }, { immediate: true });
 
+watch(publicFinderUrl, () => {
+  refreshPublicFinderQr();
+}, { immediate: true });
+
 onMounted(async () => {
   await loadSchools();
   if (agencyId.value) await loadMaster();
+  await refreshPublicFinderQr();
 });
 </script>
 
@@ -416,6 +499,31 @@ onMounted(async () => {
 .srh-master-card {
   background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 55%, #fff 100%);
   border-color: #a7f3d0;
+}
+.srh-public-finder-card {
+  background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 55%, #fff 100%);
+  border-color: #bfdbfe;
+}
+.srh-public-finder-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.srh-qr-img {
+  width: 160px;
+  height: 160px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+}
+.srh-public-finder-meta {
+  flex: 1 1 280px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .srh-step-toolbar {
   display: flex;

@@ -409,40 +409,10 @@
               <!-- Portal navigation (admins must see this even if ACTIVE_EMPLOYEE) -->
               <template v-if="canSeePortalNav && canSeeFullPortalNav">
 
-                <div
-                  v-if="!isAffiliationContext && (hasPeopleOpsFeature || hasHiringFeature || (isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canSignDocuments')))"
-                  class="nav-dropdown"
-                  @click.stop
-                  @mouseenter="onNavMenuEnter('peopleOps')"
-                  @mouseleave="onNavMenuLeave('peopleOps')"
-                >
-                  <button
-                    type="button"
-                    class="nav-dropdown-trigger"
-                    title="People Ops"
-                    :aria-expanded="peopleOpsMenuOpen ? 'true' : 'false'"
-                    @click.stop="togglePeopleOpsMenu"
-                  >
-                    <span class="nav-dropdown-label">People Ops</span> <span class="brand-caret">▾</span>
-                  </button>
-                  <div v-if="peopleOpsMenuOpen" class="nav-dropdown-menu">
-                    <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')">PO Dashboard</router-link>
-                    <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring/applicants')">Applicants</router-link>
-                    <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/interview-hub')">Interview Hub</router-link>
-                    <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/pre-hire')" >Pre-Hire</router-link>
-                    <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/careers')" >Careers</router-link>
-                    <router-link v-if="hasPeopleOpsFeature && showOnDemandLink && !isSscSstcTenant" :to="orgTo('/my-learning')" >My Learning</router-link>
-                    <router-link
-                      :to="orgTo('/admin/modules')"
-                      v-if="hasPeopleOpsFeature && isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canViewTraining')"
-                    >Training Modules</router-link>
-                    <router-link :to="orgTo('/admin/agency-progress')" v-if="hasPeopleOpsFeature && hasCapability('canViewTraining')" >Progress</router-link>
-                    <router-link
-                      :to="orgTo('/admin/documents')"
-                      v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canSignDocuments')"
-                    >Documents</router-link>
-                  </div>
-                </div>
+                <router-link
+                  v-if="showOnDemandLink && !isSscSstcTenant"
+                  :to="orgTo('/my-learning')"
+                >My Learning</router-link>
 
                 <div
                   v-if="!isSscSstcTenant"
@@ -719,7 +689,15 @@
                     :aria-expanded="managementMenuOpen ? 'true' : 'false'"
                     @click.stop="toggleManagementMenu"
                   >
-                    <span class="nav-dropdown-label">Management</span> <span class="brand-caret">▾</span>
+                    <span class="nav-dropdown-label">Management</span>
+                    <span
+                      v-if="managementHubsPendingCount > 0"
+                      class="nav-badge nav-badge-pulse"
+                      :title="managementHubsPendingTitle"
+                    >
+                      {{ formatNavBadgeCount(managementHubsPendingCount) }}
+                    </span>
+                    <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="managementMenuOpen" class="nav-dropdown-menu nav-dropdown-menu-wide">
                     <router-link :to="adminDashboardNavTo" v-if="isTrueAdmin" >Admin Dashboard</router-link>
@@ -729,18 +707,36 @@
                     >Operations Dashboard</router-link>
                     <div
                       class="nav-dropdown-sep"
-                      v-if="canSeeManagementDashboardsNav && canSeeManagementHubsNav"
+                      v-if="showManagementDashboardLinks && showManagementHubLinks"
                     />
                     <router-link
                       v-if="canSeeWorkforceOperationsNav"
                       :to="orgTo('/workforce-operations')"
                       @click="closeAllNavMenus"
-                    >Workforce Operations</router-link>
+                    >
+                      <span>Workforce Operations</span>
+                      <span
+                        v-if="workforceOperationsPendingCount > 0"
+                        class="nav-badge nav-badge-pulse"
+                        :title="workforceOperationsPendingTitle"
+                      >
+                        {{ formatNavBadgeCount(workforceOperationsPendingCount) }}
+                      </span>
+                    </router-link>
                     <router-link
-                      v-if="canSeeCredentialing"
-                      :to="orgTo('/admin/credentialing')"
+                      v-if="canSeePeopleOperationsNav"
+                      :to="orgTo('/people-operations')"
                       @click="closeAllNavMenus"
-                    >Credentialing</router-link>
+                    >
+                      <span>People Operations</span>
+                      <span
+                        v-if="peopleOperationsPendingCount > 0"
+                        class="nav-badge nav-badge-pulse"
+                        :title="peopleOperationsPendingTitle"
+                      >
+                        {{ formatNavBadgeCount(peopleOperationsPendingCount) }}
+                      </span>
+                    </router-link>
                     <router-link
                       v-if="canSeeSchoolPortalsNav || canSeeSchoolClientsNav"
                       :to="orgTo('/school-operations')"
@@ -750,28 +746,36 @@
                     >
                       <span class="school-mgmt-label">School Operations</span>
                       <span
-                        v-if="schoolClientsPendingCount > 0"
+                        v-if="schoolOperationsPendingCount > 0"
                         class="nav-badge nav-badge-pulse"
-                        :title="`${schoolClientsPendingCount} pending school client(s)`"
+                        :title="schoolOperationsPendingTitle"
                       >
-                        {{ schoolClientsPendingCount }}
+                        {{ formatNavBadgeCount(schoolOperationsPendingCount) }}
                       </span>
                     </router-link>
-                    <div class="nav-dropdown-sep" v-if="canSeeManagementHubsNav || canSeeManagementDashboardsNav" />
+                    <div
+                      class="nav-dropdown-sep"
+                      v-if="showManagementBillingLinks && showManagementContentAboveBilling"
+                    />
                     <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" >Learning Billing</router-link>
                     <router-link :to="orgTo('/admin/budget-management')" v-if="canSeeBudgetManagement" >Budget Management</router-link>
-                    <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" >Revenue</router-link>
 
-                    <div class="nav-dropdown-sep" v-if="isSscSstcTenant && canSeeDigitalFormsNav" />
+                    <div
+                      class="nav-dropdown-sep"
+                      v-if="showManagementDigitalFormsLink && (showManagementContentAboveBilling || showManagementBillingLinks)"
+                    />
 
                     <router-link
                       v-if="isSscSstcTenant && canSeeDigitalFormsNav"
                       :to="orgTo('/admin/digital-forms')"
                     >Digital forms</router-link>
 
-                    <div class="nav-dropdown-sep" />
+                    <div
+                      class="nav-dropdown-sep"
+                      v-if="canSeeManagementSettingsNav && showManagementContentAboveSettings"
+                    />
 
-                    <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant'" >Settings</router-link>
+                    <router-link :to="orgTo('/admin/settings')" v-if="canSeeManagementSettingsNav" >Settings</router-link>
                   </div>
                 </div>
 
@@ -1450,38 +1454,6 @@
             </div>
 
             <template v-if="canSeePortalNav && canSeeFullPortalNav">
-              <!-- People Ops (mirrors top-nav dropdown) -->
-              <div
-                v-if="!isAffiliationContext && (hasPeopleOpsFeature || hasHiringFeature || (isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canSignDocuments')))"
-                class="mobile-nav-group mobile-nav-group-collapsible"
-              >
-                <button
-                  type="button"
-                  class="mobile-nav-group-trigger"
-                  :aria-expanded="mobilePeopleOpsExpanded ? 'true' : 'false'"
-                  @click="mobilePeopleOpsExpanded = !mobilePeopleOpsExpanded"
-                >
-                  <span>People Ops</span>
-                  <span class="mobile-nav-group-caret" :class="{ open: mobilePeopleOpsExpanded }" aria-hidden="true">▸</span>
-                </button>
-                <template v-if="mobilePeopleOpsExpanded">
-                  <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">PO Dashboard</router-link>
-                  <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/hiring/applicants')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Applicants</router-link>
-                  <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/interview-hub')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Interview Hub</router-link>
-                  <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/pre-hire')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Pre-Hire</router-link>
-                  <router-link v-if="hasCapability('canManageHiring') && hasHiringFeature" :to="orgTo('/admin/careers')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Careers</router-link>
-                  <router-link v-if="hasPeopleOpsFeature && showOnDemandLink && !isSscSstcTenant" :to="orgTo('/my-learning')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">My Learning</router-link>
-                  <router-link :to="orgTo('/admin/modules')" v-if="hasPeopleOpsFeature && isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canViewTraining')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Course Builder</router-link>
-                  <router-link :to="orgTo('/admin/agency-progress')" v-if="hasPeopleOpsFeature && hasCapability('canViewTraining')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Progress</router-link>
-                  <router-link
-                    :to="orgTo('/admin/documents')"
-                    v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canSignDocuments')"
-                    @click="closeMobileMenu"
-                    class="mobile-nav-link mobile-nav-sublink"
-                  >Documents</router-link>
-                </template>
-              </div>
-
               <!-- Directory (mirrors top-nav dropdown) -->
               <div v-if="!isSscSstcTenant" class="mobile-nav-group mobile-nav-group-collapsible">
                 <button
@@ -1710,6 +1682,13 @@
                   @click="mobileManagementExpanded = !mobileManagementExpanded"
                 >
                   <span>Management</span>
+                  <span
+                    v-if="managementHubsPendingCount > 0"
+                    class="nav-badge nav-badge-pulse"
+                    :title="managementHubsPendingTitle"
+                  >
+                    {{ formatNavBadgeCount(managementHubsPendingCount) }}
+                  </span>
                   <span class="mobile-nav-group-caret" :class="{ open: mobileManagementExpanded }" aria-hidden="true">▸</span>
                 </button>
                 <template v-if="mobileManagementExpanded">
@@ -1725,13 +1704,33 @@
                     :to="orgTo('/workforce-operations')"
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
-                  >Workforce Operations</router-link>
+                  >
+                    <span>Workforce Operations</span>
+                    <span
+                      v-if="workforceOperationsPendingCount > 0"
+                      class="nav-badge nav-badge-pulse"
+                      :title="workforceOperationsPendingTitle"
+                      style="margin-left: 8px;"
+                    >
+                      {{ formatNavBadgeCount(workforceOperationsPendingCount) }}
+                    </span>
+                  </router-link>
                   <router-link
-                    v-if="canSeeCredentialing"
-                    :to="orgTo('/admin/credentialing')"
+                    v-if="canSeePeopleOperationsNav"
+                    :to="orgTo('/people-operations')"
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
-                  >Credentialing</router-link>
+                  >
+                    <span>People Operations</span>
+                    <span
+                      v-if="peopleOperationsPendingCount > 0"
+                      class="nav-badge nav-badge-pulse"
+                      :title="peopleOperationsPendingTitle"
+                      style="margin-left: 8px;"
+                    >
+                      {{ formatNavBadgeCount(peopleOperationsPendingCount) }}
+                    </span>
+                  </router-link>
                   <router-link
                     v-if="canSeeSchoolPortalsNav || canSeeSchoolClientsNav"
                     :to="orgTo('/school-operations')"
@@ -1741,19 +1740,30 @@
                   >
                     <span class="school-mgmt-label">School Operations</span>
                     <span
-                      v-if="schoolClientsPendingCount > 0"
+                      v-if="schoolOperationsPendingCount > 0"
                       class="nav-badge nav-badge-pulse"
-                      :title="`${schoolClientsPendingCount} pending school client(s)`"
+                      :title="schoolOperationsPendingTitle"
                       style="margin-left: 8px;"
                     >
-                      {{ schoolClientsPendingCount }}
+                      {{ formatNavBadgeCount(schoolOperationsPendingCount) }}
                     </span>
                   </router-link>
+                  <div
+                    v-if="showManagementBillingLinks && showManagementContentAboveBilling"
+                    class="mobile-nav-sep"
+                  />
                   <router-link :to="orgTo('/admin/learning-billing')" v-if="canSeePayrollManagement && learningBillingNavEnabled" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Learning Billing</router-link>
                   <router-link :to="orgTo('/admin/budget-management')" v-if="canSeeBudgetManagement" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Budget Management</router-link>
-                  <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Revenue</router-link>
-                  <router-link v-if="isSscSstcTenant && canSeeDigitalFormsNav" :to="orgTo('/admin/digital-forms')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Digital forms</router-link>
-                  <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Settings</router-link>
+                  <div
+                    v-if="showManagementDigitalFormsLink && (showManagementContentAboveBilling || showManagementBillingLinks)"
+                    class="mobile-nav-sep"
+                  />
+                  <router-link v-if="showManagementDigitalFormsLink" :to="orgTo('/admin/digital-forms')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Digital forms</router-link>
+                  <div
+                    v-if="canSeeManagementSettingsNav && showManagementContentAboveSettings"
+                    class="mobile-nav-sep"
+                  />
+                  <router-link :to="orgTo('/admin/settings')" v-if="canSeeManagementSettingsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Settings</router-link>
                 </template>
               </div>
 
@@ -2201,6 +2211,7 @@ import { startActivityTracking, stopActivityTracking, resetActivityTimer } from 
 import { isSupervisor } from './utils/helpers.js';
 import { canSeeClientExchangeNav } from './utils/clientExchangeNav.js';
 import {
+  canAccessPeopleOperationsHub,
   getNextOpsCycleDestination,
   isOpsCycleNavRole,
   workspaceNavContextFromStores
@@ -2910,7 +2921,6 @@ watch(
 );
 
 const brandMenuOpen = ref(false);
-const peopleOpsMenuOpen = ref(false);
 const directoryMenuOpen = ref(false);
 /** Collapsible subgroups under Directory (desktop dropdown + mobile sidebar). */
 const directorySchedulesNavExpanded = ref(false);
@@ -2958,9 +2968,8 @@ const mobileActiveSeasonsExpanded = ref(false);
 const engagementMenuOpen = ref(false);
 
 // Mobile sidebar top-level group expansion state (mirrors the top-nav dropdowns:
-// People Ops / Directory / Management / Communications). Kept separate from the
+// Directory / Management / Communications). Kept separate from the
 // desktop *MenuOpen refs so opening a mobile group never affects the desktop bar.
-const mobilePeopleOpsExpanded = ref(false);
 const mobileDirectoryExpanded = ref(false);
 const mobileManagementExpanded = ref(false);
 const mobileCommsExpanded = ref(false);
@@ -2968,7 +2977,6 @@ const mobileToolsExpanded = ref(false);
 
 const navDropdownOpen = computed(() => {
   return (
-    peopleOpsMenuOpen.value ||
     directoryMenuOpen.value ||
     managementMenuOpen.value ||
     engagementMenuOpen.value ||
@@ -3002,7 +3010,6 @@ const closeAllNavMenus = () => {
   clearNavMenuHoverTimer();
   clearNavMenuOpenTimer();
   brandMenuOpen.value = false;
-  peopleOpsMenuOpen.value = false;
   directoryMenuOpen.value = false;
   managementMenuOpen.value = false;
   engagementMenuOpen.value = false;
@@ -3084,13 +3091,6 @@ const toggleBrandMenu = async () => {
 
 const closeBrandMenu = () => {
   brandMenuOpen.value = false;
-};
-
-const togglePeopleOpsMenu = () => {
-  // Only one open at a time (feels more professional + avoids overlap).
-  const next = !peopleOpsMenuOpen.value;
-  closeAllNavMenus();
-  peopleOpsMenuOpen.value = next;
 };
 
 function applyDirectorySubgroupStateFromRoute() {
@@ -3223,7 +3223,6 @@ const toggleToolsMenu = () => {
 };
 
 const navMenuOpenByKey = {
-  peopleOps: peopleOpsMenuOpen,
   directory: directoryMenuOpen,
   management: managementMenuOpen,
   engagement: engagementMenuOpen,
@@ -4036,7 +4035,7 @@ const showSummitStatsClubContextBar = computed(() => {
 });
 
 const canSeeFullPortalNav = computed(() => {
-  // Full Directory / Management / People Ops menus for backoffice and operations roles.
+  // Full Directory / Management menus for backoffice and operations roles.
   // Limited-access users (payroll/hiring-only, plain supervisors) should not see it.
   if (isSscSstcTenant.value) return false;
   const role = user.value?.role;
@@ -4576,6 +4575,43 @@ const clearHiringToastSnooze = (key, snoozedRef) => {
   try { localStorage.removeItem(key); } catch { /* ignore */ }
 };
 
+const fetchPeopleOperationsNavCounts = async () => {
+  if (
+    !isAuthenticated.value
+    || !canSeePeopleOperationsNav.value
+    || !currentAgencyId.value
+    || !hasHiringFeature.value
+    || !hasCapability('canManageHiring')
+  ) {
+    peopleOpsApplicationsPendingCount.value = 0;
+    peopleOpsOnboardingPendingCount.value = 0;
+    return;
+  }
+  const params = { agencyId: Number(currentAgencyId.value) };
+  try {
+    const [dashRes, onboardRes] = await Promise.all([
+      api.get('/hiring/dashboard', { params, skipGlobalLoading: true }).catch(() => null),
+      api.get('/hiring/onboarding-candidates', { params, skipGlobalLoading: true }).catch(() => null)
+    ]);
+    const stats = dashRes?.data || {};
+    peopleOpsApplicationsPendingCount.value = Number(
+      stats.pendingReviews
+      ?? stats.totalApplicants
+      ?? stats.stageCounts?.totalActive
+      ?? 0
+    );
+    const onboardList = Array.isArray(onboardRes?.data)
+      ? onboardRes.data
+      : (onboardRes?.data?.candidates || []);
+    peopleOpsOnboardingPendingCount.value = onboardList.filter(
+      (e) => Number(e.progress_pct || 0) < 100
+    ).length;
+  } catch {
+    peopleOpsApplicationsPendingCount.value = 0;
+    peopleOpsOnboardingPendingCount.value = 0;
+  }
+};
+
 const fetchHiringAttentionToasts = async () => {
   if (!canSeeHiringToasts.value) {
     preHireToastCount.value = 0;
@@ -4977,6 +5013,18 @@ const canSeeScheduleBuildingsDirectoryNav = computed(() => {
 
 const canSeeWorkforceOperationsNav = computed(() => canSeeScheduleBuildingsDirectoryNav.value);
 
+const canSeePeopleOperationsNav = computed(() =>
+  canAccessPeopleOperationsHub({
+    role: user.value?.role,
+    user: user.value,
+    isAffiliationContext: isAffiliationContext.value,
+    isSscSstcTenant: isSscSstcTenant.value,
+    hasHiringFeature: hasHiringFeature.value,
+    hasPeopleOpsFeature: hasPeopleOpsFeature.value,
+    agencyFeatureFlags: currentAgencyFeatureFlags.value
+  })
+);
+
 const canSeeProviderManagementNav = computed(() => {
   const r = user.value?.role;
   return (r === 'super_admin' || isAdmin.value || r === 'staff' || r === 'provider_plus') && !isAffiliationContext.value;
@@ -4985,7 +5033,7 @@ const canSeeProviderManagementNav = computed(() => {
 const canSeeManagementHubsNav = computed(
   () =>
     canSeeWorkforceOperationsNav.value
-    || canSeeCredentialing.value
+    || canSeePeopleOperationsNav.value
     || canSeeSchoolPortalsNav.value
     || canSeeSchoolClientsNav.value
     || canSeeProviderManagementNav.value
@@ -4994,6 +5042,108 @@ const canSeeManagementHubsNav = computed(
 const canSeeManagementDashboardsNav = computed(
   () => isTrueAdmin.value || showOperationsDashboardLink.value || user.value?.role === 'super_admin'
 );
+
+const showManagementDashboardLinks = computed(
+  () => isTrueAdmin.value || showOperationsDashboardLink.value || user.value?.role === 'super_admin'
+);
+
+const showManagementHubLinks = computed(
+  () =>
+    canSeeWorkforceOperationsNav.value
+    || canSeePeopleOperationsNav.value
+    || canSeeSchoolPortalsNav.value
+    || canSeeSchoolClientsNav.value
+);
+
+const showManagementBillingLinks = computed(
+  () => (canSeePayrollManagement.value && learningBillingNavEnabled.value) || canSeeBudgetManagement.value
+);
+
+const showManagementDigitalFormsLink = computed(
+  () => isSscSstcTenant.value && canSeeDigitalFormsNav.value
+);
+
+const canSeeManagementSettingsNav = computed(
+  () => (canCreateEdit.value || user.value?.role === 'support') && user.value?.role !== 'clinical_practice_assistant'
+);
+
+const showManagementContentAboveBilling = computed(
+  () => showManagementDashboardLinks.value || showManagementHubLinks.value
+);
+
+const showManagementContentAboveSettings = computed(
+  () =>
+    showManagementContentAboveBilling.value
+    || showManagementBillingLinks.value
+    || showManagementDigitalFormsLink.value
+);
+
+const peopleOpsApplicationsPendingCount = ref(0);
+const peopleOpsOnboardingPendingCount = ref(0);
+
+const peopleOperationsPendingCount = computed(() =>
+  peopleOpsApplicationsPendingCount.value + peopleOpsOnboardingPendingCount.value
+);
+
+const peopleOperationsPendingTitle = computed(() => {
+  const parts = [];
+  if (peopleOpsApplicationsPendingCount.value > 0) {
+    parts.push(`${peopleOpsApplicationsPendingCount.value} application(s)`);
+  }
+  if (peopleOpsOnboardingPendingCount.value > 0) {
+    parts.push(`${peopleOpsOnboardingPendingCount.value} in onboarding`);
+  }
+  return parts.join(' · ') || 'No People Operations items need attention';
+});
+
+const workforceOperationsPendingCount = computed(() => {
+  if (!canSeeWorkforceOperationsNav.value) return 0;
+  return buildingsPendingCount.value;
+});
+
+const workforceOperationsPendingTitle = computed(() =>
+  availabilityPendingTitle.value || 'No Workforce Operations items need attention'
+);
+
+const schoolOperationsPendingCount = computed(() => {
+  if (!canSeeSchoolPortalsNav.value && !canSeeSchoolClientsNav.value) return 0;
+  return schoolAvailabilityPendingCount.value + schoolClientsPendingCount.value;
+});
+
+const schoolOperationsPendingTitle = computed(() => {
+  const parts = [];
+  if (schoolAvailabilityPendingCount.value > 0) {
+    parts.push(`${schoolAvailabilityPendingCount.value} school availability request(s)`);
+  }
+  if (schoolClientsPendingCount.value > 0) {
+    parts.push(`${schoolClientsPendingCount.value} pending school client(s)`);
+  }
+  return parts.join(' · ') || 'No School Operations items need attention';
+});
+
+const managementHubsPendingCount = computed(() => {
+  let count = 0;
+  if (canSeeWorkforceOperationsNav.value) count += workforceOperationsPendingCount.value;
+  if (canSeePeopleOperationsNav.value) count += peopleOperationsPendingCount.value;
+  if (canSeeSchoolPortalsNav.value || canSeeSchoolClientsNav.value) {
+    count += schoolOperationsPendingCount.value;
+  }
+  return count;
+});
+
+const managementHubsPendingTitle = computed(() => {
+  const parts = [];
+  if (workforceOperationsPendingCount.value > 0) {
+    parts.push(`${workforceOperationsPendingCount.value} in Workforce Operations`);
+  }
+  if (peopleOperationsPendingCount.value > 0) {
+    parts.push(`${peopleOperationsPendingCount.value} in People Operations`);
+  }
+  if (schoolOperationsPendingCount.value > 0) {
+    parts.push(`${schoolOperationsPendingCount.value} in School Operations`);
+  }
+  return parts.join(' · ') || 'No operations hubs need attention';
+});
 
 const availabilityIntakeNavLink = computed(() => {
   const base = orgTo('/admin/availability-intake');
@@ -5523,7 +5673,10 @@ const opsCycleNavContext = computed(() => {
     slug: routeSlug || agencySlug,
     agency: agencyStore.currentAgency,
     branding: brandingStore,
-    isAffiliationContext: isAffiliationContext.value
+    user: authStore.user,
+    isAffiliationContext: isAffiliationContext.value,
+    hasHiringFeature: hasHiringFeature.value,
+    hasPeopleOpsFeature: hasPeopleOpsFeature.value
   });
 });
 
@@ -5711,16 +5864,22 @@ function syncHiringToastPolling() {
   hiringToastInterval = null;
   if (canSeeHiringToasts.value) {
     fetchHiringAttentionToasts();
-    hiringToastInterval = setInterval(fetchHiringAttentionToasts, 3 * 60 * 1000);
+    fetchPeopleOperationsNavCounts();
+    hiringToastInterval = setInterval(() => {
+      fetchHiringAttentionToasts();
+      fetchPeopleOperationsNavCounts();
+    }, 3 * 60 * 1000);
     return;
   }
   preHireToastCount.value = 0;
   preHireToastNames.value = [];
   applicantsToastCount.value = 0;
   applicantsToastNames.value = [];
+  peopleOpsApplicationsPendingCount.value = 0;
+  peopleOpsOnboardingPendingCount.value = 0;
 }
 watch(
-  [isAuthenticated, hasHiringFeature, currentAgencyId, () => hasCapability('canManageHiring')],
+  [isAuthenticated, hasHiringFeature, currentAgencyId, () => hasCapability('canManageHiring'), canSeePeopleOperationsNav],
   syncHiringToastPolling,
   { immediate: true }
 );

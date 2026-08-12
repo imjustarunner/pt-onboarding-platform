@@ -6470,11 +6470,25 @@ export const updateUserScheduleEvent = async (req, res, next) => {
     /** Wall-clock values for Google Calendar (dateTime + timeZone). */
     let googleStartWall = undefined;
     let googleEndWall = undefined;
-    const updateTimeZone = String(
+    let updateTimeZone = String(
       req.body?.timeZone
       || req.body?.timezone
       || ''
-    ).trim() || 'America/Denver';
+    ).trim();
+    if (!updateTimeZone) {
+      const aid = Number(target.agency_id || agencyForAccess || 0);
+      if (aid > 0) {
+        try {
+          const Agency = (await import('../models/Agency.model.js')).default;
+          const agency = await Agency.findById(aid);
+          const agencyTz = String(agency?.timezone || '').trim();
+          if (agencyTz) updateTimeZone = agencyTz;
+        } catch {
+          /* optional */
+        }
+      }
+    }
+    if (!updateTimeZone) updateTimeZone = 'America/Denver';
     if (allDay) {
       startDate = req.body?.startDate != null
         ? String(req.body.startDate).slice(0, 10)

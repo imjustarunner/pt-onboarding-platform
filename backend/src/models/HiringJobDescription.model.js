@@ -10,6 +10,7 @@ class HiringJobDescription {
     agencyId,
     title,
     descriptionText = null,
+    descriptionSectionsJson = null,
     postedDate = null,
     applicationDeadline = null,
     city = null,
@@ -27,15 +28,19 @@ class HiringJobDescription {
   }) {
     const [result] = await pool.execute(
       `INSERT INTO hiring_job_descriptions (
-        agency_id, title, description_text, posted_date, application_deadline, city, state, education_level,
+        agency_id, title, description_text, description_sections_json,
+        posted_date, application_deadline, city, state, education_level,
         role_type, is_featured, tags_json,
         application_page_json, storage_path, original_name, mime_type,
         is_active, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         parseIntParam(agencyId),
         String(title || '').trim().slice(0, 255),
         descriptionText !== undefined && descriptionText !== null ? String(descriptionText) : null,
+        descriptionSectionsJson !== undefined && descriptionSectionsJson !== null
+          ? JSON.stringify(descriptionSectionsJson)
+          : null,
         postedDate || null,
         applicationDeadline || null,
         city !== undefined && city !== null ? String(city).trim().slice(0, 120) : null,
@@ -84,6 +89,7 @@ class HiringJobDescription {
   static async updateById(id, {
     title,
     descriptionText,
+    descriptionSectionsJson,
     postedDate,
     applicationDeadline,
     city,
@@ -108,6 +114,10 @@ class HiringJobDescription {
     if (descriptionText !== undefined) {
       updates.push('description_text = ?');
       params.push(descriptionText !== null ? String(descriptionText) : null);
+    }
+    if (descriptionSectionsJson !== undefined) {
+      updates.push('description_sections_json = ?');
+      params.push(descriptionSectionsJson !== null ? JSON.stringify(descriptionSectionsJson) : null);
     }
     if (postedDate !== undefined) {
       updates.push('posted_date = ?');

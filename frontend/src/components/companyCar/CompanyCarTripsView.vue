@@ -4,6 +4,22 @@
       <h3 style="margin: 0;">Company Car Trips</h3>
       <div class="actions" style="gap: 8px;">
         <button
+          v-if="manageAccess"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          @click="showSpreadsheetImport = true"
+        >
+          Import spreadsheet
+        </button>
+        <button
+          v-if="manageAccess"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          @click="showTimelineImport = true"
+        >
+          Import Google Timeline
+        </button>
+        <button
           type="button"
           class="btn btn-secondary btn-sm"
           :disabled="exporting || !trips.length"
@@ -25,6 +41,23 @@
       :edit-trip="editingTrip"
       @close="closeLogModal"
       @submitted="onTripSubmitted"
+    />
+
+    <CompanyCarTimelineImportModal
+      v-if="showTimelineImport && props.agencyId"
+      :agency-id="Number(props.agencyId)"
+      :manage-access="props.manageAccess"
+      :cars="cars"
+      @close="showTimelineImport = false"
+      @imported="onImportComplete"
+    />
+
+    <CompanyCarSpreadsheetImportModal
+      v-if="showSpreadsheetImport && props.agencyId"
+      :agency-id="Number(props.agencyId)"
+      :cars="cars"
+      @close="showSpreadsheetImport = false"
+      @imported="onImportComplete"
     />
 
     <div v-if="totalMiles !== null" class="hint" style="margin-bottom: 12px;">
@@ -128,6 +161,8 @@ import { ref, watch } from 'vue';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import CompanyCarMileageModal from './CompanyCarMileageModal.vue';
+import CompanyCarTimelineImportModal from './CompanyCarTimelineImportModal.vue';
+import CompanyCarSpreadsheetImportModal from './CompanyCarSpreadsheetImportModal.vue';
 
 const props = defineProps({
   agencyId: { type: Number, required: true },
@@ -142,6 +177,8 @@ const cars = ref([]);
 const totalMiles = ref(null);
 const newCarName = ref('');
 const showLogModal = ref(false);
+const showTimelineImport = ref(false);
+const showSpreadsheetImport = ref(false);
 const editingTrip = ref(null);
 const creatingCar = ref(false);
 const uploadingPhotoId = ref(null);
@@ -262,6 +299,13 @@ async function loadTrips() {
 function onTripSubmitted() {
   showLogModal.value = false;
   editingTrip.value = null;
+  loadTrips();
+  emit('submitted');
+}
+
+function onImportComplete() {
+  showTimelineImport.value = false;
+  showSpreadsheetImport.value = false;
   loadTrips();
   emit('submitted');
 }

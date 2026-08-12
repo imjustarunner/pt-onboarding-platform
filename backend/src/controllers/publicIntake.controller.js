@@ -54,6 +54,10 @@ import {
 } from '../utils/intakeFieldLabels.js';
 import { sanitizeCareersPageJson } from '../utils/careersPageSanitize.js';
 import {
+  parseJobDescriptionSections,
+  jobDescriptionSectionsHaveContent
+} from '../utils/jobDescriptionSectionsSanitize.js';
+import {
   buildPublicFormBranding,
   requestBaseUrl
 } from '../services/publicFormBranding.service.js';
@@ -4272,6 +4276,7 @@ export const listPublicCareers = async (req, res, next) => {
         hjd.id,
         hjd.title,
         hjd.description_text,
+        hjd.description_sections_json,
         hjd.posted_date,
         hjd.application_deadline,
         hjd.city,
@@ -4315,6 +4320,7 @@ export const listPublicCareers = async (req, res, next) => {
           jobId: Number(r.id),
           title: String(r.title || '').trim(),
           descriptionText: String(r.description_text || '').trim() || null,
+          descriptionSections: parseJobDescriptionSections(r.description_sections_json),
           postedDate: r.posted_date || null,
           applicationDeadline: r.application_deadline || null,
           city: String(r.city || '').trim() || null,
@@ -4749,10 +4755,12 @@ export const getPublicIntakeLink = async (req, res, next) => {
           id: Number(jd.id),
           title: String(jd.title || '').trim() || null,
           descriptionText: String(jd.description_text || '').trim() || null,
+          descriptionSections: parseJobDescriptionSections(jd.description_sections_json),
           applicationDeadline: jd.application_deadline || null,
           city: String(jd.city || '').trim() || null,
           state: String(jd.state || '').trim() || null,
           educationLevel: String(jd.education_level || '').trim() || null,
+          roleType: String(jd.role_type || '').trim() || null,
           applicationPage: sanitizeApplicationPageJson(jd.application_page_json),
           fileUrl,
           fileName: String(jd.original_name || '').trim() || null
@@ -6090,11 +6098,26 @@ export const finalizePublicIntake = async (req, res, next) => {
           }
         }
       }
+      let jdForAck = null;
       if (jobDescriptionId) {
         const jd = await HiringJobDescription.findById(jobDescriptionId);
         if (!jd || Number(jd.agency_id) !== Number(agencyId)) {
           jobDescriptionId = null;
+        } else {
+          jdForAck = jd;
         }
+      }
+      const requiresJobAck = !!(
+        jdForAck && (
+          String(jdForAck.description_text || '').trim()
+          || jobDescriptionSectionsHaveContent(jdForAck.description_sections_json)
+          || String(jdForAck.storage_path || '').trim()
+        )
+      );
+      if (requiresJobAck && !jobAcknowledged) {
+        return res.status(400).json({
+          error: { message: 'Please acknowledge that you have read the job description before continuing.' }
+        });
       }
       await HiringProfile.upsert({
         candidateUserId: user.id,

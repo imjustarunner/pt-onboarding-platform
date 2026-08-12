@@ -289,6 +289,13 @@ const routes = [
     component: () => import('../views/school/SchoolFinderView.vue'),
     meta: { requiresGuest: false }
   },
+  // Public school referral packet finder (tenant-branded). Must be before catch-all org routes.
+  {
+    path: '/:organizationSlug/school-referral',
+    name: 'PublicSchoolReferralFinder',
+    component: () => import('../views/school/PublicSchoolReferralFinderView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true, publicSchoolReferral: true }
+  },
   // Public marketing hub — optional markdown subpages (must be before single-segment /p/:hubSlug).
   {
     path: '/p/:hubSlug/:subPageSlug',
@@ -1509,6 +1516,12 @@ const routes = [
     component: () => import('../views/SchoolOperationsHubView.vue'),
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
   },
+  {
+    path: '/:organizationSlug/people-operations',
+    name: 'OrganizationPeopleOperations',
+    component: () => import('../views/PeopleOperationsHubView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
   // Legacy redirect: /schedule → /workforce-operations
   {
     path: '/:organizationSlug/schedule',
@@ -2427,7 +2440,25 @@ const routes = [
   {
     path: '/:organizationSlug/admin/careers',
     name: 'OrganizationCareers',
-    component: () => import('../views/admin/CareersView.vue'),
+    redirect: (to) => `/${to.params.organizationSlug}/admin/careers/jobs`,
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/careers/page',
+    name: 'OrganizationCareersPageSettings',
+    component: () => import('../views/admin/CareersPageSettingsView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/careers/jobs',
+    name: 'OrganizationJobPostings',
+    component: () => import('../views/admin/JobPostingsView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/employee-relations',
+    name: 'OrganizationEmployeeRelations',
+    component: () => import('../views/admin/EmployeeRelationsView.vue'),
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
   },
   {
@@ -2834,6 +2865,12 @@ const routes = [
     name: 'SchoolOperations',
     component: () => import('../views/SchoolOperationsHubView.vue'),
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
+  },
+  {
+    path: '/people-operations',
+    name: 'PeopleOperations',
+    component: () => import('../views/PeopleOperationsHubView.vue'),
+    meta: { requiresAuth: true }
   },
   // Legacy redirect: /schedule → /workforce-operations
   {
@@ -3755,7 +3792,25 @@ const routes = [
   {
     path: '/admin/careers',
     name: 'Careers',
-    component: () => import('../views/admin/CareersView.vue'),
+    redirect: '/admin/careers/jobs',
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
+  },
+  {
+    path: '/admin/careers/page',
+    name: 'CareersPageSettings',
+    component: () => import('../views/admin/CareersPageSettingsView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
+  },
+  {
+    path: '/admin/careers/jobs',
+    name: 'JobPostings',
+    component: () => import('../views/admin/JobPostingsView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
+  },
+  {
+    path: '/admin/employee-relations',
+    name: 'EmployeeRelations',
+    component: () => import('../views/admin/EmployeeRelationsView.vue'),
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
   },
   {
@@ -4949,7 +5004,7 @@ router.beforeEach(async (to, from, next) => {
     // School staff should not use the employee "Office Schedule" or "Payroll" surfaces.
     // They should stay within their school portal dashboard.
     if (userRoleNorm === 'school_staff') {
-      const blockedForSchoolStaff = ['/schedule', '/workforce-operations', '/school-operations', '/admin/payroll', '/payroll', '/dashboard'];
+      const blockedForSchoolStaff = ['/schedule', '/workforce-operations', '/school-operations', '/people-operations', '/admin/payroll', '/payroll', '/dashboard'];
       if (blockedForSchoolStaff.some((p) => to.path === p || to.path.startsWith(`${p}/`))) {
         next(getDashboardRoute());
         return;

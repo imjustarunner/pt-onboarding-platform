@@ -11,6 +11,7 @@ import {
   isValidTimeZone
 } from '../utils/zonedWallTime.util.js';
 import { plannedOutStatusLabel } from '../services/plannedOutPresence.service.js';
+import { syncScheduleEventFromPlannedOut } from '../services/plannedOutScheduleSync.service.js';
 
 function roleOf(req) {
   return String(req.user?.effectiveRole || req.user?.role || '').toLowerCase();
@@ -265,6 +266,8 @@ export const createPlannedOut = async (req, res, next) => {
       scheduleEventId: event?.id || null
     });
 
+    await syncScheduleEventFromPlannedOut(created?.id);
+
     return res.status(201).json({ plannedOut: serializePlannedOutForApi(created) });
   } catch (e) {
     return next(e);
@@ -362,6 +365,10 @@ export const reviewPlannedOut = async (req, res, next) => {
       patch.adminComment = comment;
     }
     const updated = await PlannedOut.updateById(row.id, patch);
+
+    if (action === 'approve') {
+      await syncScheduleEventFromPlannedOut(updated?.id);
+    }
 
     if (action === 'approve' && isPlannedOutActiveNow(updated)) {
       const label = plannedOutStatusLabel(updated);
@@ -486,6 +493,7 @@ export const updatePlannedOut = async (req, res, next) => {
       reviewedByUserId: null,
       reviewedAt: null
     });
+    await syncScheduleEventFromPlannedOut(updated?.id);
     return res.json({ plannedOut: serializePlannedOutForApi(updated) });
   } catch (e) {
     return next(e);

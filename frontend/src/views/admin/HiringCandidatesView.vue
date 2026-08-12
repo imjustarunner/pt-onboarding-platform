@@ -14,7 +14,7 @@
             </option>
           </select>
         </div>
-        <button class="btn btn-secondary" @click="router.push(orgPath('/admin/hiring'))">PO Dashboard</button>
+        <button class="btn btn-secondary" @click="router.push(orgPath('/admin/hiring'))">Hiring Dashboard</button>
         <button class="btn btn-secondary" @click="refresh" :disabled="loading">Refresh</button>
         <button class="btn btn-primary" @click="openCreate">New applicant</button>
         <span v-if="newForMeInView > 0" class="pill unread-pill">

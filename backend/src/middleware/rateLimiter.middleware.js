@@ -145,3 +145,31 @@ export const publicMarketingPageMetricsLimiter = rateLimit({
     return slug ? `hub-metrics:${slug}:${ip}` : `hub-metrics:${ip}`;
   }
 });
+
+/** Public school referral finder directory (read-only). */
+export const publicSchoolReferralDirectoryLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isDevelopment ? 300 : 120,
+  message: { error: { message: 'Too many requests, please try again later' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const slug = String(req.params?.agencySlug || '').trim().toLowerCase();
+    const ip = getClientIpAddress(req) || req.ip || 'unknown';
+    return slug ? `school-referral-dir:${slug}:${ip}` : `school-referral-dir:${ip}`;
+  }
+});
+
+/** Public school referral / intake splash support tickets (strict anti-abuse). */
+export const publicSchoolReferralTicketLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isDevelopment ? 30 : 5,
+  message: { error: { message: 'Too many support messages from this network. Please try again later.' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const slug = String(req.params?.agencySlug || '').trim().toLowerCase();
+    const ip = getClientIpAddress(req) || req.ip || 'unknown';
+    return slug ? `school-referral-ticket:${slug}:${ip}` : `school-referral-ticket:${ip}`;
+  }
+});

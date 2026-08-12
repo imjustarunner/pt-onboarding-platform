@@ -6,13 +6,22 @@ import CompanyCar from '../models/CompanyCar.model.js';
 import CompanyCarTrip from '../models/CompanyCarTrip.model.js';
 import CompanyCarUsualPlace from '../models/CompanyCarUsualPlace.model.js';
 import CompanyCarImportParserService from '../services/companyCarImportParser.service.js';
+import CompanyCarTimelineImportService from '../services/companyCarTimelineImport.service.js';
+import { applyClassificationToCandidate } from '../services/companyCarReasonInference.service.js';
+import {
+  chainOdometerForNewTrips,
+  getAnchorEndOdometer,
+  rechainAfterInsert,
+  rechainTripsFrom
+} from '../services/companyCarOdometerChain.service.js';
+import { reverseGeocodeWithGoogle } from '../services/googleGeocode.service.js';
 import StorageService from '../services/storage.service.js';
 import { getMultiLegDistanceMeters, metersToMiles } from '../services/googleDistance.service.js';
 import multer from 'multer';
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const name = String(file?.originalname || '').toLowerCase();
     const ok = name.endsWith('.csv') || name.endsWith('.xlsx') || name.endsWith('.xls') ||
@@ -21,6 +30,17 @@ const upload = multer({
       file.mimetype === 'application/vnd.ms-excel';
     if (ok) return cb(null, true);
     cb(new Error('Please upload a .csv or .xlsx file.'), false);
+  }
+});
+
+const timelineUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const name = String(file?.originalname || '').toLowerCase();
+    const ok = name.endsWith('.json') || file.mimetype === 'application/json';
+    if (ok) return cb(null, true);
+    cb(new Error('Please upload a Google Timeline .json file.'), false);
   }
 });
 
@@ -448,6 +468,14 @@ export async function createCompanyCarTrip(req, res) {
       notes
     });
 
+    await rechainAfterInsert({
+      agencyId,
+      companyCarId,
+      insertedTripId: trip.id
+    });
+
+    const refreshed = await CompanyCarTrip.findById(trip.id);
+
     for (const d of destinations.filter(Boolean)) {
       const name = typeof d === 'string' ? d : (d?.name || d?.addressLine || String(d));
       await CompanyCarUsualPlace.upsertAndIncrement({
@@ -457,7 +485,7 @@ export async function createCompanyCarTrip(req, res) {
       });
     }
 
-    res.status(201).json(trip);
+    res.status(201).json(refreshed || trip);
   } catch (e) {
     res.status(500).json({ error: { message: e.message || 'Failed to create trip' } });
   }
@@ -564,7 +592,16 @@ export async function updateCompanyCarTrip(req, res) {
       reasonForTravel,
       notes
     });
-    res.json(updated);
+
+    const carIdForRechain = companyCarId ?? trip.company_car_id;
+    await rechainTripsFrom({
+      agencyId,
+      companyCarId: carIdForRechain,
+      fromTripId: id
+    });
+
+    const refreshed = await CompanyCarTrip.findById(id);
+    res.json(refreshed || updated);
   } catch (e) {
     res.status(500).json({ error: { message: e.message || 'Failed to update trip' } });
   }
@@ -1120,5 +1157,367 @@ export async function recalculateCompanyCarMiles(req, res) {
     res.json({ updated });
   } catch (e) {
     res.status(500).json({ error: { message: e.message || 'Failed to recalculate miles' } });
+  }
+}
+
+async function loadSchoolOptionsForInference(agencyId) {
+  let schoolRows = [];
+  let affRows = [];
+  try {
+    [schoolRows] = await pool.execute(
+      `SELECT s.id, s.name, s.company_car_default_reason
+       FROM agency_schools asx
+       INNER JOIN agencies s ON s.id = asx.school_organization_id
+       WHERE asx.agency_id = ? AND asx.is_active = TRUE AND s.organization_type = 'school'`,
+      [agencyId]
+    );
+    [affRows] = await pool.execute(
+      `SELECT s.id, s.name, s.company_car_default_reason
+       FROM organization_affiliations oa
+       INNER JOIN agencies s ON s.id = oa.organization_id
+       WHERE oa.agency_id = ? AND oa.is_active = TRUE AND s.organization_type = 'school'`,
+      [agencyId]
+    );
+  } catch (e) {
+    if (e.message && /Unknown column 'company_car_default_reason'/.test(e.message)) {
+      [schoolRows] = await pool.execute(
+        `SELECT s.id, s.name FROM agency_schools asx
+         INNER JOIN agencies s ON s.id = asx.school_organization_id
+         WHERE asx.agency_id = ? AND asx.is_active = TRUE AND s.organization_type = 'school'`,
+        [agencyId]
+      );
+      [affRows] = await pool.execute(
+        `SELECT s.id, s.name FROM organization_affiliations oa
+         INNER JOIN agencies s ON s.id = oa.organization_id
+         WHERE oa.agency_id = ? AND oa.is_active = TRUE AND s.organization_type = 'school'`,
+        [agencyId]
+      );
+    } else throw e;
+  }
+
+  const seen = new Set();
+  const schools = [];
+  for (const r of [...(schoolRows || []), ...(affRows || [])]) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    schools.push({
+      name: r.name,
+      defaultReason: r.company_car_default_reason ? String(r.company_car_default_reason).trim() : null
+    });
+  }
+  return schools;
+}
+
+async function enrichCandidateGeocoding(candidate, { maxGeocodes = 40 } = {}) {
+  let geocoded = 0;
+  const out = { ...candidate };
+
+  async function geocodeLatLng(latLng, field) {
+    if (!latLng || geocoded >= maxGeocodes) return;
+    try {
+      const geo = await reverseGeocodeWithGoogle(latLng);
+      if (geo?.formattedAddress) {
+        out[field] = geo.formattedAddress;
+        geocoded += 1;
+      }
+    } catch {
+      // keep coordinate label
+    }
+  }
+
+  await geocodeLatLng(candidate.startLatLng, 'originLabel');
+  await geocodeLatLng(candidate.endLatLng, 'destinationLabel');
+
+  if (out.originLabel) out.origin = out.originLabel;
+  if (out.destinationLabel) {
+    out.destination = out.destinationLabel;
+    out.destinations = [out.destinationLabel];
+  }
+
+  return out;
+}
+
+export const previewTimelineImport = [
+  timelineUpload.single('file'),
+  async (req, res) => {
+    try {
+      const access = await requireCompanyCarAccess(req, res, { requireManage: true });
+      if (!access) return;
+      const { agencyId } = access;
+
+      const companyCarId = parseInt(req.body?.companyCarId || req.body?.company_car_id, 10);
+      if (!Number.isFinite(companyCarId)) {
+        return res.status(400).json({ error: { message: 'companyCarId is required' } });
+      }
+
+      const car = await CompanyCar.findById(companyCarId);
+      if (!car || car.agency_id !== agencyId) {
+        return res.status(404).json({ error: { message: 'Company car not found' } });
+      }
+
+      if (!req.file?.buffer) {
+        return res.status(400).json({ error: { message: 'No JSON file uploaded' } });
+      }
+
+      const fromDate = req.body?.fromDate ? String(req.body.fromDate).slice(0, 10) : null;
+      const toDate = req.body?.toDate ? String(req.body.toDate).slice(0, 10) : null;
+      const geocode = /^(true|1|yes)$/i.test(String(req.body?.geocode || 'true'));
+
+      const parsed = CompanyCarTimelineImportService.parseJson(req.file.buffer);
+      const filtered = CompanyCarTimelineImportService.filterCandidates(parsed.candidates, {
+        fromDate,
+        toDate
+      });
+
+      const schoolOptions = await loadSchoolOptionsForInference(agencyId);
+      const anchorEnd = await getAnchorEndOdometer({
+        agencyId,
+        companyCarId,
+        beforeDate: fromDate
+      });
+
+      const rows = [];
+      for (const c of filtered) {
+        let enriched = c;
+        if (geocode) {
+          enriched = await enrichCandidateGeocoding(c);
+        }
+        const classified = applyClassificationToCandidate(enriched, schoolOptions);
+        rows.push(classified);
+      }
+
+      const chained = chainOdometerForNewTrips({
+        anchorEndOdometer: anchorEnd,
+        tripRows: rows.filter((r) => r.include)
+      });
+
+      const chainedByKey = new Map(chained.map((r) => [`${r.driveDate}|${r.startTime}|${r.miles}`, r]));
+
+      const previewRows = rows.map((r) => {
+        const key = `${r.driveDate}|${r.startTime}|${r.miles}`;
+        const chainedRow = chainedByKey.get(key);
+        return {
+          ...r,
+          startOdometerMiles: chainedRow?.startOdometerMiles ?? null,
+          endOdometerMiles: chainedRow?.endOdometerMiles ?? null
+        };
+      });
+
+      res.json({
+        format: parsed.format,
+        segmentCount: parsed.segmentCount,
+        candidateCount: parsed.candidates.length,
+        filteredCount: filtered.length,
+        anchorEndOdometer: anchorEnd,
+        fromDate,
+        toDate,
+        homeOfficeNote: 'Before April 2026: Masters/Windchime home office. From April 2026: Larkspur home office.',
+        rows: previewRows
+      });
+    } catch (e) {
+      res.status(400).json({ error: { message: e.message || 'Timeline preview failed' } });
+    }
+  }
+];
+
+export async function commitTimelineImport(req, res) {
+  try {
+    const access = await requireCompanyCarAccess(req, res, { requireManage: true });
+    if (!access) return;
+    const { agencyId } = access;
+
+    const body = req.body || {};
+    const companyCarId = parseInt(body.companyCarId || body.company_car_id, 10);
+    const driverUserId = parseInt(body.userId || body.user_id || req.user.id, 10);
+    const fromDate = body.fromDate ? String(body.fromDate).slice(0, 10) : null;
+    const rows = Array.isArray(body.rows) ? body.rows : [];
+
+    if (!Number.isFinite(companyCarId)) {
+      return res.status(400).json({ error: { message: 'companyCarId is required' } });
+    }
+    if (!rows.length) {
+      return res.status(400).json({ error: { message: 'No rows to import' } });
+    }
+
+    const car = await CompanyCar.findById(companyCarId);
+    if (!car || car.agency_id !== agencyId) {
+      return res.status(404).json({ error: { message: 'Company car not found' } });
+    }
+
+    const hasAccess = await userHasAgencyAccess(driverUserId, agencyId);
+    if (!hasAccess) {
+      return res.status(400).json({ error: { message: 'Driver must belong to this agency' } });
+    }
+
+    const importBatchId = crypto.randomUUID();
+    const toImport = rows
+      .filter((r) => r.include !== false && r.included !== false)
+      .map((r) => ({
+        driveDate: String(r.driveDate || r.drive_date || '').slice(0, 10),
+        miles: Number(r.miles),
+        destinations: Array.isArray(r.destinations)
+          ? r.destinations
+          : (r.destination ? [r.destination] : []),
+        reasonForTravel: String(r.reasonForTravel || r.reason_for_travel || 'Business travel').trim(),
+        notes: r.notes ? String(r.notes).trim() : null
+      }))
+      .filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.driveDate) && Number.isFinite(r.miles) && r.miles > 0)
+      .sort((a, b) => a.driveDate.localeCompare(b.driveDate));
+
+    if (!toImport.length) {
+      return res.status(400).json({ error: { message: 'No valid rows selected for import' } });
+    }
+
+    const anchorEnd = await getAnchorEndOdometer({
+      agencyId,
+      companyCarId,
+      beforeDate: fromDate || toImport[0].driveDate
+    });
+
+    const chained = chainOdometerForNewTrips({
+      anchorEndOdometer: anchorEnd,
+      tripRows: toImport
+    });
+
+    const created = [];
+    let firstInsertedId = null;
+    let earliestDate = null;
+
+    for (const row of chained) {
+      const trip = await CompanyCarTrip.create({
+        agencyId,
+        companyCarId,
+        userId: driverUserId,
+        driveDate: row.driveDate,
+        startOdometerMiles: row.startOdometerMiles,
+        endOdometerMiles: row.endOdometerMiles,
+        miles: row.miles,
+        destinations: row.destinations,
+        reasonForTravel: row.reasonForTravel,
+        notes: row.notes,
+        importBatchId
+      });
+      created.push(trip);
+      if (!firstInsertedId) firstInsertedId = trip.id;
+      if (!earliestDate || row.driveDate < earliestDate) earliestDate = row.driveDate;
+
+      for (const d of (row.destinations || []).filter(Boolean)) {
+        await CompanyCarUsualPlace.upsertAndIncrement({
+          agencyId,
+          name: d,
+          defaultReason: row.reasonForTravel
+        });
+      }
+    }
+
+    if (firstInsertedId) {
+      await rechainTripsFrom({
+        agencyId,
+        companyCarId,
+        fromDate: earliestDate
+      });
+    }
+
+    res.json({
+      created: created.length,
+      importBatchId,
+      anchorEndOdometer: anchorEnd,
+      earliestDate,
+      trips: created.map((t) => ({
+        id: t.id,
+        driveDate: t.drive_date,
+        miles: t.miles,
+        startOdometerMiles: t.start_odometer_miles,
+        endOdometerMiles: t.end_odometer_miles
+      }))
+    });
+  } catch (e) {
+    res.status(500).json({ error: { message: e.message || 'Timeline import failed' } });
+  }
+}
+
+export async function bulkUpdateCompanyCarTrips(req, res) {
+  try {
+    const access = await requireCompanyCarAccess(req, res, { requireManage: true });
+    if (!access) return;
+    const { agencyId } = access;
+
+    const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
+    if (!updates.length) {
+      return res.status(400).json({ error: { message: 'updates array is required' } });
+    }
+
+    const companyCarId = req.body?.companyCarId ? parseInt(req.body.companyCarId, 10) : null;
+    let rechainCarId = Number.isFinite(companyCarId) ? companyCarId : null;
+    let earliestDate = null;
+
+    const results = [];
+    for (const u of updates) {
+      const id = parseInt(u.id, 10);
+      if (!Number.isFinite(id)) continue;
+
+      const trip = await CompanyCarTrip.findById(id);
+      if (!trip || trip.agency_id !== agencyId) continue;
+
+      rechainCarId = trip.company_car_id;
+      const driveDate = u.driveDate != null ? String(u.driveDate).slice(0, 10) : undefined;
+
+      const updated = await CompanyCarTrip.update({
+        id,
+        agencyId,
+        driveDate,
+        startOdometerMiles: u.startOdometerMiles,
+        endOdometerMiles: u.endOdometerMiles,
+        miles: u.miles,
+        destinations: u.destinations,
+        reasonForTravel: u.reasonForTravel,
+        notes: u.notes
+      });
+
+      if (updated) {
+        results.push(updated);
+        const d = driveDate || String(updated.drive_date).slice(0, 10);
+        if (!earliestDate || d < earliestDate) earliestDate = d;
+      }
+    }
+
+    if (rechainCarId && earliestDate) {
+      await rechainTripsFrom({
+        agencyId,
+        companyCarId: rechainCarId,
+        fromDate: earliestDate
+      });
+    }
+
+    res.json({ updated: results.length, trips: results });
+  } catch (e) {
+    res.status(500).json({ error: { message: e.message || 'Bulk update failed' } });
+  }
+}
+
+export async function rechainCompanyCarTrips(req, res) {
+  try {
+    const access = await requireCompanyCarAccess(req, res, { requireManage: true });
+    if (!access) return;
+    const { agencyId } = access;
+
+    const companyCarId = parseInt(req.body?.companyCarId || req.query?.companyCarId, 10);
+    if (!Number.isFinite(companyCarId)) {
+      return res.status(400).json({ error: { message: 'companyCarId is required' } });
+    }
+
+    const fromDate = req.body?.fromDate || req.query?.fromDate || null;
+    const fromTripId = req.body?.fromTripId ? parseInt(req.body.fromTripId, 10) : null;
+
+    const result = await rechainTripsFrom({
+      agencyId,
+      companyCarId,
+      fromDate: fromDate ? String(fromDate).slice(0, 10) : null,
+      fromTripId: Number.isFinite(fromTripId) ? fromTripId : null
+    });
+
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: { message: e.message || 'Rechain failed' } });
   }
 }

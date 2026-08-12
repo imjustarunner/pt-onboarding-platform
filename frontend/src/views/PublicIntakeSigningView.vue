@@ -14,7 +14,13 @@
     :language="currentFormLanguage"
     :language-switching="linkedLanguageSwitching"
     :language-disabled="linkedLanguageSwitching"
+    :contact-phone-display="splashContactPhone"
+    :contact-phone-tel="splashContactTel"
+    :contact-email="splashContactEmail"
+    :show-contact-support-action="showSchoolSplashSupport"
+    contact-support-label="Send a message"
     @update:language="switchLinkedLanguage"
+    @contact-support="openSplashSupportModal"
   >
     <div v-if="loading" class="df-loading">{{ loadingText }}</div>
     <div v-else-if="fatalError" class="df-fatal error">{{ fatalError }}</div>
@@ -184,6 +190,14 @@
             :hint="t('pressEnterToContinue')"
             @primary="beginIntakeSession"
           />
+          <div v-if="showSchoolSplashSupport" class="df-cover-secondary-actions">
+            <button type="button" class="btn btn-secondary df-not-my-school" @click="goToSchoolReferralFinder">
+              Not your school?
+            </button>
+            <button type="button" class="btn btn-link df-need-help" @click="openSplashSupportModal">
+              Need help? Send a message
+            </button>
+          </div>
           <div v-if="beginError" class="error" style="margin-top: 10px;">{{ beginError }}</div>
         </div>
       </div>
@@ -199,29 +213,30 @@
             {{ t('formTimeLimit') }}
           </div>
           <div v-if="isJobApplication && introIndex === introScreens.length - 1 && jobDescriptionSummary" class="job-ack-card">
-            <h4>{{ jobDescriptionSummary.title || 'Job description' }}</h4>
-            <p v-if="jobDescriptionSummary.descriptionText" class="muted job-ack-text">{{ jobDescriptionSummary.descriptionText }}</p>
-            <div v-if="jobDescriptionSummary.fileUrl" class="job-ack-file">
-              <div class="muted small" style="margin-bottom: 8px;">
-                Attached description{{ jobDescriptionSummary.fileName ? `: ${jobDescriptionSummary.fileName}` : '' }}
-              </div>
-              <div class="job-ack-zoom-controls">
-                <button type="button" class="btn btn-secondary btn-xs" @click="decreaseJobAckPdfZoom">-</button>
-                <span class="muted small">Zoom {{ jobAckPdfZoom }}%</span>
-                <button type="button" class="btn btn-secondary btn-xs" @click="increaseJobAckPdfZoom">+</button>
-              </div>
-              <iframe
-                class="job-ack-pdf"
-                :src="jobAckPdfViewerUrl"
-                title="Job description PDF"
-              />
-              <div style="margin-top: 8px;">
-                <a :href="jobDescriptionSummary.fileUrl" target="_blank" rel="noopener noreferrer">Open full PDF</a>
-              </div>
-            </div>
-            <label class="checkbox-row">
+            <JobDescriptionSections
+              v-if="jobDescriptionSummary.descriptionSections"
+              :sections="jobDescriptionSummary.descriptionSections"
+              :title="jobDescriptionSummary.title || 'Job description'"
+              :summary="jobDescriptionSummary.descriptionText || ''"
+              :role-type="jobDescriptionSummary.roleType || ''"
+              :location="[jobDescriptionSummary.city, jobDescriptionSummary.state].filter(Boolean).join(', ')"
+              :accent-color="jobLandingAccent || '#1a8c54'"
+              :pdf-url="jobDescriptionSummary.fileUrl || ''"
+              :pdf-label="jobDescriptionSummary.fileName ? `Download ${jobDescriptionSummary.fileName}` : 'Download full PDF'"
+              show-header
+            />
+            <template v-else>
+              <h4>{{ jobDescriptionSummary.title || 'Job description' }}</h4>
+              <p v-if="jobDescriptionSummary.descriptionText" class="muted job-ack-text">{{ jobDescriptionSummary.descriptionText }}</p>
+              <p v-if="jobDescriptionSummary.fileUrl" style="margin: 12px 0;">
+                <a :href="jobDescriptionSummary.fileUrl" target="_blank" rel="noopener noreferrer">
+                  Download full PDF{{ jobDescriptionSummary.fileName ? `: ${jobDescriptionSummary.fileName}` : '' }} →
+                </a>
+              </p>
+            </template>
+            <label class="checkbox-row" style="margin-top: 16px;">
               <input v-model="jobDescriptionAcknowledged" type="checkbox" />
-              <span>I have read and acknowledge this job description.</span>
+              <span>I acknowledge that I have read and understand the job description.</span>
             </label>
           </div>
           <div class="actions">
@@ -1835,6 +1850,47 @@
         </div>
       </div>
     </div>
+
+    <div
+      v-if="showSplashSupportModal"
+      class="splash-support-backdrop"
+      @click.self="closeSplashSupportModal"
+    >
+      <div class="splash-support-modal" role="dialog" aria-modal="true" aria-labelledby="splash-support-title">
+        <h3 id="splash-support-title">Need help?</h3>
+        <p class="muted">Send a message to our team. We’ll follow up by email.</p>
+        <form class="splash-support-form" @submit.prevent="submitSplashSupport">
+          <input
+            v-model="splashSupportForm.website"
+            type="text"
+            class="splash-support-honeypot"
+            tabindex="-1"
+            autocomplete="off"
+            aria-hidden="true"
+          />
+          <label>
+            Your name
+            <input v-model.trim="splashSupportForm.name" type="text" required maxlength="120" />
+          </label>
+          <label>
+            Email
+            <input v-model.trim="splashSupportForm.email" type="email" required maxlength="255" />
+          </label>
+          <label>
+            Message
+            <textarea v-model.trim="splashSupportForm.message" rows="4" required maxlength="4000" />
+          </label>
+          <p v-if="splashSupportError" class="error">{{ splashSupportError }}</p>
+          <p v-if="splashSupportSuccess" class="success">{{ splashSupportSuccess }}</p>
+          <div class="splash-support-actions">
+            <button type="button" class="btn btn-secondary" @click="closeSplashSupportModal">Cancel</button>
+            <button type="submit" class="btn btn-primary" :disabled="splashSupportSending">
+              {{ splashSupportSending ? 'Sending…' : 'Send message' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   </DigitalFormShell>
 
 </template>
@@ -1844,6 +1900,7 @@ import { computed, h, nextTick, onBeforeUnmount, onMounted, provide, reactive, r
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import SignaturePad from '../components/SignaturePad.vue';
+import JobDescriptionSections from '../components/careers/JobDescriptionSections.vue';
 import SmartSchoolRoiFlow from '../components/public/SmartSchoolRoiFlow.vue';
 import SmartDisclosureFlow from '../components/public/SmartDisclosureFlow.vue';
 import PacketSectionConsentFlow from '../components/public/PacketSectionConsentFlow.vue';
@@ -1874,6 +1931,10 @@ import {
   txFmtStructuredIntake
 } from '../constants/structuredIntakeStepSpanish.js';
 import { useAuthStore } from '../store/auth';
+import {
+  resolveSchoolOnboardingSupportEmail,
+  resolveSchoolOnboardingSupportPhone
+} from '../utils/schoolGroupEmailSuggestions';
 import {
   spanishQuestionLabelsEnabledFromLink,
   storedSpanishFieldText,
@@ -2996,6 +3057,105 @@ const templates = ref([]);
 const agencyInfo = ref(null);
 const organizationInfo = ref(null);
 const formBranding = ref(null);
+
+const showSplashSupportModal = ref(false);
+const splashSupportSending = ref(false);
+const splashSupportError = ref('');
+const splashSupportSuccess = ref('');
+const splashSupportForm = reactive({
+  name: '',
+  email: '',
+  message: '',
+  website: ''
+});
+
+const referralAgencySlug = computed(() => {
+  const fromBranding = String(formBranding.value?.slug || formBranding.value?.portalUrl || '').trim().toLowerCase();
+  if (fromBranding) return fromBranding.replace(/[^a-z0-9-]/g, '');
+  const fromAgency = String(agencyInfo.value?.slug || agencyInfo.value?.portal_url || '').trim().toLowerCase();
+  return fromAgency.replace(/[^a-z0-9-]/g, '');
+});
+
+const isSchoolScopedIntake = computed(() => {
+  const scope = String(link.value?.scope_type || '').toLowerCase();
+  const orgType = String(organizationInfo.value?.organization_type || '').toLowerCase();
+  return scope === 'school' || orgType === 'school';
+});
+
+const showSchoolSplashSupport = computed(
+  () => isSchoolScopedIntake.value && !isJobApplication.value && !!referralAgencySlug.value
+);
+
+const splashContactPhoneInfo = computed(() => {
+  if (!showSchoolSplashSupport.value) return null;
+  return resolveSchoolOnboardingSupportPhone({
+    slug: referralAgencySlug.value,
+    phone: agencyInfo.value?.phone_number || agencyInfo.value?.phone,
+    phone_number: agencyInfo.value?.phone_number || agencyInfo.value?.phone,
+    phoneExtension: agencyInfo.value?.phone_extension,
+    phone_extension: agencyInfo.value?.phone_extension
+  });
+});
+const splashContactPhone = computed(() => splashContactPhoneInfo.value?.display || '');
+const splashContactTel = computed(() => String(splashContactPhoneInfo.value?.tel || '').replace(/^tel:/, ''));
+const splashContactEmail = computed(() => {
+  if (!showSchoolSplashSupport.value) return '';
+  return resolveSchoolOnboardingSupportEmail({
+    slug: referralAgencySlug.value,
+    supportEmail: agencyInfo.value?.onboarding_team_email,
+    onboarding_team_email: agencyInfo.value?.onboarding_team_email
+  }) || '';
+});
+
+function goToSchoolReferralFinder() {
+  const slug = referralAgencySlug.value;
+  if (!slug) return;
+  router.push(`/${slug}/school-referral`);
+}
+
+function openSplashSupportModal() {
+  splashSupportError.value = '';
+  splashSupportSuccess.value = '';
+  showSplashSupportModal.value = true;
+}
+
+function closeSplashSupportModal() {
+  showSplashSupportModal.value = false;
+}
+
+async function submitSplashSupport() {
+  splashSupportError.value = '';
+  splashSupportSuccess.value = '';
+  const slug = referralAgencySlug.value;
+  if (!slug) {
+    splashSupportError.value = 'Unable to determine organization for support.';
+    return;
+  }
+  splashSupportSending.value = true;
+  try {
+    await api.post(`/public/school-referral/${encodeURIComponent(slug)}/support-tickets`, {
+      name: splashSupportForm.name,
+      email: splashSupportForm.email,
+      message: splashSupportForm.message,
+      website: splashSupportForm.website,
+      schoolName: shellProgramTitle.value,
+      schoolOrganizationId: organizationInfo.value?.id || null,
+      intakePublicKey: publicKey,
+      sourceKey: 'public_school_intake_splash',
+      subject: `School intake help — ${shellProgramTitle.value || 'School'}`
+    });
+    splashSupportSuccess.value = 'Thanks — your message was sent. We will follow up by email.';
+    splashSupportForm.message = '';
+    setTimeout(() => {
+      closeSplashSupportModal();
+      splashSupportSuccess.value = '';
+    }, 2200);
+  } catch (e) {
+    splashSupportError.value = e?.response?.data?.error?.message || 'Failed to send message. Please try again.';
+  } finally {
+    splashSupportSending.value = false;
+  }
+}
 
 const FLOW_STEP_PROGRESS_LABELS = {
   document: 'Documents',
@@ -4546,6 +4706,10 @@ const jobLandingTitleBase = computed(() => {
 });
 const jobLandingEyebrow = computed(() => String(jobApplicationPage.value?.eyebrow || '').trim());
 const jobLandingLead = computed(() => String(jobApplicationPage.value?.lead || '').trim());
+const jobLandingAccent = computed(() => {
+  const c = String(jobApplicationPage.value?.accentColor || '').trim();
+  return /^#[0-9a-fA-F]{3,8}$/.test(c) ? c : '#1a8c54';
+});
 const jobLandingDescription = computed(() =>
   String(jobDescriptionSummary.value?.descriptionText || link.value?.description || '').trim()
 );
@@ -9939,5 +10103,90 @@ onBeforeUnmount(() => {
   .df-shell--form-mode .df-choice-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.df-cover-secondary-actions {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.df-not-my-school {
+  min-width: 220px;
+}
+
+.df-need-help {
+  border: none;
+  background: transparent;
+  color: var(--df-primary, #1e4d3b);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 4px 8px;
+}
+
+.splash-support-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 80;
+  padding: 16px;
+}
+
+.splash-support-modal {
+  width: min(480px, 100%);
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+}
+
+.splash-support-modal h3 {
+  margin: 0 0 6px;
+}
+
+.splash-support-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.splash-support-form label {
+  display: grid;
+  gap: 4px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.splash-support-form input,
+.splash-support-form textarea {
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.splash-support-honeypot {
+  position: absolute;
+  left: -9999px;
+  opacity: 0;
+  height: 0;
+  width: 0;
+}
+
+.splash-support-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.splash-support-modal .success {
+  color: #047857;
+  margin: 0;
 }
 </style>

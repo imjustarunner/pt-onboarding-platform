@@ -3,7 +3,7 @@
  * can prefer destinations and prompts relevant to that page first.
  */
 
-/** @typedef {'admin_dashboard'|'operations_dashboard'|'workforce_operations'|'school_operations'|'my_dashboard'|null} CommandSurfaceKey */
+/** @typedef {'admin_dashboard'|'operations_dashboard'|'workforce_operations'|'school_operations'|'people_operations'|'my_dashboard'|null} CommandSurfaceKey */
 
 /**
  * @typedef {object} CommandSurface
@@ -25,9 +25,9 @@ export const COMMAND_SURFACES = {
     label: 'Admin Dashboard',
     placementKey: 'admin_dashboard',
     navSectionHints: ['management', 'people ops', 'notifications', 'communications', 'directory', 'hub'],
-    navPathHints: ['/admin/', '/admin-dashboard', '/operations-dashboard', '/workforce-operations', '/school-operations'],
+    navPathHints: ['/admin/', '/admin-dashboard', '/operations-dashboard', '/workforce-operations', '/school-operations', '/people-operations'],
     quickNavGroups: ['admin', 'workspace', 'clients'],
-    quickNavKeywords: ['admin', 'users', 'payroll', 'hiring', 'audit', 'agency', 'settings', 'directory'],
+    quickNavKeywords: ['admin', 'users', 'payroll', 'hiring', 'audit', 'agency', 'settings', 'directory', 'people'],
     askExamples: [
       'What activity happened in my agency this week?',
       'Who has an intake opening today?',
@@ -183,6 +183,49 @@ export const COMMAND_SURFACES = {
       'agency_activity'
     ]
   },
+  people_operations: {
+    label: 'People Operations',
+    placementKey: 'people_operations',
+    navSectionHints: ['people ops', 'hiring', 'careers', 'onboarding', 'employee relations'],
+    navPathHints: [
+      '/people-operations',
+      '/admin/hiring',
+      '/admin/careers',
+      '/admin/pre-hire',
+      '/admin/onboarding',
+      '/admin/interview-hub',
+      '/admin/employee-relations',
+      '/admin/modules',
+      '/admin/agency-progress',
+      '/admin/documents'
+    ],
+    quickNavGroups: ['admin', 'workspace', 'learning'],
+    quickNavKeywords: [
+      'hiring',
+      'careers',
+      'applicants',
+      'onboarding',
+      'interview',
+      'training',
+      'people',
+      'retention',
+      'milestones'
+    ],
+    askExamples: [
+      'Open applicants',
+      'Show onboarding progress',
+      'Open job postings',
+      'Who is in pre-hire?',
+      'Open employee relations'
+    ],
+    preferredCapabilityGroups: ['People / directory', 'Navigation and lookup', 'Operations'],
+    preferredCapabilityIds: [
+      'people_directory_lookup',
+      'user_lookup',
+      'agency_activity',
+      'workspace_open'
+    ]
+  },
   my_dashboard: {
     label: 'My Dashboard',
     placementKey: 'my_dashboard',
@@ -238,6 +281,7 @@ export function normalizeAppPath(path) {
     'operations-dashboard',
     'workforce-operations',
     'school-operations',
+    'people-operations',
     'dashboard',
     'schedule',
     'careers',
@@ -270,6 +314,20 @@ export function resolveCommandSurface(routeLike = {}) {
     name.includes('schooloperationshub')
   ) {
     return { key: 'school_operations', ...COMMAND_SURFACES.school_operations };
+  }
+
+  if (
+    path.startsWith('/people-operations') ||
+    path.startsWith('/admin/hiring') ||
+    path.startsWith('/admin/careers') ||
+    path.startsWith('/admin/pre-hire') ||
+    path.startsWith('/admin/onboarding') ||
+    path.startsWith('/admin/interview-hub') ||
+    path.startsWith('/admin/employee-relations') ||
+    name.includes('peopleoperations') ||
+    name.includes('employeerelations')
+  ) {
+    return { key: 'people_operations', ...COMMAND_SURFACES.people_operations };
   }
 
   if (

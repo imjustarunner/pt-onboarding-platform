@@ -19,6 +19,10 @@ import {
   getLatestTripEndOdometer,
   importCompanyCarTrips,
   undoLastImport,
+  previewTimelineImport,
+  commitTimelineImport,
+  bulkUpdateCompanyCarTrips,
+  rechainCompanyCarTrips,
   deleteAllCompanyCarTrips,
   recalculateCompanyCarMiles
 } from '../controllers/companyCar.controller.js';
@@ -49,7 +53,11 @@ router.get('/mileage/calculate', calculateCompanyCarMileage);
 router.get('/agency-users', listAgencyUsersForCompanyCar);
 
 router.post('/import', ...importCompanyCarTrips);
+router.post('/import/timeline/preview', ...previewTimelineImport);
+router.post('/import/timeline/commit', commitTimelineImport);
 router.post('/import/undo', undoLastImport);
+router.patch('/company-car-trips/bulk', bulkUpdateCompanyCarTrips);
+router.post('/company-car-trips/rechain', rechainCompanyCarTrips);
 router.post('/company-car-trips/delete-all', deleteAllCompanyCarTrips);
 router.post('/company-car-trips/recalculate-miles', recalculateCompanyCarMiles);
 

@@ -481,6 +481,23 @@
           <label>Due date</label>
           <input v-model="newTask.dueDate" class="form-control" type="date" />
         </div>
+        <div class="form-group">
+          <label>Assigned to</label>
+          <select v-model="newTask.assigneeUserId" class="form-control">
+            <option value="">Unassigned</option>
+            <option v-for="u in assignableUsersForCreate" :key="u.id" :value="String(u.id)">
+              {{ assigneeOptionLabel(u) }}
+            </option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Priority</label>
+          <select v-model="newTask.urgency" class="form-control">
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </div>
         <div v-if="typeDefs.length" class="form-group">
           <label>Type</label>
           <select v-model="newTask.workTypeId" class="form-control">
@@ -522,6 +539,14 @@
         <div class="form-group">
           <label>Notes</label>
           <textarea v-model="newActionItem.notes" class="form-control" rows="3" />
+        </div>
+        <div class="form-group">
+          <label>Assigned to</label>
+          <select v-model="newActionItem.assigneeUserId" class="form-control">
+            <option v-for="u in assignableUsersForCreate" :key="u.id" :value="String(u.id)">
+              {{ assigneeOptionLabel(u) }}
+            </option>
+          </select>
         </div>
         <label class="private-toggle">
           <input v-model="newActionItem.isPrivate" type="checkbox" />
@@ -810,10 +835,23 @@ const creating = ref(false);
 const timelineAssignableKeys = ref(new Set());
 const quickAssignTaskId = ref('');
 const newTask = reactive({
-  title: '', description: '', dueDate: '', workTypeId: '', isPrivate: false, taskListId: '', projectId: ''
+  title: '',
+  description: '',
+  dueDate: '',
+  workTypeId: '',
+  urgency: 'medium',
+  assigneeUserId: '',
+  isPrivate: false,
+  taskListId: '',
+  projectId: ''
 });
 const newActionItem = reactive({
-  title: '', notes: '', isPrivate: false, taskListId: '', projectId: ''
+  title: '',
+  notes: '',
+  assigneeUserId: '',
+  isPrivate: false,
+  taskListId: '',
+  projectId: ''
 });
 const newProjectName = ref('');
 const actionItems = ref([]);
@@ -949,6 +987,32 @@ const shareableUsers = computed(() => {
   const me = Number(authStore.user?.id);
   return (agencyUsers.value || []).filter((u) => Number(u.id) !== me);
 });
+
+const assignableUsersForCreate = computed(() => {
+  const me = authStore.user;
+  const meId = Number(me?.id || 0);
+  const meRow = meId
+    ? [{
+      id: meId,
+      first_name: me.preferredName || me.preferred_name || me.firstName || me.first_name || 'Me',
+      last_name: me.lastName || me.last_name || ''
+    }]
+    : [];
+  const seen = new Set(meRow.map((u) => Number(u.id)));
+  const others = (agencyUsers.value || []).filter((u) => {
+    const id = Number(u.id);
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  return [...meRow, ...others];
+});
+
+function assigneeOptionLabel(user) {
+  const meId = Number(authStore.user?.id || 0);
+  if (Number(user?.id) === meId) return 'Me';
+  return `${user.first_name || ''} ${user.last_name || ''}`.trim() || `User ${user.id}`;
+}
 
 const filteredUnattachedTasks = computed(() => {
   const q = newItemSearch.value.trim().toLowerCase();
@@ -1629,10 +1693,13 @@ const openTasksForTimeline = computed(() => {
 function pickNew(kind) {
   showNewPicker.value = false;
   if (kind === 'task') {
+    loadAgencyUsers();
     loadSharedListsOptions();
     showNewTask.value = true;
   } else if (kind === 'action') {
+    loadAgencyUsers();
     loadSharedListsOptions();
+    newActionItem.assigneeUserId = String(authStore.user?.id || '');
     showNewActionItem.value = true;
   } else if (kind === 'project') {
     resetNewProjectForm();
@@ -1939,6 +2006,8 @@ async function createTask() {
       dueDate: newTask.dueDate || null,
       agencyId: agencyId.value || undefined,
       work_type_id: newTask.workTypeId ? Number(newTask.workTypeId) : undefined,
+      assignedToUserId: newTask.assigneeUserId ? Number(newTask.assigneeUserId) : null,
+      urgency: newTask.urgency || 'medium',
       isPrivate: !!newTask.isPrivate,
       task_list_id: newTask.taskListId ? Number(newTask.taskListId) : null,
       projectId: newTask.projectId ? Number(newTask.projectId) : null
@@ -1948,6 +2017,8 @@ async function createTask() {
     newTask.description = '';
     newTask.dueDate = '';
     newTask.workTypeId = '';
+    newTask.urgency = 'medium';
+    newTask.assigneeUserId = '';
     newTask.isPrivate = false;
     newTask.taskListId = '';
     newTask.projectId = '';
@@ -1967,6 +2038,7 @@ async function createActionItem() {
       title: newActionItem.title.trim(),
       notes: newActionItem.notes || null,
       agencyId: agencyId.value || undefined,
+      assigneeUserId: newActionItem.assigneeUserId ? Number(newActionItem.assigneeUserId) : undefined,
       isPrivate: !!newActionItem.isPrivate,
       taskListId: newActionItem.taskListId ? Number(newActionItem.taskListId) : null,
       projectId: newActionItem.projectId ? Number(newActionItem.projectId) : null
@@ -1974,6 +2046,7 @@ async function createActionItem() {
     showNewActionItem.value = false;
     newActionItem.title = '';
     newActionItem.notes = '';
+    newActionItem.assigneeUserId = '';
     newActionItem.isPrivate = false;
     newActionItem.taskListId = '';
     newActionItem.projectId = '';

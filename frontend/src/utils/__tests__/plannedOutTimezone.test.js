@@ -15,19 +15,24 @@ describe('parseUtcInstant', () => {
 });
 
 describe('formatPlannedOutWhen', () => {
-  it('prefers linked schedule block times over stale planned_out instants', () => {
-    const canonical = {
-      span_type: 'timed',
-      start_at: '2025-08-11T15:45:00.000Z',
-      end_at: '2025-08-11T19:30:00.000Z'
-    };
-    const drifted = {
+  it('uses planned_out instants (what the submitter booked), not drifted schedule blocks', () => {
+    const booked = {
       span_type: 'timed',
       start_at: '2025-08-11T17:45:00.000Z',
       end_at: '2025-08-11T21:30:00.000Z',
       schedule_event_start_at: '2025-08-11T15:45:00.000Z',
       schedule_event_end_at: '2025-08-11T19:30:00.000Z'
     };
-    expect(formatPlannedOutWhen(drifted)).toBe(formatPlannedOutWhen(canonical));
+    const canonical = {
+      span_type: 'timed',
+      start_at: '2025-08-11T17:45:00.000Z',
+      end_at: '2025-08-11T21:30:00.000Z'
+    };
+    expect(formatPlannedOutWhen(booked)).toBe(formatPlannedOutWhen(canonical));
+    expect(formatPlannedOutWhen(booked)).not.toBe(formatPlannedOutWhen({
+      span_type: 'timed',
+      start_at: '2025-08-11T15:45:00.000Z',
+      end_at: '2025-08-11T19:30:00.000Z'
+    }));
   });
 });

@@ -2,8 +2,13 @@
   <div class="container careers-root">
     <div class="header">
       <div>
-        <h2>Careers</h2>
-        <div class="subtle">Manage active and inactive job postings and their application forms.</div>
+        <h2>{{ pageTitle }}</h2>
+        <div class="subtle">{{ pageSubtitle }}</div>
+        <div v-if="mode !== 'all'" class="careers-mode-links">
+          <router-link v-if="mode === 'jobs'" :to="careersPageRoute">Career page settings →</router-link>
+          <router-link v-else :to="careersJobsRoute">Job postings →</router-link>
+          <a v-if="publicCareersUrl" :href="publicCareersUrl" target="_blank" rel="noopener noreferrer">Open public page ↗</a>
+        </div>
       </div>
       <div class="header-actions">
         <div v-if="canChooseAgency" class="agency-picker">
@@ -17,7 +22,7 @@
         <button class="btn btn-secondary" @click="refresh" :disabled="loading">Refresh</button>
       </div>
     </div>
-    <div class="panel public-link-panel">
+    <div v-if="showPageSettings" class="panel public-link-panel">
       <div>
         <strong>Public careers page</strong>
         <div class="muted small">{{ publicCareersUrl || 'No agency slug found for this tenant yet.' }}</div>
@@ -40,7 +45,7 @@
 
     <div v-if="error" class="error-banner">{{ error }}</div>
 
-    <section class="panel agency-careers-panel">
+    <section v-if="showPageSettings" class="panel agency-careers-panel">
       <div class="config-header">
         <div>
           <h3>Careers page settings</h3>
@@ -296,7 +301,7 @@
       </div>
     </section>
 
-    <section class="panel create-panel">
+    <section v-if="showJobs" class="panel create-panel">
       <h3>Create job posting</h3>
       <div class="form-grid">
         <input v-model="createForm.title" class="input" type="text" placeholder="Job title" />
@@ -326,7 +331,10 @@
             <img :src="displayAssetUrl(createForm.iconUrl)" alt="Job icon preview" />
           </div>
         </div>
-        <input ref="jobFileRef" class="input" type="file" @change="onCreateFileChange" />
+        <div class="file-upload-field">
+          <label class="field-label">Optional compliance PDF <span class="field-hint">— download only on the public/apply pages</span></label>
+          <input ref="jobFileRef" class="input" type="file" accept="application/pdf,.pdf" @change="onCreateFileChange" />
+        </div>
         <input v-model="createForm.city" class="input" type="text" placeholder="City" />
         <input v-model="createForm.state" class="input" type="text" placeholder="State" />
         <input v-model="createForm.postedDate" class="input" type="date" />
@@ -361,10 +369,17 @@
         <textarea
           v-model="createForm.descriptionText"
           class="textarea"
-          rows="4"
-          placeholder="Quick description shown on careers page"
+          rows="3"
+          placeholder="Listing teaser (short card preview on careers page)"
           style="grid-column: 1 / -1;"
         />
+      </div>
+      <div class="application-page-config" style="margin-top: 14px;">
+        <div class="config-header">
+          <h4>Full job description</h4>
+          <span class="muted small">Shown on the careers details modal and apply acknowledgement screen.</span>
+        </div>
+        <JobDescriptionSectionsEditor v-model="createForm.descriptionSections" />
       </div>
       <div class="application-page-config">
         <div class="config-header">
@@ -435,7 +450,7 @@
       </div>
     </section>
 
-    <section class="panel jobs-panel">
+    <section v-if="showJobs" class="panel jobs-panel">
       <h3>Job postings</h3>
       <div v-if="loading" class="muted">Loading jobs…</div>
       <table v-else class="table">
@@ -531,12 +546,15 @@
                 <img :src="displayAssetUrl(editForm.iconUrl)" alt="Job icon preview" />
               </div>
             </div>
-            <input ref="editFileRef" class="input" type="file" @change="onEditFileChange" />
-            <div v-if="editingRow?.hasFile" class="muted small">
-              Current file: {{ editingRow.originalName || 'Uploaded file' }}
-              <button type="button" class="btn btn-secondary btn-sm" style="margin-left:8px;" @click="openJobFile(editingRow)">
-                View
-              </button>
+            <div class="file-upload-field">
+              <label class="field-label">Optional compliance PDF <span class="field-hint">— download only</span></label>
+              <input ref="editFileRef" class="input" type="file" accept="application/pdf,.pdf" @change="onEditFileChange" />
+              <div v-if="editingRow?.hasFile" class="muted small">
+                Current file: {{ editingRow.originalName || 'Uploaded file' }}
+                <button type="button" class="btn btn-secondary btn-sm" style="margin-left:8px;" @click="openJobFile(editingRow)">
+                  View
+                </button>
+              </div>
             </div>
             <input v-model="editForm.city" class="input" type="text" placeholder="City" />
             <input v-model="editForm.state" class="input" type="text" placeholder="State" />
@@ -572,10 +590,17 @@
             <textarea
               v-model="editForm.descriptionText"
               class="textarea"
-              rows="4"
-              placeholder="Quick description shown on careers page"
+              rows="3"
+              placeholder="Listing teaser (short card preview on careers page)"
               style="grid-column: 1 / -1;"
             />
+          </div>
+          <div class="application-page-config" style="margin-top: 14px;">
+            <div class="config-header">
+              <h4>Full job description</h4>
+              <span class="muted small">Shown on careers details and apply acknowledgement.</span>
+            </div>
+            <JobDescriptionSectionsEditor v-model="editForm.descriptionSections" />
           </div>
           <div class="application-page-config">
             <div class="config-header">
@@ -656,6 +681,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import JobDescriptionSectionsEditor from '../../components/careers/JobDescriptionSectionsEditor.vue';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import {
@@ -668,10 +694,54 @@ import {
   resolveDefaultCareersPage,
   resolveDefaultHeroPreset
 } from '../../utils/careersAssets';
+
+const props = defineProps({
+  mode: { type: String, default: 'all' } // 'all' | 'page' | 'jobs'
+});
+
+const blankSections = () => ({
+  aboutTheRole: '',
+  responsibilities: [],
+  qualifications: [],
+  benefits: []
+});
+const normalizeSections = (raw) => {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  return {
+    aboutTheRole: String(src.aboutTheRole || ''),
+    responsibilities: Array.isArray(src.responsibilities) ? src.responsibilities.map((s) => String(s || '').trim()).filter(Boolean) : [],
+    qualifications: Array.isArray(src.qualifications) ? src.qualifications.map((s) => String(s || '').trim()).filter(Boolean) : [],
+    benefits: Array.isArray(src.benefits) ? src.benefits.map((s) => String(s || '').trim()).filter(Boolean) : []
+  };
+};
+
 const router = useRouter();
 const route = useRoute();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+
+const mode = computed(() => {
+  const m = String(props.mode || route.meta?.careersMode || 'all').trim().toLowerCase();
+  return ['page', 'jobs', 'all'].includes(m) ? m : 'all';
+});
+const showPageSettings = computed(() => mode.value === 'all' || mode.value === 'page');
+const showJobs = computed(() => mode.value === 'all' || mode.value === 'jobs');
+const pageTitle = computed(() => {
+  if (mode.value === 'page') return 'Career page settings';
+  if (mode.value === 'jobs') return 'Job postings';
+  return 'Careers';
+});
+const pageSubtitle = computed(() => {
+  if (mode.value === 'page') return 'Customize how your public careers page looks and apply-form defaults.';
+  if (mode.value === 'jobs') return 'Create and manage job postings with structured role details.';
+  return 'Manage active and inactive job postings and their application forms.';
+});
+const orgPrefix = computed(() => {
+  const slug = String(route.params?.organizationSlug || agencyStore.currentAgency?.slug || '').trim();
+  return slug ? `/${encodeURIComponent(slug)}` : '';
+});
+const careersPageRoute = computed(() => `${orgPrefix.value}/admin/careers/page`);
+const careersJobsRoute = computed(() => `${orgPrefix.value}/admin/careers/jobs`);
 
 const loading = ref(false);
 const creating = ref(false);
@@ -834,6 +904,7 @@ const agencyPageForm = ref(blankApplicationPage());
 const createForm = ref({
   title: '',
   descriptionText: '',
+  descriptionSections: blankSections(),
   postedDate: '',
   applicationDeadline: '',
   ongoing: true,
@@ -852,6 +923,7 @@ const createForm = ref({
 const editForm = ref({
   title: '',
   descriptionText: '',
+  descriptionSections: blankSections(),
   postedDate: '',
   applicationDeadline: '',
   ongoing: true,
@@ -1142,6 +1214,7 @@ const createJob = async () => {
     fd.append('agencyId', String(effectiveAgencyId.value));
     fd.append('title', String(createForm.value.title || '').trim());
     if (String(createForm.value.descriptionText || '').trim()) fd.append('descriptionText', String(createForm.value.descriptionText || '').trim());
+    fd.append('descriptionSectionsJson', JSON.stringify(normalizeSections(createForm.value.descriptionSections)));
     if (String(createForm.value.postedDate || '').trim()) fd.append('postedDate', String(createForm.value.postedDate || '').trim());
     if (!createForm.value.ongoing && String(createForm.value.applicationDeadline || '').trim()) {
       fd.append('applicationDeadline', String(createForm.value.applicationDeadline || '').trim());
@@ -1168,6 +1241,7 @@ const createJob = async () => {
     createForm.value = {
       title: '',
       descriptionText: '',
+      descriptionSections: blankSections(),
       postedDate: '',
       applicationDeadline: '',
       ongoing: true,
@@ -1199,6 +1273,7 @@ const openEdit = (row) => {
   editForm.value = {
     title: row.title || '',
     descriptionText: row.descriptionText || '',
+    descriptionSections: normalizeSections(row.descriptionSections),
     postedDate: row.postedDate || '',
     applicationDeadline: row.applicationDeadline || '',
     ongoing: !row.applicationDeadline,
@@ -1223,6 +1298,7 @@ const closeEdit = () => {
   editForm.value = {
     title: '',
     descriptionText: '',
+    descriptionSections: blankSections(),
     postedDate: '',
     applicationDeadline: '',
     ongoing: true,
@@ -1248,6 +1324,7 @@ const saveEdit = async () => {
     fd.append('agencyId', String(effectiveAgencyId.value));
     fd.append('title', String(editForm.value.title || '').trim());
     fd.append('descriptionText', String(editForm.value.descriptionText || '').trim());
+    fd.append('descriptionSectionsJson', JSON.stringify(normalizeSections(editForm.value.descriptionSections)));
     fd.append('postedDate', String(editForm.value.postedDate || '').trim());
     fd.append('applicationDeadline', editForm.value.ongoing ? '' : String(editForm.value.applicationDeadline || '').trim());
     fd.append('city', String(editForm.value.city || '').trim());
@@ -1383,6 +1460,10 @@ onMounted(async () => {
 .header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .header-actions { display: flex; gap: 8px; align-items: flex-end; }
 .subtle { color: #6b7280; font-size: 13px; }
+.careers-mode-links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; font-size: 13px; font-weight: 600; }
+.careers-mode-links a { color: #166534; text-decoration: none; }
+.careers-mode-links a:hover { text-decoration: underline; }
+.file-upload-field { display: flex; flex-direction: column; gap: 6px; grid-column: 1 / -1; }
 .panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; margin-bottom: 12px; }
 .public-link-panel { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .form-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
