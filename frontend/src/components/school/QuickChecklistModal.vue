@@ -27,31 +27,29 @@
               <button type="button" class="btn-today" @click="setFirstServiceToday">Today</button>
             </div>
             <p class="hint" style="margin-top: 6px; font-size: 12px;">
-              Do not list the date of first service unless the appointment has actually occurred, as this will mark the client as current.
+              Do not list the date of first service unless the appointment has actually occurred.
+              For returning fall clients, use Continuation of Services (assign a weekday) instead of a continuation date.
             </p>
           </div>
           <div v-if="showContinuationServices" class="form-group continuation-section">
             <label>Continuation of Services</label>
             <select v-model="form.continuation.plan" class="input">
               <option value="">—</option>
-              <option value="continue_school">Continuing for in-school services this fall</option>
-              <option value="not_continue_school">Not continuing for in-school services in the fall</option>
-              <option value="unable_to_contact_parent">Not able to contact parent/guardian</option>
+              <option value="continue_school">Continuing Services</option>
+              <option value="not_continue_school">Not Continuing Services</option>
+              <option value="unable_to_contact_parent">Not able to contact parent</option>
+              <option value="other">Other</option>
             </select>
 
             <div v-if="form.continuation.plan === 'continue_school'" class="nested-fields">
               <p class="hint">
-                Select the day(s) you see this client at your school, then choose the date services continue this fall.
-                Saving will assign them to those days and mark them current when documents are complete.
+                Select the weekday(s) you see this client. Saving assigns those days and marks the client Current with Fall readiness complete.
               </p>
               <div v-if="loadingWorkDays" class="muted">Loading your schedule days…</div>
               <div v-else-if="workDaysError" class="error">{{ workDaysError }}</div>
-              <div v-else-if="!workDays.length" class="muted">
-                No work days at this school on your schedule yet. Set your school schedule first.
-              </div>
-              <div v-else class="day-grid" role="group" aria-label="Assigned days of the week">
+              <div class="day-grid" role="group" aria-label="Assigned days of the week">
                 <button
-                  v-for="day in workDays"
+                  v-for="day in selectableDays"
                   :key="day.day_of_week"
                   type="button"
                   class="day-chip"
@@ -62,20 +60,58 @@
                   <span v-if="dayHours(day)" class="day-meta">{{ dayHours(day) }}</span>
                 </button>
               </div>
-              <label class="field-label">Continuation start date</label>
-              <input v-model="form.continuation.continuationStartDate" type="date" class="input" />
-            </div>
-
-            <div v-else-if="form.continuation.plan === 'not_continue_school'" class="nested-fields">
-              <p class="hint warn">
-                Saving will mark this client as terminated, remove them from your caseload, and notify support.
+              <p v-if="!workDays.length && !loadingWorkDays" class="hint">
+                No school schedule days found — Monday–Friday are available (same as Assign day).
               </p>
             </div>
 
-            <div v-else-if="form.continuation.plan === 'unable_to_contact_parent'" class="nested-fields">
-              <p class="hint warn">
-                Saving will mark this client as terminated, remove them from your caseload, and notify support.
-              </p>
+            <div
+              v-else-if="['not_continue_school', 'unable_to_contact_parent', 'other'].includes(form.continuation.plan)"
+              class="nested-fields"
+            >
+              <label class="field-label">Private comment (admin / support only)</label>
+              <textarea
+                v-model="form.continuation.privateComment"
+                class="input textarea"
+                rows="3"
+                placeholder="Required — visible to admin, super_admin, and support only"
+              />
+
+              <label class="check-row">
+                <input v-model="form.continuation.supportFollowUp" type="checkbox" />
+                <span>Request support follow-up (creates a ticket with all continuation details)</span>
+              </label>
+              <label class="check-row">
+                <input v-model="form.continuation.removeFromAssignment" type="checkbox" />
+                <span>Remove this client from my assignment (they can be reassigned later)</span>
+              </label>
+
+              <template v-if="form.continuation.plan === 'not_continue_school'">
+                <p class="hint warn">
+                  This will terminate the client and remove them from your caseload.
+                  Please submit a termination note on the EHR if you have not already.
+                </p>
+                <p class="hint thank-you">
+                  Thank you for what you do and we appreciate your time and attention to your clients.
+                </p>
+              </template>
+
+              <template v-else>
+                <label class="field-label">Recommend termination?</label>
+                <select v-model="form.continuation.recommendTerminate" class="input">
+                  <option value="">—</option>
+                  <option value="false">No — flag Fall Readiness only</option>
+                  <option value="true">Yes — terminate and remove from caseload</option>
+                </select>
+                <template v-if="form.continuation.recommendTerminate === 'true'">
+                  <p class="hint warn">
+                    This removes the client from your caseload. Please submit a termination note on the EHR if you have not already.
+                  </p>
+                  <p class="hint thank-you">
+                    Thank you for what you do and we appreciate your time and attention to your clients.
+                  </p>
+                </template>
+              </template>
             </div>
           </div>
         </div>
@@ -96,6 +132,8 @@ import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 
+const DEFAULT_WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
 const props = defineProps({
   client: { type: Object, required: true },
   parentAgencyId: { type: Number, default: null }
@@ -107,14 +145,10 @@ const authStore = useAuthStore();
 const emptyContinuation = () => ({
   plan: '',
   serviceDays: [],
-  continuationStartDate: '',
-  schoolChoice: '',
-  currentSchoolAction: '',
-  newSchoolOrganizationId: '',
-  newSchoolName: '',
-  newSchoolAction: '',
-  notContinuingAction: '',
-  unableToContactRecommendation: ''
+  privateComment: '',
+  supportFollowUp: false,
+  removeFromAssignment: false,
+  recommendTerminate: ''
 });
 
 const form = ref({
@@ -145,6 +179,11 @@ const isContinuationServicesSeason = (value = new Date()) => {
 };
 const showContinuationServices = computed(() => isContinuationServicesSeason());
 
+const selectableDays = computed(() => {
+  if (workDays.value.length) return workDays.value;
+  return DEFAULT_WEEKDAYS.map((day_of_week) => ({ day_of_week, start_time: null, end_time: null }));
+});
+
 const parseContinuationServices = (value) => {
   if (!value) return emptyContinuation();
   let data = value;
@@ -156,20 +195,23 @@ const parseContinuationServices = (value) => {
     }
   }
   if (!data || typeof data !== 'object') return emptyContinuation();
+  const recommend =
+    data.recommendTerminate === true || data.recommendTerminate === 'true' || data.recommendTerminate === 1
+      ? 'true'
+      : data.recommendTerminate === false || data.recommendTerminate === 'false' || data.recommendTerminate === 0
+        ? 'false'
+        : '';
   return {
     ...emptyContinuation(),
     plan: String(data.plan || ''),
     serviceDays: Array.isArray(data.serviceDays)
       ? data.serviceDays.map((d) => String(d || '').trim()).filter(Boolean)
       : [],
-    continuationStartDate: data.continuationStartDate ? String(data.continuationStartDate).slice(0, 10) : '',
-    schoolChoice: String(data.schoolChoice || ''),
-    currentSchoolAction: String(data.currentSchoolAction || ''),
-    newSchoolOrganizationId: data.newSchoolOrganizationId ? String(data.newSchoolOrganizationId) : '',
-    newSchoolName: String(data.newSchoolName || ''),
-    newSchoolAction: String(data.newSchoolAction || ''),
-    notContinuingAction: String(data.notContinuingAction || ''),
-    unableToContactRecommendation: String(data.unableToContactRecommendation || '')
+    privateComment: String(data.privateComment || data.comment || ''),
+    supportFollowUp: data.supportFollowUp === true || data.supportFollowUp === 1 || data.supportFollowUp === 'true',
+    removeFromAssignment:
+      data.removeFromAssignment === true || data.removeFromAssignment === 1 || data.removeFromAssignment === 'true',
+    recommendTerminate: recommend
   };
 };
 
@@ -216,10 +258,12 @@ const fetchWorkDays = async () => {
     const providers = Array.isArray(r.data?.providers) ? r.data.providers : [];
     const match =
       providers.find((p) => Number(p.provider_user_id) === providerId) ||
-      (r.data?.provider ? {
-        work_days: r.data.work_days,
-        assigned_days: r.data.assigned_days
-      } : null);
+      (r.data?.provider
+        ? {
+            work_days: r.data.work_days,
+            assigned_days: r.data.assigned_days
+          }
+        : null);
     workDays.value = Array.isArray(match?.work_days) ? match.work_days : [];
     const assigned = Array.isArray(match?.assigned_days) ? match.assigned_days : [];
     if (assigned.length && !form.value.continuation.serviceDays?.length) {
@@ -268,10 +312,6 @@ const toggleWorkDay = (day) => {
   form.value.continuation.serviceDays = current;
 };
 
-const fetchAgencySchools = async () => {
-  // Legacy admin flow only; no-op for provider quick checklist.
-};
-
 const todayYmd = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -284,12 +324,19 @@ const setFirstServiceToday = () => {
 const continuationPayload = () => {
   const c = form.value.continuation || emptyContinuation();
   if (!showContinuationServices.value || !c.plan) return null;
-  const payload = { plan: c.plan };
   if (c.plan === 'continue_school') {
-    payload.serviceDays = Array.isArray(c.serviceDays) ? c.serviceDays.filter(Boolean) : [];
-    payload.continuationStartDate = c.continuationStartDate || null;
+    return {
+      plan: c.plan,
+      serviceDays: Array.isArray(c.serviceDays) ? c.serviceDays.filter(Boolean) : []
+    };
   }
-  return payload;
+  return {
+    plan: c.plan,
+    privateComment: String(c.privateComment || '').trim(),
+    supportFollowUp: !!c.supportFollowUp,
+    removeFromAssignment: !!c.removeFromAssignment,
+    recommendTerminate: c.plan === 'not_continue_school' ? true : c.recommendTerminate === 'true'
+  };
 };
 
 const assignContinuationDays = async () => {
@@ -307,30 +354,25 @@ const assignContinuationDays = async () => {
   }
 };
 
-const terminateFromContinuation = async (plan) => {
-  if (String(props.client?.client_status_key || '').toLowerCase() === 'terminated') return;
-  const reason =
-    plan === 'not_continue_school'
-      ? 'Not continuing for in-school services in the fall (continuation checklist)'
-      : 'Not able to contact parent/guardian (continuation checklist)';
-  await api.post(`/clients/${props.client.id}/terminate`, { termination_reason: reason }, { skipGlobalLoading: true });
-};
-
 const save = async () => {
   if (!props.client?.id) return;
   const plan = form.value.continuation?.plan || '';
   if (showContinuationServices.value && plan === 'continue_school') {
-    if (!workDays.value.length) {
-      error.value =
-        'No work days found at this school for your schedule. Please confirm your school schedule in Provider Schedule, then try again.';
-      return;
-    }
     if (!(form.value.continuation.serviceDays || []).length) {
       error.value = 'Select at least one day of the week for this client.';
       return;
     }
-    if (!form.value.continuation.continuationStartDate) {
-      error.value = 'Select a continuation start date.';
+  }
+  if (
+    showContinuationServices.value
+    && ['not_continue_school', 'unable_to_contact_parent', 'other'].includes(plan)
+  ) {
+    if (!String(form.value.continuation.privateComment || '').trim()) {
+      error.value = 'A private comment for admin/support is required.';
+      return;
+    }
+    if (plan !== 'not_continue_school' && form.value.continuation.recommendTerminate === '') {
+      error.value = 'Indicate whether you recommend termination.';
       return;
     }
   }
@@ -345,16 +387,12 @@ const save = async () => {
     };
     if (showContinuationServices.value) {
       payload.continuationServices = continuationPayload();
-      if (plan === 'continue_school' && form.value.continuation.continuationStartDate) {
-        payload.firstServiceAt = form.value.continuation.continuationStartDate;
-      }
     }
-    await api.put(`/clients/${props.client.id}/compliance-checklist`, payload);
+    // Assign days before checklist save so promotion sees weekday + continuation together.
     if (showContinuationServices.value && plan === 'continue_school') {
       await assignContinuationDays();
-    } else if (showContinuationServices.value && (plan === 'not_continue_school' || plan === 'unable_to_contact_parent')) {
-      await terminateFromContinuation(plan);
     }
+    await api.put(`/clients/${props.client.id}/compliance-checklist`, payload);
     emit('saved');
     emit('close');
   } catch (e) {
@@ -363,8 +401,6 @@ const save = async () => {
     saving.value = false;
   }
 };
-
-watch(() => props.parentAgencyId, fetchAgencySchools, { immediate: true });
 
 watch(
   () => [props.client?.id, form.value.continuation.plan, schoolOrganizationId.value],
@@ -380,10 +416,16 @@ watch(
 
 watch(
   () => form.value.continuation.plan,
-  (plan) => {
+  (plan, prev) => {
+    if (plan === prev) return;
     if (plan !== 'continue_school') {
       form.value.continuation.serviceDays = [];
-      form.value.continuation.continuationStartDate = '';
+    }
+    if (!['not_continue_school', 'unable_to_contact_parent', 'other'].includes(plan)) {
+      form.value.continuation.privateComment = '';
+      form.value.continuation.supportFollowUp = false;
+      form.value.continuation.removeFromAssignment = false;
+      form.value.continuation.recommendTerminate = '';
     }
   }
 );
@@ -431,7 +473,7 @@ watch(
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
-.form-group > label:not(.choice-card) {
+.form-group > label:not(.choice-card):not(.check-row) {
   display: block;
   font-size: 12px;
   font-weight: 700;
@@ -497,6 +539,25 @@ watch(
   border: 1px solid rgba(234, 88, 12, 0.2);
   border-radius: 8px;
   padding: 10px 12px;
+}
+.hint.thank-you {
+  color: #166534;
+  font-weight: 600;
+}
+.check-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+.check-row input {
+  margin-top: 2px;
+}
+.textarea {
+  resize: vertical;
+  min-height: 72px;
 }
 .input-with-today {
   display: flex;

@@ -1,11 +1,15 @@
 /**
  * Promotes pending clients to "current" when their first_service_at date has passed.
  * Called daily so clients are promoted even if nobody saves the checklist again after the date.
+ *
+ * Returning school clients (pre-July / prior staff completion) are excluded unless they
+ * already have a weekday assignment — last year's first_service_at must not re-promote them.
  */
 import pool from '../config/database.js';
 import Client from '../models/Client.model.js';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { notifyClientBecameCurrent } from './clientNotifications.service.js';
+import { isReturningSchoolClient, julyCutoffYmd } from '../utils/fallReadiness.js';
 
 export default class ClientCompliancePromotionService {
   /**
@@ -15,6 +19,7 @@ export default class ClientCompliancePromotionService {
    */
   static async run({ now = new Date() } = {}) {
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const cutoff = julyCutoffYmd(now);
 
     let rows = [];
     try {
@@ -22,7 +27,16 @@ export default class ClientCompliancePromotionService {
         `SELECT c.id, c.agency_id, c.organization_id, c.provider_id, c.service_day,
                 c.first_service_at, c.parents_contacted_at, c.parents_contacted_successful,
                 c.identifier_code, c.full_name, c.initials, c.client_status_id, c.status,
-                cs.status_key AS client_status_key
+                c.client_type, c.staff_onboarding_completed_at, c.school_year,
+                c.submission_date, c.created_at, c.continuation_services_json,
+                cs.status_key AS client_status_key,
+                EXISTS (
+                  SELECT 1 FROM client_provider_assignments cpa
+                  WHERE cpa.client_id = c.id
+                    AND cpa.is_active = TRUE
+                    AND cpa.service_day IS NOT NULL
+                    AND TRIM(cpa.service_day) <> ''
+                ) AS has_weekday
          FROM clients c
          LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
          WHERE c.first_service_at IS NOT NULL
@@ -55,6 +69,25 @@ export default class ClientCompliancePromotionService {
 
     for (const client of rows) {
       try {
+        // Returning school clients without a weekday stay pending (Fall pending).
+        if (
+          isReturningSchoolClient(client, now)
+          && !Number(client.has_weekday)
+          && !(client.service_day && String(client.service_day).trim())
+        ) {
+          continue;
+        }
+        // Also skip school clients created/submitted before July cutoff without weekday
+        // even if staff_onboarding_completed_at is null but they somehow match onboarded.
+        const isSchool = String(client.client_type || '').toLowerCase() === 'school';
+        if (isSchool && !Number(client.has_weekday)) {
+          const anchor = client.submission_date
+            ? String(client.submission_date).slice(0, 10)
+            : (client.created_at ? String(client.created_at).slice(0, 10) : null);
+          if (anchor && anchor < cutoff) continue;
+          if (client.staff_onboarding_completed_at) continue;
+        }
+
         const agencyId = client.agency_id;
         const currentStatusId = await getClientStatusIdByKey({ agencyId, statusKey: 'current' });
         if (!currentStatusId) continue;

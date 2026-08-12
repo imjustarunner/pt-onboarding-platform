@@ -1642,9 +1642,11 @@ const parseContinuationServices = (client) => {
 const hasContinuationServices = (client) => {
   const data = parseContinuationServices(client);
   if (!data) return false;
-  if (data.plan === 'not_continue_school' || data.plan === 'unable_to_contact_parent') return true;
+  if (data.plan === 'not_continue_school' || data.plan === 'unable_to_contact_parent' || data.plan === 'other') {
+    return !!(data.privateComment || data.comment || data.completedAt);
+  }
   if (data.plan !== 'continue_school') return false;
-  if (Array.isArray(data.serviceDays) && data.serviceDays.length && data.continuationStartDate) return true;
+  if (Array.isArray(data.serviceDays) && data.serviceDays.length) return true;
   if (data.schoolChoice === 'current_school') return !!data.currentSchoolAction;
   if (data.schoolChoice === 'new_school') {
     const hasSchool = !!Number(data.newSchoolOrganizationId || 0) || !!String(data.newSchoolName || '').trim();
@@ -1658,12 +1660,16 @@ const continuationServicesSummary = (client) => {
   const data = parseContinuationServices(client);
   if (!data?.plan) return 'Needs response';
   if (data.plan === 'not_continue_school') return 'Not continuing this fall';
-  if (data.plan === 'unable_to_contact_parent') return 'No parent contact';
+  if (data.plan === 'unable_to_contact_parent') {
+    return data.recommendTerminate ? 'No parent contact · terminate' : 'No parent contact';
+  }
+  if (data.plan === 'other') {
+    return data.recommendTerminate ? 'Other · terminate' : 'Other';
+  }
   if (data.plan !== 'continue_school') return 'Needs response';
   if (Array.isArray(data.serviceDays) && data.serviceDays.length) {
     const days = data.serviceDays.map((d) => String(d).slice(0, 3)).join(', ');
-    const date = data.continuationStartDate ? String(data.continuationStartDate).slice(0, 10) : '';
-    return date ? `Continuing · ${days} · ${date}` : `Continuing · ${days}`;
+    return `Continuing · ${days}`;
   }
   if (data.schoolChoice === 'current_school') {
     if (data.currentSchoolAction === 'continuing_with_me') return 'Current school · with me';
@@ -1678,7 +1684,7 @@ const continuationServicesSummary = (client) => {
     if (data.newSchoolAction === 'pursue_in_office_support') return 'New school · office support';
     return 'New school · needs detail';
   }
-  return 'Continuing · needs school';
+  return 'Continuing · needs day';
 };
 
 const rosterLabelTitle = (client) => {

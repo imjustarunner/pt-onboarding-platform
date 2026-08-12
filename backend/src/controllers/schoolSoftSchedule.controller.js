@@ -395,21 +395,21 @@ async function promoteClientForAssignedDay({ clientId, actorUserId }) {
 }
 
 /**
- * Un-assign-day write-path: when a client's last active day is removed, move Current →
- * onboarded (staff readiness complete, awaiting day again). Do not yank historical
- * caseload clients back to pending.
+ * Un-assign-day write-path: when a client's last weekday is removed, demote Current →
+ * pending (Fall pending for returning school clients).
  */
 async function demoteClientToPendingIfNoActiveDay({ clientId, actorUserId }) {
   const [cntRows] = await pool.execute(
     `SELECT COUNT(*) AS cnt
      FROM client_provider_assignments
-     WHERE client_id = ? AND is_active = TRUE AND service_day IS NOT NULL`,
+     WHERE client_id = ? AND is_active = TRUE AND service_day IS NOT NULL AND TRIM(service_day) <> ''`,
     [clientId]
   );
   if (Number(cntRows?.[0]?.cnt || 0) > 0) return null;
 
   const [rows] = await pool.execute(
-    `SELECT c.id, c.agency_id, c.client_status_id, cs.status_key AS client_status_key
+    `SELECT c.id, c.agency_id, c.client_status_id, c.client_type, c.staff_onboarding_completed_at,
+            c.school_year, c.submission_date, c.created_at, cs.status_key AS client_status_key
      FROM clients c
      LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
      WHERE c.id = ?
@@ -420,22 +420,22 @@ async function demoteClientToPendingIfNoActiveDay({ clientId, actorUserId }) {
   if (!client) return null;
 
   const statusKey = String(client.client_status_key || '').toLowerCase();
-  if (statusKey !== 'current') return null;
+  if (statusKey !== 'current' && statusKey !== 'onboarded') return null;
 
-  const onboardedStatusId = await getClientStatusIdByKey({ agencyId: client.agency_id, statusKey: 'onboarded' });
-  if (!onboardedStatusId || Number(onboardedStatusId) === Number(client.client_status_id || 0)) return null;
+  const pendingStatusId = await getClientStatusIdByKey({ agencyId: client.agency_id, statusKey: 'pending' });
+  if (!pendingStatusId || Number(pendingStatusId) === Number(client.client_status_id || 0)) return null;
 
-  await Client.update(client.id, { client_status_id: onboardedStatusId }, actorUserId);
+  await Client.update(client.id, { client_status_id: pendingStatusId }, actorUserId);
   await ClientStatusHistory.create({
     client_id: client.id,
     changed_by_user_id: actorUserId,
     field_changed: 'client_status_id',
     from_value: client.client_status_id ? String(client.client_status_id) : null,
-    to_value: String(onboardedStatusId),
-    note: 'Auto-set to onboarded — no assigned day remaining (readiness retained)'
+    to_value: String(pendingStatusId),
+    note: 'Auto-set to pending — no assigned day remaining (Fall pending)'
   }).catch(() => {});
 
-  return { client_status_key: 'onboarded' };
+  return { client_status_key: 'pending' };
 }
 
 /**

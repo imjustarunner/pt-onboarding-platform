@@ -52,6 +52,53 @@ import {
   assertSkillBuildersSchoolProgramForRequest,
   isSkillBuildersSchoolProgramActiveForParentAgencyId
 } from '../utils/skillBuildersSchoolProgramFeature.js';
+import {
+  computeFallReadinessSummary,
+  hasCompletedFallContinuation,
+  isReturningSchoolClient
+} from '../utils/fallReadiness.js';
+
+function rosterHasWeekday(client) {
+  const day = String(client?.service_day || '').trim();
+  if (day && day.toLowerCase() !== 'unknown') {
+    // GROUP_CONCAT may include blanks; require a real weekday token
+    if (/(Monday|Tuesday|Wednesday|Thursday|Friday)/i.test(day)) return true;
+  }
+  const pairs = String(client?.provider_day_pairs || '');
+  if (pairs && /:(Monday|Tuesday|Wednesday|Thursday|Friday)/i.test(pairs)) return true;
+  return false;
+}
+
+function buildRosterOnboardingMeta(client) {
+  const statusKey = String(client?.client_status_key || '').toLowerCase();
+  const hasWeekday = rosterHasWeekday(client);
+  const returning = isReturningSchoolClient({
+    ...client,
+    client_type: client?.client_type || 'school'
+  });
+  const fall = computeFallReadinessSummary({
+    returning,
+    hasWeekday,
+    statusKey,
+    continuationJson: client?.continuation_services_json,
+    priorProviderComplete: true
+  });
+  if (fall?.summary_label) {
+    return {
+      summary_label: fall.summary_label,
+      fall_pending: !!fall.fall_pending,
+      fall_flag: !!fall.fall_flag,
+      fall_complete: !!fall.fall_complete
+    };
+  }
+  if (statusKey === 'current' && hasWeekday) {
+    return { summary_label: 'Readiness complete', fall_pending: false, fall_flag: false, fall_complete: false };
+  }
+  if (statusKey === 'current' && !hasWeekday) {
+    return { summary_label: 'Fall pending', fall_pending: true, fall_flag: false, fall_complete: false };
+  }
+  return null;
+}
 
 const SCHOOL_PORTAL_VALID_AUDIENCES = ['everyone', 'school_staff_only', 'providers_only'];
 const parseSchoolPortalAudience = (raw) => {
@@ -213,19 +260,7 @@ function isContinuationServicesSeason(now = new Date()) {
 }
 
 function hasCompletedContinuationServices(raw) {
-  const data = parseJsonMaybe(raw);
-  if (!data || typeof data !== 'object') return false;
-  if (data.plan === 'not_continue_school') return true;
-  if (data.plan === 'unable_to_contact_parent') return true;
-  if (data.plan !== 'continue_school') return false;
-  if (Array.isArray(data.serviceDays) && data.serviceDays.length && data.continuationStartDate) return true;
-  if (data.schoolChoice === 'current_school') return !!data.currentSchoolAction;
-  if (data.schoolChoice === 'new_school') {
-    const hasSchool = !!Number(data.newSchoolOrganizationId || 0) || !!String(data.newSchoolName || '').trim();
-    const selectedAgencySchool = !!Number(data.newSchoolOrganizationId || 0);
-    return hasSchool && (!selectedAgencySchool || !!data.newSchoolAction);
-  }
-  return false;
+  return hasCompletedFallContinuation(raw);
 }
 
 function safeJsonFromText(text) {
@@ -765,6 +800,8 @@ export const getSchoolClients = async (req, res, next) => {
            c.paper_packet_staff_roi_pending,
            c.onboarding_docs_json,
            c.staff_onboarding_completed_at,
+           c.client_type,
+           c.created_at,
            c.skills,
            c.status,
            MIN(cpa.created_at) AS provider_assigned_at
@@ -1104,6 +1141,7 @@ export const getSchoolClients = async (req, res, next) => {
         : (totalTicketMsgsByClientId.get(clientId) || 0);
       return {
         id: client.id,
+        organization_id: orgId,
         initials: client.initials,
         identifier_code: client.identifier_code || null,
         full_name: client.full_name || null,
@@ -1168,6 +1206,15 @@ export const getSchoolClients = async (req, res, next) => {
           try { return JSON.parse(raw); } catch { return null; }
         })(),
         staff_onboarding_completed_at: client.staff_onboarding_completed_at || null,
+        client_type: client.client_type || 'school',
+        created_at: client.created_at || null,
+        onboarding: buildRosterOnboardingMeta({
+          ...client,
+          client_type: client.client_type || 'school',
+          continuation_services_json: canViewOperationalChecklist
+            ? parseJsonMaybe(client.continuation_services_json)
+            : null
+        }),
         skills: client.skills === 1 || client.skills === true,
         unread_notes_count: unreadCountsByClientId.get(clientId) || 0,
         notes_count: totalNotesByClientId.get(clientId) || 0,
@@ -1383,6 +1430,9 @@ export const getProviderMyRoster = async (req, res, next) => {
              c.roi_expires_at,
              c.skills,
              c.status,
+             c.client_type,
+             c.created_at,
+             c.staff_onboarding_completed_at,
              MIN(cpa.created_at) AS provider_assigned_at
            FROM clients c
            JOIN client_organization_assignments coa
@@ -1483,6 +1533,9 @@ export const getProviderMyRoster = async (req, res, next) => {
            c.roi_expires_at,
            c.skills,
            c.status,
+           c.client_type,
+           c.created_at,
+           c.staff_onboarding_completed_at,
            MIN(cpa.created_at) AS provider_assigned_at
          FROM clients c
          LEFT JOIN client_organization_assignments coa
@@ -1754,6 +1807,7 @@ export const getProviderMyRoster = async (req, res, next) => {
       const compliancePendingWithContinuation = compliancePending || continuationMissing;
       return {
         id: client.id,
+        organization_id: orgId,
         initials: client.initials,
         identifier_code: client.identifier_code || null,
         full_name: client.full_name || null,
@@ -1800,6 +1854,14 @@ export const getProviderMyRoster = async (req, res, next) => {
         first_service_at: client.first_service_at || null,
         continuation_services_json: parseJsonMaybe(client.continuation_services_json),
         roi_expires_at: client.roi_expires_at || null,
+        staff_onboarding_completed_at: client.staff_onboarding_completed_at || null,
+        client_type: client.client_type || 'school',
+        created_at: client.created_at || null,
+        onboarding: buildRosterOnboardingMeta({
+          ...client,
+          client_type: client.client_type || 'school',
+          continuation_services_json: parseJsonMaybe(client.continuation_services_json)
+        }),
         skills: client.skills === 1 || client.skills === true,
         unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0,
         notes_count: totalNotesByClientId.get(Number(client.id)) || 0,

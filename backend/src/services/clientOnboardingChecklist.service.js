@@ -15,6 +15,16 @@ import {
   normalizeOnboardingDocItems,
   buildPacketSignatureSummary
 } from '../utils/paperPacketDocumentCatalog.js';
+import {
+  computeFallReadinessSummary,
+  hasCompletedFallContinuation,
+  isReturningSchoolClient,
+  continuationPlanIsContinue
+} from '../utils/fallReadiness.js';
+
+function continuationIsNonContinue(raw) {
+  return hasCompletedFallContinuation(raw) && !continuationPlanIsContinue(raw);
+}
 
 async function isAssignedProvider(providerUserId, clientId) {
   const pid = Number(providerUserId || 0);
@@ -239,26 +249,73 @@ export async function getClientOnboardingChecklist(clientId) {
   const providerComplete = providerItems.every((i) => i.done);
   const statusKey = String(client.client_status_key || '').toLowerCase();
   const staffMarked = !!client.staff_onboarding_completed_at || statusKey === 'onboarded' || statusKey === 'current';
+  const returning = school && isReturningSchoolClient(client);
+  const continuationJson = client.continuation_services_json;
+  const fallSummary = school
+    ? computeFallReadinessSummary({
+      returning,
+      hasWeekday: dayAssigned,
+      statusKey,
+      continuationJson,
+      priorProviderComplete: providerComplete || !!client.staff_onboarding_completed_at
+    })
+    : null;
 
   let phase = 'staff';
-  if (staffComplete && staffMarked && !providerComplete) phase = 'provider';
-  if (staffComplete && staffMarked && providerComplete) phase = 'done';
-  if (statusKey === 'current' && providerComplete) phase = 'done';
+  if (fallSummary?.phase === 'fall') {
+    phase = 'fall';
+  } else if (staffComplete && staffMarked && !providerComplete) {
+    phase = 'provider';
+  } else if (staffComplete && staffMarked && providerComplete) {
+    phase = 'done';
+  }
+  if (!fallSummary?.fall_pending && statusKey === 'current' && providerComplete && dayAssigned) phase = 'done';
+  if (fallSummary?.fall_complete) phase = 'done';
 
-  const incomplete = [...areaGates, ...providerItems].filter((i) => !i.done);
-  const complete = [...areaGates, ...providerItems].filter((i) => i.done);
-  const openStaff = areaGates.filter((i) => !i.done);
+  const fallItem = school && returning
+    ? item(
+      'fall_continuation',
+      'Continuation of Services (fall)',
+      hasCompletedFallContinuation(continuationJson) && (dayAssigned || continuationIsNonContinue(continuationJson)),
+      {
+        owner: 'provider',
+        hrefHint: 'checklist',
+        detail: fallSummary?.fall_flag ? 'Fall Readiness flagged' : null
+      }
+    )
+    : null;
+
+  const incomplete = [
+    ...(fallSummary?.fall_pending ? [] : areaGates.filter((i) => !i.done)),
+    ...(fallSummary?.fall_pending ? [] : providerItems.filter((i) => !i.done)),
+    ...(fallItem && !fallItem.done ? [fallItem] : [])
+  ];
+  const complete = [
+    ...(fallSummary?.fall_pending
+      ? [...areaGates.map((i) => ({ ...i, done: true, prior_year: true })), ...providerItems.map((i) => ({ ...i, done: true, prior_year: true }))]
+      : [...areaGates, ...providerItems].filter((i) => i.done)),
+    ...(fallItem && fallItem.done ? [fallItem] : [])
+  ];
+  const openStaff = fallSummary?.fall_pending ? [] : areaGates.filter((i) => !i.done);
   const summaryParts = [];
-  if (phase === 'done') summaryParts.push('Readiness complete');
-  else if (phase === 'provider') summaryParts.push(`${providerItems.filter((i) => !i.done).length} provider open`);
-  else summaryParts.push(`${openStaff.length} open`);
-  openStaff.slice(0, 3).forEach((i) => {
-    if (i.key === 'roi_staff_access') summaryParts.push('ROI staff');
-    else if (i.key === 'documents_verified') summaryParts.push('Docs');
-    else if (i.key === 'service_day_assigned') summaryParts.push('Day');
-    else if (i.key === 'provider_assigned') summaryParts.push('Provider');
-    else if (i.key === 'insurance_indicated') summaryParts.push('Insurance');
-  });
+  if (fallSummary?.summary_label) {
+    summaryParts.push(fallSummary.summary_label);
+  } else if (phase === 'done') {
+    summaryParts.push('Readiness complete');
+  } else if (phase === 'provider') {
+    summaryParts.push(`${providerItems.filter((i) => !i.done).length} provider open`);
+  } else {
+    summaryParts.push(`${openStaff.length} open`);
+  }
+  if (!fallSummary?.summary_label) {
+    openStaff.slice(0, 3).forEach((i) => {
+      if (i.key === 'roi_staff_access') summaryParts.push('ROI staff');
+      else if (i.key === 'documents_verified') summaryParts.push('Docs');
+      else if (i.key === 'service_day_assigned') summaryParts.push('Day');
+      else if (i.key === 'provider_assigned') summaryParts.push('Provider');
+      else if (i.key === 'insurance_indicated') summaryParts.push('Insurance');
+    });
+  }
 
   let providerName = null;
   if (providerUserId) {
@@ -274,8 +331,27 @@ export async function getClientOnboardingChecklist(clientId) {
     }
   }
 
-  const totalSteps = areaGates.length + providerItems.length;
-  const completeSteps = areaGates.filter((i) => i.done).length + providerItems.filter((i) => i.done).length;
+  const fallItems = fallItem ? [fallItem] : [];
+  const totalSteps = fallSummary?.fall_pending
+    ? fallItems.length
+    : areaGates.length + providerItems.length + fallItems.length;
+  const completeSteps = fallSummary?.fall_pending
+    ? fallItems.filter((i) => i.done).length
+    : areaGates.filter((i) => i.done).length + providerItems.filter((i) => i.done).length + fallItems.filter((i) => i.done).length;
+
+  // Returning fall clients: treat last-year staff/docs as complete for display.
+  const staffItemsOut = fallSummary?.fall_pending
+    ? staffItems.map((i) => ({ ...i, done: true, prior_year: true }))
+    : staffItems;
+  const roiStaffItemOut = fallSummary?.fall_pending && roiStaffItem
+    ? { ...roiStaffItem, done: true, prior_year: true }
+    : roiStaffItem;
+  const documentsItemOut = fallSummary?.fall_pending && documentsItem
+    ? { ...documentsItem, done: true, prior_year: true }
+    : documentsItem;
+  const providerItemsOut = fallSummary?.fall_pending
+    ? providerItems.map((i) => ({ ...i, done: true, prior_year: true }))
+    : providerItems;
 
   return {
     client_id: cid,
@@ -285,21 +361,30 @@ export async function getClientOnboardingChecklist(clientId) {
     phase,
     status_key: statusKey || null,
     staff_onboarding_completed_at: client.staff_onboarding_completed_at || null,
-    paper_packet_staff_roi_pending: !!roiPending,
+    paper_packet_staff_roi_pending: fallSummary?.fall_pending ? false : !!roiPending,
     summary_label: summaryParts.join(' · '),
     open_count: incomplete.length,
     total_steps: totalSteps,
     complete_steps: completeSteps,
     progress_pct: totalSteps ? Math.round((completeSteps / totalSteps) * 100) : 0,
-    staff_items: staffItems,
-    roi_staff_item: roiStaffItem,
-    documents_item: documentsItem,
-    provider_items: providerItems,
+    staff_items: staffItemsOut,
+    roi_staff_item: roiStaffItemOut,
+    documents_item: documentsItemOut,
+    provider_items: providerItemsOut,
+    fall_items: fallItems,
+    fall_pending: !!fallSummary?.fall_pending,
+    fall_flag: !!fallSummary?.fall_flag,
+    fall_complete: !!fallSummary?.fall_complete,
+    is_returning_school_client: !!returning,
     incomplete,
     complete,
-    document_items: documentItems,
-    packet_signature: packetSignature,
-    can_complete_staff_onboarding: staffComplete && !staffMarked,
+    document_items: fallSummary?.fall_pending
+      ? documentItems.map((d) => ({ ...d, done: true, prior_year: true }))
+      : documentItems,
+    packet_signature: fallSummary?.fall_pending && packetSignature
+      ? { ...packetSignature, done: true, prior_year: true }
+      : packetSignature,
+    can_complete_staff_onboarding: fallSummary?.fall_pending ? false : (staffComplete && !staffMarked),
     provider_user_id: providerUserId,
     client: {
       initials: client.initials || null,
@@ -475,6 +560,8 @@ export async function completeStaffOnboarding({ clientId, actorUserId = null }) 
 
 /**
  * After provider checklist fields save: promote onboarded → current when provider items complete.
+ * Returning school clients need a weekday (or completed continue_school) — last year's
+ * first_service_at alone must not keep them Current.
  */
 export async function maybePromoteOnboardedToCurrent({ clientId, actorUserId = null }) {
   const client = await Client.findById(clientId, { includeSensitive: true });
@@ -484,10 +571,24 @@ export async function maybePromoteOnboardedToCurrent({ clientId, actorUserId = n
   if (!checklist) return { promoted: false };
 
   const statusKey = String(checklist.status_key || '').toLowerCase();
-  const staffReady = !!client.staff_onboarding_completed_at || statusKey === 'onboarded';
-  if (!staffReady) return { promoted: false };
-  if (!checklist.provider_items.every((i) => i.done)) return { promoted: false };
   if (statusKey === 'current') return { promoted: false };
+  if (statusKey === 'terminated') return { promoted: false };
+
+  const school = isSchoolClient(client);
+  const returning = school && isReturningSchoolClient(client);
+  const dayAssigned = await hasServiceDay(clientId, client);
+  const fallContinue = continuationPlanIsContinue(client.continuation_services_json);
+
+  if (returning) {
+    // Fall returning: only become Current when they have a weekday this season
+    // (or completed Continuing Services which assigns days).
+    if (!dayAssigned && !fallContinue) return { promoted: false };
+  } else {
+    const staffReady = !!client.staff_onboarding_completed_at || statusKey === 'onboarded';
+    if (!staffReady) return { promoted: false };
+    if (!(checklist.provider_items || []).every((i) => i.done)) return { promoted: false };
+    if (school && !dayAssigned) return { promoted: false };
+  }
 
   const currentId = await getClientStatusIdByKey({ agencyId: client.agency_id, statusKey: 'current' });
   if (!currentId) return { promoted: false };

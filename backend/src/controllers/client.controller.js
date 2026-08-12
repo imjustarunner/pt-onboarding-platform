@@ -37,6 +37,8 @@ import {
 } from '../services/companyEventRegistrationSwitch.service.js';
 import AgencyIntakeFieldTemplate from '../models/AgencyIntakeFieldTemplate.model.js';
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
+import { normalizeContinuationServicesPayload } from '../utils/fallReadiness.js';
+import { applyFallContinuationSideEffects } from '../services/fallContinuation.service.js';
 
 const INSURANCE_CARD_SLOTS = new Set(['primary_front', 'primary_back', 'secondary_front', 'secondary_back']);
 
@@ -260,118 +262,6 @@ function mergeGuardianIntakeWithFallback(intake, fallback) {
     .trim();
   if (computedFullName) merged.fullName = computedFullName;
   return merged;
-}
-
-const CONTINUATION_SERVICES_PLANS = new Set(['continue_school', 'not_continue_school', 'unable_to_contact_parent']);
-const CONTINUATION_WEEKDAYS = new Set(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']);
-const CONTINUATION_SCHOOL_CHOICES = new Set(['current_school', 'new_school']);
-const CONTINUATION_CURRENT_SCHOOL_ACTIONS = new Set(['continuing_with_me', 'requesting_transfer']);
-const CONTINUATION_NEW_SCHOOL_ACTIONS = new Set(['continue_at_new_school_if_possible', 'pursue_in_office_support']);
-const CONTINUATION_NOT_CONTINUING_ACTIONS = new Set(['transferring_terminating_client', 'continuing_office_virtual']);
-const CONTINUATION_UNABLE_TO_CONTACT_RECOMMENDATIONS = new Set(['recommend_continue', 'recommend_terminate']);
-
-function normalizeContinuationWeekday(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return null;
-  const title = raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
-  return CONTINUATION_WEEKDAYS.has(title) ? title : null;
-}
-
-function parseContinuationDateYmd(value) {
-  const s = String(value || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
-  return s;
-}
-
-function normalizeOptionalText(value, maxLength = 255) {
-  const text = String(value || '').trim();
-  return text ? text.slice(0, maxLength) : null;
-}
-
-function normalizeContinuationServicesPayload(raw) {
-  if (raw === undefined) return undefined;
-  if (raw === null || raw === '') return null;
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new Error('Continuation of Services must be an object');
-  }
-
-  const plan = String(raw.plan || '').trim();
-  if (!CONTINUATION_SERVICES_PLANS.has(plan)) {
-    throw new Error('Select a Continuation of Services option');
-  }
-
-  const normalized = { plan };
-  if (plan === 'continue_school') {
-    const serviceDays = Array.isArray(raw.serviceDays)
-      ? [...new Set(raw.serviceDays.map((d) => normalizeContinuationWeekday(d)).filter(Boolean))]
-      : [];
-    const continuationStartDate = parseContinuationDateYmd(raw.continuationStartDate);
-    const usesSimplifiedFlow =
-      serviceDays.length > 0 ||
-      continuationStartDate ||
-      raw.serviceDays !== undefined ||
-      raw.continuationStartDate !== undefined;
-
-    if (usesSimplifiedFlow) {
-      if (!serviceDays.length) {
-        throw new Error('Select at least one assigned day of the week');
-      }
-      if (!continuationStartDate) {
-        throw new Error('Select a continuation start date');
-      }
-      normalized.serviceDays = serviceDays;
-      normalized.continuationStartDate = continuationStartDate;
-      return normalized;
-    }
-
-    const schoolChoice = String(raw.schoolChoice || '').trim();
-    if (!CONTINUATION_SCHOOL_CHOICES.has(schoolChoice)) {
-      throw new Error('Select current school or new school');
-    }
-    normalized.schoolChoice = schoolChoice;
-
-    if (schoolChoice === 'current_school') {
-      const currentSchoolAction = String(raw.currentSchoolAction || '').trim();
-      if (!CONTINUATION_CURRENT_SCHOOL_ACTIONS.has(currentSchoolAction)) {
-        throw new Error('Select how services should continue at the current school');
-      }
-      normalized.currentSchoolAction = currentSchoolAction;
-    } else {
-      const newSchoolOrganizationId = parseInt(raw.newSchoolOrganizationId, 10);
-      normalized.newSchoolOrganizationId = Number.isFinite(newSchoolOrganizationId) && newSchoolOrganizationId > 0
-        ? newSchoolOrganizationId
-        : null;
-      normalized.newSchoolName = normalizeOptionalText(raw.newSchoolName);
-      if (!normalized.newSchoolOrganizationId && !normalized.newSchoolName) {
-        throw new Error('Select or enter the new school');
-      }
-      if (normalized.newSchoolOrganizationId) {
-        const newSchoolAction = String(raw.newSchoolAction || '').trim();
-        if (!CONTINUATION_NEW_SCHOOL_ACTIONS.has(newSchoolAction)) {
-          throw new Error('Select how services should continue at the new school');
-        }
-        normalized.newSchoolAction = newSchoolAction;
-      }
-    }
-  } else if (plan === 'not_continue_school') {
-    const notContinuingAction = String(raw.notContinuingAction || '').trim();
-    if (notContinuingAction) {
-      if (!CONTINUATION_NOT_CONTINUING_ACTIONS.has(notContinuingAction)) {
-        throw new Error('Select the fall plan for not continuing in-school services');
-      }
-      normalized.notContinuingAction = notContinuingAction;
-    }
-  } else {
-    const unableToContactRecommendation = String(raw.unableToContactRecommendation || '').trim();
-    if (unableToContactRecommendation) {
-      if (!CONTINUATION_UNABLE_TO_CONTACT_RECOMMENDATIONS.has(unableToContactRecommendation)) {
-        throw new Error('Select Recommend Continue or Recommend Terminate');
-      }
-      normalized.unableToContactRecommendation = unableToContactRecommendation;
-    }
-  }
-
-  return normalized;
 }
 
 /**
@@ -3260,6 +3150,19 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
       // ignore
     }
 
+    if (continuationServices && typeof continuationServices === 'object') {
+      try {
+        await applyFallContinuationSideEffects({
+          clientId,
+          continuation: continuationServices,
+          actorUserId: userId,
+          schoolOrganizationId: currentClient.organization_id
+        });
+      } catch (sideErr) {
+        console.error('[updateClientComplianceChecklist] fall continuation side effects failed', sideErr?.message || sideErr);
+      }
+    }
+
     // If intake or first service date is today/past, auto-promote pending clients to current.
     let currentStatusId = null;
     let oldConsumesSlot = false;
@@ -3274,7 +3177,9 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
     }
 
     const firstServicePassed = !!(firstServiceAt && firstServiceAt <= todayStr);
-    const shouldPromote = firstServicePassed;
+    // Continuation continue_school promotes via applyFallContinuationSideEffects / day assign.
+    // Do not promote returning clients solely from last year's first_service_at.
+    const shouldPromote = firstServicePassed && String(continuationServices?.plan || '') !== 'continue_school';
     let promotedToCurrent = false;
     if (shouldPromote) {
       try {

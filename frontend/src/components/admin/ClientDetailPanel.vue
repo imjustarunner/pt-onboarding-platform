@@ -1073,9 +1073,10 @@
             <label class="continuation-checklist-label">Continuation of Services</label>
             <select v-model="checklist.continuation.plan" class="inline-select">
               <option value="">—</option>
-              <option value="continue_school">Continuing for in-school services in the fall</option>
-              <option value="not_continue_school">Not continuing for in-school services in the fall</option>
-              <option value="unable_to_contact_parent">Not able to contact parent/guardian</option>
+              <option value="continue_school">Continuing Services</option>
+              <option value="not_continue_school">Not Continuing Services</option>
+              <option value="unable_to_contact_parent">Not able to contact parent</option>
+              <option value="other">Other</option>
             </select>
 
             <div v-if="checklist.continuation.plan === 'continue_school'" class="cont-nested">
@@ -1133,38 +1134,40 @@
               </div>
             </div>
 
-            <div v-if="checklist.continuation.plan === 'not_continue_school'" class="cont-nested">
+            <div
+              v-if="['not_continue_school', 'unable_to_contact_parent', 'other'].includes(checklist.continuation.plan)"
+              class="cont-nested"
+            >
+              <label style="font-size: 12px; font-weight: 700; color: var(--text-secondary);">
+                Private comment (admin / support only)
+              </label>
+              <textarea
+                v-model="checklist.continuation.privateComment"
+                class="inline-input"
+                rows="3"
+                placeholder="Required"
+              />
               <label class="cont-choice-card">
-                <input v-model="checklist.continuation.notContinuingAction" type="radio" value="transferring_terminating_client" />
-                <span class="cont-choice-card-label">Transferring/terminating the client</span>
+                <input v-model="checklist.continuation.supportFollowUp" type="checkbox" />
+                <span class="cont-choice-card-label">Request support follow-up</span>
               </label>
               <label class="cont-choice-card">
-                <input v-model="checklist.continuation.notContinuingAction" type="radio" value="continuing_office_virtual" />
-                <span class="cont-choice-card-label">Continuing as an in-office/virtual client</span>
+                <input v-model="checklist.continuation.removeFromAssignment" type="checkbox" />
+                <span class="cont-choice-card-label">Remove provider assignment</span>
               </label>
-            </div>
-
-            <div v-if="checklist.continuation.plan === 'unable_to_contact_parent'" class="cont-sub-prompt">
-              <h4>Not able to contact parent/guardian</h4>
-              <p class="cont-sub-prompt-lead">Select a recommendation:</p>
-              <div class="cont-choice-row">
-                <label class="cont-choice-card">
-                  <input
-                    v-model="checklist.continuation.unableToContactRecommendation"
-                    type="radio"
-                    value="recommend_continue"
-                  />
-                  <span class="cont-choice-card-label">Recommend Continue</span>
+              <template v-if="checklist.continuation.plan === 'not_continue_school'">
+                <p class="hint">Terminates the client and removes them from caseload.</p>
+              </template>
+              <template v-else>
+                <label style="font-size: 12px; font-weight: 700; color: var(--text-secondary);">
+                  Recommend termination?
                 </label>
-                <label class="cont-choice-card">
-                  <input
-                    v-model="checklist.continuation.unableToContactRecommendation"
-                    type="radio"
-                    value="recommend_terminate"
-                  />
-                  <span class="cont-choice-card-label">Recommend Terminate</span>
-                </label>
-              </div>
+                <select v-model="checklist.continuation.recommendTerminate" class="inline-select">
+                  <option value="">—</option>
+                  <option value="false">No — flag Fall Readiness</option>
+                  <option value="true">Yes — terminate</option>
+                </select>
+              </template>
             </div>
           </div>
 
@@ -3251,8 +3254,10 @@ const emptyContSvc = () => ({
   newSchoolOrganizationId: '',
   newSchoolName: '',
   newSchoolAction: '',
-  notContinuingAction: '',
-  unableToContactRecommendation: ''
+  privateComment: '',
+  supportFollowUp: false,
+  removeFromAssignment: false,
+  recommendTerminate: ''
 });
 
 const checklist = ref({
@@ -3282,6 +3287,16 @@ const parseContSvcJson = (raw) => {
     try { data = JSON.parse(raw); } catch { return emptyContSvc(); }
   }
   if (!data || typeof data !== 'object') return emptyContSvc();
+  const recommend =
+    data.recommendTerminate === true || data.recommendTerminate === 'true' || data.recommendTerminate === 1
+      ? 'true'
+      : data.recommendTerminate === false || data.recommendTerminate === 'false' || data.recommendTerminate === 0
+        ? 'false'
+        : data.unableToContactRecommendation === 'recommend_terminate'
+          ? 'true'
+          : data.unableToContactRecommendation === 'recommend_continue'
+            ? 'false'
+            : '';
   return {
     ...emptyContSvc(),
     plan: String(data.plan || ''),
@@ -3290,8 +3305,11 @@ const parseContSvcJson = (raw) => {
     newSchoolOrganizationId: data.newSchoolOrganizationId ? String(data.newSchoolOrganizationId) : '',
     newSchoolName: String(data.newSchoolName || ''),
     newSchoolAction: String(data.newSchoolAction || ''),
-    notContinuingAction: String(data.notContinuingAction || ''),
-    unableToContactRecommendation: String(data.unableToContactRecommendation || '')
+    privateComment: String(data.privateComment || data.comment || ''),
+    supportFollowUp: data.supportFollowUp === true || data.supportFollowUp === 1 || data.supportFollowUp === 'true',
+    removeFromAssignment:
+      data.removeFromAssignment === true || data.removeFromAssignment === 1 || data.removeFromAssignment === 'true',
+    recommendTerminate: recommend
   };
 };
 
@@ -3308,10 +3326,11 @@ const contSvcPayload = () => {
       payload.newSchoolName = c.newSchoolOrganizationId ? null : (String(c.newSchoolName || '').trim() || null);
       if (c.newSchoolOrganizationId) payload.newSchoolAction = c.newSchoolAction || '';
     }
-  } else if (c.plan === 'not_continue_school') {
-    payload.notContinuingAction = c.notContinuingAction || '';
-  } else if (c.plan === 'unable_to_contact_parent') {
-    payload.unableToContactRecommendation = c.unableToContactRecommendation || '';
+  } else {
+    payload.privateComment = String(c.privateComment || '').trim();
+    payload.supportFollowUp = !!c.supportFollowUp;
+    payload.removeFromAssignment = !!c.removeFromAssignment;
+    payload.recommendTerminate = c.plan === 'not_continue_school' ? true : c.recommendTerminate === 'true';
   }
   return payload;
 };
@@ -3326,8 +3345,12 @@ watch(
       checklist.value.continuation.newSchoolName = '';
       checklist.value.continuation.newSchoolAction = '';
     }
-    if (plan !== 'not_continue_school') checklist.value.continuation.notContinuingAction = '';
-    if (plan !== 'unable_to_contact_parent') checklist.value.continuation.unableToContactRecommendation = '';
+    if (!['not_continue_school', 'unable_to_contact_parent', 'other'].includes(plan)) {
+      checklist.value.continuation.privateComment = '';
+      checklist.value.continuation.supportFollowUp = false;
+      checklist.value.continuation.removeFromAssignment = false;
+      checklist.value.continuation.recommendTerminate = '';
+    }
   }
 );
 watch(

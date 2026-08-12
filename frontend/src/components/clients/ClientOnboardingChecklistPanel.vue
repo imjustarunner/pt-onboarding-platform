@@ -76,7 +76,41 @@
         <span class="muted">{{ checklist.summary_label }}</span>
       </div>
 
-      <section class="ob-section ob-section-card">
+      <p v-if="isFallPending" class="ob-fall-banner">
+        Returning client — prior-year staff, documents, ROI, and provider steps are complete.
+        Fall work is Continuation of Services (provider checklist).
+      </p>
+
+      <section v-if="isFallPending && (checklist.fall_items || []).length" class="ob-section ob-section-card is-fall-section">
+        <button type="button" class="ob-section-toggle" @click="fallOpen = !fallOpen">
+          <span class="ob-section-title">
+            <span class="ob-section-icon fall">F</span>
+            Fall
+            <span class="ob-section-count">{{ fallDoneCount }}/{{ checklist.fall_items.length }}</span>
+          </span>
+          <span class="ob-chevron" :class="{ open: fallOpen }">›</span>
+        </button>
+        <div v-show="fallOpen" class="ob-section-body">
+          <ul class="ob-task-list">
+            <li
+              v-for="item in checklist.fall_items"
+              :key="item.key"
+              class="ob-task"
+              :class="{ done: item.done, open: !item.done }"
+            >
+              <span class="ob-task-check" :aria-label="item.done ? 'Complete' : 'Incomplete'">
+                <svg v-if="item.done" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 0 1 0 1.414l-8 8a1 1 0 0 1-1.414 0l-4-4a1 1 0 1 1 1.414-1.414L8 12.586l7.293-7.293a1 1 0 0 1 1.414 0z" clip-rule="evenodd"/></svg>
+              </span>
+              <div class="ob-task-body">
+                <div class="ob-task-label">{{ item.label }}</div>
+                <div v-if="item.detail" class="ob-task-detail muted">{{ item.detail }}</div>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="ob-section ob-section-card" :class="{ 'is-done-section': isFallPending }">
         <button type="button" class="ob-section-toggle" @click="staffOpen = !staffOpen">
           <span class="ob-section-title">
             <span class="ob-section-icon staff">{{ sectionNum.staff }}</span>
@@ -86,11 +120,12 @@
           <span class="ob-chevron" :class="{ open: staffOpen }">›</span>
         </button>
         <div v-show="staffOpen" class="ob-section-body">
-          <p v-if="readonly" class="ob-readonly-hint muted">Staff setup — view only. Contact office staff to request changes.</p>
+          <p v-if="isFallPending" class="ob-readonly-hint muted">Prior year — marked complete for fall readiness.</p>
+          <p v-else-if="readonly" class="ob-readonly-hint muted">Staff setup — view only. Contact office staff to request changes.</p>
           <ClientOnboardingStaffSetupPanel
             :client-id="clientId"
             :checklist="checklist"
-            :readonly="readonly"
+            :readonly="readonly || isFallPending"
             @updated="onStaffSetupUpdated"
           />
         </div>
@@ -99,23 +134,24 @@
       <section
         v-if="checklist.roi_staff_item"
         class="ob-section ob-section-card"
-        :class="{ 'is-done-section': checklist.roi_staff_item.done }"
+        :class="{ 'is-done-section': checklist.roi_staff_item.done || isFallPending }"
       >
         <button type="button" class="ob-section-toggle" @click="roiOpen = !roiOpen">
           <span class="ob-section-title">
             <span class="ob-section-icon roi">{{ sectionNum.roi }}</span>
             School staff ROI
-            <span class="ob-section-count">{{ checklist.roi_staff_item.done ? 'Done' : 'Open' }}</span>
+            <span class="ob-section-count">{{ checklist.roi_staff_item.done || isFallPending ? 'Done' : 'Open' }}</span>
           </span>
           <span class="ob-chevron" :class="{ open: roiOpen }">›</span>
         </button>
         <div v-show="roiOpen" class="ob-section-body">
-          <p v-if="readonly" class="ob-readonly-hint muted">School ROI permissions — view only.</p>
+          <p v-if="isFallPending" class="ob-readonly-hint muted">Prior year — marked complete for fall readiness.</p>
+          <p v-else-if="readonly" class="ob-readonly-hint muted">School ROI permissions — view only.</p>
           <ClientOnboardingRoiStaffPanel
             :client-id="clientId"
-            :step-done="checklist.roi_staff_item.done"
+            :step-done="checklist.roi_staff_item.done || isFallPending"
             :roi-expires-at="checklist.client?.roi_expires_at"
-            :readonly="readonly"
+            :readonly="readonly || isFallPending"
             @updated="onRoiStaffUpdated"
             @mark-complete="onRoiStaffUpdated"
           />
@@ -123,7 +159,7 @@
       </section>
 
       <section
-        v-if="checklist.is_paper_packet"
+        v-if="checklist.is_paper_packet && !isFallPending"
         class="ob-section ob-section-card"
         :class="{ 'is-done-section': checklist.documents_item?.done }"
       >
@@ -146,7 +182,11 @@
         </div>
       </section>
 
-      <section v-if="!hideProviderSection" class="ob-section ob-section-card">
+      <section
+        v-if="!hideProviderSection"
+        class="ob-section ob-section-card"
+        :class="{ 'is-done-section': isFallPending }"
+      >
         <button type="button" class="ob-section-toggle" @click="providerOpen = !providerOpen">
           <span class="ob-section-title">
             <span class="ob-section-icon provider">{{ sectionNum.provider }}</span>
@@ -156,6 +196,9 @@
           <span class="ob-chevron" :class="{ open: providerOpen }">›</span>
         </button>
         <div v-show="providerOpen" class="ob-section-body">
+          <p v-if="isFallPending" class="ob-readonly-hint muted">
+            Prior-year parent contact / first service shown as complete. Fall action is Continuation of Services.
+          </p>
           <ul class="ob-task-list">
             <li
               v-for="item in checklist.provider_items"
@@ -171,7 +214,7 @@
               </div>
             </li>
           </ul>
-          <p class="ob-note">
+          <p v-if="!isFallPending" class="ob-note">
             When all provider steps are complete, the client is marked <strong>Current</strong> automatically.
           </p>
         </div>
@@ -226,6 +269,7 @@ const staffOpen = ref(true);
 const roiOpen = ref(true);
 const docsOpen = ref(true);
 const providerOpen = ref(true);
+const fallOpen = ref(true);
 
 const role = computed(() => String(authStore.user?.role || '').toLowerCase());
 const effectiveCanEditDocs = computed(() => props.canEditDocs && !props.readonly);
@@ -247,15 +291,18 @@ const statusLabel = computed(() =>
   || props.clientMeta?.client_status_label
   || '—'
 );
+const isFallPending = computed(() => !!checklist.value?.fall_pending);
 const phaseLabel = computed(() => {
   const p = checklist.value?.phase;
   if (p === 'done') return 'Complete';
+  if (p === 'fall') return checklist.value?.summary_label || 'Fall pending';
   if (p === 'provider') return 'Awaiting provider';
   return 'Staff setup';
 });
 const progressPct = computed(() => Number(checklist.value?.progress_pct || 0));
 const staffDoneCount = computed(() => (checklist.value?.staff_items || []).filter((i) => i.done).length);
 const providerDoneCount = computed(() => (checklist.value?.provider_items || []).filter((i) => i.done).length);
+const fallDoneCount = computed(() => (checklist.value?.fall_items || []).filter((i) => i.done).length);
 const docsDoneCount = computed(() => {
   const items = checklist.value?.document_items || [];
   const sig = checklist.value?.packet_signature;
@@ -280,10 +327,11 @@ const docsTotalCount = computed(() => {
 });
 const sectionNum = computed(() => {
   let n = 1;
+  if (isFallPending.value) n += 1; // Fall section shown first
   const staff = n;
   n += 1;
   const roi = checklist.value?.roi_staff_item ? n++ : null;
-  const docs = checklist.value?.is_paper_packet ? n++ : null;
+  const docs = checklist.value?.is_paper_packet && !isFallPending.value ? n++ : null;
   const provider = n;
   return { staff, roi, docs, provider };
 });
@@ -421,7 +469,20 @@ watch(() => props.clientId, load, { immediate: true });
 .ob-badge-status { background: #f1f5f9; color: #475569; }
 .ob-badge-phase { background: #e0f2fe; color: #0369a1; }
 .ob-badge-phase.phase-provider { background: #fef3c7; color: #92400e; }
+.ob-badge-phase.phase-fall { background: #ffedd5; color: #9a3412; }
 .ob-badge-phase.phase-done { background: #dcfce7; color: #166534; }
+.ob-fall-banner {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.is-fall-section { border-color: #fdba74; }
+.ob-task-detail { font-size: 12px; margin-top: 2px; }
 
 .ob-progress-ring {
   --pct: 0;
@@ -538,6 +599,7 @@ watch(() => props.clientId, load, { immediate: true });
 .ob-section-icon.roi { background: #0f766e; }
 .ob-section-icon.docs { background: #6366f1; }
 .ob-section-icon.provider { background: #d97706; }
+.ob-section-icon.fall { background: #ea580c; }
 .ob-area-hint {
   margin: 0 0 12px;
   font-size: 0.82rem;
