@@ -34,6 +34,7 @@
             <input v-model="neverLoggedInOnly" type="checkbox" @change="loadStaff" />
             Never logged in only
           </label>
+          <span class="muted ssa-filter-hint">No login session and no permanent password set yet.</span>
         </div>
         <div class="filter-group filter-group-actions">
           <button class="btn btn-secondary btn-sm" type="button" @click="resetFilters">Reset filters</button>
@@ -395,6 +396,11 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   font-size: 0.92rem;
+}
+
+.ssa-filter-hint {
+  font-size: 0.82rem;
+  margin-top: 4px;
 }
 
 .ssa-bulk-bar {

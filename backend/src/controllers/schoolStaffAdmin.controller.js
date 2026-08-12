@@ -96,7 +96,7 @@ const assertManageableAgency = async (req, agencyId) => {
 };
 
 async function fetchAgencySchoolStaffRows(agencyId) {
-  const baseSelect = `SELECT
+  const buildSelect = (includePasswordChangedAt) => `SELECT
          u.id,
          u.email,
          u.work_email,
@@ -106,7 +106,7 @@ async function fetchAgencySchoolStaffRows(agencyId) {
          u.is_active,
          u.temporary_password_hash,
          u.temporary_password_expires_at,
-         u.created_at,
+         u.created_at${includePasswordChangedAt ? ',\n         u.password_changed_at' : ''},
          school.id AS school_id,
          school.name AS school_name
        FROM users u
@@ -118,27 +118,53 @@ async function fetchAgencySchoolStaffRows(agencyId) {
          AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
          AND (u.is_archived = FALSE OR u.is_archived IS NULL)`;
 
-  try {
+  const runQuery = async (includePasswordChangedAt, joinSql, joinParam) => {
     const [rows] = await pool.execute(
-      `${baseSelect}
-       INNER JOIN organization_affiliations oa ON oa.organization_id = school.id
+      `${buildSelect(includePasswordChangedAt)}
+       ${joinSql}
+       ${whereClause}
+       ORDER BY u.last_name ASC, u.first_name ASC, school.name ASC`,
+      [joinParam]
+    );
+    return rows || [];
+  };
+
+  const affiliationJoin = `INNER JOIN organization_affiliations oa ON oa.organization_id = school.id
          AND oa.agency_id = ?
-         AND oa.is_active = 1
-       ${whereClause}
-       ORDER BY u.last_name ASC, u.first_name ASC, school.name ASC`,
-      [agencyId]
-    );
-    return rows || [];
-  } catch (e) {
-    const [rows] = await pool.execute(
-      `${baseSelect}
-       INNER JOIN agency_schools ash ON ash.school_id = school.id AND ash.agency_id = ?
-       ${whereClause}
-       ORDER BY u.last_name ASC, u.first_name ASC, school.name ASC`,
-      [agencyId]
-    );
-    return rows || [];
+         AND oa.is_active = 1`;
+  const legacyJoin = `INNER JOIN agency_schools ash ON ash.school_id = school.id AND ash.agency_id = ?`;
+
+  for (const includePasswordChangedAt of [true, false]) {
+    try {
+      return await runQuery(includePasswordChangedAt, affiliationJoin, agencyId);
+    } catch (e) {
+      if (includePasswordChangedAt && e?.code === 'ER_BAD_FIELD_ERROR') continue;
+      if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+        try {
+          return await runQuery(includePasswordChangedAt, legacyJoin, agencyId);
+        } catch (legacyErr) {
+          if (includePasswordChangedAt && legacyErr?.code === 'ER_BAD_FIELD_ERROR') continue;
+          throw legacyErr;
+        }
+      }
+      throw e;
+    }
   }
+
+  return [];
+}
+
+function pickLatestTimestamp(...values) {
+  const times = values
+    .filter(Boolean)
+    .map((value) => new Date(value).getTime())
+    .filter((time) => Number.isFinite(time));
+  if (!times.length) return null;
+  return new Date(Math.max(...times));
+}
+
+function userHasLoggedIn({ lastLoginAt, lastSessionAt, passwordChangedAt }) {
+  return !!(lastLoginAt || lastSessionAt || passwordChangedAt);
 }
 
 async function getEligibleSchoolStaffUserIdsForAgency(agencyId, userIds) {
@@ -169,6 +195,7 @@ function aggregateSchoolStaffRows(rows) {
         is_active: row.is_active,
         temporary_password_hash: row.temporary_password_hash,
         temporary_password_expires_at: row.temporary_password_expires_at,
+        password_changed_at: row.password_changed_at || null,
         created_at: row.created_at,
         schools: schoolEntry ? [schoolEntry] : []
       });
@@ -185,20 +212,34 @@ function aggregateSchoolStaffRows(rows) {
 
 async function attachLastLoginToStaffAccounts(byUser) {
   const userIds = [...byUser.keys()];
-  if (!userIds.length) return byUser;
+  if (!userIds.length) return [];
 
   const placeholders = userIds.map(() => '?').join(',');
-  const [loginRows] = await pool.execute(
-    `SELECT user_id, MAX(created_at) AS last_login
-     FROM user_activity_log
-     WHERE user_id IN (${placeholders}) AND action_type = 'login'
-     GROUP BY user_id`,
-    userIds
-  );
+  const [loginRows, sessionRows] = await Promise.all([
+    pool.execute(
+      `SELECT user_id, MAX(created_at) AS last_login
+       FROM user_activity_log
+       WHERE user_id IN (${placeholders}) AND action_type = 'login'
+       GROUP BY user_id`,
+      userIds
+    ).then(([rows]) => rows || []).catch(() => []),
+    pool.execute(
+      `SELECT user_id, MAX(started_at) AS last_session_at
+       FROM user_platform_sessions
+       WHERE user_id IN (${placeholders})
+       GROUP BY user_id`,
+      userIds
+    ).then(([rows]) => rows || []).catch(() => [])
+  ]);
 
   const lastLoginByUser = {};
-  for (const row of loginRows || []) {
+  for (const row of loginRows) {
     lastLoginByUser[row.user_id] = row.last_login;
+  }
+
+  const lastSessionByUser = {};
+  for (const row of sessionRows) {
+    lastSessionByUser[row.user_id] = row.last_session_at;
   }
 
   const now = new Date();
@@ -207,7 +248,11 @@ async function attachLastLoginToStaffAccounts(byUser) {
     const hasActiveTemporaryPassword =
       !!user.temporary_password_hash &&
       (!tempExpiresAt || tempExpiresAt.getTime() > now.getTime());
-    const lastLogin = lastLoginByUser[user.id] || null;
+    const lastLoginAt = lastLoginByUser[user.id] || null;
+    const lastSessionAt = lastSessionByUser[user.id] || null;
+    const passwordChangedAt = user.password_changed_at || null;
+    const lastLogin = pickLatestTimestamp(lastLoginAt, lastSessionAt, passwordChangedAt);
+    const hasLoggedIn = userHasLoggedIn({ lastLoginAt, lastSessionAt, passwordChangedAt });
 
     return {
       id: user.id,
@@ -219,7 +264,7 @@ async function attachLastLoginToStaffAccounts(byUser) {
       schools: user.schools,
       school_names: user.schools.map((s) => s.name).join(', '),
       last_login: lastLogin,
-      has_never_logged_in: !lastLogin,
+      has_never_logged_in: !hasLoggedIn,
       has_active_temporary_password: hasActiveTemporaryPassword,
       temporary_password_expires_at: hasActiveTemporaryPassword ? user.temporary_password_expires_at : null,
       created_at: user.created_at
