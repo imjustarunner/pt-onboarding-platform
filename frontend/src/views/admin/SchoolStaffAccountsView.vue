@@ -34,7 +34,7 @@
             <input v-model="neverLoggedInOnly" type="checkbox" @change="loadStaff" />
             Never logged in only
           </label>
-          <span class="muted ssa-filter-hint">No login session and no permanent password set yet.</span>
+          <span class="muted ssa-filter-hint">No permanent password set — still on a temp password or none at all.</span>
         </div>
         <div class="filter-group filter-group-actions">
           <button class="btn btn-secondary btn-sm" type="button" @click="resetFilters">Reset filters</button>
@@ -75,7 +75,7 @@
       </div>
 
       <p class="ssa-note muted">
-        Setting a temporary password replaces each selected user&apos;s current password immediately. Share the password privately and tell them to sign in before it expires, then set their own permanent password.
+        Only staff without a permanent password can be selected (🔒 = already logged in and set their own). Setting a temporary password replaces their current one immediately — share it privately so they can sign in and set their own.
       </p>
 
       <div v-if="loading" class="loading">Loading school staff accounts…</div>
@@ -110,10 +110,12 @@
             >
               <td class="col-check">
                 <input
+                  v-if="!staff.has_permanent_password"
                   type="checkbox"
                   :checked="selectedIds.has(staff.id)"
                   @change="toggleSelect(staff.id)"
                 />
+                <span v-else class="ssa-pw-lock" title="Has permanent password — cannot receive a temporary password">🔒</span>
               </td>
               <td>{{ staffName(staff) }}</td>
               <td>{{ staff.email || '—' }}</td>
@@ -122,8 +124,9 @@
                 <span :class="['badge', statusBadgeClass(staff.status)]">{{ statusLabel(staff.status) }}</span>
               </td>
               <td>
-                <span v-if="staff.has_never_logged_in" class="ssa-never-login">Never logged in</span>
-                <span v-else>{{ formatDateTime(staff.last_login) }}</span>
+                <span v-if="staff.has_permanent_password" class="ssa-has-pw">Has password</span>
+                <span v-else-if="staff.has_never_logged_in" class="ssa-never-login">Never logged in</span>
+                <span v-else class="muted">—</span>
               </td>
               <td>
                 <span v-if="staff.temporary_password_status === 'active'" class="ssa-temp-active">
@@ -225,13 +228,15 @@ const filteredStaff = computed(() => {
   });
 });
 
+const selectableStaff = computed(() => filteredStaff.value.filter((row) => !row.has_permanent_password));
+
 const allVisibleSelected = computed(() =>
-  filteredStaff.value.length > 0 && filteredStaff.value.every((row) => selectedIds.value.has(row.id))
+  selectableStaff.value.length > 0 && selectableStaff.value.every((row) => selectedIds.value.has(row.id))
 );
 
 const someVisibleSelected = computed(() => {
-  const visibleCount = filteredStaff.value.filter((row) => selectedIds.value.has(row.id)).length;
-  return visibleCount > 0 && visibleCount < filteredStaff.value.length;
+  const count = selectableStaff.value.filter((row) => selectedIds.value.has(row.id)).length;
+  return count > 0 && count < selectableStaff.value.length;
 });
 
 const canSubmitBulkPassword = computed(() =>
@@ -263,7 +268,14 @@ const formatDateTime = (value) => {
   return d.toLocaleString();
 };
 
+const staffById = computed(() => {
+  const map = {};
+  for (const s of staffList.value) map[s.id] = s;
+  return map;
+});
+
 const toggleSelect = (userId) => {
+  if (staffById.value[userId]?.has_permanent_password) return;
   const next = new Set(selectedIds.value);
   if (next.has(userId)) next.delete(userId);
   else next.add(userId);
@@ -273,12 +285,12 @@ const toggleSelect = (userId) => {
 const toggleSelectAllVisible = () => {
   if (allVisibleSelected.value) {
     const next = new Set(selectedIds.value);
-    for (const row of filteredStaff.value) next.delete(row.id);
+    for (const row of selectableStaff.value) next.delete(row.id);
     selectedIds.value = next;
     return;
   }
   const next = new Set(selectedIds.value);
-  for (const row of filteredStaff.value) next.add(row.id);
+  for (const row of selectableStaff.value) next.add(row.id);
   selectedIds.value = next;
 };
 
@@ -452,6 +464,16 @@ onMounted(async () => {
 .ssa-never-login {
   color: #b45309;
   font-weight: 600;
+}
+.ssa-has-pw {
+  color: #047857;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+.ssa-pw-lock {
+  font-size: 1rem;
+  cursor: default;
+  opacity: 0.65;
 }
 
 .ssa-temp-active {

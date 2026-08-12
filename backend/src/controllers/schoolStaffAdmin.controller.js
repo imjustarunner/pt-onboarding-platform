@@ -201,7 +201,7 @@ const assertManageableAgency = async (req, agencyId) => {
 };
 
 async function fetchAgencySchoolStaffRows(agencyId) {
-  const buildSelect = (includePasswordChangedAt) => `SELECT
+  const baseSelect = `SELECT
          u.id,
          u.email,
          u.work_email,
@@ -209,9 +209,10 @@ async function fetchAgencySchoolStaffRows(agencyId) {
          u.last_name,
          u.status,
          u.is_active,
+         u.password_hash,
          u.temporary_password_hash,
          u.temporary_password_expires_at,
-         u.created_at${includePasswordChangedAt ? ',\n         u.password_changed_at' : ''},
+         u.created_at,
          school.id AS school_id,
          school.name AS school_name
        FROM users u
@@ -223,54 +224,29 @@ async function fetchAgencySchoolStaffRows(agencyId) {
          AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
          AND (u.is_archived = FALSE OR u.is_archived IS NULL)`;
 
-  const runQuery = async (includePasswordChangedAt, joinSql, joinParam) => {
-    const [rows] = await pool.execute(
-      `${buildSelect(includePasswordChangedAt)}
-       ${joinSql}
-       ${whereClause}
-       ORDER BY u.last_name ASC, u.first_name ASC, school.name ASC`,
-      [joinParam]
-    );
-    return rows || [];
-  };
-
   const affiliationJoin = `INNER JOIN organization_affiliations oa ON oa.organization_id = school.id
          AND oa.agency_id = ?
          AND oa.is_active = 1`;
   const legacyJoin = `INNER JOIN agency_schools ash ON ash.school_id = school.id AND ash.agency_id = ?`;
 
-  for (const includePasswordChangedAt of [true, false]) {
-    try {
-      return await runQuery(includePasswordChangedAt, affiliationJoin, agencyId);
-    } catch (e) {
-      if (includePasswordChangedAt && e?.code === 'ER_BAD_FIELD_ERROR') continue;
-      if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
-        try {
-          return await runQuery(includePasswordChangedAt, legacyJoin, agencyId);
-        } catch (legacyErr) {
-          if (includePasswordChangedAt && legacyErr?.code === 'ER_BAD_FIELD_ERROR') continue;
-          throw legacyErr;
-        }
-      }
-      throw e;
-    }
+  try {
+    const [rows] = await pool.execute(
+      `${baseSelect} ${affiliationJoin} ${whereClause}
+       ORDER BY u.last_name ASC, u.first_name ASC, school.name ASC`,
+      [agencyId]
+    );
+    return rows || [];
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    const [rows] = await pool.execute(
+      `${baseSelect} ${legacyJoin} ${whereClause}
+       ORDER BY u.last_name ASC, u.first_name ASC, school.name ASC`,
+      [agencyId]
+    );
+    return rows || [];
   }
-
-  return [];
 }
 
-function pickLatestTimestamp(...values) {
-  const times = values
-    .filter(Boolean)
-    .map((value) => new Date(value).getTime())
-    .filter((time) => Number.isFinite(time));
-  if (!times.length) return null;
-  return new Date(Math.max(...times));
-}
-
-function userHasLoggedIn({ lastLoginAt, lastSessionAt, passwordChangedAt }) {
-  return !!(lastLoginAt || lastSessionAt || passwordChangedAt);
-}
 
 async function getEligibleSchoolStaffUserIdsForAgency(agencyId, userIds) {
   const ids = [...new Set((userIds || []).map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0))];
@@ -298,9 +274,9 @@ function aggregateSchoolStaffRows(rows) {
         last_name: row.last_name,
         status: row.status,
         is_active: row.is_active,
+        password_hash: row.password_hash || null,
         temporary_password_hash: row.temporary_password_hash,
         temporary_password_expires_at: row.temporary_password_expires_at,
-        password_changed_at: row.password_changed_at || null,
         created_at: row.created_at,
         schools: schoolEntry ? [schoolEntry] : []
       });
@@ -315,50 +291,25 @@ function aggregateSchoolStaffRows(rows) {
   return byUser;
 }
 
-async function attachLastLoginToStaffAccounts(byUser) {
+async function buildStaffAccountRows(byUser) {
   const userIds = [...byUser.keys()];
   if (!userIds.length) return [];
 
-  const placeholders = userIds.map(() => '?').join(',');
-  const [loginRows, sessionRows, tempSetEvents] = await Promise.all([
-    pool.execute(
-      `SELECT user_id, MAX(created_at) AS last_login
-       FROM user_activity_log
-       WHERE user_id IN (${placeholders}) AND action_type = 'login'
-       GROUP BY user_id`,
-      userIds
-    ).then(([rows]) => rows || []).catch(() => []),
-    pool.execute(
-      `SELECT user_id, MAX(started_at) AS last_session_at
-       FROM user_platform_sessions
-       WHERE user_id IN (${placeholders})
-       GROUP BY user_id`,
-      userIds
-    ).then(([rows]) => rows || []).catch(() => []),
-    fetchLatestTemporaryPasswordSetEvents(userIds)
-  ]);
+  const tempSetEvents = await fetchLatestTemporaryPasswordSetEvents(userIds);
 
   const performerIds = [...tempSetEvents.values()]
     .map((event) => event?.set_by_user_id)
     .filter(Boolean);
   const performerNames = await resolveUserDisplayNames(performerIds);
 
-  const lastLoginByUser = {};
-  for (const row of loginRows) {
-    lastLoginByUser[row.user_id] = row.last_login;
-  }
-
-  const lastSessionByUser = {};
-  for (const row of sessionRows) {
-    lastSessionByUser[row.user_id] = row.last_session_at;
-  }
-
   return [...byUser.values()].map((user) => {
-    const lastLoginAt = lastLoginByUser[user.id] || null;
-    const lastSessionAt = lastSessionByUser[user.id] || null;
-    const passwordChangedAt = user.password_changed_at || null;
-    const lastLogin = pickLatestTimestamp(lastLoginAt, lastSessionAt, passwordChangedAt);
-    const hasLoggedIn = userHasLoggedIn({ lastLoginAt, lastSessionAt, passwordChangedAt });
+    // A user has a permanent password when they have a password_hash but no
+    // temporary_password_hash (which changePassword() clears on first self-set).
+    // This is the most reliable signal: you can't have a permanent password
+    // without having logged in with a temp one and changed it.
+    const hasPermanentPassword = !!user.password_hash && !user.temporary_password_hash;
+    const hasNeverLoggedIn = !hasPermanentPassword;
+
     const tempFields = buildTemporaryPasswordFields(
       user,
       tempSetEvents.get(user.id) || null,
@@ -374,8 +325,8 @@ async function attachLastLoginToStaffAccounts(byUser) {
       is_active: user.is_active,
       schools: user.schools,
       school_names: user.schools.map((s) => s.name).join(', '),
-      last_login: lastLogin,
-      has_never_logged_in: !hasLoggedIn,
+      has_permanent_password: hasPermanentPassword,
+      has_never_logged_in: hasNeverLoggedIn,
       created_at: user.created_at,
       ...tempFields
     };
@@ -397,7 +348,7 @@ export const listAgencySchoolStaffAccounts = async (req, res, next) => {
 
     const rows = await fetchAgencySchoolStaffRows(agencyId);
     const byUser = aggregateSchoolStaffRows(rows);
-    let result = await attachLastLoginToStaffAccounts(byUser);
+    let result = await buildStaffAccountRows(byUser);
 
     if (neverLoggedInOnly) {
       result = result.filter((row) => row.has_never_logged_in);
@@ -458,6 +409,11 @@ export const bulkSetAgencySchoolStaffTemporaryPasswords = async (req, res, next)
         }
         if (String(user.status || '').toUpperCase() === 'ARCHIVED') {
           results.push({ userId, ok: false, error: 'Cannot reset password for an archived user' });
+          continue;
+        }
+        // Do not overwrite a permanent password — the user has already logged in and set their own.
+        if (user.password_hash && !user.temporary_password_hash) {
+          results.push({ userId, ok: false, error: 'User already has a permanent password set — skipped' });
           continue;
         }
 
