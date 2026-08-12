@@ -4697,6 +4697,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
           allDay: Number(r.all_day || 0) === 1,
           startAt: startAtOut,
           endAt: endAtOut,
+          // Zone of record this event's wall-clock was entered in — edit forms must anchor to
+          // this instead of re-guessing from whichever office/tenant is selected in the UI.
+          timeZone: r.event_timezone || null,
           startDate: r.start_date ? String(r.start_date).slice(0, 10) : null,
           endDate: r.end_date ? String(r.end_date).slice(0, 10) : null,
           reasonCode: String(r.reason_code || '').trim().toUpperCase() || null,
@@ -6204,6 +6207,9 @@ export const createUserScheduleEvent = async (req, res, next) => {
         endAt: storedEndAt,
         startDate: allDay ? startDate : null,
         endDate: allDay ? endDateExclusive : null,
+        // Persist the zone the wall-clock was entered in — re-editing must anchor to this,
+        // never to whichever office/tenant happens to be selected in the UI at edit time.
+        eventTimezone: storesUtc ? timeZone : null,
         recurrenceSeriesId,
         recurrenceFrequency,
         recurrencePolicy,
@@ -6343,6 +6349,8 @@ export const createUserScheduleEvent = async (req, res, next) => {
         // Prefer stored UTC instant (with Z) so clients render the same wall time everywhere.
         startAt: allDay ? null : (toIsoUtcForSchedule(storedStartAt) || storedStartAt || startAt),
         endAt: allDay ? null : (toIsoUtcForSchedule(storedEndAt) || storedEndAt || endAt),
+        // The zone of record for re-editing — clients must not re-guess this from ambient UI state.
+        timeZone: allDay ? null : (saved?.event_timezone || timeZone),
         startDate: allDay ? startDate : null,
         endDate: allDay ? endDateExclusive : null,
         recurrenceSeriesId: saved?.recurrence_series_id || recurrenceSeriesId || null,
@@ -6473,6 +6481,8 @@ export const updateUserScheduleEvent = async (req, res, next) => {
     let updateTimeZone = String(
       req.body?.timeZone
       || req.body?.timezone
+      // Zone of record for this meeting — must win over any ambient office/tenant guess.
+      || target.event_timezone
       || ''
     ).trim();
     if (!updateTimeZone) {
@@ -6746,6 +6756,9 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         endAt: occEndAt,
         startDate: occStartDate,
         endDate: occEndDate,
+        // Only stamp the zone of record when the wall-clock actually moved — never on
+        // attendee-only / metadata-only edits, so it can't drift from an ambient UI guess.
+        eventTimezone: (occStartAt !== undefined || occEndAt !== undefined) ? updateTimeZone : undefined,
         agencyId: isPrimary && req.body?.agencyId !== undefined ? Number(req.body.agencyId || 0) || null : undefined,
         clientId: isPrimary && req.body?.clientId !== undefined ? Number(req.body.clientId || 0) || null : undefined,
         reasonCode: isPrimary && req.body?.reasonCode !== undefined ? req.body.reasonCode : undefined,
@@ -6891,6 +6904,8 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         allDay: Number(updated?.all_day || 0) === 1,
         startAt: allDay ? null : (scheduleEventStartEndForSummary(updated).startAt),
         endAt: allDay ? null : (scheduleEventStartEndForSummary(updated).endAt),
+        // The zone of record for re-editing — clients must not re-guess this from ambient UI state.
+        timeZone: allDay ? null : (updated?.event_timezone || updateTimeZone || null),
         startDate: updated?.start_date ? String(updated.start_date).slice(0, 10) : null,
         endDate: updated?.end_date ? String(updated.end_date).slice(0, 10) : null,
         attendeeUserIds: Array.isArray(resolvedAttendeeUserIds) ? resolvedAttendeeUserIds : undefined,

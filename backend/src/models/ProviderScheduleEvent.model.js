@@ -15,6 +15,7 @@ class ProviderScheduleEvent {
     endAt = null,
     startDate = null,
     endDate = null,
+    eventTimezone = null,
     recurrenceSeriesId = null,
     recurrenceFrequency = null,
     recurrencePolicy = null,
@@ -59,11 +60,11 @@ class ProviderScheduleEvent {
         `INSERT INTO provider_schedule_events
           (join_token, host_join_token, participant_join_token, waiting_room_enabled, notify_participants,
            agency_id, provider_id, client_id, entitlement_id, package_payment_id, session_index,
-           kind, title, description, reason_code, is_private, focus_session_enabled, all_day, start_at, end_at, start_date, end_date, status,
+           kind, title, description, reason_code, is_private, focus_session_enabled, all_day, start_at, end_at, start_date, end_date, event_timezone, status,
            recurrence_series_id, recurrence_frequency, recurrence_policy, recurrence_index,
            google_event_id, google_html_link, google_meet_link, platform_video_link,
            is_training_pay_eligible, meeting_subtype, attendance_tracking_enabled, created_by_user_id, updated_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           participantToken,
           hostToken,
@@ -87,6 +88,7 @@ class ProviderScheduleEvent {
           endAt || null,
           startDate || null,
           endDate || null,
+          eventTimezone ? String(eventTimezone).trim().slice(0, 64) : null,
           recurrenceSeriesId ? String(recurrenceSeriesId).trim().slice(0, 64) : null,
           recurrenceFrequency ? String(recurrenceFrequency).trim().toUpperCase().slice(0, 16) : null,
           recurrencePolicy ? String(recurrencePolicy).trim().toUpperCase().slice(0, 16) : null,
@@ -357,6 +359,7 @@ class ProviderScheduleEvent {
     endAt = undefined,
     startDate = undefined,
     endDate = undefined,
+    eventTimezone = undefined,
     agencyId = undefined,
     clientId = undefined,
     reasonCode = undefined,
@@ -402,6 +405,10 @@ class ProviderScheduleEvent {
     if (endDate !== undefined) {
       sets.push('end_date = ?');
       params.push(endDate || null);
+    }
+    if (eventTimezone !== undefined) {
+      sets.push('event_timezone = ?');
+      params.push(eventTimezone ? String(eventTimezone).trim().slice(0, 64) : null);
     }
     if (agencyId !== undefined) {
       sets.push('agency_id = ?');
@@ -452,6 +459,29 @@ class ProviderScheduleEvent {
         params
       );
     } catch (e) {
+      if (e?.code === 'ER_BAD_FIELD_ERROR' && eventTimezone !== undefined) {
+        // Retry without event_timezone when migration 1193 is not applied yet.
+        return this.updateForProvider({
+          eventId: eid,
+          providerId: pid,
+          title,
+          description,
+          isPrivate,
+          allDay,
+          startAt,
+          endAt,
+          startDate,
+          endDate,
+          agencyId,
+          clientId,
+          reasonCode,
+          isTrainingPayEligible,
+          meetingSubtype,
+          waitingRoomEnabled,
+          notifyParticipants,
+          updatedByUserId
+        });
+      }
       if (e?.code === 'ER_BAD_FIELD_ERROR' && meetingSubtype !== undefined) {
         // Retry without meeting_subtype when migration 1052 is not applied yet.
         return this.updateForProvider({

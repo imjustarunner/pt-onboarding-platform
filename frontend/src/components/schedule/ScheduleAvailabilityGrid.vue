@@ -13368,13 +13368,20 @@ const editorInfoWhenTimeLabel = computed(() => {
   return range ? (tz ? `${range} · ${tz}` : range) : (tz || '—');
 });
 const editorDisplayTimezoneLabel = computed(() => {
-  if (editorIsMeeting.value || (isScheduleEventEditMode.value && isMeetingStackItem(editingScheduleStackItem.value))) {
+  if (isScheduleEventEditMode.value && isMeetingStackItem(editingScheduleStackItem.value)) {
+    // Show the zone actually driving the open edit form (the meeting's own persisted zone
+    // when known), not a fresh ambient guess that could differ from what gets saved.
+    return timezoneLabelFor(scheduleEventEditTimeZone.value || teamMeetingTimeZone());
+  }
+  if (editorIsMeeting.value) {
     return timezoneLabelFor(teamMeetingTimeZone());
   }
   return bookingTimezoneLabel.value;
 });
 /** Timezone label shown next to a stack-list item's inline time editor — must match whatever timeZone is actually sent on save. */
 const stackItemTimezoneLabel = (item) => {
+  const persisted = String(item?.timeZone || '').trim();
+  if (persisted) return timezoneLabelFor(persisted);
   return timezoneLabelFor(isMeetingStackItem(item) ? teamMeetingTimeZone() : scheduleMeetingTimeZone());
 };
 const editorInfoTypeLabel = computed(() => {
@@ -16704,6 +16711,7 @@ const patchScheduleEventInSummary = ({
     isPrivate: isPrivate !== undefined ? !!isPrivate : prev.isPrivate,
     startAt: nextStart,
     endAt: nextEnd,
+    timeZone: tz || prev.timeZone || null,
     ...(Array.isArray(attendeeUserIds) ? { attendeeUserIds } : {}),
     ...(waitingRoomEnabled !== undefined && ['TEAM_MEETING', 'HUDDLE'].includes(String(prev?.kind || '').toUpperCase())
       ? { waitingRoomEnabled: !!waitingRoomEnabled }
@@ -23434,6 +23442,15 @@ const seriesEditScopeError = ref('');
 const seriesEditScopeTitle = ref('Update series');
 const seriesEditScopePending = ref(null); // { kind, run(scope) }
 const editTimingBaseline = ref({ startAt: '', endAt: '', recurrenceSeriesId: '' });
+/**
+ * Zone of record for the item currently being edited, captured once when the edit form opens.
+ * TEAM_MEETING/HUDDLE must reuse the meeting's own persisted `timeZone` for the whole edit
+ * session — never re-derive it from the schedule toolbar's office filter, which can differ
+ * from (or drift away from) the zone the meeting was actually created in.
+ */
+const scheduleEventEditTimeZone = ref('');
+/** Tenant selected when the edit form opened — only resend `agencyId` if the host changes it. */
+const editAgencyBaseline = ref(0);
 const scheduleEventEditId = ref(0);
 const scheduleEventSaving = ref(false);
 const scheduleEventEditError = ref('');
@@ -23593,17 +23610,22 @@ const beginEditScheduleStackItem = async (item) => {
   const hostProviderId = resolveBookedProviderIdForEvent(item);
   if (hostProviderId > 0) bookingTargetUserId.value = hostProviderId;
   const isMeetingItem = isMeetingStackItem(item);
+  // Anchor to the meeting's own persisted zone when we have one; only fall back to the
+  // ambient office/tenant guess for legacy rows saved before that was recorded.
+  scheduleEventEditTimeZone.value = String(item?.timeZone || '').trim()
+    || (isMeetingItem ? teamMeetingTimeZone() : scheduleMeetingTimeZone());
   scheduleEventEditForm.value = {
     title: String(item?.label || '').trim(),
     description: String(item?.description || '').trim(),
-    startAt: toDatetimeLocalValue(item?.startAt, isMeetingItem),
-    endAt: toDatetimeLocalValue(item?.endAt, isMeetingItem),
+    startAt: toZonedDatetimeLocalValue(item?.startAt, scheduleEventEditTimeZone.value),
+    endAt: toZonedDatetimeLocalValue(item?.endAt, scheduleEventEditTimeZone.value),
     agencyId,
     clientId,
     isPrivate: !!item?.isPrivate
   };
   meetingIsTrainingPayEligible.value = !!item?.isTrainingPayEligible;
   meetingSubtype.value = normalizeMeetingSubtype(item?.meetingSubtype);
+  editAgencyBaseline.value = agencyId;
   editTimingBaseline.value = {
     startAt: String(scheduleEventEditForm.value.startAt || '').trim(),
     endAt: String(scheduleEventEditForm.value.endAt || '').trim(),
@@ -23742,9 +23764,16 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
     if (canFullEdit && isMeeting && saveAgencyId > 0) {
       await syncToggledInviteGroupMemberships(saveAgencyId);
     }
-    const saveTimeZone = isMeeting ? teamMeetingTimeZone() : scheduleMeetingTimeZone();
+    // Reuse the zone captured when the edit form opened (the meeting's own persisted zone,
+    // when known) — never recompute from the toolbar's office filter mid-save.
+    const saveTimeZone = String(scheduleEventEditTimeZone.value || '').trim()
+      || (isMeeting ? teamMeetingTimeZone() : scheduleMeetingTimeZone());
     const wallStartAt = startAt.length === 16 ? `${startAt}:00` : startAt;
     const wallEndAt = endAt.length === 16 ? `${endAt}:00` : endAt;
+    // Only resend agencyId if the host actually changed the Tenant selector — otherwise an
+    // unrelated edit (e.g. adding a participant) can silently move the whole meeting to
+    // whatever tenant happens to be ambient in the page, hiding it from its original calendar.
+    const agencyChanged = Number(saveAgencyId || 0) !== Number(editAgencyBaseline.value || 0);
     // Admin-meeting invitees may PATCH time only; hosts keep full edit payload.
     const patchBody = canRescheduleOnly
       ? {
@@ -23763,7 +23792,7 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
                 timeZone: saveTimeZone
               }
             : {}),
-          agencyId: saveAgencyId,
+          ...(agencyChanged ? { agencyId: saveAgencyId } : {}),
           isPrivate: !!scheduleEventEditForm.value.isPrivate,
           allDay: false,
           clientId,
@@ -23814,6 +23843,7 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
           : !!notifyMeetingParticipants.value)
         : undefined
     });
+    editAgencyBaseline.value = saveAgencyId;
     editTimingBaseline.value = {
       startAt: String(scheduleEventEditForm.value.startAt || '').trim(),
       endAt: String(scheduleEventEditForm.value.endAt || '').trim(),
@@ -24578,6 +24608,9 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     allDay: !!ev?.allDay,
     startAt: ev?.startAt || null,
     endAt: ev?.endAt || null,
+    // Zone this event's wall-clock was authored in — re-editing must anchor to this, not to
+    // whichever office/tenant happens to be selected in the schedule UI right now.
+    timeZone: String(ev?.timeZone || '').trim() || null,
     link: String(ev?.htmlLink || '').trim() || '',
     appJoinUrl: isScheduleMeetingJoinable(ev) ? (String(ev?.appJoinUrl || '').trim() || '') : '',
     hostJoinUrl: isScheduleMeetingJoinable(ev) ? (String(ev?.hostJoinUrl || '').trim() || '') : '',
