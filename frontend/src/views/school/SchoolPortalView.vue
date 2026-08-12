@@ -416,6 +416,29 @@
         </button>
       </nav>
 
+      <div v-if="canExitSchoolPortalShell" class="sp-sidebar-exit" aria-label="Leave school portal">
+        <router-link :to="portalMyDashboardPath" class="sp-nav-item sp-nav-item--exit">
+          <span class="sp-nav-icon" aria-hidden="true">←</span>
+          <span class="sp-nav-label">My Dashboard</span>
+        </router-link>
+        <router-link
+          v-if="canExitToAdminDashboard"
+          :to="portalAdminDashboardPath"
+          class="sp-nav-item sp-nav-item--exit"
+        >
+          <span class="sp-nav-icon" aria-hidden="true">⌂</span>
+          <span class="sp-nav-label">Admin Dashboard</span>
+        </router-link>
+        <router-link
+          v-if="canBackToSchools"
+          :to="backToSchoolsPath"
+          class="sp-nav-item sp-nav-item--exit"
+        >
+          <span class="sp-nav-icon" aria-hidden="true">⊞</span>
+          <span class="sp-nav-label">All schools</span>
+        </router-link>
+      </div>
+
       <div class="sp-sidebar-footer">
         <div class="sp-sidebar-school-row">
           <div v-if="schoolLogoUrl" class="sp-sidebar-footer-logo">
@@ -606,6 +629,20 @@
               </div>
             </div>
             <div class="top-actions-primary">
+              <router-link
+                v-if="canExitSchoolPortalShell"
+                :to="portalMyDashboardPath"
+                class="btn btn-secondary btn-sm"
+              >
+                My Dashboard
+              </router-link>
+              <router-link
+                v-if="canExitSchoolPortalShell && canExitToAdminDashboard"
+                :to="portalAdminDashboardPath"
+                class="btn btn-secondary btn-sm"
+              >
+                Admin Dashboard
+              </router-link>
               <div
                 v-if="showAdminSchoolSwitcher"
                 class="admin-school-switcher"
@@ -3447,6 +3484,35 @@ const backToSchoolsPath = computed(() => {
   }
   return `/admin/schools/overview?orgType=${orgTypeParam}`;
 });
+
+/** Non-school-staff users lose global nav in the portal shell — offer explicit exit links. */
+const canExitSchoolPortalShell = computed(() =>
+  !isPublicDemo.value && !isPreviewOrDemo.value && !isSchoolStaff.value && authStore.user?.id
+);
+const portalTenantSlug = computed(() => {
+  const parent = cardIconOrg.value;
+  const fromParent = String(parent?.portal_url || parent?.portalUrl || parent?.slug || '').trim();
+  if (fromParent) return fromParent;
+  const fromAgency = String(
+    agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || ''
+  ).trim();
+  if (fromAgency) return fromAgency;
+  return '';
+});
+const portalMyDashboardPath = computed(() => {
+  if (roleNorm.value === 'super_admin' || roleNorm.value === 'superadmin') return '/dashboard';
+  const slug = portalTenantSlug.value;
+  return slug ? `/${slug}/dashboard` : '/dashboard';
+});
+const canExitToAdminDashboard = computed(() =>
+  ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value)
+);
+const portalAdminDashboardPath = computed(() => {
+  const slug = portalTenantSlug.value;
+  if (slug) return `/${slug}/admin-dashboard`;
+  if (roleNorm.value === 'super_admin' || roleNorm.value === 'superadmin') return '/admin';
+  return '/admin-dashboard';
+});
 const canUseComplianceCorner = computed(() => ['super_admin', 'admin'].includes(roleNorm.value));
 // Days / Providers stay available for providers. Supervisor privileges must not block
 // those panels — the only school-portal restriction for providers is own-client roster.
@@ -5579,6 +5645,20 @@ watch(() => store.selectedWeekday, async (weekday) => {
   display: flex;
   flex-direction: column;
   gap: 1px;
+}
+.sp-sidebar-exit {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+.sp-nav-item--exit {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.sp-nav-item--exit:hover {
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .sp-nav-item {
