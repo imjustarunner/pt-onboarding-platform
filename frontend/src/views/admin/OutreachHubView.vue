@@ -411,40 +411,89 @@
       <div class="ohub-trip-layout">
         <section class="ohub-trip-plan">
           <h2>Plan a trip</h2>
-          <p class="ohub-muted">Starts at Windchime (437 Windchime Place, Colorado Springs). Click a school to add it; remaining schools then sort by distance from that stop.</p>
+          <p class="ohub-muted">Starts at Windchime (437 Windchime Place, Colorado Springs). Click a school to add it; remaining schools sort by distance from that stop.</p>
+          <div v-if="tripStops.length" class="ohub-trip-stats">
+            <span><strong>{{ tripRouteTotalMiles ?? '—' }}</strong> mi total route</span>
+            <span>Last stop <strong>{{ tripRouteTotalMiles ?? '—' }}</strong> mi from office</span>
+            <span>{{ tripStops.length }} stop{{ tripStops.length === 1 ? '' : 's' }}</span>
+          </div>
           <ol class="ohub-route">
             <li class="ohub-route-origin">
-              <strong>Start · Windchime</strong>
-              <div class="ohub-muted">437 Windchime Place, Colorado Springs, CO 80919</div>
+              <strong>Start · Windchime (office)</strong>
+              <div class="ohub-muted">437 Windchime Place, Colorado Springs, CO 80919 · 0 mi</div>
             </li>
-            <li v-for="(stop, idx) in tripStops" :key="stop.id">
-              <strong>{{ idx + 1 }}. {{ stop.name }}</strong>
-              <div class="ohub-muted">
-                {{ stop.address || stop.city }}
-                <template v-if="stop.miles_from_origin != null"> · {{ stop.miles_from_origin }} mi from previous</template>
+            <li v-for="(stop, idx) in tripStops" :key="stop.id" class="ohub-route-stop">
+              <div class="ohub-route-stop-head">
+                <strong>{{ idx + 1 }}. {{ stop.name }}</strong>
+                <span class="ohub-stage sm" :class="stop.outreach_stage">{{ stageLabel(stop.outreach_stage) }}</span>
+              </div>
+              <div class="ohub-muted ohub-route-stop-meta">
+                {{ shortDistrict(stop.district_name) }} · {{ levelLabel(stop.school_level) }}
+                <template v-if="stopLegMiles(stop) != null"> · {{ stopLegMiles(stop) }} mi from {{ idx === 0 ? 'office' : 'previous' }}</template>
                 <template v-if="stop.distance_approx"> (approx.)</template>
               </div>
+              <div class="ohub-muted ohub-route-stop-addr">{{ stop.address || stop.city }}</div>
               <button type="button" class="btn-link" @click="removeTripStop(idx)">Remove</button>
             </li>
           </ol>
-          <div class="ohub-filters">
-            <input v-model="tripSearch" class="ohub-search" type="search" placeholder="Filter nearby schools…" />
+          <div class="ohub-trip-filters">
+            <input v-model="tripSearch" class="ohub-search ohub-trip-search" type="search" placeholder="Search name, city, address…" />
+            <select v-model="tripStageFilter" class="ohub-trip-select">
+              <option value="">All statuses</option>
+              <option v-for="st in stageOptions" :key="`tf-${st.id}`" :value="st.id">{{ st.label }}</option>
+            </select>
+            <select v-model="tripDistrictFilter" class="ohub-trip-select">
+              <option value="">All districts</option>
+              <option v-for="d in tripDistrictOptions" :key="`td-${d}`" :value="d">{{ shortDistrict(d) }}</option>
+            </select>
+            <select v-model="tripSort" class="ohub-trip-select">
+              <option value="closest">Closest first</option>
+              <option value="miles">Distance</option>
+              <option value="school">School name</option>
+              <option value="district">District</option>
+              <option value="stage">Status</option>
+              <option value="level">Level</option>
+            </select>
+            <button
+              v-if="tripStageFilter || tripDistrictFilter || tripSearch"
+              type="button"
+              class="btn-link ohub-trip-clear"
+              @click="clearTripFilters"
+            >Clear filters</button>
           </div>
-          <p v-if="tripStops.length" class="ohub-muted">Closest from {{ lastTripStopName }}:</p>
-          <p v-else class="ohub-muted">Closest from Windchime:</p>
+          <p class="ohub-muted">
+            {{ tripStops.length ? `Closest from ${lastTripStopName}` : 'Closest from Windchime (office)' }}
+            <template v-if="filteredNearbySchools.length !== tripNearby.length">
+              · showing {{ filteredNearbySchools.length }} of {{ tripNearby.length }}
+            </template>
+          </p>
           <p v-if="tripPreviewLoading" class="ohub-muted">Loading distances and school addresses…</p>
           <p v-else-if="tripGeocodeRemaining > 0" class="ohub-muted">
             Street addresses are still loading for {{ tripGeocodeRemaining }} schools — distances use city centers until then.
           </p>
           <ul class="ohub-nearby">
-            <li v-for="row in nearbySchools" :key="row.id">
+            <li v-for="row in filteredNearbySchools" :key="row.id">
               <button type="button" class="ohub-nearby-btn" @click="addTripStop(row)">
-                <strong>{{ row.name }}</strong>
-                <span>{{ row.miles_from_origin != null ? `${row.miles_from_origin} mi` : '—' }}{{ row.distance_approx ? ' (approx.)' : '' }} · {{ shortDistrict(row.district_name) }}</span>
-                <em>{{ row.address || row.city }}</em>
+                <span class="ohub-nearby-miles">
+                  {{ row.miles_from_origin != null ? row.miles_from_origin : '—' }}
+                  <em>mi</em>
+                </span>
+                <span class="ohub-nearby-main">
+                  <span class="ohub-nearby-title-row">
+                    <strong>{{ row.name }}</strong>
+                    <span class="ohub-stage sm" :class="row.outreach_stage">{{ stageLabel(row.outreach_stage) }}</span>
+                  </span>
+                  <span class="ohub-nearby-meta">
+                    {{ shortDistrict(row.district_name) }} · {{ levelLabel(row.school_level) }}
+                    <template v-if="row.distance_approx"> · approx.</template>
+                  </span>
+                  <em class="ohub-nearby-addr">{{ row.address || row.city }}</em>
+                </span>
               </button>
             </li>
-            <li v-if="!nearbySchools.length" class="ohub-muted">No more schools to add.</li>
+            <li v-if="!filteredNearbySchools.length && !tripPreviewLoading" class="ohub-muted">
+              No schools match these filters.
+            </li>
           </ul>
         </section>
         <section class="ohub-trip-meta">
@@ -497,6 +546,7 @@
             <span class="ohub-stage" :class="t.status">{{ t.status }}</span>
             <div class="ohub-muted">
               {{ t.planned_date ? formatDate(t.planned_date) : formatDate(t.created_at) }}
+              <template v-if="savedTripTotalMiles(t) != null"> · {{ savedTripTotalMiles(t) }} mi from office</template>
               · {{ (t.stops || []).map((s) => s.school_name).join(' → ') || 'No stops' }}
             </div>
             <div v-if="(t.participants || []).length" class="ohub-muted">
@@ -634,6 +684,9 @@ const trips = ref([]);
 const tripStops = ref([]);
 const tripNearby = ref([]);
 const tripSearch = ref('');
+const tripStageFilter = ref('');
+const tripDistrictFilter = ref('');
+const tripSort = ref('closest');
 const tripDate = ref('');
 const tripNotes = ref('');
 const tripSaving = ref(false);
@@ -1005,13 +1058,79 @@ const submitContact = async () => {
 };
 
 const lastTripStopName = computed(() => tripStops.value.at(-1)?.name || 'Windchime');
-const nearbySchools = computed(() => {
-  const q = String(tripSearch.value || '').trim().toLowerCase();
-  return (tripNearby.value || []).filter((s) => {
-    if (!q) return true;
-    return [s.name, s.city, s.district_name, s.address].some((v) => String(v || '').toLowerCase().includes(q));
-  }).slice(0, 40);
+
+const stopLegMiles = (stop) => {
+  const n = Number(stop?.miles_from_prev ?? stop?.miles_from_origin);
+  return Number.isFinite(n) ? Math.round(n * 10) / 10 : null;
+};
+
+const tripRouteTotalMiles = computed(() => {
+  const legs = tripStops.value.map((s) => stopLegMiles(s)).filter((n) => n != null);
+  if (!legs.length) return null;
+  return Math.round(legs.reduce((a, b) => a + b, 0) * 10) / 10;
 });
+
+const tripDistrictOptions = computed(() => {
+  const names = new Set();
+  for (const s of tripNearby.value || []) {
+    if (s.district_name) names.add(s.district_name);
+  }
+  return [...names].sort((a, b) => a.localeCompare(b));
+});
+
+const filteredNearbySchools = computed(() => {
+  const q = String(tripSearch.value || '').trim().toLowerCase();
+  const stage = tripStageFilter.value;
+  const district = tripDistrictFilter.value;
+  let list = (tripNearby.value || []).filter((s) => {
+    if (stage && s.outreach_stage !== stage) return false;
+    if (district && s.district_name !== district) return false;
+    if (!q) return true;
+    const stageText = stageLabel(s.outreach_stage).toLowerCase();
+    return [s.name, s.city, s.district_name, s.address, stageText].some((v) =>
+      String(v || '').toLowerCase().includes(q)
+    );
+  });
+
+  const sort = tripSort.value;
+  if (sort === 'closest') {
+    // API returns closest-first; keep that order within the filtered set.
+  } else if (sort === 'miles') {
+    list = [...list].sort((a, b) => (Number(a.miles_from_origin ?? 99999) - Number(b.miles_from_origin ?? 99999)));
+  } else if (sort === 'school') {
+    list = [...list].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  } else if (sort === 'district') {
+    list = [...list].sort((a, b) =>
+      String(a.district_name).localeCompare(String(b.district_name)) || String(a.name).localeCompare(String(b.name))
+    );
+  } else if (sort === 'stage') {
+    const stageOrder = stageOptions.map((s) => s.id);
+    list = [...list].sort((a, b) => {
+      const ai = stageOrder.indexOf(a.outreach_stage);
+      const bi = stageOrder.indexOf(b.outreach_stage);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi) || String(a.name).localeCompare(String(b.name));
+    });
+  } else if (sort === 'level') {
+    list = [...list].sort((a, b) =>
+      String(a.school_level).localeCompare(String(b.school_level)) || String(a.name).localeCompare(String(b.name))
+    );
+  }
+
+  return list.slice(0, 60);
+});
+
+const clearTripFilters = () => {
+  tripSearch.value = '';
+  tripStageFilter.value = '';
+  tripDistrictFilter.value = '';
+  tripSort.value = 'closest';
+};
+
+const savedTripTotalMiles = (trip) => {
+  const legs = (trip?.stops || []).map((s) => Number(s.miles_from_prev)).filter((n) => Number.isFinite(n));
+  if (!legs.length) return null;
+  return Math.round(legs.reduce((a, b) => a + b, 0) * 10) / 10;
+};
 
 const loadTripPreview = async () => {
   tripPreviewLoading.value = true;
@@ -1029,7 +1148,12 @@ const loadTripPreview = async () => {
 };
 
 const addTripStop = async (row) => {
-  tripStops.value = [...tripStops.value, row];
+  const legMiles = row.miles_from_origin != null ? Number(row.miles_from_origin) : null;
+  tripStops.value = [...tripStops.value, {
+    ...row,
+    miles_from_prev: legMiles,
+    miles_from_origin: legMiles
+  }];
   await loadTripPreview();
 };
 const startTripFromSchool = async (row) => {
@@ -1198,8 +1322,39 @@ onMounted(async () => {
   border-radius: 14px;
   padding: 16px;
 }
+.ohub-trip-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  padding: 8px 12px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: #334155;
+}
+.ohub-trip-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.ohub-trip-search { min-width: 160px; flex: 1; max-width: 280px; }
+.ohub-trip-select {
+  border: 1px solid #dbe4dc;
+  border-radius: 10px;
+  padding: 6px 8px;
+  background: #fff;
+  font-size: 12px;
+}
+.ohub-trip-clear { font-size: 12px; }
 .ohub-route { list-style: none; padding: 0; margin: 0 0 12px; display: flex; flex-direction: column; gap: 8px; }
 .ohub-route-origin { padding: 8px 10px; background: #f0fdf4; border-radius: 10px; }
+.ohub-route-stop { padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 10px; }
+.ohub-route-stop-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ohub-route-stop-meta, .ohub-route-stop-addr { margin-top: 2px; }
 .ohub-nearby { list-style: none; padding: 0; margin: 0; max-height: 420px; overflow: auto; }
 .ohub-nearby-btn {
   width: 100%;
@@ -1207,15 +1362,27 @@ onMounted(async () => {
   border: 1px solid #e2e8f0;
   background: #fff;
   border-radius: 10px;
-  padding: 8px 10px;
+  padding: 7px 10px;
   margin-bottom: 6px;
   cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
 }
 .ohub-nearby-btn:hover { border-color: #14532d; background: #f0fdf4; }
-.ohub-nearby-btn span, .ohub-nearby-btn em { font-size: 12px; color: #64748b; font-style: normal; }
+.ohub-nearby-miles {
+  font-size: 13px;
+  font-weight: 800;
+  color: #14532d;
+  line-height: 1.2;
+}
+.ohub-nearby-miles em { font-size: 10px; font-weight: 600; color: #64748b; font-style: normal; }
+.ohub-nearby-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ohub-nearby-title-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ohub-nearby-title-row strong { font-size: 13px; }
+.ohub-nearby-meta { font-size: 11px; color: #64748b; }
+.ohub-nearby-addr { font-size: 11px; color: #94a3b8; font-style: normal; }
 .ohub-saved-trips { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .ohub-saved-trip { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 @media (max-width: 980px) {
@@ -1238,6 +1405,7 @@ onMounted(async () => {
   background: #f1f5f9;
   color: #475569;
 }
+.ohub-stage.sm { font-size: 10px; padding: 1px 6px; }
 .ohub-stage.partnered { background: #dcfce7; color: #166534; }
 .ohub-stage.meeting_scheduled { background: #ede9fe; color: #6d28d9; }
 .ohub-stage.contacted { background: #e0f2fe; color: #0369a1; }
