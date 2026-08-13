@@ -79,7 +79,8 @@ export async function ensureOutreachDirectory(agencyId) {
       } catch {
         /* ignore */
       }
-      return { inserted: 0, updated: 0, skipped: true };
+      const seeded = await applySeededOutreachLocations(id);
+      return { inserted: 0, updated: seeded, skipped: true };
     }
   } catch {
     /* table may not exist yet */
@@ -90,12 +91,14 @@ export async function ensureOutreachDirectory(agencyId) {
   for (const entry of COLORADO_OUTREACH_SCHOOLS) {
     const linked = pickLinkedOrg(entry, affiliated);
     const stage = linked ? 'partnered' : 'not_started';
-    const address = `${entry.name}, ${entry.city}, CO`;
+    const address = entry.address || `${entry.name}, ${entry.city}, CO`;
+    const lat = Number.isFinite(Number(entry.lat)) ? Number(entry.lat) : null;
+    const lng = Number.isFinite(Number(entry.lng)) ? Number(entry.lng) : null;
     const [result] = await pool.execute(
       `INSERT INTO outreach_schools (
          agency_id, directory_key, linked_organization_id, name, district_name,
-         city, region, school_level, address, outreach_stage
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         city, region, school_level, address, lat, lng, outreach_stage
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          linked_organization_id = IF(VALUES(linked_organization_id) IS NULL, linked_organization_id, VALUES(linked_organization_id)),
          name = VALUES(name),
@@ -103,7 +106,9 @@ export async function ensureOutreachDirectory(agencyId) {
          city = VALUES(city),
          region = VALUES(region),
          school_level = VALUES(school_level),
-         address = COALESCE(NULLIF(address, ''), VALUES(address)),
+         address = IF(address IS NULL OR address = '' OR address NOT REGEXP '[0-9]', VALUES(address), address),
+         lat = COALESCE(lat, VALUES(lat)),
+         lng = COALESCE(lng, VALUES(lng)),
          outreach_stage = IF(outreach_stage = 'not_started' AND VALUES(outreach_stage) = 'partnered', 'partnered', outreach_stage)`,
       [
         id,
@@ -115,6 +120,8 @@ export async function ensureOutreachDirectory(agencyId) {
         entry.region || entry.city,
         entry.level,
         address,
+        lat,
+        lng,
         stage
       ]
     );
@@ -133,7 +140,35 @@ export async function ensureOutreachDirectory(agencyId) {
   } catch {
     /* ignore if table missing on first boot */
   }
+  await applySeededOutreachLocations(id);
   return { inserted, updated };
+}
+
+/** Fill placeholder city-only addresses from the seeded NCES/CDE directory. */
+export async function applySeededOutreachLocations(agencyId) {
+  const id = Number(agencyId || 0);
+  if (!id) return 0;
+  let updated = 0;
+  for (const entry of COLORADO_OUTREACH_SCHOOLS) {
+    if (!entry.address || !/\d/.test(entry.address)) continue;
+    const lat = Number.isFinite(Number(entry.lat)) ? Number(entry.lat) : null;
+    const lng = Number.isFinite(Number(entry.lng)) ? Number(entry.lng) : null;
+    const [result] = await pool.execute(
+      `UPDATE outreach_schools
+       SET address = ?,
+           lat = COALESCE(?, lat),
+           lng = COALESCE(?, lng)
+       WHERE agency_id = ?
+         AND directory_key = ?
+         AND (
+           address IS NULL OR address = '' OR address NOT REGEXP '[0-9]'
+           OR lat IS NULL OR lng IS NULL
+         )`,
+      [entry.address, lat, lng, id, entry.key]
+    );
+    updated += Number(result?.affectedRows || 0);
+  }
+  return updated;
 }
 
 function mapSchoolRow(row, activityCounts = null) {

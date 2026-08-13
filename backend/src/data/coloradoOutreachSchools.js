@@ -3,14 +3,23 @@
  * Pueblo City (D60) + Pueblo County (D70), and Poudre (Fort Collins).
  */
 
-const s = (name, district, city, level, region = '') => ({
-  key: `${district}:${name}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
-  name,
-  district,
-  city,
-  level,
-  region: region || city
-});
+import { COLORADO_OUTREACH_SCHOOL_LOCATIONS } from './coloradoOutreachSchoolLocations.js';
+
+const s = (name, district, city, level, region = '') => {
+  const key = `${district}:${name}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const loc = COLORADO_OUTREACH_SCHOOL_LOCATIONS[key] || {};
+  return {
+    key,
+    name,
+    district,
+    city,
+    level,
+    region: region || city,
+    address: loc.address || null,
+    lat: loc.lat ?? null,
+    lng: loc.lng ?? null
+  };
+};
 
 const DPS = 'Denver Public Schools';
 const APS = 'Aurora Public Schools';

@@ -120,3 +120,14 @@ describe('outreach school address resolution helpers', () => {
     assert.equal(best?.name, 'East High School');
   });
 });
+
+describe('outreach school seed locations', () => {
+  it('attaches a street address and coordinates to every directory school', async () => {
+    const { COLORADO_OUTREACH_SCHOOLS } = await import('../../data/coloradoOutreachSchools.js');
+    assert.equal(COLORADO_OUTREACH_SCHOOLS.length, 269);
+    const missing = COLORADO_OUTREACH_SCHOOLS.filter((s) => !s.address || !/\d/.test(s.address) || s.lat == null || s.lng == null);
+    assert.deepEqual(missing.map((s) => s.name), []);
+    const east = COLORADO_OUTREACH_SCHOOLS.find((s) => s.name === 'East High School' && s.city === 'Denver');
+    assert.ok(east.address.toLowerCase().includes('city park esplanade'));
+  });
+});
