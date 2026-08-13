@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildSchoolYearPickerOptions,
   priorSchoolYearsFromAvailable
-} from '../../../../frontend/src/utils/schoolYear.js';
+} from '../schoolYear.js';
 
 describe('school year picker helpers', () => {
   it('does not invent prior years by default', () => {

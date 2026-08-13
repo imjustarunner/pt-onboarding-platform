@@ -56,3 +56,31 @@ export function computeCurrentSchoolYearShort(now = new Date()) {
   if (!m) return full;
   return `${m[1]}-${m[2].slice(-2)}`;
 }
+
+/** Current year plus optional prior labels (prefer API-driven roster years in school portal). */
+export function buildSchoolYearPickerOptions(now = new Date(), priorCount = 0) {
+  const current = computeCurrentSchoolYearLabel(now);
+  const m = String(current).match(/^(\d{4})-(\d{4})$/);
+  if (!m) return [current];
+  let start = parseInt(m[1], 10);
+  const out = [current];
+  for (let i = 0; i < priorCount; i += 1) {
+    start -= 1;
+    out.push(`${start}-${start + 1}`);
+  }
+  return out;
+}
+
+/** Prior roster years from server data — excludes the current label. */
+export function priorSchoolYearsFromAvailable(availableYears = [], currentLabel = null) {
+  const current = normalizeSchoolYearLabel(currentLabel) || computeCurrentSchoolYearLabel();
+  const seen = new Set();
+  const out = [];
+  for (const raw of availableYears || []) {
+    const label = normalizeSchoolYearLabel(raw);
+    if (!label || label === current || seen.has(label)) continue;
+    seen.add(label);
+    out.push(label);
+  }
+  return out.sort((a, b) => String(b).localeCompare(String(a)));
+}

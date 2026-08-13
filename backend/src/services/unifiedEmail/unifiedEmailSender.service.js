@@ -15,6 +15,7 @@ import {
   scanStoredCommunicationQuality
 } from '../outboundEmailQuality.service.js';
 import { buildFallbackSenderMetadata } from '../../constants/automatedEmailCatalog.js';
+import { rewriteHogwartsOutboundRecipient } from '../../utils/hogwartsTestEmail.js';
 
 async function canSendEmail({ source, agencyId } = {}) {
   const mode = await getEmailSendingMode();
@@ -496,9 +497,10 @@ export async function sendNotificationEmail({
   }
 
   const gmail = await getGmailClient();
+  const redirected = await rewriteHogwartsOutboundRecipient({ to, subject: effectiveSubject });
   const mime = buildMimeMessage({
-    to,
-    subject: effectiveSubject,
+    to: redirected.to,
+    subject: redirected.subject,
     text: signedContent.text,
     html: htmlWithPixel,
     from,
@@ -708,9 +710,10 @@ export async function sendEmailFromIdentity({
   }
 
   const gmail = await getGmailClient();
+  const redirected = await rewriteHogwartsOutboundRecipient({ to, subject });
   const mime = buildMimeMessage({
-    to,
-    subject,
+    to: redirected.to,
+    subject: redirected.subject,
     text: signedContent.text,
     html: htmlWithPixel,
     from,

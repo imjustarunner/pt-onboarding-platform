@@ -29,7 +29,8 @@ import {
   demoSwitchView,
   demoLaunchWindow,
   listTestAccounts,
-  switchTestAccount
+  switchTestAccount,
+  returnTestAccount
 } from '../controllers/auth.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 import { requireAdminOrFirstUser } from '../middleware/conditionalAdmin.middleware.js';
@@ -179,6 +180,7 @@ router.get('/test-accounts', authenticate, listTestAccounts);
 router.post('/test-accounts/switch', authenticate, [
   body('userId').isInt({ min: 1 }).withMessage('userId must be a positive integer')
 ], switchTestAccount);
+router.post('/test-accounts/return', authenticate, returnTestAccount);
 router.get('/session-lock-config', authenticate, getSessionLockConfig);
 router.post('/platform-session/heartbeat', authenticate, platformSessionHeartbeat);
 router.post('/verify-session-pin', authenticate, [

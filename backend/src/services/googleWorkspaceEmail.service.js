@@ -2,6 +2,7 @@ import { google } from 'googleapis';
 import { getWorkspaceClientsForEmployee, logGoogleUnauthorizedHint } from './googleWorkspaceAuth.service.js';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import { base64UrlEncode, buildMimeMessage } from './unifiedEmail/mime.js';
+import { rewriteHogwartsOutboundRecipient } from '../utils/hogwartsTestEmail.js';
 
 function parseServiceAccountJson() {
   const raw = process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON;
@@ -42,6 +43,9 @@ class GoogleWorkspaceEmailService {
   }
 
   static async sendEmail({ to, subject, text = null, html = null, fromName = null, fromAddress = null, replyTo = null, attachments = null }) {
+    const redirected = await rewriteHogwartsOutboundRecipient({ to, subject });
+    to = redirected.to;
+    subject = redirected.subject;
     const impersonate = getImpersonatedUser();
     if (!impersonate) {
       throw new Error('Missing GOOGLE_WORKSPACE_IMPERSONATE_USER or GMAIL_IMPERSONATE_USER');

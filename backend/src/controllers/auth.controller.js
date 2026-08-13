@@ -3677,6 +3677,51 @@ const isBackofficeAdminRole = (role) => {
   return r === 'admin' || r === 'super_admin' || r === 'superadmin';
 };
 
+const isSuperAdminRole = (role) => {
+  const r = String(role || '').trim().toLowerCase();
+  return r === 'super_admin' || r === 'superadmin';
+};
+
+const getTestAccountGroup = async (userId) => {
+  const id = Number.parseInt(userId, 10);
+  if (!Number.isInteger(id) || id < 1) return null;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT account_group
+       FROM demo_test_accounts
+       WHERE user_id = ? AND is_active = 1
+       LIMIT 1`,
+      [id]
+    );
+    const group = String(rows?.[0]?.account_group || '').trim().toLowerCase();
+    return group || null;
+  } catch {
+    return null;
+  }
+};
+
+const pickPreferredAgencyForTestSwitch = (agencies, { accountGroup, role } = {}) => {
+  const list = Array.isArray(agencies) ? agencies : [];
+  const slugOf = (a) => String(a?.slug || a?.portal_url || '').toLowerCase();
+  const orgType = (a) => String(a?.organization_type || '').toLowerCase();
+  const r = String(role || '').toLowerCase();
+  if (accountGroup === 'hogwarts') {
+    const hogwarts = list.find((a) => slugOf(a) === 'hogwarts');
+    if (r === 'school_staff' || r === 'client_guardian') {
+      return hogwarts || list.find((a) => orgType(a) === 'school') || list[0] || null;
+    }
+    return list.find((a) => slugOf(a) === 'itsco')
+      || list.find((a) => orgType(a) === 'agency')
+      || hogwarts
+      || list[0]
+      || null;
+  }
+  return list.find((a) => slugOf(a) === 'demo')
+    || list.find((a) => orgType(a) === 'agency')
+    || list[0]
+    || null;
+};
+
 const isActiveDemoTestAccountUser = async (userId) => {
   const id = Number.parseInt(userId, 10);
   if (!Number.isInteger(id) || id < 1) return false;
@@ -3759,7 +3804,9 @@ export const listTestAccounts = async (req, res, next) => {
     }
 
     const actorIsAdmin = isBackofficeAdminRole(actor.role);
+    const actorIsSuperAdmin = isSuperAdminRole(actor.role);
     const actorOnRoster = await isActiveDemoTestAccountUser(actor.id);
+    const actorGroup = await getTestAccountGroup(actor.id);
     if (!actorIsAdmin && !actorOnRoster) {
       return res.status(403).json({ error: { message: 'Test account switching is not available for this user' } });
     }
@@ -3770,6 +3817,7 @@ export const listTestAccounts = async (req, res, next) => {
          dta.user_id AS userId,
          dta.label,
          dta.sort_order AS sortOrder,
+         COALESCE(dta.account_group, 'demo') AS accountGroup,
          u.email,
          u.role,
          u.first_name AS firstName,
@@ -3782,24 +3830,50 @@ export const listTestAccounts = async (req, res, next) => {
        ORDER BY dta.sort_order ASC, dta.id ASC`
     );
 
+    const canSeeHogwarts = actorIsSuperAdmin || actorGroup === 'hogwarts';
     const accounts = (rows || [])
       .filter((row) => Number(row.userId) !== Number(actor.id))
+      .filter((row) => {
+        const group = String(row.accountGroup || 'demo').toLowerCase();
+        if (group === 'hogwarts') return canSeeHogwarts;
+        return true;
+      })
       .map((row) => ({
         id: row.id,
         userId: row.userId,
         label: row.label,
         sortOrder: row.sortOrder,
+        accountGroup: String(row.accountGroup || 'demo').toLowerCase(),
         email: row.email,
         role: row.role,
         firstName: row.firstName,
         lastName: row.lastName
       }));
 
+    let returnAccount = null;
+    const fromId = Number.parseInt(req.user?.switchedFromUserId, 10);
+    if (Number.isInteger(fromId) && fromId > 0 && fromId !== Number(actor.id)) {
+      const original = await User.findById(fromId);
+      if (original) {
+        const name = `${original.first_name || ''} ${original.last_name || ''}`.trim();
+        returnAccount = {
+          userId: original.id,
+          label: name || original.email,
+          email: original.email,
+          role: original.role
+        };
+      }
+    }
+
     res.json({
       accounts,
       canSwitch: true,
+      canReturn: !!returnAccount,
+      returnAccount,
       actorIsAdmin,
-      actorOnRoster
+      actorIsSuperAdmin,
+      actorOnRoster,
+      actorGroup
     });
   } catch (error) {
     if (error?.code === 'ER_NO_SUCH_TABLE') {
@@ -3826,7 +3900,9 @@ export const switchTestAccount = async (req, res, next) => {
     }
 
     const actorIsAdmin = isBackofficeAdminRole(actor.role);
+    const actorIsSuperAdmin = isSuperAdminRole(actor.role);
     const actorOnRoster = await isActiveDemoTestAccountUser(actor.id);
+    const actorGroup = await getTestAccountGroup(actor.id);
     if (!actorIsAdmin && !actorOnRoster) {
       return res.status(403).json({ error: { message: 'Test account switching is not available for this user' } });
     }
@@ -3840,11 +3916,22 @@ export const switchTestAccount = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Target user is not in the test account allowlist' } });
     }
 
+    const targetGroup = await getTestAccountGroup(targetUserId);
+    if (targetGroup === 'hogwarts') {
+      const fromId = Number.parseInt(req.user?.switchedFromUserId, 10);
+      const canHogwarts = actorIsSuperAdmin || actorGroup === 'hogwarts' || (Number.isInteger(fromId) && fromId > 0);
+      if (!canHogwarts) {
+        return res.status(403).json({ error: { message: 'Hogwarts test accounts are superadmin-only' } });
+      }
+    }
+
     const targetUser = await User.findById(targetUserId);
     if (!targetUser || targetUser.is_active === 0 || targetUser.is_active === false || targetUser.is_archived) {
       return res.status(404).json({ error: { message: 'Target test account not found or inactive' } });
     }
 
+    const originalUserId = Number.parseInt(req.user?.switchedFromUserId, 10) || Number(actor.id);
+    const returningHome = Number(originalUserId) === Number(targetUser.id);
     const sessionId = crypto.randomUUID();
     const token = jwt.sign(
       {
@@ -3852,8 +3939,12 @@ export const switchTestAccount = async (req, res, next) => {
         email: targetUser.email,
         role: targetUser.role,
         sessionId,
-        testAccountSwitch: true,
-        switchedFromUserId: actor.id
+        ...(returningHome
+          ? {}
+          : {
+              testAccountSwitch: true,
+              switchedFromUserId: originalUserId
+            })
       },
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
@@ -3893,11 +3984,10 @@ export const switchTestAccount = async (req, res, next) => {
       console.error('Failed to start platform session for test account switch:', err);
     }
 
-    const preferredAgency =
-      (userPayload.agencies || []).find((a) => String(a?.slug || '').toLowerCase() === 'demo')
-      || (userPayload.agencies || []).find((a) => String(a?.organization_type || '').toLowerCase() === 'agency')
-      || (userPayload.agencies || [])[0]
-      || null;
+    const preferredAgency = pickPreferredAgencyForTestSwitch(userPayload.agencies, {
+      accountGroup: targetGroup || 'demo',
+      role: targetUser.role
+    });
 
     res.json({
       message: 'Switched test account',
@@ -3919,6 +4009,102 @@ export const switchTestAccount = async (req, res, next) => {
     if (error?.code === 'ER_NO_SUCH_TABLE') {
       return res.status(404).json({ error: { message: 'Test account switcher is not configured yet' } });
     }
+    next(error);
+  }
+};
+
+/**
+ * Return to the original account after a test-account swap (superadmin → Hogwarts, etc.).
+ */
+export const returnTestAccount = async (req, res, next) => {
+  try {
+    const fromId = Number.parseInt(req.user?.switchedFromUserId, 10);
+    if (!req.user?.testAccountSwitch || !Number.isInteger(fromId) || fromId < 1) {
+      return res.status(400).json({ error: { message: 'No original account to return to' } });
+    }
+
+    const actor = await User.findById(req.user?.id);
+    if (!actor) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+    if (Number(actor.id) === fromId) {
+      return res.status(400).json({ error: { message: 'Already signed in as that account' } });
+    }
+
+    const targetUser = await User.findById(fromId);
+    if (!targetUser || targetUser.is_active === 0 || targetUser.is_active === false || targetUser.is_archived) {
+      return res.status(404).json({ error: { message: 'Original account not found or inactive' } });
+    }
+
+    const sessionId = crypto.randomUUID();
+    const token = jwt.sign(
+      {
+        id: targetUser.id,
+        email: targetUser.email,
+        role: targetUser.role,
+        sessionId
+      },
+      config.jwt.secret,
+      { expiresIn: config.jwt.expiresIn }
+    );
+
+    res.cookie('authToken', token, config.authCookie.set());
+
+    const userPayload = await buildTestAccountSwitchUserPayload(targetUser);
+    const targetGroup = await getTestAccountGroup(targetUser.id);
+
+    ActivityLogService.logActivity({
+      actionType: 'test_account_return',
+      userId: targetUser.id,
+      sessionId,
+      metadata: {
+        actorUserId: actor.id,
+        actorEmail: actor.email,
+        actorRole: actor.role,
+        targetUserId: targetUser.id,
+        targetEmail: targetUser.email,
+        targetRole: targetUser.role
+      }
+    }, req);
+
+    try {
+      const UserPlatformSession = (await import('../models/UserPlatformSession.model.js')).default;
+      const agencyId = Array.isArray(userPayload.agencies) && userPayload.agencies.length
+        ? userPayload.agencies[0].id
+        : null;
+      await UserPlatformSession.startSession({
+        sessionId,
+        userId: targetUser.id,
+        agencyId,
+        ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress || 'unknown',
+        userAgent: req.headers['user-agent'] || 'unknown'
+      });
+    } catch (err) {
+      console.error('Failed to start platform session for test account return:', err);
+    }
+
+    const preferredAgency = pickPreferredAgencyForTestSwitch(userPayload.agencies, {
+      accountGroup: targetGroup || 'demo',
+      role: targetUser.role
+    });
+
+    res.json({
+      message: 'Returned to original account',
+      token,
+      sessionId,
+      user: userPayload,
+      agencies: userPayload.agencies || [],
+      selectedAgency: preferredAgency
+        ? {
+            id: preferredAgency.id,
+            name: preferredAgency.name,
+            slug: preferredAgency.slug || null,
+            portal_url: preferredAgency.portal_url || null,
+            organization_type: preferredAgency.organization_type || null
+          }
+        : null
+    });
+  } catch (error) {
     next(error);
   }
 };

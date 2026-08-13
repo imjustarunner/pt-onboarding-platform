@@ -343,7 +343,7 @@
           <div class="pthq-card-head row">
             <div>
               <h2>Testing Interface</h2>
-              <p class="muted">Platform-only. Launches isolated windows so your superadmin session stays put.</p>
+              <p class="muted">Hogwarts real-account sign-in, plus isolated demo windows. Superadmin only.</p>
             </div>
             <button type="button" class="pthq-ghost" @click="setPanel('overview')">← Back to overview</button>
           </div>

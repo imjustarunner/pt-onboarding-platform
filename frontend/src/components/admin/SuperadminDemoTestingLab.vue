@@ -5,16 +5,48 @@
         <div class="demo-lab__eyebrow">Superadmin only</div>
         <h2 class="demo-lab__title">Demo Testing Lab</h2>
         <p class="demo-lab__sub">
-          Launch isolated browser windows for demo tenants without leaving your Platform session.
-          Each window uses a window-scoped token so your superadmin cookie stays intact.
+          Hogwarts uses real ITSCO school accounts (click a name to sign in).
+          Demo Playground and other cards still open isolated windows so your superadmin session stays put.
         </p>
       </div>
-      <button type="button" class="demo-lab__refresh" :disabled="loading" @click="loadTenants">
+      <button type="button" class="demo-lab__refresh" :disabled="loading" @click="() => { loadTenants(); loadHogwartsAccounts(); }">
         {{ loading ? 'Refreshing…' : 'Refresh tenants' }}
       </button>
     </header>
 
     <p v-if="error" class="demo-lab__error">{{ error }}</p>
+
+    <article class="demo-lab__card demo-lab__card--hogwarts">
+      <div class="demo-lab__card-top">
+        <div class="demo-lab__badge" data-kind="school">ITSCO school</div>
+        <h3>Hogwarts</h3>
+        <p class="demo-lab__tenant">
+          Real Hogwarts accounts inside ITSCO. Click a name to sign in as that person.
+          Use Test Accounts in the header to jump to another, or return to your superadmin session.
+        </p>
+      </div>
+      <div v-if="hogwartsLoading" class="demo-lab__empty">Loading Hogwarts testers…</div>
+      <div v-else-if="!hogwartsGroups.some((g) => g.accounts.length)" class="demo-lab__empty">
+        No Hogwarts testers found. Run migration 1213 after deploy.
+      </div>
+      <div v-else class="demo-lab__hogwarts-groups">
+        <div v-for="group in hogwartsGroups" :key="group.id" class="demo-lab__hogwarts-col">
+          <div class="demo-lab__public-label">{{ group.label }}</div>
+          <button
+            v-for="account in group.accounts"
+            :key="account.userId"
+            type="button"
+            class="demo-lab__btn"
+            :class="{ primary: group.id === 'school_staff' }"
+            :disabled="switchingId === account.userId"
+            @click="switchToHogwarts(account)"
+          >
+            <span class="btn-label">{{ account.label }}</span>
+            <span class="btn-meta">{{ formatRole(account.role) }}</span>
+          </button>
+        </div>
+      </div>
+    </article>
 
     <div class="demo-lab__grid">
       <article v-for="group in surfaceGroups" :key="group.id" class="demo-lab__card">
@@ -98,13 +130,33 @@ import api from '../../services/api';
 import { encodeDemoLaunchHash } from '../../utils/demoWindowSession';
 import { isPractitionerOrgType } from '../../utils/practitionerVertical.js';
 import { isLikelyDemoTenant } from '../../utils/demoTenant.js';
+import { getDashboardRoute } from '../../utils/router';
+import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
 
 const router = useRouter();
+const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 const loading = ref(false);
+const hogwartsLoading = ref(false);
 const error = ref('');
 const tenants = ref([]);
+const hogwartsAccounts = ref([]);
 const launchingId = ref('');
+const switchingId = ref(0);
 const lastLaunch = ref('');
+
+const formatRole = (value) => String(value || '').replace(/_/g, ' ');
+
+const hogwartsGroups = computed(() => {
+  const list = Array.isArray(hogwartsAccounts.value) ? hogwartsAccounts.value : [];
+  const byRole = (roles) => list.filter((a) => roles.includes(String(a.role || '').toLowerCase()));
+  return [
+    { id: 'school_staff', label: 'School staff', accounts: byRole(['school_staff']) },
+    { id: 'provider', label: 'Providers', accounts: byRole(['provider', 'provider_plus', 'intern', 'intern_plus']) },
+    { id: 'guardian', label: 'Guardians', accounts: byRole(['client_guardian', 'guardian']) }
+  ];
+});
 
 const findTenant = (predicate) => {
   const list = Array.isArray(tenants.value) ? tenants.value : [];
@@ -300,6 +352,19 @@ const surfaceGroups = computed(() => {
 
 const slugOf = (tenant) => String(tenant?.slug || tenant?.portal_url || '').trim();
 
+const loadHogwartsAccounts = async () => {
+  hogwartsLoading.value = true;
+  try {
+    const response = await api.get('/auth/test-accounts', { skipGlobalLoading: true });
+    const list = Array.isArray(response?.data?.accounts) ? response.data.accounts : [];
+    hogwartsAccounts.value = list.filter((a) => String(a.accountGroup || '') === 'hogwarts');
+  } catch {
+    hogwartsAccounts.value = [];
+  } finally {
+    hogwartsLoading.value = false;
+  }
+};
+
 const loadTenants = async () => {
   loading.value = true;
   error.value = '';
@@ -323,6 +388,48 @@ const loadTenants = async () => {
     loading.value = false;
   }
 };
+
+const switchToHogwarts = async (account) => {
+  if (!account?.userId || switchingId.value) return;
+  switchingId.value = Number(account.userId);
+  error.value = '';
+  try {
+    const response = await api.post('/auth/test-accounts/switch', { userId: account.userId });
+    const payload = response?.data || {};
+    if (!payload.user) throw new Error('Switch response missing user');
+    try {
+      localStorage.removeItem('currentAgency');
+      localStorage.removeItem('userAgencies');
+    } catch {
+      /* ignore */
+    }
+    authStore.setAuth(payload.token || null, payload.user, payload.sessionId || null);
+    const agencies = payload.agencies || payload.user?.agencies || [];
+    if (Array.isArray(agencies)) agencyStore.applyLoginAgencies?.(agencies);
+    const nextRole = String(payload.user?.role || '').toLowerCase();
+    const schoolOrg = (agencies || []).find(
+      (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'school'
+    );
+    const preferred =
+      ((nextRole === 'school_staff' || nextRole === 'client_guardian') && schoolOrg)
+        ? schoolOrg
+        : (payload.selectedAgency || null);
+    if (preferred) agencyStore.setCurrentAgency(preferred);
+    const slug = String(preferred?.slug || preferred?.portal_url || schoolOrg?.slug || '').trim();
+    let nextPath = getDashboardRoute();
+    if (nextRole === 'school_staff' && slug) nextPath = `/${slug}/dashboard`;
+    if (nextRole === 'client_guardian' && slug) nextPath = `/${slug}/guardian`;
+    window.location.assign(nextPath);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to switch into Hogwarts account';
+    switchingId.value = 0;
+  }
+};
+
+onMounted(() => {
+  loadTenants();
+  loadHogwartsAccounts();
+});
 
 const buildTargetPath = (tenant, pathSuffix) => {
   const slug = slugOf(tenant);
@@ -398,8 +505,6 @@ const openPublicPage = (group, page) => {
   window.open(href, `pt-public-${page.id}-${tenant.id}`, 'noopener,noreferrer');
   lastLaunch.value = `Opened ${page.label} for ${tenant.name}.`;
 };
-
-onMounted(loadTenants);
 </script>
 
 <style scoped>
@@ -458,6 +563,24 @@ onMounted(loadTenants);
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.9rem;
+  margin-top: 0.9rem;
+}
+.demo-lab__card--hogwarts {
+  margin-bottom: 0;
+}
+.demo-lab__hogwarts-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.demo-lab__hogwarts-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.demo-lab__empty {
+  color: #94a3b8;
+  font-size: 0.82rem;
 }
 .demo-lab__card {
   background: rgba(15, 23, 42, 0.72);
@@ -623,7 +746,8 @@ onMounted(loadTenants);
 }
 @media (max-width: 960px) {
   .demo-lab__grid,
-  .demo-lab__actions {
+  .demo-lab__actions,
+  .demo-lab__hogwarts-groups {
     grid-template-columns: 1fr;
   }
   .demo-lab__header {

@@ -31,21 +31,34 @@
         @click.stop
       >
         <div class="tas-menu-title">Switch Test Account</div>
+        <button
+          v-if="returnAccount"
+          type="button"
+          class="tas-option tas-option-return"
+          :disabled="switching"
+          @click="returnToOriginal"
+        >
+          <span class="tas-option-label">Return to {{ returnAccount.label }}</span>
+          <span class="tas-option-meta">{{ formatRole(returnAccount.role) }}</span>
+        </button>
         <div v-if="loading" class="tas-empty">Loading…</div>
         <div v-else-if="loadError" class="tas-empty tas-error">{{ loadError }}</div>
-        <div v-else-if="!accounts.length" class="tas-empty">No other test accounts available.</div>
-        <button
-          v-for="account in accounts"
-          :key="account.userId"
-          type="button"
-          class="tas-option"
-          role="option"
-          :disabled="switching"
-          @click="switchTo(account)"
-        >
-          <span class="tas-option-label">{{ account.label }}</span>
-          <span class="tas-option-meta">{{ account.email }} · {{ formatRole(account.role) }}</span>
-        </button>
+        <div v-else-if="!accounts.length && !returnAccount" class="tas-empty">No other test accounts available.</div>
+        <template v-for="group in groupedAccounts" :key="group.id">
+          <div v-if="group.accounts.length" class="tas-group-label">{{ group.label }}</div>
+          <button
+            v-for="account in group.accounts"
+            :key="account.userId"
+            type="button"
+            class="tas-option"
+            role="option"
+            :disabled="switching"
+            @click="switchTo(account)"
+          >
+            <span class="tas-option-label">{{ account.label }}</span>
+            <span class="tas-option-meta">{{ formatRole(account.role) }}</span>
+          </button>
+        </template>
       </div>
     </Teleport>
   </div>
@@ -78,6 +91,7 @@ const loading = ref(false);
 const switching = ref(false);
 const loadError = ref('');
 const accounts = ref([]);
+const returnAccount = ref(null);
 const canSwitch = ref(false);
 const loadedOnce = ref(false);
 const menuStyle = ref({});
@@ -94,8 +108,17 @@ const visible = computed(() => {
 
 const triggerLabel = computed(() => (props.compact ? 'Test' : 'Test Accounts'));
 const triggerTitle = computed(() =>
-  switching.value ? 'Switching account…' : 'Switch to another Demo Playground test account'
+  switching.value ? 'Switching account…' : 'Switch to a Demo Playground or Hogwarts test account'
 );
+
+const groupedAccounts = computed(() => {
+  const hogwarts = accounts.value.filter((a) => String(a.accountGroup || 'demo') === 'hogwarts');
+  const demo = accounts.value.filter((a) => String(a.accountGroup || 'demo') !== 'hogwarts');
+  return [
+    { id: 'hogwarts', label: 'Hogwarts (ITSCO)', accounts: hogwarts },
+    { id: 'demo', label: 'Demo Playground', accounts: demo }
+  ];
+});
 
 const formatRole = (value) => String(value || '').replace(/_/g, ' ');
 
@@ -136,6 +159,7 @@ const onViewportChange = () => {
 const loadAccounts = async () => {
   if (!authStore.user?.id) {
     accounts.value = [];
+    returnAccount.value = null;
     canSwitch.value = false;
     return;
   }
@@ -144,11 +168,13 @@ const loadAccounts = async () => {
   try {
     const response = await api.get('/auth/test-accounts', { skipGlobalLoading: true });
     accounts.value = Array.isArray(response?.data?.accounts) ? response.data.accounts : [];
-    canSwitch.value = response?.data?.canSwitch === true || accounts.value.length > 0 || isAdminLike.value;
+    returnAccount.value = response?.data?.returnAccount || null;
+    canSwitch.value = response?.data?.canSwitch === true || accounts.value.length > 0 || !!returnAccount.value || isAdminLike.value;
   } catch (error) {
     const status = error?.response?.status;
     if (status === 403 || status === 404) {
       accounts.value = [];
+    returnAccount.value = null;
       canSwitch.value = isAdminLike.value;
       if (!isAdminLike.value) loadError.value = '';
     } else {
@@ -185,7 +211,48 @@ const resolvePostSwitchPath = (selectedAgency, nextRole, agencies = []) => {
     return slug ? `/${slug}/dashboard` : '/dashboard';
   }
 
+  if (r === 'client_guardian') {
+    const slug = String(schoolOrg?.slug || schoolOrg?.portal_url || selectedAgency?.slug || selectedAgency?.portal_url || '').trim();
+    return slug ? `/${slug}/guardian` : '/guardian';
+  }
+
   return getDashboardRoute();
+};
+
+const applySwitchPayload = (payload, fallbackRole) => {
+  if (!payload.user) {
+    throw new Error('Switch response missing user');
+  }
+
+  try {
+    localStorage.removeItem('currentAgency');
+    localStorage.removeItem('userAgencies');
+  } catch {
+    /* ignore */
+  }
+
+  authStore.setAuth(payload.token || null, payload.user, payload.sessionId || null);
+
+  const agencies = payload.agencies || payload.user?.agencies || [];
+  if (Array.isArray(agencies)) {
+    agencyStore.applyLoginAgencies?.(agencies);
+  }
+
+  const nextRole = String(payload.user?.role || fallbackRole || '').toLowerCase();
+  const schoolOrg = (agencies || []).find(
+    (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'school'
+  );
+  const preferred =
+    ((nextRole === 'school_staff' || nextRole === 'client_guardian') && schoolOrg)
+      ? schoolOrg
+      : (payload.selectedAgency || null);
+  if (preferred) {
+    agencyStore.setCurrentAgency(preferred);
+  }
+
+  const nextPath = resolvePostSwitchPath(preferred, payload.user.role, agencies);
+  closeMenu();
+  window.location.assign(nextPath);
 };
 
 const switchTo = async (account) => {
@@ -194,42 +261,22 @@ const switchTo = async (account) => {
   loadError.value = '';
   try {
     const response = await api.post('/auth/test-accounts/switch', { userId: account.userId });
-    const payload = response?.data || {};
-    if (!payload.user) {
-      throw new Error('Switch response missing user');
-    }
-
-    try {
-      localStorage.removeItem('currentAgency');
-      localStorage.removeItem('userAgencies');
-    } catch {
-      /* ignore */
-    }
-
-    authStore.setAuth(payload.token || null, payload.user, payload.sessionId || null);
-
-    const agencies = payload.agencies || payload.user?.agencies || [];
-    if (Array.isArray(agencies)) {
-      agencyStore.applyLoginAgencies?.(agencies);
-    }
-
-    const nextRole = String(payload.user?.role || '').toLowerCase();
-    const schoolOrg = (agencies || []).find(
-      (a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'school'
-    );
-    const preferred =
-      (nextRole === 'school_staff' && schoolOrg)
-        ? schoolOrg
-        : (payload.selectedAgency || null);
-    if (preferred) {
-      agencyStore.setCurrentAgency(preferred);
-    }
-
-    const nextPath = resolvePostSwitchPath(preferred, payload.user.role, agencies);
-    closeMenu();
-    window.location.assign(nextPath);
+    applySwitchPayload(response?.data || {}, account.role);
   } catch (error) {
     loadError.value = error?.response?.data?.error?.message || error?.message || 'Failed to switch account.';
+    switching.value = false;
+  }
+};
+
+const returnToOriginal = async () => {
+  if (switching.value) return;
+  switching.value = true;
+  loadError.value = '';
+  try {
+    const response = await api.post('/auth/test-accounts/return');
+    applySwitchPayload(response?.data || {}, returnAccount.value?.role);
+  } catch (error) {
+    loadError.value = error?.response?.data?.error?.message || error?.message || 'Failed to return to original account.';
     switching.value = false;
   }
 };
@@ -239,6 +286,7 @@ watch(
   async (id) => {
     loadedOnce.value = false;
     accounts.value = [];
+    returnAccount.value = null;
     canSwitch.value = false;
     closeMenu();
     if (!id) return;
@@ -336,7 +384,18 @@ void router;
   padding: 0.45rem 0.55rem 0.3rem;
 }
 
-.tas-option {
+.tas-group-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+  padding: 0.55rem 0.55rem 0.15rem;
+}
+.tas-option-return {
+  background: rgba(14, 165, 233, 0.08);
+  margin-bottom: 0.2rem;
+}
   display: flex;
   flex-direction: column;
   align-items: flex-start;

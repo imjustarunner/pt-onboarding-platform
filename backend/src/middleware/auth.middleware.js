@@ -248,7 +248,9 @@ export const authenticate = async (req, res, next) => {
       agencyId: decoded.agencyId,
       sessionId: decoded.sessionId || null,
       demoMode: decoded.demoMode === true,
-      demoRealRole: decoded.demoRealRole || null
+      demoRealRole: decoded.demoRealRole || null,
+      testAccountSwitch: decoded.testAccountSwitch === true,
+      switchedFromUserId: decoded.switchedFromUserId || null
     };
     await resolveEffectiveRole(req);
     next();
@@ -311,7 +313,9 @@ function applyOptionalUserFromDecoded(req, decoded) {
     agencyId: decoded.agencyId,
     sessionId: decoded.sessionId || null,
     demoMode: decoded.demoMode === true,
-    demoRealRole: decoded.demoRealRole || null
+    demoRealRole: decoded.demoRealRole || null,
+    testAccountSwitch: decoded.testAccountSwitch === true,
+    switchedFromUserId: decoded.switchedFromUserId || null
   };
   return true;
 }
