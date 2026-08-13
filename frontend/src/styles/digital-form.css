@@ -651,6 +651,26 @@
   color: #fff;
 }
 
+.df-choice-group--cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.65rem;
+}
+
+.df-choice-btn--card {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  font-weight: 600;
+  line-height: 1.35;
+  padding: 0.85rem 0.95rem;
+  border-radius: 14px;
+}
+
+.df-choice-group--multi .df-choice-btn--selected {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
 .df-likert-card {
   border: 1px solid var(--df-border);
   border-radius: var(--df-radius-sm);

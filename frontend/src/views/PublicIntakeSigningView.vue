@@ -7,6 +7,8 @@
     :form-subtitle="shellFormSubtitle"
     :progress-steps="dfProgressSteps"
     :progress-index="dfProgressIndex"
+    :intake-sidebar-steps="dfProgressSteps"
+    :intake-sidebar-step-index="dfProgressIndex"
     :cover-mode="step < 1 || loading || !!fatalError"
     :hide-sidebar="isJobApplication && step === -1"
     :wide="isJobApplication && step === -1 || step === 2"
@@ -743,11 +745,11 @@
           </div>
         </div>
 
-        <div v-if="visibleQuestionFields.length" class="field-inputs">
+        <div v-if="visibleStandaloneQuestionFields.length" class="field-inputs">
           <h4>{{ t('additionalQuestions') }}</h4>
           <div class="form-grid">
           <div
-            v-for="field in visibleQuestionFields"
+            v-for="field in visibleStandaloneQuestionFields"
             :key="field.id"
             class="form-group"
             :class="[intakeFieldGridSpan(field), { 'required-missing-glow': isQuestionFieldMissing(field) }]"
@@ -829,7 +831,7 @@
         </div>
       </div>
 
-        <div v-else-if="step === 2 && currentFlowStep?.type !== 'questions'" class="step">
+        <div v-else-if="step === 2" class="step">
         <h3 v-if="currentFlowStep?.type === 'document'">{{ t('document') }}</h3>
         <h3 v-else-if="currentFlowStep?.type === 'upload'">{{ tx(currentFlowStep?.label) || t('upload') }}</h3>
         <h3 v-else-if="currentFlowStep?.type === 'school_roi'">{{ t('schoolRoi') }}</h3>
@@ -855,13 +857,37 @@
         <h3 v-else-if="currentFlowStep?.type === 'demographics'">
           {{ tx(currentFlowStep?.label) || t('demographics') }}
         </h3>
-        <h3 v-else-if="currentFlowStep?.type === 'clinical_questions'">
-          {{ tx(currentFlowStep?.label) || t('clinicalQuestions') }}
+        <h3 v-else-if="currentFlowStep?.type === 'clinical_questions'" class="df-section-title">
+          {{ currentFlowStepTitle || t('clinicalQuestions') }}
         </h3>
         <h3 v-else-if="currentFlowStep?.type === 'references'">
           {{ tx(currentFlowStep?.label) || t('professionalReferences') }}
         </h3>
-        <h3 v-else-if="currentFlowStep?.type === 'questions'">{{ t('questions') }}</h3>
+        <h3 v-else-if="currentFlowStep?.type === 'child_review'" class="df-section-title">
+          {{ currentFlowStepTitle || 'Child Review' }}
+        </h3>
+        <h3 v-else-if="currentFlowStep?.type === 'questions'" class="df-section-title">
+          {{ currentFlowStepTitle || t('questions') }}
+        </h3>
+        <p
+          v-if="currentChildBanner"
+          class="intake-child-banner"
+        >{{ currentChildBanner }}</p>
+        <p
+          v-if="currentFlowStepHelperText"
+          class="df-section-help"
+        >{{ currentFlowStepHelperText }}</p>
+        <DigitalFormNotice
+          v-if="currentFlowStepWhyWeAsk"
+          :title="tx('Why we ask')"
+          :body="currentFlowStepWhyWeAsk"
+        />
+        <DigitalFormNotice
+          v-if="showClinicalSafetyBanner"
+          variant="warn"
+          title="If you are in immediate danger, call 911"
+          body="If you are having thoughts of suicide or feel unsafe, call or text 988. Your therapist will also be notified so this is not missed."
+        />
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
         <div v-if="currentFlowStep?.type === 'school_roi'" class="school-roi-step">
           <SmartSchoolRoiFlow
@@ -1328,8 +1354,36 @@
           </div>
         </div>
 
+        <!-- Paged interview questions — one intake_steps questions page at a time -->
+        <div v-if="currentFlowStep?.type === 'questions'" class="questions-step intake-interview-page">
+          <div class="form-grid">
+            <template v-for="(row, idx) in currentQuestionRows" :key="row.field?.key || `sec_${idx}`">
+              <h4 v-if="row.section" class="df-section-kicker form-group form-group--span-12">{{ row.section }}</h4>
+              <div
+                v-else-if="row.field"
+                class="form-group"
+                :class="[intakeFieldGridSpan(row.field), { 'required-missing-glow': isQuestionFieldMissing(row.field) }]"
+                :data-question-key="row.field.key"
+              >
+                <IntakeQuestionField
+                  :field="row.field"
+                  :model-value="questionValues[row.field.key]"
+                  :label="txField(row.field)"
+                  :help="txField(row.field, 'helperText')"
+                  :placeholder="txField(row.field, 'placeholder')"
+                  :options="(row.field.options || []).map((opt) => ({ value: opt.value || opt.label, label: txOption(opt) }))"
+                  :required="!!row.field.required"
+                  :error="isQuestionFieldMissing(row.field)"
+                  name-prefix="q_"
+                  @update:model-value="(v) => { questionValues[row.field.key] = v; }"
+                />
+              </div>
+            </template>
+          </div>
+        </div>
+
         <!-- Clinical questions step — rendered identically to regular questions but saved separately -->
-        <div v-if="currentFlowStep?.type === 'clinical_questions'" class="clinical-questions-step">
+        <div v-if="currentFlowStep?.type === 'clinical_questions'" class="clinical-questions-step intake-interview-page">
           <p class="muted" style="margin-bottom: 16px; font-size: 13px;">
             {{ tx('The following questions help your provider understand your needs. Your answers are confidential and only visible to your assigned provider.') }}
           </p>
@@ -1339,54 +1393,76 @@
             class="clinical-field-group"
             :class="{ 'clinical-field-group--shared': !!group.sharedHelper }"
           >
-            <!--
-              Hoisted instruction for grouped batteries (e.g. PSC-17). When two
-              or more adjacent clinical fields share identical helper text, we
-              render that helper once at the top of the group instead of
-              repeating it under every question — mirrors the paper scale.
-            -->
             <div v-if="group.sharedHelper" class="clinical-group-header">
               {{ tx(group.sharedHelper) }}
             </div>
-            <div v-for="field in group.fields" :key="field.key || field.id" class="question-field-row" :ref="el => fieldRefs[field.key || field.id] = el">
-              <label :class="{ 'required-label': field.required }">
-                {{ txField(field) }}
-                <span v-if="field.required" class="required-indicator">*</span>
-              </label>
-              <div v-if="!group.sharedHelper && field.helperText" class="helper-text">{{ txField(field, 'helperText') }}</div>
-              <select
-                v-if="field.type === 'select'"
-                v-model="clinicalResponses[field.key]"
-                :class="{ 'input-error': isClinicalFieldMissing(field) }"
-              >
-                <option value="">{{ tx('Select…') }}</option>
-                <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ txOption(opt) }}</option>
-              </select>
-              <div v-else-if="field.type === 'radio'" class="radio-group">
-                <label v-for="opt in field.options" :key="opt.value" class="radio-row">
-                  <input type="radio" :name="'cq_' + field.key" :value="opt.value" v-model="clinicalResponses[field.key]" />
-                  <span>{{ txOption(opt) }}</span>
-                </label>
-              </div>
-              <div v-else-if="field.type === 'checkbox'" class="checkbox-group">
-                <label class="checkbox-row">
-                  <input type="checkbox" v-model="clinicalResponses[field.key]" :true-value="'yes'" :false-value="'no'" />
-                  <span>{{ txField(field) }}</span>
-                </label>
-              </div>
-              <textarea
-                v-else-if="field.type === 'textarea'"
-                v-model="clinicalResponses[field.key]"
-                rows="3"
-                :class="{ 'input-error': isClinicalFieldMissing(field) }"
-              />
-              <input
-                v-else
-                v-model="clinicalResponses[field.key]"
-                type="text"
-                :class="{ 'input-error': isClinicalFieldMissing(field) }"
+            <div
+              v-for="field in group.fields"
+              :key="field.key || field.id"
+              class="question-field-row"
+              :ref="el => fieldRefs[field.key || field.id] = el"
+            >
+              <IntakeQuestionField
+                :field="field"
+                :model-value="clinicalResponses[field.key]"
+                :label="txField(field)"
+                :help="group.sharedHelper ? '' : txField(field, 'helperText')"
+                :options="(field.options || []).map((opt) => ({ value: opt.value || opt.label, label: txOption(opt) }))"
+                :required="!!field.required"
+                :error="isClinicalFieldMissing(field)"
+                name-prefix="cq_"
+                @update:model-value="(v) => { clinicalResponses[field.key] = v; }"
               />
             </div>
+          </div>
+        </div>
+
+        <div v-if="currentFlowStep?.type === 'child_review'" class="child-review-step intake-interview-page">
+          <p class="df-section-help" v-if="currentChildBanner">{{ currentChildBanner }}</p>
+          <div class="child-review-card">
+            <h4>{{ currentChildReviewName }}</h4>
+            <dl class="child-review-summary">
+              <div v-for="row in currentChildReviewRows" :key="row.label">
+                <dt>{{ row.label }}</dt>
+                <dd>{{ row.value }}</dd>
+              </div>
+            </dl>
+            <button class="btn btn-outline btn-sm" type="button" @click="editCurrentChildIntake">
+              Edit {{ currentChildReviewName }}
+            </button>
+          </div>
+          <div class="child-review-add">
+            <p class="df-section-help">Are you signing up another child?</p>
+            <div
+              v-if="reviewAddConsentOpen"
+              class="multi-client-consent-panel"
+              role="dialog"
+            >
+              <h4>{{ t('multiClientConsentTitle') }}</h4>
+              <p>{{ t('multiClientConsentBody') }}</p>
+              <ul class="multi-client-consent-bullets">
+                <li>{{ t('multiClientConsentBullet1') }}</li>
+                <li>{{ t('multiClientConsentBullet2') }}</li>
+                <li>{{ t('multiClientConsentBullet3') }}</li>
+              </ul>
+              <div class="multi-client-consent-actions">
+                <button type="button" class="btn btn-primary btn-sm" @click="acceptReviewAddChild">
+                  {{ t('multiClientConsentAccept') }}
+                </button>
+                <button type="button" class="btn btn-outline btn-sm" @click="reviewAddConsentOpen = false">
+                  {{ t('multiClientConsentDecline') }}
+                </button>
+              </div>
+            </div>
+            <button
+              v-else
+              class="btn btn-secondary"
+              type="button"
+              @click="addAnotherChildFromReview"
+            >+ {{ t('addAnotherChild') }}</button>
+            <p class="muted" style="margin-top: 8px;">
+              We'll ask the same questions about this child separately so each child has their own intake and care record.
+            </p>
           </div>
         </div>
 
@@ -1950,7 +2026,8 @@ import {
   DigitalFormShell,
   DigitalFormSelectionCard,
   DigitalFormNotice,
-  DigitalFormActions
+  DigitalFormActions,
+  IntakeQuestionField
 } from '../components/digital-form';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { getHeroPresetByUrl } from '../utils/careersAssets.js';
@@ -1961,6 +2038,13 @@ import {
   SPANISH_CLARIFICATION_COPY
 } from '../constants/spanishClarificationIntake.js';
 import { localizePublicIntakeTitle } from '../utils/publicIntakeTitle.js';
+import {
+  matchesShowIf,
+  mergeShowIfValues,
+  isCheckboxGroupField,
+  isClinicalSafetyPositive,
+  childAgeFlags
+} from '../utils/intakeShowIf.js';
 import {
   lookupStructuredIntakeTranslation,
   txFmtStructuredIntake
@@ -2506,6 +2590,13 @@ const txFmt = (template, vars = {}) =>
   txFmtStructuredIntake(template, vars, stringTranslations.value, intakeLocale.value);
 
 /** Question label / helper with admin-saved Spanish overrides when enabled. */
+const interpolateChildTokens = (str, clientIndex = currentFlowStep.value?.clientIndex) => {
+  const name = childDisplayName(clientIndex);
+  return String(str || '')
+    .replaceAll('{childName}', name)
+    .replaceAll('[Child Name]', name);
+};
+
 const txField = (field, prop = 'label') => {
   if (!field) return '';
   const stored = storedSpanishFieldText(
@@ -2514,10 +2605,10 @@ const txField = (field, prop = 'label') => {
     intakeLocale.value,
     spanishQuestionLabelsEnabled.value
   );
-  if (stored) return stored;
+  if (stored) return interpolateChildTokens(stored);
   const en =
     prop === 'label' ? String(field.label || field.key || '').trim() : String(field[prop] || '').trim();
-  return tx(en);
+  return interpolateChildTokens(tx(en));
 };
 
 const txOption = (opt) => {
@@ -3001,22 +3092,35 @@ const autofillDemographicsLocation = async () => {
 // Clinical questions step state
 const clinicalResponses = reactive({});
 
+const interviewShowIfValues = computed(() => {
+  const step = currentFlowStep.value;
+  const idx = Number.isInteger(step?.clientIndex) ? step.clientIndex : null;
+  const clientBag = idx != null ? (intakeResponses.clients?.[idx] || {}) : {};
+  const ident = idx != null ? (clients.value?.[idx] || {}) : {};
+  const dob = clientBag.child_dob || ident.dob || ident.dateOfBirth;
+  return mergeShowIfValues(
+    intakeResponses.submission || {},
+    intakeResponses.guardian || {},
+    clientBag,
+    clinicalResponses,
+    childAgeFlags(dob, clientBag)
+  );
+});
+
 const visibleClinicalFields = computed(() => {
   if (currentFlowStep.value?.type !== 'clinical_questions') return [];
   const fields = Array.isArray(currentFlowStep.value?.fields) ? currentFlowStep.value.fields : [];
+  const values = interviewShowIfValues.value;
   return fields.filter((f) => {
     if (!f?.key) return false;
-    const showIf = f.showIf;
-    if (showIf?.fieldKey && showIf.equals !== undefined) {
-      return String(clinicalResponses[showIf.fieldKey] || '') === String(showIf.equals || '');
-    }
-    return true;
+    return matchesShowIf(f.showIf, values);
   });
 });
 
 const isClinicalFieldMissing = (field) => {
-  if (!field?.required) return false;
+  if (!field?.required || field.type === 'info') return false;
   const v = clinicalResponses[field.key];
+  if (isCheckboxGroupField(field)) return !Array.isArray(v) || v.length === 0;
   return v === undefined || v === null || String(v).trim() === '';
 };
 
@@ -3284,7 +3388,9 @@ const FLOW_STEP_PROGRESS_LABELS = {
   communications: 'Communications',
   references: 'References',
   demographics: 'Demographics',
-  clinical_questions: 'Clinical'
+    questions: 'Questions',
+    clinical_questions: 'Clinical',
+    child_review: 'Review'
 };
 
 const PACKET_SECTION_STEP_TO_KEY = {
@@ -3324,18 +3430,54 @@ const shellFormDocumentTitle = computed(() =>
   localizePublicIntakeTitle(link.value?.title || defaultTitle.value, intakeLocale.value)
 );
 
+function childDisplayName(idx) {
+  const i = Number.isInteger(idx) ? idx : 0;
+  const bag = intakeResponses.clients?.[i] || {};
+  const ident = clients.value?.[i] || {};
+  const name = String(
+    bag.child_preferred_name || ident.firstName || bag.child_legal_first || ''
+  ).trim();
+  return name || 'this child';
+}
+
+function isRepeatPerClientStep(s) {
+  const audience = String(s?.audience || '').trim().toLowerCase();
+  return s?.repeatPerClient === true || audience === 'dependent';
+}
+
 const dfProgressSteps = computed(() => {
   const steps = [{ id: 'about', label: t('aboutYou') }];
   const seen = new Set(['about']);
+  let familyAdded = false;
+  const childAdded = new Set();
   for (const s of flowSteps.value || []) {
     const type = String(s?.type || '');
-    const id = String(s?.id || `${type}_${steps.length}`);
+    const audience = String(s?.audience || '').trim().toLowerCase();
+    if (audience === 'guardian' || String(s?.id || '').includes('counseling_dep_about_you') || String(s?.id || '').includes('counseling_dep_family_contact') || String(s?.id || '').includes('counseling_dep_custody')) {
+      if (!familyAdded && !seen.has('family')) {
+        seen.add('family');
+        familyAdded = true;
+        steps.push({ id: 'family', label: 'Your family' });
+      }
+      continue;
+    }
+    if (isRepeatPerClientStep(s) || Number.isInteger(s?.clientIndex)) {
+      const i = Number.isInteger(s.clientIndex) ? s.clientIndex : 0;
+      const cid = `child_${i}`;
+      if (!childAdded.has(i)) {
+        childAdded.add(i);
+        seen.add(cid);
+        steps.push({ id: cid, label: childDisplayName(i) });
+      }
+      continue;
+    }
+    const id = String(s?.sourceId || s?.id || `${type}_${steps.length}`);
     if (seen.has(id)) continue;
     seen.add(id);
     const raw = String(s?.label || FLOW_STEP_PROGRESS_LABELS[type] || type || 'Step').trim() || 'Step';
     steps.push({
       id,
-      label: tx(raw) || raw
+      label: interpolateChildTokens(tx(raw) || raw, s?.clientIndex)
     });
   }
   steps.push({ id: 'complete', label: t('completed') });
@@ -3348,6 +3490,23 @@ const dfProgressIndex = computed(() => {
   if (step.value <= 0) return 0;
   if (step.value === 1) return 0;
   if (step.value === 2) {
+    const current = currentFlowStep.value;
+    const audience = String(current?.audience || '').trim().toLowerCase();
+    const collapsed = dfProgressSteps.value;
+    if (audience === 'guardian' || String(current?.id || '').includes('counseling_dep_')) {
+      if (Number.isInteger(current?.clientIndex)) {
+        const cid = `child_${current.clientIndex}`;
+        const idx = collapsed.findIndex((s) => s.id === cid);
+        if (idx >= 0) return Math.min(idx, total - 2);
+      }
+      if (audience === 'guardian') {
+        const idx = collapsed.findIndex((s) => s.id === 'family');
+        if (idx >= 0) return Math.min(idx, total - 2);
+      }
+    }
+    const sid = String(current?.sourceId || current?.id || '');
+    const byId = collapsed.findIndex((s) => s.id === sid);
+    if (byId >= 0) return Math.min(byId, total - 2);
     const idx = 1 + Number(currentFlowIndex.value || 0);
     return Math.min(idx, total - 2);
   }
@@ -3455,7 +3614,7 @@ const flowSteps = computed(() => {
     return true;
   };
   if (intakeSteps.value.length) {
-    return intakeSteps.value
+    const filtered = intakeSteps.value
       .filter(
         (s) =>
           s?.type === 'document'
@@ -3474,6 +3633,8 @@ const flowSteps = computed(() => {
           || s?.type === 'references'
           || s?.type === 'demographics'
           || s?.type === 'clinical_questions'
+          || s?.type === 'questions'
+          || s?.type === 'child_review'
       )
       .filter((s) => {
         // Skip payment_collection when the guardian selected Medicaid coverage
@@ -3481,9 +3642,49 @@ const flowSteps = computed(() => {
         if (s?.type === 'payment_collection') {
           if (shouldSkipPaymentCollectionStep()) return false;
         }
+        const audience = String(s?.audience || '').trim().toLowerCase();
+        if (audience === 'self' && !intakeForSelf.value) return false;
+        if ((audience === 'dependent' || audience === 'guardian') && intakeForSelf.value) return false;
+        if (!isRepeatPerClientStep(s) && s?.showIf) {
+          const bag = mergeShowIfValues(
+            intakeResponses.submission || {},
+            intakeResponses.guardian || {},
+            clinicalResponses
+          );
+          if (!matchesShowIf(s.showIf, bag)) return false;
+        }
         return stepVisible(s);
-      })
-      .map((s) => {
+      });
+    const expanded = [];
+    for (const s of filtered) {
+      if (isRepeatPerClientStep(s) && !intakeForSelf.value) {
+        const n = Math.max(clients.value.length, 1);
+        for (let i = 0; i < n; i++) {
+          const bag = intakeResponses.clients?.[i] || {};
+          const ident = clients.value?.[i] || {};
+          const flags = childAgeFlags(bag.child_dob || ident.dob || ident.dateOfBirth, bag);
+          if (s.showWhen === 'substance_indicated' && flags._substance_indicated !== 'yes') continue;
+          if (s.showIf) {
+            const values = mergeShowIfValues(
+              intakeResponses.submission || {},
+              intakeResponses.guardian || {},
+              bag,
+              flags
+            );
+            if (!matchesShowIf(s.showIf, values)) continue;
+          }
+          expanded.push({
+            ...s,
+            clientIndex: i,
+            sourceId: s.id,
+            id: `${s.id || s.type}__c${i}`
+          });
+        }
+      } else {
+        expanded.push({ ...s, sourceId: s.id });
+      }
+    }
+    return expanded.map((s) => {
         if (s.type === 'upload') return { ...s };
         if (s.type === 'school_roi') return { ...s };
         if (s.type === 'smart_disclosure' || s.type === 'disclosure') return { ...s };
@@ -3496,6 +3697,8 @@ const flowSteps = computed(() => {
         if (s.type === 'references') return { ...s };
         if (s.type === 'demographics') return { ...s };
         if (s.type === 'clinical_questions') return { ...s };
+        if (s.type === 'questions') return { ...s };
+        if (s.type === 'child_review') return { ...s };
         // Swap to the Spanish document template when the user has toggled Spanish
         // and an en→es mapping exists for this step's document.
         let resolvedTemplateId = s.templateId;
@@ -4519,6 +4722,11 @@ const restoreDraftSnapshot = () => {
       intakeResponses.clients = Array.isArray(parsed.intakeResponses.clients)
         ? parsed.intakeResponses.clients
         : [{}];
+      const savedClinical = intakeResponses.submission?.clinicalResponses;
+      if (savedClinical && typeof savedClinical === 'object') {
+        Object.keys(clinicalResponses).forEach((k) => { delete clinicalResponses[k]; });
+        Object.assign(clinicalResponses, savedClinical);
+      }
       const refs = intakeResponses.submission.references;
       if (Array.isArray(refs) && refs.length) {
         while (referencesEntries.value.length < Math.max(refs.length, 3)) {
@@ -5174,7 +5382,8 @@ const maybeAutofillLocation = async (idx, field) => {
 
 const maybeAutofillQuestionLocation = async (field) => {
   if (!field?.key || !/zip|postal/i.test(normalizeKey(field.key))) return;
-  const raw = intakeResponses.submission?.[field.key];
+  const bag = questionValues.value;
+  const raw = bag?.[field.key];
   const zip = String(raw || '').replace(/\D/g, '').slice(0, 5);
   if (zip.length !== 5) return;
   const cacheKey = `q_${field.key}`;
@@ -5191,10 +5400,10 @@ const maybeAutofillQuestionLocation = async (field) => {
     (visibleQuestionFields.value || []).forEach((f) => {
       if (!f?.key || f.key === field.key) return;
       const k = normalizeKey(f.key);
-      const cur = String(intakeResponses.submission?.[f.key] || '').trim();
+      const cur = String(bag?.[f.key] || '').trim();
       if (!cur) {
-        if (/city|town/.test(k)) intakeResponses.submission[f.key] = city;
-        else if (/state|province/.test(k)) intakeResponses.submission[f.key] = state;
+        if (/city|town/.test(k)) bag[f.key] = city;
+        else if (/state|province/.test(k)) bag[f.key] = state;
       }
     });
   } catch {
@@ -5203,17 +5412,7 @@ const maybeAutofillQuestionLocation = async (field) => {
 };
 
 const isIntakeFieldVisible = (field, values = {}) => {
-  const showIf = field?.showIf;
-  if (!showIf || !showIf.fieldKey) return true;
-  const actual = values[showIf.fieldKey];
-  const expected = showIf.equals;
-  if (Array.isArray(expected)) {
-    return expected.map((v) => String(v).trim().toLowerCase()).includes(String(actual).trim().toLowerCase());
-  }
-  if (expected === '' || expected === null || expected === undefined) {
-    return Boolean(actual);
-  }
-  return String(actual ?? '').trim().toLowerCase() === String(expected ?? '').trim().toLowerCase();
+  return matchesShowIf(field?.showIf, values);
 };
 
 const visibleGuardianFields = computed(() => {
@@ -6185,7 +6384,8 @@ const isQuestionFieldMissing = (field) => {
 const isQuestionValueMissing = (field) => {
   if (!field || !field.required || field.type === 'info') return false;
   const val = questionValues.value[field.key];
-  if (field.type === 'checkbox') return val !== true;
+  if (isCheckboxGroupField(field)) return !Array.isArray(val) || val.length === 0;
+  if (field.type === 'checkbox') return val !== true && val !== 'yes';
   return val === null || val === undefined || String(val).trim() === '';
 };
 
@@ -6200,13 +6400,50 @@ const completeQuestionStep = async () => {
     if (firstKey) {
       const container = document.querySelector(`[data-question-key="${CSS.escape(firstKey)}"]`);
       if (container?.scrollIntoView) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      const focusTarget = container?.querySelector('input, textarea, select, [tabindex]');
+      const focusTarget = container?.querySelector('input, textarea, select, [tabindex], button');
       if (focusTarget?.focus) focusTarget.focus();
     }
     return;
   }
   missingRequiredQuestionKeys.value = [];
   stepError.value = '';
+  const stepId = String(currentFlowStep.value?.sourceId || currentFlowStep.value?.id || '');
+  if (stepId === 'counseling_self_about_you') {
+    const sub = intakeResponses.submission || {};
+    if (sub.legal_first_name) guardianFirstName.value = sub.legal_first_name;
+    if (sub.legal_last_name) guardianLastName.value = sub.legal_last_name;
+    if (sub.email_address) guardianEmail.value = sub.email_address;
+    if (sub.phone_number) guardianPhone.value = sub.phone_number;
+  }
+  if (stepId === 'counseling_dep_about_you') {
+    const g = intakeResponses.guardian || {};
+    if (g.guardian_legal_first) guardianFirstName.value = g.guardian_legal_first;
+    if (g.guardian_legal_last) guardianLastName.value = g.guardian_legal_last;
+    if (g.guardian_email) guardianEmail.value = g.guardian_email;
+    if (g.guardian_phone) guardianPhone.value = g.guardian_phone;
+    if (g.guardian_relationship_to_child) guardianRelationship.value = g.guardian_relationship_to_child;
+  }
+  const childIdx = currentFlowStep.value?.clientIndex;
+  if (Number.isInteger(childIdx)) {
+    const bag = intakeResponses.clients[childIdx] || {};
+    if (stepId === 'counseling_dep_about_child') {
+      if (!clients.value[childIdx]) clients.value[childIdx] = { firstName: '', lastName: '' };
+      const first = String(bag.child_preferred_name || bag.child_legal_first || '').trim();
+      const last = String(bag.child_legal_last || '').trim();
+      if (first) clients.value[childIdx].firstName = first;
+      if (last) clients.value[childIdx].lastName = last;
+    }
+    if (bag.trauma_discuss_privately === 'yes') {
+      bag.flagDiscussPrivately = true;
+      bag.clinicalPrivateDiscussion = 'Discuss privately during intake appointment.';
+    }
+    if (bag.discuss_privately === 'yes') {
+      bag.flagGuardianPrivateDiscussion = true;
+      bag.guardianPrivateDiscussion = 'Guardian requests private discussion.';
+    }
+    bag.clinicalSafetyAlert = isClinicalSafetyPositive(interviewShowIfValues.value);
+  }
+  intakeResponses.submission.clinicalSafetyAlert = showClinicalSafetyBanner.value;
   await nextFlowStep();
 };
 
@@ -6814,6 +7051,7 @@ const completeClinicalQuestionsStep = () => {
     return;
   }
   intakeResponses.submission.clinicalResponses = { ...clinicalResponses };
+  intakeResponses.submission.clinicalSafetyAlert = showClinicalSafetyBanner.value;
   stepError.value = '';
   void nextFlowStep();
 };
@@ -6829,6 +7067,10 @@ const handleCurrentFlowContinue = () => {
   if (currentFlowStep.value?.type === 'communications') return completeCommunicationsStep();
   if (currentFlowStep.value?.type === 'demographics') return completeDemographicsStep();
   if (currentFlowStep.value?.type === 'clinical_questions') return completeClinicalQuestionsStep();
+  if (currentFlowStep.value?.type === 'child_review') {
+    stepError.value = '';
+    return nextFlowStep();
+  }
   return completeQuestionStep();
 };
 const currentFlowContinueLabel = computed(() => {
@@ -6840,6 +7082,8 @@ const currentFlowContinueLabel = computed(() => {
   if (currentFlowStep.value?.type === 'communications') return 'Save preferences & continue';
   if (currentFlowStep.value?.type === 'demographics') return 'Save & continue';
   if (currentFlowStep.value?.type === 'clinical_questions') return 'Save & continue';
+  if (currentFlowStep.value?.type === 'questions') return 'Save & continue';
+  if (currentFlowStep.value?.type === 'child_review') return t('continue');
   if (currentFlowStep.value?.type === 'document') {
     return currentDoc.value?.document_action_type === 'signature' ? t('signContinue') : t('markReviewedContinue');
   }
@@ -7404,55 +7648,148 @@ const initializeFieldValues = () => {
 };
 
 const stepQuestionFields = computed(() => {
-  if (!intakeSteps.value.length) return [];
-  const fields = [];
-  intakeSteps.value.forEach((step) => {
-    if (step?.type !== 'questions' || !Array.isArray(step.fields)) return;
-    const stepVis = String(step.visibility || 'always').trim().toLowerCase();
-    if (stepVis === 'new_client_only' && isExistingClientByMatch.value) return;
-    fields.push(...step.fields);
-  });
-  if (!fields.length) return [];
-  const intakeKeys = new Set(
-    (intakeFields.value || [])
-      .map((f) => String(f?.key || '').trim())
-      .filter(Boolean)
-  );
-  return fields.filter((f) => {
+  const current = currentFlowStep.value;
+  if (current?.type !== 'questions' || !Array.isArray(current.fields)) return [];
+  const stepVis = String(current.visibility || 'always').trim().toLowerCase();
+  if (stepVis === 'new_client_only' && isExistingClientByMatch.value) return [];
+  return (current.fields || []).filter((f) => {
     const key = String(f?.key || '').trim();
-    if (!key) return false;
+    if (!key && f?.type !== 'info') return false;
     const scope = String(f?.scope || 'submission').trim().toLowerCase();
     if (intakeForSelf.value && scope === 'guardian') return false;
     if (intakeForSelf.value && scope === 'client') return false;
     if (!intakeForSelf.value && scope === 'self') return false;
-    // 'self'-scoped fields are never rendered by any legacy section, so bypass
-    // the deduplication check — they would otherwise be silently hidden because
-    // buildPayloadFromSteps also flattens them into intake_fields.
-    if (scope === 'self') return true;
-    return !intakeKeys.has(key);
+    return true;
   });
 });
 
-const questionValues = computed(() => intakeResponses.submission);
+const questionValues = computed(() => {
+  const step = currentFlowStep.value;
+  const idx = step?.clientIndex;
+  if (Number.isInteger(idx)) {
+    if (!intakeResponses.clients[idx]) intakeResponses.clients[idx] = {};
+    return intakeResponses.clients[idx];
+  }
+  const audience = String(step?.audience || '').trim().toLowerCase();
+  const scope = String(step?.fields?.[0]?.scope || step?.scope || '').trim().toLowerCase();
+  if (audience === 'guardian' || scope === 'guardian') {
+    if (!intakeResponses.guardian || typeof intakeResponses.guardian !== 'object') {
+      intakeResponses.guardian = {};
+    }
+    return intakeResponses.guardian;
+  }
+  return intakeResponses.submission;
+});
 
 const isQuestionVisible = (field, values = {}) => {
   const fv = String(field?.visibility || 'always').trim().toLowerCase();
   if (fv === 'new_client_only' && isExistingClientByMatch.value) return false;
-  const showIf = field?.showIf;
-  if (!showIf || !showIf.fieldKey) return true;
-  const actual = values[showIf.fieldKey];
-  const expected = showIf.equals;
-  if (Array.isArray(expected)) {
-    return expected.map((v) => String(v).trim().toLowerCase()).includes(String(actual).trim().toLowerCase());
-  }
-  if (expected === '' || expected === null || expected === undefined) {
-    return Boolean(actual);
-  }
-  return String(actual ?? '').trim().toLowerCase() === String(expected ?? '').trim().toLowerCase();
+  return matchesShowIf(field?.showIf, values);
 };
 
 const visibleQuestionFields = computed(() =>
-  stepQuestionFields.value.filter((f) => isQuestionVisible(f, questionValues.value))
+  stepQuestionFields.value.filter((f) => isQuestionVisible(f, interviewShowIfValues.value))
+);
+
+/** Legacy identity-page dump. Paged `questions` steps render on their own flow page. */
+const visibleStandaloneQuestionFields = computed(() => []);
+
+const currentQuestionRows = computed(() => {
+  const rows = [];
+  let lastSection = '';
+  for (const field of visibleQuestionFields.value || []) {
+    const section = String(field?.section || '').trim();
+    if (section && section !== lastSection) {
+      rows.push({ section, field: null });
+      lastSection = section;
+    }
+    rows.push({ section: '', field });
+  }
+  return rows;
+});
+
+const currentFlowStepHelperText = computed(() => {
+  const raw = currentFlowStep.value?.helperText || currentFlowStep.value?.description || '';
+  return raw ? interpolateChildTokens(tx(raw)) : '';
+});
+const currentFlowStepWhyWeAsk = computed(() => {
+  const raw = currentFlowStep.value?.whyWeAsk || '';
+  return raw ? interpolateChildTokens(tx(raw)) : '';
+});
+const currentFlowStepTitle = computed(() => {
+  const raw = currentFlowStep.value?.label || '';
+  return interpolateChildTokens(tx(raw) || raw);
+});
+const currentChildBanner = computed(() => {
+  if (!Number.isInteger(currentFlowStep.value?.clientIndex)) return '';
+  const i = currentFlowStep.value.clientIndex;
+  const total = Math.max(clients.value.length, 1);
+  return `Child ${i + 1} of ${total} — ${childDisplayName(i)}`;
+});
+const reviewAddConsentOpen = ref(false);
+const currentChildReviewName = computed(() => {
+  const idx = currentFlowStep.value?.clientIndex;
+  if (!Number.isInteger(idx)) return 'this child';
+  const bag = intakeResponses.clients?.[idx] || {};
+  const ident = clients.value?.[idx] || {};
+  const first = String(bag.child_preferred_name || ident.firstName || bag.child_legal_first || '').trim();
+  const last = String(ident.lastName || bag.child_legal_last || '').trim();
+  return `${first} ${last}`.trim() || childDisplayName(idx);
+});
+const formatReviewValue = (raw) => {
+  if (raw == null || raw === '') return '—';
+  if (Array.isArray(raw)) return raw.length ? raw.join(', ') : '—';
+  return String(raw);
+};
+const currentChildReviewRows = computed(() => {
+  const idx = currentFlowStep.value?.clientIndex;
+  const bag = Number.isInteger(idx) ? (intakeResponses.clients?.[idx] || {}) : {};
+  return [
+    { label: 'Primary concerns', value: formatReviewValue(bag.biggest_concern_now || bag.presenting_concerns) },
+    { label: 'Current functioning', value: formatReviewValue(bag.hardest_everyday) },
+    { label: 'School', value: formatReviewValue(bag.academics || bag.feel_about_school) },
+    { label: 'Medical/developmental', value: formatReviewValue(bag.medical_know || bag.development_noticed || bag.medical_condition) },
+    { label: 'Prior treatment', value: formatReviewValue(bag.prior_services_know || bag.received_counseling) },
+    { label: 'Safety', value: bag.clinicalSafetyAlert ? 'Needs attention before first appointment' : formatReviewValue(bag.self_harm || bag.talked_wanting_to_die || 'No acute flags recorded') },
+    { label: 'Strengths', value: formatReviewValue(bag.child_strengths || bag.enjoys) },
+    { label: 'Goals', value: formatReviewValue(bag.three_important_help || bag.actually_helping) },
+    { label: 'Questionnaires', value: formatReviewValue([
+      bag.psc_1 ? 'PSC-17 started' : null,
+      bag.send_child_depression === 'send' ? 'Depression measure: send to child' : null,
+      bag.send_child_anxiety === 'send' ? 'Anxiety measure: send to child' : null
+    ].filter(Boolean)) },
+    { label: 'Provider preferences', value: formatReviewValue(bag.preferred_service_format || bag.provider_good_fit) }
+  ];
+});
+const jumpToChildFirstPage = (clientIndex) => {
+  const idx = (flowSteps.value || []).findIndex(
+    (s) => s?.clientIndex === clientIndex && String(s?.sourceId || s?.id || '').includes('about_child')
+  );
+  if (idx >= 0) currentFlowIndex.value = idx;
+};
+const editCurrentChildIntake = () => {
+  const idx = currentFlowStep.value?.clientIndex;
+  if (Number.isInteger(idx)) jumpToChildFirstPage(idx);
+};
+const addAnotherChildFromReview = () => {
+  if (!multiClientConsentAccepted.value) {
+    reviewAddConsentOpen.value = true;
+    multiClientPlanChoice.value = 'multiple';
+    return;
+  }
+  addClient();
+  const newIndex = clients.value.length - 1;
+  nextTick(() => jumpToChildFirstPage(newIndex));
+};
+const acceptReviewAddChild = () => {
+  acceptMultiClientConsent();
+  reviewAddConsentOpen.value = false;
+  const newIndex = clients.value.length - 1;
+  nextTick(() => jumpToChildFirstPage(newIndex));
+};
+const showClinicalSafetyBanner = computed(() =>
+  isClinicalSafetyPositive(interviewShowIfValues.value)
+    || matchesShowIf({ fieldKey: 'unusual_experiences_unsafe', equals: 'yes' }, interviewShowIfValues.value)
 );
 
 const applyRegistrationAccountState = (exists) => {
@@ -7547,6 +7884,41 @@ watch(intakeForSelf, (val) => {
 watch(isMedicalRecordsRequest, (val) => {
   if (val) intakeForSelf.value = true;
 });
+
+watch(
+  () => currentFlowStep.value?.sourceId || currentFlowStep.value?.id,
+  (id) => {
+    const stepId = String(id || '');
+    if (stepId === 'counseling_self_about_you') {
+      const sub = intakeResponses.submission;
+      if (!sub || typeof sub !== 'object') return;
+      if (!sub.legal_first_name && guardianFirstName.value) sub.legal_first_name = guardianFirstName.value;
+      if (!sub.legal_last_name && guardianLastName.value) sub.legal_last_name = guardianLastName.value;
+      if (!sub.email_address && guardianEmail.value) sub.email_address = guardianEmail.value;
+      if (!sub.phone_number && guardianPhone.value) sub.phone_number = guardianPhone.value;
+      return;
+    }
+    if (stepId === 'counseling_dep_about_you') {
+      const g = intakeResponses.guardian;
+      if (!g || typeof g !== 'object') return;
+      if (!g.guardian_legal_first && guardianFirstName.value) g.guardian_legal_first = guardianFirstName.value;
+      if (!g.guardian_legal_last && guardianLastName.value) g.guardian_legal_last = guardianLastName.value;
+      if (!g.guardian_email && guardianEmail.value) g.guardian_email = guardianEmail.value;
+      if (!g.guardian_phone && guardianPhone.value) g.guardian_phone = guardianPhone.value;
+      return;
+    }
+    if (stepId === 'counseling_dep_about_child') {
+      const idx = currentFlowStep.value?.clientIndex;
+      if (!Number.isInteger(idx)) return;
+      if (!intakeResponses.clients[idx]) intakeResponses.clients[idx] = {};
+      const bag = intakeResponses.clients[idx];
+      const ident = clients.value[idx] || {};
+      if (!bag.child_legal_first && ident.firstName) bag.child_legal_first = ident.firstName;
+      if (!bag.child_legal_last && ident.lastName) bag.child_legal_last = ident.lastName;
+      if (!bag.child_preferred_name && ident.firstName) bag.child_preferred_name = ident.firstName;
+    }
+  }
+);
 
 const buildQuestionPrefillMap = () => {
   const map = {};
@@ -7685,6 +8057,11 @@ const completeUploadStep = async () => {
     stepError.value = isResumeStep.value
       ? 'Please paste your resume text before continuing.'
       : 'Please paste your text before continuing.';
+    return;
+  }
+  if (!s.required && !usingPasteMode && uploadStepFiles.value.length === 0) {
+    stepError.value = '';
+    await nextFlowStep();
     return;
   }
   if (!submissionId.value) {
@@ -10397,5 +10774,69 @@ onBeforeUnmount(() => {
 .splash-support-modal .success {
   color: #047857;
   margin: 0;
+}
+
+.intake-interview-page {
+  margin-top: 0.35rem;
+}
+
+.df-section-kicker {
+  margin: 1.15rem 0 0.35rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--df-primary, #1e4d3b);
+  font-weight: 700;
+}
+
+.intake-interview-page :deep(.df-field-label) {
+  font-size: 0.98rem;
+  line-height: 1.4;
+}
+
+.intake-child-banner {
+  margin: 0 0 0.75rem;
+  font-size: 0.92rem;
+  font-weight: 650;
+  color: var(--df-primary, #1e4d3b);
+}
+
+.child-review-card {
+  border: 1px solid var(--df-border, #d7e3dc);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  background: var(--df-surface, #fff);
+  margin-bottom: 1.25rem;
+}
+
+.child-review-summary {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.child-review-summary div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.child-review-summary dt {
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--df-muted, #5b6b63);
+}
+
+.child-review-summary dd {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.child-review-add {
+  margin-top: 0.5rem;
+}
+
+.public-intake :deep(.df-notice) {
+  margin: 0.35rem 0 1rem;
 }
 </style>

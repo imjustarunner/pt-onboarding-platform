@@ -53,6 +53,7 @@ import {
   resolveIntakeFieldLabel,
   resolveIntakeFormLocale
 } from '../utils/intakeFieldLabels.js';
+import { matchesShowIf, mergeShowIfValues, isClinicalSafetyPositive, childAgeFlags } from '../utils/intakeShowIf.js';
 import { sanitizeCareersPageJson } from '../utils/careersPageSanitize.js';
 import {
   parseJobDescriptionSections,
@@ -89,7 +90,7 @@ import pool from '../config/database.js';
 import { verifyRecaptchaV3 } from '../services/captcha.service.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import Notification from '../models/Notification.model.js';
-import { notifyNewPacketUploaded, notifyCompanyEventRegistrationSubmitted } from '../services/clientNotifications.service.js';
+import { notifyNewPacketUploaded, notifyCompanyEventRegistrationSubmitted, notifyClinicalSafetyAlert } from '../services/clientNotifications.service.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity, logSkippedOrFailedEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
@@ -2469,6 +2470,22 @@ const BACKOFFICE_NOTIFICATION_AUDIENCE = Object.freeze({
   clinicalPracticeAssistant: false
 });
 
+const maybeNotifyClinicalSafetyAlert = ({ agencyId, clientId, clientName, intakeData }) => {
+  const submission = intakeData?.responses?.submission || intakeData?.submission || {};
+  const guardian = intakeData?.responses?.guardian || {};
+  const clients = Array.isArray(intakeData?.responses?.clients)
+    ? intakeData.responses.clients
+    : (Array.isArray(intakeData?.clients) ? intakeData.clients : []);
+  const bags = [submission, guardian, ...clients.filter((c) => c && typeof c === 'object')];
+  const positive = bags.some((bag) => bag.clinicalSafetyAlert || isClinicalSafetyPositive(mergeShowIfValues(bag)));
+  if (!positive) return;
+  notifyClinicalSafetyAlert({
+    agencyId,
+    clientId,
+    clientName
+  }).catch(() => {});
+};
+
 const notifySchoolRoiCompletedForBackoffice = async ({
   agencyId,
   clientId,
@@ -2759,7 +2776,12 @@ const buildAuditTrail = ({ link, submission }) => ({
   userAgent: submission.user_agent
 });
 
-const hasValue = (val) => val !== null && val !== undefined && (typeof val !== 'string' || val.trim() !== '');
+const hasValue = (val) => {
+  if (val === null || val === undefined) return false;
+  if (Array.isArray(val)) return val.length > 0;
+  if (typeof val === 'string') return val.trim() !== '';
+  return true;
+};
 
 const hashIntakeData = (intakeData) => {
   if (!intakeData) return null;
@@ -3093,33 +3115,25 @@ const buildIntakeFieldIndex = (link) => {
 const getOrderedFieldsByScope = (fields, scope) =>
   fields.filter((field) => (field?.scope || 'client') === scope && field?.type !== 'info' && field?.key);
 
-const isIntakeFieldVisible = (field, values = {}) => {
-  const showIf = field?.showIf;
-  if (!showIf || !showIf.fieldKey) return true;
-  const actual = values[showIf.fieldKey];
-  const expected = showIf.equals;
-  if (Array.isArray(expected)) {
-    return expected.map((v) => String(v).trim().toLowerCase()).includes(String(actual).trim().toLowerCase());
-  }
-  if (expected === '' || expected === null || expected === undefined) {
-    return Boolean(actual);
-  }
-  return String(actual ?? '').trim().toLowerCase() === String(expected ?? '').trim().toLowerCase();
-};
+const isIntakeFieldVisible = (field, values = {}) => matchesShowIf(field?.showIf, values);
 
 /** Like isIntakeFieldVisible but showIf resolves against merged maps (e.g. client keys on guardian/submission fields). */
-const isIntakeFieldVisibleWithShowIfContext = (field, showIfContext) => {
-  const showIf = field?.showIf;
-  if (!showIf || !showIf.fieldKey) return true;
-  const actual = showIfContext[showIf.fieldKey];
-  const expected = showIf.equals;
-  if (Array.isArray(expected)) {
-    return expected.map((v) => String(v).trim().toLowerCase()).includes(String(actual).trim().toLowerCase());
-  }
-  if (expected === '' || expected === null || expected === undefined) {
-    return Boolean(actual);
-  }
-  return String(actual ?? '').trim().toLowerCase() === String(expected ?? '').trim().toLowerCase();
+const isIntakeFieldVisibleWithShowIfContext = (field, showIfContext) =>
+  matchesShowIf(field?.showIf, showIfContext);
+
+const formatAnswerForField = (field, value) => {
+  const options = Array.isArray(field?.options) ? field.options : [];
+  const mapOne = (raw) => {
+    if (!hasValue(raw) && raw !== 0 && raw !== false) return '';
+    const found = options.find((o) =>
+      String(o?.value ?? o?.label ?? '') === String(raw)
+      || String(o?.label ?? '') === String(raw)
+    );
+    if (found) return String(found.label || found.value || raw);
+    return normalizeAnswerValue(raw);
+  };
+  if (Array.isArray(value)) return value.map(mapOne).filter(Boolean).join(', ');
+  return mapOne(value);
 };
 
 const buildAnswerLinesForScope = ({ fields, responses, link, locale }) => {
@@ -3131,7 +3145,7 @@ const buildAnswerLinesForScope = ({ fields, responses, link, locale }) => {
     const label =
       resolveIntakeFieldLabel(field, locale, link) ||
       String(field?.key || '').trim();
-    const rendered = normalizeAnswerValue(value);
+    const rendered = formatAnswerForField(field, value);
     if (!label || !rendered) return;
     lines.push({ key: field.key, label, value: rendered });
   });
@@ -3178,96 +3192,185 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
     // Self-intake: the person IS the client, no separate guardian.
     const selfName = `${String(guardianPayload.firstName || '').trim()} ${String(guardianPayload.lastName || '').trim()}`.trim();
     pushHeader(`Your Information${selfName ? ` - ${selfName}` : ''}`);
-    pushLine('First name', guardianPayload.firstName);
-    pushLine('Last name', guardianPayload.lastName);
-    pushLine('Email', guardianPayload.email);
-    pushLine('Phone', guardianPayload.phone);
+    pushLine('First name', guardianPayload.firstName || submissionResponses.legal_first_name);
+    pushLine('Last name', guardianPayload.lastName || submissionResponses.legal_last_name);
+    pushLine('Email', guardianPayload.email || submissionResponses.email_address);
+    pushLine('Phone', guardianPayload.phone || submissionResponses.phone_number);
 
-    // Self-scoped question answers
-    const selfFields = getOrderedFieldsByScope(fields, 'self');
-    const selfLines = buildAnswerLinesForScope({
-      fields: selfFields,
-      responses: submissionResponses,
-      link,
-      locale: formLocale
-    });
-    if (selfLines.length) {
-      pushHeader('Your Responses');
-      selfLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
+    if (submissionResponses.clinicalSafetyAlert || isClinicalSafetyPositive(mergeShowIfValues(submissionResponses))) {
+      pushHeader('Clinical safety alert');
+      output.push('Positive safety screening responses were recorded. Staff should follow the clinical safety workflow before treating this as a routine completed intake.');
     }
 
-    // Submission (one-time) answers — skip built-in name keys
-    const submissionLines = buildAnswerLinesForScope({
-      fields: getOrderedFieldsByScope(fields, 'submission').filter((f) => !builtInNameKeys.has(f.key)),
+    const interviewValues = mergeShowIfValues(submissionResponses);
+    const steps = Array.isArray(link?.intake_steps) ? link.intake_steps : [];
+    const interviewSteps = steps.filter((s) =>
+      ['questions', 'clinical_questions'].includes(String(s?.type || ''))
+    );
+    const printedKeys = new Set();
+    for (const stepDef of interviewSteps) {
+      const stepFields = Array.isArray(stepDef?.fields) ? stepDef.fields : [];
+      const stepLines = [];
+      for (const field of stepFields) {
+        if (!field?.key || field.type === 'info') continue;
+        if (!matchesShowIf(field.showIf, interviewValues)) continue;
+        const value = interviewValues[field.key];
+        if (!hasValue(value)) continue;
+        const label =
+          resolveIntakeFieldLabel(field, formLocale, link) ||
+          String(field.label || field.key || '').trim();
+        const rendered = formatAnswerForField(field, value);
+        if (!label || !rendered) continue;
+        printedKeys.add(field.key);
+        stepLines.push(`${label}: ${rendered}`);
+      }
+      if (stepLines.length) {
+        pushHeader(String(stepDef.label || 'Interview').trim() || 'Interview');
+        stepLines.forEach((line) => output.push(line));
+      }
+    }
+
+    const leftoverSelf = buildAnswerLinesForScope({
+      fields: getOrderedFieldsByScope(fields, 'self').filter((f) => !printedKeys.has(f.key)),
       responses: submissionResponses,
       link,
       locale: formLocale
     });
-    if (submissionLines.length) {
+    const leftoverSubmission = buildAnswerLinesForScope({
+      fields: getOrderedFieldsByScope(fields, 'submission').filter(
+        (f) => !builtInNameKeys.has(f.key) && !printedKeys.has(f.key)
+      ),
+      responses: submissionResponses,
+      link,
+      locale: formLocale
+    });
+    if (leftoverSelf.length || leftoverSubmission.length) {
       pushHeader('Additional Responses');
-      submissionLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
+      leftoverSelf.forEach((line) => output.push(`${line.label}: ${line.value}`));
+      leftoverSubmission.forEach((line) => output.push(`${line.label}: ${line.value}`));
     }
   } else {
     const clientFirst =
       clientPayload?.firstName ||
       clientResponses?.client_first ||
       clientResponses?.clientFirst ||
+      clientResponses?.child_legal_first ||
+      clientResponses?.child_preferred_name ||
       submissionResponses?.client_first ||
       submissionResponses?.clientFirst;
     const clientLast =
       clientPayload?.lastName ||
       clientResponses?.client_last ||
       clientResponses?.clientLast ||
+      clientResponses?.child_legal_last ||
       submissionResponses?.client_last ||
       submissionResponses?.clientLast;
     const clientName =
       String(clientPayload?.fullName || '').trim() ||
       `${String(clientFirst || '').trim()} ${String(clientLast || '').trim()}`.trim();
 
-    // Client info first
     pushHeader(`Client ${clientIndex + 1}${clientName ? ` - ${clientName}` : ''} Information`);
     pushLine('Client first name', clientFirst);
     pushLine('Client last name', clientLast);
-    const clientLines = buildAnswerLinesForScope({
-      fields: getOrderedFieldsByScope(fields, 'client').filter((f) => !builtInNameKeys.has(f.key)),
+
+    pushHeader('Guardian Information');
+    pushLine('Guardian first name', guardianPayload.firstName || guardianResponses.guardian_legal_first);
+    pushLine('Guardian last name', guardianPayload.lastName || guardianResponses.guardian_legal_last);
+    pushLine('Guardian email', guardianPayload.email || guardianResponses.guardian_email);
+    pushLine('Guardian phone', guardianPayload.phone || guardianResponses.guardian_phone);
+    pushLine('Relationship', guardianPayload.relationship || guardianResponses.guardian_relationship_to_child);
+
+    const childName = String(
+      clientResponses?.child_preferred_name || clientFirst || 'this child'
+    ).trim() || 'this child';
+    const interpolate = (text) => String(text || '')
+      .replaceAll('{childName}', childName)
+      .replaceAll('[Child Name]', childName);
+    const interviewValues = mergeShowIfValues(
+      submissionResponses,
+      guardianResponses,
+      clientResponses,
+      childAgeFlags(clientResponses?.child_dob || clientPayload?.dob, clientResponses)
+    );
+    if (
+      clientResponses.clinicalSafetyAlert
+      || guardianResponses.clinicalSafetyAlert
+      || isClinicalSafetyPositive(interviewValues)
+    ) {
+      pushHeader('Clinical safety alert');
+      output.push('Positive safety screening responses were recorded. Staff should follow the clinical safety workflow before treating this as a routine completed intake.');
+    }
+    if (clientResponses.flagDiscussPrivately || clientResponses.clinicalPrivateDiscussion) {
+      pushHeader('Private discussion flag');
+      output.push(clientResponses.clinicalPrivateDiscussion || 'Discuss privately during intake appointment.');
+    }
+    if (clientResponses.flagGuardianPrivateDiscussion || clientResponses.guardianPrivateDiscussion) {
+      pushHeader('Guardian private discussion flag');
+      output.push(clientResponses.guardianPrivateDiscussion || 'Guardian requests private discussion.');
+    }
+
+    const steps = Array.isArray(link?.intake_steps) ? link.intake_steps : [];
+    const printedKeys = new Set();
+    const printStep = (stepDef, values) => {
+      const audience = String(stepDef?.audience || '').trim().toLowerCase();
+      if (audience === 'self') return;
+      const stepFields = Array.isArray(stepDef?.fields) ? stepDef.fields : [];
+      const stepLines = [];
+      for (const field of stepFields) {
+        if (!field?.key || field.type === 'info') continue;
+        if (!matchesShowIf(field.showIf, values)) continue;
+        const value = values[field.key];
+        if (!hasValue(value)) continue;
+        const label = interpolate(
+          resolveIntakeFieldLabel(field, formLocale, link) ||
+          String(field.label || field.key || '').trim()
+        );
+        const rendered = formatAnswerForField(field, value);
+        if (!label || !rendered) continue;
+        printedKeys.add(field.key);
+        stepLines.push(`${label}: ${rendered}`);
+      }
+      if (stepLines.length) {
+        pushHeader(interpolate(String(stepDef.label || 'Interview').trim() || 'Interview'));
+        stepLines.forEach((line) => output.push(line));
+      }
+    };
+    for (const stepDef of steps) {
+      if (!['questions', 'clinical_questions'].includes(String(stepDef?.type || ''))) continue;
+      printStep(stepDef, interviewValues);
+    }
+
+    const leftoverClient = buildAnswerLinesForScope({
+      fields: getOrderedFieldsByScope(fields, 'client').filter((f) => !builtInNameKeys.has(f.key) && !printedKeys.has(f.key)),
       responses: clientResponses,
       link,
       locale: formLocale
     });
-    if (clientLines.length) {
-      clientLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
-    } else {
-      output.push('No client answers captured.');
+    if (leftoverClient.length) {
+      leftoverClient.forEach((line) => output.push(`${line.label}: ${line.value}`));
     }
 
-    // Guardian info second
-    pushHeader('Guardian Information');
-    pushLine('Guardian first name', guardianPayload.firstName);
-    pushLine('Guardian last name', guardianPayload.lastName);
-    pushLine('Guardian email', guardianPayload.email);
-    pushLine('Guardian phone', guardianPayload.phone);
-    pushLine('Relationship', guardianPayload.relationship);
-
-    const guardianLines = buildAnswerLinesForScope({
-      fields: getOrderedFieldsByScope(fields, 'guardian'),
+    const leftoverGuardian = buildAnswerLinesForScope({
+      fields: getOrderedFieldsByScope(fields, 'guardian').filter((f) => !printedKeys.has(f.key)),
       responses: guardianResponses,
       link,
       locale: formLocale
     });
-    if (guardianLines.length) {
-      pushHeader('Guardian Questions');
-      guardianLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
+    if (leftoverGuardian.length) {
+      leftoverGuardian.forEach((line) => output.push(`${line.label}: ${line.value}`));
     }
 
-    const submissionLines = buildAnswerLinesForScope({
-      fields: getOrderedFieldsByScope(fields, 'submission').filter((f) => !builtInNameKeys.has(f.key)),
+    const leftoverSubmission = buildAnswerLinesForScope({
+      fields: getOrderedFieldsByScope(fields, 'submission').filter(
+        (f) => !builtInNameKeys.has(f.key) && !printedKeys.has(f.key)
+      ),
       responses: submissionResponses,
       link,
       locale: formLocale
     });
-    if (submissionLines.length) {
+    if (leftoverSubmission.length) {
       pushHeader('One-Time Questions');
-      submissionLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
+      leftoverSubmission.forEach((line) => output.push(`${line.label}: ${line.value}`));
     }
   }
 
@@ -8128,6 +8231,12 @@ export const finalizePublicIntake = async (req, res, next) => {
           clientInitials: clientRow?.initials || clientPayload?.initials || null,
           mode: 'digital_submission'
         }).catch(() => {});
+        maybeNotifyClinicalSafetyAlert({
+          agencyId,
+          clientId,
+          clientName: clientLabel,
+          intakeData
+        });
       }
       if (packetFailures.length) {
         console.error('[multi_child_packet_failures] some children did not get an Intake Packet PHI doc', {
@@ -9289,6 +9398,12 @@ export const submitPublicIntake = async (req, res, next) => {
           clientInitials: clientRow?.initials || clientPayload?.initials || null,
           mode: 'digital_submission'
         }).catch(() => {});
+        maybeNotifyClinicalSafetyAlert({
+          agencyId,
+          clientId,
+          clientName: clientLabel,
+          intakeData
+        });
       }
       if (packetFailures.length) {
         console.error('[multi_child_packet_failures] some children did not get an Intake Packet PHI doc', {

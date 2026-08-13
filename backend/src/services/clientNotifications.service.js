@@ -343,6 +343,32 @@ export async function notifyNewProspectiveInquiry({
   }).catch(() => null);
 }
 
+export async function notifyClinicalSafetyAlert({
+  agencyId,
+  clientId,
+  clientName
+}) {
+  if (!agencyId || !clientId) return;
+  await createNotificationAndDispatch({
+    type: 'clinical_safety_alert',
+    severity: 'warning',
+    title: 'Intake safety screen needs review',
+    message: `${clientName || `Client #${clientId}`} submitted an intake with a positive safety screening. Review before treating this as a routine completed packet.`,
+    audienceJson: {
+      admin: true,
+      clinicalPracticeAssistant: true,
+      schoolStaff: false,
+      supervisor: true,
+      provider: true
+    },
+    userId: null,
+    agencyId,
+    relatedEntityType: 'client',
+    relatedEntityId: clientId,
+    actorSource: 'Public Intake'
+  }).catch(() => null);
+}
+
 export async function notifyNewPacketUploaded({
   agencyId,
   schoolOrganizationId,

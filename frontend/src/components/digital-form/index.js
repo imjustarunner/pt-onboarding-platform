@@ -5,6 +5,7 @@ export { default as DigitalFormNotice } from './DigitalFormNotice.vue';
 export { default as DigitalFormSelectionCard } from './DigitalFormSelectionCard.vue';
 export { default as DigitalFormChoiceGroup } from './DigitalFormChoiceGroup.vue';
 export { default as DigitalFormField } from './DigitalFormField.vue';
+export { default as IntakeQuestionField } from './IntakeQuestionField.vue';
 export { default as DigitalFormActions } from './DigitalFormActions.vue';
 export { default as DigitalFormSuccess } from './DigitalFormSuccess.vue';
 export { default as AdminParticipantPreviewFrame } from './AdminParticipantPreviewFrame.vue';
