@@ -35,9 +35,12 @@ export function isValidContactType(v) {
 
 function pickLinkedOrg(entry, orgs) {
   if (!canAutoPartnerDistrict(entry.district)) return null;
+  const city = String(entry.city || '').trim().toLowerCase();
   let best = null;
   let bestScore = 0;
   for (const org of orgs) {
+    const orgCity = String(org.city || '').trim().toLowerCase();
+    if (city && orgCity && city !== orgCity) continue;
     const score = scoreNameMatch(entry.name, org.name);
     if (score > bestScore) {
       bestScore = score;
@@ -56,6 +59,36 @@ async function loadAffiliatedSchools(agencyId) {
   }
 }
 
+async function reconcileOutreachPartnerLinks(agencyId) {
+  const id = Number(agencyId || 0);
+  if (!id) return;
+  try {
+    // Only Denver Public Schools auto-partner; clear stale partnered flags elsewhere.
+    await pool.execute(
+      `UPDATE outreach_schools
+       SET outreach_stage = 'not_started', linked_organization_id = NULL
+       WHERE agency_id = ?
+         AND district_name NOT LIKE '%Denver Public%'
+         AND (outreach_stage = 'partnered' OR linked_organization_id IS NOT NULL)`,
+      [id]
+    );
+    // Within DPS, drop links where the partner school is in a different city.
+    await pool.execute(
+      `UPDATE outreach_schools s
+       INNER JOIN agencies a ON a.id = s.linked_organization_id
+       SET s.linked_organization_id = NULL,
+           s.outreach_stage = IF(s.outreach_stage = 'partnered', 'not_started', s.outreach_stage)
+       WHERE s.agency_id = ?
+         AND s.district_name LIKE '%Denver Public%'
+         AND s.linked_organization_id IS NOT NULL
+         AND LOWER(TRIM(COALESCE(a.city, ''))) != LOWER(TRIM(COALESCE(s.city, '')))`,
+      [id]
+    );
+  } catch {
+    /* table may not exist yet */
+  }
+}
+
 export async function ensureOutreachDirectory(agencyId) {
   const id = Number(agencyId || 0);
   if (!id) return { inserted: 0, updated: 0 };
@@ -67,18 +100,7 @@ export async function ensureOutreachDirectory(agencyId) {
     );
     const existing = Number(countRows?.[0]?.n || 0);
     if (existing >= expected) {
-      try {
-        await pool.execute(
-          `UPDATE outreach_schools
-           SET outreach_stage = 'not_started', linked_organization_id = NULL
-           WHERE agency_id = ?
-             AND district_name LIKE '%Aurora%'
-             AND outreach_stage = 'partnered'`,
-          [id]
-        );
-      } catch {
-        /* ignore */
-      }
+      await reconcileOutreachPartnerLinks(id);
       const seeded = await applySeededOutreachLocations(id);
       return { inserted: 0, updated: seeded, skipped: true };
     }
@@ -128,18 +150,7 @@ export async function ensureOutreachDirectory(agencyId) {
     if (result?.insertId) inserted += 1;
     else if (result?.affectedRows > 0) updated += 1;
   }
-  try {
-    await pool.execute(
-      `UPDATE outreach_schools
-       SET outreach_stage = 'not_started', linked_organization_id = NULL
-       WHERE agency_id = ?
-         AND district_name LIKE '%Aurora%'
-         AND outreach_stage = 'partnered'`,
-      [id]
-    );
-  } catch {
-    /* ignore if table missing on first boot */
-  }
+  await reconcileOutreachPartnerLinks(id);
   await applySeededOutreachLocations(id);
   return { inserted, updated };
 }
@@ -148,6 +159,17 @@ export async function ensureOutreachDirectory(agencyId) {
 export async function applySeededOutreachLocations(agencyId) {
   const id = Number(agencyId || 0);
   if (!id) return 0;
+  const [needRows] = await pool.execute(
+    `SELECT COUNT(*) AS n FROM outreach_schools
+     WHERE agency_id = ?
+       AND (
+         address IS NULL OR address = '' OR address NOT REGEXP '[0-9]'
+         OR lat IS NULL OR lng IS NULL
+       )`,
+    [id]
+  );
+  if (!Number(needRows?.[0]?.n || 0)) return 0;
+
   let updated = 0;
   for (const entry of COLORADO_OUTREACH_SCHOOLS) {
     if (!entry.address || !/\d/.test(entry.address)) continue;
@@ -204,7 +226,6 @@ function mapSchoolRow(row, activityCounts = null) {
 
 export async function listOutreachSchools(agencyId, filters = {}) {
   await ensureOutreachDirectory(agencyId);
-  void backfillOutreachSchoolGeocodes(agencyId, { limit: 35 }).catch(() => {});
   const where = ['s.agency_id = ?'];
   const params = [agencyId];
   const district = String(filters.district || '').trim();

@@ -966,11 +966,24 @@ const emailInvite = async (inv) => {
 
 const saveStage = async (stage) => {
   if (!selectedId.value) return;
-  const res = await api.patch(`/outreach/schools/${selectedId.value}`, { outreach_stage: stage });
+  const prevStage = selected.value?.outreach_stage
+    || schools.value.find((s) => s.id === selectedId.value)?.outreach_stage;
+  const res = await api.patch(
+    `/outreach/schools/${selectedId.value}`,
+    { outreach_stage: stage },
+    { skipGlobalLoading: true }
+  );
   selected.value = res.data?.school || selected.value;
   const row = schools.value.find((s) => s.id === selectedId.value);
   if (row) row.outreach_stage = stage;
-  await reload();
+  if (summary.value?.by_stage && prevStage && prevStage !== stage) {
+    summary.value.by_stage[prevStage] = Math.max(0, Number(summary.value.by_stage[prevStage] || 0) - 1);
+    summary.value.by_stage[stage] = Number(summary.value.by_stage[stage] || 0) + 1;
+    summary.value.partnered = Number(summary.value.by_stage.partnered || 0);
+    summary.value.active_outreach = Number(summary.value.total_schools || 0)
+      - Number(summary.value.by_stage.not_started || 0)
+      - Number(summary.value.by_stage.on_hold || 0);
+  }
 };
 
 const saveFollowUp = async (value) => {

@@ -34,6 +34,8 @@ describe('outreach partnership and routing', () => {
   it('does not auto-partner Aurora schools', () => {
     assert.equal(canAutoPartnerDistrict('Aurora Public Schools'), false);
     assert.equal(canAutoPartnerDistrict('Denver Public Schools'), true);
+    assert.equal(canAutoPartnerDistrict('Poudre School District'), false);
+    assert.equal(canAutoPartnerDistrict('Pueblo City Schools'), false);
   });
 
   it('ranks nearby points with haversine miles', () => {
