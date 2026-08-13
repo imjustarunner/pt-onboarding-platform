@@ -9,6 +9,7 @@ import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { isPaperPacketClient } from '../utils/paperPacketClient.js';
 import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
 import { deriveLifecycleAction } from '../utils/clientLifecycleAction.js';
+import { isReturningSchoolClient } from '../utils/fallReadiness.js';
 
 export { deriveLifecycleAction };
 
@@ -178,9 +179,13 @@ export async function reconcileSchoolClientStatus({ clientId, actorUserId = null
   const agencyIntake = parseJson(client.agency_intake_json) || {};
   const hasWeekday = await clientHasWeekdayAssignment(cid);
   const hasProvider = await clientHasProvider(cid, client);
-  const servicesStarted = !!(client.services_started_at || client.first_service_at);
+  const returning = isReturningSchoolClient(client);
+  const servicesStarted = returning
+    ? !!client.services_started_at
+    : !!(client.services_started_at || client.first_service_at);
 
-  // Being Seen wins when services confirmed and still scheduled
+  // Being Seen wins when this-year services are confirmed and still scheduled.
+  // Returners require the provider "Mark Being Seen" action (services_started_at), not last year's first_service_at.
   if (servicesStarted && hasWeekday) {
     return setClientLifecycleStatus({
       clientId: cid,
@@ -355,6 +360,7 @@ export async function reconcileSchoolClientStatus({ clientId, actorUserId = null
 export async function markClientScheduledFromPlacement({ clientId, actorUserId = null }) {
   const [rows] = await pool.execute(
     `SELECT c.id, c.agency_id, c.client_type, c.services_started_at, c.first_service_at,
+            c.staff_onboarding_completed_at, c.school_year, c.created_at, c.submission_date,
             cs.status_key AS client_status_key
      FROM clients c
      LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
@@ -367,7 +373,9 @@ export async function markClientScheduledFromPlacement({ clientId, actorUserId =
   const key = String(client.client_status_key || '').toLowerCase();
   if (TERMINAL.has(key) || key === 'waitlist' || key === 'terminated') return { statusKey: key, changed: false };
 
-  if (client.services_started_at || client.first_service_at) {
+  const returning = isReturningSchoolClient(client);
+  const startedThisYear = !!client.services_started_at || (!returning && !!client.first_service_at);
+  if (startedThisYear) {
     return setClientLifecycleStatus({
       clientId,
       statusKey: LIFECYCLE_STATUS_KEYS.BEING_SEEN,

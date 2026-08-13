@@ -137,12 +137,42 @@ describe('deriveLifecycleAction', () => {
     assert.match(action.label, /New Client/i);
   });
 
-  it('returns confirm services started when scheduled', () => {
+  it('keeps new scheduled clients on the new-client checklist, not Being Seen', () => {
     const action = deriveLifecycleAction({
-      client: { client_status_key: 'scheduled' },
+      client: { client_status_key: 'scheduled', client_type: 'school' },
       viewerRole: 'provider'
     });
+    assert.equal(action?.actionKey, 'provider_intake');
+  });
+
+  it('gives returners a Being Seen action once scheduled even if last year had first service', () => {
+    const action = deriveLifecycleAction({
+      client: {
+        client_type: 'school',
+        client_status_key: 'scheduled',
+        staff_onboarding_completed_at: '2026-04-01',
+        first_service_at: '2026-02-10',
+        school_year: '2026-2027'
+      },
+      viewerRole: 'provider',
+      now: new Date('2026-08-20T12:00:00')
+    });
     assert.equal(action?.actionKey, 'confirm_services_started');
+    assert.match(action.label, /Being Seen/i);
+  });
+
+  it('hides Being Seen action after the provider confirms this year', () => {
+    const action = deriveLifecycleAction({
+      client: {
+        client_type: 'school',
+        client_status_key: 'scheduled',
+        staff_onboarding_completed_at: '2026-04-01',
+        services_started_at: '2026-08-18',
+        first_service_at: '2026-02-10'
+      },
+      viewerRole: 'provider'
+    });
+    assert.equal(action, null);
   });
 
   it('does not ask providers for fall confirmation when a weekday is already assigned', () => {

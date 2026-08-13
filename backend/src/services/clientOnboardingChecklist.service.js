@@ -578,17 +578,17 @@ export async function maybePromoteOnboardedToCurrent({ clientId, actorUserId = n
 
   const school = isSchoolClient(client);
   const returning = school && isReturningSchoolClient(client);
+  // Returners are marked Being Seen by the provider action after Scheduled, not this checklist.
+  if (returning) return { promoted: false };
+
   const dayAssigned = await hasServiceDay(clientId, client);
-  const fallContinue = continuationPlanIsContinue(client.continuation_services_json);
   const firstServiceDone = (checklist.provider_items || []).some(
     (i) => i.key === 'first_service' && i.done
   ) || !!client.first_service_at || !!client.services_started_at;
 
   if (!firstServiceDone) return { promoted: false };
 
-  if (returning) {
-    if (!dayAssigned && !fallContinue) return { promoted: false };
-  } else if (school && !dayAssigned) {
+  if (school && !dayAssigned) {
     return { promoted: false };
   }
 

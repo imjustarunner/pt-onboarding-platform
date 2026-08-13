@@ -60,11 +60,7 @@ export default class ClientCompliancePromotionService {
 
     for (const client of rows) {
       try {
-        if (
-          isReturningSchoolClient(client, now)
-          && !Number(client.has_weekday)
-          && !(client.service_day && String(client.service_day).trim())
-        ) {
+        if (isReturningSchoolClient(client, now)) {
           continue;
         }
         const isSchool = String(client.client_type || '').toLowerCase() === 'school';

@@ -146,6 +146,8 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
     const fallDone = disposition?.fall_completed_at != null;
     const hasWeekday = clientHasWeekday(client);
     const hasProvider = clientHasAssignedProvider(client);
+    const returning = isReturningSchoolClient({ ...client, client_type: client?.client_type || 'school' }, now);
+    const beingSeenConfirmed = !!client?.services_started_at;
     // Unassigned / already placed returning clients: do not show a generic Fall confirmation.
     if (['confirmation_pending', 'continuation_unknown', 'unable_to_reach', 'other_transfer'].includes(statusKey)) {
       if (!hasProvider || hasWeekday) return null;
@@ -155,14 +157,16 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
       if (!hasProvider || hasWeekday) return null;
       return { role: 'provider', actionKey: 'fall_confirmation', label: 'Fall confirmation – Action Needed' };
     }
-    if (['ready_to_schedule', 'scheduled'].includes(statusKey) && !client?.services_started_at && !client?.first_service_at) {
-      if (statusKey === 'scheduled') {
-        return { role: 'provider', actionKey: 'confirm_services_started', label: 'Confirm Services Started' };
-      }
-      // Returning clients with a day already placed: school schedules them; no provider intake.
-      if (isReturningSchoolClient({ ...client, client_type: client?.client_type || 'school' }) && hasWeekday) {
-        return null;
-      }
+    // Returners: after Scheduled, one action to mark Being Seen (last year's first_service_at does not count).
+    if (returning && statusKey === 'scheduled' && !beingSeenConfirmed) {
+      return { role: 'provider', actionKey: 'confirm_services_started', label: 'Mark Being Seen' };
+    }
+    if (returning && statusKey === 'ready_to_schedule' && hasWeekday) {
+      return null;
+    }
+    // New clients: Being Seen comes from the new-client checklist, including after they are Scheduled.
+    if (!returning && ['ready_to_schedule', 'scheduled'].includes(statusKey) && !beingSeenConfirmed) {
+      if (statusKey === 'scheduled' && client?.first_service_at) return null;
       return { role: 'provider', actionKey: 'provider_intake', label: 'New Client – Action Needed' };
     }
   }

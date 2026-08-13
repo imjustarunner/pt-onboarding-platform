@@ -906,10 +906,10 @@ const canOpenSchoolClient = (client) => {
   return !isSchoolClientLocked(client) && !props.previewMode;
 };
 const isNewClientActionClient = (client) => {
-  const key = String(client?.client_status_key || '').toLowerCase();
-  if (key === 'ready_to_schedule') return true;
-  if (key === 'scheduled' && !client?.services_started_at && !client?.first_service_at) return true;
-  return false;
+  const actionKey = String(
+    client?.lifecycle_action?.actionKey || client?.provider_action_key || ''
+  ).toLowerCase();
+  return actionKey === 'provider_intake';
 };
 /** Standalone Checklist is retired — new clients use Action / Next Step. */
 const showChecklistButton = computed(() => false);
@@ -1126,6 +1126,7 @@ const loadStoredSort = () => {
     const parsed = JSON.parse(raw);
     if (parsed?.key && typeof parsed.key === 'string') sortKey.value = parsed.key;
     if (parsed?.dir === 'asc' || parsed?.dir === 'desc') sortDir.value = parsed.dir;
+    if (parsed?.key) columnSortActive.value = true;
   } catch {
     // ignore
   }
@@ -1144,6 +1145,7 @@ const saveSort = () => {
 
 const sortKey = ref('submission_date');
 const sortDir = ref('desc');
+const columnSortActive = ref(false);
 const waitlistAlertOpen = ref(false);
 
 const showPsychotherapyColumn = computed(() => !!props.psychotherapyTotalsByClientId);
@@ -1245,6 +1247,7 @@ const fetchEditPermissions = async () => {
 };
 
 const toggleSort = (key) => {
+  columnSortActive.value = true;
   if (sortKey.value === key) {
     sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
   } else {
@@ -1464,7 +1467,7 @@ const openQuickChecklist = (client) => {
 const PROVIDER_ACTION_LABELS = {
   fall_confirmation: 'Fall confirmation – Action Needed',
   spring_update: 'Spring Update – Action Needed',
-  confirm_services_started: 'Confirm Services Started',
+  confirm_services_started: 'Mark Being Seen',
   provider_intake: 'New Client – Action Needed'
 };
 
@@ -1680,7 +1683,7 @@ const ACTION_FILTER_LABELS = {
   new_client: 'New client',
   agency_clearance: 'Agency clearance',
   roi_followup: 'ROI follow-up',
-  confirm_services: 'Confirm started'
+  confirm_services: 'Being Seen'
 };
 
 const clientMatchesActionFilter = (client, actionKey) => {
@@ -1858,21 +1861,21 @@ const sortedClients = computed(() => {
   const list = Array.isArray(filteredClients.value) ? filteredClients.value.slice() : [];
   const key = sortKey.value;
   const dir = sortDir.value === 'asc' ? 1 : -1;
+  const useBuckets = !columnSortActive.value;
   return list.sort((a, b) => {
-    // Default pipeline: needing action / not yet Being Seen above active; Terminated bottom.
-    const bucketCmp = lifecycleSortBucket(a) - lifecycleSortBucket(b);
-    if (bucketCmp !== 0) return bucketCmp;
+    if (useBuckets) {
+      const bucketCmp = lifecycleSortBucket(a) - lifecycleSortBucket(b);
+      if (bucketCmp !== 0) return bucketCmp;
+    }
     const av = sortValue(a, key);
     const bv = sortValue(b, key);
     if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
     const cmp = String(av).localeCompare(String(bv));
     if (cmp !== 0) return cmp * dir;
-    // Secondary tie-break: sort by client label (e.g. "by school, then client").
     if (key !== 'initials') {
       const clientCmp = String(sortValue(a, 'initials')).localeCompare(String(sortValue(b, 'initials')));
       if (clientCmp !== 0) return clientCmp;
     }
-    // Stable fallback
     return Number(a?.id || 0) - Number(b?.id || 0);
   });
 });

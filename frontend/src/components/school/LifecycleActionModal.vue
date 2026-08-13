@@ -222,10 +222,13 @@
           </div>
         </div>
 
-        <!-- Confirm services started -->
+        <!-- Confirm returning client is being seen -->
         <div v-else-if="actionKey === 'confirm_services_started'" class="form-grid">
+          <p class="hint">
+            This returning client is on the schedule. Confirm you are seeing them this year to mark status as Being Seen.
+          </p>
           <div class="form-group">
-            <label>Date services started</label>
+            <label>Date being seen (this year)</label>
             <div class="input-with-today">
               <input v-model="services.serviceDate" type="date" class="input" />
               <button type="button" class="btn-today" @click="services.serviceDate = todayYmd()">Today</button>
