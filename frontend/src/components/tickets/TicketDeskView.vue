@@ -241,6 +241,18 @@
                   @click="detailTab = 'details'"
                 >Details</button>
                 <button type="button" class="tab" disabled title="Coming soon">Client</button>
+                <span v-if="ticketAttachments.length" class="attach-chip">
+                  {{ ticketAttachments.length }} attachment{{ ticketAttachments.length === 1 ? '' : 's' }}
+                </span>
+                <button
+                  v-if="canAnswer && isEmailTicket && !suggestedActionsDismissed"
+                  type="button"
+                  class="btn btn-secondary btn-xs suggest-tab-btn"
+                  :disabled="suggestingActions || ticketActionsLoading"
+                  @click="rerunSuggestActions"
+                >
+                  {{ suggestingActions ? 'Analyzing…' : (ticketActions.length ? 'Re-analyze' : 'Analyze') }}
+                </button>
               </div>
 
               <!-- Conversation tab -->
@@ -264,7 +276,20 @@
                     </div>
                     <div class="bubble-body">{{ m.body || '(deleted)' }}</div>
                   </div>
-                  <div v-if="!messages.length" class="muted pad">No messages yet.</div>
+                  <div v-if="ticketAttachments.length" class="thread-attachments">
+                    <div class="thread-attachments-label">Attachments</div>
+                    <button
+                      v-for="att in ticketAttachments"
+                      :key="att.id"
+                      type="button"
+                      class="attachment-chip"
+                      @click="openTicketAttachment(att)"
+                    >
+                      <span class="attachment-icon">{{ att.is_pdf ? 'PDF' : 'FILE' }}</span>
+                      <span class="attachment-name">{{ att.file_name || 'Attachment' }}</span>
+                    </button>
+                  </div>
+                  <div v-if="!messages.length && !ticketAttachments.length" class="muted pad">No messages yet.</div>
                 </div>
               </template>
 
@@ -327,24 +352,31 @@
               </div>
 
               <div
-                v-if="canAnswer && (ticketActions.length || ticketActionsLoading || isEmailTicket)"
+                v-if="canAnswer && !suggestedActionsDismissed && (ticketActions.length || ticketActionsLoading)"
                 class="suggested-actions-banner"
+                :class="{ collapsed: suggestedActionsCollapsed }"
               >
                 <div class="suggested-actions-head">
                   <strong>Suggested actions</strong>
+                  <span v-if="proposedActionCount" class="muted"> · {{ proposedActionCount }}</span>
                   <span v-if="ticketActionsLoading" class="muted"> · loading…</span>
                   <button
                     type="button"
                     class="btn btn-secondary btn-xs"
-                    :disabled="suggestingActions || ticketActionsLoading"
-                    @click="rerunSuggestActions"
+                    @click="suggestedActionsCollapsed = !suggestedActionsCollapsed"
                   >
-                    {{ suggestingActions ? 'Analyzing…' : (ticketActions.length ? 'Re-analyze' : 'Analyze') }}
+                    {{ suggestedActionsCollapsed ? 'Show' : 'Hide' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    title="Dismiss"
+                    @click="dismissSuggestedActions"
+                  >
+                    ×
                   </button>
                 </div>
-                <div v-if="!ticketActions.length && !ticketActionsLoading" class="muted pad-sm">
-                  No proposed actions yet. Click Analyze to scan this email for staff/contact requests.
-                </div>
+                <template v-if="!suggestedActionsCollapsed">
                 <div
                   v-for="action in ticketActions"
                   :key="action.id"
@@ -357,6 +389,13 @@
                       · {{ action.status }}
                       <span v-if="action.payload?.email"> · {{ action.payload.email }}</span>
                       <span v-if="action.payload?.roleTitle"> · {{ action.payload.roleTitle }}</span>
+                      <span v-if="action.payload?.fileName"> · {{ action.payload.fileName }}</span>
+                    </div>
+                    <div
+                      v-if="action.result?.draftId && action.status === 'completed'"
+                      class="suggested-action-meta"
+                    >
+                      Uploaded to {{ action.result.organizationName || 'school' }} as a new client packet draft.
                     </div>
                     <div
                       v-if="oneTimePasswords[action.id]"
@@ -401,6 +440,7 @@
                     </button>
                   </div>
                 </div>
+                </template>
               </div>
 
               <div v-if="selected.ai_draft_response && canAnswer" class="ai-draft-banner">
@@ -750,6 +790,12 @@ const ticketActions = ref([]);
 const ticketActionsLoading = ref(false);
 const suggestingActions = ref(false);
 const actionBusyId = ref(null);
+const ticketAttachments = ref([]);
+const suggestedActionsCollapsed = ref(false);
+const suggestedActionsDismissed = ref(false);
+const proposedActionCount = computed(
+  () => ticketActions.value.filter((a) => a.status === 'proposed' || a.status === 'failed').length
+);
 /** One-time plaintext passwords keyed by action id (never reloaded from server). */
 const oneTimePasswords = ref({});
 const showForward = ref(false);
@@ -1108,12 +1154,15 @@ async function loadMessages(ticketId) {
   try {
     const r = await api.get(`/support-tickets/${ticketId}/messages`, { skipGlobalLoading: true });
     messages.value = Array.isArray(r.data?.messages) ? r.data.messages : [];
+    ticketAttachments.value = Array.isArray(r.data?.attachments) ? r.data.attachments : [];
     if (r.data?.ticket) selected.value = { ...selected.value, ...r.data.ticket };
+    if (canAnswer.value) loadTicketActions(ticketId);
     await nextTick();
     if (threadEl.value) threadEl.value.scrollTop = threadEl.value.scrollHeight;
   } catch (e) {
     messagesError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load messages';
     messages.value = [];
+    ticketAttachments.value = [];
   } finally {
     messagesLoading.value = false;
   }
@@ -1132,6 +1181,9 @@ function selectTicket(t) {
   forwardSelectedIds.value = [];
   forwardNote.value = '';
   ticketActions.value = [];
+  ticketAttachments.value = [];
+  suggestedActionsDismissed.value = false;
+  suggestedActionsCollapsed.value = false;
   oneTimePasswords.value = {};
   emit('selection-change', t);
   const q = { ...route.query, ticketId: String(t.id) };
@@ -1146,6 +1198,8 @@ function clearSelection() {
   selected.value = null;
   messages.value = [];
   ticketActions.value = [];
+  ticketAttachments.value = [];
+  suggestedActionsDismissed.value = false;
   oneTimePasswords.value = {};
   emit('selection-change', null);
   const q = { ...route.query };
@@ -1159,7 +1213,28 @@ function actionTypeLabel(type) {
   if (t === 'create_school_staff_account') return 'Create staff account';
   if (t === 'generate_temp_password') return 'Temp password';
   if (t === 'update_school_contact') return 'Update contact';
+  if (t === 'upload_school_packet') return 'Upload school packet';
   return t || 'Action';
+}
+
+function dismissSuggestedActions() {
+  suggestedActionsDismissed.value = true;
+}
+
+async function openTicketAttachment(att) {
+  if (!selected.value?.id || !att?.id) return;
+  try {
+    const r = await api.get(
+      `/support-tickets/${selected.value.id}/attachments/${att.id}/download`,
+      { responseType: 'blob', skipGlobalLoading: true }
+    );
+    const blob = new Blob([r.data], { type: att.mime_type || 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to open attachment';
+  }
 }
 
 async function loadTicketActions(ticketId) {
@@ -1950,6 +2025,68 @@ defineExpose({ loadAll, clearSelection });
   gap: 4px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border, #e2e8f0);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.suggest-tab-btn { margin-left: auto; }
+.attach-chip {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0369a1;
+}
+.thread {
+  flex: 1 1 auto;
+  min-height: 180px;
+  overflow: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.thread-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+}
+.thread-attachments-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--text-secondary, #64748b);
+  width: 100%;
+}
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #90caf9;
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font: inherit;
+  max-width: 100%;
+}
+.attachment-chip:hover { background: #e3f2fd; }
+.attachment-icon {
+  font-size: 10px;
+  font-weight: 800;
+  color: #b91c1c;
+  background: #fee2e2;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.attachment-name {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
 }
 .tab {
   border: none;
@@ -1963,14 +2100,6 @@ defineExpose({ loadAll, clearSelection });
 }
 .tab.active { background: rgba(45, 106, 79, 0.1); color: var(--primary, #2d6a4f); }
 .tab:disabled { opacity: 0.45; cursor: not-allowed; }
-.thread {
-  flex: 1;
-  overflow: auto;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
 .bubble {
   max-width: 85%;
   padding: 10px 12px;
@@ -2007,6 +2136,7 @@ defineExpose({ loadAll, clearSelection });
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 0 0 auto;
 }
 .composer-tabs { display: flex; gap: 6px; }
 .composer-tab {
@@ -2054,20 +2184,44 @@ defineExpose({ loadAll, clearSelection });
 }
 .ai-draft-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .suggested-actions-banner {
-  margin: 0 12px 10px;
-  padding: 10px 12px;
-  border: 1px dashed #64b5f6;
-  border-radius: 10px;
+  margin: 0 12px 8px;
+  padding: 6px 10px;
+  border: 1px solid #90caf9;
+  border-radius: 8px;
   background: #e3f2fd;
+  flex: 0 0 auto;
+  max-height: 160px;
+  overflow: auto;
+}
+.suggested-actions-banner.collapsed {
+  max-height: none;
+  overflow: visible;
 }
 .suggested-actions-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 12px;
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
-.suggested-actions-head .btn { margin-left: auto; }
+.suggested-actions-banner:not(.collapsed) .suggested-actions-head {
+  margin-bottom: 6px;
+  position: sticky;
+  top: 0;
+  background: #e3f2fd;
+  z-index: 1;
+}
+.btn-ghost {
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 6px;
+  cursor: pointer;
+  color: var(--text-secondary, #64748b);
+}
+.suggested-actions-head .btn { margin-left: 0; }
+.suggested-actions-head .btn-ghost { margin-left: auto; }
 .suggested-action-row {
   display: flex;
   gap: 10px;

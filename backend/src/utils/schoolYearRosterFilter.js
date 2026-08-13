@@ -4,7 +4,7 @@
 import { normalizeSchoolYearLabel, computeCurrentSchoolYearLabel } from './schoolYear.js';
 import { getClientSchoolYearMembershipMap } from '../services/clientSchoolYear.service.js';
 
-const CURRENT_YEAR_EXCEPTION_STATUSES = new Set([
+export const CURRENT_YEAR_EXCEPTION_STATUSES = new Set([
   'confirmation_pending',
   'unable_to_reach',
   'other_transfer',

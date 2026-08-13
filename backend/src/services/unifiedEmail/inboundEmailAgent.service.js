@@ -19,6 +19,7 @@ import {
   classifyReinitIntent
 } from './schoolReinitEmailIntake.service.js';
 import { suggestActionsForTicket } from './ticketActionSuggestion.service.js';
+import { persistGmailAttachmentsForTicket } from './ticketInboundAttachments.service.js';
 
 function headerMap(headers = []) {
   const m = new Map();
@@ -547,7 +548,10 @@ async function createEmailDraftSupportTicket({
   draftConfidence,
   draftStatus,
   escalationReason,
-  metadata
+  metadata,
+  gmailClient = null,
+  gmailMessageId = null,
+  payload = null
 }) {
   // Deduplication: skip if a ticket for this exact Gmail message already exists.
   if (messageId && (await ticketAlreadyExistsForMessageId(messageId))) {
@@ -558,6 +562,10 @@ async function createEmailDraftSupportTicket({
   const recipientsJson = Array.isArray(recipients) && recipients.length
     ? JSON.stringify(recipients.map((r) => String(r).trim().toLowerCase()).filter(Boolean))
     : null;
+  const metadataWithGmail = {
+    ...(metadata && typeof metadata === 'object' ? metadata : {}),
+    ...(gmailMessageId ? { gmailMessageId: String(gmailMessageId) } : {})
+  };
 
   let result;
   try {
@@ -586,7 +594,7 @@ async function createEmailDraftSupportTicket({
         draftResponse ? truncate(draftResponse, 6000) : null,
         Number.isFinite(Number(draftConfidence)) ? Number(draftConfidence) : null,
         draftStatus || null,
-        metadata ? JSON.stringify(metadata) : null,
+        Object.keys(metadataWithGmail).length ? JSON.stringify(metadataWithGmail) : null,
         escalationReason || null
       ]
     );
@@ -608,6 +616,20 @@ async function createEmailDraftSupportTicket({
   }
 
   if (ticketId) {
+    if (payload && gmailMessageId) {
+      await persistGmailAttachmentsForTicket({
+        ticketId,
+        gmail: gmailClient,
+        gmailMessageId,
+        payload
+      }).catch((err) => {
+        console.warn(
+          `[EmailAgent] persistGmailAttachmentsForTicket failed for ticket #${ticketId}:`,
+          err?.message || err
+        );
+        return null;
+      });
+    }
     // Propose staff/contact actions (create contact, staff account + temp password, etc.)
     // Best-effort — never fail ticket creation if suggestion analysis fails.
     await suggestActionsForTicket({
@@ -768,6 +790,9 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
             bodyText,
             fromEmail,
             messageId: hdrs.get('message-id') || null,
+            gmailClient: gmail,
+            gmailMessageId: id,
+            payload,
             threadId: full.data?.threadId || null,
             receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
             recipients: Array.from(new Set([...(routed.to || []), ...(routed.cc || [])])),
@@ -811,6 +836,9 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
               bodyText,
               fromEmail,
               messageId: hdrs.get('message-id') || null,
+            gmailClient: gmail,
+            gmailMessageId: id,
+            payload,
               threadId: full.data?.threadId || null,
               receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
               recipients: Array.from(new Set([...(routed.to || []), ...(routed.cc || [])])),
@@ -876,6 +904,9 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           bodyText,
           fromEmail,
           messageId: hdrs.get('message-id') || null,
+          gmailClient: gmail,
+          gmailMessageId: id,
+          payload,
           threadId: full.data?.threadId || null,
           receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
           recipients: Array.from(new Set([...(routed.to || []), ...(routed.cc || [])])),
@@ -991,6 +1022,9 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         bodyText,
         fromEmail,
         messageId: hdrs.get('message-id') || null,
+        gmailClient: gmail,
+        gmailMessageId: id,
+        payload,
         threadId: full.data?.threadId || null,
         receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
         recipients: Array.from(new Set([...(routed.to || []), ...(routed.cc || [])])),

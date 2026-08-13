@@ -2,12 +2,28 @@ import pool from '../../config/database.js';
 import User from '../../models/User.model.js';
 import ClientSchoolStaffRoiAccess from '../../models/ClientSchoolStaffRoiAccess.model.js';
 import { callGeminiText } from '../geminiText.service.js';
+import {
+  getTicketAttachmentRow,
+  ingestTicketAttachmentsFromGmail,
+  isPdfAttachment,
+  listTicketAttachments,
+  parseLikelyClientName,
+  readTicketAttachmentBuffer
+} from './ticketInboundAttachments.service.js';
+import Agency from '../../models/Agency.model.js';
+import AgencySchool from '../../models/AgencySchool.model.js';
+import OrganizationAffiliation from '../../models/OrganizationAffiliation.model.js';
+import ReferralPacketDraft from '../../models/ReferralPacketDraft.model.js';
+import ClientPhiDocument from '../../models/ClientPhiDocument.model.js';
+import DocumentEncryptionService from '../documentEncryption.service.js';
+import StorageService from '../storage.service.js';
 
 export const TICKET_ACTION_TYPES = {
   CREATE_SCHOOL_CONTACT: 'create_school_contact',
   CREATE_SCHOOL_STAFF_ACCOUNT: 'create_school_staff_account',
   GENERATE_TEMP_PASSWORD: 'generate_temp_password',
   UPDATE_SCHOOL_CONTACT: 'update_school_contact',
+  UPLOAD_SCHOOL_PACKET: 'upload_school_packet',
   OTHER: 'other'
 };
 
@@ -247,6 +263,102 @@ async function insertActionItem({
   return Number(result?.insertId || 0);
 }
 
+async function proposePacketUploadActions({
+  ticketId,
+  schoolOrganizationId,
+  schoolName,
+  subject,
+  bodyText,
+  ticket = null
+}) {
+  if (!(await hasActionItemsTable())) return { created: 0, attachments: [], pdfCount: 0 };
+  let attachments = await listTicketAttachments(ticketId);
+  if (!attachments.length && ticket) {
+    try {
+      const ingested = await ingestTicketAttachmentsFromGmail({ ticket });
+      attachments = ingested?.attachments || (await listTicketAttachments(ticketId));
+    } catch (err) {
+      console.warn('[ticketActionSuggestion] ingest attachments failed:', err?.message || err);
+    }
+  }
+  const pdfs = (attachments || []).filter((a) =>
+    isPdfAttachment({ filename: a.file_name, mimeType: a.mime_type })
+  );
+  const guessedName = parseLikelyClientName(subject, bodyText);
+  let created = 0;
+  for (const pdf of pdfs) {
+    const already = await existingProposedForAttachment({
+      ticketId,
+      actionType: TICKET_ACTION_TYPES.UPLOAD_SCHOOL_PACKET,
+      attachmentId: pdf.id
+    });
+    if (already) continue;
+    const nameLabel =
+      [guessedName.firstName, guessedName.lastName].filter(Boolean).join(' ') ||
+      String(pdf.file_name || 'PDF').replace(/\.pdf$/i, '');
+    const id = await insertActionItem({
+      ticketId,
+      actionType: TICKET_ACTION_TYPES.UPLOAD_SCHOOL_PACKET,
+      title: truncate(`Upload packet as new client at ${schoolName || 'school'}: ${nameLabel}`, 255),
+      confidence: 0.8,
+      payload: {
+        schoolOrganizationId,
+        attachmentId: pdf.id,
+        fileName: pdf.file_name || null,
+        firstName: guessedName.firstName || null,
+        lastName: guessedName.lastName || null,
+        source: 'email_intake'
+      }
+    });
+    if (id) created += 1;
+  }
+  return { created, attachments, pdfCount: pdfs.length };
+}
+
+export async function ensurePacketUploadActionsForTicket(ticket) {
+  if (!ticket?.id || !ticket.school_organization_id) return { created: 0 };
+  let schoolName = null;
+  try {
+    const [schoolRows] = await pool.execute(
+      `SELECT name FROM agencies WHERE id = ? LIMIT 1`,
+      [Number(ticket.school_organization_id)]
+    );
+    schoolName = schoolRows?.[0]?.name || null;
+  } catch {
+    schoolName = null;
+  }
+  return proposePacketUploadActions({
+    ticketId: ticket.id,
+    schoolOrganizationId: Number(ticket.school_organization_id),
+    schoolName,
+    subject: ticket.source_email_subject || ticket.subject || '',
+    bodyText: ticket.question || '',
+    ticket
+  });
+}
+
+async function existingProposedForAttachment({ ticketId, actionType, attachmentId }) {
+  const aid = Number(attachmentId || 0);
+  if (!aid) return false;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id, payload_json
+       FROM support_ticket_action_items
+       WHERE ticket_id = ?
+         AND action_type = ?
+         AND status IN ('proposed', 'approved', 'completed')`,
+      [Number(ticketId), actionType]
+    );
+    for (const row of rows || []) {
+      const payload = parsePayload(row.payload_json);
+      if (Number(payload.attachmentId || 0) === aid) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 async function existingProposedForEmail({ ticketId, actionType, email }) {
   const em = normalizeEmail(email);
   if (!em) return false;
@@ -289,16 +401,14 @@ export async function suggestActionsForTicket({
   if (!tid || !sid) return { created: 0, people: [], skipped: 'invalid_ids' };
 
   let ticket = null;
-  if (!fromEmail || bodyText == null || !recipients) {
-    const [rows] = await pool.execute(
-      `SELECT id, school_organization_id, source_email_from, source_email_subject,
-              source_email_recipients, question, subject
-       FROM support_tickets WHERE id = ? LIMIT 1`,
-      [tid]
-    );
-    ticket = rows?.[0] || null;
-    if (!ticket) return { created: 0, people: [], skipped: 'ticket_not_found' };
-  }
+  const [ticketRows] = await pool.execute(
+    `SELECT id, school_organization_id, agency_id, client_id, source_email_from, source_email_subject,
+            source_email_recipients, source_email_message_id, question, subject, ai_draft_metadata_json
+     FROM support_tickets WHERE id = ? LIMIT 1`,
+    [tid]
+  );
+  ticket = ticketRows?.[0] || null;
+  if (!ticket) return { created: 0, people: [], skipped: 'ticket_not_found' };
 
   const resolvedFrom = normalizeEmail(fromEmail || ticket?.source_email_from);
   const resolvedRecipients = Array.isArray(recipients)
@@ -319,13 +429,22 @@ export async function suggestActionsForTicket({
     }
   }
 
+  const packetFirst = await proposePacketUploadActions({
+    ticketId: tid,
+    schoolOrganizationId: sid,
+    schoolName: resolvedSchoolName,
+    subject: resolvedSubject,
+    bodyText: resolvedBody,
+    ticket
+  });
+
   if (!force) {
     const [existing] = await pool.execute(
       `SELECT COUNT(*) AS cnt FROM support_ticket_action_items WHERE ticket_id = ?`,
       [tid]
     );
     if (Number(existing?.[0]?.cnt || 0) > 0) {
-      return { created: 0, people: [], skipped: 'already_suggested' };
+      return { created: packetFirst.created, people: [], skipped: 'already_suggested' };
     }
   }
 
@@ -494,6 +613,16 @@ export async function suggestActionsForTicket({
       }
     }
   }
+
+  const packetLater = await proposePacketUploadActions({
+    ticketId: tid,
+    schoolOrganizationId: sid,
+    schoolName: resolvedSchoolName,
+    subject: resolvedSubject,
+    bodyText: resolvedBody,
+    ticket
+  });
+  created += packetLater.created;
 
   return { created, people: peopleOut, skipped: null };
 }
@@ -685,6 +814,150 @@ async function generateTempPasswordForUser({ userId, email }) {
 /**
  * Approve and execute a proposed action. Returns plaintext temp password once when applicable.
  */
+async function resolveAgencyIdForOrganization(organizationId) {
+  let agencyId =
+    (await OrganizationAffiliation.getActiveAgencyIdForOrganization(organizationId)) ||
+    (await AgencySchool.getActiveAgencyIdForSchool(organizationId)) ||
+    null;
+  if (!agencyId) {
+    const allAgencies = await Agency.findAll(true, false, 'agency');
+    agencyId = allAgencies?.[0]?.id || organizationId;
+  }
+  return agencyId;
+}
+
+function abbreviatedClientName(firstName, lastName) {
+  const part = (value) => {
+    const raw = String(value || '').replace(/[^A-Za-z]/g, '');
+    if (!raw) return '';
+    const slice = raw.slice(0, 3);
+    return slice.charAt(0).toUpperCase() + slice.slice(1).toLowerCase();
+  };
+  return `${part(firstName)}${part(lastName)}`.trim();
+}
+
+async function uploadSchoolPacketFromTicketAction({ ticketId, payload, actorUserId }) {
+  const schoolOrganizationId = Number(payload.schoolOrganizationId || 0);
+  const attachmentId = Number(payload.attachmentId || 0);
+  if (!schoolOrganizationId || !attachmentId) {
+    const err = new Error('School and PDF attachment are required');
+    err.statusCode = 400;
+    throw err;
+  }
+  const organization = await Agency.findById(schoolOrganizationId);
+  if (!organization) {
+    const err = new Error('School not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const orgType = String(organization.organization_type || 'agency').toLowerCase();
+  if (orgType !== 'school' && orgType !== 'program') {
+    const err = new Error('Packet upload is only available for school organizations');
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const attachment = await getTicketAttachmentRow(ticketId, attachmentId);
+  if (!attachment) {
+    const err = new Error('Ticket PDF attachment not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const buffer = await readTicketAttachmentBuffer(attachment);
+  if (!buffer?.length) {
+    const err = new Error('Could not read the attached PDF');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const originalName = String(attachment.file_name || payload.fileName || 'referral-packet.pdf');
+  const sanitizedFilename = StorageService.sanitizeFilename(originalName);
+  const timestamp = Date.now();
+  const randomId = Math.random().toString(36).substring(7);
+  const quarantinePath = `referrals_quarantine/${organization.id}/${timestamp}-${randomId}-${sanitizedFilename}`;
+  const encryptionAad = JSON.stringify({
+    organizationId: organization.id,
+    uploadType: 'referral_packet',
+    filename: sanitizedFilename,
+    source: 'support_ticket'
+  });
+  const encryptionResult = await DocumentEncryptionService.encryptBuffer(buffer, { aad: encryptionAad });
+  const bucket = await StorageService.getGCSBucket();
+  await bucket.file(quarantinePath).save(encryptionResult.encryptedBuffer, {
+    contentType: 'application/octet-stream',
+    metadata: {
+      organizationId: String(organization.id),
+      uploadedBy: String(actorUserId || ''),
+      uploadType: 'referral_packet',
+      uploadedAt: new Date().toISOString(),
+      originalName: sanitizedFilename,
+      originalContentType: attachment.mime_type || 'application/pdf',
+      isEncrypted: 'true',
+      encryptionKeyId: encryptionResult.encryptionKeyId,
+      encryptionWrappedKey: encryptionResult.encryptionWrappedKeyB64,
+      encryptionIv: encryptionResult.encryptionIvB64,
+      encryptionAuthTag: encryptionResult.encryptionAuthTagB64,
+      encryptionAlg: encryptionResult.encryptionAlg,
+      encryptionAad
+    }
+  });
+
+  const agencyId = await resolveAgencyIdForOrganization(organization.id);
+  const firstName = String(payload.firstName || '').trim();
+  const lastName = String(payload.lastName || '').trim();
+  const draft = await ReferralPacketDraft.create({
+    organizationId: organization.id,
+    agencyId,
+    uploadedByUserId: actorUserId || null,
+    submissionDate: new Date().toISOString().split('T')[0],
+    uploadNote: `Uploaded from support ticket #${ticketId}`,
+    firstName: firstName || null,
+    lastName: lastName || null,
+    initials: abbreviatedClientName(firstName, lastName) || null,
+    status: 'draft'
+  });
+
+  let phiDoc = null;
+  try {
+    phiDoc = await ClientPhiDocument.create({
+      clientId: null,
+      agencyId,
+      schoolOrganizationId: organization.id,
+      referralDraftId: draft.id,
+      storagePath: quarantinePath,
+      originalName,
+      mimeType: attachment.mime_type || 'application/pdf',
+      uploadedByUserId: actorUserId || null,
+      quarantinePath,
+      isEncrypted: true,
+      encryptionKeyId: encryptionResult.encryptionKeyId,
+      encryptionWrappedKey: encryptionResult.encryptionWrappedKeyB64,
+      encryptionIv: encryptionResult.encryptionIvB64,
+      encryptionAuthTag: encryptionResult.encryptionAuthTagB64,
+      encryptionAlg: encryptionResult.encryptionAlg
+    });
+    if (phiDoc?.id) {
+      await ReferralPacketDraft.updateById(draft.id, { phi_document_id: phiDoc.id });
+    }
+  } catch (e) {
+    if (e.code !== 'ER_NO_SUCH_TABLE') {
+      console.warn('[ticketActionSuggestion] PHI document create failed:', e.message);
+    }
+  }
+
+  return {
+    draftId: draft.id,
+    phiDocumentId: phiDoc?.id || null,
+    organizationId: organization.id,
+    organizationSlug: organization.slug || null,
+    organizationName: organization.name || null,
+    agencyId,
+    fileName: originalName,
+    firstName: firstName || null,
+    lastName: lastName || null
+  };
+}
+
 export async function approveAndExecuteTicketAction({
   ticketId,
   actionId,
@@ -817,6 +1090,12 @@ export async function approveAndExecuteTicketAction({
         email: generated.user.email,
         temporaryPasswordExpiresAt: generated.temporaryPasswordExpiresAt
       };
+    } else if (type === TICKET_ACTION_TYPES.UPLOAD_SCHOOL_PACKET) {
+      result = await uploadSchoolPacketFromTicketAction({
+        ticketId: tid,
+        payload,
+        actorUserId: approvedByUserId
+      });
     } else {
       const err = new Error(`Action type "${type}" is not executable yet`);
       err.statusCode = 400;

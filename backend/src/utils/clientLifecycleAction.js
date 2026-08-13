@@ -169,7 +169,12 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
       if (!hasProvider || hasWeekday) return null;
       return { role: 'provider', actionKey: 'fall_confirmation', label: 'Fall confirmation – Action Needed' };
     }
-    if (!fallDone && ['returning', 'current', 'pending', 'onboarded'].includes(statusKey)) {
+    if (!fallDone && ['returning', 'current', 'pending', 'onboarded', 'confirmed_returning'].includes(statusKey)) {
+      if (!hasProvider || hasWeekday) return null;
+      return { role: 'provider', actionKey: 'fall_confirmation', label: 'Fall confirmation – Action Needed' };
+    }
+    // Returners who reached Ready to Schedule still need a weekday before they are placed.
+    if (!fallDone && returning && statusKey === 'ready_to_schedule') {
       if (!hasProvider || hasWeekday) return null;
       return { role: 'provider', actionKey: 'fall_confirmation', label: 'Fall confirmation – Action Needed' };
     }

@@ -30,8 +30,15 @@ import {
   listTicketActionItems,
   approveAndExecuteTicketAction,
   rejectTicketAction,
-  suggestActionsForTicket
+  suggestActionsForTicket,
+  ensurePacketUploadActionsForTicket
 } from '../services/unifiedEmail/ticketActionSuggestion.service.js';
+import {
+  ingestTicketAttachmentsFromGmail,
+  listTicketAttachments,
+  getTicketAttachmentRow,
+  readTicketAttachmentBuffer
+} from '../services/unifiedEmail/ticketInboundAttachments.service.js';
 
 async function hasSupportTicketMessagesTable() {
   try {
@@ -2173,7 +2180,27 @@ export const listSupportTicketMessages = async (req, res, next) => {
       }
       return decrypted;
     });
-    res.json({ ticket: enrichTicketForClient(ticket), messages: normalized });
+
+    let attachments = [];
+    try {
+      if (String(ticket.source_channel || '').toLowerCase() === 'email') {
+        const ingested = await ingestTicketAttachmentsFromGmail({ ticket }).catch(() => null);
+        attachments = ingested?.attachments || (await listTicketAttachments(ticketId));
+        if ((attachments || []).some((a) => a.is_pdf)) {
+          await ensurePacketUploadActionsForTicket(ticket).catch(() => null);
+        }
+      } else {
+        attachments = await listTicketAttachments(ticketId);
+      }
+    } catch {
+      attachments = [];
+    }
+
+    res.json({
+      ticket: enrichTicketForClient(ticket),
+      messages: normalized,
+      attachments
+    });
   } catch (e) {
     next(e);
   }
@@ -3563,3 +3590,40 @@ export const rejectSupportTicketAction = async (req, res, next) => {
     next(e);
   }
 };
+
+export const listSupportTicketAttachments = async (req, res, next) => {
+  try {
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+    const loaded = await loadTicketForActionAccess(req, ticketId);
+    if (!loaded.ok) return res.status(loaded.status).json({ error: { message: loaded.message } });
+    const attachments = await listTicketAttachments(ticketId);
+    res.json({ attachments });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const downloadSupportTicketAttachment = async (req, res, next) => {
+  try {
+    const ticketId = parseInt(req.params.id, 10);
+    const attachmentId = parseInt(req.params.attachmentId, 10);
+    if (!ticketId || !attachmentId) {
+      return res.status(400).json({ error: { message: 'Invalid ticket or attachment id' } });
+    }
+    const loaded = await loadTicketForActionAccess(req, ticketId);
+    if (!loaded.ok) return res.status(loaded.status).json({ error: { message: loaded.message } });
+
+    const row = await getTicketAttachmentRow(ticketId, attachmentId);
+    if (!row) return res.status(404).json({ error: { message: 'Attachment not found' } });
+    const buffer = await readTicketAttachmentBuffer(row);
+    const filename = String(row.file_name || 'attachment').replace(/[\r\n"]/g, '');
+    res.setHeader('Content-Type', row.mime_type || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    return res.send(buffer);
+  } catch (e) {
+    next(e);
+  }
+};
+

@@ -24,15 +24,12 @@ import {
 import { deriveLifecycleAction } from '../utils/clientLifecycleAction.js';
 import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
 import { rosterClientHasAssignedProvider } from '../utils/schoolYearRosterFilter.js';
+import { displayServiceDay, isRealServiceDay } from '../utils/schoolReportBuckets.js';
 import { getDisposition } from './clientYearDisposition.service.js';
 
 function rosterHasWeekday(client) {
-  const day = String(client?.service_day || '').trim();
-  if (day && day.toLowerCase() !== 'unknown') {
-    if (/(Monday|Tuesday|Wednesday|Thursday|Friday)/i.test(day)) return true;
-  }
-  const pairs = String(client?.provider_day_pairs || '');
-  if (pairs && /:(Monday|Tuesday|Wednesday|Thursday|Friday)/i.test(pairs)) return true;
+  if (isRealServiceDay(client?.service_day)) return true;
+  if (isRealServiceDay(client?.provider_day_pairs)) return true;
   return false;
 }
 
@@ -827,7 +824,7 @@ export async function listOnboardingQueue({ agencyId, scope = 'all', limit = 200
       submission_date: row.submission_date,
       provider_id: row.provider_id ? Number(row.provider_id) : null,
       provider_name: String(row.provider_name || '').trim() || null,
-      service_day: row.service_day || null,
+      service_day: displayServiceDay(row),
       insurance_type_id: row.insurance_type_id ? Number(row.insurance_type_id) : null,
       paper_packet_staff_roi_pending: row.paper_packet_staff_roi_pending === 1
         || row.paper_packet_staff_roi_pending === true,
@@ -951,7 +948,7 @@ export async function listProviderOnboardingQueue({ agencyId, providerUserId, li
       submission_date: row.submission_date,
       provider_id: row.provider_id ? Number(row.provider_id) : null,
       provider_name: String(row.provider_name || '').trim() || null,
-      service_day: row.service_day || null,
+      service_day: displayServiceDay(row),
       insurance_type_id: row.insurance_type_id ? Number(row.insurance_type_id) : null,
       parents_contacted_at: row.parents_contacted_at || null,
       parents_contacted_successful: row.parents_contacted_successful,

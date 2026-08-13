@@ -6,8 +6,8 @@
         <h1>School Reports</h1>
         <p class="subtitle">
           Year-scoped caseload, coverage, and session counts across affiliated schools.
-          Assignment buckets use provider + service day from school assignments.
-          Session counts use scheduled client events when those records exist.
+          Assignment buckets use provider + a real weekday (Unknown does not count).
+          The current year includes assigned Confirmation Pending clients still stamped last year.
         </p>
       </div>
       <div class="header-actions">

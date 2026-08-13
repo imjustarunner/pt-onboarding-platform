@@ -31,7 +31,9 @@ import {
   listSupportTicketActions,
   suggestSupportTicketActions,
   approveSupportTicketAction,
-  rejectSupportTicketAction
+  rejectSupportTicketAction,
+  listSupportTicketAttachments,
+  downloadSupportTicketAttachment
 } from '../controllers/supportTickets.controller.js';
 
 const router = express.Router();
@@ -98,6 +100,8 @@ router.get('/:id/actions', requireAgencyAccess, listSupportTicketActions);
 router.post('/:id/suggest-actions', requireAgencyAccess, suggestSupportTicketActions);
 router.post('/:id/actions/:actionId/approve', requireAgencyAccess, approveSupportTicketAction);
 router.post('/:id/actions/:actionId/reject', requireAgencyAccess, rejectSupportTicketAction);
+router.get('/:id/attachments', requireAgencyAccess, listSupportTicketAttachments);
+router.get('/:id/attachments/:attachmentId/download', requireAgencyAccess, downloadSupportTicketAttachment);
 
 export default router;
 

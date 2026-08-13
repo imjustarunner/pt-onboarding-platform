@@ -211,6 +211,21 @@ describe('deriveLifecycleAction', () => {
     assert.equal(action, null);
   });
 
+  it('asks providers for fall confirmation when a returner is ready to schedule with no day', () => {
+    const action = deriveLifecycleAction({
+      client: {
+        client_type: 'school',
+        client_status_key: 'ready_to_schedule',
+        school_year: '2026-2027',
+        has_provider: true,
+        has_weekday: false,
+        staff_onboarding_completed_at: '2026-04-01'
+      },
+      viewerRole: 'provider'
+    });
+    assert.equal(action?.actionKey, 'fall_confirmation');
+  });
+
   it('does not ask providers for fall confirmation after it is already completed', () => {
     const action = deriveLifecycleAction({
       client: { client_status_key: 'current', client_type: 'school' },

@@ -13,6 +13,10 @@ import {
   previousSchoolYearLabel,
   schoolYearDateRange
 } from '../utils/schoolYear.js';
+import { CURRENT_YEAR_EXCEPTION_STATUSES } from '../utils/schoolYearRosterFilter.js';
+import { classifyAssignmentBucket, sqlRealWeekdayPredicate } from '../utils/schoolReportBuckets.js';
+
+export { classifyAssignmentBucket };
 
 function makeInClausePlaceholders(count) {
   return Array.from({ length: count }, () => '?').join(',');
@@ -23,12 +27,6 @@ function isMissingSchemaError(e) {
   if (code === 'ER_NO_SUCH_TABLE' || code === 'ER_BAD_FIELD_ERROR') return true;
   const msg = String(e?.message || '');
   return msg.includes("doesn't exist") || msg.includes('Unknown column');
-}
-
-export function classifyAssignmentBucket({ hasProvider, hasDay }) {
-  if (hasProvider && hasDay) return 'provider_and_day';
-  if (hasProvider) return 'provider_no_day';
-  return 'no_provider';
 }
 
 function emptyTotals() {
@@ -56,6 +54,28 @@ function yearMembershipSqlLegacy(alias = 'c') {
   return `${alias}.school_year = ?`;
 }
 
+function currentYearRosterExceptionSql(alias = 'c') {
+  const statuses = [...CURRENT_YEAR_EXCEPTION_STATUSES].map((s) => `'${s}'`).join(', ');
+  return `(
+    LOWER(COALESCE(cs.status_key, '')) IN (${statuses})
+    AND COALESCE(cpa.provider_user_id, ${alias}.provider_id) IS NOT NULL
+  )`;
+}
+
+function yearFilterSql(alias, { useMembershipTable = true, includeCurrentRosterExceptions = false } = {}) {
+  const yearMatch = useMembershipTable ? yearMembershipSql(alias) : yearMembershipSqlLegacy(alias);
+  if (!includeCurrentRosterExceptions) return yearMatch;
+  return `(
+    ${yearMatch}
+    OR ${currentYearRosterExceptionSql(alias)}
+  )`;
+}
+
+const HAS_REAL_DAY_SQL = `(
+  ${sqlRealWeekdayPredicate('cpa.service_day')}
+  OR ${sqlRealWeekdayPredicate('c.service_day')}
+)`;
+
 const CLIENT_BASE_SQL = `
   FROM client_organization_assignments coa
   JOIN clients c ON c.id = coa.client_id
@@ -66,6 +86,7 @@ const CLIENT_BASE_SQL = `
    AND cpa.is_active = TRUE
   WHERE coa.is_active = TRUE
     AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'
+    AND LOWER(COALESCE(cs.status_key, '')) NOT IN ('waitlist', 'terminated')
     AND coa.organization_id IN (%%SCHOOLS%%)
     AND %%YEAR%%
 `;
@@ -78,10 +99,7 @@ const CLIENT_ROLLUP_SELECT = `
       WHEN SUM(
         CASE
           WHEN COALESCE(cpa.provider_user_id, c.provider_id) IS NOT NULL
-           AND COALESCE(
-             cpa.service_day,
-             CASE WHEN cpa.id IS NULL THEN c.service_day ELSE NULL END
-           ) IS NOT NULL
+           AND ${HAS_REAL_DAY_SQL}
           THEN 1 ELSE 0
         END
       ) > 0 THEN 'provider_and_day'
@@ -103,9 +121,12 @@ const CLIENT_ROLLUP_SELECT = `
     ) AS seen
 `;
 
-async function queryClientRollup(schoolIds, year, { useMembershipTable = true } = {}) {
+async function queryClientRollup(schoolIds, year, {
+  useMembershipTable = true,
+  includeCurrentRosterExceptions = false
+} = {}) {
   const placeholders = makeInClausePlaceholders(schoolIds.length);
-  const yearSql = useMembershipTable ? yearMembershipSql('c') : yearMembershipSqlLegacy('c');
+  const yearSql = yearFilterSql('c', { useMembershipTable, includeCurrentRosterExceptions });
   const yearParams = useMembershipTable ? [year, year] : [year];
   const sql = `${CLIENT_ROLLUP_SELECT}
     ${CLIENT_BASE_SQL.replace('%%SCHOOLS%%', placeholders).replace('%%YEAR%%', yearSql)}
@@ -188,29 +209,34 @@ async function loadProviderCapacity(schoolIds) {
   return byProvider;
 }
 
-async function loadProviderClientCounts(schoolIds, year) {
+async function loadProviderClientCounts(schoolIds, year, { includeCurrentRosterExceptions = false } = {}) {
   const counts = new Map();
   if (!schoolIds.length) return counts;
   const placeholders = makeInClausePlaceholders(schoolIds.length);
   const tryQuery = async (useMembership) => {
-    const yearSql = useMembership ? yearMembershipSql('c') : yearMembershipSqlLegacy('c');
+    const yearSql = yearFilterSql('c', {
+      useMembershipTable: useMembership,
+      includeCurrentRosterExceptions
+    });
     const yearParams = useMembership ? [year, year] : [year];
     const [rows] = await pool.execute(
       `SELECT
          COALESCE(cpa.provider_user_id, c.provider_id) AS provider_id,
          COUNT(DISTINCT c.id) AS clients,
          COUNT(DISTINCT CASE
-           WHEN COALESCE(cpa.service_day, CASE WHEN cpa.id IS NULL THEN c.service_day ELSE NULL END) IS NOT NULL
+           WHEN ${HAS_REAL_DAY_SQL}
            THEN c.id END
          ) AS with_day
        FROM client_organization_assignments coa
        JOIN clients c ON c.id = coa.client_id
+       LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
        LEFT JOIN client_provider_assignments cpa
          ON cpa.client_id = c.id
         AND cpa.organization_id = coa.organization_id
         AND cpa.is_active = TRUE
        WHERE coa.is_active = TRUE
          AND UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
+         AND LOWER(COALESCE(cs.status_key, '')) NOT IN ('waitlist', 'terminated')
          AND coa.organization_id IN (${placeholders})
          AND ${yearSql}
          AND COALESCE(cpa.provider_user_id, c.provider_id) IS NOT NULL
@@ -385,12 +411,20 @@ export async function getSchoolReportsSnapshot(agencyId, { schoolYear = null } =
 
   if (!schoolIds.length) return empty;
 
+  const isCurrentYear = year === computeCurrentSchoolYearLabel();
+
   let rows;
   try {
-    rows = await queryClientRollup(schoolIds, year, { useMembershipTable: true });
+    rows = await queryClientRollup(schoolIds, year, {
+      useMembershipTable: true,
+      includeCurrentRosterExceptions: isCurrentYear
+    });
   } catch (e) {
     if (!isMissingSchemaError(e)) throw e;
-    rows = await queryClientRollup(schoolIds, year, { useMembershipTable: false });
+    rows = await queryClientRollup(schoolIds, year, {
+      useMembershipTable: false,
+      includeCurrentRosterExceptions: isCurrentYear
+    });
   }
 
   let priorRows = [];
@@ -409,7 +443,9 @@ export async function getSchoolReportsSnapshot(agencyId, { schoolYear = null } =
   const sessionsBySchool = await loadSessionCounts(agencyId, schoolIds, range);
   const priorSessionsBySchool = await loadSessionCounts(agencyId, schoolIds, priorRange);
   const providerCapacity = await loadProviderCapacity(schoolIds);
-  const providerClients = await loadProviderClientCounts(schoolIds, year);
+  const providerClients = await loadProviderClientCounts(schoolIds, year, {
+    includeCurrentRosterExceptions: isCurrentYear
+  });
   const availableYears = await loadAvailableYears(schoolIds, year);
 
   const bySchoolId = new Map();
