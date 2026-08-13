@@ -65,6 +65,7 @@
     </div>
 
     <div v-if="connectError" class="fmb__error">{{ connectError }}</div>
+    <div ref="publisherHostEl" class="fmb__publisher-host" aria-hidden="true" />
   </div>
 </template>
 
@@ -82,6 +83,7 @@ const remotes = ref([]);
 const tileEls = new Map();
 const connectError = ref('');
 const audioMuted = ref(false);
+const publisherHostEl = ref(null);
 let localPublisher = null;
 
 // Track remote tile DOM elements (used to inject subscriber video)
@@ -185,6 +187,46 @@ async function connect() {
     });
 
     await new Promise((res, rej) => session.connect(meeting.token, (err) => (err ? rej(err) : res())));
+
+    // Keep this participant published while they browse other pages. Mini mode
+    // used to subscribe-only, which made everyone else lose their audio.
+    try {
+      await nextTick();
+      const mountEl = publisherHostEl.value;
+      if (mountEl && typeof OT.initPublisher === 'function') {
+        mountEl.innerHTML = '';
+        const pub = await new Promise((resolve, reject) => {
+          const nextPublisher = OT.initPublisher(
+            mountEl,
+            {
+              insertMode: 'append',
+              width: 1,
+              height: 1,
+              publishAudio: !audioMuted.value,
+              publishVideo: false,
+              name: meeting.meetingTitle || 'Participant',
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: false,
+              style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
+            },
+            (err) => (err ? reject(err) : resolve(nextPublisher))
+          );
+        });
+        await new Promise((resolve, reject) => {
+          session.publish(pub, (err) => (err ? reject(err) : resolve()));
+        });
+        localPublisher = pub;
+        try {
+          mountEl.querySelectorAll('video, audio').forEach((el) => {
+            el.muted = true;
+            el.volume = 0;
+          });
+        } catch { /* ignore */ }
+      }
+    } catch (publishErr) {
+      console.warn('[FloatingMeetingBar] could not keep microphone published', publishErr?.message || publishErr);
+    }
   } catch (e) {
     connectError.value = 'Could not connect to meeting audio/video.';
     console.warn('[FloatingMeetingBar] connect error', e?.message || e);
@@ -464,5 +506,13 @@ function startDrag(e) {
   color: #fca5a5;
   background: rgba(239, 68, 68, 0.12);
   border-top: 1px solid rgba(239, 68, 68, 0.2);
+}
+.fmb__publisher-host {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
 </style>

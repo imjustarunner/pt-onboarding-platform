@@ -6,6 +6,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import { suspendInactivityTimeout, resumeInactivityTimeout } from '../utils/activityTracker';
+import { createBrowserSpeechCapture } from './browserSpeechCapture.js';
 
 export function useSupervisionLiveSession(props, emit, { enablePresentation = false, enableActivityFeed = true } = {}) {
   const authStore = useAuthStore();
@@ -31,8 +32,9 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   const transcriptCapturing = ref(false);
   const prioritizeSelfView = ref(false);
   const viewAsAttendee = ref(false);
-  let speechRecognition = null;
+  let speechCapture = null;
   let transcriptFlushTimer = null;
+  let transcriptStartTimer = null;
   // The background poll (every 5s) can otherwise race a just-made local slide change —
   // if the PUT hasn't landed by the next GET, the poll would snap currentSlide back and
   // (via the host's "close editor on slide change" watcher) silently discard an edit in
@@ -238,63 +240,34 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
       clearInterval(transcriptFlushTimer);
       transcriptFlushTimer = null;
     }
-    try {
-      speechRecognition?.stop?.();
-    } catch {
-      /* ignore */
+    if (transcriptStartTimer) {
+      clearTimeout(transcriptStartTimer);
+      transcriptStartTimer = null;
     }
-    speechRecognition = null;
+    speechCapture?.stop();
+    speechCapture = null;
     transcriptCapturing.value = false;
   }
 
   function startLiveTranscriptCapture() {
     if (transcriptPaused.value || transcriptRoomStopped.value) return;
-    const SR = typeof window !== 'undefined'
-      ? (window.SpeechRecognition || window.webkitSpeechRecognition)
-      : null;
-    if (!SR || speechRecognition) {
-      if (!SR) {
-        transcriptHint.value = 'Live transcript needs Chrome/Safari speech recognition (mic permission).';
+    if (speechCapture) return;
+    speechCapture = createBrowserSpeechCapture({
+      onTranscript: (text) => {
+        if (text) liveTranscriptChunks.value.push(text);
+      },
+      onHint: (text) => {
+        transcriptHint.value = text;
+      },
+      onCapturing: (on) => {
+        transcriptCapturing.value = !!on;
       }
-      transcriptCapturing.value = false;
-      return;
-    }
-    try {
-      speechRecognition = new SR();
-      speechRecognition.continuous = true;
-      speechRecognition.interimResults = false;
-      speechRecognition.lang = 'en-US';
-      speechRecognition.onresult = (event) => {
-        try {
-          const result = event?.results?.[event.resultIndex];
-          const text = String(result?.[0]?.transcript || '').trim();
-          if (text) liveTranscriptChunks.value.push(text);
-        } catch {
-          /* ignore */
-        }
-      };
-      speechRecognition.onerror = () => {
-        transcriptCapturing.value = false;
-      };
-      speechRecognition.onend = () => {
-        if (!speechRecognition || transcriptPaused.value || transcriptRoomStopped.value) return;
-        transcriptCapturing.value = true;
-        try {
-          speechRecognition.start();
-        } catch {
-          transcriptCapturing.value = false;
-        }
-      };
-      speechRecognition.start();
-      transcriptCapturing.value = true;
-      transcriptHint.value = 'Listening for live transcript…';
+    });
+    const started = speechCapture.start();
+    if (started && !transcriptFlushTimer) {
       transcriptFlushTimer = setInterval(() => {
         void flushLiveTranscript({ final: false });
       }, 20000);
-    } catch {
-      transcriptHint.value = 'Could not start live transcript capture.';
-      speechRecognition = null;
-      transcriptCapturing.value = false;
     }
   }
 
@@ -333,7 +306,14 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     }
     // The lobby already has a live Vonage publisher. Starting Web Speech there opens a
     // second microphone pipeline and can lock up Chrome/iPad during admission handoff.
-    if (!props.isInLobby) startLiveTranscriptCapture();
+    // Wait for the main-room publisher to settle so Speech Recognition can share the mic.
+    if (!props.isInLobby) {
+      if (transcriptStartTimer) clearTimeout(transcriptStartTimer);
+      transcriptStartTimer = setTimeout(() => {
+        transcriptStartTimer = null;
+        startLiveTranscriptCapture();
+      }, 1200);
+    }
     emit('connected');
   }
 

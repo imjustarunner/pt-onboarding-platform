@@ -6,6 +6,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
+import { createBrowserSpeechCapture } from './browserSpeechCapture.js';
 
 export function useTeamMeetingLiveTranscript({
   eventId,
@@ -19,7 +20,7 @@ export function useTeamMeetingLiveTranscript({
   const paused = ref(false);
   const roomStopped = ref(false);
   const stopMeta = ref(null);
-  let speechRecognition = null;
+  let speechCapture = null;
   let flushTimer = null;
 
   const eid = computed(() => Number(eventId?.value ?? eventId ?? 0) || 0);
@@ -64,12 +65,8 @@ export function useTeamMeetingLiveTranscript({
       clearInterval(flushTimer);
       flushTimer = null;
     }
-    try {
-      speechRecognition?.stop?.();
-    } catch {
-      /* ignore */
-    }
-    speechRecognition = null;
+    speechCapture?.stop();
+    speechCapture = null;
     capturing.value = false;
   }
 
@@ -79,48 +76,24 @@ export function useTeamMeetingLiveTranscript({
   }
 
   function start() {
-    if (!isEnabled.value || !eid.value || speechRecognition) return;
+    if (!isEnabled.value || !eid.value || speechCapture) return;
     if (paused.value || roomStopped.value) return;
-    const SR = typeof window !== 'undefined'
-      ? (window.SpeechRecognition || window.webkitSpeechRecognition)
-      : null;
-    if (!SR) {
-      transcriptHint.value = 'Live transcript needs Chrome/Safari speech recognition (mic permission).';
-      return;
-    }
-    try {
-      speechRecognition = new SR();
-      speechRecognition.continuous = true;
-      speechRecognition.interimResults = false;
-      speechRecognition.lang = 'en-US';
-      speechRecognition.onresult = (event) => {
-        try {
-          const result = event?.results?.[event.resultIndex];
-          const text = String(result?.[0]?.transcript || '').trim();
-          if (text) liveChunks.value.push(text);
-        } catch {
-          /* ignore */
-        }
-      };
-      speechRecognition.onerror = () => {};
-      speechRecognition.onend = () => {
-        if (!speechRecognition || !isEnabled.value || paused.value || roomStopped.value) return;
-        try {
-          speechRecognition.start();
-        } catch {
-          /* ignore */
-        }
-      };
-      speechRecognition.start();
-      capturing.value = true;
-      transcriptHint.value = 'Listening for live transcript…';
+    speechCapture = createBrowserSpeechCapture({
+      onTranscript: (text) => {
+        if (text) liveChunks.value.push(text);
+      },
+      onHint: (text) => {
+        transcriptHint.value = text;
+      },
+      onCapturing: (on) => {
+        capturing.value = !!on;
+      }
+    });
+    const started = speechCapture.start();
+    if (started && !flushTimer) {
       flushTimer = setInterval(() => {
         void flush({ final: false });
       }, 20000);
-    } catch {
-      transcriptHint.value = 'Could not start live transcript capture.';
-      speechRecognition = null;
-      capturing.value = false;
     }
   }
 

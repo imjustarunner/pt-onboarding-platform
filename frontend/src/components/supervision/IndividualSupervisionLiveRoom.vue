@@ -210,9 +210,6 @@
           <div class="isl__card-head">
             <h2>Session Focus</h2>
             <div class="isl__card-actions">
-              <button type="button" class="isl__ghost" @click="editingGoals = !editingGoals">
-                {{ editingGoals ? 'Done' : 'Edit goals' }}
-              </button>
               <button type="button" class="isl__ghost" @click="sessionDetailsOpen = false">
                 Collapse
               </button>
@@ -220,36 +217,22 @@
           </div>
           <div class="isl__card-body">
             <input
-              v-if="editingGoals"
               v-model="focusTitle"
               class="isl__title-input"
               type="text"
               placeholder="Session focus title"
               @change="persistWorkspace"
             />
-            <h3 v-else>{{ focusTitle || 'Case Consultation & Clinical Support' }}</h3>
             <div class="isl__focus-split">
-              <div class="isl__focus-col">
-                <p class="isl__label">Goals for today</p>
-                <ul class="isl__checklist">
-                  <li v-for="goal in goals" :key="goal.id">
-                    <label>
-                      <input v-model="goal.done" type="checkbox" @change="persistWorkspace" />
-                  <input
-                    v-if="editingGoals"
-                    v-model="goal.text"
-                    class="isl__inline-input"
-                    type="text"
-                    placeholder="Goal"
-                    @input="persistWorkspace"
-                    @change="persistWorkspace"
-                  />
-                  <span v-else :class="{ 'isl__done': goal.done }">{{ goal.text || 'Untitled goal' }}</span>
-                    </label>
-                    <button v-if="editingGoals" type="button" class="isl__icon-btn" @click="removeGoal(goal.id)">×</button>
-                  </li>
-                </ul>
-                <button v-if="editingGoals" type="button" class="isl__link" @click="addGoal">+ Add goal</button>
+              <div class="isl__focus-col isl__focus-col--goals">
+                <MeetingGoalsActionsPanel
+                  v-if="numericSessionId || supervisionSessionId"
+                  :session-id="numericSessionId || supervisionSessionId"
+                  section="goals"
+                  :compact="false"
+                  :live="true"
+                  embedded
+                />
               </div>
               <div class="isl__focus-col isl__focus-col--agenda">
                 <p class="isl__label">Agenda</p>
@@ -343,6 +326,7 @@ import SupervisionWaitingRoomStage from './SupervisionWaitingRoomStage.vue';
 import SupervisionDiscussionSidebar from './SupervisionDiscussionSidebar.vue';
 import MeetingAttendancePanel from '../meetings/MeetingAttendancePanel.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
+import MeetingGoalsActionsPanel from '../meetings/MeetingGoalsActionsPanel.vue';
 import {
   supervisionLiveRoomProps,
   useSupervisionLiveSession
@@ -395,7 +379,6 @@ const tileFocus = ref('equal');
 const videoFullscreen = ref(false);
 const videoFullscreenActivityNotice = ref('');
 let fullscreenNoticeTimer = null;
-const editingGoals = ref(false);
 const discussionOpen = ref(true);
 const sessionDetailsOpen = ref(true);
 const viewOptionsOpen = ref(false);
@@ -578,32 +561,17 @@ async function loadWorkspace() {
 async function saveWorkspaceNow() {
   const sid = numericSessionId.value || Number(props.supervisionSessionId || 0);
   if (!sid || !workspaceReady.value) return;
-  const payloadGoals = (goals.value || [])
-    .map((g) => ({
-      id: String(g?.id || ''),
-      text: String(g?.text || '').trim(),
-      done: !!g?.done
-    }))
-    .filter((g) => g.text);
-  const emptyGoalDrafts = (goals.value || []).filter((g) => !String(g?.text || '').trim());
   workspaceSaving.value = true;
   workspaceError.value = '';
   try {
     await Promise.all([
       api.post(`/supervision/sessions/${sid}/artifacts`, {
-        focusTitle: focusTitle.value || '',
-        goals: payloadGoals
+        focusTitle: focusTitle.value || ''
       }, { skipGlobalLoading: true, skipAuthRedirect: true }),
       api.put(`/supervision/sessions/${sid}/personal-note`, {
         noteText: personalNotes.value || ''
       }, { skipGlobalLoading: true, skipAuthRedirect: true })
     ]);
-    // Keep in-progress empty rows so "+ Add goal" doesn't wipe the draft.
-    if (emptyGoalDrafts.length) {
-      goals.value = [...payloadGoals, ...emptyGoalDrafts];
-    } else {
-      goals.value = payloadGoals;
-    }
   } catch (e) {
     workspaceError.value = e?.response?.data?.error?.message || e?.message || 'Could not save session workspace.';
   } finally {
@@ -637,16 +605,6 @@ function setVideoFocus(mode) {
   tileFocus.value = mode;
   if (mode === 'collapsed') sectionState.video = 'collapsed';
   else if (sectionState.video === 'collapsed') sectionState.video = 'default';
-}
-
-function addGoal() {
-  editingGoals.value = true;
-  goals.value.push({ id: `g-${Date.now()}`, text: '', done: false });
-  // Don't autosave empty drafts — persist when the supervisee types.
-}
-function removeGoal(id) {
-  goals.value = goals.value.filter((g) => g.id !== id);
-  persistWorkspace();
 }
 
 function toggleDiscussion() {
@@ -1148,12 +1106,26 @@ defineExpose({
 .isl__focus-col--agenda :deep(.agenda-item-title),
 .isl__focus-col--agenda :deep(.agenda-empty),
 .isl__focus-col--agenda :deep(.muted),
-.isl__focus-col--agenda :deep(.agenda-section-head h3) {
+.isl__focus-col--agenda :deep(.agenda-section-head h3),
+.isl__focus-col--goals :deep(.mgap__head h3),
+.isl__focus-col--goals :deep(.mgap__empty),
+.isl__focus-col--goals :deep(.mgap__live-hint),
+.isl__focus-col--goals :deep(.muted) {
   color: #e2e8f0 !important;
 }
 .isl__focus-col--agenda :deep(.agenda-item) {
   background: rgba(255, 255, 255, 0.04);
   border-color: rgba(255, 255, 255, 0.1);
+}
+.isl__focus-col--goals :deep(.mw-field) {
+  background: rgba(0, 0, 0, 0.25);
+  color: #eef2f8;
+}
+.isl__focus-col--goals :deep(.mw-link-btn) {
+  color: var(--agency-primary-color, #3dce7a);
+}
+.isl__focus-col--goals :deep(.mgap__text) {
+  color: #eef2f8;
 }
 .isl__transcript-drawer {
   position: fixed;

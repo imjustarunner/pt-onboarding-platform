@@ -474,6 +474,10 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { updateRemoteVideoState } from './remoteVideoState.js';
 import { nativeAudioConstraints, enhancePublishedAudioTrack } from './nativeAudioCapture.js';
 import { attachPublisherAudioDevice, silenceLocalPublisherMedia } from './localPublisherMedia.js';
+import {
+  isPublishTimeoutError,
+  shouldUseVonageAdvancedNoiseSuppression
+} from './vonageAudioProcessor.js';
 
 const props = defineProps({
   /** Vonage Application ID (preferred) or legacy OpenTok project API key */
@@ -954,14 +958,7 @@ function refreshAudioEnhancementStatus(pub = publisher) {
 }
 
 function vonageAudioProcessorSupported() {
-  try {
-    if (typeof OTApi?.hasMediaProcessorSupport !== 'function') return true;
-    const flagged = OTApi.hasMediaProcessorSupport('audio');
-    if (typeof flagged === 'boolean') return flagged;
-    return !!OTApi.hasMediaProcessorSupport();
-  } catch {
-    return false;
-  }
+  return shouldUseVonageAdvancedNoiseSuppression(OTApi);
 }
 
 async function applyVonageAdvancedNoiseSuppression(pub = publisher) {
@@ -986,7 +983,11 @@ async function enhanceLocalPublisherAudio() {
   }
   publisherAudioTrack = track;
   const result = await enhancePublishedAudioTrack(track);
-  await applyVonageAdvancedNoiseSuppression(publisher);
+  // Never block join/mute on the WASM noise model. Apply it in the background
+  // only on desktop Chromium after the publisher is already live.
+  void applyVonageAdvancedNoiseSuppression(publisher).then(() => {
+    refreshAudioEnhancementStatus(publisher);
+  });
   refreshAudioEnhancementStatus(publisher);
   return result;
 }
@@ -1141,7 +1142,29 @@ async function refreshRemoteVideo(streamId, hasVideo) {
   }
 }
 
+const camOffDebounceTimers = new Map();
+
 function setRemoteVideoState({ streamId = '', connectionId = '', hasVideo }) {
+  const key = String(streamId || connectionId || '').trim();
+  if (hasVideo && key && camOffDebounceTimers.has(key)) {
+    clearTimeout(camOffDebounceTimers.get(key));
+    camOffDebounceTimers.delete(key);
+  }
+  // Brief videoDisabled blips during publish/audio-filter setup look like
+  // "their camera is off" even when nobody toggled it. Camera-on applies now;
+  // camera-off waits a beat in case a resume event follows.
+  if (!hasVideo && key) {
+    if (camOffDebounceTimers.has(key)) return;
+    camOffDebounceTimers.set(key, setTimeout(() => {
+      camOffDebounceTimers.delete(key);
+      applyRemoteVideoState({ streamId, connectionId, hasVideo: false });
+    }, 450));
+    return;
+  }
+  applyRemoteVideoState({ streamId, connectionId, hasVideo });
+}
+
+function applyRemoteVideoState({ streamId = '', connectionId = '', hasVideo }) {
   const result = updateRemoteVideoState(remotes.value, { streamId, connectionId, hasVideo });
   remotes.value = result.remotes;
   // SDK videoEnabled/videoDisabled events may echo local subscription changes.
@@ -1567,6 +1590,8 @@ const intentionallyDisconnectedSessions = new WeakSet();
 let OTApi = null;
 const subscribers = new Map();
 let screenSubscriber = null;
+let pendingUnmuteAfterPublish = false;
+let micToggleInFlight = false;
 
 function releasePublisherAudioSource() {
   const tracks = new Set([
@@ -1892,6 +1917,13 @@ function sanitizeVideoError(err) {
       kind: 'media'
     };
   }
+  if (isPublishTimeoutError(err)) {
+    return {
+      message:
+        'Could not start your camera and microphone in time. Tap Retry — this is usually a one-time stall on iPad.',
+      kind: 'timeout'
+    };
+  }
   const cleaned = raw.length > 180 ? `${raw.slice(0, 180)}…` : raw;
   return { message: cleaned || 'Could not connect to the video session.', kind: 'other' };
 }
@@ -2177,14 +2209,9 @@ async function connect() {
         disableAudioProcessing: false,
         ...audioProcessing
       };
-      // Chromium + Vonage Media Processor: stronger noise suppression than the
-      // browser NS flag alone (does not replace Apple Voice Isolation).
-      if (mainRoom && captureAudio && vonageAudioProcessorSupported()) {
-        opts.audioFilter = { type: 'advancedNoiseSuppression' };
-      }
-      // In the main room, omit audioSource so Vonage and the browser own one
-      // native capture track (the same path used by mature meeting clients).
-      // The waiting room and mic-failure fallback explicitly avoid capture.
+      // Do not attach Vonage advancedNoiseSuppression at initPublisher — the
+      // TfLite WASM model can exceed the SDK publish timeout and crash iPad.
+      // Desktop Chromium may apply it after publish via enhanceLocalPublisherAudio.
       if (!captureAudio) opts.audioSource = null;
       return opts;
     };
@@ -2246,8 +2273,14 @@ async function connect() {
       // is a simple track enable and never needs a camera/publisher restart.
       needsAudioSourceAttach.value = !props.lobbyMode && !publisher?.getAudioSource?.();
     } catch (publishErr) {
-      // iOS often fails when another tab/app holds the mic — join muted instead of hard-failing.
-      if (!props.lobbyMode && isMicAccessError(publishErr)) {
+      if (!props.lobbyMode && isPublishTimeoutError(publishErr)) {
+        console.warn('[VideoSessionRoom] publish timed out; retrying without extra audio processing', publishErr?.message || publishErr);
+        if (publisherMountEl) publisherMountEl.innerHTML = '';
+        publisher = await publishLocal(publishAudio.value, { captureAudio: !props.lobbyMode });
+        needsAudioSourceAttach.value = !publisher?.getAudioSource?.();
+        showMicHint('Joined after a slow media start. Tap the mic if you are still muted.');
+      } else if (!props.lobbyMode && isMicAccessError(publishErr)) {
+        // iOS often fails when another tab/app holds the mic — join muted instead of hard-failing.
         console.warn('[VideoSessionRoom] mic publish failed; retrying muted', publishErr?.message || publishErr);
         if (publisherMountEl) publisherMountEl.innerHTML = '';
         publishAudio.value = false;
@@ -2257,6 +2290,22 @@ async function connect() {
         showMicHint('Joined muted — mic was busy. Tap Unmute when ready (close other apps using the mic first).');
       } else {
         throw publishErr;
+      }
+    }
+    if (pendingUnmuteAfterPublish) {
+      pendingUnmuteAfterPublish = false;
+      if (!micLockedByHost.value) {
+        publishAudio.value = true;
+        automuteNoticeVisible.value = false;
+        try {
+          if (needsAudioSourceAttach.value) {
+            await addPublisherAudioWithoutRestartingCamera();
+          }
+          publisher.publishAudio(true);
+          broadcastMicState(true);
+        } catch (e) {
+          console.warn('[VideoSessionRoom] pending unmute failed', e?.message || e);
+        }
       }
     }
     attachPublisherAudioLevel();
@@ -2450,6 +2499,9 @@ function disconnect(emitEvent = true) {
       clearTimeout(connectionNoticeTimer);
       connectionNoticeTimer = null;
     }
+    for (const timer of camOffDebounceTimers.values()) clearTimeout(timer);
+    camOffDebounceTimers.clear();
+    micToggleInFlight = false;
   } finally {
     connecting.value = false;
     if (emitEvent) emit('disconnected');
@@ -2462,7 +2514,13 @@ function dismissAutomuteNotice() {
 
 function dismissAutomuteAndUnmute() {
   automuteNoticeVisible.value = false;
-  if (!publishAudio.value) toggleMic();
+  if (publishAudio.value) return;
+  if (!publisher) {
+    pendingUnmuteAfterPublish = true;
+    showMicHint('Unmuting as soon as the room is ready…');
+    return;
+  }
+  void toggleMic();
 }
 
 function showMicHint(message) {
@@ -2492,6 +2550,7 @@ async function addPublisherAudioWithoutRestartingCamera() {
 }
 
 async function toggleMic() {
+  if (micToggleInFlight) return;
   if (props.lobbyMode) {
     // Auto-muted participants may test/grant the mic in private, but a successful
     // test must not change the muted state they carry into the main room.
@@ -2568,27 +2627,30 @@ async function toggleMic() {
   }
   if (!publisher && !needsAudioSourceAttach.value) {
     console.warn('[VideoSessionRoom] mic toggled before publisher ready');
-    showMicHint('Microphone is not ready yet. Wait a moment and try again.');
+    pendingUnmuteAfterPublish = !!next;
+    showMicHint(next
+      ? 'Unmuting as soon as the room is ready…'
+      : 'Microphone is not ready yet. Wait a moment and try again.');
     return;
   }
   const prev = publishAudio.value;
   publishAudio.value = next;
   if (next) automuteNoticeVisible.value = false;
   micActionHint.value = '';
+  micToggleInFlight = true;
   try {
+    // Flip published audio immediately so mute/unmute never waits on noise
+    // suppression or Voice Isolation. Attach a missing source first if needed.
     if (next && needsAudioSourceAttach.value) {
       await addPublisherAudioWithoutRestartingCamera();
-    } else if (next) {
-      await enhanceLocalPublisherAudio();
     }
     publisher.publishAudio(next);
     broadcastMicState(next);
-    // Peers sometimes miss the first signal right as streams settle.
     if (next) {
+      void enhanceLocalPublisherAudio();
       setTimeout(() => broadcastMicState(true), 250);
       setTimeout(() => broadcastMicState(true), 900);
-    }
-    if (!next) {
+    } else {
       setSpeaking('local', false);
       localMicLevel.value = 0;
       setTimeout(() => broadcastMicState(false), 250);
@@ -2604,6 +2666,8 @@ async function toggleMic() {
           : 'Could not unmute. Close other apps using the mic, then try again.')
         : (friendly.message || 'Could not mute microphone.')
     );
+  } finally {
+    micToggleInFlight = false;
   }
 }
 
@@ -2664,11 +2728,36 @@ watch(
   }
 );
 
+function handleVisibilityResume() {
+  if (typeof document !== 'undefined' && document.hidden) return;
+  try { joinToneCtx?.resume?.(); } catch { /* ignore */ }
+  if (!publisher || !sessionReady.value) return;
+  try { publisher.publishAudio(!!publishAudio.value); } catch { /* ignore */ }
+  try { publisher.publishVideo(!!publishVideo.value); } catch { /* ignore */ }
+  for (const r of remotes.value) {
+    if (r.hasVideo) void refreshRemoteVideo(r.streamId, true);
+    const sub = subscribers.get(r.streamId);
+    try { sub?.subscribeToAudio?.(true); } catch { /* ignore */ }
+  }
+}
+
 onMounted(() => {
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleVisibilityResume);
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pageshow', handleVisibilityResume);
+  }
   if (props.autoConnect && props.token) connect();
 });
 
 onBeforeUnmount(() => {
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', handleVisibilityResume);
+  }
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('pageshow', handleVisibilityResume);
+  }
   disconnect(false);
 });
 
