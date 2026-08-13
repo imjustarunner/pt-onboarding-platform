@@ -160,13 +160,21 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
       return { role: 'provider', actionKey: 'spring_update', label: 'Spring Update – Action Needed' };
     }
     const fallDone = disposition?.fall_completed_at != null;
+    const fallOutcome = String(disposition?.fall_outcome || '').toLowerCase();
     const hasWeekday = clientHasWeekday(client);
     const hasProvider = clientHasAssignedProvider(client);
     const returning = isReturningSchoolClient({ ...client, client_type: client?.client_type || 'school' }, now);
     const beingSeenConfirmed = !!client?.services_started_at;
+    const fallPendingStatuses = ['confirmation_pending', 'continuation_unknown', 'unable_to_reach', 'other_transfer'];
+    const fallConfirmedOrTerminated = fallOutcome === 'confirmed_returning' || fallOutcome === 'recommend_termination';
     // Unassigned / already placed returning clients: do not show a generic Fall confirmation.
-    if (['confirmation_pending', 'continuation_unknown', 'unable_to_reach', 'other_transfer'].includes(statusKey)) {
-      if (!hasProvider || hasWeekday) return null;
+    if (fallPendingStatuses.includes(statusKey)) {
+      if (!hasProvider) return null;
+      if (fallDone && fallConfirmedOrTerminated) return null;
+      if (fallDone) {
+        return { role: 'provider', actionKey: 'fall_confirmation', label: 'Update', quiet: true };
+      }
+      if (hasWeekday) return null;
       return { role: 'provider', actionKey: 'fall_confirmation', label: 'Fall confirmation – Action Needed' };
     }
     if (!fallDone && ['returning', 'current', 'pending', 'onboarded', 'confirmed_returning'].includes(statusKey)) {

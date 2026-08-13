@@ -439,7 +439,11 @@
               <button
                 v-if="lifecycleActionFor(client)"
                 type="button"
-                class="roster-action-btn roster-action-btn--accent roster-action-btn--pulse"
+                class="roster-action-btn"
+                :class="{
+                  'roster-action-btn--accent': !lifecycleActionFor(client).quiet,
+                  'roster-action-btn--pulse': !lifecycleActionFor(client).quiet
+                }"
                 :title="lifecycleActionFor(client).label"
                 :disabled="!canClickLifecycleAction"
                 @click.stop="canClickLifecycleAction && openLifecycleAction(client)"
@@ -1483,6 +1487,11 @@ const lifecycleActionFor = (client) => {
   return client?.lifecycle_action || null;
 };
 
+const isFlashyLifecycleAction = (client) => {
+  const action = lifecycleActionFor(client);
+  return !!(action && !action.quiet);
+};
+
 const fallHoverBody = (client) => {
   const fromApi = String(client?.fall_status_hover || '').trim();
   if (fromApi) return fromApi;
@@ -1756,7 +1765,7 @@ const attentionSummary = computed(() => {
   let openTickets = 0;
   for (const c of list) {
     if (isNewlyAssigned(c)) newCount++;
-    if (lifecycleActionFor(c)) actionNeeded++;
+    if (isFlashyLifecycleAction(c)) actionNeeded++;
     if (Number(c?.open_ticket_count || 0) > 0) openTickets++;
   }
   return {
@@ -1765,7 +1774,7 @@ const attentionSummary = computed(() => {
     openTickets,
     total: new Set(
       list
-        .filter((c) => isNewlyAssigned(c) || lifecycleActionFor(c) || Number(c?.open_ticket_count || 0) > 0)
+        .filter((c) => isNewlyAssigned(c) || isFlashyLifecycleAction(c) || Number(c?.open_ticket_count || 0) > 0)
         .map((c) => c.id)
     ).size,
     any: newCount > 0 || actionNeeded > 0 || openTickets > 0
@@ -1823,7 +1832,7 @@ const statusFilteredClients = computed(() => {
     return list;
   }
   if (attentionFilterActive.value) {
-    list = list.filter((c) => isNewlyAssigned(c) || lifecycleActionFor(c) || Number(c?.open_ticket_count || 0) > 0);
+    list = list.filter((c) => isNewlyAssigned(c) || isFlashyLifecycleAction(c) || Number(c?.open_ticket_count || 0) > 0);
   }
   const k = activeStatusFilterKey.value;
   if (k === 'waitlist') list = list.filter((c) => isWaitlistClient(c));

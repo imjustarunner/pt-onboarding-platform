@@ -139,7 +139,7 @@ async function tallySchoolOverviewActions({ bySchoolId, schoolIds, placeholders 
     try {
       const idPh = makeInClausePlaceholders(ids.length);
       const [dispRows] = await pool.execute(
-        `SELECT client_id, agency_clearance_json, agency_cleared_at, fall_completed_at
+        `SELECT client_id, agency_clearance_json, agency_cleared_at, fall_completed_at, fall_outcome
          FROM client_year_dispositions
          WHERE school_year = ? AND client_id IN (${idPh})`,
         [year, ...ids]

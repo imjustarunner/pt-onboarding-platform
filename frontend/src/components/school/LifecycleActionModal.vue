@@ -154,19 +154,25 @@
 
           <div v-if="fall.fallOutcome === 'confirmed_returning'" class="form-group">
             <label>Assigned day</label>
-            <p class="hint">Select the weekday(s) you see this client.</p>
+            <p class="hint">Only days on your work schedule at this school are shown, with hours and open slots.</p>
             <div v-if="loadingWorkDays" class="muted">Loading your schedule days…</div>
             <div v-else-if="workDaysError" class="error">{{ workDaysError }}</div>
-            <div class="day-grid" role="group" aria-label="Assigned days of the week">
+            <div v-else-if="!selectableDays.length" class="error">
+              No work days on your schedule at this school yet. Confirm your days and hours in Provider Schedule first.
+            </div>
+            <div v-else class="day-grid" role="group" aria-label="Assigned days of the week">
               <button
                 v-for="day in selectableDays"
                 :key="day.day_of_week"
                 type="button"
                 class="day-chip"
                 :class="{ active: isDaySelected(day.day_of_week) }"
+                :title="dayTitle(day)"
                 @click="toggleWorkDay(day.day_of_week)"
               >
-                {{ shortDay(day.day_of_week) }}
+                <span class="day-short">{{ shortDay(day.day_of_week) }}</span>
+                <span v-if="dayHours(day)" class="day-meta">{{ dayHours(day) }}</span>
+                <span v-if="daySlots(day)" class="day-slots">{{ daySlots(day) }}</span>
               </button>
             </div>
           </div>
@@ -241,7 +247,7 @@
         <div v-if="saveError" class="error" style="margin-top: 10px;">{{ saveError }}</div>
         <div class="actions" style="margin-top: 14px;">
           <button class="btn btn-primary" type="button" :disabled="saving || loading" @click="save">
-            {{ saving ? 'Saving…' : 'Save' }}
+            {{ saving ? 'Saving…' : (isFallUpdate ? 'Update' : 'Save') }}
           </button>
           <button class="btn btn-secondary" type="button" :disabled="saving" @click="$emit('close')">Cancel</button>
         </div>
@@ -254,8 +260,6 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
-
-const DEFAULT_WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 const props = defineProps({
   client: { type: Object, required: true },
@@ -308,7 +312,16 @@ const fall = reactive({
 });
 const services = reactive({ serviceDate: '' });
 
-const title = computed(() => props.actionLabel || 'Next Step');
+const isFallUpdate = computed(() =>
+  props.actionKey === 'fall_confirmation'
+  && (!!props.client?.fall_completed_at || String(props.actionLabel || '').toLowerCase() === 'update')
+);
+const title = computed(() => {
+  if (props.actionKey === 'fall_confirmation' && isFallUpdate.value) {
+    return props.actionLabel || 'Update fall confirmation';
+  }
+  return props.actionLabel || 'Next Step';
+});
 const clientId = computed(() => Number(props.client?.id || 0));
 const disclosurePrechecked = computed(() => {
   const key = String(props.client?.client_status_key || '').toLowerCase();
@@ -320,10 +333,9 @@ const needsPriorYearAttest = computed(() => {
   if (['ready_to_schedule', 'received', 'packet', 'screener', 'terminated'].includes(key)) return false;
   return !props.client?.parents_contacted_at || !(props.client?.first_service_at || props.client?.services_started_at);
 });
-const selectableDays = computed(() => {
-  if (workDays.value.length) return workDays.value;
-  return DEFAULT_WEEKDAYS.map((day_of_week) => ({ day_of_week }));
-});
+const selectableDays = computed(() =>
+  (Array.isArray(workDays.value) ? workDays.value : []).filter((d) => d?.day_of_week)
+);
 
 function todayYmd() {
   const d = new Date();
@@ -335,6 +347,39 @@ function shortDay(day) {
   return map[String(day)] || String(day || '').slice(0, 3);
 }
 
+function formatTime(t) {
+  const s = String(t || '').slice(0, 8);
+  const m = s.match(/^(\d{2}):(\d{2})/);
+  if (!m) return '';
+  let hh = parseInt(m[1], 10);
+  const mm = m[2];
+  const ampm = hh >= 12 ? 'PM' : 'AM';
+  hh = hh % 12 || 12;
+  return `${hh}:${mm} ${ampm}`;
+}
+
+function dayHours(day) {
+  const a = formatTime(day?.start_time);
+  const b = formatTime(day?.end_time);
+  if (a && b) return `${a}–${b}`;
+  return '';
+}
+
+function daySlots(day) {
+  if (day?.slots_available == null && day?.slots_total == null) return '';
+  const open = day?.slots_available == null ? null : Number(day.slots_available);
+  const total = day?.slots_total == null ? null : Number(day.slots_total);
+  if (open != null && total != null) return `${open} of ${total} slots open`;
+  if (open != null) return `${open} slot${open === 1 ? '' : 's'} open`;
+  return '';
+}
+
+function dayTitle(day) {
+  const hours = dayHours(day);
+  const slots = daySlots(day);
+  return [day?.day_of_week, hours, slots].filter(Boolean).join(' · ');
+}
+
 function isDaySelected(day) {
   return (fall.serviceDays || []).includes(String(day));
 }
@@ -342,6 +387,7 @@ function isDaySelected(day) {
 function toggleWorkDay(day) {
   const d = String(day || '');
   if (!d) return;
+  if (!selectableDays.value.some((item) => String(item.day_of_week) === d)) return;
   const current = Array.isArray(fall.serviceDays) ? [...fall.serviceDays] : [];
   const idx = current.indexOf(d);
   if (idx >= 0) current.splice(idx, 1);
@@ -366,9 +412,16 @@ async function fetchWorkDays() {
     });
     const providers = Array.isArray(r.data?.providers) ? r.data.providers : [];
     const match = providers.find((p) => Number(p.provider_user_id) === providerId);
-    workDays.value = Array.isArray(match?.work_days) ? match.work_days : [];
-    const assigned = Array.isArray(match?.assigned_days) ? match.assigned_days : [];
-    if (assigned.length && !fall.serviceDays.length) fall.serviceDays = [...assigned];
+    workDays.value = Array.isArray(match?.work_days)
+      ? match.work_days
+      : (Array.isArray(r.data?.work_days) ? r.data.work_days : []);
+    const assigned = Array.isArray(match?.assigned_days)
+      ? match.assigned_days
+      : (Array.isArray(r.data?.assigned_days) ? r.data.assigned_days : []);
+    const allowed = new Set(workDays.value.map((d) => String(d?.day_of_week || '')));
+    if (assigned.length && !fall.serviceDays.length) {
+      fall.serviceDays = assigned.filter((d) => allowed.has(String(d)));
+    }
   } catch (e) {
     workDays.value = [];
     workDaysError.value = e?.response?.data?.error?.message || 'Could not load schedule days';
@@ -417,6 +470,11 @@ onMounted(async () => {
   }
   if (props.actionKey === 'confirm_services_started') {
     services.serviceDate = todayYmd();
+  }
+  if (props.actionKey === 'fall_confirmation') {
+    const prior = String(props.client?.fall_outcome || '').trim();
+    if (prior && !fall.fallOutcome) fall.fallOutcome = prior;
+    fetchWorkDays();
   }
 });
 
@@ -482,7 +540,9 @@ async function save() {
         return;
       }
       if (fall.fallOutcome === 'confirmed_returning' && !(fall.serviceDays || []).length) {
-        saveError.value = 'Select at least one assigned day';
+        saveError.value = selectableDays.value.length
+          ? 'Select at least one assigned day'
+          : 'No work days on your schedule at this school. Confirm your days in Provider Schedule first.';
         return;
       }
       if (fall.fallOutcome === 'unable_to_reach' && !(Number(fall.contactAttempts) > 0)) {
@@ -588,11 +648,22 @@ async function save() {
   padding: 8px 12px;
   cursor: pointer;
   font: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 108px;
 }
 .day-chip.active {
   border-color: var(--primary, #2f6f4e);
   background: rgba(47, 111, 78, 0.12);
   font-weight: 700;
+}
+.day-short { font-weight: 700; }
+.day-meta, .day-slots {
+  font-size: 11px;
+  font-weight: 500;
+  color: #4b5563;
 }
 .attest-box {
   padding: 10px 12px;

@@ -1326,7 +1326,7 @@ async function loadFallActionClients() {
           params: { schoolYear: payload.value?.schoolYear || schoolYearKey.value || 'current' },
           skipGlobalLoading: true
         }).catch(() => ({ data: [] }));
-        return (Array.isArray(r.data) ? r.data : []).filter((c) => c?.lifecycle_action).map((c) => ({
+        return (Array.isArray(r.data) ? r.data : []).filter((c) => c?.lifecycle_action && !c.lifecycle_action.quiet).map((c) => ({
           ...c,
           schoolName: school.schoolName,
           schoolOrganizationId: orgId

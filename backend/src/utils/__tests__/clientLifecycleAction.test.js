@@ -235,6 +235,52 @@ describe('deriveLifecycleAction', () => {
     assert.equal(action, null);
   });
 
+  it('hides flashy fall confirmation after a non-returning submission and offers a quiet Update', () => {
+    const action = deriveLifecycleAction({
+      client: {
+        client_status_key: 'confirmation_pending',
+        has_provider: true,
+        has_weekday: false
+      },
+      viewerRole: 'provider',
+      disposition: {
+        fall_completed_at: '2026-08-13T00:00:00.000Z',
+        fall_outcome: 'unable_to_reach'
+      }
+    });
+    assert.equal(action?.actionKey, 'fall_confirmation');
+    assert.equal(action?.label, 'Update');
+    assert.equal(action?.quiet, true);
+  });
+
+  it('does not offer fall confirmation update after confirmed returning or terminate', () => {
+    const confirmed = deriveLifecycleAction({
+      client: {
+        client_status_key: 'confirmation_pending',
+        has_provider: true,
+        has_weekday: false
+      },
+      viewerRole: 'provider',
+      disposition: {
+        fall_completed_at: '2026-08-13T00:00:00.000Z',
+        fall_outcome: 'confirmed_returning'
+      }
+    });
+    assert.equal(confirmed, null);
+    const terminated = deriveLifecycleAction({
+      client: {
+        client_status_key: 'terminated',
+        has_provider: true
+      },
+      viewerRole: 'provider',
+      disposition: {
+        fall_completed_at: '2026-08-13T00:00:00.000Z',
+        fall_outcome: 'recommend_termination'
+      }
+    });
+    assert.equal(terminated, null);
+  });
+
   it('still counts insurance clearance during the continuing-client override window', () => {
     const client = {
       client_status_key: 'current',

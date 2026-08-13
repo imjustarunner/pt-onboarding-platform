@@ -176,6 +176,8 @@ function rosterLifecycleFields(client, { viewerRole, disposition }) {
     provider_lifecycle_action: providerAction,
     agency_action_key: agencyAction?.actionKey || null,
     provider_action_key: providerAction?.actionKey || null,
+    fall_outcome: disposition?.fall_outcome || null,
+    fall_completed_at: disposition?.fall_completed_at || null,
     needs_insurance_clearance: needsInsuranceClearance({
       client: shaped,
       disposition,
@@ -1257,8 +1259,7 @@ export const getSchoolClients = async (req, res, next) => {
     const canViewOperationalChecklist = String(userRole || '').toLowerCase() !== 'school_staff';
     const portalSchoolYear = computeCurrentSchoolYearLabel();
     const dispositionByClientId = new Map();
-    const agencyViewerRoles = new Set(['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant']);
-    if (agencyViewerRoles.has(String(userRole || '').toLowerCase()) && (clients || []).length) {
+    if ((clients || []).length) {
       try {
         const ids = (clients || []).map((c) => Number(c.id)).filter((id) => id > 0);
         if (ids.length) {

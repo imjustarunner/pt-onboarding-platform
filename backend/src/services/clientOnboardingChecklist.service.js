@@ -773,7 +773,7 @@ export async function listOnboardingQueue({ agencyId, scope = 'all', limit = 200
       const year = computeCurrentSchoolYearLabel();
       const placeholders = ids.map(() => '?').join(',');
       const [dispRows] = await pool.execute(
-        `SELECT client_id, agency_clearance_json, agency_cleared_at, fall_completed_at
+        `SELECT client_id, agency_clearance_json, agency_cleared_at, fall_completed_at, fall_outcome
          FROM client_year_dispositions
          WHERE school_year = ? AND client_id IN (${placeholders})`,
         [year, ...ids]
@@ -805,9 +805,11 @@ export async function listOnboardingQueue({ agencyId, scope = 'all', limit = 200
       viewerRole: 'provider',
       disposition
     });
-    if (!agencyAction && !providerAction && !checklist) continue;
+    const hasAgencyAction = !!(agencyAction && !agencyAction.quiet);
+    const hasProviderAction = !!(providerAction && !providerAction.quiet);
+    if (!hasAgencyAction && !hasProviderAction && !checklist) continue;
 
-    const action = agencyAction || providerAction;
+    const action = hasAgencyAction ? agencyAction : (hasProviderAction ? providerAction : null);
     const paperPacket = isPaperPacketClient(row);
     out.push({
       id: Number(row.id),
@@ -838,8 +840,8 @@ export async function listOnboardingQueue({ agencyId, scope = 'all', limit = 200
       school_year: row.school_year,
       agency_lifecycle_action: agencyAction || null,
       provider_lifecycle_action: providerAction || null,
-      waiting_on_agency: !!agencyAction,
-      waiting_on_provider: !!providerAction,
+      waiting_on_agency: !!(agencyAction && !agencyAction.quiet),
+      waiting_on_provider: !!(providerAction && !providerAction.quiet),
       lifecycle_action: action,
       action_owner: agencyAction ? 'agency' : (providerAction ? 'provider' : null),
       action_stage: action?.label || (checklist ? checklist.summary_label : null),
