@@ -32,6 +32,7 @@
     "backfill:skill-builder-program-affiliations": "node src/scripts/backfillSkillBuilderProgramAffiliations.js",
     "backfill:pending-clients-no-assigned-day": "node src/scripts/backfillPendingClientsWithNoAssignedDay.js",
     "backfill:fall-pending-returning-school-clients": "node src/scripts/backfillFallPendingReturningSchoolClients.js",
+    "restore:intake-phi-retention": "node src/scripts/restoreIntakePhiFromRetentionCleanup.js",
     "backfill:school-intake-review-tasks": "node src/scripts/backfillSchoolIntakeReviewTasks.js",
     "smoke:intake": "node src/scripts/verifyMultiChildIntake.js --latest --count 3",
     "smoke:intake:submission": "node src/scripts/verifyMultiChildIntake.js --submissionId",
