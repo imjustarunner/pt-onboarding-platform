@@ -7,7 +7,7 @@ export const WINDCHIME_ORIGIN = {
   lng: -104.8452
 };
 
-const CITY_COORDS = {
+export const CITY_COORDS = {
   denver: { lat: 39.7392, lng: -104.9903 },
   aurora: { lat: 39.7294, lng: -104.8319 },
   pueblo: { lat: 38.2544, lng: -104.6091 },
@@ -59,6 +59,67 @@ export function haversineMiles(a, b) {
     Math.sin(dLat / 2) ** 2
     + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
   return Math.round(R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s)) * 10) / 10;
+}
+
+export function isPlaceholderOutreachAddress(row) {
+  const name = String(row?.name || '').trim();
+  const city = String(row?.city || '').trim();
+  const address = String(row?.address || '').trim();
+  if (!address) return true;
+  const placeholder = `${name}, ${city}, CO`;
+  if (address === placeholder) return true;
+  return !/\d/.test(address);
+}
+
+export function buildSchoolPlaceSearchQueries({ name, city, districtName }) {
+  const n = String(name || '').trim();
+  const c = String(city || '').trim();
+  const d = String(districtName || '').trim();
+  const queries = [];
+  if (n && c) queries.push(`${n}, ${c}, Colorado`);
+  if (n && d && d !== c) queries.push(`${n}, ${d}, Colorado`);
+  if (n && c) queries.push(`${n} school ${c} CO`);
+  return queries;
+}
+
+const SCHOOL_PLACE_TYPES = new Set([
+  'school',
+  'primary_school',
+  'secondary_school',
+  'point_of_interest',
+  'establishment'
+]);
+
+export function scoreSchoolPlaceCandidate(schoolName, place) {
+  const addr = String(place?.formatted_address || '').trim();
+  if (!addr || !/\b(CO|Colorado)\b/i.test(addr)) return 0;
+  if (!/\d/.test(addr)) return 0;
+  const types = Array.isArray(place?.types) ? place.types : [];
+  const isSchoolish = types.some((t) => SCHOOL_PLACE_TYPES.has(String(t)));
+  let score = scoreNameMatch(schoolName, place?.name || '');
+  if (isSchoolish) score += 15;
+  if (/\d/.test(addr)) score += 10;
+  return score;
+}
+
+export function pickBestSchoolPlaceCandidate(schoolName, results) {
+  let best = null;
+  let bestScore = 0;
+  for (const place of results || []) {
+    const score = scoreSchoolPlaceCandidate(schoolName, place);
+    if (score > bestScore) {
+      bestScore = score;
+      best = place;
+    }
+  }
+  return bestScore >= 65 ? best : null;
+}
+
+export function formatOutreachAddressLine(parts = []) {
+  return parts
+    .map((p) => String(p || '').trim())
+    .filter(Boolean)
+    .join(', ');
 }
 
 export function schoolMapPoint(school) {

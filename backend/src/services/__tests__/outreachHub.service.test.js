@@ -6,7 +6,11 @@ import {
   haversineMiles,
   scoreNameMatch,
   schoolMapPoint,
-  WINDCHIME_ORIGIN
+  WINDCHIME_ORIGIN,
+  isPlaceholderOutreachAddress,
+  buildSchoolPlaceSearchQueries,
+  scoreSchoolPlaceCandidate,
+  pickBestSchoolPlaceCandidate
 } from '../../utils/outreachHubPure.js';
 
 describe('outreach name matching', () => {
@@ -49,5 +53,50 @@ describe('outreach partnership and routing', () => {
     const miles = haversineMiles(WINDCHIME_ORIGIN, pt);
     assert.ok(miles != null && miles < 120);
     assert.ok(miles > 40);
+  });
+});
+
+describe('outreach school address resolution helpers', () => {
+  it('detects placeholder directory addresses', () => {
+    assert.equal(
+      isPlaceholderOutreachAddress({ name: 'East High School', city: 'Denver', address: 'East High School, Denver, CO' }),
+      true
+    );
+    assert.equal(
+      isPlaceholderOutreachAddress({
+        name: 'East High School',
+        city: 'Denver',
+        address: '1600 City Park Esplanade, Denver, CO 80206, USA'
+      }),
+      false
+    );
+  });
+
+  it('builds place search queries from school metadata', () => {
+    const queries = buildSchoolPlaceSearchQueries({
+      name: 'East High School',
+      city: 'Denver',
+      districtName: 'Denver Public Schools'
+    });
+    assert.ok(queries.includes('East High School, Denver, Colorado'));
+    assert.ok(queries.some((q) => q.includes('Denver Public Schools')));
+  });
+
+  it('scores and picks a Colorado school place candidate', () => {
+    const candidates = [
+      {
+        name: 'East High School',
+        formatted_address: '1600 City Park Esplanade, Denver, CO 80206, USA',
+        types: ['secondary_school', 'school']
+      },
+      {
+        name: 'Random Business',
+        formatted_address: '100 Main St, Denver, CO 80202, USA',
+        types: ['establishment']
+      }
+    ];
+    const best = pickBestSchoolPlaceCandidate('East High School', candidates);
+    assert.equal(best?.name, 'East High School');
+    assert.ok(scoreSchoolPlaceCandidate('East High School', best) >= 65);
   });
 });

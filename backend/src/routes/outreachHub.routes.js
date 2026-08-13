@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticate, requireCapability } from '../middleware/auth.middleware.js';
 import {
   listSchools,
+  geocodeSchoolAddresses,
   getSummary,
   getSchool,
   patchSchool,
@@ -27,6 +28,7 @@ router.use(authenticate, requireCapability('canAccessOutreach'));
 
 router.get('/task-list', getTaskList);
 router.get('/schools', listSchools);
+router.post('/schools/geocode', geocodeSchoolAddresses);
 router.get('/summary', getSummary);
 router.get('/timeline', getTimeline);
 router.get('/trips', listTrips);

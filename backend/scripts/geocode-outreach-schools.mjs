@@ -1,6 +1,8 @@
 /**
- * Backfill street addresses + lat/lng for outreach directory schools via Google Geocoding.
- * Usage: node backend/scripts/geocode-outreach-schools.mjs [agencyId]
+ * Backfill street addresses + lat/lng for outreach directory schools.
+ * Uses Google Places Text Search (school name) with Geocoding fallback.
+ * Requires GOOGLE_MAPS_API_KEY with Places API and Geocoding API enabled.
+ * Usage: node backend/scripts/geocode-outreach-schools.mjs <agencyId>
  */
 import {
   backfillOutreachSchoolGeocodes,

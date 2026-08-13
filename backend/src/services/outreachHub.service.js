@@ -8,7 +8,8 @@ import {
   scoreNameMatch,
   canAutoPartnerDistrict,
   haversineMiles,
-  schoolMapPoint
+  schoolMapPoint,
+  formatOutreachAddressLine
 } from '../utils/outreachHubPure.js';
 
 export { WINDCHIME_ORIGIN, scoreNameMatch, canAutoPartnerDistrict, haversineMiles, schoolMapPoint };
@@ -168,7 +169,7 @@ function mapSchoolRow(row, activityCounts = null) {
 
 export async function listOutreachSchools(agencyId, filters = {}) {
   await ensureOutreachDirectory(agencyId);
-  void backfillOutreachSchoolGeocodes(agencyId, { limit: 20 }).catch(() => {});
+  void backfillOutreachSchoolGeocodes(agencyId, { limit: 35 }).catch(() => {});
   const where = ['s.agency_id = ?'];
   const params = [agencyId];
   const district = String(filters.district || '').trim();
@@ -251,14 +252,70 @@ async function queryOutreachSchoolRows(agencyId, filters = {}) {
   return (rows || []).map((r) => mapSchoolRow(r));
 }
 
-function isPlaceholderOutreachAddress(row) {
-  const name = String(row?.name || '').trim();
-  const city = String(row?.city || '').trim();
-  const address = String(row?.address || '').trim();
-  if (!address) return true;
-  const placeholder = `${name}, ${city}, CO`;
-  if (address === placeholder) return true;
-  return !/\d/.test(address);
+async function resolveOutreachSchoolLocation(row) {
+  const name = String(row.name || '').trim();
+  const city = String(row.city || '').trim();
+  if (!name || !city) return null;
+
+  const orgStreet = String(row.org_street || '').trim();
+  if (orgStreet && /\d/.test(orgStreet)) {
+    const orgLine = formatOutreachAddressLine([
+      orgStreet,
+      row.org_city,
+      row.org_state || 'CO',
+      row.org_zip
+    ]);
+    try {
+      const { geocodeAddressWithGoogle } = await import('./googleGeocode.service.js');
+      const geo = await geocodeAddressWithGoogle({
+        addressText: orgLine,
+        state: row.org_state || 'CO',
+        countryCode: 'US'
+      });
+      return {
+        latitude: geo.latitude,
+        longitude: geo.longitude,
+        formattedAddress: geo.formattedAddress || orgLine,
+        source: 'linked_org'
+      };
+    } catch (e) {
+      if (e?.code === 'MAPS_KEY_MISSING' || String(e?.message || '').includes('REQUEST_DENIED')) {
+        throw e;
+      }
+    }
+  }
+
+  try {
+    const { searchSchoolPlaceWithGoogle } = await import('./googleGeocode.service.js');
+    return await searchSchoolPlaceWithGoogle({
+      name,
+      city,
+      districtName: row.district_name
+    });
+  } catch (e) {
+    if (e?.code === 'MAPS_KEY_MISSING' || String(e?.message || '').includes('REQUEST_DENIED')) {
+      throw e;
+    }
+    try {
+      const { geocodeAddressWithGoogle } = await import('./googleGeocode.service.js');
+      const geo = await geocodeAddressWithGoogle({
+        addressText: `${name}, ${city}, Colorado`,
+        state: 'CO',
+        countryCode: 'US'
+      });
+      return {
+        latitude: geo.latitude,
+        longitude: geo.longitude,
+        formattedAddress: geo.formattedAddress,
+        source: 'geocode_name_city'
+      };
+    } catch (inner) {
+      if (inner?.code === 'MAPS_KEY_MISSING' || String(inner?.message || '').includes('REQUEST_DENIED')) {
+        throw inner;
+      }
+      return null;
+    }
+  }
 }
 
 /** Geocode schools missing coordinates or still on placeholder addresses (batched). */
@@ -267,22 +324,30 @@ export async function backfillOutreachSchoolGeocodes(agencyId, { limit = 50 } = 
   if (!id) return { geocoded: 0, remaining: 0 };
   const cap = Math.min(Math.max(Number(limit) || 50, 1), 100);
   const [rows] = await pool.execute(
-    `SELECT id, name, city, district_name, address, lat, lng
-     FROM outreach_schools
-     WHERE agency_id = ?
+    `SELECT
+       s.id, s.name, s.city, s.district_name, s.address, s.lat, s.lng, s.linked_organization_id,
+       a.street_address AS org_street, a.city AS org_city, a.state AS org_state, a.postal_code AS org_zip
+     FROM outreach_schools s
+     LEFT JOIN agencies a ON a.id = s.linked_organization_id
+     WHERE s.agency_id = ?
        AND (
-         lat IS NULL OR lng IS NULL
-         OR address IS NULL OR address = ''
-         OR address LIKE '%, CO'
+         s.lat IS NULL OR s.lng IS NULL
+         OR s.address IS NULL OR s.address = ''
+         OR s.address NOT REGEXP '[0-9]'
        )
-     ORDER BY (lat IS NULL OR lng IS NULL) DESC, id ASC
+     ORDER BY (s.lat IS NULL OR s.lng IS NULL) DESC, s.id ASC
      LIMIT ${cap}`,
     [id]
   );
   if (!rows?.length) {
     const [rem] = await pool.execute(
       `SELECT COUNT(*) AS n FROM outreach_schools
-       WHERE agency_id = ? AND (lat IS NULL OR lng IS NULL)`,
+       WHERE agency_id = ?
+         AND (
+           lat IS NULL OR lng IS NULL
+           OR address IS NULL OR address = ''
+           OR address NOT REGEXP '[0-9]'
+         )`,
       [id]
     );
     return { geocoded: 0, remaining: Number(rem?.[0]?.n || 0) };
@@ -290,49 +355,42 @@ export async function backfillOutreachSchoolGeocodes(agencyId, { limit = 50 } = 
 
   let geocoded = 0;
   let geocodeBlocked = false;
-  try {
-    const { geocodeAddressWithGoogle } = await import('./googleGeocode.service.js');
-    for (const row of rows) {
-      if (geocodeBlocked) break;
-      const name = String(row.name || '').trim();
-      const city = String(row.city || '').trim();
-      if (!name || !city) continue;
-      const query = isPlaceholderOutreachAddress(row)
-        ? `${name}, ${city}, Colorado`
-        : String(row.address || `${name}, ${city}, Colorado`).trim();
-      try {
-        const geo = await geocodeAddressWithGoogle({
-          addressText: query,
-          state: 'CO',
-          countryCode: 'US'
-        });
-        const formatted = geo?.formattedAddress ? String(geo.formattedAddress).slice(0, 255) : null;
-        await pool.execute(
-          `UPDATE outreach_schools
-           SET lat = ?, lng = ?, address = COALESCE(?, address)
-           WHERE id = ? AND agency_id = ?`,
-          [geo.latitude, geo.longitude, formatted, row.id, id]
+  for (const row of rows) {
+    if (geocodeBlocked) break;
+    try {
+      const resolved = await resolveOutreachSchoolLocation(row);
+      if (!resolved) continue;
+      const formatted = resolved.formattedAddress
+        ? String(resolved.formattedAddress).slice(0, 255)
+        : null;
+      await pool.execute(
+        `UPDATE outreach_schools
+         SET lat = ?, lng = ?, address = COALESCE(?, address)
+         WHERE id = ? AND agency_id = ?`,
+        [resolved.latitude, resolved.longitude, formatted, row.id, id]
+      );
+      geocoded += 1;
+    } catch (e) {
+      const msg = String(e?.message || '');
+      if (e?.code === 'MAPS_KEY_MISSING' || msg.includes('REQUEST_DENIED')) {
+        geocodeBlocked = true;
+        console.warn(
+          '[outreachHub] Google Maps address lookup unavailable — enable Geocoding API and Places API on GOOGLE_MAPS_API_KEY'
         );
-        geocoded += 1;
-      } catch (e) {
-        const msg = String(e?.message || '');
-        if (e?.code === 'MAPS_KEY_MISSING' || msg.includes('REQUEST_DENIED')) {
-          geocodeBlocked = true;
-          console.warn('[outreachHub] Google Geocoding unavailable — trip distances use city centers until Geocoding API is enabled');
-        } else {
-          console.warn('[outreachHub] geocode skipped', row.id, e?.message);
-        }
+      } else {
+        console.warn('[outreachHub] address resolve skipped', row.id, e?.message);
       }
-    }
-  } catch (e) {
-    if (e?.code !== 'MAPS_KEY_MISSING') {
-      console.warn('[outreachHub] geocode batch failed', e?.message);
     }
   }
 
   const [rem] = await pool.execute(
     `SELECT COUNT(*) AS n FROM outreach_schools
-     WHERE agency_id = ? AND (lat IS NULL OR lng IS NULL)`,
+     WHERE agency_id = ?
+       AND (
+         lat IS NULL OR lng IS NULL
+         OR address IS NULL OR address = ''
+         OR address NOT REGEXP '[0-9]'
+       )`,
     [id]
   );
   return { geocoded, remaining: Number(rem?.[0]?.n || 0) };
@@ -826,7 +884,7 @@ async function enrichDrivingDistances(origin, ranked) {
 }
 
 export async function previewTripStops(agencyId, { originSchoolId = null, excludeIds = [], useDriving = false } = {}) {
-  const geo = await backfillOutreachSchoolGeocodes(agencyId, { limit: 25 });
+  const geo = await backfillOutreachSchoolGeocodes(agencyId, { limit: 40 });
   const ranked = await rankSchoolsFromOrigin(agencyId, { originSchoolId, excludeIds });
   if (!useDriving) {
     return { ...ranked, geocode_remaining: geo.remaining };

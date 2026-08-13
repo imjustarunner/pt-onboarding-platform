@@ -13,7 +13,8 @@ import {
   listOutreachTrips,
   getOutreachTrip,
   createOutreachTrip,
-  completeOutreachTrip
+  completeOutreachTrip,
+  backfillOutreachSchoolGeocodes
 } from '../services/outreachHub.service.js';
 import {
   ensureOutreachTaskList,
@@ -49,6 +50,18 @@ export const listSchools = async (req, res, next) => {
       sortDir: req.query.sortDir || req.query.sort_dir
     });
     res.json({ schools });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const geocodeSchoolAddresses = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFrom(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const limit = Math.min(Math.max(Number(req.body?.limit || req.query?.limit || 50), 1), 100);
+    const result = await backfillOutreachSchoolGeocodes(agencyId, { limit });
+    res.json(result);
   } catch (err) {
     next(err);
   }
