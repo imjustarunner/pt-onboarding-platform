@@ -22,6 +22,30 @@ function formatExpires(iso) {
   });
 }
 
+function actionHeadline(firstName, count) {
+  const name = String(firstName || '').trim();
+  const hello = name ? `${name}, you have` : 'You have';
+  const noun = count === 1 ? 'client who needs' : 'clients who need';
+  return `${hello} ${count} ${noun} your action.`;
+}
+
+function wrapText(text, font, size, maxWidth) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    const probe = current ? `${current} ${word}` : word;
+    if (font.widthOfTextAtSize(probe, size) <= maxWidth) {
+      current = probe;
+    } else {
+      if (current) lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length ? lines : [''];
+}
+
 export function buildProviderActionPdfHtml({
   firstName,
   clientCount,
@@ -35,7 +59,8 @@ export function buildProviderActionPdfHtml({
   const estimate = formatEstimateLabel(estimatedSeconds);
   const expires = formatExpires(expiresAt);
   const name = String(firstName || '').trim();
-  const hello = name ? `${esc(name)}, you have` : 'You have';
+  const headlineHello = name ? `${esc(name)}, you have` : 'You have';
+  const noun = count === 1 ? 'client who needs' : 'clients who need';
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -151,7 +176,7 @@ export function buildProviderActionPdfHtml({
   <div class="card">
     <div class="blob"></div>
     <div class="kicker">Action required</div>
-    <h1>${hello} <span class="num">${count}</span> client${count === 1 ? '' : 's'} who need your action.</h1>
+    <h1>${headlineHello} <span class="num">${count}</span> ${noun} your action.</h1>
     <p class="lede">Please review each client and complete the required action. It only takes about <strong>${per} seconds</strong> per client.</p>
     <div class="metrics">
       <div class="metric"><div class="val">${count}</div><div class="lbl">Clients need your action.</div></div>
@@ -172,35 +197,193 @@ export function buildProviderActionPdfHtml({
 </html>`;
 }
 
-async function buildFallbackPdf({ firstName, clientCount, secondsPerClient, estimatedSeconds, actionUrl, expiresAt }) {
+async function buildFallbackPdf({
+  firstName,
+  clientCount,
+  secondsPerClient,
+  estimatedSeconds,
+  actionUrl,
+  expiresAt
+}) {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([612, 792]);
   const helv = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const green = rgb(0.08, 0.35, 0.24);
-  const mint = rgb(0.35, 0.61, 0.35);
-  let y = 720;
-  page.drawText('ACTION REQUIRED', { x: 56, y, size: 11, font: bold, color: mint });
-  y -= 36;
-  const name = String(firstName || '').trim();
-  const line = name
-    ? `${name}, you have ${clientCount} clients who need your action.`
-    : `You have ${clientCount} clients who need your action.`;
-  page.drawText(line.slice(0, 90), { x: 56, y, size: 18, font: bold, color: green });
-  y -= 28;
-  page.drawText(`About ${secondsPerClient} seconds per client. Estimated ${formatEstimateLabel(estimatedSeconds)}.`, {
-    x: 56, y, size: 12, font: helv, color: green
-  });
-  y -= 40;
-  page.drawText('Open this secure link (no Google sign-in needed):', { x: 56, y, size: 12, font: helv, color: green });
-  y -= 18;
+  const serif = await pdf.embedFont(StandardFonts.TimesRomanBold);
+
+  const green = rgb(0.078, 0.353, 0.239);
+  const mint = rgb(0.353, 0.608, 0.345);
+  const body = rgb(0.247, 0.373, 0.298);
+  const muted = rgb(0.357, 0.443, 0.392);
+  const cream = rgb(0.957, 0.945, 0.918);
+  const panel = rgb(0.965, 0.945, 0.902);
+  const bannerBg = rgb(0.933, 0.965, 0.937);
+  const bannerBorder = rgb(0.812, 0.894, 0.831);
+  const white = rgb(1, 1, 1);
+  const gray = rgb(0.58, 0.64, 0.69);
+
+  const count = Number(clientCount) || 0;
+  const per = Number(secondsPerClient) || 15;
+  const estimate = formatEstimateLabel(estimatedSeconds);
+  const expires = formatExpires(expiresAt);
   const url = String(actionUrl || '');
-  for (let i = 0; i < url.length; i += 80) {
-    page.drawText(url.slice(i, i + 80), { x: 56, y, size: 10, font: helv, color: rgb(0.2, 0.2, 0.2) });
-    y -= 14;
+
+  const cardX = 40;
+  const cardW = 532;
+  const cardY = 56;
+  const cardH = 680;
+  const pad = 36;
+  const innerW = cardW - pad * 2;
+
+  page.drawRectangle({ x: 0, y: 0, width: 612, height: 792, color: cream });
+  page.drawRectangle({ x: cardX, y: cardY, width: cardW, height: cardH, color: white });
+  page.drawCircle({
+    x: cardX + cardW - 20,
+    y: cardY + cardH - 20,
+    size: 90,
+    color: rgb(0.91, 0.95, 0.92),
+    opacity: 0.9
+  });
+
+  let y = cardY + cardH - pad;
+
+  const drawLines = (lines, { font, size, color, lineHeight = size + 5, x = cardX + pad }) => {
+    for (const line of lines) {
+      page.drawText(line, { x, y, size, font, color });
+      y -= lineHeight;
+    }
+  };
+
+  page.drawText('ACTION REQUIRED', {
+    x: cardX + pad,
+    y,
+    size: 11,
+    font: bold,
+    color: mint
+  });
+  y -= 28;
+
+  const titleLines = wrapText(actionHeadline(firstName, count), serif, 28, innerW);
+  drawLines(titleLines, { font: serif, size: 28, color: green, lineHeight: 32 });
+
+  y -= 6;
+  const lede = `Please review each client and complete the required action. It only takes about ${per} seconds per client.`;
+  drawLines(wrapText(lede, helv, 13, innerW - 20), { font: helv, size: 13, color: body, lineHeight: 18 });
+
+  y -= 10;
+  const metricsY = y - 58;
+  page.drawRectangle({
+    x: cardX + pad,
+    y: metricsY,
+    width: innerW,
+    height: 72,
+    color: panel
+  });
+
+  const metricCols = [
+    { val: String(count), lbl: 'Clients need your action.' },
+    { val: `${per}s`, lbl: 'Per client (on average).' },
+    { val: estimate, lbl: 'Total estimated time.' }
+  ];
+  const colW = innerW / 3;
+  metricCols.forEach((m, i) => {
+    const cx = cardX + pad + colW * i + colW / 2;
+    const valW = serif.widthOfTextAtSize(m.val, 24);
+    page.drawText(m.val, { x: cx - valW / 2, y: metricsY + 42, size: 24, font: serif, color: green });
+    const lblLines = wrapText(m.lbl, helv, 10, colW - 12);
+    let ly = metricsY + 22;
+    for (const lbl of lblLines) {
+      const lw = helv.widthOfTextAtSize(lbl, 10);
+      page.drawText(lbl, { x: cx - lw / 2, y: ly, size: 10, font: helv, color: muted });
+      ly -= 12;
+    }
+  });
+  y = metricsY - 18;
+
+  const bannerH = 58;
+  const bannerY = y - bannerH;
+  page.drawRectangle({
+    x: cardX + pad,
+    y: bannerY,
+    width: innerW,
+    height: bannerH,
+    color: bannerBg,
+    borderColor: bannerBorder,
+    borderWidth: 1
+  });
+  page.drawText('Your work makes a difference', {
+    x: cardX + pad + 14,
+    y: bannerY + bannerH - 22,
+    size: 13,
+    font: bold,
+    color: green
+  });
+  const bannerLines = wrapText(
+    'Keeping your client list up to date helps everyone and ensures we\'re providing the best care possible.',
+    helv,
+    11,
+    innerW - 28
+  );
+  let by = bannerY + bannerH - 38;
+  for (const line of bannerLines) {
+    page.drawText(line, { x: cardX + pad + 14, y: by, size: 11, font: helv, color: body });
+    by -= 13;
   }
-  y -= 12;
-  page.drawText(`Expires ${formatExpires(expiresAt)}`, { x: 56, y, size: 11, font: helv, color: mint });
+  y = bannerY - 22;
+
+  const ctaH = 52;
+  const ctaY = y - ctaH;
+  page.drawRectangle({
+    x: cardX + pad,
+    y: ctaY,
+    width: innerW,
+    height: ctaH,
+    color: green
+  });
+  const ctaTitle = 'Open my clients';
+  const ctaSub = 'Secure link · no Google sign-in needed';
+  const ctaTitleW = bold.widthOfTextAtSize(ctaTitle, 16);
+  const ctaSubW = helv.widthOfTextAtSize(ctaSub, 10);
+  page.drawText(ctaTitle, {
+    x: cardX + pad + innerW / 2 - ctaTitleW / 2,
+    y: ctaY + 28,
+    size: 16,
+    font: bold,
+    color: white
+  });
+  page.drawText(ctaSub, {
+    x: cardX + pad + innerW / 2 - ctaSubW / 2,
+    y: ctaY + 12,
+    size: 10,
+    font: helv,
+    color: rgb(0.92, 0.96, 0.94)
+  });
+  y = ctaY - 18;
+
+  const foot = `Expires ${expires} · 24-hour link`;
+  const footW = helv.widthOfTextAtSize(foot, 11);
+  page.drawText(foot, {
+    x: cardX + pad + innerW / 2 - footW / 2,
+    y,
+    size: 11,
+    font: helv,
+    color: muted
+  });
+  y -= 18;
+
+  const urlLines = wrapText(url, helv, 9, innerW);
+  for (const line of urlLines) {
+    const lw = helv.widthOfTextAtSize(line, 9);
+    page.drawText(line, {
+      x: cardX + pad + innerW / 2 - lw / 2,
+      y,
+      size: 9,
+      font: helv,
+      color: gray
+    });
+    y -= 11;
+  }
+
   return Buffer.from(await pdf.save());
 }
 
@@ -210,11 +393,12 @@ export async function renderProviderActionPdf(payload) {
     const bytes = await DocumentSigningService.convertHTMLToPDF(html, {
       format: 'Letter',
       printBackground: true,
-      margin: { top: '0.35in', right: '0.35in', bottom: '0.35in', left: '0.35in' }
+      margin: { top: '0.35in', right: '0.35in', bottom: '0.35in', left: '0.35in' },
+      disableFallback: true
     });
     if (bytes && bytes.length > 500) return Buffer.from(bytes);
   } catch {
-    // fall through
+    // Use our styled pdf-lib layout when Chromium/Puppeteer is unavailable.
   }
   return buildFallbackPdf(payload);
 }
