@@ -5,6 +5,9 @@ import {
 } from '../data/coloradoOutreachSchools.js';
 import {
   WINDCHIME_ORIGIN,
+  tripOutboundMiles,
+  tripReturnMiles,
+  tripRoundTripMiles,
   scoreNameMatch,
   canAutoPartnerDistrict,
   haversineMiles,
@@ -18,7 +21,18 @@ import {
   parsePocInfo
 } from '../utils/outreachHistoricalImport.js';
 
-export { WINDCHIME_ORIGIN, scoreNameMatch, canAutoPartnerDistrict, haversineMiles, schoolMapPoint };
+export {
+  WINDCHIME_ORIGIN,
+  scoreNameMatch,
+  canAutoPartnerDistrict,
+  haversineMiles,
+  schoolMapPoint,
+  tripOutboundMiles,
+  tripReturnMiles,
+  tripRoundTripMiles
+};
+
+const ATTENDANCE_STATUSES = new Set(['pending', 'attended', 'skipped', 'time_short']);
 
 const STAGES = new Set([
   'not_started',
@@ -110,6 +124,7 @@ export async function ensureOutreachDirectory(agencyId) {
     if (existing >= expected) {
       await reconcileOutreachPartnerLinks(id);
       const seeded = await applySeededOutreachLocations(id);
+      await reconcileVisitedSchoolsFollowUp(id);
       void syncExistingSchoolStaffToOutreachContacts(id).catch(() => {});
       return { inserted: 0, updated: seeded, skipped: true };
     }
@@ -161,6 +176,7 @@ export async function ensureOutreachDirectory(agencyId) {
   }
   await reconcileOutreachPartnerLinks(id);
   await applySeededOutreachLocations(id);
+  await reconcileVisitedSchoolsFollowUp(id);
   void syncExistingSchoolStaffToOutreachContacts(id).catch(() => {});
   return { inserted, updated };
 }
@@ -597,17 +613,47 @@ export async function logOutreachActivity(agencyId, schoolId, payload, userId) {
      WHERE id = ?`,
     [mysqlAt, schoolId]
   );
-  const current = await getOutreachSchool(agencyId, schoolId);
-  if (current && current.outreach_stage === 'not_started') {
-    await pool.execute(
-      `UPDATE outreach_schools SET outreach_stage = 'contacted' WHERE id = ? AND outreach_stage = 'not_started'`,
-      [schoolId]
-    );
+  if (type === 'visit') {
+    await markFollowUpNeededIfNotPartnered(agencyId, schoolId);
+  } else {
+    const current = await getOutreachSchool(agencyId, schoolId);
+    if (current && current.outreach_stage === 'not_started') {
+      await pool.execute(
+        `UPDATE outreach_schools SET outreach_stage = 'contacted' WHERE id = ? AND outreach_stage = 'not_started'`,
+        [schoolId]
+      );
+    }
   }
   return getOutreachSchool(agencyId, schoolId).then((school) => ({
     activityId: result.insertId,
     school
   }));
+}
+
+export async function markFollowUpNeededIfNotPartnered(agencyId, schoolId) {
+  await pool.execute(
+    `UPDATE outreach_schools
+     SET outreach_stage = 'follow_up_needed'
+     WHERE agency_id = ? AND id = ? AND outreach_stage <> 'partnered'`,
+    [agencyId, schoolId]
+  );
+}
+
+export async function reconcileVisitedSchoolsFollowUp(agencyId) {
+  const id = Number(agencyId || 0);
+  if (!id) return 0;
+  const [result] = await pool.execute(
+    `UPDATE outreach_schools s
+     SET s.outreach_stage = 'follow_up_needed'
+     WHERE s.agency_id = ?
+       AND s.outreach_stage <> 'partnered'
+       AND EXISTS (
+         SELECT 1 FROM outreach_activities a
+         WHERE a.outreach_school_id = s.id AND a.contact_type = 'visit'
+       )`,
+    [id]
+  );
+  return Number(result?.affectedRows || 0);
 }
 
 export async function getOutreachSummary(agencyId) {
@@ -1132,7 +1178,8 @@ export async function importHistoricalOutreachRows(agencyId, rows = [], userId, 
     }
 
     const visitN = Number(mapped.visitCount);
-    if ((Number.isFinite(visitN) && visitN > 0) || mapped.meeting) {
+    const hadVisitSignal = (Number.isFinite(visitN) && visitN > 0) || mapped.meeting;
+    if (hadVisitSignal) {
       if (hasVisits) actions.skipped_because.push('visits_already_in_app');
       else if (!dryRun) {
         const when = mapped.date ? new Date(mapped.date) : new Date();
@@ -1161,6 +1208,10 @@ export async function importHistoricalOutreachRows(agencyId, rows = [], userId, 
         actions.visits = 1;
         visitsAdded += 1;
       } else actions.visits = 1;
+    }
+
+    if (hadVisitSignal && !dryRun) {
+      await markFollowUpNeededIfNotPartnered(id, schoolId);
     }
 
     results.push({
@@ -1257,6 +1308,19 @@ export async function previewTripStops(agencyId, { originSchoolId = null, exclud
 }
 
 function mapTripRow(row, stops = [], participants = []) {
+  const mappedStops = (stops || []).map((s) => ({
+    ...s,
+    id: Number(s.id),
+    trip_id: Number(s.trip_id),
+    outreach_school_id: Number(s.outreach_school_id),
+    stop_order: Number(s.stop_order),
+    miles_from_prev: s.miles_from_prev != null ? Number(s.miles_from_prev) : null,
+    lat: s.lat != null ? Number(s.lat) : null,
+    lng: s.lng != null ? Number(s.lng) : null,
+    attendance_status: s.attendance_status || 'pending',
+    attendance_notes: s.attendance_notes || null,
+    attended_at: s.attended_at || null
+  }));
   return {
     id: Number(row.id),
     agency_id: Number(row.agency_id),
@@ -1269,7 +1333,10 @@ function mapTripRow(row, stops = [], participants = []) {
     notes: row.notes,
     created_by_user_id: row.created_by_user_id,
     created_at: row.created_at,
-    stops,
+    outbound_miles: tripOutboundMiles(mappedStops),
+    return_miles: tripReturnMiles(mappedStops),
+    round_trip_miles: tripRoundTripMiles(mappedStops),
+    stops: mappedStops,
     participants
   };
 }
@@ -1294,7 +1361,8 @@ export async function getOutreachTrip(agencyId, tripId) {
   const row = rows?.[0];
   if (!row) return null;
   const [stops] = await pool.execute(
-    `SELECT ts.*, s.name AS school_name, s.city, s.district_name, s.address, s.school_level
+    `SELECT ts.*, s.name AS school_name, s.city, s.district_name, s.address, s.school_level,
+            s.lat, s.lng, s.outreach_stage
      FROM outreach_trip_stops ts
      JOIN outreach_schools s ON s.id = ts.outreach_school_id
      WHERE ts.trip_id = ?
@@ -1366,16 +1434,6 @@ export async function completeOutreachTrip(agencyId, tripId, payload, userId) {
   const trip = await getOutreachTrip(agencyId, tripId);
   if (!trip) throw new Error('Trip not found');
   if (trip.status === 'completed') return trip;
-  const participants = Array.isArray(payload?.participants) ? payload.participants : trip.participants;
-  const names = participants.map((p) => p.display_name || p.displayName || p.name).filter(Boolean).join(', ');
-  for (const stop of trip.stops || []) {
-    await logOutreachActivity(agencyId, stop.outreach_school_id, {
-      contact_type: 'visit',
-      activity_at: payload?.completed_at || new Date().toISOString(),
-      summary: `Campus visit${names ? ` with ${names}` : ''}`,
-      notes: payload?.notes || trip.notes || `Trip stop ${stop.stop_order}`
-    }, userId);
-  }
   if (Array.isArray(payload?.participants)) {
     await pool.execute(`DELETE FROM outreach_trip_participants WHERE trip_id = ?`, [tripId]);
     for (const p of payload.participants) {
@@ -1398,5 +1456,39 @@ export async function completeOutreachTrip(agencyId, tripId, payload, userId) {
     `UPDATE outreach_trips SET status = 'completed', completed_at = NOW(), notes = COALESCE(?, notes) WHERE id = ?`,
     [payload?.notes ? String(payload.notes) : null, tripId]
   );
+  return getOutreachTrip(agencyId, tripId);
+}
+
+export async function updateOutreachTripStopAttendance(agencyId, tripId, stopId, payload, userId) {
+  const trip = await getOutreachTrip(agencyId, tripId);
+  if (!trip) throw new Error('Trip not found');
+  const stop = (trip.stops || []).find((s) => Number(s.id) === Number(stopId));
+  if (!stop) throw new Error('Stop not found');
+  const status = String(payload?.attendance_status || payload?.attendanceStatus || '').trim().toLowerCase();
+  if (!ATTENDANCE_STATUSES.has(status)) {
+    throw new Error('Attendance must be pending, attended, skipped, or time_short');
+  }
+  const notesRaw = payload?.attendance_notes ?? payload?.attendanceNotes;
+  const notes = notesRaw ? String(notesRaw) : null;
+  const prev = String(stop.attendance_status || 'pending');
+  await pool.execute(
+    `UPDATE outreach_trip_stops
+     SET attendance_status = ?,
+         attendance_notes = ?,
+         attended_at = IF(? = 'attended', COALESCE(attended_at, NOW()), attended_at)
+     WHERE id = ? AND trip_id = ?`,
+    [status, notes, status, stopId, tripId]
+  );
+  if (status === 'attended' && prev !== 'attended') {
+    const names = (trip.participants || [])
+      .map((p) => p.display_name || p.displayName || p.name)
+      .filter(Boolean)
+      .join(', ');
+    await logOutreachActivity(agencyId, stop.outreach_school_id, {
+      contact_type: 'visit',
+      summary: `Campus visit${names ? ` with ${names}` : ''} (trip: ${trip.title})`,
+      notes: notes || trip.notes || `Trip stop ${stop.stop_order}`
+    }, userId);
+  }
   return getOutreachTrip(agencyId, tripId);
 }

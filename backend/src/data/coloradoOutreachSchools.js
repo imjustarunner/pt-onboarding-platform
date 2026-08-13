@@ -62,6 +62,7 @@ export const COLORADO_OUTREACH_SCHOOLS = [
   s('DSST: Conservatory Green High School', DPS, 'Denver', 'high'),
   s('DSST: Green Valley Ranch High School', DPS, 'Denver', 'high'),
   s('DSST: Montview High School', DPS, 'Denver', 'high'),
+  s('DSST: Montview Middle School', DPS, 'Denver', 'middle'),
   s('DSST: Byers Middle School', DPS, 'Denver', 'middle'),
   s('DSST: Cole Middle School', DPS, 'Denver', 'middle'),
   s('DSST: College View Middle School', DPS, 'Denver', 'middle'),
@@ -125,6 +126,9 @@ export const COLORADO_OUTREACH_SCHOOLS = [
   s('Newlon Elementary School', DPS, 'Denver', 'elementary'),
   s('Oakland Elementary School', DPS, 'Denver', 'elementary'),
   s('Park Hill Elementary School', DPS, 'Denver', 'elementary'),
+  s('Palmer Elementary School', DPS, 'Denver', 'elementary'),
+  s('Swigert International School', DPS, 'Denver', 'elementary'),
+  s('Valverde Elementary School', DPS, 'Denver', 'elementary'),
   s('Place Bridge Academy', DPS, 'Denver', 'k8'),
   s('Polaris at Ebert Elementary School', DPS, 'Denver', 'elementary'),
   s('Sabin World School', DPS, 'Denver', 'elementary'),
@@ -157,6 +161,7 @@ export const COLORADO_OUTREACH_SCHOOLS = [
   s('Cole Arts and Science Academy', DPS, 'Denver', 'k8'),
   s('McAuliffe International School', DPS, 'Denver', 'middle'),
   s('McAuliffe Manual Middle School', DPS, 'Denver', 'middle'),
+  s('Dora Moore ECE-8 School', DPS, 'Denver', 'k8'),
 
   // —— Aurora Public Schools ——
   s('Altura Elementary School', APS, 'Aurora', 'elementary'),

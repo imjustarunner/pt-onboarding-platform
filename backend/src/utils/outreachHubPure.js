@@ -47,6 +47,29 @@ export function isValidMapCoordinate(lat, lng) {
   return true;
 }
 
+export function tripOutboundMiles(stops = []) {
+  const legs = (stops || []).map((s) => Number(s.miles_from_prev)).filter((n) => Number.isFinite(n));
+  if (!legs.length) return null;
+  return Math.round(legs.reduce((a, b) => a + b, 0) * 10) / 10;
+}
+
+export function tripReturnMiles(stops = [], origin = WINDCHIME_ORIGIN) {
+  const last = (stops || []).at(-1);
+  if (!last) return null;
+  const pt = {
+    lat: last.lat != null ? Number(last.lat) : null,
+    lng: last.lng != null ? Number(last.lng) : null
+  };
+  return haversineMiles(pt, origin);
+}
+
+export function tripRoundTripMiles(stops = [], origin = WINDCHIME_ORIGIN) {
+  const outbound = tripOutboundMiles(stops);
+  const home = tripReturnMiles(stops, origin);
+  if (outbound == null && home == null) return null;
+  return Math.round(((outbound || 0) + (home || 0)) * 10) / 10;
+}
+
 export function haversineMiles(a, b) {
   if (!a || !b || !isValidMapCoordinate(a.lat, a.lng) || !isValidMapCoordinate(b.lat, b.lng)) {
     return null;

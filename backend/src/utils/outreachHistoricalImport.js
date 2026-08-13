@@ -6,24 +6,10 @@ const TITLE_RE =
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const PHONE_RE = /\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b/;
 
-/** Spreadsheet school names we will not import (crossed out, missing from directory, or ambiguous). */
+/** Spreadsheet school names we will not import (ambiguous campus or not a school row). */
 export const SKIP_IMPORT_SCHOOLS = new Set([
-  'whittier elementary',
-  'mckinley elementary',
-  'mckinley thatcher elementary',
-  'park hill academy',
-  'palmer ece',
-  'palmer ece 3 5yo',
-  'palmer elementary',
-  'palmer elementary ece only',
   'vive',
-  'swigert international',
-  'dora moore ece 8',
-  'dora moore ece-8',
-  'valverde elementary',
   'montebello middle school',
-  'brown middle school',
-  'montview middle school',
   'denver school of arts',
   'denver school of the arts',
   'schools to visit for 2026 2027 school year',
@@ -73,7 +59,27 @@ export const DPS_IMPORT_ALIASES = {
   'grant beacon middle school': 'Grant Beacon Middle School',
   'skinner middle school': 'Skinner Middle School',
   'sabin world elementary': 'Sabin World School',
-  'sabin world school': 'Sabin World School'
+  'sabin world school': 'Sabin World School',
+  'park hill academy': 'Park Hill Elementary School',
+  'park hill elementary': 'Park Hill Elementary School',
+  'brown middle school': 'Brown Elementary School',
+  'brown midle': 'Brown Elementary School',
+  'brown middle': 'Brown Elementary School',
+  'montview middle school': 'DSST: Montview Middle School',
+  'dsst montview middle school': 'DSST: Montview Middle School',
+  'swigert international': 'Swigert International School',
+  'swigert international school': 'Swigert International School',
+  'dora moore ece 8': 'Dora Moore ECE-8 School',
+  'dora moore ece 8 school': 'Dora Moore ECE-8 School',
+  'dora moore': 'Dora Moore ECE-8 School',
+  'valverde elementary': 'Valverde Elementary School',
+  'palmer ece': 'Palmer Elementary School',
+  'palmer ece 3 5yo': 'Palmer Elementary School',
+  'palmer elementary': 'Palmer Elementary School',
+  'palmer elementary ece only': 'Palmer Elementary School',
+  'whittier elementary': 'Whittier Elementary School',
+  'mckinley elementary': 'McKinley-Thatcher Elementary School',
+  'mckinley thatcher elementary': 'McKinley-Thatcher Elementary School'
 };
 
 export function importSchoolKey(name) {

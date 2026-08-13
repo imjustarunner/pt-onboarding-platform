@@ -14,6 +14,7 @@ import {
   getOutreachTrip,
   createOutreachTrip,
   completeOutreachTrip,
+  updateOutreachTripStopAttendance,
   backfillOutreachSchoolGeocodes,
   previewHistoricalOutreachImport,
   importHistoricalOutreachRows,
@@ -311,6 +312,21 @@ export const completeTrip = async (req, res, next) => {
     const tripId = Number(req.params.tripId || 0);
     if (!agencyId || !tripId) return res.status(400).json({ error: { message: 'agencyId and trip id are required' } });
     const trip = await completeOutreachTrip(agencyId, tripId, req.body || {}, req.user?.id);
+    res.json({ trip });
+  } catch (err) {
+    handleServiceError(res, err);
+  }
+};
+
+export const patchTripStop = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFrom(req);
+    const tripId = Number(req.params.tripId || 0);
+    const stopId = Number(req.params.stopId || 0);
+    if (!agencyId || !tripId || !stopId) {
+      return res.status(400).json({ error: { message: 'agencyId, trip id, and stop id are required' } });
+    }
+    const trip = await updateOutreachTripStopAttendance(agencyId, tripId, stopId, req.body || {}, req.user?.id);
     res.json({ trip });
   } catch (err) {
     handleServiceError(res, err);

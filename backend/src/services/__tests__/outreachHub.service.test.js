@@ -126,10 +126,31 @@ describe('outreach school address resolution helpers', () => {
 describe('outreach school seed locations', () => {
   it('attaches a street address and coordinates to every directory school', async () => {
     const { COLORADO_OUTREACH_SCHOOLS } = await import('../../data/coloradoOutreachSchools.js');
-    assert.equal(COLORADO_OUTREACH_SCHOOLS.length, 269);
+    assert.equal(COLORADO_OUTREACH_SCHOOLS.length, 274);
     const missing = COLORADO_OUTREACH_SCHOOLS.filter((s) => !s.address || !/\d/.test(s.address) || s.lat == null || s.lng == null);
     assert.deepEqual(missing.map((s) => s.name), []);
     const east = COLORADO_OUTREACH_SCHOOLS.find((s) => s.name === 'East High School' && s.city === 'Denver');
     assert.ok(east.address.toLowerCase().includes('city park esplanade'));
+    const palmer = COLORADO_OUTREACH_SCHOOLS.find((s) => s.name === 'Palmer Elementary School');
+    const swigert = COLORADO_OUTREACH_SCHOOLS.find((s) => s.name === 'Swigert International School');
+    const montviewMs = COLORADO_OUTREACH_SCHOOLS.find((s) => s.name === 'DSST: Montview Middle School');
+    assert.ok(palmer?.address);
+    assert.ok(swigert?.address);
+    assert.ok(montviewMs?.address);
+  });
+});
+
+describe('trip round-trip mileage', () => {
+  it('adds the return-home leg from the last stop to Windchime', async () => {
+    const { tripOutboundMiles, tripReturnMiles, tripRoundTripMiles, WINDCHIME_ORIGIN, haversineMiles } =
+      await import('../../utils/outreachHubPure.js');
+    const stops = [
+      { miles_from_prev: 10, lat: 39.7392, lng: -104.9903 },
+      { miles_from_prev: 5, lat: 39.7646341, lng: -104.898693 }
+    ];
+    assert.equal(tripOutboundMiles(stops), 15);
+    const home = haversineMiles(stops[1], WINDCHIME_ORIGIN);
+    assert.equal(tripReturnMiles(stops), home);
+    assert.equal(tripRoundTripMiles(stops), Math.round((15 + home) * 10) / 10);
   });
 });

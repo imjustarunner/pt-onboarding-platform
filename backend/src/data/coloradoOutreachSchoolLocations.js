@@ -273,4 +273,9 @@ export const COLORADO_OUTREACH_SCHOOL_LOCATIONS = {
   "poudre-school-district-liberty-common-school": {"address":"1725 Sharp Point Drive, Fort Collins, CO 80525","lat":40.5638,"lng":-105.0306},
   "poudre-school-district-ridgeview-classical-schools": {"address":"1800 South Lemay Avenue, Fort Collins, CO 80525","lat":40.5628,"lng":-105.0573},
   "poudre-school-district-compass-community-collaborative-school": {"address":"2105 South College Avenue, Fort Collins, CO 80525","lat":40.560206,"lng":-105.078319},
+  "denver-public-schools-swigert-international-school": {"address":"3480 Syracuse St, Denver, CO 80238","lat":39.7646341,"lng":-104.898693},
+  "denver-public-schools-dora-moore-ece-8-school": {"address":"846 Corona St, Denver, CO 80218","lat":39.7297718,"lng":-104.9735348},
+  "denver-public-schools-valverde-elementary-school": {"address":"2030 W Alameda Ave, Denver, CO 80223","lat":39.7111054,"lng":-105.0114884},
+  "denver-public-schools-palmer-elementary-school": {"address":"995 Grape St, Denver, CO 80220","lat":39.7319275,"lng":-104.9247092},
+  "denver-public-schools-dsst-montview-middle-school": {"address":"2000 Valentia Street, Denver, CO 80238","lat":39.747934,"lng":-104.8902607},
 };
