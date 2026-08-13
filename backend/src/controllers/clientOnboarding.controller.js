@@ -269,7 +269,7 @@ export const getOnboardingQueue = async (req, res, next) => {
       }
     }
     const scope = String(req.query.scope || 'all').toLowerCase();
-    const rows = await listOnboardingQueue({ agencyId, scope, limit: Number(req.query.limit) || 100 });
+    const rows = await listOnboardingQueue({ agencyId, scope, limit: Number(req.query.limit) || 2000 });
     res.json({ agency_id: agencyId, scope, clients: rows });
   } catch (e) {
     next(e);

@@ -185,3 +185,96 @@ export async function removeClientSchoolYearMembership({ clientId, schoolYear })
   );
   return Number(result?.affectedRows || 0);
 }
+
+/**
+ * Distinct school years with roster data at a school portal org (COA + legacy org_id).
+ * Optional providerUserId limits to that provider's assigned caseload.
+ */
+export async function listSchoolRosterSchoolYears(organizationId, { providerUserId = null } = {}) {
+  const orgId = Number(organizationId || 0);
+  if (!orgId) return [];
+
+  const providerId = Number(providerUserId || 0);
+  const providerClause = providerId > 0
+    ? ` AND (
+        EXISTS (
+          SELECT 1 FROM client_provider_assignments cpa
+          WHERE cpa.client_id = c.id
+            AND cpa.organization_id = ?
+            AND cpa.is_active = TRUE
+            AND cpa.provider_user_id = ?
+        )
+        OR c.provider_id = ?
+      )`
+    : '';
+  const providerParams = providerId > 0 ? [orgId, providerId, providerId] : [];
+
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT label FROM (
+       SELECT TRIM(c.school_year) AS label
+       FROM clients c
+       WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
+         AND TRIM(COALESCE(c.school_year, '')) <> ''
+         AND (
+           c.organization_id = ?
+           OR EXISTS (
+             SELECT 1 FROM client_organization_assignments coa
+             WHERE coa.client_id = c.id
+               AND coa.organization_id = ?
+               AND coa.is_active = TRUE
+           )
+         )
+         ${providerClause}
+       UNION
+       SELECT TRIM(c.termination_school_year) AS label
+       FROM clients c
+       WHERE TRIM(COALESCE(c.termination_school_year, '')) <> ''
+         AND (
+           c.organization_id = ?
+           OR EXISTS (
+             SELECT 1 FROM client_organization_assignments coa
+             WHERE coa.client_id = c.id
+               AND coa.organization_id = ?
+               AND coa.is_active = TRUE
+           )
+         )
+         ${providerClause}
+       UNION
+       SELECT TRIM(csy.school_year) AS label
+       FROM client_school_years csy
+       INNER JOIN clients c ON c.id = csy.client_id
+       WHERE TRIM(COALESCE(csy.school_year, '')) <> ''
+         AND (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
+         AND (
+           c.organization_id = ?
+           OR EXISTS (
+             SELECT 1 FROM client_organization_assignments coa
+             WHERE coa.client_id = c.id
+               AND coa.organization_id = ?
+               AND coa.is_active = TRUE
+           )
+         )
+         ${providerClause}
+     ) AS years
+     WHERE label REGEXP '^[0-9]{4}-[0-9]{4}$'
+     ORDER BY label DESC`,
+  [
+    orgId,
+    orgId,
+    ...providerParams,
+    orgId,
+    orgId,
+    ...providerParams,
+    orgId,
+    orgId,
+    ...providerParams
+  ]
+  );
+
+  const out = [];
+  for (const row of rows || []) {
+    const label = normalizeSchoolYearLabel(row.label);
+    if (label && !out.includes(label)) out.push(label);
+  }
+  return out;
+}

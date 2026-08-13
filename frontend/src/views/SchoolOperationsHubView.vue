@@ -471,9 +471,9 @@ const allSections = computed(() => [
       },
       {
         id: 'provider-year-update',
-        title: 'Provider Year Update',
-        shortDesc: 'Year-update campaigns for providers.',
-        desc: 'Launch and track provider year-update campaigns across schools.',
+        title: 'Provider Fall Update',
+        shortDesc: 'Fall update campaigns for providers.',
+        desc: 'Launch and track provider fall update campaigns across schools.',
         cta: 'Open →',
         to: orgTo('/admin/provider-year-update'),
         tone: 'amber',

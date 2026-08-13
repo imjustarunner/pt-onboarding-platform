@@ -5,6 +5,7 @@ import PlatformBranding from '../models/PlatformBranding.model.js';
 import SchoolOrganizationInternalNote from '../models/SchoolOrganizationInternalNote.model.js';
 import { deriveLifecycleAction, needsInsuranceClearance } from '../utils/clientLifecycleAction.js';
 import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
+import { mapSkillBuildersSchoolProgramActiveForOrganizations } from '../utils/skillBuildersSchoolProgramFeature.js';
 
 function safeInt(v) {
   const n = parseInt(v, 10);

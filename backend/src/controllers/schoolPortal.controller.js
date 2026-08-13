@@ -66,6 +66,7 @@ import {
   filterRosterClientsBySchoolYear,
   rosterClientHasAssignedProvider
 } from '../utils/schoolYearRosterFilter.js';
+import { listSchoolRosterSchoolYears } from '../services/clientSchoolYear.service.js';
 import {
   filterClientsByRosterSearch,
   parseTruthyQuery
@@ -2942,6 +2943,55 @@ export const getSchoolPortalStats = async (req, res, next) => {
       slots_used: slotsUsed,
       slots_available: slotsAvailable,
       school_staff_count: schoolStaffCount
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * School years that have roster data at this portal (for year picker — no empty prior years).
+ * GET /api/school-portal/:organizationId/roster-school-years
+ */
+export const getRosterSchoolYears = async (req, res, next) => {
+  try {
+    const orgId = parseInt(req.params.organizationId, 10);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const userId = req.user?.id;
+    const userRole = String(req.user?.role || '').toLowerCase();
+
+    const organization = await Agency.findById(orgId);
+    if (!organization) {
+      return res.status(404).json({ error: { message: 'Organization not found' } });
+    }
+    const orgType = String(organization.organization_type || 'agency').toLowerCase();
+    const allowedTypes = ['school', 'program', 'learning'];
+    if (!allowedTypes.includes(orgType)) {
+      return res.status(400).json({
+        error: { message: `This endpoint is only available for organizations of type: ${allowedTypes.join(', ')}` }
+      });
+    }
+
+    if (userRole !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: userRole, schoolOrganizationId: orgId });
+      if (!ok) {
+        return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+      }
+    }
+
+    const providerOnly = userRole === 'provider' || String(req.query?.scope || '').toLowerCase() === 'provider';
+    const providerUserId = providerOnly ? userId : null;
+
+    const years = await listSchoolRosterSchoolYears(orgId, { providerUserId });
+    const current = computeCurrentSchoolYearLabel();
+    const priorYears = years.filter((y) => normalizeSchoolYearLabel(y) !== current);
+
+    res.json({
+      organization_id: orgId,
+      current_school_year: current,
+      school_years: years,
+      prior_school_years: priorYears
     });
   } catch (e) {
     next(e);

@@ -8,6 +8,32 @@
         </p>
       </div>
       <div class="ob-header-actions">
+        <div class="ob-tabs" role="tablist" aria-label="Action owner">
+          <button
+            type="button"
+            class="ob-tab"
+            :class="{ active: actionOwnerFilter === 'agency' }"
+            @click="actionOwnerFilter = 'agency'"
+          >
+            Waiting on agency
+          </button>
+          <button
+            type="button"
+            class="ob-tab"
+            :class="{ active: actionOwnerFilter === 'provider' }"
+            @click="actionOwnerFilter = 'provider'"
+          >
+            Waiting on provider
+          </button>
+          <button
+            type="button"
+            class="ob-tab"
+            :class="{ active: actionOwnerFilter === 'all' }"
+            @click="actionOwnerFilter = 'all'"
+          >
+            All actions
+          </button>
+        </div>
         <div class="ob-tabs">
           <button type="button" class="ob-tab" :class="{ active: scope === 'school' }" @click="setScope('school')">
             School
@@ -123,17 +149,35 @@
                   {{ phaseLabel(row) }}
                 </span>
               </td>
-              <td>
+              <td class="ob-action-cell">
                 <button
-                  v-if="row.lifecycle_action && row.action_owner === 'agency'"
+                  v-if="row.agency_lifecycle_action"
                   type="button"
                   class="btn btn-primary btn-sm"
-                  @click.stop="openRowAction(row)"
+                  @click.stop="openAgencyAction(row)"
                 >
-                  {{ row.lifecycle_action.label }}
+                  {{ row.agency_lifecycle_action.label }}
                 </button>
-                <span v-else-if="row.action_owner === 'provider'" class="muted">Waiting on provider</span>
-                <span v-else class="muted">{{ row.onboarding?.summary_label || '—' }}</span>
+                <span
+                  v-if="row.provider_lifecycle_action"
+                  class="ob-action-provider"
+                  :class="{ muted: actionOwnerFilter === 'agency' }"
+                >
+                  <template v-if="actionOwnerFilter !== 'agency'">
+                    {{ row.provider_lifecycle_action.label }}
+                  </template>
+                  <template v-else>
+                    Provider: {{ row.provider_lifecycle_action.label }}
+                  </template>
+                </span>
+                <span
+                  v-if="!row.agency_lifecycle_action && row.provider_lifecycle_action"
+                  class="muted"
+                >Waiting on provider</span>
+                <span
+                  v-else-if="!row.agency_lifecycle_action && !row.provider_lifecycle_action"
+                  class="muted"
+                >{{ row.onboarding?.summary_label || '—' }}</span>
               </td>
             </tr>
           </tbody>
@@ -255,6 +299,7 @@ const columns = [
 ];
 
 const scope = ref(String(route.query.scope || 'school').toLowerCase());
+const actionOwnerFilter = ref(String(route.query.owner || 'agency').toLowerCase());
 const loading = ref(false);
 const error = ref('');
 const rows = ref([]);
@@ -302,11 +347,16 @@ function isSchoolRow(row) {
   return String(row?.client_type || '').toLowerCase() === 'school';
 }
 
-function openRowAction(row) {
-  if (!row?.lifecycle_action?.actionKey) return;
+function openAgencyAction(row) {
+  const act = row?.agency_lifecycle_action || row?.lifecycle_action;
+  if (!act?.actionKey) return;
   lifecycleClient.value = row;
-  lifecycleActionKey.value = row.lifecycle_action.actionKey;
-  lifecycleActionLabel.value = row.lifecycle_action.label || 'Next Step';
+  lifecycleActionKey.value = act.actionKey;
+  lifecycleActionLabel.value = act.label || 'Next Step';
+}
+
+function openRowAction(row) {
+  openAgencyAction(row);
 }
 
 function openAgencyIntake() {
@@ -377,12 +427,26 @@ function cellText(row, key) {
     case 'day': return isSchoolRow(row) ? (row.service_day || '') : '';
     case 'status': return row.client_status_label || '';
     case 'phase': return phaseLabel(row);
-    case 'action': return row.action_stage || row.lifecycle_action?.label || row.onboarding?.summary_label || '';
+    case 'action': {
+      const parts = [];
+      if (row.agency_lifecycle_action?.label) parts.push(row.agency_lifecycle_action.label);
+      if (row.provider_lifecycle_action?.label) parts.push(row.provider_lifecycle_action.label);
+      if (parts.length) return parts.join(' ');
+      return row.action_stage || row.lifecycle_action?.label || row.onboarding?.summary_label || '';
+    }
     default: return '';
   }
 }
 
+function rowMatchesOwnerFilter(row) {
+  const f = actionOwnerFilter.value;
+  if (f === 'agency') return !!row.waiting_on_agency;
+  if (f === 'provider') return !!row.waiting_on_provider;
+  return !!(row.waiting_on_agency || row.waiting_on_provider || row.onboarding?.phase !== 'done');
+}
+
 function rowMatchesFilters(row) {
+  if (!rowMatchesOwnerFilter(row)) return false;
   const global = globalSearch.value.trim().toLowerCase();
   if (global) {
     const hay = columns.map((c) => cellText(row, c.key)).join(' ').toLowerCase();
@@ -449,8 +513,13 @@ const setScope = (next) => {
   scope.value = next;
   selectedId.value = null;
   clearFilters();
-  router.replace({ query: { scope: next } });
+  router.replace({ query: { scope: next, owner: actionOwnerFilter.value } });
 };
+
+watch(actionOwnerFilter, (owner) => {
+  const q = { ...route.query, scope: scope.value, owner };
+  router.replace({ query: q });
+});
 
 const clearSelection = () => {
   selectedId.value = null;
@@ -466,7 +535,7 @@ const loadQueue = async () => {
   error.value = '';
   try {
     const r = await api.get('/clients/onboarding-queue', {
-      params: { agencyId: agencyId.value, scope: scope.value },
+      params: { agencyId: agencyId.value, scope: scope.value, limit: 5000 },
       skipGlobalLoading: true
     });
     rows.value = Array.isArray(r.data?.clients) ? r.data.clients : [];
@@ -511,6 +580,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown));
   min-height: calc(100dvh - 72px);
   display: flex;
   flex-direction: column;
+}
+.ob-action-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+.ob-action-provider {
+  font-size: 12px;
+  line-height: 1.3;
 }
 .ob-header {
   display: flex;

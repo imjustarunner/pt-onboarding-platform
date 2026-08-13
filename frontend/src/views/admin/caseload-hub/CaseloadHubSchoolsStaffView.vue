@@ -977,7 +977,7 @@ const schoolReinitCampaignEnabled = ref(false);
 const tabs = computed(() => {
   const list = [...baseTabs];
   if (pyuCampaignEnabled.value) {
-    list.push({ id: 'provider-year-update', label: 'Provider Year Update' });
+    list.push({ id: 'provider-year-update', label: 'Provider Fall Update' });
   }
   if (schoolReinitCampaignEnabled.value) {
     list.push({ id: 'school-year-update', label: 'School Year Update' });

@@ -109,7 +109,7 @@ export const CLINICAL_SUB_TABS = Object.freeze([
     id: 'license_certifications',
     label: 'License & Certifications',
     panelHint:
-      'Professional license details and credential — shared with Provider Year Update and credentialing. Legacy duplicate fields are merged automatically (most recent value wins).',
+      'Professional license details and credential — shared with Provider Fall Update and credentialing. Legacy duplicate fields are merged automatically (most recent value wins).',
     fieldGroups: [
       {
         id: 'license_details',

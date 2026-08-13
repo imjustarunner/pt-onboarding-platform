@@ -2,7 +2,6 @@
   <div class="pyu-admin-page">
     <header class="pyu-admin-page__head">
       <router-link class="muted back" :to="hubTo">← School Portals</router-link>
-      <h1>Provider Year Update</h1>
     </header>
     <p v-if="!ready" class="muted">Loading agency context…</p>
     <ProviderYearUpdateAdminPanel
@@ -11,7 +10,7 @@
       :organization-slug="organizationSlug"
       :highlight-cycle-id="highlightCycleId"
     />
-    <p v-else class="muted">Select an agency context to manage Provider Year Update.</p>
+    <p v-else class="muted">Select an agency context to manage Provider Fall Update.</p>
   </div>
 </template>
 

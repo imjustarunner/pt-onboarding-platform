@@ -1132,16 +1132,16 @@
       class="blocking-splash pyu-login-splash"
       role="dialog"
       aria-modal="true"
-      aria-label="Provider Year Update"
+      aria-label="Provider Fall Update"
     >
       <div class="blocking-splash-card pyu-login-splash-card">
         <div class="blocking-splash-head">
           <BrandingLogo size="medium" class="blocking-splash-logo" />
           <div class="blocking-splash-brand">{{ brandingStore.displayName || currentAgency?.name || 'Organization' }}</div>
         </div>
-        <h3 class="blocking-splash-title">Provider Year Update</h3>
+        <h3 class="blocking-splash-title">Provider Fall Update</h3>
         <p class="blocking-splash-message">
-          The school year is quickly approaching. Please complete your Provider Year Update —
+          The school year is quickly approaching. Please complete your Provider Fall Update —
           reminders, school events, materials, schedule, and clients — so we are ready for the year ahead.
         </p>
         <p v-if="providerYearUpdateStatus?.sectionPercent != null" class="pyu-splash-progress">
@@ -3445,7 +3445,7 @@ const portalsNestExpanded = ref(false);
 const toolsNestExpanded = ref(false);
 const momentumNestExpanded = ref(false);
 const toolsHubTab = ref('assessments');
-/** Provider Year Update status for portals-nest link + pulse */
+/** Provider Fall Update status for portals-nest link + pulse */
 const providerYearUpdateStatus = ref(null);
 const providerYearUpdateSplashDismissed = ref(false);
 
@@ -3543,7 +3543,7 @@ const portalsNestHubChildren = computed(() => {
     if (pyu?.available) {
       children.push({
         id: 'provider_year_update',
-        label: 'Provider Year Update',
+        label: 'Provider Fall Update',
         kind: 'link',
         to: (() => {
           const slug = String(route.params.organizationSlug || '').trim();
@@ -3659,7 +3659,7 @@ const portalsNestCard = computed(() => {
   const hub = portalsNestHubChildren.value || [];
   const pyuFirst = hub.filter((c) => c.id === 'provider_year_update');
   const hubRest = hub.filter((c) => c.id !== 'provider_year_update');
-  // Provider Year Update always tops the nest when present; school/program portals follow.
+  // Provider Fall Update always tops the nest when present; school/program portals follow.
   const children = [...pyuFirst, ...providerPortalCards.value, ...hubRest];
   if (!children.length) return null;
   const totalBadgeCount = children.reduce((sum, child) => sum + (Number(child.badgeCount) || 0), 0);

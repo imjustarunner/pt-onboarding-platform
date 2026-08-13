@@ -92,10 +92,10 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Manage additional school-hour requests and availability.'
   },
   {
-    title: 'Provider Year Update (Tab)',
+    title: 'Provider Fall Update (Tab)',
     section: 'Workforce Ops › Staff & Scheduling › School Management',
     path: '/admin/caseload-hub/schools-staff?tab=provider-year-update',
-    keywords: ['provider year update', 'year update tab', 'campaign update'],
+    keywords: ['provider fall update', 'fall update tab', 'campaign update', 'year update'],
     desc: 'Provider year-update campaign within School Management.'
   },
   {
@@ -106,10 +106,10 @@ export const NAV_SEARCH_INDEX = [
     desc: 'All user accounts and staff members.'
   },
   {
-    title: 'Provider Year Update',
+    title: 'Provider Fall Update',
     section: 'Workforce Ops › Staff & Scheduling',
     path: '/admin/provider-year-update',
-    keywords: ['provider year update', 'year update', 'campaign', 'annual update'],
+    keywords: ['provider fall update', 'fall update', 'campaign', 'annual update', 'year update'],
     desc: 'Launch and track provider year-update campaigns.'
   },
   {
@@ -285,10 +285,10 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Schools with unfilled coverage — navigate here to review and assign.'
   },
   {
-    title: 'Provider Year Update',
+    title: 'Provider Fall Update',
     section: 'School Ops › Caseloads & Staffing',
     path: '/admin/provider-year-update',
-    keywords: ['provider year update', 'annual update', 'year update', 'provider campaign'],
+    keywords: ['provider fall update', 'annual update', 'fall update', 'provider campaign', 'year update'],
     desc: 'Launch and track provider year-update campaigns across schools.'
   },
   {

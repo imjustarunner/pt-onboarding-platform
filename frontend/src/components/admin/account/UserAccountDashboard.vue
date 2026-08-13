@@ -296,7 +296,7 @@
               <button type="button" class="acct-link-btn" @click="goToClinical('license_certifications')">
                 Clinical Information → License &amp; Certifications
               </button>
-              (same data as Provider Year Update).
+              (same data as Provider Fall Update).
             </p>
             <div v-if="license.hasDetails" class="acct-license-active">
               <div class="acct-license-active-head">

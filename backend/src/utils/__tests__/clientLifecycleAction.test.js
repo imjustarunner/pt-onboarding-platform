@@ -229,4 +229,24 @@ describe('deriveLifecycleAction', () => {
     assert.equal(needsInsuranceClearance({ client, ignoreOverride: false, now: new Date('2026-08-12T12:00:00Z') }), false);
     assert.equal(needsInsuranceClearance({ client, ignoreOverride: true, now: new Date('2026-08-12T12:00:00Z') }), true);
   });
+
+  it('allows insurance clearance while waiting on provider fall confirmation', () => {
+    const client = {
+      client_status_key: 'confirmation_pending',
+      client_type: 'school',
+      insurance_cleared: false
+    };
+    assert.equal(needsInsuranceClearance({ client, ignoreOverride: true }), true);
+    const agencyAction = deriveLifecycleAction({
+      client,
+      viewerRole: 'admin'
+    });
+    assert.equal(agencyAction?.actionKey, 'agency_clearance');
+    assert.equal(agencyAction?.label, 'Insurance check');
+    const providerAction = deriveLifecycleAction({
+      client: { ...client, has_provider: true, has_weekday: false },
+      viewerRole: 'provider'
+    });
+    assert.equal(providerAction?.actionKey, 'fall_confirmation');
+  });
 });

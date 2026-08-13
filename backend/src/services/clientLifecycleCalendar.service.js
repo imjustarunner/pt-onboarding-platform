@@ -33,13 +33,13 @@ async function notifyAdminsProviderYearUpdate({ agencyId }) {
     const Task = (await import('../models/Task.model.js')).default;
     if (!Task?.create) return;
     const { inferTaskCategoryFromTitle, normalizeTaskCategories } = await import('../constants/taskCategories.js');
-    const title = 'Provider Year Update released — review agency requirements';
+    const title = 'Provider Fall Update released — review agency requirements';
     const categories = normalizeTaskCategories(inferTaskCategoryFromTitle(title));
     await Task.create({
       taskType: 'custom',
       title,
       description:
-        'July rollover: Provider Year Update was auto-enabled/pushed. Review agency requirements and complete PYU. This is separate from Collaborative School Year Update.',
+        'July rollover: Provider Fall Update was auto-enabled/pushed. Review agency requirements and complete PYU. This is separate from Collaborative School Year Update.',
       assignedByUserId: 501,
       assignedToAgencyId: agencyId,
       urgency: 'high',
@@ -86,7 +86,7 @@ async function prepareCollaborativeYearUpdate({ agencyId }) {
         taskType: 'custom',
         title,
         description:
-          'July rollover: review and enable the Collaborative School Year Update for each school so school staff can complete their year setup. Do not collapse this with Provider Year Update.',
+          'July rollover: review and enable the Collaborative School Year Update for each school so school staff can complete their year setup. Do not collapse this with Provider Fall Update.',
         assignedByUserId: 501,
         assignedToAgencyId: agencyId,
         urgency: 'high',

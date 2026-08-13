@@ -41,8 +41,8 @@ export async function notifyProviderYearUpdateCompleted({
     const providerName = await loadProviderDisplayName(cycle.provider_user_id);
     const schoolYear = formatSchoolYearLabel(cycle.school_year);
     const message = completedBy === 'admin'
-      ? `${providerName}'s Provider Year Update was marked complete for ${schoolYear}.`
-      : `${providerName} completed Provider Year Update for ${schoolYear}.`;
+      ? `${providerName}'s Provider Fall Update was marked complete for ${schoolYear}.`
+      : `${providerName} completed Provider Fall Update for ${schoolYear}.`;
     await Notification.create({
       type: 'provider_year_update_completed',
       severity: 'info',
@@ -59,7 +59,7 @@ export async function notifyProviderYearUpdateCompleted({
       relatedEntityType: 'provider_year_update_cycle',
       relatedEntityId: cycle.id,
       actorUserId: actorUserId || cycle.provider_user_id || null,
-      actorSource: completedBy === 'admin' ? 'Admin' : 'Provider Year Update'
+      actorSource: completedBy === 'admin' ? 'Admin' : 'Provider Fall Update'
     });
   } catch {
     // best effort

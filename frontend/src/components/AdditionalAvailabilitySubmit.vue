@@ -240,7 +240,7 @@ import {
 
 const props = defineProps({
   agencyId: { type: Number, required: true },
-  /** When true, only the school hours form is shown (used in Provider Year Update). */
+  /** When true, only the school hours form is shown (used in Provider Fall Update). */
   schoolOnly: { type: Boolean, default: false },
   /** Magic-link PYU token — uses public availability proxy routes when set. */
   pyuToken: { type: String, default: '' },

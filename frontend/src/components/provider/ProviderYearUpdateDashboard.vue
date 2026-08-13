@@ -846,7 +846,7 @@
 
       <footer class="pyu__footer">
         <img v-if="tenantLogo" :src="tenantLogo" :alt="tenantName" class="pyu__footer-logo" />
-        <span>{{ tenantName }} · Provider Year Update · {{ schoolYearDisplay }}</span>
+        <span>{{ tenantName }} · Provider Fall Update · {{ schoolYearDisplay }}</span>
       </footer>
     </template>
 

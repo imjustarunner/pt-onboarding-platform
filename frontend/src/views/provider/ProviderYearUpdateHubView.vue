@@ -91,9 +91,9 @@ const cards = [
 const unavailable = computed(() => {
   if (error.value) return error.value;
   if (status.value?.available === false) {
-    if (status.value.reason === 'not_pushed') return 'Provider Year Update has not been pushed yet.';
+    if (status.value.reason === 'not_pushed') return 'Provider Fall Update has not been pushed yet.';
     if (status.value.reason === 'no_school_assignments') return 'You do not have active school assignments.';
-    return 'Provider Year Update is not available.';
+    return 'Provider Fall Update is not available.';
   }
   return '';
 });

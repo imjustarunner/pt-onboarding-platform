@@ -1,5 +1,5 @@
 /**
- * Provider Year Update — fall checklist / campaign for school-assigned providers.
+ * Provider Fall Update — fall checklist / campaign for school-assigned providers.
  * Parallel to school collaborative year update (school_reinit_*), keyed by provider.
  */
 import crypto from 'crypto';
@@ -1263,7 +1263,7 @@ export async function pushCampaign({ agencyId, schoolYear, userId }) {
   const year = schoolYear || currentSchoolYear();
   let campaign = await getCampaign(agencyId, year);
   if (campaignIsDisabled(campaign)) {
-    const err = new Error('Re-enable Provider Year Update before pushing to providers.');
+    const err = new Error('Re-enable Provider Fall Update before pushing to providers.');
     err.status = 400;
     throw err;
   }
@@ -1316,12 +1316,12 @@ export async function pushProvider({ agencyId, providerUserId, schoolYear, userI
   const year = schoolYear || currentSchoolYear();
   const campaign = await getCampaign(agencyId, year);
   if (campaignIsDisabled(campaign)) {
-    const err = new Error('Provider Year Update is disabled for this school year.');
+    const err = new Error('Provider Fall Update is disabled for this school year.');
     err.status = 400;
     throw err;
   }
   if (!campaignIsEnabled(campaign)) {
-    const err = new Error('Enable Provider Year Update first before pushing to a provider.');
+    const err = new Error('Enable Provider Fall Update first before pushing to a provider.');
     err.status = 400;
     throw err;
   }

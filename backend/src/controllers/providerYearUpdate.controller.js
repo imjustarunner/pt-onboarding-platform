@@ -396,7 +396,7 @@ export async function generateToken(req, res, next) {
     const campaign = await S.getCampaign(agencyId, schoolYear);
     if (!S.campaignIsEnabled(campaign)) {
       return res.status(400).json({
-        error: { message: 'Enable Provider Year Update first before generating tokens.' },
+        error: { message: 'Enable Provider Fall Update first before generating tokens.' },
       });
     }
     const { cycle, tokenRow, created } = await S.ensureShareableToken({
@@ -451,7 +451,7 @@ export async function getProviderBundle(req, res, next) {
     const campaign = await S.getCampaign(agencyId, schoolYear);
     if (!S.campaignIsEnabled(campaign)) {
       return res.status(400).json({
-        error: { message: 'Enable Provider Year Update first.' },
+        error: { message: 'Enable Provider Fall Update first.' },
       });
     }
     const { cycle, tokenRow } = await S.ensureShareableToken({
@@ -555,8 +555,8 @@ export async function ensureMyToken(req, res, next) {
         error: {
           message:
             status.reason === 'not_pushed'
-              ? 'Provider Year Update has not been pushed yet.'
-              : 'Provider Year Update is not available.',
+              ? 'Provider Fall Update has not been pushed yet.'
+              : 'Provider Fall Update is not available.',
         },
       });
     }
@@ -684,7 +684,7 @@ export async function getPublicByToken(req, res, next) {
     if (S.campaignIsDisabled(campaign)) {
       return res.status(410).json({
         error: {
-          message: 'Provider Year Update is disabled for this school year.',
+          message: 'Provider Fall Update is disabled for this school year.',
           reason: 'campaign_disabled',
         },
       });
@@ -802,7 +802,7 @@ export async function uploadPublicLicense(req, res, next) {
       expirationDate: req.body?.expirationDate || null,
       createdByUserId: Number(row.provider_user_id),
       isBlocking: false,
-      notes: 'Uploaded via Provider Year Update link',
+      notes: 'Uploaded via Provider Fall Update link',
     });
     res.status(201).json({ ok: true, document: doc });
   } catch (e) {

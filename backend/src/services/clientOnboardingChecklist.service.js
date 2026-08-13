@@ -23,6 +23,50 @@ import {
 } from '../utils/fallReadiness.js';
 import { deriveLifecycleAction } from '../utils/clientLifecycleAction.js';
 import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
+import { rosterClientHasAssignedProvider } from '../utils/schoolYearRosterFilter.js';
+
+function rosterHasWeekday(client) {
+  const day = String(client?.service_day || '').trim();
+  if (day && day.toLowerCase() !== 'unknown') {
+    if (/(Monday|Tuesday|Wednesday|Thursday|Friday)/i.test(day)) return true;
+  }
+  const pairs = String(client?.provider_day_pairs || '');
+  if (pairs && /:(Monday|Tuesday|Wednesday|Thursday|Friday)/i.test(pairs)) return true;
+  return false;
+}
+
+async function attachProviderAssignmentFields(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const ids = list.map((r) => Number(r.id)).filter(Boolean);
+  if (!ids.length) return list;
+  const placeholders = ids.map(() => '?').join(',');
+  const [cpaRows] = await pool.execute(
+    `SELECT cpa.client_id,
+            GROUP_CONCAT(DISTINCT cpa.provider_user_id ORDER BY cpa.provider_user_id SEPARATOR ',') AS provider_ids,
+            GROUP_CONCAT(
+              CONCAT(cpa.provider_user_id, ':', COALESCE(cpa.service_day, ''))
+              ORDER BY cpa.provider_user_id
+              SEPARATOR '|'
+            ) AS provider_day_pairs
+     FROM client_provider_assignments cpa
+     WHERE cpa.client_id IN (${placeholders})
+       AND cpa.is_active = TRUE
+     GROUP BY cpa.client_id`,
+    ids
+  );
+  const byClient = new Map();
+  for (const r of cpaRows || []) {
+    byClient.set(Number(r.client_id), r);
+  }
+  for (const row of list) {
+    const extra = byClient.get(Number(row.id));
+    if (extra?.provider_ids) row.provider_ids = extra.provider_ids;
+    if (extra?.provider_day_pairs) row.provider_day_pairs = extra.provider_day_pairs;
+    row.has_provider = rosterClientHasAssignedProvider(row);
+    row.has_weekday = rosterHasWeekday(row);
+  }
+  return list;
+}
 
 function continuationIsNonContinue(raw) {
   return hasCompletedFallContinuation(raw) && !continuationPlanIsContinue(raw);
@@ -633,10 +677,10 @@ export async function maybePromoteOnboardedToCurrent({ clientId, actorUserId = n
 /**
  * Queue of clients needing a next step (fall confirmation, agency clearance, new-client intake).
  */
-export async function listOnboardingQueue({ agencyId, scope = 'all', limit = 100 }) {
+export async function listOnboardingQueue({ agencyId, scope = 'all', limit = 2000 }) {
   const aid = Number(agencyId || 0);
   if (!aid) return [];
-  const lim = Math.max(1, Math.min(Number(limit) || 300, 500));
+  const lim = Math.max(1, Math.min(Number(limit) || 2000, 5000));
   const scopeNorm = String(scope || 'all').toLowerCase();
 
   let typeClause = '';
@@ -706,6 +750,8 @@ export async function listOnboardingQueue({ agencyId, scope = 'all', limit = 100
      LIMIT ${lim}`,
     [aid]
   );
+
+  await attachProviderAssignmentFields(rows);
 
   const ids = (rows || []).map((r) => Number(r.id)).filter(Boolean);
   const dispositionByClient = new Map();
@@ -777,6 +823,10 @@ export async function listOnboardingQueue({ agencyId, scope = 'all', limit = 100
       agency_intake_json: row.agency_intake_json,
       roi_expires_at: row.roi_expires_at,
       school_year: row.school_year,
+      agency_lifecycle_action: agencyAction || null,
+      provider_lifecycle_action: providerAction || null,
+      waiting_on_agency: !!agencyAction,
+      waiting_on_provider: !!providerAction,
       lifecycle_action: action,
       action_owner: agencyAction ? 'agency' : (providerAction ? 'provider' : null),
       action_stage: action?.label || (checklist ? checklist.summary_label : null),

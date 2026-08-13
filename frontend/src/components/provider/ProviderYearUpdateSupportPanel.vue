@@ -142,7 +142,7 @@ async function submit() {
     ? props.activeSection.replace(/_/g, ' ')
   : 'Year Update';
   const contextLines = [
-    `Submitted from Provider Year Update${props.schoolYear ? ` (${props.schoolYear})` : ''}.`,
+    `Submitted from Provider Fall Update${props.schoolYear ? ` (${props.schoolYear})` : ''}.`,
     `Section: ${sectionLabel}.`,
     '',
     bodyText,
@@ -153,7 +153,7 @@ async function submit() {
       {
         schoolOrganizationId: agencyId,
         topic: topic.value || 'general',
-        subject: String(subject.value || '').trim() || `Provider Year Update — ${ticketTopicLabel(topic.value)}`,
+        subject: String(subject.value || '').trim() || `Provider Fall Update — ${ticketTopicLabel(topic.value)}`,
         question: contextLines.join('\n'),
         requestsPlatformHelp: false,
       },

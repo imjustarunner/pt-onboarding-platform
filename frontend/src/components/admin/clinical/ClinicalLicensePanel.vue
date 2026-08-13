@@ -1,7 +1,7 @@
 <template>
   <div class="clinical-license-panel">
     <p class="muted ci-panel-hint">
-      License details here are the same data shown in Provider Year Update and credentialing.
+      License details here are the same data shown in Provider Fall Update and credentialing.
       If older duplicate fields existed, the most recent value is kept automatically.
     </p>
 

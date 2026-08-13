@@ -722,7 +722,7 @@ async function loadBriefing() {
           tone: 'red',
           count: 1,
           countLabel: 'pending',
-          items: [{ id: 'year-update', label: 'Complete your provider year update', meta: yearUpdateStatus?.schoolYear || '' }],
+          items: [{ id: 'year-update', label: 'Complete your Provider Fall Update', meta: yearUpdateStatus?.schoolYear || '' }],
           action: 'Continue year update',
           to: `${pathPrefix}/provider/year-update/flow`
         })

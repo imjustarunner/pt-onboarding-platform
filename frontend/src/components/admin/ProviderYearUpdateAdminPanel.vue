@@ -2,7 +2,7 @@
   <div class="pyu-admin">
     <div class="pyu-admin__head">
       <div>
-        <h2>Provider Year Update</h2>
+        <h1 class="pyu-admin__title">Provider Fall Update</h1>
         <p class="muted">Track provider progress, materials requests, and shareable links for {{ schoolYear }}.</p>
       </div>
       <div class="pyu-admin__head-actions">
@@ -28,7 +28,7 @@
           <template v-else-if="campaign.isEnabled">
             Enabled — use <strong>Get link</strong>, then <strong>Push</strong> per provider for My Dashboard, or Push to Providers for everyone.
           </template>
-          <template v-else>Not started — Enable Provider Year Update for {{ schoolYear }}.</template>
+          <template v-else>Not started — Enable Provider Fall Update for {{ schoolYear }}.</template>
         </span>
       </div>
       <div class="pyu-admin__campaign-actions">
@@ -43,7 +43,7 @@
               ? 'Re-enable Year Update'
               : campaign.isEnabled
                 ? 'Year Update Enabled'
-                : 'Enable Provider Year Update'
+                : 'Enable Provider Fall Update'
           }}
         </button>
         <button
@@ -430,7 +430,7 @@
         <div class="detail-block">
           <strong>Share link</strong>
           <p class="link-box">
-            {{ linkFor(selectedRow) || (campaign.isEnabled ? 'Click “Get link” to generate a shareable URL.' : 'Enable Provider Year Update to create links.') }}
+            {{ linkFor(selectedRow) || (campaign.isEnabled ? 'Click “Get link” to generate a shareable URL.' : 'Enable Provider Fall Update to create links.') }}
           </p>
           <div class="pyu-admin__row-actions">
             <button
@@ -790,7 +790,7 @@ function canPushProvider(row) {
 }
 
 function pushTitle(row) {
-  if (!campaign.value.isEnabled) return 'Enable Provider Year Update first';
+  if (!campaign.value.isEnabled) return 'Enable Provider Fall Update first';
   if (row?.status === 'finalized') return 'Already complete — provider no longer sees Year Update';
   if (row?.isPushed) return 'Already pushed — provider sees Year Update on My Dashboard';
   if (!linkFor(row)) return 'Get link first, then push to this provider';
@@ -924,8 +924,8 @@ async function enableYearUpdate() {
       schoolYear: schoolYear.value,
     });
     pushFlash.value = campaign.value.isDisabled
-      ? 'Provider Year Update re-enabled.'
-      : 'Provider Year Update enabled.';
+      ? 'Provider Fall Update re-enabled.'
+      : 'Provider Fall Update enabled.';
     await load();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e.message || 'Enable failed';
@@ -963,7 +963,7 @@ async function markComplete(row) {
   if (!row || !canMarkComplete(row)) return;
   if (
     !window.confirm(
-      `Mark ${row.providerName} complete? They will no longer see Provider Year Update on My Dashboard.`
+      `Mark ${row.providerName} complete? They will no longer see Provider Fall Update on My Dashboard.`
     )
   ) {
     return;
@@ -1067,6 +1067,12 @@ onMounted(load);
   gap: 16px;
   align-items: flex-start;
   margin-bottom: 16px;
+}
+.pyu-admin__head h1,
+.pyu-admin__head .pyu-admin__title {
+  margin: 0 0 4px;
+  color: #0c4a6e;
+  font-size: 1.5rem;
 }
 .pyu-admin__head h2 {
   margin: 0 0 4px;

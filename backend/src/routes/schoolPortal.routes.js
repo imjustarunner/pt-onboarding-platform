@@ -4,6 +4,7 @@ import {
   getProviderMyRoster,
   getSchoolPortalAffiliation,
   getSchoolPortalStats,
+  getRosterSchoolYears,
   listSchoolStaff,
   removeSchoolStaff,
   sendSchoolStaffResetPassword,
@@ -142,6 +143,7 @@ router.get('/bulk-announcements', authenticate, listBulkSchoolPortalAnnouncement
 router.post('/bulk-announcements', authenticate, createBulkSchoolPortalAnnouncements);
 router.put('/bulk-announcements/:groupId', authenticate, updateBulkSchoolPortalAnnouncements);
 router.delete('/bulk-announcements/:groupId', authenticate, deleteBulkSchoolPortalAnnouncements);
+router.get('/:organizationId/roster-school-years', authenticate, getRosterSchoolYears);
 router.get('/:organizationId/clients', authenticate, getSchoolClients);
 router.get('/:organizationId/my-roster', authenticate, getProviderMyRoster);
 router.post('/:organizationId/provider-availability/confirm', authenticate, confirmProviderSchoolAvailability);

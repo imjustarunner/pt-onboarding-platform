@@ -42,9 +42,9 @@
 
       <router-link class="sph-card sph-card--settings" :to="toProviderYearUpdate">
         <div class="sph-card-icon" aria-hidden="true">📋</div>
-        <h2 class="sph-card-title">Provider Year Update</h2>
+        <h2 class="sph-card-title">Provider Fall Update</h2>
         <p class="sph-card-desc muted">
-          Enable and push the fall provider year update, share textable links, and track progress, clicks, and materials requests.
+          Enable and push the fall provider update, share textable links, and track progress, clicks, and materials requests.
         </p>
         <span class="sph-card-cta">Open settings →</span>
       </router-link>

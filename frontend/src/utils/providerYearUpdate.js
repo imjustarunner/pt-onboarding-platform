@@ -1,3 +1,5 @@
+export const PROVIDER_FALL_UPDATE_LABEL = 'Provider Fall Update';
+
 export const SECTION_META = [
   {
     key: 'reminders',

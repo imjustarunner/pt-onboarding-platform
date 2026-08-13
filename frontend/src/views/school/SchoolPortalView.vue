@@ -1502,13 +1502,14 @@
         <div class="roster-header" data-tour="school-roster-header">
           <div class="roster-header-title-row">
             <h2 style="margin: 0;">{{ isProvider ? 'My roster' : 'School roster' }}</h2>
-            <label class="school-year-picker">
-              <span class="school-year-picker-label">School year</span>
+            <label v-if="priorSchoolYearOptions.length" class="school-year-picker">
+              <span class="school-year-picker-label">Prior school year</span>
               <select v-model="rosterSchoolYearSelection" class="filter-select">
                 <option value="current">Current ({{ currentSchoolYearLabel }})</option>
                 <option v-for="y in priorSchoolYearOptions" :key="y" :value="y">{{ y }}</option>
               </select>
             </label>
+            <span v-else class="school-year-pill">{{ currentSchoolYearLabel }} school year</span>
           </div>
           <div class="muted roster-header-sub">
             {{ rosterSchoolYearSelection === 'current'
@@ -2492,7 +2493,7 @@ import { useTutorialStore } from '../../store/tutorial';
 import ClientListGrid from '../../components/school/ClientListGrid.vue';
 import {
   computeCurrentSchoolYearLabel,
-  buildSchoolYearPickerOptions
+  priorSchoolYearsFromAvailable
 } from '../../utils/schoolYear.js';
 import SchoolHelpDeskModal from '../../components/school/SchoolHelpDeskModal.vue';
 import PostSchoolEventModal from '../../components/school/PostSchoolEventModal.vue';
@@ -3145,11 +3146,12 @@ const portalBootstrapLoading = ref(false);
 const rosterStatusFilterKey = ref(''); // client_status_key filter for roster panel
 const rosterActionFilterKey = ref(''); // lifecycle action filter (fall_confirmation, agency_insurance, …)
 const rosterSchoolYearSelection = ref('current'); // 'current' | YYYY-YYYY
+const rosterSchoolYearsLoaded = ref(false);
+const rosterAvailableSchoolYears = ref([]);
 const currentSchoolYearLabel = computed(() => computeCurrentSchoolYearLabel());
-const priorSchoolYearOptions = computed(() => {
-  const all = buildSchoolYearPickerOptions();
-  return all.slice(1); // prior years only (current is the select default)
-});
+const priorSchoolYearOptions = computed(() =>
+  priorSchoolYearsFromAvailable(rosterAvailableSchoolYears.value, currentSchoolYearLabel.value)
+);
 const rosterSchoolYearFilterParam = computed(() => {
   const sel = String(rosterSchoolYearSelection.value || 'current').trim();
   return sel === 'current' ? 'current' : sel;
@@ -4638,6 +4640,7 @@ const ensureAffiliation = async () => {
     const active = r?.data?.active_agency_id ?? null;
     affiliatedAgencyId.value = active ? Number(active) : null;
     canEditClientActions.value = !!r?.data?.can_edit_clients;
+    void loadRosterSchoolYears();
 
     const loadCardIcons = async () => {
       if (isPublicDemo.value && r?.data?.school_agency) {
@@ -4667,6 +4670,27 @@ const ensureAffiliation = async () => {
     affiliatedAgencyId.value = null;
     cardIconOrg.value = null;
     canEditClientActions.value = false;
+    rosterAvailableSchoolYears.value = [];
+    rosterSchoolYearsLoaded.value = false;
+  }
+};
+
+const loadRosterSchoolYears = async () => {
+  if (!organizationId.value) return;
+  try {
+    const res = await api.get(`/school-portal/${organizationId.value}/roster-school-years`, {
+      skipGlobalLoading: true
+    });
+    const years = Array.isArray(res.data?.school_years) ? res.data.school_years : [];
+    rosterAvailableSchoolYears.value = years;
+    rosterSchoolYearsLoaded.value = true;
+    const sel = String(rosterSchoolYearSelection.value || 'current');
+    if (sel !== 'current' && !priorSchoolYearsFromAvailable(years, currentSchoolYearLabel.value).includes(sel)) {
+      rosterSchoolYearSelection.value = 'current';
+    }
+  } catch {
+    rosterAvailableSchoolYears.value = [];
+    rosterSchoolYearsLoaded.value = false;
   }
 };
 

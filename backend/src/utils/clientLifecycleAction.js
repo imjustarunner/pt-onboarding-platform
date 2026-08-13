@@ -40,6 +40,14 @@ function truthy(v) {
   return v === true || v === 1 || v === 'true' || v === '1';
 }
 
+function continuationBlocksAgencyClearance(continuation) {
+  if (!continuation || typeof continuation !== 'object') return false;
+  if (truthy(continuation.recommendTerminate)) return true;
+  if (truthy(continuation.removeFromAssignment)) return true;
+  if (String(continuation.plan || '') === 'not_continue_school') return true;
+  return false;
+}
+
 function clientHasWeekday(client) {
   if (truthy(client?.has_weekday)) return true;
   const day = String(client?.service_day || '').trim();
@@ -92,6 +100,14 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
     }
     if (agencyIntake.pendingCorrections === true) {
       return { role: 'agency', actionKey: 'agency_intake', label: 'Resolve corrections' };
+    }
+
+    if (
+      statusKey === 'confirmation_pending'
+      && !continuationBlocksAgencyClearance(continuation)
+      && needsInsuranceClearance({ client, disposition, ignoreOverride: true, now })
+    ) {
+      return { role: 'agency', actionKey: 'agency_clearance', label: 'Insurance check' };
     }
 
     const roiExpired = client?.roi_expired === true
@@ -180,16 +196,24 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
  */
 export function needsInsuranceClearance({ client, disposition = null, ignoreOverride = false, now = new Date() }) {
   const statusKey = String(client?.client_status_key || '').toLowerCase();
-  if (NO_AGENCY_CLEARANCE.has(statusKey) || statusKey === 'terminated' || statusKey === 'waitlist') {
-    return false;
-  }
+  if (statusKey === 'terminated' || statusKey === 'waitlist') return false;
+  if (NO_AGENCY_CLEARANCE.has(statusKey) && statusKey !== 'confirmation_pending') return false;
   const continuation = parseJson(client?.continuation_services_json) || {};
+  if (continuationBlocksAgencyClearance(continuation)) return false;
   if (truthy(continuation.recommendTerminate) || String(continuation.plan || '') === 'not_continue_school') {
     return false;
   }
   const clearance = parseJson(disposition?.agency_clearance_json) || parseJson(client?.agency_clearance_json) || {};
   if (disposition?.agency_cleared_at != null || clearance.agencyCleared === true) return false;
-  const needsClearanceGate = ['confirmed_returning', 'ready_to_schedule', 'scheduled', 'current', 'pending', 'onboarded'].includes(statusKey);
+  const needsClearanceGate = [
+    'confirmed_returning',
+    'ready_to_schedule',
+    'scheduled',
+    'current',
+    'pending',
+    'onboarded',
+    'confirmation_pending'
+  ].includes(statusKey);
   if (!needsClearanceGate) return false;
   if (!ignoreOverride) {
     const insuranceOverride = continuingInsuranceOverrideActive(now) && isContinuingSchoolClient({

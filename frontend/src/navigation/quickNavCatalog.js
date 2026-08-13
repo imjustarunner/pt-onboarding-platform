@@ -527,10 +527,10 @@ function buildAppEntries() {
     {
       id: 'admin-provider-year-update',
       routeName: 'ProviderYearUpdateAdmin',
-      label: 'Provider Year Update',
-      description: 'Enable, push, and track the fall provider year update.',
+      label: 'Provider Fall Update',
+      description: 'Enable, push, and track the provider fall update.',
       group: 'admin',
-      keywords: ['provider year update', 'year update', 'provider', 'school cart', 'back to school'],
+      keywords: ['provider fall update', 'fall update', 'provider', 'school cart', 'back to school', 'year update'],
       kind: 'path',
       path: '/admin/provider-year-update',
       rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']

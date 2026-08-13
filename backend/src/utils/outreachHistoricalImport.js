@@ -77,6 +77,7 @@ export const DPS_IMPORT_ALIASES = {
   'palmer ece 3 5yo': 'Palmer Elementary School',
   'palmer elementary': 'Palmer Elementary School',
   'palmer elementary ece only': 'Palmer Elementary School',
+  'palmer early childhood education center': 'Palmer Elementary School',
   'whittier elementary': 'Whittier Elementary School',
   'mckinley elementary': 'McKinley-Thatcher Elementary School',
   'mckinley thatcher elementary': 'McKinley-Thatcher Elementary School'

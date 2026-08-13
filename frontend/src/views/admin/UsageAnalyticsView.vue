@@ -447,7 +447,7 @@ const PAGE_SHORT = {
   'school-portals': 'School Portals',
   'school-portals-hub': 'School Portals Hub',
   'communications': 'Communications',
-  'provider-year-update': 'Provider Year Update',
+  'provider-year-update': 'Provider Fall Update',
   'office-approvals': 'Office Approvals',
   'program-events': 'Program Events',
   'schools/overview': 'Schools Overview',
