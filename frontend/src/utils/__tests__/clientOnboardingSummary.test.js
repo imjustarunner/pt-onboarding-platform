@@ -20,11 +20,11 @@ describe('formatOnboardingSummary fall pending', () => {
       submission_date: '2026-03-05',
       organization_id: 10
     });
-    expect(label).toBe('Fall pending');
+    expect(label    ).toBe('Fall confirmation pending');
     expect(label).not.toBe('Readiness complete');
   });
 
-  it('shows Fall readiness complete when weekday + continue plan', () => {
+  it('shows Fall confirmation complete when weekday + continue plan', () => {
     expect(
       formatOnboardingSummary({
         client_type: 'school',
@@ -38,7 +38,7 @@ describe('formatOnboardingSummary fall pending', () => {
           serviceDays: ['Monday']
         }
       })
-    ).toBe('Fall readiness complete');
+    ).toBe('Fall confirmation complete');
   });
 
   it('shows Terminated for not continuing', () => {

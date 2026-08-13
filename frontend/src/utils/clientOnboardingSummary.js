@@ -86,14 +86,14 @@ export function formatOnboardingSummary(client) {
 
   if (returning) {
     if (weekday && (statusKey === 'current' || (cont?.plan === 'continue_school' && continuationDone(cont)))) {
-      return 'Fall readiness complete';
+      return 'Fall confirmation complete';
     }
     if (!weekday || statusKey === 'pending' || statusKey === 'onboarded' || statusKey === 'current') {
       const flagged = cont?.plan === 'unable_to_contact_parent'
         || cont?.plan === 'not_continue_school'
         || (cont?.plan === 'other' && cont?.recommendTerminate);
       if (!weekday || statusKey !== 'current' || !continuationDone(cont)) {
-        return flagged ? 'Fall pending · Fall Readiness' : 'Fall pending';
+        return flagged ? 'Fall confirmation needed' : 'Fall confirmation pending';
       }
     }
   }

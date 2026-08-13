@@ -24,6 +24,7 @@ import {
 import { deriveLifecycleAction } from '../utils/clientLifecycleAction.js';
 import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
 import { rosterClientHasAssignedProvider } from '../utils/schoolYearRosterFilter.js';
+import { getDisposition } from './clientYearDisposition.service.js';
 
 function rosterHasWeekday(client) {
   const day = String(client?.service_day || '').trim();
@@ -297,6 +298,17 @@ export async function getClientOnboardingChecklist(clientId) {
   const staffMarked = !!client.staff_onboarding_completed_at || statusKey === 'onboarded' || statusKey === 'current';
   const returning = school && isReturningSchoolClient(client);
   const continuationJson = client.continuation_services_json;
+  let disposition = null;
+  try {
+    disposition = await getDisposition({
+      clientId: cid,
+      schoolYear: computeCurrentSchoolYearLabel()
+    });
+  } catch {
+    disposition = null;
+  }
+  const fallConfirmed = !!(disposition?.fall_completed_at)
+    || String(disposition?.fall_outcome || '') === 'confirmed_returning';
   const fallSummary = school
     ? computeFallReadinessSummary({
       returning,
@@ -320,13 +332,17 @@ export async function getClientOnboardingChecklist(clientId) {
 
   const fallItem = school && returning
     ? item(
-      'fall_continuation',
-      'Continuation of Services (fall)',
-      hasCompletedFallContinuation(continuationJson) && (dayAssigned || continuationIsNonContinue(continuationJson)),
+      'fall_confirmation',
+      'Fall confirmation',
+      fallConfirmed || (hasCompletedFallContinuation(continuationJson) && (dayAssigned || continuationIsNonContinue(continuationJson))),
       {
         owner: 'provider',
         hrefHint: 'checklist',
-        detail: fallSummary?.fall_flag ? 'Fall Readiness flagged' : null
+        detail: fallSummary?.fall_flag
+          ? 'Needs follow-up'
+          : (fallConfirmed || hasCompletedFallContinuation(continuationJson)
+            ? null
+            : 'Confirm returning and assign a weekday')
       }
     )
     : null;

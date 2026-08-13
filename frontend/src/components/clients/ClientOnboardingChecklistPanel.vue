@@ -2,7 +2,7 @@
   <div class="ob-panel" :class="{ 'ob-panel--modal': asModal, 'ob-panel--workspace': variant === 'workspace' }">
     <div v-if="asModal" class="ob-panel-header">
       <div>
-        <h3 class="ob-title">Client readiness</h3>
+        <h3 class="ob-title">Client actions</h3>
         <p class="ob-sub muted">{{ clientLabel }}</p>
       </div>
       <button type="button" class="close" aria-label="Close" @click="$emit('close')">×</button>
@@ -10,7 +10,7 @@
 
     <div v-if="loading" class="ob-state">
       <span class="ob-spinner" aria-hidden="true" />
-      Loading readiness checklist…
+      Loading checklist…
     </div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <template v-else-if="checklist">
@@ -77,15 +77,15 @@
       </div>
 
       <p v-if="isFallPending" class="ob-fall-banner">
-        Returning client — prior-year staff, documents, ROI, and provider steps are complete.
-        Fall work is Continuation of Services (provider checklist).
+        Returning client — last year's staff, documents, and provider steps stay complete.
+        This year's work is fall confirmation (provider) and any remaining insurance check (agency).
       </p>
 
       <section v-if="isFallPending && (checklist.fall_items || []).length" class="ob-section ob-section-card is-fall-section">
         <button type="button" class="ob-section-toggle" @click="fallOpen = !fallOpen">
           <span class="ob-section-title">
             <span class="ob-section-icon fall">F</span>
-            Fall
+            Fall confirmation
             <span class="ob-section-count">{{ fallDoneCount }}/{{ checklist.fall_items.length }}</span>
           </span>
           <span class="ob-chevron" :class="{ open: fallOpen }">›</span>
@@ -120,7 +120,7 @@
           <span class="ob-chevron" :class="{ open: staffOpen }">›</span>
         </button>
         <div v-show="staffOpen" class="ob-section-body">
-          <p v-if="isFallPending" class="ob-readonly-hint muted">Prior year — marked complete for fall readiness.</p>
+          <p v-if="isFallPending" class="ob-readonly-hint muted">Completed last year — shown for context.</p>
           <p v-else-if="readonly" class="ob-readonly-hint muted">Staff setup — view only. Contact office staff to request changes.</p>
           <ClientOnboardingStaffSetupPanel
             :client-id="clientId"
@@ -145,7 +145,7 @@
           <span class="ob-chevron" :class="{ open: roiOpen }">›</span>
         </button>
         <div v-show="roiOpen" class="ob-section-body">
-          <p v-if="isFallPending" class="ob-readonly-hint muted">Prior year — marked complete for fall readiness.</p>
+          <p v-if="isFallPending" class="ob-readonly-hint muted">Completed last year — shown for context.</p>
           <p v-else-if="readonly" class="ob-readonly-hint muted">School ROI permissions — view only.</p>
           <ClientOnboardingRoiStaffPanel
             :client-id="clientId"
@@ -197,7 +197,7 @@
         </button>
         <div v-show="providerOpen" class="ob-section-body">
           <p v-if="isFallPending" class="ob-readonly-hint muted">
-            Prior-year parent contact / first service shown as complete. Fall action is Continuation of Services.
+            Last year's parent contact and first service stay complete. This year's work is fall confirmation.
           </p>
           <ul class="ob-task-list">
             <li
@@ -227,7 +227,7 @@
           :disabled="completing || !checklist.can_complete_staff_onboarding"
           @click="completeStaff"
         >
-          {{ completing ? 'Saving…' : 'Mark staff readiness complete' }}
+          {{ completing ? 'Saving…' : 'Mark staff setup complete' }}
         </button>
         <span v-if="!checklist.can_complete_staff_onboarding" class="ob-action-hint muted">
           Finish staff setup, documents, and school ROI (if shown) first.
@@ -295,7 +295,7 @@ const isFallPending = computed(() => !!checklist.value?.fall_pending);
 const phaseLabel = computed(() => {
   const p = checklist.value?.phase;
   if (p === 'done') return 'Complete';
-  if (p === 'fall') return checklist.value?.summary_label || 'Fall pending';
+  if (p === 'fall') return checklist.value?.summary_label || 'Fall confirmation pending';
   if (p === 'provider') return 'Awaiting provider';
   return 'Staff setup';
 });

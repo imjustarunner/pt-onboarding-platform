@@ -195,7 +195,7 @@ export function computeFallReadinessSummary({
 
   if (hasWeekday && continuationPlanIsContinue(continuationJson)) {
     return {
-      summary_label: 'Fall readiness complete',
+      summary_label: 'Fall confirmation complete',
       fall_pending: false,
       fall_flag: false,
       fall_complete: true,
@@ -205,7 +205,7 @@ export function computeFallReadinessSummary({
 
   if (hasWeekday && key === 'current') {
     return {
-      summary_label: 'Fall readiness complete',
+      summary_label: 'Fall confirmation complete',
       fall_pending: false,
       fall_flag: false,
       fall_complete: true,
@@ -216,7 +216,7 @@ export function computeFallReadinessSummary({
   if (!hasWeekday) {
     const flagged = continuationNeedsFallFlag(continuationJson);
     return {
-      summary_label: flagged ? 'Fall pending · Fall Readiness' : 'Fall pending',
+      summary_label: flagged ? 'Fall confirmation needed' : 'Fall confirmation pending',
       fall_pending: true,
       fall_flag: flagged,
       fall_complete: false,
@@ -226,7 +226,7 @@ export function computeFallReadinessSummary({
   }
 
   return {
-    summary_label: 'Fall pending',
+    summary_label: 'Fall confirmation pending',
     fall_pending: true,
     fall_flag: continuationNeedsFallFlag(continuationJson),
     fall_complete: false,

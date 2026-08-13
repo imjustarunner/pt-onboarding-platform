@@ -14,6 +14,7 @@ import {
 } from '../utils/schoolYearCalendar.js';
 import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
 import { continuingClientDisclosureAutoOk, continuingInsuranceOverrideActive } from '../utils/fallReadiness.js';
+import { deriveLifecycleAction } from '../utils/clientLifecycleAction.js';
 
 const SPRING_OUTCOMES = new Set(['returning', 'not_returning', 'unknown']);
 const FALL_OUTCOMES = new Set([
@@ -391,6 +392,93 @@ export async function noteRoiFollowup({
     [JSON.stringify(nextClearance), clientId, year]
   );
   return getDisposition({ clientId, schoolYear: year });
+}
+
+function parseClearanceJson(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return { ...raw };
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Mark insurance/eligibility clear for school clients who have an assigned provider
+ * and currently show the agency "Insurance check" action. Does not change lifecycle status.
+ */
+export async function markInsuranceOkForAssignedProviders({
+  actorUserId = null,
+  agencyId = null,
+  dryRun = false
+} = {}) {
+  const year = currentSchoolYearLabelFromCalendar();
+  const agencyClause = Number(agencyId) > 0 ? 'AND c.agency_id = ?' : '';
+  const params = Number(agencyId) > 0 ? [year, Number(agencyId)] : [year];
+  const [rows] = await pool.execute(
+    `SELECT c.id, c.agency_id, c.provider_id, c.client_type, c.disclosure_required,
+            cs.status_key AS client_status_key,
+            cyd.agency_clearance_json, cyd.agency_cleared_at,
+            c.continuation_services_json
+     FROM clients c
+     LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+     LEFT JOIN client_year_dispositions cyd
+       ON cyd.client_id = c.id AND cyd.school_year = ?
+     WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
+       AND LOWER(COALESCE(cs.status_key, '')) NOT IN ('terminated', 'waitlist')
+       AND (
+         (c.provider_id IS NOT NULL AND c.provider_id > 0)
+         OR EXISTS (
+           SELECT 1 FROM client_provider_assignments cpa
+           WHERE cpa.client_id = c.id AND cpa.is_active = TRUE
+         )
+       )
+       ${agencyClause}`,
+    params
+  );
+
+  let updated = 0;
+  let skipped = 0;
+  const nowIso = new Date().toISOString();
+  for (const row of rows || []) {
+    const client = { ...row, has_provider: true };
+    const action = deriveLifecycleAction({
+      client,
+      viewerRole: 'admin',
+      disposition: row
+    });
+    if (action?.label !== 'Insurance check') {
+      skipped += 1;
+      continue;
+    }
+    if (dryRun) {
+      updated += 1;
+      continue;
+    }
+    await upsertDispositionBase({
+      clientId: row.id,
+      agencyId: row.agency_id,
+      schoolYear: year
+    });
+    const existing = await getDisposition({ clientId: row.id, schoolYear: year });
+    const nextClearance = {
+      ...parseClearanceJson(existing?.agency_clearance_json || row.agency_clearance_json),
+      insuranceOk: true,
+      insuranceBulkClearedAt: nowIso,
+      insuranceBulkClearedByUserId: actorUserId || null
+    };
+    await pool.execute(
+      `UPDATE client_year_dispositions
+       SET agency_clearance_json = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE client_id = ? AND school_year = ?`,
+      [JSON.stringify(nextClearance), row.id, year]
+    );
+    updated += 1;
+  }
+  return { updated, skipped, considered: (rows || []).length, schoolYear: year };
 }
 
 /**

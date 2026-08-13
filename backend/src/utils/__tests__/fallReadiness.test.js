@@ -173,14 +173,14 @@ describe('isReturningSchoolClient / computeFallReadinessSummary', () => {
     );
   });
 
-  it('labels no-weekday returning clients as Fall pending', () => {
+  it('labels no-weekday returning clients as Fall confirmation pending', () => {
     const summary = computeFallReadinessSummary({
       returning: true,
       hasWeekday: false,
       statusKey: 'current',
       continuationJson: null
     });
-    assert.equal(summary.summary_label, 'Fall pending');
+    assert.equal(summary.summary_label, 'Fall confirmation pending');
     assert.equal(summary.fall_pending, true);
   });
 
@@ -195,14 +195,14 @@ describe('isReturningSchoolClient / computeFallReadinessSummary', () => {
     assert.equal(summary.fall_pending, true);
   });
 
-  it('marks Fall readiness complete when continuing with a weekday', () => {
+  it('marks Fall confirmation complete when continuing with a weekday', () => {
     const summary = computeFallReadinessSummary({
       returning: true,
       hasWeekday: true,
       statusKey: 'current',
       continuationJson: { plan: 'continue_school', serviceDays: ['Monday'] }
     });
-    assert.equal(summary.summary_label, 'Fall readiness complete');
+    assert.equal(summary.summary_label, 'Fall confirmation complete');
     assert.equal(summary.fall_complete, true);
   });
 });
