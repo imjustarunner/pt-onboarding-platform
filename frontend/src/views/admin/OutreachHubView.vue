@@ -111,6 +111,39 @@
         </p>
       </div>
 
+      <template v-if="viewMode === 'trips' && !openedTrip">
+        <section class="ohub-trips-overview">
+          <h2 class="ohub-trips-overview-title">Your trips</h2>
+          <div
+            v-for="section in tripListSections"
+            :key="section.id"
+            class="ohub-trips-section"
+          >
+            <h3 class="ohub-trips-section-title">{{ section.title }}</h3>
+            <ul class="ohub-saved-trips">
+              <li v-for="t in section.items" :key="t.id" class="ohub-saved-trip">
+                <div>
+                  <strong>{{ t.title }}</strong>
+                  <span class="ohub-stage" :class="t.status">{{ tripStatusLabel(t.status) }}</span>
+                  <div class="ohub-muted">
+                    {{ t.planned_date ? formatDate(t.planned_date) : formatDate(t.created_at) }}
+                    <template v-if="savedTripRoundTripMiles(t) != null"> · {{ savedTripRoundTripMiles(t) }} mi round trip</template>
+                    · {{ (t.stops || []).map((s) => s.school_name).join(' → ') || 'No stops' }}
+                  </div>
+                  <div v-if="(t.participants || []).length" class="ohub-muted">
+                    {{ t.participants.map((p) => p.display_name).join(', ') }}
+                  </div>
+                </div>
+                <div class="ohub-saved-trip-actions">
+                  <button type="button" class="btn btn-primary" @click="openSavedTrip(t)">Open trip</button>
+                </div>
+              </li>
+              <li v-if="!section.items.length" class="ohub-muted ohub-trips-empty">{{ section.emptyLabel }}</li>
+            </ul>
+          </div>
+        </section>
+      </template>
+
       <div :class="viewMode === 'tracker' ? 'ohub-body' : 'ohub-trip-layout'">
         <div v-if="viewMode === 'tracker'" class="ohub-table-wrap">
           <table class="ohub-table">
@@ -665,30 +698,6 @@
           </template>
         </section>
       </div>
-
-      <template v-if="viewMode === 'trips' && !openedTrip">
-        <h2>Saved trips</h2>
-        <ul class="ohub-saved-trips">
-          <li v-for="t in trips" :key="t.id" class="ohub-saved-trip">
-            <div>
-              <strong>{{ t.title }}</strong>
-              <span class="ohub-stage" :class="t.status">{{ t.status }}</span>
-              <div class="ohub-muted">
-                {{ t.planned_date ? formatDate(t.planned_date) : formatDate(t.created_at) }}
-                <template v-if="savedTripRoundTripMiles(t) != null"> · {{ savedTripRoundTripMiles(t) }} mi round trip</template>
-                · {{ (t.stops || []).map((s) => s.school_name).join(' → ') || 'No stops' }}
-              </div>
-              <div v-if="(t.participants || []).length" class="ohub-muted">
-                {{ t.participants.map((p) => p.display_name).join(', ') }}
-              </div>
-            </div>
-            <div class="ohub-saved-trip-actions">
-              <button type="button" class="btn btn-primary" @click="openSavedTrip(t)">Open trip</button>
-            </div>
-          </li>
-          <li v-if="!trips.length" class="ohub-muted">No trips saved yet.</li>
-        </ul>
-      </template>
     </template>
 
     <template v-else>
@@ -807,6 +816,32 @@ const noteSaving = ref(false);
 const contactForm = reactive({ full_name: '', email: '', phone: '', title: '', is_primary: true });
 const contactSaving = ref(false);
 const trips = ref([]);
+const plannedTrips = computed(() =>
+  trips.value.filter((t) => ['planned', 'in_progress'].includes(String(t?.status || '')))
+);
+const pastTrips = computed(() =>
+  trips.value.filter((t) => ['completed', 'cancelled'].includes(String(t?.status || '')))
+);
+const tripListSections = computed(() => [
+  {
+    id: 'planned',
+    title: 'Planned trips',
+    items: plannedTrips.value,
+    emptyLabel: 'No planned trips yet. Build a route below and save it.'
+  },
+  {
+    id: 'past',
+    title: 'Past trips',
+    items: pastTrips.value,
+    emptyLabel: 'No completed trips yet.'
+  }
+]);
+const tripStatusLabel = (status) => ({
+  planned: 'Planned',
+  in_progress: 'In progress',
+  completed: 'Completed',
+  cancelled: 'Cancelled'
+}[String(status || '')] || String(status || ''));
 const tripStops = ref([]);
 const tripNearby = ref([]);
 const tripSearch = ref('');
@@ -1662,6 +1697,17 @@ onMounted(async () => {
 .ohub-table th.sortable:hover { color: #14532d; }
 .ohub-check { display: flex; gap: 8px; align-items: center; font-size: 13px; margin: 8px 0; }
 .ohub-trip-layout { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr); gap: 16px; margin-bottom: 24px; }
+.ohub-trips-overview {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+.ohub-trips-overview-title { margin: 0 0 12px; font-size: 18px; }
+.ohub-trips-section + .ohub-trips-section { margin-top: 16px; padding-top: 14px; border-top: 1px solid #f1f5f9; }
+.ohub-trips-section-title { margin: 0 0 8px; font-size: 14px; font-weight: 700; color: #334155; }
+.ohub-trips-empty { padding: 8px 0; }
 .ohub-trip-plan, .ohub-trip-meta, .ohub-saved-trip {
   background: #fff;
   border: 1px solid #e2e8f0;
