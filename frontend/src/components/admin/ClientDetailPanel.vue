@@ -37,7 +37,7 @@
                   :class="statusPillClass"
                   :title="isClientTerminated && client.termination_reason ? client.termination_reason : undefined"
                 >
-                  {{ isClientArchived ? 'Archived' : (client.client_status_label || 'No status') }}
+                  {{ isClientArchived ? 'Archived' : displayStatusLabel }}
                 </span>
                 <span class="cdp-pill cdp-pill--type" :class="{ 'is-editable': canEditClientType }">
                   <span class="cdp-pill__dot"></span>
@@ -158,9 +158,17 @@
           </div>
 
           <div
-            v-if="isSchoolClientType && isSchoolPortalContext"
+            v-if="showSchoolGlance"
             class="cdp-school-profile-strip"
           >
+            <div class="cdp-school-profile-item">
+              <span class="cdp-school-profile-kicker">School</span>
+              <strong>{{ schoolGlanceLabel }}</strong>
+            </div>
+            <div class="cdp-school-profile-item">
+              <span class="cdp-school-profile-kicker">Assigned day</span>
+              <strong>{{ assignedDayGlanceLabel }}</strong>
+            </div>
             <div class="cdp-school-profile-item">
               <span class="cdp-school-profile-kicker">Grade</span>
               <strong>{{ formatGradeDisplay(client.grade) || '—' }}</strong>
@@ -192,6 +200,14 @@
           </div>
 
           <div class="cdp-profile-rows">
+            <div v-if="showSchoolGlance" class="cdp-profile-row">
+              <span class="cdp-profile-dt">School</span>
+              <span class="cdp-profile-dd">{{ schoolGlanceLabel }}</span>
+            </div>
+            <div v-if="showSchoolGlance" class="cdp-profile-row">
+              <span class="cdp-profile-dt">Assigned day</span>
+              <span class="cdp-profile-dd">{{ assignedDayGlanceLabel }}</span>
+            </div>
             <div class="cdp-profile-row">
               <span class="cdp-profile-dt">Primary clinician</span>
               <span class="cdp-profile-dd">
@@ -254,7 +270,7 @@
             <div class="cdp-care-strip">
               <button type="button" class="cdp-care-chip">
                 <span class="cdp-care-chip__title">Status</span>
-                <span class="cdp-care-chip__body">{{ isClientArchived ? 'Archived' : (client.client_status_label || '—') }}</span>
+                <span class="cdp-care-chip__body">{{ isClientArchived ? 'Archived' : displayStatusLabel }}</span>
                 <span class="cdp-care-chip__meta">{{ clientTypeLabel }}</span>
               </button>
               <button v-if="canViewMedicalRecord" type="button" class="cdp-care-chip" @click="activeTab = 'clinical'">
@@ -542,7 +558,7 @@
                         :title="isClientTerminated && client.termination_reason ? client.termination_reason : undefined"
                         :class="{ 'status-hoverable': isClientTerminated && client.termination_reason }"
                       >
-                        {{ client.client_status_label || '-' }}
+                        {{ displayStatusLabel }}
                       </span>
                       <div v-if="isClientTerminated && client.termination_reason" class="hint" style="margin-top: 6px;">
                         <strong>Termination reason:</strong> {{ client.termination_reason }}
@@ -1001,7 +1017,7 @@
                 <div class="cdp-aside-timeline">
                   <div class="cdp-aside-timeline__item">
                     <strong>Status</strong>
-                    <span>{{ isClientArchived ? 'Archived' : (client.client_status_label || '—') }}</span>
+                    <span>{{ isClientArchived ? 'Archived' : displayStatusLabel }}</span>
                   </div>
                   <div class="cdp-aside-timeline__item">
                     <strong>Clinician</strong>
@@ -2276,6 +2292,7 @@ import AssignDayModal from '../school/AssignDayModal.vue';
 import PostListingModal from '../clientExchange/PostListingModal.vue';
 import { canSeeClientExchangeNav } from '../../utils/clientExchangeNav.js';
 import { useClientDisplayMode } from '../../composables/useClientDisplayMode.js';
+import { assignedDayDisplay, displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
 
 const props = defineProps({
   client: {
@@ -2751,6 +2768,31 @@ const clientTypeLabel = computed(() => CLIENT_TYPE_LABELS[effectiveClientType.va
 const isSchoolClientType = computed(() => effectiveClientType.value === 'school');
 const isClinicalLikeClientType = computed(() => ['clinical', 'learning'].includes(effectiveClientType.value));
 const showSchoolSpecificOverviewFields = computed(() => isSchoolClientType.value);
+const displayStatusLabel = computed(() => {
+  if (isClientArchived.value) return 'Archived';
+  return displaySchoolClientStatusLabel(props.client);
+});
+const showSchoolGlance = computed(() =>
+  isSchoolClientType.value
+  || isSchoolPortalContext.value
+  || !!Number(props.client?.organization_id)
+  || !!String(props.client?.organization_name || '').trim()
+  || !!String(props.client?.service_day || '').trim()
+);
+const schoolGlanceLabel = computed(() => {
+  const fromAssignments = [...new Set(
+    (effectiveOverviewProviders.value || [])
+      .map((p) => String(p.organization_name || '').trim())
+      .filter(Boolean)
+  )];
+  if (fromAssignments.length) return fromAssignments.join(' · ');
+  return String(props.client?.organization_name || '').trim() || 'Not on a school roster';
+});
+const assignedDayGlanceLabel = computed(() => {
+  const days = String(careTeamGlanceMeta.value || '').trim();
+  if (days && days.toLowerCase() !== 'unknown') return days;
+  return assignedDayDisplay(props.client);
+});
 const organizationLabel = computed(() => (isSchoolClientType.value ? 'School' : 'Organization'));
 const clientTypeOptions = computed(() => {
   const all = CLIENT_TYPE_ORDER.map((value) => ({

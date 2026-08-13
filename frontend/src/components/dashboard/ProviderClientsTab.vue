@@ -146,8 +146,8 @@
           :show-terminated-toggle="false"
           :show-search="true"
           search-placeholder="Search school clients…"
-          client-open-mode="detail-panel"
-          @open-profile="(client) => openClientProfile(client, schoolClientsForGrid)"
+          edit-mode="inline"
+          @edit-client="onSchoolRosterEditClient"
           @update:needsAttentionCount="(count) => emit('update:needsAttentionCount', count)"
         />
 
@@ -324,6 +324,7 @@
         <ClientDetailPanel
           :key="`pct-client-${profileClient.id}`"
           :client="profileClient"
+          :school-organization-id="profileClient.organization_id"
           :current-client-index="profileClientIndex"
           :navigation-count="profileNavClients.length"
           @close="closeClientProfile"
@@ -345,6 +346,7 @@ import ClientListGrid from '../school/ClientListGrid.vue';
 import ClientDetailPanel from '../admin/ClientDetailPanel.vue';
 import ReferralDirectoryPanel from '../referralDirectory/ReferralDirectoryPanel.vue';
 import ClientExchangePanel from '../clientExchange/ClientExchangePanel.vue';
+import { displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
 
 const props = defineProps({
   /** school | office | new | exchange | referrals */
@@ -585,7 +587,7 @@ const schoolClientsForGrid = computed(() => {
   return null;
 });
 
-const officeStatusLabel = (c) => c?.client_status_label || c?.status || '—';
+const officeStatusLabel = (c) => displaySchoolClientStatusLabel(c) || c?.client_status_label || c?.status || '—';
 
 const officeSessionTotal = (c) => {
   const m = sessionTotalsByClientId.value;
@@ -742,9 +744,18 @@ const formatSinceDate = (raw) => {
   }
 };
 
+function onSchoolRosterEditClient(payload) {
+  const client = payload?.client || payload;
+  const list = Array.isArray(schoolClientsForGrid.value) && schoolClientsForGrid.value.length
+    ? schoolClientsForGrid.value
+    : (client ? [client] : null);
+  openClientProfile(client, list);
+}
+
 async function openClientProfile(client, navList = null) {
   const id = Number(client?.id || client?.client_id || 0);
   if (!id) return;
+  const rosterSnap = client && typeof client === 'object' ? client : null;
   if (Array.isArray(navList)) {
     profileNavClients.value = navList;
   } else if (!profileNavClients.value.some((c) => Number(c?.id) === id)) {
@@ -753,7 +764,17 @@ async function openClientProfile(client, navList = null) {
   profileLoading.value = true;
   try {
     const r = await api.get(`/clients/${id}`, { skipGlobalLoading: true });
-    profileClient.value = r.data ? { ...r.data } : null;
+    const full = r.data ? { ...r.data } : null;
+    if (full && rosterSnap) {
+      full.organization_id = full.organization_id || rosterSnap.organization_id;
+      full.organization_name = full.organization_name || rosterSnap.organization_name;
+      full.service_day = full.service_day || rosterSnap.service_day;
+      full.provider_day_pairs = full.provider_day_pairs || rosterSnap.provider_day_pairs;
+      full.provider_name = full.provider_name || rosterSnap.provider_name;
+      full.school_year = full.school_year || rosterSnap.school_year;
+      if (full.grade == null) full.grade = rosterSnap.grade;
+    }
+    profileClient.value = full;
   } catch (e) {
     window.alert(e.response?.data?.error?.message || e.message || 'Failed to load client');
   } finally {

@@ -60,6 +60,7 @@ import {
   isReturningSchoolClient
 } from '../utils/fallReadiness.js';
 import { deriveLifecycleAction, needsInsuranceClearance } from '../utils/clientLifecycleAction.js';
+import { resolveSchoolRosterDisplayStatus } from '../utils/schoolClientStatusDisplay.js';
 import { computeCurrentSchoolYearLabel, normalizeSchoolYearLabel } from '../utils/schoolYear.js';
 import {
   parseSchoolYearFilterParam,
@@ -164,6 +165,13 @@ function rosterLifecycleClientShape(client) {
     provider_ids: client.provider_ids,
     provider_day_pairs: client.provider_day_pairs
   };
+}
+
+function rosterDisplayStatus(client) {
+  return resolveSchoolRosterDisplayStatus({
+    ...client,
+    client_type: client?.client_type || 'school'
+  });
 }
 
 function rosterLifecycleFields(client, { viewerRole, disposition }) {
@@ -1291,6 +1299,7 @@ export const getSchoolClients = async (req, res, next) => {
             school_portal_force_code: false,
             school_portal_gray: false
           };
+      const displayStatus = rosterDisplayStatus(client);
       const isLimitedSchoolStaff = String(schoolStaffAccessMeta.school_staff_effective_access_state || '').toLowerCase() === 'limited';
       const openTicketCount = isLimitedSchoolStaff
         ? (limitedOwnOpenTicketsByClientId.get(clientId) || 0)
@@ -1307,13 +1316,14 @@ export const getSchoolClients = async (req, res, next) => {
       return {
         id: client.id,
         organization_id: orgId,
+        organization_name: organization?.name || null,
         initials: client.initials,
         identifier_code: client.identifier_code || null,
         full_name: client.full_name || null,
         // "status" (workflow) is treated as an internal archive flag; schools should see the configured client status.
         client_status_id: client.client_status_id || null,
-        client_status_label: client.client_status_label || null,
-        client_status_key: client.client_status_key || null,
+        client_status_label: displayStatus.label,
+        client_status_key: displayStatus.key,
         termination_reason: client.termination_reason || null,
         terminated_at: client.terminated_at || null,
         termination_school_year: client.termination_school_year || null,
@@ -1422,6 +1432,8 @@ export const getSchoolClients = async (req, res, next) => {
         onboarding: buildRosterOnboardingMeta({
           ...client,
           client_type: client.client_type || 'school',
+          client_status_key: displayStatus.key,
+          client_status_label: displayStatus.label,
           continuation_services_json: canViewOperationalChecklist
             ? parseJsonMaybe(client.continuation_services_json)
             : null
@@ -1536,6 +1548,14 @@ export const getProviderMyRoster = async (req, res, next) => {
     if (!Number.isFinite(orgId) || orgId < 1) {
       // No org key resolved → treat as empty roster rather than 404 (prevents broken UX).
       return res.json([]);
+    }
+
+    let schoolName = null;
+    try {
+      const org = await Agency.findById(orgId);
+      schoolName = org?.name || null;
+    } catch {
+      schoolName = null;
     }
 
     // Update provider-school portal access timestamp for admin tracker reporting.
@@ -2064,15 +2084,17 @@ export const getProviderMyRoster = async (req, res, next) => {
       const compliancePending = (isPendingStatus && !isCurrentByDates)
         || (isNewClientChecklist && missingChecklist.length > 0);
       const compliancePendingWithContinuation = compliancePending;
+      const displayStatus = rosterDisplayStatus(client);
       return {
         id: client.id,
         organization_id: orgId,
+        organization_name: schoolName,
         initials: client.initials,
         identifier_code: client.identifier_code || null,
         full_name: client.full_name || null,
         client_status_id: client.client_status_id || null,
-        client_status_label: client.client_status_label || null,
-        client_status_key: client.client_status_key || null,
+        client_status_label: displayStatus.label,
+        client_status_key: displayStatus.key,
         termination_reason: client.termination_reason || null,
         terminated_at: client.terminated_at || null,
         termination_school_year: client.termination_school_year || null,
@@ -2140,6 +2162,8 @@ export const getProviderMyRoster = async (req, res, next) => {
         onboarding: buildRosterOnboardingMeta({
           ...client,
           client_type: client.client_type || 'school',
+          client_status_key: displayStatus.key,
+          client_status_label: displayStatus.label,
           continuation_services_json: parseJsonMaybe(client.continuation_services_json)
         }),
         skills: client.skills === 1 || client.skills === true,

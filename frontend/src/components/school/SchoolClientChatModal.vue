@@ -20,7 +20,7 @@
                 @keydown.space.stop.prevent="openWaitlistNote"
                 :title="waitlistTitle"
               >
-                {{ formatKey(props.client?.client_status_label || props.client?.status || props.client?.client_status_key) }}
+                {{ statusDisplayLabel }}
                 <div v-if="hoveringWaitlist" class="waitlist-tooltip" role="tooltip">
                   <div class="waitlist-tooltip-title">Waitlist reason</div>
                   <div class="waitlist-tooltip-body">{{ waitlistTooltipBody }}</div>
@@ -30,7 +30,7 @@
                 v-else
                 :title="isTerminated && (props.client?.termination_reason || fullClient?.termination_reason) ? (props.client?.termination_reason || fullClient?.termination_reason) : undefined"
               >
-                {{ formatKey(props.client?.client_status_label || props.client?.status || props.client?.client_status_key) }}
+                {{ statusDisplayLabel }}
               </span>
             </span>
           </div>
@@ -130,7 +130,7 @@
               @keydown.space.stop.prevent="openWaitlistNote"
               :title="waitlistTitle"
             >
-              {{ formatKey(props.client?.client_status_label || props.client?.status || props.client?.client_status_key) }}
+              {{ statusDisplayLabel }}
               <div v-if="hoveringWaitlist" class="waitlist-tooltip" role="tooltip">
                 <div class="waitlist-tooltip-title">Waitlist reason</div>
                 <div class="waitlist-tooltip-body">{{ waitlistTooltipBody }}</div>
@@ -140,7 +140,7 @@
               v-else
               :title="isTerminated && (props.client?.termination_reason || fullClient?.termination_reason) ? (props.client?.termination_reason || fullClient?.termination_reason) : undefined"
             >
-              {{ formatKey(props.client?.client_status_label || props.client?.status || props.client?.client_status_key) }}
+              {{ statusDisplayLabel }}
             </span>
           </div>
         </div>
@@ -154,7 +154,7 @@
         </div>
         <div class="pill">
           <div class="k">Assigned day</div>
-          <div class="v">{{ props.client?.service_day || '—' }}</div>
+          <div class="v">{{ assignedDayLabel }}</div>
         </div>
       </div>
 
@@ -539,6 +539,7 @@ import { useAuthStore } from '../../store/auth';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { formatSkillBuilderWallTime12h } from '../../utils/skillBuildersDisplay.js';
 import { formatGradeDisplay } from '../../utils/clientGrade.js';
+import { assignedDayDisplay, displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
 import {
   schoolStaffCanOpenFromState,
   schoolStaffOwnDocumentsOnly,
@@ -625,6 +626,8 @@ const showActionBar = computed(
     (props.canEditAction || props.showChecklistAction || showSkillBuildersEntry.value)
 );
 const canLaunchSmartRoi = computed(() => Number(props.schoolOrganizationId || 0) > 0 && Number(props.client?.id || 0) > 0);
+const statusDisplayLabel = computed(() => displaySchoolClientStatusLabel(props.client));
+const assignedDayLabel = computed(() => assignedDayDisplay(props.client));
 
 const isWaitlist = computed(() => {
   const key = String(props.client?.client_status_key || '').toLowerCase().trim();

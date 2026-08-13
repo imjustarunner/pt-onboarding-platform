@@ -5,7 +5,8 @@
         <h2 class="sco-title">{{ displayName }}</h2>
         <p class="sco-sub muted">
           {{ statusLabel }}
-          <template v-if="client.service_day"> · {{ client.service_day }}</template>
+          <template v-if="assignedDayLabel !== 'Not assigned'"> · {{ assignedDayLabel }}</template>
+          <template v-if="schoolNameLabel !== '—'"> · {{ schoolNameLabel }}</template>
           <template v-if="client.provider_name"> · {{ client.provider_name }}</template>
         </p>
       </div>
@@ -24,7 +25,7 @@
           class="btn btn-primary btn-sm"
           @click="$emit('open-profile', client)"
         >
-          Profile
+          More Info
         </button>
         <button type="button" class="sco-close" aria-label="Close" @click="$emit('close')">×</button>
       </div>
@@ -97,8 +98,12 @@
         <div class="sco-v">{{ statusLabel }}</div>
       </div>
       <div class="sco-card">
+        <div class="sco-k">School</div>
+        <div class="sco-v">{{ schoolNameLabel }}</div>
+      </div>
+      <div class="sco-card">
         <div class="sco-k">Assigned day</div>
-        <div class="sco-v">{{ client.service_day || '—' }}</div>
+        <div class="sco-v">{{ assignedDayLabel }}</div>
       </div>
       <div class="sco-card">
         <div class="sco-k">Provider</div>
@@ -284,6 +289,7 @@ import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import ClientTicketThreadPanel from './ClientTicketThreadPanel.vue';
 import PhiDocumentsPanel from '../admin/PhiDocumentsPanel.vue';
+import { assignedDayDisplay, displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
 import {
   schoolStaffCanOpenFromState,
   schoolStaffOwnDocumentsOnly,
@@ -293,7 +299,8 @@ import {
 const props = defineProps({
   client: { type: Object, required: true },
   canEditAction: { type: Boolean, default: false },
-  schoolOrganizationId: { type: [Number, String], default: null }
+  schoolOrganizationId: { type: [Number, String], default: null },
+  schoolName: { type: String, default: '' }
 });
 defineEmits(['close', 'open-comments', 'open-profile']);
 
@@ -349,14 +356,11 @@ const displayName = computed(() => {
   const c = props.client || {};
   return c.full_name || c.initials || c.identifier_code || `Client ${c.id}`;
 });
-const statusLabel = computed(() => {
-  const key = String(props.client?.client_status_key || '').toLowerCase();
-  if (key === 'confirmation_pending') return 'Fall Confirmation Pending';
-  if (key === 'ready_to_schedule') return 'Ready to Schedule';
-  if (key === 'being_seen') return 'Being Seen';
-  if (key === 'scheduled') return 'Scheduled';
-  return props.client?.client_status_label || props.client?.status || '—';
-});
+const statusLabel = computed(() => displaySchoolClientStatusLabel(props.client));
+const assignedDayLabel = computed(() => assignedDayDisplay(props.client));
+const schoolNameLabel = computed(() =>
+  String(props.client?.organization_name || props.schoolName || '').trim() || '—'
+);
 
 const dualClass = computed(() => (activePane.value ? `dual-active-${activePane.value}` : 'dual-active-both'));
 const paneClass = (pane) => ({

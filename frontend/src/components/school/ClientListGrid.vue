@@ -46,8 +46,9 @@
       </aside>
       <SchoolClientOverviewPanel
         :client="overviewClient"
-        :can-edit-action="canEditClients"
+        :can-edit-action="canOpenMoreInfo"
         :school-organization-id="Number(overviewClient?.organization_id || organizationId)"
+        :school-name="overviewClient.organization_name || organizationName"
         @close="closeOverview"
         @open-comments="(c) => openClient(c, 'comments')"
         @open-profile="goEdit"
@@ -530,7 +531,7 @@
                   Terminate
                 </button>
                 <button
-                  v-if="canEditClients"
+                  v-if="canOpenMoreInfo"
                   type="button"
                   class="roster-action-btn"
                   title="Open full client profile"
@@ -567,7 +568,7 @@
       :organization-slug="organizationSlug"
       :parent-agency-id="parentAgencyId || null"
       :initial-pane="selectedClientInitialPane"
-      :can-edit-action="canEditClients"
+      :can-edit-action="canOpenMoreInfo"
       :show-checklist-action="isNewClientActionClient(selectedClient) && !!selectedClient?.user_is_assigned_provider && !previewMode"
       @open-edit="openClientEditorFromModal"
       @open-checklist="openChecklistFromModal"
@@ -721,6 +722,7 @@ import AssignDayModal from './AssignDayModal.vue';
 import ClientOnboardingChecklistPanel from '../clients/ClientOnboardingChecklistPanel.vue';
 import LifecycleActionModal from './LifecycleActionModal.vue';
 import { formatOnboardingSummary } from '../../utils/clientOnboardingSummary.js';
+import { displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
 import { useAuthStore } from '../../store/auth';
 import {
   isSchoolScheduleClientLocked,
@@ -877,6 +879,11 @@ const router = useRouter();
 const authStore = useAuthStore();
 
 const canEditClients = ref(false);
+const canOpenMoreInfo = computed(() => {
+  if (isSchoolStaff.value) return canEditClients.value;
+  if (props.rosterScope === 'provider') return !props.previewMode;
+  return canEditClients.value;
+});
 const quickChecklistClient = ref(null);
 const lifecycleActionClient = ref(null);
 const lifecycleActionKey = ref('');
@@ -1921,27 +1928,7 @@ const formatRosterLabel = (client) => {
   return initials || code || '—';
 };
 
-const formatClientStatusLabel = (client) => {
-  const key = String(client?.client_status_key || '').toLowerCase();
-  if (key === 'confirmation_pending') return 'Fall Confirmation Pending';
-  if (key === 'ready_to_schedule') return 'Ready to Schedule';
-  if (key === 'being_seen') return 'Being Seen';
-  if (key === 'scheduled') return 'Scheduled';
-  const label = String(client?.client_status_label || '').trim();
-  if (label) return label;
-  const status = String(client?.status || '').toUpperCase();
-  const map = {
-    'PACKET': 'Packet',
-    'SCREENER': 'Screener',
-    'RETURNING': 'Returning',
-    'PENDING_REVIEW': 'Pending',
-    'ACTIVE': 'Current',
-    'ON_HOLD': 'Waitlist',
-    'DECLINED': 'Declined',
-    'ARCHIVED': 'Archived'
-  };
-  return map[status] || '—';
-};
+const formatClientStatusLabel = (client) => displaySchoolClientStatusLabel(client);
 
 const parseContinuationServices = (client) => {
   const raw = client?.continuation_services_json;
