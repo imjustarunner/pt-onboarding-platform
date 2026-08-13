@@ -3,6 +3,7 @@ import config from '../config/config.js';
 import {
   buildSchoolPlaceSearchQueries,
   CITY_COORDS,
+  normalizePlaceSearchResult,
   pickBestSchoolPlaceCandidate
 } from '../utils/outreachHubPure.js';
 
@@ -13,6 +14,10 @@ function mapsApiKey() {
 function isMapsDenied(errOrStatus, message = '') {
   const msg = String(message || errOrStatus?.message || errOrStatus || '');
   return errOrStatus?.code === 'MAPS_KEY_MISSING' || msg.includes('REQUEST_DENIED');
+}
+
+function hasStreetNumber(address) {
+  return /\d/.test(String(address || ''));
 }
 
 export async function geocodeAddressWithGoogle({ addressText, postalCode = null, state = null, countryCode = 'US' }) {
@@ -36,7 +41,6 @@ export async function geocodeAddressWithGoogle({ addressText, postalCode = null,
     params: {
       address: String(addressText || '').trim(),
       key: apiKey,
-      // Bias geocoding to the US and, when available, the user's postal code/state.
       region: cc === 'US' ? 'us' : undefined,
       components: parts.length ? parts.join('|') : undefined
     },
@@ -66,7 +70,7 @@ export async function geocodeAddressWithGoogle({ addressText, postalCode = null,
   };
 }
 
-async function textSearchPlaces(query, { locationBias = null, radiusMeters = 45000 } = {}) {
+async function textSearchPlacesLegacy(query, { locationBias = null, radiusMeters = 45000 } = {}) {
   const apiKey = mapsApiKey();
   if (!apiKey) {
     const err = new Error('GOOGLE_MAPS_API_KEY is not configured');
@@ -97,9 +101,85 @@ async function textSearchPlaces(query, { locationBias = null, radiusMeters = 450
   return Array.isArray(data.results) ? data.results : [];
 }
 
+/** Places API (New) — matches "Places API (New)" in Google Cloud Console. */
+async function textSearchPlacesNew(query, { locationBias = null, radiusMeters = 45000 } = {}) {
+  const apiKey = mapsApiKey();
+  if (!apiKey) {
+    const err = new Error('GOOGLE_MAPS_API_KEY is not configured');
+    err.code = 'MAPS_KEY_MISSING';
+    throw err;
+  }
+
+  const body = {
+    textQuery: String(query || '').trim(),
+    regionCode: 'US',
+    languageCode: 'en'
+  };
+  if (locationBias?.lat != null && locationBias?.lng != null) {
+    body.locationBias = {
+      circle: {
+        center: {
+          latitude: Number(locationBias.lat),
+          longitude: Number(locationBias.lng)
+        },
+        radius: Math.min(Math.max(Number(radiusMeters) || 45000, 5000), 50000)
+      }
+    };
+  }
+
+  const url = 'https://places.googleapis.com/v1/places:searchText';
+  const resp = await axios.post(url, body, {
+    timeout: 15000,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': apiKey,
+      'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location,places.types'
+    }
+  });
+
+  const places = Array.isArray(resp?.data?.places) ? resp.data.places : [];
+  return places;
+}
+
+async function textSearchPlaces(query, options = {}) {
+  try {
+    return await textSearchPlacesNew(query, options);
+  } catch (e) {
+    const msg = String(e?.response?.data?.error?.message || e?.message || '');
+    if (isMapsDenied(e, msg)) {
+      try {
+        return await textSearchPlacesLegacy(query, options);
+      } catch (legacyErr) {
+        const legacyMsg = String(legacyErr?.response?.data?.error_message || legacyErr?.message || '');
+        const err = new Error(legacyMsg || msg || 'Places search failed');
+        err.code = 'MAPS_PLACES_FAILED';
+        throw err;
+      }
+    }
+    if (msg.includes('ZERO_RESULTS')) return [];
+    throw e;
+  }
+}
+
+function placeHitToResolved(hit, source) {
+  const normalized = normalizePlaceSearchResult(hit);
+  const loc = normalized?.geometry?.location || null;
+  const lat = Number(loc?.lat);
+  const lng = Number(loc?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return {
+    latitude: lat,
+    longitude: lng,
+    formattedAddress: normalized?.formatted_address || null,
+    placeName: normalized?.name || null,
+    source
+  };
+}
+
 /**
  * Resolve a Colorado school to a street address via Google Places Text Search
- * (school name + city/district). Falls back to Geocoding when Places returns nothing.
+ * (school name + city/district). Uses Places API (New) first, then legacy Places,
+ * then Geocoding as a last resort.
  */
 export async function searchSchoolPlaceWithGoogle({
   name,
@@ -118,54 +198,50 @@ export async function searchSchoolPlaceWithGoogle({
     throw err;
   }
 
-  let blocked = false;
+  let placesDenied = false;
   for (const query of queries) {
     try {
       const results = await textSearchPlaces(query, { locationBias });
       const hit = pickBestSchoolPlaceCandidate(schoolName, results);
-      if (!hit) continue;
-      const loc = hit?.geometry?.location || null;
-      const lat = Number(loc?.lat);
-      const lng = Number(loc?.lng);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
-      return {
-        latitude: lat,
-        longitude: lng,
-        formattedAddress: hit.formatted_address || null,
-        placeName: hit.name || null,
-        source: 'places_text_search'
-      };
+      const resolved = placeHitToResolved(hit, 'places_text_search');
+      if (resolved) return resolved;
     } catch (e) {
-      if (isMapsDenied(e)) {
-        blocked = true;
-        break;
-      }
-      if (String(e?.message || '').includes('REQUEST_DENIED')) {
-        blocked = true;
-        break;
+      const msg = String(e?.response?.data?.error?.message || e?.message || '');
+      if (isMapsDenied(e, msg)) {
+        placesDenied = true;
       }
     }
   }
 
-  if (blocked) {
-    const err = new Error('Places search failed (REQUEST_DENIED)');
-    err.code = 'MAPS_PLACES_FAILED';
-    throw err;
-  }
-
   const fallbackQuery = `${schoolName}, ${city || districtName || ''}, Colorado`.replace(/,\s*,/g, ',').trim();
-  const geo = await geocodeAddressWithGoogle({
-    addressText: fallbackQuery,
-    state,
-    countryCode
-  });
-  return {
-    latitude: geo.latitude,
-    longitude: geo.longitude,
-    formattedAddress: geo.formattedAddress,
-    placeName: schoolName,
-    source: 'geocode_fallback'
-  };
+  try {
+    const geo = await geocodeAddressWithGoogle({
+      addressText: fallbackQuery,
+      state,
+      countryCode
+    });
+    if (!hasStreetNumber(geo.formattedAddress) && placesDenied) {
+      const err = new Error('Places search failed (REQUEST_DENIED) and geocode returned no street address');
+      err.code = 'MAPS_PLACES_FAILED';
+      throw err;
+    }
+    return {
+      latitude: geo.latitude,
+      longitude: geo.longitude,
+      formattedAddress: geo.formattedAddress,
+      placeName: schoolName,
+      source: 'geocode_fallback'
+    };
+  } catch (e) {
+    if (placesDenied && isMapsDenied(e)) {
+      const err = new Error(
+        'Google Maps address lookup denied — check API key restrictions and that Places API (New) + Geocoding API are enabled'
+      );
+      err.code = 'MAPS_PLACES_FAILED';
+      throw err;
+    }
+    throw e;
+  }
 }
 
 export async function reverseGeocodeWithGoogle({ latitude, longitude }) {
@@ -175,7 +251,7 @@ export async function reverseGeocodeWithGoogle({ latitude, longitude }) {
     throw new Error('latitude and longitude are required');
   }
 
-  const apiKey = config.googleMaps?.apiKey || null;
+  const apiKey = mapsApiKey();
   if (!apiKey) {
     const err = new Error('GOOGLE_MAPS_API_KEY is not configured');
     err.code = 'MAPS_KEY_MISSING';
@@ -206,4 +282,3 @@ export async function reverseGeocodeWithGoogle({ latitude, longitude }) {
     formattedAddress: first?.formatted_address || null
   };
 }
-

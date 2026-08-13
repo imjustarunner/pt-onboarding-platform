@@ -10,7 +10,8 @@ import {
   isPlaceholderOutreachAddress,
   buildSchoolPlaceSearchQueries,
   scoreSchoolPlaceCandidate,
-  pickBestSchoolPlaceCandidate
+  pickBestSchoolPlaceCandidate,
+  normalizePlaceSearchResult
 } from '../../utils/outreachHubPure.js';
 
 describe('outreach name matching', () => {
@@ -98,5 +99,24 @@ describe('outreach school address resolution helpers', () => {
     const best = pickBestSchoolPlaceCandidate('East High School', candidates);
     assert.equal(best?.name, 'East High School');
     assert.ok(scoreSchoolPlaceCandidate('East High School', best) >= 65);
+  });
+
+  it('normalizes Places API (New) result shape', () => {
+    const normalized = normalizePlaceSearchResult({
+      displayName: { text: 'East High School', languageCode: 'en' },
+      formattedAddress: '1600 City Park Esplanade, Denver, CO 80206, USA',
+      location: { latitude: 39.7402, longitude: -104.9503 },
+      types: ['secondary_school', 'school']
+    });
+    assert.equal(normalized.name, 'East High School');
+    assert.ok(normalized.formatted_address.includes('Denver'));
+    assert.equal(normalized.geometry.location.lat, 39.7402);
+    const best = pickBestSchoolPlaceCandidate('East High School', [{
+      displayName: { text: 'East High School' },
+      formattedAddress: '1600 City Park Esplanade, Denver, CO 80206, USA',
+      location: { latitude: 39.7402, longitude: -104.9503 },
+      types: ['secondary_school', 'school']
+    }]);
+    assert.equal(best?.name, 'East High School');
   });
 });

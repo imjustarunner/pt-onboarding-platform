@@ -102,10 +102,33 @@ export function scoreSchoolPlaceCandidate(schoolName, place) {
   return score;
 }
 
+export function normalizePlaceSearchResult(place) {
+  if (!place) return null;
+  if (place.formatted_address || place.geometry?.location) {
+    return place;
+  }
+  const name = String(place.displayName?.text || place.name || '').trim();
+  const formatted_address = String(place.formattedAddress || place.formatted_address || '').trim();
+  const loc = place.location || place.geometry?.location || null;
+  const lat = Number(loc?.latitude ?? loc?.lat);
+  const lng = Number(loc?.longitude ?? loc?.lng);
+  if (!formatted_address && !Number.isFinite(lat)) return null;
+  return {
+    name,
+    formatted_address,
+    types: Array.isArray(place.types) ? place.types : [],
+    geometry: Number.isFinite(lat) && Number.isFinite(lng)
+      ? { location: { lat, lng } }
+      : null
+  };
+}
+
 export function pickBestSchoolPlaceCandidate(schoolName, results) {
   let best = null;
   let bestScore = 0;
-  for (const place of results || []) {
+  for (const raw of results || []) {
+    const place = normalizePlaceSearchResult(raw);
+    if (!place) continue;
     const score = scoreSchoolPlaceCandidate(schoolName, place);
     if (score > bestScore) {
       bestScore = score;

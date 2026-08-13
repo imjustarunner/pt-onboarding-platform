@@ -293,28 +293,31 @@ async function resolveOutreachSchoolLocation(row) {
       districtName: row.district_name
     });
   } catch (e) {
-    if (e?.code === 'MAPS_KEY_MISSING' || String(e?.message || '').includes('REQUEST_DENIED')) {
+    const denied = e?.code === 'MAPS_KEY_MISSING' || String(e?.message || '').includes('REQUEST_DENIED');
+    if (!denied) {
+      try {
+        const { geocodeAddressWithGoogle } = await import('./googleGeocode.service.js');
+        const geo = await geocodeAddressWithGoogle({
+          addressText: `${name}, ${city}, Colorado`,
+          state: 'CO',
+          countryCode: 'US'
+        });
+        return {
+          latitude: geo.latitude,
+          longitude: geo.longitude,
+          formattedAddress: geo.formattedAddress,
+          source: 'geocode_name_city'
+        };
+      } catch (inner) {
+        if (inner?.code === 'MAPS_KEY_MISSING' || String(inner?.message || '').includes('REQUEST_DENIED')) {
+          throw inner;
+        }
+      }
+    }
+    if (denied) {
       throw e;
     }
-    try {
-      const { geocodeAddressWithGoogle } = await import('./googleGeocode.service.js');
-      const geo = await geocodeAddressWithGoogle({
-        addressText: `${name}, ${city}, Colorado`,
-        state: 'CO',
-        countryCode: 'US'
-      });
-      return {
-        latitude: geo.latitude,
-        longitude: geo.longitude,
-        formattedAddress: geo.formattedAddress,
-        source: 'geocode_name_city'
-      };
-    } catch (inner) {
-      if (inner?.code === 'MAPS_KEY_MISSING' || String(inner?.message || '').includes('REQUEST_DENIED')) {
-        throw inner;
-      }
-      return null;
-    }
+    return null;
   }
 }
 
@@ -375,7 +378,7 @@ export async function backfillOutreachSchoolGeocodes(agencyId, { limit = 50 } = 
       if (e?.code === 'MAPS_KEY_MISSING' || msg.includes('REQUEST_DENIED')) {
         geocodeBlocked = true;
         console.warn(
-          '[outreachHub] Google Maps address lookup unavailable — enable Geocoding API and Places API on GOOGLE_MAPS_API_KEY'
+          '[outreachHub] Google Maps address lookup unavailable — enable Places API (New) and Geocoding API on GOOGLE_MAPS_API_KEY (and check key restrictions)'
         );
       } else {
         console.warn('[outreachHub] address resolve skipped', row.id, e?.message);
