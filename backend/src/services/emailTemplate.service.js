@@ -2,11 +2,13 @@ import EmailTemplate from '../models/EmailTemplate.model.js';
 import Agency from '../models/Agency.model.js';
 import PlatformBranding from '../models/PlatformBranding.model.js';
 import config from '../config/config.js';
+import {
+  buildPublicAppUrl,
+  buildPublicPortalBaseUrl,
+  platformFrontendBase
+} from '../utils/publicPortalUrl.js';
 
-// Get frontend URL from environment or config
-const getFrontendUrl = () => {
-  return process.env.FRONTEND_URL || config.cors?.origin || 'http://localhost:5173';
-};
+const getFrontendUrl = () => platformFrontendBase() || config.cors?.origin || 'http://localhost:5173';
 
 class EmailTemplateService {
   /**
@@ -60,19 +62,19 @@ class EmailTemplateService {
         name: 'PORTAL_URL',
         description: 'Portal subdomain URL',
         category: 'links',
-        example: 'itsco.app.plottwistco.com'
+        example: 'https://app.itsco.health'
       },
       {
         name: 'PORTAL_LOGIN_LINK',
         description: 'Full URL to portal login page',
         category: 'links',
-        example: 'https://itsco.app.plottwistco.com/login'
+        example: 'https://app.itsco.health/login'
       },
       {
         name: 'RESET_TOKEN_LINK',
         description: 'Passwordless login link (auto-login and redirect to password change)',
         category: 'links',
-        example: 'https://itsco.app.plottwistco.com/passwordless-login/abc123token'
+        example: 'https://app.itsco.health/reset-password/abc123token'
       },
       {
         name: 'DOCUMENT_DEADLINE',
@@ -103,37 +105,48 @@ class EmailTemplateService {
   }
 
   /**
-   * Build portal URL from agency portal_url
+   * Attach parent-host fields so school orgs inherit ITSCO's dedicated app host.
+   */
+  static async withPublicHostContext(agency) {
+    if (!agency) return agency;
+    const type = String(agency.organization_type || agency.organizationType || 'agency').toLowerCase();
+    if (type === 'agency' || agency.parent_portal_url || agency.parentPortalUrl) return agency;
+    const parentId = Number(agency.affiliated_agency_id || agency.parent_agency_id || 0);
+    if (!parentId) return agency;
+    try {
+      const parent = await Agency.findById(parentId);
+      if (!parent) return agency;
+      return {
+        ...agency,
+        parent_portal_url: parent.portal_url || parent.slug,
+        parent_custom_domain: parent.custom_domain
+      };
+    } catch {
+      return agency;
+    }
+  }
+
+  /**
+   * Public origin for an org. ITSCO uses https://app.itsco.health (no /itsco path).
    */
   static buildPortalUrl(agency) {
-    const baseUrl = getFrontendUrl();
-    
-    if (!agency || !agency.portal_url) {
-      return baseUrl;
-    }
-
-    // IMPORTANT:
-    // This app uses path-based organization routing (e.g. "/{slug}/login"),
-    // not subdomain-based routing. Build links accordingly.
-    const trimmedBase = String(baseUrl || '').replace(/\/$/, '');
-    return `${trimmedBase}/${agency.portal_url}`;
+    const opts = { platformBaseUrl: getFrontendUrl() };
+    if (!agency) return opts.platformBaseUrl;
+    return buildPublicPortalBaseUrl(agency, opts);
   }
 
   /**
    * Build portal login link
    */
   static buildPortalLoginLink(agency) {
-    const portalUrl = this.buildPortalUrl(agency);
-    return `${portalUrl}/login`;
+    return buildPublicAppUrl(agency, 'login', { platformBaseUrl: getFrontendUrl() });
   }
 
   /**
    * Build passwordless login/reset token link
    */
   static buildResetTokenLink(agency, token) {
-    const portalUrl = this.buildPortalUrl(agency);
-    // Token links should land on the reset-password screen (forces password set/change)
-    return `${portalUrl}/reset-password/${token}`;
+    return buildPublicAppUrl(agency, `reset-password/${token}`, { platformBaseUrl: getFrontendUrl() });
   }
 
   /**
@@ -188,19 +201,20 @@ class EmailTemplateService {
     }
 
     // Agency parameters
-    if (agency) {
-      parameters.AGENCY_NAME = agency.name || '';
-      parameters.TERMINOLOGY_SETTINGS = this.getTerminologySettings(agency);
-      parameters.PEOPLE_OPS_EMAIL = agency.onboarding_team_email || '';
+    const agencyForUrls = agency ? await this.withPublicHostContext(agency) : null;
+    if (agencyForUrls) {
+      parameters.AGENCY_NAME = agencyForUrls.name || '';
+      parameters.TERMINOLOGY_SETTINGS = this.getTerminologySettings(agencyForUrls);
+      parameters.PEOPLE_OPS_EMAIL = agencyForUrls.onboarding_team_email || '';
       
-      // Portal URLs
-      parameters.PORTAL_URL = this.buildPortalUrl(agency);
-      parameters.PORTAL_LOGIN_LINK = this.buildPortalLoginLink(agency);
+      // Portal URLs (ITSCO → https://app.itsco.health/login)
+      parameters.PORTAL_URL = this.buildPortalUrl(agencyForUrls);
+      parameters.PORTAL_LOGIN_LINK = this.buildPortalLoginLink(agencyForUrls);
     }
 
     // Reset token link
-    if (passwordlessToken && agency) {
-      parameters.RESET_TOKEN_LINK = this.buildResetTokenLink(agency, passwordlessToken);
+    if (passwordlessToken && agencyForUrls) {
+      parameters.RESET_TOKEN_LINK = this.buildResetTokenLink(agencyForUrls, passwordlessToken);
       if (!keepPortalLoginLink) {
         parameters.PORTAL_LOGIN_LINK = parameters.RESET_TOKEN_LINK;
       }

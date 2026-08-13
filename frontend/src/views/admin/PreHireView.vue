@@ -9,7 +9,7 @@
       <div class="phr-header-right">
         <div v-if="canChooseAgency" class="phr-agency-picker">
           <label class="phr-agency-label">Agency</label>
-          <select v-model="selectedAgencyId" class="phr-select">
+          <select :value="selectedAgencyId" class="phr-select" @change="onPickAgency">
             <option v-for="a in agencyChoices" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
           </select>
         </div>
@@ -520,10 +520,14 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { useBrandingStore } from '../../store/branding';
 import PromoteToOnboardingModal from '../../components/hiring/PromoteToOnboardingModal.vue';
+import { pickDefaultAgencyChoiceId } from '../../utils/peopleOpsAgencyPicker.js';
+import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath.js';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const brandingStore = useBrandingStore();
 const route = useRoute();
 
 // ── Agency chooser ────────────────────────────────────────────────────────────
@@ -538,7 +542,32 @@ const agencyChoices = computed(() => {
     .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
 });
 const canChooseAgency = computed(() => agencyChoices.value.length > 1);
-const selectedAgencyId = ref(String(agencyStore.currentAgencyId || agencyChoices.value[0]?.id || ''));
+const userPickedAgency = ref(false);
+const selectedAgencyId = ref('');
+
+function resolvePickerAgencyId() {
+  return pickDefaultAgencyChoiceId({
+    choices: agencyChoices.value,
+    currentAgency: agencyStore.currentAgency,
+    routeSlug: route.params.organizationSlug || '',
+    hostSlug: resolveHostImpliedPortalSlug(brandingStore)
+  });
+}
+
+watch(
+  [agencyChoices, () => agencyStore.currentAgencyId, () => route.params.organizationSlug],
+  () => {
+    if (userPickedAgency.value) return;
+    const next = resolvePickerAgencyId();
+    if (next && next !== selectedAgencyId.value) selectedAgencyId.value = next;
+  },
+  { immediate: true }
+);
+
+function onPickAgency(e) {
+  userPickedAgency.value = true;
+  selectedAgencyId.value = e.target.value;
+}
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 const slug = computed(() => route.params.organizationSlug || '');

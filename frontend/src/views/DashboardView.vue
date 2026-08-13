@@ -832,7 +832,14 @@
           </div>
 
           <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && activeTab === 'clients'" class="my-panel">
+            <ProviderYearUpdateDashboard
+              v-if="swapClientsTabForFallUpdate"
+              embedded
+              initial-section="clients"
+              :agency-id="currentAgencyId"
+            />
             <ProviderClientsTab
+              v-else
               :initial-section="String(route.query.clients || route.query.clientsSection || 'school')"
               @update:needsAttentionCount="clientsNeedsAttentionCount = $event"
               @update:pendingClientsCount="providerPendingClientsCount = $event"
@@ -1240,6 +1247,7 @@ import ProgramShiftsTab from '../components/dashboard/ProgramShiftsTab.vue';
 import MyLearningView from './MyLearningView.vue';
 import ChallengesTab from '../components/dashboard/ChallengesTab.vue';
 import ProviderClientsTab from '../components/dashboard/ProviderClientsTab.vue';
+import ProviderYearUpdateDashboard from '../components/provider/ProviderYearUpdateDashboard.vue';
 import ClubAddSeasonModal from '../components/club/ClubAddSeasonModal.vue';
 import SupervisionModal from '../components/supervision/SupervisionModal.vue';
 import ProvidersPanel from '../components/supervision/ProvidersPanel.vue';
@@ -3486,6 +3494,11 @@ const showProviderYearUpdateSplash = computed(() => {
   return true;
 });
 
+const swapClientsTabForFallUpdate = computed(() => {
+  const st = providerYearUpdateStatus.value;
+  return !!(st?.available && !st.userFinalized);
+});
+
 async function dismissProviderYearUpdateSplash() {
   // Session-only — splash returns on next login / fresh dashboard load.
   providerYearUpdateSplashDismissed.value = true;
@@ -3784,7 +3797,9 @@ const dashboardCards = computed(() => {
           kind: 'content',
           badgeCount: clientActionItemCount.value || 0,
           iconUrl: brandingStore.getDashboardCardIconUrl('clients', iconOrg),
-          description: 'Pending client action items — fall confirmation, new clients, and next steps.'
+          description: swapClientsTabForFallUpdate.value
+            ? 'Complete fall client confirmation and assigned-day actions here until the Provider Fall Update is done.'
+            : 'Pending client action items — fall confirmation, new clients, and next steps.'
         });
         if (providerSurfacesEnabled.value && !isClubContext.value) {
           cards.push({
@@ -5340,6 +5355,9 @@ watch([currentAgencyId, isOnboardingComplete], async () => {
 watch(activeTab, (tab) => {
   if (tab === 'submit' && !props.previewMode && currentAgencyId.value) {
     loadMyAssignedSchools();
+  }
+  if (tab === 'clients' && !props.previewMode) {
+    loadProviderYearUpdateStatus();
   }
 });
 

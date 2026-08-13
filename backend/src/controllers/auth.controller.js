@@ -663,11 +663,7 @@ export const login = async (req, res, next) => {
           try {
             const tokenResult = await User.generatePasswordlessToken(user.id, 48, 'reset');
             const agency = await resolvePrimaryAgencyForUser(user.id, null);
-            const frontendBase = String(config.frontendUrl || '').replace(/\/$/, '');
-            const portalSlug = agency?.portal_url || agency?.slug || null;
-            const resetLink = portalSlug
-              ? `${frontendBase}/${portalSlug}/reset-password/${tokenResult.token}`
-              : `${frontendBase}/reset-password/${tokenResult.token}`;
+            const resetLink = EmailTemplateService.buildResetTokenLink(agency, tokenResult.token);
             const subject = 'Reset your password';
             const body = `Your temporary password has expired.\n\nUse this link to set a new password (expires in 48 hours):\n${resetLink}\n\nIf you did not try to sign in, you can ignore this email.`;
             const to = pickRecoveryRecipientEmail(user, user.email);
@@ -2890,11 +2886,10 @@ export const requestPasswordReset = async (req, res, next) => {
     const tokenResult = await User.generatePasswordlessToken(user.id, expiresInHours, 'reset');
 
     const agency = await resolvePrimaryAgencyForUser(user.id, orgSlug);
-    const frontendBase = String(config.frontendUrl || '').replace(/\/$/, '');
-    const portalSlug = agency?.portal_url || agency?.slug || orgSlug || null;
-    const resetLink = portalSlug
-      ? `${frontendBase}/${portalSlug}/reset-password/${tokenResult.token}`
-      : `${frontendBase}/reset-password/${tokenResult.token}`;
+    const resetLink = EmailTemplateService.buildResetTokenLink(
+      agency || { portal_url: orgSlug, slug: orgSlug },
+      tokenResult.token
+    );
 
     // Best-effort template support (falls back to simple text)
     let subject = 'Reset your password';
@@ -4358,10 +4353,7 @@ export const register = async (req, res, next) => {
       if (agency) {
         agencyName = agency.name;
         peopleOpsEmail = agency.people_ops_email || peopleOpsEmail;
-        const portalSlug = agency.portal_url || agency.slug || null;
-        if (portalSlug) {
-          portalLoginLink = `${String(config.frontendUrl || '').replace(/\/\s*$/, '')}/${portalSlug}/login`;
-        }
+        portalLoginLink = EmailTemplateService.buildPortalLoginLink(agency);
       }
     }
     
@@ -4851,8 +4843,10 @@ export const verifyClubManagerEmail = async (req, res, next) => {
       [u.id]
     );
 
-    const frontendUrl = (config.frontendUrl || '').replace(/\/\s*$/, '');
-    const loginPath = portalSlug ? `${frontendUrl}/${portalSlug}/login` : `${frontendUrl}/login`;
+    const loginPath = EmailTemplateService.buildPortalLoginLink({
+      portal_url: portalSlug,
+      slug: portalSlug
+    });
 
     if (req.query?.redirect === '1') {
       return res.redirect(302, `${loginPath}?verified=1`);

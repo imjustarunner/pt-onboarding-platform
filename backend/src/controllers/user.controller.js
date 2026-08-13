@@ -37,6 +37,7 @@ import {
   toTypedPeerScheduleSummary
 } from '../services/scheduleSummaryPrivacy.service.js';
 import { generateJoinToken, joinUrlForSupervision, joinUrlForTeamMeeting } from '../utils/joinToken.js';
+import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -9224,14 +9225,8 @@ export const resetPasswordlessToken = async (req, res, next) => {
     
     const tokenResult = await User.generatePasswordlessToken(userId, finalExpiresInHours, 'setup');
     
-    // Get frontend URL for the link
-    const config = (await import('../config/config.js')).default;
-    const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
     const userAgencies = await User.getAgencies(user.id);
-    const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
-    const passwordlessTokenLink = portalSlug
-      ? `${frontendBase}/${portalSlug}/passwordless-login/${tokenResult.token}`
-      : `${frontendBase}/passwordless-login/${tokenResult.token}`;
+    const passwordlessTokenLink = buildPublicAppUrl(userAgencies?.[0], `passwordless-login/${tokenResult.token}`);
     
     res.json({
       token: tokenResult.token,
@@ -9286,13 +9281,8 @@ export const sendInitialSetupLink = async (req, res, next) => {
       tokenResult = await User.generatePasswordlessToken(userId, finalExpiresInHours, 'setup');
     }
 
-    const config = (await import('../config/config.js')).default;
-    const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
     const userAgencies = await User.getAgencies(user.id);
-    const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
-    const link = portalSlug
-      ? `${frontendBase}/${portalSlug}/passwordless-login/${tokenResult.token}`
-      : `${frontendBase}/passwordless-login/${tokenResult.token}`;
+    const link = buildPublicAppUrl(userAgencies?.[0], `passwordless-login/${tokenResult.token}`);
 
     res.json({
       token: tokenResult.token,
@@ -9330,13 +9320,8 @@ export const resendSetupLink = async (req, res, next) => {
 
     const tokenResult = await User.generatePasswordlessToken(userId, finalExpiresInHours, 'setup');
 
-    const config = (await import('../config/config.js')).default;
-    const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
     const userAgencies = await User.getAgencies(user.id);
-    const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
-    const link = portalSlug
-      ? `${frontendBase}/${portalSlug}/passwordless-login/${tokenResult.token}`
-      : `${frontendBase}/passwordless-login/${tokenResult.token}`;
+    const link = buildPublicAppUrl(userAgencies?.[0], `passwordless-login/${tokenResult.token}`);
 
     res.json({
       token: tokenResult.token,
@@ -9390,14 +9375,9 @@ export const sendResetPasswordLink = async (req, res, next) => {
       // Best-effort: do not block on org lookup failure.
     }
 
-    const config = (await import('../config/config.js')).default;
-    const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
     const userAgencies = await User.getAgencies(userId);
-    const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
     const buildResetLink = (token) =>
-      portalSlug
-        ? `${frontendBase}/${portalSlug}/reset-password/${token}`
-        : `${frontendBase}/reset-password/${token}`;
+      buildPublicAppUrl(userAgencies?.[0], `reset-password/${token}`);
 
     // Smart reuse: if user already has a valid reset token and forceNew is not true, return existing link
     const purpose = String(user.passwordless_token_purpose || '').toLowerCase();
@@ -9602,13 +9582,8 @@ export const sendResetPasswordLinkSms = async (req, res, next) => {
     let linkToSend = tokenLink;
     if (!linkToSend) {
       const tokenResult = await User.generatePasswordlessToken(userId, 48, 'reset');
-      const config = (await import('../config/config.js')).default;
-      const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
       const userAgencies = await User.getAgencies(userId);
-      const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
-      linkToSend = portalSlug
-        ? `${frontendBase}/${portalSlug}/reset-password/${tokenResult.token}`
-        : `${frontendBase}/reset-password/${tokenResult.token}`;
+      linkToSend = buildPublicAppUrl(userAgencies?.[0], `reset-password/${tokenResult.token}`);
     }
 
     const VonageService = (await import('../services/vonage.service.js')).default;
@@ -9969,18 +9944,17 @@ export const getAccountInfo = async (req, res, next) => {
     
     // For pending users, include passwordless login link (setup)
     if (user.status === 'pending' && user.passwordless_token) {
-      const config = (await import('../config/config.js')).default;
-      const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
-      let portalSlug = null;
+      let homeAgency = null;
       try {
         const userAgencies = await User.getAgencies(user.id);
-        portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
-      } catch (e) {
-        portalSlug = null;
+        homeAgency = userAgencies?.[0] || null;
+      } catch {
+        homeAgency = null;
       }
-      accountInfo.passwordlessLoginLink = portalSlug
-        ? `${frontendBase}/${portalSlug}/passwordless-login/${user.passwordless_token}`
-        : `${frontendBase}/passwordless-login/${user.passwordless_token}`;
+      accountInfo.passwordlessLoginLink = buildPublicAppUrl(
+        homeAgency,
+        `passwordless-login/${user.passwordless_token}`
+      );
       accountInfo.passwordlessToken = user.passwordless_token;
       accountInfo.passwordlessTokenExpiresAt = user.passwordless_token_expires_at;
       accountInfo.requiresLastNameVerification = !user.pending_identity_verified;
@@ -9998,18 +9972,17 @@ export const getAccountInfo = async (req, res, next) => {
     // For users with a reset token (admin-initiated or self-service), include reset link and expiration
     const purpose = user.passwordless_token_purpose || tokenPurpose;
     if (user.passwordless_token && purpose === 'reset') {
-      const config = (await import('../config/config.js')).default;
-      const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
-      let portalSlug = null;
+      let homeAgency = null;
       try {
         const userAgencies = await User.getAgencies(user.id);
-        portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
-      } catch (e) {
-        portalSlug = null;
+        homeAgency = userAgencies?.[0] || null;
+      } catch {
+        homeAgency = null;
       }
-      accountInfo.passwordlessLoginLink = portalSlug
-        ? `${frontendBase}/${portalSlug}/reset-password/${user.passwordless_token}`
-        : `${frontendBase}/reset-password/${user.passwordless_token}`;
+      accountInfo.passwordlessLoginLink = buildPublicAppUrl(
+        homeAgency,
+        `reset-password/${user.passwordless_token}`
+      );
       accountInfo.passwordlessToken = user.passwordless_token;
       accountInfo.passwordlessTokenExpiresAt = user.passwordless_token_expires_at;
       accountInfo.passwordlessTokenPurpose = 'reset';
@@ -10429,7 +10402,9 @@ export const promoteToOnboarding = async (req, res, next) => {
           // Generate a passwordless token for initial onboarding login
           try {
             const tokenResult = await User.generatePasswordlessToken(parseInt(id), 7 * 24);
-            const tokenLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/passwordless-login/${tokenResult.token}`;
+            const Agency = (await import('../models/Agency.model.js')).default;
+            const agency = agencyId ? await Agency.findById(agencyId) : null;
+            const tokenLink = buildPublicAppUrl(agency, `passwordless-login/${tokenResult.token}`);
             if (user.personal_email) {
               const EmailService = (await import('../services/email.service.js')).default;
               await EmailService.sendEmail({
@@ -10445,11 +10420,13 @@ export const promoteToOnboarding = async (req, res, next) => {
             const loginEmail = user.work_email || user.personal_email;
             if (loginEmail) {
               const EmailService = (await import('../services/email.service.js')).default;
-              const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+              const Agency = (await import('../models/Agency.model.js')).default;
+              const agency = agencyId ? await Agency.findById(agencyId) : null;
+              const loginUrl = buildPublicAppUrl(agency, 'login');
               await EmailService.sendEmail({
                 to: loginEmail,
                 subject: 'Your workspace account is ready',
-                text: `Hi ${user.first_name || 'there'},\n\nYour onboarding account is now active. Log in with your work email address at:\n\n${frontendUrl}/login\n\nEmail: ${user.work_email || user.personal_email}\n\nIf you need to reset your password, use the "Forgot password" link on the login page.`
+                text: `Hi ${user.first_name || 'there'},\n\nYour onboarding account is now active. Log in with your work email address at:\n\n${loginUrl}\n\nEmail: ${user.work_email || user.personal_email}\n\nIf you need to reset your password, use the "Forgot password" link on the login page.`
               }).catch(() => {});
             }
           } catch (le) { console.warn('[promoteToOnboarding] Login email send failed:', le?.message); }
@@ -10726,12 +10703,11 @@ export const createCurrentEmployee = async (req, res, next) => {
 
     // Generate passwordless token for password setup (48 hours expiration)
     const passwordlessTokenResult = await User.generatePasswordlessToken(user.id, 48);
-    const frontendBase = ((await import('../config/config.js')).default.frontendUrl || '').replace(/\/$/, '');
     const userAgencies = await User.getAgencies(user.id);
-    const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
-    const passwordlessTokenLink = portalSlug
-      ? `${frontendBase}/${portalSlug}/passwordless-login/${passwordlessTokenResult.token}`
-      : `${frontendBase}/passwordless-login/${passwordlessTokenResult.token}`;
+    const passwordlessTokenLink = buildPublicAppUrl(
+      userAgencies?.[0],
+      `passwordless-login/${passwordlessTokenResult.token}`
+    );
 
     // Get agency info for response
     const Agency = (await import('../models/Agency.model.js')).default;

@@ -18,6 +18,8 @@ import { extractResumeTextFromUpload } from '../services/resumeTextExtraction.se
 import { generateResumeSummaryJson } from '../services/resumeStructuring.service.js';
 import { extractResumePhotoPngFromPdf } from '../services/resumePhotoExtraction.service.js';
 import config from '../config/config.js';
+import Agency from '../models/Agency.model.js';
+import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import {
   submitInterviewSplashAttendance,
   submitInterviewSplashCapsule,
@@ -3850,11 +3852,11 @@ export const sendOnboardingInvite = async (req, res, next) => {
     }
 
     const { sendMethod = 'token' } = req.body || {};
-    const frontendUrl = config.frontendUrl || process.env.FRONTEND_URL || 'http://localhost:3000';
+    const agency = agencyId ? await Agency.findById(agencyId) : null;
 
     if (sendMethod === 'token') {
       const tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24);
-      const tokenLink = `${frontendUrl}/passwordless-login/${tokenResult.token}`;
+      const tokenLink = buildPublicAppUrl(agency, `passwordless-login/${tokenResult.token}`);
       if (user.personal_email) {
         setImmediate(async () => {
           try {
@@ -3875,7 +3877,7 @@ export const sendOnboardingInvite = async (req, res, next) => {
           await EmailService.sendEmail({
             to: loginEmail,
             subject: 'Your workspace account is ready',
-            text: `Hi ${user.first_name || 'there'},\n\nYour onboarding account is now active. Log in at:\n\n${frontendUrl}/login\n\nEmail: ${loginEmail}\n\nIf you need to reset your password, use the "Forgot password" link on the login page.`
+            text: `Hi ${user.first_name || 'there'},\n\nYour onboarding account is now active. Log in at:\n\n${buildPublicAppUrl(agency, 'login')}\n\nEmail: ${loginEmail}\n\nIf you need to reset your password, use the "Forgot password" link on the login page.`
           });
         } catch (e) { console.error('[sendOnboardingInvite] Login email failed:', e); }
       });

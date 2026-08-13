@@ -1,13 +1,13 @@
 <template>
-  <div class="pyu" :style="brandStyle">
-    <div class="pyu__bg" aria-hidden="true" />
-    <div v-if="loading" class="pyu__loading">Loading your Year Update…</div>
+  <div class="pyu" :class="{ 'pyu--embedded': embedded }" :style="brandStyle">
+    <div v-if="!embedded" class="pyu__bg" aria-hidden="true" />
+    <div v-if="loading" class="pyu__loading">{{ embedded ? 'Loading fall client actions…' : 'Loading your Year Update…' }}</div>
     <div v-else-if="error" class="pyu__error">
       <p>{{ error }}</p>
       <button type="button" class="btn btn-secondary" @click="load">Retry</button>
     </div>
     <template v-else-if="payload">
-      <div class="pyu__header-shell">
+      <div v-if="!embedded" class="pyu__header-shell">
         <div class="pyu__accent" aria-hidden="true" />
         <div class="pyu__top-inner">
           <header class="pyu__top">
@@ -50,7 +50,7 @@
       </div>
 
       <div class="pyu__layout">
-        <nav class="pyu__nav" aria-label="Year update sections">
+        <nav v-if="!embedded" class="pyu__nav" aria-label="Year update sections">
           <div class="pyu__nav-progress">
             {{ sectionsDoneCount }} of {{ visibleSectionMeta.length }} sections complete
           </div>
@@ -84,7 +84,7 @@
         </nav>
 
         <main class="pyu__main">
-          <nav class="pyu__section-map" aria-label="Section progress">
+          <nav v-if="!embedded" class="pyu__section-map" aria-label="Section progress">
             <template v-for="(meta, idx) in visibleSectionMeta" :key="meta.key">
               <button
                 type="button"
@@ -804,7 +804,7 @@
                 </li>
               </ul>
             </div>
-            <div class="pyu__section-actions">
+            <div v-if="!embedded" class="pyu__section-actions">
               <button
                 type="button"
                 class="btn btn-primary"
@@ -829,7 +829,7 @@
           <p v-if="actionError" class="error-banner">{{ actionError }}</p>
         </main>
 
-        <aside v-if="resolvedAgencyId && schoolYearKey" class="pyu__right-rail">
+        <aside v-if="!embedded && resolvedAgencyId && schoolYearKey" class="pyu__right-rail">
           <ProviderYearUpdateSchoolNeedsPanel
             :agency-id="resolvedAgencyId"
             :school-year="schoolYearKey"
@@ -844,7 +844,7 @@
         </aside>
       </div>
 
-      <footer class="pyu__footer">
+      <footer v-if="!embedded" class="pyu__footer">
         <img v-if="tenantLogo" :src="tenantLogo" :alt="tenantName" class="pyu__footer-logo" />
         <span>{{ tenantName }} · Provider Fall Update · {{ schoolYearDisplay }}</span>
       </footer>
@@ -903,6 +903,7 @@ const props = defineProps({
   token: { type: String, default: '' },
   agencyId: { type: [Number, String], default: null },
   initialSection: { type: String, default: '' },
+  embedded: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['requires-login', 'loaded']);
@@ -1390,7 +1391,9 @@ async function load() {
       applyPayload(res.data);
     }
     const fromQuery = String(props.initialSection || route.query.section || '').trim();
-    if (fromQuery && visibleSectionMeta.value.some((m) => m.key === fromQuery)) {
+    if (props.embedded) {
+      activeSection.value = fromQuery || 'clients';
+    } else if (fromQuery && visibleSectionMeta.value.some((m) => m.key === fromQuery)) {
       activeSection.value = fromQuery;
     }
   } catch (e) {
@@ -2244,6 +2247,7 @@ watch(
 );
 
 watch(activeSection, (key) => {
+  if (props.embedded) return;
   if (route.query.section !== key && props.mode !== 'token') {
     router.replace({ query: { ...route.query, section: key } }).catch(() => {});
   }
@@ -2262,6 +2266,16 @@ defineExpose({ load, reload: load });
   --pyu-primary: #0c4a6e;
   --pyu-secondary: #15803d;
   --pyu-accent: #c2410c;
+}
+.pyu--embedded {
+  min-height: 0;
+}
+.pyu--embedded .pyu__layout {
+  display: block;
+  padding: 0;
+}
+.pyu--embedded .pyu__main {
+  max-width: none;
 }
 .pyu__bg {
   position: absolute;

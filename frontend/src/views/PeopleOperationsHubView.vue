@@ -412,6 +412,7 @@ import {
   canAccessPeopleOperationsHub,
   workspaceNavContextFromStores
 } from '../utils/workspaceNavAccess.js';
+import { resolveHostImpliedPortalSlug } from '../utils/orgScopedPath.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -960,7 +961,8 @@ watch(visibleSections, (sections) => {
 });
 onMounted(() => {
   loadPendingCounts();
-  if (!route.params.organizationSlug && agencyStore.currentAgency) {
+  const hostSlug = resolveHostImpliedPortalSlug(brandingStore);
+  if (!route.params.organizationSlug && agencyStore.currentAgency && !hostSlug) {
     const slug = agencyStore.currentAgency.slug || agencyStore.currentAgency.portal_url;
     if (slug) router.replace(`/${slug}/people-operations`);
   }
