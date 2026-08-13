@@ -291,6 +291,7 @@
           :roi-context="roiContext"
           :link="link"
           :bound-client="boundClient"
+          :locale="intakeLocale"
           @completed="handleSmartRoiCompleted"
         />
         <SmartDisclosureFlow
@@ -870,6 +871,7 @@
             :link="link"
             :bound-client="boundClient"
             :prefill="embeddedSmartRoiPrefill"
+            :locale="intakeLocale"
             mode="embedded"
             @captured="handleEmbeddedSchoolRoiCaptured"
           />
@@ -2416,9 +2418,23 @@ const linkedLanguageSwitching = ref(false);
 
 const spanishQuestionLabelsEnabled = computed(() => spanishQuestionLabelsEnabledFromLink(link.value));
 
+/** Agency-published EN/ES masters overlay this school shell — do not live-translate. */
+const usesSchoolMaster = computed(() => {
+  const l = link.value;
+  if (!l) return false;
+  if (Number(l.master_form_id || 0) > 0) return true;
+  if (Number(l.inherits_school_master || 0) === 1) return true;
+  if (l.has_spanish_master === true) return true;
+  return false;
+});
+
 /** In-page EN/ES switch for document maps and/or admin-saved question labels. */
 const hasInPageSpanish = computed(
-  () => hasDocumentTranslationMap.value || spanishQuestionLabelsEnabled.value
+  () =>
+    usesSchoolMaster.value
+    || hasDocumentTranslationMap.value
+    || spanishQuestionLabelsEnabled.value
+    || String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi'
 );
 
 const currentFormLanguage = computed(() => {
@@ -2482,6 +2498,14 @@ const txOption = (opt) => {
  * plus static waiver labels and ESIGN text, then batch-translate them all.
  */
 async function fetchStringTranslations() {
+  const l = link.value;
+  const schoolIntakeShell = String(l?.scope_type || '').toLowerCase() === 'school'
+    && String(l?.form_type || 'intake').toLowerCase() === 'intake';
+  if (usesSchoolMaster.value || schoolIntakeShell) {
+    stringTranslationRequestId += 1;
+    stringTranslations.value = {};
+    return;
+  }
   if (intakeLocale.value !== 'es') {
     stringTranslationRequestId += 1;
     stringTranslations.value = {};
@@ -2714,7 +2738,11 @@ async function fetchStringTranslations() {
 
     const requestId = ++stringTranslationRequestId;
     stringTranslationsLoading.value = true;
-    const resp = await api.post('/public/translations/translate-strings', { strings: arr, lang: 'es' });
+    const resp = await api.post(
+      '/public/translations/translate-strings',
+      { strings: arr, lang: 'es' },
+      { skipGlobalLoading: true }
+    );
     if (requestId !== stringTranslationRequestId || intakeLocale.value !== 'es') return;
     const translations = resp?.data?.translations || {};
     stringTranslationCache.set(cacheKey, translations);
@@ -2733,6 +2761,8 @@ async function fetchStringTranslations() {
  * - We are on the Spanish side and know the English key to return to.
  */
 const hasLinkedLanguageToggle = computed(() => {
+  if (usesSchoolMaster.value) return true;
+  if (String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi') return true;
   if (spanishQuestionLabelsEnabled.value) return true;
   if (link.value?.linked_es_form?.public_key) return true;
   if (hasDocumentTranslationMap.value) return true;
@@ -2806,6 +2836,11 @@ watch(
 );
 
 watch(intakeLocale, () => {
+  if (usesSchoolMaster.value) return;
+  if (String(link.value?.scope_type || '').toLowerCase() === 'school'
+    && String(link.value?.form_type || 'intake').toLowerCase() === 'intake') {
+    return;
+  }
   fetchStringTranslations();
 });
 const customMessages = computed(() => link.value?.custom_messages || null);
@@ -3102,10 +3137,13 @@ const splashSupportForm = reactive({
 });
 
 const referralAgencySlug = computed(() => {
+  const fromAgency = String(agencyInfo.value?.slug || agencyInfo.value?.portal_url || '').trim().toLowerCase();
+  const agencyType = String(agencyInfo.value?.organization_type || 'agency').toLowerCase();
+  if (fromAgency && agencyType === 'agency') return fromAgency.replace(/[^a-z0-9-]/g, '');
   const fromBranding = String(formBranding.value?.slug || formBranding.value?.portalUrl || '').trim().toLowerCase();
   if (fromBranding) return fromBranding.replace(/[^a-z0-9-]/g, '');
-  const fromAgency = String(agencyInfo.value?.slug || agencyInfo.value?.portal_url || '').trim().toLowerCase();
-  return fromAgency.replace(/[^a-z0-9-]/g, '');
+  if (fromAgency) return fromAgency.replace(/[^a-z0-9-]/g, '');
+  return '';
 });
 
 const isSchoolScopedIntake = computed(() => {
@@ -5297,7 +5335,18 @@ const loadPdfPreview = async () => {
 const loadLink = async () => {
   try {
     loading.value = true;
-    const resp = await api.get(`/public-intake/${publicKey}`);
+    let preferredLocale = null;
+    try {
+      const stored = localStorage.getItem('preferredFormLanguage');
+      if (stored === 'es' || stored === 'en') preferredLocale = stored;
+    } catch { /* ignore */ }
+    const localeHint = usesSchoolMaster.value
+      ? (inPageLocale.value === 'es' ? 'es' : 'en')
+      : preferredLocale;
+    const resp = await api.get(
+      `/public-intake/${publicKey}`,
+      localeHint ? { params: { locale: localeHint } } : undefined
+    );
     link.value = resp.data?.link || null;
     try {
       const lang = String(link.value?.language_code || 'en').toLowerCase();
@@ -5310,15 +5359,24 @@ const loadLink = async () => {
           publicKey
         );
       }
-      // Restore in-page locale for map-based Spanish (persists across refreshes).
       const map = link.value?.document_translation_map;
       const hasMap = map != null && typeof map === 'object' && Object.keys(map).length > 0;
       const hasQuestionLabelsEs = spanishQuestionLabelsEnabledFromLink(link.value);
-      if (hasMap || hasQuestionLabelsEs) {
-        const stored = localStorage.getItem('preferredFormLanguage');
-        if (stored === 'es') {
-          inPageLocale.value = 'es';
-          // Kick off translation fetch since locale is already Spanish.
+      const isSmartRoiForm = String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi';
+      if (usesSchoolMaster.value) {
+        const masterLang = String(link.value?.master_language_code || link.value?.language_code || 'en')
+          .toLowerCase()
+          .startsWith('es') ? 'es' : 'en';
+        inPageLocale.value = preferredLocale || masterLang;
+      } else if (hasMap || hasQuestionLabelsEs || isSmartRoiForm) {
+        const stored = preferredLocale;
+        const linkLang = String(link.value?.language_code || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
+        if (stored === 'es' || stored === 'en') {
+          inPageLocale.value = stored;
+        } else {
+          inPageLocale.value = linkLang;
+        }
+        if (inPageLocale.value === 'es' && (hasMap || hasQuestionLabelsEs)) {
           fetchStringTranslations();
         }
       }
@@ -5390,6 +5448,22 @@ const loadLink = async () => {
 const switchLinkedLanguage = async (target) => {
   const targetLang = String(target || '').toLowerCase().startsWith('es') ? 'es' : 'en';
   if (linkedLanguageSwitching.value) return;
+
+  // Published school masters: stay on this public URL and reload EN/ES content.
+  if (usesSchoolMaster.value) {
+    if (targetLang === inPageLocale.value && String(link.value?.master_language_code || '') === targetLang) {
+      return;
+    }
+    inPageLocale.value = targetLang;
+    try { localStorage.setItem('preferredFormLanguage', targetLang); } catch { /* ignore */ }
+    linkedLanguageSwitching.value = true;
+    try {
+      await loadLink();
+    } finally {
+      linkedLanguageSwitching.value = false;
+    }
+    return;
+  }
 
   // In-page locale switch (document map and/or saved question labels — no separate form navigation).
   if (hasInPageSpanish.value) {

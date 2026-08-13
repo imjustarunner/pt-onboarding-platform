@@ -288,7 +288,7 @@
             :disabled="!portalOrganizationIdForIntake"
             @click="intakesPanelOpen = !intakesPanelOpen"
           >
-            {{ intakesPanelOpen ? 'Hide intakes' : 'Display intakes' }}
+            {{ intakesPanelOpen ? 'Hide digital referral packet' : 'Display digital referral packet' }}
           </button>
           <p v-if="!portalOrganizationIdForIntake" class="staff-intake-panel__muted intakes-trigger-hint">
             Digital forms load after this page finishes loading.
@@ -300,34 +300,37 @@
           class="staff-intake-panel staff-intake-panel--standalone"
           aria-labelledby="staff-intake-heading"
         >
-          <h3 id="staff-intake-heading" class="staff-intake-panel__title">Family digital intake</h3>
+          <h3 id="staff-intake-heading" class="staff-intake-panel__title">Family digital referral packet</h3>
           <p class="staff-intake-panel__lead">
-            English and Spanish intakes (same as your School Portal). Share links or QR codes with families — no sign-in required here.
+            Share this School Referral Packet link or QR with families — no sign-in required here.
+            Once they open the link, they can switch from English to Spanish.
           </p>
-          <div v-if="staffIntakeLoading" class="staff-intake-panel__muted">Loading intake forms…</div>
+          <div v-if="staffIntakeLoading" class="staff-intake-panel__muted">Loading referral packet…</div>
           <p v-else-if="staffIntakeError" class="staff-intake-panel__err">{{ staffIntakeError }}</p>
-          <div v-else class="staff-intake-grid">
-            <div v-if="staffIntakeEn" class="staff-intake-card">
-              <div class="staff-intake-card__badge">English</div>
+          <div v-else class="staff-intake-grid staff-intake-grid--single">
+            <div v-if="staffIntakeMaster" class="staff-intake-card">
               <img
-                v-if="staffIntakeQr.en"
-                :src="staffIntakeQr.en"
-                alt="QR code — English intake"
+                v-if="staffIntakeQrDisplay"
+                :src="staffIntakeQrDisplay"
+                alt="QR code — family digital referral packet"
                 class="staff-intake-card__qr"
               />
-              <p class="staff-intake-card__title">{{ staffIntakeEn.title || 'English intake' }}</p>
+              <p class="staff-intake-card__title">School Referral Packet</p>
+              <p class="staff-intake-card__note">
+                Open the link, then change English to Spanish at the top of the form if needed.
+              </p>
               <div class="staff-intake-card__actions">
                 <button
                   type="button"
                   class="btn btn-secondary staff-intake-btn"
-                  :disabled="!staffIntakeUrl(staffIntakeEn) || staffIntakeUrl(staffIntakeEn) === '#'"
-                  @click="copyStaffIntakeUrl(staffIntakeEn, 'en')"
+                  :disabled="!staffIntakeUrl(staffIntakeMaster) || staffIntakeUrl(staffIntakeMaster) === '#'"
+                  @click="copyStaffIntakeUrl(staffIntakeMaster)"
                 >
-                  {{ intakeCopyHint.en || 'Copy link' }}
+                  {{ intakeCopyHint || 'Copy link' }}
                 </button>
                 <a
-                  v-if="staffIntakeUrl(staffIntakeEn) !== '#'"
-                  :href="staffIntakeUrl(staffIntakeEn)"
+                  v-if="staffIntakeUrl(staffIntakeMaster) !== '#'"
+                  :href="staffIntakeUrl(staffIntakeMaster)"
                   class="btn btn-secondary staff-intake-btn"
                   target="_blank"
                   rel="noopener noreferrer"
@@ -337,45 +340,21 @@
                   class="btn btn-secondary staff-intake-btn"
                   style="opacity: 0.45; pointer-events: none; cursor: not-allowed"
                 >Open</span>
-              </div>
-            </div>
-            <div v-if="staffIntakeEs" class="staff-intake-card">
-              <div class="staff-intake-card__badge">Español</div>
-              <img
-                v-if="staffIntakeQr.es"
-                :src="staffIntakeQr.es"
-                alt="QR code — Spanish intake"
-                class="staff-intake-card__qr"
-              />
-              <p class="staff-intake-card__title">{{ staffIntakeEs.title || 'Spanish intake' }}</p>
-              <div class="staff-intake-card__actions">
                 <button
+                  v-if="staffIntakeQr.fancy || staffIntakeQr.simple"
                   type="button"
                   class="btn btn-secondary staff-intake-btn"
-                  :disabled="!staffIntakeUrl(staffIntakeEs) || staffIntakeUrl(staffIntakeEs) === '#'"
-                  @click="copyStaffIntakeUrl(staffIntakeEs, 'es')"
+                  @click="staffIntakeQrFancyMode = !staffIntakeQrFancyMode"
                 >
-                  {{ intakeCopyHint.es || 'Copy link' }}
+                  {{ staffIntakeQrFancyMode ? 'Switch to black & simple' : 'Switch to branded' }}
                 </button>
-                <a
-                  v-if="staffIntakeUrl(staffIntakeEs) !== '#'"
-                  :href="staffIntakeUrl(staffIntakeEs)"
-                  class="btn btn-secondary staff-intake-btn"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >Open</a>
-                <span
-                  v-else
-                  class="btn btn-secondary staff-intake-btn"
-                  style="opacity: 0.45; pointer-events: none; cursor: not-allowed"
-                >Open</span>
               </div>
             </div>
             <p
-              v-if="!staffIntakeEn && !staffIntakeEs"
+              v-else
               class="staff-intake-panel__empty"
             >
-              No active English or Spanish intake is configured yet. Your administrator can publish them under Digital Forms for this school or program.
+              No active School Referral Packet is configured yet. Your administrator can publish the master packet under Digital Forms for this school.
             </p>
           </div>
         </section>
@@ -578,45 +557,63 @@
         <div v-if="showForgotUsernameMessage" class="modal-overlay" @click.self="closeRecoveryModals">
           <div class="modal">
             <h3>Recover your username</h3>
-            <p class="modal-subtitle">Enter your details and message. We send this to admin support for follow-up.</p>
+            <p class="modal-subtitle">
+              Your username is your official school email. Try signing in with that address first.
+            </p>
             <form @submit.prevent="submitForgotUsername" class="modal-form">
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="firstName">First name</label>
-                  <input id="firstName" v-model="recoverFirstName" type="text" required placeholder="First name" />
+              <label class="forgot-username-confirm">
+                <input v-model="recoverTriedSchoolEmail" type="checkbox" />
+                <span>I tried my official school email and it did not work.</span>
+              </label>
+              <template v-if="recoverTriedSchoolEmail">
+                <p class="modal-subtitle">We’ll submit this as a support ticket for follow-up.</p>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="firstName">First name</label>
+                    <input id="firstName" v-model="recoverFirstName" type="text" required placeholder="First name" />
+                  </div>
+                  <div class="form-group">
+                    <label for="lastName">Last name</label>
+                    <input id="lastName" v-model="recoverLastName" type="text" required placeholder="Last name" />
+                  </div>
                 </div>
                 <div class="form-group">
-                  <label for="lastName">Last name</label>
-                  <input id="lastName" v-model="recoverLastName" type="text" required placeholder="Last name" />
+                  <label for="recoverSchoolName">School</label>
+                  <input id="recoverSchoolName" v-model="recoverSchoolName" type="text" required placeholder="School name" />
                 </div>
-              </div>
-              <div class="form-group">
-                <label for="role">Role</label>
-                <select id="role" v-model="recoverRole" required>
-                  <option disabled value="">Select your role</option>
-                  <option value="school_staff">School Staff</option>
-                  <option value="client_guardian">Guardian</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label for="recoverContactEmail">Contact email (optional)</label>
-                <input id="recoverContactEmail" v-model="recoverContactEmail" type="email" placeholder="name@school.org" />
-              </div>
-              <div class="form-group">
-                <label for="recoverMessage">Message</label>
-                <textarea
-                  id="recoverMessage"
-                  v-model="recoverMessage"
-                  rows="4"
-                  required
-                  maxlength="2000"
-                  placeholder="Tell admin who you are and what access help you need."
-                />
-              </div>
+                <div class="form-group">
+                  <label for="role">Role</label>
+                  <select id="role" v-model="recoverRole" required>
+                    <option disabled value="">Select your role</option>
+                    <option value="school_staff">School Staff</option>
+                    <option value="client_guardian">Guardian</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="recoverContactEmail">School email</label>
+                  <input id="recoverContactEmail" v-model="recoverContactEmail" type="email" required placeholder="name@school.org" />
+                </div>
+                <div class="form-group">
+                  <label for="recoverMessage">Comments</label>
+                  <textarea
+                    id="recoverMessage"
+                    v-model="recoverMessage"
+                    rows="4"
+                    required
+                    maxlength="2000"
+                    placeholder="Anything else that will help admin find your account."
+                  />
+                </div>
+              </template>
               <div v-if="recoveryError" class="error">{{ recoveryError }}</div>
               <div v-if="recoverySuccess" class="success">{{ recoverySuccess }}</div>
-              <button type="submit" class="btn btn-primary" :disabled="recoveryLoading">
-                {{ recoveryLoading ? 'Sending…' : 'Send help request' }}
+              <button
+                v-if="recoverTriedSchoolEmail"
+                type="submit"
+                class="btn btn-primary"
+                :disabled="recoveryLoading"
+              >
+                {{ recoveryLoading ? 'Sending…' : 'Submit ticket' }}
               </button>
               <button type="button" class="btn btn-secondary" @click="closeRecoveryModals" :disabled="recoveryLoading">Cancel</button>
             </form>
@@ -678,10 +675,11 @@ import { buildOrgLoginPath } from '../utils/orgLoginPath';
 import { resolveHostImpliedPortalSlug } from '../utils/orgScopedPath';
 import { getPlatformAppHostname } from '../utils/brandSwitchUrl';
 import { buildPublicIntakeUrl } from '../utils/publicIntakeUrl';
+import { pickMasterStaffIntake } from '../utils/pickSchoolReferralIntake.js';
 import {
   getPrimarySchoolStaffPortalSlug
 } from '../utils/schoolStaffPortal.js';
-import QRCode from 'qrcode';
+import { buildFancyQrDataUrl } from '../utils/fancyQr.js';
 
 // Removed hardcoded credentials for security
 const router = useRouter();
@@ -885,12 +883,13 @@ const usernameFieldPlaceholder = computed(() =>
 const loginTheme = ref(null);
 const loadingTheme = ref(false);
 
-/** Raw list from GET /public-intake/school/:id (we only surface EN + ES in the UI). */
+/** Master school referral packet from GET /public-intake/school/:id. */
 const staffIntakeLinks = ref([]);
 const staffIntakeLoading = ref(false);
 const staffIntakeError = ref('');
-const staffIntakeQr = ref({ en: '', es: '' });
-const intakeCopyHint = ref({ en: '', es: '' });
+const staffIntakeQr = ref({ simple: '', fancy: '' });
+const staffIntakeQrFancyMode = ref(true);
+const intakeCopyHint = ref('');
 const intakesPanelOpen = ref(false);
 
 // Logo and title for agency login
@@ -1386,6 +1385,8 @@ const recoverLastName = ref('');
 const recoverRole = ref('');
 const recoverMessage = ref('');
 const recoverContactEmail = ref('');
+const recoverSchoolName = ref('');
+const recoverTriedSchoolEmail = ref(false);
 const currentEmployeeRescueLoading = ref(false);
 const canShowCurrentEmployeeRescue = computed(() =>
   isOrgLogin.value && String(username.value || '').trim().length > 0
@@ -1411,13 +1412,12 @@ const showIntakesTrigger = computed(() => {
   );
 });
 
-function pickStaffIntakeForLang(links, langPrefix) {
-  const pref = String(langPrefix || '').toLowerCase();
-  return (links || []).find((l) => String(l?.language_code || 'en').toLowerCase().startsWith(pref)) || null;
-}
-
-const staffIntakeEn = computed(() => pickStaffIntakeForLang(staffIntakeLinks.value, 'en'));
-const staffIntakeEs = computed(() => pickStaffIntakeForLang(staffIntakeLinks.value, 'es'));
+const staffIntakeMaster = computed(() => pickMasterStaffIntake(staffIntakeLinks.value));
+const staffIntakeQrDisplay = computed(() =>
+  staffIntakeQrFancyMode.value
+    ? (staffIntakeQr.value.fancy || staffIntakeQr.value.simple)
+    : (staffIntakeQr.value.simple || staffIntakeQr.value.fancy)
+);
 
 function staffIntakeUrl(link) {
   const k = String(link?.public_key || '').trim();
@@ -1433,51 +1433,42 @@ async function loadStaffIntakeLinks() {
     const resp = await api.get(`/public-intake/school/${id}`, { skipGlobalLoading: true, skipAuthRedirect: true });
     const links = Array.isArray(resp.data?.links) ? resp.data.links : resp.data?.link ? [resp.data.link] : [];
     staffIntakeLinks.value = links;
-    staffIntakeQr.value = { en: '', es: '' };
-    const en = pickStaffIntakeForLang(links, 'en');
-    const es = pickStaffIntakeForLang(links, 'es');
-    if (en?.public_key) {
-      const url = buildPublicIntakeUrl(en.public_key);
-      staffIntakeQr.value.en = await QRCode.toDataURL(url, {
-        width: 216,
-        margin: 1,
-        color: { dark: '#1f2937', light: '#ffffffff' }
+    staffIntakeQr.value = { simple: '', fancy: '' };
+    staffIntakeQrFancyMode.value = true;
+    const master = pickMasterStaffIntake(links);
+    if (master?.public_key) {
+      const url = buildPublicIntakeUrl(master.public_key);
+      const { simple, fancy } = await buildFancyQrDataUrl(url, {
+        size: 240,
+        logoSrc: displayLogoUrl.value || ''
       });
-    }
-    if (es?.public_key) {
-      const url = buildPublicIntakeUrl(es.public_key);
-      staffIntakeQr.value.es = await QRCode.toDataURL(url, {
-        width: 216,
-        margin: 1,
-        color: { dark: '#1f2937', light: '#ffffffff' }
-      });
+      staffIntakeQr.value = { simple, fancy };
     }
   } catch (e) {
     staffIntakeLinks.value = [];
-    staffIntakeQr.value = { en: '', es: '' };
+    staffIntakeQr.value = { simple: '', fancy: '' };
     const st = e?.response?.status;
     if (st !== 404) {
-      staffIntakeError.value = e?.response?.data?.error?.message || 'Could not load intake links.';
+      staffIntakeError.value = e?.response?.data?.error?.message || 'Could not load referral packet.';
     }
   } finally {
     staffIntakeLoading.value = false;
   }
 }
 
-async function copyStaffIntakeUrl(link, slot) {
+async function copyStaffIntakeUrl(link) {
   const url = staffIntakeUrl(link);
   if (!url || url === '#') return;
-  const key = slot === 'es' ? 'es' : 'en';
   try {
     await navigator.clipboard.writeText(url);
-    intakeCopyHint.value = { ...intakeCopyHint.value, [key]: 'Copied!' };
+    intakeCopyHint.value = 'Copied!';
     setTimeout(() => {
-      intakeCopyHint.value = { ...intakeCopyHint.value, [key]: '' };
+      intakeCopyHint.value = '';
     }, 2200);
   } catch {
-    intakeCopyHint.value = { ...intakeCopyHint.value, [key]: 'Copy failed' };
+    intakeCopyHint.value = 'Copy failed';
     setTimeout(() => {
-      intakeCopyHint.value = { ...intakeCopyHint.value, [key]: '' };
+      intakeCopyHint.value = '';
     }, 2200);
   }
 }
@@ -1494,8 +1485,9 @@ watch(
   () => {
     intakesPanelOpen.value = false;
     staffIntakeLinks.value = [];
-    staffIntakeQr.value = { en: '', es: '' };
-    intakeCopyHint.value = { en: '', es: '' };
+    staffIntakeQr.value = { simple: '', fancy: '' };
+    staffIntakeQrFancyMode.value = true;
+    intakeCopyHint.value = '';
     staffIntakeError.value = '';
   }
 );
@@ -1895,9 +1887,11 @@ const showForgotUsername = () => {
   recoveryDebug.value = null;
   recoverFirstName.value = '';
   recoverLastName.value = '';
-  recoverRole.value = '';
+  recoverRole.value = isSchoolPortalOrg.value ? 'school_staff' : '';
   recoverMessage.value = '';
   recoverContactEmail.value = '';
+  recoverSchoolName.value = String(loginTheme.value?.agency?.name || '').trim();
+  recoverTriedSchoolEmail.value = false;
 };
 
 const closeRecoveryModals = () => {
@@ -2019,6 +2013,10 @@ const submitCurrentEmployeeRescue = async () => {
 };
 
 const submitForgotUsername = async () => {
+  if (!recoverTriedSchoolEmail.value) {
+    recoveryError.value = 'Confirm you tried your official school email first.';
+    return;
+  }
   recoveryLoading.value = true;
   recoveryError.value = '';
   recoverySuccess.value = '';
@@ -2030,7 +2028,9 @@ const submitForgotUsername = async () => {
       lastName: String(recoverLastName.value || '').trim(),
       role: String(recoverRole.value || '').trim(),
       message: String(recoverMessage.value || '').trim(),
-      contactEmail: String(recoverContactEmail.value || '').trim() || undefined,
+      contactEmail: String(recoverContactEmail.value || '').trim(),
+      schoolName: String(recoverSchoolName.value || '').trim(),
+      triedSchoolEmail: true,
       organizationSlug: loginSlug.value || undefined,
       captchaToken: captchaToken || undefined
     }, { skipGlobalLoading: true, skipAuthRedirect: true });
@@ -2709,6 +2709,34 @@ const handleLogoError = (event) => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+.staff-intake-grid--single {
+  grid-template-columns: 1fr;
+  max-width: 360px;
+  margin: 0 auto;
+}
+
+.staff-intake-card__note {
+  margin: 0 0 10px 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary, #64748b);
+  text-align: center;
+}
+
+.forgot-username-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0 12px;
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.forgot-username-confirm input {
+  margin-top: 3px;
 }
 
 .staff-intake-card {

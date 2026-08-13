@@ -1,11 +1,14 @@
 import pool from '../config/database.js';
 import crypto from 'crypto';
 import IntakeLink from './IntakeLink.model.js';
+import { resolveRequestedMasterLanguage } from '../utils/schoolIntakeMasterLanguage.js';
 
 function normalizeLang(languageCode) {
   const raw = String(languageCode || 'en').trim().toLowerCase();
   return raw === 'es' || raw.startsWith('es') ? 'es' : 'en';
 }
+
+export { resolveRequestedMasterLanguage };
 
 function parseJson(value, fallback = null) {
   if (value == null) return fallback;
@@ -436,11 +439,16 @@ class AgencySchoolIntakeMaster {
 
   /**
    * Overlay master steps/fields onto a school shell intake link for public/runtime use.
+   * Uses the published EN or ES master (already authored) — never live-translates.
    */
-  static async applyMasterToLink(link, { agencyId = null } = {}) {
+  static async applyMasterToLink(link, { agencyId = null, languageCode = null } = {}) {
     if (!link) return link;
+    if (Number(link.is_school_master || 0) === 1) return link;
+    const formType = String(link.form_type || 'intake').toLowerCase();
+    const scope = String(link.scope_type || '').toLowerCase();
+    const isSchoolIntakeShell = scope === 'school' && formType === 'intake';
     const inherits = Number(link.inherits_school_master || 0) === 1;
-    if (!inherits) return link;
+    if (!inherits && !isSchoolIntakeShell) return link;
     let aid = Number(agencyId || 0);
     if (!aid) {
       try {
@@ -451,14 +459,21 @@ class AgencySchoolIntakeMaster {
       }
     }
     if (!aid) return link;
-    const master = await this.getOrCreateForAgency(aid, { languageCode: link.language_code || 'en' });
+    const lang = resolveRequestedMasterLanguage(languageCode, link.language_code || 'en');
+    const master = await this.getOrCreateForAgency(aid, { languageCode: lang });
     if (!master) return link;
+    const esMaster = lang === 'es' ? master : await this.findByAgencyLanguage(aid, 'es');
+    const hasSpanishMaster = !!(esMaster && Number(esMaster.id || 0));
     return {
       ...link,
       intake_steps: master.intake_steps,
       intake_fields: master.intake_fields,
       master_form_version: master.version,
       master_form_id: master.id,
+      master_language_code: lang,
+      has_spanish_master: hasSpanishMaster,
+      inherits_school_master: 1,
+      language_code: lang,
       title: link.title || master.title
     };
   }

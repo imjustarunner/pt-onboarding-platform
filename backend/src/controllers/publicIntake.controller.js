@@ -21,6 +21,7 @@ import applyClientRoiCompletion from '../services/clientRoiCompletion.service.js
 import applyClientIntakeCompletion from '../services/clientIntakeCompletion.service.js';
 import { maybeCreateSchoolIntakeReviewTask } from '../services/schoolIntakeReviewTask.service.js';
 import { getClientIpAddress } from '../utils/ipAddress.util.js';
+import { resolveRequestedMasterLanguage } from '../utils/schoolIntakeMasterLanguage.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import { attachSignedPdfToClient } from '../services/phiDocumentAttachment.service.js';
 import Client from '../models/Client.model.js';
@@ -4692,21 +4693,27 @@ export const getPublicIntakeLink = async (req, res, next) => {
     }
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     // Live-inherit agency school digital form master onto school shells.
+    // Locale comes from ?locale= so EN/ES masters swap on the same public URL
+    // (no live translate-strings, no retired per-school Spanish copy).
     if (
       String(link.scope_type || '').toLowerCase() === 'school'
       && String(link.form_type || 'intake').toLowerCase() === 'intake'
       && (Number(link.inherits_school_master || 0) === 1 || agency?.id)
     ) {
       try {
+        const masterLang = resolveRequestedMasterLanguage(req.query, link.language_code || 'en');
         if (agency?.id && Number(link.inherits_school_master || 0) !== 1) {
           // Ensure masters exist and flip shells on first public open after deploy.
           await AgencySchoolIntakeMaster.getOrCreateForAgency(agency.id, {
-            languageCode: link.language_code || 'en'
+            languageCode: masterLang
           });
           const refreshed = await IntakeLink.findById(link.id);
           if (refreshed) link = refreshed;
         }
-        link = await AgencySchoolIntakeMaster.applyMasterToLink(link, { agencyId: agency?.id || null });
+        link = await AgencySchoolIntakeMaster.applyMasterToLink(link, {
+          agencyId: agency?.id || null,
+          languageCode: masterLang
+        });
       } catch (inheritErr) {
         console.warn('[publicIntake] school master inherit failed', inheritErr?.message || inheritErr);
       }
@@ -4862,8 +4869,13 @@ export const getPublicIntakeLink = async (req, res, next) => {
         intake_fields: link.intake_fields,
         intake_steps: link.intake_steps,
         custom_messages: link.custom_messages || null,
-        linked_es_form: linkedEsInfo,
-        document_translation_map: link.document_translation_map || null
+        linked_es_form: link.has_spanish_master ? null : linkedEsInfo,
+        document_translation_map: link.has_spanish_master ? null : (link.document_translation_map || null),
+        inherits_school_master: Number(link.inherits_school_master || 0) === 1 ? 1 : 0,
+        master_form_id: link.master_form_id || null,
+        master_form_version: link.master_form_version || null,
+        master_language_code: link.master_language_code || null,
+        has_spanish_master: !!link.has_spanish_master
       },
       recaptcha: needsCaptcha
         ? {
@@ -5784,12 +5796,19 @@ export const finalizePublicIntake = async (req, res, next) => {
       if (String(link.scope_type || '').toLowerCase() === 'school' && String(link.form_type || 'intake').toLowerCase() === 'intake') {
         const agencyIdForMaster = await AgencySchool.getActiveAgencyIdForSchool(link.organization_id);
         if (agencyIdForMaster) {
+          const masterLang = resolveRequestedMasterLanguage(
+            req.body?.intakeData || req.body,
+            link.language_code || 'en'
+          );
           await AgencySchoolIntakeMaster.getOrCreateForAgency(agencyIdForMaster, {
-            languageCode: link.language_code || 'en'
+            languageCode: masterLang
           });
           const refreshed = await IntakeLink.findById(link.id);
           if (refreshed) link = refreshed;
-          link = await AgencySchoolIntakeMaster.applyMasterToLink(link, { agencyId: agencyIdForMaster });
+          link = await AgencySchoolIntakeMaster.applyMasterToLink(link, {
+            agencyId: agencyIdForMaster,
+            languageCode: masterLang
+          });
         }
       }
       if (
@@ -9993,8 +10012,16 @@ export const getSchoolIntakeLink = async (req, res, next) => {
     const scopeType = orgType === 'program' ? 'program' : 'school';
     const links = await IntakeLink.findByScope({ scopeType, organizationId: orgId, programId: null });
     const activeLinks = (links || []).filter((l) => !!l?.is_active);
-    const link = activeLinks[0] || null;
     if (!activeLinks.length) return res.status(404).json({ error: { message: 'No intake link configured for school' } });
+    const referralPool = activeLinks.filter((l) => {
+      const ft = String(l?.form_type || 'intake').toLowerCase();
+      return ft === 'intake' || ft === 'public_form' || !ft;
+    });
+    const english = referralPool.filter((l) => !String(l?.language_code || 'en').toLowerCase().startsWith('es'));
+    const inheriting = english.filter((l) => Number(l.inherits_school_master || 0) === 1);
+    const search = inheriting.length ? inheriting : (english.length ? english : referralPool);
+    const packetish = search.find((l) => /referral packet|paquete de referencia|school referral/i.test(String(l?.title || '')));
+    const link = packetish || search[0] || activeLinks[0] || null;
     res.json({ link, links: activeLinks, scopeType, organizationId: orgId });
   } catch (error) {
     next(error);
