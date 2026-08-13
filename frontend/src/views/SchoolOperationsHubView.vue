@@ -433,7 +433,8 @@ const icon = {
   docs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8M8 9h2" stroke-linecap="round"/></svg>',
   form: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h6M7 16h8" stroke-linecap="round"/></svg>',
   staff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke-linecap="round"/></svg>',
-  key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="8" cy="15" r="4"/><path d="M12 15h8M16 11l4 4" stroke-linecap="round"/></svg>'
+  key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="8" cy="15" r="4"/><path d="M12 15h8M16 11l4 4" stroke-linecap="round"/></svg>',
+  chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 19V5M4 19h16"/><path d="M8 16v-5M12 16V8M16 16v-8" stroke-linecap="round"/></svg>'
 };
 
 const allSections = computed(() => [
@@ -512,8 +513,30 @@ const allSections = computed(() => [
     ].filter((c) => c.show)
   },
   {
+    id: 'school-reports',
+    label: 'School Reports',
+    desc: 'Caseload, coverage, and session counts by year.',
+    tone: 'cyan',
+    icon: icon.chart,
+    cards: [
+      {
+        id: 'school-reports-home',
+        title: 'School Reports',
+        shortDesc: 'Assignment, school, district, and provider counts.',
+        desc: 'Query clients with a provider and day, provider but no day, or no provider — plus students seen, sessions, and slots by school, district, and provider.',
+        cta: 'Open →',
+        to: orgTo('/admin/school-reports'),
+        tone: 'cyan',
+        icon: icon.chart,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: 0
+      }
+    ].filter((c) => c.show)
+  },
+  {
     id: 'events-calendar',
-    label: 'Events and Outreach',
+    label: 'Events & Outreach',
     desc: 'School events, visits, and partnership tracking.',
     tone: 'amber',
     icon: icon.calEvent,

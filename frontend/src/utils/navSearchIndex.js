@@ -265,8 +265,17 @@ export const NAV_SEARCH_INDEX = [
     title: 'School Operations',
     section: 'Hub',
     path: '/school-operations',
-    keywords: ['school', 'caseload', 'coverage', 'portal', 'events', 'staffing', 'outreach'],
-    desc: 'Main School Operations hub — caseloads, portals, events, and requests.'
+    keywords: ['school', 'caseload', 'coverage', 'portal', 'events', 'staffing', 'outreach', 'reports'],
+    desc: 'Main School Operations hub — caseloads, portals, events, reports, and requests.'
+  },
+
+  // School Reports
+  {
+    title: 'School Reports',
+    section: 'School Ops › School Reports',
+    path: '/admin/school-reports',
+    keywords: ['school reports', 'caseload reports', 'provider day', 'unassigned clients', 'district counts', 'slots', 'sessions seen'],
+    desc: 'Year-scoped school reports: assignment buckets, students seen, sessions, and provider slots.'
   },
 
   // Caseloads & Staffing
@@ -306,31 +315,31 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Review and approve schedule adjustments and extra school-hour requests.'
   },
 
-  // Events and Outreach
+  // Events & Outreach
   {
     title: 'School Events',
-    section: 'School Ops › Events and Outreach',
+    section: 'School Ops › Events & Outreach',
     path: '/admin/caseload-hub/events',
     keywords: ['school events', 'events', 'provider assignments', 'event list', 'program events'],
     desc: 'Manage school events and provider assignments.'
   },
   {
     title: 'School Events Calendar',
-    section: 'School Ops › Events and Outreach',
+    section: 'School Ops › Events & Outreach',
     path: '/admin/caseload-hub/calendar',
     keywords: ['school calendar', 'calendar', 'events calendar', 'monthly view', 'week view'],
     desc: 'Month, week, and list views of school events.'
   },
   {
     title: 'Outreach Hub',
-    section: 'School Ops › Events and Outreach',
+    section: 'School Ops › Events & Outreach',
     path: '/admin/outreach-hub',
     keywords: ['outreach', 'visits', 'school contacts', 'partnership', 'trips', 'timeline'],
     desc: 'Track school outreach contacts, visits, and partnership stages.'
   },
   {
     title: 'Provider Requests (Events)',
-    section: 'School Ops › Events and Outreach',
+    section: 'School Ops › Events & Outreach',
     path: '/admin/caseload-hub/events?tab=provider-requests',
     keywords: ['provider requests', 'event requests', 'provider applications', 'event approvals'],
     desc: 'Pending provider applications for school events.'

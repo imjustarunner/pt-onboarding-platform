@@ -1,5 +1,6 @@
 import { canAccessSchoolPortalsSurfaces } from './schoolPortalsAccess.js';
 import { isSummitPlatformRouteSlug } from './summitPlatformSlugs.js';
+import { hubPathPrefix } from './orgScopedPath.js';
 
 function normRole(role) {
   return String(role || '').trim().toLowerCase();
@@ -358,7 +359,11 @@ export function workspaceNavContextFromStores({
   return {
     role,
     user: user?.value ?? user ?? null,
-    prefix: slugNorm ? `/${slugNorm}` : '',
+    prefix: hubPathPrefix({
+      routeSlug: slug,
+      agency: agencyRecord,
+      branding
+    }),
     isAffiliationContext,
     isSscSstcTenant: isSscSstcTenantFromSlug(slugNorm),
     agencyFeatureFlags: flags,

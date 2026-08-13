@@ -2206,6 +2206,7 @@ import { useSessionLockStore } from './store/sessionLock';
 import { useUserPreferencesStore } from './store/userPreferences';
 import { useRouter, useRoute } from 'vue-router';
 import { isSchoolOnboardingDemoRoute } from './utils/schoolOnboardingDemoContext.js';
+import { resolveHostImpliedPortalSlug } from './utils/orgScopedPath.js';
 import { resolvePreferredAgencySlug } from './utils/demoTenant.js';
 import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
@@ -6536,12 +6537,18 @@ onMounted(async () => {
     }
   }
 
-  // Super admin default: Platform context unless we're on a branded (slug) route.
+  // Super admin default: Platform context unless we're on a branded (slug) route
+  // or a dedicated app host (app.itsco.health already implies ITSCO).
   // Uses setPlatformMode() so subsequent fetchUserAgencies calls don't snap back to a tenant.
   try {
     const role = String(authStore.user?.role || '').toLowerCase();
     const slugFromRoute = route.params.organizationSlug;
-    if (role === 'super_admin' && !(typeof slugFromRoute === 'string' && slugFromRoute)) {
+    const hostSlug = resolveHostImpliedPortalSlug(brandingStore);
+    if (
+      role === 'super_admin'
+      && !(typeof slugFromRoute === 'string' && slugFromRoute)
+      && !hostSlug
+    ) {
       agencyStore.setPlatformMode();
     }
   } catch {

@@ -9,6 +9,7 @@ import { getBackendBaseUrl, toUploadsUrl } from '../utils/uploadsUrl';
 import { trackPromise } from '../utils/pageLoader';
 import { preloadImages } from '../utils/preloadImages';
 import { isSchoolOnboardingDemoActive } from '../utils/schoolOnboardingDemoContext.js';
+import { shouldApplyPortalAgencyThemeFirst as resolvePortalThemePriority } from '../utils/portalThemePriority.js';
 
 // In-flight deduplication + short TTL cache for fetchAgencyTheme.
 // Prevents duplicate HTTP requests on redirect-chain navigations (/:slug → /:slug/login).
@@ -167,31 +168,19 @@ export const useBrandingStore = defineStore('branding', () => {
 
   /**
    * Returns true when portalAgency's theme should override currentAgency.
-   *  1. No portal agency loaded             → false
-   *  2. Not authenticated                    → true  (portal/login page)
-   *  3. Superadmin Platform chip             → false (platform branding must win over host portal e.g. ITSCO)
-   *  4. activeRouteSlug matches portalSlug   → true  (e.g. /nlu/... with nlu portal loaded)
-   *  5. activeRouteSlug set but no match    → false  (portal data is stale from previous nav)
-   *  6. No route slug (platform/unscoped)    → true only when no currentAgency and not platformMode
+   * Dedicated app hosts (app.itsco.health) keep host branding even in Platform
+   * chip mode, so Workforce Ops does not flash platform gold on ITSCO.
    */
   const shouldApplyPortalAgencyThemeFirst = () => {
-    if (!portalAgency.value) return false;
-    if (!authStore.isAuthenticated) return true;
-
-    // Explicit Platform context must never keep host-portal (e.g. ITSCO) colors.
-    if (agencyStore.platformMode && !agencyStore.currentAgency) return false;
-
-    const routeSlug = activeRouteSlug.value; // reactive — updates on every navigation ✓
-    const portalSlug = String(portalAgency.value.slug || '').trim().toLowerCase();
-
-    if (routeSlug) {
-      // Route slug is the authority: portal wins only when slugs match.
-      return !!(portalSlug && routeSlug === portalSlug);
-    }
-
-    // No slug-scoped route (platform mode).
-    if (!agencyStore.currentAgency) return true;
-    return false;
+    return resolvePortalThemePriority({
+      hasPortalAgency: !!portalAgency.value,
+      isAuthenticated: !!authStore.isAuthenticated,
+      platformMode: !!agencyStore.platformMode,
+      currentAgency: agencyStore.currentAgency,
+      routeSlug: activeRouteSlug.value,
+      portalSlug: portalAgency.value?.slug || portalAgency.value?.portal_url,
+      hostImpliedSlug: portalHostPortalUrl.value
+    });
   };
   
   // Fetch platform branding

@@ -44,6 +44,20 @@ export function resolveHostImpliedPortalSlug(brandingStore = null) {
 }
 
 /**
+ * Hub switcher / org-scoped prefix. Dedicated app hosts (app.itsco.health) stay
+ * flat so Workforce Ops does not jump to another tenant's slug path.
+ */
+export function hubPathPrefix({ routeSlug = '', agency = null, branding = null } = {}) {
+  const route = norm(routeSlug);
+  const host = resolveHostImpliedPortalSlug(branding);
+  if (host && (!route || route === host)) return '';
+  if (route) return `/${route}`;
+  const agencySlug = norm(agency?.slug || agency?.portal_url);
+  if (agencySlug && agencySlug !== host) return `/${agencySlug}`;
+  return '';
+}
+
+/**
  * Portal slug for API calls and storage keys when the route may omit :organizationSlug
  * (e.g. flat /kiosk on app.{agency}.health).
  */

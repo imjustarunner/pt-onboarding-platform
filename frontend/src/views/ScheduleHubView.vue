@@ -356,6 +356,7 @@ import {
 import { isSupervisor } from '../utils/helpers.js';
 import { isSummitPlatformRouteSlug } from '../utils/summitPlatformSlugs.js';
 import { canSeeClientExchangeNav, clientExchangePath } from '../utils/clientExchangeNav.js';
+import { resolveHostImpliedPortalSlug } from '../utils/orgScopedPath.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -1262,9 +1263,11 @@ watch(visibleSections, (sections) => {
 });
 onMounted(() => {
   loadPendingCounts();
-  // If landing on the slug-less flat route but a tenant is selected in the store,
-  // silently redirect to the org-scoped URL so refresh keeps the tenant context.
-  if (!route.params.organizationSlug && agencyStore.currentAgency) {
+  // Silently redirect to the org-scoped URL on mount if a tenant is active
+  // but the URL is the flat slug-less route. Skip on dedicated app hosts
+  // (app.itsco.health) where the host already implies the portal.
+  const hostSlug = resolveHostImpliedPortalSlug(brandingStore);
+  if (!route.params.organizationSlug && agencyStore.currentAgency && !hostSlug) {
     const slug = agencyStore.currentAgency.slug || agencyStore.currentAgency.portal_url;
     if (slug) router.replace(`/${slug}/workforce-operations`);
   }

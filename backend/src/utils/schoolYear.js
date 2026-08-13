@@ -49,6 +49,34 @@ export function computeCurrentSchoolYearLabel(now = new Date()) {
   return `${y - 1}-${y}`;
 }
 
+/** Prior roster year for a label (2026-2027 → 2025-2026). */
+export function previousSchoolYearLabel(label = null) {
+  const current = normalizeSchoolYearLabel(label) || computeCurrentSchoolYearLabel();
+  const m = String(current).match(/^(\d{4})-(\d{4})$/);
+  if (!m) return null;
+  const start = parseInt(m[1], 10);
+  return `${start - 1}-${start}`;
+}
+
+/**
+ * Inclusive start / exclusive end dates for a school-year label.
+ * Matches portal rollover: last Monday of July.
+ */
+export function schoolYearDateRange(label = null) {
+  const year = normalizeSchoolYearLabel(label) || computeCurrentSchoolYearLabel();
+  const m = String(year).match(/^(\d{4})-(\d{4})$/);
+  if (!m) return null;
+  const startY = parseInt(m[1], 10);
+  const endY = parseInt(m[2], 10);
+  const start = lastWeekdayOfMonth(startY, 7, 1);
+  const end = lastWeekdayOfMonth(endY, 7, 1);
+  return {
+    schoolYear: year,
+    startYmd: ymdLocal(start),
+    endYmdExclusive: ymdLocal(end)
+  };
+}
+
 /** PYU-style short year label (YYYY-YY). */
 export function computeCurrentSchoolYearShort(now = new Date()) {
   const full = computeCurrentSchoolYearLabel(now);

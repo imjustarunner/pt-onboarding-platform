@@ -1885,6 +1885,17 @@ const routes = [
     }
   },
   {
+    path: '/:organizationSlug/admin/school-reports',
+    name: 'OrganizationSchoolReports',
+    component: () => import('../views/admin/SchoolReportsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/admin/school-onboarding',
     name: 'OrganizationSchoolOnboardingAdmin',
     component: () => import('../views/admin/SchoolOnboardingAdminView.vue'),
@@ -3163,6 +3174,16 @@ const routes = [
     path: '/admin/provider-year-update',
     name: 'ProviderYearUpdateAdmin',
     component: () => import('../views/admin/ProviderYearUpdateAdminView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true
+    }
+  },
+  {
+    path: '/admin/school-reports',
+    name: 'SchoolReports',
+    component: () => import('../views/admin/SchoolReportsView.vue'),
     meta: {
       requiresAuth: true,
       requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
