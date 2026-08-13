@@ -229,7 +229,9 @@ router.post('/recover-username', recoveryLimiter, [
   body('lastName').isString().trim().notEmpty(),
   body('role').isString().trim().notEmpty(),
   body('message').isString().trim().isLength({ min: 5, max: 2000 }),
-  body('contactEmail').optional().isEmail().normalizeEmail(),
+  body('contactEmail').isEmail().normalizeEmail(),
+  body('schoolName').isString().trim().notEmpty(),
+  body('triedSchoolEmail').optional(),
   body('organizationSlug').optional().isString().trim(),
   body('captchaToken').optional().isString().trim()
 ], recoverUsername);

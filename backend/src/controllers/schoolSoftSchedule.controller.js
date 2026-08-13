@@ -2,7 +2,6 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import Client from '../models/Client.model.js';
-import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
@@ -11,8 +10,6 @@ import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.ser
 import { enqueueD11ComplianceEnsure } from '../services/d11Compliance.service.js';
 import { bumpGradeCanonical } from '../utils/clientGrade.js';
 import { computeCurrentSchoolYearLabel, normalizeSchoolYearLabel } from '../utils/schoolYear.js';
-import { evaluateClientDocCompliance } from '../utils/clientDocCompliance.js';
-import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import {
   getSupervisorSuperviseeIds,
   isSupervisorActor,
@@ -307,9 +304,8 @@ function buildDefaultSlots({ slotCount, startTime, endTime }) {
 }
 
 /**
- * Assign-day write-path: when a client is placed on a provider's schedule, advance their
- * school_year/grade for the current school year (once per year) and promote
- * pending/onboarded → current. Never touches waitlist/terminated/other statuses.
+ * Assign-day write-path: when a client is placed on a provider's Soft Schedule, advance
+ * school_year/grade once per year and set Status → Scheduled (not Being Seen / Current).
  */
 async function promoteClientForAssignedDay({ clientId, actorUserId }) {
   const [rows] = await pool.execute(
@@ -336,106 +332,57 @@ async function promoteClientForAssignedDay({ clientId, actorUserId }) {
     if (bumpedGrade !== null) patch.grade = bumpedGrade;
   }
 
-  let compliance = null;
-  const eligibleForStatusUpdate = !statusKey
-    || statusKey === 'pending'
-    || statusKey === 'onboarded'
-    || statusKey === 'packet';
-  let promotedToCurrent = false;
-  if (eligibleForStatusUpdate) {
-    // Day assignment is the operational signal to become Current when staff readiness
-    // is already done (or client is in a pre-current pipeline status).
-    const staffReady = !!client.staff_onboarding_completed_at
-      || statusKey === 'onboarded'
-      || statusKey === 'pending'
-      || statusKey === 'packet'
-      || !statusKey;
-    if (staffReady) {
-      const targetStatusId = await getClientStatusIdByKey({ agencyId: client.agency_id, statusKey: 'current' });
-      if (targetStatusId && Number(targetStatusId) !== Number(client.client_status_id || 0)) {
-        patch.client_status_id = targetStatusId;
-        promotedToCurrent = true;
-      }
-      const wf = String(client.workflow_status || '').toUpperCase();
-      if (['PENDING_REVIEW', 'PACKET', 'SCREENER', ''].includes(wf)) {
-        patch.status = 'ACTIVE';
-      }
-      if (!client.staff_onboarding_completed_at) {
-        patch.staff_onboarding_completed_at = new Date();
-      }
-    } else {
-      compliance = await evaluateClientDocCompliance({ clientId: client.id, agencyId: client.agency_id });
-    }
-  }
-
   if (Object.keys(patch).length > 0) {
     await Client.update(client.id, patch, actorUserId);
-    if (patch.client_status_id) {
-      await ClientStatusHistory.create({
-        client_id: client.id,
-        changed_by_user_id: actorUserId,
-        field_changed: 'client_status_id',
-        from_value: client.client_status_id ? String(client.client_status_id) : null,
-        to_value: String(patch.client_status_id),
-        note: promotedToCurrent
-          ? 'Auto-promoted to current on day assignment (school year / readiness)'
-          : `Day assignment status update`
-      }).catch(() => {});
-    }
   }
+
+  // Soft Schedule activates the current year — ensure membership exists (does not remove prior years).
+  try {
+    const { ensureClientSchoolYearMembership } = await import('../services/clientSchoolYear.service.js');
+    await ensureClientSchoolYearMembership({
+      clientId: client.id,
+      agencyId: client.agency_id,
+      schoolYear: currentYearLabel,
+      grade: patch.grade !== undefined ? patch.grade : client.grade,
+      source: 'soft_schedule',
+      actorUserId
+    });
+    if (normalizeSchoolYearLabel(client.school_year) && yearIsStale) {
+      await ensureClientSchoolYearMembership({
+        clientId: client.id,
+        agencyId: client.agency_id,
+        schoolYear: client.school_year,
+        grade: client.grade,
+        source: 'soft_schedule_prior',
+        actorUserId
+      });
+    }
+  } catch (e) {
+    console.warn('[softSchedule] ensure school year membership failed', e?.message || e);
+  }
+
+  const { markClientScheduledFromPlacement } = await import('../services/clientLifecycleStatus.service.js');
+  const lifecycle = await markClientScheduledFromPlacement({ clientId: client.id, actorUserId });
 
   return {
     school_year: patch.school_year || client.school_year || null,
     grade: patch.grade !== undefined ? patch.grade : (client.grade || null),
-    client_status_key: promotedToCurrent ? 'current' : (statusKey || null),
-    doc_compliance_ok: compliance?.ok ?? (promotedToCurrent ? true : null),
-    doc_status_missing: compliance?.missing ?? [],
+    client_status_key: lifecycle?.statusKey || statusKey || null,
+    doc_compliance_ok: null,
+    doc_status_missing: [],
     year_advanced: yearIsStale
   };
 }
 
 /**
- * Un-assign-day write-path: when a client's last weekday is removed, demote Current →
- * pending (Fall pending for returning school clients).
+ * Un-assign-day write-path: when a client's last weekday is removed, demote
+ * Scheduled/Being Seen → Ready to Schedule.
  */
 async function demoteClientToPendingIfNoActiveDay({ clientId, actorUserId }) {
-  const [cntRows] = await pool.execute(
-    `SELECT COUNT(*) AS cnt
-     FROM client_provider_assignments
-     WHERE client_id = ? AND is_active = TRUE AND service_day IS NOT NULL AND TRIM(service_day) <> ''`,
-    [clientId]
-  );
-  if (Number(cntRows?.[0]?.cnt || 0) > 0) return null;
-
-  const [rows] = await pool.execute(
-    `SELECT c.id, c.agency_id, c.client_status_id, c.client_type, c.staff_onboarding_completed_at,
-            c.school_year, c.submission_date, c.created_at, cs.status_key AS client_status_key
-     FROM clients c
-     LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
-     WHERE c.id = ?
-     LIMIT 1`,
-    [clientId]
-  );
-  const client = rows?.[0];
-  if (!client) return null;
-
-  const statusKey = String(client.client_status_key || '').toLowerCase();
-  if (statusKey !== 'current' && statusKey !== 'onboarded') return null;
-
-  const pendingStatusId = await getClientStatusIdByKey({ agencyId: client.agency_id, statusKey: 'pending' });
-  if (!pendingStatusId || Number(pendingStatusId) === Number(client.client_status_id || 0)) return null;
-
-  await Client.update(client.id, { client_status_id: pendingStatusId }, actorUserId);
-  await ClientStatusHistory.create({
-    client_id: client.id,
-    changed_by_user_id: actorUserId,
-    field_changed: 'client_status_id',
-    from_value: client.client_status_id ? String(client.client_status_id) : null,
-    to_value: String(pendingStatusId),
-    note: 'Auto-set to pending — no assigned day remaining (Fall pending)'
-  }).catch(() => {});
-
-  return { client_status_key: 'pending' };
+  const { demoteClientWhenUnscheduled } = await import('../services/clientLifecycleStatus.service.js');
+  const result = await demoteClientWhenUnscheduled({ clientId, actorUserId });
+  if (!result) return null;
+  return { client_status_key: result.statusKey || 'ready_to_schedule' };
 }
 
 /**

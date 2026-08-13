@@ -466,13 +466,32 @@
               <div class="stat-label">Slots Available</div>
               <div class="stat-value">{{ s.slots_available }}</div>
             </div>
-            <div class="stat">
+            <div
+              class="stat stat-clickable"
+              role="button"
+              tabindex="0"
+              :title="`${Number(s.waitlist_count || 0)} student${Number(s.waitlist_count || 0) === 1 ? '' : 's'} on the waitlist. Click to open the roster.`"
+              @click.stop="openSchoolRoster(s, { status: 'waitlist' })"
+              @keydown.enter.prevent="openSchoolRoster(s, { status: 'waitlist' })"
+              @keydown.space.prevent="openSchoolRoster(s, { status: 'waitlist' })"
+            >
               <div class="stat-label">Waitlist</div>
               <div class="stat-value">{{ s.waitlist_count }}</div>
             </div>
-            <div class="stat">
-              <div class="stat-label">Docs / Needs</div>
-              <div class="stat-value" :class="{ danger: s.docs_needs_count > 0 }">{{ s.docs_needs_count }}</div>
+            <div
+              v-for="tile in overviewActionTiles(s)"
+              :key="`${s.school_id}-${tile.key}`"
+              class="stat stat-clickable"
+              :class="tile.toneClass"
+              role="button"
+              tabindex="0"
+              :title="tile.hover"
+              @click.stop="openSchoolRoster(s, tile.query)"
+              @keydown.enter.prevent="openSchoolRoster(s, tile.query)"
+              @keydown.space.prevent="openSchoolRoster(s, tile.query)"
+            >
+              <div class="stat-label">{{ tile.label }}</div>
+              <div class="stat-value" :class="{ danger: tile.warn && Number(tile.count) > 0 }">{{ tile.count }}</div>
             </div>
             <div
               v-if="canSeeSkillBuildersSchoolOverviewUi"
@@ -1203,6 +1222,100 @@ const studentStatusValue = (school) => {
   if (key === 'screener') return Number(school?.clients_screener || 0);
   if (key === 'waitlist') return Number(school?.waitlist_count || 0);
   return Number(school?.clients_current || 0);
+};
+
+const overviewActionTiles = (school) => {
+  const n = (v) => Number(v || 0);
+  const people = (count) => `${count} ${count === 1 ? 'student' : 'students'}`;
+  const tile = ({ key, label, count, hover, query, warn = true }) => ({
+    key,
+    label,
+    count,
+    hover,
+    query,
+    toneClass: count > 0 ? (warn ? 'stat-action' : 'stat-action-ok') : '',
+    warn: warn && count > 0
+  });
+  const tiles = [
+    tile({
+      key: 'fall_confirmation',
+      label: 'Fall confirmation',
+      count: n(school?.action_fall_confirmation) || n(school?.clients_confirmation_pending),
+      hover: `${people(n(school?.action_fall_confirmation) || n(school?.clients_confirmation_pending))} still need fall confirmation. Click to open the roster filtered to them.`,
+      query: { action: 'fall_confirmation' }
+    }),
+    tile({
+      key: 'agency_insurance',
+      label: 'Insurance clearance',
+      count: n(school?.action_agency_insurance),
+      hover: `${people(n(school?.action_agency_insurance))} still need agency insurance clearance, including during the confirmation break. Click to open the roster.`,
+      query: { action: 'agency_insurance' }
+    }),
+    tile({
+      key: 'ready_to_schedule',
+      label: 'Ready to schedule',
+      count: n(school?.clients_ready_to_schedule),
+      hover: `${people(n(school?.clients_ready_to_schedule))} are marked Ready to schedule. Click to open the roster.`,
+      query: { status: 'ready_to_schedule' },
+      warn: false
+    }),
+    tile({
+      key: 'scheduled',
+      label: 'Scheduled',
+      count: n(school?.clients_scheduled),
+      hover: `${people(n(school?.clients_scheduled))} are currently scheduled. Click to open the roster.`,
+      query: { status: 'scheduled' },
+      warn: false
+    })
+  ];
+  const extras = [
+    tile({
+      key: 'agency_intake',
+      label: 'Agency intake',
+      count: n(school?.action_agency_intake),
+      hover: `${people(n(school?.action_agency_intake))} are still in agency intake. Click to open the roster.`,
+      query: { action: 'agency_intake' }
+    }),
+    tile({
+      key: 'new_client',
+      label: 'New client',
+      count: n(school?.action_new_client),
+      hover: `${people(n(school?.action_new_client))} have new-client provider action items. Click to open the roster.`,
+      query: { action: 'new_client' }
+    }),
+    tile({
+      key: 'agency_clearance',
+      label: 'Agency clearance',
+      count: n(school?.action_agency_clearance),
+      hover: `${people(n(school?.action_agency_clearance))} still need agency clearance (disclosure and/or insurance). Click to open the roster.`,
+      query: { action: 'agency_clearance' }
+    }),
+    tile({
+      key: 'roi_followup',
+      label: 'ROI follow-up',
+      count: n(school?.action_roi_followup),
+      hover: `${people(n(school?.action_roi_followup))} have ROI renewal action items. Click to open the roster.`,
+      query: { action: 'roi_followup' }
+    }),
+    tile({
+      key: 'confirm_services',
+      label: 'Confirm started',
+      count: n(school?.action_confirm_services),
+      hover: `${people(n(school?.action_confirm_services))} still need services-started confirmation. Click to open the roster.`,
+      query: { action: 'confirm_services' }
+    })
+  ];
+  return [...tiles, ...extras.filter((item) => Number(item.count) > 0)];
+};
+
+const openSchoolRoster = (school, { status = '', action = '' } = {}) => {
+  const path = schoolPortalDashboardPath(resolveSchoolPortalSlug(school));
+  if (!path) return;
+  const params = new URLSearchParams();
+  params.set('sp', 'roster');
+  if (status) params.set('status', status);
+  if (action) params.set('action', action);
+  router.push(`${path}?${params.toString()}`);
 };
 
 const resolveDefaultAgencyId = () => {
@@ -2403,6 +2516,33 @@ onMounted(async () => {
 }
 .stat-messages .stat-value {
   color: #581c87;
+}
+.stat-action {
+  cursor: pointer;
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+.stat-action .stat-label {
+  color: #b45309;
+}
+.stat-action .stat-value {
+  color: #92400e;
+}
+.stat-action-ok {
+  cursor: pointer;
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+.stat-action-ok .stat-label {
+  color: #166534;
+}
+.stat-action-ok .stat-value {
+  color: #14532d;
+}
+.stat-action:hover,
+.stat-action-ok:hover {
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
 }
 .stat-notifications:hover {
   border-color: #7dd3fc;

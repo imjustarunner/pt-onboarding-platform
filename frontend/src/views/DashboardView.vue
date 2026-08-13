@@ -277,7 +277,8 @@
             :class="{
               active: isRailCardActive(card),
               'rail-card-submit': card.id === 'submit',
-              'rail-card-pending-alert': card.id === 'clients' && providerPendingClientsCount > 0,
+              'rail-card-pending-alert': card.id === 'clients' && clientActionItemCount > 0,
+              'rail-card-clients-pulse': card.id === 'clients' && clientActionItemCount > 0,
               'rail-card--pyu-pulse': card.id === 'provider_year_update' && card.pulse,
               'rail-card--pyu-highlight': card.id === 'provider_year_update',
               'rail-card--nest': card.kind === 'nest',
@@ -313,7 +314,7 @@
                 class="rail-card-badge"
                 :class="{
                   'rail-card-badge-pulse':
-                    (card.id === 'clients' && providerPendingClientsCount > 0) ||
+                    (card.id === 'clients' && clientActionItemCount > 0) ||
                     (card.id === 'provider_year_update' && card.pulse)
                 }"
               >
@@ -325,6 +326,12 @@
               <span v-else class="rail-card-cta">{{ card.kind === 'link' || card.kind === 'modal' ? 'Open' : (card.kind === 'action' ? 'Open' : 'View') }}</span>
             </div>
           </button>
+          <div
+            v-if="card.id === 'clients' && clientActionItemCount > 0"
+            class="rail-clients-action-bubble"
+          >
+            You have pending client action items
+          </div>
           <div v-if="tutorialStore.enabled && railCardDescriptor(card.id)" class="rail-card-help">
             <button
               type="button"
@@ -1363,6 +1370,9 @@ const tierBadgeKind = ref(''); // 'tier-current' | 'tier-grace' | 'tier-ooc'
 
 const clientsNeedsAttentionCount = ref(0);
 const providerPendingClientsCount = ref(0);
+const clientActionItemCount = computed(() =>
+  Number(clientsNeedsAttentionCount.value || 0) || Number(providerPendingClientsCount.value || 0)
+);
 const showSkillBuilderModal = ref(false);
 /** Set from GET /availability/me/pending — biweekly window missing confirmation */
 const skillBuilderPendingLoaded = ref(false);
@@ -3557,6 +3567,21 @@ const portalsNestHubChildren = computed(() => {
       });
     }
     if (
+      caps.canAccessOutreach &&
+      !['admin', 'support', 'super_admin', 'provider_plus'].includes(role)
+    ) {
+      const slug = String(route.params.organizationSlug || '').trim();
+      children.push({
+        id: 'outreach_hub',
+        label: 'Outreach Hub',
+        kind: 'link',
+        to: slug ? `/${slug}/admin/outreach-hub` : '/admin/outreach-hub',
+        badgeCount: 0,
+        iconUrl: brandingStore.getAdminQuickActionIconUrl('school_overview', iconOrg),
+        description: 'Track school contacts, visits, and partnership stages.'
+      });
+    }
+    if (
       isProviderLikeForSkillBuildersSchedule.value &&
       providerAssignedProgramOrgs.value.length > 0
     ) {
@@ -3757,9 +3782,9 @@ const dashboardCards = computed(() => {
           id: 'clients',
           label: 'Clients',
           kind: 'content',
-          badgeCount: providerPendingClientsCount.value || 0,
+          badgeCount: clientActionItemCount.value || 0,
           iconUrl: brandingStore.getDashboardCardIconUrl('clients', iconOrg),
-          description: 'Your caseload by school with psychotherapy fiscal-year totals.'
+          description: 'Pending client action items — fall confirmation, new clients, and next steps.'
         });
         if (providerSurfacesEnabled.value && !isClubContext.value) {
           cards.push({
@@ -6058,6 +6083,7 @@ h1 {
   display: flex;
   align-items: stretch;
   gap: 8px;
+  position: relative;
 }
 .rail-card-row--nested {
   margin-left: 10px;
@@ -6316,6 +6342,40 @@ h1 {
 
 .rail-card-pending-alert {
   box-shadow: 0 0 0 1px rgba(217, 45, 32, 0.35), 0 0 0 3px rgba(217, 45, 32, 0.10);
+}
+
+.rail-card-clients-pulse {
+  animation: rail-clients-grow 1.4s ease-in-out 4;
+}
+
+.rail-clients-action-bubble {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: calc(100% - 6px);
+  z-index: 3;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #0f2f27;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
+  animation: rail-clients-bubble 6s ease-in-out 1 forwards;
+  pointer-events: none;
+}
+
+@keyframes rail-clients-grow {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+@keyframes rail-clients-bubble {
+  0% { opacity: 0; transform: translateY(-6px) scale(0.92); }
+  12% { opacity: 1; transform: translateY(0) scale(1); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(4px) scale(0.96); }
 }
 
 .rail-card-cta {

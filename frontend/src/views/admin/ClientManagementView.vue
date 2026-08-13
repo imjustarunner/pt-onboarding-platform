@@ -317,7 +317,7 @@
         <div class="bulk-right">
           <div class="bulk-group">
             <select v-model="bulkPromoteYear" class="filter-select">
-              <option value="">Promote to next year…</option>
+              <option value="">Add to school year…</option>
               <option :value="nextSchoolYear">Next: {{ nextSchoolYear }}</option>
               <option :value="currentSchoolYear">Current: {{ currentSchoolYear }}</option>
             </select>
@@ -326,8 +326,9 @@
               type="button"
               :disabled="!bulkPromoteYear || bulkWorking"
               @click="bulkPromoteToNextYear"
+              title="Adds the selected year without replacing the client's current school year"
             >
-              Promote
+              Add year
             </button>
           </div>
 
@@ -733,13 +734,14 @@
     <!-- Rollover Modal (extra confirmation gates) -->
     <div v-if="showRolloverModal" class="modal-overlay" @click.self="closeRolloverModal">
       <div class="modal-content" @click.stop style="max-width: 720px;">
-        <h3>{{ rolloverAction === 'reset_docs' ? 'Reset Documentation' : 'Rollover School Year' }}</h3>
+        <h3>{{ rolloverAction === 'reset_docs' ? 'Reset Documentation' : 'Add Clients to Next School Year' }}</h3>
         <p style="margin-top: 6px; color: var(--text-secondary);">
           <template v-if="rolloverAction === 'reset_docs'">
             This is a high-impact action. It will reset documentation status for many clients at once (sets paperwork to “New Docs” and clears delivery/doc dates).
           </template>
           <template v-else>
-            This is a high-impact action. It will update many clients at once and reset paperwork fields to “New Docs”.
+            This adds the next school year to each client without replacing their current school year.
+            Prior-year membership stays; paperwork is reset to “New Docs” for the upcoming year.
           </template>
         </p>
 
@@ -778,8 +780,10 @@
               Confirm you want to reset documentation for <strong>{{ Number(rolloverPreview?.willUpdate || 0) }}</strong> client(s).
             </template>
             <template v-else>
-              Confirm you want to rollover <strong>{{ Number(rolloverPreview?.willUpdate || 0) }}</strong> client(s)
-              to <strong>{{ normalizeSchoolYearLabel(nextSchoolYear) }}</strong>.
+              Confirm you want to <strong>add</strong>
+              <strong>{{ normalizeSchoolYearLabel(nextSchoolYear) }}</strong>
+              to <strong>{{ Number(rolloverPreview?.willUpdate || 0) }}</strong> client(s)
+              (current school year is kept).
             </template>
           </div>
           <div style="margin-top: 10px;">
@@ -806,7 +810,7 @@
             :disabled="!canExecuteRollover || rolloverWorking"
             @click="executeRollover"
           >
-            {{ rolloverWorking ? 'Rolling over…' : 'Execute rollover' }}
+            {{ rolloverWorking ? 'Working…' : (rolloverAction === 'reset_docs' ? 'Reset docs' : 'Add school year') }}
           </button>
         </div>
       </div>
@@ -2309,7 +2313,7 @@ const rolloverAction = ref('rollover'); // 'rollover' | 'reset_docs'
 
 const rolloverConfirmPhrase = computed(() => {
   if (rolloverAction.value === 'reset_docs') return 'RESET DOCS';
-  return `ROLLOVER ${normalizeSchoolYearLabel(nextSchoolYear.value)}`;
+  return `ADD ${normalizeSchoolYearLabel(nextSchoolYear.value)}`;
 });
 
 const openRolloverModal = (action = 'rollover') => {

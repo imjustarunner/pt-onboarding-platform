@@ -411,6 +411,45 @@ export function currentSchoolYear(d = new Date()) {
   return `${y - 1}-${String(y).slice(-2)}`;
 }
 
+export function nextSchoolYear(year) {
+  const raw = String(year || currentSchoolYear());
+  const m = raw.match(/^(\d{4})-(\d{2}|\d{4})$/);
+  if (!m) return raw;
+  const start = Number(m[1]) + 1;
+  if (String(m[2]).length === 2) return `${start}-${String(start + 1).slice(-2)}`;
+  return `${start}-${start + 1}`;
+}
+
+export async function listCampaignYears(agencyId) {
+  const aid = Number(agencyId || 0);
+  const current = currentSchoolYear();
+  const next = nextSchoolYear(current);
+  const map = new Map();
+  if (aid) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT school_year, status, disabled_at
+         FROM provider_year_update_campaigns
+         WHERE agency_id = ?
+         ORDER BY school_year DESC`,
+        [aid]
+      );
+      for (const r of rows || []) {
+        map.set(String(r.school_year), {
+          schoolYear: r.school_year,
+          status: r.status,
+          disabledAt: r.disabled_at || null
+        });
+      }
+    } catch {
+      // table optional
+    }
+  }
+  if (!map.has(current)) map.set(current, { schoolYear: current, status: 'none', disabledAt: null });
+  if (!map.has(next)) map.set(next, { schoolYear: next, status: 'none', disabledAt: null });
+  return [...map.values()].sort((a, b) => String(b.schoolYear).localeCompare(String(a.schoolYear)));
+}
+
 export function makeToken() {
   return crypto.randomBytes(24).toString('hex');
 }
@@ -524,7 +563,25 @@ export async function disableCampaign({ agencyId, schoolYear, userId }) {
      WHERE id = ?`,
     [userId || null, campaign.id]
   );
-  return { campaign: await getCampaign(agencyId, year), alreadyDisabled: false };
+  const nextYear = nextSchoolYear(year);
+  const next = await enableCampaign({ agencyId, schoolYear: nextYear, userId });
+  const nextCampaign = next?.campaign || null;
+  if (nextCampaign?.id && String(nextCampaign.status || '') === 'enabled') {
+    await pool.execute(
+      `UPDATE provider_year_update_campaigns
+       SET status = 'pushed',
+           pushed_at = COALESCE(pushed_at, NOW()),
+           pushed_by_user_id = COALESCE(pushed_by_user_id, ?)
+       WHERE id = ?`,
+      [userId || null, nextCampaign.id]
+    );
+  }
+  return {
+    campaign: await getCampaign(agencyId, year),
+    nextCampaign: await getCampaign(agencyId, nextYear),
+    nextSchoolYear: nextYear,
+    alreadyDisabled: false
+  };
 }
 
 /**
@@ -2499,8 +2556,9 @@ export async function listAgencyReport(agencyId, schoolYear) {
 }
 
 /** Status for My Dashboard / provider me endpoint. */
-export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
+export async function getMyStatus({ agencyId, providerUserId, schoolYear, explicitYear = false }) {
   const year = schoolYear || currentSchoolYear();
+  const availableYears = await listCampaignYears(agencyId);
   const campaign = await getCampaign(agencyId, year);
   const schools = await loadProviderSchoolSchedule(providerUserId, agencyId);
 
@@ -2515,13 +2573,35 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
       }
     : null;
 
-  if (campaignIsDisabled(campaign)) {
+  if (campaignIsDisabled(campaign) && !explicitYear) {
+    const nextYear = nextSchoolYear(year);
+    if (nextYear && nextYear !== year) {
+      const nextStatus = await getMyStatus({
+        agencyId,
+        providerUserId,
+        schoolYear: nextYear,
+        explicitYear: true
+      });
+      return {
+        ...nextStatus,
+        availableYears,
+        archivedSchoolYear: year,
+        nextSchoolYear: nextYear
+      };
+    }
     return {
       available: false,
       reason: 'campaign_disabled',
       campaign: campaignPayload,
+      archivedSchoolYear: year,
+      nextSchoolYear: nextYear,
+      schoolYear: year,
+      availableYears,
+      isArchivedView: true
     };
   }
+
+  const isArchivedView = campaignIsDisabled(campaign) && explicitYear;
 
   const [cycleRows] = await pool.execute(
     `SELECT * FROM provider_year_update_cycles
@@ -2531,7 +2611,7 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
   );
   let cycle = cycleRows?.[0] || null;
 
-  if (cycle?.admin_completed_at) {
+  if (cycle?.admin_completed_at && !isArchivedView) {
     return {
       available: false,
       reason: 'admin_completed',
@@ -2570,16 +2650,33 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
       sectionPercent: 100,
       reviewedCount: sectionTotal,
       sectionTotal,
+      schoolYear: year,
+      availableYears,
+      isArchivedView
     };
   }
 
-  const providerPushed = cycleIsPushed(cycle, campaign);
+  const providerPushed = cycleIsPushed(cycle, campaign) || isArchivedView;
 
   if (!providerPushed) {
     return {
       available: false,
       reason: 'not_pushed',
       campaign: campaignPayload,
+      schoolYear: year,
+      availableYears,
+      isArchivedView
+    };
+  }
+
+  if (isArchivedView && !cycle) {
+    return {
+      available: false,
+      reason: 'no_archive',
+      campaign: campaignPayload,
+      schoolYear: year,
+      availableYears,
+      isArchivedView: true
     };
   }
 
@@ -2614,7 +2711,7 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
   let reviewedCount = sections.filter((s) => s.reviewed || s.completed).length;
   let allSectionsDone = areAllSectionsComplete(sections, effectiveKeys);
 
-  if (allSectionsDone && cycle.status !== 'finalized') {
+  if (allSectionsDone && cycle.status !== 'finalized' && !isArchivedView) {
     const finalized = await tryAutoFinalizeCycle(cycle.id, {
       actorType: 'auto',
       displayName: 'System',
@@ -2663,13 +2760,16 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
             path: `/provider-year-update/${tokenRow.token}`,
           }
         : null,
+      schoolYear: year,
+      availableYears,
+      isArchivedView
     };
   }
 
   return {
     available: true,
-    showPulse: !allSectionsDone,
-    showSplash: !allSectionsDone,
+    showPulse: !allSectionsDone && !isArchivedView,
+    showSplash: !allSectionsDone && !isArchivedView,
     dismissed: Boolean(dismissed),
     userFinalized: false,
     allSectionsDone,
@@ -2699,5 +2799,8 @@ export async function getMyStatus({ agencyId, providerUserId, schoolYear }) {
           path: `/provider-year-update/${tokenRow.token}`,
         }
       : null,
+    schoolYear: year,
+    availableYears,
+    isArchivedView
   };
 }

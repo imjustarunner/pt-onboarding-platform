@@ -165,9 +165,9 @@ function getSchoolStaffClientPrivacyMeta(client, accessMap, { schoolStaffInOrg =
   const clientId = Number(client?.id || 0);
   const record = clientId ? accessMap.get(clientId) : null;
   const roiExpiresAt = client?.roi_expires_at || null;
-  let effectiveState = getEffectiveSchoolStaffRoiState(record, roiExpiresAt);
-  let canOpenClient = schoolStaffCanOpenClient(record, roiExpiresAt);
-  // No explicit record: school staff in same org get LIMITED access when ROI is active (not expired).
+  let effectiveState = getEffectiveSchoolStaffRoiState(record, roiExpiresAt, { schoolStaffInOrg });
+  let canOpenClient = schoolStaffCanOpenClient(record, roiExpiresAt, { schoolStaffInOrg });
+  // No explicit record: school staff in the same org get ROI Active when the client ROI date is current.
   if (!record && schoolStaffInOrg && !isRoiExpired(roiExpiresAt)) {
     effectiveState = 'limited';
     canOpenClient = true;
@@ -178,7 +178,7 @@ function getSchoolStaffClientPrivacyMeta(client, accessMap, { schoolStaffInOrg =
     school_staff_effective_access_state: effectiveState,
     school_staff_can_view_documents: schoolStaffCanViewClientDocuments(record, roiExpiresAt),
     school_portal_can_open: canOpenClient,
-    school_portal_gray: locked,
+    school_portal_gray: false,
     school_portal_force_placeholder: locked,
     school_portal_locked_label: 'NO ROI'
   };

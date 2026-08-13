@@ -3021,8 +3021,12 @@ export const recoverUsername = async (req, res, next) => {
     const orgSlug = normalizeOrgSlug(req.body?.organizationSlug || req.body?.orgSlug);
     const requesterMessage = String(req.body?.message || '').trim();
     const contactEmail = String(req.body?.contactEmail || '').trim().toLowerCase();
+    const schoolName = String(req.body?.schoolName || '').trim();
+    const triedSchoolEmail = req.body?.triedSchoolEmail === true || req.body?.triedSchoolEmail === 'true';
 
-    if (!firstName || !lastName || !role || !requesterMessage) return safeGenericRecoveryResponse(res);
+    if (!firstName || !lastName || !role || !requesterMessage || !contactEmail || !schoolName) {
+      return safeGenericRecoveryResponse(res);
+    }
     if (!NON_AGENCY_RECOVERY_ROLES.has(role)) return safeGenericRecoveryResponse(res);
 
     const captcha = await verifyRecoveryCaptcha({ req, expectedAction: 'login_recover_username' });
@@ -3030,49 +3034,49 @@ export const recoverUsername = async (req, res, next) => {
 
     const matches = await User.findByName(firstName, lastName).catch(() => []);
     const filtered = (matches || []).filter((u) => String(u?.role || '').trim().toLowerCase() === role);
+    const org = await resolveAgencyFromOrgSlug(orgSlug);
 
-    // Never send username by email for this public flow. Route to admin support.
-    // If we can uniquely match a user and org, create an in-system support ticket.
-    if (filtered.length === 1) {
-      const u = filtered[0];
-      const full = await User.findById(u.id).catch(() => null);
-      const agency = await resolvePrimaryAgencyForUser(u.id, orgSlug);
-      try {
-        if (agency?.id && full?.id) {
-          const agencyId = await resolveActiveAgencyIdForOrg(agency.id);
-          const subject = 'Login help needed: forgot username';
-          const body = [
-            `Public username recovery request`,
-            ``,
-            `Name: ${firstName} ${lastName}`,
-            `Role: ${role}`,
-            `Org: ${agency?.name || orgSlug || '(unknown org)'}`,
-            `Contact email: ${contactEmail || '(not provided)'}`,
-            `Requester message: ${requesterMessage}`,
-            ``,
-            `IP: ${getClientIpAddress(req) || '(unknown)'}`,
-            `User-Agent: ${req.get('user-agent') || '(unknown)'}`
-          ].join('\n');
+    // Never send username by email for this public flow. Always file a support ticket.
+    try {
+      const ticketOrg = org || (filtered.length === 1
+        ? await resolvePrimaryAgencyForUser(filtered[0].id, orgSlug)
+        : null);
+      if (ticketOrg?.id) {
+        const agencyId = await resolveActiveAgencyIdForOrg(ticketOrg.id);
+        const matchedUserId = filtered.length === 1 ? Number(filtered[0].id) : null;
+        const subject = 'Login help needed: forgot username';
+        const body = [
+          'Public username recovery request',
+          '',
+          `Name: ${firstName} ${lastName}`,
+          `Role: ${role}`,
+          `School: ${schoolName || ticketOrg?.name || orgSlug || '(unknown)'}`,
+          `School email: ${contactEmail}`,
+          `Confirmed tried official school email: ${triedSchoolEmail ? 'yes' : 'not indicated'}`,
+          `Comments: ${requesterMessage}`,
+          '',
+          `Login org: ${ticketOrg?.name || orgSlug || '(unknown org)'}`,
+          `Matched account count: ${filtered.length}`,
+          `IP: ${getClientIpAddress(req) || '(unknown)'}`,
+          `User-Agent: ${req.get('user-agent') || '(unknown)'}`
+        ].join('\n');
 
-          await createExternalSupportTicket({
-            schoolOrganizationId: agency.id,
-            agencyId: agencyId ? Number(agencyId) : null,
-            subject,
-            question: body,
-            sourceKey: SUPPORT_TICKET_SOURCE_KEYS.FORGOT_USERNAME,
-            fallbackUserId: full.id
-          });
-        }
-      } catch (e) {
-        // Best-effort fallback below via admin email.
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn('recoverUsername ticket create failed:', e?.message || e);
-        }
+        await createExternalSupportTicket({
+          schoolOrganizationId: ticketOrg.id,
+          agencyId: agencyId ? Number(agencyId) : null,
+          subject,
+          question: body,
+          sourceKey: SUPPORT_TICKET_SOURCE_KEYS.FORGOT_USERNAME,
+          fallbackUserId: matchedUserId
+        });
+      }
+    } catch (e) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('recoverUsername ticket create failed:', e?.message || e);
       }
     }
 
     // Notify org admin for this login page (best-effort).
-    const org = await resolveAgencyFromOrgSlug(orgSlug);
     const adminEmail = getOrgAdminEmail(org);
     if (adminEmail) {
       const subject = `Login help needed: forgot username (${org?.name || orgSlug || 'unknown org'})`;
@@ -3082,8 +3086,10 @@ export const recoverUsername = async (req, res, next) => {
         `First name: ${firstName}`,
         `Last name: ${lastName}`,
         `Role: ${role}`,
-        `Contact email: ${contactEmail || '(not provided)'}`,
-        `Message: ${requesterMessage || '(none provided)'}`,
+        `School: ${schoolName || org?.name || '(not provided)'}`,
+        `School email: ${contactEmail || '(not provided)'}`,
+        `Confirmed tried official school email: ${triedSchoolEmail ? 'yes' : 'not indicated'}`,
+        `Comments: ${requesterMessage || '(none provided)'}`,
         `Matched account count: ${filtered.length}`,
         `Org slug: ${orgSlug || '(none provided)'}`,
         `IP: ${getClientIpAddress(req) || '(unknown)'}`,

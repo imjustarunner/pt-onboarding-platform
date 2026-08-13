@@ -19,8 +19,18 @@
           v-model="searchQuery"
           type="search"
           class="roster-quicklist-search"
-          :placeholder="searchPlaceholder"
+          placeholder="Search name, initials, birthday, guardian…"
         />
+        <div v-if="showSearch" class="roster-search-opts">
+          <label>
+            <input v-model="searchIncludeTerminated" type="checkbox" />
+            Display terminated clients
+          </label>
+          <label>
+            <input v-model="searchIncludePastYears" type="checkbox" />
+            Display past school year clients
+          </label>
+        </div>
         <button
           v-for="client in sortedClients"
           :key="`ql-${client.id}`"
@@ -37,6 +47,7 @@
       <SchoolClientOverviewPanel
         :client="overviewClient"
         :can-edit-action="canEditClients"
+        :school-organization-id="Number(overviewClient?.organization_id || organizationId)"
         @close="closeOverview"
         @open-comments="(c) => openClient(c, 'comments')"
         @open-profile="goEdit"
@@ -63,14 +74,6 @@
             >
               Needs attention
               <span v-if="attentionSummary.total > 0" class="filter-pill-count">{{ attentionSummary.total }}</span>
-            </button>
-            <button
-              type="button"
-              class="filter-pill"
-              :class="{ active: activeStatusFilterKey === 'pending' }"
-              @click="setStatusFilter(activeStatusFilterKey === 'pending' ? '' : 'pending')"
-            >
-              Pending
             </button>
             <div
               class="waitlist-pill-wrap"
@@ -109,13 +112,6 @@
           </div>
 
           <div
-            v-if="showSummaryBanner && attentionSummary.pendingCompliance > 0"
-            class="summary-banner"
-          >
-            {{ attentionSummary.pendingCompliance }} pending compliance
-          </div>
-
-          <div
             v-if="activeStatusFilterKey !== 'waitlist'"
             class="unread-legend"
             aria-label="Unread bubble legend"
@@ -149,16 +145,35 @@
             <div class="unread-legend-hint">Click a bubble to open it.</div>
           </div>
         </div>
-        <div v-if="activeStatusFilterLabel && !showAttentionFilters" class="active-filter-row">
-          <span class="active-filter-pill">Status: {{ activeStatusFilterLabel }}</span>
+        <div v-if="(activeStatusFilterLabel || activeActionFilterLabel) && !showAttentionFilters" class="active-filter-row">
+          <span v-if="activeStatusFilterLabel" class="active-filter-pill">Status: {{ activeStatusFilterLabel }}</span>
+          <span v-if="activeActionFilterLabel" class="active-filter-pill">{{ activeActionFilterLabel }}</span>
           <button class="btn-link" type="button" @click="clearStatusFilter">Clear</button>
         </div>
-        <input
-          v-model="searchQuery"
-          class="table-search"
-          type="search"
-          :placeholder="searchPlaceholder"
-        />
+        <div class="table-search-row">
+          <div class="roster-search-box">
+            <input
+              v-model="searchQuery"
+              class="table-search"
+              type="search"
+              placeholder="Search name, initials, birthday, guardian…"
+            />
+            <div class="roster-search-opts">
+              <label>
+                <input v-model="searchIncludeTerminated" type="checkbox" />
+                Display terminated clients
+              </label>
+              <label>
+                <input v-model="searchIncludePastYears" type="checkbox" />
+                Display past school year clients
+              </label>
+            </div>
+          </div>
+          <label v-if="showTerminatedToggle" class="show-terminated-check">
+            <input v-model="showTerminatedLocal" type="checkbox" />
+            Show terminated
+          </label>
+        </div>
       </div>
       <div v-if="rosterRefreshing" class="roster-refresh-bar" role="status">
         {{ activeStatusFilterKey === 'waitlist' ? 'Loading waitlist…' : 'Refreshing roster…' }}
@@ -189,9 +204,18 @@
               School
               <span class="sort-indicator" v-if="sortKey === 'organization_name'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
-            <th class="sortable" @click="toggleSort('document_status')" role="button" tabindex="0">
+            <th
+              v-if="showReadinessColumn"
+              class="sortable"
+              @click="toggleSort('document_status')"
+              role="button"
+              tabindex="0"
+            >
               Readiness
               <span class="sort-indicator" v-if="sortKey === 'document_status'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
+            <th v-if="showLifecycleActionColumn" class="actions-col">
+              Action / Next Step
             </th>
             <th
               v-if="rosterScope === 'school' && !isProviderUser"
@@ -260,7 +284,8 @@
               'client-row-clickable': canOpenSchoolClient(client),
               'client-row-newly-assigned': isNewlyAssigned(client),
               'client-row-locked': isSchoolStaff && isSchoolClientLocked(client),
-              'client-row-paper-packet-notice': isSchoolStaff && client?.paper_packet_staff_roi_notice
+              'client-row-paper-packet-notice': isSchoolStaff && (client?.paper_packet_staff_roi_notice || client?.paper_packet_named_access_notice),
+              'client-row-terminated': isClientTerminated(client)
             }"
             :role="canOpenSchoolClient(client) ? 'button' : undefined"
             :tabindex="canOpenSchoolClient(client) ? 0 : undefined"
@@ -290,16 +315,16 @@
                 <span
                   v-if="client.paper_packet_staff_roi_notice"
                   class="paper-packet-staff-badge"
-                  title="Paper packet uploaded — set school staff ROI access to match the signed form"
+                  title="A printed referral packet was recently uploaded. If your name is on the signed form, you will receive access."
                 >
-                  Staff ROI setup
+                  Packet uploaded
                 </span>
                 <span
-                  v-if="client.compliance_pending"
-                  class="pending-compliance-badge"
-                  :title="pendingComplianceTitle(client)"
+                  v-if="client.paper_packet_named_access_notice"
+                  class="paper-packet-staff-badge"
+                  title="You were named on a recently uploaded printed referral packet and now have access."
                 >
-                  Pending {{ Number(client.compliance_days_since_assigned || 0) }}d
+                  Named on packet
                 </span>
                 <span
                   v-for="(ea, idx) in (client.event_assignments || [])"
@@ -369,10 +394,11 @@
                     String(client.client_status_key || '').toLowerCase() === 'waitlist' ? 'status-waitlist' : '',
                     String(client.client_status_key || '').toLowerCase() === 'terminated' ? 'status-terminated' : ''
                   ]"
+                  :style="isClientTerminated(client) ? { cursor: 'help' } : undefined"
                   :role="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? 'button' : undefined"
                   :tabindex="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? 0 : undefined"
                   :title="getStatusTitle(client)"
-                  @mouseenter="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? onWaitlistHover(client, $event) : onTerminatedHover(client, $event)"
+                  @mouseenter="onStatusHoverEnter(client, $event)"
                   @mouseleave="onStatusHoverLeave(client)"
                   @focus="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? onWaitlistHover(client, $event) : null"
                   @click.stop="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? openWaitlistNote(client) : null"
@@ -389,10 +415,17 @@
                   <span class="wl-left">{{ client.waitlist_days }}d</span>
                   <span class="wl-right">#{{ client.waitlist_rank }}</span>
                 </span>
+                <div
+                  v-if="isSchoolStaff && showProviderMilestonesReadonly(client)"
+                  class="muted"
+                  style="font-size: 11px; margin-top: 4px;"
+                >
+                  {{ providerMilestonesLabel(client) }}
+                </div>
               </div>
             </td>
             <td v-if="showSchoolColumn">{{ client.organization_name || organizationName || '—' }}</td>
-            <td>
+            <td v-if="showReadinessColumn">
               <button
                 type="button"
                 class="btn-link onboarding-status-link"
@@ -401,6 +434,19 @@
               >
                 {{ formatOnboardingSummary(client) }}
               </button>
+            </td>
+            <td v-if="showLifecycleActionColumn">
+              <button
+                v-if="lifecycleActionFor(client)"
+                type="button"
+                class="roster-action-btn roster-action-btn--accent roster-action-btn--pulse"
+                :title="lifecycleActionFor(client).label"
+                :disabled="!canClickLifecycleAction"
+                @click.stop="canClickLifecycleAction && openLifecycleAction(client)"
+              >
+                {{ lifecycleActionFor(client).label }}
+              </button>
+              <span v-else class="muted">—</span>
             </td>
             <td v-if="rosterScope === 'school' && !isProviderUser">{{ client.provider_name || '—' }}</td>
             <td v-else>
@@ -453,8 +499,10 @@
                 <button
                   type="button"
                   class="roster-action-btn"
-                  :disabled="isSchoolStaff && !canOpenSchoolClient(client)"
-                  :title="isSchoolStaff && !canOpenSchoolClient(client) ? lockedClientTitle(client) : 'Open comments and messages'"
+                  :disabled="isClientTerminated(client) || (isSchoolStaff && !canOpenSchoolClient(client))"
+                  :title="isClientTerminated(client)
+                    ? lockedClientTitle(client)
+                    : (isSchoolStaff && !canOpenSchoolClient(client) ? lockedClientTitle(client) : 'Open comments and messages')"
                   @click.stop="openClient(client)"
                 >
                   {{ isSchoolStaff && !canOpenSchoolClient(client) ? lockedClientButtonLabel(client) : 'Comments' }}
@@ -516,7 +564,7 @@
       :parent-agency-id="parentAgencyId || null"
       :initial-pane="selectedClientInitialPane"
       :can-edit-action="canEditClients"
-      :show-checklist-action="showChecklistButton && !!selectedClient?.user_is_assigned_provider"
+      :show-checklist-action="isNewClientActionClient(selectedClient) && !!selectedClient?.user_is_assigned_provider && !previewMode"
       @open-edit="openClientEditorFromModal"
       @open-checklist="openChecklistFromModal"
       @client-updated="onClientUpdatedFromModal"
@@ -548,6 +596,15 @@
       :parent-agency-id="parentAgencyId"
       @close="quickChecklistClient = null"
       @saved="onQuickChecklistSaved"
+    />
+
+    <LifecycleActionModal
+      v-if="lifecycleActionClient && lifecycleActionKey"
+      :client="lifecycleActionClient"
+      :action-key="lifecycleActionKey"
+      :action-label="lifecycleActionLabel"
+      @close="closeLifecycleAction"
+      @saved="onLifecycleActionSaved"
     />
 
     <div
@@ -611,7 +668,7 @@
               <tbody>
                 <tr v-for="row in roiStatusData.staff" :key="row.school_staff_user_id">
                   <td>{{ roiStaffName(row) }}</td>
-                  <td>{{ roiStaffStateLabel(row) }}</td>
+                  <td :title="roiStaffStateHover(row)">{{ roiStaffStateLabel(row) }}</td>
                   <td>{{ formatDateTime(row.last_packet_uploaded_at) }}</td>
                   <td>{{ formatDateTime(row.granted_at) }}</td>
                 </tr>
@@ -658,8 +715,14 @@ import WaitlistNoteModal from './WaitlistNoteModal.vue';
 import QuickChecklistModal from './QuickChecklistModal.vue';
 import AssignDayModal from './AssignDayModal.vue';
 import ClientOnboardingChecklistPanel from '../clients/ClientOnboardingChecklistPanel.vue';
+import LifecycleActionModal from './LifecycleActionModal.vue';
 import { formatOnboardingSummary } from '../../utils/clientOnboardingSummary.js';
 import { useAuthStore } from '../../store/auth';
+import {
+  isSchoolScheduleClientLocked,
+  schoolStaffRoiHover,
+  schoolStaffRoiLabel
+} from '../../utils/schoolStaffRoiLabels.js';
 
 const props = defineProps({
   organizationSlug: {
@@ -705,6 +768,11 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  /** Roster toolbar checkbox. Parent toggles (e.g. dashboard) can turn this off. */
+  showTerminatedToggle: {
+    type: Boolean,
+    default: true
+  },
   /** Display name for the current school/program (shown instead of Assigned Provider). */
   organizationName: {
     type: String,
@@ -715,11 +783,24 @@ const props = defineProps({
     type: Number,
     default: null
   },
+  /** Optional school year filter: 'current', 'all', or YYYY-YYYY (passed to school-portal API). */
+  schoolYearFilter: {
+    type: String,
+    default: ''
+  },
   /**
    * Optional roster status filter (client_status_key), e.g. 'pending' or 'waitlist'.
    * When set, the grid will only show clients matching the filter.
    */
   statusFilterKey: {
+    type: String,
+    default: ''
+  },
+  /**
+   * Optional roster action filter (fall_confirmation, agency_insurance, new_client, …).
+   * When set, the grid will only show clients matching that lifecycle action.
+   */
+  actionFilterKey: {
     type: String,
     default: ''
   },
@@ -746,10 +827,23 @@ const props = defineProps({
   clientOpenMode: {
     type: String,
     default: 'school-chat'
+  },
+  /**
+   * Preview mode for superadmin: 'school_staff' | 'provider' | '' (real role).
+   * Does not change API auth — only presentation of columns/actions.
+   */
+  viewAsRole: {
+    type: String,
+    default: ''
+  },
+  /** When true, hide interactive row actions (preview panes). */
+  previewMode: {
+    type: Boolean,
+    default: false
   }
 });
 
-const emit = defineEmits(['edit-client', 'update:statusFilterKey', 'update:needsAttentionCount', 'open-availability-request', 'open-profile']);
+const emit = defineEmits(['edit-client', 'update:statusFilterKey', 'update:actionFilterKey', 'update:needsAttentionCount', 'open-availability-request', 'open-profile']);
 
 const clients = ref([]);
 const loading = ref(false);
@@ -772,26 +866,84 @@ const assignDayClient = ref(null);
 const assignDayProviderUserId = ref(null);
 const assignDayOrgId = ref(null);
 const searchQuery = ref('');
+const searchIncludeTerminated = ref(false);
+const searchIncludePastYears = ref(false);
+const showTerminatedLocal = ref(true);
 const router = useRouter();
 const authStore = useAuthStore();
 
 const canEditClients = ref(false);
 const quickChecklistClient = ref(null);
+const lifecycleActionClient = ref(null);
+const lifecycleActionKey = ref('');
+const lifecycleActionLabel = ref('');
 const onboardingChecklistClient = ref(null);
 const terminateModalClient = ref(null);
 const terminateReasonDraft = ref('');
 const terminateSaving = ref(false);
-const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
+const effectiveViewerRole = computed(() => {
+  const preview = String(props.viewAsRole || '').toLowerCase();
+  if (preview === 'school_staff' || preview === 'provider') return preview;
+  return String(authStore.user?.role || '').toLowerCase();
+});
+const isSchoolStaff = computed(() => effectiveViewerRole.value === 'school_staff');
 const isProviderUser = computed(() => {
-  const r = String(authStore.user?.role || '').toLowerCase();
+  const r = effectiveViewerRole.value;
   return r === 'provider' || r === 'provider_plus' || r === 'clinical_practice_assistant';
 });
-const isSchoolClientLocked = (client) => isSchoolStaff.value && client?.school_portal_can_open === false;
-const canOpenSchoolClient = (client) => !isSchoolClientLocked(client);
-const showChecklistButton = computed(() => {
-  const r = String(authStore.user?.role || '').toLowerCase();
-  return r === 'provider';
+const canClickLifecycleAction = computed(() => {
+  if (!props.previewMode) return true;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return props.viewAsRole === 'provider'
+    && ['super_admin', 'admin', 'support'].includes(role);
 });
+const isSchoolClientLocked = (client) => {
+  if (!isSchoolStaff.value) return false;
+  return isSchoolScheduleClientLocked(client);
+};
+const canOpenSchoolClient = (client) => {
+  if (isClientTerminated(client)) return false;
+  return !isSchoolClientLocked(client) && !props.previewMode;
+};
+const isNewClientActionClient = (client) => {
+  const key = String(client?.client_status_key || '').toLowerCase();
+  if (key === 'ready_to_schedule') return true;
+  if (key === 'scheduled' && !client?.services_started_at && !client?.first_service_at) return true;
+  return false;
+};
+/** Standalone Checklist is retired — new clients use Action / Next Step. */
+const showChecklistButton = computed(() => false);
+/** Readiness retired — everyone uses Status + role-specific Actions. */
+const showReadinessColumn = computed(() => false);
+/** Provider/agency Action column (school staff never get Action buttons). */
+const showLifecycleActionColumn = computed(() => {
+  if (isSchoolStaff.value) return false;
+  const r = effectiveViewerRole.value;
+  return [
+    'provider',
+    'provider_plus',
+    'intern',
+    'intern_plus',
+    'admin',
+    'support',
+    'staff',
+    'super_admin',
+    'clinical_practice_assistant'
+  ].includes(r);
+});
+const showProviderMilestonesReadonly = (client) => {
+  const key = String(client?.client_status_key || '').toLowerCase();
+  return key === 'ready_to_schedule' || key === 'scheduled' || key === 'onboarded';
+};
+const providerMilestonesLabel = (client) => {
+  const m = client?.provider_milestones || {};
+  const contact = (m.parents_contacted || client?.parents_contacted_at) ? 'Contact ✓' : 'Contact —';
+  const intake = (m.intake_done || client?.intake_at) ? 'Intake ✓' : 'Intake —';
+  const first = (m.first_service_done || client?.services_started_at || client?.first_service_at)
+    ? 'First service ✓'
+    : 'First service —';
+  return `${contact} · ${intake} · ${first}`;
+};
 const showTerminateButton = computed(() => props.rosterScope === 'provider');
 const showAssignedColumn = computed(() => props.rosterScope === 'provider');
 /** Only show school column when the roster spans multiple schools (e.g. All schools view). */
@@ -802,14 +954,7 @@ const showSchoolColumn = computed(() => {
   return orgIds.size > 1;
 });
 const showRowActions = computed(() => true);
-const isContinuationServicesSeason = (value = new Date()) => {
-  const d = value instanceof Date ? new Date(value.getTime()) : new Date(value);
-  if (!Number.isFinite(d.getTime())) return false;
-  const start = new Date(d.getFullYear(), 4, 1);
-  const end = new Date(d.getFullYear(), 8, 1);
-  return d.getTime() >= start.getTime() && d.getTime() < end.getTime();
-};
-const showContinuationServicesColumn = computed(() => showChecklistButton.value && isContinuationServicesSeason());
+const showContinuationServicesColumn = computed(() => false);
 
 const orgKey = computed(() => {
   // school roster expects numeric org id; provider roster may only have slug.
@@ -858,9 +1003,27 @@ const hideFloatingTooltip = () => {
 const onTerminatedHover = (client, event) => {
   if (String(client?.client_status_key || '').toLowerCase() !== 'terminated') return;
   const cid = String(client?.id || '');
-  if (!cid || !client.termination_reason) return;
+  const body = String(
+    client?.fall_status_hover || client?.termination_reason || 'Terminated'
+  ).trim();
+  if (!cid || !body) return;
   hoveredTerminatedClientId.value = cid;
-  positionFloatingTooltip(event?.currentTarget, 'Termination reason', client.termination_reason);
+  positionFloatingTooltip(event?.currentTarget, 'Termination reason', body);
+};
+
+const onFallStatusHover = (client, event) => {
+  const key = String(client?.client_status_key || '').toLowerCase();
+  if (!['confirmation_pending', 'unable_to_reach', 'other_transfer'].includes(key)) return;
+  const body = fallHoverBody(client);
+  if (!body) return;
+  positionFloatingTooltip(event?.currentTarget, 'Fall confirmation', body);
+};
+
+const onStatusHoverEnter = (client, event) => {
+  const key = String(client?.client_status_key || '').toLowerCase();
+  if (key === 'waitlist') return onWaitlistHover(client, event);
+  if (key === 'terminated') return onTerminatedHover(client, event);
+  return onFallStatusHover(client, event);
 };
 
 const onStatusHoverLeave = (client) => {
@@ -877,8 +1040,12 @@ const getStatusTitle = (client) => {
     const cached = waitlistNoteByClientId.value?.[String(client?.id || '')] || '';
     return cached ? `Waitlist reason: ${cached}` : 'Hover for waitlist reason';
   }
-  if (key === 'terminated' && client?.termination_reason) {
-    return `Termination reason: ${client.termination_reason}`;
+  const fallHover = fallHoverBody(client);
+  if (fallHover) return fallHover;
+  if (key === 'confirmed_returning') return 'Agency clearance pending';
+  if (key === 'terminated') {
+    const reason = String(client?.termination_reason || '').trim();
+    return reason ? `Termination reason: ${reason}` : 'Terminated — hover for details';
   }
   return '';
 };
@@ -1032,6 +1199,16 @@ const fetchClients = async () => {
     if (props.rosterScope === 'provider' && rosterUid > 0 && rosterUid !== meId) {
       params.providerUserId = rosterUid;
     }
+    const syFilter = String(props.schoolYearFilter || '').trim();
+    if (syFilter) {
+      params.schoolYear = syFilter === 'current' ? 'current' : syFilter;
+    }
+    const q = String(searchQuery.value || '').trim();
+    if (q) {
+      params.q = q;
+      if (searchIncludeTerminated.value) params.includeTerminated = true;
+      if (searchIncludePastYears.value) params.includePastYears = true;
+    }
     const response = await api.get(endpoint, { params });
     clients.value = response.data || [];
   } catch (err) {
@@ -1162,6 +1339,7 @@ const resolveProviderUserIdForClient = (client) => {
 };
 
 const canEditAssignedDay = (client) => {
+  if (isClientTerminated(client)) return false;
   if (!client?.id) return false;
   const orgId = Number(client?.organization_id || props.organizationId || 0);
   if (!orgId) return false;
@@ -1278,7 +1456,66 @@ const isNewlyAssigned = (client) => {
 };
 
 const openQuickChecklist = (client) => {
+  if (isClientTerminated(client)) return;
   quickChecklistClient.value = client;
+};
+
+/** Prefer API action; when previewing as provider, use the provider-specific action. */
+const PROVIDER_ACTION_LABELS = {
+  fall_confirmation: 'Fall confirmation – Action Needed',
+  spring_update: 'Spring Update – Action Needed',
+  confirm_services_started: 'Confirm Services Started',
+  provider_intake: 'New Client – Action Needed'
+};
+
+const lifecycleActionFor = (client) => {
+  if (isClientTerminated(client)) return null;
+  if (props.viewAsRole === 'provider') {
+    if (client?.provider_lifecycle_action?.actionKey) return client.provider_lifecycle_action;
+    const key = String(client?.provider_action_key || '').trim();
+    if (key) return { actionKey: key, label: PROVIDER_ACTION_LABELS[key] || 'Action Needed' };
+    return null;
+  }
+  if (props.viewAsRole === 'school_staff') return null;
+  return client?.lifecycle_action || null;
+};
+
+const fallHoverBody = (client) => {
+  const fromApi = String(client?.fall_status_hover || '').trim();
+  if (fromApi) return fromApi;
+  const key = String(client?.client_status_key || '').toLowerCase();
+  if (!['confirmation_pending', 'unable_to_reach', 'other_transfer'].includes(key)) return '';
+  const hasProvider = Number(client?.provider_id) > 0
+    || String(client?.provider_ids || '').split(',').some((s) => parseInt(s, 10) > 0)
+    || !!String(client?.provider_name || '').trim();
+  const day = String(client?.service_day || '');
+  const hasDay = /(Monday|Tuesday|Wednesday|Thursday|Friday)/i.test(day)
+    || /:(Monday|Tuesday|Wednesday|Thursday|Friday)/i.test(String(client?.provider_day_pairs || ''));
+  if (!hasProvider) return 'Waiting on a provider assignment. This client is not on a caseload yet.';
+  if (!hasDay) return 'Waiting on provider fall confirmation (an assigned day is still needed).';
+  return 'Provider and day are assigned. This client should move to Ready to Schedule.';
+};
+
+const openLifecycleAction = (client) => {
+  const action = lifecycleActionFor(client);
+  if (!action?.actionKey) return;
+  if (action.actionKey === 'provider_intake') {
+    openQuickChecklist(client);
+    return;
+  }
+  lifecycleActionClient.value = client;
+  lifecycleActionKey.value = action.actionKey;
+  lifecycleActionLabel.value = action.label || 'Next Step';
+};
+
+const closeLifecycleAction = () => {
+  lifecycleActionClient.value = null;
+  lifecycleActionKey.value = '';
+  lifecycleActionLabel.value = '';
+};
+
+const onLifecycleActionSaved = () => {
+  fetchClients();
 };
 
 const roiStaffName = (row) => {
@@ -1290,12 +1527,12 @@ const roiStaffName = (row) => {
 const roiStaffStateLabel = (row) => {
   const effective = String(row?.effective_access_state || '').trim().toLowerCase();
   const access = String(row?.access_level || '').trim().toLowerCase();
-  if (effective === 'expired') return 'ROI expired';
-  if (effective === 'roi_docs' || access === 'roi_docs') return 'ROI and Doc Access';
-  if (effective === 'roi' || access === 'roi') return 'ROI access';
-  if (effective === 'packet' || access === 'packet') return 'Packet only';
-  if (effective === 'limited' || access === 'limited') return 'Limited';
-  return 'Limited';
+  return schoolStaffRoiLabel(effective === 'expired' ? 'expired' : (effective || access));
+};
+
+const roiStaffStateHover = (row) => {
+  const effective = String(row?.effective_access_state || row?.access_level || '').trim().toLowerCase();
+  return schoolStaffRoiHover(effective);
 };
 
 const startOfDay = (value) => {
@@ -1436,6 +1673,47 @@ const sortValue = (client, key) => {
   return String(client[key] || '').toLowerCase();
 };
 
+const ACTION_FILTER_LABELS = {
+  fall_confirmation: 'Fall confirmation',
+  agency_insurance: 'Insurance clearance',
+  agency_intake: 'Agency intake',
+  new_client: 'New client',
+  agency_clearance: 'Agency clearance',
+  roi_followup: 'ROI follow-up',
+  confirm_services: 'Confirm started'
+};
+
+const clientMatchesActionFilter = (client, actionKey) => {
+  const k = normalize(actionKey);
+  if (!k) return true;
+  const providerKey = normalize(
+    client?.provider_action_key
+    || (String(client?.lifecycle_action?.role || '').toLowerCase() === 'provider'
+      ? client?.lifecycle_action?.actionKey
+      : '')
+  );
+  const agencyKey = normalize(
+    client?.agency_action_key
+    || (String(client?.lifecycle_action?.role || '').toLowerCase() === 'agency'
+      ? client?.lifecycle_action?.actionKey
+      : '')
+  );
+  const status = normalize(client?.client_status_key);
+  if (k === 'fall_confirmation') {
+    return providerKey === 'fall_confirmation'
+      || ['confirmation_pending', 'continuation_unknown', 'unable_to_reach', 'other_transfer'].includes(status);
+  }
+  if (k === 'agency_insurance') {
+    return client?.needs_insurance_clearance === true || client?.needs_insurance_clearance === 1;
+  }
+  if (k === 'new_client') return providerKey === 'provider_intake';
+  if (k === 'confirm_services') return providerKey === 'confirm_services_started';
+  if (k === 'agency_intake') return agencyKey === 'agency_intake';
+  if (k === 'agency_clearance') return agencyKey === 'agency_clearance';
+  if (k === 'roi_followup') return agencyKey === 'roi_followup';
+  return false;
+};
+
 const normalize = (v) => String(v || '').trim().toLowerCase();
 
 const isWaitlistClient = (client) => {
@@ -1471,23 +1749,23 @@ const openAvailabilityRequestFromWaitlist = () => {
 const attentionSummary = computed(() => {
   const list = Array.isArray(clients.value) ? clients.value : [];
   let newCount = 0;
-  let pendingCompliance = 0;
+  let actionNeeded = 0;
   let openTickets = 0;
   for (const c of list) {
     if (isNewlyAssigned(c)) newCount++;
-    if (c?.compliance_pending) pendingCompliance++;
+    if (lifecycleActionFor(c)) actionNeeded++;
     if (Number(c?.open_ticket_count || 0) > 0) openTickets++;
   }
   return {
     new: newCount,
-    pendingCompliance,
+    pendingCompliance: actionNeeded,
     openTickets,
     total: new Set(
       list
-        .filter((c) => isNewlyAssigned(c) || c?.compliance_pending || Number(c?.open_ticket_count || 0) > 0)
+        .filter((c) => isNewlyAssigned(c) || lifecycleActionFor(c) || Number(c?.open_ticket_count || 0) > 0)
         .map((c) => c.id)
     ).size,
-    any: newCount > 0 || pendingCompliance > 0 || openTickets > 0
+    any: newCount > 0 || actionNeeded > 0 || openTickets > 0
   };
 });
 
@@ -1496,6 +1774,7 @@ const setAttentionFilter = (mode) => {
   if (mode !== 'needs_attention') {
     localStatusFilterKey.value = '';
     emit('update:statusFilterKey', '');
+    emit('update:actionFilterKey', '');
   }
 };
 
@@ -1503,12 +1782,14 @@ const setStatusFilter = (key) => {
   attentionFilterActive.value = false;
   localStatusFilterKey.value = key || '';
   emit('update:statusFilterKey', key || '');
+  emit('update:actionFilterKey', '');
 };
 
 const effectiveStatusFilterKey = computed(() =>
   showAttentionFilters.value ? localStatusFilterKey.value : props.statusFilterKey
 );
 const activeStatusFilterKey = computed(() => normalize(effectiveStatusFilterKey.value));
+const activeActionFilterKey = computed(() => normalize(props.actionFilterKey));
 const activeStatusFilterLabel = computed(() => {
   const k = activeStatusFilterKey.value;
   if (!k) return '';
@@ -1516,45 +1797,61 @@ const activeStatusFilterLabel = computed(() => {
   if (k === 'waitlist') return 'Waitlist';
   return k.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
 });
+const activeActionFilterLabel = computed(() => {
+  const k = activeActionFilterKey.value;
+  if (!k) return '';
+  return ACTION_FILTER_LABELS[k] || k.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+});
+
+const hideTerminatedEffective = computed(() => {
+  if (String(searchQuery.value || '').trim()) {
+    return !searchIncludeTerminated.value;
+  }
+  if (!props.showTerminatedToggle) return props.hideTerminated;
+  return !showTerminatedLocal.value;
+});
 
 const statusFilteredClients = computed(() => {
   let list = Array.isArray(clients.value) ? clients.value : [];
-  if (props.hideTerminated) {
+  if (hideTerminatedEffective.value) {
     list = list.filter((c) => normalize(c?.client_status_key) !== 'terminated');
   }
+  if (String(searchQuery.value || '').trim()) {
+    return list;
+  }
   if (attentionFilterActive.value) {
-    return list.filter((c) => isNewlyAssigned(c) || c?.compliance_pending || Number(c?.open_ticket_count || 0) > 0);
+    list = list.filter((c) => isNewlyAssigned(c) || lifecycleActionFor(c) || Number(c?.open_ticket_count || 0) > 0);
   }
   const k = activeStatusFilterKey.value;
-  if (!k) return list;
-  if (k === 'waitlist') return list.filter((c) => isWaitlistClient(c));
-  return list.filter((c) => normalize(c?.client_status_key) === k);
+  if (k === 'waitlist') list = list.filter((c) => isWaitlistClient(c));
+  else if (k) list = list.filter((c) => normalize(c?.client_status_key) === k);
+  const actionKey = activeActionFilterKey.value;
+  if (actionKey) list = list.filter((c) => clientMatchesActionFilter(c, actionKey));
+  return list;
 });
 
 const filteredClients = computed(() => {
   const q = normalize(searchQuery.value);
   const list = Array.isArray(statusFilteredClients.value) ? statusFilteredClients.value : [];
   if (!q) return list;
-  return list.filter((client) => {
-    const hay = [
-      formatRosterLabel(client),
-      client?.client_status_label,
-      props.organizationName || client?.organization_name,
-      client?.provider_name,
-      client?.service_day,
-      continuationServicesSummary(client),
-      formatDocSummary(client)
-    ]
-      .filter(Boolean)
-      .join(' ');
-    return normalize(hay).includes(q);
-  });
+  // Smart search (name, birthday, guardian) is applied on the server.
+  return list;
 });
 
 const clearStatusFilter = () => {
   attentionFilterActive.value = false;
   localStatusFilterKey.value = '';
   emit('update:statusFilterKey', '');
+  emit('update:actionFilterKey', '');
+};
+
+const lifecycleSortBucket = (client) => {
+  const key = String(client?.client_status_key || '').toLowerCase();
+  if (key === 'terminated' || key === 'archived') return 4;
+  if (['received', 'packet', 'pending_corrections', 'in_process', 'screener'].includes(key)) return 0;
+  if (key === 'ready_to_schedule' || key === 'scheduled') return 1;
+  if (key === 'being_seen' || key === 'current') return 3;
+  return 2;
 };
 
 const sortedClients = computed(() => {
@@ -1562,6 +1859,9 @@ const sortedClients = computed(() => {
   const key = sortKey.value;
   const dir = sortDir.value === 'asc' ? 1 : -1;
   return list.sort((a, b) => {
+    // Default pipeline: needing action / not yet Being Seen above active; Terminated bottom.
+    const bucketCmp = lifecycleSortBucket(a) - lifecycleSortBucket(b);
+    if (bucketCmp !== 0) return bucketCmp;
     const av = sortValue(a, key);
     const bv = sortValue(b, key);
     if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
@@ -1595,7 +1895,7 @@ const formatRosterLabel = (client) => {
   const code = String(client?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
   const fullName = String(client?.full_name || '').trim();
   const mode = String(props.clientLabelMode || 'initials');
-  const isLocked = client?.school_portal_force_placeholder === true || client?.school_portal_can_open === false;
+  const isLocked = isSchoolScheduleClientLocked(client);
   if (isLocked) {
     // Locked rows never reveal the full name — fall back to initials/codes label mode.
     const src = mode === 'codes' ? (client?.identifier_code || client?.initials) : (client?.initials || client?.identifier_code);
@@ -1610,6 +1910,11 @@ const formatRosterLabel = (client) => {
 };
 
 const formatClientStatusLabel = (client) => {
+  const key = String(client?.client_status_key || '').toLowerCase();
+  if (key === 'confirmation_pending') return 'Fall Confirmation Pending';
+  if (key === 'ready_to_schedule') return 'Ready to Schedule';
+  if (key === 'being_seen') return 'Being Seen';
+  if (key === 'scheduled') return 'Scheduled';
   const label = String(client?.client_status_label || '').trim();
   if (label) return label;
   const status = String(client?.status || '').toUpperCase();
@@ -1700,24 +2005,30 @@ const rosterLabelTitle = (client) => {
 };
 
 const lockedClientTitle = (client) => {
+  if (isClientTerminated(client)) {
+    const body = String(
+      client?.fall_status_hover || client?.termination_reason || 'Terminated'
+    ).trim();
+    return body ? `Termination reason: ${body}` : 'Terminated';
+  }
+  const soft = String(client?.school_portal_roi_soft_message || '').trim();
+  if (soft) return soft;
+  if (client?.paper_packet_staff_roi_notice) {
+    return 'A printed referral packet was recently uploaded. If your name is on the signed form, you will receive access.';
+  }
   const state = String(client?.school_staff_effective_access_state || '').toLowerCase();
   if (state === 'expired') {
-    return 'ROI EXPIRED: Release of information is expired. Client label is shown for scheduling only; profile/comments remain locked until ROI is renewed.';
+    return 'ROI is currently expired. Schedule and Soft Schedule remain available. Document access is paused until renewed.';
   }
-  return 'ROI LOCKED: ROI is missing, pending, or requires packet update/approval. Client label is shown for scheduling only; profile/comments remain locked.';
+  return 'ROI access is limited. Schedule remains available; some profile documents may be restricted.';
 };
 
-const lockedInitialsTitle = (client) => {
-  const state = String(client?.school_staff_effective_access_state || '').toLowerCase();
-  if (state === 'expired') {
-    return 'ROI EXPIRED: Release of information is expired. Client label is visible for schedule context only.';
-  }
-  return 'ROI LOCKED: ROI is missing, pending, or requires packet update/approval. Client label is visible for schedule context only.';
-};
+const lockedInitialsTitle = (client) => lockedClientTitle(client);
 
 const lockedClientButtonLabel = (client) => {
   const state = String(client?.school_staff_effective_access_state || '').toLowerCase();
-  return state === 'expired' ? 'ROI Expired' : 'ROI Locked';
+  if (state === 'expired' || state === 'limited' || state === 'roi' || state === 'roi_docs') return 'Comments';
+  return 'No ROI';
 };
 
 const pendingComplianceTitle = (client) => {
@@ -1793,6 +2104,7 @@ const getRoiExpirationCountdownLabel = (client) => {
 };
 
 const openOnboardingChecklist = (client) => {
+  if (isClientTerminated(client)) return;
   if (!client?.id) return;
   onboardingChecklistClient.value = client;
 };
@@ -1980,13 +2292,37 @@ watch(
 );
 
 watch(
-  () => [props.organizationId, props.organizationSlug, props.skillBuildersOnly],
+  () => props.hideTerminated,
+  (v) => {
+    if (!props.showTerminatedToggle) return;
+    showTerminatedLocal.value = !v;
+  },
+  { immediate: true }
+);
+
+watch(
+  () => [props.organizationId, props.organizationSlug, props.skillBuildersOnly, props.schoolYearFilter],
   () => {
     if (useClientsOverride()) return;
     if (props.organizationId || (props.rosterScope === 'provider' && props.organizationSlug)) {
       fetchClients();
       if (props.organizationId) fetchEditPermissions();
     }
+  }
+);
+
+let rosterSearchDebounce = null;
+watch(
+  () => [searchQuery.value, searchIncludeTerminated.value, searchIncludePastYears.value],
+  ([q], [prevQ]) => {
+    if (useClientsOverride()) return;
+    const needle = String(q || '').trim();
+    const prev = String(prevQ || '').trim();
+    if (!needle && !prev) return;
+    if (rosterSearchDebounce) clearTimeout(rosterSearchDebounce);
+    rosterSearchDebounce = setTimeout(() => {
+      fetchClients();
+    }, needle ? 280 : 0);
   }
 );
 
@@ -2649,6 +2985,40 @@ onMounted(() => {
   border-radius: 10px;
   background: #fff;
 }
+.table-search-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.table-search-row .roster-search-box {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.roster-search-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 6px;
+}
+.roster-search-opts label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-muted, #64748b);
+  white-space: nowrap;
+}
+.show-terminated-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-muted, #64748b);
+  white-space: nowrap;
+}
 
 .clients-table thead {
   background: var(--bg-alt);
@@ -2811,6 +3181,22 @@ onMounted(() => {
   opacity: 0.82;
 }
 
+.client-row-terminated {
+  background: rgba(107, 114, 128, 0.06);
+  opacity: 0.72;
+  color: var(--text-secondary);
+}
+
+.client-row-terminated .initials-btn,
+.client-row-terminated .btn-link,
+.client-row-terminated .status-badge {
+  color: #6b7280;
+}
+
+.client-row-terminated .status-terminated {
+  cursor: help;
+}
+
 .comment-btn {
   position: relative;
 }
@@ -2869,6 +3255,20 @@ onMounted(() => {
   background: rgba(47, 111, 78, 0.1);
   border-color: rgba(47, 111, 78, 0.4);
   color: var(--primary, #2f6f4e);
+}
+
+.roster-action-btn--pulse {
+  animation: roster-action-pulse 1.4s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(201, 122, 32, 0.45);
+  border-color: rgba(201, 122, 32, 0.55);
+  background: rgba(201, 122, 32, 0.08);
+  color: #9a4d0a;
+}
+
+@keyframes roster-action-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(201, 122, 32, 0.45); transform: scale(1); }
+  55% { box-shadow: 0 0 0 8px rgba(201, 122, 32, 0); transform: scale(1.03); }
+  100% { box-shadow: 0 0 0 0 rgba(201, 122, 32, 0); transform: scale(1); }
 }
 
 .roster-action-btn--danger {

@@ -4,8 +4,8 @@ import { paperPacketRoiExpiresAtYmd } from '../utils/paperPacketRoiExpiry.js';
 function normalizeAccessLevel(level) {
   const normalized = String(level || '').trim().toLowerCase();
   if (normalized === 'roi_docs') return 'roi_docs';
-  if (normalized === 'limited') return 'limited';
   if (normalized === 'roi') return 'roi';
+  if (normalized === 'limited') return 'limited';
   return 'packet';
 }
 
@@ -41,22 +41,41 @@ export function isRoiExpired(roiExpiresAt) {
   return roiDate.getTime() < startOfToday().getTime();
 }
 
-export function getEffectiveSchoolStaffRoiState(record, roiExpiresAt) {
-  if (!record || !toBool(record.is_active)) return 'none';
+export function getEffectiveSchoolStaffRoiState(record, roiExpiresAt, { schoolStaffInOrg = false } = {}) {
+  const expired = isRoiExpired(roiExpiresAt);
+  if (!record || !toBool(record.is_active)) {
+    if (schoolStaffInOrg && !expired) return 'limited';
+    return 'none';
+  }
   const accessLevel = normalizeAccessLevel(record.access_level);
-  if (accessLevel === 'packet') return 'packet';
-  if (isRoiExpired(roiExpiresAt)) return 'expired';
+  // Legacy "No ROI on file" (packet) upgrades to ROI Active when the client ROI date is current.
+  if (accessLevel === 'packet') {
+    if (!expired) return 'limited';
+    return 'packet';
+  }
+  if (expired) return 'expired';
   if (accessLevel === 'limited') return 'limited';
   return accessLevel === 'roi_docs' ? 'roi_docs' : 'roi';
 }
 
-export function schoolStaffCanOpenClient(record, roiExpiresAt) {
-  const effectiveState = getEffectiveSchoolStaffRoiState(record, roiExpiresAt);
-  return effectiveState === 'limited' || effectiveState === 'roi' || effectiveState === 'roi_docs';
+/**
+ * ROI Active (limited), ROI (Speak), ROI All Active, and expired ROI may open
+ * the client for schedule / comments / own document uploads.
+ * Packet / no-ROI staff stay locked. Referral documents remain gated by
+ * schoolStaffCanViewClientDocuments.
+ */
+export function schoolStaffCanOpenClient(record, roiExpiresAt, opts = {}) {
+  const effectiveState = getEffectiveSchoolStaffRoiState(record, roiExpiresAt, opts);
+  return (
+    effectiveState === 'limited'
+    || effectiveState === 'roi'
+    || effectiveState === 'roi_docs'
+    || effectiveState === 'expired'
+  );
 }
 
-export function schoolStaffCanViewClientDocuments(record, roiExpiresAt) {
-  return getEffectiveSchoolStaffRoiState(record, roiExpiresAt) === 'roi_docs';
+export function schoolStaffCanViewClientDocuments(record, roiExpiresAt, opts = {}) {
+  return getEffectiveSchoolStaffRoiState(record, roiExpiresAt, opts) === 'roi_docs';
 }
 
 function formatUserName(firstName, lastName, email, fallbackId = null) {
@@ -275,7 +294,7 @@ class ClientSchoolStaffRoiAccess {
     }
 
     return (rows || []).map((row) => {
-      const effectiveState = getEffectiveSchoolStaffRoiState(row, roiExpiresAt);
+      const effectiveState = getEffectiveSchoolStaffRoiState(row, roiExpiresAt, { schoolStaffInOrg: true });
       return {
         school_staff_user_id: Number(row.school_staff_user_id),
         first_name: row.first_name || null,
@@ -290,8 +309,8 @@ class ClientSchoolStaffRoiAccess {
           : 'none',
         is_active: toBool(row.is_active),
         effective_access_state: effectiveState,
-        can_open_client: effectiveState === 'limited' ? true : schoolStaffCanOpenClient(row, roiExpiresAt),
-        can_view_documents: effectiveState === 'limited' ? false : schoolStaffCanViewClientDocuments(row, roiExpiresAt),
+        can_open_client: schoolStaffCanOpenClient(row, roiExpiresAt, { schoolStaffInOrg: true }),
+        can_view_documents: schoolStaffCanViewClientDocuments(row, roiExpiresAt, { schoolStaffInOrg: true }),
         granted_by_user_id: row.granted_by_user_id ? Number(row.granted_by_user_id) : null,
         granted_at: row.granted_at || null,
         granted_by_name: formatUserName(
@@ -369,8 +388,12 @@ class ClientSchoolStaffRoiAccess {
       schoolStaffUserId
     });
     if (requireDocumentAccess) return state === 'roi_docs';
-    if (includeLimited) return state === 'limited' || state === 'roi' || state === 'roi_docs';
-    return state === 'roi' || state === 'roi_docs';
+    // Expired still allows schedule/comments/tickets; docs remain blocked above.
+    // includeLimited is kept for callers; limited is ROI Active (portal except referral docs).
+    if (includeLimited) {
+      return state === 'limited' || state === 'roi' || state === 'roi_docs' || state === 'expired';
+    }
+    return state === 'roi' || state === 'roi_docs' || state === 'expired';
   }
 
   static async resolveSchoolStaffClientAccessState({
@@ -398,17 +421,27 @@ class ClientSchoolStaffRoiAccess {
     );
     const row = rows?.[0] || null;
     if (row) {
-      return getEffectiveSchoolStaffRoiState(row, row.roi_expires_at || null);
+      return getEffectiveSchoolStaffRoiState(row, row.roi_expires_at || null, { schoolStaffInOrg: true });
     }
 
-    // No explicit grant: blocked until configured (schedulers get limited via portal layer).
+    const inOrg = await this.schoolStaffBelongsToOrganization({
+      schoolStaffUserId: uid,
+      schoolOrganizationId: sid
+    });
+    if (!inOrg) return 'none';
+    const [clientRows] = await pool.execute(
+      `SELECT roi_expires_at FROM clients WHERE id = ? LIMIT 1`,
+      [cid]
+    );
+    const roiExpiresAt = clientRows?.[0]?.roi_expires_at || null;
+    if (!isRoiExpired(roiExpiresAt)) return 'limited';
     return 'none';
   }
 
   /**
    * Paper packet upload defaults:
-   * - School-staff uploader → limited (open client + own uploaded documents only)
-   * - Other school staff → no grant (scheduler portal accounts still get scheduler constraints)
+   * - School-staff uploader → limited / ROI Active (open client; own uploads only)
+   * - Other school staff → no grant
    * - Set clients.roi_expires_at using paper-packet rules (1y before 2026-08-09, else 3y)
    * - Flag client for school-admin / general staff to configure per-staff ROI from paper form
    */
@@ -501,7 +534,8 @@ class ClientSchoolStaffRoiAccess {
     const staffId = Number(schoolStaffUserId || 0);
     const actorId = Number(actorUserId || 0) || null;
     const rawState = String(nextState || '').trim().toLowerCase();
-    const state = rawState === 'none' ? 'limited' : rawState;
+    let state = rawState;
+    if (state === 'none') state = 'packet';
     if (!cid || !sid || !staffId) return false;
     if (!['packet', 'limited', 'roi', 'roi_docs'].includes(state)) {
       throw new Error('Invalid nextState');

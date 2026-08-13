@@ -73,6 +73,48 @@ export function isReturningSchoolClient(client, now = new Date()) {
   return false;
 }
 
+/** New-intake pipeline — not continuing / returning for fall. */
+const NEW_CLIENT_INTAKE_KEYS = new Set([
+  'received',
+  'packet',
+  'pending_corrections',
+  'in_process',
+  'screener',
+  'ready_to_schedule'
+]);
+
+/**
+ * Continuing school client (not brand-new intake). Disclosures are auto-ok in-system.
+ */
+export function isContinuingSchoolClient(client) {
+  if (!isSchoolClientRow(client)) return false;
+  const key = String(client?.client_status_key || '').toLowerCase();
+  if (NEW_CLIENT_INTAKE_KEYS.has(key) || key === 'waitlist' || key === 'terminated') return false;
+  if (String(client?.status || '').toUpperCase() === 'ARCHIVED') return false;
+  return true;
+}
+
+export function continuingClientDisclosureAutoOk(client) {
+  return isContinuingSchoolClient(client);
+}
+
+/** Temporary: continuing clients are not blocked on insurance through 2026-08-16. */
+export const CONTINUING_INSURANCE_OVERRIDE_UNTIL_YMD = '2026-08-16';
+
+export function continuingInsuranceOverrideActive(now = new Date()) {
+  const d = now instanceof Date ? now : new Date(now);
+  if (!Number.isFinite(d.getTime())) return false;
+  const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return ymd <= CONTINUING_INSURANCE_OVERRIDE_UNTIL_YMD;
+}
+
+export function needsPriorYearServiceAttest(client) {
+  if (!isContinuingSchoolClient(client)) return false;
+  const parents = client?.parents_contacted_at;
+  const first = client?.first_service_at || client?.services_started_at;
+  return !parents || !first;
+}
+
 export function hasCompletedFallContinuation(raw) {
   const data = parseJsonMaybe(raw);
   if (!data || typeof data !== 'object') return false;
@@ -297,5 +339,125 @@ export function normalizeContinuationServicesPayload(raw) {
       recommendRaw === true || recommendRaw === 'true' || recommendRaw === 1;
   }
 
+  // Structured "other" reason (school-safe when confirmed). Freeform custom is not shown to schools.
+  if (plan === 'other') {
+    const otherReasonKey = String(raw.otherReasonKey || '').trim();
+    const allowedOther = new Set(['patient_discontinued_services', 'custom']);
+    if (otherReasonKey && allowedOther.has(otherReasonKey)) {
+      normalized.otherReasonKey = otherReasonKey;
+    } else {
+      normalized.otherReasonKey = 'custom';
+    }
+  }
+
+  if (plan === 'unable_to_contact_parent') {
+    const attempts = parseInt(raw.contactAttempts, 10);
+    if (!Number.isFinite(attempts) || attempts < 1) {
+      throw new Error('List how many contact attempts were made');
+    }
+    normalized.contactAttempts = Math.min(99, attempts);
+  }
+
+  // Note school staff may see on Terminated hover (provider is warned in UI).
+  if (normalized.recommendTerminate) {
+    const schoolNote = String(raw.schoolVisibleNote || raw.terminationNote || '').trim();
+    if (schoolNote) normalized.schoolVisibleNote = schoolNote.slice(0, 1000);
+  }
+
   return normalized;
+}
+
+function clientFlagTruthy(value) {
+  return value === true || value === 1 || value === 'true' || value === '1';
+}
+
+function hoverHasProvider(client) {
+  if (clientFlagTruthy(client?.has_provider)) return true;
+  if (client?.has_provider === false || client?.has_provider === 0) return false;
+  if (Number(client?.provider_id) > 0) return true;
+  const ids = String(client?.provider_ids || '')
+    .split(',')
+    .map((s) => parseInt(s, 10))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return ids.length > 0;
+}
+
+function hoverHasWeekday(client) {
+  if (clientFlagTruthy(client?.has_weekday)) return true;
+  const day = String(client?.service_day || '').trim();
+  if (day && /(Monday|Tuesday|Wednesday|Thursday|Friday)/i.test(day)) return true;
+  const pairs = String(client?.provider_day_pairs || '');
+  return /:(Monday|Tuesday|Wednesday|Thursday|Friday)/i.test(pairs);
+}
+
+/** School-safe default when no continuation JSON is on file yet. */
+export function defaultFallConfirmationHover(client) {
+  if (!hoverHasProvider(client)) {
+    return 'Waiting on a provider assignment. This client is not on a caseload yet.';
+  }
+  if (!hoverHasWeekday(client)) {
+    return 'Waiting on provider fall confirmation (an assigned day is still needed).';
+  }
+  return 'Provider and day are assigned. This client should move to Ready to Schedule.';
+}
+
+/**
+ * School-staff-safe hover text for Fall Confirmation Pending / Terminated.
+ * Never exposes freeform private admin comments unless schoolVisibleNote was explicitly set.
+ */
+export function buildSchoolFallHoverText(client) {
+  const statusKey = String(client?.client_status_key || '').toLowerCase();
+  if (statusKey === 'confirmed_returning') {
+    return 'Agency clearance pending';
+  }
+  const data = parseJsonMaybe(client?.continuation_services_json);
+  if (!data || typeof data !== 'object') {
+    if (statusKey === 'terminated' && client?.termination_reason) {
+      return String(client.termination_reason);
+    }
+    if (['confirmation_pending', 'unable_to_reach', 'other_transfer'].includes(statusKey)) {
+      return defaultFallConfirmationHover(client);
+    }
+    return null;
+  }
+  const plan = String(data.plan || '').trim();
+  const support = data.supportFollowUp === true || data.supportFollowUp === 'true' || data.supportFollowUp === 1;
+  const parts = [];
+
+  if (statusKey === 'terminated' || data.recommendTerminate === true || data.recommendTerminate === 'true') {
+    if (plan === 'unable_to_contact_parent') {
+      parts.push('Unable to Contact Parent');
+      if (data.contactAttempts) parts.push(`${data.contactAttempts} attempt(s)`);
+    } else if (plan === 'other' && data.otherReasonKey === 'patient_discontinued_services') {
+      parts.push('Patient Discontinued Services with Provider');
+    } else if (plan === 'not_continue_school') {
+      parts.push('Not continuing services');
+    }
+    const note = String(data.schoolVisibleNote || client?.termination_reason || '').trim();
+    if (note) parts.push(note);
+    if (support) parts.push('Our support team is following up');
+    return parts.length ? parts.join(' · ') : (statusKey === 'terminated' ? null : defaultFallConfirmationHover(client));
+  }
+
+  if (statusKey === 'confirmation_pending' || statusKey === 'unable_to_reach' || statusKey === 'other_transfer') {
+    if (plan === 'unable_to_contact_parent') {
+      parts.push('Unable to Contact Parent');
+      if (data.contactAttempts) parts.push(`${data.contactAttempts} attempt(s)`);
+      if (support) parts.push('Our support team is following up');
+      return parts.join(' · ');
+    }
+    if (plan === 'other' && data.otherReasonKey === 'patient_discontinued_services') {
+      parts.push('Patient Discontinued Services with Provider');
+      if (support) parts.push('Our support team is following up');
+      return parts.join(' · ');
+    }
+    // Custom freeform "other" — do not show private comment to school staff
+    if (plan === 'other') {
+      if (support) return 'Fall Confirmation Pending · Our support team is following up';
+      return 'Fall Confirmation Pending';
+    }
+    return defaultFallConfirmationHover(client);
+  }
+
+  return null;
 }

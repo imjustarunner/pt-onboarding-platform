@@ -42,10 +42,10 @@ export const SECTION_META = [
   },
   {
     key: 'clients',
-    title: 'Assigned Clients',
+    title: 'Fall Update — Clients',
     shortTitle: 'Clients',
-    hint: 'Clients without a service day',
-    description: 'Review assigned clients who still need a day so they can be marked current.',
+    hint: 'Fall confirmation and assigned days',
+    description: 'Confirm returning clients, assign a weekday, and complete new-client actions for anyone not yet current.',
     icon: 'people',
   },
 ];

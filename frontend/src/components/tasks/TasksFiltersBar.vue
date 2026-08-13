@@ -37,6 +37,13 @@
         <option value="">Department</option>
         <option v-for="d in departments" :key="d.id" :value="String(d.id)">{{ d.name }}</option>
       </select>
+      <input
+        v-model="local.school"
+        type="search"
+        class="filter-select"
+        placeholder="School tag"
+        @input="emitChange"
+      />
     </div>
     <div class="filters-right">
       <select v-model="local.sort" class="filter-select" @change="emitChange">
@@ -44,6 +51,7 @@
         <option value="urgency">Sort: Priority</option>
         <option value="created">Sort: Recently created</option>
         <option v-if="teamView" value="shared_list">Sort: Shared list</option>
+        <option value="school">Sort: School</option>
       </select>
       <button type="button" class="btn btn-ghost btn-sm" @click="clear">Clear</button>
     </div>
@@ -68,6 +76,7 @@ const local = reactive({
   due: '',
   taskType: '',
   departmentId: '',
+  school: '',
   sort: 'due_asc'
 });
 
@@ -80,6 +89,7 @@ watch(
       due: v.due || '',
       taskType: v.taskType || '',
       departmentId: v.departmentId ? String(v.departmentId) : '',
+      school: v.school || '',
       sort: v.sort || 'due_asc'
     });
   },
@@ -97,6 +107,7 @@ function clear() {
     due: '',
     taskType: '',
     departmentId: '',
+    school: '',
     sort: 'due_asc'
   });
   emitChange();

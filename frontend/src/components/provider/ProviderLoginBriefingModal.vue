@@ -196,12 +196,22 @@ const firstName = computed(() => String(
 
 const hostPortalSlug = computed(() => resolveHostImpliedPortalSlug(brandingStore));
 
+function isGoldFlash(value) {
+  const s = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
+  if (!s) return false;
+  if (/^#c69a2b$/i.test(s)) return true;
+  if (s.includes('198,154,43')) return true;
+  return false;
+}
+
 const platformPalette = computed(() => {
   const pb = brandingStore.platformBranding || {};
+  const rawPrimary = pb.primary_color || '#1f6b4a';
+  const primary = isGoldFlash(rawPrimary) ? '#1f6b4a' : rawPrimary;
   return {
-    primary: pb.primary_color || '#1f6b4a',
+    primary,
     secondary: pb.secondary_color || '#0f2f27',
-    accent: pb.accent_color || pb.primary_color || '#2f8c68'
+    accent: isGoldFlash(pb.accent_color) ? primary : (pb.accent_color || primary || '#2f8c68')
   };
 });
 
@@ -235,13 +245,26 @@ const tenantAgency = computed(() => {
 
 const tenantContextLabel = computed(() => tenantAgency.value?.name || 'Your briefing');
 
+function liveCssPrimary() {
+  if (typeof document === 'undefined') return '';
+  const root = getComputedStyle(document.documentElement);
+  const v = (root.getPropertyValue('--primary-color') || root.getPropertyValue('--primary') || '').trim();
+  if (!v || isGoldFlash(v)) return '';
+  return v;
+}
+
 const brandVars = computed(() => {
-  const tenant = tenantAgency.value || platformPalette.value;
+  const tenant = tenantAgency.value;
+  const primary = tenant?.primary && !isGoldFlash(String(tenant.primary))
+    ? tenant.primary
+    : (liveCssPrimary() || '#1f6b4a');
+  const secondary = tenant?.secondary || platformPalette.value.secondary;
+  const accent = tenant?.accent || platformPalette.value.accent;
   return {
-    '--brief-primary': tenant.primary || platformPalette.value.primary,
-    '--brief-secondary': tenant.secondary || platformPalette.value.secondary,
-    '--brief-accent': tenant.accent || platformPalette.value.accent,
-    '--brief-blend': tenant.primary || platformPalette.value.primary
+    '--brief-primary': primary,
+    '--brief-secondary': secondary,
+    '--brief-accent': accent,
+    '--brief-blend': primary
   };
 });
 
@@ -454,7 +477,6 @@ async function loadBriefing() {
     yearUpdate: null,
     overdueNotes: null
   };
-  visible.value = true;
 
   const apiOpts = (timeoutMs) => ({
     timeout: timeoutMs,
@@ -472,6 +494,8 @@ async function loadBriefing() {
     });
     loginTenantAgency.value = tenant;
     if (tenant?.id) agencyStore.setCurrentAgency(tenant);
+    await nextTick();
+    visible.value = true;
 
     const agencyId = Number(tenant?.id || 0);
     const pathPrefix = briefingPathPrefix({

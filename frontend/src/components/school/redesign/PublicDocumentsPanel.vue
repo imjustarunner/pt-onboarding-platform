@@ -619,11 +619,20 @@ const qrModalTitle = ref('');
 const qrModalUrl = ref('');
 const qrModalDataUrl = ref('');
 
-// ── School-year helpers ───────────────────────────────────────────────────────
-function currentSchoolYear() {
-  const now = new Date();
-  const year = now.getFullYear();
-  return (now.getMonth() + 1) >= 8 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
+// ── School-year helpers (last Monday of July — matches backend schoolYear.js) ─
+function lastMondayOfJuly(year) {
+  const d = new Date(year, 7, 0); // last day of July
+  while (d.getDay() !== 1) d.setDate(d.getDate() - 1);
+  return d;
+}
+function currentSchoolYear(now = new Date()) {
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  if (m < 7) return `${y - 1}-${y}`;
+  if (m > 7) return `${y}-${y + 1}`;
+  const rollover = lastMondayOfJuly(y);
+  const today = new Date(y, now.getMonth(), now.getDate());
+  return today.getTime() >= rollover.getTime() ? `${y}-${y + 1}` : `${y - 1}-${y}`;
 }
 const CUR_YEAR = currentSchoolYear();
 const schoolYearOptions = (() => {

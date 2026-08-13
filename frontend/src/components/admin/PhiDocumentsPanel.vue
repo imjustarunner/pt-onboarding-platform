@@ -1,11 +1,17 @@
 <template>
   <div class="panel" :class="{ 'panel--embedded': embedded }">
     <div v-if="!embedded" class="header">
-      <h3>Documentation (PHI)</h3>
-      <p class="hint">Opening documentation requires confirmation and will be audited.</p>
+      <h3>{{ ownOnly ? 'Your documents' : 'Documentation (PHI)' }}</h3>
+      <p class="hint">
+        {{ ownOnly
+          ? (roleNorm === 'school_staff'
+            ? 'Upload and view files you added. Referral documents stay hidden at this ROI level — including a printed packet if your access is ROI (Speak). Opening a file is audited.'
+            : 'Upload and view files you added for this client. Referral documents stay hidden. Opening a file is audited.')
+          : 'Opening documentation requires confirmation and will be audited.' }}
+      </p>
     </div>
 
-    <div v-if="signedSchoolPackets.length" class="signed-packet-section">
+    <div v-if="!ownOnly && signedSchoolPackets.length" class="signed-packet-section">
       <h4 class="embedded-section-title">School referral packets (signed)</h4>
       <p class="hint">Versioned bundles from digital school referral intake — click to see what was signed.</p>
       <div class="signed-packet-list">
@@ -67,17 +73,21 @@
     </div>
 
     <div v-if="showFilesSection">
-      <div v-if="embedded" class="embedded-section-head">
-        <h4 class="embedded-section-title">Files (optional)</h4>
-        <p class="hint">Upload a PDF or image only when you need a stored copy.</p>
-      </div>
+        <div v-if="embedded" class="embedded-section-head">
+          <h4 class="embedded-section-title">{{ ownOnly ? 'Your uploads' : 'Files (optional)' }}</h4>
+          <p class="hint">
+            {{ ownOnly
+              ? 'Upload a PDF or image for this client. Only files you added are listed here.'
+              : 'Upload a PDF or image only when you need a stored copy.' }}
+          </p>
+        </div>
 
-      <div v-if="canUpload" class="attach-panel">
-        <div class="attach-panel-head">
-          <div>
-            <div class="attach-title">Attach to client</div>
-            <div class="attach-subtitle">Admin only. Drop files here to add them directly to this client’s PHI documents.</div>
-          </div>
+        <div v-if="canUpload" class="attach-panel">
+          <div class="attach-panel-head">
+            <div>
+              <div class="attach-title">{{ ownOnly ? 'Upload a file' : 'Attach to client' }}</div>
+              <div class="attach-subtitle">{{ attachSubtitle }}</div>
+            </div>
           <button class="btn btn-secondary btn-sm" type="button" :disabled="uploading" @click="fileInput?.click()">
             {{ uploading ? 'Uploading…' : 'Choose files' }}
           </button>
@@ -379,15 +389,17 @@ const props = defineProps({
   highlightDocumentId: { type: Number, default: null },
   /** all | files | intake | audit | ocr */
   section: { type: String, default: 'all' },
-  embedded: { type: Boolean, default: false }
+  embedded: { type: Boolean, default: false },
+  /** School staff without ROI All Active: own uploads only, no referral packets. */
+  ownOnly: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['docs-loaded']);
 
 const showFilesSection = computed(() => ['all', 'files'].includes(String(props.section || 'all')));
-const showIntakeSection = computed(() => ['all', 'intake'].includes(String(props.section || 'all')));
-const showAuditSection = computed(() => ['all', 'audit'].includes(String(props.section || 'all')));
-const showOcrSection = computed(() => ['all', 'ocr'].includes(String(props.section || 'all')));
+const showIntakeSection = computed(() => !props.ownOnly && ['all', 'intake'].includes(String(props.section || 'all')));
+const showAuditSection = computed(() => !props.ownOnly && ['all', 'audit'].includes(String(props.section || 'all')));
+const showOcrSection = computed(() => !props.ownOnly && ['all', 'ocr'].includes(String(props.section || 'all')));
 
 function emitDocsLoaded() {
   const activeDocs = (docs.value || []).filter((d) => !d?.removed_at);
@@ -402,6 +414,15 @@ function emitDocsLoaded() {
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const canUpload = computed(() => ['super_admin', 'admin', 'support', 'staff', 'school_staff'].includes(roleNorm.value));
+const attachSubtitle = computed(() => {
+  if (props.ownOnly) {
+    return 'Drop files here to add them for this client. Only you see files you upload unless someone has ROI All Active.';
+  }
+  if (roleNorm.value === 'school_staff') {
+    return 'Drop files here to add them to this client’s documents. Other staff with ROI All Active can see files you upload.';
+  }
+  return 'Admin only. Drop files here to add them directly to this client’s PHI documents.';
+});
 const canManageLifecycle = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
 
 const loading = ref(false);
@@ -528,13 +549,21 @@ const openPhiFromBundle = (phiDocumentId) => {
 };
 
 const reload = async () => {
-  await Promise.all([
-    reloadDocs(),
-    reloadOcr(),
-    reloadAudit(),
-    reloadIntakeResponses(),
-    reloadSignedSchoolPackets()
-  ]);
+  if (props.ownOnly) {
+    await reloadDocs();
+    signedSchoolPackets.value = [];
+    auditStatements.value = [];
+    intakeSubmissions.value = [];
+    ocrRequests.value = [];
+  } else {
+    await Promise.all([
+      reloadDocs(),
+      reloadOcr(),
+      reloadAudit(),
+      reloadIntakeResponses(),
+      reloadSignedSchoolPackets()
+    ]);
+  }
   emitDocsLoaded();
 };
 

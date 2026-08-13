@@ -335,7 +335,10 @@ export const submitReferralPacketDraft = async (req, res, next) => {
     const agencyId = draft.agency_id || (await resolveAgencyIdForOrganization(organization.id));
     const identifierCode = await generateUniqueSixDigitClientCode({ agencyId });
     const paperworkStatusId = await resolvePaperworkStatusId({ agencyId });
-    const clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey: 'packet' });
+    let clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey: 'received' });
+    if (!clientStatusId) {
+      clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey: 'packet' });
+    }
     const clientType = orgType === 'school' ? 'school' : 'clinical';
 
     let submissionDate = req.body?.submissionDate || req.body?.submission_date || draft.submission_date;
@@ -374,7 +377,7 @@ export const submitReferralPacketDraft = async (req, res, next) => {
     });
     await seedClientPaperworkItems({ clientId: client.id, agencyId });
 
-    // Paper packet defaults: all school staff → limited; school-staff uploader → packet;
+    // Paper packet defaults: school-staff uploader → ROI Active (limited); others stay no ROI until configured.
     // set paper-packet ROI expiry (1y before 2026-08-09, else 3y).
     await ClientSchoolStaffRoiAccess.resetForNewPacket({
       clientId: client.id,

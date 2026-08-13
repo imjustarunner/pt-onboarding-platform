@@ -775,6 +775,7 @@ import FocusSessionModal from './FocusSessionModal.vue';
 import TaskDetailSidePanel from './TaskDetailSidePanel.vue';
 import TaskListProjectFields from './TaskListProjectFields.vue';
 import ProjectOverviewPanel from './ProjectOverviewPanel.vue';
+import { taskSchoolTag } from '../../utils/taskSchoolTag.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -795,6 +796,7 @@ const filters = ref({
   taskType: '',
   departmentId: '',
   workTypeId: '',
+  school: '',
   sort: 'due_asc'
 });
 const departments = ref([]);
@@ -1105,6 +1107,10 @@ const displayTasks = computed(() => {
   if (filters.value.workTypeId) {
     list = list.filter((t) => Number(t.work_type_id) === Number(filters.value.workTypeId));
   }
+  const schoolNeedle = String(filters.value.school || '').trim().toLowerCase();
+  if (schoolNeedle) {
+    list = list.filter((t) => taskSchoolTag(t).toLowerCase().includes(schoolNeedle));
+  }
   if (statusChip.value === 'overdue') {
     const now = Date.now();
     list = list.filter(
@@ -1134,6 +1140,16 @@ const displayTasks = computed(() => {
       if (!a.due_date) return 1;
       if (!b.due_date) return -1;
       return new Date(a.due_date) - new Date(b.due_date);
+    });
+  } else if (filters.value.sort === 'school') {
+    list.sort((a, b) => {
+      const an = taskSchoolTag(a);
+      const bn = taskSchoolTag(b);
+      if (an && !bn) return -1;
+      if (!an && bn) return 1;
+      const cmp = an.localeCompare(bn);
+      if (cmp !== 0) return cmp;
+      return String(a.title || '').localeCompare(String(b.title || ''));
     });
   } else {
     list.sort((a, b) => {

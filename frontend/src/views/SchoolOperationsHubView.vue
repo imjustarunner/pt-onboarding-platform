@@ -60,9 +60,6 @@
             </router-link>
           </template>
         </nav>
-        <router-link class="hub-calendar-btn" :to="orgTo('/admin/caseload-hub/calendar')">
-          View school calendar
-        </router-link>
       </div>
     </header>
 
@@ -254,16 +251,12 @@
           <h2>Your top 5</h2>
           <HubTopCardsBar :cards="allHubCards" :limit="5" class="htcb-hub" />
           <div class="hub-quick-links">
-            <router-link :to="schoolApprovalsTo" class="hub-quick-link">
-              <span>Approve school requests</span>
-              <span v-if="schoolPending > 0" class="hub-quick-badge">{{ schoolPending }}</span>
-            </router-link>
-            <router-link :to="orgTo('/admin/school-clients')" class="hub-quick-link">
-              <span>School clients</span>
-              <span v-if="schoolClientsPending > 0" class="hub-quick-badge">{{ schoolClientsPending }}</span>
-            </router-link>
-            <router-link :to="orgTo('/admin/caseload-hub/schools-staff')" class="hub-quick-link">School Management</router-link>
-            <router-link :to="orgTo('/admin/caseload-hub/calendar')" class="hub-quick-link">School calendar</router-link>
+            <router-link :to="orgTo('/admin/caseload-hub/calendar')" class="hub-quick-link">Calendar</router-link>
+            <router-link
+              v-if="canSeeOutreachHub"
+              :to="orgTo('/admin/outreach-hub')"
+              class="hub-quick-link"
+            >Outreach Hub</router-link>
           </div>
         </section>
       </aside>
@@ -357,6 +350,7 @@ const schoolHubAccessCtx = computed(() => workspaceNavContextFromStores({
 const canSeeSchoolOpsContent = computed(() => canSeeSchoolOpsHubCards(schoolHubAccessCtx.value));
 
 const canSeeSchoolClients = computed(() => canSeeSchoolClientsHubCard(schoolHubAccessCtx.value));
+const canSeeOutreachHub = computed(() => !!user.value?.capabilities?.canAccessOutreach);
 
 const canSeeHub = computed(() => canSeeSchoolOpsContent.value);
 
@@ -518,8 +512,8 @@ const allSections = computed(() => [
   },
   {
     id: 'events-calendar',
-    label: 'Events & Calendar',
-    desc: 'School events, assignments, and calendars.',
+    label: 'Events and Outreach',
+    desc: 'School events, visits, and partnership tracking.',
     tone: 'amber',
     icon: icon.calEvent,
     cards: [
@@ -537,16 +531,16 @@ const allSections = computed(() => [
         count: 0
       },
       {
-        id: 'school-calendar',
-        title: 'School Events Calendar',
-        shortDesc: 'Month, week, and list views.',
-        desc: 'Month, week, and list views of school events with filters and quick add.',
+        id: 'outreach-hub',
+        title: 'Outreach Hub',
+        shortDesc: 'Contacts, visits, and partnership stages.',
+        desc: 'Track email, letter, phone, and visit outreach for Denver, Aurora, Pueblo, and Fort Collins schools.',
         cta: 'Open →',
-        to: orgTo('/admin/caseload-hub/calendar'),
-        tone: 'rose',
-        icon: icon.calEvent,
+        to: orgTo('/admin/outreach-hub'),
+        tone: 'green',
+        icon: icon.portal,
         tour: null,
-        show: canSeeSchoolOpsContent.value,
+        show: canSeeOutreachHub.value,
         count: 0
       }
     ].filter((c) => c.show)
@@ -634,9 +628,9 @@ const allSections = computed(() => [
       },
       {
         id: 'client-onboarding',
-        title: 'Client Readiness',
-        shortDesc: 'Staff checklist for school intakes.',
-        desc: 'ROI staff access, documents, provider/day, insurance — then mark staff readiness complete for providers.',
+        title: 'Client Action Needed',
+        shortDesc: 'Fall confirmation, new-client intake, and agency clearance.',
+        desc: 'See every school client who still needs a next step and which stage they are in.',
         cta: 'Open →',
         to: orgTo('/admin/client-onboarding?scope=school'),
         tone: 'blue',

@@ -156,6 +156,7 @@ export const COMMAND_SURFACES = {
       'coverage',
       'portal',
       'events',
+      'outreach',
       'staffing',
       'addendum',
       'year update'

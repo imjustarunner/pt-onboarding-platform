@@ -26,6 +26,7 @@
               {{ taskCategoryLabel(c) }}
             </span>
           </template>
+          <span v-if="schoolTag" class="chip chip--school">{{ schoolTag }}</span>
         </div>
 
         <div class="detail-fields">
@@ -314,6 +315,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { formatDate } from '../../utils/formatDate';
 import { TASK_CATEGORIES, formatTaskCategoriesShort, getTaskCategories, normalizeTaskCategories, taskCategoryLabel } from '../../utils/taskCategories';
+import { taskSchoolTag } from '../../utils/taskSchoolTag.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import TaskListProjectFields from './TaskListProjectFields.vue';
 import { useActiveTaskDockStore } from '../../store/activeTaskDock';
@@ -331,6 +333,7 @@ const emit = defineEmits(['close', 'complete', 'incomplete', 'changed', 'view-pr
 
 const activeTaskDock = useActiveTaskDockStore();
 const taskCategories = TASK_CATEGORIES;
+const schoolTag = computed(() => taskSchoolTag(props.item));
 
 function pinToDock() {
   const projectMatch = props.projects.find((p) => Number(p.id) === Number(draft.project_id));
@@ -879,6 +882,7 @@ watch(
 }
 .chip--private { background: #fef3c7; color: #92400e; }
 .chip--category { background: #e0e7ff; color: #3730a3; }
+.chip--school { background: #ecfdf5; color: #166534; }
 .prio-high { background: #fee2e2; color: #b91c1c; }
 .prio-medium { background: #ffedd5; color: #c2410c; }
 .field { display: block; margin-bottom: 10px; }

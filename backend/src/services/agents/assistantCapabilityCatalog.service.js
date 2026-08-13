@@ -483,6 +483,7 @@ export function resolveNavigateRouteNameFromPrompt(promptLower) {
   if (/\b(client management)\b/.test(s)) return 'ClientManagement';
   if (/\b(client|clients)\b/.test(s)) return 'MyClients';
   if (/\b(school portal|school portals|portals hub|school-portals)\b/.test(s)) return 'SchoolPortalsHub';
+  if (/\b(outreach hub|school outreach|outreach tracker|school visits?)\b/.test(s)) return 'OutreachHub';
   if (/\b(program events|program event|skill builders|events)\b/.test(s)) return 'SkillBuildersProgramsEvents';
   if (/\b(provider directory|provider list)\b/.test(s)) return 'ProviderDirectory';
   if (/\b(gear|inventory|stock levels?|unique assets?)\b/.test(s)) return 'GearInventory';

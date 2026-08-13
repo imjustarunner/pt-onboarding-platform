@@ -255,39 +255,16 @@
       </div>
     </div>
 
-    <div v-else-if="stage === 'packet'" class="smart-roi-card">
-      <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
-      <h3>{{ tr('Packet and document visibility', 'Visibilidad de paquete y documentos') }}</h3>
-      <p>
-        {{ tr('Approved staff will receive basic ROI access. Do you also authorize approved staff to view the packet and related documents?', 'El personal aprobado recibira acceso basico de ROI. Tambien autoriza al personal aprobado a ver el paquete y los documentos relacionados?') }}
-      </p>
-      <p class="auto-advance-note">{{ tr('Selecting an option will move you to the next question.', 'Seleccionar una opcion lo llevara a la siguiente pregunta.') }}</p>
-      <p class="separation-note">
-        {{ tr('This choice applies only to approved individual staff on this ROI. School-level scheduling/safety logistics are handled separately.', 'Esta opcion aplica solo al personal individual aprobado en este ROI. La programacion/logistica de seguridad a nivel escolar se maneja por separado.') }}
-      </p>
-      <div class="choice-row">
-        <label class="choice-card" @click.prevent="selectPacketDecision(true)">
-          <input name="packetReleaseAllowed" :checked="form.packetReleaseAllowed === true" :value="true" type="radio" />
-          <span>{{ tr('Yes, approved staff may view the packet', 'Si, el personal aprobado puede ver el paquete') }}</span>
-        </label>
-        <label class="choice-card" @click.prevent="selectPacketDecision(false)">
-          <input name="packetReleaseAllowed" :checked="form.packetReleaseAllowed === false" :value="false" type="radio" />
-          <span>{{ tr('No, approved staff receive ROI access only', 'No, el personal aprobado recibe solo acceso ROI') }}</span>
-        </label>
-      </div>
-      <div class="actions">
-        <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
-      </div>
-    </div>
-
     <div v-else-if="stage === 'staff'" class="smart-roi-card">
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
       <h3>{{ tr('School staff approval', 'Aprobacion de personal escolar') }}</h3>
-      <p>{{ tr('Choose whether information may be released to this staff member.', 'Elija si la informacion puede divulgarse a este miembro del personal.') }}</p>
-      <p class="auto-advance-note">{{ tr('Selecting an option will move you to the next question.', 'Seleccionar una opcion lo llevara a la siguiente pregunta.') }}</p>
-      <p class="separation-note">
-        If no individual staff are approved, no individual ROI or packet access will be granted.
+      <p>
+        {{ tr(
+          'Choose this staff member’s ROI level. ROI (Speak) and ROI All Active open the same school portal as ROI Active. Referral documents stay off unless you choose ROI All Active.',
+          'Elija el nivel de ROI de este miembro del personal. ROI (Speak) y ROI All Active abren el mismo portal escolar que ROI Active. Los documentos de referencia permanecen ocultos salvo que elija ROI All Active.'
+        ) }}
       </p>
+      <p class="auto-advance-note">{{ tr('Selecting an option will move you to the next question.', 'Seleccionar una opcion lo llevara a la siguiente pregunta.') }}</p>
       <div class="staff-card">
         <div class="staff-name">{{ currentStaff?.fullName }}</div>
         <div class="staff-meta">{{ currentStaff?.role || 'School staff' }}</div>
@@ -295,13 +272,55 @@
         <div class="staff-email" v-if="currentStaff?.phone">{{ currentStaff.phone }}</div>
       </div>
       <div class="choice-row">
-        <label class="choice-card" @click.prevent="selectStaffDecision(true)">
-          <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === true" :value="true" type="radio" />
-          <span>{{ tr('Approve release', 'Aprobar divulgacion') }}</span>
+        <label
+          class="choice-card choice-card--detail"
+          :title="tr(
+            'ROI All Active: they may speak about treatment goals and progress and can access this client’s referral documents.',
+            'ROI All Active: pueden hablar sobre las metas y el progreso del tratamiento y acceder a los documentos de referencia de este cliente.'
+          )"
+          @click.prevent="selectStaffDecision('roi_docs')"
+        >
+          <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === 'roi_docs'" value="roi_docs" type="radio" />
+          <span>
+            <strong>{{ tr('ROI All Active', 'ROI All Active') }}</strong>
+            <span class="choice-detail">{{ tr('Approve referral packet and speak about treatment goals and progress.', 'Aprobar el paquete de referencia y hablar sobre las metas y el progreso del tratamiento.') }}</span>
+            <ul class="choice-scope">
+              <li v-for="item in speakItems" :key="`all-${item.id}`">{{ item.body }}</li>
+              <li>{{ tr('This person may access this client’s referral documents, including files other staff upload.', 'Esta persona puede acceder a los documentos de referencia de este cliente, incluidos archivos que suba otro personal.') }}</li>
+            </ul>
+          </span>
         </label>
-        <label class="choice-card" @click.prevent="selectStaffDecision(false)">
-          <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === false" :value="false" type="radio" />
-          <span>{{ tr('Deny release', 'Denegar divulgacion') }}</span>
+        <label
+          class="choice-card choice-card--detail"
+          :title="tr(
+            'ROI (Speak): same portal access as ROI Active, and they may speak with the provider about treatment goals and progress. Referral documents stay hidden.',
+            'ROI (Speak): mismo acceso al portal que ROI Active, y pueden hablar con el proveedor sobre las metas y el progreso del tratamiento. Los documentos de referencia permanecen ocultos.'
+          )"
+          @click.prevent="selectStaffDecision('roi')"
+        >
+          <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === 'roi'" value="roi" type="radio" />
+          <span>
+            <strong>{{ tr('ROI (Speak)', 'ROI (Speak)') }}</strong>
+            <span class="choice-detail">{{ tr('Deny referral packet; approve speaking about treatment goals and progress.', 'Denegar el paquete de referencia; aprobar hablar sobre las metas y el progreso del tratamiento.') }}</span>
+            <ul class="choice-scope">
+              <li v-for="item in speakItems" :key="`speak-${item.id}`">{{ item.body }}</li>
+              <li>{{ tr('Referral documents stay hidden, including a printed packet they uploaded. They may still upload other files they add themselves.', 'Los documentos de referencia permanecen ocultos, incluido un paquete impreso que ellos subieron. Aun pueden subir otros archivos que ellos mismos agreguen.') }}</li>
+            </ul>
+          </span>
+        </label>
+        <label
+          class="choice-card choice-card--detail"
+          :title="tr(
+            'No ROI on file for this staff member. They cannot open this client in the school portal.',
+            'Sin ROI en archivo para este miembro del personal. No pueden abrir este cliente en el portal escolar.'
+          )"
+          @click.prevent="selectStaffDecision('none')"
+        >
+          <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" :checked="form.staffDecisions[currentStaff.schoolStaffUserId] === 'none'" value="none" type="radio" />
+          <span>
+            <strong>{{ tr('No ROI on file', 'Sin ROI en archivo') }}</strong>
+            <span class="choice-detail">{{ tr('Deny all for this staff member. They cannot open this client or receive treatment-related disclosures.', 'Denegar todo para este miembro del personal. No pueden abrir este cliente ni recibir divulgaciones relacionadas con el tratamiento.') }}</span>
+          </span>
         </label>
       </div>
       <div class="actions">
@@ -314,8 +333,8 @@
       <h3>{{ tr('Add third party / fill-in person', 'Agregar tercero / persona adicional') }}</h3>
       <p>
         {{ tr(
-          'Optional. Add school ROI people who are not on the staff roster yet (new counselor, principal, case manager, etc.). You can skip this if the roster above is complete.',
-          'Opcional. Agregue personas del ROI escolar que aun no estan en la lista (nuevo consejero, director, administrador de caso, etc.). Puede omitir esto si la lista anterior esta completa.'
+          'Optional. Add school ROI people who are not on the staff roster yet (new counselor, principal, case manager, etc.). For each person, choose the same permission levels as school staff. Skip this if the roster above is complete.',
+          'Opcional. Agregue personas del ROI escolar que aun no estan en la lista (nuevo consejero, director, administrador de caso, etc.). Para cada persona, elija los mismos niveles de permiso que el personal escolar. Omita esto si la lista anterior esta completa.'
         ) }}
       </p>
       <div
@@ -342,14 +361,35 @@
             <input :id="`roi-third-phone-${idx}`" v-model="person.phone" class="roi-input" type="tel" />
           </div>
         </div>
-        <div class="choice-row" style="margin-top: 10px;">
-          <label class="choice-card">
-            <input v-model="person.allowed" :value="true" type="radio" />
-            <span>{{ tr('Approve release', 'Aprobar divulgacion') }}</span>
+        <div class="choice-row choice-row--stacked" style="margin-top: 10px;">
+          <label class="choice-card choice-card--detail">
+            <input v-model="person.decision" value="roi_docs" type="radio" />
+            <span>
+              <strong>{{ tr('ROI All Active', 'ROI All Active') }}</strong>
+              <span class="choice-detail">{{ tr('Approve referral packet and speak about treatment goals and progress.', 'Aprobar el paquete de referencia y hablar sobre las metas y el progreso del tratamiento.') }}</span>
+              <ul class="choice-scope">
+                <li v-for="item in speakItems" :key="`tp-all-${idx}-${item.id}`">{{ item.body }}</li>
+                <li>{{ tr('This person may receive this client’s referral documents.', 'Esta persona puede recibir los documentos de referencia de este cliente.') }}</li>
+              </ul>
+            </span>
           </label>
-          <label class="choice-card">
-            <input v-model="person.allowed" :value="false" type="radio" />
-            <span>{{ tr('Deny release', 'Denegar divulgacion') }}</span>
+          <label class="choice-card choice-card--detail">
+            <input v-model="person.decision" value="roi" type="radio" />
+            <span>
+              <strong>{{ tr('ROI (Speak)', 'ROI (Speak)') }}</strong>
+              <span class="choice-detail">{{ tr('Deny referral packet; approve speaking about treatment goals and progress.', 'Denegar el paquete de referencia; aprobar hablar sobre las metas y el progreso del tratamiento.') }}</span>
+              <ul class="choice-scope">
+                <li v-for="item in speakItems" :key="`tp-speak-${idx}-${item.id}`">{{ item.body }}</li>
+                <li>{{ tr('Referral documents stay hidden, including a printed packet they uploaded.', 'Los documentos de referencia permanecen ocultos, incluido un paquete impreso que ellos subieron.') }}</li>
+              </ul>
+            </span>
+          </label>
+          <label class="choice-card choice-card--detail">
+            <input v-model="person.decision" value="none" type="radio" />
+            <span>
+              <strong>{{ tr('No ROI on file', 'Sin ROI en archivo') }}</strong>
+              <span class="choice-detail">{{ tr('Deny all for this person. They may not receive treatment-related disclosures.', 'Denegar todo para esta persona. No pueden recibir divulgaciones relacionadas con el tratamiento.') }}</span>
+            </span>
           </label>
         </div>
         <div class="actions" style="justify-content: flex-end; margin-top: 8px;">
@@ -370,7 +410,7 @@
     <div v-else-if="stage === 'external_programmed'" class="smart-roi-card">
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
       <h3>{{ tr('Non-school recipient approval', 'Aprobacion de destinatario no escolar') }}</h3>
-      <p>{{ tr('Choose whether this ROI may release information to the pre-selected non-school recipient.', 'Elija si este ROI puede divulgar informacion al destinatario no escolar preseleccionado.') }}</p>
+      <p>{{ tr('Choose what this pre-selected non-school recipient may receive — the same permission levels as school staff.', 'Elija que puede recibir este destinatario no escolar preseleccionado: los mismos niveles de permiso que el personal escolar.') }}</p>
       <div class="staff-card">
         <div class="staff-name">{{ programmedRecipient?.name || 'Recipient' }}</div>
         <div class="staff-meta">{{ programmedRecipient?.relationship || 'Relationship not provided' }}</div>
@@ -378,13 +418,33 @@
         <div class="staff-email" v-if="programmedRecipient?.phone">{{ programmedRecipient.phone }}</div>
       </div>
       <div class="choice-row">
-        <label class="choice-card" @click.prevent="selectProgrammedExternalDecision(true)">
-          <input name="programmedExternalAllowed" :checked="form.programmedExternalAllowed === true" :value="true" type="radio" />
-          <span>{{ tr('Approve release', 'Aprobar divulgacion') }}</span>
+        <label class="choice-card choice-card--detail" @click.prevent="selectProgrammedExternalDecision('roi_docs')">
+          <input name="programmedExternalDecision" :checked="form.programmedExternalDecision === 'roi_docs'" value="roi_docs" type="radio" />
+          <span>
+            <strong>{{ tr('ROI All Active', 'ROI All Active') }}</strong>
+            <span class="choice-detail">{{ tr('Approve referral packet and speak about treatment goals and progress.', 'Aprobar el paquete de referencia y hablar sobre las metas y el progreso del tratamiento.') }}</span>
+            <ul class="choice-scope">
+              <li v-for="item in speakItems" :key="`prog-all-${item.id}`">{{ item.body }}</li>
+              <li>{{ tr('This person may receive this client’s referral documents.', 'Esta persona puede recibir los documentos de referencia de este cliente.') }}</li>
+            </ul>
+          </span>
         </label>
-        <label class="choice-card" @click.prevent="selectProgrammedExternalDecision(false)">
-          <input name="programmedExternalAllowed" :checked="form.programmedExternalAllowed === false" :value="false" type="radio" />
-          <span>{{ tr('Deny release', 'Denegar divulgacion') }}</span>
+        <label class="choice-card choice-card--detail" @click.prevent="selectProgrammedExternalDecision('roi')">
+          <input name="programmedExternalDecision" :checked="form.programmedExternalDecision === 'roi'" value="roi" type="radio" />
+          <span>
+            <strong>{{ tr('ROI (Speak)', 'ROI (Speak)') }}</strong>
+            <span class="choice-detail">{{ tr('Deny referral packet; approve speaking about treatment goals and progress.', 'Denegar el paquete de referencia; aprobar hablar sobre las metas y el progreso del tratamiento.') }}</span>
+            <ul class="choice-scope">
+              <li v-for="item in speakItems" :key="`prog-speak-${item.id}`">{{ item.body }}</li>
+            </ul>
+          </span>
+        </label>
+        <label class="choice-card choice-card--detail" @click.prevent="selectProgrammedExternalDecision('none')">
+          <input name="programmedExternalDecision" :checked="form.programmedExternalDecision === 'none'" value="none" type="radio" />
+          <span>
+            <strong>{{ tr('No ROI on file', 'Sin ROI en archivo') }}</strong>
+            <span class="choice-detail">{{ tr('Deny all for this recipient.', 'Denegar todo para este destinatario.') }}</span>
+          </span>
         </label>
       </div>
       <div class="actions">
@@ -395,7 +455,7 @@
     <div v-else-if="stage === 'external_parent'" class="smart-roi-card">
       <div class="progress-label">Step {{ stepNumber }} of {{ totalSteps }}</div>
       <h3>{{ tr('Non-school release recipients', 'Destinatarios de divulgacion no escolar') }}</h3>
-      <p>{{ tr('Add each non-school person and select whether release is approved for that person.', 'Agregue cada persona no escolar y seleccione si la divulgacion esta aprobada para esa persona.') }}</p>
+      <p>{{ tr('Add each non-school person and choose what they may receive — the same permission levels as school staff.', 'Agregue cada persona no escolar y elija que puede recibir: los mismos niveles de permiso que el personal escolar.') }}</p>
       <div
         v-for="(recipient, idx) in form.parentExternalRecipients"
         :key="`recipient-${idx}`"
@@ -420,14 +480,34 @@
             <input :id="`roi-external-phone-${idx}`" :name="`externalRecipientPhone_${idx}`" v-model="recipient.phone" class="roi-input" type="tel" placeholder="(555) 555-5555" />
           </div>
         </div>
-        <div class="choice-row" style="margin-top: 10px;">
-          <label class="choice-card">
-            <input :name="`externalRecipientAllowed_${idx}`" v-model="recipient.allowed" :value="true" type="radio" />
-            <span>{{ tr('Approve release', 'Aprobar divulgacion') }}</span>
+        <div class="choice-row choice-row--stacked" style="margin-top: 10px;">
+          <label class="choice-card choice-card--detail">
+            <input v-model="recipient.decision" value="roi_docs" type="radio" />
+            <span>
+              <strong>{{ tr('ROI All Active', 'ROI All Active') }}</strong>
+              <span class="choice-detail">{{ tr('Approve referral packet and speak about treatment goals and progress.', 'Aprobar el paquete de referencia y hablar sobre las metas y el progreso del tratamiento.') }}</span>
+              <ul class="choice-scope">
+                <li v-for="item in speakItems" :key="`ext-all-${idx}-${item.id}`">{{ item.body }}</li>
+                <li>{{ tr('This person may receive this client’s referral documents.', 'Esta persona puede recibir los documentos de referencia de este cliente.') }}</li>
+              </ul>
+            </span>
           </label>
-          <label class="choice-card">
-            <input :name="`externalRecipientAllowed_${idx}`" v-model="recipient.allowed" :value="false" type="radio" />
-            <span>{{ tr('Deny release', 'Denegar divulgacion') }}</span>
+          <label class="choice-card choice-card--detail">
+            <input v-model="recipient.decision" value="roi" type="radio" />
+            <span>
+              <strong>{{ tr('ROI (Speak)', 'ROI (Speak)') }}</strong>
+              <span class="choice-detail">{{ tr('Deny referral packet; approve speaking about treatment goals and progress.', 'Denegar el paquete de referencia; aprobar hablar sobre las metas y el progreso del tratamiento.') }}</span>
+              <ul class="choice-scope">
+                <li v-for="item in speakItems" :key="`ext-speak-${idx}-${item.id}`">{{ item.body }}</li>
+              </ul>
+            </span>
+          </label>
+          <label class="choice-card choice-card--detail">
+            <input v-model="recipient.decision" value="none" type="radio" />
+            <span>
+              <strong>{{ tr('No ROI on file', 'Sin ROI en archivo') }}</strong>
+              <span class="choice-detail">{{ tr('Deny all for this person.', 'Denegar todo para esta persona.') }}</span>
+            </span>
           </label>
         </div>
         <div class="actions" style="justify-content: flex-end; margin-top: 8px;">
@@ -489,34 +569,59 @@
         <p><strong>Responsible Party:</strong> {{ signerFullName || '—' }}</p>
         <p><strong>Relationship:</strong> {{ form.signer.relationship || '—' }}</p>
         <p><strong>School:</strong> {{ schoolName }}</p>
-        <p><strong>Packet visibility:</strong> {{ form.packetReleaseAllowed ? 'Approved' : 'ROI only' }}</p>
       </div>
 
       <div class="review-block">
         <h4>{{ tr('Question responses', 'Respuestas por pregunta') }}</h4>
         <ul>
           <li v-for="ack in normalizedAcknowledgementsForReview" :key="`ack-${ack.id}`">
-            {{ ack.title }} - {{ ack.accepted ? tr('Approved', 'Aprobado') : tr('Denied', 'Denegado') }}
+            <strong>{{ ack.title }}</strong> — {{ ack.accepted ? tr('Approved', 'Aprobado') : tr('Denied', 'Denegado') }}
+            <div class="review-body">{{ ack.body }}</div>
           </li>
           <li v-for="item in normalizedWaiversForReview" :key="`waiver-${item.id}`">
-            {{ item.title }} - {{ item.decision === 'accept' ? tr('Approved', 'Aprobado') : tr('Denied', 'Denegado') }}
+            <strong>{{ item.title }}</strong> — {{ item.decision === 'accept' ? tr('Approved', 'Aprobado') : tr('Denied', 'Denegado') }}
+            <div class="review-body">{{ item.body }}</div>
           </li>
         </ul>
       </div>
 
       <div class="review-block">
-        <h4>{{ tr('Approved staff', 'Personal aprobado') }}</h4>
-        <ul v-if="approvedStaff.length">
-          <li v-for="staff in approvedStaff" :key="staff.schoolStaffUserId">{{ staff.fullName }}</li>
+        <h4>{{ tr('School staff decisions', 'Decisiones de personal escolar') }}</h4>
+        <ul>
+          <li v-for="staff in staffRoster" :key="staff.schoolStaffUserId">
+            <strong>{{ staff.fullName }}</strong> — {{ staffDecisionLabel(form.staffDecisions[staff.schoolStaffUserId]) }}
+            <ul v-if="form.staffDecisions[staff.schoolStaffUserId] === 'roi' || form.staffDecisions[staff.schoolStaffUserId] === 'roi_docs'" class="review-scope">
+              <li v-for="item in speakItems" :key="`rev-staff-${staff.schoolStaffUserId}-${item.id}`">{{ item.body }}</li>
+              <li v-if="form.staffDecisions[staff.schoolStaffUserId] === 'roi_docs'">
+                {{ tr('Referral documents: approved', 'Documentos de referencia: aprobados') }}
+              </li>
+            </ul>
+          </li>
         </ul>
-        <p v-else>{{ tr('No staff were approved.', 'No se aprobo personal.') }}</p>
+      </div>
+
+      <div v-if="(form.thirdPartyRecipients || []).some((row) => String(row?.name || '').trim())" class="review-block">
+        <h4>{{ tr('Third parties / fill-in people', 'Terceros / personas adicionales') }}</h4>
+        <ul>
+          <li v-for="(person, idx) in form.thirdPartyRecipients.filter((row) => String(row?.name || '').trim())" :key="`rev-tp-${idx}`">
+            <strong>{{ person.name }}</strong>
+            <span v-if="person.relationship"> ({{ person.relationship }})</span>
+            — {{ staffDecisionLabel(person.decision) }}
+            <ul v-if="person.decision === 'roi' || person.decision === 'roi_docs'" class="review-scope">
+              <li v-for="item in speakItems" :key="`rev-tp-${idx}-${item.id}`">{{ item.body }}</li>
+              <li v-if="person.decision === 'roi_docs'">
+                {{ tr('Referral documents: approved', 'Documentos de referencia: aprobados') }}
+              </li>
+            </ul>
+          </li>
+        </ul>
       </div>
 
       <div v-if="externalReleaseMode === 'sender_programmed'" class="review-block">
         <h4>Programmed non-school recipient</h4>
         <p><strong>Name:</strong> {{ programmedRecipient?.name || '—' }}</p>
         <p><strong>Relationship:</strong> {{ programmedRecipient?.relationship || '—' }}</p>
-        <p><strong>Decision:</strong> {{ form.programmedExternalAllowed === true ? 'Approved' : 'Denied' }}</p>
+        <p><strong>{{ tr('Decision', 'Decision') }}:</strong> {{ staffDecisionLabel(form.programmedExternalDecision) }}</p>
       </div>
       <div v-else-if="externalReleaseMode === 'parent_defined'" class="review-block">
         <h4>Parent-entered non-school recipients</h4>
@@ -532,8 +637,7 @@
         </p>
         <p>
           <strong>Individual staff release:</strong>
-          {{ approvedStaff.length }} approved, {{ deniedStaffCount }} denied.
-          If no individuals are approved, no individual ROI or packet access is granted.
+          {{ staffRoster.length }} staff reviewed.
         </p>
       </div>
 
@@ -590,6 +694,10 @@ const props = defineProps({
     type: String,
     default: 'standalone'
   },
+  locale: {
+    type: String,
+    default: ''
+  },
   prefill: {
     type: Object,
     default: null
@@ -602,12 +710,42 @@ const ackItems = computed(() => Array.isArray(props.roiContext?.requiredAcknowle
 const waiverItems = computed(() => Array.isArray(props.roiContext?.waiverItems) ? props.roiContext.waiverItems : []);
 const staffRoster = computed(() => Array.isArray(props.roiContext?.staffRoster) ? props.roiContext.staffRoster : []);
 const roiLocale = computed(() => {
-  const code = String(props.link?.language_code || props.roiContext?.locale || props.roiContext?.documentTemplate?.languageCode || 'en')
+  const code = String(
+    props.locale
+    || props.link?.language_code
+    || props.roiContext?.locale
+    || props.roiContext?.documentTemplate?.languageCode
+    || 'en'
+  )
     .trim()
     .toLowerCase();
   return code.startsWith('es') ? 'es' : 'en';
 });
 const tr = (english, spanish) => (roiLocale.value === 'es' ? spanish : english);
+const speakItems = computed(() => {
+  const fromContext = Array.isArray(props.roiContext?.speakAuthorizationItems)
+    ? props.roiContext.speakAuthorizationItems.filter((item) => item?.body)
+    : [];
+  if (fromContext.length) return fromContext;
+  return [
+    {
+      id: 'communication_and_care_planning',
+      title: tr('School communication and care planning', 'Comunicacion escolar y planificacion de atencion'),
+      body: tr(
+        'I authorize ITSCO and any assigned providers and staff to communicate with this person for school-based care coordination and support of the client’s identified needs.',
+        'Autorizo a ITSCO y a los proveedores/personal asignado a comunicarse con esta persona para la coordinacion de atencion en la escuela y apoyo de las necesidades identificadas del cliente.'
+      )
+    },
+    {
+      id: 'treatment_goals',
+      title: tr('Treatment goals and plans', 'Objetivos y planes de tratamiento'),
+      body: tr(
+        'I authorize brief discussion of treatment goals/objectives with this person only as needed for care coordination; no session-content details are released outside this care purpose.',
+        'Autorizo una discusion breve de objetivos/metas de tratamiento con esta persona solo cuando sea necesario para coordinacion de atencion; no se divulgan detalles del contenido de sesiones fuera de este proposito de atencion.'
+      )
+    }
+  ];
+});
 const externalReleaseMode = computed(() => {
   const mode = String(props.roiContext?.externalRelease?.mode || '').trim().toLowerCase();
   if (mode === 'sender_programmed') return 'sender_programmed';
@@ -620,7 +758,6 @@ const stageOrder = computed(() => {
   const stages = ['intro', 'purpose'];
   ackItems.value.forEach((item) => stages.push(`ack:${item.id}`));
   waiverItems.value.forEach((item) => stages.push(`waiver:${item.id}`));
-  stages.push('packet');
   staffRoster.value.forEach((staff) => stages.push(`staff:${staff.schoolStaffUserId}`));
   stages.push('third_party');
   if (externalReleaseMode.value === 'sender_programmed') stages.push('external_programmed');
@@ -703,17 +840,18 @@ const form = reactive({
     phone: prefillSignerPhone,
     relationship: prefillIntakeForSelf === true ? 'Self' : prefillSignerRelationship
   },
-  packetReleaseAllowed: null,
+  staffDecisions: Object.fromEntries(staffRoster.value.map((staff) => [staff.schoolStaffUserId, null])),
   requiredAcknowledgements: Object.fromEntries(ackItems.value.map((item) => [item.id, null])),
   waiverItems: Object.fromEntries(waiverItems.value.map((item) => [item.id, null])),
-  staffDecisions: Object.fromEntries(staffRoster.value.map((staff) => [staff.schoolStaffUserId, null])),
   thirdPartyRecipients: [],
   programmedExternalAllowed: null,
+  programmedExternalDecision: null,
   parentExternalRecipients: [{
     name: '',
     relationship: '',
     email: '',
     phone: '',
+    decision: null,
     allowed: null
   }]
 });
@@ -747,13 +885,29 @@ const schoolContactLine = computed(() => {
   return [contact.name, contact.email, contact.phone].filter((value) => String(value || '').trim()).join(' · ');
 });
 const signerFullName = computed(() => `${form.signer.firstName || ''} ${form.signer.lastName || ''}`.trim());
+const staffDecisionLabel = (decision) => {
+  if (decision === 'roi_docs') {
+    return tr('ROI All Active', 'ROI All Active');
+  }
+  if (decision === 'roi') {
+    return tr('ROI (Speak)', 'ROI (Speak)');
+  }
+  return tr('No ROI on file', 'Sin ROI en archivo');
+};
 const approvedStaff = computed(() =>
-  staffRoster.value.filter((staff) => form.staffDecisions[staff.schoolStaffUserId] === true)
+  staffRoster.value.filter((staff) => {
+    const decision = form.staffDecisions[staff.schoolStaffUserId];
+    return decision === 'roi' || decision === 'roi_docs';
+  })
+);
+const deniedStaffCount = computed(() =>
+  staffRoster.value.filter((staff) => form.staffDecisions[staff.schoolStaffUserId] === 'none').length
 );
 const normalizedAcknowledgementsForReview = computed(() =>
   ackItems.value.map((ack) => ({
     id: ack.id,
     title: ack.title,
+    body: ack.body || '',
     accepted: form.requiredAcknowledgements[ack.id] === true
   }))
 );
@@ -761,21 +915,19 @@ const normalizedWaiversForReview = computed(() =>
   waiverItems.value.map((item) => ({
     id: item.id,
     title: item.title,
+    body: item.body || '',
     decision: form.waiverItems[item.id]
   }))
-);
-const deniedStaffCount = computed(() =>
-  staffRoster.value.filter((staff) => form.staffDecisions[staff.schoolStaffUserId] === false).length
 );
 const hipaaSafetyDisclosureAcknowledged = computed(() =>
   form.waiverItems.hipaa_serious_imminent_threat_disclosure === 'accept'
   || form.waiverItems.school_scheduling_safety_logistics === 'accept'
 );
 const approvedExternalRecipients = computed(() =>
-  (form.parentExternalRecipients || []).filter((row) => row.allowed === true)
+  (form.parentExternalRecipients || []).filter((row) => row.decision === 'roi' || row.decision === 'roi_docs' || row.allowed === true)
 );
 const deniedExternalRecipientsCount = computed(() =>
-  (form.parentExternalRecipients || []).filter((row) => row.allowed === false).length
+  (form.parentExternalRecipients || []).filter((row) => row.decision === 'none' || row.allowed === false).length
 );
 const isEmbeddedMode = computed(() => String(props.mode || '').toLowerCase() === 'embedded');
 const draftStorageKey = computed(() => {
@@ -811,22 +963,31 @@ const buildRoiPayload = () => ({
   signer: {
     ...form.signer
   },
-  packetReleaseAllowed: form.packetReleaseAllowed,
   requiredAcknowledgements: { ...form.requiredAcknowledgements },
   waiverItems: { ...form.waiverItems },
-  staffDecisions: staffRoster.value.map((staff) => ({
-    schoolStaffUserId: staff.schoolStaffUserId,
-    allowed: form.staffDecisions[staff.schoolStaffUserId] === true
-  })),
+  staffDecisions: staffRoster.value.map((staff) => {
+    const decision = form.staffDecisions[staff.schoolStaffUserId];
+    return {
+      schoolStaffUserId: staff.schoolStaffUserId,
+      decision,
+      allowed: decision === 'roi' || decision === 'roi_docs',
+      packetAllowed: decision === 'roi_docs'
+    };
+  }),
   thirdPartyRecipients: (form.thirdPartyRecipients || [])
     .filter((row) => String(row?.name || '').trim() || String(row?.relationship || '').trim())
-    .map((row) => ({
-      name: String(row.name || '').trim(),
-      relationship: String(row.relationship || '').trim(),
-      email: String(row.email || '').trim(),
-      phone: String(row.phone || '').trim(),
-      allowed: row.allowed === true
-    })),
+    .map((row) => {
+      const decision = row.decision || (row.allowed === true ? 'roi' : (row.allowed === false ? 'none' : null));
+      return {
+        name: String(row.name || '').trim(),
+        relationship: String(row.relationship || '').trim(),
+        email: String(row.email || '').trim(),
+        phone: String(row.phone || '').trim(),
+        decision,
+        allowed: decision === 'roi' || decision === 'roi_docs',
+        packetAllowed: decision === 'roi_docs'
+      };
+    }),
   externalReleaseMode: externalReleaseMode.value,
   programmedExternalRecipient: externalReleaseMode.value === 'sender_programmed'
     ? {
@@ -834,17 +995,24 @@ const buildRoiPayload = () => ({
         relationship: programmedRecipient.value?.relationship || '',
         email: programmedRecipient.value?.email || '',
         phone: programmedRecipient.value?.phone || '',
-        allowed: form.programmedExternalAllowed
+        decision: form.programmedExternalDecision,
+        allowed: form.programmedExternalDecision === 'roi' || form.programmedExternalDecision === 'roi_docs',
+        packetAllowed: form.programmedExternalDecision === 'roi_docs'
       }
     : null,
   externalRecipients: externalReleaseMode.value === 'parent_defined'
-    ? (form.parentExternalRecipients || []).map((row) => ({
+    ? (form.parentExternalRecipients || []).map((row) => {
+      const decision = row.decision || (row.allowed === true ? 'roi' : (row.allowed === false ? 'none' : null));
+      return {
         name: row.name,
         relationship: row.relationship,
         email: row.email,
         phone: row.phone,
-        allowed: row.allowed
-      }))
+        decision,
+        allowed: decision === 'roi' || decision === 'roi_docs',
+        packetAllowed: decision === 'roi_docs'
+      };
+    })
     : []
 });
 
@@ -917,16 +1085,19 @@ const buildDraftSnapshot = () => ({
           relationship: row?.relationship || '',
           email: row?.email || '',
           phone: row?.phone || '',
+          decision: row?.decision || null,
           allowed: row?.allowed
         }))
       : [],
     programmedExternalAllowed: form.programmedExternalAllowed,
+    programmedExternalDecision: form.programmedExternalDecision,
     parentExternalRecipients: Array.isArray(form.parentExternalRecipients)
       ? form.parentExternalRecipients.map((row) => ({
           name: row?.name || '',
           relationship: row?.relationship || '',
           email: row?.email || '',
           phone: row?.phone || '',
+          decision: row?.decision || null,
           allowed: row?.allowed === true ? true : (row?.allowed === false ? false : null)
         }))
       : []
@@ -958,32 +1129,56 @@ const restoreDraftSnapshot = () => {
   form.signer.email = String(draftForm?.signer?.email || form.signer.email || '');
   form.signer.phone = String(draftForm?.signer?.phone || form.signer.phone || '');
   form.signer.relationship = String(draftForm?.signer?.relationship || form.signer.relationship || '');
-  form.packetReleaseAllowed = typeof draftForm.packetReleaseAllowed === 'boolean'
-    ? draftForm.packetReleaseAllowed
-    : form.packetReleaseAllowed;
   form.requiredAcknowledgements = { ...(form.requiredAcknowledgements || {}), ...(draftForm.requiredAcknowledgements || {}) };
   form.waiverItems = { ...(form.waiverItems || {}), ...(draftForm.waiverItems || {}) };
-  form.staffDecisions = { ...(form.staffDecisions || {}), ...(draftForm.staffDecisions || {}) };
+  const restoredStaff = { ...(form.staffDecisions || {}), ...(draftForm.staffDecisions || {}) };
+  Object.keys(restoredStaff).forEach((key) => {
+    const value = restoredStaff[key];
+    if (value === 'roi_docs' || value === 'roi' || value === 'none') return;
+    if (value === true) restoredStaff[key] = draftForm.packetReleaseAllowed === true ? 'roi_docs' : 'roi';
+    else if (value === false) restoredStaff[key] = 'none';
+    else restoredStaff[key] = null;
+  });
+  form.staffDecisions = restoredStaff;
   if (Array.isArray(draftForm.thirdPartyRecipients)) {
-    form.thirdPartyRecipients = draftForm.thirdPartyRecipients.map((row) => ({
-      name: String(row?.name || ''),
-      relationship: String(row?.relationship || ''),
-      email: String(row?.email || ''),
-      phone: String(row?.phone || ''),
-      allowed: row?.allowed === true ? true : (row?.allowed === false ? false : null)
-    }));
+    form.thirdPartyRecipients = draftForm.thirdPartyRecipients.map((row) => {
+      const decision = ['roi_docs', 'roi', 'none'].includes(row?.decision)
+        ? row.decision
+        : (row?.allowed === true ? 'roi' : (row?.allowed === false ? 'none' : null));
+      return {
+        name: String(row?.name || ''),
+        relationship: String(row?.relationship || ''),
+        email: String(row?.email || ''),
+        phone: String(row?.phone || ''),
+        decision,
+        allowed: decision === 'roi' || decision === 'roi_docs'
+      };
+    });
   }
-  form.programmedExternalAllowed = typeof draftForm.programmedExternalAllowed === 'boolean'
-    ? draftForm.programmedExternalAllowed
-    : form.programmedExternalAllowed;
+  if (['roi_docs', 'roi', 'none'].includes(draftForm.programmedExternalDecision)) {
+    form.programmedExternalDecision = draftForm.programmedExternalDecision;
+    form.programmedExternalAllowed = draftForm.programmedExternalDecision === 'roi' || draftForm.programmedExternalDecision === 'roi_docs';
+  } else {
+    form.programmedExternalAllowed = typeof draftForm.programmedExternalAllowed === 'boolean'
+      ? draftForm.programmedExternalAllowed
+      : form.programmedExternalAllowed;
+    if (form.programmedExternalAllowed === true) form.programmedExternalDecision = 'roi';
+    if (form.programmedExternalAllowed === false) form.programmedExternalDecision = 'none';
+  }
   if (Array.isArray(draftForm.parentExternalRecipients) && draftForm.parentExternalRecipients.length) {
-    form.parentExternalRecipients = draftForm.parentExternalRecipients.map((row) => ({
-      name: String(row?.name || ''),
-      relationship: String(row?.relationship || ''),
-      email: String(row?.email || ''),
-      phone: String(row?.phone || ''),
-      allowed: row?.allowed === true ? true : (row?.allowed === false ? false : null)
-    }));
+    form.parentExternalRecipients = draftForm.parentExternalRecipients.map((row) => {
+      const decision = ['roi_docs', 'roi', 'none'].includes(row?.decision)
+        ? row.decision
+        : (row?.allowed === true ? 'roi' : (row?.allowed === false ? 'none' : null));
+      return {
+        name: String(row?.name || ''),
+        relationship: String(row?.relationship || ''),
+        email: String(row?.email || ''),
+        phone: String(row?.phone || ''),
+        decision,
+        allowed: decision === 'roi' || decision === 'roi_docs'
+      };
+    });
   }
   const maxIdx = Math.max(stageOrder.value.length - 1, 0);
   const nextIdx = Number.isFinite(Number(parsed.stageIndex)) ? Number(parsed.stageIndex) : 0;
@@ -1029,12 +1224,8 @@ const validateCurrentStage = () => {
     error.value = 'This authorization is required to continue.';
     return false;
   }
-  if (stage.value === 'packet' && typeof form.packetReleaseAllowed !== 'boolean') {
-    error.value = 'Choose whether approved staff may view the packet and related documents.';
-    return false;
-  }
-  if (stage.value === 'staff' && typeof form.staffDecisions[currentStaff.value.schoolStaffUserId] !== 'boolean') {
-    error.value = 'Choose whether to approve or deny release for this staff member.';
+  if (stage.value === 'staff' && !['roi_docs', 'roi', 'none'].includes(form.staffDecisions[currentStaff.value.schoolStaffUserId])) {
+    error.value = 'Choose ROI All Active, ROI (Speak), or No ROI on file for this staff member.';
     return false;
   }
   if (stage.value === 'third_party') {
@@ -1042,17 +1233,17 @@ const validateCurrentStage = () => {
       const hasAny = String(row.name || '').trim() || String(row.relationship || '').trim()
         || String(row.email || '').trim() || String(row.phone || '').trim();
       if (!hasAny) continue;
-      if (!String(row.name || '').trim() || !String(row.relationship || '').trim() || typeof row.allowed !== 'boolean') {
+      if (!String(row.name || '').trim() || !String(row.relationship || '').trim() || !['roi_docs', 'roi', 'none'].includes(row.decision)) {
         error.value = tr(
-          `Complete third party ${idx + 1} name, role, and approve/deny before continuing.`,
-          `Complete el tercero ${idx + 1}: nombre, rol y aprobar/denegar antes de continuar.`
+          `Complete third party ${idx + 1} name, role, and permission level (ROI All Active, ROI (Speak), or No ROI) before continuing.`,
+          `Complete el tercero ${idx + 1}: nombre, rol y nivel de permiso (ROI All Active, ROI (Speak) o Sin ROI) antes de continuar.`
         );
         return false;
       }
     }
   }
-  if (stage.value === 'external_programmed' && typeof form.programmedExternalAllowed !== 'boolean') {
-    error.value = 'Choose whether to approve release for the programmed non-school recipient.';
+  if (stage.value === 'external_programmed' && !['roi_docs', 'roi', 'none'].includes(form.programmedExternalDecision)) {
+    error.value = 'Choose ROI All Active, ROI (Speak), or No ROI on file for the programmed non-school recipient.';
     return false;
   }
   if (stage.value === 'external_parent') {
@@ -1061,8 +1252,8 @@ const validateCurrentStage = () => {
       return false;
     }
     for (const [idx, row] of form.parentExternalRecipients.entries()) {
-      if (!String(row.name || '').trim() || !String(row.relationship || '').trim() || typeof row.allowed !== 'boolean') {
-        error.value = `Complete recipient ${idx + 1} name, relationship, and decision before continuing.`;
+      if (!String(row.name || '').trim() || !String(row.relationship || '').trim() || !['roi_docs', 'roi', 'none'].includes(row.decision)) {
+        error.value = `Complete recipient ${idx + 1} name, relationship, and permission level before continuing.`;
         return false;
       }
     }
@@ -1100,21 +1291,16 @@ const selectWaiverDecision = (decision) => {
   goNext();
 };
 
-const selectPacketDecision = (allowed) => {
-  form.packetReleaseAllowed = allowed === true;
-  error.value = '';
-  goNext();
-};
-
-const selectStaffDecision = (allowed) => {
+const selectStaffDecision = (decision) => {
   if (!currentStaff.value?.schoolStaffUserId) return;
-  form.staffDecisions[currentStaff.value.schoolStaffUserId] = allowed === true;
+  form.staffDecisions[currentStaff.value.schoolStaffUserId] = decision;
   error.value = '';
   goNext();
 };
 
-const selectProgrammedExternalDecision = (allowed) => {
-  form.programmedExternalAllowed = allowed === true;
+const selectProgrammedExternalDecision = (decision) => {
+  form.programmedExternalDecision = decision;
+  form.programmedExternalAllowed = decision === 'roi' || decision === 'roi_docs';
   error.value = '';
   goNext();
 };
@@ -1125,6 +1311,7 @@ const addThirdPartyRecipient = () => {
     relationship: '',
     email: '',
     phone: '',
+    decision: null,
     allowed: null
   });
   error.value = '';
@@ -1141,6 +1328,7 @@ const addExternalRecipient = () => {
     relationship: '',
     email: '',
     phone: '',
+    decision: null,
     allowed: null
   });
 };
@@ -1181,7 +1369,11 @@ watch(
       requiredAcknowledgements: { ...(form.requiredAcknowledgements || {}) },
       waiverItems: { ...(form.waiverItems || {}) },
       staffDecisions: { ...(form.staffDecisions || {}) },
+      thirdPartyRecipients: Array.isArray(form.thirdPartyRecipients)
+        ? form.thirdPartyRecipients.map((row) => ({ ...row }))
+        : [],
       programmedExternalAllowed: form.programmedExternalAllowed,
+      programmedExternalDecision: form.programmedExternalDecision,
       parentExternalRecipients: Array.isArray(form.parentExternalRecipients)
         ? form.parentExternalRecipients.map((row) => ({ ...row }))
         : []
@@ -1517,6 +1709,31 @@ const submitRoi = async () => {
   border-color: var(--df-accent, var(--df-primary, #c4a574));
   box-shadow: 0 0 0 1px var(--df-accent, var(--df-primary, #c4a574));
   background: color-mix(in srgb, var(--df-accent, #c4a574) 10%, #fff);
+}
+
+.choice-card--detail {
+  text-align: left;
+}
+
+.choice-detail {
+  display: block;
+  margin-top: 4px;
+  font-weight: 650;
+}
+
+.choice-scope,
+.review-scope {
+  margin: 8px 0 0 18px;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: #475569;
+}
+
+.review-body {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #475569;
 }
 
 .required-note {

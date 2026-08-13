@@ -81,6 +81,16 @@ import {
   getClientDisclosure,
   requireClientDisclosure
 } from '../controllers/clientDisclosure.controller.js';
+import {
+  getClientAgencyIntake,
+  putClientAgencyIntake,
+  getClientYearDisposition,
+  putClientSpringUpdate,
+  putClientFallConfirmation,
+  putClientAgencyClearance,
+  putClientRoiFollowup,
+  postConfirmServicesStarted
+} from '../controllers/clientLifecycle.controller.js';
 import { authenticate, requireBackofficeAdmin, requireGuardianListAccess } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -190,6 +200,16 @@ router.post('/:id/notes/read', markClientNotesRead);
 
 // Compliance checklist (provider/admin/staff)
 router.put('/:id/compliance-checklist', updateClientComplianceChecklist);
+
+// Role-based lifecycle Actions (agency intake, spring/fall, confirm services)
+router.get('/:id/agency-intake', getClientAgencyIntake);
+router.put('/:id/agency-intake', putClientAgencyIntake);
+router.get('/:id/year-disposition', getClientYearDisposition);
+router.put('/:id/spring-update', putClientSpringUpdate);
+router.put('/:id/fall-confirmation', putClientFallConfirmation);
+router.put('/:id/agency-clearance', putClientAgencyClearance);
+router.put('/:id/roi-followup', putClientRoiFollowup);
+router.post('/:id/confirm-services-started', postConfirmServicesStarted);
 
 // New Client Onboarding checklist
 router.get('/:id/onboarding-checklist', getOnboardingChecklist);

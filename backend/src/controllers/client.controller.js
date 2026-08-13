@@ -39,6 +39,8 @@ import AgencyIntakeFieldTemplate from '../models/AgencyIntakeFieldTemplate.model
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
 import { normalizeContinuationServicesPayload } from '../utils/fallReadiness.js';
 import { applyFallContinuationSideEffects } from '../services/fallContinuation.service.js';
+import { addClientToSchoolYear } from '../services/clientSchoolYear.service.js';
+import { stampClientTerminationSchoolYear } from '../services/clientTerminationSchoolYear.service.js';
 
 const INSURANCE_CARD_SLOTS = new Set(['primary_front', 'primary_back', 'secondary_front', 'secondary_back']);
 
@@ -1286,15 +1288,21 @@ export const createClient = async (req, res, next) => {
       resolvedProviderId = parsedProviderId;
     }
 
-    // New school/office clients with no explicit status default to Packet (Packet Sent).
+    // New school/office clients with no explicit status default to Received (legacy: packet).
     let resolvedClientStatusId = client_status_id ? parseInt(client_status_id, 10) : null;
     if (!resolvedClientStatusId) {
       try {
-        const packetStatusId = await getClientStatusIdByKey({
+        let defaultStatusId = await getClientStatusIdByKey({
           agencyId: parsedAgencyId,
-          statusKey: 'packet'
+          statusKey: 'received'
         });
-        if (packetStatusId) resolvedClientStatusId = Number(packetStatusId);
+        if (!defaultStatusId) {
+          defaultStatusId = await getClientStatusIdByKey({
+            agencyId: parsedAgencyId,
+            statusKey: 'packet'
+          });
+        }
+        if (defaultStatusId) resolvedClientStatusId = Number(defaultStatusId);
       } catch {
         // best-effort
       }
@@ -1804,6 +1812,9 @@ function normalizeSchoolYearLabel(raw) {
   // Accept YYYY/YYYY
   const m2 = s.match(/^(\d{4})\s*\/\s*(\d{4})$/);
   if (m2) return `${m2[1]}-${m2[2]}`;
+  // Tolerate "2025 2026" / en-dash dirty labels
+  const m3 = s.match(/^(\d{4})\s*[–—\s]\s*(\d{4})$/);
+  if (m3) return `${m3[1]}-${m3[2]}`;
   return s;
 }
 
@@ -1830,9 +1841,10 @@ function bumpGrade(raw) {
 }
 
 /**
- * Bulk promote clients to the next school year (and bump grade +1 when numeric).
+ * Bulk ADD clients to a school year (does not switch/replace clients.school_year).
+ * Prior year stays on the client; target year is added via client_school_years.
  * POST /api/clients/bulk/promote-school-year
- * body: { clientIds: number[], toSchoolYear?: string }
+ * body: { clientIds: number[], toSchoolYear?: string, resetDocs?: boolean, switchPrimary?: boolean }
  */
 export const bulkPromoteSchoolYear = async (req, res, next) => {
   try {
@@ -1841,7 +1853,7 @@ export const bulkPromoteSchoolYear = async (req, res, next) => {
     const roleNorm = String(userRole || '').toLowerCase();
     const canManage = roleNorm === 'super_admin' || roleNorm === 'admin' || roleNorm === 'support' || roleNorm === 'staff';
     if (!canManage) {
-      return res.status(403).json({ error: { message: 'Only admin/staff can promote clients' } });
+      return res.status(403).json({ error: { message: 'Only admin/staff can add clients to a school year' } });
     }
 
     const ids = Array.isArray(req.body?.clientIds) ? req.body.clientIds : [];
@@ -1851,8 +1863,9 @@ export const bulkPromoteSchoolYear = async (req, res, next) => {
     const toSchoolYear = normalizeSchoolYearLabel(req.body?.toSchoolYear || null);
     const resetDocs = req.body?.resetDocs === undefined ? true : !!req.body.resetDocs;
     const resetPaperworkStatusKey = String(req.body?.paperworkStatusKey || 'new_docs').trim().toLowerCase();
+    // Escape hatch only — default is add (not switch).
+    const switchPrimary = req.body?.switchPrimary === true || req.body?.switchPrimary === 'true';
 
-    // Fetch clients in one query (include agency_id for access checks).
     const placeholders = clientIds.map(() => '?').join(',');
     const [rows] = await pool.execute(
       `SELECT id, agency_id, school_year, grade, status
@@ -1861,7 +1874,6 @@ export const bulkPromoteSchoolYear = async (req, res, next) => {
       clientIds
     );
 
-    // Access check: non-super_admin must have agency access.
     let allowedAgencyIds = null;
     if (roleNorm !== 'super_admin') {
       const userAgencies = await User.getAgencies(userId);
@@ -1878,20 +1890,36 @@ export const bulkPromoteSchoolYear = async (req, res, next) => {
         skipped.push({ id, reason: 'no_access' });
         continue;
       }
-      // Don't promote archived clients automatically; they should be unarchived first.
       if (String(r.status || '').toUpperCase() === 'ARCHIVED') {
         skipped.push({ id, reason: 'archived' });
         continue;
       }
 
       const nextYear = toSchoolYear || computeNextSchoolYearLabel(r.school_year || null);
-      const nextGrade = bumpGrade(r.grade);
-      const patch = { school_year: nextYear };
-      if (nextGrade !== null) patch.grade = nextGrade;
+      let added;
+      try {
+        added = await addClientToSchoolYear({
+          clientId: id,
+          agencyId: r.agency_id,
+          fromSchoolYear: r.school_year,
+          toSchoolYear: nextYear,
+          currentGrade: r.grade,
+          bumpGrade: true,
+          source: 'bulk_add',
+          actorUserId: userId
+        });
+      } catch (addErr) {
+        skipped.push({ id, reason: addErr?.message || 'add_failed' });
+        continue;
+      }
 
-      // Default rollover behavior: reset document workflow for the new year.
+      const patch = {};
+      if (switchPrimary) {
+        patch.school_year = nextYear;
+        if (added?.grade != null) patch.grade = added.grade;
+      }
+
       if (resetDocs) {
-        // Paperwork status: attempt to set to "New Docs" if present for this agency.
         const agencyId = Number(r.agency_id);
         if (agencyId) {
           if (!newDocsPaperworkStatusIdByAgencyId.has(agencyId)) {
@@ -1919,11 +1947,26 @@ export const bulkPromoteSchoolYear = async (req, res, next) => {
         patch.document_status = 'NONE';
       }
 
-      await Client.update(id, patch, userId);
-      updated.push({ id, school_year: nextYear, grade: patch.grade ?? null });
+      if (Object.keys(patch).length) {
+        await Client.update(id, patch, userId);
+      }
+      updated.push({
+        id,
+        school_year: r.school_year || null,
+        added_school_year: nextYear,
+        membership_grade: added?.grade ?? null,
+        switched_primary: !!switchPrimary
+      });
     }
 
-    res.json({ success: true, updated, skipped, requested: clientIds.length, found: (rows || []).length });
+    res.json({
+      success: true,
+      mode: switchPrimary ? 'switch_primary' : 'add_membership',
+      updated,
+      skipped,
+      requested: clientIds.length,
+      found: (rows || []).length
+    });
   } catch (e) {
     next(e);
   }
@@ -1996,7 +2039,8 @@ export const rolloverSchoolYear = async (req, res, next) => {
         willUpdate: cnt,
         organizationId,
         agencyId: scopedAgencyId,
-        toSchoolYear: keepSchoolYear ? '(unchanged)' : (toSchoolYear || '(computed per client)'),
+        toSchoolYear: keepSchoolYear ? '(docs only — no year add)' : (toSchoolYear || '(computed per client)'),
+        mode: keepSchoolYear ? 'reset_docs' : 'add_membership',
         resetDocs,
         keepSchoolYear
       });
@@ -2031,12 +2075,26 @@ export const rolloverSchoolYear = async (req, res, next) => {
         const id = Number(r.id);
         if (!id) continue;
         const nextYear = toSchoolYear || computeNextSchoolYearLabel(r.school_year || null);
-        const nextGrade = bumpGrade(r.grade);
-        const patch = {};
+        // Default: ADD membership for next year; do not switch clients.school_year.
+        // keepSchoolYear=true means reset-docs-only (no membership add).
         if (!keepSchoolYear) {
-          patch.school_year = nextYear;
-          if (nextGrade !== null) patch.grade = nextGrade;
+          try {
+            await addClientToSchoolYear({
+              clientId: id,
+              agencyId: r.agency_id,
+              fromSchoolYear: r.school_year,
+              toSchoolYear: nextYear,
+              currentGrade: r.grade,
+              bumpGrade: true,
+              source: 'rollover_add',
+              actorUserId: userId
+            });
+          } catch (addErr) {
+            skipped.push({ id, reason: addErr?.message || 'add_failed' });
+            continue;
+          }
         }
+        const patch = {};
         if (resetDocs) {
           const aId = Number(r.agency_id);
           if (aId) {
@@ -2060,8 +2118,14 @@ export const rolloverSchoolYear = async (req, res, next) => {
           patch.roi_expires_at = null;
           patch.document_status = 'NONE';
         }
-        await Client.update(id, patch, userId);
-        updated.push({ id, school_year: nextYear });
+        if (Object.keys(patch).length) {
+          await Client.update(id, patch, userId);
+        }
+        updated.push({
+          id,
+          school_year: r.school_year || null,
+          added_school_year: keepSchoolYear ? null : nextYear
+        });
       }
     }
 
@@ -2191,6 +2255,12 @@ export const terminateClient = async (req, res, next) => {
       terminated_by_user_id: userId,
       roi_expires_at: null
     }, userId);
+
+    await stampClientTerminationSchoolYear({
+      clientId: id,
+      agencyId: currentClient.agency_id,
+      actorUserId: userId
+    }).catch(() => {});
 
     await ClientStatusHistory.create({
       client_id: parseInt(id, 10),
@@ -2463,6 +2533,14 @@ export const updateClient = async (req, res, next) => {
 
     // Update client
     let updatedClient = await Client.update(id, req.body, userId);
+
+    if (req.body.terminated_at && req.body.termination_reason) {
+      await stampClientTerminationSchoolYear({
+        clientId: id,
+        agencyId: currentClient.agency_id,
+        actorUserId: userId
+      }).catch(() => {});
+    }
 
     // Keep multi-org assignments in sync when the primary organization is changed via the client profile.
     // Without this, the profile can show the "new" school (clients.organization_id) while the School Portal
@@ -3545,6 +3623,25 @@ export const assignProvider = async (req, res, next) => {
       }
 
       await connection.commit();
+
+      // Soft Schedule day on assign → Scheduled; provider-only → reconcile Ready to Schedule when intake done.
+      try {
+        if (String(currentClient.client_type || '').toLowerCase() === 'school') {
+          if (finalDay) {
+            const { markClientScheduledFromPlacement } = await import('../services/clientLifecycleStatus.service.js');
+            await markClientScheduledFromPlacement({ clientId: parseInt(id, 10), actorUserId: userId });
+          } else if (finalProviderId) {
+            const { reconcileSchoolClientStatus } = await import('../services/clientLifecycleStatus.service.js');
+            await reconcileSchoolClientStatus({
+              clientId: parseInt(id, 10),
+              actorUserId: userId,
+              note: 'Reconcile after provider assignment'
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('[assignProvider] lifecycle reconcile failed:', e?.message || e);
+      }
 
       const updatedClient = await Client.findById(id);
       // Notifications: client is current and newly assigned a provider/day (slot-consuming)

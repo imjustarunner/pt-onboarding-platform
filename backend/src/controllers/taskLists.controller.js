@@ -378,10 +378,12 @@ export const listTasks = async (req, res, next) => {
 
     const [rows] = await pool.execute(
       `SELECT t.*,
+        os.name AS school_tag,
         assignee.first_name AS assignee_first_name,
         assignee.last_name AS assignee_last_name,
         assignee.profile_photo_path AS assignee_profile_photo_path
        FROM tasks t
+       LEFT JOIN outreach_schools os ON os.id = t.outreach_school_id
        LEFT JOIN users assignee ON assignee.id = t.assigned_to_user_id
        WHERE ${whereClause}
        ORDER BY ${orderBy}`,
@@ -478,6 +480,20 @@ export const createTaskInList = async (req, res, next) => {
       agencyId: list.agency_id,
       actorUserId: userId
     }).catch((err) => console.error('[createTaskInList] notifyTaskAddedToList error:', err));
+
+    const outreachSchoolId = Number(req.body?.outreach_school_id || req.body?.outreachSchoolId || 0);
+    if (outreachSchoolId > 0 && list.agency_id) {
+      try {
+        const { tagTaskToOutreachSchool } = await import('../services/outreachHubTasks.service.js');
+        await tagTaskToOutreachSchool(task.id, {
+          agencyId: list.agency_id,
+          schoolId: outreachSchoolId,
+          actorUserId: userId
+        });
+      } catch (tagErr) {
+        console.warn('[createTaskInList] outreach school tag failed', tagErr?.message || tagErr);
+      }
+    }
 
     res.status(201).json(task);
   } catch (err) {

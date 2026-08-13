@@ -310,7 +310,53 @@ export const STRUCTURED_INTAKE_STEP_ES = {
   'You can use whatever name you go by — it does not have to be your legal name. We\'ll capture the date, time, IP, and browser as part of the audit trail.':
     'Puede usar el nombre con el que se identifica — no tiene que ser su nombre legal. Registraremos la fecha, hora, IP y navegador como parte del registro de auditoría.',
   'the provider': 'el proveedor',
-  'Save & continue': 'Guardar y continuar'
+  'Save & continue': 'Guardar y continuar',
+
+  // ── Public school packet chrome (no live translate on masters) ───────────
+  'About You': 'Sobre usted',
+  'School ROI': 'Autorización escolar (ROI)',
+  'Informed Consent and Group Counseling Consent': 'Consentimiento informado y consentimiento de consejería grupal',
+  'Informed + Group Consent': 'Consentimiento informado y grupal',
+  'Policy and Services Agreement': 'Acuerdo de políticas y servicios',
+  'Policy & Services': 'Políticas y servicios',
+  'HIPAA Privacy Policy and Notice of Privacy Practices': 'Política de privacidad HIPAA y Aviso de prácticas de privacidad',
+  'HIPAA Notice': 'Aviso HIPAA',
+  'Disclosure': 'Divulgación',
+  'Disclosure Statement': 'Declaración de divulgación',
+  'Guardian waivers & safety': 'Autorizaciones y seguridad del tutor',
+  'Waivers': 'Autorizaciones',
+  'Insurance information': 'Información del seguro',
+  'Insurance': 'Seguro',
+  'Communication preferences': 'Preferencias de comunicación',
+  'Communications': 'Comunicaciones',
+  'Complete': 'Completado',
+  'Documents': 'Documentos',
+  'Uploads': 'Cargas',
+  'Registration': 'Registro',
+  'Payment': 'Pago',
+  'Payment information': 'Información de pago',
+  'Demographics': 'Datos demográficos',
+  'Clinical': 'Clínico',
+  'Clinical Questions': 'Preguntas clínicas',
+  'Questionnaire': 'Cuestionario',
+  'References': 'Referencias',
+  'Professional references': 'Referencias profesionales',
+  'Intake & Registration': 'Admisión y registro',
+  'Smart School Referral Packet': 'Paquete digital de referidos escolares',
+  'Smart School Referral Packet (English)': 'Paquete digital de referidos escolares',
+  'School Referral Master': 'Paquete digital de referidos escolares',
+  'School Referral Master (EN)': 'Paquete digital de referidos escolares',
+  'School Referral Master (ES)': 'Paquete digital de referidos escolares',
+  'ESIGN Act Disclosure': 'Divulgación de la Ley ESIGN',
+  'By continuing, you consent to electronically sign these documents and receive electronic records. You may request paper copies from the organization.':
+    'Al continuar, usted consiente firmar electrónicamente estos documentos y recibir registros electrónicos. Puede solicitar copias en papel a la organización.',
+  'Most families complete this in about 15 minutes. To protect your information, the form clears itself after roughly an hour of inactivity and any unsaved entries are removed.':
+    'La mayoría de las familias completan esto en unos 15 minutos. Para proteger su información, el formulario se borra después de aproximadamente una hora de inactividad y se eliminan las entradas no guardadas.',
+  'Tell us a bit about you so we can prepare the right forms.':
+    'Cuéntenos un poco sobre usted para que podamos preparar los formularios correctos.',
+  'I am completing this form for myself': 'Estoy completando este formulario para mí',
+  'I am a parent or guardian submitting for my child(ren)':
+    'Soy padre, madre o tutor y lo envío para mi(s) hijo(s)'
 };
 
 export function lookupStructuredIntakeTranslation(en, apiMap = {}) {

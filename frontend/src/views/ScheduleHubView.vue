@@ -756,9 +756,9 @@ const allSections = computed(() => [
       },
       {
         id: 'client-onboarding',
-        title: 'Client Readiness',
-        shortDesc: 'Staff checklist for school and office intakes.',
-        desc: 'ROI staff access, documents, provider/day, insurance — then mark staff readiness complete for providers.',
+        title: 'Client Action Needed',
+        shortDesc: 'Fall confirmation, new-client intake, and agency clearance.',
+        desc: 'See every client who still needs a next step and which stage they are in.',
         cta: 'Open →',
         to: orgTo('/admin/client-onboarding?scope=all'),
         tone: 'blue',

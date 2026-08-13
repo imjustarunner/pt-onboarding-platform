@@ -3665,6 +3665,7 @@ const accountForm = ref({
   hasCredentialingAccess: false,
   isHourlyWorker: false,
   hasHiringAccess: false,
+  hasOutreachAccess: false,
   hasMedicalRecordsReleaseAccess: false,
   hasGamesAccess: false,
   providerStartDate: ''
@@ -5359,6 +5360,7 @@ const fetchUser = async () => {
       hasCredentialingAccess: accountInfo.value?.hasCredentialingAccess === true || accountForm.value?.hasCredentialingAccess || false,
       isHourlyWorker: user.value?.is_hourly_worker === true || user.value?.is_hourly_worker === 1 || user.value?.is_hourly_worker === '1' || accountForm.value?.isHourlyWorker || false,
       hasHiringAccess: user.value?.has_hiring_access === true || user.value?.has_hiring_access === 1 || user.value?.has_hiring_access === '1' || accountForm.value?.hasHiringAccess || false,
+      hasOutreachAccess: user.value?.has_outreach_access === true || user.value?.has_outreach_access === 1 || user.value?.has_outreach_access === '1' || accountForm.value?.hasOutreachAccess || false,
       hasMedicalRecordsReleaseAccess: user.value?.has_medical_records_release_access === true || user.value?.has_medical_records_release_access === 1 || user.value?.has_medical_records_release_access === '1' || accountForm.value?.hasMedicalRecordsReleaseAccess || false,
       hasGamesAccess: user.value?.has_games_access === true || user.value?.has_games_access === 1 || user.value?.has_games_access === '1' || accountForm.value?.hasGamesAccess || false,
       providerStartDate:
@@ -5476,6 +5478,9 @@ const fetchAccountInfo = async () => {
     }
     if (response.data?.hasHiringAccess !== undefined) {
       accountForm.value.hasHiringAccess = Boolean(response.data.hasHiringAccess);
+    }
+    if (response.data?.hasOutreachAccess !== undefined) {
+      accountForm.value.hasOutreachAccess = Boolean(response.data.hasOutreachAccess);
     }
     if (response.data?.hasMedicalRecordsReleaseAccess !== undefined) {
       accountForm.value.hasMedicalRecordsReleaseAccess = Boolean(response.data.hasMedicalRecordsReleaseAccess);
@@ -6310,6 +6315,7 @@ const saveAccount = async (options = {}) => {
       hasCredentialingAccess: Boolean(accountForm.value.hasCredentialingAccess),
       isHourlyWorker: Boolean(accountForm.value.isHourlyWorker),
       hasHiringAccess: Boolean(accountForm.value.hasHiringAccess),
+      hasOutreachAccess: Boolean(accountForm.value.hasOutreachAccess),
       hasMedicalRecordsReleaseAccess: Boolean(accountForm.value.hasMedicalRecordsReleaseAccess),
       hasGamesAccess: Boolean(accountForm.value.hasGamesAccess),
       credential: credentialText || null,

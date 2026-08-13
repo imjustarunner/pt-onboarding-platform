@@ -484,11 +484,13 @@ export async function getMyCycle(req, res, next) {
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Forbidden' } });
     }
-    const schoolYear = String(req.query.schoolYear || S.currentSchoolYear());
+    const requestedYear = String(req.query.schoolYear || '').trim();
+    const schoolYear = requestedYear || S.currentSchoolYear();
     const status = await S.getMyStatus({
       agencyId,
       providerUserId: req.user.id,
       schoolYear,
+      explicitYear: Boolean(requestedYear)
     });
     if (!status.available) {
       return res.json(status);
@@ -520,11 +522,13 @@ export async function getMyStatus(req, res, next) {
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Forbidden' } });
     }
-    const schoolYear = String(req.query.schoolYear || S.currentSchoolYear());
+    const requestedYear = String(req.query.schoolYear || '').trim();
+    const schoolYear = requestedYear || S.currentSchoolYear();
     const status = await S.getMyStatus({
       agencyId,
       providerUserId: req.user.id,
       schoolYear,
+      explicitYear: Boolean(requestedYear)
     });
     res.json(status);
   } catch (e) {

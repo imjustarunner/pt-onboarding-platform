@@ -377,6 +377,7 @@ import { toUploadsUrl } from '../../../utils/uploadsUrl';
 import AcceptedInsuranceBadges from '../../admin/AcceptedInsuranceBadges.vue';
 import { supervisorTypeLabel } from '../../../constants/supervisorTypes.js';
 import { formatPhoneForDisplay } from '../../../utils/phoneDisplay.js';
+import { isSchoolScheduleClientLocked } from '../../../utils/schoolStaffRoiLabels.js';
 import {
   useSlotVerification,
   canPushSlotVerification,
@@ -488,7 +489,7 @@ const clientShort = (c) => {
   return raw;
 };
 
-const isLockedClient = (c) => c?.school_portal_force_placeholder === true || c?.school_portal_can_open === false;
+const isLockedClient = (c) => isSchoolScheduleClientLocked(c);
 
 const clientTitle = (c) => {
   if (isLockedClient(c)) {

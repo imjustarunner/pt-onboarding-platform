@@ -2,9 +2,9 @@
   <div class="ob-workspace" :class="{ 'is-detail': !!selectedId }">
     <header class="ob-header">
       <div>
-        <h1>Client Readiness</h1>
+        <h1>Client Action Needed</h1>
         <p class="muted">
-          View staff setup progress, then complete your contact, intake, and first-service steps.
+          Fall confirmation, new-client actions, and remaining next steps for your caseload.
         </p>
       </div>
       <div class="ob-header-actions">

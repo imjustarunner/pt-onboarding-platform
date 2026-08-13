@@ -96,6 +96,7 @@
               />
               <span class="task-row__assignee">{{ assigneeLabel(task) }}</span>
             </span>
+            <span v-if="taskSchoolTag(task)" class="task-row__badge task-row__badge--school">{{ taskSchoolTag(task) }}</span>
             <span v-if="task.task_list_name" class="task-row__badge task-row__badge--list">{{ task.task_list_name }}</span>
             <span v-if="task.project_name" class="task-row__badge task-row__badge--project">{{ task.project_name }}</span>
             <span v-if="Number(task.is_private)" class="task-row__badge task-row__badge--private">Private</span>
@@ -181,6 +182,7 @@ import { resolveTaskTypeMeta, taskTypeIconSvg } from '../../utils/taskTypeIcons'
 import UserAvatar from '../common/UserAvatar.vue';
 import BulkActionBar from './BulkActionBar.vue';
 import api from '../../services/api';
+import { taskSchoolTag } from '../../utils/taskSchoolTag.js';
 
 const props = defineProps({
   tasks: { type: Array, default: () => [] },
@@ -682,6 +684,7 @@ onBeforeUnmount(() => clearTimeout(leaveTimer));
   white-space: nowrap;
 }
 .task-row__badge--list { background: #ccfbf1; color: #0f766e; }
+.task-row__badge--school { background: #ecfdf5; color: #166534; }
 .task-row__badge--project { background: #ede9fe; color: #5b21b6; }
 .task-row__badge--private { background: #fef3c7; color: #92400e; }
 .task-row__title {

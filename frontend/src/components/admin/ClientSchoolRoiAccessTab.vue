@@ -3,7 +3,10 @@
     <div class="form-section-divider" style="margin-top: 0; margin-bottom: 10px;">
       <h3 style="margin:0;">School ROI Access</h3>
       <div class="hint">
-        Active school staff for this client's school are listed below. `ROI access` opens the client in the school portal. `ROI and Doc Access` also unlocks historical documents and packet audit.
+        Active school staff for this client's school are listed below. Hover each type for what it unlocks.
+        <strong>ROI Active</strong> opens the school portal except referral documents.
+        <strong>ROI (Speak)</strong> is the same, plus speaking about treatment goals and progress.
+        <strong>ROI All Active</strong> also unlocks referral documents.
       </div>
     </div>
 
@@ -27,7 +30,7 @@
           </button>
         </div>
         <div class="hint">
-          This date is the source of school ROI access. Anyone already set to `ROI access` or `ROI and Doc Access` becomes active again when this date is current.
+          This date is the source of school ROI access. Anyone already set to ROI Active, ROI (Speak), or ROI All Active can open the client again when this date is current. Referral documents stay paused while expired.
         </div>
       </div>
       <div class="summary-card" :class="{ 'summary-card-alert': roiExpired }">
@@ -37,7 +40,7 @@
     </div>
 
     <div v-if="roiExpired" class="warning-card">
-      ROI is expired or missing. School staff remain code-only and blocked until the ROI expiration date is updated or a newly signed ROI completes.
+      ROI is expired or missing. Referral documents are paused. Staff with ROI Active, ROI (Speak), or ROI All Active can still open the client for schedule, comments, and their own uploads.
     </div>
 
     <div v-if="paperPacketStaffRoiPending" class="warning-card paper-packet-staff-notice">
@@ -305,10 +308,14 @@
             <label class="bulk-label">Set all to:</label>
             <select v-model="bulkAccessLevel" class="inline-select bulk-select" :disabled="bulkSaving">
               <option value="">— choose —</option>
-              <option value="packet">Packet</option>
-              <option value="limited">Limited</option>
-              <option value="roi">ROI access</option>
-              <option value="roi_docs">ROI and Doc Access</option>
+              <option
+                v-for="opt in roiSelectOptions"
+                :key="`bulk-${opt.value}`"
+                :value="opt.value"
+                :title="opt.hover"
+              >
+                {{ opt.label }}
+              </option>
             </select>
             <button
               type="button"
@@ -354,16 +361,24 @@
                 </td>
                 <td>{{ row.email || '—' }}</td>
                 <td>
-                  <span class="state-pill" :class="stateClass(row.effective_access_state)">
+                  <span
+                    class="state-pill"
+                    :class="stateClass(row.effective_access_state)"
+                    :title="stateHover(row.effective_access_state)"
+                  >
                     {{ stateLabel(row.effective_access_state, row.access_level) }}
                   </span>
                 </td>
                 <td style="min-width: 180px;">
                   <select v-model="draftStates[row.school_staff_user_id]" class="inline-select" :disabled="bulkSaving">
-                    <option value="packet">Packet</option>
-                    <option value="limited">Limited</option>
-                    <option value="roi">ROI access</option>
-                    <option value="roi_docs">ROI and Doc Access</option>
+                    <option
+                      v-for="opt in roiSelectOptions"
+                      :key="opt.value"
+                      :value="opt.value"
+                      :title="opt.hover"
+                    >
+                      {{ opt.label }}
+                    </option>
                   </select>
                 </td>
                 <td>
@@ -387,6 +402,11 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api';
 import { buildPublicIntakeShortUrl, buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+import {
+  SCHOOL_STAFF_ROI_SELECT_OPTIONS,
+  schoolStaffRoiHover,
+  schoolStaffRoiLabel
+} from '../../utils/schoolStaffRoiLabels.js';
 
 const props = defineProps({
   client: {
@@ -443,10 +463,12 @@ const roiExpiryLabel = computed(() => {
   return formatDate(roiExpiresAt.value);
 });
 
+const roiSelectOptions = SCHOOL_STAFF_ROI_SELECT_OPTIONS;
+
 const normalizeState = (value) => {
   const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'none') return 'limited';
-  return ['packet', 'limited', 'roi', 'roi_docs'].includes(normalized) ? normalized : 'limited';
+  if (normalized === 'none') return 'packet';
+  return ['packet', 'limited', 'roi', 'roi_docs'].includes(normalized) ? normalized : 'packet';
 };
 
 const displayName = (row) => {
@@ -485,22 +507,21 @@ const normalizeDateInputValue = (value) => {
 };
 
 const stateLabel = (effectiveState, accessLevel) => {
-  const effective = normalizeState(effectiveState);
-  if (effectiveState === 'expired') return 'ROI expired';
-  if (effective === 'roi_docs') return 'ROI and Doc Access';
-  if (effective === 'roi') return 'ROI access';
-  if (effective === 'limited') return 'Limited';
-  if (effective === 'packet' || accessLevel === 'packet') return 'Packet';
-  return 'Limited';
+  if (String(effectiveState || '').trim().toLowerCase() === 'expired') return schoolStaffRoiLabel('expired');
+  const effective = String(effectiveState || accessLevel || '').trim().toLowerCase();
+  return schoolStaffRoiLabel(effective === 'none' ? 'packet' : effective);
 };
+
+const stateHover = (effectiveState) => schoolStaffRoiHover(effectiveState);
 
 const stateClass = (effectiveState) => {
   const state = String(effectiveState || '').trim().toLowerCase();
   return {
     'state-none': !state || state === 'none',
     'state-packet': state === 'packet',
-    'state-limited': state === 'limited' || state === 'none',
-    'state-roi': state === 'roi' || state === 'roi_docs',
+    'state-limited': state === 'limited',
+    'state-roi': state === 'roi',
+    'state-roi-docs': state === 'roi_docs',
     'state-expired': state === 'expired'
   };
 };
@@ -1178,6 +1199,12 @@ onBeforeUnmount(() => {
   background: rgba(16, 185, 129, 0.1);
   border-color: rgba(16, 185, 129, 0.3);
   color: #047857;
+}
+
+.state-roi-docs {
+  background: rgba(5, 150, 105, 0.14);
+  border-color: rgba(5, 150, 105, 0.35);
+  color: #065f46;
 }
 
 .state-expired {

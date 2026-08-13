@@ -326,7 +326,8 @@ export const getUserTasks = async (req, res, next) => {
       tenantId,
       unassignedFromList,
       unassignedFromProject,
-      onSharedList
+      onSharedList,
+      outreachSchoolId
     } = req.query;
 
     const role = String(req.user.role || '').toLowerCase();
@@ -367,6 +368,7 @@ export const getUserTasks = async (req, res, next) => {
       hiddenAgencyIds: canViewAll && requestedView === 'all' ? hiddenAgencyIds : undefined,
       assignedToUserId: canViewAll && assignedToUserId ? parseInt(assignedToUserId, 10) : undefined,
       taskListId: taskListId ? parseInt(taskListId, 10) : undefined,
+      outreachSchoolId: outreachSchoolId ? parseInt(outreachSchoolId, 10) : undefined,
       projectId: projectId ? parseInt(projectId, 10) : undefined,
       agencyIdFilter: tenantFilter || undefined,
       unassignedFromList: String(unassignedFromList || '') === '1',
@@ -429,7 +431,13 @@ export const searchTasksHub = async (req, res, next) => {
     };
 
     const ranked = results
-      .map((r) => ({ ...r, relevance: score(r.title) }))
+      .map((r) => {
+        const school = String(r.task?.school_tag || r.task?.metadata?.schoolName || '');
+        return {
+          ...r,
+          relevance: Math.max(score(r.title), score(r.subtitle), score(school))
+        };
+      })
       .filter((r) => r.relevance >= 25)
       .sort((a, b) => b.relevance - a.relevance)
       .slice(0, 40);

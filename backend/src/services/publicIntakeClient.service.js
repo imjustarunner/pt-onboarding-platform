@@ -193,7 +193,7 @@ const ensureOrganizationForIntake = async (organizationId) => {
  * @param {number} params.agencyId        - resolved agency id (resolveAgencyId)
  * @param {object} params.clientPayload   - { firstName, lastName, fullName?, initials?, contactPhone? }
  * @param {boolean} [params.createGuardian=false] - whether to flag guardian_portal_enabled on the row
- * @param {string} [params.clientStatusKey='packet'] - client_statuses.status_key
+ * @param {string} [params.clientStatusKey='received'] - client_statuses.status_key
  * @param {string} [params.workflowStatus='PACKET'] - clients.status workflow enum
  * @param {string} [params.source='PUBLIC_INTAKE_LINK']
  * @returns {Promise<object>} the created Client row
@@ -207,7 +207,7 @@ const provisionSingleIntakeClient = async ({
   agencyId,
   clientPayload,
   createGuardian = false,
-  clientStatusKey = 'packet',
+  clientStatusKey = 'received',
   workflowStatus = 'PACKET',
   source = 'PUBLIC_INTAKE_LINK'
 }) => {
@@ -219,8 +219,11 @@ const provisionSingleIntakeClient = async ({
 
   const identifierCode = await generateUniqueSixDigitClientCode({ agencyId });
   const paperworkStatusId = await resolvePaperworkStatusId({ agencyId });
-  const statusKey = String(clientStatusKey || 'packet').trim().toLowerCase() || 'packet';
-  const clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey });
+  const statusKey = String(clientStatusKey || 'received').trim().toLowerCase() || 'received';
+  let clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey });
+  if (!clientStatusId && statusKey === 'received') {
+    clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey: 'packet' });
+  }
   const wfStatus = String(workflowStatus || 'PACKET').trim().toUpperCase() || 'PACKET';
   const clientSource = String(source || 'PUBLIC_INTAKE_LINK').trim() || 'PUBLIC_INTAKE_LINK';
   const clientType =
@@ -291,7 +294,7 @@ class PublicIntakeClientService {
       throw new Error('Unable to resolve agency for intake organization');
     }
 
-    const clientStatusKey = options.clientStatusKey || 'packet';
+    const clientStatusKey = options.clientStatusKey || 'received';
     const workflowStatus = options.workflowStatus || 'PACKET';
     const source = options.source || 'PUBLIC_INTAKE_LINK';
 

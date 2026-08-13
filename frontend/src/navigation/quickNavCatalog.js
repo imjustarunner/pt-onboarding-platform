@@ -252,10 +252,10 @@ function buildAppEntries() {
     {
       id: 'client-onboarding-workspace',
       routeName: 'ClientOnboardingWorkspace',
-      label: 'Client Readiness',
-      description: 'Staff checklist: docs, ROI access, provider/day, insurance → staff readiness complete.',
+      label: 'Client Action Needed',
+      description: 'Clients who still need a next step — fall confirmation, new-client intake, or agency clearance.',
       group: 'clients',
-      keywords: ['client readiness', 'client onboarding', 'onboarding workspace', 'packet docs', 'onboarded'],
+      keywords: ['client action needed', 'client readiness', 'client onboarding', 'onboarding workspace', 'fall confirmation'],
       kind: 'path',
       path: '/admin/client-onboarding?scope=school',
       rolesAny: ['admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus']
@@ -263,10 +263,10 @@ function buildAppEntries() {
     {
       id: 'provider-client-onboarding',
       routeName: 'ProviderClientOnboarding',
-      label: 'Client Readiness',
-      description: 'View staff setup progress and complete provider contact, intake, and first service.',
+      label: 'Client Action Needed',
+      description: 'Fall confirmation, new-client actions, and remaining provider next steps.',
       group: 'clients',
-      keywords: ['client readiness', 'client onboarding', 'provider onboarding', 'my steps', 'first service'],
+      keywords: ['client action needed', 'client readiness', 'client onboarding', 'provider onboarding', 'fall confirmation'],
       kind: 'path',
       path: '/provider/client-onboarding',
       rolesAny: ['provider', 'provider_plus', 'intern', 'supervisor']
@@ -595,6 +595,26 @@ function buildAppEntries() {
       ]
     },
     {
+      id: 'admin-outreach-hub',
+      routeName: 'OutreachHub',
+      label: 'Outreach Hub',
+      description: 'Track school contacts, visits, and partnership stages.',
+      group: 'admin',
+      keywords: ['outreach', 'visits', 'school contacts', 'partnership', 'trips'],
+      kind: 'path',
+      path: '/admin/outreach-hub',
+      requires: ['canAccessOutreach'],
+      rolesAny: [
+        'admin',
+        'support',
+        'staff',
+        'super_admin',
+        'provider_plus',
+        'provider',
+        'clinical_practice_assistant'
+      ]
+    },
+    {
       id: 'admin-program-events',
       routeName: 'SkillBuildersProgramsEvents',
       label: 'Program Events',
@@ -756,7 +776,8 @@ export function buildQuickNavContext(opts = {}) {
     showChats: opts.showChats !== false && !isLimitedAccessNonProvider,
     showLearning: !isClubContext && !isSchoolStaff,
     canManagePayroll: !!caps.canManagePayroll || isTrueAdmin,
-    canManageHiring: !!caps.canManageHiring || isTrueAdmin
+    canManageHiring: !!caps.canManageHiring || isTrueAdmin,
+    canAccessOutreach: !!caps.canAccessOutreach || isTrueAdmin
   };
 }
 
@@ -789,6 +810,7 @@ function entryVisible(entry, ctx) {
       if (key === 'showLearning' && !ctx.showLearning) return false;
       if (key === 'canManagePayroll' && !ctx.canManagePayroll) return false;
       if (key === 'canManageHiring' && !ctx.canManageHiring) return false;
+      if (key === 'canAccessOutreach' && !ctx.canAccessOutreach) return false;
     }
   }
 

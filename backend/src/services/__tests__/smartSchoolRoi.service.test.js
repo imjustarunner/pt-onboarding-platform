@@ -2,6 +2,7 @@ import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import pool from '../../config/database.js';
 import {
+  buildSmartSchoolRoiHtml,
   normalizeSmartSchoolRoiResponse,
   validateSmartSchoolRoiResponse
 } from '../smartSchoolRoi.service.js';
@@ -45,16 +46,12 @@ test('normalizeSmartSchoolRoiResponse builds structured ROI decisions', () => {
           email: 'jamie@example.com',
           phone: '555-123-4567'
         },
-        packetReleaseAllowed: true,
-        requiredAcknowledgements: {
-          esign_consent: true
-        },
-        waiverItems: {
-          communication_and_care_planning: 'accept'
-        },
         staffDecisions: [
-          { schoolStaffUserId: 7, allowed: true },
-          { schoolStaffUserId: 8, allowed: false }
+          { schoolStaffUserId: 7, decision: 'roi_docs' },
+          { schoolStaffUserId: 8, decision: 'none' }
+        ],
+        thirdPartyRecipients: [
+          { name: 'Minerva McGonagall', relationship: 'Head of House', decision: 'roi' }
         ]
       }
     },
@@ -66,12 +63,20 @@ test('normalizeSmartSchoolRoiResponse builds structured ROI decisions', () => {
   assert.equal(response.signer.fullName, 'Jamie Parent');
   assert.equal(response.packetReleaseAllowed, true);
   assert.deepEqual(
-    response.staffDecisions.map((item) => ({ id: item.schoolStaffUserId, allowed: item.allowed })),
+    response.staffDecisions.map((item) => ({ id: item.schoolStaffUserId, decision: item.decision })),
     [
-      { id: 7, allowed: true },
-      { id: 8, allowed: false }
+      { id: 7, decision: 'roi_docs' },
+      { id: 8, decision: 'none' }
     ]
   );
+  assert.equal(response.thirdPartyRecipients[0].name, 'Minerva McGonagall');
+  assert.equal(response.thirdPartyRecipients[0].decision, 'roi');
+  assert.equal(response.thirdPartyRecipients[0].packetAllowed, false);
+  const html = buildSmartSchoolRoiHtml({ roiContext, response, signedAt: new Date('2026-03-06T12:00:00.000Z') });
+  assert.match(html, /Minerva McGonagall/);
+  assert.match(html, /ROI \(Speak\)/);
+  assert.match(html, /school-based care coordination/);
+  assert.match(html, /treatment goals/);
 });
 
 test('validateSmartSchoolRoiResponse rejects missing required acknowledgements', () => {
@@ -85,16 +90,9 @@ test('validateSmartSchoolRoiResponse rejects missing required acknowledgements',
           relationship: 'Mother',
           email: 'jamie@example.com'
         },
-        packetReleaseAllowed: false,
-        requiredAcknowledgements: {
-          esign_consent: false
-        },
-        waiverItems: {
-          communication_and_care_planning: 'accept'
-        },
         staffDecisions: [
-          { schoolStaffUserId: 7, allowed: true },
-          { schoolStaffUserId: 8, allowed: true }
+          { schoolStaffUserId: 7, decision: 'roi' },
+          { schoolStaffUserId: 8, decision: 'roi_docs' }
         ]
       }
     }

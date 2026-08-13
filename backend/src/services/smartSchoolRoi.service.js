@@ -51,12 +51,20 @@ const REQUIRED_ACKNOWLEDGEMENTS = [
   }
 ];
 
-const WAIVER_ITEMS = [
+const SPEAK_AUTHORIZATION_ITEMS = [
   {
     id: 'communication_and_care_planning',
     title: 'School communication and care planning',
-    body: 'I authorize ITSCO and any assigned providers and staff to communicate with approved school staff for school-based care coordination and support of the client’s identified needs.'
+    body: 'I authorize ITSCO and any assigned providers and staff to communicate with this person for school-based care coordination and support of the client’s identified needs.'
   },
+  {
+    id: 'treatment_goals',
+    title: 'Treatment goals and plans',
+    body: 'I authorize brief discussion of treatment goals/objectives with this person only as needed for care coordination; no session-content details are released outside this care purpose.'
+  }
+];
+
+const WAIVER_ITEMS = [
   {
     id: 'hipaa_serious_imminent_threat_disclosure',
     title: 'Required HIPAA safety-threat disclosure standard',
@@ -74,11 +82,6 @@ const WAIVER_ITEMS = [
     title: 'School scheduling and safety logistics',
     body: 'I authorize limited scheduling/logistics visibility for school operations and student safety when needed (for example, class pull timing, location transitions, and pickup coordination). I understand this limited visibility may involve school staff not listed on this ROI receiving only operational timing details, not broader clinical content.',
     requiredAccept: true
-  },
-  {
-    id: 'treatment_goals',
-    title: 'Treatment goals and plans',
-    body: 'I authorize brief discussion of treatment goals/objectives only as needed for care coordination with approved school staff; no session-content details are released outside this care purpose.'
   }
 ];
 
@@ -124,12 +127,20 @@ const REQUIRED_ACKNOWLEDGEMENTS_ES = [
   }
 ];
 
-const WAIVER_ITEMS_ES = [
+const SPEAK_AUTHORIZATION_ITEMS_ES = [
   {
     id: 'communication_and_care_planning',
     title: 'Comunicacion escolar y planificacion de atencion',
-    body: 'Autorizo a ITSCO y a los proveedores/personal asignado a comunicarse con el personal escolar aprobado para la coordinacion de atencion en la escuela y apoyo de las necesidades identificadas del cliente.'
+    body: 'Autorizo a ITSCO y a los proveedores/personal asignado a comunicarse con esta persona para la coordinacion de atencion en la escuela y apoyo de las necesidades identificadas del cliente.'
   },
+  {
+    id: 'treatment_goals',
+    title: 'Objetivos y planes de tratamiento',
+    body: 'Autorizo una discusion breve de objetivos/metas de tratamiento con esta persona solo cuando sea necesario para coordinacion de atencion; no se divulgan detalles del contenido de sesiones fuera de este proposito de atencion.'
+  }
+];
+
+const WAIVER_ITEMS_ES = [
   {
     id: 'hipaa_serious_imminent_threat_disclosure',
     title: 'Estandar requerido de divulgacion por amenaza grave e inminente (HIPAA)',
@@ -147,11 +158,6 @@ const WAIVER_ITEMS_ES = [
     title: 'Programacion escolar y logistica de seguridad',
     body: 'Autorizo visibilidad limitada de programacion/logistica para operaciones escolares y seguridad estudiantil cuando sea necesario (por ejemplo, horario de salida de clase, transiciones de ubicacion y coordinacion de recogida). Entiendo que esta visibilidad limitada puede implicar que personal escolar no listado en este ROI reciba solo detalles operativos de tiempo, no contenido clinico amplio.',
     requiredAccept: true
-  },
-  {
-    id: 'treatment_goals',
-    title: 'Objetivos y planes de tratamiento',
-    body: 'Autorizo una discusion breve de objetivos/metas de tratamiento solo cuando sea necesario para coordinacion de atencion con personal escolar aprobado; no se divulgan detalles del contenido de sesiones fuera de este proposito de atencion.'
   }
 ];
 
@@ -279,25 +285,40 @@ function preferredTemplate(templates = []) {
     || null;
 }
 
+function normalizeStaffDecisionValue(entry = {}) {
+  const raw = String(entry?.decision || '').trim().toLowerCase();
+  if (raw === 'roi_docs' || raw === 'roi' || raw === 'none') return raw;
+  if (entry?.packetAllowed === true && entry?.allowed === true) return 'roi_docs';
+  if (entry?.allowed === true) return 'roi';
+  if (entry?.allowed === false) return 'none';
+  return null;
+}
+
 function normalizeStaffDecisions(staffRoster = [], roi = {}) {
   const decisionMap = new Map(
     (Array.isArray(roi?.staffDecisions) ? roi.staffDecisions : [])
       .map((entry) => {
         const staffId = Number(entry?.schoolStaffUserId || entry?.userId || 0);
         if (!staffId) return null;
-        return [staffId, normalizeBool(entry?.allowed)];
+        return [staffId, normalizeStaffDecisionValue(entry)];
       })
       .filter(Boolean)
   );
 
-  return (staffRoster || []).map((staff) => ({
-    schoolStaffUserId: Number(staff.school_staff_user_id || staff.schoolStaffUserId || 0),
-    fullName: staff.full_name || staff.fullName || staff.display_name || [staff.first_name, staff.last_name].filter(Boolean).join(' ').trim() || staff.email || `User ${staff.school_staff_user_id || staff.schoolStaffUserId || ''}`,
-    email: staff.email || null,
-    phone: staff.phone || staff.phone_number || null,
-    role: staff.role || staff.role_key || 'School staff',
-    allowed: decisionMap.get(Number(staff.school_staff_user_id || staff.schoolStaffUserId || 0)) === true
-  }));
+  return (staffRoster || []).map((staff) => {
+    const schoolStaffUserId = Number(staff.school_staff_user_id || staff.schoolStaffUserId || 0);
+    const decision = decisionMap.get(schoolStaffUserId);
+    return {
+      schoolStaffUserId,
+      fullName: staff.full_name || staff.fullName || staff.display_name || [staff.first_name, staff.last_name].filter(Boolean).join(' ').trim() || staff.email || `User ${staff.school_staff_user_id || staff.schoolStaffUserId || ''}`,
+      email: staff.email || null,
+      phone: staff.phone || staff.phone_number || null,
+      role: staff.role || staff.role_key || 'School staff',
+      decision,
+      allowed: decision === 'roi' || decision === 'roi_docs',
+      packetAllowed: decision === 'roi_docs'
+    };
+  });
 }
 
 function normalizeAcknowledgements(definitions = [], values = {}) {
@@ -321,15 +342,35 @@ function normalizeWaiverItems(definitions = [], values = {}) {
   }));
 }
 
+function normalizePersonDecision(entry = {}) {
+  const raw = String(entry?.decision || '').trim().toLowerCase();
+  if (raw === 'roi_docs' || raw === 'roi' || raw === 'none') return raw;
+  if (entry?.packetAllowed === true && entry?.allowed === true) return 'roi_docs';
+  if (entry?.allowed === true) return 'roi';
+  if (entry?.allowed === false) return 'none';
+  return null;
+}
+
+function personDecisionMeta(decision) {
+  return {
+    decision,
+    allowed: decision === 'roi' || decision === 'roi_docs',
+    packetAllowed: decision === 'roi_docs',
+    speakAllowed: decision === 'roi' || decision === 'roi_docs'
+  };
+}
+
 function normalizeExternalRecipient(entry = {}) {
+  const decision = normalizePersonDecision(entry);
   return {
     name: String(entry?.name || '').trim() || null,
     relationship: String(entry?.relationship || '').trim() || null,
     email: String(entry?.email || '').trim() || null,
     phone: String(entry?.phone || '').trim() || null,
-    allowed: entry?.allowed === null || entry?.allowed === undefined
-      ? null
-      : normalizeBool(entry?.allowed)
+    ...personDecisionMeta(decision),
+    allowed: decision == null
+      ? (entry?.allowed === null || entry?.allowed === undefined ? null : normalizeBool(entry?.allowed))
+      : (decision === 'roi' || decision === 'roi_docs')
   };
 }
 
@@ -353,7 +394,8 @@ function getLocalizedSmartRoiBundle(languageCode) {
       purposes: PURPOSES_ES,
       guidelines: GUIDELINES_ES,
       requiredAcknowledgements: REQUIRED_ACKNOWLEDGEMENTS_ES,
-      waiverItems: WAIVER_ITEMS_ES
+      waiverItems: WAIVER_ITEMS_ES,
+      speakAuthorizationItems: SPEAK_AUTHORIZATION_ITEMS_ES
     };
   }
   return {
@@ -361,7 +403,8 @@ function getLocalizedSmartRoiBundle(languageCode) {
     purposes: PURPOSES,
     guidelines: GUIDELINES,
     requiredAcknowledgements: REQUIRED_ACKNOWLEDGEMENTS,
-    waiverItems: WAIVER_ITEMS
+    waiverItems: WAIVER_ITEMS,
+    speakAuthorizationItems: SPEAK_AUTHORIZATION_ITEMS
   };
 }
 
@@ -434,6 +477,7 @@ export async function buildSmartSchoolRoiContext({
     guidelines: localizedBundle.guidelines,
     requiredAcknowledgements: localizedBundle.requiredAcknowledgements,
     waiverItems: localizedBundle.waiverItems,
+    speakAuthorizationItems: localizedBundle.speakAuthorizationItems,
     purposes: localizedBundle.purposes,
     documentTemplate: template ? {
       id: Number(template.id),
@@ -470,13 +514,16 @@ export function normalizeSmartSchoolRoiResponse({ roiContext = {}, intakeData = 
   );
   const staffDecisions = normalizeStaffDecisions(roiContext?.staffRoster || [], roi);
   const thirdPartyRecipients = (Array.isArray(roi?.thirdPartyRecipients) ? roi.thirdPartyRecipients : [])
-    .map((entry) => ({
-      name: String(entry?.name || '').trim(),
-      relationship: String(entry?.relationship || entry?.role || '').trim(),
-      email: String(entry?.email || '').trim() || null,
-      phone: String(entry?.phone || '').trim() || null,
-      allowed: normalizeBool(entry?.allowed)
-    }))
+    .map((entry) => {
+      const decision = normalizePersonDecision(entry);
+      return {
+        name: String(entry?.name || '').trim(),
+        relationship: String(entry?.relationship || entry?.role || '').trim(),
+        email: String(entry?.email || '').trim() || null,
+        phone: String(entry?.phone || '').trim() || null,
+        ...personDecisionMeta(decision)
+      };
+    })
     .filter((row) => row.name || row.relationship || row.email || row.phone);
   const schoolSchedulingSafetyLogisticsAuthorized =
     waiverItems.find((item) => item.id === 'school_scheduling_safety_logistics')?.decision === 'accept';
@@ -485,7 +532,7 @@ export function normalizeSmartSchoolRoiResponse({ roiContext = {}, intakeData = 
     || waiverItems.find((item) => item.id === 'safety_concerns')?.decision === 'accept'
     || waiverItems.find((item) => item.id === 'session_content_limitation')?.decision === 'accept';
   const approvedStaffCount = staffDecisions.filter((staff) => staff.allowed).length;
-  const deniedStaffCount = staffDecisions.filter((staff) => staff.allowed === false).length;
+  const deniedStaffCount = staffDecisions.filter((staff) => staff.decision === 'none').length;
   const externalReleaseMode = normalizeExternalReleaseMode(
     roi?.externalReleaseMode
     || roiContext?.externalRelease?.mode
@@ -493,17 +540,10 @@ export function normalizeSmartSchoolRoiResponse({ roiContext = {}, intakeData = 
   );
   const externalRecipients = (() => {
     if (externalReleaseMode === 'sender_programmed') {
-      const programmed = normalizeExternalRecipient(
-        roiContext?.externalRelease?.programmedRecipient
-        || roi?.programmedExternalRecipient
-        || {}
-      );
-      return [{
-        ...programmed,
-        allowed: roi?.programmedExternalRecipient?.allowed === null || roi?.programmedExternalRecipient?.allowed === undefined
-          ? programmed.allowed
-          : normalizeBool(roi?.programmedExternalRecipient?.allowed)
-      }];
+      return [normalizeExternalRecipient({
+        ...(roiContext?.externalRelease?.programmedRecipient || {}),
+        ...(roi?.programmedExternalRecipient || {})
+      })];
     }
     if (externalReleaseMode === 'parent_defined') {
       const rows = Array.isArray(roi?.externalRecipients) ? roi.externalRecipients : [];
@@ -529,7 +569,7 @@ export function normalizeSmartSchoolRoiResponse({ roiContext = {}, intakeData = 
       email: String(signer?.email || '').trim() || null,
       phone: String(signer?.phone || '').trim() || null
     },
-    packetReleaseAllowed: normalizeBool(roi?.packetReleaseAllowed),
+    packetReleaseAllowed: staffDecisions.some((staff) => staff.decision === 'roi_docs'),
     requiredAcknowledgements,
     waiverItems,
     staffDecisions,
@@ -568,7 +608,7 @@ export function validateSmartSchoolRoiResponse(response) {
   }
 
   for (const staff of response?.staffDecisions || []) {
-    if (typeof staff.allowed !== 'boolean') {
+    if (!['roi_docs', 'roi', 'none'].includes(staff.decision)) {
       missing.push(`Staff decision: ${staff.fullName || staff.schoolStaffUserId || 'staff'}`);
     }
   }
@@ -579,11 +619,7 @@ export function validateSmartSchoolRoiResponse(response) {
     if (!row?.name && !row?.relationship) continue;
     if (!row?.name) missing.push(`Third party name (${label})`);
     if (!row?.relationship) missing.push(`Third party role/relationship (${label})`);
-    if (typeof row?.allowed !== 'boolean') missing.push(`Third party decision (${label})`);
-  }
-
-  if (typeof response?.packetReleaseAllowed !== 'boolean') {
-    missing.push('Packet and document release choice');
+    if (!['roi_docs', 'roi', 'none'].includes(row?.decision)) missing.push(`Third party decision (${label})`);
   }
 
   const externalMode = normalizeExternalReleaseMode(response?.externalReleaseMode);
@@ -591,7 +627,7 @@ export function validateSmartSchoolRoiResponse(response) {
     const row = Array.isArray(response?.externalRecipients) ? response.externalRecipients[0] : null;
     if (!row?.name) missing.push('Programmed external recipient name');
     if (!row?.relationship) missing.push('Programmed external recipient relationship');
-    if (typeof row?.allowed !== 'boolean') missing.push('Programmed external recipient decision');
+    if (!['roi_docs', 'roi', 'none'].includes(row?.decision)) missing.push('Programmed external recipient decision');
   }
   if (externalMode === 'parent_defined') {
     const rows = Array.isArray(response?.externalRecipients) ? response.externalRecipients : [];
@@ -602,7 +638,7 @@ export function validateSmartSchoolRoiResponse(response) {
       const label = row?.name || `Recipient ${idx + 1}`;
       if (!row?.name) missing.push(`External recipient name (${label})`);
       if (!row?.relationship) missing.push(`External recipient relationship (${label})`);
-      if (typeof row?.allowed !== 'boolean') missing.push(`External recipient decision (${label})`);
+      if (!['roi_docs', 'roi', 'none'].includes(row?.decision)) missing.push(`External recipient decision (${label})`);
     }
   }
 
@@ -628,9 +664,9 @@ export async function applySmartSchoolRoiAccessDecisions({
   for (const staff of response?.staffDecisions || []) {
     const staffId = Number(staff?.schoolStaffUserId || 0);
     if (!staffId) continue;
-    const nextState = staff.allowed
-      ? (response.packetReleaseAllowed ? 'roi_docs' : 'roi')
-      : 'none';
+    const nextState = staff.decision === 'roi_docs' || staff.decision === 'roi'
+      ? staff.decision
+      : 'packet';
     await ClientSchoolStaffRoiAccess.setAccessState({
       clientId: normalizedClientId,
       schoolOrganizationId: normalizedSchoolId,
@@ -660,8 +696,10 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
         denied: 'Denegado',
         notAcknowledged: 'No reconocido',
         acknowledgedRequired: 'Reconocido (requerido)',
-        roiOnly: 'Solo ROI',
-        packetApproved: 'Aprobado',
+        roiOnly: 'ROI (Speak)',
+        packetApproved: 'ROI All Active',
+        speakOnly: 'ROI (Speak)',
+        noRoi: 'Sin ROI en archivo',
         noStaffApproved: 'Ningun miembro del personal individual aprobado',
         none: 'Ninguno',
         titleFallback: 'Autorizacion Escolar de Divulgacion de Informacion',
@@ -693,15 +731,30 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
         signature: 'Firma',
         date: 'Fecha',
         recipient: 'Destinatario',
-        decision: 'Decision'
+        decision: 'Decision',
+        sectionThirdParty: 'Terceros / personas adicionales',
+        sectionPurposes: 'Propositos de la divulgacion',
+        sectionGuidelines: 'Lineamientos y limitaciones',
+        referralDocuments: 'Documentos de referencia',
+        speakScope: 'Alcance de hablar (por persona)',
+        questionText: 'Texto de la pregunta',
+        choice: 'Seleccion',
+        email: 'Correo',
+        phone: 'Telefono',
+        role: 'Rol',
+        packetAccessGranted: 'Acceso a documentos de referencia: aprobado',
+        packetAccessDenied: 'Acceso a documentos de referencia: denegado',
+        noSpeak: 'No se autorizo hablar sobre metas/progreso del tratamiento con esta persona.'
       }
     : {
         approved: 'Approved',
         denied: 'Denied',
         notAcknowledged: 'Not acknowledged',
         acknowledgedRequired: 'Acknowledged (required)',
-        roiOnly: 'ROI only',
-        packetApproved: 'Approved',
+        roiOnly: 'ROI (Speak)',
+        packetApproved: 'ROI All Active',
+        speakOnly: 'ROI (Speak)',
+        noRoi: 'No ROI on file',
         noStaffApproved: 'No individual staff approved',
         none: 'None',
         titleFallback: 'School Release of Information',
@@ -733,13 +786,26 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
         signature: 'Signature',
         date: 'Date',
         recipient: 'Recipient',
-        decision: 'Decision'
+        decision: 'Decision',
+        sectionThirdParty: 'Third parties / fill-in people',
+        sectionPurposes: 'Purposes of disclosure',
+        sectionGuidelines: 'Guidelines and limitations',
+        referralDocuments: 'Referral documents',
+        speakScope: 'Speak scope (per person)',
+        questionText: 'Question text',
+        choice: 'Selection',
+        email: 'Email',
+        phone: 'Phone',
+        role: 'Role',
+        packetAccessGranted: 'Referral document access: approved',
+        packetAccessDenied: 'Referral document access: denied',
+        noSpeak: 'Speaking about treatment goals/progress was not authorized for this person.'
       };
   const safetyThreatDisclosureText = response.hipaaSafetyThreatDisclosureAcknowledged
     ? labels.acknowledgedRequired
     : labels.notAcknowledged;
   const approvedStaff = (response.staffDecisions || []).filter((staff) => staff.allowed);
-  const deniedStaff = (response.staffDecisions || []).filter((staff) => !staff.allowed);
+  const deniedStaff = (response.staffDecisions || []).filter((staff) => staff.decision === 'none');
   const approvedStaffNames = approvedStaff.map((s) => s.fullName).filter(Boolean);
   const deniedStaffNames = deniedStaff.map((s) => s.fullName).filter(Boolean);
   const approvedPreview = approvedStaffNames.slice(0, 12);
@@ -757,21 +823,66 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
   const docTitle = roiContext?.school?.name
     ? `${roiContext.school.name} - ${labels.titleFallback}`
     : (roiContext?.documentTemplate?.name || labels.titleFallback);
+  const speakItems = Array.isArray(roiContext?.speakAuthorizationItems) && roiContext.speakAuthorizationItems.length
+    ? roiContext.speakAuthorizationItems
+    : (isSpanish ? SPEAK_AUTHORIZATION_ITEMS_ES : SPEAK_AUTHORIZATION_ITEMS);
+  const staffDecisionLabel = (item) => {
+    if (item?.decision === 'roi_docs') return labels.packetApproved;
+    if (item?.decision === 'roi') return labels.speakOnly;
+    return labels.noRoi;
+  };
+  const personDecisionDetailHtml = (item) => {
+    const speakGranted = item?.decision === 'roi' || item?.decision === 'roi_docs';
+    const speakHtml = speakGranted
+      ? speakItems.map((scope) => `<li><span class="k">${escapeHtml(scope.title)}:</span> ${escapeHtml(scope.body)} — ${escapeHtml(labels.approved)}</li>`).join('')
+      : `<li>${escapeHtml(labels.noSpeak)}</li>`;
+    const packetLine = item?.decision === 'roi_docs' ? labels.packetAccessGranted : labels.packetAccessDenied;
+    return `
+      <p><span class="k">${escapeHtml(labels.decision)}:</span> ${escapeHtml(staffDecisionLabel(item))}</p>
+      <p><span class="k">${escapeHtml(labels.referralDocuments)}:</span> ${escapeHtml(packetLine)}</p>
+      <p class="k">${escapeHtml(labels.speakScope)}</p>
+      <ul>${speakHtml}</ul>
+    `;
+  };
   const acknowledgementsHtml = (response.requiredAcknowledgements || [])
-    .map((item) => `<li><span class="k">${escapeHtml(labels.qAcknowledgement)}:</span> ${escapeHtml(item.title || item.id || '')} - ${item.accepted ? labels.approved : labels.denied}</li>`)
+    .map((item) => `<li>
+      <div><span class="k">${escapeHtml(labels.qAcknowledgement)}:</span> ${escapeHtml(item.title || item.id || '')}</div>
+      <div class="muted">${escapeHtml(item.body || '')}</div>
+      <div><span class="k">${escapeHtml(labels.choice)}:</span> ${item.accepted ? labels.approved : labels.denied}</div>
+    </li>`)
     .join('');
   const waiversHtml = (response.waiverItems || [])
-    .map((item) => `<li><span class="k">${escapeHtml(labels.qWaiver)}:</span> ${escapeHtml(item.title || item.id || '')} - ${item.decision === 'accept' ? labels.approved : labels.denied}</li>`)
+    .map((item) => `<li>
+      <div><span class="k">${escapeHtml(labels.qWaiver)}:</span> ${escapeHtml(item.title || item.id || '')}</div>
+      <div class="muted">${escapeHtml(item.body || '')}</div>
+      <div><span class="k">${escapeHtml(labels.choice)}:</span> ${item.decision === 'accept' ? labels.approved : labels.denied}</div>
+    </li>`)
     .join('');
   const staffDecisionsHtml = (response.staffDecisions || [])
-    .map((item) => `<li>${escapeHtml(item.fullName || `User ${item.schoolStaffUserId || ''}`)} - ${item.allowed ? labels.approved : labels.denied}</li>`)
+    .map((item) => `<li>
+      <div><span class="k">${escapeHtml(item.fullName || `User ${item.schoolStaffUserId || ''}`)}</span>${item.role ? ` — ${escapeHtml(item.role)}` : ''}</div>
+      ${item.email ? `<div>${escapeHtml(labels.email)}: ${escapeHtml(item.email)}</div>` : ''}
+      ${personDecisionDetailHtml(item)}
+    </li>`)
+    .join('');
+  const thirdPartyHtml = (response.thirdPartyRecipients || [])
+    .map((item) => `<li>
+      <div><span class="k">${escapeHtml(item.name || labels.recipient)}</span>${item.relationship ? ` (${escapeHtml(item.relationship)})` : ''}</div>
+      ${item.email ? `<div>${escapeHtml(labels.email)}: ${escapeHtml(item.email)}</div>` : ''}
+      ${item.phone ? `<div>${escapeHtml(labels.phone)}: ${escapeHtml(item.phone)}</div>` : ''}
+      ${personDecisionDetailHtml(item)}
+    </li>`)
     .join('');
   const externalRowsHtml = (response.externalRecipients || [])
-    .map((item) => {
-      const rowLabel = item?.name || labels.recipient;
-      return `<li>${escapeHtml(rowLabel)}${item?.relationship ? ` (${escapeHtml(item.relationship)})` : ''} - ${item?.allowed ? labels.approved : labels.denied}</li>`;
-    })
+    .map((item) => `<li>
+      <div><span class="k">${escapeHtml(item.name || labels.recipient)}</span>${item.relationship ? ` (${escapeHtml(item.relationship)})` : ''}</div>
+      ${item.email ? `<div>${escapeHtml(labels.email)}: ${escapeHtml(item.email)}</div>` : ''}
+      ${item.phone ? `<div>${escapeHtml(labels.phone)}: ${escapeHtml(item.phone)}</div>` : ''}
+      ${personDecisionDetailHtml(item)}
+    </li>`)
     .join('');
+  const purposesHtml = (roiContext?.purposes || []).map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+  const guidelinesHtml = (roiContext?.guidelines || []).map((item) => `<li>${escapeHtml(item)}</li>`).join('');
 
   return `<!DOCTYPE html>
 <html>
@@ -780,19 +891,18 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
     <title>${escapeHtml(docTitle)}</title>
     <style>
       @page { size: Letter; margin: 0.45in; }
-      body { font-family: Arial, sans-serif; color: #111827; margin: 0; line-height: 1.25; font-size: 10.5px; }
-      .wrap { border: 1px solid #d1d5db; border-radius: 10px; padding: 12px; page-break-inside: avoid; }
+      body { font-family: Arial, sans-serif; color: #111827; margin: 0; line-height: 1.35; font-size: 10.5px; }
+      .wrap { border: 1px solid #d1d5db; border-radius: 10px; padding: 12px; }
       .header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
       .logo { max-height: 44px; max-width: 140px; object-fit: contain; }
       h1 { margin: 0; font-size: 15px; color: #0f172a; }
       .muted { color: #4b5563; font-size: 9.5px; }
-      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-top: 8px; }
       .k { font-weight: 700; color: #1f2937; }
-      .section { margin-top: 8px; padding-top: 6px; border-top: 1px solid #e5e7eb; }
-      .section h2 { margin: 0 0 4px; font-size: 11px; color: #0f172a; }
+      .section { margin-top: 10px; padding-top: 8px; border-top: 1px solid #e5e7eb; }
+      .section h2 { margin: 0 0 6px; font-size: 11px; color: #0f172a; }
       p { margin: 2px 0; }
       ul { margin: 3px 0 0 14px; padding: 0; }
-      li { margin: 1px 0; }
+      li { margin: 6px 0; }
       .sig { margin-top: 10px; display: grid; grid-template-columns: 1fr 150px; gap: 12px; align-items: end; }
       .line { border-top: 1px solid #111827; height: 1px; margin-top: 15px; }
       .nowrap { white-space: nowrap; }
@@ -804,6 +914,7 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
         <div>
           <h1>${escapeHtml(docTitle)}</h1>
           <div class="muted">${escapeHtml(labels.signedWindow)} ${escapeHtml(formatDate(signedAt))} ${escapeHtml(labels.signedWindowSuffix)}</div>
+          <div class="muted">${escapeHtml(response.signer?.fullName || '')}${response.signer?.email ? ` · ${escapeHtml(response.signer.email)}` : ''}</div>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
           ${roiContext?.school?.logoUrl ? `<img class="logo" src="${escapeHtml(roiContext.school.logoUrl)}" alt="School logo" />` : ''}
@@ -822,10 +933,14 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
       </div>
 
       <div class="section">
+        <h2>${escapeHtml(labels.sectionPurposes)}</h2>
+        <ul>${purposesHtml || `<li>${escapeHtml(labels.none)}</li>`}</ul>
+      </div>
+
+      <div class="section">
         <h2>${escapeHtml(labels.sectionReleaseScope)}</h2>
         <p><span class="k">${escapeHtml(labels.approvedStaff)}:</span> ${escapeHtml(approvedStaffText)}</p>
         <p><span class="k">${escapeHtml(labels.deniedStaff)}:</span> ${escapeHtml(deniedStaffText)} (${escapeHtml(String(deniedStaff.length))})</p>
-        <p><span class="k">${escapeHtml(labels.packetVisibility)}:</span> ${response.packetReleaseAllowed ? labels.packetApproved : labels.roiOnly}</p>
         <p><span class="k">${escapeHtml(labels.hipaaThreat)}:</span> ${escapeHtml(safetyThreatDisclosureText)}</p>
         <p><span class="k">${escapeHtml(labels.externalRecipientsApproved)}:</span> ${escapeHtml(externalApprovedText)}</p>
       </div>
@@ -846,10 +961,22 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
       </div>
 
       <div class="section">
+        <h2>${escapeHtml(labels.sectionThirdParty)}</h2>
+        <ul>
+          ${thirdPartyHtml || `<li>${escapeHtml(labels.none)}</li>`}
+        </ul>
+      </div>
+
+      <div class="section">
         <h2>${escapeHtml(labels.sectionExternalRecipients)}</h2>
         <ul>
           ${externalRowsHtml || `<li>${escapeHtml(labels.none)}</li>`}
         </ul>
+      </div>
+
+      <div class="section">
+        <h2>${escapeHtml(labels.sectionGuidelines)}</h2>
+        <ul>${guidelinesHtml || `<li>${escapeHtml(labels.none)}</li>`}</ul>
       </div>
 
       <div class="section">
@@ -883,6 +1010,7 @@ export default {
   GUIDELINES,
   REQUIRED_ACKNOWLEDGEMENTS,
   WAIVER_ITEMS,
+  SPEAK_AUTHORIZATION_ITEMS,
   isSmartSchoolRoiForm,
   buildSmartSchoolRoiContext,
   normalizeSmartSchoolRoiResponse,

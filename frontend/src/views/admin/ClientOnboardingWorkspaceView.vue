@@ -2,9 +2,9 @@
   <div class="ob-workspace" :class="{ 'is-detail': !!selectedId }">
     <header class="ob-header">
       <div>
-        <h1>Client Readiness</h1>
+        <h1>Client Action Needed</h1>
         <p class="muted">
-          Complete staff setup for new or returning intakes, then providers finish contact / intake / first service to mark Current.
+          Clients who still need a next step — fall confirmation, new-client intake, agency clearance, or insurance check — and which stage they are in.
         </p>
       </div>
       <div class="ob-header-actions">
@@ -58,7 +58,7 @@
       </div>
 
       <div v-if="loading" class="ob-list-loading muted">Loading intakes…</div>
-      <div v-else-if="!rows.length" class="ob-list-empty muted">No clients need staff readiness work in this scope.</div>
+      <div v-else-if="!rows.length" class="ob-list-empty muted">No clients currently need a next-step action in this scope.</div>
       <div v-else class="ob-table-wrap">
         <table class="ob-table">
           <thead>
@@ -116,17 +116,25 @@
               </td>
               <td>{{ row.client_status_label || '—' }}</td>
               <td>
-                <span class="ob-pill phase" :class="`phase-${row.onboarding?.phase || 'staff'}`">
+                <span v-if="row.action_stage" class="ob-pill phase" :class="row.action_owner === 'provider' ? 'phase-provider' : 'phase-staff'">
+                  {{ row.action_stage }}
+                </span>
+                <span v-else class="ob-pill phase" :class="`phase-${row.onboarding?.phase || 'staff'}`">
                   {{ phaseLabel(row) }}
                 </span>
               </td>
               <td>
-                <div class="ob-progress-cell">
-                  <span class="ob-progress-pct">{{ progressPct(row) }}%</span>
-                  <span class="ob-progress-mini"><i :style="{ width: `${progressPct(row)}%` }" /></span>
-                </div>
+                <button
+                  v-if="row.lifecycle_action && row.action_owner === 'agency'"
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  @click.stop="openRowAction(row)"
+                >
+                  {{ row.lifecycle_action.label }}
+                </button>
+                <span v-else-if="row.action_owner === 'provider'" class="muted">Waiting on provider</span>
+                <span v-else class="muted">{{ row.onboarding?.summary_label || '—' }}</span>
               </td>
-              <td class="ob-td-summary">{{ row.onboarding?.summary_label || '—' }}</td>
             </tr>
           </tbody>
         </table>
@@ -178,9 +186,27 @@
               </p>
             </div>
           </div>
-          <router-link class="btn btn-secondary btn-sm" :to="clientDetailTo">
-            Open client record
-          </router-link>
+          <div class="ob-detail-toolbar-right">
+            <button
+              v-if="selectedId && isSchoolRow(selectedRow)"
+              type="button"
+              class="btn btn-primary btn-sm"
+              @click="openAgencyIntake"
+            >
+              Agency intake Action
+            </button>
+            <button
+              v-if="selectedId && isSchoolRow(selectedRow)"
+              type="button"
+              class="btn btn-secondary btn-sm"
+              @click="openAgencyClearance"
+            >
+              Agency clearance
+            </button>
+            <router-link class="btn btn-secondary btn-sm" :to="clientDetailTo">
+              Open client record
+            </router-link>
+          </div>
         </div>
         <ClientOnboardingChecklistPanel
           :client-id="selectedId"
@@ -192,6 +218,15 @@
         />
       </main>
     </div>
+
+    <LifecycleActionModal
+      v-if="lifecycleClient && lifecycleActionKey"
+      :client="lifecycleClient"
+      :action-key="lifecycleActionKey"
+      :action-label="lifecycleActionLabel"
+      @close="closeLifecycleModal"
+      @saved="onLifecycleSaved"
+    />
   </div>
 </template>
 
@@ -201,6 +236,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import ClientOnboardingChecklistPanel from '../../components/clients/ClientOnboardingChecklistPanel.vue';
+import LifecycleActionModal from '../../components/school/LifecycleActionModal.vue';
 import { isPaperPacketClient } from '../../utils/paperPacketClient.js';
 
 const route = useRoute();
@@ -214,9 +250,8 @@ const columns = [
   { key: 'provider', label: 'Provider' },
   { key: 'day', label: 'Day' },
   { key: 'status', label: 'Status' },
-  { key: 'phase', label: 'Phase' },
-  { key: 'progress', label: 'Progress' },
-  { key: 'summary', label: 'Open items' }
+  { key: 'phase', label: 'Stage' },
+  { key: 'action', label: 'Action needed' }
 ];
 
 const scope = ref(String(route.query.scope || 'school').toLowerCase());
@@ -236,9 +271,11 @@ const columnFilters = ref({
   day: '',
   status: '',
   phase: '',
-  progress: '',
-  summary: ''
+  action: ''
 });
+const lifecycleClient = ref(null);
+const lifecycleActionKey = ref('');
+const lifecycleActionLabel = ref('');
 
 const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
 
@@ -265,6 +302,47 @@ function isSchoolRow(row) {
   return String(row?.client_type || '').toLowerCase() === 'school';
 }
 
+function openRowAction(row) {
+  if (!row?.lifecycle_action?.actionKey) return;
+  lifecycleClient.value = row;
+  lifecycleActionKey.value = row.lifecycle_action.actionKey;
+  lifecycleActionLabel.value = row.lifecycle_action.label || 'Next Step';
+}
+
+function openAgencyIntake() {
+  if (selectedRow.value?.lifecycle_action) {
+    openRowAction(selectedRow.value);
+    return;
+  }
+  if (!selectedRow.value) return;
+  lifecycleClient.value = selectedRow.value;
+  lifecycleActionKey.value = 'agency_intake';
+  lifecycleActionLabel.value = 'Complete agency intake';
+}
+
+function openAgencyClearance() {
+  if (!selectedRow.value) return;
+  lifecycleClient.value = selectedRow.value;
+  lifecycleActionKey.value = 'agency_clearance';
+  lifecycleActionLabel.value = 'Complete agency clearance';
+}
+
+function closeLifecycleModal() {
+  lifecycleClient.value = null;
+  lifecycleActionKey.value = '';
+  lifecycleActionLabel.value = '';
+}
+
+async function onLifecycleSaved() {
+  closeLifecycleModal();
+  // Refresh onboarding queue so Status reflects agency intake / clearance.
+  try {
+    await loadQueue();
+  } catch {
+    // best-effort
+  }
+}
+
 function isPaperPacketRow(row) {
   return isPaperPacketClient(row);
 }
@@ -280,6 +358,7 @@ function progressPct(row) {
 }
 
 function phaseLabel(row) {
+  if (row?.action_stage) return row.action_stage;
   const p = row?.onboarding?.phase;
   if (p === 'done') return 'Complete';
   if (p === 'provider') return 'Provider';
@@ -298,8 +377,7 @@ function cellText(row, key) {
     case 'day': return isSchoolRow(row) ? (row.service_day || '') : '';
     case 'status': return row.client_status_label || '';
     case 'phase': return phaseLabel(row);
-    case 'progress': return String(progressPct(row));
-    case 'summary': return row.onboarding?.summary_label || '';
+    case 'action': return row.action_stage || row.lifecycle_action?.label || row.onboarding?.summary_label || '';
     default: return '';
   }
 }
@@ -363,8 +441,7 @@ function clearFilters() {
     day: '',
     status: '',
     phase: '',
-    progress: '',
-    summary: ''
+    action: ''
   };
 }
 
@@ -677,6 +754,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown));
   display: flex;
   gap: 12px;
   align-items: flex-start;
+}
+.ob-detail-toolbar-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 .ob-close-btn {
   width: 36px;

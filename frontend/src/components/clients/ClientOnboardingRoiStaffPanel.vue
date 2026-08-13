@@ -78,7 +78,11 @@
                     <div class="muted tiny">{{ row.email || '—' }}</div>
                   </td>
                   <td>
-                    <span class="roi-state-pill" :class="stateClass(row.effective_access_state)">
+                    <span
+                      class="roi-state-pill"
+                      :class="stateClass(row.effective_access_state)"
+                      :title="stateHover(row.effective_access_state)"
+                    >
                       {{ stateLabel(row.effective_access_state, row.access_level) }}
                     </span>
                   </td>
@@ -89,9 +93,14 @@
                       :disabled="saving"
                       @change="onDraftChange"
                     >
-                      <option value="limited">Limited (uploader only)</option>
-                      <option value="roi">ROI access</option>
-                      <option value="roi_docs">ROI + documents</option>
+                      <option
+                        v-for="opt in roiSelectOptions"
+                        :key="opt.value"
+                        :value="opt.value"
+                        :title="opt.hover"
+                      >
+                        {{ opt.label }}
+                      </option>
                     </select>
                   </td>
                 </tr>
@@ -143,6 +152,11 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import ClientOnboardingRoiExpiryEditor from './ClientOnboardingRoiExpiryEditor.vue';
+import {
+  SCHOOL_STAFF_ROI_SELECT_OPTIONS,
+  schoolStaffRoiHover,
+  schoolStaffRoiLabel
+} from '../../utils/schoolStaffRoiLabels.js';
 
 const props = defineProps({
   clientId: { type: [Number, String], required: true },
@@ -162,10 +176,12 @@ const draftStates = ref({});
 const paperPacketPending = ref(false);
 const localRoiExpiresAt = ref(null);
 
+const roiSelectOptions = SCHOOL_STAFF_ROI_SELECT_OPTIONS;
+
 function normalizeState(value) {
   const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'none') return 'limited';
-  return ['packet', 'limited', 'roi', 'roi_docs'].includes(normalized) ? normalized : 'limited';
+  if (normalized === 'none') return 'packet';
+  return ['packet', 'limited', 'roi', 'roi_docs'].includes(normalized) ? normalized : 'packet';
 }
 
 function displayName(row) {
@@ -175,20 +191,22 @@ function displayName(row) {
 }
 
 function stateLabel(effectiveState, accessLevel) {
-  const effective = normalizeState(effectiveState);
-  if (effectiveState === 'expired') return 'ROI expired';
-  if (effective === 'roi_docs') return 'ROI + docs';
-  if (effective === 'roi') return 'ROI access';
-  if (effective === 'limited') return 'Limited';
-  if (effective === 'packet' || accessLevel === 'packet') return 'Packet';
-  return 'No access';
+  if (String(effectiveState || '').trim().toLowerCase() === 'expired') return schoolStaffRoiLabel('expired');
+  const effective = String(effectiveState || accessLevel || '').trim().toLowerCase();
+  return schoolStaffRoiLabel(effective === 'none' ? 'packet' : effective);
+}
+
+function stateHover(effectiveState) {
+  return schoolStaffRoiHover(effectiveState);
 }
 
 function stateClass(effectiveState) {
   const state = String(effectiveState || '').trim().toLowerCase();
   return {
-    'is-limited': state === 'limited' || state === 'none' || state === 'packet',
-    'is-roi': state === 'roi' || state === 'roi_docs',
+    'is-packet': state === 'packet' || state === 'none' || !state,
+    'is-limited': state === 'limited',
+    'is-roi': state === 'roi',
+    'is-roi-docs': state === 'roi_docs',
     'is-expired': state === 'expired'
   };
 }
@@ -201,22 +219,22 @@ const dirtyCount = computed(() => (rows.value || []).filter((r) => isDirty(r)).l
 
 const hasRoiGrantDraft = computed(() => (rows.value || []).some((row) => {
   const level = normalizeState(draftStates.value[row.school_staff_user_id] ?? row.access_level);
-  return level === 'roi' || level === 'roi_docs';
+  return level === 'limited' || level === 'roi' || level === 'roi_docs';
 }));
 
 const roiAccessCount = computed(() => (rows.value || []).filter((row) => {
   const level = normalizeState(row.access_level);
-  return level === 'roi' || level === 'roi_docs';
+  return level === 'limited' || level === 'roi' || level === 'roi_docs';
 }).length);
 
 const summaryText = computed(() => {
   const total = rows.value.length;
   if (!total) return 'School staff permissions reviewed.';
   const roi = roiAccessCount.value;
-  const limited = total - roi;
+  const none = total - roi;
   const parts = [`${total} staff reviewed`];
   if (roi) parts.push(`${roi} with ROI access`);
-  if (limited) parts.push(`${limited} limited`);
+  if (none) parts.push(`${none} with no ROI`);
   return parts.join(' · ');
 });
 
@@ -487,8 +505,10 @@ watch(() => props.stepDone, (done) => {
   padding: 3px 7px;
   border-radius: 999px;
 }
-.roi-state-pill.is-limited { background: #f1f5f9; color: #475569; }
+.roi-state-pill.is-packet { background: #f1f5f9; color: #475569; }
+.roi-state-pill.is-limited { background: #e0e7ff; color: #3730a3; }
 .roi-state-pill.is-roi { background: #dcfce7; color: #166534; }
+.roi-state-pill.is-roi-docs { background: #bbf7d0; color: #14532d; }
 .roi-state-pill.is-expired { background: #fee2e2; color: #b91c1c; }
 .roi-inline-select {
   width: 100%;

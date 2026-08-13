@@ -12,6 +12,8 @@ import ClientSchoolStaffRoiAccess, {
   schoolStaffCanOpenClient,
   schoolStaffCanViewClientDocuments
 } from '../models/ClientSchoolStaffRoiAccess.model.js';
+import { schoolStaffCanOpenFromState, schoolStaffRoiHover, schoolStaffRoiLabel } from '../utils/schoolStaffRoiLabels.js';
+// isRoiExpired also used for agency Action derivation on roster rows
 import User from '../models/User.model.js';
 import { logClientAccess } from '../services/clientAccessLog.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
@@ -53,10 +55,21 @@ import {
   isSkillBuildersSchoolProgramActiveForParentAgencyId
 } from '../utils/skillBuildersSchoolProgramFeature.js';
 import {
+  buildSchoolFallHoverText,
   computeFallReadinessSummary,
-  hasCompletedFallContinuation,
   isReturningSchoolClient
 } from '../utils/fallReadiness.js';
+import { deriveLifecycleAction, needsInsuranceClearance } from '../utils/clientLifecycleAction.js';
+import { computeCurrentSchoolYearLabel, normalizeSchoolYearLabel } from '../utils/schoolYear.js';
+import {
+  parseSchoolYearFilterParam,
+  filterRosterClientsBySchoolYear,
+  rosterClientHasAssignedProvider
+} from '../utils/schoolYearRosterFilter.js';
+import {
+  filterClientsByRosterSearch,
+  parseTruthyQuery
+} from '../utils/rosterSearch.js';
 
 function rosterHasWeekday(client) {
   const day = String(client?.service_day || '').trim();
@@ -69,8 +82,131 @@ function rosterHasWeekday(client) {
   return false;
 }
 
+async function attachRosterSearchFields(clients) {
+  const list = Array.isArray(clients) ? clients : [];
+  const ids = list.map((c) => Number(c?.id)).filter((id) => id > 0);
+  if (!ids.length) return list;
+  try {
+    const placeholders = ids.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT cg.client_id,
+              TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS guardian_name
+       FROM client_guardians cg
+       INNER JOIN users u ON u.id = cg.guardian_user_id
+       WHERE cg.client_id IN (${placeholders})`,
+      ids
+    );
+    const namesById = new Map();
+    for (const r of rows || []) {
+      const id = Number(r.client_id);
+      const n = String(r.guardian_name || '').trim();
+      if (!n) continue;
+      const prev = namesById.get(id) || [];
+      if (!prev.includes(n)) prev.push(n);
+      namesById.set(id, prev);
+    }
+    for (const c of list) {
+      c.guardian_names = (namesById.get(Number(c.id)) || []).join(', ');
+    }
+  } catch {
+    // guardian table / column may be absent on older envs
+  }
+  return list;
+}
+
+async function applyRosterSearchAndYear(restrictedClients, rawClients, req, {
+  defaultYearFilter,
+  portalSchoolYear
+}) {
+  const q = String(req.query?.q || '').trim();
+  const includeTerminated = parseTruthyQuery(req.query?.includeTerminated || req.query?.include_terminated);
+  const includePastYears = parseTruthyQuery(req.query?.includePastYears || req.query?.include_past_years);
+  let list = restrictedClients || [];
+  if (q) {
+    list = filterClientsByRosterSearch(rawClients, list, q);
+    if (!includeTerminated) {
+      list = list.filter((c) => String(c?.client_status_key || '').toLowerCase() !== 'terminated');
+    }
+  }
+  let schoolYearFilter = parseSchoolYearFilterParam(req.query?.schoolYear || req.query?.school_year);
+  if (schoolYearFilter === null) schoolYearFilter = defaultYearFilter;
+  if (schoolYearFilter !== 'all' && !(q && includePastYears)) {
+    list = await filterRosterClientsBySchoolYear(list, {
+      schoolYearFilter,
+      portalSchoolYear
+    });
+  }
+  return list;
+}
+
+function rosterLifecycleClientShape(client) {
+  return {
+    client_type: client.client_type || 'school',
+    client_status_key: client.client_status_key,
+    agency_intake_json: client.agency_intake_json,
+    continuation_services_json: client.continuation_services_json,
+    services_started_at: client.services_started_at,
+    first_service_at: client.first_service_at,
+    parents_contacted_at: client.parents_contacted_at,
+    roi_expires_at: client.roi_expires_at,
+    roi_expired: isRoiExpired(client.roi_expires_at),
+    agency_roi_expired: isRoiExpired(client.roi_expires_at),
+    disclosure_required: client.disclosure_required === 1 || client.disclosure_required === true,
+    has_weekday: rosterHasWeekday(client),
+    has_provider: rosterClientHasAssignedProvider(client),
+    service_day: client.service_day,
+    school_year: client.school_year,
+    created_at: client.created_at,
+    submission_date: client.submission_date,
+    staff_onboarding_completed_at: client.staff_onboarding_completed_at,
+    provider_id: client.provider_id,
+    provider_ids: client.provider_ids,
+    provider_day_pairs: client.provider_day_pairs
+  };
+}
+
+function rosterLifecycleFields(client, { viewerRole, disposition }) {
+  const shaped = rosterLifecycleClientShape(client);
+  const agencyAction = deriveLifecycleAction({ client: shaped, viewerRole: 'admin', disposition });
+  const providerAction = deriveLifecycleAction({ client: shaped, viewerRole: 'provider', disposition });
+  return {
+    lifecycle_action: deriveLifecycleAction({ client: shaped, viewerRole, disposition }),
+    agency_lifecycle_action: agencyAction,
+    provider_lifecycle_action: providerAction,
+    agency_action_key: agencyAction?.actionKey || null,
+    provider_action_key: providerAction?.actionKey || null,
+    needs_insurance_clearance: needsInsuranceClearance({
+      client: shaped,
+      disposition,
+      ignoreOverride: true
+    })
+  };
+}
+
 function buildRosterOnboardingMeta(client) {
   const statusKey = String(client?.client_status_key || '').toLowerCase();
+  // Prefer shared Status vocabulary over legacy Fall-pending Readiness labels.
+  const lifecycleLabels = {
+    confirmation_pending: 'Fall Confirmation Pending',
+    ready_to_schedule: 'Ready to Schedule',
+    scheduled: 'Scheduled',
+    being_seen: 'Being Seen',
+    confirmed_returning: 'Confirmed Returning',
+    returning: 'Returning',
+    continuation_unknown: 'Continuation Unknown',
+    spring_update_pending: 'Spring Update – Pending',
+    received: 'Received',
+    in_process: 'In Process',
+    pending_corrections: 'Pending Corrections'
+  };
+  if (lifecycleLabels[statusKey]) {
+    return {
+      summary_label: lifecycleLabels[statusKey],
+      fall_pending: statusKey === 'confirmation_pending',
+      fall_flag: false,
+      fall_complete: statusKey === 'being_seen' || statusKey === 'scheduled' || statusKey === 'ready_to_schedule'
+    };
+  }
   const hasWeekday = rosterHasWeekday(client);
   const returning = isReturningSchoolClient({
     ...client,
@@ -90,12 +226,6 @@ function buildRosterOnboardingMeta(client) {
       fall_flag: !!fall.fall_flag,
       fall_complete: !!fall.fall_complete
     };
-  }
-  if (statusKey === 'current' && hasWeekday) {
-    return { summary_label: 'Readiness complete', fall_pending: false, fall_flag: false, fall_complete: false };
-  }
-  if (statusKey === 'current' && !hasWeekday) {
-    return { summary_label: 'Fall pending', fall_pending: true, fall_flag: false, fall_complete: false };
   }
   return null;
 }
@@ -249,18 +379,6 @@ function parseJsonMaybe(v) {
   } catch {
     return null;
   }
-}
-
-function isContinuationServicesSeason(now = new Date()) {
-  const d = now instanceof Date ? now : new Date(now);
-  if (!Number.isFinite(d.getTime())) return false;
-  const start = new Date(d.getFullYear(), 4, 1);
-  const end = new Date(d.getFullYear(), 8, 1);
-  return d.getTime() >= start.getTime() && d.getTime() < end.getTime();
-}
-
-function hasCompletedContinuationServices(raw) {
-  return hasCompletedFallContinuation(raw);
 }
 
 function safeJsonFromText(text) {
@@ -644,23 +762,33 @@ function getSchoolStaffPortalAccessMeta(client, accessMap, resolvedStateMap = ne
   const clientId = Number(client?.id || 0);
   const record = clientId ? accessMap.get(clientId) : null;
   const resolvedState = clientId ? String(resolvedStateMap.get(clientId) || '').trim().toLowerCase() : '';
-  const effectiveState = resolvedState || getEffectiveSchoolStaffRoiState(record, client?.roi_expires_at || null);
+  const roiOpts = { schoolStaffInOrg: true };
+  const effectiveState = resolvedState
+    || getEffectiveSchoolStaffRoiState(record, client?.roi_expires_at || null, roiOpts);
   const canOpenClient = resolvedState
-    ? ['limited', 'roi', 'roi_docs'].includes(effectiveState)
-    : schoolStaffCanOpenClient(record, client?.roi_expires_at || null);
+    ? schoolStaffCanOpenFromState(effectiveState)
+    : schoolStaffCanOpenClient(record, client?.roi_expires_at || null, roiOpts);
   const canViewDocuments = resolvedState
     ? effectiveState === 'roi_docs'
     : schoolStaffCanViewClientDocuments(record, client?.roi_expires_at || null);
   const accessLevel = resolvedState
-    ? (effectiveState === 'expired' ? 'none' : effectiveState)
+    ? (effectiveState === 'expired' ? 'expired' : effectiveState)
     : (record?.is_active ? String(record.access_level || 'packet').toLowerCase() : 'none');
+  // Soft school UX: keep schedule/comments available; only docs are hard-blocked when expired.
+  const docsBlocked = effectiveState === 'expired' || !canViewDocuments;
   return {
     school_staff_access_level: accessLevel,
     school_staff_effective_access_state: effectiveState,
     school_staff_can_view_documents: canViewDocuments,
     school_portal_can_open: canOpenClient,
-    school_portal_force_code: !canOpenClient,
-    school_portal_gray: !canOpenClient
+    school_portal_force_code: false,
+    school_portal_force_placeholder: !canOpenClient,
+    school_portal_gray: false,
+    school_portal_docs_blocked: docsBlocked,
+    school_portal_roi_soft_message: effectiveState === 'expired'
+      ? 'ROI is currently expired. We have likely reached out to the parent to get this updated. Please submit a ticket and we will update you on the process.'
+      : null,
+    school_portal_roi_ticket_title: effectiveState === 'expired' ? 'ROI expiration inquiry' : null
   };
 }
 
@@ -757,10 +885,13 @@ export const getSchoolClients = async (req, res, next) => {
            c.initials,
            c.identifier_code,
            c.full_name,
+           c.date_of_birth,
            c.client_status_id,
            cs.label AS client_status_label,
            cs.status_key AS client_status_key,
            c.termination_reason,
+           c.terminated_at,
+           c.termination_school_year,
            c.waitlist_started_at,
            c.grade,
            c.school_year,
@@ -795,13 +926,17 @@ export const getSchoolClients = async (req, res, next) => {
            c.parents_contacted_successful,
            c.intake_at,
            c.first_service_at,
+           c.services_started_at,
+           c.agency_intake_json,
            c.continuation_services_json,
            c.roi_expires_at,
+           c.disclosure_required,
            c.paper_packet_staff_roi_pending,
            c.onboarding_docs_json,
            c.staff_onboarding_completed_at,
            c.client_type,
            c.created_at,
+           c.created_by_user_id,
            c.skills,
            c.status,
            MIN(cpa.created_at) AS provider_assigned_at
@@ -816,14 +951,17 @@ export const getSchoolClients = async (req, res, next) => {
          LEFT JOIN client_provider_assignments cpa
            ON cpa.client_id = c.id
           AND cpa.organization_id = coa.organization_id
-          AND cpa.is_active = TRUE
+          AND (
+            cpa.is_active = TRUE
+            OR LOWER(COALESCE(cs.status_key, '')) = 'terminated'
+          )
          LEFT JOIN users u ON u.id = cpa.provider_user_id
          LEFT JOIN users legacy_u ON legacy_u.id = c.provider_id
          WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
            AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')
            AND (? = 0 OR c.skills = TRUE)
            AND (? IS NULL OR c.id = ?)
-           AND (? IS NULL OR cpa.provider_user_id = ? OR c.provider_id = ?)
+           AND (? IS NULL OR cpa.provider_user_id = ? OR c.provider_id = ? OR c.terminated_by_user_id = ?)
          GROUP BY c.id
          ORDER BY c.submission_date DESC, c.id DESC`,
         [
@@ -834,6 +972,7 @@ export const getSchoolClients = async (req, res, next) => {
           skillsOnly ? 1 : 0,
           clientIdFilter,
           clientIdFilter,
+          providerUserId,
           providerUserId,
           providerUserId,
           providerUserId
@@ -1115,7 +1254,31 @@ export const getSchoolClients = async (req, res, next) => {
 
     // Format response: Only include non-sensitive fields
     const canViewOperationalChecklist = String(userRole || '').toLowerCase() !== 'school_staff';
-    const restrictedClients = clients.map(client => {
+    const portalSchoolYear = computeCurrentSchoolYearLabel();
+    const dispositionByClientId = new Map();
+    const agencyViewerRoles = new Set(['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant']);
+    if (agencyViewerRoles.has(String(userRole || '').toLowerCase()) && (clients || []).length) {
+      try {
+        const ids = (clients || []).map((c) => Number(c.id)).filter((id) => id > 0);
+        if (ids.length) {
+          const placeholders = ids.map(() => '?').join(',');
+          const [dispRows] = await pool.execute(
+            `SELECT client_id, agency_cleared_at, agency_clearance_json, fall_outcome, spring_outcome, fall_completed_at
+             FROM client_year_dispositions
+             WHERE school_year = ?
+               AND client_id IN (${placeholders})`,
+            [portalSchoolYear, ...ids]
+          );
+          for (const row of dispRows || []) {
+            dispositionByClientId.set(Number(row.client_id), row);
+          }
+        }
+      } catch {
+        // dispositions table may be absent on older envs
+      }
+    }
+    await attachRosterSearchFields(clients);
+    let restrictedClients = clients.map(client => {
       const clientId = Number(client.id);
       const schoolStaffAccessMeta = String(userRole || '').toLowerCase() === 'school_staff'
         ? getSchoolStaffPortalAccessMeta(client, schoolStaffAccessByClientId, schoolStaffResolvedStateByClientId)
@@ -1150,6 +1313,8 @@ export const getSchoolClients = async (req, res, next) => {
         client_status_label: client.client_status_label || null,
         client_status_key: client.client_status_key || null,
         termination_reason: client.termination_reason || null,
+        terminated_at: client.terminated_at || null,
+        termination_school_year: client.termination_school_year || null,
         waitlist_started_at: client.waitlist_started_at || null,
         grade: client.grade || null,
         school_year: client.school_year || null,
@@ -1188,7 +1353,35 @@ export const getSchoolClients = async (req, res, next) => {
             : (client.parents_contacted_successful === 1 || client.parents_contacted_successful === true),
         intake_at: canViewOperationalChecklist ? (client.intake_at || null) : null,
         first_service_at: canViewOperationalChecklist ? (client.first_service_at || null) : null,
+        services_started_at: canViewOperationalChecklist ? (client.services_started_at || null) : null,
+        // School staff: booleans only (no dates) for read-only provider milestones
+        provider_milestones: {
+          parents_contacted: !!(client.parents_contacted_at),
+          intake_done: !!(client.intake_at),
+          first_service_done: !!(client.services_started_at || client.first_service_at)
+        },
+        agency_intake_json: canViewOperationalChecklist ? parseJsonMaybe(client.agency_intake_json) : null,
+        disclosure_required: client.disclosure_required === 1 || client.disclosure_required === true,
+        agency_roi_expired: isRoiExpired(client.roi_expires_at),
+        ...rosterLifecycleFields(client, {
+          viewerRole: req.user?.role,
+          disposition: dispositionByClientId.get(clientId) || null
+        }),
         continuation_services_json: canViewOperationalChecklist ? parseJsonMaybe(client.continuation_services_json) : null,
+        // School-safe hover only (never freeform private admin comments)
+        fall_status_hover: buildSchoolFallHoverText({
+          client_status_key: client.client_status_key,
+          continuation_services_json: client.continuation_services_json,
+          termination_reason: client.termination_reason,
+          has_weekday: rosterHasWeekday(client),
+          has_provider: rosterClientHasAssignedProvider(client),
+          provider_id: client.provider_id,
+          provider_ids: client.provider_ids,
+          service_day: client.service_day,
+          provider_day_pairs: client.provider_day_pairs
+        }),
+        terminated_at: client.terminated_at || null,
+        termination_school_year: client.termination_school_year || null,
         roi_expires_at: client.roi_expires_at || null,
         paper_packet_staff_roi_pending: client.paper_packet_staff_roi_pending === 1
           || client.paper_packet_staff_roi_pending === true,
@@ -1197,7 +1390,23 @@ export const getSchoolClients = async (req, res, next) => {
             || client.paper_packet_staff_roi_pending === true;
           if (!pending || !viewerSchoolFlags) return false;
           if (viewerSchoolFlags.isScheduler) return false;
-          return true;
+          const state = String(schoolStaffAccessMeta.school_staff_effective_access_state || '').toLowerCase();
+          return !schoolStaffCanOpenFromState(state);
+        })(),
+        paper_packet_named_access_notice: (() => {
+          if (!viewerSchoolFlags) return false;
+          const canOpen = schoolStaffAccessMeta.school_portal_can_open === true;
+          if (!canOpen) return false;
+          const source = String(client.source || '').toLowerCase();
+          const isPaper = source.includes('school_upload');
+          if (!isPaper) return false;
+          const viewerId = Number(req.user?.id || 0);
+          if (viewerId && Number(client.created_by_user_id || 0) === viewerId) return false;
+          const grantedAt = schoolStaffAccessByClientId.get(clientId)?.granted_at || null;
+          if (!grantedAt) return false;
+          const grantedMs = new Date(grantedAt).getTime();
+          if (!Number.isFinite(grantedMs)) return false;
+          return (Date.now() - grantedMs) < (30 * 24 * 60 * 60 * 1000);
         })(),
         onboarding_docs_json: (() => {
           const raw = client.onboarding_docs_json;
@@ -1266,6 +1475,11 @@ export const getSchoolClients = async (req, res, next) => {
     } catch {
       // ignore
     }
+
+    restrictedClients = await applyRosterSearchAndYear(restrictedClients, clients, req, {
+      defaultYearFilter: String(userRole || '').toLowerCase() === 'school_staff' ? 'current' : 'all',
+      portalSchoolYear
+    });
 
     const agencyId = await resolveActiveAgencyIdForOrg(orgId);
     logAuditEvent(req, { actionType: 'school_portal_roster_viewed', agencyId: agencyId || undefined }).catch(() => {});
@@ -1388,6 +1602,7 @@ export const getProviderMyRoster = async (req, res, next) => {
              c.initials,
              c.identifier_code,
              c.full_name,
+             c.date_of_birth,
              c.client_status_id,
              cs.label AS client_status_label,
              cs.status_key AS client_status_key,
@@ -1483,7 +1698,7 @@ export const getProviderMyRoster = async (req, res, next) => {
       if (useSkillBuildersRosterFilter) {
         rosterParams.push(orgId, providerUserId);
       }
-      rosterParams.push(skillsFilterVal, orgId, providerUserId);
+      rosterParams.push(skillsFilterVal, orgId, providerUserId, providerUserId);
       const [rows] = await pool.execute(
         `SELECT
            c.id,
@@ -1491,10 +1706,14 @@ export const getProviderMyRoster = async (req, res, next) => {
            c.initials,
            c.identifier_code,
            c.full_name,
+           c.date_of_birth,
            c.client_status_id,
            cs.label AS client_status_label,
            cs.status_key AS client_status_key,
            c.termination_reason,
+           c.terminated_at,
+           c.terminated_by_user_id,
+           c.termination_school_year,
            c.waitlist_started_at,
            c.grade,
            c.school_year,
@@ -1529,8 +1748,11 @@ export const getProviderMyRoster = async (req, res, next) => {
            c.parents_contacted_successful,
            c.intake_at,
            c.first_service_at,
+           c.services_started_at,
+           c.agency_intake_json,
            c.continuation_services_json,
            c.roi_expires_at,
+           c.disclosure_required,
            c.skills,
            c.status,
            c.client_type,
@@ -1542,21 +1764,25 @@ export const getProviderMyRoster = async (req, res, next) => {
            ON coa.client_id = c.id
           AND coa.organization_id = ?
           AND coa.is_active = TRUE
+         LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
          LEFT JOIN client_provider_assignments cpa
            ON cpa.client_id = c.id
           AND cpa.organization_id = ?
-          AND cpa.is_active = TRUE
           AND cpa.provider_user_id = ?
+          AND (
+            cpa.is_active = TRUE
+            OR LOWER(COALESCE(cs.status_key, '')) = 'terminated'
+            OR c.terminated_by_user_id = cpa.provider_user_id
+          )
          LEFT JOIN users u ON u.id = cpa.provider_user_id
          LEFT JOIN users legacy_u ON legacy_u.id = c.provider_id
-         LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
          LEFT JOIN paperwork_statuses ps ON ps.id = c.paperwork_status_id
          LEFT JOIN paperwork_delivery_methods pdm ON pdm.id = c.paperwork_delivery_method_id
          WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
            AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')
            AND (? = 0 OR c.skills = TRUE)
            AND (coa.id IS NOT NULL OR c.organization_id = ? OR cpa.id IS NOT NULL)
-           AND (cpa.id IS NOT NULL OR c.provider_id = ?)
+           AND (cpa.id IS NOT NULL OR c.provider_id = ? OR c.terminated_by_user_id = ?)
            ${sbExistsSql}
          GROUP BY c.id
          ORDER BY c.submission_date DESC, c.id DESC`,
@@ -1783,28 +2009,59 @@ export const getProviderMyRoster = async (req, res, next) => {
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const continuationSeasonActive = isContinuationServicesSeason(today);
-    const restrictedClients = clients.map((client) => {
+    const NEW_CLIENT_CHECKLIST_STATUSES = new Set([
+      'ready_to_schedule',
+      'scheduled',
+      'received',
+      'packet',
+      'pending_corrections',
+      'in_process',
+      'screener'
+    ]);
+    const portalSchoolYear = computeCurrentSchoolYearLabel();
+    const dispositionByClientId = new Map();
+    try {
+      const ids = (clients || []).map((c) => Number(c.id)).filter((id) => id > 0);
+      if (ids.length) {
+        const placeholders = ids.map(() => '?').join(',');
+        const [dispRows] = await pool.execute(
+          `SELECT client_id, agency_cleared_at, agency_clearance_json, fall_outcome, spring_outcome, fall_completed_at
+           FROM client_year_dispositions
+           WHERE school_year = ?
+             AND client_id IN (${placeholders})`,
+          [portalSchoolYear, ...ids]
+        );
+        for (const row of dispRows || []) {
+          dispositionByClientId.set(Number(row.client_id), row);
+        }
+      }
+    } catch {
+      // dispositions table optional
+    }
+    await attachRosterSearchFields(clients);
+    let restrictedClients = clients.map((client) => {
       const firstServiceAt = client.first_service_at ? new Date(client.first_service_at) : null;
       const firstServicePassed = firstServiceAt && firstServiceAt.getTime() <= today.getTime();
       const statusKey = String(client?.client_status_key || '').toLowerCase();
       const workflow = String(client?.status || '').toUpperCase();
       const isPendingStatus = statusKey === 'pending' || workflow === 'PENDING_REVIEW';
       const isCurrentByDates = firstServicePassed;
-      const compliancePending = isPendingStatus && !isCurrentByDates;
+      const isNewClientChecklist = NEW_CLIENT_CHECKLIST_STATUSES.has(statusKey);
       const assignedAt = client.provider_assigned_at ? new Date(client.provider_assigned_at) : null;
       const daysSinceAssigned = assignedAt
         ? Math.max(0, Math.floor((today.getTime() - assignedAt.getTime()) / (24 * 60 * 60 * 1000)))
         : 0;
       const missingChecklist = [];
-      const parentsContactedAt = client.parents_contacted_at ? new Date(client.parents_contacted_at) : null;
-      const parentsContactedOk =
-        client.parents_contacted_successful === 1 || client.parents_contacted_successful === true;
-      if (!parentsContactedAt || !parentsContactedOk) missingChecklist.push('Parents contacted');
-      if (!firstServicePassed) missingChecklist.push('First session');
-      const continuationMissing = continuationSeasonActive && !hasCompletedContinuationServices(client.continuation_services_json);
-      if (continuationMissing) missingChecklist.push('Continuation of Services');
-      const compliancePendingWithContinuation = compliancePending || continuationMissing;
+      if (isNewClientChecklist) {
+        const parentsContactedAt = client.parents_contacted_at ? new Date(client.parents_contacted_at) : null;
+        const parentsContactedOk =
+          client.parents_contacted_successful === 1 || client.parents_contacted_successful === true;
+        if (!parentsContactedAt || !parentsContactedOk) missingChecklist.push('Parents contacted');
+        if (!firstServicePassed) missingChecklist.push('First session');
+      }
+      const compliancePending = (isPendingStatus && !isCurrentByDates)
+        || (isNewClientChecklist && missingChecklist.length > 0);
+      const compliancePendingWithContinuation = compliancePending;
       return {
         id: client.id,
         organization_id: orgId,
@@ -1815,6 +2072,19 @@ export const getProviderMyRoster = async (req, res, next) => {
         client_status_label: client.client_status_label || null,
         client_status_key: client.client_status_key || null,
         termination_reason: client.termination_reason || null,
+        terminated_at: client.terminated_at || null,
+        termination_school_year: client.termination_school_year || null,
+        fall_status_hover: buildSchoolFallHoverText({
+          client_status_key: client.client_status_key,
+          continuation_services_json: client.continuation_services_json,
+          termination_reason: client.termination_reason,
+          has_weekday: rosterHasWeekday(client),
+          has_provider: rosterClientHasAssignedProvider(client),
+          provider_id: client.provider_id,
+          provider_ids: client.provider_ids,
+          service_day: client.service_day,
+          provider_day_pairs: client.provider_day_pairs
+        }),
         waitlist_started_at: client.waitlist_started_at || null,
         grade: client.grade || null,
         school_year: client.school_year || null,
@@ -1852,6 +2122,14 @@ export const getProviderMyRoster = async (req, res, next) => {
             : (client.parents_contacted_successful === 1 || client.parents_contacted_successful === true),
         intake_at: client.intake_at || null,
         first_service_at: client.first_service_at || null,
+        services_started_at: client.services_started_at || null,
+        agency_intake_json: parseJsonMaybe(client.agency_intake_json),
+        disclosure_required: client.disclosure_required === 1 || client.disclosure_required === true,
+        agency_roi_expired: isRoiExpired(client.roi_expires_at),
+        ...rosterLifecycleFields(client, {
+          viewerRole: req.user?.role,
+          disposition: dispositionByClientId.get(Number(client.id)) || null
+        }),
         continuation_services_json: parseJsonMaybe(client.continuation_services_json),
         roi_expires_at: client.roi_expires_at || null,
         staff_onboarding_completed_at: client.staff_onboarding_completed_at || null,
@@ -1917,6 +2195,11 @@ export const getProviderMyRoster = async (req, res, next) => {
     } catch {
       // ignore
     }
+
+    restrictedClients = await applyRosterSearchAndYear(restrictedClients, clients, req, {
+      defaultYearFilter: 'all',
+      portalSchoolYear
+    });
 
     const agencyId = await resolveActiveAgencyIdForOrg(orgId);
     logAuditEvent(req, { actionType: 'school_portal_roster_viewed', agencyId: agencyId || undefined }).catch(() => {});
@@ -4952,14 +5235,7 @@ export const listClientComments = async (req, res, next) => {
 };
 
 function schoolPortalRoiStatusLabel(effectiveState) {
-  const s = String(effectiveState || '').toLowerCase();
-  if (s === 'none') return 'No access';
-  if (s === 'packet') return 'Packet';
-  if (s === 'limited') return 'Limited';
-  if (s === 'roi') return 'ROI';
-  if (s === 'roi_docs') return 'ROI + documents';
-  if (s === 'expired') return 'Expired';
-  return '—';
+  return schoolStaffRoiLabel(effectiveState, '—');
 }
 
 /**
@@ -5022,6 +5298,7 @@ export const getSchoolPortalClientSchoolStaffRoiSummary = async (req, res, next)
         email: row.email || null,
         effective_access_state: row.effective_access_state || 'none',
         status_label: schoolPortalRoiStatusLabel(row.effective_access_state),
+        status_hover: schoolStaffRoiHover(row.effective_access_state),
         roi_expires_at: roiExpiresAt ? String(roiExpiresAt).slice(0, 10) : null,
         roi_expired: isRoiExpired(roiExpiresAt)
       };
@@ -5914,11 +6191,16 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
           const actor = [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ').trim();
           const clientLabel = String(r.identifier_code || r.initials || '—');
           const source = sourceLabel(r.source);
+          const isPaperUpload = String(r.source || '').toLowerCase().includes('school_upload');
           const isLinkedPacket = String(r.source || '').toLowerCase().includes('public_intake_link') || String(r.source || '').toLowerCase().includes('intake_link');
-          const title = isLinkedPacket ? 'New packet upload' : 'New client added';
-          const msg = isLinkedPacket
-            ? `${clientLabel}: ROI has not been updated by staff yet`
-            : (actor ? `${clientLabel}: added by ${actor}` : `${clientLabel}: added via ${source}`);
+          const title = isPaperUpload
+            ? 'Printed referral packet uploaded'
+            : (isLinkedPacket ? 'New packet upload' : 'New client added');
+          const msg = isPaperUpload
+            ? `${clientLabel}: a printed referral packet was recently uploaded. If your name is on the signed form, you will receive access.`
+            : (isLinkedPacket
+              ? `${clientLabel}: ROI has not been updated by staff yet`
+              : (actor ? `${clientLabel}: added by ${actor}` : `${clientLabel}: added via ${source}`));
           return {
             id: `client_created:${r.id}`,
             kind: 'client_created',

@@ -3,7 +3,8 @@ import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js'
 import Agency from '../models/Agency.model.js';
 import PlatformBranding from '../models/PlatformBranding.model.js';
 import SchoolOrganizationInternalNote from '../models/SchoolOrganizationInternalNote.model.js';
-import { mapSkillBuildersSchoolProgramActiveForOrganizations } from '../utils/skillBuildersSchoolProgramFeature.js';
+import { deriveLifecycleAction, needsInsuranceClearance } from '../utils/clientLifecycleAction.js';
+import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
 
 function safeInt(v) {
   const n = parseInt(v, 10);
@@ -70,6 +71,113 @@ function buildLastSeenUnion(orgIds, lastSeenByOrg) {
     params.push(orgId, lastSeen);
   }
   return { sql: parts.join(' '), params };
+}
+
+async function tallySchoolOverviewActions({ bySchoolId, schoolIds, placeholders }) {
+  if (!schoolIds.length) return;
+  const year = computeCurrentSchoolYearLabel();
+  let rows = [];
+  try {
+    const [result] = await pool.execute(
+      `SELECT
+         coa.organization_id AS school_id,
+         c.id,
+         cs.status_key AS client_status_key,
+         c.client_type,
+         c.agency_intake_json,
+         c.continuation_services_json,
+         c.roi_expires_at,
+         c.disclosure_required,
+         c.services_started_at,
+         c.first_service_at,
+         c.parents_contacted_at,
+         c.school_year,
+         c.staff_onboarding_completed_at,
+         c.submission_date,
+         c.created_at
+       FROM client_organization_assignments coa
+       JOIN clients c ON c.id = coa.client_id
+       LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+       WHERE coa.is_active = TRUE
+         AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'
+         AND coa.organization_id IN (${placeholders})`,
+      schoolIds
+    );
+    rows = result || [];
+  } catch (e) {
+    if (!isMissingSchemaError(e)) throw e;
+    const [result] = await pool.execute(
+      `SELECT
+         c.organization_id AS school_id,
+         c.id,
+         cs.status_key AS client_status_key,
+         c.client_type,
+         c.agency_intake_json,
+         c.continuation_services_json,
+         c.roi_expires_at,
+         c.disclosure_required,
+         c.services_started_at,
+         c.first_service_at,
+         c.parents_contacted_at,
+         c.school_year,
+         c.staff_onboarding_completed_at,
+         c.submission_date,
+         c.created_at
+       FROM clients c
+       LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+       WHERE UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'
+         AND c.organization_id IN (${placeholders})`,
+      schoolIds
+    );
+    rows = result || [];
+  }
+
+  const ids = [...new Set(rows.map((r) => Number(r.id)).filter(Boolean))];
+  const dispositionByClient = new Map();
+  if (ids.length) {
+    try {
+      const idPh = makeInClausePlaceholders(ids.length);
+      const [dispRows] = await pool.execute(
+        `SELECT client_id, agency_clearance_json, agency_cleared_at, fall_completed_at
+         FROM client_year_dispositions
+         WHERE school_year = ? AND client_id IN (${idPh})`,
+        [year, ...ids]
+      );
+      for (const d of dispRows || []) {
+        dispositionByClient.set(Number(d.client_id), d);
+      }
+    } catch (e) {
+      if (!isMissingSchemaError(e)) throw e;
+    }
+  }
+
+  const todayYmd = new Date().toISOString().slice(0, 10);
+  for (const row of rows) {
+    const sid = safeInt(row.school_id);
+    const target = sid ? bySchoolId.get(sid) : null;
+    if (!target) continue;
+    const disposition = dispositionByClient.get(Number(row.id)) || null;
+    const client = {
+      ...row,
+      roi_expired: row.roi_expires_at != null && String(row.roi_expires_at).slice(0, 10) < todayYmd,
+      agency_roi_expired: row.roi_expires_at != null && String(row.roi_expires_at).slice(0, 10) < todayYmd,
+      disclosure_required: row.disclosure_required === 1 || row.disclosure_required === true
+    };
+    const agencyAction = deriveLifecycleAction({ client, viewerRole: 'admin', disposition });
+    const providerAction = deriveLifecycleAction({ client, viewerRole: 'provider', disposition });
+    const bump = (field) => {
+      target[field] = Number(target[field] || 0) + 1;
+    };
+    if (providerAction?.actionKey === 'fall_confirmation') bump('action_fall_confirmation');
+    if (agencyAction?.actionKey === 'agency_clearance') bump('action_agency_clearance');
+    if (agencyAction?.actionKey === 'agency_intake') bump('action_agency_intake');
+    if (agencyAction?.actionKey === 'roi_followup') bump('action_roi_followup');
+    if (providerAction?.actionKey === 'provider_intake') bump('action_new_client');
+    if (providerAction?.actionKey === 'confirm_services_started') bump('action_confirm_services');
+    if (needsInsuranceClearance({ client, disposition, ignoreOverride: true })) {
+      bump('action_agency_insurance');
+    }
+  }
 }
 
 /**
@@ -179,6 +287,16 @@ export const getSchoolOverview = async (req, res, next) => {
         slots_available: 0,
         waitlist_count: 0,
         docs_needs_count: 0,
+        clients_confirmation_pending: 0,
+        clients_ready_to_schedule: 0,
+        clients_scheduled: 0,
+        action_fall_confirmation: 0,
+        action_agency_clearance: 0,
+        action_agency_insurance: 0,
+        action_agency_intake: 0,
+        action_new_client: 0,
+        action_roi_followup: 0,
+        action_confirm_services: 0,
         school_staff_count: 0,
         skills_groups_count: 0,
         skills_clients_unassigned_count: 0,
@@ -394,7 +512,10 @@ export const getSchoolOverview = async (req, res, next) => {
            SUM(CASE WHEN cs.status_key = 'current' THEN 1 ELSE 0 END) AS clients_current,
            SUM(CASE WHEN cs.status_key = 'packet' THEN 1 ELSE 0 END) AS clients_packet,
            SUM(CASE WHEN cs.status_key = 'screener' THEN 1 ELSE 0 END) AS clients_screener,
-           SUM(CASE WHEN cs.status_key = 'waitlist' THEN 1 ELSE 0 END) AS waitlist_count
+           SUM(CASE WHEN cs.status_key = 'waitlist' THEN 1 ELSE 0 END) AS waitlist_count,
+           SUM(CASE WHEN cs.status_key = 'confirmation_pending' THEN 1 ELSE 0 END) AS clients_confirmation_pending,
+           SUM(CASE WHEN cs.status_key = 'ready_to_schedule' THEN 1 ELSE 0 END) AS clients_ready_to_schedule,
+           SUM(CASE WHEN cs.status_key = 'scheduled' THEN 1 ELSE 0 END) AS clients_scheduled
          FROM client_organization_assignments coa
          JOIN clients c ON c.id = coa.client_id
          LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
@@ -412,6 +533,9 @@ export const getSchoolOverview = async (req, res, next) => {
         target.clients_packet = Number(r?.clients_packet || 0);
         target.clients_screener = Number(r?.clients_screener || 0);
         target.waitlist_count = Number(r?.waitlist_count || 0);
+        target.clients_confirmation_pending = Number(r?.clients_confirmation_pending || 0);
+        target.clients_ready_to_schedule = Number(r?.clients_ready_to_schedule || 0);
+        target.clients_scheduled = Number(r?.clients_scheduled || 0);
       }
 
       // Docs / needs count (paperwork status not completed OR ROI expired)
@@ -454,6 +578,9 @@ export const getSchoolOverview = async (req, res, next) => {
              SUM(CASE WHEN cs.status_key = 'packet' THEN 1 ELSE 0 END) AS clients_packet,
              SUM(CASE WHEN cs.status_key = 'screener' THEN 1 ELSE 0 END) AS clients_screener,
              SUM(CASE WHEN cs.status_key = 'waitlist' THEN 1 ELSE 0 END) AS waitlist_count,
+             SUM(CASE WHEN cs.status_key = 'confirmation_pending' THEN 1 ELSE 0 END) AS clients_confirmation_pending,
+             SUM(CASE WHEN cs.status_key = 'ready_to_schedule' THEN 1 ELSE 0 END) AS clients_ready_to_schedule,
+             SUM(CASE WHEN cs.status_key = 'scheduled' THEN 1 ELSE 0 END) AS clients_scheduled,
              SUM(
                CASE
                  WHEN c.paperwork_status_id IS NULL THEN 1
@@ -478,6 +605,9 @@ export const getSchoolOverview = async (req, res, next) => {
           target.clients_packet = Number(r?.clients_packet || 0);
           target.clients_screener = Number(r?.clients_screener || 0);
           target.waitlist_count = Number(r?.waitlist_count || 0);
+          target.clients_confirmation_pending = Number(r?.clients_confirmation_pending || 0);
+          target.clients_ready_to_schedule = Number(r?.clients_ready_to_schedule || 0);
+          target.clients_scheduled = Number(r?.clients_scheduled || 0);
           target.docs_needs_count = Number(r?.docs_needs_count || 0);
         }
       } catch (e) {
@@ -560,6 +690,13 @@ export const getSchoolOverview = async (req, res, next) => {
       const total = Number(t.slots_total || 0);
       const used = Number(t.slots_used || 0);
       t.slots_available = Math.max(0, total - used);
+    }
+
+    // Action-item counts (fall confirmation, insurance clearance, new-client, etc.)
+    try {
+      await tallySchoolOverviewActions({ bySchoolId, schoolIds, placeholders });
+    } catch (e) {
+      if (!isMissingSchemaError(e)) throw e;
     }
 
     // School portal notifications (unread since user's last seen per org)

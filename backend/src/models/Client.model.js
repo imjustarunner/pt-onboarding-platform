@@ -512,6 +512,7 @@ class Client {
       'client_type_transitioned_by_user_id',
       'termination_reason',
       'terminated_at',
+      'termination_school_year',
       'terminated_by_user_id',
       'last_returning_match_submission_id',
       'date_of_birth',
@@ -526,7 +527,15 @@ class Client {
       'onboarding_docs_json',
       'staff_onboarding_completed_at',
       'staff_onboarding_completed_by_user_id',
-      'disclosure_required'
+      'disclosure_required',
+      'agency_intake_json',
+      'services_started_at',
+      'services_started_by_user_id',
+      'first_service_at',
+      'waitlist_started_at',
+      'parents_contacted_at',
+      'parents_contacted_successful',
+      'intake_at'
     ];
 
     for (const field of allowedFields) {

@@ -1989,6 +1989,16 @@ const routes = [
     }
   },
   {
+    path: '/:organizationSlug/admin/outreach-hub',
+    name: 'OrganizationOutreachHub',
+    component: () => import('../views/admin/OutreachHubView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresCapability: 'canAccessOutreach',
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/admin/settings',
     name: 'OrganizationSettings',
     component: () => import('../views/admin/SettingsView.vue'),
@@ -3291,6 +3301,15 @@ const routes = [
         'clinical_practice_assistant'
       ],
       allowSubCoordinator: true
+    }
+  },
+  {
+    path: '/admin/outreach-hub',
+    name: 'OutreachHub',
+    component: () => import('../views/admin/OutreachHubView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresCapability: 'canAccessOutreach'
     }
   },
   {

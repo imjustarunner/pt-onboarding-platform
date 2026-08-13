@@ -20,7 +20,7 @@
         <span class="pill" :class="'pill--' + (campaign.status || 'draft')">{{ campaignLabel }}</span>
         <span class="muted">
           <template v-if="campaign.isDisabled">
-            Disabled {{ formatDt(campaign.disabledAt) }} — hidden from My Dashboard and School Management. Re-enable to resume.
+            Disabled {{ formatDt(campaign.disabledAt) }} — archived. Providers now see the next school year’s Provider Fall Update and can switch back to view this year.
           </template>
           <template v-else-if="campaign.isPushed">
             Pushed {{ formatDt(campaign.pushedAt) }} — providers see Year Update on My Dashboard (dismissible) and shareable links work.
@@ -506,6 +506,14 @@ const props = defineProps({
 const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 const schoolYear = computed(() => props.schoolYear || currentSchoolYear());
+function nextYearHint() {
+  const y = String(schoolYear.value || '');
+  const m = y.match(/^(\d{4})-(\d{2}|\d{4})$/);
+  if (!m) return 'the next school year';
+  const start = Number(m[1]) + 1;
+  if (String(m[2]).length === 2) return `${start}-${String(start + 1).slice(-2)}`;
+  return `${start}-${start + 1}`;
+}
 const loading = ref(false);
 const campaignBusy = ref(false);
 const linkBusyId = ref(null);
@@ -930,7 +938,7 @@ async function disableYearUpdate() {
   if (campaignBusy.value || campaign.value.isDisabled) return;
   if (
     !window.confirm(
-      `Disable Provider Year Update for ${schoolYear.value}? Providers will no longer see it on My Dashboard, and public links will stop working until re-enabled.`
+      `Archive Provider Fall Update for ${schoolYear.value}? This year becomes view-only, and ${nextYearHint()} opens as the current Fall Update.`
     )
   ) {
     return;
@@ -942,7 +950,7 @@ async function disableYearUpdate() {
       agencyId: Number(props.agencyId),
       schoolYear: schoolYear.value,
     });
-    pushFlash.value = 'Provider Year Update disabled for this school year.';
+    pushFlash.value = 'This school year is archived. The next Provider Fall Update is now the live year.';
     await load();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e.message || 'Disable failed';

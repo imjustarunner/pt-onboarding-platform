@@ -875,6 +875,7 @@ export function serializeInvite(invite, { admin = false, publicView = false } = 
     source: invite.source || 'invite',
     schoolName: invite.school_name,
     schoolOrganizationId: invite.school_organization_id,
+    outreachSchoolId: invite.outreach_school_id ? Number(invite.outreach_school_id) : null,
     schoolSlug: invite.school_slug || invite.school_portal_url,
     contactFirstName: invite.contact_first_name,
     contactLastName: invite.contact_last_name,

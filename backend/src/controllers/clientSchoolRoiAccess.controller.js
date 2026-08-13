@@ -486,7 +486,7 @@ export const updateClientSchoolRoiAccess = async (req, res, next) => {
     const clientId = Number(req.params.id || 0);
     const schoolStaffUserId = Number(req.params.schoolStaffUserId || 0);
     const rawNextState = String(req.body?.nextState || '').trim().toLowerCase();
-    const nextState = rawNextState === 'none' ? 'limited' : rawNextState;
+    let nextState = rawNextState === 'none' ? 'packet' : rawNextState;
     if (!clientId || !schoolStaffUserId) {
       return res.status(400).json({ error: { message: 'Invalid ids' } });
     }
@@ -532,6 +532,33 @@ export const updateClientSchoolRoiAccess = async (req, res, next) => {
       await Client.update(clientId, { paper_packet_staff_roi_pending: 0 }, req.user?.id || null);
     } catch (pendingErr) {
       if (pendingErr?.code !== 'ER_BAD_FIELD_ERROR') throw pendingErr;
+    }
+
+    const paperSource = String(client.source || '').toLowerCase().includes('school_upload')
+      || client.paper_packet_staff_roi_pending === 1
+      || client.paper_packet_staff_roi_pending === true;
+    if (
+      paperSource
+      && ['limited', 'roi', 'roi_docs'].includes(nextState)
+      && Number(schoolStaffUserId) !== Number(client.created_by_user_id || 0)
+    ) {
+      const initials = String(client.initials || client.identifier_code || `client ${clientId}`).trim();
+      const speak = nextState === 'roi';
+      await Notification.create({
+        type: 'new_packet_uploaded',
+        severity: 'info',
+        title: 'You were named on a printed referral packet',
+        message: speak
+          ? `You now have ROI (Speak) access for ${initials}. Referral documents, including the packet, stay hidden at this level.`
+          : `You now have access for ${initials} because your name was on the signed printed referral packet.`,
+        audienceJson: { schoolStaff: true },
+        userId: schoolStaffUserId,
+        agencyId: client.agency_id || schoolOrganizationId,
+        relatedEntityType: 'client',
+        relatedEntityId: clientId,
+        actorUserId: req.user?.id || null,
+        actorSource: 'System'
+      }).catch(() => {});
     }
 
     // Staff ROI grants are gated by clients.roi_expires_at. A null date is treated as

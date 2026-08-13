@@ -1,7 +1,11 @@
 import pool from '../config/database.js';
 import crypto from 'crypto';
 import IntakeLink from './IntakeLink.model.js';
-import { resolveRequestedMasterLanguage } from '../utils/schoolIntakeMasterLanguage.js';
+import {
+  ensureSpanishClarificationFirst,
+  localizeSchoolReferralPacketTitle,
+  resolveRequestedMasterLanguage
+} from '../utils/schoolIntakeMasterLanguage.js';
 
 function normalizeLang(languageCode) {
   const raw = String(languageCode || 'en').trim().toLowerCase();
@@ -47,12 +51,6 @@ function documentStepLooksLikeReplacedPacketDoc(title) {
  * Strip legacy uploaded packet PDFs (HIPAA / informed / policy / disclosure)
  * now covered by live packet or smart_disclosure steps, and ensure packet_* steps exist.
  */
-const DEFAULT_SPANISH_CLARIFICATION_STEP = {
-  type: 'spanish_clarification',
-  label: 'Aclaración de idioma',
-  visibility: 'always'
-};
-
 export function sanitizeSchoolMasterSteps(steps, templateNameById = null, languageCode = 'en') {
   let list = Array.isArray(steps) ? [...steps] : [];
   const lang = String(languageCode || 'en').toLowerCase();
@@ -100,10 +98,7 @@ export function sanitizeSchoolMasterSteps(steps, templateNameById = null, langua
   if (!hasType('smart_disclosure') && !hasType('disclosure')) {
     list.push({ type: 'smart_disclosure', title: 'Disclosure Statement', visibility: 'always' });
   }
-  if (lang === 'es' && !hasType('spanish_clarification')) {
-    list.unshift({ id: 'spanish_clarification', ...DEFAULT_SPANISH_CLARIFICATION_STEP });
-  }
-  return list;
+  return ensureSpanishClarificationFirst(list, lang);
 }
 
 async function loadTemplateNameMap(steps) {
@@ -464,9 +459,11 @@ class AgencySchoolIntakeMaster {
     if (!master) return link;
     const esMaster = lang === 'es' ? master : await this.findByAgencyLanguage(aid, 'es');
     const hasSpanishMaster = !!(esMaster && Number(esMaster.id || 0));
+    const steps = await sanitizeSchoolMasterStepsAsync(master.intake_steps, lang);
+    const overlayTitle = lang === 'es' ? (master.title || link.title) : (link.title || master.title);
     return {
       ...link,
-      intake_steps: master.intake_steps,
+      intake_steps: steps,
       intake_fields: master.intake_fields,
       master_form_version: master.version,
       master_form_id: master.id,
@@ -474,7 +471,7 @@ class AgencySchoolIntakeMaster {
       has_spanish_master: hasSpanishMaster,
       inherits_school_master: 1,
       language_code: lang,
-      title: link.title || master.title
+      title: localizeSchoolReferralPacketTitle(overlayTitle, lang)
     };
   }
 }

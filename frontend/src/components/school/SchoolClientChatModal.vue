@@ -35,7 +35,17 @@
             </span>
           </div>
         </div>
-        <button class="close" @click="$emit('close')">×</button>
+        <div class="modal-header-actions">
+          <button
+            v-if="canOpenDocuments"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="documentsOpen = true"
+          >
+            Documents
+          </button>
+          <button class="close" @click="$emit('close')">×</button>
+        </div>
       </div>
 
       <div v-if="isTerminated && (props.client?.termination_reason || fullClient?.termination_reason)" class="termination-reason-banner">
@@ -43,8 +53,16 @@
       </div>
 
       <div v-if="props.client?.paper_packet_staff_roi_notice" class="paper-packet-staff-notice-banner">
-        <strong>Paper packet — staff ROI needs setup.</strong>
-        Update school staff access levels for this student to match the signed paper packet. Contact your ITSCO team if you need help.
+        <strong>Printed referral packet uploaded.</strong>
+        If your name is on the signed form, you will receive access. Contact your ITSCO team if you need help.
+      </div>
+      <div v-else-if="props.client?.paper_packet_named_access_notice" class="paper-packet-staff-notice-banner">
+        <strong>You were named on the printed referral packet.</strong>
+        {{
+          String(props.client?.school_staff_effective_access_state || '').toLowerCase() === 'roi'
+            ? 'You have ROI (Speak) access. Referral documents, including the packet, stay hidden at this level.'
+            : 'You have access because your name was on the signed form.'
+        }}
       </div>
 
       <div v-if="showActionBar" class="modal-actions-bar">
@@ -287,7 +305,7 @@
 
         <div v-if="subView === 'default' && checklist" class="checklist-roi-split">
           <div class="checklist checklist-half">
-            <div class="checklist-title">Compliance checklist (read-only)</div>
+            <div class="checklist-title">New client checklist</div>
             <div class="checklist-grid">
               <div class="check-item">
                 <div class="k">Parents Contacted</div>
@@ -335,7 +353,11 @@
                   <tr v-for="s in staffRoiSummary.staff" :key="`staff-roi-${s.school_staff_user_id}`">
                     <td class="staff-roi-name">{{ s.name }}</td>
                     <td>
-                      <span class="staff-roi-status" :class="`staff-roi-${String(s.effective_access_state || '').toLowerCase()}`">
+                      <span
+                        class="staff-roi-status"
+                        :class="`staff-roi-${String(s.effective_access_state || '').toLowerCase()}`"
+                        :title="s.status_hover || staffRoiHover(s.effective_access_state)"
+                      >
                         {{ s.status_label }}
                       </span>
                     </td>
@@ -444,20 +466,26 @@
           </div>
         </div>
 
-        <div v-if="canViewClientDocuments" class="documents-section">
-          <div class="documents-section-title">Documents</div>
-          <div v-if="schoolStaffIsLimited" class="muted" style="margin-bottom: 8px;">
-            Limited access: you can upload and open documents you uploaded.
+        <div v-if="schoolStaffRoiExpired" class="documents-section">
+          <div class="documents-section-title">ROI expired</div>
+          <div class="muted" style="margin-bottom: 8px;">
+            ROI is currently expired. We have likely reached out to the parent to get this updated.
+            Please submit a ticket and we will update you on the process.
           </div>
-          <PhiDocumentsPanel :client-id="Number(client.id)" />
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="roiTicketSubmitting || roiTicketDone"
+            @click="openRoiExpirationTicket"
+          >
+            {{ roiTicketDone ? 'Ticket submitted' : (roiTicketSubmitting ? 'Submitting…' : 'Submit ticket — ROI expiration inquiry') }}
+          </button>
+          <div v-if="roiTicketError" class="error" style="margin-top: 8px;">{{ roiTicketError }}</div>
         </div>
 
-        <div class="packet-audit">
+        <div v-if="canViewPacketAudit" class="packet-audit">
           <div class="packet-audit-title">Packet audit (read-only)</div>
-          <div v-if="!canViewPacketAudit && isSchoolStaff" class="muted">
-            Packet audit is only available when this client is set to `ROI and Doc Access`.
-          </div>
-          <div v-else-if="auditLoading" class="muted">Loading…</div>
+          <div v-if="auditLoading" class="muted">Loading…</div>
           <div v-else-if="auditError" class="error">{{ auditError }}</div>
           <div v-else-if="auditStatements.length === 0" class="muted">No packet history yet.</div>
           <div v-else class="packet-audit-list">
@@ -484,6 +512,20 @@
     :client="props.client"
     @close="showWaitlistModal = false"
   />
+
+  <div v-if="documentsOpen" class="docs-overlay" @click.self="documentsOpen = false">
+    <div class="docs-modal" @click.stop>
+      <div class="docs-modal-head">
+        <strong>{{ documentsModalTitle }}</strong>
+        <button type="button" class="close" aria-label="Close" @click="documentsOpen = false">×</button>
+      </div>
+      <PhiDocumentsPanel
+        :client-id="Number(client.id)"
+        :own-only="documentsOwnOnly"
+        :section="documentsOwnOnly ? 'files' : 'all'"
+      />
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -497,6 +539,11 @@ import { useAuthStore } from '../../store/auth';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { formatSkillBuilderWallTime12h } from '../../utils/skillBuildersDisplay.js';
 import { formatGradeDisplay } from '../../utils/clientGrade.js';
+import {
+  schoolStaffCanOpenFromState,
+  schoolStaffOwnDocumentsOnly,
+  schoolStaffRoiHover
+} from '../../utils/schoolStaffRoiLabels.js';
 
 const props = defineProps({
   client: { type: Object, required: true },
@@ -510,21 +557,63 @@ const props = defineProps({
   showChecklistAction: { type: Boolean, default: false }
 });
 const emit = defineEmits(['close', 'open-edit', 'open-checklist', 'client-updated']);
+const roiTicketSubmitting = ref(false);
+const roiTicketError = ref('');
+const roiTicketDone = ref(false);
+
+const openRoiExpirationTicket = async () => {
+  if (roiTicketSubmitting.value || roiTicketDone.value) return;
+  const clientId = Number(props.client?.id || 0);
+  const schoolOrganizationId = Number(props.schoolOrganizationId || 0);
+  if (!clientId || !schoolOrganizationId) {
+    roiTicketError.value = 'Missing client or school context.';
+    return;
+  }
+  try {
+    roiTicketSubmitting.value = true;
+    roiTicketError.value = '';
+    await api.post('/support-tickets', {
+      schoolOrganizationId,
+      clientId,
+      subject: props.client?.school_portal_roi_ticket_title || 'ROI expiration inquiry',
+      question:
+        props.client?.school_portal_roi_soft_message
+        || 'ROI is currently expired. We have likely reached out to the parent to get this updated. Please update us on the process.',
+      topic: 'roi_expiration',
+      priority: 'medium'
+    });
+    roiTicketDone.value = true;
+  } catch (e) {
+    roiTicketError.value = e?.response?.data?.error?.message || e?.message || 'Failed to submit ticket';
+  } finally {
+    roiTicketSubmitting.value = false;
+  }
+};
 
 const router = useRouter();
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
 const schoolStaffAccessLevel = computed(() => String(props.client?.school_staff_access_level || '').trim().toLowerCase());
-const schoolStaffIsLimited = computed(() => isSchoolStaff.value && schoolStaffAccessLevel.value === 'limited');
+const schoolStaffEffectiveState = computed(() =>
+  String(props.client?.school_staff_effective_access_state || schoolStaffAccessLevel.value || '').trim().toLowerCase()
+);
+const schoolStaffRoiExpired = computed(() => isSchoolStaff.value && schoolStaffEffectiveState.value === 'expired');
 const canViewClientDocuments = computed(() => {
-  if (isSchoolStaff.value) return schoolStaffAccessLevel.value === 'roi_docs' || schoolStaffAccessLevel.value === 'limited';
+  if (isSchoolStaff.value) {
+    return schoolStaffCanOpenFromState(schoolStaffEffectiveState.value);
+  }
   return ['provider', 'admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value);
 });
+const canOpenDocuments = computed(() => canViewClientDocuments.value);
+const documentsOwnOnly = computed(() => isSchoolStaff.value && schoolStaffOwnDocumentsOnly(schoolStaffEffectiveState.value));
+const documentsModalTitle = computed(() => (documentsOwnOnly.value ? 'My documents' : 'Documents'));
+const documentsOpen = ref(false);
 const canViewPacketAudit = computed(() => {
-  if (isSchoolStaff.value) return schoolStaffAccessLevel.value === 'roi_docs';
-  return canViewClientDocuments.value;
+  if (isSchoolStaff.value) return schoolStaffEffectiveState.value === 'roi_docs';
+  return ['provider', 'admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value);
 });
+const staffRoiHover = (state) => schoolStaffRoiHover(state);
 const showSkillBuildersEntry = computed(() => {
   const aid = Number(props.parentAgencyId || 0);
   return !!props.client?.skills && Number.isFinite(aid) && aid > 0;
@@ -843,14 +932,7 @@ const formatDateTime = (d) => (d ? new Date(d).toLocaleString() : '');
 
 const formatDateOnly = (d) => (d ? String(d).slice(0, 10) : '—');
 
-const isContinuationServicesSeason = (value = new Date()) => {
-  const d = value instanceof Date ? new Date(value.getTime()) : new Date(value);
-  if (!Number.isFinite(d.getTime())) return false;
-  const start = new Date(d.getFullYear(), 4, 1);
-  const end = new Date(d.getFullYear(), 8, 1);
-  return d.getTime() >= start.getTime() && d.getTime() < end.getTime();
-};
-const showContinuationField = computed(() => isContinuationServicesSeason());
+const showContinuationField = computed(() => false);
 
 const continuationServicesSummary = (raw) => {
   let data = raw;
@@ -1084,8 +1166,8 @@ watch(
 }
 .checklist {
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
+  border-radius: 8px;
+  padding: 8px 10px;
   background: var(--bg);
   margin-bottom: 12px;
 }
@@ -1094,8 +1176,8 @@ watch(
 }
 .staff-roi-card {
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
+  border-radius: 8px;
+  padding: 8px 10px;
   background: var(--bg);
 }
 .staff-roi-hint {
@@ -1203,11 +1285,16 @@ watch(
 .action-btn-active {
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
 }
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .status-bar {
-  margin: 10px 16px 0 16px;
+  margin: 8px 16px 0 16px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
+  gap: 6px;
 }
 
 .documents-section {
@@ -1267,18 +1354,21 @@ watch(
 }
 .pill {
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 8px;
   background: var(--bg);
-  padding: 10px 12px;
+  padding: 6px 8px;
 }
 .pill .k {
-  font-size: 12px;
+  font-size: 10px;
   color: var(--text-secondary);
   font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 .pill .v {
-  margin-top: 2px;
+  margin-top: 1px;
   font-weight: 800;
+  font-size: 13px;
   color: var(--text-primary);
 }
 
@@ -1604,6 +1694,30 @@ textarea, select {
 }
 .small {
   font-size: 0.82rem;
+}
+.docs-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.docs-modal {
+  width: min(920px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.22);
+}
+.docs-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
 }
 </style>
 

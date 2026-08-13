@@ -16,12 +16,20 @@
               <div class="pyu__brand-copy">
                 <span class="pyu__brand-name">{{ tenantName }}</span>
                 <span class="pyu__brand-year">{{ schoolYearDisplay }}</span>
+                <label v-if="yearOptions.length" class="pyu__year-picker">
+                  <span class="sr-only">School year</span>
+                  <select :value="schoolYearKey" @change="onDashboardYearChange">
+                    <option v-for="y in yearOptions" :key="y.schoolYear" :value="y.schoolYear">
+                      {{ y.schoolYear }}{{ y.status === 'disabled' ? ' (archived)' : '' }}
+                    </option>
+                  </select>
+                </label>
               </div>
             </div>
             <div class="pyu__title-block">
-              <h1>Provider Year Update</h1>
+              <h1>Provider Fall Update</h1>
               <p class="pyu__sub">
-                The school year is quickly approaching! Complete all {{ visibleSectionMeta.length }} sections below — your progress is saved as you go.
+                The school year is quickly approaching! Complete all {{ visibleSectionMeta.length }} sections below — including client fall confirmation — your progress is saved as you go.
               </p>
             </div>
             <div class="pyu__user-block">
@@ -33,7 +41,8 @@
               <div class="pyu__progress-wrap">
                 <div class="pyu__progress-label">{{ progressPct }}% complete</div>
                 <div class="pyu__progress-bar"><span :style="{ width: progressPct + '%' }" /></div>
-                <p v-if="isFinalized" class="pyu__finalized">Completed {{ formatDt(payload.cycle?.finalizedAt) }}</p>
+                <p v-if="payload.cycle?.status === 'finalized'" class="pyu__finalized">Completed {{ formatDt(payload.cycle?.finalizedAt) }}</p>
+                <p v-else-if="isArchivedView" class="pyu__finalized">Archived {{ schoolYearDisplay }} — view only</p>
               </div>
             </div>
           </header>
@@ -732,17 +741,37 @@
 
           <!-- Clients without day -->
           <section v-else-if="activeSection === 'clients'" class="pyu__panel">
-            <h2>Assigned Clients</h2>
+            <h2>Fall Update — Clients</h2>
             <p class="muted">
-              These are clients assigned to you at each school who do not yet have a service day.
-              Choose a day below for each client — the same days you are scheduled at that school.
-              This updates their school affiliation the same way as the school portal.
+              Confirm returning clients, attest last-year service if needed, and assign a weekday here.
+              This replaces the Clients tab until these fall actions are complete. New clients still use New Client – Action Needed after they are Ready to Schedule.
             </p>
-            <div v-if="!(clientsWithoutDay || []).length" class="success-banner">
-              No assigned clients are missing a service day right now.
+            <div v-if="fallActionLoading" class="muted">Loading client action items…</div>
+            <div v-else-if="(fallActionClients || []).length" class="pyu__school-block">
+              <h3>Action needed ({{ fallActionClients.length }})</h3>
+              <ul class="pyu__client-list">
+                <li v-for="c in fallActionClients" :key="c.id" class="pyu__client-row">
+                  <div class="pyu__client-row-main">
+                    <strong>{{ c.initials || c.identifier_code }}</strong>
+                    <span class="muted">{{ c.schoolName }} · {{ c.client_status_label || c.client_status_key }}</span>
+                  </div>
+                  <div v-if="!isFinalized" class="pyu__client-row-actions">
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      @click="openFallAction(c)"
+                    >
+                      {{ c.lifecycle_action?.label || 'Fall confirmation' }}
+                    </button>
+                  </div>
+                </li>
+              </ul>
+            </div>
+            <div v-if="!(clientsWithoutDay || []).length && !(fallActionClients || []).length && !fallActionLoading" class="success-banner">
+              No assigned clients need fall confirmation or a service day right now.
             </div>
             <div v-for="school in clientsWithoutDay" :key="school.schoolOrganizationId" class="pyu__school-block">
-              <h3>{{ school.schoolName }}</h3>
+              <h3>{{ school.schoolName }} — missing assigned day</h3>
               <p v-if="!(school.availableDays || []).length" class="muted tiny pyu__client-day-hint">
                 No work days on your schedule at this school yet. Confirm your days in Provider Schedule first.
               </p>
@@ -821,6 +850,14 @@
       </footer>
     </template>
 
+    <LifecycleActionModal
+      v-if="fallModalClient && fallModalKey"
+      :client="fallModalClient"
+      :action-key="fallModalKey"
+      :action-label="fallModalLabel"
+      @close="closeFallAction"
+      @saved="onFallActionSaved"
+    />
     <PostSchoolEventModal
       v-if="addEventSchool"
       :school-organization-id="addEventSchool.schoolOrganizationId"
@@ -857,6 +894,7 @@ import {
 } from '../../utils/credentialNormalization.js';
 import { D11_SECURITY_OFFICE } from '../../utils/districtCompliance.js';
 import PostSchoolEventModal from '../school/PostSchoolEventModal.vue';
+import LifecycleActionModal from '../school/LifecycleActionModal.vue';
 import ProviderYearUpdateSchoolNeedsPanel from './ProviderYearUpdateSchoolNeedsPanel.vue';
 import ProviderYearUpdateSupportPanel from './ProviderYearUpdateSupportPanel.vue';
 
@@ -886,6 +924,11 @@ const licenseUploading = ref(false);
 const licenseUploadError = ref('');
 const clientDaySavingKey = ref('');
 const clientDayErrors = ref({});
+const fallActionClients = ref([]);
+const fallActionLoading = ref(false);
+const fallModalClient = ref(null);
+const fallModalKey = ref('');
+const fallModalLabel = ref('');
 const licensesForm = reactive({
   credential: '',
   licenseTypeNumber: '',
@@ -967,8 +1010,11 @@ const tenantLogo = computed(() => {
   if (full) return full;
   return logoSrc(agency, { allowIcon: true });
 });
-const schoolYearKey = computed(() => String(payload.value?.cycle?.schoolYear || '').trim());
-const schoolYearDisplay = computed(() => formatSchoolYearLabel(payload.value?.cycle?.schoolYear));
+const schoolYearKey = computed(() => String(payload.value?.cycle?.schoolYear || payload.value?.schoolYear || '').trim());
+const schoolYearDisplay = computed(() => formatSchoolYearLabel(payload.value?.cycle?.schoolYear || payload.value?.schoolYear));
+const yearOptions = computed(() => Array.isArray(payload.value?.availableYears) ? payload.value.availableYears : []);
+const isArchivedView = computed(() => !!payload.value?.isArchivedView);
+const isFinalized = computed(() => payload.value?.cycle?.status === 'finalized' || isArchivedView.value);
 const providerLabel = computed(() => payload.value?.provider?.name || '');
 const providerUserId = computed(
   () => Number(payload.value?.cycle?.providerUserId || payload.value?.provider?.id || 0)
@@ -990,7 +1036,6 @@ const brandStyle = computed(() => {
   };
 });
 
-const isFinalized = computed(() => payload.value?.cycle?.status === 'finalized');
 const schedule = computed(() => payload.value?.schedule || []);
 const pendingScheduleAdjustments = computed(() => payload.value?.pendingScheduleAdjustments || []);
 const eventsBySchool = computed(() => payload.value?.eventsBySchool || []);
@@ -1261,6 +1306,62 @@ function applyPayload(data) {
     activeSection.value = visibleSectionMeta.value[0]?.key || 'reminders';
   }
   emit('loaded', data);
+  loadFallActionClients();
+}
+
+async function loadFallActionClients() {
+  if (props.mode === 'token') {
+    fallActionClients.value = [];
+    return;
+  }
+  const schools = schedule.value || [];
+  fallActionLoading.value = true;
+  try {
+    const chunks = await Promise.all(
+      schools.map(async (school) => {
+        const orgId = Number(school.schoolOrganizationId || 0);
+        if (!orgId) return [];
+        const r = await api.get(`/school-portal/${orgId}/my-roster`, {
+          params: { schoolYear: payload.value?.schoolYear || schoolYearKey.value || 'current' },
+          skipGlobalLoading: true
+        }).catch(() => ({ data: [] }));
+        return (Array.isArray(r.data) ? r.data : []).filter((c) => c?.lifecycle_action).map((c) => ({
+          ...c,
+          schoolName: school.schoolName,
+          schoolOrganizationId: orgId
+        }));
+      })
+    );
+    fallActionClients.value = chunks.flat();
+  } finally {
+    fallActionLoading.value = false;
+  }
+}
+
+function openFallAction(client) {
+  const action = client?.lifecycle_action;
+  if (!action?.actionKey) return;
+  fallModalClient.value = client;
+  fallModalKey.value = action.actionKey;
+  fallModalLabel.value = action.label || 'Fall confirmation';
+}
+
+function closeFallAction() {
+  fallModalClient.value = null;
+  fallModalKey.value = '';
+  fallModalLabel.value = '';
+}
+
+async function onFallActionSaved() {
+  closeFallAction();
+  await loadFallActionClients();
+}
+
+function onDashboardYearChange(event) {
+  const year = String(event?.target?.value || '').trim();
+  if (!year) return;
+  router.replace({ query: { ...route.query, schoolYear: year } });
+  load();
 }
 
 async function load() {
@@ -1273,12 +1374,17 @@ async function load() {
     } else {
       const agencyId = resolvedAgencyId.value;
       if (!agencyId) throw new Error('Agency context required');
-      const res = await api.get('/provider-year-update/me', { params: { agencyId } });
+      const params = { agencyId };
+      const year = String(route.query.schoolYear || '').trim();
+      if (year) params.schoolYear = year;
+      const res = await api.get('/provider-year-update/me', { params });
       if (res.data?.available === false) {
         error.value =
           res.data.reason === 'not_pushed'
-            ? 'Provider Year Update has not been pushed yet.'
-            : 'No school assignments found for your account.';
+            ? 'Provider Fall Update has not been pushed yet.'
+            : (res.data.reason === 'no_archive'
+              ? 'No archived Fall Update exists for that school year.'
+              : 'No school assignments found for your account.');
         return;
       }
       applyPayload(res.data);
@@ -2227,6 +2333,13 @@ defineExpose({ load, reload: load });
   font-size: 0.75rem;
   color: #64748b;
   margin-top: 2px;
+}
+.pyu__year-picker select {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
 }
 .pyu__title-block h1 {
   margin: 0 0 6px;

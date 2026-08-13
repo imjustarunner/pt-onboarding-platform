@@ -171,14 +171,7 @@ const formatStatus = (s) => {
 
 const formatDateOnly = (d) => (d ? String(d).slice(0, 10) : '—');
 
-const isContinuationServicesSeason = (value = new Date()) => {
-  const d = value instanceof Date ? new Date(value.getTime()) : new Date(value);
-  if (!Number.isFinite(d.getTime())) return false;
-  const start = new Date(d.getFullYear(), 4, 1);
-  const end = new Date(d.getFullYear(), 8, 1);
-  return d.getTime() >= start.getTime() && d.getTime() < end.getTime();
-};
-const showContinuationField = computed(() => isContinuationServicesSeason());
+const showContinuationField = computed(() => false);
 
 const continuationServicesSummary = (raw) => {
   let data = raw;

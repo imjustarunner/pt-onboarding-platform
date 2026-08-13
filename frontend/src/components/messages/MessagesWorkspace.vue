@@ -66,11 +66,28 @@
           <button
             type="button"
             class="nav-stub"
+            :class="{ active: mainTab === 'open_threads' }"
+            @click="switchToOpenThreads"
+          >
+            Open threads
+            <span v-if="pendingThreads.length > 0" class="nav-stub-badge">{{ pendingThreads.length }}</span>
+          </button>
+          <button
+            type="button"
+            class="nav-stub"
             :class="{ active: mainTab === 'threads' }"
             @click="switchToThreadsInbox"
           >
             Threads
             <span v-if="threadsInboxUnread > 0" class="nav-stub-badge">{{ threadsInboxUnread }}</span>
+          </button>
+          <button
+            type="button"
+            class="nav-stub"
+            :class="{ active: mainTab === 'sent' }"
+            @click="switchToSent"
+          >
+            Sent
           </button>
           <button
             type="button"
@@ -171,7 +188,59 @@
         </template>
 
         <template v-else>
-          <template v-if="mainTab === 'threads' && !isSchoolStaffViewer">
+          <template v-if="mainTab === 'open_threads' && !isSchoolStaffViewer">
+            <div class="lists">
+              <div class="section">
+                <div class="section-title">Open threads</div>
+                <div v-if="pendingThreads.length === 0" class="muted">No unread / open threads.</div>
+                <button
+                  v-for="t in pendingThreads"
+                  :key="`open-${t.agency_id}-${t.thread_id}`"
+                  class="person"
+                  type="button"
+                  @click="openThread(t)"
+                >
+                  <span v-if="isDirectUnreadThread(t)" class="dot" :class="dotClassForUserId(t.other_participant?.id)"></span>
+                  <span v-else class="channel-hash" aria-hidden="true">💬</span>
+                  <span class="name-block">
+                    <span class="name">
+                      {{ t.unreadTitle }}
+                      <span v-if="t.agencyLabel" class="agency-chip">{{ t.agencyLabel }}</span>
+                    </span>
+                    <span class="status-line">{{ t.unreadSubtitle }}</span>
+                  </span>
+                  <span class="pill">{{ t.unread_count }}</span>
+                </button>
+              </div>
+            </div>
+          </template>
+
+          <template v-else-if="mainTab === 'sent' && !isSchoolStaffViewer">
+            <div class="lists">
+              <div class="section">
+                <div class="section-title">Sent messages</div>
+                <div v-if="sentThreads.length === 0" class="muted">No sent direct threads yet.</div>
+                <button
+                  v-for="t in sentThreads"
+                  :key="`sent-${t.agency_id}-${t.thread_id}`"
+                  class="person"
+                  type="button"
+                  @click="openThread(t)"
+                >
+                  <span class="dot" :class="dotClassForUserId(t.other_participant?.id)"></span>
+                  <span class="name-block">
+                    <span class="name">
+                      {{ t.sentTitle }}
+                      <span v-if="t.agencyLabel" class="agency-chip">{{ t.agencyLabel }}</span>
+                    </span>
+                    <span class="status-line">{{ t.sentSubtitle }}</span>
+                  </span>
+                </button>
+              </div>
+            </div>
+          </template>
+
+          <template v-else-if="mainTab === 'threads' && !isSchoolStaffViewer">
             <div class="toolbar">
               <input v-model="threadsInboxQ" class="search" placeholder="Search threads…" />
             </div>
@@ -1550,7 +1619,9 @@ const panelSubtitle = computed(() => {
   if (isClubContext.value) return 'Club direct messages';
   if (isSchoolStaffViewer.value) return 'Direct messages · your schools';
   if (mainTab.value === 'channels') return 'Team channels';
+  if (mainTab.value === 'open_threads') return 'Open / unread threads';
   if (mainTab.value === 'threads') return 'Reply threads';
+  if (mainTab.value === 'sent') return 'Sent direct messages';
   if (mainTab.value === 'mentions') return 'Your mentions';
   if (audienceMode.value === 'directory') return 'Direct messages · other roles';
   return 'Direct messages · team employees';
@@ -1741,6 +1812,25 @@ const pendingThreads = computed(() => {
     unreadSubtitle: threadUnreadSubtitle(t)
   }));
   return enriched.slice(0, 12);
+});
+
+/** Direct threads where the latest activity is from me (sent outbound). */
+const sentThreads = computed(() => {
+  const myId = Number(authStore.user?.id || 0);
+  const list = (threads.value || []).filter((t) => {
+    if (String(t?.thread_type || 'direct') !== 'direct') return false;
+    if (!t?.other_participant) return false;
+    const lastAuthor = Number(t?.last_message_author_user_id || t?.last_author_user_id || 0);
+    if (lastAuthor && myId && lastAuthor === myId) return true;
+    // Fallback: threads with a last message preview and zero unread often mean I spoke last
+    return !lastAuthor && Number(t?.unread_count || 0) === 0 && !!(t?.last_message_preview || t?.last_message_body);
+  });
+  return list.slice(0, 40).map((t) => ({
+    ...t,
+    agencyLabel: tenantLabelForAgencyId(t.agency_id, t.agency_name),
+    sentTitle: threadUnreadTitle(t) || [t.other_participant?.first_name, t.other_participant?.last_name].filter(Boolean).join(' ') || 'Direct message',
+    sentSubtitle: String(t.last_message_preview || t.last_message_body || 'Sent').slice(0, 120)
+  }));
 });
 
 const filteredPeople = computed(() => {
@@ -2102,6 +2192,20 @@ const switchToThreadsInbox = async () => {
   if (activeChatUser.value) closeChat();
   closeReplyPanel();
   await loadThreadsInbox();
+};
+
+const switchToOpenThreads = async () => {
+  mainTab.value = 'open_threads';
+  if (activeChatUser.value) closeChat();
+  closeReplyPanel();
+  await loadThreads().catch(() => {});
+};
+
+const switchToSent = async () => {
+  mainTab.value = 'sent';
+  if (activeChatUser.value) closeChat();
+  closeReplyPanel();
+  await loadThreads().catch(() => {});
 };
 
 const switchToMentionsInbox = async () => {

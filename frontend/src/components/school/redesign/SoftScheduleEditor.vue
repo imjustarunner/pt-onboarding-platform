@@ -30,7 +30,7 @@
               :class="['input', { 'input-locked': isLockedClientId(s.client_id) }]"
             >
               <option :value="null">Open slot</option>
-              <option v-for="c in caseloadClients" :key="c.id" :value="Number(c.id)">
+              <option v-for="c in caseloadClients" :key="c.id" :value="Number(c.id)" :style="optionStyle(c)">
                 {{ displayClient(c) }}
               </option>
             </select>
@@ -71,6 +71,7 @@
 <script setup>
 import { ref, watch } from 'vue';
 import { formatSchoolPortalClientLabel } from '../../../utils/schoolPortalClientLabel.js';
+import { isSchoolScheduleClientLocked } from '../../../utils/schoolStaffRoiLabels.js';
 
 const props = defineProps({
   slots: { type: Array, default: () => [] },
@@ -115,8 +116,9 @@ const getClientById = (clientId) => {
   return (Array.isArray(props.caseloadClients) ? props.caseloadClients : []).find((c) => Number(c?.id) === id) || null;
 };
 
-const isLockedClient = (c) => c?.school_portal_force_placeholder === true || c?.school_portal_can_open === false;
+const isLockedClient = (c) => isSchoolScheduleClientLocked(c);
 const isLockedClientId = (clientId) => isLockedClient(getClientById(clientId));
+const optionStyle = (c) => (isLockedClient(c) ? { color: '#9ca3af' } : null);
 
 const displayClient = (c) => {
   const mode = String(props.clientLabelMode || 'codes');

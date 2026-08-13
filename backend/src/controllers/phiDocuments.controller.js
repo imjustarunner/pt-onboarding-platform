@@ -3,6 +3,11 @@ import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import ReferralPacketDraft from '../models/ReferralPacketDraft.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
+import {
+  schoolStaffCanOpenFromState,
+  schoolStaffHidesReferralPackets,
+  schoolStaffOwnDocumentsOnly
+} from '../utils/schoolStaffRoiLabels.js';
 import StorageService from '../services/storage.service.js';
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
@@ -102,9 +107,48 @@ async function resolveSchoolStaffAccessStateForClient({ requestingUserId, reques
   });
 }
 
-function isSchoolStaffLimitedDocumentScope({ requestingUserRole, schoolStaffAccessState }) {
+function isSchoolStaffOwnDocumentScope({ requestingUserRole, schoolStaffAccessState }) {
   return String(requestingUserRole || '').toLowerCase() === 'school_staff'
-    && String(schoolStaffAccessState || '').toLowerCase() === 'limited';
+    && schoolStaffOwnDocumentsOnly(schoolStaffAccessState);
+}
+
+function schoolStaffMayUsePhi(state) {
+  return schoolStaffCanOpenFromState(state);
+}
+
+function isReferralPacketPhiDocument(doc) {
+  if (!doc) return false;
+  if (doc.referral_draft_id || doc.intake_submission_id) return true;
+  const type = String(doc.document_type || '').toLowerCase();
+  if (type.includes('referral') || type.includes('packet')) return true;
+  const path = String(doc.storage_path || '').toLowerCase();
+  if (path.includes('referrals_quarantine') || path.includes('intake-packet') || path.includes('intake_packet')) {
+    return true;
+  }
+  const name = `${doc.original_name || ''} ${doc.document_title || ''}`.toLowerCase();
+  return name.includes('referral packet')
+    || name.includes('school roi')
+    || name.includes('signed roi')
+    || name.includes('paquete de referencia');
+}
+
+function filterPhiDocsForSchoolStaff(docs, { userId, state }) {
+  const list = Array.isArray(docs) ? docs : [];
+  if (String(state || '').toLowerCase() === 'roi_docs') return list;
+  const uid = Number(userId || 0);
+  const own = list.filter((doc) => Number(doc?.uploaded_by_user_id || 0) === uid);
+  if (schoolStaffHidesReferralPackets(state)) {
+    return own.filter((doc) => !isReferralPacketPhiDocument(doc));
+  }
+  return own;
+}
+
+function schoolStaffMayOpenPhiDocument(doc, { userId, state }) {
+  if (String(state || '').toLowerCase() === 'roi_docs') return true;
+  if (!schoolStaffMayUsePhi(state)) return false;
+  if (Number(doc?.uploaded_by_user_id || 0) !== Number(userId || 0)) return false;
+  if (schoolStaffHidesReferralPackets(state) && isReferralPacketPhiDocument(doc)) return false;
+  return true;
 }
 
 export const uploadClientPhiDocument = [
@@ -125,7 +169,7 @@ export const uploadClientPhiDocument = [
       });
       const isSchoolStaff = String(req.user?.role || '').toLowerCase() === 'school_staff';
       const allowed = isSchoolStaff
-        ? ['limited', 'roi_docs'].includes(String(schoolStaffAccessState || '').toLowerCase())
+        ? schoolStaffMayUsePhi(schoolStaffAccessState)
         : await userCanAccessClient({
             requestingUserId: req.user.id,
             requestingUserRole: req.user.role,
@@ -217,13 +261,13 @@ export const listClientPhiDocuments = async (req, res, next) => {
       requestingUserRole: req.user.role,
       client
     });
-    const limitedScope = isSchoolStaffLimitedDocumentScope({
+    const limitedScope = isSchoolStaffOwnDocumentScope({
       requestingUserRole: req.user.role,
       schoolStaffAccessState
     });
     const isSchoolStaff = String(req.user?.role || '').toLowerCase() === 'school_staff';
     const allowed = isSchoolStaff
-      ? ['limited', 'roi_docs'].includes(String(schoolStaffAccessState || '').toLowerCase())
+      ? schoolStaffMayUsePhi(schoolStaffAccessState)
       : await userCanAccessClient({
           requestingUserId: req.user.id,
           requestingUserRole: req.user.role,
@@ -242,7 +286,12 @@ export const listClientPhiDocuments = async (req, res, next) => {
       throw e;
     }
 
-    if (limitedScope) {
+    if (isSchoolStaff) {
+      docs = filterPhiDocsForSchoolStaff(docs, {
+        userId: req.user?.id,
+        state: schoolStaffAccessState
+      });
+    } else if (limitedScope) {
       docs = (docs || []).filter((doc) => Number(doc?.uploaded_by_user_id || 0) === Number(req.user?.id || 0));
     }
     res.json(docs);
@@ -266,7 +315,7 @@ export const listClientIntakeResponses = async (req, res, next) => {
     });
     const isSchoolStaff = String(req.user?.role || '').toLowerCase() === 'school_staff';
     const allowed = isSchoolStaff
-      ? ['limited', 'roi_docs'].includes(String(schoolStaffAccessState || '').toLowerCase())
+      ? String(schoolStaffAccessState || '').toLowerCase() === 'roi_docs'
       : await userCanAccessClient({
           requestingUserId: req.user.id,
           requestingUserRole: req.user.role,
@@ -509,13 +558,13 @@ export const viewPhiDocument = async (req, res, next) => {
         requestingUserRole: req.user.role,
         client
       });
-      const limitedScope = isSchoolStaffLimitedDocumentScope({
+      const limitedScope = isSchoolStaffOwnDocumentScope({
         requestingUserRole: req.user.role,
         schoolStaffAccessState
       });
       const isSchoolStaff = String(req.user?.role || '').toLowerCase() === 'school_staff';
       const allowed = isSchoolStaff
-        ? ['limited', 'roi_docs'].includes(String(schoolStaffAccessState || '').toLowerCase())
+        ? schoolStaffMayUsePhi(schoolStaffAccessState)
         : await userCanAccessClient({
             requestingUserId: req.user.id,
             requestingUserRole: req.user.role,
@@ -523,8 +572,20 @@ export const viewPhiDocument = async (req, res, next) => {
             requireDocumentAccess: true
           });
       if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
-      if (limitedScope && Number(doc?.uploaded_by_user_id || 0) !== Number(req.user?.id || 0)) {
-        return res.status(403).json({ error: { message: 'Limited access only allows documents you uploaded' } });
+      if (isSchoolStaff && !schoolStaffMayOpenPhiDocument(doc, {
+        userId: req.user.id,
+        state: schoolStaffAccessState
+      })) {
+        return res.status(403).json({
+          error: {
+            message: schoolStaffHidesReferralPackets(schoolStaffAccessState)
+              ? 'ROI (Speak) does not include referral documents, including packets you uploaded.'
+              : 'This ROI level only allows documents you uploaded'
+          }
+        });
+      }
+      if (!isSchoolStaff && limitedScope && Number(doc?.uploaded_by_user_id || 0) !== Number(req.user?.id || 0)) {
+        return res.status(403).json({ error: { message: 'This ROI level only allows documents you uploaded' } });
       }
     } else if (doc.referral_draft_id) {
       const ok = await canUserAccessReferralDraftPhiDocument({ doc, user: req.user });
@@ -740,13 +801,13 @@ export const listClientPhiDocumentAudit = async (req, res, next) => {
       requestingUserRole: req.user.role,
       client
     });
-    const limitedScope = isSchoolStaffLimitedDocumentScope({
+    const limitedScope = isSchoolStaffOwnDocumentScope({
       requestingUserRole: req.user.role,
       schoolStaffAccessState
     });
     const isSchoolStaff = String(req.user?.role || '').toLowerCase() === 'school_staff';
     const allowed = isSchoolStaff
-      ? ['limited', 'roi_docs'].includes(String(schoolStaffAccessState || '').toLowerCase())
+      ? schoolStaffMayUsePhi(schoolStaffAccessState)
       : await userCanAccessClient({
           requestingUserId: req.user.id,
           requestingUserRole: req.user.role,
@@ -781,10 +842,12 @@ export const listClientPhiDocumentAudit = async (req, res, next) => {
       logsByDoc.get(log.document_id).push(log);
     }
 
-    const statements = (limitedScope
-      ? (docs || []).filter((doc) => Number(doc?.uploaded_by_user_id || 0) === Number(req.user?.id || 0))
-      : (docs || [])
-    ).map(doc => {
+    const visibleDocs = isSchoolStaff
+      ? filterPhiDocsForSchoolStaff(docs, { userId: req.user?.id, state: schoolStaffAccessState })
+      : (limitedScope
+        ? (docs || []).filter((doc) => Number(doc?.uploaded_by_user_id || 0) === Number(req.user?.id || 0))
+        : (docs || []));
+    const statements = visibleDocs.map(doc => {
       const docLogs = logsByDoc.get(doc.id) || [];
       const uploaded = docLogs.find(l => l.action === 'uploaded') || null;
       const downloaded = docLogs.find(l => l.action === 'downloaded') || null;

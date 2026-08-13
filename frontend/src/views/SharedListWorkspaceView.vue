@@ -52,9 +52,16 @@
             Completed
           </button>
         </div>
+        <input
+          v-if="isOutreachList"
+          v-model="schoolQuery"
+          type="search"
+          class="form-control slw__school-search"
+          placeholder="Search by school…"
+        />
       </div>
 
-      <div v-if="canEdit && statusTab === 'pending'" class="slw__add-task">
+      <div v-if="canEdit && statusTab === 'pending'" class="slw__add-task" :class="{ 'slw__add-task--outreach': isOutreachList }">
         <input
           v-model="newTaskTitle"
           type="text"
@@ -62,6 +69,10 @@
           placeholder="Add a task…"
           @keydown.enter="addTask"
         />
+        <select v-if="isOutreachList" v-model="newTaskSchoolId" class="form-control" title="School tag">
+          <option value="">School tag…</option>
+          <option v-for="s in outreachSchools" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
+        </select>
         <select v-model="newTaskAssignee" class="form-control">
           <option :value="currentUserId">Me</option>
           <option :value="null">No one</option>
@@ -123,6 +134,7 @@
                 </th>
                 <th class="slw__col-check" title="Mark complete"></th>
                 <th class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'title' }" @click="setSort('title')">Task <span class="slw__sort-arrow">{{ slwSortIndicator('title') }}</span></th>
+                <th v-if="showSchoolColumn" class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'school' }" @click="setSort('school')">School <span class="slw__sort-arrow">{{ slwSortIndicator('school') }}</span></th>
                 <th class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'assignee' }" @click="setSort('assignee')">Assignee <span class="slw__sort-arrow">{{ slwSortIndicator('assignee') }}</span></th>
                 <th class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'category' }" @click="setSort('category')">Category <span class="slw__sort-arrow">{{ slwSortIndicator('category') }}</span></th>
                 <th class="slw__th-sort" :class="{ 'slw__th-sort--active': sortBy === 'due_date' }" @click="setSort('due_date')">Due <span class="slw__sort-arrow">{{ slwSortIndicator('due_date') }}</span></th>
@@ -156,6 +168,10 @@
                 <td class="slw__col-title">
                   <span :class="{ 'slw__done-text': t.status === 'completed' }">{{ t.title }}</span>
                   <span v-if="t.status === 'waiting'" class="slw__waiting-badge">Waiting</span>
+                </td>
+                <td v-if="showSchoolColumn">
+                  <span v-if="taskSchoolTag(t)" class="slw__school-tag">{{ taskSchoolTag(t) }}</span>
+                  <span v-else class="slw__muted">—</span>
                 </td>
                 <!-- Assignee cell with inline quick-assign -->
                 <td class="slw__cell-assignee" @click.stop>
@@ -422,6 +438,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import { formatDate } from '../utils/formatDate';
 import { TASK_CATEGORIES, formatTaskCategoriesShort, getTaskCategories, normalizeTaskCategories, taskCategoryLabel } from '../utils/taskCategories';
+import { taskSchoolTag } from '../utils/taskSchoolTag.js';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import TaskDetailSidePanel from '../components/tasks/TaskDetailSidePanel.vue';
 import BulkActionBar from '../components/tasks/BulkActionBar.vue';
@@ -457,6 +474,9 @@ const newTaskTitle = ref('');
 const newTaskUrgency = ref('medium');
 const newTaskAssignee = ref(null);
 const newTaskDueDate = ref('');
+const newTaskSchoolId = ref('');
+const outreachSchools = ref([]);
+const schoolQuery = ref('');
 const newTaskCategories = ref(['general']);
 const newTaskCategoryOpen = ref(false);
 const adding = ref(false);
@@ -469,6 +489,8 @@ const newTaskCategoryTask = computed(() => ({
   categories: newTaskCategories.value,
   category: newTaskCategories.value[0] || 'general'
 }));
+const isOutreachList = computed(() => String(list.value?.name || '').trim().toLowerCase() === 'outreach');
+const showSchoolColumn = computed(() => isOutreachList.value || tasks.value.some((t) => taskSchoolTag(t)));
 
 // ─── Multi-select / bulk actions ─────────────────────────────────────────
 const selectedIds = ref(new Set());
@@ -830,7 +852,15 @@ function slwSortIndicator(field) {
 
 const sortedTasks = computed(() => {
   const d = sortDir.value === 'asc' ? 1 : -1;
-  return [...tasks.value].sort((a, b) => {
+  const q = schoolQuery.value.trim().toLowerCase();
+  const source = q
+    ? tasks.value.filter((t) => {
+        const tag = taskSchoolTag(t).toLowerCase();
+        const title = String(t.title || '').toLowerCase();
+        return tag.includes(q) || title.includes(q);
+      })
+    : tasks.value;
+  return [...source].sort((a, b) => {
     switch (sortBy.value) {
       case 'priority':
         return d * ((PRIORITY_RANK[a.urgency] || 0) - (PRIORITY_RANK[b.urgency] || 0));
@@ -850,6 +880,8 @@ const sortedTasks = computed(() => {
         return d * String(a.status || '').localeCompare(String(b.status || ''));
       case 'assignee':
         return d * assigneeName(a).localeCompare(assigneeName(b));
+      case 'school':
+        return d * taskSchoolTag(a).localeCompare(taskSchoolTag(b));
       case 'category':
         return d * formatTaskCategoriesShort(a).localeCompare(formatTaskCategoriesShort(b));
       default:
@@ -877,6 +909,15 @@ async function loadList() {
     list.value = data;
     members.value = data?.members || [];
     await loadTypeDefs();
+    if (String(data?.name || '').trim().toLowerCase() === 'outreach') {
+      newTaskCategories.value = ['schools'];
+      try {
+        const res = await api.get('/outreach/schools', { skipGlobalLoading: true });
+        outreachSchools.value = res.data?.schools || [];
+      } catch {
+        outreachSchools.value = [];
+      }
+    }
   } catch (e) {
     console.error(e);
     list.value = null;
@@ -926,10 +967,12 @@ async function addTask() {
       urgency: newTaskUrgency.value || 'medium',
       assigned_to_user_id: newTaskAssignee.value,
       due_date: newTaskDueDate.value || null,
-      categories: newTaskCategories.value
+      categories: newTaskCategories.value,
+      outreach_school_id: newTaskSchoolId.value ? Number(newTaskSchoolId.value) : undefined
     });
     newTaskTitle.value = '';
     newTaskDueDate.value = '';
+    newTaskSchoolId.value = '';
     newTaskUrgency.value = 'medium';
     newTaskCategories.value = ['general'];
     newTaskCategoryOpen.value = false;
@@ -1117,7 +1160,12 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 16px 28px 0;
+}
+.slw__school-search {
+  max-width: 240px;
+  margin-left: auto;
 }
 .slw__tabs { display: flex; gap: 6px; }
 .slw__tabs button {
@@ -1147,6 +1195,9 @@ onMounted(() => {
   grid-template-columns: 2fr 1fr 0.9fr 1.1fr 1fr auto;
   gap: 8px;
   margin: 14px 28px 0;
+}
+.slw__add-task--outreach {
+  grid-template-columns: 2fr 1.3fr 1fr 0.9fr 1.1fr 1fr auto;
 }
 .slw__add-category { position: relative; min-width: 0; }
 .slw__add-category-btn {
@@ -1463,6 +1514,15 @@ tr:hover .slw__inline-plus { opacity: 1; }
   color: #92400e;
   padding: 1px 6px;
   border-radius: 99px;
+}
+.slw__school-tag {
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: #ecfdf5;
+  color: #166534;
 }
 
 .slw__assignee { display: inline-flex; align-items: center; gap: 6px; }

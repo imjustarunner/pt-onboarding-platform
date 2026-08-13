@@ -259,8 +259,8 @@ const formatCount = (v) => {
 /* ── Hub quick-access card ─────────────────────────── */
 .ops-metric--hubs {
   cursor: default;
-  padding: 8px 8px 8px;
-  gap: 4px;
+  padding: 6px 6px 6px;
+  gap: 3px;
 }
 .ops-metric--hubs:hover {
   transform: none;
@@ -269,9 +269,8 @@ const formatCount = (v) => {
 }
 .hub-mini-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 5px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
   flex: 1;
 }
 .hub-mini-tile {
@@ -279,16 +278,17 @@ const formatCount = (v) => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  padding: 5px 4px;
-  border-radius: 8px;
+  gap: 1px;
+  padding: 3px 2px;
+  border-radius: 7px;
   text-decoration: none;
   color: inherit;
   transition: background 0.13s, transform 0.1s;
   text-align: center;
+  min-width: 0;
 }
 .hub-mini-tile:hover {
-  transform: scale(1.04);
+  transform: scale(1.03);
 }
 .hub-mini-tile--my         { background: #f1f5f9; }
 .hub-mini-tile--my:hover   { background: #e2e8f0; }
@@ -300,26 +300,37 @@ const formatCount = (v) => {
 .hub-mini-tile--school:hover  { background: #f3e8ff; }
 .hub-mini-tile--admin         { background: #fff7ed; }
 .hub-mini-tile--admin:hover   { background: #ffedd5; }
+.hub-mini-tile--people        { background: #fff1f2; }
+.hub-mini-tile--people:hover  { background: #ffe4e6; }
 .hub-mini-icon {
   display: flex;
   align-items: center;
   justify-content: center;
   line-height: 1;
 }
+.hub-mini-icon :deep(svg),
+.hub-mini-icon svg {
+  width: 12px;
+  height: 12px;
+}
 .hub-mini-tile--my        .hub-mini-icon { color: #475569; }
 .hub-mini-tile--ops       .hub-mini-icon { color: #2563eb; }
 .hub-mini-tile--workforce .hub-mini-icon { color: var(--ops-primary, #1f6b4a); }
 .hub-mini-tile--school    .hub-mini-icon { color: #7c3aed; }
 .hub-mini-tile--admin     .hub-mini-icon { color: #c2410c; }
+.hub-mini-tile--people    .hub-mini-icon { color: #be123c; }
 .hub-mini-label {
-  font-size: 9.5px;
+  font-size: 8.5px;
   font-weight: 800;
   color: #0f172a;
   line-height: 1.1;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 .hub-mini-sub {
-  font-size: 8.5px;
+  font-size: 7.5px;
   color: #94a3b8;
   line-height: 1;
 }

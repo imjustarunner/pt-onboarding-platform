@@ -269,13 +269,23 @@ const firstName = computed(() => String(
   authStore.user?.preferredName || authStore.user?.preferred_name || authStore.user?.firstName || authStore.user?.first_name || 'Admin'
 ).trim().split(/\s+/)[0] || 'Admin');
 
+function isGoldFlash(value) {
+  const s = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
+  if (!s) return false;
+  if (/^#c69a2b$/i.test(s)) return true;
+  if (s.includes('198,154,43')) return true;
+  return false;
+}
+
 const platformPalette = computed(() => {
   if (isSuperadmin.value) return SUPERADMIN_BRIEFING_PALETTE;
   const pb = brandingStore.platformBranding || {};
+  const rawPrimary = pb.primary_color || '#1f6b4a';
+  const primary = isGoldFlash(rawPrimary) ? '#1f6b4a' : rawPrimary;
   return {
-    primary: pb.primary_color || '#1f6b4a',
+    primary,
     secondary: pb.secondary_color || '#0f2f27',
-    accent: pb.accent_color || pb.primary_color || '#2f8c68'
+    accent: isGoldFlash(pb.accent_color) ? primary : (pb.accent_color || primary || '#2f8c68')
   };
 });
 
@@ -324,13 +334,25 @@ const tenantContextLabel = computed(() => {
   return 'Administrative briefing';
 });
 
+function liveCssPrimary() {
+  if (typeof document === 'undefined') return '';
+  const root = getComputedStyle(document.documentElement);
+  const v = (root.getPropertyValue('--primary-color') || root.getPropertyValue('--primary') || '').trim();
+  if (!v || isGoldFlash(v)) return '';
+  return v;
+}
+
 const brandVars = computed(() => {
-  const first = brandedAgencies.value[0] || platformPalette.value;
+  const first = brandedAgencies.value[0] || {};
+  const platform = platformPalette.value;
+  const primary = (first.primary && !isGoldFlash(String(first.primary)))
+    ? first.primary
+    : (liveCssPrimary() || platform.primary || '#1f6b4a');
   return {
-    '--brief-primary': first.primary || platformPalette.value.primary,
-    '--brief-secondary': first.secondary || platformPalette.value.secondary,
-    '--brief-accent': first.accent || platformPalette.value.accent,
-    '--brief-blend': buildTenantBlend(brandedAgencies.value, platformPalette.value)
+    '--brief-primary': primary,
+    '--brief-secondary': first.secondary || platform.secondary,
+    '--brief-accent': first.accent || platform.accent,
+    '--brief-blend': buildTenantBlend(brandedAgencies.value, { ...platform, primary })
   };
 });
 

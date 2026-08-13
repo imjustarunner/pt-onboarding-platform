@@ -309,8 +309,22 @@ class Task {
 
     if (filters.q) {
       const needle = `%${String(filters.q).trim().slice(0, 120)}%`;
-      q += ' AND (t.title LIKE ? OR t.description LIKE ?)';
-      p.push(needle, needle);
+      q += ` AND (
+        t.title LIKE ?
+        OR t.description LIKE ?
+        OR COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.schoolName')), '') LIKE ?
+      )`;
+      p.push(needle, needle, needle);
+    }
+    if (filters.outreachSchoolId) {
+      const osid = parseInt(filters.outreachSchoolId, 10);
+      if (!Number.isNaN(osid) && osid > 0) {
+        q += ` AND (
+          t.outreach_school_id = ?
+          OR JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.outreachSchoolId')) = ?
+        )`;
+        p.push(osid, String(osid));
+      }
     }
 
     if (filters.unassignedFromList) {
@@ -419,6 +433,7 @@ class Task {
         tl.name as task_list_name,
         tp.name as project_name,
         ad.name as department_name,
+        os.name as school_tag,
         assignee.first_name as assignee_first_name,
         assignee.last_name as assignee_last_name,
         assignee.profile_photo_path as assignee_profile_photo_path,
@@ -432,6 +447,7 @@ class Task {
       LEFT JOIN task_lists tl ON tl.id = t.task_list_id
       LEFT JOIN task_projects tp ON tp.id = t.project_id
       LEFT JOIN agency_departments ad ON ad.id = t.department_id
+      LEFT JOIN outreach_schools os ON os.id = t.outreach_school_id
       LEFT JOIN users assignee ON assignee.id = t.assigned_to_user_id
       WHERE ${this._privateVisibleSql('t')}
         AND (
@@ -558,6 +574,7 @@ class Task {
           tl.name as task_list_name,
           tp.name as project_name,
           ad.name as department_name,
+          os.name as school_tag,
           assignee.first_name as assignee_first_name,
           assignee.last_name as assignee_last_name,
           assignee.profile_photo_path as assignee_profile_photo_path,
@@ -566,6 +583,7 @@ class Task {
         LEFT JOIN task_lists tl ON tl.id = t.task_list_id
         LEFT JOIN task_projects tp ON tp.id = t.project_id
         LEFT JOIN agency_departments ad ON ad.id = t.department_id
+        LEFT JOIN outreach_schools os ON os.id = t.outreach_school_id
         LEFT JOIN users assignee ON assignee.id = t.assigned_to_user_id
         ${where}
       `;
@@ -1137,7 +1155,7 @@ class Task {
           entity_type: 'task',
           entity_id: t.id,
           title: t.title,
-          subtitle: t.task_list_name || t.project_name || t.task_type,
+          subtitle: this._hubSearchSubtitle(t, t.task_type),
           view: Number(t.assigned_to_user_id) === uid
             ? 'assigned'
             : Number(t.assigned_by_user_id) === uid
@@ -1163,7 +1181,7 @@ class Task {
             entity_type: 'task',
             entity_id: t.id,
             title: t.title,
-            subtitle: t.task_list_name || t.project_name || 'Team',
+            subtitle: this._hubSearchSubtitle(t, 'Team'),
             view: 'all',
             status: t.status,
             task: t
@@ -1265,6 +1283,13 @@ class Task {
     } catch { /* ignore */ }
 
     return results;
+  }
+
+  static _hubSearchSubtitle(task, fallback) {
+    const school = String(task?.school_tag || task?.metadata?.schoolName || '').trim();
+    const base = task?.task_list_name || task?.project_name || fallback || '';
+    if (school && base) return `${base} · ${school}`;
+    return school || base;
   }
 
   static parseMetadata(metadata) {

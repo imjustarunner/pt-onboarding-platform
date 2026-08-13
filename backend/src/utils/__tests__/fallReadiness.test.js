@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildSchoolFallHoverText,
   computeFallReadinessSummary,
   hasCompletedFallContinuation,
   isReturningSchoolClient,
@@ -50,10 +51,91 @@ describe('normalizeContinuationServicesPayload', () => {
   it('maps legacy unableToContactRecommendation to recommendTerminate', () => {
     const out = normalizeContinuationServicesPayload({
       plan: 'unable_to_contact_parent',
-      unableToContactRecommendation: 'recommend_terminate'
+      unableToContactRecommendation: 'recommend_terminate',
+      contactAttempts: 3
     });
     assert.equal(out.recommendTerminate, true);
+    assert.equal(out.contactAttempts, 3);
     assert.match(out.privateComment, /Unable to contact/);
+  });
+
+  it('requires contact attempts for unable_to_contact_parent', () => {
+    assert.throws(
+      () => normalizeContinuationServicesPayload({
+        plan: 'unable_to_contact_parent',
+        privateComment: 'Tried calling',
+        recommendTerminate: false
+      }),
+      /contact attempts/
+    );
+  });
+});
+
+describe('buildSchoolFallHoverText', () => {
+  it('shows patient discontinued for confirmation_pending other', () => {
+    const text = buildSchoolFallHoverText({
+      client_status_key: 'confirmation_pending',
+      continuation_services_json: {
+        plan: 'other',
+        otherReasonKey: 'patient_discontinued_services'
+      }
+    });
+    assert.match(text, /Patient Discontinued Services/);
+  });
+
+  it('hides custom freeform other comments from school hover', () => {
+    const text = buildSchoolFallHoverText({
+      client_status_key: 'confirmation_pending',
+      continuation_services_json: {
+        plan: 'other',
+        otherReasonKey: 'custom',
+        privateComment: 'secret family details'
+      }
+    });
+    assert.equal(text, 'Fall Confirmation Pending');
+    assert.doesNotMatch(text || '', /secret/);
+  });
+
+  it('defaults to waiting on provider fall confirmation when JSON is empty', () => {
+    const text = buildSchoolFallHoverText({
+      client_status_key: 'confirmation_pending',
+      has_provider: true,
+      has_weekday: false
+    });
+    assert.match(text, /Waiting on provider fall confirmation/i);
+  });
+
+  it('explains missing provider vs assigned day on hover', () => {
+    assert.match(
+      buildSchoolFallHoverText({
+        client_status_key: 'confirmation_pending',
+        has_provider: false
+      }),
+      /not on a caseload/i
+    );
+    assert.match(
+      buildSchoolFallHoverText({
+        client_status_key: 'confirmation_pending',
+        has_provider: true,
+        has_weekday: true,
+        service_day: 'Friday'
+      }),
+      /Ready to Schedule/i
+    );
+  });
+
+  it('includes attempts and support follow-up for unable to contact', () => {
+    const text = buildSchoolFallHoverText({
+      client_status_key: 'confirmation_pending',
+      continuation_services_json: {
+        plan: 'unable_to_contact_parent',
+        contactAttempts: 4,
+        supportFollowUp: true
+      }
+    });
+    assert.match(text, /Unable to Contact Parent/);
+    assert.match(text, /4 attempt/);
+    assert.match(text, /support team is following up/i);
   });
 });
 

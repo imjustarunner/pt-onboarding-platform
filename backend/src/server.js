@@ -154,6 +154,7 @@ import officeSlotActionsRoutes from './routes/officeSlotActions.routes.js';
 import officeReviewRoutes from './routes/officeReview.routes.js';
 import availabilityRoutes from './routes/availability.routes.js';
 import hiringRoutes from './routes/hiring.routes.js';
+import outreachHubRoutes from './routes/outreachHub.routes.js';
 import employeeRelationsRoutes from './routes/employeeRelations.routes.js';
 import lifecycleRoutes from './routes/lifecycle.routes.js';
 import gearInventoryRoutes from './routes/gearInventory.routes.js';
@@ -862,6 +863,7 @@ app.use('/api/office-review', officeReviewRoutes);
 app.use('/api/availability', availabilityRoutes);
 app.use('/api/skill-builders', skillBuildersProviderHubRoutes);
 app.use('/api/hiring', hiringRoutes);
+app.use('/api/outreach', outreachHubRoutes);
 app.use('/api/employee-relations', employeeRelationsRoutes);
 app.use('/api/lifecycle', lifecycleRoutes);
 app.use('/api/gear-inventory', gearInventoryRoutes);
@@ -1476,14 +1478,14 @@ if (!isBootstrap) {
   // Public intake retention: automatic deletion of packets/PHI is disabled.
   // IntakeRetentionCleanupService.run() is a no-op; do not schedule a purge job.
 
-  // Client compliance: promote pending clients to "current" when first_service_at has passed.
+  // Client compliance: promote Scheduled → Being Seen when first_service_at has passed.
   // Runs daily at 5:00 AM so clients are promoted even if nobody saves the checklist again.
   const scheduleClientCompliancePromotion = async () => {
     try {
       const ClientCompliancePromotionService = (await import('./services/clientCompliancePromotion.service.js')).default;
       const result = await ClientCompliancePromotionService.run();
       const n = Number(result?.promoted || 0);
-      if (n > 0) console.log(`[client_compliance] promoted ${n} pending client(s) to current`);
+      if (n > 0) console.log(`[client_compliance] promoted ${n} client(s) to Being Seen`);
     } catch (error) {
       console.error('Error in client compliance promotion:', error);
     }
@@ -1493,6 +1495,31 @@ if (!isBootstrap) {
     scheduleClientCompliancePromotion();
     setInterval(scheduleClientCompliancePromotion, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight() + (5 * 60 * 60 * 1000));
+
+  // School-year lifecycle calendar: Spring Update open/due, July rollover (portal year / PYU /
+  // collaborative enablement Action), fall confirmation due. Runs daily at 5:15 AM.
+  const scheduleClientLifecycleCalendar = async () => {
+    try {
+      const { runClientLifecycleCalendarJob } = await import('./services/clientLifecycleCalendar.service.js');
+      const result = await runClientLifecycleCalendarJob();
+      if (result?.springOpen || result?.springDue || result?.julyRollover || result?.fallDue) {
+        console.log('[client_lifecycle_calendar]', JSON.stringify({
+          springOpen: result.springOpen,
+          springDue: result.springDue,
+          julyRollover: result.julyRollover,
+          fallDue: result.fallDue,
+          agencies: result.agencies,
+          portalSchoolYear: result.portalSchoolYear
+        }));
+      }
+    } catch (error) {
+      console.error('Error in client lifecycle calendar job:', error);
+    }
+  };
+  setTimeout(() => {
+    scheduleClientLifecycleCalendar();
+    setInterval(scheduleClientLifecycleCalendar, 24 * 60 * 60 * 1000);
+  }, getMsUntilMidnight() + (5 * 60 * 60 * 1000) + (15 * 60 * 1000));
 
   // SMS/Voice retention cleanup (message_logs, call_logs, call_voicemails, notification_sms_logs)
   // Runs daily at 3:00 AM. Set SMS_VOICE_RETENTION_DAYS=365 (default) or 0 to keep indefinitely.

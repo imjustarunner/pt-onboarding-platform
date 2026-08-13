@@ -2,15 +2,23 @@
   <div class="container sph-page">
     <header class="sph-header">
       <div>
-        <h1>Provider Year Update</h1>
+        <h1>Provider Fall Update</h1>
         <p class="sph-sub muted">
-          The school year is quickly approaching! Work through reminders, school events, materials, and your schedule.
-          Progress is tracked for your agency team.
+          Complete your fall update — reminders, events, materials, schedule, and client fall confirmation — in one place.
+          When this school year closes, the next year is shown and you can still view the archived year.
         </p>
       </div>
       <div v-if="status" class="sph-status">
+        <label class="sph-year-picker">
+          <span class="muted tiny">School year</span>
+          <select v-model="selectedSchoolYear" @change="onYearChange">
+            <option v-for="y in yearOptions" :key="y.schoolYear" :value="y.schoolYear">
+              {{ y.schoolYear }}{{ y.status === 'disabled' ? ' (archived)' : '' }}
+            </option>
+          </select>
+        </label>
         <div class="sph-status-pct">{{ status.sectionPercent || 0 }}%</div>
-        <div class="muted tiny">{{ status.cycle?.status === 'finalized' ? 'Completed' : 'In progress' }}</div>
+        <div class="muted tiny">{{ status.isArchivedView ? 'Archived' : (status.cycle?.status === 'finalized' ? 'Completed' : 'In progress') }}</div>
       </div>
     </header>
 
@@ -60,6 +68,7 @@ const loading = ref(true);
 const status = ref(null);
 const sections = ref([]);
 const error = ref('');
+const selectedSchoolYear = ref('');
 
 const agencyId = computed(() =>
   Number(agencyStore.currentAgencyId || agencyStore.currentAgency?.id || 0)
@@ -74,7 +83,9 @@ const cards = [
   { ...SECTION_META[0], icon: '✅' },
   { ...SECTION_META[1], icon: '🎉' },
   { ...SECTION_META[2], icon: '📦' },
-  { ...SECTION_META[3], icon: '📅' },
+  { ...SECTION_META[3], icon: '🪪' },
+  { ...SECTION_META[4], icon: '📅' },
+  { ...SECTION_META[5], icon: '👥' }
 ];
 
 const unavailable = computed(() => {
@@ -89,18 +100,35 @@ const unavailable = computed(() => {
 
 const banner = computed(() => {
   if (!status.value?.available) return null;
+  if (status.value.isArchivedView) {
+    return { kind: 'ok', text: `Viewing archived ${status.value.schoolYear || selectedSchoolYear.value} Fall Update. Switch years to continue the current update.` };
+  }
   if (status.value.cycle?.status === 'finalized') {
-    return { kind: 'ok', text: 'You have completed the Provider Year Update. You can still revisit any section.' };
+    return { kind: 'ok', text: 'You have completed the Provider Fall Update. You can still revisit any section.' };
   }
   if (status.value.showPulse) {
-    return { kind: 'pulse', text: 'Please complete your Provider Year Update before the school year starts.' };
+    return { kind: 'pulse', text: 'Please complete your Provider Fall Update before the school year starts.' };
   }
   return null;
 });
 
+const yearOptions = computed(() => {
+  const rows = Array.isArray(status.value?.availableYears) ? status.value.availableYears : [];
+  if (rows.length) return rows;
+  const y = status.value?.schoolYear || status.value?.cycle?.schoolYear;
+  return y ? [{ schoolYear: y, status: status.value?.isArchivedView ? 'disabled' : 'pushed' }] : [];
+});
+
 function flowTo(section) {
   const base = `${orgPrefix.value}/provider/year-update/flow`;
-  return section ? { path: base, query: { section } } : base;
+  const query = {};
+  if (section) query.section = section;
+  if (selectedSchoolYear.value) query.schoolYear = selectedSchoolYear.value;
+  return { path: base, query };
+}
+
+function onYearChange() {
+  load();
 }
 
 function sectionDone(key) {
@@ -116,11 +144,19 @@ async function load() {
       error.value = 'Select an agency to continue.';
       return;
     }
+    if (route.query.schoolYear) {
+      selectedSchoolYear.value = String(route.query.schoolYear);
+    }
+    const params = { agencyId: agencyId.value };
+    if (selectedSchoolYear.value) params.schoolYear = selectedSchoolYear.value;
     const [st, me] = await Promise.all([
-      api.get('/provider-year-update/me/status', { params: { agencyId: agencyId.value } }),
-      api.get('/provider-year-update/me', { params: { agencyId: agencyId.value } }).catch(() => null),
+      api.get('/provider-year-update/me/status', { params }),
+      api.get('/provider-year-update/me', { params }).catch(() => null),
     ]);
     status.value = st.data;
+    if (!selectedSchoolYear.value) {
+      selectedSchoolYear.value = st.data?.schoolYear || st.data?.cycle?.schoolYear || '';
+    }
     if (me?.data?.sections) sections.value = me.data.sections;
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e.message || 'Failed to load';
@@ -166,6 +202,20 @@ onMounted(load);
 }
 .sph-status {
   text-align: right;
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+.sph-year-picker {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
+.sph-year-picker select {
+  min-width: 160px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
 }
 .sph-status-pct {
   font-size: 1.75rem;

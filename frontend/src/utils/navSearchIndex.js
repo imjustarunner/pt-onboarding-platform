@@ -265,7 +265,7 @@ export const NAV_SEARCH_INDEX = [
     title: 'School Operations',
     section: 'Hub',
     path: '/school-operations',
-    keywords: ['hub', 'school', 'operations', 'caseloads', 'portals', 'events'],
+    keywords: ['school', 'caseload', 'coverage', 'portal', 'events', 'staffing', 'outreach'],
     desc: 'Main School Operations hub — caseloads, portals, events, and requests.'
   },
 
@@ -306,24 +306,31 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Review and approve schedule adjustments and extra school-hour requests.'
   },
 
-  // Events & Calendar
+  // Events and Outreach
   {
     title: 'School Events',
-    section: 'School Ops › Events & Calendar',
+    section: 'School Ops › Events and Outreach',
     path: '/admin/caseload-hub/events',
     keywords: ['school events', 'events', 'provider assignments', 'event list', 'program events'],
     desc: 'Manage school events and provider assignments.'
   },
   {
     title: 'School Events Calendar',
-    section: 'School Ops › Events & Calendar',
+    section: 'School Ops › Events and Outreach',
     path: '/admin/caseload-hub/calendar',
     keywords: ['school calendar', 'calendar', 'events calendar', 'monthly view', 'week view'],
     desc: 'Month, week, and list views of school events.'
   },
   {
+    title: 'Outreach Hub',
+    section: 'School Ops › Events and Outreach',
+    path: '/admin/outreach-hub',
+    keywords: ['outreach', 'visits', 'school contacts', 'partnership', 'trips', 'timeline'],
+    desc: 'Track school outreach contacts, visits, and partnership stages.'
+  },
+  {
     title: 'Provider Requests (Events)',
-    section: 'School Ops › Events & Calendar',
+    section: 'School Ops › Events and Outreach',
     path: '/admin/caseload-hub/events?tab=provider-requests',
     keywords: ['provider requests', 'event requests', 'provider applications', 'event approvals'],
     desc: 'Pending provider applications for school events.'
@@ -366,18 +373,18 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Guardians linked to school-affiliated clients.'
   },
   {
-    title: 'Client Readiness',
+    title: 'Client Action Needed',
     section: 'School Ops › Clients & Guardians',
     path: '/admin/client-onboarding?scope=school',
-    keywords: ['client readiness', 'client onboarding', 'new clients', 'intake checklist', 'onboarded', 'packet docs'],
-    desc: 'Staff readiness checklist for school and office intakes.'
+    keywords: ['client action needed', 'client readiness', 'client onboarding', 'new clients', 'fall confirmation', 'intake checklist'],
+    desc: 'Clients who still need a next step — fall confirmation, new-client intake, or agency clearance.'
   },
   {
-    title: 'Client Readiness (Provider)',
+    title: 'Client Action Needed (Provider)',
     section: 'Clients',
     path: '/provider/client-onboarding',
-    keywords: ['client readiness', 'client onboarding', 'provider onboarding', 'my steps', 'first service', 'parent contact'],
-    desc: 'View staff setup progress and complete provider contact, intake, and first service.'
+    keywords: ['client action needed', 'client readiness', 'client onboarding', 'provider onboarding', 'my steps', 'fall confirmation'],
+    desc: 'Fall confirmation, new-client actions, and remaining provider next steps.'
   },
   {
     title: 'Client Exchange',
@@ -408,11 +415,11 @@ export const NAV_SEARCH_INDEX = [
     desc: 'All guardian accounts and parent contacts.'
   },
   {
-    title: 'Client Readiness',
+    title: 'Client Action Needed',
     section: 'Workforce Ops › Clients & Guardians',
     path: '/admin/client-onboarding?scope=all',
-    keywords: ['client readiness', 'client onboarding', 'new clients', 'intake checklist', 'onboarded', 'office intake'],
-    desc: 'Staff readiness checklist for school and office intakes.'
+    keywords: ['client action needed', 'client readiness', 'client onboarding', 'fall confirmation', 'office intake'],
+    desc: 'Clients who still need a next step — fall confirmation, new-client intake, or agency clearance.'
   },
   {
     title: 'Client Exchange',

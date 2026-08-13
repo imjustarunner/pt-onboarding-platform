@@ -21,6 +21,8 @@ import {
   isReturningSchoolClient,
   continuationPlanIsContinue
 } from '../utils/fallReadiness.js';
+import { deriveLifecycleAction } from '../utils/clientLifecycleAction.js';
+import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
 
 function continuationIsNonContinue(raw) {
   return hasCompletedFallContinuation(raw) && !continuationPlanIsContinue(raw);
@@ -461,7 +463,7 @@ export async function markPaperPacketSignatureReceived({ clientId, actorUserId =
 /**
  * Staff confirms school ROI permissions match the signed paper packet.
  * Clears the pending flag so the ROI staff step can complete even when every
- * staff member stays at Limited access.
+ * staff member stays at ROI Active (limited).
  */
 export async function acknowledgeRoiStaffOnboarding({ clientId, roiExpiresAt = undefined, actorUserId = null }) {
   const cid = Number(clientId || 0);
@@ -559,9 +561,9 @@ export async function completeStaffOnboarding({ clientId, actorUserId = null }) 
 }
 
 /**
- * After provider checklist fields save: promote onboarded → current when provider items complete.
- * Returning school clients need a weekday (or completed continue_school) — last year's
- * first_service_at alone must not keep them Current.
+ * After provider checklist fields save: when first service is confirmed (and school
+ * client has a Soft Schedule day), promote to Being Seen — not legacy Current.
+ * Returning school clients need a weekday; last year's first_service_at alone must not promote.
  */
 export async function maybePromoteOnboardedToCurrent({ clientId, actorUserId = null }) {
   const client = await Client.findById(clientId, { includeSensitive: true });
@@ -571,62 +573,70 @@ export async function maybePromoteOnboardedToCurrent({ clientId, actorUserId = n
   if (!checklist) return { promoted: false };
 
   const statusKey = String(checklist.status_key || '').toLowerCase();
-  if (statusKey === 'current') return { promoted: false };
+  if (statusKey === 'being_seen' || statusKey === 'current') return { promoted: false };
   if (statusKey === 'terminated') return { promoted: false };
 
   const school = isSchoolClient(client);
   const returning = school && isReturningSchoolClient(client);
   const dayAssigned = await hasServiceDay(clientId, client);
   const fallContinue = continuationPlanIsContinue(client.continuation_services_json);
+  const firstServiceDone = (checklist.provider_items || []).some(
+    (i) => i.key === 'first_service' && i.done
+  ) || !!client.first_service_at || !!client.services_started_at;
+
+  if (!firstServiceDone) return { promoted: false };
 
   if (returning) {
-    // Fall returning: only become Current when they have a weekday this season
-    // (or completed Continuing Services which assigns days).
     if (!dayAssigned && !fallContinue) return { promoted: false };
-  } else {
-    const staffReady = !!client.staff_onboarding_completed_at || statusKey === 'onboarded';
-    if (!staffReady) return { promoted: false };
-    if (!(checklist.provider_items || []).every((i) => i.done)) return { promoted: false };
-    if (school && !dayAssigned) return { promoted: false };
+  } else if (school && !dayAssigned) {
+    return { promoted: false };
   }
 
-  const currentId = await getClientStatusIdByKey({ agencyId: client.agency_id, statusKey: 'current' });
-  if (!currentId) return { promoted: false };
+  const { markClientBeingSeen } = await import('./clientLifecycleStatus.service.js');
+  const serviceDate =
+    client.first_service_at
+      ? String(client.first_service_at).slice(0, 10)
+      : (client.services_started_at ? String(client.services_started_at).slice(0, 10) : null);
+  const result = await markClientBeingSeen({
+    clientId,
+    actorUserId,
+    serviceDate
+  });
 
-  await Client.update(clientId, { client_status_id: currentId }, actorUserId);
-  const workflow = String(client.status || '').toUpperCase();
-  if (workflow === 'PENDING_REVIEW' || workflow === 'PACKET' || !workflow || workflow === 'SCREENER') {
-    try {
-      await Client.updateStatus(clientId, 'ACTIVE', actorUserId, 'Auto-marked current after provider onboarding checklist');
-    } catch {
-      // best-effort
+  if (result?.changed) {
+    const workflow = String(client.status || '').toUpperCase();
+    if (workflow === 'PENDING_REVIEW' || workflow === 'PACKET' || !workflow || workflow === 'SCREENER') {
+      try {
+        await Client.updateStatus(clientId, 'ACTIVE', actorUserId, 'Auto-marked Being Seen after first service');
+      } catch {
+        // best-effort
+      }
     }
+    notifyClientBecameCurrent({
+      agencyId: client.agency_id,
+      schoolOrganizationId: client.organization_id,
+      clientId: client.id,
+      providerUserId: client.provider_id,
+      clientNameOrIdentifier: client.identifier_code || client.full_name || client.initials,
+      serviceDay: client.service_day || null,
+      intakeAt: client.intake_at ? String(client.intake_at).slice(0, 10) : null,
+      firstServiceAt: serviceDate,
+      parentsContactedAt: client.parents_contacted_at ? String(client.parents_contacted_at).slice(0, 10) : null,
+      parentsContactedSuccessful: client.parents_contacted_successful === 1 || client.parents_contacted_successful === true,
+      actorUserId
+    }).catch(() => {});
   }
 
-  notifyClientBecameCurrent({
-    agencyId: client.agency_id,
-    schoolOrganizationId: client.organization_id,
-    clientId: client.id,
-    providerUserId: client.provider_id,
-    clientNameOrIdentifier: client.identifier_code || client.full_name || client.initials,
-    serviceDay: client.service_day || null,
-    intakeAt: client.intake_at ? String(client.intake_at).slice(0, 10) : null,
-    firstServiceAt: client.first_service_at ? String(client.first_service_at).slice(0, 10) : null,
-    parentsContactedAt: client.parents_contacted_at ? String(client.parents_contacted_at).slice(0, 10) : null,
-    parentsContactedSuccessful: client.parents_contacted_successful === 1 || client.parents_contacted_successful === true,
-    actorUserId
-  }).catch(() => {});
-
-  return { promoted: true };
+  return { promoted: !!result?.changed, statusKey: result?.statusKey || null };
 }
 
 /**
- * Queue of intakes needing staff onboarding (school and/or office).
+ * Queue of clients needing a next step (fall confirmation, agency clearance, new-client intake).
  */
 export async function listOnboardingQueue({ agencyId, scope = 'all', limit = 100 }) {
   const aid = Number(agencyId || 0);
   if (!aid) return [];
-  const lim = Math.max(1, Math.min(Number(limit) || 100, 300));
+  const lim = Math.max(1, Math.min(Number(limit) || 300, 500));
   const scopeNorm = String(scope || 'all').toLowerCase();
 
   let typeClause = '';
@@ -634,6 +644,19 @@ export async function listOnboardingQueue({ agencyId, scope = 'all', limit = 100
   else if (scopeNorm === 'office') {
     typeClause = ` AND LOWER(COALESCE(c.client_type, '')) IN ('clinical', 'learning', 'basic_nonclinical')`;
   }
+
+  const ACTION_STATUSES = [
+    'packet', 'pending', 'screener', 'prospective', 'onboarded',
+    'received', 'pending_corrections', 'in_process',
+    'confirmation_pending', 'confirmed_returning', 'ready_to_schedule',
+    'scheduled', 'current', 'unable_to_reach', 'other_transfer',
+    'continuation_unknown', 'returning', 'spring_update_pending'
+  ];
+  const statusList = ACTION_STATUSES.map((s) => `'${s}'`).join(', ');
+  const CHECKLIST_STATUSES = new Set([
+    'packet', 'pending', 'screener', 'prospective', 'onboarded',
+    'received', 'pending_corrections', 'in_process'
+  ]);
 
   const [rows] = await pool.execute(
     `SELECT
@@ -658,6 +681,14 @@ export async function listOnboardingQueue({ agencyId, scope = 'all', limit = 100
        c.source,
        c.status,
        c.document_status,
+       c.parents_contacted_at,
+       c.first_service_at,
+       c.services_started_at,
+       c.disclosure_required,
+       c.continuation_services_json,
+       c.agency_intake_json,
+       c.roi_expires_at,
+       c.school_year,
        TRIM(CONCAT(COALESCE(pu.first_name, ''), ' ', COALESCE(pu.last_name, ''))) AS provider_name
      FROM clients c
      LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
@@ -665,11 +696,7 @@ export async function listOnboardingQueue({ agencyId, scope = 'all', limit = 100
      LEFT JOIN users pu ON pu.id = c.provider_id
      WHERE c.agency_id = ?
        AND UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
-       AND LOWER(COALESCE(cs.status_key, '')) IN ('packet', 'pending', 'screener', 'prospective', 'onboarded')
-       AND (
-         c.staff_onboarding_completed_at IS NULL
-         OR LOWER(COALESCE(cs.status_key, '')) <> 'current'
-       )
+       AND LOWER(COALESCE(cs.status_key, '')) IN (${statusList})
        ${typeClause}
      ORDER BY
        CASE WHEN LOWER(COALESCE(o.organization_type, '')) = 'school' THEN 0 ELSE 1 END,
@@ -680,11 +707,48 @@ export async function listOnboardingQueue({ agencyId, scope = 'all', limit = 100
     [aid]
   );
 
+  const ids = (rows || []).map((r) => Number(r.id)).filter(Boolean);
+  const dispositionByClient = new Map();
+  if (ids.length) {
+    try {
+      const year = computeCurrentSchoolYearLabel();
+      const placeholders = ids.map(() => '?').join(',');
+      const [dispRows] = await pool.execute(
+        `SELECT client_id, agency_clearance_json, agency_cleared_at, fall_completed_at
+         FROM client_year_dispositions
+         WHERE school_year = ? AND client_id IN (${placeholders})`,
+        [year, ...ids]
+      );
+      for (const d of dispRows || []) {
+        dispositionByClient.set(Number(d.client_id), d);
+      }
+    } catch {
+      // dispositions table optional
+    }
+  }
+
   const out = [];
   for (const row of rows || []) {
-    const checklist = await getClientOnboardingChecklist(row.id);
-    if (!checklist) continue;
-    if (checklist.phase === 'done') continue;
+    const statusKey = String(row.client_status_key || '').toLowerCase();
+    let checklist = null;
+    if (CHECKLIST_STATUSES.has(statusKey)) {
+      checklist = await getClientOnboardingChecklist(row.id);
+      if (checklist?.phase === 'done') checklist = null;
+    }
+    const disposition = dispositionByClient.get(Number(row.id)) || null;
+    const agencyAction = deriveLifecycleAction({
+      client: row,
+      viewerRole: 'admin',
+      disposition
+    });
+    const providerAction = deriveLifecycleAction({
+      client: row,
+      viewerRole: 'provider',
+      disposition
+    });
+    if (!agencyAction && !providerAction && !checklist) continue;
+
+    const action = agencyAction || providerAction;
     const paperPacket = isPaperPacketClient(row);
     out.push({
       id: Number(row.id),
@@ -705,14 +769,34 @@ export async function listOnboardingQueue({ agencyId, scope = 'all', limit = 100
       insurance_type_id: row.insurance_type_id ? Number(row.insurance_type_id) : null,
       paper_packet_staff_roi_pending: row.paper_packet_staff_roi_pending === 1
         || row.paper_packet_staff_roi_pending === true,
-      onboarding: {
-        phase: checklist.phase,
-        summary_label: checklist.summary_label,
-        open_count: checklist.open_count,
-        total_count: checklist.total_steps,
-        complete_count: checklist.complete_steps,
-        can_complete_staff_onboarding: checklist.can_complete_staff_onboarding
-      }
+      parents_contacted_at: row.parents_contacted_at || null,
+      first_service_at: row.first_service_at || null,
+      services_started_at: row.services_started_at || null,
+      disclosure_required: row.disclosure_required,
+      continuation_services_json: row.continuation_services_json,
+      agency_intake_json: row.agency_intake_json,
+      roi_expires_at: row.roi_expires_at,
+      school_year: row.school_year,
+      lifecycle_action: action,
+      action_owner: agencyAction ? 'agency' : (providerAction ? 'provider' : null),
+      action_stage: action?.label || (checklist ? checklist.summary_label : null),
+      onboarding: checklist
+        ? {
+            phase: checklist.phase,
+            summary_label: checklist.summary_label,
+            open_count: checklist.open_count,
+            total_count: checklist.total_steps,
+            complete_count: checklist.complete_steps,
+            can_complete_staff_onboarding: checklist.can_complete_staff_onboarding
+          }
+        : {
+            phase: action?.role || 'action',
+            summary_label: action?.label || 'Action needed',
+            open_count: 1,
+            total_count: 1,
+            complete_count: 0,
+            can_complete_staff_onboarding: false
+          }
     });
   }
   return out;

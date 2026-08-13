@@ -1,19 +1,15 @@
 /**
- * Promotes pending clients to "current" when their first_service_at date has passed.
- * Called daily so clients are promoted even if nobody saves the checklist again after the date.
- *
- * Returning school clients (pre-July / prior staff completion) are excluded unless they
- * already have a weekday assignment — last year's first_service_at must not re-promote them.
+ * Daily: promote Scheduled school clients to Being Seen when first_service_at has passed
+ * (and provider checklist milestones are complete). Does not promote assign-day alone.
  */
 import pool from '../config/database.js';
-import Client from '../models/Client.model.js';
-import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
+import { markClientBeingSeen } from './clientLifecycleStatus.service.js';
 import { notifyClientBecameCurrent } from './clientNotifications.service.js';
 import { isReturningSchoolClient, julyCutoffYmd } from '../utils/fallReadiness.js';
 
 export default class ClientCompliancePromotionService {
   /**
-   * Find and promote pending clients whose first_service_at <= today.
+   * Find scheduled clients whose first_service_at <= today and mark Being Seen.
    * @param {{ now?: Date }} options - Optional now for testing
    * @returns {{ promoted: number }}
    */
@@ -25,7 +21,7 @@ export default class ClientCompliancePromotionService {
     try {
       const [r] = await pool.execute(
         `SELECT c.id, c.agency_id, c.organization_id, c.provider_id, c.service_day,
-                c.first_service_at, c.parents_contacted_at, c.parents_contacted_successful,
+                c.first_service_at, c.services_started_at, c.parents_contacted_at, c.parents_contacted_successful,
                 c.identifier_code, c.full_name, c.initials, c.client_status_id, c.status,
                 c.client_type, c.staff_onboarding_completed_at, c.school_year,
                 c.submission_date, c.created_at, c.continuation_services_json,
@@ -45,14 +41,10 @@ export default class ClientCompliancePromotionService {
            AND COALESCE(c.parents_contacted_successful, 0) = 1
            AND c.intake_at IS NOT NULL
            AND UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
-           AND (
-             LOWER(COALESCE(cs.status_key, '')) = 'onboarded'
-             OR (
-               (LOWER(COALESCE(cs.status_key, '')) = 'pending'
-                 OR UPPER(COALESCE(c.status, '')) = 'PENDING_REVIEW')
-               AND c.staff_onboarding_completed_at IS NULL
-             )
-           )`,
+           AND LOWER(COALESCE(cs.status_key, '')) IN (
+             'scheduled', 'onboarded', 'ready_to_schedule', 'current', 'pending'
+           )
+           AND c.services_started_at IS NULL`,
         [todayStr]
       );
       rows = r || [];
@@ -65,11 +57,9 @@ export default class ClientCompliancePromotionService {
     }
 
     let promoted = 0;
-    const systemUserId = null;
 
     for (const client of rows) {
       try {
-        // Returning school clients without a weekday stay pending (Fall pending).
         if (
           isReturningSchoolClient(client, now)
           && !Number(client.has_weekday)
@@ -77,35 +67,22 @@ export default class ClientCompliancePromotionService {
         ) {
           continue;
         }
-        // Also skip school clients created/submitted before July cutoff without weekday
-        // even if staff_onboarding_completed_at is null but they somehow match onboarded.
         const isSchool = String(client.client_type || '').toLowerCase() === 'school';
         if (isSchool && !Number(client.has_weekday)) {
           const anchor = client.submission_date
             ? String(client.submission_date).slice(0, 10)
             : (client.created_at ? String(client.created_at).slice(0, 10) : null);
           if (anchor && anchor < cutoff) continue;
-          if (client.staff_onboarding_completed_at) continue;
         }
-
-        const agencyId = client.agency_id;
-        const currentStatusId = await getClientStatusIdByKey({ agencyId, statusKey: 'current' });
-        if (!currentStatusId) continue;
-
-        const currentClientStatusId = client.client_status_id ? parseInt(client.client_status_id, 10) : null;
-        const workflowStatus = String(client.status || '').toUpperCase();
-        const alreadyCurrent =
-          currentClientStatusId === parseInt(currentStatusId, 10) && workflowStatus !== 'PENDING_REVIEW';
-        if (alreadyCurrent) continue;
 
         const clientId = parseInt(client.id, 10);
-        if (currentStatusId && currentClientStatusId !== parseInt(currentStatusId, 10)) {
-          await Client.update(clientId, { client_status_id: currentStatusId }, systemUserId);
-        }
-        if (workflowStatus === 'PENDING_REVIEW') {
-          await Client.updateStatus(clientId, 'ACTIVE', systemUserId, 'Auto-marked current based on first date of service (daily job)');
-        }
-        promoted++;
+        const result = await markClientBeingSeen({
+          clientId,
+          actorUserId: null,
+          serviceDate: client.first_service_at ? String(client.first_service_at).slice(0, 10) : todayStr
+        });
+        if (!result?.changed) continue;
+        promoted += 1;
 
         notifyClientBecameCurrent({
           agencyId: client.agency_id,

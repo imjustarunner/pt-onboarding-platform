@@ -20,6 +20,7 @@
 
 <script setup>
 import { formatSchoolPortalClientLabel } from '../../../utils/schoolPortalClientLabel.js';
+import { isSchoolScheduleClientLocked } from '../../../utils/schoolStaffRoiLabels.js';
 
 const props = defineProps({
   clients: { type: Array, default: () => [] },
@@ -30,7 +31,7 @@ const props = defineProps({
 });
 defineEmits(['select']);
 
-const isLocked = (c) => c?.school_portal_force_placeholder === true || c?.school_portal_can_open === false;
+const isLocked = (c) => isSchoolScheduleClientLocked(c);
 
 const isHighlighted = (c) => Number(c?.id || 0) === Number(props.highlightClientId || 0) && Number(props.highlightClientId || 0) > 0;
 

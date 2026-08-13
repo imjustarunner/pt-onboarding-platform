@@ -142,10 +142,11 @@
                 <td>{{ school.district || '—' }}</td>
                 <td>{{ school.location || '—' }}</td>
                 <td class="srf-actions-cell">
-                  <a class="srf-start-btn" :href="intakeUrlFor(school)">
+                  <a v-if="intakeUrlFor(school)" class="srf-start-btn" :href="intakeUrlFor(school)">
                     Start Referral
                     <span aria-hidden="true">→</span>
                   </a>
+                  <span v-else class="srf-unavailable">Contact to start</span>
                 </td>
               </tr>
             </tbody>
@@ -212,7 +213,7 @@ import {
   resolveSchoolOnboardingSupportEmail,
   resolveSchoolOnboardingSupportPhone
 } from '../../utils/schoolGroupEmailSuggestions';
-import schoolLogoBlue from '../../assets/schoolReferral/school-logo-blue.png';
+import schoolLogoGreen from '../../assets/schoolReferral/school-logo-green.png';
 
 const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
@@ -248,10 +249,10 @@ const branding = computed(() => agency.value?.branding || {});
 const palette = computed(() => branding.value?.colorPalette || {});
 
 const themeVars = computed(() => {
-  const primary = palette.value.primary || (isItsco.value ? '#1d4ed8' : '#0f766e');
-  const secondary = palette.value.secondary || (isItsco.value ? '#2563eb' : '#115e59');
-  const accent = palette.value.accent || (isItsco.value ? '#38bdf8' : '#14b8a6');
-  const bg = palette.value.backgroundColor || '#f4f7fb';
+  const primary = palette.value.primary || '#1f6b4a';
+  const secondary = palette.value.secondary || '#0f766e';
+  const accent = palette.value.accent || '#14b8a6';
+  const bg = palette.value.backgroundColor || '#f7faf8';
   const text = palette.value.textPrimary || '#0f172a';
   return {
     '--srf-primary': primary,
@@ -261,16 +262,16 @@ const themeVars = computed(() => {
     '--srf-bg': bg,
     '--srf-text': text,
     '--srf-muted': palette.value.textMuted || '#64748b',
-    '--srf-border': palette.value.dividerColor || '#e2e8f0'
+    '--srf-border': palette.value.dividerColor || '#dce8e2'
   };
 });
 
 const headerLogo = computed(() => {
-  if (isItsco.value) return schoolLogoBlue;
-  return branding.value?.logoUrl || branding.value?.agencyLogoUrl || '';
+  if (isItsco.value) return schoolLogoGreen;
+  return branding.value?.logoUrl || branding.value?.agencyLogoUrl || schoolLogoGreen;
 });
 
-const heroArt = computed(() => schoolLogoBlue);
+const heroArt = computed(() => schoolLogoGreen);
 
 const contactPhoneInfo = computed(() =>
   resolveSchoolOnboardingSupportPhone({
@@ -422,7 +423,7 @@ onMounted(loadDirectory);
 <style scoped>
 .srf-page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #ffffff 0%, var(--srf-bg, #f4f7fb) 40%, #eef4ff 100%);
+  background: linear-gradient(180deg, #ffffff 0%, var(--srf-bg, #f7faf8) 42%, #e8f3ee 100%);
   color: var(--srf-text, #0f172a);
   font-family: 'Segoe UI', 'Avenir Next', 'Helvetica Neue', sans-serif;
 }
@@ -494,7 +495,7 @@ onMounted(loadDirectory);
   margin: 0 0 8px;
   font-size: clamp(2rem, 4vw, 3rem);
   letter-spacing: -0.03em;
-  color: var(--srf-primary, #1d4ed8);
+  color: var(--srf-primary, #1f6b4a);
 }
 
 .srf-hero p {
@@ -526,7 +527,7 @@ onMounted(loadDirectory);
 }
 
 .srf-search:focus {
-  border-color: var(--srf-primary, #1d4ed8);
+  border-color: var(--srf-primary, #1f6b4a);
   box-shadow: 0 0 0 4px var(--srf-primary-soft, rgba(29, 78, 216, 0.12));
 }
 
@@ -544,7 +545,7 @@ onMounted(loadDirectory);
   width: min(320px, 100%);
   max-height: 260px;
   object-fit: contain;
-  filter: drop-shadow(0 18px 30px rgba(37, 99, 235, 0.18));
+  filter: drop-shadow(0 18px 30px rgba(31, 107, 74, 0.18));
 }
 
 .srf-body {
@@ -586,7 +587,7 @@ onMounted(loadDirectory);
 .srf-district.active,
 .srf-district:hover {
   background: var(--srf-primary-soft, rgba(29, 78, 216, 0.12));
-  color: var(--srf-primary, #1d4ed8);
+  color: var(--srf-primary, #1f6b4a);
 }
 
 .srf-count {
@@ -611,8 +612,8 @@ onMounted(loadDirectory);
 }
 
 .srf-letter.active {
-  background: var(--srf-primary, #1d4ed8);
-  border-color: var(--srf-primary, #1d4ed8);
+  background: var(--srf-primary, #1f6b4a);
+  border-color: var(--srf-primary, #1f6b4a);
   color: #fff;
 }
 
@@ -623,7 +624,7 @@ onMounted(loadDirectory);
 
 .srf-contact-panel .srf-contact-line {
   display: block;
-  color: var(--srf-primary, #1d4ed8);
+  color: var(--srf-primary, #1f6b4a);
   text-decoration: none;
   margin-bottom: 8px;
   font-weight: 600;
@@ -693,7 +694,7 @@ onMounted(loadDirectory);
   height: 40px;
   border-radius: 999px;
   background: var(--srf-primary-soft, rgba(29, 78, 216, 0.12));
-  color: var(--srf-primary, #1d4ed8);
+  color: var(--srf-primary, #1f6b4a);
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -715,7 +716,7 @@ onMounted(loadDirectory);
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: var(--srf-primary, #1d4ed8);
+  background: var(--srf-primary, #1f6b4a);
   color: #fff;
   text-decoration: none;
   border-radius: 999px;
@@ -726,6 +727,12 @@ onMounted(loadDirectory);
 
 .srf-start-btn:hover {
   filter: brightness(1.05);
+}
+
+.srf-unavailable {
+  color: var(--srf-muted, #64748b);
+  font-size: 0.82rem;
+  font-weight: 600;
 }
 
 .srf-footer {
@@ -749,7 +756,7 @@ onMounted(loadDirectory);
   width: 22px;
   height: 22px;
   border-radius: 999px;
-  background: var(--srf-primary, #1d4ed8);
+  background: var(--srf-primary, #1f6b4a);
   color: #fff;
   display: inline-grid;
   place-items: center;
@@ -856,7 +863,7 @@ onMounted(loadDirectory);
 
 .srf-btn-primary {
   border: none;
-  background: var(--srf-primary, #1d4ed8);
+  background: var(--srf-primary, #1f6b4a);
   color: #fff;
 }
 

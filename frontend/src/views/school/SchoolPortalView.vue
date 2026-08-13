@@ -1213,8 +1213,15 @@
 
         <div ref="homeRosterEl" class="home-roster" data-tour="school-home-roster">
           <div class="roster-header">
-            <h2 style="margin: 0;">{{ isProvider ? 'My roster' : 'School roster' }}</h2>
-            <div class="muted">{{ isProvider ? 'My assigned clients (restricted fields)' : 'Assigned + unassigned (restricted fields)' }}</div>
+            <div class="roster-header-title-row">
+              <h2 style="margin: 0;">{{ isProvider ? 'My roster' : 'School roster' }}</h2>
+              <span class="school-year-pill">{{ currentSchoolYearLabel }} school year</span>
+            </div>
+            <div class="muted roster-header-sub">
+              {{ isProvider ? 'My assigned clients (restricted fields)' : 'Assigned + unassigned (restricted fields)' }}
+              <span class="roster-header-sep">·</span>
+              <button type="button" class="btn-link" @click="openRosterPanel()">View prior school years on Roster</button>
+            </div>
           </div>
           <ClientListGrid
             v-if="organizationId"
@@ -1222,6 +1229,7 @@
             :organization-id="organizationId"
             :organization-name="organizationDisplayName || organizationName"
             :roster-scope="isProvider ? 'provider' : 'school'"
+            school-year-filter="current"
             :client-label-mode="clientLabelMode"
             :waitlist-school-count="waitlistSchoolCount"
             :parent-agency-id="affiliatedAgencyId ? Number(affiliatedAgencyId) : null"
@@ -1232,6 +1240,52 @@
             @open-availability-request="openAvailabilityRequest"
           />
           <div v-else class="empty-state">Organization not loaded.</div>
+
+          <div
+            v-if="isSuperAdmin && organizationId && !isProvider"
+            class="roster-role-previews"
+            style="margin-top: 28px; display: grid; gap: 24px;"
+          >
+            <section class="roster-role-preview">
+              <div class="roster-header">
+                <h3 style="margin: 0;">School staff view</h3>
+                <div class="muted">How school staff see this roster. Missing a client? Check the prior year.</div>
+              </div>
+              <ClientListGrid
+                :organization-slug="organizationSlug"
+                :organization-id="organizationId"
+                :organization-name="organizationDisplayName || organizationName"
+                roster-scope="school"
+                view-as-role="school_staff"
+                :preview-mode="true"
+                school-year-filter="current"
+                :client-label-mode="clientLabelMode"
+                :parent-agency-id="affiliatedAgencyId ? Number(affiliatedAgencyId) : null"
+                edit-mode="inline"
+              />
+            </section>
+            <section class="roster-role-preview">
+              <div class="roster-header">
+                <h3 style="margin: 0;">Provider view</h3>
+                <div class="muted">
+                  Per-client Action / Next Step as providers see it. Superadmin can click an action to complete it.
+                  Missing a client? Check the prior year.
+                </div>
+              </div>
+              <ClientListGrid
+                :organization-slug="organizationSlug"
+                :organization-id="organizationId"
+                :organization-name="organizationDisplayName || organizationName"
+                roster-scope="school"
+                view-as-role="provider"
+                :preview-mode="true"
+                school-year-filter="current"
+                :client-label-mode="clientLabelMode"
+                :parent-agency-id="affiliatedAgencyId ? Number(affiliatedAgencyId) : null"
+                edit-mode="inline"
+              />
+            </section>
+          </div>
         </div>
           </div>
 
@@ -1446,8 +1500,22 @@
 
           <div v-else-if="portalMode === 'roster'" class="roster">
         <div class="roster-header" data-tour="school-roster-header">
-          <h2 style="margin: 0;">{{ isProvider ? 'My roster' : 'School roster' }}</h2>
-          <div class="muted">{{ isProvider ? 'My assigned clients (restricted fields)' : 'Assigned + unassigned (restricted fields)' }}</div>
+          <div class="roster-header-title-row">
+            <h2 style="margin: 0;">{{ isProvider ? 'My roster' : 'School roster' }}</h2>
+            <label class="school-year-picker">
+              <span class="school-year-picker-label">School year</span>
+              <select v-model="rosterSchoolYearSelection" class="filter-select">
+                <option value="current">Current ({{ currentSchoolYearLabel }})</option>
+                <option v-for="y in priorSchoolYearOptions" :key="y" :value="y">{{ y }}</option>
+              </select>
+            </label>
+          </div>
+          <div class="muted roster-header-sub">
+            {{ rosterSchoolYearSelection === 'current'
+              ? `Showing the ${currentSchoolYearLabel} school year.`
+              : `Showing the ${rosterSchoolYearSelection} school year.` }}
+            {{ isProvider ? 'My assigned clients (restricted fields).' : 'Assigned + unassigned (restricted fields).' }}
+          </div>
         </div>
         <div data-tour="school-roster-panel">
           <ClientListGrid
@@ -1456,15 +1524,65 @@
             :organization-id="organizationId"
             :organization-name="organizationDisplayName || organizationName"
             :roster-scope="isProvider ? 'provider' : 'school'"
+            :school-year-filter="rosterSchoolYearFilterParam"
             :client-label-mode="clientLabelMode"
             :waitlist-school-count="waitlistSchoolCount"
             :parent-agency-id="affiliatedAgencyId ? Number(affiliatedAgencyId) : null"
             edit-mode="inline"
             v-model:statusFilterKey="rosterStatusFilterKey"
+            v-model:actionFilterKey="rosterActionFilterKey"
             @edit-client="openAdminClientEditor"
             @open-availability-request="openAvailabilityRequest"
           />
           <div v-else class="empty-state">Organization not loaded.</div>
+        </div>
+
+        <!-- Superadmin: how school staff / providers see this roster (read-only preview) -->
+        <div
+          v-if="isSuperAdmin && organizationId && !isProvider"
+          class="roster-role-previews"
+          style="margin-top: 28px; display: grid; gap: 24px;"
+        >
+          <section class="roster-role-preview" data-tour="school-roster-as-school-staff">
+            <div class="roster-header">
+              <h3 style="margin: 0;">School staff view</h3>
+              <div class="muted">Status + schedule only (no Action / Readiness). Soft ROI — docs pause when expired. Missing a client? Check the prior year.</div>
+            </div>
+            <ClientListGrid
+              :organization-slug="organizationSlug"
+              :organization-id="organizationId"
+              :organization-name="organizationDisplayName || organizationName"
+              roster-scope="school"
+              view-as-role="school_staff"
+              :preview-mode="true"
+              :school-year-filter="rosterSchoolYearFilterParam"
+              :client-label-mode="clientLabelMode"
+              :parent-agency-id="affiliatedAgencyId ? Number(affiliatedAgencyId) : null"
+              edit-mode="inline"
+            />
+          </section>
+          <section class="roster-role-preview" data-tour="school-roster-as-provider">
+            <div class="roster-header">
+              <h3 style="margin: 0;">Provider view</h3>
+              <div class="muted">
+                Status + Action / Next Step as providers see it. This preview is the full school roster;
+                a signed-in provider only sees clients assigned to them plus anyone they terminated this year.
+                Missing a client? Check the prior year.
+              </div>
+            </div>
+            <ClientListGrid
+              :organization-slug="organizationSlug"
+              :organization-id="organizationId"
+              :organization-name="organizationDisplayName || organizationName"
+              roster-scope="school"
+              view-as-role="provider"
+              :preview-mode="true"
+              :school-year-filter="rosterSchoolYearFilterParam"
+              :client-label-mode="clientLabelMode"
+              :parent-agency-id="affiliatedAgencyId ? Number(affiliatedAgencyId) : null"
+              edit-mode="inline"
+            />
+          </section>
         </div>
           </div>
 
@@ -1617,7 +1735,7 @@
       :organization-slug="organizationSlug"
       :parent-agency-id="affiliatedAgencyId ? Number(affiliatedAgencyId) : null"
       :can-edit-action="canEditClientActions"
-      :show-checklist-action="isProvider && !!selectedClient?.user_is_assigned_provider"
+      :show-checklist-action="false"
       @open-edit="openClientEditorFromModal"
       @open-checklist="openChecklistFromModal"
       @client-updated="onPortalModalClientUpdated"
@@ -2372,6 +2490,10 @@ import { useBrandingStore } from '../../store/branding';
 import { useAgencyStore } from '../../store/agency';
 import { useTutorialStore } from '../../store/tutorial';
 import ClientListGrid from '../../components/school/ClientListGrid.vue';
+import {
+  computeCurrentSchoolYearLabel,
+  buildSchoolYearPickerOptions
+} from '../../utils/schoolYear.js';
 import SchoolHelpDeskModal from '../../components/school/SchoolHelpDeskModal.vue';
 import PostSchoolEventModal from '../../components/school/PostSchoolEventModal.vue';
 import SchoolPortalCalendarPanel from '../../components/school/SchoolPortalCalendarPanel.vue';
@@ -3020,7 +3142,18 @@ const comingSoonTitle = computed(() => {
 const selectedClient = ref(null);
 const portalMode = ref('home'); // home | providers | days | roster | skills | events | calendar | school_staff | documents | faq | messages
 const portalBootstrapLoading = ref(false);
-const rosterStatusFilterKey = ref(''); // client_status_key filter for roster panel (pending/waitlist)
+const rosterStatusFilterKey = ref(''); // client_status_key filter for roster panel
+const rosterActionFilterKey = ref(''); // lifecycle action filter (fall_confirmation, agency_insurance, …)
+const rosterSchoolYearSelection = ref('current'); // 'current' | YYYY-YYYY
+const currentSchoolYearLabel = computed(() => computeCurrentSchoolYearLabel());
+const priorSchoolYearOptions = computed(() => {
+  const all = buildSchoolYearPickerOptions();
+  return all.slice(1); // prior years only (current is the select default)
+});
+const rosterSchoolYearFilterParam = computed(() => {
+  const sel = String(rosterSchoolYearSelection.value || 'current').trim();
+  return sel === 'current' ? 'current' : sel;
+});
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
 const adminClientNavigationIds = ref([]);
@@ -3116,6 +3249,11 @@ const syncPortalModeQuery = async (mode, { replace = false, queryExtras = null }
     delete q.announcementCreate;
   }
 
+  if (next !== 'roster') {
+    delete q.status;
+    delete q.action;
+  }
+
   if (queryExtras && typeof queryExtras === 'object') {
     for (const [key, value] of Object.entries(queryExtras)) {
       if (value === undefined || value === null || value === '') delete q[key];
@@ -3126,10 +3264,12 @@ const syncPortalModeQuery = async (mode, { replace = false, queryExtras = null }
   const sameSp = (desiredSp || '') === (currentSp || '');
   const sameNotif = String(q.notif || '') === String(route.query?.notif || '');
   const sameCreate = String(q.announcementCreate || '') === String(route.query?.announcementCreate || '');
+  const sameStatus = String(q.status || '') === String(route.query?.status || '');
+  const sameAction = String(q.action || '') === String(route.query?.action || '');
   const demoProviderQueryChanged = isPublicDemo.value && ['provider', 'providerId', 'provider_user_id', 'chat'].some(
     (key) => String(q[key] || '') !== String(route.query?.[key] || '')
   );
-  if (sameSp && sameNotif && sameCreate && !demoProviderQueryChanged) return;
+  if (sameSp && sameNotif && sameCreate && sameStatus && sameAction && !demoProviderQueryChanged) return;
 
   try {
     const nav = replace ? router.replace.bind(router) : router.push.bind(router);
@@ -3203,8 +3343,18 @@ const setPortalMode = async (mode, { syncQuery = true, replace = false, queryExt
   }
 };
 
+const applyRosterFiltersFromQuery = () => {
+  rosterStatusFilterKey.value = String(route.query?.status || '').trim().toLowerCase();
+  rosterActionFilterKey.value = String(route.query?.action || '').trim().toLowerCase();
+};
+
 const applyRequestedPortalMode = async (mode) => {
   const m = String(mode || '').trim().toLowerCase();
+  if (m === 'roster') applyRosterFiltersFromQuery();
+  else {
+    rosterStatusFilterKey.value = '';
+    rosterActionFilterKey.value = '';
+  }
   if (!m) {
     if (portalMode.value !== 'home' && !waiverGateLocked.value) {
       await setPortalMode('home', { syncQuery: false });
@@ -3260,9 +3410,15 @@ const applyRequestedPortalMode = async (mode) => {
   }
 };
 
-const openRosterPanel = (statusKey = '') => {
+const openRosterPanel = (statusKey = '', actionKey = '') => {
   rosterStatusFilterKey.value = String(statusKey || '').trim().toLowerCase();
-  void setPortalMode('roster');
+  rosterActionFilterKey.value = String(actionKey || '').trim().toLowerCase();
+  void setPortalMode('roster', {
+    queryExtras: {
+      status: rosterStatusFilterKey.value || undefined,
+      action: rosterActionFilterKey.value || undefined
+    }
+  });
 };
 
 const atGlance = computed(() => {
@@ -5512,12 +5668,26 @@ watch(organizationId, async (id) => {
 });
 
 watch(
-  () => requestedPortalMode.value,
-  async (mode) => {
+  () => [requestedPortalMode.value, route.query?.status, route.query?.action],
+  async ([mode]) => {
     // Empty sp (browser Back from a panel) should restore school home, not leave the panel open.
     await applyRequestedPortalMode(mode);
   }
 );
+
+watch([rosterStatusFilterKey, rosterActionFilterKey], async ([status, action]) => {
+  if (portalMode.value !== 'roster') return;
+  if (String(route.query?.status || '') === String(status || '') && String(route.query?.action || '') === String(action || '')) {
+    return;
+  }
+  await syncPortalModeQuery('roster', {
+    replace: true,
+    queryExtras: {
+      status: status || '',
+      action: action || ''
+    }
+  });
+});
 
 watch(canAccessSchedulingPanels, (allowed) => {
   if (allowed) return;
@@ -6952,10 +7122,49 @@ watch(() => store.selectedWeekday, async (weekday) => {
 }
 .roster-header {
   display: flex;
-  align-items: baseline;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.roster-header-title-row {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.roster-header-sub {
+  font-size: 13px;
+  line-height: 1.45;
+}
+.roster-header-sep {
+  margin: 0 6px;
+  opacity: 0.55;
+}
+.school-year-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e40af;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+.school-year-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.school-year-picker-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.school-year-picker .filter-select {
+  min-width: 160px;
 }
 .school-events-list {
   list-style: none;

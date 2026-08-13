@@ -1127,6 +1127,8 @@ const canSeeSkillBuildersSchoolProgramQuickAction = computed(() => {
   });
 });
 
+const canAccessOutreach = computed(() => !!currentUser.value?.capabilities?.canAccessOutreach);
+
 // Same catalog as classic AgencyAdminDashboard (no create-ticket — admins don't open tickets).
 const defaultQuickActionIds = computed(() => {
   if (isOperationsMode.value) {
@@ -1139,6 +1141,7 @@ const defaultQuickActionIds = computed(() => {
       ...(canSeeSchoolPortals.value ? ['school_portals'] : []),
       ...(hasAffiliatedPrograms.value ? ['program_overview'] : []),
       'program_events',
+      ...(canAccessOutreach.value ? ['outreach_hub'] : []),
       'progress_dashboard',
       ...(clinicalNoteGeneratorEnabledForAgency.value ? ['tools_aids', 'clinical_note_generator'] : []),
       'gear_inventory',
@@ -1379,6 +1382,17 @@ const quickActionsCatalog = computed(() => {
       category: 'Events',
       roles: ['clinical_practice_assistant', 'provider_plus'],
       capabilities: ['canAccessPlatform']
+    },
+    {
+      id: 'outreach_hub',
+      title: 'Outreach Hub',
+      description: 'Track school contacts, visits, and partnership stages',
+      to: `${p}/admin/outreach-hub`,
+      emoji: '📍',
+      iconKey: 'school_overview',
+      category: 'Events',
+      roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider_plus', 'provider'],
+      capabilities: ['canAccessOutreach']
     },
     {
       id: 'office_approvals',
@@ -1679,6 +1693,7 @@ const quickActionsCatalog = computed(() => {
     }
     if (a.id === 'school_portals' || a.id === 'school_marketing_campaigns') return canSeeSchoolPortals.value;
     if (a.id === 'skill_builders_availability') return canSeeSkillBuildersSchoolProgramQuickAction.value;
+    if (a.id === 'outreach_hub') return canAccessOutreach.value;
     if (a.id === 'program_overview') return hasAffiliatedPrograms.value;
     if (a.id === 'book_club') return bookClubEnabledForAgency.value;
     if (a.id === 'tools_aids' || a.id === 'clinical_note_generator') return clinicalNoteGeneratorEnabledForAgency.value;

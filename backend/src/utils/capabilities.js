@@ -193,6 +193,9 @@ export function getUserCapabilities(user, { effectiveRole } = {}) {
   const hasHiringFlag = user?.has_hiring_access === true || user?.has_hiring_access === 1 || user?.has_hiring_access === '1';
   const canManageHiring = ['admin', 'super_admin', 'support', 'staff'].includes(roleNorm) || hasHiringFlag;
 
+  const hasOutreachFlag = user?.has_outreach_access === true || user?.has_outreach_access === 1 || user?.has_outreach_access === '1';
+  const canAccessOutreach = ['admin', 'super_admin', 'support'].includes(roleNorm) || hasOutreachFlag;
+
   // Summit Stats Team Challenge: Program Managers (admin/super_admin) and Team Managers (provider_plus)
   // can manage challenges. club_manager effectiveRole covers users in an affiliation club context.
   // provider_plus = Team Manager / Team Lead when assigned to a team.
@@ -206,6 +209,7 @@ export function getUserCapabilities(user, { effectiveRole } = {}) {
     canJoinProgramEvents,
     canUseChat,
     canManageHiring,
+    canAccessOutreach,
     canManageChallenges
   };
 }

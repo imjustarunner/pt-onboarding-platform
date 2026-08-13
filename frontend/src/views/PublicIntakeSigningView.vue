@@ -18,7 +18,7 @@
     :contact-phone-tel="splashContactTel"
     :contact-email="splashContactEmail"
     :show-contact-support-action="showSchoolSplashSupport"
-    contact-support-label="Send a message"
+    :contact-support-label="t('sendAMessage')"
     @update:language="switchLinkedLanguage"
     @contact-support="openSplashSupportModal"
   >
@@ -223,10 +223,10 @@
           />
           <div v-if="showSchoolSplashSupport" class="df-cover-secondary-actions">
             <button type="button" class="btn btn-secondary df-not-my-school" @click="goToSchoolReferralFinder">
-              Not your school?
+              {{ t('notYourSchool') }}
             </button>
             <button type="button" class="btn btn-link df-need-help" @click="openSplashSupportModal">
-              Need help? Send a message
+              {{ t('needHelpSendMessage') }}
             </button>
           </div>
           <div v-if="beginError" class="error" style="margin-top: 10px;">{{ beginError }}</div>
@@ -308,15 +308,46 @@
         />
         <div v-else class="intake-step-body">
         <h3 class="df-section-title">{{ t('questions') || "Welcome! Let's get started" }}</h3>
-        <p class="df-section-help">{{ tx('Tell us a bit about you so we can prepare the right forms.') || 'Tell us a bit about you so we can prepare the right forms.' }}</p>
+        <p class="df-section-help">{{ t('tellUsAboutYou') }}</p>
         <div
           v-if="adaptiveIntakeFieldGroups.length"
           class="ai-pathway-badge"
           style="margin-bottom: 0.75rem;"
         >
-          {{ adaptiveIntakeFieldGroups.length }} sections in this packet
+          {{ t('sectionsInThisPacket').replace('{count}', String(adaptiveIntakeFieldGroups.length)) }}
         </div>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
+
+        <div v-if="showSpanishClarificationBlock" class="spanish-clarification-step field-inputs">
+          <h4>{{ spanishClarificationCopy.title }}</h4>
+          <p class="muted communications-disclosure">{{ spanishClarificationCopy.intro }}</p>
+          <section
+            v-for="section in spanishClarificationSections"
+            :key="section.key"
+            class="communications-campaign-card"
+            :class="{ 'required-missing-glow': spanishClarificationMissingKey === section.key }"
+            :data-spanish-clarification-key="section.key"
+          >
+            <h4>{{ section.label }} <span class="required-indicator">*</span></h4>
+            <p v-if="section.disclosure" class="communications-disclosure">{{ section.disclosure }}</p>
+            <div class="radio-group">
+              <label
+                v-for="opt in section.options"
+                :key="opt.value"
+                class="radio-row"
+                :class="{ 'input-error': spanishClarificationMissingKey === section.key }"
+              >
+                <input
+                  v-model="intakeResponses.submission.spanishClarification[section.key]"
+                  type="radio"
+                  :value="opt.value"
+                  :name="`spanish_clarification_${section.key}`"
+                />
+                <span>{{ opt.label }}</span>
+              </label>
+            </div>
+          </section>
+        </div>
 
         <div class="intake-section">
         <div v-if="!isMedicalRecordsRequest && !isJobApplication && !isClientBound">
@@ -324,14 +355,14 @@
           <div class="df-choice-grid">
             <DigitalFormSelectionCard
               :title="t('myself')"
-              :description="tx('I am completing this form for myself') || 'I am completing this form for myself'"
+              :description="t('completingForMyself')"
               icon="👤"
               :selected="intakeForSelf === true"
               @select="intakeForSelf = true"
             />
             <DigitalFormSelectionCard
               :title="t('myDependents')"
-              :description="tx('I am a parent or guardian submitting for my child(ren)') || 'I am a parent or guardian submitting for my child(ren)'"
+              :description="t('completingForDependents')"
               icon="👨‍👩‍👧"
               :selected="intakeForSelf === false"
               @select="intakeForSelf = false"
@@ -411,9 +442,9 @@
         </div>
 
         <div v-if="isClientBound && !isMedicalRecordsRequest && !isJobApplication" class="bound-client-card">
-          <div class="bound-client-label">Client</div>
+          <div class="bound-client-label">{{ t('client') }}</div>
           <div class="bound-client-name">{{ boundClientDisplayName }}</div>
-          <div class="muted">This signing link is already assigned to this client.</div>
+          <div class="muted">{{ t('signingLinkAssigned') }}</div>
         </div>
 
         <div v-if="visibleGuardianFields.length" class="custom-fields intake-section">
@@ -712,37 +743,6 @@
           </div>
         </div>
 
-        <div v-if="showSpanishClarificationBlock" class="spanish-clarification-step field-inputs">
-          <h4>{{ spanishClarificationCopy.title }}</h4>
-          <p class="muted communications-disclosure">{{ spanishClarificationCopy.intro }}</p>
-          <section
-            v-for="section in spanishClarificationSections"
-            :key="section.key"
-            class="communications-campaign-card"
-            :class="{ 'required-missing-glow': spanishClarificationMissingKey === section.key }"
-            :data-spanish-clarification-key="section.key"
-          >
-            <h4>{{ section.label }} <span class="required-indicator">*</span></h4>
-            <p v-if="section.disclosure" class="communications-disclosure">{{ section.disclosure }}</p>
-            <div class="radio-group">
-              <label
-                v-for="opt in section.options"
-                :key="opt.value"
-                class="radio-row"
-                :class="{ 'input-error': spanishClarificationMissingKey === section.key }"
-              >
-                <input
-                  v-model="intakeResponses.submission.spanishClarification[section.key]"
-                  type="radio"
-                  :value="opt.value"
-                  :name="`spanish_clarification_${section.key}`"
-                />
-                <span>{{ opt.label }}</span>
-              </label>
-            </div>
-          </section>
-        </div>
-
         <div v-if="visibleQuestionFields.length" class="field-inputs">
           <h4>{{ t('additionalQuestions') }}</h4>
           <div class="form-grid">
@@ -801,13 +801,13 @@
         </div>
 
         <div class="consent-box">
-          <strong>{{ tx('ESIGN Act Disclosure') || 'ESIGN Act Disclosure' }}</strong>
+          <strong>{{ t('esignDisclosureTitle') }}</strong>
           <p>
-            {{ tx('By continuing, you consent to electronically sign these documents and receive electronic records. You may request paper copies from the organization.') || 'By continuing, you consent to electronically sign these documents and receive electronic records. You may request paper copies from the organization.' }}
+            {{ t('esignDisclosureBody') }}
           </p>
         </div>
         <div class="muted" style="margin-top: 8px;">
-          {{ tx('Most families complete this in about 15 minutes. To protect your information, the form clears itself after roughly an hour of inactivity and any unsaved entries are removed.') }}
+          {{ t('formIdleClearHint') }}
         </div>
 
         <div class="actions">
@@ -832,7 +832,7 @@
         <div v-else-if="step === 2 && currentFlowStep?.type !== 'questions'" class="step">
         <h3 v-if="currentFlowStep?.type === 'document'">{{ t('document') }}</h3>
         <h3 v-else-if="currentFlowStep?.type === 'upload'">{{ tx(currentFlowStep?.label) || t('upload') }}</h3>
-        <h3 v-else-if="currentFlowStep?.type === 'school_roi'">School ROI</h3>
+        <h3 v-else-if="currentFlowStep?.type === 'school_roi'">{{ t('schoolRoi') }}</h3>
         <h3 v-else-if="currentFlowStep?.type === 'smart_disclosure' || currentFlowStep?.type === 'disclosure'">
           {{ tx(currentFlowStep?.label) || 'Disclosure' }}
         </h3>
@@ -1890,8 +1890,8 @@
       @click.self="closeSplashSupportModal"
     >
       <div class="splash-support-modal" role="dialog" aria-modal="true" aria-labelledby="splash-support-title">
-        <h3 id="splash-support-title">Need help?</h3>
-        <p class="muted">Send a message to our team. We’ll follow up by email.</p>
+        <h3 id="splash-support-title">{{ t('needHelp') }}</h3>
+        <p class="muted">{{ t('needHelpModalBody') }}</p>
         <form class="splash-support-form" @submit.prevent="submitSplashSupport">
           <input
             v-model="splashSupportForm.website"
@@ -1960,6 +1960,7 @@ import {
   firstMissingSpanishClarificationField,
   SPANISH_CLARIFICATION_COPY
 } from '../constants/spanishClarificationIntake.js';
+import { localizePublicIntakeTitle } from '../utils/publicIntakeTitle.js';
 import {
   lookupStructuredIntakeTranslation,
   txFmtStructuredIntake
@@ -2106,6 +2107,23 @@ const INTAKE_TRANSLATIONS = {
     introSchoolSubtitle: 'Acknowledging this school as your partnering organization.',
     introOrgSubtitle: 'Acknowledging this organization as your intake site.',
     questions: 'Questions',
+    aboutYou: 'About You',
+    tellUsAboutYou: 'Tell us a bit about you so we can prepare the right forms.',
+    completingForMyself: 'I am completing this form for myself',
+    completingForDependents: 'I am a parent or guardian submitting for my child(ren)',
+    sectionsInThisPacket: '{count} sections in this packet',
+    esignDisclosureTitle: 'ESIGN Act Disclosure',
+    esignDisclosureBody: 'By continuing, you consent to electronically sign these documents and receive electronic records. You may request paper copies from the organization.',
+    formIdleClearHint: 'Most families complete this in about 15 minutes. To protect your information, the form clears itself after roughly an hour of inactivity and any unsaved entries are removed.',
+    sendAMessage: 'Send a message',
+    needHelpSendMessage: 'Need help? Send a message',
+    needHelp: 'Need help?',
+    needHelpModalBody: 'Send a message to our team. We’ll follow up by email.',
+    notYourSchool: 'Not your school?',
+    intakeAndRegistration: 'Intake & Registration',
+    schoolRoi: 'School ROI',
+    signingLinkAssigned: 'This signing link is already assigned to this client.',
+    releaseOfInformation: 'Release of Information',
     whoIsIntakeFor: 'Who is this intake for?',
     myself: 'Myself',
     myDependents: 'My dependent(s)',
@@ -2279,6 +2297,23 @@ const INTAKE_TRANSLATIONS = {
     introSchoolSubtitle: 'Reconociendo a esta escuela como su organización asociada.',
     introOrgSubtitle: 'Reconociendo a esta organización como su sitio de admisión.',
     questions: 'Preguntas',
+    aboutYou: 'Sobre usted',
+    tellUsAboutYou: 'Cuéntenos un poco sobre usted para que podamos preparar los formularios correctos.',
+    completingForMyself: 'Estoy completando este formulario para mí',
+    completingForDependents: 'Soy padre, madre o tutor y lo envío para mi(s) hijo(s)',
+    sectionsInThisPacket: '{count} secciones en este paquete',
+    esignDisclosureTitle: 'Divulgación de la Ley ESIGN',
+    esignDisclosureBody: 'Al continuar, usted consiente firmar electrónicamente estos documentos y recibir registros electrónicos. Puede solicitar copias en papel a la organización.',
+    formIdleClearHint: 'La mayoría de las familias completan esto en unos 15 minutos. Para proteger su información, el formulario se borra después de aproximadamente una hora de inactividad y se eliminan las entradas no guardadas.',
+    sendAMessage: 'Enviar un mensaje',
+    needHelpSendMessage: '¿Necesita ayuda? Enviar un mensaje',
+    needHelp: '¿Necesita ayuda?',
+    needHelpModalBody: 'Envíe un mensaje a nuestro equipo. Le responderemos por correo electrónico.',
+    notYourSchool: '¿No es su escuela?',
+    intakeAndRegistration: 'Admisión y registro',
+    schoolRoi: 'Autorización escolar (ROI)',
+    signingLinkAssigned: 'Este enlace de firma ya está asignado a este cliente.',
+    releaseOfInformation: 'Autorización de divulgación de información',
     whoIsIntakeFor: '¿Para quién es esta admisión?',
     myself: 'Para mí',
     myDependents: 'Mi(s) dependiente(s)',
@@ -2783,7 +2818,13 @@ const spanishClarificationStep = computed(() => {
   if (intakeLocale.value !== 'es') return null;
   return (intakeSteps.value || []).find((s) => String(s?.type || '').trim() === 'spanish_clarification') || null;
 });
-const showSpanishClarificationBlock = computed(() => step.value === 1 && !!spanishClarificationStep.value);
+const showSpanishClarificationBlock = computed(() => {
+  if (step.value !== 1 || intakeLocale.value !== 'es') return false;
+  if (spanishClarificationStep.value) return true;
+  const scope = String(link.value?.scope_type || '').toLowerCase();
+  const formType = String(link.value?.form_type || 'intake').toLowerCase();
+  return usesSchoolMaster.value || (scope === 'school' && formType === 'intake');
+});
 const spanishClarificationCopy = SPANISH_CLARIFICATION_COPY;
 const spanishClarificationSections = computed(() => {
   const c = SPANISH_CLARIFICATION_COPY;
@@ -3259,41 +3300,45 @@ const isPacketSectionStepType = (type) => Object.prototype.hasOwnProperty.call(
 
 const shellProgramTitle = computed(() => {
   const branded = String(formBranding.value?.programTitle || '').trim();
-  if (branded) return branded;
+  if (branded) return localizePublicIntakeTitle(branded, intakeLocale.value);
   const org = organizationInfo.value?.official_name || organizationInfo.value?.name || '';
   const agency = agencyInfo.value?.official_name || agencyInfo.value?.name || '';
-  return String(org || agency || link.value?.title || 'Intake & Registration').trim();
+  return localizePublicIntakeTitle(
+    String(org || agency || link.value?.title || t('intakeAndRegistration')).trim(),
+    intakeLocale.value
+  );
 });
 
 const shellFormSubtitle = computed(() => {
   const ft = formTypeKey.value;
-  if (ft === 'job_application') return 'Job Application';
-  if (ft === 'smart_school_roi') return 'Release of Information';
-  if (ft === 'smart_disclosure') return 'Disclosure';
-  if (ft === 'smart_registration') return 'Registration';
-  if (ft === 'medical_records_request') return 'Medical Records Request';
-  if (ft === 'public_form') return 'Form';
-  return 'Intake & Registration';
+  if (ft === 'job_application') return t('digitalIntakeJob');
+  if (ft === 'smart_school_roi') return t('releaseOfInformation');
+  if (ft === 'smart_disclosure') return tx('Disclosure') || 'Disclosure';
+  if (ft === 'smart_registration') return t('registration');
+  if (ft === 'medical_records_request') return t('digitalIntakeMedical');
+  if (ft === 'public_form') return t('information');
+  return t('intakeAndRegistration');
 });
 
 const shellFormDocumentTitle = computed(() =>
-  String(tx(link.value?.title || defaultTitle.value) || '').trim()
+  localizePublicIntakeTitle(link.value?.title || defaultTitle.value, intakeLocale.value)
 );
 
 const dfProgressSteps = computed(() => {
-  const steps = [{ id: 'about', label: 'About You' }];
+  const steps = [{ id: 'about', label: t('aboutYou') }];
   const seen = new Set(['about']);
   for (const s of flowSteps.value || []) {
     const type = String(s?.type || '');
     const id = String(s?.id || `${type}_${steps.length}`);
     if (seen.has(id)) continue;
     seen.add(id);
+    const raw = String(s?.label || FLOW_STEP_PROGRESS_LABELS[type] || type || 'Step').trim() || 'Step';
     steps.push({
       id,
-      label: String(s?.label || FLOW_STEP_PROGRESS_LABELS[type] || type || 'Step').trim() || 'Step'
+      label: tx(raw) || raw
     });
   }
-  steps.push({ id: 'complete', label: 'Complete' });
+  steps.push({ id: 'complete', label: t('completed') });
   return steps;
 });
 

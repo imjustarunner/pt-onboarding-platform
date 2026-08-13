@@ -143,6 +143,7 @@
           :client-label-mode="clientLabelMode"
           :psychotherapy-totals-by-client-id="sessionTotalsByClientId"
           :hide-terminated="!showTerminated"
+          :show-terminated-toggle="false"
           :show-search="true"
           search-placeholder="Search school clients…"
           client-open-mode="detail-panel"
@@ -255,47 +256,15 @@
 
         <section class="new-block">
           <div class="new-block-head">
-            <strong>Pending school clients</strong>
-            <span class="pending-count-badge" :class="{ pulse: pendingClientsFiltered.length }">
-              {{ pendingClientsFiltered.length }}
-            </span>
+            <strong>School client actions</strong>
           </div>
           <p class="muted tiny">
-            School-assigned clients still needing attention (no day, missing first session, etc.).
+            Use Action / Next Step on your school roster, or
             <router-link class="pct-inline-link" :to="providerOnboardingTo">
-              Open Client Readiness
+              Open Client Action Needed
             </router-link>
-            for your steps (staff setup is view-only).
+            for fall confirmation and new-client steps.
           </p>
-          <div v-if="!pendingClientsFiltered.length" class="muted empty-state compact">No pending school clients.</div>
-          <div v-else class="pending-strip-table-wrap">
-            <table class="pending-strip-table">
-              <thead>
-                <tr>
-                  <th>Client</th>
-                  <th>School</th>
-                  <th>Stage</th>
-                  <th>Days</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in pendingClientsFiltered" :key="`${row.client_id}-${row.organization_id}`">
-                  <td>
-                    <button
-                      type="button"
-                      class="pct-client-link"
-                      @click="openClientProfile({ id: row.client_id }, pendingClientsFiltered.map((r) => ({ id: r.client_id })))"
-                    >
-                      {{ formatPendingClientLabel(row) }}
-                    </button>
-                  </td>
-                  <td>{{ row.organization_name || '—' }}</td>
-                  <td>{{ pendingStageLabel(row) }}</td>
-                  <td class="mono">{{ Number(row.tracking_days || 0) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
         </section>
 
         <section class="new-block">
@@ -454,7 +423,7 @@ const allClients = ref([]);
 const skillBuildersOnlyFilter = ref(false);
 const error = ref('');
 const sessionTotalsByClientId = ref(null);
-const showTerminated = ref(false);
+const showTerminated = ref(true);
 const pendingClients = ref([]);
 const pendingError = ref('');
 const MIN_PENDING_DATE = '2026-02-01';

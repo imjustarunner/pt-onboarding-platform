@@ -1,5 +1,7 @@
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
+import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import AgencySchool from '../models/AgencySchool.model.js';
 import config from '../config/config.js';
 import {
   buildPublicFormBrandingForAgencyId,
@@ -29,12 +31,21 @@ function parseJsonObject(v) {
 async function resolveAgencyBySlug(agencySlug) {
   const slug = String(agencySlug || '').trim().toLowerCase();
   if (!slug) return null;
-  const agency = await Agency.findBySlug(slug);
-  if (!agency?.id) return null;
-  const orgType = String(agency.organization_type || 'agency').toLowerCase();
-  if (orgType && orgType !== 'agency') return null;
-  if (agency.is_active === false || agency.is_active === 0) return null;
-  return agency;
+  const org = await Agency.findBySlug(slug);
+  if (!org?.id) return null;
+  if (org.is_active === false || org.is_active === 0) return null;
+  const orgType = String(org.organization_type || 'agency').toLowerCase();
+  if (!orgType || orgType === 'agency') return org;
+
+  const parentId =
+    Number(org.affiliated_agency_id || 0)
+    || (await OrganizationAffiliation.getActiveAgencyIdForOrganization(org.id))
+    || (await AgencySchool.getActiveAgencyIdForSchool(org.id));
+  if (!parentId) return null;
+  const parent = await Agency.findById(parentId);
+  if (!parent?.id) return null;
+  if (parent.is_active === false || parent.is_active === 0) return null;
+  return parent;
 }
 
 async function hasSupportTicketEncryptionColumns() {
@@ -106,7 +117,7 @@ export async function listPublicReferralDirectory(agencySlug, req = null) {
        WHERE agency_id = ? AND is_active = TRUE
      ) aff ON aff.organization_id = org.id
      LEFT JOIN school_profiles sp ON sp.school_organization_id = org.id
-     INNER JOIN intake_links il ON il.id = (
+     LEFT JOIN intake_links il ON il.id = (
        SELECT il2.id
        FROM intake_links il2
        WHERE il2.scope_type = 'school'
@@ -132,7 +143,6 @@ export async function listPublicReferralDirectory(agencySlug, req = null) {
     const slug = String(row.school_slug || row.school_portal_url || '').trim().toLowerCase();
     if (DEMO_SCHOOL_SLUGS.has(slug)) continue;
     const publicKey = String(row.intake_public_key || '').trim();
-    if (!publicKey) continue;
 
     const district = String(row.district_name || '').trim() || 'Other';
     districtCounts.set(district, (districtCounts.get(district) || 0) + 1);
