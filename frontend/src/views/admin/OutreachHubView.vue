@@ -80,6 +80,35 @@
           <option v-for="st in stageOptions" :key="st.id" :value="st.id">{{ st.label }}</option>
         </select>
         <button v-if="hasFilters" type="button" class="btn-link" @click="clearFilters">Clear filters</button>
+        <button type="button" class="btn-link" @click="showImport = !showImport">
+          {{ showImport ? 'Hide import' : 'Import DPS history' }}
+        </button>
+      </div>
+      <div v-if="showImport" class="ohub-import">
+        <p class="ohub-muted">
+          Upload the dated spreadsheet (CSV). App contacts already on a school are left alone.
+          Only unmatched empty fields are filled, and only when the school name maps uniquely.
+        </p>
+        <input type="file" accept=".csv,text/csv" @change="onImportFile" />
+        <div v-if="importPreview" class="ohub-muted">
+          Preview: {{ importPreview.matched }} matched · {{ importPreview.skipped }} skipped
+        </div>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          :disabled="!importRows.length || importSaving"
+          @click="runImportPreview"
+        >Preview matches</button>
+        <button
+          type="button"
+          class="btn btn-primary"
+          :disabled="!importPreview || importSaving"
+          @click="runImport"
+        >{{ importSaving ? 'Importing…' : 'Import matched empty fields only' }}</button>
+        <p v-if="importResult" class="ohub-muted">
+          Added {{ importResult.contactsAdded }} contacts, {{ importResult.notesAdded }} notes,
+          {{ importResult.visitsAdded }} visits.
+        </p>
       </div>
 
       <div class="ohub-body">
@@ -700,6 +729,11 @@ const logForm = reactive({
   summary: '',
   notes: ''
 });
+const showImport = ref(false);
+const importRows = ref([]);
+const importPreview = ref(null);
+const importResult = ref(null);
+const importSaving = ref(false);
 
 const districts = computed(() => (summary.value.by_district || []).map((d) => d.district));
 const districtCount = computed(() => districts.value.length);
@@ -1255,6 +1289,101 @@ const loadOutreachList = async () => {
   }
 };
 
+const parseCsvText = (text) => {
+  const rows = [];
+  let row = [];
+  let cur = '';
+  let inQuotes = false;
+  const src = String(text || '').replace(/^\uFEFF/, '');
+  for (let i = 0; i < src.length; i += 1) {
+    const ch = src[i];
+    if (inQuotes) {
+      if (ch === '"' && src[i + 1] === '"') { cur += '"'; i += 1; }
+      else if (ch === '"') inQuotes = false;
+      else cur += ch;
+    } else if (ch === '"') inQuotes = true;
+    else if (ch === ',') { row.push(cur); cur = ''; }
+    else if (ch === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
+    else if (ch !== '\r') cur += ch;
+  }
+  if (cur.length || row.length) { row.push(cur); rows.push(row); }
+  return rows.filter((r) => r.some((c) => String(c || '').trim()));
+};
+
+const csvRowsToImport = (grid) => {
+  if (!grid.length) return [];
+  const header = grid[0].map((c) => String(c || '').trim().toLowerCase());
+  const looksHeader = header.some((h) => ['date', 'school', 'poc', 'poc & info'].includes(h));
+  const body = looksHeader ? grid.slice(1) : grid;
+  const idx = (names) => header.findIndex((h) => names.includes(h));
+  const col = looksHeader
+    ? {
+      date: Math.max(0, idx(['date'])),
+      school: Math.max(1, idx(['school'])),
+      poc: Math.max(2, idx(['poc', 'poc & info', 'poc &info', 'poc and info'])),
+      notes: Math.max(3, idx(['notes'])),
+      visit: Math.max(4, idx(['vist #', 'visit #', 'visit', 'visits'])),
+      follow: Math.max(5, idx(['follow upemail', 'follow up email', 'follow-up email'])),
+      meeting: Math.max(6, idx(['meeting'])),
+      services: Math.max(7, idx(['services started', 'services'])),
+      extra: Math.max(8, idx(['', 'comments', 'comment', 'additional notes']))
+    }
+    : { date: 0, school: 1, poc: 2, notes: 3, visit: 4, follow: 5, meeting: 6, services: 7, extra: 8 };
+  return body.map((r) => ({
+    date: r[col.date] || '',
+    school: r[col.school] || '',
+    pocInfo: r[col.poc] || '',
+    notes: r[col.notes] || '',
+    visitCount: r[col.visit] || '',
+    followUpEmail: r[col.follow] || '',
+    meeting: r[col.meeting] || '',
+    servicesStarted: r[col.services] || '',
+    extraNotes: r[col.extra] || ''
+  })).filter((r) => String(r.school || '').trim());
+};
+
+const onImportFile = async (ev) => {
+  const file = ev.target?.files?.[0];
+  importPreview.value = null;
+  importResult.value = null;
+  if (!file) { importRows.value = []; return; }
+  const text = await file.text();
+  importRows.value = csvRowsToImport(parseCsvText(text));
+};
+
+const runImportPreview = async () => {
+  importSaving.value = true;
+  importResult.value = null;
+  try {
+    const res = await api.post('/outreach/import/preview', {
+      rows: importRows.value,
+      districtIncludes: 'denver public'
+    }, { skipGlobalLoading: true });
+    importPreview.value = res.data;
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not preview import.';
+  } finally {
+    importSaving.value = false;
+  }
+};
+
+const runImport = async () => {
+  importSaving.value = true;
+  try {
+    const res = await api.post('/outreach/import/historical', {
+      rows: importRows.value,
+      districtIncludes: 'denver public',
+      dryRun: false
+    });
+    importResult.value = res.data;
+    await reload();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not import.';
+  } finally {
+    importSaving.value = false;
+  }
+};
+
 onMounted(async () => {
   resetLogForm();
   await Promise.all([reload(), loadAssignableUsers(), loadOutreachList()]);
@@ -1363,6 +1492,17 @@ onMounted(async () => {
   font-size: 12px;
 }
 .ohub-trip-clear { font-size: 12px; }
+.ohub-import {
+  background: #fff;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
 .ohub-route { list-style: none; padding: 0; margin: 0 0 12px; display: flex; flex-direction: column; gap: 8px; }
 .ohub-route-origin { padding: 8px 10px; background: #f0fdf4; border-radius: 10px; }
 .ohub-route-stop { padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 10px; }

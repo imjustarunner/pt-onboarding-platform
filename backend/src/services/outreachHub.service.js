@@ -11,6 +11,12 @@ import {
   schoolMapPoint,
   formatOutreachAddressLine
 } from '../utils/outreachHubPure.js';
+import {
+  isUniquePrefixSchoolMatch,
+  matchImportSchool,
+  mapHistoricalRow,
+  parsePocInfo
+} from '../utils/outreachHistoricalImport.js';
 
 export { WINDCHIME_ORIGIN, scoreNameMatch, canAutoPartnerDistrict, haversineMiles, schoolMapPoint };
 
@@ -22,6 +28,8 @@ const STAGES = new Set([
   'partnered',
   'on_hold'
 ]);
+
+const lastStaffContactSync = new Map();
 
 const CONTACT_TYPES = new Set(['email', 'letter', 'phone', 'visit']);
 
@@ -102,6 +110,7 @@ export async function ensureOutreachDirectory(agencyId) {
     if (existing >= expected) {
       await reconcileOutreachPartnerLinks(id);
       const seeded = await applySeededOutreachLocations(id);
+      void syncExistingSchoolStaffToOutreachContacts(id).catch(() => {});
       return { inserted: 0, updated: seeded, skipped: true };
     }
   } catch {
@@ -152,6 +161,7 @@ export async function ensureOutreachDirectory(agencyId) {
   }
   await reconcileOutreachPartnerLinks(id);
   await applySeededOutreachLocations(id);
+  void syncExistingSchoolStaffToOutreachContacts(id).catch(() => {});
   return { inserted, updated };
 }
 
@@ -876,6 +886,292 @@ export async function addOutreachSchoolContact(agencyId, schoolId, payload, user
     }
   }
   return getOutreachSchool(agencyId, schoolId);
+}
+
+async function insertOutreachContactIfMissing(agencyId, schoolId, contact, { source = 'manual', sourceUserId = null, userId = null } = {}) {
+  const fullName = String(contact.full_name || contact.fullName || '').trim();
+  if (!fullName) return false;
+  const email = String(contact.email || '').trim().toLowerCase() || null;
+  const phone = String(contact.phone || '').trim() || null;
+  const title = String(contact.title || contact.role_title || '').trim() || null;
+  if (email) {
+    const [dup] = await pool.execute(
+      `SELECT id FROM outreach_school_contacts
+       WHERE outreach_school_id = ? AND LOWER(email) = ? LIMIT 1`,
+      [schoolId, email]
+    );
+    if (dup?.length) return false;
+  } else {
+    const [dup] = await pool.execute(
+      `SELECT id FROM outreach_school_contacts
+       WHERE outreach_school_id = ? AND LOWER(full_name) = LOWER(?) AND (email IS NULL OR email = '')
+       LIMIT 1`,
+      [schoolId, fullName]
+    );
+    if (dup?.length) return false;
+  }
+  try {
+    await pool.execute(
+      `INSERT INTO outreach_school_contacts (
+         outreach_school_id, agency_id, full_name, email, phone, title, is_primary,
+         agency_contact_id, created_by_user_id, source, source_user_id
+       ) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?)`,
+      [schoolId, agencyId, fullName, email, phone, title, userId || null, source, sourceUserId]
+    );
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    await pool.execute(
+      `INSERT INTO outreach_school_contacts (
+         outreach_school_id, agency_id, full_name, email, phone, title, is_primary,
+         agency_contact_id, created_by_user_id
+       ) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?)`,
+      [schoolId, agencyId, fullName, email, phone, title, userId || null]
+    );
+  }
+  return true;
+}
+
+function findConfidentOrgForSchool(school, orgs, siblingSchools = []) {
+  const city = String(school.city || '').trim().toLowerCase();
+  const hits = [];
+  for (const org of orgs || []) {
+    const orgCity = String(org.city || '').trim().toLowerCase();
+    if (city && orgCity && city !== orgCity) continue;
+    if (isUniquePrefixSchoolMatch(school, org.name, siblingSchools)) hits.push(org);
+  }
+  if (hits.length === 1) return hits[0];
+  return null;
+}
+
+/**
+ * Copy current school_staff users and school_contacts onto matching Outreach Hub schools.
+ * Never overwrites existing outreach contacts.
+ */
+export async function syncExistingSchoolStaffToOutreachContacts(agencyId) {
+  const id = Number(agencyId || 0);
+  if (!id) return { inserted: 0, schools: 0 };
+  const last = lastStaffContactSync.get(id) || 0;
+  if (Date.now() - last < 60 * 1000) return { inserted: 0, schools: 0, skipped: true };
+  lastStaffContactSync.set(id, Date.now());
+
+  const schools = await queryOutreachSchoolRows(id, {});
+  const affiliated = await loadAffiliatedSchools(id);
+  const orgById = new Map((affiliated || []).map((o) => [Number(o.id), o]));
+
+  const [staffRows] = await pool.execute(
+    `SELECT u.id, u.first_name, u.last_name, u.email, ua.agency_id AS school_org_id
+     FROM users u
+     INNER JOIN user_agencies ua ON ua.user_id = u.id
+     INNER JOIN agencies a ON a.id = ua.agency_id AND LOWER(COALESCE(a.organization_type,'')) = 'school'
+     WHERE u.role = 'school_staff'
+       AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','DELETED'))`
+  );
+  let contactRows = [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT school_organization_id, full_name, email, role_title, is_primary
+       FROM school_contacts`
+    );
+    contactRows = rows || [];
+  } catch {
+    contactRows = [];
+  }
+
+  const staffByOrg = new Map();
+  for (const r of staffRows || []) {
+    const oid = Number(r.school_org_id);
+    if (!staffByOrg.has(oid)) staffByOrg.set(oid, []);
+    staffByOrg.get(oid).push(r);
+  }
+  const contactsByOrg = new Map();
+  for (const r of contactRows) {
+    const oid = Number(r.school_organization_id);
+    if (!contactsByOrg.has(oid)) contactsByOrg.set(oid, []);
+    contactsByOrg.get(oid).push(r);
+  }
+
+  let inserted = 0;
+  let matchedSchools = 0;
+  for (const school of schools) {
+    const linked = school.linked_organization_id ? orgById.get(Number(school.linked_organization_id)) : null;
+    const org = (linked && isUniquePrefixSchoolMatch(school, linked.name, schools)
+      && (!school.city || !linked.city || String(school.city).toLowerCase() === String(linked.city).toLowerCase()))
+      ? linked
+      : findConfidentOrgForSchool(school, affiliated, schools);
+    if (!org) continue;
+    matchedSchools += 1;
+    const seen = new Set();
+    const add = async (payload, sourceUserId = null) => {
+      const key = String(payload.email || payload.full_name || '').trim().toLowerCase();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      const ok = await insertOutreachContactIfMissing(id, school.id, payload, {
+        source: 'school_staff_sync',
+        sourceUserId
+      });
+      if (ok) inserted += 1;
+    };
+    for (const u of staffByOrg.get(Number(org.id)) || []) {
+      const fullName = `${u.first_name || ''} ${u.last_name || ''}`.replace(/\s+/g, ' ').trim();
+      await add({ full_name: fullName, email: u.email, title: 'School staff' }, u.id);
+    }
+    for (const c of contactsByOrg.get(Number(org.id)) || []) {
+      await add({
+        full_name: c.full_name,
+        email: c.email,
+        title: c.role_title
+      });
+    }
+  }
+  return { inserted, schools: matchedSchools };
+}
+
+export async function previewHistoricalOutreachImport(agencyId, rows = [], { districtIncludes = 'denver public' } = {}) {
+  const schools = await queryOutreachSchoolRows(agencyId, {});
+  const preview = [];
+  for (const raw of rows || []) {
+    const mapped = mapHistoricalRow(raw);
+    const match = matchImportSchool(mapped.school, schools, { districtIncludes });
+    const contacts = parsePocInfo(mapped.pocInfo);
+    preview.push({
+      spreadsheet_name: mapped.school,
+      status: match.status,
+      reason: match.reason,
+      matched_school: match.school ? { id: match.school.id, name: match.school.name } : null,
+      contacts,
+      has_notes: Boolean(mapped.combinedNotes),
+      visit_count: mapped.visitCount,
+      meeting: mapped.meeting,
+      services_started: mapped.servicesStarted,
+      follow_up_email: mapped.followUpEmail
+    });
+  }
+  return {
+    matched: preview.filter((p) => p.status === 'match').length,
+    skipped: preview.filter((p) => p.status === 'skip').length,
+    rows: preview
+  };
+}
+
+export async function importHistoricalOutreachRows(agencyId, rows = [], userId, { districtIncludes = 'denver public', dryRun = false } = {}) {
+  const id = Number(agencyId || 0);
+  await ensureOutreachDirectory(id);
+  lastStaffContactSync.delete(id);
+  await syncExistingSchoolStaffToOutreachContacts(id);
+
+  const schools = await queryOutreachSchoolRows(id, {});
+  const results = [];
+  let contactsAdded = 0;
+  let notesAdded = 0;
+  let visitsAdded = 0;
+
+  for (const raw of rows || []) {
+    const mapped = mapHistoricalRow(raw);
+    const match = matchImportSchool(mapped.school, schools, { districtIncludes });
+    if (match.status !== 'match' || !match.school) {
+      results.push({ spreadsheet_name: mapped.school, status: 'skip', reason: match.reason });
+      continue;
+    }
+    const schoolId = match.school.id;
+    const [existingContacts] = await pool.execute(
+      'SELECT COUNT(*) AS n FROM outreach_school_contacts WHERE outreach_school_id = ?',
+      [schoolId]
+    );
+    const [existingNotes] = await pool.execute(
+      'SELECT COUNT(*) AS n FROM outreach_school_notes WHERE outreach_school_id = ?',
+      [schoolId]
+    );
+    const [existingVisits] = await pool.execute(
+      `SELECT COUNT(*) AS n FROM outreach_activities
+       WHERE outreach_school_id = ? AND contact_type = 'visit'`,
+      [schoolId]
+    );
+    const hasContacts = Number(existingContacts?.[0]?.n || 0) > 0;
+    const hasNotes = Number(existingNotes?.[0]?.n || 0) > 0;
+    const hasVisits = Number(existingVisits?.[0]?.n || 0) > 0;
+
+    const parsedContacts = parsePocInfo(mapped.pocInfo);
+    const actions = { contacts: 0, notes: 0, visits: 0, skipped_because: [] };
+
+    if (hasContacts) actions.skipped_because.push('contacts_already_in_app');
+    else if (!dryRun) {
+      for (const c of parsedContacts) {
+        const ok = await insertOutreachContactIfMissing(id, schoolId, c, {
+          source: 'historical_import',
+          userId
+        });
+        if (ok) {
+          actions.contacts += 1;
+          contactsAdded += 1;
+        }
+      }
+    } else {
+      actions.contacts = hasContacts ? 0 : parsedContacts.length;
+    }
+
+    if (mapped.combinedNotes) {
+      if (hasNotes) actions.skipped_because.push('notes_already_in_app');
+      else if (!dryRun) {
+        try {
+          await pool.execute(
+            `INSERT INTO outreach_school_notes (outreach_school_id, agency_id, body, created_by_user_id, source)
+             VALUES (?, ?, ?, ?, 'historical_import')`,
+            [schoolId, id, mapped.combinedNotes.slice(0, 8000), userId || null]
+          );
+        } catch (e) {
+          if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+          await pool.execute(
+            `INSERT INTO outreach_school_notes (outreach_school_id, agency_id, body, created_by_user_id)
+             VALUES (?, ?, ?, ?)`,
+            [schoolId, id, mapped.combinedNotes.slice(0, 8000), userId || null]
+          );
+        }
+        actions.notes = 1;
+        notesAdded += 1;
+      } else actions.notes = 1;
+    }
+
+    const visitN = Number(mapped.visitCount);
+    if ((Number.isFinite(visitN) && visitN > 0) || mapped.meeting) {
+      if (hasVisits) actions.skipped_because.push('visits_already_in_app');
+      else if (!dryRun) {
+        const when = mapped.date ? new Date(mapped.date) : new Date();
+        const mysqlAt = Number.isNaN(when.getTime())
+          ? mysqlDateTime(new Date())
+          : mysqlDateTime(when);
+        const summary = mapped.meeting
+          ? 'Historical meeting (imported)'
+          : `Historical visit${Number.isFinite(visitN) ? ` #${visitN}` : ''} (imported)`;
+        try {
+          await pool.execute(
+            `INSERT INTO outreach_activities (
+               outreach_school_id, agency_id, contact_type, activity_at, summary, notes, created_by_user_id, source
+             ) VALUES (?, ?, 'visit', ?, ?, ?, ?, 'historical_import')`,
+            [schoolId, id, mysqlAt, summary, mapped.combinedNotes || null, userId || null]
+          );
+        } catch (e) {
+          if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+          await pool.execute(
+            `INSERT INTO outreach_activities (
+               outreach_school_id, agency_id, contact_type, activity_at, summary, notes, created_by_user_id
+             ) VALUES (?, ?, 'visit', ?, ?, ?, ?)`,
+            [schoolId, id, mysqlAt, summary, mapped.combinedNotes || null, userId || null]
+          );
+        }
+        actions.visits = 1;
+        visitsAdded += 1;
+      } else actions.visits = 1;
+    }
+
+    results.push({
+      spreadsheet_name: mapped.school,
+      status: 'imported',
+      matched_school: match.school.name,
+      actions
+    });
+  }
+
+  return { contactsAdded, notesAdded, visitsAdded, dryRun: !!dryRun, results };
 }
 
 export async function rankSchoolsFromOrigin(agencyId, { originSchoolId = null, excludeIds = [] } = {}) {

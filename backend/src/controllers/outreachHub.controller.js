@@ -14,7 +14,10 @@ import {
   getOutreachTrip,
   createOutreachTrip,
   completeOutreachTrip,
-  backfillOutreachSchoolGeocodes
+  backfillOutreachSchoolGeocodes,
+  previewHistoricalOutreachImport,
+  importHistoricalOutreachRows,
+  syncExistingSchoolStaffToOutreachContacts
 } from '../services/outreachHub.service.js';
 import {
   ensureOutreachTaskList,
@@ -311,5 +314,43 @@ export const completeTrip = async (req, res, next) => {
     res.json({ trip });
   } catch (err) {
     handleServiceError(res, err);
+  }
+};
+
+export const previewHistoricalImport = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFrom(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    const districtIncludes = String(req.body?.districtIncludes || 'denver public');
+    const preview = await previewHistoricalOutreachImport(agencyId, rows, { districtIncludes });
+    res.json(preview);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const runHistoricalImport = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFrom(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    const districtIncludes = String(req.body?.districtIncludes || 'denver public');
+    const dryRun = req.body?.dryRun === true;
+    const result = await importHistoricalOutreachRows(agencyId, rows, req.user?.id, { districtIncludes, dryRun });
+    res.json(result);
+  } catch (err) {
+    handleServiceError(res, err);
+  }
+};
+
+export const syncStaffContacts = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFrom(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const result = await syncExistingSchoolStaffToOutreachContacts(agencyId);
+    res.json(result);
+  } catch (err) {
+    next(err);
   }
 };
