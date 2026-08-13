@@ -432,11 +432,15 @@
           </div>
           <p v-if="tripStops.length" class="ohub-muted">Closest from {{ lastTripStopName }}:</p>
           <p v-else class="ohub-muted">Closest from Windchime:</p>
+          <p v-if="tripPreviewLoading" class="ohub-muted">Loading distances and school addresses…</p>
+          <p v-else-if="tripGeocodeRemaining > 0" class="ohub-muted">
+            Street addresses are still loading for {{ tripGeocodeRemaining }} schools — distances use city centers until then.
+          </p>
           <ul class="ohub-nearby">
             <li v-for="row in nearbySchools" :key="row.id">
               <button type="button" class="ohub-nearby-btn" @click="addTripStop(row)">
                 <strong>{{ row.name }}</strong>
-                <span>{{ row.miles_from_origin != null ? `${row.miles_from_origin} mi` : '—' }} · {{ shortDistrict(row.district_name) }}</span>
+                <span>{{ row.miles_from_origin != null ? `${row.miles_from_origin} mi` : '—' }}{{ row.distance_approx ? ' (approx.)' : '' }} · {{ shortDistrict(row.district_name) }}</span>
                 <em>{{ row.address || row.city }}</em>
               </button>
             </li>
@@ -633,6 +637,8 @@ const tripSearch = ref('');
 const tripDate = ref('');
 const tripNotes = ref('');
 const tripSaving = ref(false);
+const tripPreviewLoading = ref(false);
+const tripGeocodeRemaining = ref(null);
 const tripParticipants = ref([]);
 const participantForm = reactive({ name: '', start_time: '', end_time: '' });
 const logForm = reactive({
@@ -1008,10 +1014,18 @@ const nearbySchools = computed(() => {
 });
 
 const loadTripPreview = async () => {
-  const originSchoolId = tripStops.value.at(-1)?.id || null;
-  const excludeIds = tripStops.value.map((s) => s.id);
-  const res = await api.post('/outreach/trips/preview', { originSchoolId, excludeIds });
-  tripNearby.value = res.data?.schools || [];
+  tripPreviewLoading.value = true;
+  try {
+    const originSchoolId = tripStops.value.at(-1)?.id || null;
+    const excludeIds = tripStops.value.map((s) => s.id);
+    const res = await api.post('/outreach/trips/preview', { originSchoolId, excludeIds }, { skipGlobalLoading: true });
+    tripNearby.value = res.data?.schools || [];
+    tripGeocodeRemaining.value = Number(res.data?.geocode_remaining ?? res.data?.remaining ?? 0) || null;
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not load trip distances.';
+  } finally {
+    tripPreviewLoading.value = false;
+  }
 };
 
 const addTripStop = async (row) => {

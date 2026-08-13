@@ -38,8 +38,17 @@ export function canAutoPartnerDistrict(district) {
   return d.includes('denver public');
 }
 
+export function isValidMapCoordinate(lat, lng) {
+  const la = Number(lat);
+  const ln = Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(ln)) return false;
+  if (la === 0 && ln === 0) return false;
+  if (la < -90 || la > 90 || ln < -180 || ln > 180) return false;
+  return true;
+}
+
 export function haversineMiles(a, b) {
-  if (!a || !b || !Number.isFinite(a.lat) || !Number.isFinite(a.lng) || !Number.isFinite(b.lat) || !Number.isFinite(b.lng)) {
+  if (!a || !b || !isValidMapCoordinate(a.lat, a.lng) || !isValidMapCoordinate(b.lat, b.lng)) {
     return null;
   }
   const toRad = (d) => (d * Math.PI) / 180;
@@ -53,8 +62,10 @@ export function haversineMiles(a, b) {
 }
 
 export function schoolMapPoint(school) {
-  if (Number.isFinite(Number(school?.lat)) && Number.isFinite(Number(school?.lng))) {
-    return { lat: Number(school.lat), lng: Number(school.lng), approx: false };
+  const lat = school?.lat;
+  const lng = school?.lng;
+  if (lat != null && lng != null && isValidMapCoordinate(lat, lng)) {
+    return { lat: Number(lat), lng: Number(lng), approx: false };
   }
   const city = String(school?.city || '').trim().toLowerCase();
   const hit = CITY_COORDS[city];

@@ -58,6 +58,31 @@ async function loadAffiliatedSchools(agencyId) {
 export async function ensureOutreachDirectory(agencyId) {
   const id = Number(agencyId || 0);
   if (!id) return { inserted: 0, updated: 0 };
+  const expected = COLORADO_OUTREACH_SCHOOLS.length;
+  try {
+    const [countRows] = await pool.execute(
+      'SELECT COUNT(*) AS n FROM outreach_schools WHERE agency_id = ?',
+      [id]
+    );
+    const existing = Number(countRows?.[0]?.n || 0);
+    if (existing >= expected) {
+      try {
+        await pool.execute(
+          `UPDATE outreach_schools
+           SET outreach_stage = 'not_started', linked_organization_id = NULL
+           WHERE agency_id = ?
+             AND district_name LIKE '%Aurora%'
+             AND outreach_stage = 'partnered'`,
+          [id]
+        );
+      } catch {
+        /* ignore */
+      }
+      return { inserted: 0, updated: 0, skipped: true };
+    }
+  } catch {
+    /* table may not exist yet */
+  }
   const affiliated = await loadAffiliatedSchools(id);
   let inserted = 0;
   let updated = 0;
@@ -143,6 +168,7 @@ function mapSchoolRow(row, activityCounts = null) {
 
 export async function listOutreachSchools(agencyId, filters = {}) {
   await ensureOutreachDirectory(agencyId);
+  void backfillOutreachSchoolGeocodes(agencyId, { limit: 20 }).catch(() => {});
   const where = ['s.agency_id = ?'];
   const params = [agencyId];
   const district = String(filters.district || '').trim();
@@ -192,6 +218,124 @@ export async function listOutreachSchools(agencyId, filters = {}) {
     params
   );
   return (rows || []).map((r) => mapSchoolRow(r));
+}
+
+async function queryOutreachSchoolRows(agencyId, filters = {}) {
+  const where = ['s.agency_id = ?'];
+  const params = [agencyId];
+  const district = String(filters.district || '').trim();
+  const stage = String(filters.stage || '').trim().toLowerCase();
+  const level = String(filters.level || '').trim().toLowerCase();
+  const q = String(filters.q || '').trim();
+  if (district) {
+    where.push('s.district_name = ?');
+    params.push(district);
+  }
+  if (stage && isValidOutreachStage(stage)) {
+    where.push('s.outreach_stage = ?');
+    params.push(stage);
+  }
+  if (level) {
+    where.push('s.school_level = ?');
+    params.push(level);
+  }
+  if (q) {
+    where.push('(s.name LIKE ? OR s.city LIKE ? OR s.district_name LIKE ? OR COALESCE(s.address, \'\') LIKE ?)');
+    const like = `%${q}%`;
+    params.push(like, like, like, like);
+  }
+  const [rows] = await pool.execute(
+    `SELECT s.* FROM outreach_schools s WHERE ${where.join(' AND ')} ORDER BY s.district_name ASC, s.name ASC`,
+    params
+  );
+  return (rows || []).map((r) => mapSchoolRow(r));
+}
+
+function isPlaceholderOutreachAddress(row) {
+  const name = String(row?.name || '').trim();
+  const city = String(row?.city || '').trim();
+  const address = String(row?.address || '').trim();
+  if (!address) return true;
+  const placeholder = `${name}, ${city}, CO`;
+  if (address === placeholder) return true;
+  return !/\d/.test(address);
+}
+
+/** Geocode schools missing coordinates or still on placeholder addresses (batched). */
+export async function backfillOutreachSchoolGeocodes(agencyId, { limit = 50 } = {}) {
+  const id = Number(agencyId || 0);
+  if (!id) return { geocoded: 0, remaining: 0 };
+  const cap = Math.min(Math.max(Number(limit) || 50, 1), 100);
+  const [rows] = await pool.execute(
+    `SELECT id, name, city, district_name, address, lat, lng
+     FROM outreach_schools
+     WHERE agency_id = ?
+       AND (
+         lat IS NULL OR lng IS NULL
+         OR address IS NULL OR address = ''
+         OR address LIKE '%, CO'
+       )
+     ORDER BY (lat IS NULL OR lng IS NULL) DESC, id ASC
+     LIMIT ${cap}`,
+    [id]
+  );
+  if (!rows?.length) {
+    const [rem] = await pool.execute(
+      `SELECT COUNT(*) AS n FROM outreach_schools
+       WHERE agency_id = ? AND (lat IS NULL OR lng IS NULL)`,
+      [id]
+    );
+    return { geocoded: 0, remaining: Number(rem?.[0]?.n || 0) };
+  }
+
+  let geocoded = 0;
+  let geocodeBlocked = false;
+  try {
+    const { geocodeAddressWithGoogle } = await import('./googleGeocode.service.js');
+    for (const row of rows) {
+      if (geocodeBlocked) break;
+      const name = String(row.name || '').trim();
+      const city = String(row.city || '').trim();
+      if (!name || !city) continue;
+      const query = isPlaceholderOutreachAddress(row)
+        ? `${name}, ${city}, Colorado`
+        : String(row.address || `${name}, ${city}, Colorado`).trim();
+      try {
+        const geo = await geocodeAddressWithGoogle({
+          addressText: query,
+          state: 'CO',
+          countryCode: 'US'
+        });
+        const formatted = geo?.formattedAddress ? String(geo.formattedAddress).slice(0, 255) : null;
+        await pool.execute(
+          `UPDATE outreach_schools
+           SET lat = ?, lng = ?, address = COALESCE(?, address)
+           WHERE id = ? AND agency_id = ?`,
+          [geo.latitude, geo.longitude, formatted, row.id, id]
+        );
+        geocoded += 1;
+      } catch (e) {
+        const msg = String(e?.message || '');
+        if (e?.code === 'MAPS_KEY_MISSING' || msg.includes('REQUEST_DENIED')) {
+          geocodeBlocked = true;
+          console.warn('[outreachHub] Google Geocoding unavailable — trip distances use city centers until Geocoding API is enabled');
+        } else {
+          console.warn('[outreachHub] geocode skipped', row.id, e?.message);
+        }
+      }
+    }
+  } catch (e) {
+    if (e?.code !== 'MAPS_KEY_MISSING') {
+      console.warn('[outreachHub] geocode batch failed', e?.message);
+    }
+  }
+
+  const [rem] = await pool.execute(
+    `SELECT COUNT(*) AS n FROM outreach_schools
+     WHERE agency_id = ? AND (lat IS NULL OR lng IS NULL)`,
+    [id]
+  );
+  return { geocoded, remaining: Number(rem?.[0]?.n || 0) };
 }
 
 export async function getOutreachSchool(agencyId, schoolId) {
@@ -618,7 +762,7 @@ export async function addOutreachSchoolContact(agencyId, schoolId, payload, user
 }
 
 export async function rankSchoolsFromOrigin(agencyId, { originSchoolId = null, excludeIds = [] } = {}) {
-  const schools = await listOutreachSchools(agencyId, {});
+  const schools = await queryOutreachSchoolRows(agencyId, {});
   const origin = originSchoolId
     ? schoolMapPoint(schools.find((s) => Number(s.id) === Number(originSchoolId)))
     : { lat: WINDCHIME_ORIGIN.lat, lng: WINDCHIME_ORIGIN.lng, approx: false };
@@ -682,10 +826,13 @@ async function enrichDrivingDistances(origin, ranked) {
 }
 
 export async function previewTripStops(agencyId, { originSchoolId = null, excludeIds = [], useDriving = false } = {}) {
+  const geo = await backfillOutreachSchoolGeocodes(agencyId, { limit: 25 });
   const ranked = await rankSchoolsFromOrigin(agencyId, { originSchoolId, excludeIds });
-  if (!useDriving) return ranked;
+  if (!useDriving) {
+    return { ...ranked, geocode_remaining: geo.remaining };
+  }
   const origin = originSchoolId
-    ? schoolMapPoint((await listOutreachSchools(agencyId, {})).find((s) => Number(s.id) === Number(originSchoolId)))
+    ? schoolMapPoint((await queryOutreachSchoolRows(agencyId, {})).find((s) => Number(s.id) === Number(originSchoolId)))
     : WINDCHIME_ORIGIN;
   const schools = await enrichDrivingDistances(
     originSchoolId
@@ -693,7 +840,7 @@ export async function previewTripStops(agencyId, { originSchoolId = null, exclud
       : WINDCHIME_ORIGIN,
     ranked.schools
   );
-  return { ...ranked, schools };
+  return { ...ranked, schools, geocode_remaining: geo.remaining };
 }
 
 function mapTripRow(row, stops = [], participants = []) {

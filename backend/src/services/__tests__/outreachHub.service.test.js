@@ -4,7 +4,9 @@ import { normalizeOutreachName } from '../../data/coloradoOutreachSchools.js';
 import {
   canAutoPartnerDistrict,
   haversineMiles,
-  scoreNameMatch
+  scoreNameMatch,
+  schoolMapPoint,
+  WINDCHIME_ORIGIN
 } from '../../utils/outreachHubPure.js';
 
 describe('outreach name matching', () => {
@@ -37,5 +39,15 @@ describe('outreach partnership and routing', () => {
     const toDenver = haversineMiles(windchime, denver);
     assert.ok(toCs != null && toCs < 20);
     assert.ok(toDenver != null && toDenver > toCs);
+  });
+
+  it('does not treat null DB coordinates as (0,0)', () => {
+    const pt = schoolMapPoint({ name: 'Altura Elementary School', city: 'Aurora', lat: null, lng: null });
+    assert.ok(pt);
+    assert.notEqual(pt.lat, 0);
+    assert.notEqual(pt.lng, 0);
+    const miles = haversineMiles(WINDCHIME_ORIGIN, pt);
+    assert.ok(miles != null && miles < 120);
+    assert.ok(miles > 40);
   });
 });
