@@ -701,6 +701,18 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/client-action/:token',
+    name: 'ProviderActionPublic',
+    component: () => import('../views/public/ProviderActionPublicView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/client-action/:token',
+    name: 'OrganizationProviderActionPublic',
+    component: () => import('../views/public/ProviderActionPublicView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/provider-year-update/:token',
     name: 'OrganizationProviderYearUpdatePublic',
     component: () => import('../views/public/ProviderYearUpdatePublicView.vue'),

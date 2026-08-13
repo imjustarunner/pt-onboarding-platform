@@ -186,6 +186,8 @@ function rosterLifecycleFields(client, { viewerRole, disposition }) {
     provider_action_key: providerAction?.actionKey || null,
     fall_outcome: disposition?.fall_outcome || null,
     fall_completed_at: disposition?.fall_completed_at || null,
+    spring_outcome: disposition?.spring_outcome || null,
+    spring_completed_at: disposition?.spring_completed_at || null,
     needs_insurance_clearance: needsInsuranceClearance({
       client: shaped,
       disposition,
@@ -1273,7 +1275,7 @@ export const getSchoolClients = async (req, res, next) => {
         if (ids.length) {
           const placeholders = ids.map(() => '?').join(',');
           const [dispRows] = await pool.execute(
-            `SELECT client_id, agency_cleared_at, agency_clearance_json, fall_outcome, spring_outcome, fall_completed_at
+            `SELECT client_id, agency_cleared_at, agency_clearance_json, fall_outcome, spring_outcome, fall_completed_at, spring_completed_at
              FROM client_year_dispositions
              WHERE school_year = ?
                AND client_id IN (${placeholders})`,
@@ -2047,7 +2049,7 @@ export const getProviderMyRoster = async (req, res, next) => {
       if (ids.length) {
         const placeholders = ids.map(() => '?').join(',');
         const [dispRows] = await pool.execute(
-          `SELECT client_id, agency_cleared_at, agency_clearance_json, fall_outcome, spring_outcome, fall_completed_at
+          `SELECT client_id, agency_cleared_at, agency_clearance_json, fall_outcome, spring_outcome, fall_completed_at, spring_completed_at
            FROM client_year_dispositions
            WHERE school_year = ?
              AND client_id IN (${placeholders})`,

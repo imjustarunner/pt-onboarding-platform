@@ -44,9 +44,9 @@
       <section class="so-card">
         <h2>Demo link only</h2>
         <p class="muted">
-          Use this at initial meetings to show the school portal without login or onboarding. Share the link or QR
-          code — great when school Wi‑Fi is unreliable (load once while you have signal, then browse offline where
-          cached).
+          Use this at initial meetings to show the school portal without login or onboarding.
+          Share the live link, or download a zip you can email / copy to a laptop. Unzip it,
+          double-click start, and the demo runs with no Wi‑Fi.
         </p>
         <div v-if="demoOnlyUrl" class="so-qr-box">
           <img v-if="demoQrDataUrl" :src="demoQrDataUrl" alt="School portal demo QR code" class="so-qr-img" />
@@ -56,7 +56,14 @@
               <a class="btn primary" :href="demoOnlyUrl" target="_blank" rel="noopener noreferrer">Open demo</a>
               <button type="button" class="btn ghost" @click="printDemoQr">Print QR</button>
               <button type="button" class="btn ghost" @click="copyLink(demoOnlyUrl)">Copy link</button>
+              <button type="button" class="btn ghost" :disabled="demoZipBusy" @click="downloadOfflineDemo">
+                {{ demoZipBusy ? 'Building zip…' : 'Download offline bundle' }}
+              </button>
             </div>
+            <p v-if="demoZipError" class="error">{{ demoZipError }}</p>
+            <p v-else class="muted tiny">
+              The zip can be larger than a typical email attachment. If send fails, put it on Drive or WeTransfer and email the link.
+            </p>
           </div>
         </div>
       </section>
@@ -267,6 +274,8 @@ const qrLoading = ref(false);
 const qrBusy = ref(false);
 const qrError = ref('');
 const demoQrDataUrl = ref('');
+const demoZipBusy = ref(false);
+const demoZipError = ref('');
 
 const demoOnlyUrl = computed(() => {
   if (typeof window === 'undefined') return '';
@@ -351,6 +360,53 @@ async function copyLink(link) {
     listMessage.value = 'Link copied to clipboard.';
   } catch {
     listMessage.value = link;
+  }
+}
+
+async function downloadOfflineDemo() {
+  demoZipBusy.value = true;
+  demoZipError.value = '';
+  try {
+    const response = await api.get('/school-onboarding/demo/offline-zip', {
+      responseType: 'blob',
+      timeout: 180000,
+      skipGlobalLoading: true
+    });
+    const blob = response.data instanceof Blob
+      ? response.data
+      : new Blob([response.data], { type: 'application/zip' });
+    if (blob.type && blob.type.includes('json')) {
+      const text = await blob.text();
+      try {
+        const parsed = JSON.parse(text);
+        throw new Error(parsed?.error?.message || 'Failed to build the offline demo zip');
+      } catch (e) {
+        if (e.message && !e.message.includes('JSON')) throw e;
+        throw new Error('Failed to build the offline demo zip');
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'hogwarts-school-portal-demo.zip';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    const data = e?.response?.data;
+    if (data instanceof Blob) {
+      try {
+        const parsed = JSON.parse(await data.text());
+        demoZipError.value = parsed?.error?.message || 'Failed to build the offline demo zip';
+      } catch {
+        demoZipError.value = 'Failed to build the offline demo zip';
+      }
+    } else {
+      demoZipError.value = e?.response?.data?.error?.message || e?.message || 'Failed to build the offline demo zip';
+    }
+  } finally {
+    demoZipBusy.value = false;
   }
 }
 

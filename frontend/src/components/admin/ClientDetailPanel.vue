@@ -1050,6 +1050,14 @@
           <ClientSkillBuildersProgramTab :client="client" @program-updated="emit('updated', { keepOpen: true })" />
         </div>
 
+        <div v-if="activeTab === 'school-years'" class="detail-section">
+          <h3 style="margin-top: 0;">School years</h3>
+          <ClientLifecycleHistoryPanel
+            :client-id="client.id"
+            @view-event="openLifecycleHistoryEvent"
+          />
+        </div>
+
         <!-- Compliance Checklist Tab -->
         <div v-if="activeTab === 'checklist'" class="detail-section">
           <h3 style="margin-top: 0;">Compliance Checklist</h3>
@@ -2246,6 +2254,22 @@
         @updated="onSchoolAssignmentUpdated"
       />
 
+      <LifecycleActionModal
+        v-if="lifecycleHistoryModal.client && lifecycleHistoryModal.actionKey"
+        :client="lifecycleHistoryModal.client"
+        :action-key="lifecycleHistoryModal.actionKey"
+        :action-label="lifecycleHistoryModal.label"
+        :view-only="true"
+        :school-year="lifecycleHistoryModal.schoolYear"
+        @close="closeLifecycleHistoryModal"
+      />
+      <QuickChecklistModal
+        v-if="lifecycleHistoryChecklistClient"
+        :client="lifecycleHistoryChecklistClient"
+        :view-only="true"
+        @close="lifecycleHistoryChecklistClient = null"
+      />
+
       <PostListingModal
         v-if="showPostToExchangeModal && clientAgencyId && client?.id"
         :agency-id="clientAgencyId"
@@ -2292,7 +2316,9 @@ import AssignDayModal from '../school/AssignDayModal.vue';
 import PostListingModal from '../clientExchange/PostListingModal.vue';
 import { canSeeClientExchangeNav } from '../../utils/clientExchangeNav.js';
 import { useClientDisplayMode } from '../../composables/useClientDisplayMode.js';
-import { assignedDayDisplay, displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
+import ClientLifecycleHistoryPanel from '../admin/ClientLifecycleHistoryPanel.vue';
+import LifecycleActionModal from '../school/LifecycleActionModal.vue';
+import QuickChecklistModal from '../school/QuickChecklistModal.vue';
 
 const props = defineProps({
   client: {
@@ -2580,6 +2606,26 @@ const canManageSchoolAssignments = computed(
   () => props.canManageSchoolAssignments && isSchoolPortalContext.value
 );
 const showAssignDayModal = ref(false);
+const lifecycleHistoryModal = ref({ client: null, actionKey: '', label: '', schoolYear: '' });
+const lifecycleHistoryChecklistClient = ref(null);
+
+function openLifecycleHistoryEvent(ev) {
+  if (!ev?.actionKey) return;
+  if (ev.actionKey === 'provider_intake') {
+    lifecycleHistoryChecklistClient.value = props.client;
+    return;
+  }
+  lifecycleHistoryModal.value = {
+    client: props.client,
+    actionKey: ev.actionKey,
+    label: ev.title || 'View submission',
+    schoolYear: ev.schoolYear || ''
+  };
+}
+
+function closeLifecycleHistoryModal() {
+  lifecycleHistoryModal.value = { client: null, actionKey: '', label: '', schoolYear: '' };
+}
 
 const canEditAccount = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
 
@@ -2995,6 +3041,7 @@ const tabs = computed(() => {
   }
   if (isSchoolClientType.value) {
     base.push({ id: 'checklist', label: 'Checklist' });
+    base.push({ id: 'school-years', label: 'School years' });
   }
   base.push(
     { id: 'history', label: 'Status History' },

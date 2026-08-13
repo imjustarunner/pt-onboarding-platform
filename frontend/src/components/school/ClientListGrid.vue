@@ -437,6 +437,7 @@
               </button>
             </td>
             <td v-if="showLifecycleActionColumn">
+              <div class="roster-action-stack">
               <button
                 v-if="lifecycleActionFor(client)"
                 type="button"
@@ -451,7 +452,18 @@
               >
                 {{ lifecycleActionFor(client).label }}
               </button>
-              <span v-else class="muted">—</span>
+              <button
+                v-if="lifecycleViewFor(client)"
+                type="button"
+                class="roster-action-btn roster-action-btn--ghost"
+                title="View last submission"
+                :disabled="!canClickLifecycleAction"
+                @click.stop="canClickLifecycleAction && openLifecycleView(client)"
+              >
+                View
+              </button>
+              <span v-if="!lifecycleActionFor(client) && !lifecycleViewFor(client)" class="muted">—</span>
+              </div>
             </td>
             <td v-if="rosterScope === 'school' && !isProviderUser">{{ client.provider_name || '—' }}</td>
             <td v-else>
@@ -599,7 +611,8 @@
       v-if="quickChecklistClient"
       :client="quickChecklistClient"
       :parent-agency-id="parentAgencyId"
-      @close="quickChecklistClient = null"
+      :view-only="quickChecklistViewOnly"
+      @close="quickChecklistClient = null; quickChecklistViewOnly = false"
       @saved="onQuickChecklistSaved"
     />
 
@@ -608,6 +621,7 @@
       :client="lifecycleActionClient"
       :action-key="lifecycleActionKey"
       :action-label="lifecycleActionLabel"
+      :view-only="lifecycleActionViewOnly"
       @close="closeLifecycleAction"
       @saved="onLifecycleActionSaved"
     />
@@ -885,9 +899,11 @@ const canOpenMoreInfo = computed(() => {
   return canEditClients.value;
 });
 const quickChecklistClient = ref(null);
+const quickChecklistViewOnly = ref(false);
 const lifecycleActionClient = ref(null);
 const lifecycleActionKey = ref('');
 const lifecycleActionLabel = ref('');
+const lifecycleActionViewOnly = ref(false);
 const onboardingChecklistClient = ref(null);
 const terminateModalClient = ref(null);
 const terminateReasonDraft = ref('');
@@ -1469,9 +1485,59 @@ const isNewlyAssigned = (client) => {
   return days <= NEWLY_ASSIGNED_DAYS;
 };
 
-const openQuickChecklist = (client) => {
-  if (isClientTerminated(client)) return;
+const lifecycleViewFor = (client) => {
+  if (isClientTerminated(client) && !client?.fall_completed_at && !client?.spring_completed_at) return null;
+  if (client?.fall_completed_at) {
+    return { actionKey: 'fall_confirmation', label: 'View' };
+  }
+  if (client?.spring_completed_at) {
+    return { actionKey: 'spring_update', label: 'View' };
+  }
+  if (client?.parents_contacted_at || client?.first_service_at) {
+    return { actionKey: 'provider_intake', label: 'View' };
+  }
+  return null;
+};
+
+const openQuickChecklist = (client, viewOnly = false) => {
+  if (isClientTerminated(client) && !viewOnly) return;
+  quickChecklistViewOnly.value = !!viewOnly;
   quickChecklistClient.value = client;
+};
+
+const openLifecycleView = (client) => {
+  const view = lifecycleViewFor(client);
+  if (!view?.actionKey) return;
+  if (view.actionKey === 'provider_intake') {
+    openQuickChecklist(client, true);
+    return;
+  }
+  lifecycleActionViewOnly.value = true;
+  lifecycleActionClient.value = client;
+  lifecycleActionKey.value = view.actionKey;
+  lifecycleActionLabel.value = view.actionKey === 'fall_confirmation'
+    ? 'View fall confirmation'
+    : 'View spring update';
+};
+
+const openLifecycleAction = (client) => {
+  const action = lifecycleActionFor(client);
+  if (!action?.actionKey) return;
+  if (action.actionKey === 'provider_intake') {
+    openQuickChecklist(client, false);
+    return;
+  }
+  lifecycleActionViewOnly.value = false;
+  lifecycleActionClient.value = client;
+  lifecycleActionKey.value = action.actionKey;
+  lifecycleActionLabel.value = action.label || 'Next Step';
+};
+
+const closeLifecycleAction = () => {
+  lifecycleActionClient.value = null;
+  lifecycleActionKey.value = '';
+  lifecycleActionLabel.value = '';
+  lifecycleActionViewOnly.value = false;
 };
 
 /** Prefer API action; when previewing as provider, use the provider-specific action. */
@@ -1513,24 +1579,6 @@ const fallHoverBody = (client) => {
   if (!hasProvider) return 'Waiting on a provider assignment. This client is not on a caseload yet.';
   if (!hasDay) return 'Waiting on provider fall confirmation (an assigned day is still needed).';
   return 'Provider and day are assigned. This client should move to Ready to Schedule.';
-};
-
-const openLifecycleAction = (client) => {
-  const action = lifecycleActionFor(client);
-  if (!action?.actionKey) return;
-  if (action.actionKey === 'provider_intake') {
-    openQuickChecklist(client);
-    return;
-  }
-  lifecycleActionClient.value = client;
-  lifecycleActionKey.value = action.actionKey;
-  lifecycleActionLabel.value = action.label || 'Next Step';
-};
-
-const closeLifecycleAction = () => {
-  lifecycleActionClient.value = null;
-  lifecycleActionKey.value = '';
-  lifecycleActionLabel.value = '';
 };
 
 const onLifecycleActionSaved = () => {
@@ -3212,6 +3260,13 @@ onMounted(() => {
   gap: 6px;
 }
 
+.roster-action-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
 .roster-action-btn {
   appearance: none;
   border: 1px solid rgba(15, 23, 42, 0.12);
@@ -3242,6 +3297,11 @@ onMounted(() => {
 .roster-action-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.roster-action-btn--ghost {
+  background: transparent;
+  color: #334155;
 }
 
 .roster-action-btn--accent {

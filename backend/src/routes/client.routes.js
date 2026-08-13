@@ -85,6 +85,7 @@ import {
   getClientAgencyIntake,
   putClientAgencyIntake,
   getClientYearDisposition,
+  getClientLifecycleHistoryHandler,
   putClientSpringUpdate,
   putClientFallConfirmation,
   putClientAgencyClearance,
@@ -205,6 +206,7 @@ router.put('/:id/compliance-checklist', updateClientComplianceChecklist);
 router.get('/:id/agency-intake', getClientAgencyIntake);
 router.put('/:id/agency-intake', putClientAgencyIntake);
 router.get('/:id/year-disposition', getClientYearDisposition);
+router.get('/:id/lifecycle-history', getClientLifecycleHistoryHandler);
 router.put('/:id/spring-update', putClientSpringUpdate);
 router.put('/:id/fall-confirmation', putClientFallConfirmation);
 router.put('/:id/agency-clearance', putClientAgencyClearance);

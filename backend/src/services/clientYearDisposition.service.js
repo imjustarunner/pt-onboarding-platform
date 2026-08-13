@@ -15,6 +15,8 @@ import {
 import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
 import { continuingClientDisclosureAutoOk, continuingInsuranceOverrideActive } from '../utils/fallReadiness.js';
 import { deriveLifecycleAction } from '../utils/clientLifecycleAction.js';
+import { buildClientLifecycleHistory } from '../utils/clientLifecycleHistory.js';
+import { getAgencyIntake } from './clientAgencyIntake.service.js';
 
 const SPRING_OUTCOMES = new Set(['returning', 'not_returning', 'unknown']);
 const FALL_OUTCOMES = new Set([
@@ -514,4 +516,40 @@ export async function applyJulyRolloverStatuses({ agencyId, actorUserId = null }
     updated += 1;
   }
   return { updated, schoolYear: year };
+}
+
+export async function listDispositionsForClient(clientId) {
+  const [rows] = await pool.execute(
+    `SELECT * FROM client_year_dispositions
+     WHERE client_id = ?
+     ORDER BY school_year ASC`,
+    [clientId]
+  );
+  return rows || [];
+}
+
+export async function getClientLifecycleHistory({ client }) {
+  const [dispositions, agencyIntake] = await Promise.all([
+    listDispositionsForClient(client.id),
+    getAgencyIntake(client.id).catch(() => null)
+  ]);
+  const currentYear = currentSchoolYearLabelFromCalendar();
+  const currentDisp = (dispositions || []).find((row) => String(row.school_year) === currentYear) || null;
+  const pendingActions = [];
+  for (const role of ['provider', 'admin']) {
+    const action = deriveLifecycleAction({
+      client,
+      viewerRole: role,
+      disposition: currentDisp
+    });
+    if (!action?.actionKey) continue;
+    if (pendingActions.some((p) => p.actionKey === action.actionKey && p.role === action.role)) continue;
+    pendingActions.push(action);
+  }
+  return buildClientLifecycleHistory({
+    client,
+    dispositions,
+    agencyIntake,
+    pendingActions
+  });
 }

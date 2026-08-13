@@ -123,6 +123,9 @@ RUN echo '{"type":"module"}' > /frontend/package.json
 # Copy database migrations (run automatically on startup via bootstrap.js)
 COPY database/migrations ./database/migrations
 
+# Offline Hogwarts demo zip templates (README, local Node server, start scripts)
+COPY tools/hogwarts-offline-demo ./tools/hogwarts-offline-demo
+
 # Copy bundled uploads (icons/logos/user photos) for fallback serving.
 # Note: Cloud Run filesystem is ephemeral, but these baked-in assets are available
 # across instances and are helpful when GCS keys are missing/misconfigured.

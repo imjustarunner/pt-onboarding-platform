@@ -2,12 +2,13 @@
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal" @click.stop>
       <div class="modal-header">
-        <h3 style="margin: 0;">New Client — {{ clientLabel }}</h3>
+        <h3 style="margin: 0;">{{ viewOnly ? 'View new client' : `New Client — ${clientLabel}` }}</h3>
         <button class="btn btn-secondary btn-sm" type="button" @click="$emit('close')">×</button>
       </div>
       <div class="modal-body">
         <div v-if="saving" class="muted">Saving…</div>
         <div v-else class="form-grid">
+          <fieldset class="qcm-fields" :disabled="viewOnly">
           <div class="form-group">
             <label>Parents Contacted</label>
             <input v-model="form.parentsContactedAt" type="date" class="input" />
@@ -30,13 +31,16 @@
               Do not list the date of first service unless the appointment has actually occurred.
             </p>
           </div>
+          </fieldset>
         </div>
         <div v-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
         <div class="actions" style="margin-top: 14px;">
-          <button class="btn btn-primary" type="button" :disabled="saving" @click="save">
+          <button v-if="!viewOnly" class="btn btn-primary" type="button" :disabled="saving" @click="save">
             {{ saving ? 'Saving…' : 'Save' }}
           </button>
-          <button class="btn btn-secondary" type="button" @click="$emit('close')">Cancel</button>
+          <button class="btn btn-secondary" type="button" @click="$emit('close')">
+            {{ viewOnly ? 'Close' : 'Cancel' }}
+          </button>
         </div>
       </div>
     </div>
@@ -49,7 +53,9 @@ import api from '../../services/api';
 
 const props = defineProps({
   client: { type: Object, required: true },
-  parentAgencyId: { type: Number, default: null }
+  parentAgencyId: { type: Number, default: null },
+  viewOnly: { type: Boolean, default: false },
+  apiBase: { type: String, default: '' }
 });
 const emit = defineEmits(['close', 'saved']);
 
@@ -101,12 +107,15 @@ const save = async () => {
   try {
     saving.value = true;
     error.value = '';
-    await api.put(`/clients/${props.client.id}/compliance-checklist`, {
+    const path = props.apiBase
+      ? `${props.apiBase}/clients/${props.client.id}/compliance-checklist`
+      : `/clients/${props.client.id}/compliance-checklist`;
+    await api.put(path, {
       parentsContactedAt: form.value.parentsContactedAt || null,
       parentsContactedSuccessful:
         form.value.parentsContactedSuccessful === '' ? null : form.value.parentsContactedSuccessful === 'true',
       firstServiceAt: form.value.firstServiceAt || null
-    });
+    }, props.apiBase ? { skipAuthRedirect: true } : undefined);
     emit('saved');
     emit('close');
   } catch (e) {
@@ -138,6 +147,12 @@ const save = async () => {
   margin: 12px;
   max-height: 90vh;
   overflow-y: auto;
+}
+.qcm-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
 }
 .modal-header {
   display: flex;

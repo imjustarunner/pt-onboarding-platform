@@ -367,3 +367,13 @@ export async function startFromQr(req, res, next) {
     handleServiceError(err, res, next);
   }
 }
+
+export async function downloadHogwartsOfflineDemo(req, res, next) {
+  try {
+    const { streamHogwartsOfflineDemoZip } = await import('../services/hogwartsOfflineDemo.service.js');
+    await streamHogwartsOfflineDemoZip(res);
+  } catch (err) {
+    if (res.headersSent) return next(err);
+    handleServiceError(err, res, next);
+  }
+}

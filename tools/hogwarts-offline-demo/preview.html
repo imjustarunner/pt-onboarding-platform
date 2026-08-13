@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hogwarts school portal demo</title>
+  <style>
+    body { font-family: Georgia, serif; margin: 0; background: #f4f1ea; color: #1f2933; }
+    header { background: #145A3D; color: #fff; padding: 20px 28px; }
+    main { max-width: 960px; margin: 0 auto; padding: 24px; }
+    .card { background: #fff; border-radius: 12px; padding: 16px 18px; margin: 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    h2 { margin: 0 0 8px; font-size: 1.1rem; }
+    .muted { color: #64748b; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e5e7eb; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Hogwarts school portal demo</strong>
+    <div class="muted" style="color:#d1fae5;margin-top:4px;">Offline snapshot — the full interactive portal loads when web files are included in this zip.</div>
+  </header>
+  <main>
+    <p>The bundled web app was not available when this zip was built. API data is still here in <code>api/routes.json</code>.</p>
+    <p>Re-download the bundle from School Onboarding while the live site is reachable, or open <code>/school-onboarding/demo</code> after a complete export.</p>
+    <div id="preview"></div>
+  </main>
+  <script type="module">
+    const res = await fetch('/api/public/school-onboarding/demo/school');
+    const data = await res.json();
+    const school = data.school || data;
+    const el = document.getElementById('preview');
+    el.innerHTML = `<div class="card"><h2>${school?.name || 'Hogwarts'}</h2><p class="muted">${school?.official_name || ''}</p></div>`;
+  </script>
+</body>
+</html>

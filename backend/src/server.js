@@ -86,6 +86,8 @@ import publicSchoolReinitRoutes from './routes/publicSchoolReinit.routes.js';
 import schoolOnboardingRoutes from './routes/schoolOnboarding.routes.js';
 import publicSchoolOnboardingRoutes from './routes/publicSchoolOnboarding.routes.js';
 import providerYearUpdateRoutes from './routes/providerYearUpdate.routes.js';
+import providerActionRoutes from './routes/providerAction.routes.js';
+import publicProviderActionRoutes from './routes/publicProviderAction.routes.js';
 import publicProviderYearUpdateRoutes from './routes/publicProviderYearUpdate.routes.js';
 import publicAdminUpdateRoutes from './routes/publicAdminUpdate.routes.js';
 import adminUpdateMeRoutes from './routes/adminUpdate.routes.js';
@@ -688,6 +690,7 @@ app.use('/api/public/school-events', publicSchoolEventsKioskRoutes);
 app.use('/api/public/school-reinit', publicSchoolReinitRoutes);
 app.use('/api/public/school-onboarding', publicSchoolOnboardingRoutes);
 app.use('/api/public/provider-year-update', publicProviderYearUpdateRoutes);
+app.use('/api/public/provider-action', publicProviderActionRoutes);
 app.use('/api/public/admin-updates', publicAdminUpdateRoutes);
 app.use('/api/admin-updates', adminUpdateMeRoutes);
 app.use('/api/public/marketing-pages', publicMarketingPagesRoutes);
@@ -828,6 +831,7 @@ app.use('/api/school-portal', schoolPortalRoutes); // School portal routes (rest
 app.use('/api/school-reinit', schoolReinitRoutes);
 app.use('/api/school-onboarding', schoolOnboardingRoutes);
 app.use('/api/provider-year-update', providerYearUpdateRoutes);
+app.use('/api/provider-action', providerActionRoutes);
 app.use('/api/client-exchange', clientExchangeRoutes);
 app.use('/api/school-portal', agencyMarketingSplashPortalRoutes); // School portal — marketing splash fetch + dismiss
 app.use('/api/marketing-splashes', agencyMarketingSplashDashboardRoutes); // Regular dashboard — marketing splash fetch + dismiss

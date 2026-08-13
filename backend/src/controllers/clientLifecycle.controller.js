@@ -6,6 +6,7 @@ import User from '../models/User.model.js';
 import { getAgencyIntake, saveAgencyIntake } from '../services/clientAgencyIntake.service.js';
 import {
   getDisposition,
+  getClientLifecycleHistory,
   saveSpringUpdate,
   saveFallConfirmation,
   saveAgencyClearance,
@@ -91,6 +92,21 @@ export async function getClientYearDisposition(req, res, next) {
       || computeCurrentSchoolYearLabel();
     const disp = await getDisposition({ clientId: client.id, schoolYear: year });
     res.json({ clientId: client.id, schoolYear: year, disposition: disp });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getClientLifecycleHistoryHandler(req, res, next) {
+  try {
+    const client = await loadClientOr404(req.params.id);
+    await assertAgencyAccess(req, client);
+    const history = await getClientLifecycleHistory({ client });
+    res.json({
+      clientId: client.id,
+      joinSchoolYear: history.joinSchoolYear,
+      years: history.years
+    });
   } catch (e) {
     next(e);
   }

@@ -4,7 +4,8 @@
       <div>
         <h1>Client Action Needed</h1>
         <p class="muted">
-          Clients who still need a next step — fall confirmation, new-client intake, agency clearance, or insurance check — and which stage they are in.
+          Clients who still need a next step — fall confirmation, new-client intake, agency clearance, or insurance check.
+          Expand <strong>Provider outreach</strong> above to download PDFs or copy 24-hour links.
         </p>
       </div>
       <div class="ob-header-actions">
@@ -62,8 +63,15 @@
     <div v-if="!agencyId" class="error">Select an agency context to load the readiness queue.</div>
     <div v-else-if="error" class="error">{{ error }}</div>
 
+    <template v-else-if="!selectedId">
+    <ProviderActionOutreachPanel
+      v-if="agencyId"
+      :agency-id="agencyId"
+      :scope="scope"
+    />
+
     <!-- Table list: all clients -->
-    <div v-else-if="!selectedId" class="ob-list-wrap">
+    <div class="ob-list-wrap">
       <div class="ob-list-toolbar">
         <input
           v-model="globalSearch"
@@ -184,6 +192,7 @@
         </table>
       </div>
     </div>
+    </template>
 
     <!-- Detail: onboarding quickview -->
     <div v-else class="ob-detail-layout">
@@ -281,6 +290,7 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import ClientOnboardingChecklistPanel from '../../components/clients/ClientOnboardingChecklistPanel.vue';
 import LifecycleActionModal from '../../components/school/LifecycleActionModal.vue';
+import ProviderActionOutreachPanel from '../../components/admin/ProviderActionOutreachPanel.vue';
 import { isPaperPacketClient } from '../../utils/paperPacketClient.js';
 
 const route = useRoute();

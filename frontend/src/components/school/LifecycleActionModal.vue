@@ -6,6 +6,7 @@
         <button class="btn btn-secondary btn-sm" type="button" @click="$emit('close')">×</button>
       </div>
       <div class="modal-body">
+        <fieldset class="lam-fields" :disabled="viewOnly">
         <div v-if="loading" class="muted">Loading…</div>
         <div v-else-if="error" class="error">{{ error }}</div>
 
@@ -246,11 +247,14 @@
 
         <div v-if="saveError" class="error" style="margin-top: 10px;">{{ saveError }}</div>
         <div class="actions" style="margin-top: 14px;">
-          <button class="btn btn-primary" type="button" :disabled="saving || loading" @click="save">
+          <button v-if="!viewOnly" class="btn btn-primary" type="button" :disabled="saving || loading" @click="save">
             {{ saving ? 'Saving…' : (isFallUpdate ? 'Update' : 'Save') }}
           </button>
-          <button class="btn btn-secondary" type="button" :disabled="saving" @click="$emit('close')">Cancel</button>
+          <button class="btn btn-secondary" type="button" :disabled="saving" @click="$emit('close')">
+            {{ viewOnly ? 'Close' : 'Cancel' }}
+          </button>
         </div>
+      </fieldset>
       </div>
     </div>
   </div>
@@ -264,7 +268,11 @@ import { useAuthStore } from '../../store/auth';
 const props = defineProps({
   client: { type: Object, required: true },
   actionKey: { type: String, required: true },
-  actionLabel: { type: String, default: '' }
+  actionLabel: { type: String, default: '' },
+  viewOnly: { type: Boolean, default: false },
+  schoolYear: { type: String, default: '' },
+  apiBase: { type: String, default: '' },
+  actorUserId: { type: [Number, String], default: 0 }
 });
 const emit = defineEmits(['close', 'saved']);
 const authStore = useAuthStore();
@@ -317,12 +325,29 @@ const isFallUpdate = computed(() =>
   && (!!props.client?.fall_completed_at || String(props.actionLabel || '').toLowerCase() === 'update')
 );
 const title = computed(() => {
+  if (props.viewOnly) {
+    if (props.actionKey === 'fall_confirmation') return 'View fall confirmation';
+    if (props.actionKey === 'spring_update') return 'View spring update';
+    if (props.actionKey === 'agency_intake') return 'View agency intake';
+    return props.actionLabel || 'View submission';
+  }
   if (props.actionKey === 'fall_confirmation' && isFallUpdate.value) {
     return props.actionLabel || 'Update fall confirmation';
   }
   return props.actionLabel || 'Next Step';
 });
 const clientId = computed(() => Number(props.client?.id || 0));
+const actorId = computed(() => Number(props.actorUserId || authStore.user?.id || 0));
+function reqOpts(extra = {}) {
+  return props.apiBase
+    ? { skipAuthRedirect: true, skipGlobalLoading: true, ...extra }
+    : extra;
+}
+function clientApiPath(suffix) {
+  const id = clientId.value;
+  if (props.apiBase) return `${props.apiBase}/clients/${id}${suffix}`;
+  return `/clients/${id}${suffix}`;
+}
 const disclosurePrechecked = computed(() => {
   const key = String(props.client?.client_status_key || '').toLowerCase();
   const newIntake = ['received', 'packet', 'pending_corrections', 'in_process', 'screener', 'ready_to_schedule'].includes(key);
@@ -398,7 +423,7 @@ function toggleWorkDay(day) {
 async function fetchWorkDays() {
   const orgId = Number(props.client?.organization_id || 0);
   const cid = clientId.value;
-  const providerId = Number(authStore.user?.id || 0);
+  const providerId = actorId.value;
   if (!orgId || !cid || !providerId) {
     workDays.value = [];
     return;
@@ -406,6 +431,10 @@ async function fetchWorkDays() {
   loadingWorkDays.value = true;
   workDaysError.value = '';
   try {
+    if (props.apiBase) {
+      workDays.value = [];
+      return;
+    }
     const r = await api.get(`/school-portal/${orgId}/clients/${cid}/day-assignment-context`, {
       params: { providerUserId: providerId },
       skipGlobalLoading: true
@@ -433,15 +462,23 @@ async function fetchWorkDays() {
 async function assignFallDays() {
   const orgId = Number(props.client?.organization_id || 0);
   const cid = clientId.value;
-  const providerId = Number(authStore.user?.id || 0);
+  const providerId = actorId.value;
   const days = fall.serviceDays || [];
-  if (!orgId || !cid || !providerId || !days.length) return;
+  if (!cid || !providerId || !days.length) return;
   for (const serviceDay of days) {
-    await api.post(
-      `/school-portal/${orgId}/clients/${cid}/assigned-day`,
-      { providerUserId: providerId, serviceDay, assigned: true },
-      { skipGlobalLoading: true }
-    );
+    if (props.apiBase) {
+      await api.post(
+        `${props.apiBase}/clients/${cid}/assigned-day`,
+        { providerUserId: providerId, serviceDay, assigned: true, schoolId: orgId },
+        reqOpts()
+      );
+    } else if (orgId) {
+      await api.post(
+        `/school-portal/${orgId}/clients/${cid}/assigned-day`,
+        { providerUserId: providerId, serviceDay, assigned: true },
+        { skipGlobalLoading: true }
+      );
+    }
   }
 }
 
@@ -475,6 +512,51 @@ onMounted(async () => {
     const prior = String(props.client?.fall_outcome || '').trim();
     if (prior && !fall.fallOutcome) fall.fallOutcome = prior;
     fetchWorkDays();
+    loading.value = true;
+    try {
+      const params = {};
+      if (props.schoolYear) params.schoolYear = props.schoolYear;
+      const { data } = await api.get(clientApiPath('/year-disposition'), {
+        params,
+        ...reqOpts()
+      });
+      const disp = data?.disposition || {};
+      if (disp.fall_outcome) fall.fallOutcome = disp.fall_outcome;
+      if (disp.fall_comment) fall.privateComment = disp.fall_comment;
+      fall.supportFollowUp = !!(disp.fall_support_follow_up === 1 || disp.fall_support_follow_up === true);
+      fall.removeFromAssignment = !!(disp.fall_remove_from_assignment === 1 || disp.fall_remove_from_assignment === true);
+    } catch {
+      // keep roster preload
+    } finally {
+      loading.value = false;
+    }
+  }
+  if (props.actionKey === 'spring_update') {
+    loading.value = true;
+    try {
+      const params = {};
+      if (props.schoolYear) params.schoolYear = props.schoolYear;
+      const { data } = await api.get(clientApiPath('/year-disposition'), {
+        params,
+        ...reqOpts()
+      });
+      const disp = data?.disposition || {};
+      spring.springOutcome = disp.spring_outcome || '';
+      const summer = typeof disp.summer_plan_json === 'string'
+        ? JSON.parse(disp.summer_plan_json || '{}')
+        : (disp.summer_plan_json || {});
+      const fallPlan = typeof disp.fall_plan_json === 'string'
+        ? JSON.parse(disp.fall_plan_json || '{}')
+        : (disp.fall_plan_json || {});
+      spring.summerNotes = summer.notes || summer.summerNotes || '';
+      const known = fallPlan.known === true || fallPlan.known === 'known' || fallPlan.status === 'known';
+      spring.fallPlanKnown = known ? 'known' : 'unknown';
+      spring.fallNotes = fallPlan.notes || fallPlan.fallNotes || '';
+    } catch (e) {
+      error.value = e.response?.data?.error?.message || 'Failed to load spring update';
+    } finally {
+      loading.value = false;
+    }
   }
 });
 
@@ -522,14 +604,14 @@ async function save() {
       }
       await api.put(`/clients/${id}/roi-followup`, {});
     } else if (props.actionKey === 'spring_update') {
-      await api.put(`/clients/${id}/spring-update`, {
+      await api.put(clientApiPath('/spring-update'), {
         springOutcome: spring.springOutcome,
         summerPlan: { notes: spring.summerNotes || '' },
         fallPlan: {
           known: spring.fallPlanKnown === 'known',
           notes: spring.fallNotes || ''
         }
-      });
+      }, reqOpts());
     } else if (props.actionKey === 'fall_confirmation') {
       if (needsPriorYearAttest.value && !fall.attestSawLastYear) {
         saveError.value = 'Attest that you saw this client last year before completing the fall update';
@@ -540,10 +622,12 @@ async function save() {
         return;
       }
       if (fall.fallOutcome === 'confirmed_returning' && !(fall.serviceDays || []).length) {
-        saveError.value = selectableDays.value.length
-          ? 'Select at least one assigned day'
-          : 'No work days on your schedule at this school. Confirm your days in Provider Schedule first.';
-        return;
+        if (!props.apiBase || selectableDays.value.length) {
+          saveError.value = selectableDays.value.length
+            ? 'Select at least one assigned day'
+            : 'No work days on your schedule at this school. Confirm your days in Provider Schedule first.';
+          return;
+        }
       }
       if (fall.fallOutcome === 'unable_to_reach' && !(Number(fall.contactAttempts) > 0)) {
         saveError.value = 'Enter how many contact attempts were made';
@@ -558,7 +642,7 @@ async function save() {
       if (fall.fallOutcome === 'confirmed_returning') {
         await assignFallDays();
       }
-      await api.put(`/clients/${id}/fall-confirmation`, {
+      await api.put(clientApiPath('/fall-confirmation'), {
         fallOutcome: fall.fallOutcome,
         privateComment: fall.privateComment,
         supportFollowUp: !!fall.supportFollowUp,
@@ -569,7 +653,7 @@ async function save() {
         schoolVisibleNote: recommendTerminate ? String(fall.schoolVisibleNote || '').trim() : null,
         attestSawLastYear: !!fall.attestSawLastYear,
         serviceDays: fall.serviceDays || []
-      });
+      }, reqOpts());
     } else if (props.actionKey === 'confirm_services_started') {
       await api.post(`/clients/${id}/confirm-services-started`, {
         serviceDate: services.serviceDate || todayYmd()
@@ -670,5 +754,11 @@ async function save() {
   border: 1px solid #fcd34d;
   border-radius: 10px;
   background: #fffbeb;
+}
+.lam-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
 }
 </style>
