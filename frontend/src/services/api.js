@@ -297,7 +297,8 @@ api.interceptors.response.use(
       '/school-onboarding',
       '/school-reinit',
       '/client-action',
-      '/ca/'
+      '/ca/',
+      '/school-referral'
     ];
     const isBrandedKioskPath =
       /\/[^/]+\/kiosk\/?$/.test(path) ||

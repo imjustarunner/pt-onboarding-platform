@@ -1021,6 +1021,12 @@ const routes = [
     component: () => import('../views/public/PublicProgramEventKioskStationView.vue'),
     meta: { requiresGuest: false, flatEventKiosk: true }
   },
+  {
+    path: '/school-referral',
+    name: 'FlatPublicSchoolReferralFinder',
+    component: () => import('../views/school/PublicSchoolReferralFinderView.vue'),
+    meta: { requiresGuest: false, flatSchoolReferral: true, publicSchoolReferral: true }
+  },
   // Organization-specific routes (supports Agency, School, Program, Learning)
   // Root org path redirects directly to the branded login page — splash was removed.
   {

@@ -2055,6 +2055,11 @@ import {
   resolveSchoolOnboardingSupportPhone
 } from '../utils/schoolGroupEmailSuggestions';
 import {
+  buildSchoolReferralFinderPath,
+  resolveHostImpliedPortalSlug
+} from '../utils/orgScopedPath';
+import { useBrandingStore } from '../store/branding';
+import {
   spanishQuestionLabelsEnabledFromLink,
   storedSpanishFieldText,
   isActuallyTranslated
@@ -3325,7 +3330,12 @@ const splashContactEmail = computed(() => {
 function goToSchoolReferralFinder() {
   const slug = referralAgencySlug.value;
   if (!slug) return;
-  router.push(`/${slug}/school-referral`);
+  const brandingStore = useBrandingStore();
+  const path = buildSchoolReferralFinderPath(
+    slug,
+    resolveHostImpliedPortalSlug(brandingStore)
+  );
+  router.push(path);
 }
 
 function openSplashSupportModal() {

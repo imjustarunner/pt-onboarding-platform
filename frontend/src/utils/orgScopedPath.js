@@ -159,6 +159,10 @@ export function buildOrgScopedPath(
   return `/${o}${suffix}`;
 }
 
+export function buildSchoolReferralFinderPath(portalSlug, hostImpliedAgencySlug = null) {
+  return buildOrgScopedPath(portalSlug, '/school-referral', null, hostImpliedAgencySlug);
+}
+
 export function buildEventKioskEntryPath(portalSlug, parentOrgSlug = null, hostImpliedAgencySlug = null) {
   return buildOrgScopedPath(portalSlug, '/kiosk', parentOrgSlug, hostImpliedAgencySlug);
 }

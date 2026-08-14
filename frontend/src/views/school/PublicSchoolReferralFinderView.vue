@@ -213,12 +213,17 @@ import {
   resolveSchoolOnboardingSupportEmail,
   resolveSchoolOnboardingSupportPhone
 } from '../../utils/schoolGroupEmailSuggestions';
+import { resolvePortalSlug } from '../../utils/orgScopedPath';
+import { useBrandingStore } from '../../store/branding';
 import schoolLogoGreen from '../../assets/schoolReferral/school-logo-green.png';
 
 const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
 const route = useRoute();
-const agencySlug = computed(() => String(route.params.organizationSlug || '').trim().toLowerCase());
+const brandingStore = useBrandingStore();
+const agencySlug = computed(() =>
+  resolvePortalSlug(route.params, brandingStore.portalHostPortalUrl)
+);
 
 const loading = ref(true);
 const loadError = ref('');
