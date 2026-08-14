@@ -396,7 +396,8 @@ export async function buildPdfForProvider({
     estimatedSeconds: Number(link.estimated_seconds || estimateSeconds(clients.length)),
     actionUrl,
     expiresAt: link.expires_at,
-    googleSsoUrl: googleSsoUrl(agency?.portal_url || agency?.slug || '')
+    googleSsoUrl: googleSsoUrl(agency?.portal_url || agency?.slug || ''),
+    agency
   });
   return {
     pdfBytes,

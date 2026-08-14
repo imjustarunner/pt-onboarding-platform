@@ -254,8 +254,7 @@ class DocumentSigningService {
       });
       await page.waitForTimeout(500);
 
-      const pdf = await page.pdf({
-        format: options.format || 'Letter',
+      const pdfOptions = {
         printBackground: options.printBackground !== undefined ? options.printBackground : true,
         margin: options.margin || { top: '1in', right: '1in', bottom: '1in', left: '1in' },
         preferCSSPageSize: options.preferCSSPageSize || false,
@@ -263,7 +262,14 @@ class DocumentSigningService {
         headerTemplate: options.headerTemplate || '<div></div>',
         footerTemplate: options.footerTemplate || '<div></div>',
         timeout: options.pdfTimeout || 20000
-      });
+      };
+      if (options.width && options.height) {
+        pdfOptions.width = options.width;
+        pdfOptions.height = options.height;
+      } else {
+        pdfOptions.format = options.format || 'Letter';
+      }
+      const pdf = await page.pdf(pdfOptions);
 
       console.log(`DocumentSigningService.convertHTMLToPDF: PDF generated, size: ${pdf.length} bytes`);
       await browser.close();
