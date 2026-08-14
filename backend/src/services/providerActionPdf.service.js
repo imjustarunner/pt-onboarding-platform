@@ -11,8 +11,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const BACKEND_ASSETS = path.join(__dirname, '../assets/providerActionPdf');
 
-/** Phone-first page: 5.5in × 8.5in (fits iMessage / Files without sideways zoom). */
-export const PAGE = { widthIn: 5.5, heightIn: 8.5, widthPt: 396, heightPt: 612 };
+/** Phone-first page: 5.5in × 7in (fits iMessage / Files without sideways zoom). */
+export const PAGE = { widthIn: 5.5, heightIn: 7, widthPt: 396, heightPt: 504 };
 
 const BUNDLED_ASSETS = {
   heroItsco: 'hero-itsco-framed.png',
@@ -220,24 +220,24 @@ function buildMobileCardHtml({ firstName, actionUrl, googleSsoUrl, paths, copy }
   <style>
     @page { size: ${PAGE.widthIn}in ${PAGE.heightIn}in; margin: 0; }
     * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; width: ${PAGE.widthIn}in; height: ${PAGE.heightIn}in; }
+    html, body { margin: 0; padding: 0; width: ${PAGE.widthIn}in; }
     body {
       font-family: Inter, Segoe UI, Helvetica, Arial, sans-serif;
       color: ${palette.text};
       background: #fff;
     }
-    .card { width: ${PAGE.widthIn}in; height: ${PAGE.heightIn}in; display: flex; flex-direction: column; background: #fff; }
+    .card { width: ${PAGE.widthIn}in; background: #fff; }
     .brand {
       background: #fff;
       border-top: 8px solid ${palette.primary};
-      padding: 8px 18px 6px;
+      padding: 14px 20px 12px;
       text-align: center;
     }
-    .brand img { max-height: 58px; max-width: 280px; object-fit: contain; }
+    .brand img { max-height: 58px; max-width: 260px; object-fit: contain; }
     .brand-name { color: ${palette.primary}; font-weight: 800; font-size: 18px; }
-    .hero { height: 1.9in; overflow: hidden; background: ${palette.light}; }
-    .hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .body { padding: 12px 20px 8px; display: flex; flex-direction: column; }
+    .hero { padding: 0 28px 4px; background: #fff; text-align: center; }
+    .hero img { width: auto; max-width: 100%; height: auto; max-height: 2.35in; object-fit: contain; display: block; margin: 0 auto; }
+    .body { padding: 10px 20px 12px; }
     .kicker {
       letter-spacing: 0.16em; text-transform: uppercase; font-size: 10px; font-weight: 800;
       color: ${palette.accent}; margin: 0 0 4px;
@@ -250,12 +250,12 @@ function buildMobileCardHtml({ firstName, actionUrl, googleSsoUrl, paths, copy }
     .lede { margin: 0 0 10px; font-size: 12px; line-height: 1.4; color: ${palette.muted}; }
     .stats {
       display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;
-      margin: 0 0 10px;
+      margin: 0 0 12px;
     }
     .stat { text-align: center; }
-    .stat img { width: 20px; height: 20px; object-fit: contain; display: block; margin: 0 auto 3px; }
-    .stat strong { display: block; font-size: 17px; color: ${palette.primary}; line-height: 1.1; }
-    .stat span { display: block; font-size: 9px; color: ${palette.muted}; margin-top: 1px; line-height: 1.2; }
+    .stat img { width: 26px; height: 26px; object-fit: contain; display: block; margin: 0 auto 4px; }
+    .stat strong { display: block; font-size: 28px; color: ${palette.primary}; line-height: 1.05; }
+    .stat span { display: block; font-size: 11px; color: ${palette.muted}; margin-top: 2px; line-height: 1.2; }
     .cta {
       display: block; text-align: center; text-decoration: none;
       background: ${palette.primary}; color: #fff;
@@ -386,15 +386,17 @@ async function buildFallbackPdf(input, assets) {
   page.drawRectangle({ x: 0, y: PAGE.heightPt - 8, width: PAGE.widthPt, height: 8, color: primary });
 
   const logoImg = await embedPng(pdfDoc, assets?.logoDataUri);
+  let belowLogo = PAGE.heightPt - 70;
   if (logoImg) {
     const logoW = 176;
-    const logoH = (logoImg.height / logoImg.width) * logoW;
+    const logoH = Math.min((logoImg.height / logoImg.width) * logoW, 50);
     page.drawImage(logoImg, {
       x: (PAGE.widthPt - logoW) / 2,
-      y: PAGE.heightPt - 62,
+      y: PAGE.heightPt - 14 - logoH,
       width: logoW,
-      height: Math.min(logoH, 50)
+      height: logoH
     });
+    belowLogo = PAGE.heightPt - 14 - logoH - 12;
   } else {
     const name = branding.agencyName;
     page.drawText(name, {
@@ -404,18 +406,29 @@ async function buildFallbackPdf(input, assets) {
       font: fontBold,
       color: primary
     });
+    belowLogo = PAGE.heightPt - 62;
   }
 
   const heroImg = await embedPng(pdfDoc, assets?.heroDataUri);
-  const heroH = 138;
-  const heroY = PAGE.heightPt - 8 - 54 - heroH;
+  let y = belowLogo;
   if (heroImg) {
-    page.drawImage(heroImg, { x: 0, y: heroY, width: PAGE.widthPt, height: heroH });
+    const maxW = PAGE.widthPt - 56;
+    const maxH = 168;
+    const scale = Math.min(maxW / heroImg.width, maxH / heroImg.height);
+    const w = heroImg.width * scale;
+    const h = heroImg.height * scale;
+    const heroY = belowLogo - h;
+    page.drawImage(heroImg, {
+      x: (PAGE.widthPt - w) / 2,
+      y: heroY,
+      width: w,
+      height: h
+    });
+    y = heroY - 16;
   } else {
-    page.drawRectangle({ x: 0, y: heroY, width: PAGE.widthPt, height: heroH, color: rgb(0.91, 0.96, 0.91) });
+    y = belowLogo - 16;
   }
 
-  let y = heroY - 22;
   page.drawText('ACTION REQUIRED', { x: 22, y, size: 9, font: fontBold, color: accent });
   y -= 22;
 
@@ -443,25 +456,25 @@ async function buildFallbackPdf(input, assets) {
   ];
   cols.forEach((col, i) => {
     const cx = 66 + i * 122;
-    if (col.icon) page.drawImage(col.icon, { x: cx - 10, y: y - 2, width: 20, height: 20 });
+    if (col.icon) page.drawImage(col.icon, { x: cx - 12, y: y - 2, width: 24, height: 24 });
     page.drawText(col.value, {
-      x: cx - fontBold.widthOfTextAtSize(col.value, 14) / 2,
-      y: y - 22,
-      size: 14,
+      x: cx - fontBold.widthOfTextAtSize(col.value, 22) / 2,
+      y: y - 28,
+      size: 22,
       font: fontBold,
       color: primary
     });
     page.drawText(col.label, {
-      x: cx - font.widthOfTextAtSize(col.label, 8) / 2,
-      y: y - 34,
-      size: 8,
+      x: cx - font.widthOfTextAtSize(col.label, 9) / 2,
+      y: y - 42,
+      size: 9,
       font,
       color: muted
     });
   });
 
-  const ctaY = 72;
   const ctaH = 58;
+  const ctaY = Math.max(52, y - 42 - 14 - ctaH);
   page.drawRectangle({
     x: 22,
     y: ctaY,
@@ -488,7 +501,7 @@ async function buildFallbackPdf(input, assets) {
 
   page.drawText(`Expires ${expiresLabel}`, {
     x: (PAGE.widthPt - font.widthOfTextAtSize(`Expires ${expiresLabel}`, 9)) / 2,
-    y: 56,
+    y: ctaY - 16,
     size: 9,
     font,
     color: muted
@@ -496,7 +509,7 @@ async function buildFallbackPdf(input, assets) {
   const url = String(input.actionUrl || '');
   const urlSize = 7;
   const urlLines = wrapText(url, font, urlSize, PAGE.widthPt - 40);
-  let uy = 40;
+  let uy = ctaY - 30;
   for (const line of urlLines.slice(0, 2)) {
     page.drawText(line, {
       x: (PAGE.widthPt - font.widthOfTextAtSize(line, urlSize)) / 2,
