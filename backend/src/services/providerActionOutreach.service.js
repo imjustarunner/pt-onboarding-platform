@@ -8,10 +8,13 @@ import { renderProviderActionPdf } from './providerActionPdf.service.js';
 import {
   SECONDS_PER_CLIENT,
   LINK_TTL_HOURS,
+  ACTION_TOKEN_BYTES,
+  ACTION_TOKEN_MIN_PREFIX,
   estimateSeconds,
   formatEstimateLabel,
   formatActiveDuration,
-  pdfFilenameForProvider
+  pdfFilenameForProvider,
+  normalizeActionToken
 } from '../utils/providerActionOutreach.js';
 
 const HEARTBEAT_CAP_SEC = 120;
@@ -22,7 +25,7 @@ function mysqlDt(d) {
 }
 
 function makeToken() {
-  return crypto.randomBytes(24).toString('hex');
+  return crypto.randomBytes(ACTION_TOKEN_BYTES).toString('hex');
 }
 
 function providerIdsForRow(row) {
@@ -66,7 +69,7 @@ async function loadUserName(userId) {
 
 function publicActionUrl(token) {
   const base = String(config.frontendUrl || 'http://localhost:5173').replace(/\/+$/, '');
-  return `${base}/client-action/${encodeURIComponent(token)}`;
+  return `${base}/ca/${encodeURIComponent(token)}`;
 }
 
 function googleSsoUrl(orgSlug) {
@@ -220,11 +223,22 @@ export async function createProviderActionLink({
 }
 
 export async function getLinkByToken(token) {
-  const [rows] = await pool.execute(
+  const cleaned = normalizeActionToken(token);
+  if (!cleaned) return null;
+  const [exact] = await pool.execute(
     `SELECT * FROM provider_action_links WHERE BINARY token = BINARY ? LIMIT 1`,
-    [String(token || '')]
+    [cleaned]
   );
-  return rows?.[0] || null;
+  if (exact?.[0]) return exact[0];
+  // Recover truncated copy/paste from a wrapped PDF URL when the prefix is unique.
+  if (cleaned.length < ACTION_TOKEN_MIN_PREFIX) return null;
+  const [prefixRows] = await pool.execute(
+    `SELECT * FROM provider_action_links
+     WHERE token LIKE ? AND revoked_at IS NULL AND expires_at > NOW()
+     LIMIT 3`,
+    [`${cleaned}%`]
+  );
+  return prefixRows?.length === 1 ? prefixRows[0] : null;
 }
 
 export function isLinkUsable(link) {

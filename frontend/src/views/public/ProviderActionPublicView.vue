@@ -70,7 +70,7 @@ import LifecycleActionModal from '../../components/school/LifecycleActionModal.v
 import QuickChecklistModal from '../../components/school/QuickChecklistModal.vue';
 
 const route = useRoute();
-const token = computed(() => String(route.params.token || ''));
+const token = computed(() => String(route.params.token || '').replace(/[^a-fA-F0-9]/g, ''));
 const apiBase = computed(() => `/public/provider-action/${encodeURIComponent(token.value)}`);
 
 const loading = ref(true);

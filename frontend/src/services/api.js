@@ -295,7 +295,9 @@ api.interceptors.response.use(
       '/join/supervision',
       '/join/team-meeting',
       '/school-onboarding',
-      '/school-reinit'
+      '/school-reinit',
+      '/client-action',
+      '/ca/'
     ];
     const isBrandedKioskPath =
       /\/[^/]+\/kiosk\/?$/.test(path) ||

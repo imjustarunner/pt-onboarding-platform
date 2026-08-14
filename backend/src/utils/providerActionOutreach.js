@@ -1,5 +1,15 @@
 export const SECONDS_PER_CLIENT = 15;
 export const LINK_TTL_HOURS = 24;
+export const ACTION_TOKEN_BYTES = 16;
+export const ACTION_TOKEN_MIN_PREFIX = 16;
+
+/** Strip copy/paste junk (spaces, newlines, wrapping hyphens) from a token or pasted URL. */
+export function normalizeActionToken(raw) {
+  const s = String(raw || '').trim();
+  const fromUrl = s.match(/\/(?:client-action|ca)\/([a-fA-F0-9]+)/i);
+  const candidate = fromUrl ? fromUrl[1] : s;
+  return candidate.replace(/[^a-fA-F0-9]/g, '');
+}
 
 export function estimateSeconds(clientCount, secondsPerClient = SECONDS_PER_CLIENT) {
   const n = Math.max(0, Number(clientCount) || 0);

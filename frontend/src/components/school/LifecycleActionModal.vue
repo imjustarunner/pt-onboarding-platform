@@ -431,14 +431,15 @@ async function fetchWorkDays() {
   loadingWorkDays.value = true;
   workDaysError.value = '';
   try {
-    if (props.apiBase) {
-      workDays.value = [];
-      return;
-    }
-    const r = await api.get(`/school-portal/${orgId}/clients/${cid}/day-assignment-context`, {
-      params: { providerUserId: providerId },
-      skipGlobalLoading: true
-    });
+    const r = props.apiBase
+      ? await api.get(`${props.apiBase}/clients/${cid}/day-assignment-context`, {
+          params: { providerUserId: providerId, schoolId: orgId },
+          ...reqOpts()
+        })
+      : await api.get(`/school-portal/${orgId}/clients/${cid}/day-assignment-context`, {
+          params: { providerUserId: providerId },
+          skipGlobalLoading: true
+        });
     const providers = Array.isArray(r.data?.providers) ? r.data.providers : [];
     const match = providers.find((p) => Number(p.provider_user_id) === providerId);
     workDays.value = Array.isArray(match?.work_days)
@@ -622,12 +623,10 @@ async function save() {
         return;
       }
       if (fall.fallOutcome === 'confirmed_returning' && !(fall.serviceDays || []).length) {
-        if (!props.apiBase || selectableDays.value.length) {
-          saveError.value = selectableDays.value.length
-            ? 'Select at least one assigned day'
-            : 'No work days on your schedule at this school. Confirm your days in Provider Schedule first.';
-          return;
-        }
+        saveError.value = selectableDays.value.length
+          ? 'Select at least one assigned day'
+          : 'No work days on your schedule at this school. Confirm your days in Provider Schedule first.';
+        return;
       }
       if (fall.fallOutcome === 'unable_to_reach' && !(Number(fall.contactAttempts) > 0)) {
         saveError.value = 'Enter how many contact attempts were made';

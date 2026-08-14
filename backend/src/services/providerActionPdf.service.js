@@ -1,6 +1,25 @@
 import DocumentSigningService from './documentSigning.service.js';
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFString, rgb, StandardFonts } from 'pdf-lib';
 import { formatEstimateLabel } from '../utils/providerActionOutreach.js';
+
+function addUriLink(page, { x, y, width, height, url }) {
+  const href = String(url || '').trim();
+  if (!href || width <= 0 || height <= 0) return;
+  const annot = page.doc.context.register(
+    page.doc.context.obj({
+      Type: 'Annot',
+      Subtype: 'Link',
+      Rect: [x, y, x + width, y + height],
+      Border: [0, 0, 2],
+      A: {
+        Type: 'Action',
+        S: 'URI',
+        URI: PDFString.of(href)
+      }
+    })
+  );
+  page.node.addAnnot(annot);
+}
 
 function esc(value) {
   return String(value || '')
@@ -146,7 +165,8 @@ export function buildProviderActionPdfHtml({
     .banner h2 { margin: 0 0 4px; font-size: 15px; }
     .banner p { margin: 0; font-size: 13px; color: #3f5f4c; }
     .cta {
-      display: block;
+      display: inline-block;
+      width: 100%;
       text-align: center;
       background: #145A3D;
       color: #fff !important;
@@ -155,6 +175,8 @@ export function buildProviderActionPdfHtml({
       padding: 16px 18px;
       font-weight: 800;
       font-size: 18px;
+      position: relative;
+      z-index: 2;
     }
     .cta small { display: block; font-weight: 500; font-size: 12px; opacity: 0.85; margin-top: 2px; }
     .foot {
@@ -341,7 +363,7 @@ async function buildFallbackPdf({
     color: green
   });
   const ctaTitle = 'Open my clients';
-  const ctaSub = 'Secure link · no Google sign-in needed';
+  const ctaSub = 'Tap this button — secure link, no Google sign-in';
   const ctaTitleW = bold.widthOfTextAtSize(ctaTitle, 16);
   const ctaSubW = helv.widthOfTextAtSize(ctaSub, 10);
   page.drawText(ctaTitle, {
@@ -358,6 +380,13 @@ async function buildFallbackPdf({
     font: helv,
     color: rgb(0.92, 0.96, 0.94)
   });
+  addUriLink(page, {
+    x: cardX + pad,
+    y: ctaY,
+    width: innerW,
+    height: ctaH,
+    url
+  });
   y = ctaY - 18;
 
   const foot = `Expires ${expires} · 24-hour link`;
@@ -369,22 +398,55 @@ async function buildFallbackPdf({
     font: helv,
     color: muted
   });
-  y -= 18;
+  y -= 16;
 
-  const urlLines = wrapText(url, helv, 9, innerW);
-  for (const line of urlLines) {
-    const lw = helv.widthOfTextAtSize(line, 9);
-    page.drawText(line, {
-      x: cardX + pad + innerW / 2 - lw / 2,
+  page.drawText('Or paste this address in a browser (keep it on one line):', {
+    x: cardX + pad,
+    y,
+    size: 9,
+    font: helv,
+    color: muted
+  });
+  y -= 14;
+
+  let urlSize = 8;
+  while (urlSize > 6 && helv.widthOfTextAtSize(url, urlSize) > innerW) urlSize -= 0.25;
+  const urlFits = helv.widthOfTextAtSize(url, urlSize) <= innerW;
+  const urlBlockTop = y + 10;
+  if (urlFits) {
+    page.drawText(url, {
+      x: cardX + pad,
       y,
-      size: 9,
+      size: urlSize,
       font: helv,
       color: gray
     });
-    y -= 11;
+    addUriLink(page, {
+      x: cardX + pad,
+      y: y - 4,
+      width: innerW,
+      height: 16,
+      url
+    });
+    y -= 14;
+  } else {
+    const slash = url.lastIndexOf('/');
+    const prefix = slash >= 0 ? url.slice(0, slash + 1) : '';
+    const tokenPart = slash >= 0 ? url.slice(slash + 1) : url;
+    page.drawText(prefix, { x: cardX + pad, y, size: 8, font: helv, color: gray });
+    y -= 12;
+    page.drawText(tokenPart, { x: cardX + pad, y, size: 8, font: helv, color: gray });
+    addUriLink(page, {
+      x: cardX + pad,
+      y: y - 4,
+      width: innerW,
+      height: urlBlockTop - (y - 4),
+      url
+    });
+    y -= 14;
   }
 
-  return Buffer.from(await pdf.save());
+  return Buffer.from(await pdf.save({ useObjectStreams: false }));
 }
 
 export async function renderProviderActionPdf(payload) {
@@ -398,7 +460,7 @@ export async function renderProviderActionPdf(payload) {
     });
     if (bytes && bytes.length > 500) return Buffer.from(bytes);
   } catch {
-    // Use our styled pdf-lib layout when Chromium/Puppeteer is unavailable.
+    // Local/dev without Chromium — pdf-lib fallback below.
   }
   return buildFallbackPdf(payload);
 }

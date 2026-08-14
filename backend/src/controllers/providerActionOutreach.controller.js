@@ -20,9 +20,8 @@ import {
 } from '../services/clientYearDisposition.service.js';
 import Client from '../models/Client.model.js';
 import { updateClientComplianceChecklist } from './client.controller.js';
-import { setClientAssignedDay } from './schoolSoftSchedule.controller.js';
+import { getClientDayAssignmentContext, setClientAssignedDay } from './schoolSoftSchedule.controller.js';
 import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
-import { currentSchoolYearLabelFromCalendar } from '../utils/schoolYearCalendar.js';
 
 function agencyIdFrom(req) {
   const raw = req.body?.agencyId ?? req.query?.agencyId ?? req.headers['x-agency-id'];
@@ -239,15 +238,96 @@ export async function putPublicSpringUpdate(req, res, next) {
   }
 }
 
+function runAssignedDay(req, { schoolId, clientId, providerUserId, serviceDay }) {
+  return new Promise((resolve, reject) => {
+    const fakeReq = {
+      ...req,
+      params: { ...req.params, schoolId: String(schoolId), clientId: String(clientId) },
+      body: {
+        ...(req.body || {}),
+        providerUserId,
+        serviceDay,
+        assigned: true,
+        schoolId
+      },
+      user: req.user
+    };
+    const fakeRes = {
+      statusCode: 200,
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(payload) {
+        if ((this.statusCode || 200) >= 400) {
+          const err = new Error(payload?.error?.message || 'Could not save the assigned day');
+          err.status = this.statusCode;
+          reject(err);
+        } else {
+          resolve(payload);
+        }
+        return this;
+      }
+    };
+    Promise.resolve(setClientAssignedDay(fakeReq, fakeRes, (err) => {
+      if (err) reject(err);
+    })).catch(reject);
+  });
+}
+
+async function assignPublicFallDays(req, ctx, clientId, serviceDays) {
+  const days = [...new Set((serviceDays || []).map((d) => String(d || '').trim()).filter(Boolean))];
+  if (!days.length) return;
+  const client = await Client.findById(clientId);
+  const schoolId = Number(client?.organization_id || 0);
+  if (!schoolId) {
+    const err = new Error('This client is missing a school, so the assigned day could not be saved.');
+    err.status = 400;
+    throw err;
+  }
+  for (const serviceDay of days) {
+    await runAssignedDay(req, {
+      schoolId,
+      clientId,
+      providerUserId: ctx.providerUserId,
+      serviceDay
+    });
+  }
+}
+
+export async function getPublicDayAssignmentContext(req, res, next) {
+  try {
+    const ctx = await preparePublic(req, res);
+    if (!ctx) return;
+    await assertClientOnLink(ctx.link, req.params.clientId);
+    const client = await Client.findById(req.params.clientId);
+    req.params.schoolId = String(client?.organization_id || req.query.schoolId || '');
+    req.query = { ...req.query, providerUserId: ctx.providerUserId };
+    return getClientDayAssignmentContext(req, res, next);
+  } catch (err) {
+    handleErr(err, res, next);
+  }
+}
+
 export async function putPublicFallConfirmation(req, res, next) {
   try {
     const ctx = await preparePublic(req, res);
     if (!ctx) return;
     await assertClientOnLink(ctx.link, req.params.clientId);
+    const outcome = String(req.body?.fallOutcome || '').toLowerCase();
+    const serviceDays = Array.isArray(req.body?.serviceDays) ? req.body.serviceDays : [];
+    if (outcome === 'confirmed_returning') {
+      if (!serviceDays.length) {
+        return res.status(400).json({
+          error: { message: 'Select at least one assigned day so this client leaves Action Needed.' }
+        });
+      }
+      await assignPublicFallDays(req, ctx, Number(req.params.clientId), serviceDays);
+    }
     const disp = await saveFallConfirmation({
       clientId: Number(req.params.clientId),
       agencyId: ctx.link.agency_id,
-      schoolYear: req.body?.schoolYear || currentSchoolYearLabelFromCalendar(),
+      schoolYear: req.body?.schoolYear || computeCurrentSchoolYearLabel(),
       fallOutcome: req.body?.fallOutcome,
       privateComment: req.body?.privateComment || '',
       supportFollowUp: !!req.body?.supportFollowUp,
@@ -257,7 +337,7 @@ export async function putPublicFallConfirmation(req, res, next) {
       schoolVisibleNote: req.body?.schoolVisibleNote || null,
       recommendTerminate: req.body?.recommendTerminate,
       attestSawLastYear: !!req.body?.attestSawLastYear,
-      serviceDays: Array.isArray(req.body?.serviceDays) ? req.body.serviceDays : null,
+      serviceDays,
       actorUserId: ctx.providerUserId
     });
     await recordClientCompleted(ctx.link, {
