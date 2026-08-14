@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { PDFDocument, PDFString, StandardFonts, rgb } from 'pdf-lib';
 import puppeteer from 'puppeteer';
-import { formatEstimateLabel } from '../utils/providerActionOutreach.js';
+import { formatEstimateLabel, PROVIDER_ACTION_PACKET, providerActionDocumentTitle } from '../utils/providerActionOutreach.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -99,6 +99,7 @@ export function resolveProviderActionBranding(agency) {
     palette,
     heroKey: isNlu ? 'heroNlu' : 'heroItsco',
     logoUrl,
+    packet: PROVIDER_ACTION_PACKET,
     assets: {
       ...PROVIDER_ACTION_PDF_STATIC_ASSETS,
       heroUrl: isNlu
@@ -217,6 +218,7 @@ function buildMobileCardHtml({ firstName, actionUrl, googleSsoUrl, paths, copy }
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <title>${escapeHtml(providerActionDocumentTitle(branding.agencyName, firstName))}</title>
   <style>
     @page { size: ${PAGE.widthIn}in ${PAGE.heightIn}in; margin: 0; }
     * { box-sizing: border-box; }
@@ -278,15 +280,15 @@ function buildMobileCardHtml({ firstName, actionUrl, googleSsoUrl, paths, copy }
     </div>
     <div class="hero">${hero ? `<img src="${hero}" alt="" />` : ''}</div>
     <div class="body">
-      <p class="kicker">Action required</p>
+      <p class="kicker">${escapeHtml(PROVIDER_ACTION_PACKET.kicker)}</p>
       <h1>${escapeHtml(firstName || 'there')}, you have <span class="num">${count}</span> ${clientWord} who ${needWord} your action.</h1>
-      <p class="lede">Tap the button — about <strong>${perClient} seconds</strong> per client, ${escapeHtml(estimateLabel)} total. No Google sign-in.</p>
+      <p class="lede">Tap below — about <strong>${perClient} seconds</strong> per client, ${escapeHtml(estimateLabel)} total. No Google sign-in.</p>
       <div class="stats">
         <div class="stat">${team ? `<img src="${team}" alt="" />` : ''}<strong>${count}</strong><span>Clients</span></div>
         <div class="stat">${clock ? `<img src="${clock}" alt="" />` : ''}<strong>${perClient}s</strong><span>Each</span></div>
         <div class="stat">${badge ? `<img src="${badge}" alt="" />` : ''}<strong>${escapeHtml(estimateLabel)}</strong><span>Total time</span></div>
       </div>
-      <a class="cta" href="${escapeHtml(actionUrl)}">Open my clients<small>Secure link · opens in your phone browser</small></a>
+      <a class="cta" href="${escapeHtml(actionUrl)}">${escapeHtml(PROVIDER_ACTION_PACKET.ctaLabel)}<small>${escapeHtml(PROVIDER_ACTION_PACKET.ctaHint)}</small></a>
       <div class="foot">
         <p class="expires">Expires ${escapeHtml(expiresLabel)}</p>
         <a class="url" href="${escapeHtml(actionUrl)}">${escapeHtml(actionUrl)}</a>
@@ -429,8 +431,11 @@ async function buildFallbackPdf(input, assets) {
     y = belowLogo - 16;
   }
 
-  page.drawText('ACTION REQUIRED', { x: 22, y, size: 9, font: fontBold, color: accent });
-  y -= 22;
+  for (const line of wrapText(PROVIDER_ACTION_PACKET.kicker, fontBold, 8, PAGE.widthPt - 44).slice(0, 2)) {
+    page.drawText(line, { x: 22, y, size: 8, font: fontBold, color: accent });
+    y -= 11;
+  }
+  y -= 6;
 
   const headline = `${input.firstName || 'there'}, you have ${count} client${count === 1 ? '' : 's'} who ${count === 1 ? 'needs' : 'need'} your action.`;
   for (const line of wrapText(headline, fontBold, 16, PAGE.widthPt - 44).slice(0, 3)) {
@@ -482,7 +487,7 @@ async function buildFallbackPdf(input, assets) {
     height: ctaH,
     color: primary
   });
-  const cta = 'Open my clients';
+  const cta = PROVIDER_ACTION_PACKET.ctaLabel;
   page.drawText(cta, {
     x: (PAGE.widthPt - fontBold.widthOfTextAtSize(cta, 16)) / 2,
     y: ctaY + 34,
@@ -490,7 +495,7 @@ async function buildFallbackPdf(input, assets) {
     font: fontBold,
     color: white
   });
-  const sub = 'Secure link  ·  opens in your phone browser';
+  const sub = PROVIDER_ACTION_PACKET.ctaHint.replace(' · ', '  ·  ');
   page.drawText(sub, {
     x: (PAGE.widthPt - font.widthOfTextAtSize(sub, 8)) / 2,
     y: ctaY + 16,

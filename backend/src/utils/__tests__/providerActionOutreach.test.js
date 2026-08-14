@@ -19,7 +19,7 @@ describe('providerActionOutreach', () => {
   it('names the pdf after the provider', () => {
     assert.equal(
       pdfFilenameForProvider({ firstName: 'Jane', lastName: 'Doe' }),
-      'Doe_Jane_client-action.pdf'
+      'Doe_Jane_school-client-actions.pdf'
     );
   });
 

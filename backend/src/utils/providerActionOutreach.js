@@ -3,6 +3,25 @@ export const LINK_TTL_HOURS = 24;
 export const ACTION_TOKEN_BYTES = 16;
 export const ACTION_TOKEN_MIN_PREFIX = 16;
 
+/** Shared labels for the school client action packet (PDF, link page, admin panel). */
+export const PROVIDER_ACTION_PACKET = {
+  title: 'School client action packet',
+  kicker: 'Confirm fall status & complete client steps',
+  panelTitle: 'Send school client action packet',
+  panelHint: 'PDF + 24h secure link',
+  panelIntro:
+    'Download a branded PDF or copy a secure link for each provider. They confirm fall status, finish new-client intake, and complete other quick steps — about 15 seconds per client, no Google sign-in. Links expire in 24 hours.',
+  ctaLabel: 'Open my clients',
+  ctaHint: 'Secure link · opens in your phone browser',
+  filenameSuffix: 'school-client-actions'
+};
+
+export function providerActionDocumentTitle(agencyName, firstName) {
+  const agency = String(agencyName || 'ITSCO').trim();
+  const who = String(firstName || 'provider').trim();
+  return `${agency} — school client actions for ${who}`;
+}
+
 /** Strip copy/paste junk (spaces, newlines, wrapping hyphens) from a token or pasted URL. */
 export function normalizeActionToken(raw) {
   const s = String(raw || '').trim();
@@ -40,5 +59,5 @@ export function pdfFilenameForProvider({ firstName, lastName } = {}) {
   const first = String(firstName || '').trim();
   const raw = [last, first].filter(Boolean).join('_') || 'provider';
   const safe = raw.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'provider';
-  return `${safe}_client-action.pdf`;
+  return `${safe}_${PROVIDER_ACTION_PACKET.filenameSuffix}.pdf`;
 }

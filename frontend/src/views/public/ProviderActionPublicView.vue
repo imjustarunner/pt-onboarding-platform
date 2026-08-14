@@ -15,7 +15,7 @@
       </div>
 
       <section class="pa-body">
-        <p class="pa-kicker">Action required</p>
+        <p class="pa-kicker">{{ packetKicker }}</p>
         <h1>
           {{ providerName }}, you have
           <span class="num">{{ clients.length }}</span>
@@ -142,6 +142,13 @@ const palette = computed(() => branding.value?.palette || {
 const agencyName = computed(() => branding.value?.agencyName || 'ITSCO');
 const logoUrl = computed(() => branding.value?.logoUrl || assets.value.fallbackLogo);
 const heroUrl = computed(() => branding.value?.assets?.heroUrl || assets.value.heroItsco);
+const packetKicker = computed(
+  () => branding.value?.packet?.kicker || 'Confirm fall status & complete client steps'
+);
+const pageTitle = computed(() => {
+  const who = providerName.value || 'you';
+  return `${agencyName.value} — school client actions for ${who}`;
+});
 
 const themeVars = computed(() => ({
   '--pa-primary': palette.value.primary,
@@ -182,6 +189,7 @@ async function load(open = false) {
     secondsPerClient.value = Number(data.secondsPerClient) || 15;
     expiresAt.value = data.link?.expiresAt || null;
     branding.value = data.branding || null;
+    document.title = pageTitle.value;
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'This link is invalid or expired.';
     clients.value = [];

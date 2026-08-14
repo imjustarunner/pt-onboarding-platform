@@ -13,5 +13,6 @@ This folder is intended to hold **small, focused knowledge snippets** (“contex
 - `my-dashboard.md`
 - `school-portal.md`
 - `provider-availability.md`
+- `provider-action-packet.md`
 - `glossary.md`
 

@@ -5,7 +5,7 @@
         <h1>Client Action Needed</h1>
         <p class="muted">
           Clients who still need a next step — fall confirmation, new-client intake, agency clearance, or insurance check.
-          Expand <strong>Provider outreach</strong> above to download PDFs or copy 24-hour links.
+          Expand <strong>Send school client action packet</strong> above to download PDFs or copy 24-hour secure links.
         </p>
       </div>
       <div class="ob-header-actions">

@@ -8,16 +8,17 @@
     >
       <span class="pao-toggle-main">
         <span class="pao-chevron" aria-hidden="true">{{ panelOpen ? '▾' : '▸' }}</span>
-        <span class="pao-title">Provider outreach</span>
+        <span class="pao-title">Send school client action packet</span>
         <span v-if="summaryLine" class="pao-summary muted">{{ summaryLine }}</span>
       </span>
-      <span v-if="!panelOpen" class="pao-toggle-hint muted">PDFs & 24-hour links</span>
+      <span v-if="!panelOpen" class="pao-toggle-hint muted">PDF + 24h secure link</span>
     </button>
 
     <div v-show="panelOpen" class="pao-body">
       <p class="pao-intro muted">
-        Download a named PDF or copy a secure link for each provider. Links expire in 24 hours and open
-        only their action-needed clients — no Google sign-in.
+        Download a branded PDF or copy a secure link for each provider. They confirm fall status,
+        finish new-client intake, and complete other quick steps — about 15 seconds per client,
+        no Google sign-in. Links expire in 24 hours.
       </p>
       <div class="pao-toolbar">
         <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="load">
@@ -220,7 +221,7 @@ async function downloadPdf(p) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${String(p.lastName || 'provider')}_${String(p.firstName || '')}_client-action.pdf`.replace(/\s+/g, '_');
+    a.download = `${String(p.lastName || 'provider')}_${String(p.firstName || '')}_school-client-actions.pdf`.replace(/\s+/g, '_');
     document.body.appendChild(a);
     a.click();
     a.remove();
