@@ -1,9 +1,11 @@
 import fs from 'fs/promises';
+import os from 'os';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import puppeteer from 'puppeteer';
 import { formatEstimateLabel } from '../utils/providerActionOutreach.js';
-import DocumentSigningService from './documentSigning.service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -149,6 +151,38 @@ async function resolveBundledAsset(key) {
   return '';
 }
 
+/** Returns absolute file paths for bundled assets (for Puppeteer file:// HTML). */
+async function resolveBundledFilePaths(agency) {
+  const branding = resolveProviderActionBranding(agency);
+  const heroFile = branding.heroKey === 'heroNlu' ? BUNDLED_ASSETS.heroNlu : BUNDLED_ASSETS.heroItsco;
+  const logoRel = String(agency?.logo_path || '').trim().replace(/^uploads\//, '');
+
+  let logoFilePath = path.join(BACKEND_ASSETS, BUNDLED_ASSETS.itscoLogo);
+  if (logoRel) {
+    const candidates = [
+      path.join(process.cwd(), 'uploads', logoRel),
+      path.join(REPO_ROOT, 'backend/uploads', logoRel)
+    ];
+    for (const c of candidates) {
+      try { await fs.access(c); logoFilePath = c; break; } catch { /* not found */ }
+    }
+  }
+
+  return {
+    palette: branding.palette,
+    hero: path.join(BACKEND_ASSETS, heroFile),
+    schoolGreen: path.join(BACKEND_ASSETS, BUNDLED_ASSETS.schoolGreen),
+    logo: logoFilePath,
+    iconTeam: path.join(BACKEND_ASSETS, BUNDLED_ASSETS.iconTeam),
+    iconClock: path.join(BACKEND_ASSETS, BUNDLED_ASSETS.iconClock),
+    iconCare: path.join(BACKEND_ASSETS, BUNDLED_ASSETS.iconCare),
+    iconBadge: path.join(BACKEND_ASSETS, BUNDLED_ASSETS.iconBadge),
+    iconAlert: path.join(BACKEND_ASSETS, BUNDLED_ASSETS.iconAlert),
+    iconList: path.join(BACKEND_ASSETS, BUNDLED_ASSETS.iconList)
+  };
+}
+
+/** Returns data URIs for bundled assets (for pdf-lib fallback). */
 async function resolveProviderActionPdfAssets({ agency }) {
   const branding = resolveProviderActionBranding(agency);
   const heroKey = branding.heroKey;
@@ -174,9 +208,139 @@ async function resolveProviderActionPdfAssets({ agency }) {
   };
 }
 
-function metricIconHtml(dataUri, fallbackSvg) {
-  if (dataUri) return `<img class="metric-icon-img" src="${dataUri}" alt="" />`;
+function metricIconHtml(src, fallbackSvg) {
+  if (src) return `<img class="metric-icon-img" src="${src}" alt="" />`;
   return fallbackSvg;
+}
+
+/** Build the PDF HTML using absolute file:// paths (no base64). Tiny, fast for Puppeteer. */
+function buildProviderActionPdfHtmlFileUrl({
+  firstName,
+  clientCount,
+  secondsPerClient,
+  estimatedSeconds,
+  actionUrl,
+  expiresAt,
+  googleSsoUrl,
+  agency,
+  filePaths
+}) {
+  const branding = resolveProviderActionBranding(agency);
+  const palette = filePaths?.palette || branding.palette;
+  const count = Number(clientCount) || 0;
+  const perClient = Number(secondsPerClient) || 15;
+  const estimateLabel = formatEstimateLabel(Number(estimatedSeconds) || count * perClient);
+  const expiresLabel = expiresAt
+    ? new Date(expiresAt).toLocaleString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+      })
+    : 'in 24 hours';
+
+  const toSrc = (p) => p ? `file://${p}` : '';
+  const heroSrc = toSrc(filePaths?.hero);
+  const schoolGreenSrc = toSrc(filePaths?.schoolGreen);
+  const logoSrc = toSrc(filePaths?.logo);
+  const teamSrc = toSrc(filePaths?.iconTeam);
+  const clockSrc = toSrc(filePaths?.iconClock);
+  const badgeSrc = toSrc(filePaths?.iconBadge);
+  const careSrc = toSrc(filePaths?.iconCare);
+  const alertSrc = toSrc(filePaths?.iconAlert);
+  const listSrc = toSrc(filePaths?.iconList);
+
+  const heroBlock = heroSrc
+    ? `<div class="hero-frame"><img class="hero-photo" src="${heroSrc}" alt="" /></div>`
+    : `<div class="hero-frame hero-fallback" aria-hidden="true"></div>`;
+
+  const logoBlock = logoSrc
+    ? `<img class="brand-logo" src="${logoSrc}" alt="${escapeHtml(branding.agencyName)}" />`
+    : `<div class="brand-wordmark">${escapeHtml(branding.agencyName)}</div>`;
+
+  const schoolArtBlock = schoolGreenSrc ? `<img class="school-art" src="${schoolGreenSrc}" alt="" />` : '';
+  const listBadge = listSrc ? `<img class="checklist-icon" src="${listSrc}" alt="" />` : '';
+  const alertIcon = alertSrc ? `<img class="kicker-icon" src="${alertSrc}" alt="" />` : `<span class="kicker-dot"></span>`;
+  const careIcon = careSrc ? `<img class="impact-icon" src="${careSrc}" alt="" />` : `<span class="impact-star">★</span>`;
+  const teamIcon = teamSrc ? `<img class="metric-icon-img" src="${teamSrc}" alt="" />` : '<svg class="metric-icon-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S7.66 5 6 5 3 6.34 3 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 13.17 10.33 12 8 12zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>';
+  const clockIcon = clockSrc ? `<img class="metric-icon-img" src="${clockSrc}" alt="" />` : '<svg class="metric-icon-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2Zm1 11h4v-2h-3V7h-2v6Z"/></svg>';
+  const badgeIcon = badgeSrc ? `<img class="metric-icon-img" src="${badgeSrc}" alt="" />` : '<svg class="metric-icon-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2l2.4 4.8L16 8l4.8.7L18 12l.8 4.8L16 16l-2.4 2.4L12 24l-2.4-2.4L8 16l-4.8-.8L4 12l2.8-3.3L4 8l4.8-.7L9.6 2 12 2Z"/></svg>';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    @page { size: 8.5in 8.5in; margin: 0; }
+    body { margin:0;padding:0;background:#f4f1ea;font-family:Inter,Segoe UI,Helvetica,Arial,sans-serif;color:${palette.text || '#1F2937'}; }
+    .sheet { width:8.5in;height:8.5in;box-sizing:border-box;padding:0.42in 0.48in 0.38in 0.54in;position:relative;background:#fff; }
+    .accent-stripe { position:absolute;left:0;top:0;bottom:0;width:6px;background:linear-gradient(180deg,${palette.accent} 0%,${palette.primary} 100%); }
+    header { text-align:center;margin-bottom:10px;padding-top:2px; }
+    .brand-logo { max-height:46px;max-width:200px;object-fit:contain; }
+    .brand-wordmark { font-size:22px;font-weight:800;color:${palette.primary}; }
+    .hero-grid { display:grid;grid-template-columns:1.05fr 0.95fr;gap:14px;align-items:stretch;margin-bottom:14px; }
+    .kicker { display:flex;align-items:center;gap:8px;margin-bottom:8px; }
+    .kicker-icon { width:22px;height:22px;object-fit:contain;flex-shrink:0; }
+    .kicker-dot { width:10px;height:10px;border-radius:50%;background:${palette.accent};box-shadow:0 0 0 4px rgba(90,155,88,0.2);flex-shrink:0; }
+    .kicker span { letter-spacing:0.16em;text-transform:uppercase;font-size:10px;font-weight:800;color:${palette.accent}; }
+    h1 { font-family:Georgia,Times New Roman,serif;font-size:27px;line-height:1.15;margin:0 0 10px;color:${palette.primary};font-weight:700; }
+    h1 .num { color:${palette.accent}; }
+    .lede { margin:0;font-size:13px;line-height:1.55;color:${palette.muted || '#5B7164'}; }
+    .hero-frame { border-radius:18px;overflow:hidden;border:3px solid rgba(90,155,88,0.28);box-shadow:0 10px 28px rgba(20,90,61,0.14);min-height:168px;background:linear-gradient(145deg,#e8f5e9,#f6f1e6); }
+    .hero-photo { width:100%;height:100%;min-height:168px;object-fit:cover;display:block; }
+    .hero-fallback { background:linear-gradient(145deg,${palette.light || '#E8F5E9'},${palette.tan || '#F6F1E6'}); }
+    .metrics { display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:${palette.tan || '#F6F1E6'};border-radius:16px;padding:14px 10px 12px;margin-bottom:14px;text-align:center; }
+    .metric-icon-wrap { width:46px;height:46px;margin:0 auto 6px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(20,90,61,0.08); }
+    .metric-icon-img { width:28px;height:28px;object-fit:contain; }
+    .metric-icon-svg { width:26px;height:26px;color:${palette.accent}; }
+    .metrics strong { display:block;font-size:22px;color:${palette.primary};line-height:1.1; }
+    .metrics span { display:block;font-size:11px;color:${palette.muted || '#5B7164'};margin-top:3px;line-height:1.3; }
+    .impact { display:grid;grid-template-columns:1.15fr 0.85fr;gap:10px;align-items:center;background:linear-gradient(135deg,${palette.light || '#E8F5E9'} 0%,#f0faf0 100%);border-radius:16px;padding:14px 16px;margin-bottom:16px;border:1px solid rgba(90,155,88,0.18); }
+    .impact-title { display:flex;align-items:center;gap:8px;margin-bottom:6px; }
+    .impact-icon { width:26px;height:26px;object-fit:contain;flex-shrink:0; }
+    .impact-star { color:${palette.accent};font-size:20px;line-height:1; }
+    .impact-copy p { margin:0;font-size:12px;line-height:1.5;color:${palette.muted || '#5B7164'}; }
+    .impact-art { position:relative;display:flex;align-items:center;justify-content:center;min-height:72px; }
+    .school-art { max-width:88%;max-height:78px;object-fit:contain;opacity:0.95; }
+    .checklist-icon { position:absolute;right:0;bottom:-4px;width:36px;height:36px;object-fit:contain;background:#fff;border-radius:50%;padding:4px;box-shadow:0 2px 8px rgba(20,90,61,0.12); }
+    .cta { display:block;text-align:center;background:linear-gradient(135deg,${palette.primary} 0%,#0d4a31 100%);color:#fff;text-decoration:none;border-radius:14px;padding:16px 18px;font-size:17px;font-weight:800;box-shadow:0 8px 22px rgba(20,90,61,0.22); }
+    .cta small { display:block;font-size:11px;font-weight:600;opacity:0.9;margin-top:4px; }
+    .footer-url { margin:8px 0 0;font-size:9px;color:#64748b;word-break:break-all;background:#f8faf9;border:1px solid #e2e8e4;border-radius:10px;padding:8px 10px;line-height:1.4; }
+    .expires { margin:12px 0 6px;font-size:11px;color:${palette.muted || '#5B7164'};text-align:center; }
+    .sso { margin:8px 0 0;font-size:9px;color:#94a3b8;text-align:center; }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="accent-stripe"></div>
+    <header>${logoBlock}</header>
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <div class="kicker">
+          ${alertIcon}
+          <span>Action required</span>
+        </div>
+        <h1>${escapeHtml(firstName || 'there')}, you have <span class="num">${count}</span> client${count === 1 ? '' : 's'} who need${count === 1 ? 's' : ''} your action.</h1>
+        <p class="lede">Review each client and complete the required action. It only takes about <strong style="color:${palette.primary};">${perClient} seconds</strong> per client — <strong style="color:${palette.primary};">${escapeHtml(estimateLabel)}</strong> total.</p>
+      </div>
+      ${heroBlock}
+    </div>
+    <div class="metrics">
+      <div class="metric"><div class="metric-icon-wrap">${teamIcon}</div><strong>${count}</strong><span>Clients need your action</span></div>
+      <div class="metric"><div class="metric-icon-wrap">${clockIcon}</div><strong>${perClient}s</strong><span>Per client average</span></div>
+      <div class="metric"><div class="metric-icon-wrap">${badgeIcon}</div><strong>${escapeHtml(estimateLabel)}</strong><span>Estimated time</span></div>
+    </div>
+    <div class="impact">
+      <div class="impact-copy">
+        <div class="impact-title">${careIcon}<strong style="font-size:15px;color:${palette.primary};">Your work makes a difference</strong></div>
+        <p>Each quick update keeps schools informed and helps students get the support they need this year.</p>
+      </div>
+      <div class="impact-art">${schoolArtBlock}${listBadge}</div>
+    </div>
+    <a class="cta" href="${escapeHtml(actionUrl)}">Open my clients<small>Secure link · no Google sign-in</small></a>
+    <p class="expires">This secure link expires <strong style="color:${palette.primary};">${escapeHtml(expiresLabel)}</strong>.</p>
+    <div class="footer-url">${escapeHtml(actionUrl)}</div>
+    ${googleSsoUrl ? `<p class="sso">Or sign in at ${escapeHtml(googleSsoUrl)}</p>` : ''}
+  </div>
+</body>
+</html>`;
 }
 
 function buildProviderActionPdfHtml({
@@ -648,32 +812,64 @@ async function buildFallbackPdf({
   return Buffer.from(await pdfDoc.save());
 }
 
-export async function renderProviderActionPdf(input) {
-  const assets = await resolveProviderActionPdfAssets({ agency: input.agency });
-
-  // 1. Try Puppeteer HTML render (rich layout with hero / icons).
+async function renderWithPuppeteer(html, tmpPath) {
+  let browser;
   try {
-    const html = buildProviderActionPdfHtml({ ...input, assets });
-    const pdfBuffer = await DocumentSigningService.convertHTMLToPDF(html, {
-      format: 'Letter',
-      width: '8.5in',
-      height: '8.5in',
-      printBackground: true,
-      margin: { top: '0', right: '0', bottom: '0', left: '0' }
+    let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    if (!executablePath) {
+      for (const p of ['/usr/bin/chromium-browser', '/usr/bin/chromium',
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '/Applications/Chromium.app/Contents/MacOS/Chromium']) {
+        try { await fs.access(p); executablePath = p; break; } catch { /* skip */ }
+      }
+    }
+    if (!executablePath) throw new Error('No Chromium found');
+
+    browser = await puppeteer.launch({
+      executablePath,
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas', '--no-first-run', '--no-zygote', '--single-process',
+        '--allow-file-access-from-files']
     });
+    const page = await browser.newPage();
+    await fs.writeFile(tmpPath, html, 'utf8');
+    await page.goto(`file://${tmpPath}`, { waitUntil: 'networkidle0', timeout: 15000 });
+    const pdf = await page.pdf({
+      width: '8.5in', height: '8.5in',
+      printBackground: true,
+      margin: { top: '0', right: '0', bottom: '0', left: '0' },
+      timeout: 25000
+    });
+    return pdf;
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+    await fs.unlink(tmpPath).catch(() => {});
+  }
+}
+
+export async function renderProviderActionPdf(input) {
+  const tmpPath = path.join(os.tmpdir(), `pa-${crypto.randomBytes(8).toString('hex')}.html`);
+
+  // 1. Try Puppeteer with file:// paths — tiny HTML, no base64 bloat.
+  try {
+    const filePaths = await resolveBundledFilePaths(input.agency);
+    const html = buildProviderActionPdfHtmlFileUrl({ ...input, filePaths });
+    const pdfBuffer = await renderWithPuppeteer(html, tmpPath);
     if (isValidPdf(pdfBuffer)) {
       console.log('[providerActionPdf] Puppeteer render ok, size:', pdfBuffer.length);
       return pdfBuffer;
     }
-    console.warn('[providerActionPdf] Puppeteer returned invalid PDF bytes — falling back');
+    console.warn('[providerActionPdf] Puppeteer returned invalid PDF — falling back');
   } catch (err) {
-    console.warn('[providerActionPdf] HTML render threw — falling back:', err?.message || err);
+    console.warn('[providerActionPdf] Puppeteer failed — falling back:', err?.message || err);
   }
 
-  // 2. pdf-lib branded fallback (reliable, no Puppeteer).
+  // 2. pdf-lib branded fallback.
+  const assets = await resolveProviderActionPdfAssets({ agency: input.agency });
   const fallback = await buildFallbackPdf({ ...input, assets });
   if (isValidPdf(fallback)) {
-    console.log('[providerActionPdf] Fallback pdf-lib render ok, size:', fallback.length);
+    console.log('[providerActionPdf] pdf-lib fallback ok, size:', fallback.length);
     return fallback;
   }
   throw new Error('Both PDF render paths failed to produce a valid document.');
