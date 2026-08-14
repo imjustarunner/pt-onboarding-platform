@@ -641,13 +641,10 @@ export const getLearningProgramClass = async (req, res, next) => {
     const allowed = await canAccessOrganization({ user: req.user, organizationId: klass.organization_id });
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied for this class' } });
     klass = withSeasonSettingsDefaults(await ensureClassLifecycleStatus(klass));
-    const [intakeRows] = await pool.execute(
-      `SELECT * FROM intake_links
-       WHERE scope_type = 'learning_class' AND learning_class_id = ?
-       ORDER BY updated_at DESC, id DESC`,
-      [classId]
-    );
-    const intakeLinks = (intakeRows || []).map((r) => IntakeLink.normalize(r));
+    const intakeLinks = await IntakeLink.findByScope({
+      scopeType: 'learning_class',
+      learningClassId: classId
+    });
     const resources = await LearningProgramClass.listResources(classId);
     const clientMembers = await LearningProgramClass.listClientMembers(classId);
     const providerMembers = await attachParticipationAgreementStatusToMembers({

@@ -113,17 +113,64 @@ class IntakeLink {
     return this.normalize(rows[0] || null);
   }
 
-  static async findByScope({ scopeType, organizationId = null, programId = null, learningClassId = null }) {
+  /**
+   * Sort on id/updated_at only — SELECT * … ORDER BY on wide JSON rows can exhaust
+   * MySQL sort_buffer_size (ER_OUT_OF_SORTMEMORY).
+   */
+  static async findOrderedIds({ whereSql = '', params = [] } = {}) {
+    const where = String(whereSql || '').trim();
+    const clause = where
+      ? (where.toUpperCase().startsWith('WHERE') ? where : `WHERE ${where}`)
+      : '';
     const [rows] = await pool.execute(
-      `SELECT * FROM intake_links
-       WHERE scope_type = ?
+      `SELECT id FROM intake_links ${clause} ORDER BY updated_at DESC, id DESC`,
+      params
+    );
+    return (rows || []).map((row) => row.id);
+  }
+
+  static async fetchByOrderedIds(ids) {
+    const list = (Array.isArray(ids) ? ids : []).filter((id) => id != null);
+    if (!list.length) return [];
+    const placeholders = list.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT * FROM intake_links WHERE id IN (${placeholders})`,
+      list
+    );
+    const byId = new Map((rows || []).map((row) => [row.id, row]));
+    return list.map((id) => this.normalize(byId.get(id))).filter(Boolean);
+  }
+
+  static async findAllOrdered() {
+    const ids = await this.findOrderedIds();
+    return this.fetchByOrderedIds(ids);
+  }
+
+  static async findByCompanyEventId(companyEventId) {
+    const ids = await this.findOrderedIds({
+      whereSql: 'WHERE company_event_id = ?',
+      params: [companyEventId]
+    });
+    return this.fetchByOrderedIds(ids);
+  }
+
+  static async findByScope({ scopeType, organizationId = null, programId = null, learningClassId = null }) {
+    const ids = await this.findOrderedIds({
+      whereSql: `WHERE scope_type = ?
          AND (organization_id = ? OR (organization_id IS NULL AND ? IS NULL))
          AND (program_id = ? OR (program_id IS NULL AND ? IS NULL))
-         AND (learning_class_id = ? OR (learning_class_id IS NULL AND ? IS NULL))
-       ORDER BY updated_at DESC, id DESC`,
-      [scopeType, organizationId, organizationId, programId, programId, learningClassId, learningClassId]
-    );
-    return rows.map(row => this.normalize(row));
+         AND (learning_class_id = ? OR (learning_class_id IS NULL AND ? IS NULL))`,
+      params: [
+        scopeType,
+        organizationId,
+        organizationId,
+        programId,
+        programId,
+        learningClassId,
+        learningClassId
+      ]
+    });
+    return this.fetchByOrderedIds(ids);
   }
 
   static normalize(row) {

@@ -156,11 +156,7 @@ export const listIntakeLinks = async (req, res, next) => {
           return res.status(403).json({ error: { message: 'Access denied for this company event.' } });
         }
       }
-      const [rows] = await pool.execute(
-        `SELECT * FROM intake_links WHERE company_event_id = ? ORDER BY updated_at DESC, id DESC`,
-        [companyEventFilterId]
-      );
-      const links = (rows || []).map((row) => IntakeLink.normalize(row));
+      const links = await IntakeLink.findByCompanyEventId(companyEventFilterId);
       return res.json(links);
     }
 
@@ -185,8 +181,7 @@ export const listIntakeLinks = async (req, res, next) => {
         learningClassId
       });
     } else {
-      const [rows] = await pool.execute('SELECT * FROM intake_links ORDER BY updated_at DESC, id DESC');
-      links = rows.map(row => IntakeLink.normalize(row));
+      links = await IntakeLink.findAllOrdered();
     }
     if (!isSuperAdmin(req.user?.role)) {
       links = links.filter((link) => canAccessLink({ link, userOrgIds, userId: req.user?.id }));
