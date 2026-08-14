@@ -12,6 +12,11 @@
   padding-right: clamp(0.5rem, 1.2vw, 0.85rem);
 }
 
+.ai-shell-host.df-page.df-page--scenic-side {
+  padding-left: 0;
+  padding-right: 0;
+}
+
 .ai-layout {
   display: grid;
   gap: 1.25rem;
@@ -45,10 +50,15 @@
 .df-shell.df-shell--intake-stepper .df-main-body {
   max-width: none;
   margin: 0;
-  padding-top: clamp(1rem, 3vh, 1.75rem);
+  padding-top: clamp(0.75rem, 2vh, 1.25rem);
   padding-right: clamp(0.85rem, 1.6vw, 1.35rem);
-  padding-bottom: clamp(1.25rem, 2.5vw, 2rem);
+  padding-bottom: clamp(0.75rem, 1.8vw, 1.25rem);
   padding-left: clamp(0.65rem, 1.2vw, 0.95rem);
+}
+
+.df-shell--intake-stepper .packet-section-step,
+.df-shell--intake-stepper .smart-disclosure-step {
+  max-width: 52rem;
 }
 
 .df-shell--intake-stepper .df-main-footer {
@@ -813,7 +823,14 @@
 
 .ai-provider-card--selected {
   border-color: var(--df-primary);
+  background: var(--df-primary);
+  color: #fff;
   box-shadow: 0 0 0 1px var(--df-primary);
+}
+.ai-provider-card--selected .ai-provider-name,
+.ai-provider-card--selected .ai-provider-meta,
+.ai-provider-card--selected .ai-signature-captured {
+  color: #fff;
 }
 
 .ai-provider-name {

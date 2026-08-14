@@ -5,6 +5,8 @@ import {
   requestBaseUrl
 } from './publicFormBranding.service.js';
 import { notifyNewProspectiveInquiry } from './clientNotifications.service.js';
+import User from '../models/User.model.js';
+import ClientGuardian from '../models/ClientGuardian.model.js';
 
 function parseJson(value, fallback = null) {
   if (value == null) return fallback;
@@ -484,6 +486,10 @@ function mergeJoinLandingCopy(vertical, agencyRow, activeService) {
       merged.layout = value;
       continue;
     }
+    if (key === 'intakeStartLayout' && value && typeof value === 'object') {
+      merged.intakeStartLayout = value;
+      continue;
+    }
     if (typeof value === 'string' && value.trim()) merged[key] = value.trim();
   }
   if (/non-?judgmental/i.test(String(merged.value1 || ''))) {
@@ -505,7 +511,7 @@ export async function updateJoinLandingCopy({ agencySlugOrId, serviceType, copy 
       next[field] = Array.isArray(value) ? value.map((v) => String(v || '').trim()).filter(Boolean) : prev[field];
       continue;
     }
-    if (field === 'layout' && value && typeof value === 'object') {
+    if ((field === 'layout' || field === 'intakeStartLayout') && value && typeof value === 'object') {
       next[field] = value;
       continue;
     }
@@ -562,6 +568,76 @@ function labelTimeOfDay(value) {
   return TIME_OF_DAY_LABELS[String(value || '').trim()] || humanizeToken(value);
 }
 
+function formatStructuredAddress(address, fallback) {
+  if (address && typeof address === 'object') {
+    const line1 = [address.street, address.apt].map((v) => String(v || '').trim()).filter(Boolean).join(', ');
+    const line2 = [address.city, address.state, address.zip].map((v) => String(v || '').trim()).filter(Boolean).join(', ');
+    const formatted = [line1, line2].filter(Boolean).join(', ');
+    if (formatted) return { formatted, ...address };
+  }
+  const raw = String(fallback || '').trim();
+  return { formatted: raw || null, street: raw || null, apt: '', city: '', state: '', zip: '' };
+}
+
+async function provisionQuickProspectiveAccess({
+  email,
+  firstName,
+  lastName,
+  phone,
+  clientId,
+  whoFor
+}) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail || !clientId) return null;
+  try {
+    const existing = await User.findByEmail(normalizedEmail);
+    if (existing?.id) {
+      await ClientGuardian.upsertLink({
+        clientId,
+        guardianUserId: existing.id,
+        relationshipType: whoFor === 'myself' ? 'self' : 'guardian',
+        relationshipTitle: whoFor === 'myself' ? 'Self' : 'Guardian',
+        accessEnabled: true
+      }).catch(() => null);
+      return {
+        existingAccount: true,
+        email: normalizedEmail,
+        userId: existing.id,
+        expiresInHours: 24
+      };
+    }
+    const temporaryPassword = await User.generateTemporaryPassword();
+    const user = await User.create({
+      email: normalizedEmail,
+      role: 'client_guardian',
+      firstName: String(firstName || '').trim() || 'Guest',
+      lastName: String(lastName || '').trim() || 'Account',
+      phoneNumber: phone || null,
+      status: 'active'
+    });
+    if (!user?.id) return null;
+    const temp = await User.setTemporaryPassword(user.id, temporaryPassword, 24);
+    await ClientGuardian.upsertLink({
+      clientId,
+      guardianUserId: user.id,
+      relationshipType: whoFor === 'myself' ? 'self' : 'guardian',
+      relationshipTitle: whoFor === 'myself' ? 'Self' : 'Guardian',
+      accessEnabled: true
+    }).catch(() => null);
+    return {
+      existingAccount: false,
+      email: normalizedEmail,
+      userId: user.id,
+      temporaryPassword,
+      expiresAt: temp?.expiresAt || null,
+      expiresInHours: 24
+    };
+  } catch (err) {
+    console.warn('Quick prospective temp account skipped:', err?.message || err);
+    return null;
+  }
+}
+
 export async function submitQuickProspective({ agencySlugOrId, payload = {}, req }) {
   const agencyRow = await loadAgencyRow(agencySlugOrId);
   if (!agencyRow) throw new Error('Organization not found');
@@ -584,7 +660,11 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
   const concerns = Array.isArray(payload.concerns) ? payload.concerns : [];
   const preferences = payload.preferences || {};
   const accomplishGoal = String(payload.accomplishGoal || payload.goals || '').trim() || null;
-  const homeAddress = String(payload.homeAddress || clientInfo.homeAddress || '').trim() || null;
+  const addressInfo = formatStructuredAddress(
+    payload.address,
+    payload.homeAddress || clientInfo.homeAddress
+  );
+  const homeAddress = addressInfo.formatted;
   const birthdate = normalizeBirthdate(
     payload.birthdate || clientInfo.birthdate || clientInfo.dateOfBirth || clientInfo.ageOrDob
   );
@@ -611,6 +691,11 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
       contactPhone: respondent.phone || payload.contactPhone || payload.phone,
       dateOfBirth: birthdate,
       homeAddress,
+      addressStreet: addressInfo.street || homeAddress,
+      addressApt: addressInfo.apt || null,
+      addressCity: addressInfo.city || null,
+      addressState: addressInfo.state || null,
+      addressZip: addressInfo.zip || null,
       presentingConcern:
         accomplishGoal ||
         payload.presentingConcern ||
@@ -642,6 +727,7 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     concerns,
     accomplishGoal,
     homeAddress,
+    address: addressInfo,
     birthdate,
     notes: payload.notes || null,
     preferredProviderUserId: payload.preferredProviderUserId || preferences.preferredProviderUserId || null,
@@ -704,6 +790,18 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     /* non-fatal */
   }
 
+  const acknowledgments = Array.isArray(payload.acknowledgments)
+    ? payload.acknowledgments.map((line) => String(line || '').trim()).filter(Boolean)
+    : [];
+  const temporaryAccess = await provisionQuickProspectiveAccess({
+    email: meta.respondent.email,
+    firstName: respondent.firstName,
+    lastName: respondent.lastName,
+    phone: meta.respondent.phone,
+    clientId: client.id,
+    whoFor
+  });
+
   return {
     client,
     confirmation: {
@@ -738,8 +836,13 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
             ? [preferences.preferredDays]
             : [],
         insuranceOrPayment: preferences.insuranceOrPayment || payload.insuranceOrPayment || null,
-        serviceType: activeService?.displayName || activeService?.serviceType || null
+        serviceType: activeService?.displayName || activeService?.serviceType || null,
+        preferredProvider: payload.preferredProviderUserId
+          ? 'Preferred provider selected'
+          : 'Let the team choose / first available',
+        acknowledgments
       },
+      temporaryAccess,
       supportContact: resolveClientFacingSupport(agencyRow)
     },
     conversion: {

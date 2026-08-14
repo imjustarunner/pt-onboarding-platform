@@ -246,6 +246,21 @@ class DocumentTemplate {
     return this.findById(result.insertId);
   }
 
+  static async findActiveByIdsLite(ids) {
+    const clean = [...new Set((ids || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+    if (!clean.length) return [];
+    const placeholders = clean.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT id, name, document_type, document_action_type, template_type,
+              file_path, signature_x, signature_y, signature_width, signature_height,
+              signature_page, field_definitions, is_active
+       FROM document_templates
+       WHERE id IN (${placeholders}) AND is_active = 1`,
+      clean
+    );
+    return rows || [];
+  }
+
   static async findById(id) {
     // Check if icon_id column exists to include it in SELECT
     let hasIconColumn = false;

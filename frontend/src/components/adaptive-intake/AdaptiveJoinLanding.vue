@@ -3,73 +3,92 @@
     class="ajl"
     :class="[
       `ajl--footer-${activeLayout.footerStyle}`,
-      { 'ajl--editing': editing, 'ajl--with-sidebar': showLeftChrome }
+      { 'ajl--editing': editing }
     ]"
     :style="themeVars"
   >
     <link rel="stylesheet" :href="JOIN_FONT_HREF" />
     <div class="ajl-bg" :style="bgStyle" aria-hidden="true" />
 
-    <aside v-if="showLeftChrome" class="ajl-sidebar">
-      <div class="ajl-brand">
-        <img v-if="logoUrl" class="ajl-logo" :src="logoUrl" :alt="agencyName" />
-        <div v-else class="ajl-logo-fallback">{{ agencyInitial }}</div>
-        <p class="ajl-tagline">
-          <input v-if="editing" v-model="draft.sidebarTagline" class="ajl-inline" />
-          <span v-else>{{ copy.sidebarTagline }}</span>
-        </p>
-        <p class="ajl-script">
-          <input v-if="editing" v-model="draft.sidebarScript" class="ajl-inline ajl-inline--script" />
-          <span v-else>{{ copy.sidebarScript }}</span>
-        </p>
+    <aside class="ajl-rail" :class="{ 'ajl-rail--editing': editing }">
+      <div
+        class="ajl-block ajl-block--brand"
+        :class="{ 'ajl-block--selected': selectedBlock === 'brand' }"
+        :style="blockStyle('brand')"
+        @mousedown="selectBlock('brand', $event)"
+      >
+        <button v-if="editing" type="button" class="ajl-drag" @mousedown.stop="startDrag('brand', $event)">Move</button>
+        <div v-if="editing && selectedBlock === 'brand'" class="ajl-resize ajl-resize--e" @mousedown.stop="startResize('brand', 'e', $event)" />
+        <div class="ajl-brand">
+          <img v-if="logoUrl" class="ajl-logo" :src="logoUrl" :alt="agencyName" />
+          <div v-else class="ajl-logo-fallback">{{ agencyInitial }}</div>
+          <p class="ajl-tagline">
+            <input v-if="editing" v-model="draft.sidebarTagline" class="ajl-inline" />
+            <span v-else>{{ copy.sidebarTagline }}</span>
+          </p>
+          <p class="ajl-script">
+            <input v-if="editing" v-model="draft.sidebarScript" class="ajl-inline ajl-inline--script" />
+            <span v-else>{{ copy.sidebarScript }}</span>
+          </p>
+        </div>
+
+        <ul class="ajl-values">
+          <li>
+            <span aria-hidden="true">♡</span>
+            <input v-if="editing" v-model="draft.value1" class="ajl-inline" />
+            <span v-else>{{ copy.value1 }}</span>
+          </li>
+          <li>
+            <span aria-hidden="true">👥</span>
+            <input v-if="editing" v-model="draft.value2" class="ajl-inline" />
+            <span v-else>{{ copy.value2 }}</span>
+          </li>
+          <li>
+            <span aria-hidden="true">🌿</span>
+            <input v-if="editing" v-model="draft.value3" class="ajl-inline" />
+            <span v-else>{{ copy.value3 }}</span>
+          </li>
+        </ul>
       </div>
 
-      <ul class="ajl-values">
-        <li>
-          <span aria-hidden="true">♡</span>
-          <input v-if="editing" v-model="draft.value1" class="ajl-inline" />
-          <span v-else>{{ copy.value1 }}</span>
-        </li>
-        <li>
-          <span aria-hidden="true">👥</span>
-          <input v-if="editing" v-model="draft.value2" class="ajl-inline" />
-          <span v-else>{{ copy.value2 }}</span>
-        </li>
-        <li>
-          <span aria-hidden="true">🌿</span>
-          <input v-if="editing" v-model="draft.value3" class="ajl-inline" />
-          <span v-else>{{ copy.value3 }}</span>
-        </li>
-      </ul>
-
-      <div class="ajl-help">
-        <h2>
-          <input v-if="editing" v-model="draft.helpTitle" class="ajl-inline" />
-          <span v-else>{{ copy.helpTitle }}</span>
-        </h2>
-        <p>
-          <input v-if="editing" v-model="draft.helpBody" class="ajl-inline" />
-          <span v-else>{{ copy.helpBody }}</span>
-        </p>
-        <a v-if="contactTel" class="ajl-help-line" :href="`tel:${contactTel}`">{{ contactPhone }}</a>
-        <a v-if="contactEmail" class="ajl-help-line" :href="`mailto:${contactEmail}`">{{ contactEmail }}</a>
-        <button type="button" class="ajl-help-btn" @click="$emit('contact-support')">
-          <input v-if="editing" v-model="draft.sendMessage" class="ajl-inline" @click.stop />
-          <span v-else>{{ copy.sendMessage }}</span>
-        </button>
+      <div
+        class="ajl-block ajl-block--help"
+        :class="{ 'ajl-block--selected': selectedBlock === 'help' }"
+        :style="blockStyle('help')"
+        @mousedown="selectBlock('help', $event)"
+      >
+        <button v-if="editing" type="button" class="ajl-drag" @mousedown.stop="startDrag('help', $event)">Move</button>
+        <div v-if="editing && selectedBlock === 'help'" class="ajl-resize ajl-resize--e" @mousedown.stop="startResize('help', 'e', $event)" />
+        <div class="ajl-help">
+          <h2>
+            <input v-if="editing" v-model="draft.helpTitle" class="ajl-inline" />
+            <span v-else>{{ copy.helpTitle }}</span>
+          </h2>
+          <p>
+            <input v-if="editing" v-model="draft.helpBody" class="ajl-inline" />
+            <span v-else>{{ copy.helpBody }}</span>
+          </p>
+          <a v-if="contactTel" class="ajl-help-line" :href="`tel:${contactTel}`">{{ contactPhone }}</a>
+          <a v-if="contactEmail" class="ajl-help-line" :href="`mailto:${contactEmail}`">{{ contactEmail }}</a>
+          <button type="button" class="ajl-help-btn" @click="$emit('contact-support')">
+            <input v-if="editing" v-model="draft.sendMessage" class="ajl-inline" @click.stop />
+            <span v-else>{{ copy.sendMessage }}</span>
+          </button>
+        </div>
       </div>
     </aside>
 
     <main class="ajl-main">
       <div v-if="canEdit" class="ajl-editbar">
         <template v-if="!editing">
-          <button type="button" class="ajl-edit-btn" @click="startEdit">Edit this page</button>
+          <button type="button" class="ajl-edit-btn" :disabled="holdEditClosed" @click="startEdit">Edit this page</button>
         </template>
         <template v-else>
           <button type="button" class="ajl-edit-btn ajl-edit-btn--ghost" @click="cancelEdit">Cancel</button>
           <button type="button" class="ajl-edit-btn" :disabled="saving" @click="saveEdit">
             {{ saving ? 'Saving…' : 'Save' }}
           </button>
+          <button type="button" class="ajl-edit-btn ajl-edit-btn--ghost" @click="resetLayout">Reset layout</button>
           <label class="ajl-edit-field">
             Footer
             <select v-model="draft.layout.footerStyle">
@@ -79,10 +98,6 @@
               <option value="clear">Clear</option>
               <option value="dark">Dark</option>
             </select>
-          </label>
-          <label class="ajl-edit-field">
-            <input v-model="draft.layout.showSidebar" type="checkbox" />
-            Edit left overlay
           </label>
           <label class="ajl-edit-field">
             Welcome font
@@ -102,18 +117,20 @@
               <option v-for="f in JOIN_FONT_OPTIONS" :key="`c-${f.id}`" :value="f.id">{{ f.label }}</option>
             </select>
           </label>
-          <label v-if="selectedBlock" class="ajl-edit-field">
-            {{ selectedBlock }} size
+          <label v-if="selectedBlock && selectedSizeKey" class="ajl-edit-field">
+            {{ selectedSizeLabel }}
             <input
               v-model.number="draft.layout.sizes[selectedSizeKey]"
               type="range"
-              min="0.7"
-              :max="selectedBlock === 'welcome' ? 7 : selectedBlock === 'cards' ? 1.4 : 2.4"
-              step="0.05"
+              :min="selectedSizeMin"
+              :max="selectedSizeMax"
+              :step="selectedSizeStep"
             />
           </label>
+          <span class="ajl-edit-hint">Click a block, then Move or drag its edges. Save keeps the layout.</span>
         </template>
         <span v-if="saveError" class="ajl-edit-error">{{ saveError }}</span>
+        <span v-if="saveOk" class="ajl-edit-ok">{{ saveOk }}</span>
       </div>
 
       <div
@@ -123,6 +140,7 @@
         @mousedown="selectBlock('welcome', $event)"
       >
         <button v-if="editing" type="button" class="ajl-drag" @mousedown.stop="startDrag('welcome', $event)">Move</button>
+        <div v-if="editing && selectedBlock === 'welcome'" class="ajl-resize ajl-resize--se" @mousedown.stop="startResize('welcome', 'se', $event)" />
         <p class="ajl-welcome">
           <input v-if="editing" v-model="draft.welcomeTitle" class="ajl-inline ajl-inline--welcome" />
           <span v-else>{{ copy.welcomeTitle }}</span>
@@ -136,6 +154,7 @@
         @mousedown="selectBlock('glad', $event)"
       >
         <button v-if="editing" type="button" class="ajl-drag" @mousedown.stop="startDrag('glad', $event)">Move</button>
+        <div v-if="editing && selectedBlock === 'glad'" class="ajl-resize ajl-resize--se" @mousedown.stop="startResize('glad', 'se', $event)" />
         <p class="ajl-glad">
           <input v-if="editing" v-model="draft.welcomeGlad" class="ajl-inline" />
           <span v-else>{{ copy.welcomeGlad }}</span>
@@ -149,6 +168,7 @@
         @mousedown="selectBlock('lead', $event)"
       >
         <button v-if="editing" type="button" class="ajl-drag" @mousedown.stop="startDrag('lead', $event)">Move</button>
+        <div v-if="editing && selectedBlock === 'lead'" class="ajl-resize ajl-resize--se" @mousedown.stop="startResize('lead', 'se', $event)" />
         <p class="ajl-lead">
           <textarea v-if="editing" v-model="draft.welcomeLead" class="ajl-inline ajl-inline--area" rows="3" />
           <span v-else>{{ copy.welcomeLead }}</span>
@@ -162,6 +182,9 @@
         @mousedown="selectBlock('cards', $event)"
       >
         <button v-if="editing" type="button" class="ajl-drag" @mousedown.stop="startDrag('cards', $event)">Move</button>
+        <div v-if="editing && selectedBlock === 'cards'" class="ajl-resize ajl-resize--e" @mousedown.stop="startResize('cards', 'e', $event)" />
+        <div v-if="editing && selectedBlock === 'cards'" class="ajl-resize ajl-resize--s" @mousedown.stop="startResize('cards', 's', $event)" />
+        <div v-if="editing && selectedBlock === 'cards'" class="ajl-resize ajl-resize--se" @mousedown.stop="startResize('cards', 'se', $event)" />
         <div class="ajl-cards">
           <article class="ajl-card ajl-card--quick">
             <div class="ajl-card-top">
@@ -244,10 +267,10 @@
     </main>
 
     <footer v-if="activeLayout.footerStyle !== 'hidden'" class="ajl-footer">
-      <span>🛡️ Your Information Is Secure</span>
-      <span>🔒 HIPAA Protected</span>
-      <span>⏱ Only Takes a Few Minutes</span>
-      <span>♡ Real People. Real Support.</span>
+      <span>🛡️ {{ footerTrust[0] }}</span>
+      <span>🔒 {{ footerTrust[1] }}</span>
+      <span>⏱ {{ footerTrust[2] }}</span>
+      <span>♡ {{ footerTrust[3] }}</span>
       <strong class="ajl-slogan">
         <input v-if="editing" v-model="draft.slogan" class="ajl-inline" />
         <span v-else>{{ copy.slogan }}</span>
@@ -257,14 +280,15 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, toRaw } from 'vue';
 import api from '../../services/api';
 import {
   JOIN_FONT_HREF,
   JOIN_FONT_OPTIONS,
   defaultJoinLayout,
   fontFamilyById,
-  mergeJoinLayout
+  mergeJoinLayout,
+  writeJoinLandingCache
 } from '../../utils/joinLandingTemplate.js';
 
 const props = defineProps({
@@ -284,16 +308,50 @@ defineEmits(['continue', 'contact-support']);
 const editing = ref(false);
 const saving = ref(false);
 const saveError = ref('');
+const saveOk = ref('');
+const holdEditClosed = ref(false);
 const selectedBlock = ref('');
 const draft = reactive(blankDraft());
 let dragState = null;
+let resizeState = null;
+let saveOkTimer = null;
+let holdEditTimer = null;
 
 const copy = computed(() => props.config?.copy || {});
+const footerTrust = computed(() => {
+  const loc = String(props.config?.locale || props.config?.language || document.documentElement?.lang || 'en').toLowerCase();
+  if (loc.startsWith('es')) {
+    return [
+      'Su información está segura',
+      'Protegido por HIPAA',
+      'Solo toma unos minutos',
+      'Personas reales. Apoyo real.'
+    ];
+  }
+  return [
+    'Your Information Is Secure',
+    'HIPAA Protected',
+    'Only Takes a Few Minutes',
+    'Real People. Real Support.'
+  ];
+});
 const agencyName = computed(() => props.config?.agency?.name || 'Welcome');
 const agencyInitial = computed(() => String(agencyName.value).trim().charAt(0) || '•');
-const logoUrl = computed(() =>
-  String(props.config?.branding?.logoUrl || props.config?.branding?.logo_url || '').trim()
-);
+const logoUrl = computed(() => {
+  const branding = props.config?.branding || {};
+  const fromApi = String(
+    branding.logoUrl
+    || branding.agencyLogoUrl
+    || branding.organizationLogoUrl
+    || props.config?.agency?.logo_url
+    || props.config?.agency?.logoUrl
+    || ''
+  ).trim();
+  if (fromApi) return fromApi;
+  const slug = String(props.config?.agency?.slug || props.agencySlug || '').toLowerCase();
+  if (slug === 'itsco') return '/assets/provider-action/itsco-logo.png';
+  return '';
+});
 const themeUrl = computed(() =>
   String(props.config?.themeImageUrl || '/assets/intake-themes/greenintakethemecounseling.jpg').trim()
 );
@@ -305,15 +363,40 @@ const activeLayout = computed(() =>
   mergeJoinLayout(editing.value ? draft.layout : copy.value.layout)
 );
 
-const showLeftChrome = computed(() => !!activeLayout.value.showSidebar);
-
 const selectedSizeKey = computed(() => {
   if (selectedBlock.value === 'welcome') return 'welcome';
   if (selectedBlock.value === 'glad') return 'glad';
   if (selectedBlock.value === 'lead') return 'lead';
-  if (selectedBlock.value === 'cards') return 'cards';
-  return 'welcome';
+  if (selectedBlock.value === 'cards') return 'cardsWidth';
+  if (selectedBlock.value === 'brand') return 'brandWidth';
+  if (selectedBlock.value === 'help') return 'helpWidth';
+  return '';
 });
+
+const selectedSizeLabel = computed(() => {
+  if (selectedBlock.value === 'cards') return 'Cards width';
+  if (selectedBlock.value === 'brand' || selectedBlock.value === 'help') return `${selectedBlock.value} width`;
+  return `${selectedBlock.value} size`;
+});
+
+const selectedSizeMin = computed(() => {
+  if (selectedBlock.value === 'cards') return 360;
+  if (selectedBlock.value === 'brand' || selectedBlock.value === 'help') return 140;
+  return 0.7;
+});
+
+const selectedSizeMax = computed(() => {
+  if (selectedBlock.value === 'welcome') return 7;
+  if (selectedBlock.value === 'cards') return 1200;
+  if (selectedBlock.value === 'brand' || selectedBlock.value === 'help') return 320;
+  return 2.4;
+});
+
+const selectedSizeStep = computed(() => (
+  selectedBlock.value === 'cards' || selectedBlock.value === 'brand' || selectedBlock.value === 'help'
+    ? 10
+    : 0.05
+));
 
 const themeVars = computed(() => {
   const layout = activeLayout.value;
@@ -325,16 +408,27 @@ const themeVars = computed(() => {
     '--ajl-welcome-size': `${layout.sizes.welcome}rem`,
     '--ajl-glad-size': `${layout.sizes.glad}rem`,
     '--ajl-lead-size': `${layout.sizes.lead}rem`,
-    '--ajl-card-title-size': `${layout.sizes.cardTitle}rem`,
-    '--ajl-cards-scale': String(layout.sizes.cards || 1)
+    '--ajl-card-title-size': `${layout.sizes.cardTitle}rem`
   };
 });
 
 function blockStyle(key) {
   const pos = activeLayout.value.positions?.[key] || { x: 0, y: 0 };
-  return {
+  const sizes = activeLayout.value.sizes || {};
+  const style = {
     transform: `translate(${Number(pos.x) || 0}px, ${Number(pos.y) || 0}px)`
   };
+  if (key === 'cards') {
+    style.width = `${Number(sizes.cardsWidth) || 860}px`;
+    style.maxWidth = '100%';
+    if (Number(sizes.cardsMinHeight) > 0) {
+      style.minHeight = `${Number(sizes.cardsMinHeight)}px`;
+    }
+  }
+  if ((key === 'brand' || key === 'help') && Number(sizes[`${key}Width`]) > 0) {
+    style.width = `${Number(sizes[`${key}Width`])}px`;
+  }
+  return style;
 }
 
 function blankDraft() {
@@ -369,7 +463,16 @@ function blankDraft() {
   };
 }
 
+function closeEditor() {
+  editing.value = false;
+  selectedBlock.value = '';
+  holdEditClosed.value = true;
+  if (holdEditTimer) clearTimeout(holdEditTimer);
+  holdEditTimer = setTimeout(() => { holdEditClosed.value = false; }, 500);
+}
+
 function startEdit() {
+  if (holdEditClosed.value) return;
   const c = copy.value;
   const q = props.quick || {};
   const f = props.full || {};
@@ -405,14 +508,18 @@ function startEdit() {
   while (draft.quickBullets.length < 3) draft.quickBullets.push('');
   while (draft.fullBullets.length < 3) draft.fullBullets.push('');
   saveError.value = '';
+  saveOk.value = '';
   selectedBlock.value = 'cards';
   editing.value = true;
 }
 
 function cancelEdit() {
-  editing.value = false;
-  selectedBlock.value = '';
   saveError.value = '';
+  closeEditor();
+}
+
+function resetLayout() {
+  draft.layout = defaultJoinLayout();
 }
 
 function selectBlock(key, event) {
@@ -425,7 +532,8 @@ function startDrag(key, event) {
   if (!editing.value) return;
   event.preventDefault();
   selectedBlock.value = key;
-  const pos = draft.layout.positions[key] || { x: 0, y: 0 };
+  if (!draft.layout.positions[key]) draft.layout.positions[key] = { x: 0, y: 0 };
+  const pos = draft.layout.positions[key];
   dragState = {
     key,
     startX: event.clientX,
@@ -451,7 +559,65 @@ function stopDrag() {
   window.removeEventListener('mouseup', stopDrag);
 }
 
-onBeforeUnmount(stopDrag);
+function startResize(key, edge, event) {
+  if (!editing.value) return;
+  event.preventDefault();
+  selectedBlock.value = key;
+  const sizes = draft.layout.sizes;
+  resizeState = {
+    key,
+    edge,
+    startX: event.clientX,
+    startY: event.clientY,
+    origW: Number(sizes.cardsWidth) || 860,
+    origH: Number(sizes.cardsMinHeight) || 0,
+    origBrandW: Number(sizes.brandWidth) || 220,
+    origHelpW: Number(sizes.helpWidth) || 220,
+    origSize: Number(sizes[key]) || 1
+  };
+  window.addEventListener('mousemove', onResizeMove);
+  window.addEventListener('mouseup', stopResize);
+}
+
+function onResizeMove(event) {
+  if (!resizeState) return;
+  const dx = event.clientX - resizeState.startX;
+  const dy = event.clientY - resizeState.startY;
+  const { key, edge } = resizeState;
+  if (key === 'cards') {
+    if (edge.includes('e')) {
+      draft.layout.sizes.cardsWidth = Math.round(Math.min(1200, Math.max(360, resizeState.origW + dx)));
+    }
+    if (edge.includes('s')) {
+      draft.layout.sizes.cardsMinHeight = Math.round(Math.min(900, Math.max(0, resizeState.origH + dy)));
+    }
+    return;
+  }
+  if (key === 'brand' && edge.includes('e')) {
+    draft.layout.sizes.brandWidth = Math.round(Math.min(320, Math.max(140, resizeState.origBrandW + dx)));
+    return;
+  }
+  if (key === 'help' && edge.includes('e')) {
+    draft.layout.sizes.helpWidth = Math.round(Math.min(320, Math.max(140, resizeState.origHelpW + dx)));
+    return;
+  }
+  const delta = edge === 'e' ? dx / 80 : dy / 80;
+  const max = key === 'welcome' ? 7 : 2.4;
+  draft.layout.sizes[key] = Math.round(Math.min(max, Math.max(0.7, resizeState.origSize + delta)) * 100) / 100;
+}
+
+function stopResize() {
+  resizeState = null;
+  window.removeEventListener('mousemove', onResizeMove);
+  window.removeEventListener('mouseup', stopResize);
+}
+
+onBeforeUnmount(() => {
+  stopDrag();
+  stopResize();
+  if (saveOkTimer) clearTimeout(saveOkTimer);
+  if (holdEditTimer) clearTimeout(holdEditTimer);
+});
 
 function applyDraftToConfig() {
   if (!props.config) return;
@@ -465,21 +631,38 @@ function applyDraftToConfig() {
 }
 
 async function saveEdit() {
-  applyDraftToConfig();
-  editing.value = false;
-  selectedBlock.value = '';
   saving.value = true;
   saveError.value = '';
+  saveOk.value = '';
   try {
+    const serviceType = String(
+      props.serviceType || props.config?.activeService?.serviceType || 'default'
+    ).trim().toLowerCase();
+    const payload = JSON.parse(JSON.stringify({
+      ...toRaw(draft),
+      layout: mergeJoinLayout(draft.layout)
+    }));
     const { data } = await api.patch(`/public/adaptive-intake/${props.agencySlug}/landing`, {
-      serviceType: props.serviceType || undefined,
-      copy: { ...draft, layout: mergeJoinLayout(draft.layout) }
-    });
-    if (props.config && data?.copy) {
-      props.config.copy = { ...props.config.copy, ...data.copy, layout: mergeJoinLayout(data.copy.layout || draft.layout) };
+      serviceType,
+      copy: payload
+    }, { skipGlobalLoading: true });
+    applyDraftToConfig();
+    if (props.config) {
+      writeJoinLandingCache(props.agencySlug, serviceType, props.config);
     }
+    if (props.config && data?.copy) {
+      props.config.copy = {
+        ...props.config.copy,
+        ...data.copy,
+        layout: mergeJoinLayout(data.copy.layout || draft.layout)
+      };
+    }
+    closeEditor();
+    saveOk.value = 'Saved.';
+    if (saveOkTimer) clearTimeout(saveOkTimer);
+    saveOkTimer = setTimeout(() => { saveOk.value = ''; }, 4000);
   } catch (e) {
-    saveError.value = e?.response?.data?.error?.message || 'Could not save.';
+    saveError.value = e?.response?.data?.error?.message || e?.message || 'Could not save.';
   } finally {
     saving.value = false;
   }
@@ -491,9 +674,10 @@ async function saveEdit() {
   --ajl-teal: #0f3d3a;
   --ajl-green: #1f6b4a;
   --ajl-blue: #1d4ed8;
+  --ajl-rail-width: clamp(210px, 22vw, 300px);
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: var(--ajl-rail-width) minmax(0, 1fr);
   grid-template-rows: 1fr auto;
   position: relative;
   color: #10231f;
@@ -509,32 +693,48 @@ async function saveEdit() {
   z-index: 0;
 }
 
-.ajl--with-sidebar {
-  grid-template-columns: minmax(240px, 300px) 1fr;
-}
-
-.ajl-sidebar,
+.ajl-rail,
 .ajl-main,
 .ajl-footer {
   position: relative;
   z-index: 2;
 }
 
-.ajl-sidebar {
+.ajl-rail {
+  grid-column: 1;
   grid-row: 1 / 2;
-  background: transparent;
-  color: #123c6d;
-  padding: 1.5rem 1.25rem 1.25rem;
+  padding: clamp(1.25rem, 2.5vw, 1.75rem) clamp(0.85rem, 1.5vw, 1.15rem) 1.25rem;
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1.1rem;
+  color: #123c6d;
+  max-width: var(--ajl-rail-width);
+}
+
+.ajl-rail--editing {
+  outline: 1px dashed rgba(29, 78, 216, 0.35);
+  outline-offset: -4px;
+}
+
+.ajl-block--brand,
+.ajl-block--help {
+  width: 100%;
+}
+
+.ajl-block--help {
+  margin-top: auto;
+}
+
+.ajl-block--help .ajl-help {
+  margin-top: 0;
 }
 
 .ajl-logo {
-  width: min(160px, 100%);
+  width: min(150px, 100%);
   height: auto;
   object-fit: contain;
   filter: none;
+  display: block;
 }
 
 .ajl-logo-fallback {
@@ -543,23 +743,26 @@ async function saveEdit() {
   border-radius: 999px;
   display: grid;
   place-items: center;
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(18, 60, 109, 0.1);
+  color: #123c6d;
   font-weight: 700;
 }
 
 .ajl-tagline {
-  margin: 0.65rem 0 0;
-  letter-spacing: 0.12em;
-  font-size: 0.72rem;
+  margin: 0.55rem 0 0;
+  letter-spacing: 0.1em;
+  font-size: 0.68rem;
   text-transform: uppercase;
-  opacity: 0.85;
+  font-weight: 700;
+  color: #1f6b4a;
 }
 
 .ajl-script {
-  margin: 0.35rem 0 0;
+  margin: 0.25rem 0 0;
   font-family: var(--ajl-script-font, 'Great Vibes', cursive);
-  font-size: clamp(1.8rem, 3vw, 2.4rem);
-  line-height: 1.1;
+  font-size: clamp(1.65rem, 2.2vw, 2.15rem);
+  line-height: 1.05;
+  color: #123c6d;
 }
 
 .ajl-values {
@@ -567,8 +770,9 @@ async function saveEdit() {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 0.65rem;
-  font-size: 0.92rem;
+  gap: 0.55rem;
+  font-size: 0.84rem;
+  line-height: 1.35;
 }
 
 .ajl-values li {
@@ -579,10 +783,10 @@ async function saveEdit() {
 
 .ajl-help {
   margin-top: auto;
-  border: 1px solid rgba(18, 60, 109, 0.2);
-  background: rgba(255, 255, 255, 0.72);
-  border-radius: 14px;
-  padding: 0.9rem;
+  border: 1px solid rgba(18, 60, 109, 0.16);
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 12px;
+  padding: 0.75rem 0.8rem;
 }
 
 .ajl-help h2 {
@@ -612,6 +816,8 @@ async function saveEdit() {
 }
 
 .ajl-main {
+  grid-column: 2;
+  grid-row: 1 / 2;
   padding: clamp(1.25rem, 3vw, 2.5rem) clamp(1.25rem, 3vw, 2.5rem) 4.5rem;
   display: flex;
   flex-direction: column;
@@ -628,12 +834,19 @@ async function saveEdit() {
 .ajl-block--cards {
   width: min(860px, 100%);
   margin-top: 0.35rem;
+  box-sizing: border-box;
 }
 
 .ajl-block--selected {
   outline: 2px dashed rgba(29, 78, 216, 0.45);
   outline-offset: 6px;
   border-radius: 12px;
+}
+
+.ajl-block--brand .ajl-drag,
+.ajl-block--help .ajl-drag {
+  top: 0.2rem;
+  left: 0.2rem;
 }
 
 .ajl-drag {
@@ -649,6 +862,43 @@ async function saveEdit() {
   background: #111827;
   color: #fff;
   cursor: grab;
+}
+
+.ajl-resize {
+  position: absolute;
+  z-index: 4;
+  background: #1d4ed8;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.25);
+}
+
+.ajl-resize--e {
+  top: 50%;
+  right: -7px;
+  width: 12px;
+  height: 28px;
+  margin-top: -14px;
+  border-radius: 999px;
+  cursor: ew-resize;
+}
+
+.ajl-resize--s {
+  left: 50%;
+  bottom: -7px;
+  width: 28px;
+  height: 12px;
+  margin-left: -14px;
+  border-radius: 999px;
+  cursor: ns-resize;
+}
+
+.ajl-resize--se {
+  right: -8px;
+  bottom: -8px;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  cursor: nwse-resize;
 }
 
 .ajl-welcome {
@@ -682,8 +932,8 @@ async function saveEdit() {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1.1rem;
   width: 100%;
-  transform: scale(var(--ajl-cards-scale, 1));
-  transform-origin: top left;
+  min-height: 100%;
+  align-items: stretch;
 }
 
 .ajl-card {
@@ -691,6 +941,10 @@ async function saveEdit() {
   border-radius: 18px;
   padding: 1.25rem 1.25rem 1.45rem;
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .ajl-card h2 {
@@ -745,6 +999,7 @@ async function saveEdit() {
 
 .ajl-cta {
   width: 100%;
+  margin-top: auto;
   border: 0;
   border-radius: 12px;
   padding: 0.8rem 1rem;
@@ -847,6 +1102,15 @@ async function saveEdit() {
 }
 
 .ajl-edit-error { color: #b91c1c; font-size: 0.85rem; }
+.ajl-edit-ok { color: #166534; font-size: 0.85rem; font-weight: 700; }
+.ajl-edit-hint {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #1f2937;
+  background: rgba(255, 255, 255, 0.88);
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+}
 
 .ajl-inline {
   width: 100%;
@@ -859,6 +1123,7 @@ async function saveEdit() {
 }
 
 .ajl-main .ajl-inline,
+.ajl-rail .ajl-inline,
 .ajl-footer .ajl-inline {
   border-color: #94a3b8;
   background: #fff;
@@ -871,18 +1136,41 @@ async function saveEdit() {
 }
 
 .ajl-inline--area {
-  resize: vertical;
+  resize: both;
+  min-width: 8rem;
+  max-width: 100%;
 }
 
 @media (max-width: 860px) {
   .ajl {
     grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
   }
-  .ajl-sidebar {
+  .ajl-rail {
+    grid-column: 1;
+    grid-row: 1;
+    max-width: none;
     flex-direction: row;
     flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0.75rem 1rem;
+    padding-bottom: 0.5rem;
   }
-  .ajl-cards {
+  .ajl-brand {
+    flex: 1 1 160px;
+  }
+  .ajl-values {
+    flex: 1 1 180px;
+  }
+  .ajl-help {
+    flex: 1 1 220px;
+    margin-top: 0;
+  }
+  .ajl-main {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .ajl:not(.ajl--editing) .ajl-cards {
     grid-template-columns: 1fr;
   }
 }

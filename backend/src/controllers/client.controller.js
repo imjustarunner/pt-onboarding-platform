@@ -41,6 +41,8 @@ import { normalizeContinuationServicesPayload } from '../utils/fallReadiness.js'
 import { applyFallContinuationSideEffects } from '../services/fallContinuation.service.js';
 import { addClientToSchoolYear } from '../services/clientSchoolYear.service.js';
 import { stampClientTerminationSchoolYear } from '../services/clientTerminationSchoolYear.service.js';
+import { findNameDuplicateGroups } from '../services/clientNameDuplicate.service.js';
+import { nameMatchKey, parseFullName } from '../utils/clientNameDuplicate.js';
 
 const INSURANCE_CARD_SLOTS = new Set(['primary_front', 'primary_back', 'secondary_front', 'secondary_back']);
 
@@ -798,6 +800,60 @@ export const getArchivedClients = async (req, res, next) => {
   }
 };
 
+const canReviewNameDuplicates = (role) => {
+  const r = String(role || '').toLowerCase();
+  return ['admin', 'super_admin', 'support', 'staff'].includes(r);
+};
+
+/**
+ * Internal first+last name duplicate review.
+ * GET /api/clients/name-duplicates?agencyId=&organizationId=&includeArchived=
+ */
+export const getClientNameDuplicates = async (req, res, next) => {
+  try {
+    if (!canReviewNameDuplicates(req.user?.role)) {
+      return res.status(403).json({
+        error: { message: 'Name duplicate review is available to internal staff only.' }
+      });
+    }
+
+    const requestedAgencyId = parseInt(String(req.query.agencyId || req.query.agency_id || ''), 10);
+    const organizationId = parseInt(String(req.query.organizationId || req.query.organization_id || ''), 10);
+    const includeArchived =
+      String(req.query.includeArchived || '').toLowerCase() === 'true'
+      || String(req.query.includeArchived || '') === '1';
+
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    let allowedAgencyIds = [];
+    if (String(userRole || '').toLowerCase() === 'super_admin') {
+      const allAgencies = await Agency.findAll(true, false);
+      allowedAgencyIds = (allAgencies || []).map((a) => a.id);
+    } else {
+      const userAgencies = await User.getAgencies(userId);
+      allowedAgencyIds = (userAgencies || []).map((a) => a.id);
+    }
+    if (!allowedAgencyIds.length) {
+      return res.json({ groups: [], groupCount: 0, clientCount: 0 });
+    }
+    if (!Number.isFinite(requestedAgencyId) || requestedAgencyId <= 0) {
+      return res.status(400).json({ error: { message: 'agencyId is required to scan for name duplicates.' } });
+    }
+    if (String(userRole || '').toLowerCase() !== 'super_admin' && !allowedAgencyIds.includes(requestedAgencyId)) {
+      return res.status(403).json({ error: { message: 'You do not have access to this agency.' } });
+    }
+
+    const result = await findNameDuplicateGroups({
+      agencyId: requestedAgencyId,
+      organizationId: Number.isFinite(organizationId) && organizationId > 0 ? organizationId : null,
+      includeArchived
+    });
+    return res.json(result);
+  } catch (e) {
+    next(e);
+  }
+};
+
 /**
  * Get client by ID
  * GET /api/clients/:id
@@ -1225,6 +1281,32 @@ export const createClient = async (req, res, next) => {
         warningMeta = { matches, canUnarchive: !!archived };
         if (nonArchived) warnings.push(`A client with initials "${normalizedInitials}" already exists (active). Please review duplicates.`);
         if (archived) warnings.push(`A client with initials "${normalizedInitials}" exists but is archived. You may want to restore it instead of creating a duplicate.`);
+      }
+    }
+
+    const parsedName = parseFullName(full_name);
+    if (parsedName) {
+      try {
+        const [nameRows] = await pool.execute(
+          `SELECT id, full_name, initials, status
+           FROM clients
+           WHERE agency_id = ?
+             AND organization_id = ?
+             AND full_name IS NOT NULL
+             AND TRIM(full_name) <> ''
+           LIMIT 500`,
+          [parsedAgencyId, parsedOrganizationId]
+        );
+        const wanted = nameMatchKey(full_name);
+        const nameMatches = (nameRows || []).filter((row) => nameMatchKey(row.full_name) === wanted);
+        if (nameMatches.length) {
+          const ids = nameMatches.map((row) => row.id).join(', ');
+          warnings.push(
+            `A client with the same first and last name already exists at this school (clientId ${ids}). Please review duplicates.`
+          );
+        }
+      } catch {
+        // best-effort
       }
     }
 

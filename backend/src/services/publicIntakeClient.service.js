@@ -162,11 +162,16 @@ export async function resolveOrganizationIdForPublicBooking({ agencyId, organiza
   return Number(orgRows?.[0]?.id || 0) || null;
 }
 
-const ensureOrganizationForIntake = async (organizationId) => {
+export { isOfficeEarlyAccountProvisionLink } from '../utils/officeIntakeLink.js';
+
+const ensureOrganizationForIntake = async (organizationId, options = {}) => {
   const org = await Agency.findById(organizationId);
   if (!org) throw new Error('Organization not found');
   const orgType = String(org.organization_type || 'agency').toLowerCase();
   if (CHILD_ORG_TYPES.includes(orgType) || PRACTITIONER_ROOT_TYPES.includes(orgType)) {
+    return org;
+  }
+  if (options.allowAgencyRoot && orgType === 'agency') {
     return org;
   }
   throw new Error('Organization must be a school, program, learning, clinical, life_coach, or consultant org');
@@ -235,12 +240,15 @@ const provisionSingleIntakeClient = async ({
           ? 'clinical'
           : 'basic_nonclinical';
 
+  const dateOfBirth = String(clientPayload?.dateOfBirth || clientPayload?.date_of_birth || '').trim() || undefined;
+
   const client = await Client.create({
     organization_id: organizationId,
     agency_id: agencyId,
     provider_id: null,
     initials,
     full_name: fullName || null,
+    date_of_birth: dateOfBirth,
     contact_phone: contactPhone,
     identifier_code: identifierCode,
     status: wfStatus,
@@ -283,11 +291,24 @@ class PublicIntakeClientService {
       organizationId = payloadOrg || organizationId || null;
     }
 
+    if (organizationId) {
+      const hintedOrg = await Agency.findById(organizationId);
+      if (hintedOrg && !isPublicIntakeOrgType(hintedOrg.organization_type)) {
+        const resolved = await resolveOrganizationIdForPublicBooking({
+          agencyId: organizationId,
+          organizationIdHint: payload?.organizationId
+        });
+        if (resolved) organizationId = resolved;
+      }
+    }
+
     if (!organizationId) {
       throw new Error('organizationId is required to create a client for this intake link');
     }
 
-    const organization = await ensureOrganizationForIntake(organizationId);
+    const organization = await ensureOrganizationForIntake(organizationId, {
+      allowAgencyRoot: !!options.allowAgencyRoot
+    });
     const orgType = String(organization?.organization_type || 'agency').toLowerCase();
     const agencyId = await resolveAgencyId(organizationId);
     if (!agencyId) {
@@ -303,7 +324,7 @@ class PublicIntakeClientService {
       : (payload?.client ? [payload.client] : []);
 
     const createdClients = [];
-    const createGuardian = !!link.create_guardian;
+    const createGuardian = !!link.create_guardian || !!options.forceGuardian;
     for (const clientPayload of rawClients) {
       const client = await provisionSingleIntakeClient({
         link,

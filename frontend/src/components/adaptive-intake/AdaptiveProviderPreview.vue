@@ -36,7 +36,7 @@
       style="margin-top: 0.5rem;"
       @click="$emit('skip')"
     >
-      Skip — let the team choose
+      Let the team choose / first available
     </button>
   </section>
 </template>
@@ -46,7 +46,7 @@ defineProps({
   title: { type: String, default: 'Optional provider preview' },
   lead: {
     type: String,
-    default: 'Based on what you shared, here are providers who may be a fit. You can skip this step.'
+    default: 'If you have a preference, choose someone below. Or let the team choose the first available provider based on fit, experience, and availability.'
   },
   providers: { type: Array, default: () => [] },
   selectedId: { type: [Number, String, null], default: null },

@@ -83,6 +83,49 @@
   opacity: 0.35;
 }
 
+.df-page--scenic-side {
+  padding: 0;
+  background: #fff var(--df-scenic-side) left center / cover no-repeat;
+}
+
+.df-page--scenic-side .df-shell {
+  max-width: none;
+  min-height: 100dvh;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.df-page--scenic-side .df-sidebar {
+  background: transparent;
+  color: #123c6d;
+}
+
+.df-page--scenic-side .df-sidebar-bg,
+.df-page--scenic-side .df-sidebar-bg::after,
+.df-page--scenic-side .df-sidebar-wave {
+  display: none;
+}
+
+.df-page--scenic-side .df-main {
+  background: transparent;
+}
+
+.df-page--scenic-side .df-sidebar-contact {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(18, 60, 109, 0.14);
+  color: #123c6d;
+}
+
+.df-page--scenic-side .df-sidebar-contact-btn {
+  background: #1f6b4a;
+  color: #fff;
+}
+
+.df-page--scenic-side .ai-security-badge--sidebar {
+  color: #123c6d;
+}
+
 .df-sidebar-wave {
   position: absolute;
   top: 0;
@@ -1028,6 +1071,59 @@
   flex: 1;
   width: 100%;
   min-height: 100dvh;
+}
+
+.df-page--full-bleed.df-page--scenic-side,
+.df-page--form-mode.df-page--scenic-side {
+  background: #fff var(--df-scenic-side) left center / cover no-repeat;
+}
+
+.ai-shell-host.df-page.df-page--scenic-side {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.df-page--scenic-side .df-shell--cover-mode {
+  --df-sidebar-w: clamp(230px, 24vw, 320px);
+}
+
+.df-page--scenic-side .df-sidebar-logo--cover {
+  margin: 0 0 1.1rem;
+  max-width: 150px;
+  max-height: none;
+  filter: none;
+}
+
+.df-page--scenic-side .df-shell--cover-mode .df-trust-list {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0.85rem;
+  padding-top: 0.75rem;
+}
+
+.df-page--scenic-side .df-shell--cover-mode .df-trust-item {
+  flex: none;
+  max-width: none;
+  color: #123c6d;
+}
+
+.df-page--scenic-side .df-trust-icon {
+  background: rgba(18, 60, 109, 0.1);
+  color: #123c6d;
+}
+
+.df-trust-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.df-trust-detail {
+  font-size: 0.72rem;
+  line-height: 1.35;
+  opacity: 0.78;
+  font-weight: 500;
 }
 
 main .df-page--full-bleed {

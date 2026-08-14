@@ -11,6 +11,7 @@ import PublicIntakeSigningService from '../services/publicIntakeSigning.service.
 import { buildRegistrationTicketPdf } from '../services/registrationTicketPdf.service.js';
 import DocumentSigningService from '../services/documentSigning.service.js';
 import PublicIntakeClientService, { deriveInitials } from '../services/publicIntakeClient.service.js';
+import { isOfficeEarlyAccountProvisionLink } from '../utils/officeIntakeLink.js';
 import {
   agencyReturningGuardianAutoMatchEnabled,
   tryReturningGuardianAutoMatch
@@ -63,6 +64,9 @@ import {
   buildPublicFormBranding,
   requestBaseUrl
 } from '../services/publicFormBranding.service.js';
+import { hydrateOfficeQuestionnaireSteps } from '../utils/officeQuestionnaireSteps.js';
+import { linkLooksLikeOfficeIntake } from '../utils/officeIntakeLink.js';
+import { buildPsc17Fields, buildStandardQuestionnaireFields } from '../data/validatedClinicalScreens.en.js';
 
 /** Fetch the Stripe Connect account ID for an agency (null if not connected). */
 async function getAgencyStripeConnectAccountId(agencyId) {
@@ -1629,8 +1633,8 @@ const ensureGuardianAccountLinkedForClient = async ({ clientId, profile = {}, ac
   }
   return guardianUser;
 };
-const BASE_CONSENT_TTL_MS = 60 * 60 * 1000; // 1 hour to complete once started
-const PER_PAGE_TTL_MS = 5 * 60 * 1000;
+const BASE_CONSENT_TTL_MS = 24 * 60 * 60 * 1000; // private return token lasts 24 hours
+const PER_PAGE_TTL_MS = 0;
 
 const isSubmissionExpired = (submission, { templatesCount = 0 } = {}) => {
   if (!submission) return false;
@@ -1645,10 +1649,12 @@ const isSubmissionExpired = (submission, { templatesCount = 0 } = {}) => {
 };
 
 const deleteSubmissionData = async (submissionId) => {
-  // Automatic deletion of intake packets, signed PDFs, and attached PHI is disabled.
-  // Expired in-progress sessions still return 410 so the signer can restart; records are kept.
-  if (submissionId) {
-    console.warn('[publicIntake] skipping automatic submission delete', { submissionId });
+  const id = Number(submissionId || 0);
+  if (!id) return;
+  try {
+    await IntakeSubmission.deleteById(id);
+  } catch (err) {
+    console.warn('[publicIntake] expired draft delete failed', { submissionId: id, message: err?.message });
   }
 };
 
@@ -2267,6 +2273,11 @@ const resolveRegistrationFromName = async ({ link, agencyId, organizationId, sco
   return 'Registration Team';
 };
 
+const isNonDeliverableDemoEmail = (email) => {
+  const host = String(email || '').split('@')[1] || '';
+  return /^(example\.(com|org|net|test)|test\.com|localhost)$/i.test(host.trim());
+};
+
 const deliverPacketCompletionEmail = async ({
   to,
   subject,
@@ -2280,9 +2291,15 @@ const deliverPacketCompletionEmail = async ({
   scopeType,
   templateType = 'intake_packet_completion',
   submissionId,
-  flowLabel = 'public_intake'
+  flowLabel = 'public_intake',
+  fromAddress = null
 }) => {
   const result = { sent: false, skipped: false, error: null, errorMessage: null };
+  if (isNonDeliverableDemoEmail(to)) {
+    result.error = 'undeliverable_address';
+    result.errorMessage = 'Email failed to send';
+    return result;
+  }
   // Same attachment shape both branches used: actual PDF bytes on the email
   // so the family always has the packet on hand even if the signed download
   // URL eventually expires.
@@ -2328,7 +2345,11 @@ const deliverPacketCompletionEmail = async ({
         text: signed.text,
         html: signed.html,
         fromName,
-        fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+        fromAddress: fromAddress
+          || (linkLooksLikeOfficeIntake(link) ? 'support@itsco.health' : null)
+          || process.env.GOOGLE_WORKSPACE_FROM_ADDRESS
+          || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM
+          || null,
         replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
         attachments: packetAttachments,
         source: 'auto',
@@ -4607,7 +4628,7 @@ const buildRetentionExpiresAt = ({ policy, submittedAt }) => {
   return expires;
 };
 
-const loadAllowedTemplates = async (link) => {
+const collectAllowedTemplateIds = (link) => {
   const allowedIds = Array.isArray(link.allowed_document_template_ids)
     ? link.allowed_document_template_ids
     : [];
@@ -4620,15 +4641,80 @@ const loadAllowedTemplates = async (link) => {
     .map(Number)
     .filter((id) => Number.isFinite(id) && id > 0 && !allowedIds.includes(id));
 
-  const allIds = [...allowedIds, ...spanishIds];
-  if (!allIds.length) return [];
+  return [...allowedIds, ...spanishIds];
+};
 
-  const templates = [];
-  for (const id of allIds) {
-    const t = await DocumentTemplate.findById(id);
-    if (t && t.is_active) templates.push(t);
+const loadAllowedTemplates = async (link, { includeHtml = true } = {}) => {
+  const allIds = collectAllowedTemplateIds(link);
+  if (!allIds.length) return [];
+  if (!includeHtml) {
+    return DocumentTemplate.findActiveByIdsLite(allIds);
   }
-  return templates;
+  const loaded = await Promise.all(allIds.map((id) => DocumentTemplate.findById(id)));
+  return loaded.filter((t) => t && t.is_active);
+};
+
+const hydrateEmptyOfficeQuestionnaireSteps = (steps, link = null) => (
+  hydrateOfficeQuestionnaireSteps(steps, { isOffice: linkLooksLikeOfficeIntake(link) })
+);
+
+const applyOfficeMasterReadOnly = async (link, agency) => {
+  if (
+    String(link?.scope_type || '').toLowerCase() !== 'agency'
+    || String(link?.form_type || 'intake').toLowerCase() !== 'intake'
+    || Number(link?.inherits_office_master || 0) !== 1
+  ) {
+    return link;
+  }
+  const agencyIdForOffice = Number(link.organization_id || agency?.id || 0);
+  if (!agencyIdForOffice) return link;
+  const master = await AgencyOfficeIntakeMaster.findByAgencyLanguage(
+    agencyIdForOffice,
+    link.language_code || 'en'
+  );
+  if (!master) return link;
+  const rewriteSex = (steps) => hydrateEmptyOfficeQuestionnaireSteps(steps, link).map((step) => {
+    const fields = Array.isArray(step?.fields) ? step.fields : [];
+    if (!fields.length) return step;
+    return {
+      ...step,
+      fields: fields.map((field) => {
+        const key = String(field?.key || '').trim().toLowerCase();
+        if (key === 'gender' || key === 'child_gender') {
+          return {
+            ...field,
+            key: key === 'child_gender' ? 'child_sex' : 'sex',
+            label: 'Sex',
+            options: [
+              { value: 'female', label: 'Female' },
+              { value: 'male', label: 'Male' }
+            ]
+          };
+        }
+        if (key === 'gender_self_describe' || key === 'child_gender_self_describe') {
+          return {
+            ...field,
+            key: key.startsWith('child_') ? 'child_preferred_called' : 'preferred_called',
+            label: key.startsWith('child_')
+              ? 'If they want to be called something different, write it here'
+              : 'If you want to be called something different, write it here',
+            required: false,
+            optional: true,
+            showIf: null
+          };
+        }
+        return field;
+      })
+    };
+  });
+  return {
+    ...link,
+    intake_steps: rewriteSex(master.intake_steps),
+    intake_fields: master.intake_fields,
+    master_form_version: master.version,
+    master_form_id: master.id,
+    title: link.title || master.title
+  };
 };
 
 const INTAKE_STEP_VISIBILITY = new Set(['always', 'new_client_only', 'existing_client_only']);
@@ -4802,7 +4888,11 @@ export const getPublicIntakeLink = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
     }
 
-    const templates = await loadAllowedTemplates(link);
+    const [templates, orgContext] = await Promise.all([
+      loadAllowedTemplates(link, { includeHtml: false }),
+      resolveIntakeOrgContext(link, { issuedRoiLink, boundClient })
+    ]);
+    let { organization, agency } = orgContext;
     let jobDescription = null;
     if (String(link?.form_type || '').trim().toLowerCase() === 'job_application' && Number(link?.job_description_id || 0) > 0) {
       const jd = await HiringJobDescription.findById(link.job_description_id);
@@ -4832,7 +4922,6 @@ export const getPublicIntakeLink = async (req, res, next) => {
         };
       }
     }
-    const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     // Live-inherit agency school digital form master onto school shells.
     // Locale comes from ?locale= so EN/ES masters swap on the same public URL
     // (no live translate-strings, no retired per-school Spanish copy).
@@ -4859,24 +4948,10 @@ export const getPublicIntakeLink = async (req, res, next) => {
         console.warn('[publicIntake] school master inherit failed', inheritErr?.message || inheritErr);
       }
     }
-    if (
-      String(link.scope_type || '').toLowerCase() === 'agency'
-      && String(link.form_type || 'intake').toLowerCase() === 'intake'
-      && Number(link.inherits_office_master || 0) === 1
-    ) {
-      try {
-        const agencyIdForOffice = Number(link.organization_id || agency?.id || 0);
-        if (agencyIdForOffice) {
-          await AgencyOfficeIntakeMaster.getOrCreateForAgency(agencyIdForOffice, {
-            languageCode: link.language_code || 'en'
-          });
-          const refreshed = await IntakeLink.findById(link.id);
-          if (refreshed) link = refreshed;
-          link = await AgencyOfficeIntakeMaster.applyMasterToLink(link, { agencyId: agencyIdForOffice });
-        }
-      } catch (inheritErr) {
-        console.warn('[publicIntake] office master inherit failed', inheritErr?.message || inheritErr);
-      }
+    try {
+      link = await applyOfficeMasterReadOnly(link, agency);
+    } catch (inheritErr) {
+      console.warn('[publicIntake] office master inherit failed', inheritErr?.message || inheritErr);
     }
     if (jobDescription && agency?.id) {
       try {
@@ -4937,25 +5012,11 @@ export const getPublicIntakeLink = async (req, res, next) => {
     const shouldIncludeDisclosureContext = isSmartDisclosureForm(link)
       || hasProgrammedDisclosureStep(link);
     const disclosureContext = shouldIncludeDisclosureContext
-      ? await buildSmartDisclosureContext({
-          link,
-          boundClient,
-          organization,
-          agency,
-          locale: link.language_code || 'en'
-        })
+      ? { lite: true, enabled: true }
       : null;
 
     let packetSectionContexts = null;
     if (hasProgrammedPacketSectionStep(link)) {
-      const schoolOrgId = Number(
-        organization?.id
-        || link.organization_id
-        || boundClient?.organization_id
-        || 0
-      );
-      const agencyIdForPacket = Number(agency?.id || 0) || null;
-      const localeForPacket = link.language_code || 'en';
       packetSectionContexts = {};
       for (const sectionKey of [
         PACKET_SECTION_KEYS.INFORMED_GROUP_CONSENT,
@@ -4963,16 +5024,12 @@ export const getPublicIntakeLink = async (req, res, next) => {
         PACKET_SECTION_KEYS.HIPAA_NOTICE
       ]) {
         if (!hasProgrammedPacketSectionStep(link, sectionKey)) continue;
-        try {
-          packetSectionContexts[sectionKey] = await buildPacketSectionContext({
-            organizationId: schoolOrgId,
-            agencyId: agencyIdForPacket,
-            locale: localeForPacket,
-            sectionKey
-          });
-        } catch (sectionErr) {
-          console.warn('[publicIntake] packet section context failed', sectionKey, sectionErr?.message || sectionErr);
-        }
+        packetSectionContexts[sectionKey] = {
+          sectionKey,
+          title: null,
+          html: null,
+          lite: true
+        };
       }
       if (!Object.keys(packetSectionContexts).length) packetSectionContexts = null;
     }
@@ -5012,11 +5069,18 @@ export const getPublicIntakeLink = async (req, res, next) => {
         create_client: link.create_client,
         create_guardian: link.create_guardian,
         intake_fields: link.intake_fields,
-        intake_steps: link.intake_steps,
+        intake_steps: hydrateEmptyOfficeQuestionnaireSteps(link.intake_steps, link),
+        office_questionnaire_fields: linkLooksLikeOfficeIntake(link)
+          ? {
+              self: buildStandardQuestionnaireFields(),
+              dependent: buildPsc17Fields({ scope: 'client' })
+            }
+          : null,
         custom_messages: link.custom_messages || null,
         linked_es_form: link.has_spanish_master ? null : linkedEsInfo,
         document_translation_map: link.has_spanish_master ? null : (link.document_translation_map || null),
         inherits_school_master: Number(link.inherits_school_master || 0) === 1 ? 1 : 0,
+        inherits_office_master: Number(link.inherits_office_master || 0) === 1 ? 1 : 0,
         master_form_id: link.master_form_id || null,
         master_form_version: link.master_form_version || null,
         master_language_code: link.master_language_code || null,
@@ -5065,7 +5129,8 @@ export const getPublicIntakeLink = async (req, res, next) => {
         document_type: t.document_type,
         document_action_type: t.document_action_type,
         template_type: t.template_type,
-        html_content: t.template_type === 'html' ? t.html_content : null,
+        html_content: null,
+        has_html: t.template_type === 'html',
         file_path: t.template_type === 'pdf' ? t.file_path : null,
         signature_x: t.signature_x,
         signature_y: t.signature_y,
@@ -5081,6 +5146,100 @@ export const getPublicIntakeLink = async (req, res, next) => {
       message: error?.message,
       stack: error?.stack
     });
+    next(error);
+  }
+};
+
+export const getPublicIntakeTemplateHtml = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const templateId = parseInt(req.params.templateId, 10);
+    if (!templateId) {
+      return res.status(400).json({ error: { message: 'templateId is required' } });
+    }
+    const { link } = await resolvePublicIntakeContext(publicKey);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const template = await loadTemplateById(link, templateId);
+    if (!template) {
+      return res.status(404).json({ error: { message: 'Template not found' } });
+    }
+    if (template.template_type !== 'html') {
+      return res.status(400).json({ error: { message: 'HTML is only available for HTML templates' } });
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      id: template.id,
+      html_content: template.html_content || ''
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPublicIntakePacketSection = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const sectionKey = String(req.params.sectionKey || '').trim();
+    const resolved = await resolvePublicIntakeContext(publicKey);
+    const link = resolved.link;
+    const issuedRoiLink = resolved.issuedRoiLink;
+    const boundClient = resolved.boundClient;
+    if (!link || (!link.is_active && !issuedRoiLink)) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
+    const schoolOrgId = Number(
+      organization?.id
+      || link.organization_id
+      || boundClient?.organization_id
+      || 0
+    );
+    const orgType = String(organization?.organization_type || '').toLowerCase();
+    const officePacket = String(link.scope_type || '').toLowerCase() === 'agency'
+      && !['school', 'program', 'learning'].includes(orgType);
+    const ctx = await buildPacketSectionContext({
+      organizationId: officePacket ? 0 : schoolOrgId,
+      agencyId: Number(agency?.id || 0) || null,
+      locale: link.language_code || 'en',
+      sectionKey,
+      office: officePacket,
+      variant: String(req.query?.variant || 'self')
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(ctx);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPublicIntakeDisclosureContext = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const resolved = await resolvePublicIntakeContext(publicKey);
+    let link = resolved.link;
+    const issuedRoiLink = resolved.issuedRoiLink;
+    const boundClient = resolved.boundClient;
+    if (!link || (!link.is_active && !issuedRoiLink)) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
+    try {
+      link = await applyOfficeMasterReadOnly(link, agency);
+    } catch (inheritErr) {
+      console.warn('[publicIntake] office master inherit failed', inheritErr?.message || inheritErr);
+    }
+    const disclosureContext = await buildSmartDisclosureContext({
+      link,
+      boundClient,
+      organization,
+      agency,
+      locale: link.language_code || 'en'
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ disclosureContext });
+  } catch (error) {
     next(error);
   }
 };
@@ -5238,7 +5397,86 @@ export const createPublicIntakeSession = async (req, res, next) => {
       }
     }
 
-    res.json({ sessionToken, submissionId: submission?.id || null });
+    res.json({
+      sessionToken,
+      submissionId: submission?.id || null,
+      expiresAt: retentionExpiresAt?.toISOString?.() || null,
+      expiresInHours: 24
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const loadProgressSubmission = async (publicKey, sessionToken) => {
+  const token = String(sessionToken || '').trim();
+  if (!token) return { error: { status: 400, message: 'sessionToken is required' } };
+  const { link } = await resolvePublicIntakeContext(publicKey);
+  if (!link) return { error: { status: 404, message: 'Intake link not found' } };
+  const submission = await IntakeSubmission.findBySessionToken(token);
+  if (!submission || submission.intake_link_id !== link.id) {
+    return { error: { status: 404, message: 'Intake session not found' } };
+  }
+  if (isSubmissionExpired(submission)) {
+    await deleteSubmissionData(submission.id);
+    return { error: { status: 410, message: 'This return link has expired. Please start a new intake.' } };
+  }
+  return { link, submission };
+};
+
+export const savePublicIntakeProgress = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const loaded = await loadProgressSubmission(publicKey, req.body?.sessionToken);
+    if (loaded.error) {
+      return res.status(loaded.error.status).json({ error: { message: loaded.error.message } });
+    }
+    const { submission } = loaded;
+    if (String(submission.status || '').toLowerCase() === 'submitted') {
+      return res.json({ ok: true, alreadyCompleted: true, submissionId: submission.id });
+    }
+    const incoming = req.body?.intakeData && typeof req.body.intakeData === 'object'
+      ? req.body.intakeData
+      : {};
+    const existing = submission.intake_data && typeof submission.intake_data === 'object'
+      ? submission.intake_data
+      : {};
+    const merged = {
+      ...existing,
+      ...incoming,
+      progressStep: req.body?.step ?? existing.progressStep ?? null
+    };
+    const updated = await IntakeSubmission.updateById(submission.id, {
+      intake_data: JSON.stringify(merged),
+      intake_data_hash: hashIntakeData(merged)
+    });
+    res.json({ ok: true, submissionId: updated?.id || submission.id });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPublicIntakeProgress = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const loaded = await loadProgressSubmission(publicKey, req.query?.sessionToken);
+    if (loaded.error) {
+      return res.status(loaded.error.status).json({ error: { message: loaded.error.message } });
+    }
+    const { submission } = loaded;
+    if (String(submission.status || '').toLowerCase() === 'submitted') {
+      return res.json({
+        alreadyCompleted: true,
+        submissionId: submission.id,
+        status: submission.status,
+        intakeData: null
+      });
+    }
+    res.json({
+      submissionId: submission.id,
+      status: submission.status,
+      intakeData: submission.intake_data || null
+    });
   } catch (error) {
     next(error);
   }
@@ -5340,7 +5578,68 @@ export const createPublicConsent = async (req, res, next) => {
       });
     }
 
-    res.status(201).json({ submission, clientMatch: clientMatchPayload });
+    let provisionedAccounts = null;
+    const wantsEarlyProvision = false;
+    if (wantsEarlyProvision) {
+      const guardian = effectiveIntakeData?.guardian || req.body?.guardian || {};
+      const intakeForSelf = effectiveIntakeData?.intakeForSelf === true
+        || String(guardian?.relationship || '').toLowerCase() === 'self';
+      const rawClients = Array.isArray(req.body?.clients) && req.body.clients.length
+        ? req.body.clients
+        : (Array.isArray(effectiveIntakeData?.clients) ? effectiveIntakeData.clients : []);
+      const clients = rawClients.length
+        ? rawClients
+        : (intakeForSelf
+          ? [{
+              firstName: guardian.firstName,
+              lastName: guardian.lastName,
+              fullName: `${guardian.firstName || ''} ${guardian.lastName || ''}`.trim(),
+              dateOfBirth: effectiveIntakeData?.responses?.submission?.date_of_birth || null,
+              contactPhone: guardian.phone
+            }]
+          : []);
+      if (!clients.length || !String(guardian.email || '').trim()) {
+        return res.status(400).json({
+          error: { message: 'Name and email are required to start this intake account.' }
+        });
+      }
+      try {
+        const {
+          clients: createdClients,
+          guardianUser,
+          newGuardianCreated
+        } = await PublicIntakeClientService.createClientAndGuardian({
+          link: { ...link, create_guardian: 1, create_client: 1 },
+          payload: {
+            organizationId: req.body.organizationId || link.organization_id,
+            clients,
+            guardian,
+            intakeForSelf
+          },
+          options: { forceGuardian: true, allowAgencyRoot: true }
+        });
+        submission = await IntakeSubmission.updateById(submission.id, {
+          client_id: createdClients?.[0]?.id || null,
+          guardian_user_id: guardianUser?.id || null
+        });
+        provisionedAccounts = {
+          clientId: createdClients?.[0]?.id || null,
+          guardianUserId: guardianUser?.id || null,
+          newGuardianCreated: !!newGuardianCreated,
+          intakeForSelf
+        };
+      } catch (provisionErr) {
+        console.error('[publicIntake] early office account provision failed', {
+          linkId: link.id,
+          message: provisionErr?.message || provisionErr
+        });
+        return res.status(400).json({
+          error: { message: provisionErr?.message || 'Unable to create your account. Please try again.' }
+        });
+      }
+    }
+
+    res.status(201).json({ submission, clientMatch: clientMatchPayload, provisionedAccounts });
   } catch (error) {
     next(error);
   }
@@ -8310,6 +8609,7 @@ export const finalizePublicIntake = async (req, res, next) => {
 
       if (updatedSubmission.signer_email) {
         emailDelivery.attempted = true;
+        emailDelivery.to = updatedSubmission.signer_email;
         try {
           const clientCount = rawClients.length || 1;
           const { organization, agency } = orgContextHoisted?.organization || orgContextHoisted?.agency
@@ -8369,7 +8669,7 @@ export const finalizePublicIntake = async (req, res, next) => {
             schoolName: organization?.name || '',
             agencyName: agency?.name || '',
             downloadUrl,
-            expiresInDays: 7,
+            expiresInDays: 14,
             registrationLoginEmail: updatedSubmission.signer_email || '',
             registrationNeedsSetup: regFlow && link.create_guardian && newGuardianCreated,
             registrationTempPassword: regFlow && link.create_guardian && newGuardianCreated
@@ -8379,7 +8679,9 @@ export const finalizePublicIntake = async (req, res, next) => {
             registrationPasswordlessUrl,
             registrationEventSummary,
             registrationReceiptUrl,
-            fromAddress: completionEmailFromAddress,
+            fromAddress: linkLooksLikeOfficeIntake(link)
+              ? 'support@itsco.health'
+              : completionEmailFromAddress,
             eventPlaceholders: eventPlaceholdersForEmail,
             returningMatchClientInitials: returningAutoMatchInitialsForEmail || '',
             clientBundles: bundlesForEmail
@@ -8397,7 +8699,8 @@ export const finalizePublicIntake = async (req, res, next) => {
             scopeType: link?.scope_type || null,
             templateType: 'intake_packet_completion',
             submissionId,
-            flowLabel: 'school-roi'
+            flowLabel: 'school-roi',
+            fromAddress: linkLooksLikeOfficeIntake(link) ? 'support@itsco.health' : completionEmailFromAddress
           });
           emailDelivery.sent = sendOutcome.sent;
           if (!sendOutcome.sent) {

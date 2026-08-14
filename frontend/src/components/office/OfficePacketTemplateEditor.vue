@@ -4,12 +4,12 @@
       <div>
         <h2 style="margin:0;">{{ title }}</h2>
         <div class="muted" style="margin-top:4px;">
-          Agency-wide in-office blank intake packet. Merge tokens
+          Printable office packet for this audience only. Disclosure, informed consent,
+          policy and services, and HIPAA are included. Merge tokens
           <code>{{ tokenAgencyName }}</code>,
-          <code>{{ tokenAgencyAddress }}</code>,
-          <code>{{ tokenStaffTable }}</code>, and
+          <code>{{ tokenAgencyAddress }}</code>, and
           <code>{{ tokenDisclosure }}</code>
-          are filled automatically when the packet is generated. Seeded from the school packet template for now.
+          fill automatically when the PDF is generated. Saving here does not change the other packet.
         </div>
         <div class="locale-tabs" role="tablist" aria-label="Packet language">
           <button type="button" role="tab" class="locale-tab" :class="{ active: locale === 'en' }" :disabled="loading || saving" @click="switchLocale('en')">English</button>
@@ -24,12 +24,19 @@
         <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || saving" @click="toggleHistory">
           {{ showHistory ? 'Hide history' : 'Version history' }}
         </button>
+        <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || saving" @click="useOfficeDefault">
+          Use office default
+        </button>
         <button class="btn btn-primary btn-sm" type="button" :disabled="loading || saving || !dirty" @click="save">
           {{ saving ? 'Saving…' : 'Save' }}
         </button>
       </div>
     </div>
 
+    <div v-if="looksLikeSchoolSeed" class="school-seed-note">
+      This copy still looks like the old school-cloned packet. Use office default to load
+      disclosure, informed consent, policy and services, and HIPAA for this audience only.
+    </div>
     <div v-if="error" class="error" style="margin-top:10px;">{{ error }}</div>
     <div v-if="success" class="success" style="margin-top:10px;">{{ success }}</div>
     <div v-if="loading" class="loading" style="margin-top:10px;">Loading template…</div>
@@ -75,7 +82,8 @@ import HtmlDocumentBuilder from '../documents/HtmlDocumentBuilder.vue';
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },
   initialLocale: { type: String, default: 'en' },
-  title: { type: String, default: 'Master Office Paper' }
+  title: { type: String, default: 'Client Intake Packet' },
+  variant: { type: String, default: 'self' }
 });
 
 const emit = defineEmits(['saved']);
@@ -108,6 +116,13 @@ const historyLoading = ref(false);
 const versions = ref([]);
 const previewHtml = ref('');
 const previewVersion = ref(null);
+const defaultHtml = ref('');
+const looksLikeSchoolSeed = ref(false);
+
+const packetParams = () => ({ locale: locale.value, variant: props.variant || 'self' });
+const packetFileSlug = computed(() =>
+  (props.variant === 'parent' ? 'parent-guardian' : 'client')
+);
 
 const dirty = computed(() => htmlContent.value !== originalHtml.value);
 const localeLabel = computed(() => (locale.value === 'es' ? 'ES' : 'EN'));
@@ -121,7 +136,7 @@ const loadVersions = async () => {
   historyLoading.value = true;
   try {
     const res = await api.get(`/agencies/${props.agencyId}/office-packet-template-versions`, {
-      params: { locale: locale.value }
+      params: packetParams()
     });
     versions.value = Array.isArray(res.data?.versions) ? res.data.versions : [];
   } catch {
@@ -141,7 +156,7 @@ const toggleHistory = async () => {
 const viewVersion = async (ver) => {
   try {
     const res = await api.get(`/agencies/${props.agencyId}/office-packet-template-versions/${ver}`, {
-      params: { locale: locale.value }
+      params: packetParams()
     });
     previewHtml.value = String(res.data?.version?.html_content || '');
     previewVersion.value = Number(ver);
@@ -157,10 +172,12 @@ const load = async () => {
     success.value = '';
     showHistory.value = false;
     const res = await api.get(`/agencies/${props.agencyId}/office-packet-template`, {
-      params: { locale: locale.value }
+      params: packetParams()
     });
     htmlContent.value = String(res.data?.html_content || res.data?.template?.html_content || '');
     originalHtml.value = htmlContent.value;
+    defaultHtml.value = String(res.data?.default_html || '');
+    looksLikeSchoolSeed.value = !!res.data?.looks_like_school_seed;
     version.value = Number(res.data?.version || res.data?.template?.version || 1);
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load packet template';
@@ -184,13 +201,15 @@ const save = async () => {
     success.value = '';
     const res = await api.put(`/agencies/${props.agencyId}/office-packet-template`, {
       html_content: htmlContent.value,
-      locale: locale.value
+      locale: locale.value,
+      variant: props.variant || 'self'
     });
     htmlContent.value = String(res.data?.html_content || res.data?.template?.html_content || htmlContent.value);
     originalHtml.value = htmlContent.value;
     version.value = Number(res.data?.version || res.data?.template?.version || version.value || 1);
+    looksLikeSchoolSeed.value = false;
     success.value = `Saved ${localeLabel.value} as V${version.value}.`;
-    emit('saved', { version: version.value, locale: locale.value });
+    emit('saved', { version: version.value, locale: locale.value, variant: props.variant });
     if (showHistory.value) await loadVersions();
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to save packet template';
@@ -204,7 +223,7 @@ const downloadPdf = async () => {
     downloading.value = true;
     error.value = '';
     const res = await api.get(`/agencies/${props.agencyId}/office-packet-template/pdf`, {
-      params: { locale: locale.value },
+      params: packetParams(),
       responseType: 'blob',
       timeout: 120000
     });
@@ -212,7 +231,7 @@ const downloadPdf = async () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `office-intake-packet-${locale.value}.pdf`;
+    a.download = `${packetFileSlug.value}-intake-packet-${locale.value}.pdf`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (e) {
@@ -222,7 +241,15 @@ const downloadPdf = async () => {
   }
 };
 
-watch(() => props.agencyId, () => load());
+function useOfficeDefault() {
+  if (!defaultHtml.value) return;
+  if (dirty.value && !window.confirm('Replace the current draft with the office default for this packet?')) return;
+  htmlContent.value = defaultHtml.value;
+  looksLikeSchoolSeed.value = false;
+  success.value = 'Loaded the office default. Save to keep it.';
+}
+
+watch(() => [props.agencyId, props.variant], () => load());
 onMounted(load);
 </script>
 
@@ -245,4 +272,12 @@ onMounted(load);
 .muted { color: #6b7280; }
 .error { color: #b91c1c; }
 .success { color: #047857; }
+.school-seed-note {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 13px;
+}
 </style>

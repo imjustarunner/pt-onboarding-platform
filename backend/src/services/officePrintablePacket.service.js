@@ -5,8 +5,14 @@ import { PDFDocument } from 'pdf-lib';
 import Agency from '../models/Agency.model.js';
 import OfficePacketTemplate, {
   normalizeLocale,
-  defaultHtmlForLocale
+  defaultHtmlForLocale,
+  looksLikeSchoolSeedHtml
 } from '../models/OfficePacketTemplate.model.js';
+import {
+  OFFICE_PRINTABLE_PACKET_VERSION,
+  normalizeOfficePacketVariant,
+  officePacketTitle
+} from '../constants/officePrintablePacket.js';
 import DocumentSigningService from './documentSigning.service.js';
 import {
   listDisclosureProviders
@@ -18,8 +24,7 @@ import {
   buildPacketStyleBlock,
   buildPdfChromeTemplates
 } from './schoolPrintablePacket.service.js';
-import { SCHOOL_PRINTABLE_PACKET_VERSION } from '../constants/schoolPrintablePacket.js';
-import { DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML } from '../content/schoolPacketTemplateDefault.en.js';
+import { defaultOfficePacketHtml } from '../content/officePacketTemplateDefault.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -83,9 +88,9 @@ function substituteTokens(templateHtml, tokens = {}) {
   return html;
 }
 
-function buildOfficeCoverPageHtml() {
+function buildOfficeCoverPageHtml(variant = 'self', locale = 'en') {
   const cover = coverPageDataUrl();
-  const title = '<h1 class="cover-page-title">In-Depth Intake Packet</h1>';
+  const title = `<h1 class="cover-page-title">${officePacketTitle(variant, locale)}</h1>`;
   if (!cover) {
     return `
       <section class="packet-cover packet-cover-fallback">
@@ -95,7 +100,7 @@ function buildOfficeCoverPageHtml() {
   }
   return `
     <section class="packet-cover">
-      <img class="cover-photo" src="${cover}" alt="In-Depth Intake Packet cover" />
+      <img class="cover-photo" src="${cover}" alt="${officePacketTitle(variant, locale)} cover" />
       ${title}
     </section>
   `;
@@ -117,10 +122,11 @@ ${buildPacketStyleBlock()}
 </html>`;
 }
 
-export async function buildOfficePrintablePacketContext({ agencyId, locale = 'en' } = {}) {
+export async function buildOfficePrintablePacketContext({ agencyId, locale = 'en', variant = 'self' } = {}) {
   const aid = Number(agencyId || 0);
   if (!aid) throw new Error('Invalid agencyId');
   const loc = normalizeLocale(locale);
+  const pack = normalizeOfficePacketVariant(variant);
 
   const agency = await Agency.findById(aid);
   if (!agency) {
@@ -129,7 +135,7 @@ export async function buildOfficePrintablePacketContext({ agencyId, locale = 'en
     throw err;
   }
 
-  const template = await OfficePacketTemplate.getOrCreateForAgency(aid, { locale: loc });
+  const template = await OfficePacketTemplate.getOrCreateForAgency(aid, { locale: loc, variant: pack });
   const agencyName = String(agency.name || 'Agency').trim();
   const agencyAddress = buildAgencyAddress(agency);
 
@@ -144,7 +150,8 @@ export async function buildOfficePrintablePacketContext({ agencyId, locale = 'en
   return {
     version: Number(template?.version || 1),
     locale: loc,
-    packetVersionLabel: SCHOOL_PRINTABLE_PACKET_VERSION,
+    variant: pack,
+    packetVersionLabel: OFFICE_PRINTABLE_PACKET_VERSION,
     generatedAt: new Date(),
     agencyId: aid,
     agency: {
@@ -153,7 +160,7 @@ export async function buildOfficePrintablePacketContext({ agencyId, locale = 'en
       slug: String(agency.portal_url || agency.slug || '').trim(),
       address: agencyAddress
     },
-    templateHtml: String(template?.html_content || defaultHtmlForLocale(loc) || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML),
+    templateHtml: String(template?.html_content || defaultHtmlForLocale(loc, pack)),
     providers
   };
 }
@@ -166,7 +173,7 @@ function buildOfficePacketBodyContentHtml(packetContext = {}) {
   const disclosureHtml = buildDisclosureCareTeamHtml(packetContext?.providers || [], loc);
 
   const bodyHtml = substituteTokens(
-    packetContext?.templateHtml || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML,
+    packetContext?.templateHtml || defaultHtmlForLocale(packetContext?.locale, packetContext?.variant),
     {
       SCHOOL_NAME: escapeHtml(agencyName),
       AGENCY_NAME: escapeHtml(agencyName),
@@ -193,21 +200,22 @@ function buildOfficePacketBodyContentHtml(packetContext = {}) {
   `;
 }
 
-function buildOfficePrintablePacketCoverDocument() {
-  return wrapPacketHtmlDocument('In-Depth Intake Packet', buildOfficeCoverPageHtml());
+function buildOfficePrintablePacketCoverDocument(packetContext = {}) {
+  const title = officePacketTitle(packetContext?.variant, packetContext?.locale);
+  return wrapPacketHtmlDocument(title, buildOfficeCoverPageHtml(packetContext?.variant, packetContext?.locale));
 }
 
 function buildOfficePrintablePacketBodyDocument(packetContext = {}) {
   return wrapPacketHtmlDocument(
-    packetContext?.agency?.name || 'In-Depth Intake Packet',
+    officePacketTitle(packetContext?.variant, packetContext?.locale),
     buildOfficePacketBodyContentHtml(packetContext)
   );
 }
 
-export async function generateOfficePrintablePacketPdf({ agencyId, locale = 'en' } = {}) {
-  const packetContext = await buildOfficePrintablePacketContext({ agencyId, locale });
+export async function generateOfficePrintablePacketPdf({ agencyId, locale = 'en', variant = 'self' } = {}) {
+  const packetContext = await buildOfficePrintablePacketContext({ agencyId, locale, variant });
 
-  const coverHtml = buildOfficePrintablePacketCoverDocument();
+  const coverHtml = buildOfficePrintablePacketCoverDocument(packetContext);
   const bodyHtml = buildOfficePrintablePacketBodyDocument(packetContext);
   const { headerTemplate, footerTemplate } = buildPdfChromeTemplates(packetContext);
 
@@ -240,20 +248,26 @@ export async function generateOfficePrintablePacketPdf({ agencyId, locale = 'en'
   return Buffer.from(await merged.save());
 }
 
-export async function getOfficePacketTemplateForAgency(agencyId, { locale = 'en' } = {}) {
+export async function getOfficePacketTemplateForAgency(agencyId, { locale = 'en', variant = 'self' } = {}) {
   const aid = Number(agencyId || 0);
   const loc = normalizeLocale(locale);
+  const pack = normalizeOfficePacketVariant(variant);
   const agency = await Agency.findById(aid);
   if (!agency) {
     const err = new Error('Agency not found');
     err.statusCode = 404;
     throw err;
   }
-  const template = await OfficePacketTemplate.getOrCreateForAgency(aid, { locale: loc });
+  const template = await OfficePacketTemplate.getOrCreateForAgency(aid, { locale: loc, variant: pack });
+  const html = String(template?.html_content || defaultHtmlForLocale(loc, pack));
   return {
     agencyId: aid,
     locale: loc,
-    html_content: String(template?.html_content || defaultHtmlForLocale(loc) || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML),
+    variant: pack,
+    title: officePacketTitle(pack, loc),
+    html_content: html,
+    default_html: defaultOfficePacketHtml(pack, loc),
+    looks_like_school_seed: looksLikeSchoolSeedHtml(html),
     version: Number(template?.version || 1),
     updatedAt: template?.updated_at ? new Date(template.updated_at).toISOString() : null,
     updatedByUserId: template?.updated_by_user_id || null
@@ -264,10 +278,12 @@ export async function saveOfficePacketTemplateForAgency({
   agencyId,
   htmlContent,
   actorUserId = null,
-  locale = 'en'
+  locale = 'en',
+  variant = 'self'
 }) {
   const aid = Number(agencyId || 0);
   const loc = normalizeLocale(locale);
+  const pack = normalizeOfficePacketVariant(variant);
   const agency = await Agency.findById(aid);
   if (!agency) {
     const err = new Error('Agency not found');
@@ -278,11 +294,14 @@ export async function saveOfficePacketTemplateForAgency({
     agencyId: aid,
     htmlContent,
     actorUserId,
-    locale: loc
+    locale: loc,
+    variant: pack
   });
   return {
     agencyId: aid,
     locale: loc,
+    variant: pack,
+    title: officePacketTitle(pack, loc),
     html_content: String(saved?.html_content || ''),
     version: Number(saved?.version || 1),
     updatedAt: saved?.updated_at ? new Date(saved.updated_at).toISOString() : null,

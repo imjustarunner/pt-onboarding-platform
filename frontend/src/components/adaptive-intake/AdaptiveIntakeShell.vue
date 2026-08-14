@@ -25,6 +25,7 @@
     :contact-email="contactEmail"
     :show-contact-support-action="showContactSupportAction"
     :contact-support-label="contactSupportLabel"
+    :scenic-sidebar-url="scenicSidebarUrl"
     @contact-support="$emit('contact-support')"
   >
     <template v-if="$slots['header-left']" #header-left>
@@ -79,7 +80,8 @@ defineProps({
   contactPhoneTel: { type: String, default: '' },
   contactEmail: { type: String, default: '' },
   showContactSupportAction: { type: Boolean, default: false },
-  contactSupportLabel: { type: String, default: 'Send a message' }
+  contactSupportLabel: { type: String, default: 'Send a message' },
+  scenicSidebarUrl: { type: String, default: '' }
 });
 
 defineEmits(['contact-support']);

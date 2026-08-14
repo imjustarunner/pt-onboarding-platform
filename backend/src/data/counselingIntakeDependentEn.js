@@ -30,8 +30,8 @@ function field({
   key,
   label,
   type = 'textarea',
-  required = true,
-  optional = false,
+  required = false,
+  optional = true,
   options = [],
   showIf = null,
   helperText = '',
@@ -499,23 +499,21 @@ function childAbout() {
       field({ key: 'child_preferred_name', label: 'What name do they usually go by?', type: 'text' }),
       field({ key: 'child_dob', label: 'Date of birth', type: 'date' }),
       field({
-        key: 'child_gender',
-        label: 'Gender',
+        key: 'child_sex',
+        label: 'Sex',
         type: 'radio',
         layout: 'cards',
         options: [
           opt('female', 'Female'),
-          opt('male', 'Male'),
-          opt('nonbinary', 'Non-binary'),
-          opt('prefer_not_to_say', 'Prefer not to say'),
-          opt('self_describe', 'Prefer to self-describe')
+          opt('male', 'Male')
         ]
       }),
       field({
-        key: 'child_gender_self_describe',
-        label: 'How do they describe their gender?',
+        key: 'child_preferred_called',
+        label: 'If they want to be called something different, write it here',
         type: 'text',
-        showIf: { fieldKey: 'child_gender', equals: 'self_describe' }
+        optional: true,
+        helperText: 'Optional'
       }),
       field({
         key: 'child_preferred_language',
@@ -1608,6 +1606,8 @@ function childSafety() {
         key: 'self_harm',
         label: 'Has this child intentionally hurt themselves?',
         type: 'radio',
+        required: true,
+        optional: false,
         section: 'Self-harm and suicide',
         options: yesNoNotSure()
       }),
@@ -1626,6 +1626,8 @@ function childSafety() {
         key: 'talked_wanting_to_die',
         label: 'Has this child ever talked about wanting to die or kill themselves?',
         type: 'radio',
+        required: true,
+        optional: false,
         options: yesNoNotSure()
       }),
       field({

@@ -4,6 +4,7 @@
  */
 
 import crypto from 'crypto';
+import path from 'path';
 import Client from '../models/Client.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import ClientSchoolStaffRoiAccess, {
@@ -41,6 +42,7 @@ import {
   supervisorCanAccessClientInOrg
 } from '../utils/supervisorSchoolAccess.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import { flaggedClientIdsFromGroups, groupClientsByFirstLastName } from '../utils/clientNameDuplicate.js';
 import {
   resolveSchoolStaffWaiverStatus,
   resetSchoolStaffWaiverForTesting
@@ -1500,6 +1502,14 @@ export const getSchoolClients = async (req, res, next) => {
     const agencyId = await resolveActiveAgencyIdForOrg(orgId);
     logAuditEvent(req, { actionType: 'school_portal_roster_viewed', agencyId: agencyId || undefined }).catch(() => {});
 
+    if (String(userRole || '').toLowerCase() !== 'school_staff') {
+      const flaggedIds = flaggedClientIdsFromGroups(groupClientsByFirstLastName(restrictedClients));
+      restrictedClients = restrictedClients.map((client) => ({
+        ...client,
+        possible_name_duplicate: flaggedIds.has(Number(client.id))
+      }));
+    }
+
     res.json(restrictedClients);
   } catch (error) {
     console.error('School portal clients error:', error);
@@ -2231,6 +2241,14 @@ export const getProviderMyRoster = async (req, res, next) => {
 
     const agencyId = await resolveActiveAgencyIdForOrg(orgId);
     logAuditEvent(req, { actionType: 'school_portal_roster_viewed', agencyId: agencyId || undefined }).catch(() => {});
+
+    if (String(userRole || '').toLowerCase() !== 'school_staff') {
+      const flaggedIds = flaggedClientIdsFromGroups(groupClientsByFirstLastName(restrictedClients));
+      restrictedClients = restrictedClients.map((client) => ({
+        ...client,
+        possible_name_duplicate: flaggedIds.has(Number(client.id))
+      }));
+    }
 
     res.json(restrictedClients);
   } catch (e) {
@@ -7878,6 +7896,33 @@ export const cancelSlotVerificationRequest = async (req, res, next) => {
     }).catch(() => {});
 
     res.json({ ok: true, requestId });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const uploadSchoolPortalLogo = async (req, res, next) => {
+  try {
+    const orgId = parseInt(String(req.params.organizationId), 10);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+    await assertSchoolPortalAccess(req, orgId);
+    if (!req.file) {
+      return res.status(400).json({ error: { message: 'Choose a logo image to upload.' } });
+    }
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const ext = path.extname(req.file.originalname || '') || '.png';
+    const filename = `school-logo-${orgId}-${uniqueSuffix}${ext}`;
+    const storageResult = await StorageService.saveLogo(req.file.buffer, filename, req.file.mimetype);
+    const filePath = storageResult.relativePath;
+    const publicRel = String(filePath || '').startsWith('uploads/')
+      ? String(filePath).substring('uploads/'.length)
+      : String(filePath || '');
+    await pool.execute(`UPDATE agencies SET logo_path = ? WHERE id = ?`, [filePath, orgId]);
+    res.json({
+      success: true,
+      path: filePath,
+      url: `/uploads/${publicRel}`
+    });
   } catch (e) {
     next(e);
   }

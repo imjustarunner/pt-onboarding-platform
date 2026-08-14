@@ -1,6 +1,12 @@
 <template>
+  <div
+    v-if="showJoinBoot"
+    class="ajl-boot"
+    :style="{ backgroundImage: `url(${bootThemeUrl})` }"
+    aria-hidden="true"
+  />
   <AdaptiveJoinLanding
-    v-if="!loading && !loadError && !submitted && phase === 'pathway'"
+    v-else-if="config && !loadError && !submitted && phase === 'pathway'"
     :config="config"
     :agency-slug="agencySlug"
     :service-type="resolvedServiceType"
@@ -14,7 +20,7 @@
     @contact-support="openJoinSupport"
   />
   <AdaptiveIntakeShell
-    v-else
+    v-else-if="!loading || submitted || phase !== 'pathway'"
     :branding="config?.branding"
     :program-title="config?.agency?.name || 'Join'"
     :form-title="pageTitle"
@@ -33,6 +39,7 @@
     :contact-email="joinContactEmail"
     :show-contact-support-action="!!joinContactEmail"
     contact-support-label="Send a message"
+    scenic-sidebar-url="/assets/intake-themes/backgroundsidegreen.jpg"
     @contact-support="openJoinSupport"
   >
     <template #header-left>
@@ -60,7 +67,7 @@
 
     <template v-else-if="phase === 'quick'">
       <!-- Step: who for -->
-      <div v-if="quickStep === 0">
+      <div v-if="quickStep === 0" class="ai-join-form">
         <h1 class="ai-page-title">Who is this for?</h1>
         <p class="ai-page-lead">This helps us set up the right kind of account and follow-up.</p>
         <div class="ai-pathway-grid" style="grid-template-columns: 1fr;">
@@ -79,7 +86,7 @@
       </div>
 
       <!-- Step: basics -->
-      <div v-else-if="quickStep === 1">
+      <div v-else-if="quickStep === 1" class="ai-join-form">
         <h1 class="ai-page-title">Let's get to know you.</h1>
         <p class="ai-page-lead">Just the basics so we can reach you. This only takes a few minutes.</p>
         <div class="field-row">
@@ -103,13 +110,15 @@
           :label="form.whoFor === 'myself' ? 'Date of birth' : 'Client date of birth'"
           required
         />
-        <DigitalFormField
-          v-model="form.homeAddress"
-          type="textarea"
-          label="Home address"
-          :rows="2"
-          required
-        />
+        <DigitalFormField v-model="form.address.street" label="Street address" required />
+        <div class="field-row field-row--address">
+          <DigitalFormField v-model="form.address.apt" label="Apartment (if applicable)" />
+          <DigitalFormField v-model="form.address.zip" label="ZIP" required />
+        </div>
+        <div class="field-row">
+          <DigitalFormField v-model="form.address.city" label="City" required />
+          <DigitalFormField v-model="form.address.state" label="State" required />
+        </div>
         <template v-if="form.whoFor !== 'myself'">
           <h2 style="margin: 1.25rem 0 0.5rem; font-size: 1.05rem;">Prospective client</h2>
           <div class="field-row">
@@ -120,7 +129,7 @@
       </div>
 
       <!-- Step: needs -->
-      <div v-else-if="quickStep === 2">
+      <div v-else-if="quickStep === 2" class="ai-join-form">
         <h1 class="ai-page-title">What support are you looking for?</h1>
         <p class="ai-page-lead">Select all that apply. You can share more detail below.</p>
         <div class="ai-concern-grid">
@@ -150,7 +159,7 @@
       </div>
 
       <!-- Step: preferences -->
-      <div v-else-if="quickStep === 3">
+      <div v-else-if="quickStep === 3" class="ai-join-form">
         <h1 class="ai-page-title">Preferences & availability</h1>
         <p class="ai-page-lead">Optional — helps us match format and timing.</p>
         <div class="field-row">
@@ -181,18 +190,18 @@
       </div>
 
       <!-- Step: provider preview -->
-      <div v-else-if="quickStep === 4">
+      <div v-else-if="quickStep === 4" class="ai-join-form">
         <AdaptiveProviderPreview
           v-model:selected-id="form.preferredProviderUserId"
           :providers="providers"
           :loading="providersLoading"
           :error="providersError"
-          @skip="quickStep = 5"
+          @skip="form.preferredProviderUserId = null; quickStep = 5"
         />
       </div>
 
       <!-- Step: consent / contact permission -->
-      <div v-else-if="quickStep === 5">
+      <div v-else-if="quickStep === 5" class="ai-join-form">
         <h1 class="ai-page-title">Permission to contact you</h1>
         <p class="ai-page-lead">Please review and accept the following before submitting.</p>
         <div class="ai-consent-box">
@@ -221,7 +230,7 @@
       </div>
 
       <!-- Step: review -->
-      <div v-else>
+      <div v-else class="ai-join-form">
         <h1 class="ai-page-title">Review & submit</h1>
         <p class="ai-page-lead">Confirm the details below. Our team will follow up within 1–2 business days.</p>
         <div class="ai-help-card" style="margin-bottom: 1rem;">
@@ -231,7 +240,7 @@
             <strong>Client:</strong> {{ form.client.firstName }} {{ form.client.lastName }}
           </p>
           <p v-if="form.birthdate"><strong>Date of birth:</strong> {{ formatBirthdate(form.birthdate) }}</p>
-          <p v-if="form.homeAddress"><strong>Home address:</strong> {{ form.homeAddress }}</p>
+          <p v-if="formattedHomeAddress"><strong>Home address:</strong> {{ formattedHomeAddress }}</p>
           <p v-if="form.concerns.length"><strong>Interests:</strong> {{ concernLabels }}</p>
           <p v-if="form.accomplishGoal"><strong>Goals:</strong> {{ form.accomplishGoal }}</p>
           <p v-if="form.notes"><strong>Additional notes:</strong> {{ form.notes }}</p>
@@ -247,6 +256,19 @@
           <p v-if="form.preferences.insuranceOrPayment">
             <strong>Insurance / payment:</strong> {{ form.preferences.insuranceOrPayment }}
           </p>
+          <p>
+            <strong>Provider:</strong>
+            {{ preferredProviderLabel }}
+          </p>
+          <div v-if="form.consentGiven" class="ai-review-ack">
+            <strong>You acknowledged:</strong>
+            <ul>
+              <li>Contact authorization — the team may reach you by phone, email, or text to schedule and coordinate care.</li>
+              <li>This form does not guarantee service or create a treatment relationship.</li>
+              <li>Your information will be handled confidentially under HIPAA and applicable privacy laws.</li>
+              <li>You may withdraw consent at any time by contacting the organization.</li>
+            </ul>
+          </div>
         </div>
         <div v-if="submitError" class="df-banner df-banner--warn">{{ submitError }}</div>
       </div>
@@ -288,6 +310,11 @@ import {
   isValidUsPhone,
   normalizeUsPhoneForSubmit
 } from '../../utils/contactInput.js';
+import {
+  JOIN_BOOT_THEME_URL,
+  readJoinLandingCache,
+  writeJoinLandingCache
+} from '../../utils/joinLandingTemplate.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -303,7 +330,14 @@ const resolvedServiceType = computed(() =>
 
 const loading = ref(true);
 const loadError = ref('');
-const config = ref(null);
+const cachedJoin = readJoinLandingCache(
+  String(route.params.organizationSlug || route.params.agencySlug || '').trim(),
+  String(route.params.serviceType || 'counseling').trim().toLowerCase() || 'counseling'
+);
+const config = ref((cachedJoin?.agency || cachedJoin?.pathways) ? cachedJoin : null);
+const bootThemeUrl = computed(() =>
+  String(config.value?.themeImageUrl || JOIN_BOOT_THEME_URL).trim()
+);
 const phase = ref('pathway');
 const selectedPathway = ref('');
 const quickStep = ref(0);
@@ -311,6 +345,9 @@ const submitting = ref(false);
 const submitError = ref('');
 const submitted = ref(false);
 const confirmation = ref(null);
+const showJoinBoot = computed(() =>
+  !config.value && loading.value && !loadError.value && !submitted.value && phase.value === 'pathway'
+);
 
 const fieldErrors = reactive({
   email: '',
@@ -326,7 +363,7 @@ const form = reactive({
   respondent: { firstName: '', lastName: '', email: '', phone: '' },
   client: { firstName: '', lastName: '' },
   birthdate: '',
-  homeAddress: '',
+  address: { street: '', apt: '', city: '', state: '', zip: '' },
   concerns: [],
   accomplishGoal: '',
   notes: '',
@@ -417,6 +454,26 @@ const concernLabels = computed(() =>
     .map((v) => concernOptions.value.find((c) => c.value === v)?.label || v)
     .join(', ')
 );
+
+const formattedHomeAddress = computed(() => {
+  const a = form.address || {};
+  const line1 = [a.street, a.apt].map((v) => String(v || '').trim()).filter(Boolean).join(', ');
+  const line2 = [a.city, a.state, a.zip].map((v) => String(v || '').trim()).filter(Boolean).join(', ');
+  return [line1, line2].filter(Boolean).join(', ');
+});
+
+const preferredProviderLabel = computed(() => {
+  if (!form.preferredProviderUserId) return 'Let the team choose / first available';
+  const match = (providers.value || []).find((p) => Number(p.id) === Number(form.preferredProviderUserId));
+  return match?.displayName || match?.name || 'Preferred provider selected';
+});
+
+const consentAcknowledgmentLines = [
+  'Contact authorization — the team may reach you by phone, email, or text to schedule and coordinate care.',
+  'This form does not guarantee service or create a treatment relationship.',
+  'Your information will be handled confidentially under HIPAA and applicable privacy laws.',
+  'You may withdraw consent at any time by contacting the organization.'
+];
 
 function modalityLabel(value) {
   return modalityOptions.find((o) => o.value === value)?.label || value;
@@ -522,7 +579,8 @@ const canContinueQuick = computed(() => {
     const r = form.respondent;
     if (!r.firstName.trim() || !r.lastName.trim() || !r.email.trim() || !r.phone.trim()) return false;
     if (!isValidEmailAddress(r.email) || !isValidUsPhone(r.phone)) return false;
-    if (!form.birthdate.trim() || !form.homeAddress.trim()) return false;
+    if (!form.birthdate.trim()) return false;
+    if (!form.address.street.trim() || !form.address.city.trim() || !form.address.state.trim() || !form.address.zip.trim()) return false;
     if (form.whoFor !== 'myself') {
       if (!form.client.firstName.trim() || !form.client.lastName.trim()) return false;
     }
@@ -659,7 +717,8 @@ async function submitQuick() {
       },
       client: clientPayload,
       birthdate: form.birthdate,
-      homeAddress: form.homeAddress.trim(),
+      homeAddress: formattedHomeAddress.value,
+      address: { ...form.address },
       concerns: form.concerns,
       accomplishGoal: form.accomplishGoal.trim() || null,
       notes: form.notes,
@@ -670,7 +729,8 @@ async function submitQuick() {
         preferredDays,
         insuranceOrPayment: form.preferences.insuranceOrPayment || null
       },
-      consentGiven: form.consentGiven
+      consentGiven: form.consentGiven,
+      acknowledgments: form.consentGiven ? consentAcknowledgmentLines : []
     });
     confirmation.value = data?.confirmation || null;
     submitted.value = true;
@@ -690,8 +750,12 @@ onMounted(async () => {
       return;
     }
     const params = serviceType.value ? { serviceType: serviceType.value } : {};
-    const { data } = await api.get(`/public/adaptive-intake/${agencySlug.value}`, { params });
+    const { data } = await api.get(`/public/adaptive-intake/${agencySlug.value}`, {
+      params,
+      skipGlobalLoading: true
+    });
     config.value = data;
+    writeJoinLandingCache(agencySlug.value, resolvedServiceType.value || serviceType.value || 'counseling', data);
     providers.value = data?.providerPreview || [];
 
     const services = Array.isArray(data?.intakeServices) ? data.intakeServices : [];
@@ -711,10 +775,43 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.ajl-boot {
+  min-height: 100dvh;
+  background-size: cover;
+  background-position: center;
+  background-color: #0f3d3a;
+}
+.ai-join-form {
+  max-width: 36rem;
+}
 .field-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.75rem;
+}
+.field-row--address {
+  grid-template-columns: 1.4fr 0.8fr;
+}
+.ai-join-form :deep(.ai-pathway-card--selected),
+.ai-join-form :deep(.ai-concern-chip.ai-pathway-card--selected) {
+  background: var(--df-primary, #1b3d2f);
+  border-color: var(--df-primary, #1b3d2f);
+  color: #fff;
+  box-shadow: 0 0 0 1px var(--df-primary, #1b3d2f);
+}
+.ai-join-form :deep(.ai-pathway-card--selected .ai-pathway-card-title),
+.ai-join-form :deep(.ai-pathway-card--selected .ai-pathway-card-desc),
+.ai-join-form :deep(.ai-concern-chip.ai-pathway-card--selected strong) {
+  color: #fff;
+}
+.ai-review-ack {
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e5e7eb;
+}
+.ai-review-ack ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.15rem;
 }
 .ai-concern-grid {
   display: grid;
@@ -734,7 +831,8 @@ onMounted(async () => {
   line-height: 1.25;
 }
 @media (max-width: 640px) {
-  .field-row {
+  .field-row,
+  .field-row--address {
     grid-template-columns: 1fr;
   }
 }

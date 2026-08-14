@@ -93,7 +93,12 @@ export const authenticate = async (req, res, next) => {
     // Note: Some environments may inadvertently wrap `/api/public/*` with `authenticate`.
     const requestPath = String(req.originalUrl || req.path || '').split('?')[0];
     if (requestPath.startsWith('/api/public/')) {
-      return next();
+      // Join landing save is mounted under /api/public but must authenticate.
+      const isJoinLandingWrite = req.method === 'PATCH'
+        && /\/api\/public\/adaptive-intake\/[^/]+\/landing\/?$/.test(requestPath);
+      if (!isJoinLandingWrite) {
+        return next();
+      }
     }
     // Provider-First Welcome Kiosk public endpoints (no auth required)
     if (

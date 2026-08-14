@@ -76,7 +76,8 @@ export const getAgencyOfficePacketTemplate = async (req, res, next) => {
     const { agencyId } = req.params;
     const { aid } = await assertAgencyAccess(req, agencyId);
     const locale = String(req.query?.locale || req.query?.lang || 'en').trim();
-    const template = await getOfficePacketTemplateForAgency(aid, { locale });
+    const variant = String(req.query?.variant || req.body?.variant || 'self').trim();
+    const template = await getOfficePacketTemplateForAgency(aid, { locale, variant });
     res.json(template);
   } catch (e) {
     if (e?.statusCode || e?.status) {
@@ -95,11 +96,13 @@ export const putAgencyOfficePacketTemplate = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'html_content is required' } });
     }
     const locale = String(req.body?.locale || req.query?.locale || req.query?.lang || 'en').trim();
+    const variant = String(req.body?.variant || req.query?.variant || 'self').trim();
     const saved = await saveOfficePacketTemplateForAgency({
       agencyId: aid,
       htmlContent,
       actorUserId: req.user?.id || null,
-      locale
+      locale,
+      variant
     });
     res.json(saved);
   } catch (e) {
@@ -115,12 +118,14 @@ export const downloadAgencyOfficePacketTemplatePdf = async (req, res, next) => {
     const { agencyId } = req.params;
     const { aid, agency } = await assertAgencyAccess(req, agencyId);
     const locale = String(req.query?.locale || 'en').trim();
-    const pdfBytes = await generateOfficePrintablePacketPdf({ agencyId: aid, locale });
+    const variant = String(req.query?.variant || 'self').trim();
+    const pdfBytes = await generateOfficePrintablePacketPdf({ agencyId: aid, locale, variant });
     const slug = String(agency.portal_url || agency.slug || 'agency').replace(/[^a-z0-9-]+/gi, '-');
+    const pack = /parent|guardian|dependent|child/i.test(variant) ? 'parent-guardian' : 'client';
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
-      `inline; filename="${slug}-in-depth-intake-packet.pdf"`
+      `inline; filename="${slug}-${pack}-intake-packet-${locale}.pdf"`
     );
     return res.send(Buffer.from(pdfBytes));
   } catch (e) {
@@ -136,11 +141,13 @@ export const listAgencyOfficePacketTemplateVersions = async (req, res, next) => 
     const { agencyId } = req.params;
     const { aid } = await assertAgencyAccess(req, agencyId);
     const locale = String(req.query?.locale || 'en').trim();
-    const versions = await OfficePacketTemplate.listVersions(aid, locale);
-    const current = await OfficePacketTemplate.findByAgencyId(aid, locale);
+    const variant = String(req.query?.variant || 'self').trim();
+    const versions = await OfficePacketTemplate.listVersions(aid, locale, variant);
+    const current = await OfficePacketTemplate.findByAgencyId(aid, locale, variant);
     res.json({
       agencyId: aid,
       locale,
+      variant,
       currentVersion: current?.version ?? null,
       versions
     });
@@ -155,7 +162,8 @@ export const getAgencyOfficePacketTemplateVersion = async (req, res, next) => {
     const { agencyId, version } = req.params;
     const { aid } = await assertAgencyAccess(req, agencyId);
     const locale = String(req.query?.locale || 'en').trim();
-    const row = await OfficePacketTemplate.getVersion(aid, locale, version);
+    const variant = String(req.query?.variant || 'self').trim();
+    const row = await OfficePacketTemplate.getVersion(aid, locale, version, variant);
     if (!row) return res.status(404).json({ error: { message: 'Version not found' } });
     res.json({ version: row });
   } catch (e) {

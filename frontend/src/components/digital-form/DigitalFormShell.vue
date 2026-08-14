@@ -5,9 +5,10 @@
       'df-page--preview': preview,
       'df-page--embedded': embedded,
       'df-page--full-bleed': isFullBleed,
-      'df-page--form-mode': isFormMode
+      'df-page--form-mode': isFormMode,
+      'df-page--scenic-side': !!scenicSidebarUrl
     }"
-    :style="shellVars"
+    :style="mergedShellVars"
   >
     <div
       class="df-shell"
@@ -18,13 +19,15 @@
         'df-shell--full-bleed': isFullBleed,
         'df-shell--form-mode': isFormMode,
         'df-shell--intake-stepper': hasIntakeSidebarStepper,
-        'df-shell--hide-sidebar': hideSidebar
+        'df-shell--hide-sidebar': hideSidebar,
+        'df-shell--scenic-side': !!scenicSidebarUrl
       }"
     >
       <aside v-if="!hideSidebar && !embedded" class="df-sidebar" aria-label="Program branding">
         <div class="df-sidebar-bg" aria-hidden="true" />
-        <div v-if="!isFormMode && !hasIntakeSidebarStepper" class="df-sidebar-wave" aria-hidden="true" />
+        <div v-if="!isFormMode && !hasIntakeSidebarStepper && !scenicSidebarUrl" class="df-sidebar-wave" aria-hidden="true" />
         <div class="df-sidebar-inner" :class="{ 'df-sidebar-inner--rail': isFormMode, 'df-sidebar-inner--intake': hasIntakeSidebarStepper }">
+          <slot name="sidebar">
           <template v-if="hasIntakeSidebarStepper">
             <div class="df-sidebar-intake-header">
               <img
@@ -38,11 +41,13 @@
             <div class="df-sidebar-intake-stack">
               <div class="df-sidebar-intake-steps">
                 <AdaptiveIntakeSidebarSteps
-                  variant="dark"
+                  :variant="scenicSidebarUrl ? 'light' : 'dark'"
                   :steps="intakeSidebarSteps"
                   :active-index="intakeSidebarStepIndex"
                   :max-reachable-index="intakeSidebarMaxReachable"
                   :interactive="intakeSidebarInteractive"
+                  :you-are-here="language.startsWith('es') ? 'Está aquí' : 'You are here'"
+                  :completed-label="language.startsWith('es') ? 'Completado' : 'Completed'"
                   @select="(index) => $emit('select-step', index)"
                 />
               </div>
@@ -133,7 +138,10 @@
                   <svg v-else-if="item.icon === 'check'" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-5"/></svg>
                   <svg v-else viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 </span>
-                <span class="df-trust-label">{{ item.label }}</span>
+                <span class="df-trust-copy">
+                  <span class="df-trust-label">{{ item.label }}</span>
+                  <span v-if="item.detail" class="df-trust-detail">{{ item.detail }}</span>
+                </span>
               </div>
             </div>
           </template>
@@ -159,6 +167,7 @@
               <div v-if="formSubtitle" class="df-sidebar-subtitle">{{ formSubtitle }}</div>
             </div>
           </template>
+          </slot>
 
         </div>
       </aside>
@@ -278,7 +287,9 @@ const props = defineProps({
   contactTitle: { type: String, default: 'Need help?' },
   showContactSupportAction: { type: Boolean, default: false },
   contactSupportLabel: { type: String, default: 'Send a message' },
-  contactCompact: { type: Boolean, default: false }
+  contactCompact: { type: Boolean, default: false },
+  /** Full-page art with a designed left border; sidebar info stays, green fill goes away. */
+  scenicSidebarUrl: { type: String, default: '' }
 });
 
 defineEmits(['update:language', 'contact-support', 'select-step']);
@@ -286,7 +297,15 @@ defineEmits(['update:language', 'contact-support', 'select-step']);
 const TRUST_LABEL_ES = {
   'Your information is secure': 'Su información está segura',
   'HIPAA Protected': 'Protegido por HIPAA',
-  'Only takes a few minutes': 'Solo toma unos minutos'
+  'HIPAA protected': 'Protegido por HIPAA',
+  'Only takes a few minutes': 'Solo toma unos minutos',
+  'Save and return later': 'Guarde y vuelva más tarde'
+};
+
+const TRUST_DETAIL_ES = {
+  'Your health information is kept safe and confidential.': 'Su información de salud se mantiene segura y confidencial.',
+  'We use industry-standard encryption and safeguards.': 'Usamos cifrado y protecciones de estándar industrial.',
+  'Your progress is saved as you go.': 'Su progreso se guarda a medida que avanza.'
 };
 
 const resolvedTrustItems = computed(() => {
@@ -294,13 +313,24 @@ const resolvedTrustItems = computed(() => {
   if (!isEs) return props.trustItems;
   return props.trustItems.map(item => ({
     ...item,
-    label: TRUST_LABEL_ES[item.label] || item.label
+    label: TRUST_LABEL_ES[item.label] || item.label,
+    detail: item.detail ? (TRUST_DETAIL_ES[item.detail] || item.detail) : item.detail
   }));
 });
 
 const { shellVars, logoUrl, programTitle: themeProgramTitle } = useDigitalFormTheme(
   computed(() => props.branding)
 );
+
+const scenicSidebarUrl = computed(() => String(props.scenicSidebarUrl || '').trim());
+
+const mergedShellVars = computed(() => {
+  const vars = { ...(shellVars.value || {}) };
+  if (scenicSidebarUrl.value) {
+    vars['--df-scenic-side'] = `url(${scenicSidebarUrl.value})`;
+  }
+  return vars;
+});
 
 const programTitle = computed(
   () => props.programTitleOverride || themeProgramTitle.value || 'Intake & Registration'

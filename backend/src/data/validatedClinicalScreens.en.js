@@ -66,6 +66,7 @@ export function buildPhq9Fields() {
       label,
       helperText: PHQ9_HELPER,
       options: PHQ9_FREQUENCY,
+      required: false,
       instrument: 'phq9',
       section: 'PHQ-9'
     })
@@ -91,6 +92,7 @@ export function buildGad7Fields() {
       label,
       helperText: GAD7_HELPER,
       options: GAD7_FREQUENCY,
+      required: false,
       instrument: 'gad7',
       section: 'GAD-7'
     })
@@ -442,6 +444,7 @@ export function buildPsc17Fields({
       label,
       helperText,
       options: PSC17_NEVER_SOMETIMES_OFTEN,
+      required: false,
       showIf,
       instrument: 'psc17',
       section: 'PSC-17',

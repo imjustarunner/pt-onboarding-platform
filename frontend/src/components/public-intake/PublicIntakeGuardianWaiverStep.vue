@@ -89,18 +89,24 @@
               </button>
               <span class="muted small pi-gw-sig-hint">{{ tx('You must apply your signature here to record this waiver — it will be re-used from the signature you drew earlier.') }}</span>
             </div>
-            <div v-else class="muted small">
-              {{ tx('Complete the earlier signature step to sign waivers.') }}
+            <div v-else class="pi-gw-inline-sign">
+              <p class="muted small">{{ tx('Sign once below. Save & continue will apply this signature to each section.') }}</p>
             </div>
           </template>
         </div>
       </div>
     </div>
+    <div v-if="!savedSignatureData" class="pi-gw-pad">
+      <h5>{{ tx('Electronic signature') }}</h5>
+      <p class="muted small">{{ tx('Sign here, then Save & continue. You do not need a separate Save Signature step.') }}</p>
+      <SignaturePad compact :locale="locale" @signed="onPadSigned" />
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, toRef } from 'vue';
+import { computed, inject, toRef } from 'vue';
+import SignaturePad from '../SignaturePad.vue';
 import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
 import GwvFieldsPickup from '../../views/guardian/waivers/GwvFieldsPickup.vue';
 import GwvFieldsEmergency from '../../views/guardian/waivers/GwvFieldsEmergency.vue';
@@ -139,7 +145,13 @@ const props = defineProps({
   translations: { type: Object, default: () => ({}) }
 });
 
+const emit = defineEmits(['signed']);
+const locale = inject('intakeLocale', 'en');
 const { tx, txFmt } = useIntakeStepTx();
+
+function onPadSigned(data) {
+  if (data) emit('signed', data);
+}
 
 defineExpose({
   scrollToSection
@@ -556,6 +568,13 @@ function copyFromPreviousChild(cIdx, key) {
   0%   { box-shadow: 0 0 0 0   rgba(15, 118, 110, 0.55); transform: translateY(0); }
   50%  { box-shadow: 0 0 0 10px rgba(15, 118, 110, 0);    transform: translateY(-1px); }
   100% { box-shadow: 0 0 0 0   rgba(15, 118, 110, 0);    transform: translateY(0); }
+}
+.pi-gw-pad {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
 }
 .pi-gw-copy-prev {
   margin-top: 10px;

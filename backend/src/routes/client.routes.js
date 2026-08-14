@@ -4,6 +4,7 @@ import {
   getClients,
   getClientsForUser,
   getArchivedClients,
+  getClientNameDuplicates,
   getClientById,
   createClient,
   updateClient,
@@ -103,6 +104,7 @@ router.use(authenticate);
 router.get('/', getClients);
 router.get('/for-user/:userId', getClientsForUser);
 router.get('/archived', getArchivedClients);
+router.get('/name-duplicates', getClientNameDuplicates);
 
 // New Client Onboarding queue (must be before /:id)
 router.get('/onboarding-queue', getOnboardingQueue);

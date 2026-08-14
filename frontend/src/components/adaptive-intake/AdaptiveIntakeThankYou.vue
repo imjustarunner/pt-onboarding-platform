@@ -7,6 +7,11 @@
         Your interest form has been submitted successfully. We appreciate you taking the time to share this information with us.
       </p>
       <p v-if="referenceCode" class="ai-thankyou-ref">Reference: <strong>{{ referenceCode }}</strong></p>
+      <p v-if="temporaryAccess?.email" class="ai-thankyou-access">
+        A temporary 24-hour account was created for <strong>{{ temporaryAccess.email }}</strong>.
+        <span v-if="temporaryAccess.temporaryPassword"> Temporary password: <strong>{{ temporaryAccess.temporaryPassword }}</strong>.</span>
+        Use it to view this submission. It expires in 24 hours.
+      </p>
     </div>
 
     <div class="ai-thankyou-grid">
@@ -28,9 +33,9 @@
     </section>
 
     <div class="ai-thankyou-download">
-      <p>You can save your interest form summary for your records.</p>
+      <p>Download a receipt of what you submitted, including what you acknowledged.</p>
       <button type="button" class="df-btn df-btn-secondary" @click="downloadSummary">
-        Download summary
+        Download receipt
       </button>
     </div>
 
@@ -84,6 +89,7 @@ const supportError = ref('');
 
 const referenceCode = computed(() => props.confirmation?.identifierCode || '');
 const summary = computed(() => props.confirmation?.summary || {});
+const temporaryAccess = computed(() => props.confirmation?.temporaryAccess || null);
 const supportEmail = computed(
   () => props.supportContact?.email || props.confirmation?.supportContact?.email || ''
 );
@@ -155,14 +161,18 @@ function buildSummaryText() {
     s.clientName && s.whoForLabel !== 'Myself' ? `Client: ${s.clientName}` : null,
     s.birthdate ? `Date of birth: ${s.birthdate}` : null,
     s.homeAddress ? `Home address: ${s.homeAddress}` : null,
+    s.preferredProvider ? `Provider: ${s.preferredProvider}` : null,
     s.concerns?.length ? `Interests: ${s.concerns.join(', ')}` : null,
     s.accomplishGoal ? `Goals: ${s.accomplishGoal}` : null,
     s.notes ? `Additional notes: ${s.notes}` : null,
     s.preferredModality ? `Preferred format: ${s.preferredModality}` : null,
     s.preferredTimeOfDay ? `Preferred time: ${s.preferredTimeOfDay}` : null,
     s.preferredDays?.length ? `Preferred days: ${s.preferredDays.join(', ')}` : null,
-    s.insuranceOrPayment ? `Insurance / payment: ${s.insuranceOrPayment}` : null
-  ].filter(Boolean);
+    s.insuranceOrPayment ? `Insurance / payment: ${s.insuranceOrPayment}` : null,
+    '',
+    Array.isArray(s.acknowledgments) && s.acknowledgments.length ? 'You acknowledged:' : null,
+    ...(Array.isArray(s.acknowledgments) ? s.acknowledgments.map((line) => `- ${line}`) : [])
+  ].filter((line) => line !== null);
   return lines.join('\n');
 }
 
@@ -171,7 +181,7 @@ function downloadSummary() {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `interest-form-summary${referenceCode.value ? `-${referenceCode.value}` : ''}.txt`;
+  anchor.download = `interest-form-receipt${referenceCode.value ? `-${referenceCode.value}` : ''}.txt`;
   anchor.click();
   URL.revokeObjectURL(url);
 }
@@ -207,6 +217,12 @@ async function submitSupport() {
 
 .ai-thankyou-hero {
   text-align: center;
+}
+.ai-thankyou-access {
+  margin: 0.75rem auto 0;
+  max-width: 34rem;
+  font-size: 0.92rem;
+  line-height: 1.45;
 }
 
 .ai-thankyou-icon {

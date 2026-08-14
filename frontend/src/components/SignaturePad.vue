@@ -1,7 +1,7 @@
 <template>
   <div class="signature-pad-container" :class="{ compact: compact }">
     <div v-if="!signed" class="signature-area">
-      <div class="signature-hint">Please sign here with your finger or mouse.</div>
+      <div class="signature-hint">{{ hintText }}</div>
       <canvas
         ref="canvas"
         @mousedown="startDrawing"
@@ -13,15 +13,15 @@
         @touchend="stopDrawing"
       ></canvas>
       <div class="signature-controls">
-        <button @click="clearSignature" class="btn btn-secondary">Clear</button>
+        <button @click="clearSignature" class="btn btn-secondary">{{ clearText }}</button>
         <button @click="saveSignature" class="btn btn-primary" :disabled="!hasSignature || saving">
-          {{ saving ? 'Saving...' : 'Save Signature' }}
+          {{ saving ? savingText : saveText }}
         </button>
       </div>
     </div>
     <div v-else class="signature-saved">
       <div class="success">
-        ✓ Signature saved successfully
+        ✓ {{ savedText }}
       </div>
       <div v-if="compact" class="signature-compact">
         <div class="signature-preview-small">
@@ -29,10 +29,10 @@
         </div>
         <div class="signature-links">
           <button type="button" class="link-btn" @click="showExpanded = !showExpanded">
-            {{ showExpanded ? 'Hide signature' : 'Show signature' }}
+            {{ showExpanded ? hideText : showText }}
           </button>
           <span class="link-sep">·</span>
-          <button type="button" class="link-btn" @click="resetSignature">Change signature</button>
+          <button type="button" class="link-btn" @click="resetSignature">{{ changeText }}</button>
         </div>
         <div v-if="showExpanded" class="signature-preview-expanded">
           <img :src="signatureData" alt="Saved signature" />
@@ -42,14 +42,14 @@
         <div class="signature-preview">
           <img :src="signatureData" alt="Saved signature" />
         </div>
-        <button @click="resetSignature" class="btn btn-secondary">Sign Again</button>
+        <button @click="resetSignature" class="btn btn-secondary">{{ changeText }}</button>
       </template>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import api from '../services/api';
 
 const props = defineProps({
@@ -61,6 +61,14 @@ const props = defineProps({
   compact: {
     type: Boolean,
     default: false
+  },
+  locale: {
+    type: String,
+    default: 'en'
+  },
+  initialValue: {
+    type: String,
+    default: ''
   }
 });
 
@@ -75,18 +83,56 @@ const signatureData = ref('');
 const showExpanded = ref(false);
 
 let ctx = null;
+let resizeObserver = null;
+let strokeEmitTimer = null;
+let ignoreInitialValue = false;
+
+const isEs = computed(() => String(props.locale || '').toLowerCase().startsWith('es'));
+const hintText = computed(() => (isEs.value
+  ? 'Firme aquí con el dedo o el mouse.'
+  : 'Please sign here with your finger or mouse.'));
+const clearText = computed(() => (isEs.value ? 'Borrar' : 'Clear'));
+const saveText = computed(() => (isEs.value ? 'Guardar firma' : 'Save Signature'));
+const savingText = computed(() => (isEs.value ? 'Guardando...' : 'Saving...'));
+const savedText = computed(() => (isEs.value ? 'Firma guardada' : 'Signature saved successfully'));
+const hideText = computed(() => (isEs.value ? 'Ocultar firma' : 'Hide signature'));
+const showText = computed(() => (isEs.value ? 'Mostrar firma' : 'Show signature'));
+const changeText = computed(() => (isEs.value ? 'Cambiar firma' : 'Change signature'));
+
+const padHeightForWidth = (width) => {
+  const w = Math.max(Number(width) || 0, 280);
+  const ratio = props.compact ? 0.42 : 0.38;
+  const min = props.compact ? 240 : 300;
+  return Math.max(min, Math.round(w * ratio));
+};
 
 const setupCanvas = () => {
   if (!canvas.value) return;
-  
+
   ctx = canvas.value.getContext('2d');
-  canvas.value.width = canvas.value.offsetWidth;
-  canvas.value.height = props.compact ? 120 : 300;
-  
+  const width = canvas.value.offsetWidth || canvas.value.parentElement?.clientWidth || 600;
+  const height = padHeightForWidth(width);
+  canvas.value.width = width;
+  canvas.value.height = height;
+  canvas.value.style.height = `${height}px`;
+
   ctx.strokeStyle = '#000';
   ctx.lineWidth = 2;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+};
+
+const emitCurrentStroke = () => {
+  if (!hasSignature.value || !canvas.value) return;
+  emit('signed', canvas.value.toDataURL('image/png'));
+};
+
+const scheduleStrokeEmit = () => {
+  if (strokeEmitTimer) clearTimeout(strokeEmitTimer);
+  strokeEmitTimer = setTimeout(() => {
+    strokeEmitTimer = null;
+    emitCurrentStroke();
+  }, 2000);
 };
 
 const getEventPos = (e) => {
@@ -107,6 +153,7 @@ const getTouchPos = (e) => {
 };
 
 const startDrawing = (e) => {
+  ignoreInitialValue = false;
   isDrawing.value = true;
   const pos = getEventPos(e);
   ctx.beginPath();
@@ -122,7 +169,9 @@ const draw = (e) => {
 };
 
 const stopDrawing = () => {
+  if (!isDrawing.value) return;
   isDrawing.value = false;
+  scheduleStrokeEmit();
 };
 
 const startDrawingTouch = (e) => {
@@ -143,9 +192,14 @@ const drawTouch = (e) => {
 };
 
 const clearSignature = () => {
+  if (strokeEmitTimer) {
+    clearTimeout(strokeEmitTimer);
+    strokeEmitTimer = null;
+  }
   if (!ctx) return;
   ctx.clearRect(0, 0, canvas.value.width, canvas.value.height);
   hasSignature.value = false;
+  emit('signed', null);
 };
 
 const saveSignature = async () => {
@@ -174,9 +228,15 @@ const saveSignature = async () => {
 };
 
 const resetSignature = () => {
+  if (strokeEmitTimer) {
+    clearTimeout(strokeEmitTimer);
+    strokeEmitTimer = null;
+  }
+  ignoreInitialValue = true;
   signed.value = false;
   signatureData.value = '';
   hasSignature.value = false;
+  emit('signed', null);
 };
 
 const initCanvas = async () => {
@@ -191,10 +251,29 @@ watch(
   }
 );
 
+watch(
+  () => props.initialValue,
+  (val) => {
+    if (ignoreInitialValue) return;
+    const next = String(val || '').trim();
+    if (!next) return;
+    signatureData.value = next;
+    signed.value = true;
+    hasSignature.value = true;
+    emit('signed', next);
+  },
+  { immediate: true }
+);
+
 onMounted(async () => {
   await initCanvas();
+  if (typeof ResizeObserver !== 'undefined' && canvas.value?.parentElement) {
+    resizeObserver = new ResizeObserver(() => {
+      if (!signed.value && !hasSignature.value) setupCanvas();
+    });
+    resizeObserver.observe(canvas.value.parentElement);
+  }
 
-  // Check if signature already exists
   if (!props.moduleId) return;
   try {
     const response = await api.get(`/signatures/${props.moduleId}`);
@@ -203,6 +282,17 @@ onMounted(async () => {
     emit('signed', signatureData.value);
   } catch (e) {
     // No signature yet
+  }
+});
+
+onBeforeUnmount(() => {
+  if (strokeEmitTimer) {
+    clearTimeout(strokeEmitTimer);
+    strokeEmitTimer = null;
+  }
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+    resizeObserver = null;
   }
 });
 </script>
@@ -237,6 +327,7 @@ onMounted(async () => {
 .signature-area canvas {
   display: block;
   width: 100%;
+  min-height: 240px;
   cursor: crosshair;
   background: white;
 }

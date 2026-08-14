@@ -4,8 +4,8 @@
       <div>
         <h1>Master Office Paper</h1>
         <p class="muted mop-sub">
-          Branded printable in-depth intake packet for staff to download and hand to clients/guardians.
-          Same method as the school packet — separate content channel (no school ROI).
+          Two independent printable office packets. Edits to the adult client packet stay there;
+          edits to the parent/guardian packet stay there. School packets are unchanged.
         </p>
       </div>
       <div class="mop-actions">
@@ -15,12 +15,41 @@
     </header>
 
     <div v-if="!agencyId" class="error">No agency context. Open Workforce Ops from an agency portal.</div>
-    <OfficePacketTemplateEditor v-else :agency-id="agencyId" />
+    <template v-else>
+      <div class="mop-tabs" role="tablist" aria-label="Office packet type">
+        <button
+          type="button"
+          role="tab"
+          class="mop-tab"
+          :class="{ active: variant === 'self' }"
+          :aria-selected="variant === 'self'"
+          @click="variant = 'self'"
+        >
+          Client Intake Packet
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="mop-tab"
+          :class="{ active: variant === 'parent' }"
+          :aria-selected="variant === 'parent'"
+          @click="variant = 'parent'"
+        >
+          Parent/Guardian Intake Packet
+        </button>
+      </div>
+      <OfficePacketTemplateEditor
+        :key="variant"
+        :agency-id="agencyId"
+        :variant="variant"
+        :title="variant === 'parent' ? 'Parent/Guardian Intake Packet' : 'Client Intake Packet'"
+      />
+    </template>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import OfficePacketTemplateEditor from '../../components/office/OfficePacketTemplateEditor.vue';
@@ -31,6 +60,7 @@ const orgSlug = computed(() =>
   typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : ''
 );
 const agencyId = computed(() => Number(agencyStore.currentAgency?.id || route.query?.agencyId || 0));
+const variant = ref('self');
 const backTo = computed(() => (orgSlug.value ? `/${orgSlug.value}/schedule` : '/schedule'));
 const digitalTo = computed(() =>
   orgSlug.value ? `/${orgSlug.value}/admin/master-office-form` : '/admin/master-office-form'
@@ -43,6 +73,9 @@ const digitalTo = computed(() =>
 .mop-header h1 { margin: 0; }
 .mop-sub { max-width: 48rem; margin: 6px 0 0; line-height: 1.45; }
 .mop-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.mop-tabs { display: inline-flex; gap: 4px; margin: 0 0 14px; padding: 4px; border-radius: 999px; background: #f3f4f6; }
+.mop-tab { border: 0; background: transparent; padding: 8px 16px; border-radius: 999px; font-size: 14px; font-weight: 700; color: #4b5563; cursor: pointer; }
+.mop-tab.active { background: #fff; color: #111827; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
 .muted { color: #6b7280; }
 .error { color: #b91c1c; }
 </style>

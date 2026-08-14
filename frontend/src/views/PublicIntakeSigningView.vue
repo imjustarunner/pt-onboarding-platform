@@ -1,6 +1,7 @@
 <template>
   <DigitalFormShell
     class="public-intake ai-shell-host"
+    :class="{ 'public-intake--office-start': isOfficeInDepthIntake && step === 0.5 }"
     :branding="formBranding"
     :program-title-override="shellProgramTitle"
     :form-title-override="shellFormDocumentTitle"
@@ -9,7 +10,9 @@
     :progress-index="dfProgressIndex"
     :intake-sidebar-steps="dfProgressSteps"
     :intake-sidebar-step-index="dfProgressIndex"
-    :cover-mode="step < 1 || loading || !!fatalError"
+    :cover-mode="shellCoverMode"
+    :scenic-sidebar-url="officeScenicSidebarUrl"
+    :logo-url-override="officeLogoFallback"
     :hide-sidebar="isJobApplication && step === -1"
     :wide="(isJobApplication && step === -1) || (isOfficeInDepthIntake && step >= 0.5) || (!isOfficeInDepthIntake && step === 2)"
     :show-language-toggle="hasLinkedLanguageToggle && !loading && !fatalError"
@@ -19,16 +22,71 @@
     :contact-phone-display="splashContactPhone"
     :contact-phone-tel="splashContactTel"
     :contact-email="splashContactEmail"
-    :show-contact-support-action="showFullSplashSupport"
+    :show-contact-support-action="showOfficeStartSupport || showFullSplashSupport"
     :contact-support-label="t('sendAMessage')"
+    :trust-items="officeStartTrustItems"
     :contact-compact="isOfficeInDepthIntake && showCompactSidebarContact"
     :show-intake-sidebar-security="!(isOfficeInDepthIntake && showCompactSidebarContact)"
-    :intake-sidebar-max-reachable="isOfficeInDepthIntake ? maxReachedProgressIndex : 0"
+    :intake-sidebar-max-reachable="isOfficeInDepthIntake ? (isAssistedIntakeSession ? 999 : maxReachedProgressIndex) : 0"
     :intake-sidebar-interactive="isOfficeInDepthIntake"
     @update:language="switchLinkedLanguage"
     @contact-support="openSplashSupportModal"
     @select-step="jumpToProgressStep"
   >
+    <template v-if="isOfficeInDepthIntake && step === 0.5" #sidebar>
+      <div class="intake-start-rail">
+        <div class="intake-start-brand">
+          <img
+            v-if="officeStartLogoUrl"
+            class="intake-start-logo"
+            :src="officeStartLogoUrl"
+            :alt="officeStartAgencyName"
+          />
+          <div v-else class="intake-start-logo-fallback">{{ officeStartAgencyInitial }}</div>
+          <p class="intake-start-tagline">
+            <input v-if="editingStartLayout" v-model="startCopyDraft.sidebarTagline" class="ajl-inline" />
+            <span v-else>{{ startCopy.sidebarTagline }}</span>
+          </p>
+          <p class="intake-start-script">
+            <input v-if="editingStartLayout" v-model="startCopyDraft.sidebarScript" class="ajl-inline ajl-inline--script" />
+            <span v-else>{{ startCopy.sidebarScript }}</span>
+          </p>
+          <ul class="intake-start-values">
+            <li>
+              <span aria-hidden="true">♡</span>
+              <input v-if="editingStartLayout" v-model="startCopyDraft.value1" class="ajl-inline" />
+              <span v-else>{{ startCopy.value1 }}</span>
+            </li>
+            <li>
+              <span aria-hidden="true">👥</span>
+              <input v-if="editingStartLayout" v-model="startCopyDraft.value2" class="ajl-inline" />
+              <span v-else>{{ startCopy.value2 }}</span>
+            </li>
+            <li>
+              <span aria-hidden="true">🌿</span>
+              <input v-if="editingStartLayout" v-model="startCopyDraft.value3" class="ajl-inline" />
+              <span v-else>{{ startCopy.value3 }}</span>
+            </li>
+          </ul>
+        </div>
+        <div class="intake-start-help">
+          <h2>
+            <input v-if="editingStartLayout" v-model="startCopyDraft.helpTitle" class="ajl-inline" />
+            <span v-else>{{ startCopy.helpTitle }}</span>
+          </h2>
+          <p>
+            <input v-if="editingStartLayout" v-model="startCopyDraft.helpBody" class="ajl-inline" />
+            <span v-else>{{ startCopy.helpBody }}</span>
+          </p>
+          <a v-if="splashContactTel" class="intake-start-help-line" :href="`tel:${splashContactTel}`">{{ splashContactPhone }}</a>
+          <a v-if="splashContactEmail" class="intake-start-help-line" :href="`mailto:${splashContactEmail}`">{{ splashContactEmail }}</a>
+          <button type="button" class="intake-start-help-btn" @click="openSplashSupportModal">
+            <input v-if="editingStartLayout" v-model="startCopyDraft.sendMessage" class="ajl-inline" @click.stop />
+            <span v-else>{{ startCopy.sendMessage }}</span>
+          </button>
+        </div>
+      </div>
+    </template>
     <template #header-left>
       <button
         v-if="showIntakeBackButton"
@@ -36,10 +94,18 @@
         class="df-btn df-btn-secondary intake-back-btn"
         @click="goBackPublicPage"
       >
-        {{ t('back') }}
+        {{ isOfficeInDepthIntake && step === 0.5 ? t('backToWelcome') : t('back') }}
+      </button>
+      <button
+        v-if="!isOfficeInDepthIntake && (step === 1 || step === 2)"
+        type="button"
+        class="df-btn df-btn-secondary intake-save-later-btn"
+        @click="saveAndComeBackLater"
+      >
+        {{ t('saveAndComeBackLater') }}
       </button>
     </template>
-    <div v-if="loading" class="df-loading">{{ loadingText }}</div>
+    <div v-if="showFullPageLoading" class="df-loading">{{ loadingText }}</div>
     <div v-else-if="fatalError" class="df-fatal error">{{ fatalError }}</div>
 
     <div v-else class="intake-card" :class="{ 'intake-card--job-landing': isJobApplication && step === -1 }">
@@ -49,7 +115,7 @@
         <button type="button" class="intake-inline-error-dismiss" @click="error = ''">&#10005;</button>
       </div>
       <button
-        v-if="isSuperAdmin && !(isJobApplication && step === -1)"
+        v-if="canBypassIntakeRequired && !(isJobApplication && step === -1)"
         class="btn btn-secondary btn-sm dev-fill-button"
         type="button"
         @click="fillExample"
@@ -292,15 +358,91 @@
       </div>
 
       <div v-else-if="step === 0.5 && isOfficeInDepthIntake" class="step intake-start-page">
-        <div class="intake-start-card">
-          <div class="ai-pathway-badge">{{ publicPacketBadge }}</div>
-          <h1 class="ai-page-title">{{ t('letsGetIntakeStarted') }}</h1>
-          <p class="ai-page-lead">{{ t('letsGetIntakeStartedLead') }}</p>
+        <link rel="stylesheet" :href="JOIN_FONT_HREF" />
+        <div v-if="canEditOfficeStart" class="intake-start-editbar">
+          <template v-if="!editingStartLayout">
+            <button type="button" class="ajl-edit-btn" @click="startOfficeStartEdit">Edit this page</button>
+          </template>
+          <template v-else>
+            <button type="button" class="ajl-edit-btn ajl-edit-btn--ghost" @click="cancelOfficeStartEdit">Cancel</button>
+            <button type="button" class="ajl-edit-btn" :disabled="savingStartLayout" @click="saveOfficeStartLayout">
+              {{ savingStartLayout ? 'Saving…' : 'Save' }}
+            </button>
+            <span class="intake-start-edit-hint">Click a line to edit it. Drag Welcome, the note, or the card to place them.</span>
+          </template>
+          <span v-if="startLayoutError" class="intake-start-edit-error">{{ startLayoutError }}</span>
+          <span v-if="startLayoutOk" class="intake-start-edit-ok">{{ startLayoutOk }}</span>
+        </div>
+        <div
+          v-if="startCopy.welcomeTitle || editingStartLayout"
+          class="intake-start-welcome-block"
+          :class="{ 'intake-start-block--editing': editingStartLayout }"
+          :style="officeStartWelcomeStyle"
+          @mousedown="editingStartLayout && startOfficeBlockDrag('welcome', $event)"
+        >
+          <button
+            v-if="editingStartLayout"
+            type="button"
+            class="ajl-drag"
+            @mousedown.stop="startOfficeBlockDrag('welcome', $event)"
+          >Move</button>
+          <p class="intake-start-welcome-title">
+            <input v-if="editingStartLayout" v-model="startCopyDraft.welcomeTitle" class="ajl-inline ajl-inline--welcome" />
+            <span v-else>{{ startCopy.welcomeTitle }}</span>
+          </p>
+        </div>
+        <div
+          v-if="startCopy.welcomeGlad || editingStartLayout"
+          class="intake-start-glad-block"
+          :class="{ 'intake-start-block--editing': editingStartLayout }"
+          :style="officeStartGladStyle"
+          @mousedown="editingStartLayout && startOfficeBlockDrag('glad', $event)"
+        >
+          <button
+            v-if="editingStartLayout"
+            type="button"
+            class="ajl-drag"
+            @mousedown.stop="startOfficeBlockDrag('glad', $event)"
+          >Move</button>
+          <p class="intake-start-welcome-glad">
+            <input v-if="editingStartLayout" v-model="startCopyDraft.welcomeGlad" class="ajl-inline" />
+            <span v-else>{{ startCopy.welcomeGlad }}</span>
+          </p>
+        </div>
+        <div
+          class="intake-start-card"
+          :class="{ 'intake-start-card--editing': editingStartLayout }"
+          :style="officeStartCardStyle"
+          @mousedown="editingStartLayout && startOfficeBlockDrag('card', $event)"
+        >
+          <button
+            v-if="editingStartLayout"
+            type="button"
+            class="ajl-drag"
+            @mousedown.stop="startOfficeBlockDrag('card', $event)"
+          >Move</button>
+          <div
+            v-if="editingStartLayout"
+            class="ajl-resize ajl-resize--e"
+            @mousedown.stop="startOfficeStartResize($event)"
+          />
+          <div class="intake-start-heart" aria-hidden="true">♡</div>
+          <h1 class="ai-page-title">
+            <input v-if="editingStartLayout" v-model="startCopyDraft.startTitle" class="ajl-inline" @mousedown.stop />
+            <span v-else>{{ startCopy.startTitle }}</span>
+          </h1>
+          <p class="ai-page-lead">
+            <textarea v-if="editingStartLayout" v-model="startCopyDraft.startLead" class="ajl-inline ajl-inline--area" rows="2" @mousedown.stop />
+            <span v-else>{{ startCopy.startLead }}</span>
+          </p>
           <div v-if="whoForError" class="error" style="margin-bottom: 12px;">{{ whoForError }}</div>
 
           <div class="intake-start-grid">
             <section class="intake-start-col">
-              <h2 class="intake-start-col-title">{{ t('whoIsThisForTitle') }}</h2>
+              <h2 class="intake-start-col-title">
+                <span class="intake-start-col-num">1.</span>
+                {{ t('whoIsThisForTitle') }}
+              </h2>
               <div class="intake-who-stack">
                 <button
                   type="button"
@@ -323,8 +465,11 @@
               </div>
             </section>
             <section class="intake-start-col">
-              <h2 class="intake-start-col-title">{{ t('whatYoullNeed') }}</h2>
-              <ul class="intake-start-list">
+              <h2 class="intake-start-col-title">
+                <span class="intake-start-col-num">2.</span>
+                {{ t('whatYoullNeed') }}
+              </h2>
+              <ul class="intake-start-list intake-start-list--checks">
                 <li>{{ t('needContactInfo') }}</li>
                 <li>{{ t('needInsurance') }}</li>
                 <li>{{ t('needSchoolProvider') }}</li>
@@ -332,8 +477,11 @@
               </ul>
             </section>
             <section class="intake-start-col">
-              <h2 class="intake-start-col-title">{{ t('whatToExpect') }}</h2>
-              <ul class="intake-start-list">
+              <h2 class="intake-start-col-title">
+                <span class="intake-start-col-num">3.</span>
+                {{ t('whatToExpect') }}
+              </h2>
+              <ul class="intake-start-list intake-start-list--checks">
                 <li>{{ t('expectTime') }}</li>
                 <li>{{ t('expectSecure') }}</li>
                 <li>{{ t('expectSaveReturn') }}</li>
@@ -341,33 +489,87 @@
             </section>
           </div>
 
-          <h2 class="intake-start-basics-title">{{ t('letsStartWithBasics') }}</h2>
+          <h2 class="intake-start-basics-title">
+            <span class="intake-start-basics-icon" aria-hidden="true">👤</span>
+            {{ t('letsStartWithBasics') }}
+          </h2>
           <div class="form-grid intake-identity-grid">
-            <div class="form-group form-group--span-4">
+            <div class="form-group form-group--span-3">
               <label>{{ t('yourFirstName') }} <span class="required-indicator">*</span></label>
               <input id="guardianFirstName" v-model="guardianFirstName" type="text" :class="{ 'input-error': !!consentErrors.guardianFirstName }" />
             </div>
-            <div class="form-group form-group--span-4">
+            <div class="form-group form-group--span-3">
               <label>{{ t('yourLastName') }} <span class="required-indicator">*</span></label>
               <input id="guardianLastName" v-model="guardianLastName" type="text" :class="{ 'input-error': !!consentErrors.guardianLastName }" />
             </div>
-            <div class="form-group form-group--span-4">
+            <div class="form-group form-group--span-3">
               <label>{{ intakeForSelf === false ? t('childDateOfBirth') : t('dateOfBirth') }} <span class="required-indicator">*</span></label>
               <input id="starterDob" v-model="starterDob" type="date" :class="{ 'input-error': !!consentErrors.starterDob }" />
             </div>
-            <div class="form-group form-group--span-4">
+            <div v-if="intakeForSelf === false" class="form-group form-group--span-3">
+              <label>{{ t('relationshipToClient') }} <span class="required-indicator">*</span></label>
+              <select
+                id="guardianRelationship"
+                v-model="guardianRelationship"
+                :class="{ 'input-error': !!consentErrors.guardianRelationship }"
+              >
+                <option value="">{{ t('selectRelationship') }}</option>
+                <option value="Parent">{{ t('relationshipParent') }}</option>
+                <option value="Legal guardian">{{ t('relationshipLegalGuardian') }}</option>
+                <option value="Step-parent">{{ t('relationshipStepParent') }}</option>
+                <option value="Grandparent">{{ t('relationshipGrandparent') }}</option>
+                <option value="Other">{{ t('relationshipOther') }}</option>
+              </select>
+            </div>
+            <div v-else class="form-group form-group--span-3">
               <label>{{ t('yourPhone') }} <span class="required-indicator">*</span></label>
               <input id="guardianPhone" v-model="guardianPhone" type="tel" :class="{ 'input-error': !!consentErrors.guardianPhone }" />
             </div>
-            <div class="form-group form-group--span-8">
+            <template v-if="intakeForSelf === false">
+              <div class="form-group form-group--span-3">
+                <label>{{ t('childFirstName') }} <span class="required-indicator">*</span></label>
+                <input
+                  id="clientFirstName_0"
+                  v-model="clients[0].firstName"
+                  type="text"
+                  :class="{ 'input-error': !!consentErrors.clientFirstName }"
+                />
+              </div>
+              <div class="form-group form-group--span-3">
+                <label>{{ t('childLastName') }} <span class="required-indicator">*</span></label>
+                <input
+                  id="clientLastName_0"
+                  v-model="clients[0].lastName"
+                  type="text"
+                  :class="{ 'input-error': !!consentErrors.clientLastName }"
+                />
+              </div>
+              <div class="form-group form-group--span-3">
+                <label>{{ t('yourPhone') }} <span class="required-indicator">*</span></label>
+                <input id="guardianPhone" v-model="guardianPhone" type="tel" :class="{ 'input-error': !!consentErrors.guardianPhone }" />
+              </div>
+            </template>
+            <div class="form-group" :class="intakeForSelf === false ? 'form-group--span-3' : 'form-group--span-12'">
               <label>{{ t('yourEmail') }} <span class="required-indicator">*</span></label>
               <input id="guardianEmail" v-model="guardianEmail" type="email" :class="{ 'input-error': !!consentErrors.guardianEmail }" />
             </div>
-            <div v-if="intakeForSelf === false" class="form-group form-group--span-4">
-              <label>{{ t('relationship') }} <span class="required-indicator">*</span></label>
-              <input id="guardianRelationship" v-model="guardianRelationship" type="text" :placeholder="t('relationshipPlaceholder')" :class="{ 'input-error': !!consentErrors.guardianRelationship }" />
-            </div>
           </div>
+
+          <button
+            type="button"
+            class="df-btn df-btn-primary intake-start-continue"
+            :disabled="consentLoading"
+            @click="continueWhoFor"
+          >
+            {{ consentLoading ? t('saving') : t('continueToIntakePacket') }}
+            <span aria-hidden="true"> →</span>
+          </button>
+          <p class="intake-start-support">
+            {{ t('needHelp') }}
+            <button type="button" class="intake-start-support-link" @click="openSplashSupportModal">
+              {{ t('contactSupportLink') }}
+            </button>
+          </p>
         </div>
       </div>
 
@@ -934,7 +1136,7 @@
           class="intake-child-banner"
         >{{ currentChildBanner }}</p>
         <p
-          v-if="currentFlowStepHelperText"
+          v-if="showInterviewPageLead"
           class="ai-page-lead"
         >{{ currentFlowStepHelperText }}</p>
         <DigitalFormNotice
@@ -962,6 +1164,7 @@
           class="smart-disclosure-step"
         >
           <SmartDisclosureFlow
+            ref="smartDisclosureFlowRef"
             :public-key="publicKey"
             :session-token="sessionToken"
             :submission-id="submissionId"
@@ -969,8 +1172,10 @@
             :link="link"
             :bound-client="boundClient"
             :locale="intakeLocale"
+            :saved-capture="embeddedSmartDisclosure"
             mode="embedded"
             @captured="handleEmbeddedDisclosureCaptured"
+            @back="goBackPublicPage"
           />
         </div>
         <div
@@ -978,7 +1183,9 @@
           class="packet-section-step"
         >
           <PacketSectionConsentFlow
+            ref="packetSectionFlowRef"
             :section-context="packetSectionContextForStep(currentFlowStep)"
+            :saved-capture="currentPacketSavedCapture"
             :locale="intakeLocale"
             @captured="handleEmbeddedPacketSectionCaptured"
           />
@@ -1161,6 +1368,7 @@
             :pulse-emergency="emergencyPulse"
             :validation-errors="guardianWaiverErrors"
             :translations="stringTranslations"
+            @signed="onSigned"
           />
         </div>
 
@@ -1343,14 +1551,22 @@
               <span v-if="demographicsErrors.dob" class="field-error">{{ tx('Required') }}</span>
             </div>
             <div v-if="currentFlowStep.showGender" class="form-group">
-              <label>{{ tx('Gender') }}</label>
-              <select v-model="demographicsData.gender">
-                <option value="">{{ tx('Prefer not to say') }}</option>
-                <option value="male">{{ tx('Male') }}</option>
-                <option value="female">{{ tx('Female') }}</option>
-                <option value="nonbinary">{{ tx('Non-binary') }}</option>
-                <option value="other">{{ tx('Other / self-describe') }}</option>
-              </select>
+              <label>{{ tx('Sex') }}</label>
+              <div class="intake-sex-row">
+                <select v-model="demographicsData.gender">
+                  <option value="">{{ tx('Select…') }}</option>
+                  <option value="male">{{ tx('Male') }}</option>
+                  <option value="female">{{ tx('Female') }}</option>
+                </select>
+                <button type="button" class="intake-sex-plus" :aria-expanded="demographicsPlusOpen" @click="demographicsPlusOpen = !demographicsPlusOpen">+</button>
+              </div>
+              <input
+                v-if="demographicsPlusOpen"
+                v-model="demographicsData.preferredCalled"
+                type="text"
+                class="intake-sex-plus-input"
+                :placeholder="tx('If you want to be called something different, write it here')"
+              />
             </div>
             <div v-if="currentFlowStep.showEthnicity" class="form-group">
               <label>{{ tx('Race / Ethnicity') }}</label>
@@ -1417,7 +1633,7 @@
               <div
                 v-else-if="row.field"
                 class="form-group"
-                :class="[intakeFieldGridSpan(row.field), { 'required-missing-glow': isQuestionFieldMissing(row.field) }]"
+                :class="[intakeFieldGridSpan(row.field), { 'required-missing-glow': isQuestionFieldMissing(row.field), 'question-soft-skip': isQuestionFieldSoftSkip(row.field) }]"
                 :data-question-key="row.field.key"
               >
                 <IntakeQuestionField
@@ -1432,6 +1648,21 @@
                   name-prefix="q_"
                   @update:model-value="(v) => { questionValues[row.field.key] = v; }"
                 />
+                <div v-if="isSexField(row.field)" class="intake-sex-plus-wrap">
+                  <button
+                    type="button"
+                    class="intake-sex-plus"
+                    :aria-expanded="!!sexPlusOpen[plusKeyForSexField(row.field)]"
+                    @click="toggleSexPlus(plusKeyForSexField(row.field))"
+                  >+</button>
+                  <input
+                    v-if="sexPlusOpen[plusKeyForSexField(row.field)]"
+                    v-model="questionValues[plusKeyForSexField(row.field)]"
+                    type="text"
+                    class="intake-sex-plus-input"
+                    :placeholder="tx('If you want to be called something different, write it here')"
+                  />
+                </div>
               </div>
             </template>
           </div>
@@ -1665,7 +1896,7 @@
           <!-- Keep SignaturePad available as fallback for environments where typed canvas fails -->
           <details class="signature-fallback" style="margin-top: 10px;">
             <summary class="muted" style="cursor: pointer; font-size: 0.85rem;">Prefer classic draw pad</summary>
-            <SignaturePad compact @signed="onSigned" />
+            <SignaturePad compact :locale="intakeLocale" @signed="onSigned" />
           </details>
         </div>
 
@@ -2055,8 +2286,8 @@
       </div>
     </div>
 
-    <template #footer>
-      <div v-if="showIntakePagerFooter" class="intake-pager-footer">
+    <template v-if="showIntakePagerFooter" #footer>
+      <div class="intake-pager-footer">
         <button
           type="button"
           class="df-btn df-btn-secondary intake-save-later-btn"
@@ -2065,17 +2296,39 @@
           {{ t('saveAndComeBackLater') }}
         </button>
         <span class="intake-pager-meta">{{ intakePagerLabel }}</span>
-        <button
-          type="button"
-          class="df-btn df-btn-primary intake-continue-btn"
-          :disabled="intakePagerPrimaryDisabled"
-          @click="handleIntakePagerContinue"
-        >
-          {{ intakePagerPrimaryLabel }}
-          <span aria-hidden="true">→</span>
-        </button>
+        <div class="intake-pager-actions">
+          <button
+            v-if="showIntakeBackButton && step !== WHO_FOR_STEP"
+            type="button"
+            class="df-btn df-btn-secondary"
+            @click="goBackPublicPage"
+          >
+            {{ t('back') }}
+          </button>
+          <button
+            type="button"
+            class="df-btn df-btn-primary intake-continue-btn"
+            :disabled="intakePagerPrimaryDisabled"
+            @click="handleIntakePagerContinue"
+          >
+            {{ intakePagerPrimaryLabel }}
+            <span aria-hidden="true">→</span>
+          </button>
+        </div>
       </div>
     </template>
+    <div v-if="returnLinkOpen" class="intake-return-modal" role="dialog" aria-modal="true">
+      <div class="intake-return-card">
+        <h3>{{ t('copyReturnLinkTitle') }}</h3>
+        <p>{{ t('copyReturnLinkBody') }}</p>
+        <p class="intake-return-hipaa">{{ t('copyReturnLinkHipaa') }}</p>
+        <input :value="returnLinkUrl" type="text" readonly class="intake-return-url" @focus="$event.target.select()" />
+        <div class="intake-return-actions">
+          <button type="button" class="df-btn df-btn-primary" @click="copyReturnLink">{{ returnLinkCopied ? t('copied') : t('copyTemporaryLink') }}</button>
+          <button type="button" class="df-btn df-btn-secondary" @click="returnLinkOpen = false">{{ t('close') }}</button>
+        </div>
+      </div>
+    </div>
   </DigitalFormShell>
 
 </template>
@@ -2117,6 +2370,14 @@ import {
 import { localizePublicIntakeTitle } from '../utils/publicIntakeTitle.js';
 import { publicIntakeDescription } from '../utils/publicIntakeCopy.js';
 import {
+  JOIN_FONT_HREF,
+  JOIN_BOOT_THEME_URL,
+  mergeIntakeStartLayout,
+  localizeOfficeStartCopy,
+  readJoinLandingCache,
+  writeJoinLandingCache
+} from '../utils/joinLandingTemplate.js';
+import {
   matchesShowIf,
   mergeShowIfValues,
   isCheckboxGroupField,
@@ -2143,6 +2404,12 @@ import {
   isActuallyTranslated
 } from '../utils/intakeFieldSpanish.js';
 import { groupIntakeFieldsForAdaptiveShell } from '../utils/adaptiveIntakeFieldAdapter.js';
+import {
+  isContactOrDemographicField,
+  isSexField,
+  normalizeIntakeSexFields,
+  plusKeyForSexField
+} from '../utils/intakeSexField.js';
 
 const JOB_LANDING_ICON_PATHS = {
   school: [
@@ -2247,6 +2514,7 @@ const INTAKE_TRANSLATIONS = {
     previous: 'Previous',
     next: 'Next',
     back: '← Back',
+    backToWelcome: '← Back to welcome',
     cancelDelete: 'Cancel & delete',
     restart: 'Restart',
     completed: 'Completed',
@@ -2289,7 +2557,26 @@ const INTAKE_TRANSLATIONS = {
     chooseWhoForToContinue: 'Please choose whether you are completing this for yourself or someone else.',
     letsStartWithBasics: "Let's start with some basics.",
     letsGetIntakeStarted: "Let's get your intake started",
-    letsGetIntakeStartedLead: 'This starts a secure intake packet. We only need a few details to create your session.',
+    letsGetIntakeStartedLead: 'This secure intake packet helps our care team understand your needs and prepare the best support for you. You can save your progress anytime.',
+    yourFamily: 'Your family',
+    hipaaProtected: 'HIPAA Protected',
+    hipaaProtectedDetail: 'Your health information is kept safe and confidential.',
+    yourInfoSecure: 'Your information is secure',
+    yourInfoSecureDetail: 'We use industry-standard encryption and safeguards.',
+    onlyTakesMinutes: 'Only takes a few minutes',
+    saveAndReturnLater: 'Save and return later',
+    saveAndReturnLaterDetail: 'Your progress is saved as you go.',
+    realPeopleRealSupport: 'Real People. Real Support.',
+    relationshipToClient: 'Relationship to client',
+    selectRelationship: 'Select relationship',
+    relationshipParent: 'Parent',
+    relationshipLegalGuardian: 'Legal guardian',
+    relationshipStepParent: 'Step-parent',
+    relationshipGrandparent: 'Grandparent',
+    relationshipOther: 'Other',
+    childFirstName: "Child's first name",
+    childLastName: "Child's last name",
+    contactSupportLink: 'Contact support.',
     whatYoullNeed: "What you'll need",
     needContactInfo: 'Contact information',
     needInsurance: 'Insurance card (if applicable)',
@@ -2305,7 +2592,15 @@ const INTAKE_TRANSLATIONS = {
     whyWeAskWhoFor: 'So we can prepare the right packet — your answers stay private either way.',
     whyWeAskBasics: 'Just the essentials so we can reach you and match the right care.',
     saveAndComeBackLater: 'Save & Come Back Later',
-    progressSavedComeBack: 'Progress saved on this device. Use this same link to pick up where you left off.',
+    progressSavedComeBack: 'Progress saved securely. Use this same link to pick up where you left off.',
+    copyReturnLinkTitle: 'Copy your temporary return link',
+    copyReturnLinkBody: 'This private link lets you finish this intake on this or another device for the next 24 hours. After that, the unfinished packet is deleted and you will need to start over.',
+    copyReturnLinkHipaa: 'Do not post this link, email it to a shared inbox, or text it to someone else. Anyone with the link can see the health information you have entered. We do not store this packet in your browser.',
+    copyTemporaryLink: 'Copy temporary link',
+    copied: 'Copied',
+    close: 'Close',
+    skipEmptyConfirm: 'Some questions are still empty. Are you sure you want to skip them and move to the next page?',
+    skipEmptyContinue: 'Skip and continue',
     personalizedCare: 'Personalized Care',
     personalizedCareBody: 'Your answers help us match format, timing, and the right clinician.',
     privateAndSecure: 'Private & Secure',
@@ -2441,7 +2736,7 @@ const INTAKE_TRANSLATIONS = {
     endSessionConfirm: 'End this session and clear this intake from this browser?',
     unableToStartSession: 'Unable to start a new intake session. Please try again.',
     dailyLimitReached: 'Daily intake start limit reached. Please try again tomorrow.',
-    draftRestored: 'Draft restored from this browser session (saved within the last hour).',
+    draftRestored: 'Picking up your saved progress.',
     beginSubtitleRegistration: 'Register for one program, class, or event from this secure link. Some links let you choose from multiple options.',
     beginSubtitleProgramEnrollment:
       'Enroll in an individual program or service from this secure link. This is for becoming a client — not for signing up for a group class or dated event unless your provider included that here.',
@@ -2473,6 +2768,7 @@ const INTAKE_TRANSLATIONS = {
     previous: 'Anterior',
     next: 'Siguiente',
     back: '← Atrás',
+    backToWelcome: '← Volver al inicio',
     cancelDelete: 'Cancelar y eliminar',
     restart: 'Reiniciar',
     completed: 'Completado',
@@ -2515,7 +2811,26 @@ const INTAKE_TRANSLATIONS = {
     chooseWhoForToContinue: 'Elija si lo completa para usted o para otra persona.',
     letsStartWithBasics: 'Empecemos con lo básico.',
     letsGetIntakeStarted: 'Empecemos su admisión',
-    letsGetIntakeStartedLead: 'Esto inicia un paquete seguro. Solo necesitamos unos datos para crear su sesión.',
+    letsGetIntakeStartedLead: 'Este paquete seguro de admisión ayuda a nuestro equipo a entender sus necesidades y preparar el mejor apoyo. Puede guardar su progreso en cualquier momento.',
+    yourFamily: 'Su familia',
+    hipaaProtected: 'Protegido por HIPAA',
+    hipaaProtectedDetail: 'Su información de salud se mantiene segura y confidencial.',
+    yourInfoSecure: 'Su información está segura',
+    yourInfoSecureDetail: 'Usamos cifrado y protecciones de estándar industrial.',
+    onlyTakesMinutes: 'Solo toma unos minutos',
+    saveAndReturnLater: 'Guarde y vuelva más tarde',
+    saveAndReturnLaterDetail: 'Su progreso se guarda a medida que avanza.',
+    realPeopleRealSupport: 'Personas reales. Apoyo real.',
+    relationshipToClient: 'Parentesco con el cliente',
+    selectRelationship: 'Seleccione el parentesco',
+    relationshipParent: 'Padre / Madre',
+    relationshipLegalGuardian: 'Tutor legal',
+    relationshipStepParent: 'Padrastro / Madrastra',
+    relationshipGrandparent: 'Abuelo / Abuela',
+    relationshipOther: 'Otro',
+    childFirstName: 'Nombre del niño',
+    childLastName: 'Apellido del niño',
+    contactSupportLink: 'Contactar a soporte.',
     whatYoullNeed: 'Qué va a necesitar',
     needContactInfo: 'Información de contacto',
     needInsurance: 'Tarjeta de seguro (si aplica)',
@@ -2531,7 +2846,15 @@ const INTAKE_TRANSLATIONS = {
     whyWeAskWhoFor: 'Así preparamos el paquete correcto. Sus respuestas se mantienen privadas.',
     whyWeAskBasics: 'Solo lo esencial para poder contactarle y asignar el cuidado adecuado.',
     saveAndComeBackLater: 'Guardar y volver más tarde',
-    progressSavedComeBack: 'Progreso guardado en este dispositivo. Use el mismo enlace para continuar.',
+    progressSavedComeBack: 'Progreso guardado de forma segura. Use el mismo enlace para continuar.',
+    copyReturnLinkTitle: 'Copie su enlace temporal de regreso',
+    copyReturnLinkBody: 'Este enlace privado le permite terminar esta admisión en este u otro dispositivo durante las próximas 24 horas. Después, el paquete incompleto se elimina y tendrá que empezar de nuevo.',
+    copyReturnLinkHipaa: 'No publique este enlace, no lo envíe a una bandeja compartida ni lo reenvíe a otra persona. Quien tenga el enlace puede ver la información de salud que usted escribió. No guardamos este paquete en el navegador.',
+    copyTemporaryLink: 'Copiar enlace temporal',
+    copied: 'Copiado',
+    close: 'Cerrar',
+    skipEmptyConfirm: 'Algunas preguntas siguen vacías. ¿Seguro que quiere omitirlas y pasar a la siguiente página?',
+    skipEmptyContinue: 'Omitir y continuar',
     personalizedCare: 'Cuidado personalizado',
     personalizedCareBody: 'Sus respuestas nos ayudan a elegir formato, horario y el clínico adecuado.',
     privateAndSecure: 'Privado y seguro',
@@ -2620,7 +2943,7 @@ const INTAKE_TRANSLATIONS = {
     guardianLast: 'Apellido del tutor',
     guardianPhone: 'Teléfono del tutor',
     completionEmailFailed: 'Sus documentos se completaron, pero no pudimos enviar el correo de confirmación. Use los botones de descarga a continuación.',
-    draftRestored: 'Borrador restaurado desde esta sesión del navegador (guardado dentro de la última hora).',
+    draftRestored: 'Retomando su progreso guardado.',
     yes: 'Sí',
     no: 'No',
     clinicalIntakeSummary: 'Resumen de admisión clínica',
@@ -2678,6 +3001,7 @@ const authStore = useAuthStore();
 const link = ref(null);
 const step = ref(1);
 const inPageLocale = ref('en');
+const userChoseLocale = ref(false);
 const intakeSteps = computed(() =>
   Array.isArray(link.value?.intake_steps) ? link.value.intake_steps : []
 );
@@ -2691,6 +3015,33 @@ const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCa
 const linkedLanguageSwitching = ref(false);
 
 const spanishQuestionLabelsEnabled = computed(() => spanishQuestionLabelsEnabledFromLink(link.value));
+
+function linkLooksLikeOfficeIntake(l) {
+  if (!l) return false;
+  if (Number(l.inherits_school_master || 0) === 1) return false;
+  const scope = String(l.scope_type || '').toLowerCase();
+  if (scope === 'school') return false;
+  return Number(l.inherits_office_master || 0) === 1 || scope === 'agency';
+}
+
+const looksLikeOfficeIntake = computed(() =>
+  isOfficeInDepthIntake.value
+  || linkLooksLikeOfficeIntake(link.value)
+  || String(publicKey || '').toLowerCase().includes('office-intake')
+);
+
+const canBypassIntakeRequired = computed(() => {
+  if (!authStore.isAuthenticated) return false;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['admin', 'super_admin', 'support', 'staff'].includes(role);
+});
+const isAssistedIntakeSession = computed(() => canBypassIntakeRequired.value);
+
+const showFullPageLoading = computed(() =>
+  loading.value && !looksLikeOfficeIntake.value && !fatalError.value
+);
+
+const storesPhiInBrowser = computed(() => false);
 
 /** Agency-published EN/ES masters overlay this school shell — do not live-translate. */
 const usesSchoolMaster = computed(() => {
@@ -2712,7 +3063,9 @@ const hasInPageSpanish = computed(
 );
 
 const currentFormLanguage = computed(() => {
-  if (hasInPageSpanish.value) return inPageLocale.value === 'es' ? 'es' : 'en';
+  if (linkLooksLikeOfficeIntake(link.value) || hasInPageSpanish.value) {
+    return inPageLocale.value === 'es' ? 'es' : 'en';
+  }
   const code = String(link.value?.language_code || 'en').toLowerCase();
   return code.startsWith('es') ? 'es' : 'en';
 });
@@ -3052,8 +3405,7 @@ const hasLinkedLanguageToggle = computed(() => {
 });
 
 const intakeLocale = computed(() => {
-  // In-page locale takes priority for map-based (non-linked-form) Spanish.
-  if (hasInPageSpanish.value) return inPageLocale.value;
+  if (linkLooksLikeOfficeIntake(link.value) || hasInPageSpanish.value) return inPageLocale.value;
   const code = String(link.value?.language_code || 'en').toLowerCase();
   return code.startsWith('es') ? 'es' : 'en';
 });
@@ -3171,6 +3523,8 @@ const publicPacketBadge = computed(() => {
 
 const boundClient = ref(null);
 const asksWhoFor = computed(() => {
+  if (Number(link.value?.inherits_school_master || 0) === 1) return false;
+  if (linkLooksLikeOfficeIntake(link.value)) return !boundClient.value?.id;
   if (usesSchoolMaster.value) return false;
   const scope = String(link.value?.scope_type || '').toLowerCase();
   if (scope === 'school') return false;
@@ -3183,6 +3537,9 @@ const WHO_FOR_STEP = 0.5;
 
 function goToFirstFormStep() {
   step.value = asksWhoFor.value ? WHO_FOR_STEP : 1;
+  if (asksWhoFor.value && intakeForSelf.value === null) {
+    intakeForSelf.value = true;
+  }
 }
 const beginIntakeButtonText = computed(() => {
   if (formTypeKey.value === 'smart_school_roi') return t('beginIntakeSmartRoi');
@@ -3248,6 +3605,7 @@ const communications = reactive({
 const demographicsData = reactive({
   dob: '',
   gender: '',
+  preferredCalled: '',
   ethnicity: '',
   preferredLanguage: '',
   addressStreet: '',
@@ -3256,6 +3614,17 @@ const demographicsData = reactive({
   addressState: '',
   addressZip: ''
 });
+const demographicsPlusOpen = ref(false);
+const sexPlusOpen = reactive({});
+const skipConfirmActive = ref(false);
+const skipConfirmKeys = ref([]);
+const returnLinkOpen = ref(false);
+const returnLinkCopied = ref(false);
+const smartDisclosureFlowRef = ref(null);
+const packetSectionFlowRef = ref(null);
+function toggleSexPlus(key) {
+  sexPlusOpen[key] = !sexPlusOpen[key];
+}
 const demographicsErrors = reactive({ dob: false });
 
 const autofillDemographicsLocation = async () => {
@@ -3292,7 +3661,17 @@ const interviewShowIfValues = computed(() => {
 
 const visibleClinicalFields = computed(() => {
   if (currentFlowStep.value?.type !== 'clinical_questions') return [];
-  const fields = Array.isArray(currentFlowStep.value?.fields) ? currentFlowStep.value.fields : [];
+  let fields = Array.isArray(currentFlowStep.value?.fields) ? currentFlowStep.value.fields : [];
+  if (!fields.length) {
+    const all = Array.isArray(link.value?.intake_fields) ? link.value.intake_fields : [];
+    const stepId = String(currentFlowStep.value?.id || currentFlowStep.value?.sourceId || '');
+    fields = all.filter((f) => {
+      const sid = String(f?.stepId || f?.step_id || '');
+      if (sid && stepId && sid === stepId) return true;
+      const cat = String(f?.category || '').toLowerCase();
+      return !sid && (cat === 'clinical' || !!f?.instrument);
+    });
+  }
   const values = interviewShowIfValues.value;
   return fields.filter((f) => {
     if (!f?.key) return false;
@@ -3481,9 +3860,272 @@ const isSchoolScopedIntake = computed(() => {
 });
 
 const isOfficeInDepthIntake = computed(() => {
-  if (isSchoolScopedIntake.value || usesSchoolMaster.value) return false;
+  if (isSchoolScopedIntake.value) return false;
+  if (Number(link.value?.inherits_school_master || 0) === 1) return false;
   return Number(link.value?.inherits_office_master || 0) === 1
     || String(link.value?.scope_type || '').toLowerCase() === 'agency';
+});
+
+const joinThemeUrl = ref(JOIN_BOOT_THEME_URL);
+const joinWelcomeTitle = ref('');
+const joinWelcomeGlad = ref('');
+const joinLandingCopy = ref(null);
+const editingStartLayout = ref(false);
+const savingStartLayout = ref(false);
+const startLayoutError = ref('');
+const startLayoutOk = ref('');
+const intakeStartLayout = reactive(mergeIntakeStartLayout(null));
+const startLayoutDraft = reactive(mergeIntakeStartLayout(null));
+const startCopyDraft = reactive({
+  welcomeTitle: '',
+  welcomeGlad: '',
+  sidebarTagline: '',
+  sidebarScript: '',
+  value1: '',
+  value2: '',
+  value3: '',
+  helpTitle: '',
+  helpBody: '',
+  sendMessage: '',
+  startTitle: '',
+  startLead: ''
+});
+let startDragState = null;
+let startResizeState = null;
+let startLayoutOkTimer = null;
+
+function blankStartCopy(source = {}) {
+  const c = source && typeof source === 'object' ? source : {};
+  return {
+    welcomeTitle: String(c.welcomeTitle || joinWelcomeTitle.value || '').trim(),
+    welcomeGlad: String(c.welcomeGlad || joinWelcomeGlad.value || '').trim(),
+    sidebarTagline: String(c.sidebarTagline || 'HEAL • GROW • THRIVE').trim(),
+    sidebarScript: String(c.sidebarScript || "You're Not Alone.").trim(),
+    value1: /non-?judgmental/i.test(c.value1 || '') ? 'Supportive & Welcoming' : String(c.value1 || 'Supportive & Welcoming').trim(),
+    value2: String(c.value2 || 'Personalized to Your Needs').trim(),
+    value3: String(c.value3 || 'Focused on Growth & Well-Being').trim(),
+    helpTitle: String(c.helpTitle || 'Need Help?').trim(),
+    helpBody: String(c.helpBody || "We're here for you.").trim(),
+    sendMessage: String(c.sendMessage || 'Send Us a Message').trim(),
+    startTitle: String(c.startTitle || t('letsGetIntakeStarted')).trim(),
+    startLead: String(c.startLead || t('letsGetIntakeStartedLead')).trim()
+  };
+}
+
+const startCopy = computed(() => (
+  editingStartLayout.value
+    ? { ...startCopyDraft }
+    : localizeOfficeStartCopy(blankStartCopy(joinLandingCopy.value), intakeLocale.value)
+));
+
+const officeScenicSidebarUrl = computed(() => {
+  if (isSchoolScopedIntake.value) return '';
+  if (link.value && !isOfficeInDepthIntake.value) return '';
+  if (!loading.value && step.value !== WHO_FOR_STEP && Number(step.value) > WHO_FOR_STEP) return '';
+  return joinThemeUrl.value || JOIN_BOOT_THEME_URL;
+});
+const officeStartCardStyle = computed(() => {
+  const layout = editingStartLayout.value ? startLayoutDraft : intakeStartLayout;
+  return {
+    transform: `translate(${Number(layout.x) || 0}px, ${Number(layout.y) || 0}px)`,
+    width: `${Number(layout.width) || 860}px`,
+    maxWidth: '100%'
+  };
+});
+const officeStartWelcomeStyle = computed(() => {
+  const layout = editingStartLayout.value ? startLayoutDraft : intakeStartLayout;
+  const pos = layout.welcome || { x: 0, y: 0 };
+  return { transform: `translate(${Number(pos.x) || 0}px, ${Number(pos.y) || 0}px)` };
+});
+const officeStartGladStyle = computed(() => {
+  const layout = editingStartLayout.value ? startLayoutDraft : intakeStartLayout;
+  const pos = layout.glad || { x: 0, y: 0 };
+  return { transform: `translate(${Number(pos.x) || 0}px, ${Number(pos.y) || 0}px)` };
+});
+const officeStartLogoUrl = computed(() => {
+  const existing = String(formBranding.value?.logoUrl || formBranding.value?.agencyLogoUrl || '').trim();
+  if (existing) return existing;
+  return officeLogoFallback.value || '';
+});
+const officeStartAgencyName = computed(() =>
+  String(agencyInfo.value?.official_name || agencyInfo.value?.name || 'Welcome').trim() || 'Welcome'
+);
+const officeStartAgencyInitial = computed(() =>
+  String(officeStartAgencyName.value).trim().charAt(0) || '•'
+);
+const canEditOfficeStart = computed(() => {
+  if (!authStore.isAuthenticated) return false;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'admin' || role === 'super_admin';
+});
+
+function applyJoinChrome(data) {
+  if (!data) return;
+  joinThemeUrl.value = String(data.themeImageUrl || JOIN_BOOT_THEME_URL).trim() || JOIN_BOOT_THEME_URL;
+  joinWelcomeTitle.value = String(data.copy?.welcomeTitle || '').trim();
+  joinWelcomeGlad.value = String(data.copy?.welcomeGlad || '').trim();
+  joinLandingCopy.value = data.copy || null;
+  const next = mergeIntakeStartLayout(data.copy?.intakeStartLayout);
+  Object.assign(intakeStartLayout, next);
+  if (!editingStartLayout.value) {
+    Object.assign(startLayoutDraft, next);
+    Object.assign(startCopyDraft, blankStartCopy(data.copy));
+  }
+}
+
+async function loadOfficeJoinChrome() {
+  const slug = referralAgencySlug.value;
+  if (!slug) return;
+  const serviceType = 'counseling';
+  const cached = readJoinLandingCache(slug, serviceType);
+  if (cached) applyJoinChrome(cached);
+  try {
+    const { data } = await api.get(`/public/adaptive-intake/${encodeURIComponent(slug)}`, {
+      params: { serviceType },
+      skipGlobalLoading: true
+    });
+    applyJoinChrome(data);
+    writeJoinLandingCache(slug, serviceType, data);
+  } catch {
+    /* keep cached / default theme */
+  }
+}
+
+function startOfficeStartEdit() {
+  Object.assign(startLayoutDraft, mergeIntakeStartLayout(intakeStartLayout));
+  Object.assign(startCopyDraft, blankStartCopy(joinLandingCopy.value));
+  editingStartLayout.value = true;
+  startLayoutError.value = '';
+}
+
+function cancelOfficeStartEdit() {
+  editingStartLayout.value = false;
+  Object.assign(startLayoutDraft, mergeIntakeStartLayout(intakeStartLayout));
+  Object.assign(startCopyDraft, blankStartCopy(joinLandingCopy.value));
+}
+
+function startOfficeBlockDrag(key, event) {
+  if (!editingStartLayout.value || event.button !== 0) return;
+  if (event.target?.closest('input, textarea, select, button.intake-start-help-btn, button.intake-start-continue')) return;
+  const layout = startLayoutDraft;
+  const pos = key === 'card' ? layout : (layout[key] || { x: 0, y: 0 });
+  startDragState = {
+    key,
+    x: event.clientX,
+    y: event.clientY,
+    origX: Number(pos.x) || 0,
+    origY: Number(pos.y) || 0
+  };
+  window.addEventListener('mousemove', onOfficeStartDrag);
+  window.addEventListener('mouseup', stopOfficeStartDrag);
+}
+
+function startOfficeStartDrag(event) {
+  startOfficeBlockDrag('card', event);
+}
+
+function onOfficeStartDrag(event) {
+  if (!startDragState) return;
+  const nextX = startDragState.origX + (event.clientX - startDragState.x);
+  const nextY = startDragState.origY + (event.clientY - startDragState.y);
+  if (startDragState.key === 'card') {
+    startLayoutDraft.x = nextX;
+    startLayoutDraft.y = nextY;
+    return;
+  }
+  startLayoutDraft[startDragState.key] = { x: nextX, y: nextY };
+}
+
+function stopOfficeStartDrag() {
+  startDragState = null;
+  window.removeEventListener('mousemove', onOfficeStartDrag);
+  window.removeEventListener('mouseup', stopOfficeStartDrag);
+}
+
+function startOfficeStartResize(event) {
+  if (!editingStartLayout.value) return;
+  startResizeState = {
+    x: event.clientX,
+    origW: Number(startLayoutDraft.width) || 860
+  };
+  window.addEventListener('mousemove', onOfficeStartResize);
+  window.addEventListener('mouseup', stopOfficeStartResize);
+}
+
+function onOfficeStartResize(event) {
+  if (!startResizeState) return;
+  startLayoutDraft.width = Math.min(1200, Math.max(420, startResizeState.origW + (event.clientX - startResizeState.x)));
+}
+
+function stopOfficeStartResize() {
+  startResizeState = null;
+  window.removeEventListener('mousemove', onOfficeStartResize);
+  window.removeEventListener('mouseup', stopOfficeStartResize);
+}
+
+async function saveOfficeStartLayout() {
+  const slug = referralAgencySlug.value;
+  if (!slug) {
+    startLayoutError.value = 'Unable to save this layout.';
+    return;
+  }
+  savingStartLayout.value = true;
+  startLayoutError.value = '';
+  try {
+    const layout = mergeIntakeStartLayout(startLayoutDraft);
+    const existing = { ...(joinLandingCopy.value || {}), ...blankStartCopy(startCopyDraft) };
+    existing.intakeStartLayout = layout;
+    const { data } = await api.patch(`/public/adaptive-intake/${encodeURIComponent(slug)}/landing`, {
+      serviceType: 'counseling',
+      copy: existing
+    }, { skipGlobalLoading: true });
+    Object.assign(intakeStartLayout, layout);
+    joinLandingCopy.value = data?.copy || existing;
+    joinWelcomeTitle.value = String(joinLandingCopy.value?.welcomeTitle || '').trim();
+    joinWelcomeGlad.value = String(joinLandingCopy.value?.welcomeGlad || '').trim();
+    if (data) writeJoinLandingCache(slug, 'counseling', { ...(readJoinLandingCache(slug, 'counseling') || {}), copy: joinLandingCopy.value, themeImageUrl: joinThemeUrl.value });
+    editingStartLayout.value = false;
+    startLayoutOk.value = 'Saved.';
+    if (startLayoutOkTimer) clearTimeout(startLayoutOkTimer);
+    startLayoutOkTimer = setTimeout(() => { startLayoutOk.value = ''; }, 4000);
+  } catch (e) {
+    startLayoutError.value = e?.response?.data?.error?.message || e?.message || 'Could not save.';
+  } finally {
+    savingStartLayout.value = false;
+  }
+}
+const officeStartTrustItems = computed(() => {
+  if (isOfficeInDepthIntake.value || officeScenicSidebarUrl.value) {
+    return [
+      { icon: 'lock', label: t('hipaaProtected'), detail: t('hipaaProtectedDetail') },
+      { icon: 'shield', label: t('yourInfoSecure'), detail: t('yourInfoSecureDetail') },
+      { icon: 'check', label: t('saveAndReturnLater'), detail: t('saveAndReturnLaterDetail') }
+    ];
+  }
+  return [
+    { icon: 'shield', label: t('yourInfoSecure') },
+    { icon: 'lock', label: t('hipaaProtected') },
+    { icon: 'check', label: t('onlyTakesMinutes') }
+  ];
+});
+const officeLogoFallback = computed(() => {
+  const existing = String(formBranding.value?.logoUrl || formBranding.value?.agencyLogoUrl || '').trim();
+  if (existing) return '';
+  if (!officeScenicSidebarUrl.value && !isOfficeInDepthIntake.value) return '';
+  const slug = String(referralAgencySlug.value || '').toLowerCase();
+  if (slug === 'itsco') return '/assets/provider-action/itsco-logo.png';
+  return '';
+});
+const showOfficeStartSupport = computed(
+  () => isOfficeInDepthIntake.value && step.value === WHO_FOR_STEP
+);
+const shellCoverMode = computed(() => {
+  if (fatalError.value) return true;
+  if (isJobApplication.value) return loading.value || step.value < 1;
+  if (isSchoolScopedIntake.value || (link.value && !isOfficeInDepthIntake.value)) {
+    return loading.value || step.value < 1;
+  }
+  return loading.value || step.value <= 0.5;
 });
 
 const showSchoolSplashSupport = computed(
@@ -3665,7 +4307,7 @@ const dfProgressSteps = computed(() => {
       if (!familyAdded && !seen.has('family')) {
         seen.add('family');
         familyAdded = true;
-        steps.push({ id: 'family', label: 'Your family' });
+        steps.push({ id: 'family', label: t('yourFamily') });
       }
       continue;
     }
@@ -3730,7 +4372,9 @@ function jumpToProgressStep(index) {
   const steps = dfProgressSteps.value || [];
   const target = steps[index];
   if (!target) return;
-  const reachable = Math.max(maxReachedProgressIndex.value, dfProgressIndex.value);
+  const reachable = isAssistedIntakeSession.value
+    ? Number.POSITIVE_INFINITY
+    : Math.max(maxReachedProgressIndex.value, dfProgressIndex.value);
   if (index > reachable) return;
   if (target.id === 'complete') return;
   if (target.id === 'who') {
@@ -3936,8 +4580,44 @@ const flowSteps = computed(() => {
         if (s.type === 'communications') return { ...s };
         if (s.type === 'references') return { ...s };
         if (s.type === 'demographics') return { ...s };
-        if (s.type === 'clinical_questions') return { ...s };
-        if (s.type === 'questions') return { ...s };
+        if (s.type === 'clinical_questions' || s.type === 'questions') {
+          const id = String(s.id || s.sourceId || '').toLowerCase();
+          const label = String(s.label || '').toLowerCase();
+          const isQuestionnairePage = s.type === 'clinical_questions'
+            || id.includes('questionnaire')
+            || label.includes('questionnaire');
+          let fields = Array.isArray(s.fields) ? s.fields : [];
+          const hasInstrument = fields.some((f) => {
+            const key = String(f?.key || '').toLowerCase();
+            const instrument = String(f?.instrument || '').toLowerCase();
+            return instrument === 'psc17'
+              || ['phq9', 'gad7', 'auditc', 'dast10', 'pcptsd5', 'asrs', 'mdq'].includes(instrument)
+              || /^(psc|phq|gad|audit|dast|pc_?ptsd|asrs|mdq)[_-]?/i.test(key);
+          });
+          if (isOfficeInDepthIntake.value && isQuestionnairePage && !hasInstrument) {
+            const pack = link.value?.office_questionnaire_fields || {};
+            fields = intakeForSelf.value === false
+              ? (Array.isArray(pack.dependent) ? pack.dependent : [])
+              : (Array.isArray(pack.self) ? pack.self : []);
+          }
+          if (isOfficeInDepthIntake.value && isQuestionnairePage) {
+            const forSelf = intakeForSelf.value === true;
+            fields = fields.filter((f) => {
+              const key = String(f?.key || '').toLowerCase();
+              const instrument = String(f?.instrument || '').toLowerCase();
+              const isPsc = instrument === 'psc17'
+                || key === 'psc17_card'
+                || /^psc[_-]?0*\d{1,2}$/i.test(key);
+              const isAdultScreen = ['phq9', 'gad7', 'auditc', 'dast10', 'pcptsd5', 'asrs', 'mdq'].includes(instrument)
+                || /^(phq|gad|audit|dast|pc_?ptsd|asrs|mdq)_/.test(key);
+              if (forSelf) return !isPsc;
+              if (intakeForSelf.value === false) return !isAdultScreen;
+              return true;
+            });
+          }
+          if (isQuestionnairePage && !fields.length) return null;
+          return { ...s, fields };
+        }
         if (s.type === 'child_review') return { ...s };
         // Swap to the Spanish document template when the user has toggled Spanish
         // and an en→es mapping exists for this step's document.
@@ -3949,7 +4629,7 @@ const flowSteps = computed(() => {
         }
         const template = templates.value.find((t) => Number(t.id) === Number(resolvedTemplateId));
         return { ...s, template, resolvedTemplateId };
-      });
+      }).filter(Boolean);
   }
   return templates.value.map((t) => ({ id: `doc_${t.id}`, type: 'document', template: t }));
 });
@@ -4351,6 +5031,9 @@ const embeddedSmartSchoolRoi = ref(null);
 const embeddedSmartDisclosure = ref(null);
 const embeddedPacketSections = ref({});
 const packetSectionContexts = ref(null);
+const templateHtmlLoads = new Map();
+const packetSectionLoads = new Map();
+let disclosureContextLoad = null;
 const agencyRegistrationCatalog = ref([]);
 
 /**
@@ -4507,7 +5190,10 @@ const intakeRegisteredNames = computed(() => {
 });
 const intakeSuccessEmailMessage = computed(() => {
   if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false) {
-    return "We couldn't send your confirmation email right now — please use the Download buttons below to save your packet.";
+    const to = String(emailDeliveryStatus.value?.to || guardianEmail.value || '').trim();
+    return to
+      ? `Email failed to send to ${to}. You can still view or download your packet below.`
+      : 'Email failed to send. You can still view or download your packet below.';
   }
   const email = String(guardianEmail.value || '').trim();
   if (email) return `A confirmation with your completed documents has been emailed to ${email}.`;
@@ -4678,7 +5364,33 @@ function chooseWhoFor(isSelf) {
 
 function continueWhoFor() {
   if (typeof intakeForSelf.value !== 'boolean') {
-    whoForError.value = t('chooseWhoForToContinue');
+    if (canBypassIntakeRequired.value) {
+      intakeForSelf.value = true;
+    } else {
+      whoForError.value = t('chooseWhoForToContinue');
+      return;
+    }
+  }
+  if (canBypassIntakeRequired.value) {
+    whoForError.value = '';
+    if (!sessionToken.value) {
+      consentLoading.value = true;
+      createIntakeSession()
+        .then((ok) => {
+          if (!ok) {
+            whoForError.value = beginError.value || t('unableToStartSession');
+            consentLoading.value = false;
+            return;
+          }
+          applyStarterDataAndContinue();
+        })
+        .catch((e) => {
+          whoForError.value = e?.response?.data?.error?.message || t('unableToStartSession');
+          consentLoading.value = false;
+        });
+      return;
+    }
+    applyStarterDataAndContinue();
     return;
   }
   consentErrors.guardianFirstName = guardianFirstName.value.trim() ? '' : t('required');
@@ -4689,6 +5401,16 @@ function continueWhoFor() {
   consentErrors.guardianRelationship = intakeForSelf.value === false && !guardianRelationship.value.trim()
     ? t('required')
     : '';
+  if (intakeForSelf.value === false) {
+    if (!clients.value[0] || typeof clients.value[0] !== 'object') {
+      clients.value[0] = { firstName: '', lastName: '' };
+    }
+    consentErrors.clientFirstName = String(clients.value[0].firstName || '').trim() ? '' : t('required');
+    consentErrors.clientLastName = String(clients.value[0].lastName || '').trim() ? '' : t('required');
+  } else {
+    consentErrors.clientFirstName = '';
+    consentErrors.clientLastName = '';
+  }
   if (
     consentErrors.guardianFirstName
     || consentErrors.guardianLastName
@@ -4696,11 +5418,34 @@ function continueWhoFor() {
     || consentErrors.guardianPhone
     || consentErrors.starterDob
     || consentErrors.guardianRelationship
+    || consentErrors.clientFirstName
+    || consentErrors.clientLastName
   ) {
     whoForError.value = t('requiredFields');
     return;
   }
   whoForError.value = '';
+  if (!sessionToken.value) {
+    consentLoading.value = true;
+    createIntakeSession()
+      .then((ok) => {
+        if (!ok) {
+          whoForError.value = beginError.value || t('unableToStartSession');
+          consentLoading.value = false;
+          return;
+        }
+        applyStarterDataAndContinue();
+      })
+      .catch((e) => {
+        whoForError.value = e?.response?.data?.error?.message || t('unableToStartSession');
+        consentLoading.value = false;
+      });
+    return;
+  }
+  applyStarterDataAndContinue();
+}
+
+function applyStarterDataAndContinue() {
   if (intakeForSelf.value) {
     intakeResponses.submission = {
       ...(intakeResponses.submission || {}),
@@ -4715,6 +5460,11 @@ function continueWhoFor() {
     if (!intakeResponses.clients[0] || typeof intakeResponses.clients[0] !== 'object') {
       intakeResponses.clients[0] = {};
     }
+    if (!clients.value[0] || typeof clients.value[0] !== 'object') {
+      clients.value[0] = { firstName: '', lastName: '' };
+    }
+    intakeResponses.clients[0].client_first = clients.value[0].firstName;
+    intakeResponses.clients[0].client_last = clients.value[0].lastName;
     intakeResponses.clients[0].date_of_birth = starterDob.value;
     intakeResponses.clients[0].child_dob = starterDob.value;
     intakeResponses.clients[0].child_date_of_birth = starterDob.value;
@@ -4730,17 +5480,59 @@ function continueWhoFor() {
   submitConsent();
 }
 
-function saveAndComeBackLater() {
+const returnLinkUrl = computed(() => {
+  if (typeof window === 'undefined') return '';
+  const url = new URL(window.location.href);
+  const token = String(sessionToken.value || '').trim();
+  if (token) url.searchParams.set('session', token);
+  return url.toString();
+});
+
+async function saveAndComeBackLater() {
+  if (!sessionToken.value) {
+    try {
+      await createIntakeSession();
+    } catch {
+      startLayoutError.value = '';
+    }
+  }
   persistDraftSnapshot();
-  draftRestoredMessage.value = t('progressSavedComeBack');
-  if (draftRestoredBannerTimer) clearTimeout(draftRestoredBannerTimer);
-  draftRestoredBannerTimer = setTimeout(() => {
-    draftRestoredMessage.value = '';
-  }, 8000);
+  returnLinkCopied.value = false;
+  returnLinkOpen.value = true;
+}
+
+async function copyReturnLink() {
+  const url = returnLinkUrl.value;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url);
+    } else {
+      const el = document.createElement('textarea');
+      el.value = url;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+    }
+    returnLinkCopied.value = true;
+  } catch {
+    returnLinkCopied.value = false;
+  }
 }
 
 function goBackPublicPage() {
   if (step.value === WHO_FOR_STEP) {
+    if (skipBrandingIntro.value) {
+      const slug = referralAgencySlug.value;
+      if (window.history.length > 1) {
+        router.back();
+        return;
+      }
+      if (slug) {
+        router.push(`/join/${encodeURIComponent(slug)}/counseling`);
+        return;
+      }
+    }
     step.value = (!skipBrandingIntro.value && introScreens.value.length) ? 0 : -1;
     return;
   }
@@ -4919,15 +5711,54 @@ const buildDraftSnapshot = () => ({
   })()
 });
 
+let serverProgressTimer = null;
+const buildServerProgressIntakeData = () => ({
+  responses: intakeResponses || {},
+  clients: typeof buildClientPayloads === 'function' ? buildClientPayloads() : (clients.value || []),
+  intakeForSelf: intakeForSelf.value,
+  guardian: {
+    firstName: guardianFirstName.value,
+    lastName: guardianLastName.value,
+    email: guardianEmail.value,
+    phone: guardianPhone.value,
+    relationship: intakeForSelf.value ? 'Self' : guardianRelationship.value,
+    dateOfBirth: starterDob.value
+  },
+  progressStep: step.value,
+  currentFlowIndex: currentFlowIndex.value,
+  progressSnapshot: buildDraftSnapshot()
+});
+
+const saveServerProgress = async () => {
+  const token = String(sessionToken.value || '').trim();
+  if (!token) return;
+  try {
+    await api.post(`/public-intake/${publicKey}/progress`, {
+      sessionToken: token,
+      step: step.value,
+      intakeData: buildServerProgressIntakeData()
+    }, { skipGlobalLoading: true });
+  } catch {
+    /* keep the packet moving; next continue retries */
+  }
+};
+
+const queueServerProgressSave = () => {
+  if (!sessionToken.value) return;
+  if (serverProgressTimer) clearTimeout(serverProgressTimer);
+  serverProgressTimer = setTimeout(() => {
+    saveServerProgress();
+  }, 800);
+};
+
 const persistDraftSnapshot = () => {
   if (isRestoringDraft.value) return;
-  try {
-    const payload = JSON.stringify(buildDraftSnapshot());
-    localStorage.setItem(submissionStorageKey.value, payload);
-    localStorage.setItem(draftStorageKey.value, payload);
-  } catch {
-    // ignore browser storage errors
+  clearPersistedDraft();
+  if (document.visibilityState === 'hidden') {
+    saveServerProgress();
+    return;
   }
+  queueServerProgressSave();
 };
 
 const queueDraftPersist = () => {
@@ -4939,8 +5770,9 @@ const queueDraftPersist = () => {
 };
 
 const persistDraftOnPageExit = () => {
-  // Flush immediately when user backgrounds/leaves to avoid losing recent input.
-  persistDraftSnapshot();
+  if (isRestoringDraft.value) return;
+  clearPersistedDraft();
+  saveServerProgress();
 };
 
 const handleVisibilityDraftPersist = () => {
@@ -4976,8 +5808,8 @@ const syncMobileStepScroll = async () => {
 
 const hasMeaningfulDraftSnapshot = (snapshot) => {
   if (!snapshot || typeof snapshot !== 'object') return false;
-  if (Number(snapshot.step || 0) >= 0.5) return true;
-  if (snapshot.submissionId) return true;
+  if (Number(snapshot.step || 0) >= 1) return true;
+  if (snapshot.submissionId && Number(snapshot.step || 0) >= 1) return true;
   const guardian = snapshot.guardian || {};
   if (
     String(guardian.firstName || '').trim()
@@ -5002,31 +5834,8 @@ const showDraftRestoredBanner = () => {
   }, 7000);
 };
 
-const restoreDraftSnapshot = () => {
-  const tryRead = (key) => {
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  };
-  let parsed = tryRead(submissionStorageKey.value) || tryRead(draftStorageKey.value);
-  if (!parsed || parsed.version !== DRAFT_STORAGE_VERSION) return false;
-  if (!hasMeaningfulDraftSnapshot(parsed)) {
-    clearPersistedDraft();
-    return false;
-  }
-  const savedAtMs = parsed?.savedAt ? new Date(parsed.savedAt).getTime() : 0;
-  if (!savedAtMs || Number.isNaN(savedAtMs) || (Date.now() - savedAtMs) > DRAFT_TTL_MS) {
-    clearPersistedDraft();
-    return false;
-  }
-  if (!sessionToken.value && String(parsed.sessionToken || '').trim()) {
-    sessionToken.value = String(parsed.sessionToken).trim();
-    router.replace({ query: { ...route.query, session: sessionToken.value } }).catch(() => {});
-  }
+const applyDraftSnapshot = (parsed) => {
+  if (!parsed || typeof parsed !== 'object') return false;
   isRestoringDraft.value = true;
   try {
     if (typeof parsed.intakeForSelf === 'boolean') intakeForSelf.value = parsed.intakeForSelf;
@@ -5131,6 +5940,48 @@ const restoreDraftSnapshot = () => {
     return true;
   } finally {
     isRestoringDraft.value = false;
+  }
+};
+
+const restoreDraftSnapshot = () => {
+  clearPersistedDraft();
+  return false;
+};
+
+const restoreServerProgress = async () => {
+  const token = String(sessionToken.value || '').trim();
+  if (!token) return false;
+  try {
+    const { data } = await api.get(`/public-intake/${publicKey}/progress`, {
+      params: { sessionToken: token },
+      skipGlobalLoading: true
+    });
+    if (data?.alreadyCompleted) return false;
+    if (data?.submissionId) submissionId.value = data.submissionId;
+    const intakeData = data?.intakeData && typeof data.intakeData === 'object' ? data.intakeData : null;
+    if (!intakeData) return false;
+    const snapshot = intakeData.progressSnapshot && typeof intakeData.progressSnapshot === 'object'
+      ? intakeData.progressSnapshot
+      : {
+          version: DRAFT_STORAGE_VERSION,
+          step: intakeData.progressStep ?? null,
+          currentFlowIndex: intakeData.currentFlowIndex ?? 0,
+          intakeForSelf: intakeData.intakeForSelf,
+          guardian: {
+            firstName: intakeData.guardian?.firstName,
+            lastName: intakeData.guardian?.lastName,
+            email: intakeData.guardian?.email,
+            phone: intakeData.guardian?.phone,
+            relationship: intakeData.guardian?.relationship,
+            dob: intakeData.guardian?.dateOfBirth || intakeData.guardian?.dob
+          },
+          clients: Array.isArray(intakeData.clients) ? intakeData.clients : [],
+          intakeResponses: intakeData.responses || null
+        };
+    if (!hasMeaningfulDraftSnapshot(snapshot)) return false;
+    return applyDraftSnapshot(snapshot);
+  } catch {
+    return false;
   }
 };
 
@@ -5793,6 +6644,10 @@ const intakeFieldGridSpan = (field) => {
   }
 
   if (type === 'radio') {
+    const instrument = String(field.instrument || '').toLowerCase();
+    if (instrument.includes('psc') || instrument.includes('phq') || instrument.includes('gad') || instrument.includes('vanderbilt') || instrument.includes('scared')) {
+      return 'form-group--span-12';
+    }
     const opts = Array.isArray(field.options) ? field.options : [];
     return opts.length <= 3 ? 'form-group--span-6' : 'form-group--span-12';
   }
@@ -5850,6 +6705,20 @@ const pickOption = (field) => {
   return options[0].value ?? options[0].label ?? '';
 };
 
+const DEV_FIRST_NAMES = ['Maya', 'Elena', 'Noah', 'Priya', 'Caleb', 'Amara', 'Julian', 'Sofia', 'Marcus', 'Leila', 'Owen', 'Nadia', 'Theo', 'Imani'];
+const DEV_LAST_NAMES = ['Reyes', 'Whitaker', 'Nguyen', 'Okoye', 'Patel', 'Brooks', 'Santos', 'Kim', 'Haddad', 'Ellis', 'Vargas', 'Cho'];
+const DEV_CITIES = ['Denver', 'Pueblo', 'Colorado Springs', 'Alamosa', 'Durango'];
+const DEV_ZIPS = ['80202', '81003', '80903', '81101', '81301'];
+const pickDev = (list) => list[Math.floor(Math.random() * list.length)];
+const randomDevPhone = () => `719555${String(1000 + Math.floor(Math.random() * 9000))}`;
+const randomDevDob = (minAge, maxAge) => {
+  const age = minAge + Math.floor(Math.random() * (maxAge - minAge + 1));
+  const year = new Date().getFullYear() - age;
+  const month = String(1 + Math.floor(Math.random() * 12)).padStart(2, '0');
+  const day = String(1 + Math.floor(Math.random() * 28)).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const fillValueByField = (field) => {
   const key = normalizeKey(field?.key);
   const label = normalizeKey(field?.label);
@@ -5857,50 +6726,82 @@ const fillValueByField = (field) => {
   if (field?.type === 'checkbox') return true;
   if (field?.type === 'select' || field?.type === 'radio') return pickOption(field);
   if (field?.type === 'date') return '2012-01-01';
-  if (token.includes('zip') || token.includes('postal')) return '80202';
-  if (token.includes('city')) return 'Denver';
+  if (token.includes('zip') || token.includes('postal')) return pickDev(DEV_ZIPS);
+  if (token.includes('city')) return pickDev(DEV_CITIES);
   if (token.includes('state')) return 'CO';
-  if (token.includes('email')) return 'test.parent@example.com';
-  if (token.includes('phone')) return '3035550123';
-  if (token.includes('dob') || token.includes('birth')) return '2012-01-01';
-  return 'Example';
+  if (token.includes('email')) return `${pickDev(DEV_FIRST_NAMES).toLowerCase()}.${pickDev(DEV_LAST_NAMES).toLowerCase()}${Math.floor(Math.random() * 90)}@example.com`;
+  if (token.includes('phone')) return randomDevPhone();
+  if (token.includes('dob') || token.includes('birth')) return randomDevDob(7, 14);
+  return pickDev([
+    'Sleep has been off for a few weeks and mornings are harder.',
+    'Worry shows up most at bedtime and before tests or appointments.',
+    'A calmer evening routine helped a little, but the big feelings are still there.',
+    'Family wants support after a recent move and some school stress.',
+    'Concentration drops in the afternoon and homework takes much longer.',
+    'Relationships at home are mostly steady, with more arguments than usual this month.'
+  ]);
 };
 
-const fillFields = (fields, target) => {
+const fillFields = (fields, target, overwrite = false) => {
   (fields || []).forEach((field) => {
     if (!field || field.type === 'info') return;
-    if (target[field.key]) return;
+    if (!overwrite && target[field.key]) return;
     target[field.key] = fillValueByField(field);
   });
 };
 
 const fillExample = () => {
-  if (step.value === 1) {
-    guardianFirstName.value = guardianFirstName.value || 'Alex';
-    guardianLastName.value = guardianLastName.value || 'Jordan';
-    guardianEmail.value = guardianEmail.value || 'alex.jordan@example.com';
-    guardianPhone.value = guardianPhone.value || '3035550123';
-    guardianRelationship.value = guardianRelationship.value || 'Parent';
-    if (!clients.value.length) {
-      clients.value = [{ firstName: '', lastName: '' }];
-      intakeResponses.clients = [{}];
-    }
-    if (!intakeForSelf.value) {
-      clients.value.forEach((c, idx) => {
-        c.firstName = c.firstName || `Client${idx + 1}`;
-        c.lastName = c.lastName || 'Example';
-      });
-    }
-    fillFields(visibleGuardianFields.value, intakeResponses.guardian);
-    fillFields(visibleSubmissionFields.value, intakeResponses.submission);
+  const first = pickDev(DEV_FIRST_NAMES);
+  const last = pickDev(DEV_LAST_NAMES);
+  const childFirst = pickDev(DEV_FIRST_NAMES.filter((n) => n !== first));
+  const suffix = String(10 + Math.floor(Math.random() * 89));
+  guardianFirstName.value = first;
+  guardianLastName.value = last;
+  guardianEmail.value = `${first}.${last}${suffix}@example.com`.toLowerCase();
+  guardianPhone.value = randomDevPhone();
+  guardianRelationship.value = pickDev(['Parent', 'Legal guardian', 'Grandparent']);
+  starterDob.value = intakeForSelf.value === false ? randomDevDob(6, 16) : randomDevDob(23, 52);
+  if (!clients.value.length) {
+    clients.value = [{ firstName: '', lastName: '' }];
+    intakeResponses.clients = [{}];
+  }
+  if (intakeForSelf.value === false) {
+    clients.value.forEach((c) => {
+      c.firstName = childFirst;
+      c.lastName = last;
+    });
+  }
+  if (step.value === WHO_FOR_STEP || step.value === 1) {
+    fillFields(visibleGuardianFields.value, intakeResponses.guardian, true);
+    fillFields(visibleSubmissionFields.value, intakeResponses.submission, true);
     clients.value.forEach((_, idx) => {
-      fillFields(visibleClientFields(idx), intakeResponses.clients[idx]);
+      fillFields(visibleClientFields(idx), intakeResponses.clients[idx], true);
     });
   } else if (step.value === 2) {
     if (currentFlowStep.value?.type === 'questions') {
-      fillFields(visibleQuestionFields.value, questionValues.value);
+      fillFields(visibleQuestionFields.value, questionValues.value, true);
+    } else if (currentFlowStep.value?.type === 'clinical_questions') {
+      fillFields(visibleClinicalFields.value, clinicalResponses, true);
     } else if (currentFlowStep.value?.type === 'document') {
-      fillFields(visibleFieldDefinitions.value, currentFieldValues.value);
+      fillFields(visibleFieldDefinitions.value, currentFieldValues.value, true);
+    }
+    for (const s of flowSteps.value || []) {
+      const fields = Array.isArray(s?.fields) ? s.fields : [];
+      if (!fields.length) continue;
+      if (s.type === 'clinical_questions') {
+        fillFields(fields, clinicalResponses, true);
+        continue;
+      }
+      if (s.type !== 'questions') continue;
+      const idx = Number.isInteger(s.clientIndex) ? s.clientIndex : null;
+      if (idx != null) {
+        if (!intakeResponses.clients[idx]) intakeResponses.clients[idx] = {};
+        fillFields(fields, intakeResponses.clients[idx], true);
+      } else if (String(s.audience || '') === 'guardian') {
+        fillFields(fields, intakeResponses.guardian, true);
+      } else {
+        fillFields(fields, intakeResponses.submission, true);
+      }
     }
   }
 };
@@ -5928,17 +6829,21 @@ const loadPdfPreview = async () => {
 const loadLink = async () => {
   try {
     loading.value = true;
+    templateHtmlLoads.clear();
+    packetSectionLoads.clear();
+    disclosureContextLoad = null;
     let preferredLocale = null;
     try {
       const stored = localStorage.getItem('preferredFormLanguage');
       if (stored === 'es' || stored === 'en') preferredLocale = stored;
     } catch { /* ignore */ }
-    const localeHint = usesSchoolMaster.value
-      ? (inPageLocale.value === 'es' ? 'es' : 'en')
-      : preferredLocale;
+    const localeHint = inPageLocale.value === 'es' ? 'es' : 'en';
     const resp = await api.get(
       `/public-intake/${publicKey}`,
-      localeHint ? { params: { locale: localeHint } } : undefined
+      {
+        params: { locale: localeHint },
+        skipGlobalLoading: true
+      }
     );
     link.value = resp.data?.link || null;
     if (link.value?.organization_id && !organizationId.value) {
@@ -5959,7 +6864,12 @@ const loadLink = async () => {
       const hasMap = map != null && typeof map === 'object' && Object.keys(map).length > 0;
       const hasQuestionLabelsEs = spanishQuestionLabelsEnabledFromLink(link.value);
       const isSmartRoiForm = String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi';
-      if (usesSchoolMaster.value) {
+      const officeLike = Number(link.value?.inherits_office_master || 0) === 1
+        || (String(link.value?.scope_type || '').toLowerCase() === 'agency'
+          && String(resp.data?.organization?.organization_type || '').toLowerCase() !== 'school');
+      if (officeLike) {
+        inPageLocale.value = inPageLocale.value === 'es' && userChoseLocale.value ? 'es' : 'en';
+      } else if (usesSchoolMaster.value) {
         const masterLang = String(link.value?.master_language_code || link.value?.language_code || 'en')
           .toLowerCase()
           .startsWith('es') ? 'es' : 'en';
@@ -6028,11 +6938,109 @@ const loadLink = async () => {
         client_last: nameParts.lastName || ''
       }];
     }
+    if (isOfficeInDepthIntake.value) {
+      await loadOfficeJoinChrome();
+    }
+    void hydrateHeavyIntakeAssets();
   } catch (e) {
     fatalError.value = e.response?.data?.error?.message || 'Failed to load intake link';
   } finally {
     loading.value = false;
   }
+};
+
+const ensureTemplateHtml = async (template) => {
+  if (!template?.id || template.template_type !== 'html') return template;
+  if (template.html_content) return template;
+  const id = Number(template.id);
+  if (templateHtmlLoads.has(id)) return templateHtmlLoads.get(id);
+  const pending = api.get(
+    `/public-intake/${publicKey}/document/${id}/html`,
+    { skipGlobalLoading: true }
+  ).then(({ data }) => {
+    const html = data?.html_content || '';
+    const match = templates.value.find((t) => Number(t.id) === id);
+    if (match) {
+      match.html_content = html;
+      match.has_html = true;
+    }
+    return match || { ...template, html_content: html };
+  }).catch((err) => {
+    console.warn('[publicIntake] template html load failed', id, err?.message || err);
+    return template;
+  }).finally(() => {
+    templateHtmlLoads.delete(id);
+  });
+  templateHtmlLoads.set(id, pending);
+  return pending;
+};
+
+const ensurePacketSectionContext = async (sectionKey) => {
+  const key = String(sectionKey || '').trim();
+  if (!key) return null;
+  const existing = packetSectionContexts.value?.[key];
+  if (existing?.html) return existing;
+  if (packetSectionLoads.has(key)) return packetSectionLoads.get(key);
+  const pending = api.get(
+    `/public-intake/${publicKey}/packet-section/${key}`,
+    {
+      params: { variant: intakeForSelf.value ? 'self' : 'parent' },
+      skipGlobalLoading: true
+    }
+  ).then(({ data }) => {
+    packetSectionContexts.value = {
+      ...(packetSectionContexts.value || {}),
+      [key]: data
+    };
+    return data;
+  }).catch((err) => {
+    console.warn('[publicIntake] packet section load failed', key, err?.message || err);
+    packetSectionContexts.value = {
+      ...(packetSectionContexts.value || {}),
+      [key]: {
+        ...(existing || { sectionKey: key, html: null }),
+        lite: false,
+        loadError: true
+      }
+    };
+    return packetSectionContexts.value[key];
+  }).finally(() => {
+    packetSectionLoads.delete(key);
+  });
+  packetSectionLoads.set(key, pending);
+  return pending;
+};
+
+const ensureDisclosureContext = async () => {
+  if (disclosureContext.value && disclosureContext.value.lite !== true) {
+    return disclosureContext.value;
+  }
+  if (disclosureContextLoad) return disclosureContextLoad;
+  disclosureContextLoad = api.get(
+    `/public-intake/${publicKey}/disclosure-context`,
+    { skipGlobalLoading: true }
+  ).then(({ data }) => {
+    disclosureContext.value = data?.disclosureContext || null;
+    return disclosureContext.value;
+  }).catch((err) => {
+    console.warn('[publicIntake] disclosure context load failed', err?.message || err);
+    return disclosureContext.value;
+  }).finally(() => {
+    disclosureContextLoad = null;
+  });
+  return disclosureContextLoad;
+};
+
+const hydrateHeavyIntakeAssets = async () => {
+  const htmlTemplates = (templates.value || []).filter((t) => t?.template_type === 'html' && !t.html_content);
+  const sectionKeys = Object.keys(packetSectionContexts.value || {});
+  const needDisclosure = disclosureContext.value?.lite === true
+    || (!disclosureContext.value && hasProgrammedDisclosureStep.value);
+  await Promise.all([
+    ...htmlTemplates.map((t) => ensureTemplateHtml(t)),
+    ...sectionKeys.map((key) => ensurePacketSectionContext(key)),
+    needDisclosure ? ensureDisclosureContext() : Promise.resolve()
+  ]);
 };
 
 /**
@@ -6050,6 +7058,7 @@ const switchLinkedLanguage = async (target) => {
     if (targetLang === inPageLocale.value && String(link.value?.master_language_code || '') === targetLang) {
       return;
     }
+    userChoseLocale.value = true;
     inPageLocale.value = targetLang;
     try { localStorage.setItem('preferredFormLanguage', targetLang); } catch { /* ignore */ }
     linkedLanguageSwitching.value = true;
@@ -6063,6 +7072,7 @@ const switchLinkedLanguage = async (target) => {
 
   // In-page locale switch (document map and/or saved question labels — no separate form navigation).
   if (hasInPageSpanish.value) {
+    userChoseLocale.value = true;
     inPageLocale.value = targetLang;
     try { localStorage.setItem('preferredFormLanguage', targetLang); } catch { /* ignore */ }
     return;
@@ -6339,7 +7349,9 @@ const buildClientPayloads = () =>
       firstName,
       lastName,
       fullName,
-      initials: deriveClientInitials(firstName, lastName)
+      initials: deriveClientInitials(firstName, lastName),
+      dateOfBirth: String(starterDob.value || '').trim() || undefined,
+      contactPhone: String(guardianPhone.value || '').trim() || undefined
     };
   });
 
@@ -6433,13 +7445,24 @@ const ensureSessionToken = async () => {
 };
 
 const submitConsent = async () => {
+  if (canBypassIntakeRequired.value) {
+    consentErrors.guardianFirstName = '';
+    consentErrors.guardianEmail = '';
+    consentErrors.guardianLastName = '';
+    consentErrors.guardianPhone = '';
+    consentErrors.clientFirstName = '';
+    consentErrors.clientLastName = '';
+    consentErrors.organizationId = '';
+    error.value = '';
+    stepError.value = '';
+  } else {
   consentErrors.guardianFirstName = guardianFirstName.value.trim() ? '' : t('required');
   consentErrors.guardianEmail = guardianEmail.value.trim() ? '' : t('required');
   consentErrors.guardianLastName = !guardianLastName.value.trim() ? t('required') : '';
   consentErrors.guardianPhone = !guardianPhone.value.trim() ? t('required') : '';
   const clientFirst = intakeForSelf.value ? guardianFirstName.value : clients.value?.[0]?.firstName;
   const clientLast = intakeForSelf.value ? guardianLastName.value : clients.value?.[0]?.lastName;
-  const clientNamesLater = step.value === WHO_FOR_STEP && intakeForSelf.value === false;
+  const clientNamesLater = step.value === WHO_FOR_STEP && intakeForSelf.value === false && !isOfficeInDepthIntake.value;
   consentErrors.clientFirstName = (isJobApplication.value || isClientBound.value || clientNamesLater) ? '' : (String(clientFirst || '').trim() ? '' : t('required'));
   consentErrors.clientLastName = (isJobApplication.value || isClientBound.value || clientNamesLater) ? '' : (String(clientLast || '').trim() ? '' : t('required'));
   consentErrors.organizationId =
@@ -6490,6 +7513,7 @@ const submitConsent = async () => {
       if (el?.focus) el.focus();
     }
     return;
+  }
   }
   // Auto-handle the upfront multi-client plan so parents don't get stuck on
   // "how many children are you submitting today?" with no visible error when
@@ -6553,6 +7577,13 @@ const submitConsent = async () => {
         .slice(0, 30);
     }
     const clientPayloads = buildClientPayloads();
+    const guardianPayload = {
+      firstName: guardianFirstName.value,
+      lastName: guardianLastName.value,
+      email: guardianEmail.value,
+      phone: guardianPhone.value,
+      relationship: intakeForSelf.value ? 'Self' : guardianRelationship.value
+    };
     const payload = {
       sessionToken: sessionToken.value || null,
       signerName: `${guardianFirstName.value} ${guardianLastName.value}`.trim(),
@@ -6563,18 +7594,17 @@ const submitConsent = async () => {
         responses: intakeResponses || {},
         clients: clientPayloads || [],
         intakeForSelf: intakeForSelf.value,
-        guardian: {
-          firstName: guardianFirstName.value,
-          lastName: guardianLastName.value,
-          email: guardianEmail.value,
-          phone: guardianPhone.value,
-          relationship: intakeForSelf.value ? 'Self' : guardianRelationship.value
-        },
+        guardian: guardianPayload,
         approval: approvalContext.value || null,
         smartSchoolRoi: embeddedSmartSchoolRoi.value || null,
         smartDisclosure: embeddedSmartDisclosure.value || null
       }
     };
+    if (isOfficeInDepthIntake.value) {
+      payload.organizationId = organizationId.value || link.value?.organization_id || null;
+      payload.clients = clientPayloads;
+      payload.guardian = guardianPayload;
+    }
     const resp = await api.post(`/public-intake/${publicKey}/consent`, payload);
     submissionId.value = resp.data?.submission?.id || null;
     if (resp.data?.clientMatch && typeof resp.data.clientMatch === 'object') {
@@ -6590,7 +7620,10 @@ const submitConsent = async () => {
 
 const onSigned = (dataUrl) => {
   const value = typeof dataUrl === 'string' ? dataUrl : dataUrl?.dataUrl || '';
-  if (!value) return;
+  if (!value) {
+    signatureData.value = '';
+    return;
+  }
   signatureData.value = value;
   lastSignatureData.value = value;
   showSavedSigPrompt.value = false;
@@ -6700,7 +7733,7 @@ const completeCurrentDocument = async () => {
       const val = currentFieldValues.value[f.id];
       return val === null || val === undefined || String(val).trim() === '';
     });
-    if (missingFields.length > 0) {
+    if (missingFields.length > 0 && !canBypassIntakeRequired.value) {
       stepError.value = t('completeRequiredFields');
       await nextTick();
       focusNextField();
@@ -6741,14 +7774,24 @@ const isQuestionValueMissing = (field) => {
   return val === null || val === undefined || String(val).trim() === '';
 };
 
+const isQuestionFieldSoftSkip = (field) => {
+  const key = String(field?.key || '').trim();
+  return !!key && skipConfirmKeys.value.includes(key);
+};
+
 const completeQuestionStep = async () => {
-  const missing = visibleQuestionFields.value
-    .filter((f) => isQuestionValueMissing(f));
-  if (missing.length) {
-    missingRequiredQuestionKeys.value = missing.map((f) => String(f.key || '').trim()).filter(Boolean);
+  const missing = canBypassIntakeRequired.value
+    ? []
+    : visibleQuestionFields.value.filter((f) => isQuestionValueMissing(f) && !f.sexPlus);
+  const hard = missing.filter((f) => isContactOrDemographicField(f));
+  const soft = missing.filter((f) => !isContactOrDemographicField(f));
+  if (hard.length) {
+    skipConfirmActive.value = false;
+    skipConfirmKeys.value = [];
+    missingRequiredQuestionKeys.value = hard.map((f) => String(f.key || '').trim()).filter(Boolean);
     stepError.value = t('completeRequiredFields');
     await nextTick();
-    const firstKey = missing[0]?.key;
+    const firstKey = hard[0]?.key;
     if (firstKey) {
       const container = document.querySelector(`[data-question-key="${CSS.escape(firstKey)}"]`);
       if (container?.scrollIntoView) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -6757,6 +7800,20 @@ const completeQuestionStep = async () => {
     }
     return;
   }
+  if (soft.length && !skipConfirmActive.value) {
+    skipConfirmActive.value = true;
+    skipConfirmKeys.value = soft.map((f) => String(f.key || '').trim()).filter(Boolean);
+    stepError.value = t('skipEmptyConfirm');
+    await nextTick();
+    const firstKey = soft[0]?.key;
+    if (firstKey) {
+      const container = document.querySelector(`[data-question-key="${CSS.escape(firstKey)}"]`);
+      if (container?.scrollIntoView) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    return;
+  }
+  skipConfirmActive.value = false;
+  skipConfirmKeys.value = [];
   missingRequiredQuestionKeys.value = [];
   stepError.value = '';
   const stepId = String(currentFlowStep.value?.sourceId || currentFlowStep.value?.id || '');
@@ -7025,23 +8082,27 @@ const completeGuardianWaiverStep = () => {
         );
         continue;
       }
-      // IMPORTANT — DO NOT silently auto-apply the saved signature here.
-      // The previous version did `sec.signatureData = savedSig` whenever a
-      // signature was missing, which let the parent advance through the
-      // entire waiver pipeline without ever clicking "Apply my signature
-      // to this section". That broke the e-signature audit trail because
-      // signatureMeta.{signedAt, sourceMethod} was never recorded for those
-      // sections — the kid's waiver looked legally signed but no human had
-      // clicked anything to attest. Now we treat a missing signature as a
-      // hard block, which is what makes the per-section pulse + click-to-
-      // apply UX legitimate.
       if (String(sec.signatureData || '').trim().length < 10) {
-        recordError(
-          i,
-          key,
-          `Please click "Apply my signature" on the ${guardianWaiverSectionLabels[key] || 'waiver'} section for ${label} — we don't accept un-signed waivers.`
-        );
-        continue;
+        const savedSig = String(lastSignatureData.value || '').trim();
+        if (savedSig.length >= 10) {
+          sec.signatureData = savedSig;
+          sec.signatureMeta = {
+            signedAt: new Date().toISOString(),
+            signerName: String(guardianDisplayNameForInsurance.value || guardianDisplayName.value || '').trim() || null,
+            sourceMethod: 'save_and_continue',
+            consentAcknowledged: true,
+            intentToSign: true,
+            sectionKey: String(key || ''),
+            clientIndex: Number(i)
+          };
+        } else {
+          recordError(
+            i,
+            key,
+            `Please sign below, then click Save & continue for ${label}.`
+          );
+          continue;
+        }
       }
       // Stamp signature metadata even if the signature was applied via the
       // earlier pulsing button — this guarantees every signed section has an
@@ -7382,6 +8443,7 @@ const completeDemographicsStep = () => {
   intakeResponses.submission.demographicsInfo = {
     dob: demographicsData.dob || null,
     gender: demographicsData.gender || null,
+    preferredCalled: demographicsData.preferredCalled || null,
     ethnicity: demographicsData.ethnicity || null,
     preferredLanguage: demographicsData.preferredLanguage || null,
     addressStreet: demographicsData.addressStreet || null,
@@ -7394,14 +8456,22 @@ const completeDemographicsStep = () => {
   void nextFlowStep();
 };
 
-const completeClinicalQuestionsStep = () => {
+const completeClinicalQuestionsStep = async () => {
   const step = currentFlowStep.value;
   if (!step || step.type !== 'clinical_questions') return;
-  const missingRequired = (visibleClinicalFields.value || []).some((f) => isClinicalFieldMissing(f));
-  if (missingRequired) {
-    stepError.value = 'Please answer all required clinical questions before continuing.';
+  const missing = (visibleClinicalFields.value || []).filter((f) => isClinicalFieldMissing(f));
+  if (missing.length && !canBypassIntakeRequired.value && !skipConfirmActive.value) {
+    skipConfirmActive.value = true;
+    skipConfirmKeys.value = missing.map((f) => String(f.key || '').trim()).filter(Boolean);
+    stepError.value = t('skipEmptyConfirm');
+    await nextTick();
+    const first = missing[0];
+    const el = first ? fieldRefs[first.key || first.id] : null;
+    if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
+  skipConfirmActive.value = false;
+  skipConfirmKeys.value = [];
   intakeResponses.submission.clinicalResponses = { ...clinicalResponses };
   intakeResponses.submission.clinicalSafetyAlert = showClinicalSafetyBanner.value;
   stepError.value = '';
@@ -7409,6 +8479,15 @@ const completeClinicalQuestionsStep = () => {
 };
 
 const handleCurrentFlowContinue = () => {
+  const type = String(currentFlowStep.value?.type || '');
+  if (type === 'smart_disclosure' || type === 'disclosure') {
+    smartDisclosureFlowRef.value?.goNext?.();
+    return;
+  }
+  if (isPacketSectionStepType(type)) {
+    packetSectionFlowRef.value?.goNext?.();
+    return;
+  }
   if (currentFlowStep.value?.type === 'document') return completeCurrentDocument();
   if (currentFlowStep.value?.type === 'upload') return completeUploadStep();
   if (currentFlowStep.value?.type === 'registration') return completeRegistrationStep();
@@ -8004,7 +9083,7 @@ const stepQuestionFields = computed(() => {
   if (current?.type !== 'questions' || !Array.isArray(current.fields)) return [];
   const stepVis = String(current.visibility || 'always').trim().toLowerCase();
   if (stepVis === 'new_client_only' && isExistingClientByMatch.value) return [];
-  return (current.fields || []).filter((f) => {
+  return normalizeIntakeSexFields(current.fields || []).filter((f) => {
     const key = String(f?.key || '').trim();
     if (!key && f?.type !== 'info') return false;
     const scope = String(f?.scope || 'submission').trim().toLowerCase();
@@ -8023,11 +9102,24 @@ const stepQuestionFields = computed(() => {
       'guardian_phone',
       'guardian_relationship_to_child',
       'child_dob',
-      'child_date_of_birth'
+      'child_date_of_birth',
+      'child_legal_first',
+      'child_legal_last',
+      'child_preferred_name',
+      'child_sex',
+      'child_grade',
+      'school_grade'
     ]);
-    if (collected.has(key) && (guardianFirstName.value || guardianEmail.value || starterDob.value)) {
+    const alreadyStarted = !!(
+      guardianFirstName.value
+      || guardianEmail.value
+      || starterDob.value
+      || clients.value.some((c) => String(c?.firstName || '').trim())
+    );
+    if (collected.has(key) && alreadyStarted) {
       return false;
     }
+    if (f?.sexPlus) return false;
     return true;
   });
 });
@@ -8056,9 +9148,16 @@ const isQuestionVisible = (field, values = {}) => {
   return matchesShowIf(field?.showIf, values);
 };
 
-const visibleQuestionFields = computed(() =>
-  stepQuestionFields.value.filter((f) => isQuestionVisible(f, interviewShowIfValues.value))
-);
+const visibleQuestionFields = computed(() => {
+  const seen = new Set();
+  return stepQuestionFields.value.filter((f) => {
+    if (!isQuestionVisible(f, interviewShowIfValues.value)) return false;
+    const key = String(f?.key || '').trim();
+    if (key && seen.has(key)) return false;
+    if (key) seen.add(key);
+    return true;
+  });
+});
 
 /** Legacy identity-page dump. Paged `questions` steps render on their own flow page. */
 const visibleStandaloneQuestionFields = computed(() => []);
@@ -8080,6 +9179,13 @@ const currentQuestionRows = computed(() => {
 const currentFlowStepHelperText = computed(() => {
   const raw = currentFlowStep.value?.helperText || currentFlowStep.value?.description || '';
   return raw ? interpolateChildTokens(tx(raw)) : '';
+});
+const showInterviewPageLead = computed(() => {
+  if (!currentFlowStepHelperText.value) return false;
+  const type = String(currentFlowStep.value?.type || '');
+  if (isPacketSectionStepType(type)) return false;
+  if (type === 'smart_disclosure' || type === 'disclosure') return false;
+  return true;
 });
 const currentFlowStepWhyWeAsk = computed(() => {
   const raw = currentFlowStep.value?.whyWeAsk || '';
@@ -8146,24 +9252,28 @@ const flowStepOwnsContinue = computed(() => {
 const showIntakePagerFooter = computed(() => {
   if (!isOfficeInDepthIntake.value) return false;
   if (loading.value || fatalError.value) return false;
-  if (step.value === WHO_FOR_STEP) return true;
+  if (step.value === WHO_FOR_STEP) return false;
   if (step.value === 1 && !isSmartSchoolRoi.value && !isSmartDisclosure.value) return true;
-  if (step.value === 2 && !flowStepOwnsContinue.value) return true;
+  if (step.value === 2) return true;
   return false;
 });
 
-const showIntakeBackButton = computed(() =>
-  isOfficeInDepthIntake.value
-  && (step.value === WHO_FOR_STEP || step.value === 1 || step.value === 2)
-);
+const showIntakeBackButton = computed(() => {
+  if (loading.value || fatalError.value) return false;
+  if (isJobApplication.value) return false;
+  return step.value === WHO_FOR_STEP || step.value === 1 || step.value === 2;
+});
 
 const intakePagerLabel = computed(() => {
-  const steps = dfProgressSteps.value || [];
-  const idx = Math.min(dfProgressIndex.value, Math.max(steps.length - 1, 0));
-  if (!steps.length) return '';
+  const pages = isOfficeInDepthIntake.value ? (dfProgressSteps.value || []) : (flowSteps.value || []);
+  if (!pages.length) return '';
+  const raw = isOfficeInDepthIntake.value
+    ? Number(dfProgressIndex.value || 0) + 1
+    : Number(currentFlowIndex.value || 0) + 1;
+  const page = Math.min(Math.max(raw, 1), pages.length);
   return intakeLocale.value === 'es'
-    ? `Paso ${idx + 1} de ${steps.length}`
-    : `Step ${idx + 1} of ${steps.length}`;
+    ? `Paso ${page} de ${pages.length}`
+    : `Step ${page} of ${pages.length}`;
 });
 
 const intakePagerPrimaryLabel = computed(() => {
@@ -8389,6 +9499,9 @@ watch(
       if (!bag.child_legal_first && ident.firstName) bag.child_legal_first = ident.firstName;
       if (!bag.child_legal_last && ident.lastName) bag.child_legal_last = ident.lastName;
       if (!bag.child_preferred_name && ident.firstName) bag.child_preferred_name = ident.firstName;
+      if (!bag.child_dob && (ident.dob || ident.dateOfBirth || starterDob.value)) {
+        bag.child_dob = ident.dob || ident.dateOfBirth || starterDob.value;
+      }
     }
   }
 );
@@ -8658,7 +9771,32 @@ const preselectLinkedCompanyEvent = (regStep) => {
   }
 };
 
+watch(
+  () => `${currentFlowIndex.value}:${String(currentFlowStep.value?.type || '')}:${String(currentFlowStep.value?.id || '')}`,
+  async (id, prev) => {
+    if (id === prev) return;
+    skipConfirmActive.value = false;
+    skipConfirmKeys.value = [];
+    const type = String(currentFlowStep.value?.type || '');
+    if (type === 'questions' && !visibleQuestionFields.value.length) {
+      await nextFlowStep();
+      return;
+    }
+    if (type === 'clinical_questions' && !visibleClinicalFields.value.length) {
+      await nextFlowStep();
+      return;
+    }
+  }
+);
+
 watch(currentFlowStep, async (step) => {
+  if (isPacketSectionStepType(step?.type)) {
+    const key = PACKET_SECTION_STEP_TO_KEY[String(step?.type || '').trim().toLowerCase()];
+    await ensurePacketSectionContext(key);
+  }
+  if (step?.type === 'smart_disclosure' || step?.type === 'disclosure') {
+    await ensureDisclosureContext();
+  }
   if (step?.type === 'upload') {
     uploadStepFiles.value = [];
     coverLetterInputMode.value = 'upload';
@@ -8721,6 +9859,7 @@ watch(currentDoc, async () => {
   pageNotice.value = '';
   syncClientNamesToResponses();
   initializeFieldValues();
+  await ensureTemplateHtml(currentDoc.value);
   await loadPdfPreview();
 });
 
@@ -8788,32 +9927,39 @@ watch(
   { deep: true }
 );
 
+async function createIntakeSession() {
+  if (sessionToken.value) return true;
+  if (requiresCaptchaAtStart.value) {
+    if (captchaWidgetFailed.value) {
+      beginError.value = t('captchaFailed');
+      return false;
+    }
+    const captchaTokenToSend = String(captchaToken.value || '').trim();
+    if (!captchaTokenToSend) {
+      beginError.value = t('completeCaptchaToContinue');
+      return false;
+    }
+  }
+  const resp = await api.post(`/public-intake/${publicKey}/session`, {
+    captchaToken: String(captchaToken.value || '').trim() || undefined
+  }, { skipGlobalLoading: true });
+  const token = String(resp.data?.sessionToken || '').trim();
+  if (!token) {
+    beginError.value = t('unableToStartSession');
+    return false;
+  }
+  sessionToken.value = token;
+  await router.replace({ query: { ...route.query, session: token } });
+  await resetRecaptchaWidget();
+  return true;
+}
+
 const beginIntakeSession = async () => {
   consentLoading.value = true;
   try {
     beginError.value = '';
-    if (requiresCaptchaAtStart.value) {
-      if (captchaWidgetFailed.value) {
-        beginError.value = t('captchaFailed');
-        return;
-      }
-      const captchaTokenToSend = String(captchaToken.value || '').trim();
-      if (!captchaTokenToSend) {
-        beginError.value = t('completeCaptchaToContinue');
-        return;
-      }
-    }
-    const resp = await api.post(`/public-intake/${publicKey}/session`, {
-      captchaToken: String(captchaToken.value || '').trim() || undefined
-    });
-    const token = String(resp.data?.sessionToken || '').trim();
-    if (!token) {
-      beginError.value = t('unableToStartSession');
-      return;
-    }
-    sessionToken.value = token;
-    await router.replace({ query: { ...route.query, session: token } });
-    await resetRecaptchaWidget();
+    const started = await createIntakeSession();
+    if (!started) return;
     if (!skipBrandingIntro.value && introScreens.value.length) {
       step.value = 0;
       introIndex.value = 0;
@@ -8878,6 +10024,12 @@ const packetSectionContextForStep = (stepObj) => {
   return packetSectionContexts.value?.[key] || null;
 };
 
+const currentPacketSavedCapture = computed(() => {
+  const key = PACKET_SECTION_STEP_TO_KEY[String(currentFlowStep.value?.type || '').trim().toLowerCase()];
+  if (!key) return null;
+  return embeddedPacketSections.value?.[key] || null;
+});
+
 const packetSectionTitleForStep = (stepObj) => {
   const ctx = packetSectionContextForStep(stepObj);
   if (ctx?.title) return ctx.title;
@@ -8911,17 +10063,28 @@ onMounted(async () => {
   window.addEventListener('pagehide', persistDraftOnPageExit);
   document.addEventListener('visibilitychange', handleVisibilityDraftPersist);
 
-  await loadLink();
-  const restoredDraft = restoreDraftSnapshot();
-  if (restoredDraft) {
-    showDraftRestoredBanner();
+  clearPersistedDraft();
+  if (looksLikeOfficeIntake.value) {
+    goToFirstFormStep();
   }
+
+  await loadLink();
+  const restoredDraft = await restoreServerProgress();
   if (!sessionToken.value) {
-    step.value = -1;
+    if (skipBrandingIntro.value) {
+      if (!requiresCaptchaAtStart.value) {
+        await beginIntakeSession();
+        return;
+      }
+      goToFirstFormStep();
+      await maybeInitRecaptchaForCover();
+      return;
+    }
+    if (!looksLikeOfficeIntake.value) step.value = -1;
     await maybeInitRecaptchaForCover();
     return;
   }
-  if (!restoredDraft && !skipBrandingIntro.value && introScreens.value.length) {
+  if (!restoredDraft && !skipBrandingIntro.value && introScreens.value.length && !looksLikeOfficeIntake.value) {
     step.value = 0;
     introIndex.value = 0;
   }
@@ -8931,6 +10094,13 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  stopOfficeStartDrag();
+  stopOfficeStartResize();
+  if (startLayoutOkTimer) clearTimeout(startLayoutOkTimer);
+  if (serverProgressTimer) {
+    clearTimeout(serverProgressTimer);
+    serverProgressTimer = null;
+  }
   if (draftPersistTimer) {
     clearTimeout(draftPersistTimer);
     draftPersistTimer = null;
@@ -11314,26 +12484,348 @@ onBeforeUnmount(() => {
   margin: 0.35rem 0 1rem;
 }
 
+.public-intake.public-intake--office-start.df-page--scenic-side {
+  background-position: center center;
+}
+
+.public-intake.public-intake--office-start :deep(.df-main-footer) {
+  display: none;
+}
+
 .public-intake :deep(.df-shell--cover-mode:has(.intake-start-page) .df-main-body--cover) {
-  max-width: min(1120px, 100%);
+  max-width: none;
   width: 100%;
-  align-items: stretch;
+  align-items: flex-start;
   justify-content: flex-start;
   text-align: left;
-  padding-top: clamp(0.5rem, 1.5vh, 1.1rem);
+  padding-top: clamp(1.25rem, 5vh, 3rem);
 }
 
 .intake-start-page {
   width: 100%;
+  position: relative;
+}
+
+.intake-start-welcome {
+  margin: 0 0 1rem 0.15rem;
+}
+
+.intake-start-welcome-block,
+.intake-start-glad-block {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 0.35rem 0.15rem;
+}
+
+.intake-start-block--editing {
+  outline: 2px dashed rgba(29, 78, 216, 0.35);
+  outline-offset: 6px;
+  border-radius: 12px;
+}
+
+.intake-start-welcome-title {
+  margin: 0;
+  font-family: 'Great Vibes', cursive;
+  font-size: clamp(2.4rem, 5vw, 3.8rem);
+  line-height: 1.05;
+  color: #123c6d;
+}
+
+.intake-start-welcome-glad {
+  margin: 0.2rem 0 0.75rem;
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: #10231f;
+  text-decoration: underline;
+  text-decoration-color: #f5c518;
+  text-underline-offset: 0.28rem;
+}
+
+.intake-start-rail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 1.1rem;
+  color: #123c6d;
+}
+
+.intake-start-logo {
+  width: min(150px, 100%);
+  height: auto;
+  object-fit: contain;
+  display: block;
+}
+
+.intake-start-logo-fallback {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: rgba(18, 60, 109, 0.1);
+  color: #123c6d;
+  font-weight: 700;
+}
+
+.intake-start-tagline {
+  margin: 0.55rem 0 0;
+  letter-spacing: 0.1em;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: #1f6b4a;
+}
+
+.intake-start-script {
+  margin: 0.25rem 0 0;
+  font-family: 'Great Vibes', cursive;
+  font-size: clamp(1.65rem, 2.2vw, 2.15rem);
+  line-height: 1.05;
+  color: #123c6d;
+}
+
+.intake-start-values {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.intake-start-values li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.intake-start-help {
+  margin-top: auto;
+  border: 1px solid rgba(18, 60, 109, 0.16);
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 12px;
+  padding: 0.75rem 0.8rem;
+}
+
+.intake-start-help h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+
+.intake-start-help p,
+.intake-start-help-line {
+  margin: 0 0 0.35rem;
+  color: inherit;
+  text-decoration: none;
+  display: block;
+  font-weight: 600;
+}
+
+.intake-start-help-btn {
+  width: 100%;
+  margin-top: 0.4rem;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.65rem 0.85rem;
+  background: #3b82f6;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.intake-start-page .ajl-inline {
+  width: 100%;
+  border: 1px dashed #94a3b8;
+  background: #fff;
+  color: #111827;
+  font: inherit;
+  border-radius: 8px;
+  padding: 0.2rem 0.4rem;
+}
+
+.intake-start-page .ajl-inline--area {
+  resize: both;
+  min-width: 8rem;
+  max-width: 100%;
+}
+
+.public-intake.public-intake--office-start :deep(.intake-start-rail .ajl-inline) {
+  width: 100%;
+  border: 1px dashed #94a3b8;
+  background: #fff;
+  color: #111827;
+  font: inherit;
+  border-radius: 8px;
+  padding: 0.2rem 0.4rem;
+}
+
+.intake-start-editbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.intake-start-edit-hint,
+.intake-start-edit-ok {
+  font-size: 0.8rem;
+  color: #123c6d;
+}
+
+.intake-start-edit-error {
+  font-size: 0.8rem;
+  color: #b42318;
+}
+
+.intake-start-page .ajl-edit-btn {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  background: #1f6b4a;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.intake-start-page .ajl-edit-btn--ghost {
+  background: rgba(255, 255, 255, 0.85);
+  color: #123c6d;
+  border: 1px solid rgba(18, 60, 109, 0.2);
 }
 
 .intake-start-card {
+  position: relative;
   background: #fff;
   border: 1px solid var(--df-border, #dce8e2);
-  border-radius: 20px;
-  padding: clamp(1.25rem, 3vw, 2rem);
-  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.05);
+  border-radius: 24px;
+  padding: clamp(1.35rem, 3vw, 2.15rem);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+  width: min(860px, 100%);
+}
+
+.intake-start-card--editing {
+  outline: 1px dashed rgba(29, 78, 216, 0.45);
+  cursor: move;
+}
+
+.intake-start-card .ajl-drag {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 4;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.25rem 0.6rem;
+  background: #1d4ed8;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: grab;
+}
+
+.intake-start-card .ajl-resize {
+  position: absolute;
+  z-index: 4;
+  background: #1d4ed8;
+  border: 2px solid #fff;
+}
+
+.intake-start-card .ajl-resize--e {
+  top: 50%;
+  right: -7px;
+  width: 12px;
+  height: 28px;
+  margin-top: -14px;
+  border-radius: 999px;
+  cursor: ew-resize;
+}
+
+.intake-start-heart {
+  width: 3rem;
+  height: 3rem;
+  margin: 0 auto 0.85rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--df-primary, #1b3d2f) 14%, #fff);
+  color: var(--df-primary, #1b3d2f);
+  font-size: 1.35rem;
+}
+
+.intake-start-page .ai-page-title {
+  text-align: center;
+}
+
+.intake-start-page .ai-page-lead {
+  text-align: center;
+  max-width: 42rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.intake-start-col-num {
+  color: var(--df-primary, #1b3d2f);
+  margin-right: 0.2rem;
+}
+
+.intake-start-list--checks {
+  list-style: none;
+  padding-left: 0;
+}
+
+.intake-start-list--checks li {
+  position: relative;
+  padding-left: 1.35rem;
+  margin-bottom: 0.4rem;
+}
+
+.intake-start-list--checks li::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  color: var(--df-primary, #1b3d2f);
+  font-weight: 700;
+}
+
+.intake-start-basics-icon {
+  margin-right: 0.35rem;
+}
+
+.intake-start-continue {
   width: 100%;
+  margin-top: 1.35rem;
+  min-height: 3rem;
+  border-radius: 12px;
+  font-weight: 700;
+}
+
+.intake-start-support {
+  margin: 0.85rem 0 0;
+  text-align: center;
+  color: var(--df-muted, #64748b);
+  font-size: 0.88rem;
+}
+
+.intake-start-support-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--df-primary, #1b3d2f);
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.intake-start-page select {
+  width: 100%;
+  min-height: 2.5rem;
+  border-radius: 10px;
+  border: 1px solid var(--df-border, #dce8e2);
+  padding: 0.45rem 0.7rem;
+  background: #fff;
 }
 
 .intake-start-page .ai-pathway-card {
@@ -11446,5 +12938,82 @@ onBeforeUnmount(() => {
     text-align: center;
     order: -1;
   }
+}
+
+.intake-pager-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.intake-sex-row,
+.intake-sex-plus-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.4rem;
+}
+
+.intake-sex-plus {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  border: 1px solid #1f6b4a;
+  background: #fff;
+  color: #1f6b4a;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.intake-sex-plus-input {
+  flex: 1 1 220px;
+  min-width: 12rem;
+}
+
+.question-soft-skip {
+  outline: 2px solid #f59e0b;
+  outline-offset: 4px;
+  border-radius: 12px;
+}
+
+.intake-return-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(15, 23, 42, 0.45);
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+}
+
+.intake-return-card {
+  width: min(560px, 100%);
+  background: #fff;
+  border-radius: 16px;
+  padding: 1.25rem 1.35rem;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.2);
+}
+
+.intake-return-card h3 {
+  margin: 0 0 0.5rem;
+}
+
+.intake-return-hipaa {
+  color: #9a3412;
+  font-size: 0.9rem;
+}
+
+.intake-return-url {
+  width: 100%;
+  margin: 0.75rem 0;
+}
+
+.intake-return-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 </style>

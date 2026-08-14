@@ -441,11 +441,29 @@
 
       <div class="sp-sidebar-footer">
         <div class="sp-sidebar-school-row">
-          <div v-if="schoolLogoUrl" class="sp-sidebar-footer-logo">
-            <img :src="schoolLogoUrl" alt="" />
-          </div>
-          <div v-else class="sp-sidebar-footer-logo sp-sidebar-footer-logo-fallback" aria-hidden="true">
-            {{ organizationDisplayName?.charAt(0) || 'S' }}
+          <div class="sp-sidebar-footer-logo-wrap">
+            <div v-if="schoolLogoUrl" class="sp-sidebar-footer-logo">
+              <img :src="schoolLogoUrl" alt="" />
+            </div>
+            <div v-else class="sp-sidebar-footer-logo sp-sidebar-footer-logo-fallback" aria-hidden="true">
+              {{ organizationDisplayName?.charAt(0) || 'S' }}
+            </div>
+            <button
+              v-if="canShowSchoolSettingsButton"
+              type="button"
+              class="sp-sidebar-logo-edit"
+              :title="schoolLogoUrl ? 'Change school logo' : 'Add school logo'"
+              :aria-label="schoolLogoUrl ? 'Change school logo' : 'Add school logo'"
+              :disabled="schoolLogoUploading"
+              @click="triggerSchoolLogoUpload"
+            >{{ schoolLogoUrl ? '✎' : '+' }}</button>
+            <input
+              ref="schoolLogoInputRef"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+              class="sp-sidebar-logo-input"
+              @change="onSchoolLogoSelected"
+            />
           </div>
           <div class="sp-sidebar-school-meta">
             <div class="sp-sidebar-school-name">{{ organizationDisplayName }}</div>
@@ -4913,6 +4931,34 @@ const schoolLogoUrl = computed(() => {
   const raw = org?.logo_path || org?.logo_url || null;
   return toUploadsUrl(raw);
 });
+const schoolLogoInputRef = ref(null);
+const schoolLogoUploading = ref(false);
+
+function triggerSchoolLogoUpload() {
+  schoolLogoInputRef.value?.click?.();
+}
+
+async function onSchoolLogoSelected(event) {
+  const file = event?.target?.files?.[0];
+  if (event?.target) event.target.value = '';
+  const orgId = Number(organizationId.value || 0);
+  if (!file || !orgId) return;
+  schoolLogoUploading.value = true;
+  try {
+    const body = new FormData();
+    body.append('logo', file);
+    const { data } = await api.post(`/school-portal/${orgId}/logo`, body);
+    const org = organizationStore.currentOrganization;
+    if (org && typeof org === 'object') {
+      org.logo_path = data?.path || org.logo_path;
+      org.logo_url = data?.url || org.logo_url;
+    }
+  } catch (e) {
+    window.alert(e?.response?.data?.error?.message || 'Could not upload the school logo.');
+  } finally {
+    schoolLogoUploading.value = false;
+  }
+}
 
 const sidebarBrandLogoUrl = computed(() => schoolLogoUrl.value);
 
@@ -5985,6 +6031,10 @@ watch(() => store.selectedWeekday, async (weekday) => {
   min-width: 0;
 }
 
+.sp-sidebar-footer-logo-wrap {
+  position: relative;
+  flex: 0 0 40px;
+}
 .sp-sidebar-footer-logo {
   width: 40px;
   height: 40px;
@@ -5992,11 +6042,28 @@ watch(() => store.selectedWeekday, async (weekday) => {
   border: 1px solid rgba(255, 255, 255, 0.22);
   background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
-  flex: 0 0 40px;
   display: grid;
   place-items: center;
   font-weight: 800;
   font-size: 1rem;
+}
+.sp-sidebar-logo-edit {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 0;
+  background: #fff;
+  color: #14532d;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+.sp-sidebar-logo-input {
+  display: none;
 }
 
 .sp-sidebar-footer-logo img {

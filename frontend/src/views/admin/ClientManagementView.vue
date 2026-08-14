@@ -58,17 +58,27 @@
         New Intakes
         <span v-if="pendingIntakeCount" class="cm-view-badge">{{ pendingIntakeCount }}</span>
       </button>
-      <button
-        v-if="canSeeClientExchange"
-        type="button"
-        class="cm-view-tab"
-        :class="{ active: cmViewMode === 'exchange' }"
-        @click="cmViewMode = 'exchange'"
-      >
-        Client Exchange
-        <span v-if="exchangeListingCount" class="cm-view-badge cm-view-badge--blue">{{ exchangeListingCount }}</span>
-      </button>
-    </div>
+        <button
+          v-if="canSeeClientExchange"
+          type="button"
+          class="cm-view-tab"
+          :class="{ active: cmViewMode === 'exchange' }"
+          @click="cmViewMode = 'exchange'"
+        >
+          Client Exchange
+          <span v-if="exchangeListingCount" class="cm-view-badge cm-view-badge--blue">{{ exchangeListingCount }}</span>
+        </button>
+        <button
+          v-if="canBackofficeEdit"
+          type="button"
+          class="cm-view-tab"
+          :class="{ active: cmViewMode === 'duplicates' }"
+          @click="cmViewMode = 'duplicates'"
+        >
+          Possible duplicates
+          <span v-if="nameDuplicateGroupCount" class="cm-view-badge cm-view-badge--warn">{{ nameDuplicateGroupCount }}</span>
+        </button>
+      </div>
 
     <!-- Inline Intakes view -->
     <div v-if="cmViewMode === 'intakes'" class="cm-inline-panel">
@@ -78,6 +88,13 @@
     <!-- Inline Exchange view -->
     <div v-else-if="cmViewMode === 'exchange'" class="cm-inline-panel cm-inline-panel--exchange">
       <ClientExchangePanel />
+    </div>
+
+    <div v-else-if="cmViewMode === 'duplicates'" class="cm-inline-panel">
+      <ClientNameDuplicatesPanel
+        :agency-id="effectiveAgencyScopeId"
+        @open-client="openClientDetail"
+      />
     </div>
 
     <template v-else>
@@ -414,6 +431,11 @@
               title="Hover: preview · Click: pin panel"
             >
               <span class="cm-initials-badge" :style="getInitialsStyle(client)">{{ getClientDisplay(client) }}</span>
+              <span
+                v-if="nameDuplicateClientIds.has(client.id)"
+                class="cm-dupe-chip"
+                title="Another client at this tenant has the same first and last name"
+              >Possible duplicate</span>
             </td>
             <td v-if="usingServerPagination && columnPrefs.affiliation">
               <span class="cm-affiliation-badge" :style="getAffiliationBadgeStyle(client)">
@@ -1117,6 +1139,7 @@ import api from '../../services/api';
 import BulkClientImporter from '../../components/admin/BulkClientImporter.vue';
 import OfficeIntakeQueuePanel from '../../components/admin/OfficeIntakeQueuePanel.vue';
 import ClientExchangePanel from '../../components/clientExchange/ClientExchangePanel.vue';
+import ClientNameDuplicatesPanel from '../../components/admin/ClientNameDuplicatesPanel.vue';
 import ClientDisplayModeToggle from '../../components/admin/ClientDisplayModeToggle.vue';
 import { useClientDisplayMode } from '../../composables/useClientDisplayMode.js';
 import { STANDARD_GRADE_SELECT_OPTIONS, normalizeGradeForSave } from '../../utils/clientGrade.js';
@@ -1144,10 +1167,12 @@ const canSeeClientExchange = computed(() => canSeeClientExchangeNav(authStore.us
 const clientExchangeLink = computed(() => clientExchangePath(route.params?.organizationSlug));
 const searchHints = SEARCH_HINTS;
 
-// View-mode switcher: 'clients' | 'intakes' | 'exchange'
+// View-mode switcher: 'clients' | 'intakes' | 'exchange' | 'duplicates'
 const cmViewMode = ref('clients');
 const pendingIntakeCount = ref(0);
 const exchangeListingCount = ref(0);
+const nameDuplicateGroupCount = ref(0);
+const nameDuplicateClientIds = ref(new Set());
 const quickViewClient = ref(null);
 const quickViewPinned = ref(false);
 let _hoverOpenTimer = null;
@@ -1201,15 +1226,29 @@ async function loadSideCounts() {
   const aid = agencyStore.currentAgency?.value?.id || agencyStore.currentAgency?.id;
   if (!aid) return;
   try {
-    const [intakeRes, exchangeRes] = await Promise.all([
+    const [intakeRes, exchangeRes, dupeRes] = await Promise.all([
       api.get('/client-exchange/pending-office-clients', { params: { agencyId: aid }, skipGlobalLoading: true }),
-      api.get('/client-exchange/listings', { params: { agencyId: aid }, skipGlobalLoading: true })
+      api.get('/client-exchange/listings', { params: { agencyId: aid }, skipGlobalLoading: true }),
+      canBackofficeEdit.value
+        ? api.get('/clients/name-duplicates', { params: { agencyId: aid }, skipGlobalLoading: true })
+        : Promise.resolve({ data: { groups: [] } })
     ]);
     pendingIntakeCount.value = (intakeRes.data?.clients || []).length;
     exchangeListingCount.value = (exchangeRes.data?.listings || []).filter((l) => l.status === 'open' || l.status === 'requested').length;
+    const groups = Array.isArray(dupeRes.data?.groups) ? dupeRes.data.groups : [];
+    nameDuplicateGroupCount.value = groups.length;
+    const ids = new Set();
+    for (const group of groups) {
+      for (const member of group.members || []) {
+        if (member?.id) ids.add(Number(member.id));
+      }
+    }
+    nameDuplicateClientIds.value = ids;
   } catch {
     pendingIntakeCount.value = 0;
     exchangeListingCount.value = 0;
+    nameDuplicateGroupCount.value = 0;
+    nameDuplicateClientIds.value = new Set();
   }
 }
 const serverSummary = ref(null);
@@ -3054,6 +3093,10 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   background: #2563eb;
   color: #fff;
 }
+.cm-view-badge--warn {
+  background: #c2410c;
+  color: #fff;
+}
 .cm-inline-panel {
   padding-bottom: 2rem;
 }
@@ -3489,6 +3532,18 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   border-radius: 999px;
   font-weight: 700;
   font-size: 12px;
+  letter-spacing: 0.02em;
+}
+.cm-dupe-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #ffedd5;
+  color: #9a3412;
+  font-size: 10px;
+  font-weight: 800;
   letter-spacing: 0.02em;
 }
 

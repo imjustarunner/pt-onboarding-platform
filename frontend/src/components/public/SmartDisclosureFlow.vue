@@ -3,8 +3,8 @@
     <div v-if="error" class="error">{{ error }}</div>
 
     <div v-if="stage === 'intro'" class="smart-disclosure-card">
-      <div class="progress-label">{{ tr('Step 1 of', 'Paso 1 de') }} {{ totalSteps }}</div>
-      <h3>{{ tr('Provider Disclosure Statement', 'Declaracion de Divulgacion del Proveedor') }}</h3>
+      <div v-if="!isEmbeddedMode" class="progress-label">{{ tr('Step 1 of', 'Paso 1 de') }} {{ totalSteps }}</div>
+      <h3 v-if="!isEmbeddedMode">{{ tr('Provider Disclosure Statement', 'Declaracion de Divulgacion del Proveedor') }}</h3>
       <p class="lead">
         {{ tr(
           'Please review the disclosure below, including licensed provider information, business entity details, and your rights.',
@@ -12,6 +12,7 @@
         ) }}
       </p>
 
+      <div :class="isEmbeddedMode ? 'disclosure-scroll' : 'disclosure-full'">
       <section
         v-for="section in htmlSections"
         :key="section.id"
@@ -84,9 +85,21 @@
         <div class="disclosure-html" v-html="levelsHtml" />
       </section>
 
+      <label v-if="isEmbeddedMode" class="ack-checkbox" :class="{ 'required-highlight': !acknowledged }">
+        <input v-model="acknowledged" type="checkbox" />
+        <span>
+          {{ tr(
+            'I acknowledge that I have reviewed this disclosure and the parties listed.',
+            'Reconozco que he revisado esta divulgacion y las partes listadas.'
+          ) }}
+        </span>
+      </label>
+      </div>
+
       <div class="actions">
-        <button type="button" class="btn btn-primary" @click="goNext">
-          {{ tr('Continue', 'Continuar') }}
+        <button type="button" class="btn btn-secondary" @click="goBackOrEmit">{{ tr('Back', 'Atras') }}</button>
+        <button v-if="!hideIntroContinue || isEmbeddedMode" type="button" class="btn btn-primary" :disabled="isEmbeddedMode && !acknowledged" @click="goNext">
+          {{ isEmbeddedMode ? tr('Continue to signature', 'Continuar a la firma') : tr('Continue', 'Continuar') }}
         </button>
       </div>
     </div>
@@ -119,7 +132,7 @@
     </div>
 
     <div v-else-if="stage === 'sign'" class="smart-disclosure-card">
-      <div class="progress-label">{{ tr('Step', 'Paso') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
+      <div v-if="!isEmbeddedMode" class="progress-label">{{ tr('Step', 'Paso') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
       <h3>{{ tr('Electronic signature', 'Firma electronica') }}</h3>
       <p>
         {{ tr(
@@ -128,7 +141,12 @@
         ) }}
       </p>
       <div class="review-block">
-        <SignaturePad compact @signed="onSigned" />
+        <SignaturePad
+          compact
+          :locale="resolvedLocale"
+          :initial-value="savedCapture?.signatureData || ''"
+          @signed="onSigned"
+        />
       </div>
       <div class="actions">
         <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
@@ -216,12 +234,19 @@ const props = defineProps({
   boundClient: {
     type: Object,
     default: null
+  },
+  hideIntroContinue: {
+    type: Boolean,
+    default: false
+  },
+  savedCapture: {
+    type: Object,
+    default: null
   }
 });
 
-const emit = defineEmits(['completed', 'captured']);
+const emit = defineEmits(['completed', 'captured', 'back']);
 
-const stageOrder = ['intro', 'acknowledge', 'sign', 'complete'];
 const stageIndex = ref(0);
 const localSubmissionId = ref(props.submissionId || null);
 const signatureData = ref('');
@@ -329,8 +354,11 @@ const providerGroups = computed(() =>
 );
 
 const isEmbeddedMode = computed(() => String(props.mode || '').toLowerCase() === 'embedded');
-const stage = computed(() => stageOrder[stageIndex.value] || 'intro');
-const totalSteps = computed(() => Math.max(stageOrder.length - 1, 1));
+const stageOrder = computed(() => (
+  isEmbeddedMode.value ? ['intro', 'sign', 'complete'] : ['intro', 'acknowledge', 'sign', 'complete']
+));
+const stage = computed(() => stageOrder.value[stageIndex.value] || 'intro');
+const totalSteps = computed(() => Math.max(stageOrder.value.length - 1, 1));
 const stepNumber = computed(() => Math.min(stageIndex.value + 1, totalSteps.value));
 
 watch(
@@ -395,11 +423,19 @@ const supervisorLines = (provider) => {
 
 const goNext = () => {
   error.value = '';
-  if (stage.value === 'acknowledge' && !acknowledged.value) {
+  if (stage.value === 'complete') {
+    emit('captured', { smartDisclosure: buildDisclosurePayload() });
+    return;
+  }
+  if ((stage.value === 'acknowledge' || (isEmbeddedMode.value && stage.value === 'intro')) && !acknowledged.value) {
     error.value = tr('Please acknowledge the disclosure to continue.', 'Reconozca la divulgacion para continuar.');
     return;
   }
-  if (stageIndex.value < stageOrder.length - 1) {
+  if (stage.value === 'sign') {
+    submitDisclosure();
+    return;
+  }
+  if (stageIndex.value < stageOrder.value.length - 1) {
     stageIndex.value += 1;
   }
 };
@@ -409,10 +445,32 @@ const goBack = () => {
   if (stageIndex.value > 0) stageIndex.value -= 1;
 };
 
+const goBackOrEmit = () => {
+  if (stageIndex.value > 0) {
+    goBack();
+    return;
+  }
+  emit('back');
+};
+
+defineExpose({ goNext, goBack });
+
 const onSigned = (dataUrl) => {
-  signatureData.value = dataUrl;
+  signatureData.value = dataUrl || '';
   error.value = '';
 };
+
+watch(
+  () => props.savedCapture,
+  (saved) => {
+    if (!saved?.signatureData) return;
+    acknowledged.value = true;
+    signatureData.value = saved.signatureData;
+    const signIdx = stageOrder.value.indexOf('sign');
+    if (signIdx >= 0) stageIndex.value = signIdx;
+  },
+  { immediate: true }
+);
 
 const buildDisclosurePayload = () => ({
   acknowledged: !!acknowledged.value,
@@ -486,7 +544,7 @@ const submitDisclosure = async () => {
       localSubmissionId.value = consentResp.data?.submission?.id || null;
       if (consentResp.data?.alreadyCompleted) {
         downloadUrl.value = consentResp.data?.downloadUrl || '';
-        stageIndex.value = stageOrder.indexOf('complete');
+        stageIndex.value = stageOrder.value.indexOf('complete');
         emit('completed', {
           submissionId: localSubmissionId.value,
           downloadUrl: downloadUrl.value,
@@ -511,7 +569,7 @@ const submitDisclosure = async () => {
       60000
     );
     downloadUrl.value = finalizeResp.data?.downloadUrl || '';
-    stageIndex.value = stageOrder.indexOf('complete');
+    stageIndex.value = stageOrder.value.indexOf('complete');
     emit('completed', {
       submissionId: localSubmissionId.value,
       downloadUrl: downloadUrl.value,
@@ -563,6 +621,16 @@ const submitDisclosure = async () => {
 .lead {
   color: var(--text-secondary);
   margin-bottom: 16px;
+}
+
+.disclosure-scroll {
+  max-height: min(58vh, 640px);
+  overflow: auto;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #fafafa;
+  margin: 0 0 12px;
 }
 
 .disclosure-section {

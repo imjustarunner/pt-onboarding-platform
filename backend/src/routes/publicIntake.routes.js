@@ -6,8 +6,13 @@ import {
   approvePublicIntake,
   createPublicIntakeSession,
   createPublicConsent,
+  savePublicIntakeProgress,
+  getPublicIntakeProgress,
   finalizePublicIntake,
   getPublicIntakeLink,
+  getPublicIntakeTemplateHtml,
+  getPublicIntakePacketSection,
+  getPublicIntakeDisclosureContext,
   listPublicCareers,
   getPublicIntakeRegistrationCatalog,
   lookupPublicRegistrationAccount,
@@ -54,9 +59,22 @@ router.get('/:publicKey/registration-catalog', getPublicIntakeRegistrationCatalo
 router.post('/:publicKey/match-client', matchPublicIntakeClient);
 router.post('/:publicKey/login-help', reportPublicIntakeLoginHelp);
 router.get('/:publicKey/linked-translation', getPublicLinkedTranslation);
+router.get('/:publicKey/progress', getPublicIntakeProgress);
+router.post(
+  '/:publicKey/progress',
+  [
+    body('sessionToken').notEmpty().withMessage('sessionToken is required'),
+    body('intakeData').optional(),
+    body('step').optional()
+  ],
+  savePublicIntakeProgress
+);
 router.get('/:publicKey', getPublicIntakeLink);
 router.get('/:publicKey/status/:submissionId', getPublicIntakeStatus);
 router.get('/:publicKey/document/:templateId/preview', previewPublicTemplate);
+router.get('/:publicKey/document/:templateId/html', getPublicIntakeTemplateHtml);
+router.get('/:publicKey/packet-section/:sectionKey', getPublicIntakePacketSection);
+router.get('/:publicKey/disclosure-context', getPublicIntakeDisclosureContext);
 router.post('/:publicKey/approve', authenticate, approvePublicIntake);
 
 router.post(

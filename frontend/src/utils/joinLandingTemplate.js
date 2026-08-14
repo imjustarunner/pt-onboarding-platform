@@ -18,7 +18,7 @@ export const JOIN_FONT_HREF =
 export function defaultJoinLayout() {
   return {
     footerStyle: 'hidden',
-    showSidebar: false,
+    showSidebar: true,
     fonts: {
       welcome: 'great-vibes',
       script: 'great-vibes',
@@ -30,19 +30,125 @@ export function defaultJoinLayout() {
       glad: 1.25,
       lead: 1,
       cardTitle: 1.45,
-      cards: 1
+      cards: 1,
+      cardsWidth: 860,
+      cardsMinHeight: 0,
+      brandWidth: 0,
+      helpWidth: 0
     },
     positions: {
       welcome: { x: 0, y: 0 },
       glad: { x: 0, y: 0 },
       lead: { x: 0, y: 0 },
-      cards: { x: 0, y: 0 }
+      cards: { x: 0, y: 0 },
+      brand: { x: 0, y: 0 },
+      help: { x: 0, y: 0 }
     }
   };
 }
 
 export function fontFamilyById(id) {
   return JOIN_FONT_OPTIONS.find((f) => f.id === id)?.family || '"Source Sans 3", sans-serif';
+}
+
+export const JOIN_BOOT_THEME_URL = '/assets/intake-themes/greenintakethemecounseling.jpg';
+
+export function joinLandingCacheKey(slug, serviceType) {
+  return `ajl-boot:${String(slug || '').toLowerCase()}:${String(serviceType || 'counseling').toLowerCase()}`;
+}
+
+export function readJoinLandingCache(slug, serviceType) {
+  try {
+    const raw = sessionStorage.getItem(joinLandingCacheKey(slug, serviceType));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeJoinLandingCache(slug, serviceType, payload) {
+  if (!slug || !payload) return;
+  try {
+    sessionStorage.setItem(joinLandingCacheKey(slug, serviceType), JSON.stringify(payload));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+function mergeStartPoint(saved, fallback = { x: 0, y: 0 }) {
+  const src = saved && typeof saved === 'object' ? saved : {};
+  const x = Number(src.x);
+  const y = Number(src.y);
+  return {
+    x: Number.isFinite(x) ? x : fallback.x,
+    y: Number.isFinite(y) ? y : fallback.y
+  };
+}
+
+export function defaultIntakeStartLayout() {
+  return {
+    x: 0,
+    y: 8,
+    width: 860,
+    welcome: { x: 0, y: 0 },
+    glad: { x: 0, y: 0 }
+  };
+}
+
+export function mergeIntakeStartLayout(saved) {
+  const base = defaultIntakeStartLayout();
+  if (!saved || typeof saved !== 'object') return base;
+  const width = Number(saved.width);
+  return {
+    x: Number(saved.x) || 0,
+    y: Number.isFinite(Number(saved.y)) ? Number(saved.y) : base.y,
+    width: Number.isFinite(width) ? Math.min(1200, Math.max(420, width)) : base.width,
+    welcome: mergeStartPoint(saved.welcome, base.welcome),
+    glad: mergeStartPoint(saved.glad, base.glad)
+  };
+}
+
+export const OFFICE_START_COPY_EN = {
+  sidebarTagline: 'HEAL • GROW • THRIVE',
+  sidebarScript: "You're Not Alone.",
+  value1: 'Supportive & Welcoming',
+  value2: 'Personalized to Your Needs',
+  value3: 'Focused on Growth & Well-Being',
+  helpTitle: 'Need Help?',
+  helpBody: "We're here for you.",
+  sendMessage: 'Send Us a Message',
+  startTitle: "Let's get your intake started",
+  startLead: 'This secure intake packet helps our care team understand your needs and prepare the best support for you. You can save your progress anytime.'
+};
+
+export const OFFICE_START_COPY_ES = {
+  sidebarTagline: 'SANAR • CRECER • PROSPERAR',
+  sidebarScript: 'No está solo.',
+  value1: 'Apoyo y bienvenida',
+  value2: 'Personalizado a sus necesidades',
+  value3: 'Enfocado en el crecimiento y el bienestar',
+  helpTitle: '¿Necesita ayuda?',
+  helpBody: 'Estamos aquí para usted.',
+  sendMessage: 'Envíenos un mensaje',
+  startTitle: 'Empecemos su admisión',
+  startLead: 'Este paquete seguro de admisión ayuda a nuestro equipo a entender sus necesidades y preparar el mejor apoyo. Puede guardar su progreso en cualquier momento.'
+};
+
+const OFFICE_START_COPY_KEYS = Object.keys(OFFICE_START_COPY_EN);
+
+export function localizeOfficeStartCopy(copy, locale) {
+  const src = copy && typeof copy === 'object' ? copy : {};
+  if (String(locale || '').toLowerCase().startsWith('es')) {
+    const out = { ...src };
+    for (const key of OFFICE_START_COPY_KEYS) {
+      const current = String(src[key] || '').trim();
+      if (!current || current === OFFICE_START_COPY_EN[key]) {
+        out[key] = OFFICE_START_COPY_ES[key];
+      }
+    }
+    return out;
+  }
+  return src;
 }
 
 export function mergeJoinLayout(saved) {
@@ -54,14 +160,14 @@ export function mergeJoinLayout(saved) {
       : ['hidden', 'white', 'clear', 'dark'].includes(saved.footerStyle)
         ? saved.footerStyle
         : base.footerStyle,
-    showSidebar: saved.showSidebar === true,
+    showSidebar: saved.showSidebar !== false,
     fonts: { ...base.fonts, ...(saved.fonts || {}) },
     sizes: { ...base.sizes, ...(saved.sizes || {}) },
-    positions: {
-      welcome: { ...base.positions.welcome, ...(saved.positions?.welcome || {}) },
-      glad: { ...base.positions.glad, ...(saved.positions?.glad || {}) },
-      lead: { ...base.positions.lead, ...(saved.positions?.lead || {}) },
-      cards: { ...base.positions.cards, ...(saved.positions?.cards || {}) }
-    }
+    positions: Object.fromEntries(
+      Object.keys(base.positions).map((key) => [
+        key,
+        { ...base.positions[key], ...(saved.positions?.[key] || {}) }
+      ])
+    )
   };
 }

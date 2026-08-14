@@ -25,8 +25,8 @@ function field({
   key,
   label,
   type = 'textarea',
-  required = true,
-  optional = false,
+  required = false,
+  optional = true,
   options = [],
   showIf = null,
   helperText = '',
@@ -145,23 +145,21 @@ function aboutYou() {
       field({ key: 'phone_number', label: 'Phone number', type: 'tel' }),
       field({ key: 'email_address', label: 'Email address', type: 'email' }),
       field({
-        key: 'gender',
-        label: 'Gender',
+        key: 'sex',
+        label: 'Sex',
         type: 'radio',
         layout: 'cards',
         options: [
           opt('female', 'Female'),
-          opt('male', 'Male'),
-          opt('nonbinary', 'Non-binary'),
-          opt('prefer_not_to_say', 'Prefer not to say'),
-          opt('self_describe', 'Prefer to self-describe')
+          opt('male', 'Male')
         ]
       }),
       field({
-        key: 'gender_self_describe',
-        label: 'How do you describe your gender?',
+        key: 'preferred_called',
+        label: 'If you want to be called something different, write it here',
         type: 'text',
-        showIf: { fieldKey: 'gender', equals: 'self_describe' }
+        optional: true,
+        helperText: 'Optional'
       }),
       field({
         key: 'preferred_language',
@@ -858,6 +856,8 @@ function safety() {
         key: 'feel_physically_safe',
         label: 'Do you feel physically safe where you live?',
         type: 'radio',
+        required: true,
+        optional: false,
         options: yesNoNotSure()
       }),
       field({
@@ -875,6 +875,8 @@ function safety() {
         key: 'safety_immediate_danger',
         label: 'Are you currently in immediate danger of hurting yourself or someone else?',
         type: 'radio',
+        required: true,
+        optional: false,
         options: yesNo()
       }),
       field({

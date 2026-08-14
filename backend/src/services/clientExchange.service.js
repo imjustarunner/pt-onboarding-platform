@@ -616,8 +616,26 @@ export async function createPublicOfficeIntakeClient({ agencySlugOrId, payload =
     client.id
   ]);
 
-  if (homeAddress) {
-    await pool.execute(`UPDATE clients SET address_street = ? WHERE id = ?`, [homeAddress, client.id]).catch(() => null);
+  const street = String(payload.addressStreet || homeAddress || '').trim() || null;
+  const apt = String(payload.addressApt || '').trim() || null;
+  const city = String(payload.addressCity || '').trim() || null;
+  const state = String(payload.addressState || '').trim() || null;
+  const zip = String(payload.addressZip || '').trim() || null;
+  if (street || city || state || zip) {
+    await pool.execute(
+      `UPDATE clients
+       SET address_street = COALESCE(?, address_street),
+           address_apt = COALESCE(?, address_apt),
+           address_city = COALESCE(?, address_city),
+           address_state = COALESCE(?, address_state),
+           address_zip = COALESCE(?, address_zip)
+       WHERE id = ?`,
+      [street, apt, city, state, zip, client.id]
+    ).catch(async () => {
+      if (street) {
+        await pool.execute(`UPDATE clients SET address_street = ? WHERE id = ?`, [street, client.id]).catch(() => null);
+      }
+    });
   }
 
   await seedClientAffiliations({ clientId: client.id, agencyId, organizationId: agencyId });

@@ -314,6 +314,13 @@
                   New
                 </span>
                 <span
+                  v-if="!isSchoolStaff && client.possible_name_duplicate"
+                  class="name-duplicate-badge"
+                  title="Another client at this school has the same first and last name"
+                >
+                  Possible duplicate
+                </span>
+                <span
                   v-if="client.paper_packet_staff_roi_notice"
                   class="paper-packet-staff-badge"
                   title="A printed referral packet was recently uploaded. If your name is on the signed form, you will receive access."
@@ -3167,6 +3174,21 @@ onMounted(() => {
   50% { background-color: rgba(16, 185, 129, 0.14); box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.25); }
 }
 
+.name-duplicate-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(194, 65, 12, 0.35);
+  background: rgba(234, 88, 12, 0.12);
+  color: #9a3412;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
 .newly-assigned-badge {
   display: inline-flex;
   align-items: center;

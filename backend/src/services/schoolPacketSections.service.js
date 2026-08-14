@@ -4,6 +4,9 @@ import SchoolPacketTemplate, { normalizeLocale } from '../models/SchoolPacketTem
 import { DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML } from '../content/schoolPacketTemplateDefault.en.js';
 import { DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML_ES } from '../content/schoolPacketTemplateDefault.es.js';
 import { buildSchoolPrintablePacketContext } from './schoolPrintablePacket.service.js';
+import OfficePacketTemplate from '../models/OfficePacketTemplate.model.js';
+import { defaultOfficePacketHtml } from '../content/officePacketTemplateDefault.js';
+import { normalizeOfficePacketVariant } from '../constants/officePrintablePacket.js';
 
 export const PACKET_SECTION_KEYS = Object.freeze({
   INFORMED_GROUP_CONSENT: 'informed_group_consent',
@@ -184,7 +187,9 @@ export async function buildPacketSectionContext({
   organizationId,
   agencyId = null,
   locale = 'en',
-  sectionKey
+  sectionKey,
+  office = false,
+  variant = 'self'
 } = {}) {
   const loc = normalizeLocale(locale);
   const key = String(sectionKey || '').trim();
@@ -199,7 +204,12 @@ export async function buildPacketSectionContext({
   let resolvedAgencyId = Number(agencyId || 0) || null;
   let orgId = Number(organizationId || 0) || null;
 
-  if (orgId) {
+  if (office && resolvedAgencyId) {
+    const pack = normalizeOfficePacketVariant(variant);
+    const template = await OfficePacketTemplate.findByAgencyId(resolvedAgencyId, loc, pack);
+    templateHtml = String(template?.html_content || defaultOfficePacketHtml(pack, loc) || '');
+    packetVersion = Number(template?.version || 1);
+  } else if (orgId) {
     const ctx = await buildSchoolPrintablePacketContext({
       organizationId: orgId,
       locale: loc

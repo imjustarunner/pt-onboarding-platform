@@ -45,8 +45,10 @@ import {
   searchSchoolPortalClientAssignments,
   getSchoolStaffWaiverStatus,
   resetSchoolStaffWaiverStatusForTesting,
-  restoreSchoolPortalIntakeArtifacts
+  restoreSchoolPortalIntakeArtifacts,
+  uploadSchoolPortalLogo
 } from '../controllers/schoolPortal.controller.js';
+import { upload as uploadLogoFile } from '../controllers/logo.controller.js';
 import {
   listSchoolProvidersForScheduling,
   listScheduleEntries,
@@ -197,6 +199,7 @@ router.get('/:organizationId/intake-links/copy-sources', authenticate, listSchoo
 router.put('/:organizationId/intake-links/:linkId/activate', authenticate, activateSchoolPortalIntakeLink);
 router.post('/:organizationId/intake-links/create', authenticate, createSchoolPortalIntakeLink);
 router.post('/:organizationId/intake-links/duplicate-from', authenticate, duplicateSchoolPortalIntakeLinkFrom);
+router.post('/:organizationId/logo', authenticate, uploadLogoFile.single('logo'), uploadSchoolPortalLogo);
 router.get('/:organizationId/intake-links', authenticate, listSchoolPortalIntakeLinks);
 router.get('/:organizationId/public-documents', authenticate, listSchoolPublicDocuments);
 router.get('/:organizationId/printable-packet/availability', authenticate, getSchoolPrintablePacketAvailabilityHandler);

@@ -3,19 +3,21 @@
     <div v-if="error" class="error">{{ error }}</div>
 
     <div v-if="stage === 'review'" class="packet-section-card">
-      <h3>{{ title }}</h3>
-      <p v-if="!sectionReady" class="error">
+      <p v-if="!sectionReady && isLoading" class="muted">
+        {{ tr('Loading this agreement…', 'Cargando este acuerdo…') }}
+      </p>
+      <p v-else-if="!sectionReady" class="error">
         {{ tr('This section could not be loaded.', 'No se pudo cargar esta sección.') }}
       </p>
       <p class="lead">
         {{
           tr(
-            'Please review the following agreement carefully. This text comes from the school referral packet and is the same wording used on the printable packet.',
-            'Revise el siguiente acuerdo con cuidado. Este texto proviene del paquete de referencia escolar y es el mismo texto utilizado en el paquete imprimible.'
+            'Please review the following agreement carefully. This is the same wording used on the printable packet.',
+            'Revise el siguiente acuerdo con cuidado. Este es el mismo texto utilizado en el paquete imprimible.'
           )
         }}
       </p>
-      <div class="packet-section-html" v-html="sectionHtml" />
+      <div v-if="sectionReady" class="packet-section-html" v-html="sectionHtml" />
       <label class="ack-checkbox" :class="{ 'required-highlight': !acknowledged }">
         <input v-model="acknowledged" type="checkbox" />
         <span>
@@ -45,7 +47,12 @@
         }}
       </p>
       <div class="review-block">
-        <SignaturePad compact @signed="onSigned" />
+        <SignaturePad
+          compact
+          :locale="resolvedLocale"
+          :initial-value="savedCapture?.signatureData || ''"
+          @signed="onSigned"
+        />
       </div>
       <div class="actions">
         <button type="button" class="btn btn-secondary" @click="stage = 'review'">
@@ -70,6 +77,7 @@ import SignaturePad from '../SignaturePad.vue';
 
 const props = defineProps({
   sectionContext: { type: Object, default: null },
+  savedCapture: { type: Object, default: null },
   locale: { type: String, default: 'en' }
 });
 
@@ -89,8 +97,22 @@ const title = computed(() => String(props.sectionContext?.title || 'Agreement').
 const sectionHtml = computed(() => String(props.sectionContext?.html || '').trim());
 const sectionKey = computed(() => String(props.sectionContext?.sectionKey || '').trim());
 const sectionReady = computed(() => !!sectionKey.value && !!sectionHtml.value);
+const isLoading = computed(() =>
+  !!sectionKey.value && !sectionHtml.value && props.sectionContext?.lite === true
+);
 
 const tr = (en, es) => (resolvedLocale.value === 'es' ? es : en);
+
+const restoreSaved = (key) => {
+  const saved = props.savedCapture;
+  if (saved && String(saved.sectionKey || '') === key && saved.signatureData) {
+    acknowledged.value = true;
+    signatureData.value = saved.signatureData;
+    stage.value = 'sign';
+    return true;
+  }
+  return false;
+};
 
 const onSigned = (data) => {
   signatureData.value = data || null;
@@ -118,14 +140,36 @@ const complete = () => {
   });
 };
 
+const goNext = () => {
+  error.value = '';
+  if (stage.value === 'review') {
+    if (!acknowledged.value || !sectionReady.value) {
+      error.value = tr(
+        'Please read and agree to this section before continuing.',
+        'Lea y acepte esta sección antes de continuar.'
+      );
+      return;
+    }
+    stage.value = 'sign';
+    return;
+  }
+  if (stage.value === 'sign') {
+    complete();
+  }
+};
+
+defineExpose({ goNext });
+
 watch(
   () => props.sectionContext?.sectionKey,
-  () => {
+  (key) => {
+    error.value = '';
+    if (restoreSaved(String(key || ''))) return;
     stage.value = 'review';
     acknowledged.value = false;
     signatureData.value = null;
-    error.value = '';
-  }
+  },
+  { immediate: true }
 );
 </script>
 
@@ -146,7 +190,7 @@ watch(
   margin-top: 0;
 }
 .packet-section-html {
-  max-height: 420px;
+  max-height: min(58vh, 640px);
   overflow: auto;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
