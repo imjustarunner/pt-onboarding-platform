@@ -2333,7 +2333,7 @@ class User {
     }
     try {
       await pool.execute(
-        'UPDATE users SET temporary_password_hash = NULL, temporary_password_expires_at = NULL WHERE id = ?',
+        'UPDATE users SET temporary_password_hash = NULL, temporary_password_expires_at = NULL, temporary_password_set_at = NULL WHERE id = ?',
         [uid]
       );
     } catch {
@@ -2390,7 +2390,12 @@ class User {
     // We store the hash in both password_hash (for login) and temporary_password_hash (to detect
     // "must change password" state until cleared by changePassword()).
     await pool.execute(
-      'UPDATE users SET password_hash = ?, temporary_password_hash = ?, temporary_password_expires_at = ? WHERE id = ?',
+      `UPDATE users
+       SET password_hash = ?,
+           temporary_password_hash = ?,
+           temporary_password_expires_at = ?,
+           temporary_password_set_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
       [passwordHash, passwordHash, expiresAt, userId]
     );
     
@@ -2538,12 +2543,12 @@ class User {
 
     if (hasPasswordChangedAt) {
       await pool.execute(
-        'UPDATE users SET password_hash = ?, password_changed_at = NOW(), temporary_password_hash = NULL, temporary_password_expires_at = NULL WHERE id = ?',
+        'UPDATE users SET password_hash = ?, password_changed_at = NOW(), temporary_password_hash = NULL, temporary_password_expires_at = NULL, temporary_password_set_at = NULL WHERE id = ?',
         [passwordHash, userId]
       );
     } else {
       await pool.execute(
-        'UPDATE users SET password_hash = ?, temporary_password_hash = NULL, temporary_password_expires_at = NULL WHERE id = ?',
+        'UPDATE users SET password_hash = ?, temporary_password_hash = NULL, temporary_password_expires_at = NULL, temporary_password_set_at = NULL WHERE id = ?',
         [passwordHash, userId]
       );
     }

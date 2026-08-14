@@ -5,7 +5,10 @@ import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.mod
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 
-const TEMP_PASSWORD_SET_ACTION_TYPES = ['school_staff_temporary_password_set'];
+const TEMP_PASSWORD_SET_ACTION_TYPES = [
+  'school_staff_temporary_password_set',
+  'school_portal_school_staff_temporary_password_set'
+];
 
 const parseActivityMetadata = (raw) => {
   if (!raw) return {};
@@ -96,12 +99,17 @@ function buildTemporaryPasswordFields(user, tempSetEvent, performerNames) {
   const setByEmail = tempSetEvent?.set_by_email || null;
   const setByName = setByUserId ? performerNames.get(setByUserId) || null : null;
 
+  const setAt =
+    user.temporary_password_set_at ||
+    tempSetEvent?.set_at ||
+    null;
+
   return {
     has_temporary_password: hasTemporaryPassword,
     has_active_temporary_password: hasActiveTemporaryPassword,
     temporary_password_status: temporaryPasswordStatus,
     temporary_password_expires_at: hasTemporaryPassword ? user.temporary_password_expires_at : null,
-    temporary_password_set_at: tempSetEvent?.set_at || null,
+    temporary_password_set_at: hasTemporaryPassword ? setAt : null,
     temporary_password_set_by_user_id: setByUserId,
     temporary_password_set_by_email: setByEmail,
     temporary_password_set_by_name: setByName,
@@ -212,6 +220,7 @@ async function fetchAgencySchoolStaffRows(agencyId) {
          u.password_hash,
          u.temporary_password_hash,
          u.temporary_password_expires_at,
+         u.temporary_password_set_at,
          u.created_at,
          school.id AS school_id,
          school.name AS school_name
@@ -277,6 +286,7 @@ function aggregateSchoolStaffRows(rows) {
         password_hash: row.password_hash || null,
         temporary_password_hash: row.temporary_password_hash,
         temporary_password_expires_at: row.temporary_password_expires_at,
+        temporary_password_set_at: row.temporary_password_set_at,
         created_at: row.created_at,
         schools: schoolEntry ? [schoolEntry] : []
       });
@@ -497,7 +507,8 @@ export const previewSchoolStaffAccountAccessEmail = async (req, res, next) => {
       subject: req.body?.subject,
       body: req.body?.body,
       senderIdentityId: req.body?.senderIdentityId,
-      senderName
+      senderName,
+      temporaryPassword: req.body?.temporaryPassword
     });
     res.json(preview);
   } catch (error) {
@@ -599,7 +610,9 @@ export const queueSchoolStaffAccountAccessEmails = async (req, res, next) => {
       staggerSeconds: req.body?.staggerSeconds,
       createdByUserId: req.user?.id,
       senderName,
-      saveTemplate: req.body?.saveTemplate || null
+      saveTemplate: req.body?.saveTemplate || null,
+      temporaryPassword: req.body?.temporaryPassword,
+      expiresInHours: req.body?.expiresInHours
     });
     res.json(result);
   } catch (error) {
@@ -625,6 +638,49 @@ export const getSchoolStaffAccountAccessEmailSend = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Send job not found' } });
     }
     res.json(send);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPendingSchoolStaffAccessPasswordSync = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(String(req.params.id || ''), 10);
+    if (!Number.isFinite(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+    await assertManageableAgency(req, agencyId);
+
+    const { getPendingAccessPasswordSync } = await import('../services/schoolStaffAccountAccessEmail.service.js');
+    const pending = await getPendingAccessPasswordSync(agencyId);
+    res.json(pending);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const syncSchoolStaffAccountAccessSendPasswords = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(String(req.params.id || ''), 10);
+    const sendId = parseInt(String(req.params.sendId || ''), 10);
+    if (!Number.isFinite(agencyId) || agencyId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    }
+    if (!Number.isFinite(sendId) || sendId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid send id' } });
+    }
+    await assertManageableAgency(req, agencyId);
+
+    const { syncAccessSendTemporaryPasswords } = await import('../services/schoolStaffAccountAccessEmail.service.js');
+    const result = await syncAccessSendTemporaryPasswords({
+      sendId,
+      agencyId,
+      temporaryPassword: req.body?.temporaryPassword,
+      expiresInHours: req.body?.expiresInHours,
+      performedByUserId: req.user?.id || null,
+      performedByEmail: req.user?.email || req.user?.username || null
+    });
+    res.json(result);
   } catch (error) {
     next(error);
   }

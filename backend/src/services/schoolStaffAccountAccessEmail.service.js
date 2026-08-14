@@ -16,7 +16,109 @@ export const ACCOUNT_ACCESS_EMAIL_TYPES = {
 export const STAGGER_OPTIONS_SECONDS = [10, 15, 30, 60, 120];
 export const DEFAULT_STAGGER_SECONDS = 30;
 const TOKEN_EXPIRES_HOURS = 48;
+const DEFAULT_TEMP_PASSWORD_EXPIRES_HOURS = 168;
 const TEST_RESET_PLACEHOLDER = '[reset link omitted in this test — no token attached]';
+
+export function extractTempPasswordFromAccessEmailBody(body) {
+  const text = String(body || '');
+  const labeled = text.match(/(?:temporary\s+password|temp\s+password|password)\s*:\s*([^\s\r\n]+)/i);
+  if (labeled?.[1]) {
+    const pwd = labeled[1].trim();
+    if (pwd.length >= 6 && pwd.length <= 128) return pwd;
+  }
+  return null;
+}
+
+function normalizeSharedTempPassword(value) {
+  const pwd = String(value || '').trim();
+  if (!pwd || pwd.length < 6 || pwd.length > 128) return null;
+  return pwd;
+}
+
+function resolveSharedTempPassword(send, overridePassword = null) {
+  return (
+    normalizeSharedTempPassword(overridePassword) ||
+    normalizeSharedTempPassword(send?.shared_temporary_password) ||
+    extractTempPasswordFromAccessEmailBody(send?.body)
+  );
+}
+
+async function applySharedTemporaryPasswordForUser({
+  userId,
+  temporaryPassword,
+  expiresInHours,
+  setAt = null,
+  performedByUserId = null,
+  performedByEmail = null,
+  source,
+  sendId = null
+}) {
+  const user = await User.findById(userId);
+  if (!user) {
+    return { userId, ok: false, error: 'User not found' };
+  }
+  if (String(user.role || '').toLowerCase() !== 'school_staff') {
+    return { userId, ok: false, error: 'Only school_staff users can receive temporary passwords' };
+  }
+  if (String(user.status || '').toUpperCase() === 'ARCHIVED') {
+    return { userId, ok: false, error: 'Cannot reset password for an archived user' };
+  }
+
+  const hours = Math.min(720, Math.max(1, Number(expiresInHours) || DEFAULT_TEMP_PASSWORD_EXPIRES_HOURS));
+  const temporaryPasswordResult = await User.setTemporaryPassword(userId, temporaryPassword, hours);
+
+  if (setAt) {
+    await pool.execute(
+      'UPDATE users SET temporary_password_set_at = ? WHERE id = ?',
+      [setAt, userId]
+    );
+  }
+
+  if (String(user.status || '').toUpperCase() === 'PENDING_SETUP') {
+    try {
+      await User.updateStatus(userId, 'ACTIVE_EMPLOYEE', performedByUserId || null);
+    } catch {
+      // ignore
+    }
+    try {
+      await User.update(userId, { isActive: true });
+    } catch {
+      // ignore
+    }
+  }
+
+  try {
+    await User.markTokenAsUsed(userId);
+  } catch {
+    // best-effort
+  }
+
+  try {
+    const ActivityLogService = (await import('./activityLog.service.js')).default;
+    ActivityLogService.logActivity({
+      actionType: 'school_staff_temporary_password_set',
+      userId,
+      metadata: {
+        performedByUserId,
+        performedByEmail,
+        source,
+        sendId,
+        agencyId: null,
+        expiresAt: temporaryPasswordResult?.expiresAt || null,
+        expiresInHours: hours
+      }
+    });
+  } catch {
+    // best-effort
+  }
+
+  return {
+    userId,
+    ok: true,
+    temporaryPasswordExpiresAt: temporaryPasswordResult?.expiresAt || null,
+    temporaryPasswordSetAt: setAt || new Date().toISOString()
+  };
+}
 
 function normalizeEmailType(value) {
   const raw = String(value || '').trim().toLowerCase();
@@ -149,12 +251,14 @@ async function renderAccessEmail({
   template,
   senderName,
   passwordlessToken = null,
+  tempPassword = null,
   isTest = false
 }) {
   const keepPortalLoginLink = true;
   const parameters = await EmailTemplateService.collectParameters(user, agency, {
     passwordlessToken,
     senderName,
+    tempPassword,
     keepPortalLoginLink
   });
   if (isTest) {
@@ -178,7 +282,8 @@ export async function previewAccessEmail({
   subject = null,
   body = null,
   senderIdentityId = null,
-  senderName = null
+  senderName = null,
+  temporaryPassword = null
 }) {
   const emailType = normalizeEmailType(emailTypeRaw);
   if (!emailType) {
@@ -214,12 +319,17 @@ export async function previewAccessEmail({
     };
   }
 
+  const sharedTempPassword =
+    normalizeSharedTempPassword(temporaryPassword) ||
+    extractTempPasswordFromAccessEmailBody(template.body);
+
   const sample = await renderAccessEmail({
     user: sampleUser,
     agency,
     template,
     senderName: senderName || sender.identity?.display_name || agency?.name || 'School staff',
     passwordlessToken: null,
+    tempPassword: sharedTempPassword,
     isTest: true
   });
 
@@ -247,7 +357,9 @@ export async function previewAccessEmail({
     samplePreview: sample,
     staggerOptions: STAGGER_OPTIONS_SECONDS,
     defaultStaggerSeconds: DEFAULT_STAGGER_SECONDS,
-    tokenExpiresHours: TOKEN_EXPIRES_HOURS
+    tokenExpiresHours: TOKEN_EXPIRES_HOURS,
+    detectedTemporaryPassword: sharedTempPassword,
+    defaultTempPasswordExpiresHours: DEFAULT_TEMP_PASSWORD_EXPIRES_HOURS
   };
 }
 
@@ -336,7 +448,9 @@ export async function queueAccessEmails({
   staggerSeconds = DEFAULT_STAGGER_SECONDS,
   createdByUserId,
   senderName = null,
-  saveTemplate = null
+  saveTemplate = null,
+  temporaryPassword = null,
+  expiresInHours = DEFAULT_TEMP_PASSWORD_EXPIRES_HOURS
 }) {
   const emailType = normalizeEmailType(emailTypeRaw);
   if (!emailType) {
@@ -410,11 +524,24 @@ export async function queueAccessEmails({
     throw err;
   }
 
+  const sharedTempPassword =
+    emailType === ACCOUNT_ACCESS_EMAIL_TYPES.portal_access
+      ? (
+        normalizeSharedTempPassword(temporaryPassword) ||
+        extractTempPasswordFromAccessEmailBody(nextBody)
+      )
+      : null;
+  const tempPasswordExpiresInHours = Math.min(
+    720,
+    Math.max(1, Number(expiresInHours) || DEFAULT_TEMP_PASSWORD_EXPIRES_HOURS)
+  );
+
   const [sendResult] = await pool.execute(
     `INSERT INTO school_staff_account_access_sends
       (agency_id, created_by_user_id, email_type, template_id, sender_identity_id,
-       subject, body, stagger_seconds, status, total_count)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)`,
+       subject, body, shared_temporary_password, temp_password_expires_in_hours,
+       stagger_seconds, status, total_count)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)`,
     [
       agencyId,
       createdByUserId,
@@ -423,6 +550,8 @@ export async function queueAccessEmails({
       sender.identity.id,
       nextSubject,
       nextBody,
+      sharedTempPassword,
+      sharedTempPassword ? tempPasswordExpiresInHours : null,
       stagger,
       eligible.length
     ]
@@ -450,7 +579,9 @@ export async function queueAccessEmails({
     fromEmail: sender.identity.from_email,
     fromName: sender.identity.display_name,
     estimatedMinutes: Math.ceil(((eligible.length - 1) * stagger) / 60),
-    senderName: senderName || sender.identity.display_name
+    senderName: senderName || sender.identity.display_name,
+    sharedTemporaryPasswordConfigured: !!sharedTempPassword,
+    tempPasswordExpiresInHours: sharedTempPassword ? tempPasswordExpiresInHours : null
   };
 }
 
@@ -471,7 +602,125 @@ export async function getAccessEmailSend(sendId, agencyId = null) {
      ORDER BY scheduled_at ASC, id ASC`,
     [id]
   );
-  return { ...send, items: items || [] };
+  const sharedTemporaryPasswordConfigured = !!(
+    send?.shared_temporary_password ||
+    extractTempPasswordFromAccessEmailBody(send?.body)
+  );
+  return {
+    ...send,
+    items: items || [],
+    shared_temporary_password: undefined,
+    sharedTemporaryPasswordConfigured,
+    tempPasswordSynced: !!send?.temp_password_synced_at,
+    tempPasswordSyncedAt: send?.temp_password_synced_at || null
+  };
+}
+
+export async function syncAccessSendTemporaryPasswords({
+  sendId,
+  agencyId,
+  temporaryPassword = null,
+  expiresInHours = null,
+  performedByUserId = null,
+  performedByEmail = null
+}) {
+  const send = await getAccessEmailSend(sendId, agencyId);
+  if (!send) {
+    const err = new Error('Send job not found');
+    err.status = 404;
+    throw err;
+  }
+  if (send.email_type !== ACCOUNT_ACCESS_EMAIL_TYPES.portal_access) {
+    const err = new Error('Temporary password sync is only available for portal access emails');
+    err.status = 400;
+    throw err;
+  }
+
+  const password = resolveSharedTempPassword(send, temporaryPassword);
+  if (!password) {
+    const err = new Error(
+      'No temporary password found for this send. Add a line like "Temp password: your-password" to the email body, or provide temporaryPassword.'
+    );
+    err.status = 400;
+    throw err;
+  }
+
+  const hours = Math.min(
+    720,
+    Math.max(1, Number(expiresInHours || send.temp_password_expires_in_hours) || DEFAULT_TEMP_PASSWORD_EXPIRES_HOURS)
+  );
+
+  const sentItems = (send.items || []).filter((item) => String(item.status || '') === 'sent');
+  if (!sentItems.length) {
+    const err = new Error('No sent recipients found for this email job yet');
+    err.status = 400;
+    throw err;
+  }
+
+  const results = [];
+  for (const item of sentItems) {
+    const result = await applySharedTemporaryPasswordForUser({
+      userId: item.user_id,
+      temporaryPassword: password,
+      expiresInHours: hours,
+      setAt: item.sent_at || null,
+      performedByUserId,
+      performedByEmail,
+      source: 'school_staff_accounts_access_email_sync',
+      sendId: send.id
+    });
+    results.push(result);
+  }
+
+  const failed = results.filter((row) => !row.ok);
+  if (!failed.length) {
+    await pool.execute(
+      `UPDATE school_staff_account_access_sends
+       SET temp_password_synced_at = UTC_TIMESTAMP(),
+           shared_temporary_password = COALESCE(shared_temporary_password, ?),
+           temp_password_expires_in_hours = COALESCE(temp_password_expires_in_hours, ?)
+       WHERE id = ? AND agency_id = ?`,
+      [password, hours, send.id, agencyId]
+    );
+  }
+
+  return {
+    ok: failed.length === 0,
+    sendId: send.id,
+    passwordApplied: true,
+    expiresInHours: hours,
+    results
+  };
+}
+
+export async function getPendingAccessPasswordSync(agencyId) {
+  const aid = Number(agencyId);
+  if (!aid) return { pending: false };
+
+  const [rows] = await pool.execute(
+    `SELECT id, created_at, completed_at, total_count, sent_count, body,
+            shared_temporary_password, temp_password_synced_at, temp_password_expires_in_hours
+     FROM school_staff_account_access_sends
+     WHERE agency_id = ?
+       AND email_type = ?
+       AND status = 'completed'
+       AND temp_password_synced_at IS NULL
+     ORDER BY id DESC
+     LIMIT 1`,
+    [aid, ACCOUNT_ACCESS_EMAIL_TYPES.portal_access]
+  );
+  const send = rows?.[0] || null;
+  if (!send) return { pending: false };
+
+  return {
+    pending: true,
+    sendId: send.id,
+    completedAt: send.completed_at || send.created_at || null,
+    sentCount: Number(send.sent_count || 0),
+    totalCount: Number(send.total_count || 0),
+    expiresInHours: Number(send.temp_password_expires_in_hours || DEFAULT_TEMP_PASSWORD_EXPIRES_HOURS),
+    passwordInBody: !!resolveSharedTempPassword(send)
+  };
 }
 
 async function sendOneQueuedItem(item, send) {
@@ -482,6 +731,23 @@ async function sendOneQueuedItem(item, send) {
   const senderName = actor
     ? (`${actor.first_name || ''} ${actor.last_name || ''}`.trim() || actor.email)
     : null;
+
+  const sharedTempPassword = resolveSharedTempPassword(send);
+  if (
+    sharedTempPassword &&
+    send.email_type === ACCOUNT_ACCESS_EMAIL_TYPES.portal_access
+  ) {
+    await applySharedTemporaryPasswordForUser({
+      userId: user.id,
+      temporaryPassword: sharedTempPassword,
+      expiresInHours: send.temp_password_expires_in_hours,
+      setAt: null,
+      performedByUserId: send.created_by_user_id,
+      performedByEmail: actor?.email || null,
+      source: 'school_staff_accounts_access_email_send',
+      sendId: send.id
+    });
+  }
 
   const tokenResult = await User.generatePasswordlessToken(user.id, TOKEN_EXPIRES_HOURS, 'reset');
   const rendered = await renderAccessEmail({
@@ -494,6 +760,7 @@ async function sendOneQueuedItem(item, send) {
     },
     senderName,
     passwordlessToken: tokenResult.token,
+    tempPassword: sharedTempPassword,
     isTest: false
   });
 

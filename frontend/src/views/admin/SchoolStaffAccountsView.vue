@@ -84,7 +84,34 @@
 
       <p class="ssa-note muted">
         Use <strong>Never logged in only</strong> to see staff who still need a password. You can set a temporary password yourself, or send a staggered Account Access email (recovery link or portal access) so you do not have to BCC them separately.
+        Portal access emails that include a line like <strong>Temp password: …</strong> must be synced to accounts — sending the email alone does not save the password on this page until you sync.
       </p>
+
+      <div v-if="pendingPasswordSync?.pending" class="ssa-sync-banner">
+        <div>
+          <strong>Portal access emails were sent with a temp password.</strong>
+          Staff may not be able to log in until the password is synced to their accounts (no new email is sent).
+          <span v-if="pendingPasswordSync.sentCount" class="muted ssa-set-meta">
+            {{ pendingPasswordSync.sentCount }} recipient{{ pendingPasswordSync.sentCount === 1 ? '' : 's' }} from the latest batch.
+          </span>
+        </div>
+        <div class="ssa-sync-banner__actions">
+          <input
+            v-model="pendingSyncPassword"
+            type="text"
+            class="ssa-sync-password-input"
+            placeholder="Temp password from email (optional if already in email body)"
+          />
+          <button
+            class="btn btn-primary btn-sm"
+            type="button"
+            :disabled="passwordSyncSubmitting"
+            @click="syncPendingPortalPassword"
+          >
+            {{ passwordSyncSubmitting ? 'Syncing…' : 'Sync password to accounts' }}
+          </button>
+        </div>
+      </div>
 
       <div v-if="loading" class="loading">Loading school staff accounts…</div>
       <div v-else-if="error" class="error">{{ error }}</div>
@@ -134,21 +161,25 @@
                 <span v-else-if="staff.has_never_logged_in" class="ssa-never-login">Never logged in</span>
                 <span v-else class="muted">—</span>
               </td>
-              <td>
-                <span v-if="staff.temporary_password_status === 'active'" class="ssa-temp-active">
-                  Active until {{ formatDateTime(staff.temporary_password_expires_at) }}
-                </span>
-                <span v-else-if="staff.temporary_password_status === 'expired'" class="ssa-temp-expired">
-                  Expired {{ formatDateTime(staff.temporary_password_expires_at) }}
-                </span>
+              <td class="ssa-temp-cell">
+                <template v-if="staff.temporary_password_status === 'active' || staff.temporary_password_status === 'expired'">
+                  <div class="ssa-temp-line">
+                    <span class="ssa-temp-label">Sent</span>
+                    <span>{{ formatDateTime(staff.temporary_password_set_at) || 'Unknown' }}</span>
+                  </div>
+                  <div
+                    class="ssa-temp-line"
+                    :class="staff.temporary_password_status === 'active' ? 'ssa-temp-active' : 'ssa-temp-expired'"
+                  >
+                    <span class="ssa-temp-label">Expires</span>
+                    <span>{{ formatDateTime(staff.temporary_password_expires_at) }}</span>
+                  </div>
+                </template>
                 <span v-else class="muted">None</span>
               </td>
               <td>
-                <template v-if="staff.temporary_password_set_by_label || staff.temporary_password_set_at">
-                  <div>{{ staff.temporary_password_set_by_label || 'Unknown' }}</div>
-                  <div v-if="staff.temporary_password_set_at" class="muted ssa-set-meta">
-                    {{ formatDateTime(staff.temporary_password_set_at) }}
-                  </div>
+                <template v-if="staff.temporary_password_set_by_label">
+                  <div>{{ staff.temporary_password_set_by_label }}</div>
                 </template>
                 <span v-else class="muted">—</span>
               </td>
@@ -273,6 +304,29 @@
               <option value="120">2 minutes</option>
             </select>
           </label>
+          <template v-if="accessEmailType === 'portal_access'">
+            <label class="ssa-bulk-field">
+              <span>Shared temp password (included in email)</span>
+              <input
+                v-model="accessTempPassword"
+                type="text"
+                autocomplete="off"
+                placeholder="e.g. InTheSchools26"
+              />
+            </label>
+            <label class="ssa-bulk-field ssa-bulk-field--sm">
+              <span>Password expires in</span>
+              <select v-model="accessTempPasswordExpiresHours">
+                <option value="168">7 days</option>
+                <option value="336">14 days</option>
+                <option value="720">30 days</option>
+              </select>
+            </label>
+            <p class="muted ssa-set-meta">
+              Include <button type="button" class="ssa-var" @click="insertAccessVariable('{{TEMP_PASSWORD}}')">{{ '{{TEMP_PASSWORD}}' }}</button>
+              in the email body, or add a line like <strong>Temp password: your-password</strong>. The password is saved to each account when their email sends.
+            </p>
+          </template>
           <p class="muted ssa-set-meta">
             30 seconds is the default so school district firewalls are less likely to flag a burst. Use 1 minute if you are sending a large list.
           </p>
@@ -296,6 +350,30 @@
           <span v-if="accessJob.status === 'completed'"> — done</span>
           <div v-if="accessSkippedCount" class="muted ssa-set-meta">
             {{ accessSkippedCount }} skipped (no email on file)
+          </div>
+          <div
+            v-if="accessJob.status === 'completed' && accessEmailType === 'portal_access' && accessJob.sharedTemporaryPasswordConfigured && !accessJob.tempPasswordSynced"
+            class="ssa-access-sync"
+          >
+            <p class="muted ssa-set-meta">
+              This portal access email included a temp password. Sync it to staff accounts so they can log in and this page shows Sent / Expires (no new email).
+            </p>
+            <div class="ssa-sync-banner__actions">
+              <input
+                v-model="accessTempPassword"
+                type="text"
+                class="ssa-sync-password-input"
+                placeholder="Temp password from email"
+              />
+              <button
+                class="btn btn-primary btn-sm"
+                type="button"
+                :disabled="passwordSyncSubmitting"
+                @click="syncAccessJobPassword"
+              >
+                {{ passwordSyncSubmitting ? 'Syncing…' : 'Sync password to accounts' }}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -376,14 +454,20 @@ const accessEditing = ref(false);
 const accessSaveMode = ref('update');
 const accessTemplateName = ref('');
 const accessStaggerSeconds = ref('30');
+const accessTempPassword = ref('');
+const accessTempPasswordExpiresHours = ref('168');
 const accessTestTo = ref('');
 const accessJob = ref(null);
+const pendingPasswordSync = ref(null);
+const pendingSyncPassword = ref('');
+const passwordSyncSubmitting = ref(false);
 const ACCESS_TEMPLATE_VARS = [
   '{{FIRST_NAME}}',
   '{{USERNAME}}',
   '{{AGENCY_NAME}}',
   '{{PORTAL_LOGIN_LINK}}',
   '{{RESET_TOKEN_LINK}}',
+  '{{TEMP_PASSWORD}}',
   '{{SENDER_NAME}}'
 ];
 let accessPollTimer = null;
@@ -602,6 +686,9 @@ const applyAccessPreview = (preview) => {
     accessBody.value = preview?.template?.body || '';
     accessTemplateName.value = preview?.template?.name || '';
   }
+  if (preview?.detectedTemporaryPassword && !accessTempPassword.value) {
+    accessTempPassword.value = preview.detectedTemporaryPassword;
+  }
   if (preview?.sender?.id && !accessSenderIdentityId.value) {
     accessSenderIdentityId.value = String(preview.sender.id);
   }
@@ -628,7 +715,8 @@ const loadAccessPreview = async (includeEdits = false) => {
       userIds: [...selectedIds.value],
       subject: (includeEdits || accessEditing.value) ? accessSubject.value : undefined,
       body: (includeEdits || accessEditing.value) ? accessBody.value : undefined,
-      senderIdentityId: accessSenderIdentityId.value || undefined
+      senderIdentityId: accessSenderIdentityId.value || undefined,
+      temporaryPassword: accessEmailType.value === 'portal_access' ? accessTempPassword.value : undefined
     });
     applyAccessPreview(response.data);
   } catch (err) {
@@ -704,6 +792,60 @@ const sendAccessTest = async () => {
   }
 };
 
+const loadPendingPasswordSync = async () => {
+  if (!agencyId.value) return;
+  try {
+    const response = await api.get(`/agencies/${agencyId.value}/school-staff/accounts/access-email/pending-password-sync`);
+    pendingPasswordSync.value = response?.data || { pending: false };
+    if (pendingPasswordSync.value?.pending && !pendingSyncPassword.value) {
+      pendingSyncPassword.value = accessTempPassword.value || '';
+    }
+  } catch {
+    pendingPasswordSync.value = { pending: false };
+  }
+};
+
+const syncPortalPasswordSend = async (sendId, password) => {
+  if (!agencyId.value || !sendId) return;
+  passwordSyncSubmitting.value = true;
+  accessError.value = '';
+  try {
+    const response = await api.post(
+      `/agencies/${agencyId.value}/school-staff/accounts/access-email/sends/${sendId}/sync-temporary-password`,
+      {
+        temporaryPassword: String(password || '').trim() || undefined,
+        expiresInHours: Number(accessTempPasswordExpiresHours.value || pendingPasswordSync.value?.expiresInHours || 168)
+      }
+    );
+    const failed = Array.isArray(response?.data?.results)
+      ? response.data.results.filter((row) => !row.ok)
+      : [];
+    if (failed.length) {
+      accessError.value = `${failed.length} account${failed.length === 1 ? '' : 's'} could not be synced.`;
+    } else {
+      accessTestMsg.value = 'Temp password synced to staff accounts. No new emails were sent.';
+    }
+    await Promise.all([loadStaff(), loadPendingPasswordSync()]);
+    if (accessJob.value?.id === sendId) {
+      accessJob.value = { ...accessJob.value, tempPasswordSynced: true };
+    }
+  } catch (err) {
+    accessError.value = err?.response?.data?.error?.message || 'Failed to sync temporary password';
+  } finally {
+    passwordSyncSubmitting.value = false;
+  }
+};
+
+const syncPendingPortalPassword = async () => {
+  if (!pendingPasswordSync.value?.sendId) return;
+  await syncPortalPasswordSend(pendingPasswordSync.value.sendId, pendingSyncPassword.value);
+};
+
+const syncAccessJobPassword = async () => {
+  if (!accessJob.value?.id) return;
+  await syncPortalPasswordSend(accessJob.value.id, accessTempPassword.value);
+};
+
 const pollAccessJob = async (sendId) => {
   if (!agencyId.value || !sendId) return;
   try {
@@ -714,6 +856,7 @@ const pollAccessJob = async (sendId) => {
     };
     if (String(response.data?.status || '') === 'completed') {
       stopAccessPoll();
+      await loadPendingPasswordSync();
     }
   } catch {
     // keep last snapshot
@@ -732,6 +875,10 @@ const confirmAccessSend = async () => {
       body: accessBody.value,
       senderIdentityId: accessSenderIdentityId.value || undefined,
       staggerSeconds: Number(accessStaggerSeconds.value || 30),
+      temporaryPassword: accessEmailType.value === 'portal_access' ? accessTempPassword.value : undefined,
+      expiresInHours: accessEmailType.value === 'portal_access'
+        ? Number(accessTempPasswordExpiresHours.value || 168)
+        : undefined,
       saveTemplate: accessEditing.value
         ? { mode: accessSaveMode.value, name: accessTemplateName.value }
         : null
@@ -757,7 +904,10 @@ const confirmAccessSend = async () => {
 };
 
 watch(agencyId, (id) => {
-  if (id) void loadStaff();
+  if (id) {
+    void loadStaff();
+    void loadPendingPasswordSync();
+  }
 });
 
 onMounted(async () => {
@@ -769,7 +919,7 @@ onMounted(async () => {
     // ignore
   }
   if (agencyId.value) {
-    await loadStaff();
+    await Promise.all([loadStaff(), loadPendingPasswordSync()]);
   }
 });
 
@@ -779,6 +929,37 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.ssa-sync-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  border-radius: 10px;
+}
+
+.ssa-sync-banner__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.ssa-sync-password-input {
+  min-width: 220px;
+  padding: 6px 8px;
+}
+
+.ssa-access-sync {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #6ee7b7;
+}
+
 .ssa-access-modal {
   max-width: 720px;
   width: min(720px, 94vw);
@@ -941,6 +1122,31 @@ onUnmounted(() => {
   color: #047857;
   font-size: 0.82rem;
   font-weight: 500;
+}
+
+.ssa-temp-cell {
+  min-width: 190px;
+}
+
+.ssa-temp-line {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.ssa-temp-line + .ssa-temp-line {
+  margin-top: 4px;
+}
+
+.ssa-temp-label {
+  min-width: 52px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .ssa-temp-active {

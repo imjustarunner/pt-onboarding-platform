@@ -89,7 +89,7 @@ import {
   copyCompanyEventToTarget
 } from '../controllers/companyEvents.controller.js';
 import {
-  listSchoolStaffUsers, listAgencySchoolStaffAccounts, bulkSetAgencySchoolStaffTemporaryPasswords, previewSchoolStaffAccountAccessEmail, saveSchoolStaffAccountAccessEmailTemplate, testSchoolStaffAccountAccessEmail, queueSchoolStaffAccountAccessEmails, getSchoolStaffAccountAccessEmailSend, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, activateSchoolStaffUser, revokeSchoolStaffAccess
+  listSchoolStaffUsers, listAgencySchoolStaffAccounts, bulkSetAgencySchoolStaffTemporaryPasswords, previewSchoolStaffAccountAccessEmail, saveSchoolStaffAccountAccessEmailTemplate, testSchoolStaffAccountAccessEmail, queueSchoolStaffAccountAccessEmails, getSchoolStaffAccountAccessEmailSend, getPendingSchoolStaffAccessPasswordSync, syncSchoolStaffAccountAccessSendPasswords, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, activateSchoolStaffUser, revokeSchoolStaffAccess
 } from '../controllers/schoolStaffAdmin.controller.js';
 import {
   getAdminUpdateOptions,
@@ -570,6 +570,8 @@ router.post('/:id/school-staff/accounts/access-email/template', authenticate, sa
 router.post('/:id/school-staff/accounts/access-email/test', authenticate, testSchoolStaffAccountAccessEmail);
 router.post('/:id/school-staff/accounts/access-email/send', authenticate, queueSchoolStaffAccountAccessEmails);
 router.get('/:id/school-staff/accounts/access-email/sends/:sendId', authenticate, getSchoolStaffAccountAccessEmailSend);
+router.get('/:id/school-staff/accounts/access-email/pending-password-sync', authenticate, getPendingSchoolStaffAccessPasswordSync);
+router.post('/:id/school-staff/accounts/access-email/sends/:sendId/sync-temporary-password', authenticate, syncSchoolStaffAccountAccessSendPasswords);
 router.get('/:id/admin-updates/options', authenticate, getAdminUpdateOptions);
 router.get('/:id/admin-updates', authenticate, listAdminUpdates);
 router.post('/:id/admin-updates', authenticate, createAdminUpdate);
