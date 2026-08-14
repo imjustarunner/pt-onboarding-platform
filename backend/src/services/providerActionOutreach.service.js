@@ -4,7 +4,10 @@ import config from '../config/config.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import { listOnboardingQueue } from './clientOnboardingChecklist.service.js';
-import { renderProviderActionPdf } from './providerActionPdf.service.js';
+import {
+  renderProviderActionPdf,
+  resolveProviderActionBranding
+} from './providerActionPdf.service.js';
 import {
   SECONDS_PER_CLIENT,
   LINK_TTL_HOURS,
@@ -336,6 +339,8 @@ export async function getPublicBundle(token) {
     `SELECT * FROM provider_action_link_clients WHERE link_id = ? ORDER BY id ASC`,
     [link.id]
   );
+  const agency = await Agency.findById(link.agency_id).catch(() => null);
+  const branding = resolveProviderActionBranding(agency);
   return {
     link: serializeLink(link, { includeUrl: true }),
     provider: {
@@ -344,6 +349,7 @@ export async function getPublicBundle(token) {
       lastName: name.lastName,
       displayName: [name.firstName, name.lastName].filter(Boolean).join(' ') || 'there'
     },
+    branding,
     secondsPerClient: SECONDS_PER_CLIENT,
     estimatedSeconds: estimateSeconds(liveClients.length),
     estimatedLabel: formatEstimateLabel(estimateSeconds(liveClients.length)),

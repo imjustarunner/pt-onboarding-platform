@@ -1,652 +1,657 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import DocumentSigningService from './documentSigning.service.js';
-import { PDFDocument, PDFString, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { formatEstimateLabel } from '../utils/providerActionOutreach.js';
+import DocumentSigningService from './documentSigning.service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
-const PAGE_PT = 612;
+const BACKEND_ASSETS = path.join(__dirname, '../assets/providerActionPdf');
 
-const ASSET_PATHS = {
-  heroItsco: path.join(REPO_ROOT, 'frontend/public/assets/careers/heroes/itsco-framed.png'),
-  heroNlu: path.join(REPO_ROOT, 'frontend/public/assets/careers/heroes/nlu-framed.png'),
-  schoolGreen: path.join(REPO_ROOT, 'frontend/src/assets/schoolReferral/school-logo-green.png'),
-  iconTeam: path.join(REPO_ROOT, 'frontend/public/assets/careers/icons/page1/team.png'),
-  iconClock: path.join(REPO_ROOT, 'frontend/public/assets/careers/icons/page1/clock.png'),
-  iconCare: path.join(REPO_ROOT, 'frontend/public/assets/careers/icons/page1/care.png'),
-  iconBadge: path.join(REPO_ROOT, 'frontend/public/assets/careers/icons/page2/badge.png'),
-  itscoLogo: path.join(__dirname, '../assets/schoolPrintablePacket/brand/header-logo.png')
+/** Careers / school art bundled with the backend so PDF generation works in Docker. */
+const BUNDLED_ASSETS = {
+  heroItsco: 'hero-itsco-framed.png',
+  heroNlu: 'hero-nlu-framed.png',
+  schoolGreen: 'school-green.png',
+  itscoLogo: 'itsco-logo.png',
+  iconTeam: 'icons/team.png',
+  iconClock: 'icons/clock.png',
+  iconCare: 'icons/care.png',
+  iconBadge: 'icons/badge.png',
+  iconAlert: 'icons/alert.png',
+  iconList: 'icons/list.png'
 };
 
-const dataUriCache = new Map();
+const PUBLIC_ASSET_FALLBACKS = {
+  heroItsco: 'public/assets/careers/heroes/itsco-framed.png',
+  heroNlu: 'public/assets/careers/heroes/nlu-framed.png',
+  schoolGreen: 'frontend/src/assets/schoolReferral/school-logo-green.png',
+  itscoLogo: 'src/assets/schoolPrintablePacket/brand/header-logo.png',
+  iconTeam: 'public/assets/careers/icons/page1/team.png',
+  iconClock: 'public/assets/careers/icons/page1/clock.png',
+  iconCare: 'public/assets/careers/icons/page1/care.png',
+  iconBadge: 'public/assets/careers/icons/page2/badge.png',
+  iconAlert: 'public/assets/careers/icons/page2/alert.png',
+  iconList: 'public/assets/careers/icons/page1/list.png'
+};
 
-function addUriLink(page, { x, y, width, height, url }) {
-  const href = String(url || '').trim();
-  if (!href || width <= 0 || height <= 0) return;
-  const annot = page.doc.context.register(
-    page.doc.context.obj({
-      Type: 'Annot',
-      Subtype: 'Link',
-      Rect: [x, y, x + width, y + height],
-      Border: [0, 0, 2],
-      A: {
-        Type: 'Action',
-        S: 'URI',
-        URI: PDFString.of(href)
-      }
-    })
-  );
-  page.node.addAnnot(annot);
-}
+const DEFAULT_PALETTE = {
+  primary: '#145A3D',
+  accent: '#5A9B58',
+  light: '#E8F5E9',
+  tan: '#F6F1E6',
+  text: '#1F2937',
+  muted: '#5B7164'
+};
 
-function esc(value) {
-  return String(value || '')
+export const PROVIDER_ACTION_PDF_STATIC_ASSETS = {
+  heroItsco: '/assets/careers/heroes/itsco-framed.png',
+  heroNlu: '/assets/careers/heroes/nlu-framed.png',
+  schoolGreen: '/assets/provider-action/school-green.png',
+  fallbackLogo: '/assets/provider-action/itsco-logo.png',
+  iconTeam: '/assets/careers/icons/page1/team.png',
+  iconClock: '/assets/careers/icons/page1/clock.png',
+  iconCare: '/assets/careers/icons/page1/care.png',
+  iconBadge: '/assets/careers/icons/page2/badge.png',
+  iconAlert: '/assets/careers/icons/page2/alert.png',
+  iconList: '/assets/careers/icons/page1/list.png'
+};
+
+function escapeHtml(value) {
+  return String(value ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
 
-function formatExpires(iso) {
-  const d = iso ? new Date(iso) : null;
-  if (!d || !Number.isFinite(d.getTime())) return '';
-  return d.toLocaleString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  });
-}
-
-function actionHeadline(firstName, count) {
-  const name = String(firstName || '').trim();
-  const hello = name ? `${name}, you have` : 'You have';
-  const noun = count === 1 ? 'client who needs' : 'clients who need';
-  return `${hello} ${count} ${noun} your action.`;
-}
-
-function wrapText(text, font, size, maxWidth) {
-  const words = String(text || '').split(/\s+/).filter(Boolean);
-  const lines = [];
-  let current = '';
-  for (const word of words) {
-    const probe = current ? `${current} ${word}` : word;
-    if (font.widthOfTextAtSize(probe, size) <= maxWidth) {
-      current = probe;
-    } else {
-      if (current) lines.push(current);
-      current = word;
-    }
-  }
-  if (current) lines.push(current);
-  return lines.length ? lines : [''];
-}
-
-function parsePalette(raw) {
+function parsePalette(agency) {
+  const raw = agency?.color_palette ?? agency?.colorPalette;
   if (!raw) return {};
   if (typeof raw === 'object') return raw;
   try {
-    return JSON.parse(raw) || {};
+    return JSON.parse(raw);
   } catch {
     return {};
   }
 }
 
-function hexToRgb(hex, fallback = { r: 0.078, g: 0.353, b: 0.239 }) {
-  const m = String(hex || '').trim().match(/^#?([0-9a-f]{6})$/i);
-  if (!m) return fallback;
-  const n = parseInt(m[1], 16);
+export function resolveProviderActionBranding(agency) {
+  const paletteRaw = parsePalette(agency);
+  const palette = {
+    primary: paletteRaw.primary || paletteRaw.primaryColor || DEFAULT_PALETTE.primary,
+    accent: paletteRaw.accent || paletteRaw.accentColor || DEFAULT_PALETTE.accent,
+    light: paletteRaw.light || paletteRaw.lightGreen || DEFAULT_PALETTE.light,
+    tan: paletteRaw.tan || paletteRaw.cream || DEFAULT_PALETTE.tan,
+    text: paletteRaw.text || DEFAULT_PALETTE.text,
+    muted: paletteRaw.muted || DEFAULT_PALETTE.muted
+  };
+  const slug = String(agency?.slug || agency?.portal_url || 'itsco').toLowerCase();
+  const isNlu = slug.includes('nlu');
+  const logoPath = String(agency?.logo_path || '').trim().replace(/^uploads\//, '');
+  const logoUrlRaw = String(agency?.logo_url || '').trim();
+  let logoUrl = PROVIDER_ACTION_PDF_STATIC_ASSETS.fallbackLogo;
+  if (logoPath) logoUrl = `/uploads/${logoPath}`;
+  else if (logoUrlRaw) logoUrl = logoUrlRaw.startsWith('/') ? logoUrlRaw : logoUrlRaw;
+
   return {
-    r: ((n >> 16) & 255) / 255,
-    g: ((n >> 8) & 255) / 255,
-    b: (n & 255) / 255
+    agencyName: agency?.name || agency?.official_name || 'ITSCO',
+    slug,
+    palette,
+    heroKey: isNlu ? 'heroNlu' : 'heroItsco',
+    logoUrl,
+    assets: {
+      ...PROVIDER_ACTION_PDF_STATIC_ASSETS,
+      heroUrl: isNlu
+        ? PROVIDER_ACTION_PDF_STATIC_ASSETS.heroNlu
+        : PROVIDER_ACTION_PDF_STATIC_ASSETS.heroItsco
+    }
   };
 }
 
-function mimeForPath(filePath) {
-  const ext = path.extname(filePath || '').toLowerCase();
-  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
-  if (ext === '.svg') return 'image/svg+xml';
-  if (ext === '.webp') return 'image/webp';
-  return 'image/png';
-}
-
-async function fileToDataUri(absPath) {
-  const key = String(absPath || '');
-  if (!key) return '';
-  if (dataUriCache.has(key)) return dataUriCache.get(key);
+async function fileToDataUri(filePath) {
   try {
-    const buf = await fs.readFile(key);
-    const uri = `data:${mimeForPath(key)};base64,${buf.toString('base64')}`;
-    dataUriCache.set(key, uri);
-    return uri;
+    const buf = await fs.readFile(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    const mime =
+      ext === '.png'
+        ? 'image/png'
+        : ext === '.jpg' || ext === '.jpeg'
+          ? 'image/jpeg'
+          : ext === '.svg'
+            ? 'image/svg+xml'
+            : 'application/octet-stream';
+    return `data:${mime};base64,${buf.toString('base64')}`;
   } catch {
     return '';
   }
 }
 
-function normalizeStorageKey(value) {
-  let rawValue = String(value || '').trim();
-  if (!rawValue) return '';
-  try {
-    if (/^https?:\/\//i.test(rawValue)) {
-      rawValue = new URL(rawValue).pathname || '';
-    }
-  } catch {
-    /* ignore */
-  }
-  rawValue = rawValue.replace(/^\/+/, '');
-  if (rawValue.startsWith('uploads/')) return rawValue;
-  if (rawValue.startsWith('logos/')) return `uploads/${rawValue}`;
-  if (!rawValue.includes('/')) return `uploads/logos/${rawValue}`;
-  return rawValue;
-}
+async function resolveBundledAsset(key) {
+  const bundledName = BUNDLED_ASSETS[key];
+  if (!bundledName) return '';
+  const bundledPath = path.join(BACKEND_ASSETS, bundledName);
+  const uri = await fileToDataUri(bundledPath);
+  if (uri) return uri;
 
-async function bytesToDataUri(bytes, mime = 'image/png') {
-  if (!bytes || !bytes.length) return '';
-  return `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`;
-}
+  const fallbackRel = PUBLIC_ASSET_FALLBACKS[key];
+  if (!fallbackRel) return '';
 
-async function resolveAgencyLogoDataUri(agency = null) {
-  const raw = String(agency?.logo_url || agency?.logoUrl || agency?.logo_path || agency?.logoPath || '').trim();
-  if (/^data:image\//i.test(raw)) return raw;
-  if (/^https?:\/\//i.test(raw)) {
-    try {
-      const axiosMod = await import('axios');
-      const axios = axiosMod.default || axiosMod;
-      const response = await axios.get(raw, {
-        responseType: 'arraybuffer',
-        timeout: 4000,
-        maxRedirects: 3
-      });
-      const mime = String(response.headers?.['content-type'] || 'image/png').split(';')[0];
-      return bytesToDataUri(response.data, mime);
-    } catch {
-      /* fall through */
-    }
-  }
-  if (raw) {
-    const key = normalizeStorageKey(raw);
-    try {
-      const StorageService = (await import('./storage.service.js')).default;
-      const buffer = await StorageService.readObject(key);
-      return bytesToDataUri(buffer);
-    } catch {
-      try {
-        let rel = key.replace(/^\/+/, '');
-        if (rel.startsWith('uploads/')) rel = rel.slice('uploads/'.length);
-        const localPath = path.resolve(__dirname, '../../uploads', rel);
-        const uri = await fileToDataUri(localPath);
-        if (uri) return uri;
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-  const slug = String(agency?.slug || agency?.portal_url || '').toLowerCase();
-  if (!agency || slug.includes('itsco')) {
-    return fileToDataUri(ASSET_PATHS.itscoLogo);
+  const candidates = [
+    path.join(process.cwd(), fallbackRel),
+    path.join(REPO_ROOT, fallbackRel)
+  ];
+  for (const candidate of candidates) {
+    const fallbackUri = await fileToDataUri(candidate);
+    if (fallbackUri) return fallbackUri;
   }
   return '';
 }
 
-export async function resolveProviderActionPdfAssets(agency = null) {
-  const slug = String(agency?.slug || agency?.portal_url || '').toLowerCase();
-  const palette = parsePalette(agency?.color_palette || agency?.colorPalette);
-  const heroPath = slug.includes('nlu') || slug.includes('new-life')
-    ? ASSET_PATHS.heroNlu
-    : ASSET_PATHS.heroItsco;
-  const [agencyLogoDataUri, heroDataUri, schoolArtDataUri, iconTeam, iconClock, iconCare, iconBadge] =
-    await Promise.all([
-      resolveAgencyLogoDataUri(agency),
-      fileToDataUri(heroPath),
-      fileToDataUri(ASSET_PATHS.schoolGreen),
-      fileToDataUri(ASSET_PATHS.iconTeam),
-      fileToDataUri(ASSET_PATHS.iconClock),
-      fileToDataUri(ASSET_PATHS.iconCare),
-      fileToDataUri(ASSET_PATHS.iconBadge)
-    ]);
+async function resolveProviderActionPdfAssets({ agency }) {
+  const branding = resolveProviderActionBranding(agency);
+  const heroKey = branding.heroKey;
+  const logoPath = String(agency?.logo_path || '').trim().replace(/^uploads\//, '');
+  let logoDataUri = '';
+  if (logoPath) {
+    logoDataUri = await fileToDataUri(path.join(process.cwd(), 'uploads', logoPath));
+    if (!logoDataUri) logoDataUri = await fileToDataUri(path.join(REPO_ROOT, 'backend/uploads', logoPath));
+  }
+  if (!logoDataUri) logoDataUri = await resolveBundledAsset('itscoLogo');
+
   return {
-    agencyName: String(agency?.official_name || agency?.officialName || agency?.name || '').trim(),
-    primaryColor: palette.primary || palette.primaryColor || '#145A3D',
-    accentColor: palette.accent || palette.secondary || '#5A9B58',
-    agencyLogoDataUri,
-    heroDataUri,
-    schoolArtDataUri,
-    iconTeam,
-    iconClock,
-    iconCare,
-    iconBadge
+    palette: branding.palette,
+    heroDataUri: await resolveBundledAsset(heroKey),
+    schoolGreenDataUri: await resolveBundledAsset('schoolGreen'),
+    logoDataUri,
+    iconTeam: await resolveBundledAsset('iconTeam'),
+    iconClock: await resolveBundledAsset('iconClock'),
+    iconCare: await resolveBundledAsset('iconCare'),
+    iconBadge: await resolveBundledAsset('iconBadge'),
+    iconAlert: await resolveBundledAsset('iconAlert'),
+    iconList: await resolveBundledAsset('iconList')
   };
 }
 
-const SVG = {
-  clipboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 4.5h6v3H9z"/><path d="M9 11h6M9 14h4"/><circle cx="16.5" cy="17.5" r="3.2" fill="#145A3D" stroke="#fff" stroke-width="1.2"/><path d="M16.5 16v2.2" stroke="#fff" stroke-width="1.5"/><circle cx="16.5" cy="19.4" r="0.4" fill="#fff" stroke="none"/></svg>',
-  people: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3.5 19v-1.2A4.3 4.3 0 0 1 7.8 13.5h2.4A4.3 4.3 0 0 1 14.5 17.8V19"/><circle cx="16.5" cy="8.2" r="2.4"/><path d="M16 13.6a3.8 3.8 0 0 1 4.5 3.6V19"/></svg>',
-  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 8v4.4l2.6 1.6"/></svg>',
-  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M8.4 12.2 11 14.8l4.8-5.2"/></svg>',
-  star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="m12 6.8 1.4 3.4 3.7.3-2.8 2.4.9 3.6L12 14.6 8.8 16.5l.9-3.6-2.8-2.4 3.7-.3z"/></svg>',
-  link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 14h4"/><path d="M9 9H7.5A3.5 3.5 0 0 0 4 12.5 3.5 3.5 0 0 0 7.5 16H10"/><path d="M15 15h1.5A3.5 3.5 0 0 0 20 11.5 3.5 3.5 0 0 0 16.5 8H14"/><path d="M14 6h4v4"/></svg>',
-  lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="11" width="12" height="9" rx="2"/><path d="M8.5 11V8.4a3.5 3.5 0 0 1 7 0V11"/></svg>'
-};
-
-function iconImgOrSvg(dataUri, svg, extra = '') {
-  if (dataUri) {
-    return `<span class="ico ico--photo ${extra}"><img src="${esc(dataUri)}" alt="" /></span>`;
-  }
-  return `<span class="ico ${extra}">${svg}</span>`;
+function metricIconHtml(dataUri, fallbackSvg) {
+  if (dataUri) return `<img class="metric-icon-img" src="${dataUri}" alt="" />`;
+  return fallbackSvg;
 }
 
-export function buildProviderActionPdfHtml({
+function buildProviderActionPdfHtml({
   firstName,
   clientCount,
   secondsPerClient,
   estimatedSeconds,
   actionUrl,
   expiresAt,
-  agencyName = '',
-  primaryColor = '#145A3D',
-  accentColor = '#5A9B58',
-  agencyLogoDataUri = '',
-  heroDataUri = '',
-  schoolArtDataUri = '',
-  iconTeam = '',
-  iconClock = '',
-  iconCare = '',
-  iconBadge = ''
-} = {}) {
+  googleSsoUrl,
+  agency,
+  assets
+}) {
+  const branding = resolveProviderActionBranding(agency);
+  const palette = assets?.palette || branding.palette;
   const count = Number(clientCount) || 0;
-  const per = Number(secondsPerClient) || 15;
-  const estimate = formatEstimateLabel(estimatedSeconds);
-  const expires = formatExpires(expiresAt);
-  const name = String(firstName || '').trim();
-  const headlineHello = name ? `${esc(name)}, you have` : 'You have';
-  const noun = count === 1 ? 'client who needs' : 'clients who need';
-  const brand = String(agencyName || '').trim();
+  const perClient = Number(secondsPerClient) || 15;
+  const estimateLabel = formatEstimateLabel(Number(estimatedSeconds) || count * perClient);
+  const expiresLabel = expiresAt
+    ? new Date(expiresAt).toLocaleString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+      })
+    : 'in 24 hours';
+
+  const heroDataUri = assets?.heroDataUri || '';
+  const schoolGreenDataUri = assets?.schoolGreenDataUri || '';
+  const logoDataUri = assets?.logoDataUri || '';
+  const iconTeam = assets?.iconTeam || '';
+  const iconClock = assets?.iconClock || '';
+  const iconCare = assets?.iconCare || '';
+  const iconBadge = assets?.iconBadge || '';
+  const iconAlert = assets?.iconAlert || '';
+  const iconList = assets?.iconList || '';
+
+  const heroBlock = heroDataUri
+    ? `<div class="hero-frame"><img class="hero-photo" src="${heroDataUri}" alt="" /></div>`
+    : `<div class="hero-frame hero-fallback" aria-hidden="true"></div>`;
+
+  const logoBlock = logoDataUri
+    ? `<img class="brand-logo" src="${logoDataUri}" alt="${escapeHtml(branding.agencyName)}" />`
+    : `<div class="brand-wordmark">${escapeHtml(branding.agencyName)}</div>`;
+
+  const schoolArtBlock = schoolGreenDataUri
+    ? `<img class="school-art" src="${schoolGreenDataUri}" alt="" />`
+    : '';
+
+  const alertIcon = iconAlert
+    ? `<img class="kicker-icon" src="${iconAlert}" alt="" />`
+    : `<span class="kicker-dot" aria-hidden="true"></span>`;
+
+  const careIcon = iconCare
+    ? `<img class="impact-icon" src="${iconCare}" alt="" />`
+    : `<span class="impact-star" aria-hidden="true">★</span>`;
+
+  const listIcon = iconList
+    ? `<img class="checklist-icon" src="${iconList}" alt="" />`
+    : '';
+
+  const teamIcon = metricIconHtml(
+    iconTeam,
+    '<svg class="metric-icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S7.66 5 6 5 3 6.34 3 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 13.17 10.33 12 8 12zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>'
+  );
+  const clockIcon = metricIconHtml(
+    iconClock,
+    '<svg class="metric-icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2Zm1 11h4v-2h-3V7h-2v6Z"/></svg>'
+  );
+  const badgeIcon = metricIconHtml(
+    iconBadge,
+    '<svg class="metric-icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2l2.4 4.8L16 8l4.8.7L18 12l.8 4.8L16 16l-2.4 2.4L12 24l-2.4-2.4L8 16l-4.8-.8L4 12l2.8-3.3L4 8l4.8-.7L9.6 2 12 2Z"/></svg>'
+  );
+
   return `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <style>
-    @page { size: 8.5in 8.5in; margin: 0.22in; }
-    * { box-sizing: border-box; }
-    html, body { width: 8.5in; height: 8.5in; }
-    body {
-      margin: 0;
-      font-family: "Segoe UI", system-ui, sans-serif;
-      color: ${esc(primaryColor)};
-      background: #eef3ee;
-    }
-    .sheet {
-      width: 8.06in;
-      height: 8.06in;
-      background:
-        radial-gradient(circle at 88% 8%, #d9eadc 0%, transparent 36%),
-        #fff;
-      border-radius: 28px;
-      padding: 22px 26px 18px;
-      position: relative;
-      overflow: hidden;
-      box-shadow: 0 10px 28px rgba(20, 90, 61, 0.08);
-    }
-    .brand-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      min-height: 42px;
-      margin-bottom: 10px;
-      position: relative;
-      z-index: 2;
-    }
-    .brand-mark { display: flex; align-items: center; gap: 10px; max-width: 58%; }
-    .brand-mark img { max-height: 38px; max-width: 210px; object-fit: contain; }
-    .brand-name { font-weight: 800; font-size: 13px; letter-spacing: 0.02em; }
-    .hero {
-      position: absolute;
-      top: 10px;
-      right: 12px;
-      width: 168px;
-      height: 132px;
-      object-fit: contain;
-      z-index: 1;
-    }
-    .kicker-row { display: flex; align-items: center; gap: 10px; margin: 4px 0 8px; }
-    .ico {
-      width: 34px; height: 34px; border-radius: 50%;
-      background: #e7f3ea; color: ${esc(primaryColor)};
-      display: inline-flex; align-items: center; justify-content: center;
-      flex-shrink: 0;
-    }
-    .ico svg { width: 20px; height: 20px; display: block; }
-    .ico--photo { overflow: hidden; background: #eef6ef; }
-    .ico--photo img { width: 34px; height: 34px; object-fit: cover; display: block; }
-    .kicker {
-      letter-spacing: 0.14em;
-      font-size: 11px;
-      font-weight: 800;
-      color: ${esc(accentColor)};
-      text-transform: uppercase;
-    }
-    h1 {
-      font-family: Georgia, "Times New Roman", serif;
-      font-size: 28px;
-      line-height: 1.15;
-      margin: 0 0 8px;
-      color: ${esc(primaryColor)};
-      max-width: 18ch;
-    }
-    h1 .num { color: ${esc(accentColor)}; }
-    .lede {
-      color: #3f5f4c;
-      font-size: 13px;
-      line-height: 1.4;
-      max-width: 42ch;
-      margin: 0 0 14px;
-    }
-    .lede strong { color: ${esc(accentColor)}; }
-    .metrics {
-      display: flex;
-      background: #fff;
-      border: 1px solid #d7e4d9;
-      border-radius: 16px;
-      padding: 10px 6px;
-      margin-bottom: 12px;
-    }
-    .metric { flex: 1; text-align: center; border-right: 1px solid #e4eee6; }
-    .metric:last-child { border-right: 0; }
-    .metric .pic { margin: 0 auto 4px; }
-    .metric .val {
-      font-family: Georgia, serif;
-      font-size: 22px;
-      font-weight: 700;
-      color: ${esc(primaryColor)};
-    }
-    .metric .lbl { font-size: 11px; color: #5b7164; margin-top: 2px; }
-    .banner {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      background: #eef6ef;
-      border: 1px solid #cfe4d4;
-      border-radius: 16px;
-      padding: 10px 12px;
-      margin-bottom: 14px;
-    }
-    .banner h2 { margin: 0 0 3px; font-size: 14px; }
-    .banner p { margin: 0; font-size: 12px; color: #3f5f4c; line-height: 1.35; }
-    .school-art {
-      width: 86px;
-      height: 72px;
-      object-fit: contain;
-      mix-blend-mode: screen;
-      flex-shrink: 0;
-    }
-    .cta {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      width: 100%;
-      text-align: center;
-      background: ${esc(primaryColor)};
-      color: #fff !important;
-      text-decoration: none;
-      border-radius: 14px;
-      padding: 13px 16px;
-      font-weight: 800;
-      font-size: 17px;
-    }
-    .cta svg { width: 20px; height: 20px; stroke: #fff; }
-    .cta small { display: block; font-weight: 500; font-size: 11px; opacity: 0.88; margin-top: 1px; }
-    .foot {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      color: #6b7c72;
-      font-size: 11px;
-      margin-top: 10px;
-    }
-    .foot svg { width: 13px; height: 13px; }
-    .url {
-      word-break: break-all;
-      font-size: 9px;
-      color: #94a3b8;
-      text-align: center;
-      margin-top: 6px;
-    }
+    @page { size: 8.5in 8.5in; margin: 0; }
   </style>
 </head>
-<body>
-  <div class="sheet">
-    ${heroDataUri ? `<img class="hero" src="${esc(heroDataUri)}" alt="" />` : ''}
-    <div class="brand-row">
-      <div class="brand-mark">
-        ${agencyLogoDataUri ? `<img src="${esc(agencyLogoDataUri)}" alt="${esc(brand || 'Agency')}" />` : ''}
-        ${!agencyLogoDataUri && brand ? `<div class="brand-name">${esc(brand)}</div>` : ''}
+<body style="margin:0;padding:0;background:#f4f1ea;font-family:Inter,Segoe UI,Helvetica,Arial,sans-serif;color:${palette.text};">
+  <div class="sheet" style="width:8.5in;height:8.5in;box-sizing:border-box;padding:0.42in 0.48in 0.38in;position:relative;background:#fff;border:1px solid #e8e4dc;">
+    <div class="accent-stripe" style="position:absolute;left:0;top:0;bottom:0;width:6px;background:linear-gradient(180deg,${palette.accent} 0%,${palette.primary} 100%);"></div>
+
+    <header style="text-align:center;margin-bottom:10px;padding-top:2px;">
+      ${logoBlock}
+    </header>
+
+    <div class="hero-grid" style="display:grid;grid-template-columns:1.05fr 0.95fr;gap:14px;align-items:stretch;margin-bottom:14px;">
+      <div class="hero-copy" style="min-width:0;">
+        <div class="kicker" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          ${alertIcon}
+          <span style="letter-spacing:0.16em;text-transform:uppercase;font-size:10px;font-weight:800;color:${palette.accent};">Action required</span>
+        </div>
+        <h1 style="font-family:Georgia,Times New Roman,serif;font-size:27px;line-height:1.15;margin:0 0 10px;color:${palette.primary};font-weight:700;">
+          ${escapeHtml(firstName || 'there')}, you have
+          <span style="color:${palette.accent};">${count}</span>
+          client${count === 1 ? '' : 's'} who need${count === 1 ? 's' : ''} your action.
+        </h1>
+        <p style="margin:0;font-size:13px;line-height:1.55;color:${palette.muted};">
+          Review each client and complete the required action. It only takes about
+          <strong style="color:${palette.primary};">${perClient} seconds</strong> per client
+          — <strong style="color:${palette.primary};">${escapeHtml(estimateLabel)}</strong> total.
+        </p>
+      </div>
+      ${heroBlock}
+    </div>
+
+    <div class="metrics" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:${palette.tan};border-radius:16px;padding:14px 10px 12px;margin-bottom:14px;text-align:center;">
+      <div class="metric">
+        <div class="metric-icon-wrap" style="width:46px;height:46px;margin:0 auto 6px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(20,90,61,0.08);">
+          ${teamIcon}
+        </div>
+        <strong style="display:block;font-size:22px;color:${palette.primary};line-height:1.1;">${count}</strong>
+        <span style="display:block;font-size:11px;color:${palette.muted};margin-top:3px;line-height:1.3;">Clients need your action</span>
+      </div>
+      <div class="metric">
+        <div class="metric-icon-wrap" style="width:46px;height:46px;margin:0 auto 6px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(20,90,61,0.08);">
+          ${clockIcon}
+        </div>
+        <strong style="display:block;font-size:22px;color:${palette.primary};line-height:1.1;">${perClient}s</strong>
+        <span style="display:block;font-size:11px;color:${palette.muted};margin-top:3px;line-height:1.3;">Per client average</span>
+      </div>
+      <div class="metric">
+        <div class="metric-icon-wrap" style="width:46px;height:46px;margin:0 auto 6px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(20,90,61,0.08);">
+          ${badgeIcon}
+        </div>
+        <strong style="display:block;font-size:22px;color:${palette.primary};line-height:1.1;">${escapeHtml(estimateLabel)}</strong>
+        <span style="display:block;font-size:11px;color:${palette.muted};margin-top:3px;line-height:1.3;">Estimated time</span>
       </div>
     </div>
-    <div class="kicker-row">
-      <span class="ico">${SVG.clipboard}</span>
-      <div class="kicker">Action required</div>
-    </div>
-    <h1>${headlineHello} <span class="num">${count}</span> ${noun} your action.</h1>
-    <p class="lede">Please review each client on your dashboard and complete the required action. It only takes about <strong>${per} seconds</strong> per client.</p>
-    <div class="metrics">
-      <div class="metric">
-        ${iconImgOrSvg(iconTeam, SVG.people, 'pic')}
-        <div class="val">${count}</div>
-        <div class="lbl">Clients need your action.</div>
-      </div>
-      <div class="metric">
-        ${iconImgOrSvg(iconClock, SVG.clock, 'pic')}
-        <div class="val">${per}s</div>
-        <div class="lbl">Per client (on average).</div>
-      </div>
-      <div class="metric">
-        ${iconImgOrSvg(iconBadge || iconCare, SVG.check, 'pic')}
-        <div class="val">${esc(estimate)}</div>
-        <div class="lbl">Total estimated time.</div>
-      </div>
-    </div>
-    <div class="banner">
-      <span class="ico">${SVG.star}</span>
+
+    <div class="impact" style="display:grid;grid-template-columns:1.15fr 0.85fr;gap:10px;align-items:center;background:linear-gradient(135deg,${palette.light} 0%,#f0faf0 100%);border-radius:16px;padding:14px 16px;margin-bottom:16px;border:1px solid rgba(90,155,88,0.18);">
       <div>
-        <h2>Your work makes a difference</h2>
-        <p>Keeping your client list up to date helps everyone and ensures we're providing the best care possible.</p>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          ${careIcon}
+          <strong style="font-size:15px;color:${palette.primary};">Your work makes a difference</strong>
+        </div>
+        <p style="margin:0;font-size:12px;line-height:1.5;color:${palette.muted};">
+          Each quick update keeps schools informed and helps students get the support they need this year.
+        </p>
       </div>
-      ${schoolArtDataUri ? `<img class="school-art" src="${esc(schoolArtDataUri)}" alt="" />` : iconImgOrSvg(iconCare, SVG.check, 'ico')}
+      <div style="position:relative;display:flex;align-items:center;justify-content:center;min-height:72px;">
+        ${schoolArtBlock}
+        ${listIcon}
+      </div>
     </div>
-    <a class="cta" href="${esc(actionUrl)}">${SVG.link}<span>Open my clients<small>Go directly to your clients · no Google sign-in</small></span></a>
-    <p class="foot">${SVG.lock}<span>Secure link · No sign-in required · Expires ${esc(expires)}</span></p>
-    <p class="url">${esc(actionUrl)}</p>
+
+    <a href="${escapeHtml(actionUrl)}" style="display:block;text-align:center;background:linear-gradient(135deg,${palette.primary} 0%,#0d4a31 100%);color:#fff;text-decoration:none;border-radius:14px;padding:16px 18px;font-size:17px;font-weight:800;box-shadow:0 8px 22px rgba(20,90,61,0.22);">
+      Open my clients
+      <span style="display:block;font-size:11px;font-weight:600;opacity:0.9;margin-top:4px;">Secure link · no Google sign-in</span>
+    </a>
+
+    <p style="margin:12px 0 6px;font-size:11px;color:${palette.muted};text-align:center;">
+      This secure link expires <strong style="color:${palette.primary};">${escapeHtml(expiresLabel)}</strong>.
+    </p>
+    <div style="background:#f8faf9;border:1px solid #e2e8e4;border-radius:10px;padding:8px 10px;font-size:9px;line-height:1.4;color:#64748b;word-break:break-all;">
+      ${escapeHtml(actionUrl)}
+    </div>
+    ${googleSsoUrl ? `<p style="margin:8px 0 0;font-size:9px;color:#94a3b8;text-align:center;">Or sign in at ${escapeHtml(googleSsoUrl)}</p>` : ''}
   </div>
+
+  <style>
+    .brand-logo { max-height: 46px; max-width: 200px; object-fit: contain; }
+    .brand-wordmark { font-size: 22px; font-weight: 800; color: ${palette.primary}; }
+    .hero-frame {
+      border-radius: 18px;
+      overflow: hidden;
+      border: 3px solid rgba(90,155,88,0.28);
+      box-shadow: 0 10px 28px rgba(20,90,61,0.14);
+      min-height: 168px;
+      background: linear-gradient(145deg, #e8f5e9, #f6f1e6);
+    }
+    .hero-photo { width: 100%; height: 100%; min-height: 168px; object-fit: cover; display: block; }
+    .hero-fallback {
+      background: linear-gradient(145deg, ${palette.light}, ${palette.tan});
+    }
+    .kicker-icon { width: 22px; height: 22px; object-fit: contain; flex-shrink: 0; }
+    .kicker-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: ${palette.accent};
+      box-shadow: 0 0 0 4px rgba(90,155,88,0.2);
+      flex-shrink: 0;
+    }
+    .metric-icon-img { width: 28px; height: 28px; object-fit: contain; }
+    .metric-icon-svg { width: 26px; height: 26px; color: ${palette.accent}; }
+    .impact-icon { width: 26px; height: 26px; object-fit: contain; flex-shrink: 0; }
+    .impact-star { color: ${palette.accent}; font-size: 20px; line-height: 1; }
+    .school-art {
+      max-width: 88%;
+      max-height: 78px;
+      object-fit: contain;
+      opacity: 0.95;
+    }
+    .checklist-icon {
+      position: absolute;
+      right: 0;
+      bottom: -4px;
+      width: 36px;
+      height: 36px;
+      object-fit: contain;
+      background: #fff;
+      border-radius: 50%;
+      padding: 4px;
+      box-shadow: 0 2px 8px rgba(20,90,61,0.12);
+    }
+  </style>
 </body>
 </html>`;
 }
 
-async function embedImage(pdf, dataUri) {
-  if (!dataUri || !String(dataUri).startsWith('data:image/')) return null;
-  const comma = dataUri.indexOf(',');
-  if (comma < 0) return null;
-  const bytes = Buffer.from(dataUri.slice(comma + 1), 'base64');
+async function embedPng(pdfDoc, dataUri) {
+  if (!dataUri || !dataUri.startsWith('data:image/png')) return null;
   try {
-    return await pdf.embedPng(bytes);
+    const base64 = dataUri.split(',')[1];
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    return await pdfDoc.embedPng(bytes);
   } catch {
-    try {
-      return await pdf.embedJpg(bytes);
-    } catch {
-      return null;
-    }
+    return null;
   }
 }
 
-function drawPng(page, img, { x, y, maxW, maxH }) {
-  if (!img) return;
-  const scale = Math.min(maxW / img.width, maxH / img.height);
-  const w = img.width * scale;
-  const h = img.height * scale;
-  page.drawImage(img, { x, y, width: w, height: h });
-}
+async function buildFallbackPdf({
+  firstName,
+  clientCount,
+  secondsPerClient,
+  estimatedSeconds,
+  actionUrl,
+  expiresAt,
+  googleSsoUrl,
+  agency,
+  assets
+}) {
+  const branding = resolveProviderActionBranding(agency);
+  const palette = assets?.palette || branding.palette;
+  const count = Number(clientCount) || 0;
+  const perClient = Number(secondsPerClient) || 15;
+  const estimateLabel = formatEstimateLabel(Number(estimatedSeconds) || count * perClient);
+  const expiresLabel = expiresAt
+    ? new Date(expiresAt).toLocaleString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+      })
+    : 'in 24 hours';
 
-async function buildFallbackPdf(payload) {
-  const pdf = await PDFDocument.create();
-  const page = pdf.addPage([PAGE_PT, PAGE_PT]);
-  const helv = await pdf.embedFont(StandardFonts.Helvetica);
-  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const serif = await pdf.embedFont(StandardFonts.TimesRomanBold);
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([612, 612]);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const primary = rgb(0.08, 0.35, 0.24);
+  const accent = rgb(0.35, 0.61, 0.34);
+  const muted = rgb(0.36, 0.44, 0.39);
+  const tan = rgb(0.965, 0.945, 0.902);
+  const light = rgb(0.91, 0.96, 0.91);
 
-  const primary = hexToRgb(payload.primaryColor);
-  const green = rgb(primary.r, primary.g, primary.b);
-  const mint = rgb(0.353, 0.608, 0.345);
-  const body = rgb(0.247, 0.373, 0.298);
-  const muted = rgb(0.357, 0.443, 0.392);
-  const cream = rgb(0.933, 0.953, 0.933);
-  const white = rgb(1, 1, 1);
-  const panel = rgb(0.965, 0.945, 0.902);
-  const bannerBg = rgb(0.933, 0.965, 0.937);
-  const gray = rgb(0.58, 0.64, 0.69);
+  page.drawRectangle({ x: 0, y: 0, width: 8, height: 612, color: accent });
 
-  const count = Number(payload.clientCount) || 0;
-  const per = Number(payload.secondsPerClient) || 15;
-  const estimate = formatEstimateLabel(payload.estimatedSeconds);
-  const expires = formatExpires(payload.expiresAt);
-  const url = String(payload.actionUrl || '');
-
-  const [logo, hero, school] = await Promise.all([
-    embedImage(pdf, payload.agencyLogoDataUri),
-    embedImage(pdf, payload.heroDataUri),
-    embedImage(pdf, payload.schoolArtDataUri)
-  ]);
-
-  page.drawRectangle({ x: 0, y: 0, width: PAGE_PT, height: PAGE_PT, color: cream });
-  page.drawRectangle({ x: 22, y: 22, width: 568, height: 568, color: white });
-  page.drawCircle({ x: 545, y: 545, size: 70, color: rgb(0.85, 0.92, 0.86), opacity: 0.85 });
-
-  if (hero) drawPng(page, hero, { x: 400, y: 470, maxW: 170, maxH: 108 });
-  if (logo) drawPng(page, logo, { x: 42, y: 538, maxW: 200, maxH: 36 });
-  else if (payload.agencyName) {
-    page.drawText(String(payload.agencyName), { x: 42, y: 548, size: 12, font: bold, color: green });
+  const logoImg = await embedPng(pdfDoc, assets?.logoDataUri);
+  if (logoImg) {
+    const logoW = 120;
+    const scale = logoW / logoImg.width;
+    const logoH = logoImg.height * scale;
+    page.drawImage(logoImg, {
+      x: (612 - logoW) / 2,
+      y: 562 - logoH,
+      width: logoW,
+      height: logoH
+    });
   }
 
-  let y = 518;
-  page.drawText('ACTION REQUIRED', { x: 42, y, size: 10, font: bold, color: mint });
-  y -= 26;
-  const titleLines = wrapText(actionHeadline(payload.firstName, count), serif, 24, 340);
-  for (const line of titleLines) {
-    page.drawText(line, { x: 42, y, size: 24, font: serif, color: green });
-    y -= 28;
-  }
-  y -= 4;
-  const lede = `Please review each client and complete the required action. It only takes about ${per} seconds per client.`;
-  for (const line of wrapText(lede, helv, 12, 360)) {
-    page.drawText(line, { x: 42, y, size: 12, font: helv, color: body });
-    y -= 16;
+  const heroImg = await embedPng(pdfDoc, assets?.heroDataUri);
+  const heroX = 360;
+  const heroY = 318;
+  const heroW = 196;
+  const heroH = 156;
+  if (heroImg) {
+    page.drawRectangle({
+      x: heroX - 4,
+      y: heroY - 4,
+      width: heroW + 8,
+      height: heroH + 8,
+      color: light,
+      borderColor: accent,
+      borderWidth: 2
+    });
+    page.drawImage(heroImg, { x: heroX, y: heroY, width: heroW, height: heroH });
   }
 
-  y -= 8;
-  const metricsY = y - 70;
-  page.drawRectangle({ x: 42, y: metricsY, width: 528, height: 78, color: panel });
-  const metricCols = [
-    { val: String(count), lbl: 'Clients need your action.' },
-    { val: `${per}s`, lbl: 'Per client (on average).' },
-    { val: estimate, lbl: 'Total estimated time.' }
-  ];
-  metricCols.forEach((m, i) => {
-    const cx = 42 + 176 * i + 88;
-    const valW = serif.widthOfTextAtSize(m.val, 20);
-    page.drawText(m.val, { x: cx - valW / 2, y: metricsY + 42, size: 20, font: serif, color: green });
-    const lbl = wrapText(m.lbl, helv, 9, 150)[0];
-    const lw = helv.widthOfTextAtSize(lbl, 9);
-    page.drawText(lbl, { x: cx - lw / 2, y: metricsY + 22, size: 9, font: helv, color: muted });
-  });
-  y = metricsY - 14;
-
-  const bannerH = 64;
-  const bannerY = y - bannerH;
-  page.drawRectangle({ x: 42, y: bannerY, width: 528, height: bannerH, color: bannerBg });
-  page.drawText('Your work makes a difference', {
-    x: 56,
-    y: bannerY + bannerH - 22,
-    size: 12,
-    font: bold,
-    color: green
-  });
-  const bannerLines = wrapText(
-    'Keeping your client list up to date helps everyone and ensures we\'re providing the best care possible.',
-    helv,
-    10,
-    school ? 360 : 500
-  );
-  let by = bannerY + bannerH - 38;
-  for (const line of bannerLines) {
-    page.drawText(line, { x: 56, y: by, size: 10, font: helv, color: body });
-    by -= 12;
-  }
-  if (school) drawPng(page, school, { x: 470, y: bannerY + 6, maxW: 86, maxH: 52 });
-  y = bannerY - 16;
-
-  const ctaH = 48;
-  const ctaY = y - ctaH;
-  page.drawRectangle({ x: 42, y: ctaY, width: 528, height: ctaH, color: green });
-  const ctaTitle = 'Open my clients';
-  const ctaSub = 'Secure link · no Google sign-in';
-  page.drawText(ctaTitle, {
-    x: 42 + 264 - bold.widthOfTextAtSize(ctaTitle, 15) / 2,
-    y: ctaY + 26,
-    size: 15,
-    font: bold,
-    color: white
-  });
-  page.drawText(ctaSub, {
-    x: 42 + 264 - helv.widthOfTextAtSize(ctaSub, 9) / 2,
-    y: ctaY + 11,
+  page.drawText('ACTION REQUIRED', {
+    x: 36,
+    y: 520,
     size: 9,
-    font: helv,
-    color: rgb(0.92, 0.96, 0.94)
+    font: fontBold,
+    color: accent
   });
-  addUriLink(page, { x: 42, y: ctaY, width: 528, height: ctaH, url });
-  y = ctaY - 16;
 
-  const foot = `Secure link · Expires ${expires}`;
-  page.drawText(foot, {
-    x: 42 + 264 - helv.widthOfTextAtSize(foot, 10) / 2,
-    y,
-    size: 10,
-    font: helv,
+  const headline = `${firstName || 'there'}, you have ${count} client${count === 1 ? '' : 's'} who need${count === 1 ? 's' : ''} your action.`;
+  const headlineLines = headline.match(/.{1,38}(\s|$)/g) || [headline];
+  let hy = 500;
+  for (const line of headlineLines.slice(0, 3)) {
+    page.drawText(line.trim(), { x: 36, y: hy, size: 17, font: fontBold, color: primary });
+    hy -= 22;
+  }
+
+  page.drawText(
+    `About ${perClient} seconds per client — ${estimateLabel} total.`,
+    { x: 36, y: hy - 4, size: 10, font, color: muted }
+  );
+
+  const metricsY = 248;
+  const metricsH = 88;
+  page.drawRectangle({
+    x: 32,
+    y: metricsY,
+    width: 548,
+    height: metricsH,
+    color: tan,
+    borderColor: rgb(0.9, 0.88, 0.84),
+    borderWidth: 1
+  });
+
+  const iconTeam = await embedPng(pdfDoc, assets?.iconTeam);
+  const iconClock = await embedPng(pdfDoc, assets?.iconClock);
+  const iconBadge = await embedPng(pdfDoc, assets?.iconBadge);
+
+  const drawMetric = (centerX, value, label, iconImg) => {
+    if (iconImg) {
+      const iconSize = 22;
+      page.drawImage(iconImg, {
+        x: centerX - iconSize / 2,
+        y: metricsY + metricsH - 30,
+        width: iconSize,
+        height: iconSize
+      });
+    }
+    page.drawText(value, {
+      x: centerX - fontBold.widthOfTextAtSize(value, 18) / 2,
+      y: metricsY + 38,
+      size: 18,
+      font: fontBold,
+      color: primary
+    });
+    const labelLines = label.match(/.{1,16}(\s|$)/g) || [label];
+    let ly = metricsY + 22;
+    for (const ll of labelLines.slice(0, 2)) {
+      page.drawText(ll.trim(), {
+        x: centerX - font.widthOfTextAtSize(ll.trim(), 8) / 2,
+        y: ly,
+        size: 8,
+        font,
+        color: muted
+      });
+      ly -= 10;
+    }
+  };
+
+  drawMetric(130, String(count), 'Clients need your action', iconTeam);
+  drawMetric(306, `${perClient}s`, 'Per client average', iconClock);
+  drawMetric(478, estimateLabel, 'Estimated time', iconBadge);
+
+  const bannerY = 168;
+  page.drawRectangle({
+    x: 32,
+    y: bannerY,
+    width: 548,
+    height: 68,
+    color: light,
+    borderColor: accent,
+    borderWidth: 1
+  });
+
+  const iconCare = await embedPng(pdfDoc, assets?.iconCare);
+  if (iconCare) {
+    page.drawImage(iconCare, { x: 44, y: bannerY + 36, width: 20, height: 20 });
+  }
+  page.drawText('Your work makes a difference', {
+    x: 68,
+    y: bannerY + 48,
+    size: 11,
+    font: fontBold,
+    color: primary
+  });
+  page.drawText('Each quick update keeps schools informed.', {
+    x: 44,
+    y: bannerY + 30,
+    size: 9,
+    font,
     color: muted
   });
-  y -= 14;
-  let urlSize = 8;
-  while (urlSize > 6 && helv.widthOfTextAtSize(url, urlSize) > 528) urlSize -= 0.25;
-  page.drawText(url, { x: 42, y, size: urlSize, font: helv, color: gray });
-  addUriLink(page, { x: 42, y: y - 3, width: 528, height: 14, url });
 
-  return Buffer.from(await pdf.save({ useObjectStreams: false }));
+  const schoolImg = await embedPng(pdfDoc, assets?.schoolGreenDataUri);
+  if (schoolImg) {
+    const sW = 100;
+    const sScale = sW / schoolImg.width;
+    const sH = schoolImg.height * sScale;
+    page.drawImage(schoolImg, { x: 460, y: bannerY + 8, width: sW, height: Math.min(sH, 52) });
+  }
+
+  const iconList = await embedPng(pdfDoc, assets?.iconList);
+  if (iconList) {
+    page.drawImage(iconList, { x: 548, y: bannerY + 6, width: 24, height: 24 });
+  }
+
+  page.drawRectangle({
+    x: 32,
+    y: 108,
+    width: 548,
+    height: 44,
+    color: primary
+  });
+  page.drawText('Open my clients', {
+    x: 240,
+    y: 128,
+    size: 14,
+    font: fontBold,
+    color: rgb(1, 1, 1)
+  });
+  page.drawText('Secure link · no Google sign-in', {
+    x: 210,
+    y: 114,
+    size: 8,
+    font,
+    color: rgb(0.85, 0.95, 0.88)
+  });
+
+  page.drawText(`This secure link expires ${expiresLabel}.`, {
+    x: 36,
+    y: 88,
+    size: 9,
+    font,
+    color: muted
+  });
+
+  const urlLines = actionUrl.match(/.{1,72}/g) || [actionUrl];
+  let uy = 72;
+  for (const ul of urlLines.slice(0, 2)) {
+    page.drawText(ul, { x: 36, y: uy, size: 7, font, color: rgb(0.55, 0.58, 0.6) });
+    uy -= 9;
+  }
+
+  if (googleSsoUrl) {
+    page.drawText(`Or sign in at ${googleSsoUrl}`, {
+      x: 36,
+      y: 48,
+      size: 7,
+      font,
+      color: rgb(0.55, 0.58, 0.6)
+    });
+  }
+
+  return Buffer.from(await pdfDoc.save());
 }
 
-export async function renderProviderActionPdf(payload = {}) {
-  const extras = payload.agency
-    ? await resolveProviderActionPdfAssets(payload.agency)
-    : {};
-  const assets = { ...extras, ...payload };
-  const html = buildProviderActionPdfHtml(assets);
+export async function renderProviderActionPdf(input) {
+  const assets = await resolveProviderActionPdfAssets({ agency: input.agency });
+  const html = buildProviderActionPdfHtml({ ...input, assets });
   try {
-    const bytes = await DocumentSigningService.convertHTMLToPDF(html, {
+    const pdfBuffer = await DocumentSigningService.convertHTMLToPDF(html, {
+      format: 'Letter',
       width: '8.5in',
       height: '8.5in',
-      preferCSSPageSize: true,
       printBackground: true,
-      margin: { top: '0.18in', right: '0.18in', bottom: '0.18in', left: '0.18in' },
-      disableFallback: true
+      margin: { top: '0', right: '0', bottom: '0', left: '0' }
     });
-    if (bytes && bytes.length > 500) return Buffer.from(bytes);
-  } catch {
-    // Local/dev without Chromium — pdf-lib fallback below.
+    if (pdfBuffer && pdfBuffer.length > 800) return pdfBuffer;
+  } catch (err) {
+    console.warn('[providerActionPdf] HTML render failed, using fallback:', err?.message || err);
   }
-  return buildFallbackPdf(assets);
+  return await buildFallbackPdf({ ...input, assets });
 }
+
+export { buildProviderActionPdfHtml, resolveProviderActionPdfAssets };

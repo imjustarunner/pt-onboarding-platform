@@ -43,8 +43,13 @@ describe('providerActionOutreach', () => {
 
 describe('providerActionPdf links', () => {
   it('builds a square branded card with icons and the action URL', async () => {
-    const { buildProviderActionPdfHtml } = await import('../../services/providerActionPdf.service.js');
+    const {
+      buildProviderActionPdfHtml,
+      resolveProviderActionPdfAssets
+    } = await import('../../services/providerActionPdf.service.js');
     const url = 'https://plottwisthq.com/ca/6eb2365f7cc635c8911993c529942525';
+    const agency = { name: 'ITSCO', slug: 'itsco' };
+    const assets = await resolveProviderActionPdfAssets({ agency });
     const html = buildProviderActionPdfHtml({
       firstName: 'Robin',
       clientCount: 1,
@@ -52,18 +57,18 @@ describe('providerActionPdf links', () => {
       estimatedSeconds: 15,
       actionUrl: url,
       expiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
-      agencyName: 'ITSCO',
-      agencyLogoDataUri: 'data:image/png;base64,aaa',
-      heroDataUri: 'data:image/png;base64,bbb',
-      schoolArtDataUri: 'data:image/png;base64,ccc',
-      iconTeam: 'data:image/png;base64,ddd'
+      agency,
+      assets
     });
     assert.match(html, /size:\s*8\.5in 8\.5in/);
     assert.match(html, /Action required/i);
     assert.match(html, /Open my clients/);
     assert.ok(html.includes(url));
-    assert.ok(html.includes('data:image/png;base64,aaa'));
+    assert.ok(html.includes('hero-photo') || html.includes('hero-frame'));
+    assert.ok(html.includes('metric-icon-img') || html.includes('metric-icon-wrap'));
     assert.ok(html.includes('school-art'));
+    assert.ok(assets.heroDataUri.startsWith('data:image/'), 'hero asset should load from backend bundle');
+    assert.ok(assets.iconTeam.startsWith('data:image/'), 'team icon should load from backend bundle');
   });
 
   it('embeds a real URI link for the Open my clients button', async () => {
