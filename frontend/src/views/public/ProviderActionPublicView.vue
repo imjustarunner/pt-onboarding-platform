@@ -5,90 +5,51 @@
       <p class="error">{{ error }}</p>
     </div>
     <template v-else>
-      <section class="pa-card pa-hero-card">
-        <div class="pa-accent" aria-hidden="true" />
-        <header class="pa-brand">
-          <img v-if="logoUrl" class="pa-brand-logo" :src="logoUrl" :alt="agencyName" />
-          <div v-else class="pa-brand-wordmark">{{ agencyName }}</div>
-        </header>
+      <header class="pa-brand">
+        <img v-if="logoUrl" class="pa-brand-logo" :src="logoUrl" :alt="agencyName" />
+        <div v-else class="pa-brand-wordmark">{{ agencyName }}</div>
+      </header>
 
-        <div class="pa-hero-grid">
-          <div class="pa-hero-copy">
-            <p class="pa-kicker">
-              <img class="pa-kicker-icon" :src="assets.iconAlert" alt="" />
-              Action required
-            </p>
-            <h1>
-              {{ providerName }}, you have
-              <span class="num">{{ clients.length }}</span>
-              client{{ clients.length === 1 ? '' : 's' }} who need{{ clients.length === 1 ? 's' : '' }} your action.
-            </h1>
-            <p class="lede">
-              Review each client and complete the required action. It only takes about
-              <strong>{{ secondsPerClient }} seconds</strong> per client
-              <template v-if="estimatedLabel"> — <strong>{{ estimatedLabel }}</strong> total</template>.
-            </p>
-          </div>
-          <div class="pa-hero-frame">
-            <img class="pa-hero-photo" :src="heroUrl" alt="" />
-          </div>
-        </div>
+      <div class="pa-hero">
+        <img :src="heroUrl" alt="" />
+      </div>
 
-        <div class="pa-metrics">
-          <div class="pa-metric">
-            <div class="pa-metric-icon-wrap">
-              <img :src="assets.iconTeam" alt="" />
-            </div>
-            <strong>{{ clients.length }}</strong>
-            <span>Clients need your action</span>
-          </div>
-          <div class="pa-metric">
-            <div class="pa-metric-icon-wrap">
-              <img :src="assets.iconClock" alt="" />
-            </div>
-            <strong>{{ secondsPerClient }}s</strong>
-            <span>Per client average</span>
-          </div>
-          <div class="pa-metric">
-            <div class="pa-metric-icon-wrap">
-              <img :src="assets.iconBadge" alt="" />
-            </div>
-            <strong>{{ estimatedLabel }}</strong>
-            <span>Estimated time</span>
-          </div>
-        </div>
-
-        <div class="pa-impact">
-          <div class="pa-impact-copy">
-            <div class="pa-impact-title">
-              <img class="pa-impact-icon" :src="assets.iconCare" alt="" />
-              <strong>Your work makes a difference</strong>
-            </div>
-            <p>
-              Each quick update keeps schools informed and helps students get the support they need this year.
-            </p>
-          </div>
-          <div class="pa-impact-art">
-            <img class="pa-school-art" :src="assets.schoolGreen" alt="" />
-            <img class="pa-checklist-icon" :src="assets.iconList" alt="" />
-          </div>
-        </div>
-
-        <p class="expires muted">
-          This secure link expires <strong>{{ expiresLabel }}</strong>. No Google sign-in needed.
+      <section class="pa-body">
+        <p class="pa-kicker">Action required</p>
+        <h1>
+          {{ providerName }}, you have
+          <span class="num">{{ clients.length }}</span>
+          client{{ clients.length === 1 ? '' : 's' }} who need{{ clients.length === 1 ? 's' : '' }} your action.
+        </h1>
+        <p class="lede">
+          About <strong>{{ secondsPerClient }} seconds</strong> per client
+          <template v-if="estimatedLabel"> — {{ estimatedLabel }} total</template>.
+          No Google sign-in.
         </p>
+
+        <div class="pa-stats">
+          <div class="pa-stat">
+            <img :src="assets.iconTeam" alt="" />
+            <strong>{{ clients.length }}</strong>
+            <span>Clients</span>
+          </div>
+          <div class="pa-stat">
+            <img :src="assets.iconClock" alt="" />
+            <strong>{{ secondsPerClient }}s</strong>
+            <span>Each</span>
+          </div>
+          <div class="pa-stat">
+            <img :src="assets.iconBadge" alt="" />
+            <strong>{{ estimatedLabel }}</strong>
+            <span>Total time</span>
+          </div>
+        </div>
       </section>
 
       <section class="pa-list">
-        <h2>
-          <img class="pa-list-icon" :src="assets.iconTeam" alt="" />
-          Your clients
-        </h2>
+        <h2>Your clients</h2>
         <p v-if="!clients.length" class="muted">You’re all caught up. Thank you.</p>
         <article v-for="row in clients" :key="row.id" class="pa-row">
-          <div class="pa-row-icon-wrap" aria-hidden="true">
-            <img :src="assets.iconList" alt="" />
-          </div>
           <div class="pa-row-body">
             <div class="name">{{ rowLabel(row) }}</div>
             <div class="meta muted">
@@ -96,12 +57,12 @@
               <template v-if="row.service_day"> · {{ row.service_day }}</template>
             </div>
             <div class="action-label">
-              <img class="action-icon" :src="assets.iconAlert" alt="" />
               {{ row.provider_lifecycle_action?.label || row.action_stage || 'Action needed' }}
             </div>
           </div>
           <button type="button" class="btn primary" @click="openAction(row)">Complete</button>
         </article>
+        <p class="expires muted">This link expires {{ expiresLabel }}.</p>
       </section>
     </template>
 
@@ -282,35 +243,15 @@ onUnmounted(() => {
 <style scoped>
 .pa-public {
   min-height: 100vh;
-  background: #f4f1ea;
-  padding: 28px 16px 48px;
-  color: var(--pa-primary, #145A3D);
-}
-.pa-card,
-.pa-list {
-  max-width: 760px;
-  margin: 0 auto 18px;
+  max-width: 480px;
+  margin: 0 auto;
   background: #fff;
-  border-radius: 24px;
-  padding: 28px 26px;
-  box-shadow: 0 10px 34px rgba(20, 90, 61, 0.08);
-  position: relative;
-}
-.pa-accent {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 5px;
-  border-radius: 24px 0 0 24px;
-  background: linear-gradient(180deg, var(--pa-accent) 0%, var(--pa-primary) 100%);
-}
-.pa-hero-card {
-  padding-left: 32px;
+  color: var(--pa-primary, #145A3D);
+  border-top: 8px solid var(--pa-primary, #145A3D);
 }
 .pa-brand {
   text-align: center;
-  margin-bottom: 14px;
+  padding: 16px 20px 12px;
 }
 .pa-brand-logo {
   max-height: 48px;
@@ -320,19 +261,23 @@ onUnmounted(() => {
 .pa-brand-wordmark {
   font-size: 1.35rem;
   font-weight: 800;
-  color: var(--pa-primary);
 }
-.pa-hero-grid {
-  display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
-  gap: 16px;
-  align-items: stretch;
-  margin-bottom: 16px;
+.pa-hero {
+  height: 180px;
+  overflow: hidden;
+  background: var(--pa-light);
+}
+.pa-hero img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.pa-body,
+.pa-list {
+  padding: 18px 20px 8px;
 }
 .pa-kicker {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   font-size: 11px;
@@ -340,170 +285,53 @@ onUnmounted(() => {
   color: var(--pa-accent);
   margin: 0 0 8px;
 }
-.pa-kicker-icon {
-  width: 22px;
-  height: 22px;
-  object-fit: contain;
-}
-.pa-hero-frame {
-  border-radius: 18px;
-  overflow: hidden;
-  border: 3px solid rgba(90, 155, 88, 0.28);
-  box-shadow: 0 10px 28px rgba(20, 90, 61, 0.14);
-  min-height: 160px;
-  background: linear-gradient(145deg, var(--pa-light), var(--pa-tan));
-}
-.pa-hero-photo {
-  width: 100%;
-  height: 100%;
-  min-height: 160px;
-  object-fit: cover;
-  display: block;
-}
 h1 {
   font-family: Georgia, serif;
-  font-size: 1.75rem;
+  font-size: 1.55rem;
   line-height: 1.2;
   margin: 0 0 10px;
-  color: var(--pa-primary);
 }
 h1 .num {
   color: var(--pa-accent);
 }
 .lede {
-  margin: 0;
+  margin: 0 0 16px;
   color: var(--pa-muted);
-  line-height: 1.55;
-  font-size: 0.95rem;
+  line-height: 1.5;
 }
-.pa-metrics {
+.pa-stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  background: var(--pa-tan);
-  border-radius: 16px;
-  padding: 14px 8px 12px;
   text-align: center;
-  margin-bottom: 14px;
+  padding-bottom: 8px;
 }
-.pa-metric-icon-wrap {
-  width: 46px;
-  height: 46px;
-  margin: 0 auto 6px;
-  background: #fff;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 3px 10px rgba(20, 90, 61, 0.08);
-}
-.pa-metric-icon-wrap img {
-  width: 28px;
-  height: 28px;
+.pa-stat img {
+  width: 24px;
+  height: 24px;
   object-fit: contain;
-}
-.pa-metrics strong {
   display: block;
-  font-size: 1.35rem;
-  color: var(--pa-primary);
+  margin: 0 auto 4px;
 }
-.pa-metrics span {
+.pa-stat strong {
   display: block;
-  font-size: 12px;
+  font-size: 1.2rem;
+}
+.pa-stat span {
+  display: block;
+  font-size: 11px;
   color: var(--pa-muted);
-  line-height: 1.3;
-  margin-top: 2px;
-}
-.pa-impact {
-  display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
-  gap: 10px;
-  align-items: center;
-  background: linear-gradient(135deg, var(--pa-light) 0%, #f0faf0 100%);
-  border-radius: 16px;
-  padding: 14px 16px;
-  margin-bottom: 12px;
-  border: 1px solid rgba(90, 155, 88, 0.18);
-}
-.pa-impact-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-.pa-impact-icon {
-  width: 26px;
-  height: 26px;
-  object-fit: contain;
-}
-.pa-impact-copy p {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--pa-muted);
-}
-.pa-impact-art {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 72px;
-}
-.pa-school-art {
-  max-width: 88%;
-  max-height: 78px;
-  object-fit: contain;
-}
-.pa-checklist-icon {
-  position: absolute;
-  right: 0;
-  bottom: -4px;
-  width: 36px;
-  height: 36px;
-  object-fit: contain;
-  background: #fff;
-  border-radius: 50%;
-  padding: 4px;
-  box-shadow: 0 2px 8px rgba(20, 90, 61, 0.12);
-}
-.expires {
-  margin: 0;
-  font-size: 13px;
 }
 .pa-list h2 {
-  margin: 0 0 12px;
-  font-size: 1.1rem;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--pa-primary);
-}
-.pa-list-icon {
-  width: 22px;
-  height: 22px;
-  object-fit: contain;
+  margin: 8px 0 4px;
+  font-size: 1.05rem;
 }
 .pa-row {
   display: flex;
   gap: 12px;
   align-items: center;
-  padding: 12px 0;
+  padding: 14px 0;
   border-top: 1px solid #eef2ee;
-}
-.pa-row-icon-wrap {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: var(--pa-light);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.pa-row-icon-wrap img {
-  width: 20px;
-  height: 20px;
-  object-fit: contain;
 }
 .pa-row-body {
   flex: 1;
@@ -513,33 +341,28 @@ h1 .num {
   font-weight: 800;
 }
 .action-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   font-size: 13px;
   color: #b45309;
   font-weight: 650;
   margin-top: 2px;
 }
-.action-icon {
-  width: 16px;
-  height: 16px;
-  object-fit: contain;
-}
 .btn.primary {
   border: none;
-  background: linear-gradient(135deg, var(--pa-primary) 0%, #0d4a31 100%);
+  background: var(--pa-primary);
   color: #fff;
   border-radius: 12px;
-  padding: 10px 14px;
+  padding: 12px 16px;
   font-weight: 700;
   cursor: pointer;
   flex-shrink: 0;
-  box-shadow: 0 4px 14px rgba(20, 90, 61, 0.2);
+  min-height: 44px;
+}
+.expires {
+  margin: 16px 0 24px;
+  font-size: 13px;
 }
 .pa-msg {
-  max-width: 640px;
-  margin: 48px auto;
+  padding: 48px 20px;
   text-align: center;
 }
 .error {
@@ -548,20 +371,11 @@ h1 .num {
 .muted {
   color: #64748b;
 }
-@media (max-width: 640px) {
-  .pa-hero-grid,
-  .pa-impact {
-    grid-template-columns: 1fr;
-  }
-  .pa-hero-frame {
-    min-height: 140px;
-  }
-  .pa-row {
-    flex-wrap: wrap;
-  }
-  .btn.primary {
-    width: 100%;
-    margin-top: 4px;
+@media (min-width: 640px) {
+  .pa-public {
+    margin: 24px auto 48px;
+    box-shadow: 0 12px 40px rgba(20, 90, 61, 0.1);
+    border-radius: 0 0 16px 16px;
   }
 }
 </style>
