@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import SchoolPacketTemplate, { normalizeLocale } from '../models/SchoolPacketTemplate.model.js';
+import { DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML } from '../content/schoolPacketTemplateDefault.en.js';
+import { DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML_ES } from '../content/schoolPacketTemplateDefault.es.js';
 import { buildSchoolPrintablePacketContext } from './schoolPrintablePacket.service.js';
 
 export const PACKET_SECTION_KEYS = Object.freeze({
@@ -47,29 +49,49 @@ const SECTION_HEADING_MAP = {
   [PACKET_SECTION_KEYS.HIPAA_NOTICE]: {
     start: [
       'HIPAA Privacy Policy & Notice of Privacy Practices',
+      'HIPAA Privacy Policy and Notice of Privacy Practices',
       'Política de Privacidad de HIPAA y Aviso de Prácticas de Privacidad',
       'Politica de Privacidad de HIPAA y Aviso de Practicas de Privacidad',
-      'HIPAA PRIVACY POLICY'
+      'HIPAA PRIVACY POLICY',
+      'Notice of Privacy Practices',
+      'Aviso de Prácticas de Privacidad'
     ],
     endExclusive: []
   }
 };
 
-function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function decodeHeadingEntities(value) {
+  return String(value || '')
+    .replace(/&amp;/gi, '&')
+    .replace(/&#38;/g, '&')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-function findHeadingIndex(html, headings) {
-  const source = String(html || '');
+function normalizeHeading(value) {
+  return decodeHeadingEntities(value)
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9áéíóúüñ]+/gi, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function findHeadingIndex(html, headings, fromIndex = 0) {
+  const source = String(html || '').slice(Math.max(0, Number(fromIndex) || 0));
+  const wanted = (headings || []).map(normalizeHeading).filter(Boolean);
+  if (!wanted.length) return -1;
+  const re = /<h[12][^>]*>([\s\S]*?)<\/h[12]>/gi;
+  let match;
   let best = -1;
-  for (const heading of headings || []) {
-    const re = new RegExp(`<h2[^>]*>\\s*${escapeRegExp(heading)}\\s*<\\/h2>`, 'i');
-    const match = re.exec(source);
-    if (match && (best < 0 || match.index < best)) {
-      best = match.index;
-    }
+  while ((match = re.exec(source))) {
+    const text = normalizeHeading(match[1]);
+    if (!text) continue;
+    const hit = wanted.some((heading) => text === heading || text.includes(heading) || heading.includes(text));
+    if (hit && (best < 0 || match.index < best)) best = match.index;
   }
-  return best;
+  return best < 0 ? -1 : best + Math.max(0, Number(fromIndex) || 0);
 }
 
 /**
@@ -86,7 +108,10 @@ export function extractPacketSectionHtml(htmlContent, sectionKey) {
     throw err;
   }
   const html = String(htmlContent || '');
-  const start = findHeadingIndex(html, cfg.start);
+  let start = findHeadingIndex(html, cfg.start);
+  if (start < 0 && key === PACKET_SECTION_KEYS.HIPAA_NOTICE) {
+    start = findHeadingIndex(html, ['HIPAA', 'Notice of Privacy Practices']);
+  }
   if (start < 0) {
     const err = new Error(`Packet section heading not found for ${key}`);
     err.status = 404;
@@ -94,15 +119,9 @@ export function extractPacketSectionHtml(htmlContent, sectionKey) {
   }
 
   let end = html.length;
-  for (const heading of cfg.endExclusive || []) {
-    const re = new RegExp(`<h2[^>]*>\\s*${escapeRegExp(heading)}\\s*<\\/h2>`, 'i');
-    const from = start + 1;
-    const slice = html.slice(from);
-    const match = re.exec(slice);
-    if (match) {
-      const abs = from + match.index;
-      if (abs < end) end = abs;
-    }
+  if (cfg.endExclusive?.length) {
+    const next = findHeadingIndex(html, cfg.endExclusive, start + 1);
+    if (next > start) end = next;
   }
 
   let slice = html.slice(start, end).trim();
@@ -211,7 +230,16 @@ export async function buildPacketSectionContext({
     throw err;
   }
 
-  const snapshotHtml = extractPacketSectionHtml(templateHtml, key);
+  let snapshotHtml;
+  try {
+    snapshotHtml = extractPacketSectionHtml(templateHtml, key);
+  } catch (extractErr) {
+    if (key !== PACKET_SECTION_KEYS.HIPAA_NOTICE) throw extractErr;
+    const fallbackHtml = loc === 'es'
+      ? DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML_ES
+      : DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML;
+    snapshotHtml = extractPacketSectionHtml(fallbackHtml, key);
+  }
   const contentHash = hashPacketSectionHtml(snapshotHtml);
 
   return {

@@ -20,6 +20,30 @@ describe('schoolPacketSections.service', () => {
     expect(html).not.toMatch(/CLIENT RIGHTS/i);
   });
 
+  it('finds HIPAA when the heading uses a literal ampersand or the word and', () => {
+    const amp = extractPacketSectionHtml(
+      '<h2>HIPAA Privacy Policy &amp; Notice of Privacy Practices</h2><p>Body</p>',
+      PACKET_SECTION_KEYS.HIPAA_NOTICE
+    );
+    expect(amp).toMatch(/Body/);
+
+    const and = extractPacketSectionHtml(
+      '<h2>HIPAA Privacy Policy and Notice of Privacy Practices</h2><p>Also</p>',
+      PACKET_SECTION_KEYS.HIPAA_NOTICE
+    );
+    expect(and).toMatch(/Also/);
+  });
+
+  it('extracts HIPAA notice from English default template even when the heading uses &amp;', () => {
+    const html = extractPacketSectionHtml(
+      DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML,
+      PACKET_SECTION_KEYS.HIPAA_NOTICE
+    );
+    expect(html).toMatch(/HIPAA Privacy Policy/i);
+    expect(html).toMatch(/Notice of Privacy Practices/i);
+    expect(html).not.toMatch(/POLICY AND SERVICES AGREEMENT/i);
+  });
+
   it('extracts policy and services from English default template', () => {
     const html = extractPacketSectionHtml(
       DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML,
@@ -43,6 +67,12 @@ describe('schoolPacketSections.service', () => {
       PACKET_SECTION_KEYS.POLICY_SERVICES
     );
     expect(policy).toMatch(/ACUERDO DE POLÍTICAS Y SERVICIOS/i);
+
+    const hipaa = extractPacketSectionHtml(
+      DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML_ES,
+      PACKET_SECTION_KEYS.HIPAA_NOTICE
+    );
+    expect(hipaa).toMatch(/HIPAA/i);
   });
 
   it('hashes section html stably', () => {

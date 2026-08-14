@@ -1017,6 +1017,8 @@ const extractGuardianProfileFromPayload = ({ payload = {}, intakeData = {}, subm
       guardianResponses?.guardianFirstName,
       guardianResponses?.guardian_first_name,
       guardianResponses?.guardian_first,
+      guardianResponses?.guardian_legal_first,
+      submissionResponses?.legal_first_name,
       guardianInfoResponses?.firstName,
       guardianInfoResponses?.first_name,
       submissionResponses?.firstName,
@@ -1040,6 +1042,8 @@ const extractGuardianProfileFromPayload = ({ payload = {}, intakeData = {}, subm
       guardianResponses?.guardianLastName,
       guardianResponses?.guardian_last_name,
       guardianResponses?.guardian_last,
+      guardianResponses?.guardian_legal_last,
+      submissionResponses?.legal_last_name,
       guardianInfoResponses?.lastName,
       guardianInfoResponses?.last_name,
       submissionResponses?.lastName,
@@ -1105,6 +1109,8 @@ const extractGuardianProfileFromPayload = ({ payload = {}, intakeData = {}, subm
       submissionResponses?.relationship,
       submissionResponses?.guardianRelationship,
       submissionResponses?.guardian_relationship,
+      guardianResponses?.guardian_relationship_to_child,
+      submissionResponses?.guardian_relationship_to_child,
       signerResponses?.relationship
     )
   ) || null;
@@ -1249,10 +1255,6 @@ const buildMergedDemographicsForPersist = ({
     : null;
   const merged = {
     ...base,
-    preferredLanguage: pickPerChild(
-      'client_preferred_language',
-      clinical.client_preferred_language || base.preferredLanguage
-    ),
     grade: gradeFromIntake
       || pickPerChild('client_grade', clinical.client_grade || base.grade),
     // guardian_preferred_language is conceptually submission-level, but some
@@ -1263,14 +1265,47 @@ const buildMergedDemographicsForPersist = ({
       'guardian_preferred_language',
       clinical.guardian_preferred_language || base.guardianPreferredLanguage
     ),
-    dob: pickPerChild('client_dob', base.dob),
-    gender: pickPerChild('client_sex', base.gender || pickPerChild('client_gender', null)),
-    ethnicity: pickPerChild('client_ethnicity', base.ethnicity),
-    addressStreet: pickPerChild('client_street', base.addressStreet),
-    addressApt: pickPerChild('client_apt', base.addressApt),
-    addressCity: pickPerChild('client_city', base.addressCity),
-    addressState: pickPerChild('client_state', base.addressState),
-    addressZip: pickPerChild('client_zip', base.addressZip),
+    dob: pickPerChild(
+      'child_dob',
+      pickPerChild(
+        'date_of_birth',
+        pickPerChild('client_dob', submission.date_of_birth || clinical.date_of_birth || base.dob)
+      )
+    ),
+    gender: pickPerChild(
+      'child_gender',
+      pickPerChild(
+        'gender',
+        pickPerChild('client_sex', base.gender || pickPerChild('client_gender', submission.gender || null))
+      )
+    ),
+    genderSelfDescribe: pickPerChild(
+      'child_gender_self_describe',
+      pickPerChild('gender_self_describe', submission.gender_self_describe || base.genderSelfDescribe)
+    ),
+    ethnicity: pickPerChild('client_ethnicity', pickPerChild('ethnicity', submission.ethnicity || base.ethnicity)),
+    preferredLanguage: pickPerChild(
+      'child_preferred_language',
+      pickPerChild(
+        'preferred_language',
+        pickPerChild(
+          'client_preferred_language',
+          clinical.client_preferred_language || submission.preferred_language || base.preferredLanguage
+        )
+      )
+    ),
+    phone: pickPerChild(
+      'phone_number',
+      pickPerChild('guardian_phone', submission.phone_number || base.phone)
+    ),
+    addressStreet: pickPerChild(
+      'address_street',
+      pickPerChild('client_street', submission.address_street || base.addressStreet)
+    ),
+    addressApt: pickPerChild('address_apt', pickPerChild('client_apt', submission.address_apt || base.addressApt)),
+    addressCity: pickPerChild('address_city', pickPerChild('client_city', submission.address_city || base.addressCity)),
+    addressState: pickPerChild('address_state', pickPerChild('client_state', submission.address_state || base.addressState)),
+    addressZip: pickPerChild('address_zip', pickPerChild('client_zip', submission.address_zip || base.addressZip)),
     eloping: pickPerChild('client_eloping', clinical.client_eloping ?? base.eloping),
     elopingNotes: pickPerChild('client_eloping_notes', clinical.client_eloping_notes ?? base.elopingNotes),
     extraAssistance: pickPerChild(
@@ -1334,9 +1369,12 @@ const persistClientDemographicsIfProvided = async ({ clientId, demographicsInfo 
     const dob = normalizeDateOnly(demographicsInfo.dob);
     if (dob) { updates.push('date_of_birth = COALESCE(NULLIF(date_of_birth, \'\'), ?)'); values.push(dob); }
   }
-  addIfPresent('gender', demographicsInfo.gender);
+  const genderRaw = String(demographicsInfo.gender || '').trim();
+  const genderDescribed = String(demographicsInfo.genderSelfDescribe || '').trim();
+  addIfPresent('gender', genderRaw === 'self_describe' && genderDescribed ? genderDescribed : genderRaw);
   addIfPresent('ethnicity', demographicsInfo.ethnicity);
   addIfPresent('preferred_language', demographicsInfo.preferredLanguage);
+  addIfPresent('contact_phone', demographicsInfo.phone);
   // The Overview tab reads `primary_client_language` and `primary_parent_language`
   // (the columns the bulk client upload writes). Without mirroring here, the
   // intake's `client_preferred_language` / `guardian_preferred_language` answers
@@ -4954,11 +4992,15 @@ export const getPublicIntakeLink = async (req, res, next) => {
         linkedEsInfo = null;
       }
     }
+    const rawDescription = String(link.description || '').trim();
+    const publicDescription = /inherits\s+(office|school)\s+master|in-depth intake shell|not for public sharing|published shell/i.test(rawDescription)
+      ? null
+      : (rawDescription || null);
     res.json({
       link: {
         id: link.id,
         title: link.title,
-        description: link.description,
+        description: publicDescription,
         language_code: link.language_code || 'en',
         scope_type: link.scope_type,
         form_type: link.form_type || 'intake',

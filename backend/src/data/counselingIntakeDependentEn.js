@@ -95,6 +95,33 @@ function childStep({ id, label, helperText, whyWeAsk, type = 'questions', fields
   };
 }
 
+function stampSection(fields, section) {
+  return (fields || []).map((f) => ({ ...f, section: f.section || section }));
+}
+
+function combineGuardianSteps(id, label, helperText, whyWeAsk, parts) {
+  return guardianStep({
+    id,
+    label,
+    helperText,
+    whyWeAsk,
+    type: parts?.[0]?.type || 'questions',
+    fields: (parts || []).flatMap((p) => stampSection(p.fields, p.label))
+  });
+}
+
+function combineChildSteps(id, label, helperText, whyWeAsk, parts) {
+  return childStep({
+    id,
+    label,
+    helperText,
+    whyWeAsk,
+    type: parts?.[0]?.type || 'questions',
+    fields: (parts || []).flatMap((p) => stampSection(p.fields, p.label)),
+    showWhen: parts?.[0]?.showWhen || ''
+  });
+}
+
 const CONCERN_ANY = { fieldKey: 'presenting_concerns', equals: [] };
 const EMOTION_ANY = { fieldKey: 'emotional_symptoms', notEquals: 'none' };
 const HIGH_ENERGY = {
@@ -212,8 +239,15 @@ function partAAboutYou() {
       field({
         key: 'guardian_best_time',
         label: 'Best time to contact you',
-        type: 'text',
-        scope: 'guardian'
+        type: 'checkbox',
+        layout: 'cards',
+        scope: 'guardian',
+        options: [
+          opt('morning', 'Morning (8am–12pm)'),
+          opt('afternoon', 'Afternoon (12–5pm)'),
+          opt('evening', 'Evening (5–8pm)'),
+          opt('anytime', 'Anytime')
+        ]
       }),
       field({
         key: 'guardian_relationship_to_child',
@@ -229,6 +263,13 @@ function partAAboutYou() {
           opt('stepparent', 'Stepparent'),
           opt('other', 'Other')
         ]
+      }),
+      field({
+        key: 'guardian_relationship_other',
+        label: 'What is your relationship to the child or children?',
+        type: 'text',
+        scope: 'guardian',
+        showIf: { fieldKey: 'guardian_relationship_to_child', equals: 'other' }
       }),
       field({
         key: 'legal_authority',
@@ -457,6 +498,35 @@ function childAbout() {
       field({ key: 'child_legal_last', label: 'Legal last name', type: 'text' }),
       field({ key: 'child_preferred_name', label: 'What name do they usually go by?', type: 'text' }),
       field({ key: 'child_dob', label: 'Date of birth', type: 'date' }),
+      field({
+        key: 'child_gender',
+        label: 'Gender',
+        type: 'radio',
+        layout: 'cards',
+        options: [
+          opt('female', 'Female'),
+          opt('male', 'Male'),
+          opt('nonbinary', 'Non-binary'),
+          opt('prefer_not_to_say', 'Prefer not to say'),
+          opt('self_describe', 'Prefer to self-describe')
+        ]
+      }),
+      field({
+        key: 'child_gender_self_describe',
+        label: 'How do they describe their gender?',
+        type: 'text',
+        showIf: { fieldKey: 'child_gender', equals: 'self_describe' }
+      }),
+      field({
+        key: 'child_preferred_language',
+        label: 'Preferred language',
+        type: 'text',
+        placeholder: 'e.g. English, Spanish'
+      }),
+      field({ key: 'address_street', label: 'Street address', type: 'text' }),
+      field({ key: 'address_city', label: 'City', type: 'text' }),
+      field({ key: 'address_state', label: 'State', type: 'text' }),
+      field({ key: 'address_zip', label: 'ZIP code', type: 'text' }),
       field({ key: 'child_grade', label: 'Current grade', type: 'text' }),
       field({ key: 'child_school', label: 'School', type: 'text' }),
       field({
@@ -532,9 +602,15 @@ function childWhatBrings() {
         ]
       }),
       field({
+        key: 'presenting_concerns_other',
+        label: 'What else have you been noticing?',
+        type: 'text',
+        showIf: { fieldKey: 'presenting_concerns', includes: 'something_else' }
+      }),
+      field({
         key: 'biggest_concern_now',
         label: 'Which concern is the biggest problem right now?',
-        showIf: CONCERN_ANY
+        showIf: { fieldKey: 'presenting_concerns', notEquals: 'none_describe', minSelected: 2 }
       }),
       field({
         key: 'concern_duration',
@@ -1945,25 +2021,52 @@ function childReview() {
 
 export function buildCounselingDependentEnSteps() {
   return [
-    partAAboutYou(),
+    combineGuardianSteps(
+      'about_you',
+      'About You & Family Contact',
+      'Your information and how we reach the family.',
+      'We need a primary contact and household logistics before the child pages.',
+      [partAAboutYou(), partAFamilyContact()]
+    ),
     partACustodyUpload(),
-    partAFamilyContact(),
     childAbout(),
-    childWhatBrings(),
-    childEmotional(),
-    childBehavior(),
-    childDailyLife(),
-    childSchool(),
-    childDevelopmentHealth(),
-    childPreviousHelp(),
-    childFamilyRelationships(),
-    childTrauma(),
+    combineChildSteps(
+      'presenting',
+      'What Brings You Here & How They Are Doing',
+      'Concerns, emotions, and behavior together.',
+      'Grouping these keeps the story in one place without losing any questions.',
+      [childWhatBrings(), childEmotional(), childBehavior()]
+    ),
+    combineChildSteps(
+      'daily_context',
+      'Daily Life & School',
+      'Home routines and school context.',
+      'Daily life and school often explain each other.',
+      [childDailyLife(), childSchool()]
+    ),
+    combineChildSteps(
+      'health_history',
+      'Development, Health & Previous Help',
+      'Development, medical history, and prior services.',
+      'Health and previous help belong on the same page for safer care.',
+      [childDevelopmentHealth(), childPreviousHelp()]
+    ),
+    combineChildSteps(
+      'family_trauma',
+      'Family, Relationships & Hard Experiences',
+      'Family relationships and trauma history.',
+      'These questions stay together so context is not split across pages.',
+      [childFamilyRelationships(), childTrauma()]
+    ),
     childSubstance(),
     childSafety(),
-    childWhatHelps(),
-    childProviderKnow(),
-    childWantToChange(),
-    childProviderPrefs(),
+    combineChildSteps(
+      'goals_prefs',
+      'What Helps, Goals & Preferences',
+      'What already helps, what you want to change, and scheduling preferences.',
+      'Goals and preferences help us match the right clinician and plan.',
+      [childWhatHelps(), childProviderKnow(), childWantToChange(), childProviderPrefs()]
+    ),
     childQuestionnaires(),
     childAnythingMissed(),
     childReview()

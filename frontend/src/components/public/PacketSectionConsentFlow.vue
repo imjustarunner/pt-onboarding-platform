@@ -4,6 +4,9 @@
 
     <div v-if="stage === 'review'" class="packet-section-card">
       <h3>{{ title }}</h3>
+      <p v-if="!sectionReady" class="error">
+        {{ tr('This section could not be loaded.', 'No se pudo cargar esta sección.') }}
+      </p>
       <p class="lead">
         {{
           tr(
@@ -25,7 +28,7 @@
         </span>
       </label>
       <div class="actions">
-        <button type="button" class="btn btn-primary" :disabled="!acknowledged" @click="stage = 'sign'">
+        <button type="button" class="btn btn-primary" :disabled="!acknowledged || !sectionReady" @click="stage = 'sign'">
           {{ tr('Continue to signature', 'Continuar a la firma') }}
         </button>
       </div>
@@ -85,6 +88,7 @@ const resolvedLocale = computed(() => {
 const title = computed(() => String(props.sectionContext?.title || 'Agreement').trim());
 const sectionHtml = computed(() => String(props.sectionContext?.html || '').trim());
 const sectionKey = computed(() => String(props.sectionContext?.sectionKey || '').trim());
+const sectionReady = computed(() => !!sectionKey.value && !!sectionHtml.value);
 
 const tr = (en, es) => (resolvedLocale.value === 'es' ? es : en);
 

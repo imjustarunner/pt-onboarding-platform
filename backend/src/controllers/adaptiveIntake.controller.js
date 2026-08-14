@@ -82,6 +82,31 @@ export async function submitSupportInquiry(req, res, next) {
   }
 }
 
+/** PATCH /api/public/adaptive-intake/:agencySlug/landing */
+export async function updateJoinLanding(req, res, next) {
+  try {
+    const config = await AdaptiveIntake.getAdaptiveIntakeConfig(req.params.agencySlug, req, {
+      serviceType: req.body?.serviceType || req.query?.serviceType
+    });
+    if (!config) return res.status(404).json({ error: { message: 'Organization not found' } });
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!['admin', 'super_admin'].includes(role)) {
+      return res.status(403).json({ error: { message: 'Only admins can edit this page.' } });
+    }
+    if (!(await assertAgencyAccess(req, config.agency.id)) && role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    const copy = await AdaptiveIntake.updateJoinLandingCopy({
+      agencySlugOrId: req.params.agencySlug,
+      serviceType: req.body?.serviceType || config.activeService?.serviceType,
+      copy: req.body?.copy || {}
+    });
+    res.json({ ok: true, copy });
+  } catch (e) {
+    next(e);
+  }
+}
+
 /** GET /api/public/adaptive-intake/:agencySlug/providers */
 export async function listProviders(req, res, next) {
   try {

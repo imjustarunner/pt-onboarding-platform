@@ -34,15 +34,15 @@ function assertUniqueKeys(steps, label) {
 
 function assertShapes() {
   const self = buildCounselingSelfEnSteps();
-  if (self.length !== 14) {
-    throw new Error(`Expected 14 self counseling pages, got ${self.length}`);
+  if (self.length !== 9) {
+    throw new Error(`Expected 9 self counseling pages, got ${self.length}`);
   }
   assertUniqueKeys(self, 'self counseling');
   const dep = buildCounselingDependentEnSteps();
   const guardian = dep.filter((s) => s.audience === 'guardian').length;
   const childQuestions = dep.filter((s) => s.audience === 'dependent' && s.type === 'questions').length;
-  if (guardian !== 3 || childQuestions !== 18) {
-    throw new Error(`Expected 3 family + 18 child pages, got family=${guardian} child=${childQuestions}`);
+  if (guardian !== 2 || childQuestions !== 10) {
+    throw new Error(`Expected 2 family + 10 child pages, got family=${guardian} child=${childQuestions}`);
   }
   assertUniqueKeys(dep, 'dependent counseling');
 }

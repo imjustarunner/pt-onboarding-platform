@@ -1,6 +1,6 @@
 <template>
   <DigitalFormShell
-    class="public-intake"
+    class="public-intake ai-shell-host"
     :branding="formBranding"
     :program-title-override="shellProgramTitle"
     :form-title-override="shellFormDocumentTitle"
@@ -11,7 +11,7 @@
     :intake-sidebar-step-index="dfProgressIndex"
     :cover-mode="step < 1 || loading || !!fatalError"
     :hide-sidebar="isJobApplication && step === -1"
-    :wide="isJobApplication && step === -1 || step === 2"
+    :wide="(isJobApplication && step === -1) || (isOfficeInDepthIntake && step >= 0.5) || (!isOfficeInDepthIntake && step === 2)"
     :show-language-toggle="hasLinkedLanguageToggle && !loading && !fatalError"
     :language="currentFormLanguage"
     :language-switching="linkedLanguageSwitching"
@@ -19,11 +19,26 @@
     :contact-phone-display="splashContactPhone"
     :contact-phone-tel="splashContactTel"
     :contact-email="splashContactEmail"
-    :show-contact-support-action="showSchoolSplashSupport"
+    :show-contact-support-action="showFullSplashSupport"
     :contact-support-label="t('sendAMessage')"
+    :contact-compact="isOfficeInDepthIntake && showCompactSidebarContact"
+    :show-intake-sidebar-security="!(isOfficeInDepthIntake && showCompactSidebarContact)"
+    :intake-sidebar-max-reachable="isOfficeInDepthIntake ? maxReachedProgressIndex : 0"
+    :intake-sidebar-interactive="isOfficeInDepthIntake"
     @update:language="switchLinkedLanguage"
     @contact-support="openSplashSupportModal"
+    @select-step="jumpToProgressStep"
   >
+    <template #header-left>
+      <button
+        v-if="showIntakeBackButton"
+        type="button"
+        class="df-btn df-btn-secondary intake-back-btn"
+        @click="goBackPublicPage"
+      >
+        {{ t('back') }}
+      </button>
+    </template>
     <div v-if="loading" class="df-loading">{{ loadingText }}</div>
     <div v-else-if="fatalError" class="df-fatal error">{{ fatalError }}</div>
 
@@ -41,8 +56,8 @@
       >
         Dev Fill
       </button>
-      <template v-if="!(isJobApplication && step === -1) && step >= 1 && link?.description">
-        <p class="df-form-lead">{{ tx(link.description) }}</p>
+      <template v-if="!(isJobApplication && step === -1) && step >= 1 && publicFormLead">
+        <p class="df-form-lead">{{ publicFormLead }}</p>
       </template>
       <div v-if="draftRestoredMessage" class="draft-restored-banner df-banner df-banner--info">{{ draftRestoredMessage }}</div>
 
@@ -191,14 +206,8 @@
             <svg viewBox="0 0 24 24"><path d="M12 21s-6.5-4.35-9.33-8.1C.5 9.9 1.1 6.2 4.2 4.7c1.9-.9 4.1-.3 5.4 1.3C10.9 4.4 13.1 3.8 15 4.7c3.1 1.5 3.7 5.2 1.53 8.2C18.5 16.65 12 21 12 21z"/></svg>
           </div>
           <p class="df-cover-lead">
-            {{ tx(link?.description) || beginSubtitleText }}
+            {{ publicCoverLead }}
           </p>
-
-          <DigitalFormNotice
-            v-if="link?.description"
-            :title="tx('Registration Notice') || 'Registration Notice'"
-            :body="tx(link.description)"
-          />
 
           <div v-if="showCaptchaGate" class="captcha-block captcha-block-start">
             <div class="muted">{{ t('protectedByRecaptcha') }}</div>
@@ -223,12 +232,9 @@
             :hint="t('pressEnterToContinue')"
             @primary="beginIntakeSession"
           />
-          <div v-if="showSchoolSplashSupport" class="df-cover-secondary-actions">
+          <div v-if="isSchoolScopedIntake" class="df-cover-secondary-actions">
             <button type="button" class="btn btn-secondary df-not-my-school" @click="goToSchoolReferralFinder">
               {{ t('notYourSchool') }}
-            </button>
-            <button type="button" class="btn btn-link df-need-help" @click="openSplashSupportModal">
-              {{ t('needHelpSendMessage') }}
             </button>
           </div>
           <div v-if="beginError" class="error" style="margin-top: 10px;">{{ beginError }}</div>
@@ -285,6 +291,86 @@
         </div>
       </div>
 
+      <div v-else-if="step === 0.5 && isOfficeInDepthIntake" class="step intake-start-page">
+        <div class="intake-start-card">
+          <div class="ai-pathway-badge">{{ publicPacketBadge }}</div>
+          <h1 class="ai-page-title">{{ t('letsGetIntakeStarted') }}</h1>
+          <p class="ai-page-lead">{{ t('letsGetIntakeStartedLead') }}</p>
+          <div v-if="whoForError" class="error" style="margin-bottom: 12px;">{{ whoForError }}</div>
+
+          <div class="intake-start-grid">
+            <section class="intake-start-col">
+              <h2 class="intake-start-col-title">{{ t('whoIsThisForTitle') }}</h2>
+              <div class="intake-who-stack">
+                <button
+                  type="button"
+                  class="ai-pathway-card"
+                  :class="{ 'ai-pathway-card--selected': intakeForSelf === true }"
+                  @click="chooseWhoFor(true)"
+                >
+                  <span class="intake-who-icon" aria-hidden="true">👤</span>
+                  <h3 class="ai-pathway-card-title">{{ t('myself') }}</h3>
+                </button>
+                <button
+                  type="button"
+                  class="ai-pathway-card"
+                  :class="{ 'ai-pathway-card--selected': intakeForSelf === false }"
+                  @click="chooseWhoFor(false)"
+                >
+                  <span class="intake-who-icon" aria-hidden="true">👨‍👩‍👧</span>
+                  <h3 class="ai-pathway-card-title">{{ t('myChildDependent') }}</h3>
+                </button>
+              </div>
+            </section>
+            <section class="intake-start-col">
+              <h2 class="intake-start-col-title">{{ t('whatYoullNeed') }}</h2>
+              <ul class="intake-start-list">
+                <li>{{ t('needContactInfo') }}</li>
+                <li>{{ t('needInsurance') }}</li>
+                <li>{{ t('needSchoolProvider') }}</li>
+                <li>{{ t('needConcerns') }}</li>
+              </ul>
+            </section>
+            <section class="intake-start-col">
+              <h2 class="intake-start-col-title">{{ t('whatToExpect') }}</h2>
+              <ul class="intake-start-list">
+                <li>{{ t('expectTime') }}</li>
+                <li>{{ t('expectSecure') }}</li>
+                <li>{{ t('expectSaveReturn') }}</li>
+              </ul>
+            </section>
+          </div>
+
+          <h2 class="intake-start-basics-title">{{ t('letsStartWithBasics') }}</h2>
+          <div class="form-grid intake-identity-grid">
+            <div class="form-group form-group--span-4">
+              <label>{{ t('yourFirstName') }} <span class="required-indicator">*</span></label>
+              <input id="guardianFirstName" v-model="guardianFirstName" type="text" :class="{ 'input-error': !!consentErrors.guardianFirstName }" />
+            </div>
+            <div class="form-group form-group--span-4">
+              <label>{{ t('yourLastName') }} <span class="required-indicator">*</span></label>
+              <input id="guardianLastName" v-model="guardianLastName" type="text" :class="{ 'input-error': !!consentErrors.guardianLastName }" />
+            </div>
+            <div class="form-group form-group--span-4">
+              <label>{{ intakeForSelf === false ? t('childDateOfBirth') : t('dateOfBirth') }} <span class="required-indicator">*</span></label>
+              <input id="starterDob" v-model="starterDob" type="date" :class="{ 'input-error': !!consentErrors.starterDob }" />
+            </div>
+            <div class="form-group form-group--span-4">
+              <label>{{ t('yourPhone') }} <span class="required-indicator">*</span></label>
+              <input id="guardianPhone" v-model="guardianPhone" type="tel" :class="{ 'input-error': !!consentErrors.guardianPhone }" />
+            </div>
+            <div class="form-group form-group--span-8">
+              <label>{{ t('yourEmail') }} <span class="required-indicator">*</span></label>
+              <input id="guardianEmail" v-model="guardianEmail" type="email" :class="{ 'input-error': !!consentErrors.guardianEmail }" />
+            </div>
+            <div v-if="intakeForSelf === false" class="form-group form-group--span-4">
+              <label>{{ t('relationship') }} <span class="required-indicator">*</span></label>
+              <input id="guardianRelationship" v-model="guardianRelationship" type="text" :placeholder="t('relationshipPlaceholder')" :class="{ 'input-error': !!consentErrors.guardianRelationship }" />
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div v-else-if="step === 1" class="step">
         <SmartSchoolRoiFlow
           v-if="isSmartSchoolRoi"
@@ -308,16 +394,12 @@
           mode="standalone"
           @completed="handleSmartDisclosureCompleted"
         />
-        <div v-else class="intake-step-body">
-        <h3 class="df-section-title">{{ t('questions') || "Welcome! Let's get started" }}</h3>
-        <p class="df-section-help">{{ t('tellUsAboutYou') }}</p>
-        <div
-          v-if="adaptiveIntakeFieldGroups.length"
-          class="ai-pathway-badge"
-          style="margin-bottom: 0.75rem;"
-        >
-          {{ t('sectionsInThisPacket').replace('{count}', String(adaptiveIntakeFieldGroups.length)) }}
-        </div>
+        <div v-else class="intake-step-body" :class="{ 'ai-layout ai-layout--help': isOfficeInDepthIntake }">
+        <div :class="{ 'ai-layout-main': isOfficeInDepthIntake }">
+        <div v-if="isOfficeInDepthIntake" class="ai-pathway-badge">{{ publicPacketBadge }}</div>
+        <h1 v-if="isOfficeInDepthIntake" class="ai-page-title">{{ t('letsStartWithBasics') }}</h1>
+        <h3 v-else class="df-section-title">{{ t('questions') || "Welcome! Let's get started" }}</h3>
+        <p :class="isOfficeInDepthIntake ? 'ai-page-lead' : 'df-section-help'">{{ t('tellUsAboutYou') }}</p>
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
 
         <div v-if="showSpanishClarificationBlock" class="spanish-clarification-step field-inputs">
@@ -351,8 +433,10 @@
           </section>
         </div>
 
-        <div class="intake-section">
-        <div v-if="!isMedicalRecordsRequest && !isJobApplication && !isClientBound">
+        <div class="intake-section" :class="{ 'intake-card-section': isOfficeInDepthIntake }">
+        <div
+          v-if="!isOfficeInDepthIntake && !isMedicalRecordsRequest && !isJobApplication && !isClientBound"
+        >
           <h3 class="df-section-title">{{ t('whoIsIntakeFor') }}</h3>
           <div class="df-choice-grid">
             <DigitalFormSelectionCard
@@ -812,8 +896,9 @@
           {{ t('formIdleClearHint') }}
         </div>
 
-        <div class="actions">
+        <div class="actions" :class="{ 'intake-secondary-actions': isOfficeInDepthIntake }">
           <button
+            v-if="!isOfficeInDepthIntake"
             class="btn btn-primary"
             type="button"
             :disabled="consentLoading"
@@ -829,59 +914,29 @@
           </button>
         </div>
         </div>
+        <AdaptiveIntakeHelpPanel
+          v-if="isOfficeInDepthIntake"
+          class="df-desktop-only"
+          :blocks="basicsHelpBlocks"
+          :aria-label="t('whyWeAsk')"
+        />
+        </div>
       </div>
 
-        <div v-else-if="step === 2" class="step">
-        <h3 v-if="currentFlowStep?.type === 'document'">{{ t('document') }}</h3>
-        <h3 v-else-if="currentFlowStep?.type === 'upload'">{{ tx(currentFlowStep?.label) || t('upload') }}</h3>
-        <h3 v-else-if="currentFlowStep?.type === 'school_roi'">{{ t('schoolRoi') }}</h3>
-        <h3 v-else-if="currentFlowStep?.type === 'smart_disclosure' || currentFlowStep?.type === 'disclosure'">
-          {{ tx(currentFlowStep?.label) || 'Disclosure' }}
-        </h3>
-        <h3 v-else-if="isPacketSectionStepType(currentFlowStep?.type)">
-          {{ tx(currentFlowStep?.label) || packetSectionTitleForStep(currentFlowStep) }}
-        </h3>
-        <h3 v-else-if="currentFlowStep?.type === 'registration'">{{ tx(currentFlowStep?.label) || t('registration') }}</h3>
-        <h3 v-else-if="currentFlowStep?.type === 'guardian_waiver'">
-          {{ tx(currentFlowStep?.label) || t('guardianWaiversSafety') }}
-        </h3>
-        <h3 v-else-if="currentFlowStep?.type === 'insurance_info'">
-          {{ tx(currentFlowStep?.label) || t('insuranceInformation') }}
-        </h3>
-        <h3 v-else-if="currentFlowStep?.type === 'payment_collection'">
-          {{ tx(currentFlowStep?.label) || t('paymentInformation') }}
-        </h3>
-        <h3 v-else-if="currentFlowStep?.type === 'communications'">
-          {{ tx(currentFlowStep?.label) || t('communicationPreferences') }}
-        </h3>
-        <h3 v-else-if="currentFlowStep?.type === 'demographics'">
-          {{ tx(currentFlowStep?.label) || t('demographics') }}
-        </h3>
-        <h3 v-else-if="currentFlowStep?.type === 'clinical_questions'" class="df-section-title">
-          {{ currentFlowStepTitle || t('clinicalQuestions') }}
-        </h3>
-        <h3 v-else-if="currentFlowStep?.type === 'references'">
-          {{ tx(currentFlowStep?.label) || t('professionalReferences') }}
-        </h3>
-        <h3 v-else-if="currentFlowStep?.type === 'child_review'" class="df-section-title">
-          {{ currentFlowStepTitle || 'Child Review' }}
-        </h3>
-        <h3 v-else-if="currentFlowStep?.type === 'questions'" class="df-section-title">
-          {{ currentFlowStepTitle || t('questions') }}
-        </h3>
+        <div v-else-if="step === 2" class="step" :class="{ 'intake-interview-page': isOfficeInDepthIntake }">
+        <div :class="{ 'ai-layout ai-layout--help': isOfficeInDepthIntake }">
+        <div :class="{ 'ai-layout-main': isOfficeInDepthIntake }">
+        <div v-if="isOfficeInDepthIntake" class="ai-pathway-badge">{{ publicPacketBadge }}</div>
+        <h1 v-if="isOfficeInDepthIntake" class="ai-page-title">{{ currentInterviewPageTitle }}</h1>
+        <h3 v-else>{{ currentInterviewPageTitle }}</h3>
         <p
           v-if="currentChildBanner"
           class="intake-child-banner"
         >{{ currentChildBanner }}</p>
         <p
           v-if="currentFlowStepHelperText"
-          class="df-section-help"
+          class="ai-page-lead"
         >{{ currentFlowStepHelperText }}</p>
-        <DigitalFormNotice
-          v-if="currentFlowStepWhyWeAsk"
-          :title="tx('Why we ask')"
-          :body="currentFlowStepWhyWeAsk"
-        />
         <DigitalFormNotice
           v-if="showClinicalSafetyBanner"
           variant="warn"
@@ -1623,18 +1678,9 @@
         </div>
 
         <div
-          v-if="currentFlowStep?.type !== 'school_roi' && currentFlowStep?.type !== 'smart_disclosure' && currentFlowStep?.type !== 'disclosure' && !isPacketSectionStepType(currentFlowStep?.type)"
+          v-if="!isOfficeInDepthIntake && !flowStepOwnsContinue"
           class="actions"
         >
-          <button
-            v-if="currentFlowIndex > 0"
-            class="btn btn-outline"
-            type="button"
-            :disabled="submitLoading"
-            @click="goToPrevious"
-          >
-            {{ t('back') }}
-          </button>
           <button
             class="btn btn-primary"
             type="button"
@@ -1643,6 +1689,14 @@
           >
             {{ submitLoading ? t('submitting') : currentFlowContinueLabel }}
           </button>
+        </div>
+        </div>
+        <AdaptiveIntakeHelpPanel
+          v-if="isOfficeInDepthIntake"
+          class="df-desktop-only"
+          :blocks="flowStepHelpBlocks"
+          :aria-label="t('whyWeAsk')"
+        />
         </div>
       </div>
 
@@ -2000,6 +2054,28 @@
         </form>
       </div>
     </div>
+
+    <template #footer>
+      <div v-if="showIntakePagerFooter" class="intake-pager-footer">
+        <button
+          type="button"
+          class="df-btn df-btn-secondary intake-save-later-btn"
+          @click="saveAndComeBackLater"
+        >
+          {{ t('saveAndComeBackLater') }}
+        </button>
+        <span class="intake-pager-meta">{{ intakePagerLabel }}</span>
+        <button
+          type="button"
+          class="df-btn df-btn-primary intake-continue-btn"
+          :disabled="intakePagerPrimaryDisabled"
+          @click="handleIntakePagerContinue"
+        >
+          {{ intakePagerPrimaryLabel }}
+          <span aria-hidden="true">→</span>
+        </button>
+      </div>
+    </template>
   </DigitalFormShell>
 
 </template>
@@ -2019,6 +2095,7 @@ import PublicIntakeInsuranceStep from '../components/public-intake/PublicIntakeI
 import PublicIntakePaymentStep from '../components/public-intake/PublicIntakePaymentStep.vue';
 import {
   AdaptiveConsentCard,
+  AdaptiveIntakeHelpPanel,
   AdaptiveSignatureCapture
 } from '../components/adaptive-intake';
 import '../styles/adaptive-intake.css';
@@ -2038,6 +2115,7 @@ import {
   SPANISH_CLARIFICATION_COPY
 } from '../constants/spanishClarificationIntake.js';
 import { localizePublicIntakeTitle } from '../utils/publicIntakeTitle.js';
+import { publicIntakeDescription } from '../utils/publicIntakeCopy.js';
 import {
   matchesShowIf,
   mergeShowIfValues,
@@ -2198,8 +2276,44 @@ const INTAKE_TRANSLATIONS = {
     questions: 'Questions',
     aboutYou: 'About You',
     tellUsAboutYou: 'Tell us a bit about you so we can prepare the right forms.',
-    completingForMyself: 'I am completing this form for myself',
+    completingForMyself: 'I am completing this packet for myself.',
     completingForDependents: 'I am a parent or guardian submitting for my child(ren)',
+    completingForSomeoneElse: 'I am a parent, guardian, or caregiver completing this for someone else.',
+    someoneElse: 'Someone else',
+    myChildDependent: 'My child / dependent',
+    needSchoolProvider: 'School / provider details',
+    continueToIntakePacket: 'Continue to Intake Packet',
+    childDateOfBirth: "Child's date of birth",
+    whoIsThisForTitle: 'Who is this for?',
+    whoIsThisForLead: 'This helps us show the right questions and set up the right kind of account.',
+    chooseWhoForToContinue: 'Please choose whether you are completing this for yourself or someone else.',
+    letsStartWithBasics: "Let's start with some basics.",
+    letsGetIntakeStarted: "Let's get your intake started",
+    letsGetIntakeStartedLead: 'This starts a secure intake packet. We only need a few details to create your session.',
+    whatYoullNeed: "What you'll need",
+    needContactInfo: 'Contact information',
+    needInsurance: 'Insurance card (if applicable)',
+    needConcerns: 'A brief description of concerns',
+    whatToExpect: 'What to expect',
+    expectTime: 'About 10–15 minutes to get started',
+    expectSecure: 'Secure and confidential',
+    expectSaveReturn: 'Save and return anytime',
+    dateOfBirth: 'Date of birth',
+    yourPhone: 'Phone number',
+    inDepthIntakePacket: 'In-Depth Intake Packet',
+    whyWeAsk: 'Why we ask',
+    whyWeAskWhoFor: 'So we can prepare the right packet — your answers stay private either way.',
+    whyWeAskBasics: 'Just the essentials so we can reach you and match the right care.',
+    saveAndComeBackLater: 'Save & Come Back Later',
+    progressSavedComeBack: 'Progress saved on this device. Use this same link to pick up where you left off.',
+    personalizedCare: 'Personalized Care',
+    personalizedCareBody: 'Your answers help us match format, timing, and the right clinician.',
+    privateAndSecure: 'Private & Secure',
+    privateAndSecureBody: 'Your information is encrypted and only shared with your care team.',
+    youreInControl: "You're in Control",
+    youreInControlBody: 'You can save your progress and return later from this same link.',
+    almostThere: 'Almost there',
+    almostThereBody: 'A few more pages and you are done. You can save and come back anytime.',
     sectionsInThisPacket: '{count} sections in this packet',
     esignDisclosureTitle: 'ESIGN Act Disclosure',
     esignDisclosureBody: 'By continuing, you consent to electronically sign these documents and receive electronic records. You may request paper copies from the organization.',
@@ -2388,8 +2502,44 @@ const INTAKE_TRANSLATIONS = {
     questions: 'Preguntas',
     aboutYou: 'Sobre usted',
     tellUsAboutYou: 'Cuéntenos un poco sobre usted para que podamos preparar los formularios correctos.',
-    completingForMyself: 'Estoy completando este formulario para mí',
+    completingForMyself: 'Estoy completando este paquete para mí.',
     completingForDependents: 'Soy padre, madre o tutor y lo envío para mi(s) hijo(s)',
+    completingForSomeoneElse: 'Soy padre, madre, tutor o cuidador y lo completo para otra persona.',
+    someoneElse: 'Otra persona',
+    myChildDependent: 'Mi hijo / dependiente',
+    needSchoolProvider: 'Datos de la escuela o del proveedor',
+    continueToIntakePacket: 'Continuar al paquete de admisión',
+    childDateOfBirth: 'Fecha de nacimiento del niño',
+    whoIsThisForTitle: '¿Para quién es esto?',
+    whoIsThisForLead: 'Esto nos ayuda a mostrar las preguntas correctas y preparar la cuenta adecuada.',
+    chooseWhoForToContinue: 'Elija si lo completa para usted o para otra persona.',
+    letsStartWithBasics: 'Empecemos con lo básico.',
+    letsGetIntakeStarted: 'Empecemos su admisión',
+    letsGetIntakeStartedLead: 'Esto inicia un paquete seguro. Solo necesitamos unos datos para crear su sesión.',
+    whatYoullNeed: 'Qué va a necesitar',
+    needContactInfo: 'Información de contacto',
+    needInsurance: 'Tarjeta de seguro (si aplica)',
+    needConcerns: 'Una breve descripción de sus preocupaciones',
+    whatToExpect: 'Qué esperar',
+    expectTime: 'Unos 10–15 minutos para comenzar',
+    expectSecure: 'Seguro y confidencial',
+    expectSaveReturn: 'Guarde y vuelva cuando quiera',
+    dateOfBirth: 'Fecha de nacimiento',
+    yourPhone: 'Número de teléfono',
+    inDepthIntakePacket: 'Paquete de admisión completa',
+    whyWeAsk: 'Por qué lo preguntamos',
+    whyWeAskWhoFor: 'Así preparamos el paquete correcto. Sus respuestas se mantienen privadas.',
+    whyWeAskBasics: 'Solo lo esencial para poder contactarle y asignar el cuidado adecuado.',
+    saveAndComeBackLater: 'Guardar y volver más tarde',
+    progressSavedComeBack: 'Progreso guardado en este dispositivo. Use el mismo enlace para continuar.',
+    personalizedCare: 'Cuidado personalizado',
+    personalizedCareBody: 'Sus respuestas nos ayudan a elegir formato, horario y el clínico adecuado.',
+    privateAndSecure: 'Privado y seguro',
+    privateAndSecureBody: 'Su información está cifrada y solo se comparte con su equipo de cuidado.',
+    youreInControl: 'Usted tiene el control',
+    youreInControlBody: 'Puede guardar su progreso y volver más tarde con el mismo enlace.',
+    almostThere: 'Ya casi termina',
+    almostThereBody: 'Quedan unas páginas. Puede guardar y volver cuando quiera.',
     sectionsInThisPacket: '{count} secciones en este paquete',
     esignDisclosureTitle: 'Divulgación de la Ley ESIGN',
     esignDisclosureBody: 'Al continuar, usted consiente firmar electrónicamente estos documentos y recibir registros electrónicos. Puede solicitar copias en papel a la organización.',
@@ -2996,8 +3146,8 @@ const isProgramEnrollmentIntake = computed(() => {
 });
 const beginSubtitleText = computed(() => {
   if (formTypeKey.value === 'smart_school_roi') return t('beginSubtitleSmartRoi');
-  const custom = customMessages.value?.beginSubtitle;
-  if (custom && String(custom).trim()) return String(custom).trim();
+  const custom = publicIntakeDescription(customMessages.value?.beginSubtitle, '');
+  if (custom) return custom;
   if (formTypeKey.value === 'smart_registration' && isProgramEnrollmentIntake.value) {
     return t('beginSubtitleProgramEnrollment');
   }
@@ -3006,6 +3156,34 @@ const beginSubtitleText = computed(() => {
   if (formTypeKey.value === 'medical_records_request') return t('beginSubtitleMedical');
   return t('beginSubtitle');
 });
+
+const publicCoverLead = computed(() =>
+  publicIntakeDescription(tx(link.value?.description), beginSubtitleText.value)
+);
+const publicFormLead = computed(() => publicIntakeDescription(tx(link.value?.description), ''));
+
+const publicPacketBadge = computed(() => {
+  const title = String(link.value?.title || '');
+  const inherits = Number(link.value?.inherits_office_master || 0) === 1;
+  if (inherits || /in-depth/i.test(title)) return t('inDepthIntakePacket');
+  return shellFormSubtitle.value || t('intakeAndRegistration');
+});
+
+const boundClient = ref(null);
+const asksWhoFor = computed(() => {
+  if (usesSchoolMaster.value) return false;
+  const scope = String(link.value?.scope_type || '').toLowerCase();
+  if (scope === 'school') return false;
+  const ft = String(link.value?.form_type || '').toLowerCase();
+  if (ft === 'medical_records_request' || ft === 'job_application') return false;
+  return !boundClient.value?.id;
+});
+
+const WHO_FOR_STEP = 0.5;
+
+function goToFirstFormStep() {
+  step.value = asksWhoFor.value ? WHO_FOR_STEP : 1;
+}
 const beginIntakeButtonText = computed(() => {
   if (formTypeKey.value === 'smart_school_roi') return t('beginIntakeSmartRoi');
   const custom = customMessages.value?.beginIntake;
@@ -3302,12 +3480,24 @@ const isSchoolScopedIntake = computed(() => {
   return scope === 'school' || orgType === 'school';
 });
 
+const isOfficeInDepthIntake = computed(() => {
+  if (isSchoolScopedIntake.value || usesSchoolMaster.value) return false;
+  return Number(link.value?.inherits_office_master || 0) === 1
+    || String(link.value?.scope_type || '').toLowerCase() === 'agency';
+});
+
 const showSchoolSplashSupport = computed(
-  () => isSchoolScopedIntake.value && !isJobApplication.value && !!referralAgencySlug.value
+  () => !isJobApplication.value && !!(referralAgencySlug.value || agencyInfo.value)
+);
+const showFullSplashSupport = computed(
+  () => showSchoolSplashSupport.value && (step.value < 1)
+);
+const showCompactSidebarContact = computed(
+  () => showSchoolSplashSupport.value && step.value >= 1
 );
 
 const splashContactPhoneInfo = computed(() => {
-  if (!showSchoolSplashSupport.value) return null;
+  if (isJobApplication.value) return null;
   return resolveSchoolOnboardingSupportPhone({
     slug: referralAgencySlug.value,
     phone: agencyInfo.value?.phone_number || agencyInfo.value?.phone,
@@ -3319,12 +3509,19 @@ const splashContactPhoneInfo = computed(() => {
 const splashContactPhone = computed(() => splashContactPhoneInfo.value?.display || '');
 const splashContactTel = computed(() => String(splashContactPhoneInfo.value?.tel || '').replace(/^tel:/, ''));
 const splashContactEmail = computed(() => {
-  if (!showSchoolSplashSupport.value) return '';
+  if (isJobApplication.value) return '';
   return resolveSchoolOnboardingSupportEmail({
     slug: referralAgencySlug.value,
     supportEmail: agencyInfo.value?.onboarding_team_email,
     onboarding_team_email: agencyInfo.value?.onboarding_team_email
   }) || '';
+});
+
+const skipBrandingIntro = computed(() => {
+  if (isJobApplication.value) return false;
+  if (isSchoolScopedIntake.value) return false;
+  return Number(link.value?.inherits_office_master || 0) === 1
+    || String(link.value?.scope_type || '').toLowerCase() === 'agency';
 });
 
 function goToSchoolReferralFinder() {
@@ -3456,8 +3653,9 @@ function isRepeatPerClientStep(s) {
 }
 
 const dfProgressSteps = computed(() => {
-  const steps = [{ id: 'about', label: t('aboutYou') }];
-  const seen = new Set(['about']);
+  const steps = [];
+  if (asksWhoFor.value) steps.push({ id: 'who', label: t('letsGetIntakeStarted') });
+  const seen = new Set();
   let familyAdded = false;
   const childAdded = new Set();
   for (const s of flowSteps.value || []) {
@@ -3498,7 +3696,8 @@ const dfProgressIndex = computed(() => {
   const total = dfProgressSteps.value.length;
   if (!total) return 0;
   if (step.value <= 0) return 0;
-  if (step.value === 1) return 0;
+  if (step.value === WHO_FOR_STEP) return 0;
+  if (step.value === 1) return asksWhoFor.value ? 1 : 0;
   if (step.value === 2) {
     const current = currentFlowStep.value;
     const audience = String(current?.audience || '').trim().toLowerCase();
@@ -3523,6 +3722,37 @@ const dfProgressIndex = computed(() => {
   if (step.value === 3) return total - 1;
   return 0;
 });
+
+const maxReachedProgressIndex = ref(0);
+
+function jumpToProgressStep(index) {
+  if (!isOfficeInDepthIntake.value) return;
+  const steps = dfProgressSteps.value || [];
+  const target = steps[index];
+  if (!target) return;
+  const reachable = Math.max(maxReachedProgressIndex.value, dfProgressIndex.value);
+  if (index > reachable) return;
+  if (target.id === 'complete') return;
+  if (target.id === 'who') {
+    step.value = WHO_FOR_STEP;
+    return;
+  }
+  const flowIdx = (flowSteps.value || []).findIndex((s) => {
+    const sid = String(s?.sourceId || s?.id || '');
+    if (sid === target.id) return true;
+    if (target.id === 'family' && (String(s?.audience || '') === 'guardian' || String(s?.id || '').includes('counseling_dep_'))) {
+      return !Number.isInteger(s?.clientIndex);
+    }
+    if (target.id.startsWith('child_') && Number.isInteger(s?.clientIndex)) {
+      return `child_${s.clientIndex}` === target.id;
+    }
+    return false;
+  });
+  if (flowIdx >= 0) {
+    step.value = 2;
+    currentFlowIndex.value = flowIdx;
+  }
+}
 const introIndex = ref(0);
 const recaptchaSiteKey = ref(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '');
 const useEnterpriseRecaptcha = ref(
@@ -3725,6 +3955,10 @@ const flowSteps = computed(() => {
 });
 const currentFlowIndex = ref(0);
 const currentFlowStep = computed(() => flowSteps.value[currentFlowIndex.value] || null);
+watch(dfProgressIndex, (idx) => {
+  const n = Number(idx || 0);
+  if (n > maxReachedProgressIndex.value) maxReachedProgressIndex.value = n;
+});
 const isUploadPasteEnabled = computed(() => {
   const step = currentFlowStep.value;
   if (!step || step.type !== 'upload') return false;
@@ -4360,7 +4594,6 @@ let draftPersistTimer = null;
 let draftRestoredBannerTimer = null;
 
 const signerInitials = ref('');
-const boundClient = ref(null);
 const roiContext = ref(null);
 const disclosureContext = ref(null);
 const organizationId = ref('');
@@ -4369,6 +4602,7 @@ const guardianFirstName = ref('');
 const guardianLastName = ref('');
 const guardianEmail = ref('');
 const guardianPhone = ref('');
+const starterDob = ref('');
 const fluentLanguagesInput = ref('');
 const guardianRelationship = ref('');
 const downloadUrl = ref('');
@@ -4428,11 +4662,104 @@ const consentErrors = reactive({
   guardianLastName: '',
   guardianEmail: '',
   guardianPhone: '',
+  starterDob: '',
+  guardianRelationship: '',
   clientFirstName: '',
   clientLastName: '',
   organizationId: ''
 });
-const intakeForSelf = ref(false);
+const intakeForSelf = ref(null);
+const whoForError = ref('');
+
+function chooseWhoFor(isSelf) {
+  intakeForSelf.value = !!isSelf;
+  whoForError.value = '';
+}
+
+function continueWhoFor() {
+  if (typeof intakeForSelf.value !== 'boolean') {
+    whoForError.value = t('chooseWhoForToContinue');
+    return;
+  }
+  consentErrors.guardianFirstName = guardianFirstName.value.trim() ? '' : t('required');
+  consentErrors.guardianLastName = guardianLastName.value.trim() ? '' : t('required');
+  consentErrors.guardianEmail = guardianEmail.value.trim() ? '' : t('required');
+  consentErrors.guardianPhone = guardianPhone.value.trim() ? '' : t('required');
+  consentErrors.starterDob = starterDob.value.trim() ? '' : t('required');
+  consentErrors.guardianRelationship = intakeForSelf.value === false && !guardianRelationship.value.trim()
+    ? t('required')
+    : '';
+  if (
+    consentErrors.guardianFirstName
+    || consentErrors.guardianLastName
+    || consentErrors.guardianEmail
+    || consentErrors.guardianPhone
+    || consentErrors.starterDob
+    || consentErrors.guardianRelationship
+  ) {
+    whoForError.value = t('requiredFields');
+    return;
+  }
+  whoForError.value = '';
+  if (intakeForSelf.value) {
+    intakeResponses.submission = {
+      ...(intakeResponses.submission || {}),
+      legal_first_name: guardianFirstName.value,
+      legal_last_name: guardianLastName.value,
+      date_of_birth: starterDob.value,
+      phone_number: guardianPhone.value,
+      email_address: guardianEmail.value,
+      preferred_name: intakeResponses.submission?.preferred_name || guardianFirstName.value
+    };
+  } else {
+    if (!intakeResponses.clients[0] || typeof intakeResponses.clients[0] !== 'object') {
+      intakeResponses.clients[0] = {};
+    }
+    intakeResponses.clients[0].date_of_birth = starterDob.value;
+    intakeResponses.clients[0].child_dob = starterDob.value;
+    intakeResponses.clients[0].child_date_of_birth = starterDob.value;
+    intakeResponses.guardian = {
+      ...(intakeResponses.guardian || {}),
+      guardian_legal_first: guardianFirstName.value,
+      guardian_legal_last: guardianLastName.value,
+      guardian_email: guardianEmail.value,
+      guardian_phone: guardianPhone.value,
+      guardian_relationship_to_child: guardianRelationship.value
+    };
+  }
+  submitConsent();
+}
+
+function saveAndComeBackLater() {
+  persistDraftSnapshot();
+  draftRestoredMessage.value = t('progressSavedComeBack');
+  if (draftRestoredBannerTimer) clearTimeout(draftRestoredBannerTimer);
+  draftRestoredBannerTimer = setTimeout(() => {
+    draftRestoredMessage.value = '';
+  }, 8000);
+}
+
+function goBackPublicPage() {
+  if (step.value === WHO_FOR_STEP) {
+    step.value = (!skipBrandingIntro.value && introScreens.value.length) ? 0 : -1;
+    return;
+  }
+  if (step.value === 1) {
+    if (asksWhoFor.value) {
+      step.value = WHO_FOR_STEP;
+      return;
+    }
+    step.value = (!skipBrandingIntro.value && introScreens.value.length) ? 0 : -1;
+    return;
+  }
+    if (step.value === 2) {
+    if (currentFlowIndex.value > 0) {
+      goToPrevious();
+      return;
+    }
+    step.value = asksWhoFor.value ? WHO_FOR_STEP : 1;
+  }
+}
 const registrationAccountLookupChecked = ref(false);
 const registrationAccountLookupLoading = ref(false);
 const registrationAccountExists = ref(false);
@@ -4535,6 +4862,7 @@ const buildDraftSnapshot = () => ({
   step: Number(step.value || 0),
   introIndex: Number(introIndex.value || 0),
   currentFlowIndex: Number(currentFlowIndex.value || 0),
+  maxReachedProgressIndex: Number(maxReachedProgressIndex.value || 0),
   intakeForSelf: intakeForSelf.value,
   organizationId: organizationId.value || null,
   guardian: {
@@ -4542,7 +4870,8 @@ const buildDraftSnapshot = () => ({
     lastName: guardianLastName.value || '',
     email: guardianEmail.value || '',
     phone: guardianPhone.value || '',
-    relationship: guardianRelationship.value || ''
+    relationship: guardianRelationship.value || '',
+    dob: starterDob.value || ''
   },
   clients: Array.isArray(clients.value)
     ? clients.value.map((client) => ({
@@ -4557,6 +4886,7 @@ const buildDraftSnapshot = () => ({
   },
   embeddedSmartSchoolRoi: embeddedSmartSchoolRoi.value || null,
   embeddedSmartDisclosure: embeddedSmartDisclosure.value || null,
+  packetSectionContexts: packetSectionContexts.value || null,
   multiClientPlan: {
     choice: multiClientPlanChoice.value || 'one',
     consentAccepted: !!multiClientConsentAccepted.value,
@@ -4646,7 +4976,7 @@ const syncMobileStepScroll = async () => {
 
 const hasMeaningfulDraftSnapshot = (snapshot) => {
   if (!snapshot || typeof snapshot !== 'object') return false;
-  if (Number(snapshot.step || 0) > 1) return true;
+  if (Number(snapshot.step || 0) >= 0.5) return true;
   if (snapshot.submissionId) return true;
   const guardian = snapshot.guardian || {};
   if (
@@ -4719,6 +5049,7 @@ const restoreDraftSnapshot = () => {
     guardianEmail.value = String(parsed.guardian?.email || guardianEmail.value || '');
     guardianPhone.value = String(parsed.guardian?.phone || guardianPhone.value || '');
     guardianRelationship.value = String(parsed.guardian?.relationship || guardianRelationship.value || '');
+    starterDob.value = String(parsed.guardian?.dob || starterDob.value || '');
 
     if (Array.isArray(parsed.clients) && parsed.clients.length) {
       clients.value = parsed.clients.map((client) => ({
@@ -4762,6 +5093,12 @@ const restoreDraftSnapshot = () => {
     }
     embeddedSmartSchoolRoi.value = parsed.embeddedSmartSchoolRoi || null;
     embeddedSmartDisclosure.value = parsed.embeddedSmartDisclosure || null;
+    if (parsed.packetSectionContexts && typeof parsed.packetSectionContexts === 'object') {
+      packetSectionContexts.value = {
+        ...parsed.packetSectionContexts,
+        ...(packetSectionContexts.value || {})
+      };
+    }
     submissionId.value = parsed.submissionId || submissionId.value || null;
     // Rehydrate document-template field values + per-doc completion status
     // so a parent who hits Back (or refreshes) still sees every PDF field
@@ -4787,6 +5124,9 @@ const restoreDraftSnapshot = () => {
     }
     if (Number.isFinite(Number(parsed.introIndex))) introIndex.value = Math.max(0, Number(parsed.introIndex));
     if (Number.isFinite(Number(parsed.currentFlowIndex))) currentFlowIndex.value = Math.max(0, Number(parsed.currentFlowIndex));
+    if (Number.isFinite(Number(parsed.maxReachedProgressIndex))) {
+      maxReachedProgressIndex.value = Math.max(0, Number(parsed.maxReachedProgressIndex));
+    }
     if (Number.isFinite(Number(parsed.step))) step.value = Number(parsed.step);
     return true;
   } finally {
@@ -4976,12 +5316,11 @@ const handleMarkerClick = (marker) => {
   activeMarkerId.value = id;
 };
 const requiresOrganizationId = computed(() => {
-  const scope = String(link.value?.scope_type || '');
   const ft = String(link.value?.form_type || '').toLowerCase();
-  // smart_registration forms are tied to a company event which already carries the
-  // organization context — the user should never need to type an org ID.
   if (ft === 'smart_registration' || ft === 'medical_records_request' || ft === 'job_application') return false;
-  return scope === 'agency';
+  if (Number(link.value?.inherits_office_master || 0) === 1) return false;
+  if (String(link.value?.scope_type || '') === 'agency') return false;
+  return false;
 });
 const isSmartSchoolRoi = computed(() => String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi');
 const isSmartDisclosure = computed(() => String(link.value?.form_type || '').toLowerCase() === 'smart_disclosure');
@@ -5602,6 +5941,9 @@ const loadLink = async () => {
       localeHint ? { params: { locale: localeHint } } : undefined
     );
     link.value = resp.data?.link || null;
+    if (link.value?.organization_id && !organizationId.value) {
+      organizationId.value = String(link.value.organization_id);
+    }
     try {
       const lang = String(link.value?.language_code || 'en').toLowerCase();
       if (lang === 'es') {
@@ -6093,12 +6435,13 @@ const ensureSessionToken = async () => {
 const submitConsent = async () => {
   consentErrors.guardianFirstName = guardianFirstName.value.trim() ? '' : t('required');
   consentErrors.guardianEmail = guardianEmail.value.trim() ? '' : t('required');
-  consentErrors.guardianLastName = isJobApplication.value && !guardianLastName.value.trim() ? t('required') : '';
-  consentErrors.guardianPhone = isJobApplication.value && !guardianPhone.value.trim() ? t('required') : '';
+  consentErrors.guardianLastName = !guardianLastName.value.trim() ? t('required') : '';
+  consentErrors.guardianPhone = !guardianPhone.value.trim() ? t('required') : '';
   const clientFirst = intakeForSelf.value ? guardianFirstName.value : clients.value?.[0]?.firstName;
   const clientLast = intakeForSelf.value ? guardianLastName.value : clients.value?.[0]?.lastName;
-  consentErrors.clientFirstName = (isJobApplication.value || isClientBound.value) ? '' : (String(clientFirst || '').trim() ? '' : t('required'));
-  consentErrors.clientLastName = (isJobApplication.value || isClientBound.value) ? '' : (String(clientLast || '').trim() ? '' : t('required'));
+  const clientNamesLater = step.value === WHO_FOR_STEP && intakeForSelf.value === false;
+  consentErrors.clientFirstName = (isJobApplication.value || isClientBound.value || clientNamesLater) ? '' : (String(clientFirst || '').trim() ? '' : t('required'));
+  consentErrors.clientLastName = (isJobApplication.value || isClientBound.value || clientNamesLater) ? '' : (String(clientLast || '').trim() ? '' : t('required'));
   consentErrors.organizationId =
     requiresOrganizationId.value && !String(organizationId.value || '').trim()
       ? t('required')
@@ -6237,7 +6580,6 @@ const submitConsent = async () => {
     if (resp.data?.clientMatch && typeof resp.data.clientMatch === 'object') {
       Object.assign(intakeResponses.submission, resp.data.clientMatch);
     }
-    currentFlowIndex.value = 0;
     step.value = 2;
   } catch (e) {
     stepError.value = e.response?.data?.error?.message || 'Failed to capture consent';
@@ -7412,7 +7754,7 @@ const endSession = () => {
 
 const returnToIntakeInfo = () => {
   stepError.value = '';
-  step.value = 1;
+  goToFirstFormStep();
 };
 
 const focusNextField = () => {
@@ -7669,6 +8011,23 @@ const stepQuestionFields = computed(() => {
     if (intakeForSelf.value && scope === 'guardian') return false;
     if (intakeForSelf.value && scope === 'client') return false;
     if (!intakeForSelf.value && scope === 'self') return false;
+    const collected = new Set([
+      'legal_first_name',
+      'legal_last_name',
+      'date_of_birth',
+      'phone_number',
+      'email_address',
+      'guardian_legal_first',
+      'guardian_legal_last',
+      'guardian_email',
+      'guardian_phone',
+      'guardian_relationship_to_child',
+      'child_dob',
+      'child_date_of_birth'
+    ]);
+    if (collected.has(key) && (guardianFirstName.value || guardianEmail.value || starterDob.value)) {
+      return false;
+    }
     return true;
   });
 });
@@ -7730,6 +8089,110 @@ const currentFlowStepTitle = computed(() => {
   const raw = currentFlowStep.value?.label || '';
   return interpolateChildTokens(tx(raw) || raw);
 });
+
+const currentInterviewPageTitle = computed(() => {
+  const s = currentFlowStep.value;
+  const type = String(s?.type || '');
+  if (type === 'document') return t('document');
+  if (type === 'upload') return tx(s?.label) || t('upload');
+  if (type === 'school_roi') return t('schoolRoi');
+  if (type === 'smart_disclosure' || type === 'disclosure') return tx(s?.label) || 'Disclosure';
+  if (isPacketSectionStepType(type)) return tx(s?.label) || packetSectionTitleForStep(s);
+  if (type === 'registration') return tx(s?.label) || t('registration');
+  if (type === 'guardian_waiver') return tx(s?.label) || t('guardianWaiversSafety');
+  if (type === 'insurance_info') return tx(s?.label) || t('insuranceInformation');
+  if (type === 'payment_collection') return tx(s?.label) || t('paymentInformation');
+  if (type === 'communications') return tx(s?.label) || t('communicationPreferences');
+  if (type === 'demographics') return tx(s?.label) || t('demographics');
+  if (type === 'clinical_questions') return currentFlowStepTitle.value || t('clinicalQuestions');
+  if (type === 'references') return tx(s?.label) || t('professionalReferences');
+  if (type === 'child_review') return currentFlowStepTitle.value || 'Child Review';
+  if (type === 'questions') return currentFlowStepTitle.value || t('questions');
+  return currentFlowStepTitle.value || tx(s?.label) || t('questions');
+});
+
+const defaultHelpBlocks = computed(() => ([
+  { id: 'care', icon: '💚', title: t('personalizedCare'), body: t('personalizedCareBody') },
+  { id: 'secure', icon: '🔒', title: t('privateAndSecure'), body: t('privateAndSecureBody') },
+  { id: 'control', icon: '🌿', title: t('youreInControl'), body: t('youreInControlBody') }
+]));
+
+const whoForHelpBlocks = computed(() => ([
+  { id: 'why', icon: '💚', title: t('whyWeAsk'), body: t('whyWeAskWhoFor') },
+  ...defaultHelpBlocks.value.slice(1)
+]));
+
+const basicsHelpBlocks = computed(() => ([
+  { id: 'why', icon: '💚', title: t('whyWeAsk'), body: t('whyWeAskBasics') },
+  ...defaultHelpBlocks.value.slice(1)
+]));
+
+const flowStepHelpBlocks = computed(() => {
+  const why = currentFlowStepWhyWeAsk.value;
+  const blocks = why
+    ? [{ id: 'why', icon: '💚', title: t('whyWeAsk'), body: why }]
+    : [{ id: 'next', icon: '✨', title: t('almostThere'), body: t('almostThereBody') }];
+  return [...blocks, defaultHelpBlocks.value[1], defaultHelpBlocks.value[2]];
+});
+
+const flowStepOwnsContinue = computed(() => {
+  const type = String(currentFlowStep.value?.type || '');
+  return type === 'school_roi'
+    || type === 'smart_disclosure'
+    || type === 'disclosure'
+    || isPacketSectionStepType(type);
+});
+
+const showIntakePagerFooter = computed(() => {
+  if (!isOfficeInDepthIntake.value) return false;
+  if (loading.value || fatalError.value) return false;
+  if (step.value === WHO_FOR_STEP) return true;
+  if (step.value === 1 && !isSmartSchoolRoi.value && !isSmartDisclosure.value) return true;
+  if (step.value === 2 && !flowStepOwnsContinue.value) return true;
+  return false;
+});
+
+const showIntakeBackButton = computed(() =>
+  isOfficeInDepthIntake.value
+  && (step.value === WHO_FOR_STEP || step.value === 1 || step.value === 2)
+);
+
+const intakePagerLabel = computed(() => {
+  const steps = dfProgressSteps.value || [];
+  const idx = Math.min(dfProgressIndex.value, Math.max(steps.length - 1, 0));
+  if (!steps.length) return '';
+  return intakeLocale.value === 'es'
+    ? `Paso ${idx + 1} de ${steps.length}`
+    : `Step ${idx + 1} of ${steps.length}`;
+});
+
+const intakePagerPrimaryLabel = computed(() => {
+  if (step.value === WHO_FOR_STEP) return t('continueToIntakePacket');
+  if (step.value === 1) return consentLoading.value ? t('saving') : t('iConsentContinue');
+  if (step.value === 2) return submitLoading.value ? t('submitting') : currentFlowContinueLabel.value;
+  return t('continue');
+});
+
+const intakePagerPrimaryDisabled = computed(() => {
+  if (step.value === WHO_FOR_STEP) return false;
+  if (step.value === 1) return consentLoading.value;
+  if (step.value === 2) return submitLoading.value || isUploadStepBlockingContinue.value;
+  return false;
+});
+
+function handleIntakePagerContinue() {
+  if (step.value === WHO_FOR_STEP) {
+    continueWhoFor();
+    return;
+  }
+  if (step.value === 1) {
+    submitConsent();
+    return;
+  }
+  if (step.value === 2) {
+    handleCurrentFlowContinue();
+  }
+}
 const currentChildBanner = computed(() => {
   if (!Number.isInteger(currentFlowStep.value?.clientIndex)) return '';
   const i = currentFlowStep.value.clientIndex;
@@ -8015,7 +8478,7 @@ const advanceIntro = () => {
     introIndex.value += 1;
     return;
   }
-  step.value = 1;
+  goToFirstFormStep();
 };
 
 const nextFlowStep = async () => {
@@ -8304,6 +8767,7 @@ watch(
     intakeResponses,
     embeddedSmartSchoolRoi: embeddedSmartSchoolRoi.value,
     embeddedSmartDisclosure: embeddedSmartDisclosure.value,
+    packetSectionContexts: packetSectionContexts.value,
     // Include PDF-template field values + per-doc completion so typing in
     // document field overlays triggers a draft save (previously these were
     // reactive but never watched, so Back/refresh silently lost answers).
@@ -8350,11 +8814,11 @@ const beginIntakeSession = async () => {
     sessionToken.value = token;
     await router.replace({ query: { ...route.query, session: token } });
     await resetRecaptchaWidget();
-    if (introScreens.value.length) {
+    if (!skipBrandingIntro.value && introScreens.value.length) {
       step.value = 0;
       introIndex.value = 0;
     } else {
-      step.value = 1;
+      goToFirstFormStep();
     }
     initializeFieldValues();
     await loadPdfPreview();
@@ -8457,7 +8921,7 @@ onMounted(async () => {
     await maybeInitRecaptchaForCover();
     return;
   }
-  if (!restoredDraft && introScreens.value.length) {
+  if (!restoredDraft && !skipBrandingIntro.value && introScreens.value.length) {
     step.value = 0;
     introIndex.value = 0;
   }
@@ -10848,5 +11312,139 @@ onBeforeUnmount(() => {
 
 .public-intake :deep(.df-notice) {
   margin: 0.35rem 0 1rem;
+}
+
+.public-intake :deep(.df-shell--cover-mode:has(.intake-start-page) .df-main-body--cover) {
+  max-width: min(1120px, 100%);
+  width: 100%;
+  align-items: stretch;
+  justify-content: flex-start;
+  text-align: left;
+  padding-top: clamp(0.5rem, 1.5vh, 1.1rem);
+}
+
+.intake-start-page {
+  width: 100%;
+}
+
+.intake-start-card {
+  background: #fff;
+  border: 1px solid var(--df-border, #dce8e2);
+  border-radius: 20px;
+  padding: clamp(1.25rem, 3vw, 2rem);
+  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.05);
+  width: 100%;
+}
+
+.intake-start-page .ai-pathway-card {
+  min-height: 5.5rem;
+  text-align: left;
+  padding: 0.9rem 1rem;
+}
+
+.intake-start-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.25rem;
+  margin: 1.25rem 0 1.75rem;
+}
+
+.intake-start-col-title,
+.intake-start-basics-title {
+  margin: 0 0 0.65rem;
+  font-size: 1rem;
+  color: var(--df-primary, #1b3d2f);
+}
+
+.intake-start-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--df-muted, #64748b);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.intake-who-stack {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.intake-who-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.intake-who-icon {
+  display: inline-flex;
+  width: 2.25rem;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.intake-card-section {
+  background: #fff;
+  border: 1px solid var(--df-border, #dce8e2);
+  border-radius: 16px;
+  padding: 1.15rem 1.2rem 1.25rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.intake-pager-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.intake-pager-meta {
+  color: var(--df-muted, #64748b);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.intake-continue-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.75rem;
+  padding: 0.7rem 1.25rem;
+  border-radius: 12px;
+}
+
+.intake-save-later-btn,
+.intake-back-btn {
+  min-height: 2.5rem;
+  border-radius: 12px;
+}
+
+.intake-secondary-actions {
+  margin-top: 1.25rem;
+}
+
+@media (max-width: 900px) {
+  .intake-start-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .intake-who-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .intake-pager-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .intake-pager-meta {
+    text-align: center;
+    order: -1;
+  }
 }
 </style>

@@ -229,7 +229,7 @@ class AgencyOfficeIntakeMaster {
     const link = await IntakeLink.create({
       publicKey,
       title: safeTitle,
-      description: 'Agency master office digital form (not for public sharing — published shell inherits this).',
+      description: null,
       languageCode: lang,
       scopeType: 'agency',
       formType: 'intake',
@@ -280,7 +280,7 @@ class AgencyOfficeIntakeMaster {
     const link = await IntakeLink.create({
       publicKey,
       title: safeTitle,
-      description: 'Agency in-depth intake shell (inherits office master for Join In-Depth).',
+      description: null,
       languageCode: lang,
       scopeType: 'agency',
       formType: 'intake',

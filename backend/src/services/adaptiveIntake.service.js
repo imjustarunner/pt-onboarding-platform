@@ -125,14 +125,14 @@ async function loadAgencyRow(agencySlugOrId) {
   if (!slug) return null;
   if (/^\d+$/.test(slug)) {
     const [rows] = await pool.execute(
-      `SELECT id, name, slug, portal_url, organization_type, logo_url, color_palette, feature_flags, public_booking_settings, careers_page_json, phone_number, phone_extension, onboarding_team_email
+      `SELECT id, name, slug, portal_url, organization_type, logo_url, color_palette, feature_flags, public_booking_settings, careers_page_json, theme_settings, phone_number, phone_extension, onboarding_team_email
        FROM agencies WHERE id = ? AND is_active = 1 LIMIT 1`,
       [Number(slug)]
     );
     return rows[0] || null;
   }
   const [rows] = await pool.execute(
-    `SELECT id, name, slug, portal_url, organization_type, logo_url, color_palette, feature_flags, public_booking_settings, careers_page_json, phone_number, phone_extension, onboarding_team_email
+    `SELECT id, name, slug, portal_url, organization_type, logo_url, color_palette, feature_flags, public_booking_settings, careers_page_json, theme_settings, phone_number, phone_extension, onboarding_team_email
      FROM agencies
      WHERE (slug = ? OR portal_url = ?) AND is_active = 1
      LIMIT 1`,
@@ -334,20 +334,101 @@ export async function getAdaptiveIntakeConfig(agencySlugOrId, req, options = {})
     concernOptions,
     practitionerFrame: practitionerTemplate,
     providerPreview: providers,
-    copy: copyForVertical(vertical, agencyRow.name),
-    supportContact: {
-      email: agencyRow.onboarding_team_email || null,
-      phone: agencyRow.phone_number || null,
-      phoneExtension: agencyRow.phone_extension || null
-    }
+    copy: mergeJoinLandingCopy(vertical, agencyRow, activeService),
+    themeImageUrl: resolveJoinThemeImage(agencyRow, activeService),
+    supportContact: resolveClientFacingSupport(agencyRow)
   };
 }
 
-function copyForVertical(vertical, agencyName) {
+function agencySlugKey(agencyRow = {}) {
+  return String(agencyRow.slug || agencyRow.portal_url || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '');
+}
+
+function formatUsPhone(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (digits.length === 10) return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return `${digits.slice(1, 4)}-${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  return String(raw || '').trim();
+}
+
+/** Client-facing support from the tenant about/contact file, with ITSCO toll-free → local support. */
+export function resolveClientFacingSupport(agencyRow = {}) {
+  const slug = agencySlugKey(agencyRow);
+  const email = slug
+    ? `support@${slug}.health`
+    : (agencyRow.onboarding_team_email || agencyRow.supportEmail || null);
+  const rawPhone = agencyRow.phone_number || agencyRow.phone || '';
+  const digits = String(rawPhone).replace(/\D/g, '');
+  const isTollFree = digits === '8334448726' || digits === '18334448726';
+  const extRaw = String(agencyRow.phone_extension || agencyRow.phoneExtension || '').trim();
+  if (slug === 'itsco' || isTollFree || !digits) {
+    return {
+      email: email || 'support@itsco.health',
+      phone: '719-657-7444 Ext 0',
+      phoneExtension: '0',
+      tel: '+17196577444,0'
+    };
+  }
+  const formatted = formatUsPhone(rawPhone);
+  const ext = extRaw ? (/^ext/i.test(extRaw) ? extRaw.replace(/^ext\.?\s*/i, 'Ext ') : `Ext ${extRaw}`) : '';
+  return {
+    email,
+    phone: ext ? `${formatted} ${ext}` : formatted,
+    phoneExtension: extRaw || null,
+    tel: `+1${digits}${extRaw ? `,${extRaw.replace(/\D/g, '')}` : ''}`
+  };
+}
+
+export function resolveJoinThemeImage(agencyRow = {}, activeService = null) {
+  const slug = agencySlugKey(agencyRow);
+  const serviceType = String(activeService?.serviceType || '').toLowerCase();
+  const hay = `${slug} ${agencyRow.name || ''}`.toLowerCase();
+  const isNlu = hay.includes('nlu') || hay.includes('new life') || hay.includes('newlife');
+  if (serviceType === 'tutoring' || (isNlu && serviceType === 'tutoring')) {
+    return '/assets/intake-themes/bluetutoringtheme.jpg';
+  }
+  if (isNlu) return '/assets/intake-themes/blueintakethemecounseling.jpg';
+  return '/assets/intake-themes/greenintakethemecounseling.jpg';
+}
+
+function defaultJoinLanding(vertical, agencyName) {
   const org = agencyName || 'our team';
+  const base = {
+    welcomeTitle: `Welcome to ${org}!`,
+    welcomeGlad: "We're so glad you're here.",
+    welcomeLead: `Let's find the right place to start. Choose the type of intake that works best for you with ${org}. You can always add more details later or reach out if you need help.`,
+    sidebarScript: "You're Not Alone.",
+    sidebarTagline: 'HEAL • GROW • THRIVE',
+    value1: 'Supportive & Welcoming',
+    value2: 'Personalized to Your Needs',
+    value3: 'Focused on Growth & Well-Being',
+    helpTitle: 'Need Help?',
+    helpBody: "We're here for you.",
+    sendMessage: 'Send Us a Message',
+    slogan: 'Better Days Start Here.',
+    welcomeSubtitle: `Choose the type of intake that works best for you with ${org}. You can always add more details later.`,
+    quickTitle: 'Quick Prospective',
+    quickTagline: 'A short form to get you started.',
+    quickDescription: 'Perfect if you are exploring services and want our team to follow up.',
+    quickDuration: '5–10 min',
+    quickBullets: ['Basic contact information', 'Reason for seeking support', 'Preferred communication method'],
+    quickCta: 'Start Quick Intake →',
+    quickFooter: 'You can add more details later.',
+    fullTitle: 'In-Depth Intake Packet',
+    fullTagline: 'A comprehensive intake experience.',
+    fullDescription: 'Best when you are ready to provide full information for personalized care.',
+    fullDuration: '25–35 min',
+    fullBullets: ['All basic information', 'Detailed history & concerns', 'Documents & signatures'],
+    fullCta: 'Start Full Intake →',
+    fullFooter: 'More complete = better personalized care.'
+  };
   if (vertical === 'life_coach') {
     return {
-      welcomeTitle: `Welcome! We’re glad you’re here.`,
+      ...base,
       welcomeSubtitle: `Choose how you’d like to connect with ${org}. You can start light and add details later.`,
       quickTitle: 'Quick Interest Form',
       fullTitle: 'Full Coaching Intake'
@@ -355,7 +436,7 @@ function copyForVertical(vertical, agencyName) {
   }
   if (vertical === 'consultant') {
     return {
-      welcomeTitle: `Welcome! We’re glad you’re here.`,
+      ...base,
       welcomeSubtitle: `Tell us a little about your needs, or complete a fuller intake for ${org}.`,
       quickTitle: 'Quick Inquiry',
       fullTitle: 'Full Consulting Intake'
@@ -363,18 +444,84 @@ function copyForVertical(vertical, agencyName) {
   }
   if (vertical === 'tutoring') {
     return {
-      welcomeTitle: `Welcome! We’re glad you’re here.`,
+      ...base,
       welcomeSubtitle: `Start with a short interest form or a fuller tutoring intake for ${org}.`,
+      sidebarTagline: 'LEARN • GROW • THRIVE',
+      value3: 'Focused on Learning & Confidence',
       quickTitle: 'Quick Interest Form',
       fullTitle: 'Full Tutoring Intake'
     };
   }
-  return {
-    welcomeTitle: `Welcome! We’re glad you’re here.`,
-    welcomeSubtitle: `Choose the type of intake that works best for you with ${org}. You can always add more details later.`,
-    quickTitle: 'Quick Prospective',
-    fullTitle: 'In-Depth Intake Packet'
-  };
+  return base;
+}
+
+function isJoinLandingFlat(value) {
+  return !!(value && typeof value === 'object' && (value.welcomeTitle || value.layout || value.quickTitle || value.welcomeLead));
+}
+
+function pickJoinLandingScoped(saved, serviceKey) {
+  if (!saved || typeof saved !== 'object') return {};
+  const nested = saved[serviceKey];
+  if (isJoinLandingFlat(nested)) return nested;
+  if (isJoinLandingFlat(saved.default)) return saved.default;
+  if (isJoinLandingFlat(saved)) return saved;
+  return {};
+}
+
+function mergeJoinLandingCopy(vertical, agencyRow, activeService) {
+  const defaults = defaultJoinLanding(vertical, agencyRow?.name);
+  const theme = parseJson(agencyRow?.theme_settings, {}) || {};
+  const saved = theme.joinLanding && typeof theme.joinLanding === 'object' ? theme.joinLanding : {};
+  const serviceKey = String(activeService?.serviceType || 'default');
+  const scoped = pickJoinLandingScoped(saved, serviceKey);
+  const merged = { ...defaults };
+  for (const [key, value] of Object.entries(scoped)) {
+    if (key === 'quickBullets' || key === 'fullBullets') {
+      if (Array.isArray(value) && value.length) merged[key] = value.map((v) => String(v || '').trim()).filter(Boolean);
+      continue;
+    }
+    if (key === 'layout' && value && typeof value === 'object') {
+      merged.layout = value;
+      continue;
+    }
+    if (typeof value === 'string' && value.trim()) merged[key] = value.trim();
+  }
+  if (/non-?judgmental/i.test(String(merged.value1 || ''))) {
+    merged.value1 = 'Supportive & Welcoming';
+  }
+  return merged;
+}
+
+export async function updateJoinLandingCopy({ agencySlugOrId, serviceType, copy = {} }) {
+  const agencyRow = await loadAgencyRow(agencySlugOrId);
+  if (!agencyRow) throw new Error('Organization not found');
+  const theme = parseJson(agencyRow.theme_settings, {}) || {};
+  const existing = theme.joinLanding && typeof theme.joinLanding === 'object' ? { ...theme.joinLanding } : {};
+  const key = String(serviceType || '').trim().toLowerCase() || 'default';
+  const prev = existing[key] && typeof existing[key] === 'object' ? existing[key] : {};
+  const next = { ...prev };
+  for (const [field, value] of Object.entries(copy || {})) {
+    if (field === 'quickBullets' || field === 'fullBullets') {
+      next[field] = Array.isArray(value) ? value.map((v) => String(v || '').trim()).filter(Boolean) : prev[field];
+      continue;
+    }
+    if (field === 'layout' && value && typeof value === 'object') {
+      next[field] = value;
+      continue;
+    }
+    if (typeof value === 'string') next[field] = value;
+  }
+  existing[key] = next;
+  theme.joinLanding = existing;
+  await pool.execute('UPDATE agencies SET theme_settings = ? WHERE id = ?', [
+    JSON.stringify(theme),
+    agencyRow.id
+  ]);
+  return mergeJoinLandingCopy(
+    verticalFromServiceType(key, agencyRow.organization_type),
+    { ...agencyRow, theme_settings: theme },
+    { serviceType: key }
+  );
 }
 
 function normalizeBirthdate(value) {
@@ -593,11 +740,7 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
         insuranceOrPayment: preferences.insuranceOrPayment || payload.insuranceOrPayment || null,
         serviceType: activeService?.displayName || activeService?.serviceType || null
       },
-      supportContact: {
-        email: agencyRow.onboarding_team_email || null,
-        phone: agencyRow.phone_number || null,
-        phoneExtension: agencyRow.phone_extension || null
-      }
+      supportContact: resolveClientFacingSupport(agencyRow)
     },
     conversion: {
       available: true,

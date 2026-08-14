@@ -48,17 +48,6 @@
         <span v-if="full.footer" class="ai-pathway-card-footer">{{ full.footer }}</span>
       </button>
     </div>
-
-    <div class="ai-pathway-actions">
-      <button
-        type="button"
-        class="df-btn df-btn-primary"
-        :disabled="!modelValue"
-        @click="choosePathway(modelValue)"
-      >
-        Continue
-      </button>
-    </div>
   </div>
 </template>
 

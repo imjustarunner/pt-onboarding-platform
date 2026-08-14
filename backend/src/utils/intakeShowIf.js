@@ -63,7 +63,16 @@ export function matchesShowIf(showIf, values = {}) {
   }
   if (showIf.notEquals != null && showIf.notEquals !== '') {
     const excluded = expectedList(showIf.notEquals);
-    return list.some((v) => !excluded.includes(v));
+    const remaining = list.filter((v) => !excluded.includes(v));
+    if (Number(showIf.minSelected || 0) > 0) {
+      return remaining.length >= Number(showIf.minSelected);
+    }
+    return remaining.length > 0;
+  }
+
+  if (Number(showIf.minSelected || 0) > 0) {
+    const excluded = expectedList(showIf.excludeValues || ['none']);
+    return list.filter((v) => !excluded.includes(v)).length >= Number(showIf.minSelected);
   }
 
   if (!Object.prototype.hasOwnProperty.call(showIf, 'equals')) return true;

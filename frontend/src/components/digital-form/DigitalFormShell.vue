@@ -41,9 +41,41 @@
                   variant="dark"
                   :steps="intakeSidebarSteps"
                   :active-index="intakeSidebarStepIndex"
+                  :max-reachable-index="intakeSidebarMaxReachable"
+                  :interactive="intakeSidebarInteractive"
+                  @select="(index) => $emit('select-step', index)"
                 />
               </div>
               <div class="df-sidebar-spacer" />
+              <div
+                v-if="hasSidebarContact"
+                class="df-sidebar-contact df-sidebar-contact--intake"
+                :class="{ 'df-sidebar-contact--compact': contactCompact }"
+              >
+                <div v-if="!contactCompact" class="df-sidebar-contact-title">{{ contactTitle }}</div>
+                <a
+                  v-if="contactPhoneDisplay && contactPhoneTel"
+                  class="df-sidebar-contact-line"
+                  :href="`tel:${contactPhoneTel}`"
+                >{{ contactPhoneDisplay }}</a>
+                <a
+                  v-else-if="contactPhoneDisplay"
+                  class="df-sidebar-contact-line"
+                >{{ contactPhoneDisplay }}</a>
+                <a
+                  v-if="contactEmail"
+                  class="df-sidebar-contact-line"
+                  :href="`mailto:${contactEmail}`"
+                >{{ contactEmail }}</a>
+                <button
+                  v-if="showContactSupportAction"
+                  type="button"
+                  class="df-sidebar-contact-btn"
+                  @click="$emit('contact-support')"
+                >
+                  {{ contactSupportLabel }}
+                </button>
+              </div>
               <div v-if="showIntakeSidebarSecurity" class="ai-security-badge ai-security-badge--sidebar">
                 <span class="ai-security-badge-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75">
@@ -224,6 +256,8 @@ const props = defineProps({
   /** Vertical stepper rendered in the green sidebar (adaptive intake). */
   intakeSidebarSteps: { type: Array, default: () => [] },
   intakeSidebarStepIndex: { type: Number, default: 0 },
+  intakeSidebarMaxReachable: { type: Number, default: 0 },
+  intakeSidebarInteractive: { type: Boolean, default: false },
   showIntakeSidebarSecurity: { type: Boolean, default: true },
   decorHeroUrl: { type: String, default: '' },
   decorHeroAlt: { type: String, default: '' },
@@ -243,10 +277,11 @@ const props = defineProps({
   contactEmail: { type: String, default: '' },
   contactTitle: { type: String, default: 'Need help?' },
   showContactSupportAction: { type: Boolean, default: false },
-  contactSupportLabel: { type: String, default: 'Send a message' }
+  contactSupportLabel: { type: String, default: 'Send a message' },
+  contactCompact: { type: Boolean, default: false }
 });
 
-defineEmits(['update:language', 'contact-support']);
+defineEmits(['update:language', 'contact-support', 'select-step']);
 
 const TRUST_LABEL_ES = {
   'Your information is secure': 'Su información está segura',
@@ -352,5 +387,16 @@ const hasSidebarContact = computed(
 
 .df-sidebar-contact-btn:hover {
   background: rgba(255, 255, 255, 0.22);
+}
+
+.df-sidebar-contact--compact {
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.df-sidebar-contact--compact .df-sidebar-contact-line {
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-bottom: 4px;
 }
 </style>

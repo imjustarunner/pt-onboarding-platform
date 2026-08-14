@@ -524,6 +524,27 @@ export const updateIntakeLink = async (req, res, next) => {
 
     let link = await IntakeLink.findById(id);
 
+    if (Number(link?.is_office_master || 0) === 1 && (req.body.intakeSteps !== undefined || req.body.intakeFields !== undefined)) {
+      try {
+        const AgencyOfficeIntakeMaster = (await import('../models/AgencyOfficeIntakeMaster.model.js')).default;
+        const agencyId = Number(link.organization_id || 0);
+        if (agencyId) {
+          await AgencyOfficeIntakeMaster.upsertContent({
+            agencyId,
+            languageCode: link.language_code || 'en',
+            title: link.title || null,
+            intakeSteps: link.intake_steps,
+            intakeFields: link.intake_fields,
+            actorUserId: req.user?.id || null,
+            bumpVersion: true
+          });
+          link = await IntakeLink.findById(id);
+        }
+      } catch (syncErr) {
+        console.warn('[intakeLinks] office master sync failed', syncErr?.message || syncErr);
+      }
+    }
+
     // Editing the shadow master link syncs back to agency_school_intake_masters.
     if (Number(link?.is_school_master || 0) === 1 && (req.body.intakeSteps !== undefined || req.body.intakeFields !== undefined)) {
       try {

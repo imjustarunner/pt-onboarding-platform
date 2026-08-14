@@ -69,6 +69,23 @@ function step({ id, label, helperText, whyWeAsk, type = 'questions', fields }) {
   };
 }
 
+function combineSteps(id, label, helperText, whyWeAsk, parts) {
+  const fields = [];
+  for (const part of parts || []) {
+    for (const f of part.fields || []) {
+      fields.push({ ...f, section: f.section || part.label });
+    }
+  }
+  return step({
+    id,
+    label,
+    helperText,
+    whyWeAsk,
+    type: parts?.[0]?.type || 'questions',
+    fields
+  });
+}
+
 const FREQUENCY = [
   opt('occasionally', 'Occasionally'),
   opt('several_days_month', 'Several days a month'),
@@ -128,6 +145,35 @@ function aboutYou() {
       field({ key: 'phone_number', label: 'Phone number', type: 'tel' }),
       field({ key: 'email_address', label: 'Email address', type: 'email' }),
       field({
+        key: 'gender',
+        label: 'Gender',
+        type: 'radio',
+        layout: 'cards',
+        options: [
+          opt('female', 'Female'),
+          opt('male', 'Male'),
+          opt('nonbinary', 'Non-binary'),
+          opt('prefer_not_to_say', 'Prefer not to say'),
+          opt('self_describe', 'Prefer to self-describe')
+        ]
+      }),
+      field({
+        key: 'gender_self_describe',
+        label: 'How do you describe your gender?',
+        type: 'text',
+        showIf: { fieldKey: 'gender', equals: 'self_describe' }
+      }),
+      field({
+        key: 'preferred_language',
+        label: 'Preferred language',
+        type: 'text',
+        placeholder: 'e.g. English, Spanish'
+      }),
+      field({ key: 'address_street', label: 'Street address', type: 'text' }),
+      field({ key: 'address_city', label: 'City', type: 'text' }),
+      field({ key: 'address_state', label: 'State', type: 'text' }),
+      field({ key: 'address_zip', label: 'ZIP code', type: 'text' }),
+      field({
         key: 'preferred_contact_method',
         label: 'Preferred contact method',
         type: 'radio',
@@ -138,7 +184,18 @@ function aboutYou() {
           opt('any', 'Any')
         ]
       }),
-      field({ key: 'best_time_to_contact', label: 'Best time to contact you', type: 'text' }),
+      field({
+        key: 'best_time_to_contact',
+        label: 'Best time to contact you',
+        type: 'checkbox',
+        layout: 'cards',
+        options: [
+          opt('morning', 'Morning (8am–12pm)'),
+          opt('afternoon', 'Afternoon (12–5pm)'),
+          opt('evening', 'Evening (5–8pm)'),
+          opt('anytime', 'Anytime')
+        ]
+      }),
       field({
         key: 'time_spent_doing',
         label: 'What do you spend most of your time doing right now?  (select all that apply)',
@@ -155,14 +212,14 @@ function aboutYou() {
         ]
       }),
       field({
-        key: 'describe_yourself',
-        label: 'In a few sentences, how would you describe yourself to someone trying to understand you?',
-        optional: true,
-        helperText: 'Optional'
+        key: 'time_spent_other',
+        label: 'What else do you spend most of your time doing?',
+        type: 'text',
+        showIf: { fieldKey: 'time_spent_doing', includes: 'other' }
       }),
       field({
-        key: 'useful_for_therapist',
-        label: 'What is something about you that would be useful for your therapist to know from the beginning?',
+        key: 'describe_yourself',
+        label: 'In a few sentences, how would you describe yourself — and anything useful for your therapist to know from the beginning?',
         optional: true,
         helperText: 'Optional'
       })
@@ -272,45 +329,51 @@ function howFeeling() {
         ]
       }),
       field({
-        key: 'bothering_most',
-        label: 'Which of these is bothering you the most?',
-        type: 'textarea',
-        showIf: SYMPTOM_ANY
-      }),
-      field({
-        key: 'how_often_happens',
-        label: 'How often does it happen?',
-        type: 'radio',
-        layout: 'cards',
-        options: FREQUENCY,
-        showIf: SYMPTOM_ANY
-      }),
-      field({
-        key: 'high_energy_duration',
-        label: 'How long do those periods usually last?',
-        showIf: { fieldKey: 'recent_symptoms', includes: 'feeling_unusually_energetic' }
-      }),
-      field({
-        key: 'high_energy_impulsive',
-        label:
-          'During those times, do you become more impulsive, take more risks, spend more money, talk more, or behave noticeably differently?',
-        type: 'radio',
-        options: yesNoNotSure(),
-        showIf: { fieldKey: 'recent_symptoms', includes: 'feeling_unusually_energetic' }
+        key: 'recent_symptoms_other',
+        label: 'What else has been affecting you recently?',
+        type: 'text',
+        showIf: { fieldKey: 'recent_symptoms', includes: 'something_else' }
       }),
       field({
         key: 'unusual_experiences_current',
-        label: 'Is this happening currently?',
+        label: 'About hearing, seeing, or experiencing things other people do not — is this happening currently?',
         type: 'radio',
         options: yesNo(),
         showIf: { fieldKey: 'recent_symptoms', includes: 'unusual_experiences' }
       }),
       field({
         key: 'unusual_experiences_unsafe',
-        label: 'Does it ever make you feel unsafe or tell you to hurt yourself or someone else?',
+        label: 'Do those experiences ever make you feel unsafe, or tell you to hurt yourself or someone else?',
         type: 'radio',
         options: yesNo(),
         showIf: { fieldKey: 'recent_symptoms', includes: 'unusual_experiences' }
+      }),
+      field({
+        key: 'bothering_most',
+        label: 'Which of these is bothering you the most?',
+        type: 'textarea',
+        showIf: { fieldKey: 'recent_symptoms', notEquals: 'none', minSelected: 2 }
+      }),
+      field({
+        key: 'how_often_happens',
+        label: 'How often does the one bothering you most happen?',
+        type: 'radio',
+        layout: 'cards',
+        options: FREQUENCY,
+        showIf: { fieldKey: 'recent_symptoms', notEquals: 'none', minSelected: 2 }
+      }),
+      field({
+        key: 'high_energy_duration',
+        label: 'When you feel unusually energetic or need very little sleep, how long do those periods usually last?',
+        showIf: { fieldKey: 'recent_symptoms', includes: 'feeling_unusually_energetic' }
+      }),
+      field({
+        key: 'high_energy_impulsive',
+        label:
+          'During those high-energy times, do you become more impulsive, take more risks, spend more money, talk more, or behave noticeably differently?',
+        type: 'radio',
+        options: yesNoNotSure(),
+        showIf: { fieldKey: 'recent_symptoms', includes: 'feeling_unusually_energetic' }
       })
     ]
   });
@@ -1095,16 +1158,35 @@ export function buildCounselingSelfEnSteps() {
   return [
     aboutYou(),
     whatBringsYou(),
-    howFeeling(),
-    howLifeGoing(),
-    treatmentHistory(),
-    healthMedsSubstances(),
-    lifeAndPeople(),
-    yourHistory(),
+    combineSteps(
+      'symptoms_and_life',
+      'How You Feel & How Life Is Going',
+      'Symptoms and how they show up day to day.',
+      'This helps us understand both what you are experiencing and how it is affecting daily life.',
+      [howFeeling(), howLifeGoing()]
+    ),
+    combineSteps(
+      'history_health',
+      'History, Health & Substances',
+      'Past care, medical context, and substance use.',
+      'A combined history helps us care for you safely without asking you to repeat yourself across pages.',
+      [treatmentHistory(), healthMedsSubstances()]
+    ),
+    combineSteps(
+      'life_and_history',
+      'Your Life & History',
+      'Important people and the story that shaped you.',
+      'Relationships and history together give a fuller picture of what support should look like.',
+      [lifeAndPeople(), yourHistory()]
+    ),
     safety(),
-    whatHelps(),
-    howTherapyWorks(),
-    whatToChange(),
+    combineSteps(
+      'goals_and_fit',
+      'What Helps & What You Want',
+      'What already helps, how you want therapy to work, and what you want to change.',
+      'Your goals and preferences help us match approach and pacing.',
+      [whatHelps(), howTherapyWorks(), whatToChange()]
+    ),
     questionnaires(),
     anythingMissed()
   ];

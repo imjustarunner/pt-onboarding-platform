@@ -20,6 +20,12 @@
     :trust-items="trustItems || adaptiveTrustItems"
     :quote="''"
     :show-header="showHeader"
+    :contact-phone-display="contactPhoneDisplay"
+    :contact-phone-tel="contactPhoneTel"
+    :contact-email="contactEmail"
+    :show-contact-support-action="showContactSupportAction"
+    :contact-support-label="contactSupportLabel"
+    @contact-support="$emit('contact-support')"
   >
     <template v-if="$slots['header-left']" #header-left>
       <slot name="header-left" />
@@ -68,6 +74,13 @@ defineProps({
   hideSidebar: { type: Boolean, default: false },
   wide: { type: Boolean, default: false },
   showHeader: { type: Boolean, default: true },
-  trustItems: { type: Array, default: undefined }
+  trustItems: { type: Array, default: undefined },
+  contactPhoneDisplay: { type: String, default: '' },
+  contactPhoneTel: { type: String, default: '' },
+  contactEmail: { type: String, default: '' },
+  showContactSupportAction: { type: Boolean, default: false },
+  contactSupportLabel: { type: String, default: 'Send a message' }
 });
+
+defineEmits(['contact-support']);
 </script>

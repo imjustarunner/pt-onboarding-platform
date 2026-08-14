@@ -1,5 +1,20 @@
 <template>
+  <AdaptiveJoinLanding
+    v-if="!loading && !loadError && !submitted && phase === 'pathway'"
+    :config="config"
+    :agency-slug="agencySlug"
+    :service-type="resolvedServiceType"
+    :quick="quickCard"
+    :full="fullCard"
+    :contact-phone="joinContactPhone"
+    :contact-tel="joinContactTel"
+    :contact-email="joinContactEmail"
+    :can-edit="canEditLanding"
+    @continue="onPathwayContinue"
+    @contact-support="openJoinSupport"
+  />
   <AdaptiveIntakeShell
+    v-else
     :branding="config?.branding"
     :program-title="config?.agency?.name || 'Join'"
     :form-title="pageTitle"
@@ -12,7 +27,13 @@
     :decor-hero-alt="decorHero.alt"
     :decor-hero-frame-style="decorHero.frameStyle"
     :decor-hero-image-position="decorHero.imagePosition"
-    :cover-mode="loading || !!loadError || submitted"
+    :cover-mode="loading || !!loadError || submitted || phase === 'pathway'"
+    :contact-phone-display="joinContactPhone"
+    :contact-phone-tel="joinContactTel"
+    :contact-email="joinContactEmail"
+    :show-contact-support-action="!!joinContactEmail"
+    contact-support-label="Send a message"
+    @contact-support="openJoinSupport"
   >
     <template #header-left>
       <button
@@ -35,16 +56,6 @@
       :agency-name="config?.agency?.name || ''"
       :confirmation="confirmation"
       :support-contact="config?.supportContact"
-    />
-
-    <AdaptiveIntakePathwayChoice
-      v-else-if="phase === 'pathway'"
-      v-model="selectedPathway"
-      :title="config?.copy?.welcomeTitle"
-      :subtitle="config?.copy?.welcomeSubtitle"
-      :quick="quickCard"
-      :full="fullCard"
-      @continue="onPathwayContinue"
     />
 
     <template v-else-if="phase === 'quick'">
@@ -260,13 +271,18 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { DigitalFormField } from '../../components/digital-form';
+import { useAuthStore } from '../../store/auth';
 import {
   AdaptiveIntakeShell,
-  AdaptiveIntakePathwayChoice,
+  AdaptiveJoinLanding,
   AdaptiveIntakeThankYou,
   AdaptiveProviderPreview
 } from '../../components/adaptive-intake';
 import { mergeCareersPageWithDefaults } from '../../utils/careersAssets.js';
+import {
+  resolveSchoolOnboardingSupportEmail,
+  resolveSchoolOnboardingSupportPhone
+} from '../../utils/schoolGroupEmailSuggestions.js';
 import {
   isValidEmailAddress,
   isValidUsPhone,
@@ -275,11 +291,15 @@ import {
 
 const route = useRoute();
 const router = useRouter();
+const authStore = useAuthStore();
 const agencySlug = computed(() =>
   String(route.params.organizationSlug || route.params.agencySlug || '').trim()
 );
 
 const serviceType = computed(() => String(route.params.serviceType || '').trim().toLowerCase());
+const resolvedServiceType = computed(() =>
+  serviceType.value || String(config.value?.activeService?.serviceType || '').trim().toLowerCase()
+);
 
 const loading = ref(true);
 const loadError = ref('');
@@ -414,27 +434,33 @@ function formatBirthdate(value) {
   return parsed.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-const quickCard = computed(() => ({
-  title: config.value?.copy?.quickTitle || 'Quick Prospective',
-  tagline: 'A short form to get you started.',
-  description: 'Perfect if you are exploring services and want our team to follow up.',
-  duration: '~ 5–10 min',
-  bullets: ['Basic contact information', 'Reason for seeking support', 'Preferred communication'],
-  cta: 'Start Quick Intake →',
-  footer: 'You can add more details later.'
-}));
+const quickCard = computed(() => {
+  const c = config.value?.copy || {};
+  return {
+    title: c.quickTitle || 'Quick Prospective',
+    tagline: c.quickTagline || 'A short form to get you started.',
+    description: c.quickDescription || 'Perfect if you are exploring services and want our team to follow up.',
+    duration: c.quickDuration || '5–10 min',
+    bullets: c.quickBullets || ['Basic contact information', 'Reason for seeking support', 'Preferred communication'],
+    cta: c.quickCta || 'Start Quick Intake →',
+    footer: c.quickFooter || 'You can add more details later.'
+  };
+});
 
-const fullCard = computed(() => ({
-  title: config.value?.copy?.fullTitle || 'In-Depth Intake Packet',
-  tagline: 'A comprehensive intake experience.',
-  description: 'Best when you are ready to provide full information for personalized care.',
-  duration: '~ 25–35 min',
-  bullets: ['All basic information', 'Detailed history & concerns', 'Documents & signatures'],
-  cta: 'Start Full Intake →',
-  footer: 'More complete = better personalized care.',
-  enabled: !!config.value?.pathways?.full?.enabled,
-  disabledReason: config.value?.pathways?.full?.disabledReason
-}));
+const fullCard = computed(() => {
+  const c = config.value?.copy || {};
+  return {
+    title: c.fullTitle || 'In-Depth Intake Packet',
+    tagline: c.fullTagline || 'A comprehensive intake experience.',
+    description: c.fullDescription || 'Best when you are ready to provide full information for personalized care.',
+    duration: c.fullDuration || '25–35 min',
+    bullets: c.fullBullets || ['All basic information', 'Detailed history & concerns', 'Documents & signatures'],
+    cta: c.fullCta || 'Start Full Intake →',
+    footer: c.fullFooter || 'More complete = better personalized care.',
+    enabled: !!config.value?.pathways?.full?.enabled,
+    disabledReason: config.value?.pathways?.full?.disabledReason
+  };
+});
 
 const decorHero = computed(() => {
   const slug = config.value?.agency?.slug || agencySlug.value;
@@ -447,6 +473,48 @@ const decorHero = computed(() => {
     imagePosition: String(page.heroImagePosition || 'center center').trim()
   };
 });
+
+const joinSupportAgency = computed(() => ({
+  slug: config.value?.agency?.slug || agencySlug.value,
+  portal_url: config.value?.agency?.slug || agencySlug.value,
+  phone: config.value?.supportContact?.phone || config.value?.agency?.phone,
+  phone_number: config.value?.supportContact?.phone || config.value?.agency?.phone,
+  phoneExtension: config.value?.supportContact?.phoneExtension,
+  phone_extension: config.value?.supportContact?.phoneExtension,
+  supportEmail: config.value?.supportContact?.email,
+  onboarding_team_email: config.value?.agency?.onboarding_team_email
+}));
+const joinContactEmail = computed(() =>
+  resolveSchoolOnboardingSupportEmail(joinSupportAgency.value)
+  || String(config.value?.supportContact?.email || '').trim()
+);
+const joinContactPhoneInfo = computed(() => resolveSchoolOnboardingSupportPhone(joinSupportAgency.value));
+const joinContactPhone = computed(() => joinContactPhoneInfo.value?.display || '');
+const joinContactTel = computed(() => String(joinContactPhoneInfo.value?.tel || '').replace(/^tel:/, ''));
+
+const canEditLanding = computed(() => {
+  if (!authStore.isAuthenticated) return false;
+  const user = authStore.user;
+  const role = String(user?.role || '').toLowerCase();
+  if (role !== 'admin' && role !== 'super_admin') return false;
+  if (role === 'super_admin') return true;
+  const agencyId = Number(config.value?.agency?.id || 0);
+  if (!agencyId) return false;
+  const lists = [user?.agencyIds, user?.agencies];
+  try {
+    const stored = JSON.parse(localStorage.getItem('userAgencies') || 'null');
+    if (stored) lists.push(stored);
+  } catch { /* ignore */ }
+  return lists.some((list) =>
+    Array.isArray(list) && list.some((a) => Number(a?.id ?? a) === agencyId)
+  );
+});
+
+function openJoinSupport() {
+  const email = joinContactEmail.value;
+  if (!email || typeof window === 'undefined') return;
+  window.location.href = `mailto:${email}?subject=${encodeURIComponent('Join / intake support')}`;
+}
 
 const canContinueQuick = computed(() => {
   if (quickStep.value === 0) return !!form.whoFor;
