@@ -323,7 +323,10 @@
               </select>
             </label>
             <p class="muted ssa-set-meta">
-              Include <button type="button" class="ssa-var" @click="insertAccessVariable('{{TEMP_PASSWORD}}')">{{ '{{TEMP_PASSWORD}}' }}</button>
+              Include
+              <button type="button" class="ssa-var" @click="insertAccessVariable(TEMP_PASSWORD_TOKEN)">
+                {{ TEMP_PASSWORD_TOKEN }}
+              </button>
               in the email body, or add a line like <strong>Temp password: your-password</strong>. The password is saved to each account when their email sends.
             </p>
           </template>
@@ -461,13 +464,14 @@ const accessJob = ref(null);
 const pendingPasswordSync = ref(null);
 const pendingSyncPassword = ref('');
 const passwordSyncSubmitting = ref(false);
+const TEMP_PASSWORD_TOKEN = '{{TEMP_PASSWORD}}';
 const ACCESS_TEMPLATE_VARS = [
   '{{FIRST_NAME}}',
   '{{USERNAME}}',
   '{{AGENCY_NAME}}',
   '{{PORTAL_LOGIN_LINK}}',
   '{{RESET_TOKEN_LINK}}',
-  '{{TEMP_PASSWORD}}',
+  TEMP_PASSWORD_TOKEN,
   '{{SENDER_NAME}}'
 ];
 let accessPollTimer = null;
