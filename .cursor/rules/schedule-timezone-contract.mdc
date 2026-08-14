@@ -5,7 +5,10 @@ All timed schedule data (`provider_schedule_events`, `planned_outs`, appointment
 ## Storage (backend / DB)
 
 - **Always UTC** — `DATETIME` columns hold UTC instants as naive `YYYY-MM-DD HH:MM:SS` (no offset suffix).
-- **Create / PATCH** — accept wall-clock `startAt` / `endAt` plus required `timeZone` (IANA). Convert with `wallInTimeZoneToMysqlUtc` / `wallMysqlToUtcMysql` before INSERT/UPDATE.
+- **Create / PATCH** — accept either:
+  - **Preferred:** wall-clock `startAt` / `endAt` + required `timeZone` (IANA) — convert with `clientScheduleInstantToUtcMysql` / `wallMysqlToUtcMysql`.
+  - **Also accepted:** ISO-8601 with `Z` or offset — stored as UTC without re-projecting through `timeZone`.
+- **Never** pass ISO-Z through wall+zone conversion (double-shift). Use `clientScheduleInstantToUtcMysql` in `zonedWallTime.util.js`.
 - **API responses** — emit ISO-8601 with `Z` via `toIsoUtcForSchedule` / `utcMysqlToIso`. Never return naked DATETIME without documenting it as UTC.
 - **TEAM_MEETING / HUDDLE** — wall clock is always the **tenant/office timezone** (`bookingTimezoneIana`), not the editor's browser timezone. Resolve `timeZone` from `agencies.timezone` when the client omits it.
 
@@ -18,7 +21,7 @@ All timed schedule data (`provider_schedule_events`, `planned_outs`, appointment
 ## Edit forms
 
 - **datetime-local inputs** — populate with `toZonedDatetimeLocalValue(iso, officeOrAgencyTz)`, not raw string slicing or browser `getHours()`.
-- **PATCH body** — send wall `startAt`/`endAt` + `timeZone`. If timing did not change, **omit** `startAt`/`endAt` so attendee-only edits cannot corrupt times.
+- **PATCH body** — send wall `startAt`/`endAt` + `timeZone` via `buildScheduleWritePayload`. If timing did not change, **omit** `startAt`/`endAt` so attendee-only edits cannot corrupt times.
 - **Drag / move** — build wall times with `wallDatetimeFromParts` in grid TZ; include `timeZone` on PATCH.
 
 ## Planned outs

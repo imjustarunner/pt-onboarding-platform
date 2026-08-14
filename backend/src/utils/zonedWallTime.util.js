@@ -244,6 +244,78 @@ export function utcMysqlToIso(value) {
   return Number.isFinite(d.getTime()) ? d.toISOString() : null;
 }
 
+/** True when the payload is an absolute instant (ISO-Z or numeric offset), not wall digits. */
+export function isScheduleUtcInstantString(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return false;
+  return /[zZ]$/.test(s) || /[+-]\d{2}:?\d{2}$/.test(s);
+}
+
+/**
+ * Normalize schedule instants already stored in MySQL (naked digits = UTC under the contract).
+ */
+export function normalizeUtcMysqlScheduleInstant(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) return dateToMysqlUtcDateTime(value);
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (isScheduleUtcInstantString(raw)) {
+    const d = new Date(raw);
+    return Number.isFinite(d.getTime()) ? dateToMysqlUtcDateTime(d) : null;
+  }
+  const parts = parseMysqlWallParts(raw);
+  if (!parts) {
+    const d = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T'));
+    return Number.isFinite(d.getTime()) ? dateToMysqlUtcDateTime(d) : null;
+  }
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)} ${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}`;
+}
+
+/**
+ * Client write path: wall clock + IANA zone, or ISO-Z offset instant → UTC MySQL digits.
+ */
+export function clientScheduleInstantToUtcMysql(value, timeZone) {
+  if (value == null || value === '') return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (isScheduleUtcInstantString(raw)) {
+    return normalizeUtcMysqlScheduleInstant(value);
+  }
+  const wall = normalizeWallMysqlDatetime(value);
+  if (!wall) return null;
+  const tz = isValidTimeZone(timeZone) ? String(timeZone).trim() : DEFAULT_SCHEDULE_TZ;
+  return wallMysqlToUtcMysql(wall, tz);
+}
+
+/**
+ * UTC MySQL / ISO → wall `YYYY-MM-DD HH:MM:SS` in an IANA zone (Google Calendar dateTime).
+ */
+export function utcMysqlToZonedWallMysql(value, timeZone) {
+  const iso = utcMysqlToIso(normalizeUtcMysqlScheduleInstant(value));
+  if (!iso) return null;
+  const tz = isValidTimeZone(timeZone) ? String(timeZone).trim() : DEFAULT_SCHEDULE_TZ;
+  const parts = utcDateToZonedParts(new Date(iso), tz);
+  if (!parts) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)} ${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}`;
+}
+
+/**
+ * Schedule instant → wall MySQL for Google Calendar.
+ * @param {{ fromStorage?: boolean }} opts — `fromStorage: true` when value is DB UTC digits.
+ */
+export function scheduleInstantToWallMysql(value, timeZone, { fromStorage = false } = {}) {
+  if (value == null || value === '') return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (fromStorage || isScheduleUtcInstantString(raw)) {
+    return utcMysqlToZonedWallMysql(value, timeZone);
+  }
+  const wall = normalizeWallMysqlDatetime(value);
+  return wall || null;
+}
+
 /** Subtract whole hours from a UTC MySQL DATETIME (instant math). */
 export function subtractHoursFromUtcMysql(utcMysql, hours = 1) {
   const iso = utcMysqlToIso(utcMysql);

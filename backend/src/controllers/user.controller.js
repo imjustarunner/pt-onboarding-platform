@@ -38,6 +38,11 @@ import {
 } from '../services/scheduleSummaryPrivacy.service.js';
 import { generateJoinToken, joinUrlForSupervision, joinUrlForTeamMeeting } from '../utils/joinToken.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import {
+  clientScheduleInstantToUtcMysql,
+  normalizeUtcMysqlScheduleInstant,
+  scheduleInstantToWallMysql
+} from '../utils/zonedWallTime.util.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -5941,8 +5946,11 @@ export const createUserScheduleEvent = async (req, res, next) => {
     const focusSessionEnabled = req.body?.focusSessionEnabled === true || req.body?.focus_session_enabled === true;
 
     const allDay = req.body?.allDay === true;
-    const startAt = allDay ? null : toMysqlDateTimeWall(req.body?.startAt);
-    const endAt = allDay ? null : toMysqlDateTimeWall(req.body?.endAt);
+    const timeZone = String(req.body?.timeZone || 'America/Denver').trim() || 'America/Denver';
+    const rawStartAt = req.body?.startAt;
+    const rawEndAt = req.body?.endAt;
+    const startAt = allDay ? null : scheduleInstantToWallMysql(rawStartAt, timeZone);
+    const endAt = allDay ? null : scheduleInstantToWallMysql(rawEndAt, timeZone);
     const startDate = allDay ? String(req.body?.startDate || '').slice(0, 10) : '';
     const endDate = allDay ? String(req.body?.endDate || '').slice(0, 10) : '';
     let endDateExclusive = '';
@@ -5958,7 +5966,10 @@ export const createUserScheduleEvent = async (req, res, next) => {
       if (!startAt || !endAt) {
         return res.status(400).json({ error: { message: 'startAt and endAt are required' } });
       }
-      if (!(new Date(startAt).getTime() < new Date(endAt).getTime())) {
+      const startUtcMysql = clientScheduleInstantToUtcMysql(rawStartAt, timeZone);
+      const endUtcMysql = clientScheduleInstantToUtcMysql(rawEndAt, timeZone);
+      if (!(new Date(`${startUtcMysql.replace(' ', 'T')}Z`).getTime()
+        < new Date(`${endUtcMysql.replace(' ', 'T')}Z`).getTime())) {
         return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
       }
     }
@@ -5986,7 +5997,6 @@ export const createUserScheduleEvent = async (req, res, next) => {
       reasonCode: reasonCode ? reasonCode.replace(/_/g, ' ') : ''
     });
     const description = String(req.body?.description || '').trim() || null;
-    const timeZone = String(req.body?.timeZone || 'America/Denver').trim() || 'America/Denver';
     let attendeeUserIds = Array.from(
       new Set((Array.isArray(req.body?.attendeeUserIds) ? req.body.attendeeUserIds : [])
         .map((v) => Number(v || 0))
@@ -6186,10 +6196,12 @@ export const createUserScheduleEvent = async (req, res, next) => {
     const storesUtc = !allDay;
     const storedStartAt = allDay
       ? null
-      : (wallInTimeZoneToMysqlUtc(startAt, timeZone) || (result?.startAt ? toMysqlUtc(result.startAt) : startAt));
+      : (clientScheduleInstantToUtcMysql(rawStartAt, timeZone)
+        || (result?.startAt ? normalizeUtcMysqlScheduleInstant(result.startAt) : startAt));
     const storedEndAt = allDay
       ? null
-      : (wallInTimeZoneToMysqlUtc(endAt, timeZone) || (result?.endAt ? toMysqlUtc(result.endAt) : endAt));
+      : (clientScheduleInstantToUtcMysql(rawEndAt, timeZone)
+        || (result?.endAt ? normalizeUtcMysqlScheduleInstant(result.endAt) : endAt));
 
     let saved = null;
     let appJoinUrl = null;
@@ -6520,16 +6532,22 @@ export const updateUserScheduleEvent = async (req, res, next) => {
     } else if (req.body?.startAt != null || req.body?.endAt != null) {
       const rawStart = req.body?.startAt != null ? req.body.startAt : target.start_at;
       const rawEnd = req.body?.endAt != null ? req.body.endAt : target.end_at;
-      googleStartWall = toMysqlDateTimeWall(rawStart);
-      googleEndWall = toMysqlDateTimeWall(rawEnd);
+      const startFromStorage = req.body?.startAt == null;
+      const endFromStorage = req.body?.endAt == null;
+      googleStartWall = scheduleInstantToWallMysql(rawStart, updateTimeZone, { fromStorage: startFromStorage });
+      googleEndWall = scheduleInstantToWallMysql(rawEnd, updateTimeZone, { fromStorage: endFromStorage });
       // All timed schedule events store UTC.
-      startAt = wallInTimeZoneToMysqlUtc(googleStartWall, updateTimeZone);
-      endAt = wallInTimeZoneToMysqlUtc(googleEndWall, updateTimeZone);
+      startAt = startFromStorage
+        ? normalizeUtcMysqlScheduleInstant(rawStart)
+        : clientScheduleInstantToUtcMysql(rawStart, updateTimeZone);
+      endAt = endFromStorage
+        ? normalizeUtcMysqlScheduleInstant(rawEnd)
+        : clientScheduleInstantToUtcMysql(rawEnd, updateTimeZone);
       if (!startAt || !endAt) {
         return res.status(400).json({ error: { message: 'startAt and endAt are required' } });
       }
-      if (!(new Date(String(startAt).replace(' ', 'T')).getTime()
-        < new Date(String(endAt).replace(' ', 'T')).getTime())) {
+      if (!(new Date(`${String(startAt).replace(' ', 'T')}Z`).getTime()
+        < new Date(`${String(endAt).replace(' ', 'T')}Z`).getTime())) {
         return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
       }
       startDate = null;

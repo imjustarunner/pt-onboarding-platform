@@ -69,3 +69,31 @@ export function wallDatetimeEndFromStart(wallStart, durationMs, timeZone) {
   if (!zoned) return '';
   return zoned.length === 16 ? `${zoned}:00` : zoned.slice(0, 19).replace('T', ' ').replace(' ', 'T');
 }
+
+/**
+ * Normalize schedule POST/PATCH times: wall `YYYY-MM-DDTHH:mm:ss` + IANA `timeZone`.
+ * Do not send browser `toISOString()` for grid/form edits — server converts wall+zone → UTC.
+ */
+export function buildScheduleWritePayload({ startAt, endAt, timeZone }) {
+  const tz = String(timeZone || '').trim();
+  if (!tz) {
+    throw new Error('timeZone is required for schedule writes');
+  }
+  const toWall = (value) => {
+    const s = String(value || '').trim();
+    if (!s) return null;
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s)) {
+      return s.slice(0, 19).replace(' ', 'T');
+    }
+    if (s.length === 16 && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) {
+      return `${s}:00`;
+    }
+    return s.slice(0, 19);
+  };
+  const start = toWall(startAt);
+  const end = toWall(endAt);
+  if (!start || !end) {
+    throw new Error('startAt and endAt are required');
+  }
+  return { startAt: start, endAt: end, timeZone: tz };
+}

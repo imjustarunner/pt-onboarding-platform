@@ -10155,9 +10155,9 @@ const officeState = (dayName, hour) => {
 
 const hasBusyIntervals = (busyList, dayName, hour, ws, minute = 0) => {
   for (const b of busyList || []) {
-    const start = new Date(b.startAt);
-    const end = new Date(b.endAt);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
+    const start = parseScheduleInstant(b.startAt);
+    const end = parseScheduleInstant(b.endAt);
+    if (!start || !end) continue;
     const idx = dayIndexForDateLocal(localYmd(start), ws);
     const dn = ALL_DAYS[idx] || null;
     // Also handle intervals that span days by checking the localYmd for the hour cell’s day.
@@ -10181,9 +10181,9 @@ const busyRangeForCell = (busyList, dayName, hour, ws, minute = 0) => {
   let minStart = null;
   let maxEnd = null;
   for (const b of busyList || []) {
-    const start = new Date(b.startAt);
-    const end = new Date(b.endAt);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
+    const start = parseScheduleInstant(b.startAt);
+    const end = parseScheduleInstant(b.endAt);
+    if (!start || !end) continue;
     if (!(end > cellStart && start < cellEnd)) continue;
     if (!minStart || start < minStart) minStart = start;
     if (!maxEnd || end > maxEnd) maxEnd = end;
@@ -10213,9 +10213,9 @@ const googleEventsInCell = (dayName, hour, minute = 0) => {
     const gid = String(ev?.id || '').trim();
     // Hide Google copies of app-native events — open those in the app editor instead.
     if (gid && knownAppIds.has(gid)) continue;
-    const st = new Date(ev.startAt);
-    const en = new Date(ev.endAt);
-    if (Number.isNaN(st.getTime()) || Number.isNaN(en.getTime())) continue;
+    const st = parseScheduleInstant(ev.startAt);
+    const en = parseScheduleInstant(ev.endAt);
+    if (!st || !en) continue;
     if (en > cellStart && st < cellEnd) hits.push(ev);
   }
   return hits;
@@ -16639,15 +16639,12 @@ const patchScheduleSummaryWithBookedEvent = ({
   title = '',
   startAt = '',
   endAt = '',
-  kind = 'PERSONAL_EVENT'
+  kind = 'PERSONAL_EVENT',
+  wallTimeZone = ''
 }) => {
-  const normalizeWall = (raw) => {
-    const s = String(raw || '').trim();
-    if (!s) return '';
-    return s.includes('T') ? s.slice(0, 19) : s.replace(' ', 'T').slice(0, 19);
-  };
-  const start = normalizeWall(startAt);
-  const end = normalizeWall(endAt);
+  const tz = String(wallTimeZone || '').trim() || scheduleMeetingTimeZone();
+  const start = toSummaryInstantIso(startAt, { storesUtcInstant: true, wallTimeZone: tz });
+  const end = toSummaryInstantIso(endAt, { storesUtcInstant: true, wallTimeZone: tz });
   if (!start || !end) return;
   const aId = Number(agencyId || 0) || null;
   const ev = {
@@ -19864,6 +19861,7 @@ const completePlatformVirtualSessionBooking = async ({
     allDay: false,
     startAt,
     endAt,
+    timeZone: scheduleMeetingTimeZone(),
     isPrivate: false,
     clientId,
     // Platform video room does not depend on Google Calendar.
@@ -20435,6 +20433,7 @@ const submitRequest = async () => {
           allDay: false,
           startAt,
           endAt,
+          timeZone: scheduleMeetingTimeZone(),
           isPrivate: false,
           allowLocalOnly: true,
           ...bookingSelection
@@ -20507,6 +20506,7 @@ const submitRequest = async () => {
           allDay: false,
           startAt,
           endAt,
+          timeZone: scheduleMeetingTimeZone(),
           isPrivate: false,
           allowLocalOnly: true,
           ...bookingSelection
@@ -22931,17 +22931,25 @@ const onCellBlockResizePointerMove = (e) => {
   const minsPerCell = showQuarterDetail.value ? 15 : 60;
   const pxPerMin = rowHeightPx.value / minsPerCell;
   const deltaMin = Math.round((deltaY / pxPerMin) / 15) * 15;
-  const origStart = parseLocalDateTime(rs.origStartAt);
-  const origEnd = parseLocalDateTime(rs.origEndAt);
+  const origStart = parseScheduleInstant(rs.origStartAt);
+  const origEnd = parseScheduleInstant(rs.origEndAt);
   if (!origStart || !origEnd) return;
+  const moveTz = ['TEAM_MEETING', 'HUDDLE'].includes(String(rs.eventKind || '').toUpperCase())
+    ? teamMeetingTimeZone()
+    : scheduleMeetingTimeZone();
+  const toWall = (ms) => {
+    const zoned = isoToZonedDatetimeLocal(new Date(ms).toISOString(), moveTz);
+    if (!zoned) return '';
+    return zoned.length === 16 ? `${zoned}:00` : `${zoned.slice(0, 19)}`;
+  };
   let newStartAt = rs.origStartAt;
   let newEndAt = rs.origEndAt;
   if (rs.edge === 'top') {
     const newMs = Math.min(origEnd.getTime() - 15 * 60000, origStart.getTime() + deltaMin * 60000);
-    newStartAt = formatLocalDateTimeValue(new Date(newMs));
+    newStartAt = toWall(newMs);
   } else {
     const newMs = Math.max(origStart.getTime() + 15 * 60000, origEnd.getTime() + deltaMin * 60000);
-    newEndAt = formatLocalDateTimeValue(new Date(newMs));
+    newEndAt = toWall(newMs);
   }
   schedResizeState.value = { ...rs, active: true, newStartAt, newEndAt };
   appointmentDragClientPos.value = { x: clientX, y: clientY };

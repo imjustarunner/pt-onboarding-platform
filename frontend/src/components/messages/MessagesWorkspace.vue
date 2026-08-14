@@ -1204,6 +1204,7 @@ import {
   resolveChatContextForPerson,
   sortDirectThreadsForPerson
 } from '../../utils/chatTenantResolve';
+import { detectLocalTimezone } from '../../utils/timezones.js';
 
 const props = defineProps({
   layout: {
@@ -1934,6 +1935,18 @@ function fromDatetimeLocalValue(s) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function wallMysqlFromDatetimeLocal(s) {
+  const raw = String(s || '').trim();
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  if (!m) return '';
+  return `${m[1]} ${m[2]}:00`;
+}
+
+function scheduleTimeZoneForCalendar() {
+  const tz = String(agencyStore.currentAgency?.timezone || '').trim();
+  return tz || detectLocalTimezone();
+}
+
 /** DM list: Available → Away · reachable → Unavailable (includes self). */
 const dmList = computed(() => {
   let list = [...(peopleWithUnread.value || [])];
@@ -2471,6 +2484,12 @@ const openCalendarFromMessage = (m) => {
 
 const submitCalendarFromMessage = async () => {
   if (!meId.value || calendarBusy.value) return;
+  const startWall = wallMysqlFromDatetimeLocal(calendarModal.value.startLocal);
+  const endWall = wallMysqlFromDatetimeLocal(calendarModal.value.endLocal);
+  if (!startWall || !endWall) {
+    calendarModal.value.error = 'Choose a valid start and end time';
+    return;
+  }
   const start = fromDatetimeLocalValue(calendarModal.value.startLocal);
   const end = fromDatetimeLocalValue(calendarModal.value.endLocal);
   if (!start || !end || end <= start) {
@@ -2484,8 +2503,9 @@ const submitCalendarFromMessage = async () => {
     await api.post(`/users/${meId.value}/schedule-events`, {
       kind: 'PERSONAL_EVENT',
       title,
-      startAt: start.toISOString(),
-      endAt: end.toISOString(),
+      startAt: startWall,
+      endAt: endWall,
+      timeZone: scheduleTimeZoneForCalendar(),
       agencyId: activeThreadAgencyId.value || agencyId.value || undefined,
       allowLocalOnly: true,
       description: `From Messages message #${calendarModal.value.messageId || ''} thread #${activeThreadId.value || ''}`

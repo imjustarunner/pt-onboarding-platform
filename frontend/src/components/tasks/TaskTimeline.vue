@@ -195,6 +195,8 @@ import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { parseScheduleInstant } from '../../utils/parseScheduleInstant';
+import { buildScheduleWritePayload } from '../../utils/scheduleEventInstants.js';
+import { detectLocalTimezone } from '../../utils/timezones.js';
 import { holdReasonLabelToCode } from '../../constants/scheduleHoldReasons.js';
 import HoldReasonField from './HoldReasonField.vue';
 
@@ -519,6 +521,15 @@ function resolveAgencyId() {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function resolveScheduleTimeZone() {
+  const fromAgency = String(
+    agencyStore.currentAgency?.timezone
+    ?? agencyStore.currentAgency?.value?.timezone
+    ?? ''
+  ).trim();
+  return fromAgency || detectLocalTimezone();
+}
+
 function isEmptyAxisTarget(target) {
   if (!target?.closest) return false;
   if (target.closest('.block')) return false;
@@ -708,7 +719,11 @@ async function confirmBlockMove() {
     const em = c.newEndMin % 60;
     const startAt = `${tDay}T${pad2(sh)}:${pad2(sm)}:00`;
     const endAt = `${tDay}T${pad2(eh)}:${pad2(em)}:00`;
-    await api.patch(`/users/${uid}/schedule-events/${c.block.id}`, { startAt, endAt }, { skipGlobalLoading: true });
+    await api.patch(`/users/${uid}/schedule-events/${c.block.id}`, buildScheduleWritePayload({
+      startAt,
+      endAt,
+      timeZone: resolveScheduleTimeZone()
+    }), { skipGlobalLoading: true });
     showBlockMoveConfirm.value = false;
     blockMoveConfirm.value = null;
     if (tDay !== dayYmd.value) dayYmd.value = tDay;
@@ -839,8 +854,11 @@ async function confirmCreate() {
       kind: 'SCHEDULE_HOLD',
       title: createTitle.value.trim() || 'Focus Time',
       allDay: false,
-      startAt,
-      endAt,
+      ...buildScheduleWritePayload({
+        startAt,
+        endAt,
+        timeZone: resolveScheduleTimeZone()
+      }),
       reasonCode: holdReasonLabelToCode(createTitle.value),
       focusSessionEnabled: !!createFocus.value,
       isPrivate: false,

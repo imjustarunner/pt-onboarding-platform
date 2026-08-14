@@ -103,6 +103,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
 import { formatViewerTimeRangeMs } from '../../../utils/timezones.js';
+import { parseScheduleUtcInstant } from '../../../utils/scheduleEventInstants.js';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null },
@@ -181,8 +182,8 @@ function startOfWeekMondayYmd(dateLike = new Date()) {
 }
 
 function parseAt(v) {
-  const t = new Date(v || 0).getTime();
-  return Number.isFinite(t) ? t : null;
+  const d = parseScheduleUtcInstant(v);
+  return d ? d.getTime() : null;
 }
 
 function isSameLocalDay(ms, ymd) {

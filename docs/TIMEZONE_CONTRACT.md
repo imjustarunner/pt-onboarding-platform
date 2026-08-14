@@ -6,8 +6,8 @@
 2. **Meaning of wall time:** “3:00 PM at Twain” means convert with the event/office IANA zone (`America/Denver`, etc.) via `zonedWallTimeToUtc` / `wallMysqlToUtcMysql` on write, and format with that same zone on read.
 3. **Display/edit:** Always pass an explicit `timeZone` to `Intl` / helpers. Never use bare `toLocaleString()` or `new Date("YYYY-MM-DD HH:MM:SS")` for business times.
 4. **Google Calendar:** Convert UTC storage → wall via `utcToRfc3339Wall` and send with a `timeZone` field. Do not assume a naked DATETIME string is already local.
-5. **Shared helpers:** Prefer [`backend/src/utils/zonedWallTime.util.js`](../backend/src/utils/zonedWallTime.util.js), [`backend/src/utils/officeEventDateTime.util.js`](../backend/src/utils/officeEventDateTime.util.js), and [`frontend/src/utils/timezones.js`](../frontend/src/utils/timezones.js). Do not duplicate offset math in controllers.
-6. **API schedule payloads:** Emit ISO-8601 with `Z` for timed events (`utcMysqlToIso` / `toIsoUtcForSchedule`). Include the display IANA zone when useful (`agencyTimezone`, office timezone).
+5. **Shared helpers:** Prefer [`backend/src/utils/zonedWallTime.util.js`](../backend/src/utils/zonedWallTime.util.js) (`clientScheduleInstantToUtcMysql`, `scheduleInstantToWallMysql`), [`backend/src/utils/officeEventDateTime.util.js`](../backend/src/utils/officeEventDateTime.util.js), [`frontend/src/utils/timezones.js`](../frontend/src/utils/timezones.js), and [`frontend/src/utils/scheduleEventInstants.js`](../frontend/src/utils/scheduleEventInstants.js) (`parseScheduleUtcInstant`, `buildScheduleWritePayload`). Do not duplicate offset math in controllers.
+6. **API schedule payloads:** Emit ISO-8601 with `Z` for timed events (`utcMysqlToIso` / `toIsoUtcForSchedule`). **Write** with wall + `timeZone` via `buildScheduleWritePayload` (frontend) and `clientScheduleInstantToUtcMysql` (backend). ISO-Z writes are accepted but must not be re-projected through `timeZone`.
 
 ## Domains
 
@@ -19,7 +19,7 @@
 | Company event session dates | UTC + `session_date` | event `timezone` | — |
 | Supervision sessions | UTC | `agencies.timezone` (request `timeZone`) | `supervision_times_stored_utc` / `1097` |
 | Supervision signup close | UTC | agency TZ | same |
-| Provider schedule events (all timed kinds) | UTC | office / agency / request TZ | `schedule_events_stored_utc` / `1098` |
+| Provider schedule events (all timed kinds) | UTC | office / agency / `event_timezone` / request TZ | `schedule_events_stored_utc` / `1098`; TEAM_MEETING/HUDDLE also `1216` |
 | Fall check-in slots & bookings | UTC | school / office TZ | `1098` |
 | Unified appointments | UTC | agency / office TZ | `1099` |
 | Discovery booked times | UTC | agency TZ | `1099` |

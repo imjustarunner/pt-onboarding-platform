@@ -4,7 +4,8 @@ import {
   toSummaryInstantIso,
   toZonedDatetimeLocalValue,
   wallDatetimeEndFromStart,
-  wallDatetimeFromParts
+  wallDatetimeFromParts,
+  buildScheduleWritePayload
 } from '../scheduleEventInstants.js';
 
 describe('parseScheduleUtcInstant', () => {
@@ -44,5 +45,19 @@ describe('wallDatetimeFromParts', () => {
   it('adds duration in zone', () => {
     const end = wallDatetimeEndFromStart('2026-08-12T12:00:00', 60 * 60 * 1000, 'America/Denver');
     expect(end).toBe('2026-08-12T13:00:00');
+  });
+});
+
+describe('buildScheduleWritePayload', () => {
+  it('normalizes wall times and requires timeZone', () => {
+    expect(buildScheduleWritePayload({
+      startAt: '2026-08-12 09:00:00',
+      endAt: '2026-08-12T10:00',
+      timeZone: 'America/Denver'
+    })).toEqual({
+      startAt: '2026-08-12T09:00:00',
+      endAt: '2026-08-12T10:00:00',
+      timeZone: 'America/Denver'
+    });
   });
 });

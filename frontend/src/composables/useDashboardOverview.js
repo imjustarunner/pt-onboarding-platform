@@ -7,6 +7,7 @@ import api from '../services/api';
 import { buildRecentSubmissionActivityItems } from '../utils/submitSubmissionHistory';
 import { shouldShowOnProviderDashboardEvents } from '../utils/companyEventStaffing';
 import { formatViewerTimeRangeMs } from '../utils/timezones.js';
+import { parseScheduleUtcInstant } from '../utils/scheduleEventInstants.js';
 
 function localYmd(d = new Date()) {
   const y = d.getFullYear();
@@ -26,8 +27,8 @@ function startOfWeekMondayYmd(dateLike = new Date()) {
 }
 
 function parseAt(v) {
-  const t = new Date(v || 0).getTime();
-  return Number.isFinite(t) ? t : null;
+  const d = parseScheduleUtcInstant(v);
+  return d ? d.getTime() : null;
 }
 
 function isSameLocalDay(ms, ymd) {

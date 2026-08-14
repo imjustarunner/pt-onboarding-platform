@@ -106,6 +106,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import { parseScheduleUtcInstant } from '../../utils/scheduleEventInstants.js';
 
 const props = defineProps({
   userIds: { type: Array, required: true },
@@ -439,18 +440,7 @@ const hourLabel = (h) => {
   return d.toLocaleTimeString([], { hour: 'numeric' });
 };
 
-const parseMaybeDate = (raw) => {
-  const s = String(raw || '').trim();
-  if (!s) return null;
-  // Naked MySQL DATETIME from UTC storage → treat as UTC.
-  const normalized = (/^\d{4}-\d{2}-\d{2}[ ]\d{2}:\d{2}(:\d{2})?$/.test(s))
-    ? `${s.replace(' ', 'T')}${s.length === 16 ? ':00' : ''}Z`
-    : (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(s) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(s))
-      ? `${s.length === 16 ? `${s}:00` : s}Z`
-      : (s.includes('T') ? s : s.replace(' ', 'T'));
-  const d = new Date(normalized);
-  return Number.isNaN(d.getTime()) ? null : d;
-};
+const parseMaybeDate = (raw) => parseScheduleUtcInstant(raw);
 
 const overlapsHour = (startHHMM, endHHMM, hour) => {
   const start = String(startHHMM || '').slice(0, 5);
@@ -473,9 +463,9 @@ const hasBusyIntervals = (busyList, dayName, hour, ws) => {
   const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
   const cellEnd = new Date(`${cellDate}T${pad2(Number(hour) + 1)}:00:00`);
   for (const b of busyList || []) {
-    const start = new Date(b.startAt);
-    const end = new Date(b.endAt);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
+    const start = parseMaybeDate(b.startAt);
+    const end = parseMaybeDate(b.endAt);
+    if (!start || !end) continue;
     if (end > cellStart && start < cellEnd) return true;
   }
   return false;
