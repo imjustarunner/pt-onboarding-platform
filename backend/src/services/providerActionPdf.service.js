@@ -391,11 +391,23 @@ function buildProviderActionPdfHtml({
 </html>`;
 }
 
+function isValidPdf(buf) {
+  if (!buf || buf.length < 256) return false;
+  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+  if (!b.slice(0, 8).toString('ascii').startsWith('%PDF-')) return false;
+  const tail = b.slice(-64).toString('ascii');
+  return tail.includes('%%EOF');
+}
+
 async function embedPng(pdfDoc, dataUri) {
-  if (!dataUri || !dataUri.startsWith('data:image/png')) return null;
+  if (!dataUri) return null;
   try {
-    const base64 = dataUri.split(',')[1];
-    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const commaIdx = dataUri.indexOf(',');
+    if (commaIdx === -1) return null;
+    const base64 = dataUri.slice(commaIdx + 1);
+    const bytes = Buffer.from(base64, 'base64');
+    if (dataUri.includes('image/png')) return await pdfDoc.embedPng(bytes);
+    if (dataUri.includes('image/jpeg') || dataUri.includes('image/jpg')) return await pdfDoc.embedJpg(bytes);
     return await pdfDoc.embedPng(bytes);
   } catch {
     return null;
@@ -638,8 +650,10 @@ async function buildFallbackPdf({
 
 export async function renderProviderActionPdf(input) {
   const assets = await resolveProviderActionPdfAssets({ agency: input.agency });
-  const html = buildProviderActionPdfHtml({ ...input, assets });
+
+  // 1. Try Puppeteer HTML render (rich layout with hero / icons).
   try {
+    const html = buildProviderActionPdfHtml({ ...input, assets });
     const pdfBuffer = await DocumentSigningService.convertHTMLToPDF(html, {
       format: 'Letter',
       width: '8.5in',
@@ -647,11 +661,22 @@ export async function renderProviderActionPdf(input) {
       printBackground: true,
       margin: { top: '0', right: '0', bottom: '0', left: '0' }
     });
-    if (pdfBuffer && pdfBuffer.length > 800) return pdfBuffer;
+    if (isValidPdf(pdfBuffer)) {
+      console.log('[providerActionPdf] Puppeteer render ok, size:', pdfBuffer.length);
+      return pdfBuffer;
+    }
+    console.warn('[providerActionPdf] Puppeteer returned invalid PDF bytes — falling back');
   } catch (err) {
-    console.warn('[providerActionPdf] HTML render failed, using fallback:', err?.message || err);
+    console.warn('[providerActionPdf] HTML render threw — falling back:', err?.message || err);
   }
-  return await buildFallbackPdf({ ...input, assets });
+
+  // 2. pdf-lib branded fallback (reliable, no Puppeteer).
+  const fallback = await buildFallbackPdf({ ...input, assets });
+  if (isValidPdf(fallback)) {
+    console.log('[providerActionPdf] Fallback pdf-lib render ok, size:', fallback.length);
+    return fallback;
+  }
+  throw new Error('Both PDF render paths failed to produce a valid document.');
 }
 
 export { buildProviderActionPdfHtml, resolveProviderActionPdfAssets };
