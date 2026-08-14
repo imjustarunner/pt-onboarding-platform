@@ -230,41 +230,41 @@ function buildMobileCardHtml({ firstName, actionUrl, googleSsoUrl, paths, copy }
     .brand {
       background: #fff;
       border-top: 8px solid ${palette.primary};
-      padding: 14px 22px 12px;
+      padding: 8px 18px 6px;
       text-align: center;
     }
-    .brand img { max-height: 44px; max-width: 190px; object-fit: contain; }
+    .brand img { max-height: 58px; max-width: 280px; object-fit: contain; }
     .brand-name { color: ${palette.primary}; font-weight: 800; font-size: 18px; }
-    .hero { height: 2.15in; overflow: hidden; background: ${palette.light}; }
+    .hero { height: 1.9in; overflow: hidden; background: ${palette.light}; }
     .hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .body { flex: 1; padding: 18px 22px 16px; display: flex; flex-direction: column; }
+    .body { padding: 12px 20px 8px; display: flex; flex-direction: column; }
     .kicker {
       letter-spacing: 0.16em; text-transform: uppercase; font-size: 10px; font-weight: 800;
-      color: ${palette.accent}; margin: 0 0 8px;
+      color: ${palette.accent}; margin: 0 0 4px;
     }
     h1 {
       font-family: Georgia, Times New Roman, serif;
-      font-size: 23px; line-height: 1.2; margin: 0 0 8px; color: ${palette.primary}; font-weight: 700;
+      font-size: 22px; line-height: 1.18; margin: 0 0 6px; color: ${palette.primary}; font-weight: 700;
     }
     h1 .num { color: ${palette.accent}; }
-    .lede { margin: 0 0 14px; font-size: 13px; line-height: 1.45; color: ${palette.muted}; }
+    .lede { margin: 0 0 10px; font-size: 12px; line-height: 1.4; color: ${palette.muted}; }
     .stats {
-      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;
-      margin: 0 0 16px;
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;
+      margin: 0 0 10px;
     }
     .stat { text-align: center; }
-    .stat img { width: 22px; height: 22px; object-fit: contain; display: block; margin: 0 auto 4px; }
-    .stat strong { display: block; font-size: 18px; color: ${palette.primary}; line-height: 1.1; }
-    .stat span { display: block; font-size: 9px; color: ${palette.muted}; margin-top: 2px; line-height: 1.25; }
+    .stat img { width: 20px; height: 20px; object-fit: contain; display: block; margin: 0 auto 3px; }
+    .stat strong { display: block; font-size: 17px; color: ${palette.primary}; line-height: 1.1; }
+    .stat span { display: block; font-size: 9px; color: ${palette.muted}; margin-top: 1px; line-height: 1.2; }
     .cta {
       display: block; text-align: center; text-decoration: none;
       background: ${palette.primary}; color: #fff;
-      border-radius: 14px; padding: 16px 12px 14px;
-      font-size: 18px; font-weight: 800;
+      border-radius: 14px; padding: 14px 12px 12px;
+      font-size: 17px; font-weight: 800;
     }
-    .cta small { display: block; font-size: 11px; font-weight: 600; opacity: 0.88; margin-top: 4px; }
-    .foot { margin-top: auto; padding-top: 12px; text-align: center; }
-    .expires { margin: 0 0 6px; font-size: 11px; color: ${palette.muted}; }
+    .cta small { display: block; font-size: 10px; font-weight: 600; opacity: 0.88; margin-top: 3px; }
+    .foot { padding-top: 8px; text-align: center; }
+    .expires { margin: 0 0 4px; font-size: 10px; color: ${palette.muted}; }
     .url {
       display: block; font-size: 9px; line-height: 1.4; color: ${palette.primary};
       word-break: break-all; text-decoration: underline;
@@ -387,19 +387,19 @@ async function buildFallbackPdf(input, assets) {
 
   const logoImg = await embedPng(pdfDoc, assets?.logoDataUri);
   if (logoImg) {
-    const logoW = 132;
+    const logoW = 176;
     const logoH = (logoImg.height / logoImg.width) * logoW;
     page.drawImage(logoImg, {
       x: (PAGE.widthPt - logoW) / 2,
-      y: PAGE.heightPt - 56,
+      y: PAGE.heightPt - 62,
       width: logoW,
-      height: Math.min(logoH, 36)
+      height: Math.min(logoH, 50)
     });
   } else {
     const name = branding.agencyName;
     page.drawText(name, {
       x: (PAGE.widthPt - fontBold.widthOfTextAtSize(name, 16)) / 2,
-      y: PAGE.heightPt - 40,
+      y: PAGE.heightPt - 44,
       size: 16,
       font: fontBold,
       color: primary
@@ -407,16 +407,17 @@ async function buildFallbackPdf(input, assets) {
   }
 
   const heroImg = await embedPng(pdfDoc, assets?.heroDataUri);
-  const heroY = PAGE.heightPt - 64 - 156;
+  const heroH = 138;
+  const heroY = PAGE.heightPt - 8 - 54 - heroH;
   if (heroImg) {
-    page.drawImage(heroImg, { x: 0, y: heroY, width: PAGE.widthPt, height: 156 });
+    page.drawImage(heroImg, { x: 0, y: heroY, width: PAGE.widthPt, height: heroH });
   } else {
-    page.drawRectangle({ x: 0, y: heroY, width: PAGE.widthPt, height: 156, color: rgb(0.91, 0.96, 0.91) });
+    page.drawRectangle({ x: 0, y: heroY, width: PAGE.widthPt, height: heroH, color: rgb(0.91, 0.96, 0.91) });
   }
 
-  let y = heroY - 28;
+  let y = heroY - 22;
   page.drawText('ACTION REQUIRED', { x: 22, y, size: 9, font: fontBold, color: accent });
-  y -= 26;
+  y -= 22;
 
   const headline = `${input.firstName || 'there'}, you have ${count} client${count === 1 ? '' : 's'} who ${count === 1 ? 'needs' : 'need'} your action.`;
   for (const line of wrapText(headline, fontBold, 16, PAGE.widthPt - 44).slice(0, 3)) {
@@ -428,10 +429,10 @@ async function buildFallbackPdf(input, assets) {
   const lede = `Tap the button — about ${perClient} seconds per client, ${estimateLabel} total.`;
   for (const line of wrapText(lede, font, 10, PAGE.widthPt - 44).slice(0, 2)) {
     page.drawText(line, { x: 22, y, size: 10, font, color: muted });
-    y -= 14;
+    y -= 12;
   }
 
-  y -= 10;
+  y -= 6;
   const iconTeam = await embedPng(pdfDoc, assets?.iconTeam);
   const iconClock = await embedPng(pdfDoc, assets?.iconClock);
   const iconBadge = await embedPng(pdfDoc, assets?.iconBadge);
@@ -459,8 +460,8 @@ async function buildFallbackPdf(input, assets) {
     });
   });
 
-  const ctaY = 78;
-  const ctaH = 64;
+  const ctaY = 72;
+  const ctaH = 58;
   page.drawRectangle({
     x: 22,
     y: ctaY,
