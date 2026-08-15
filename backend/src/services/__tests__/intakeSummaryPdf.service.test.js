@@ -4,7 +4,8 @@ import {
   buildIntakeSummaryDocumentHtml,
   buildOfficeIntakeSummarySpec,
   buildQuickIntakeSummarySpec,
-  pdfFilename
+  pdfFilename,
+  recordPdfFilename
 } from '../intakeSummaryPdf.service.js';
 
 test('builds packet-branded summary HTML with tenant name and answers', () => {
@@ -72,4 +73,11 @@ test('quick spec uses confirmation fields without a cover page', () => {
 
 test('pdf filename stays download-safe', () => {
   assert.equal(pdfFilename(['itsco', 'intake summary', 778]), 'itsco-intake-summary-778.pdf');
+});
+
+test('record pdf filename uses tenant, initials, and date of birth', () => {
+  assert.equal(
+    recordPdfFilename({ tenant: 'ITSCO Counseling', initials: 'JSM', dateOfBirth: '2014-06-12' }),
+    'ITSCO-Counseling-JSM-20140612.pdf'
+  );
 });

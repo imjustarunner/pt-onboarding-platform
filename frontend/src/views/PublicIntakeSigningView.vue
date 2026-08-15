@@ -340,7 +340,7 @@
       >
           <div v-if="whoForError" class="error" style="margin-bottom: 12px;">{{ whoForError }}</div>
 
-          <div class="intake-start-grid">
+          <div v-if="intakeForSelf !== false" class="intake-start-grid">
             <section class="intake-start-col">
               <h2 class="intake-start-col-title">
                 <span class="intake-start-col-num">1.</span>
@@ -397,19 +397,31 @@
             {{ t('letsStartWithBasics') }}
           </h2>
           <div class="form-grid intake-identity-grid">
-            <div class="form-group form-group--span-6">
+            <div class="form-group form-group--name">
               <label>{{ t('yourFirstName') }} <span class="required-indicator">*</span></label>
               <input id="guardianFirstName" v-model="guardianFirstName" type="text" :class="{ 'input-error': !!consentErrors.guardianFirstName }" />
             </div>
-            <div class="form-group form-group--span-6">
+            <div class="form-group form-group--middle">
+              <label>{{ t('middleNameOptional') }}</label>
+              <input id="guardianMiddleName" v-model="guardianMiddleName" type="text" />
+            </div>
+            <div class="form-group form-group--name">
               <label>{{ t('yourLastName') }} <span class="required-indicator">*</span></label>
               <input id="guardianLastName" v-model="guardianLastName" type="text" :class="{ 'input-error': !!consentErrors.guardianLastName }" />
             </div>
-            <div class="form-group form-group--span-6">
-              <label>{{ intakeForSelf === false ? t('childDateOfBirth') : t('dateOfBirth') }} <span class="required-indicator">*</span></label>
+            <div class="form-group form-group--phone">
+              <label>{{ t('yourPhone') }} <span class="required-indicator">*</span></label>
+              <input id="guardianPhone" v-model="guardianPhone" type="tel" :class="{ 'input-error': !!consentErrors.guardianPhone }" />
+            </div>
+            <div class="form-group form-group--email">
+              <label>{{ t('yourEmail') }} <span class="required-indicator">*</span></label>
+              <input id="guardianEmail" v-model="guardianEmail" type="email" :class="{ 'input-error': !!consentErrors.guardianEmail }" />
+            </div>
+            <div v-if="intakeForSelf !== false" class="form-group form-group--dob">
+              <label>{{ t('dateOfBirth') }} <span class="required-indicator">*</span></label>
               <input id="starterDob" v-model="starterDob" type="date" :class="{ 'input-error': !!consentErrors.starterDob }" />
             </div>
-            <div v-if="intakeForSelf === false" class="form-group form-group--span-6">
+            <div v-if="intakeForSelf === false" class="form-group form-group--rel">
               <label>{{ t('relationshipToClient') }} <span class="required-indicator">*</span></label>
               <select
                 id="guardianRelationship"
@@ -424,38 +436,110 @@
                 <option value="Other">{{ t('relationshipOther') }}</option>
               </select>
             </div>
-            <div v-else class="form-group form-group--span-6">
-              <label>{{ t('yourPhone') }} <span class="required-indicator">*</span></label>
-              <input id="guardianPhone" v-model="guardianPhone" type="tel" :class="{ 'input-error': !!consentErrors.guardianPhone }" />
-            </div>
             <template v-if="intakeForSelf === false">
-              <div class="form-group form-group--span-6">
-                <label>{{ t('childFirstName') }} <span class="required-indicator">*</span></label>
-                <input
-                  id="clientFirstName_0"
-                  v-model="clients[0].firstName"
-                  type="text"
-                  :class="{ 'input-error': !!consentErrors.clientFirstName }"
-                />
+              <div class="intake-start-dependents">
+                <div
+                  v-for="(c, idx) in clients"
+                  :key="`office-child-${idx}`"
+                  class="intake-start-child"
+                >
+                  <div class="intake-start-child-head">
+                    <strong>{{ t('dependentN') }} {{ idx + 1 }}</strong>
+                    <button
+                      v-if="clients.length > 1"
+                      type="button"
+                      class="intake-start-child-remove"
+                      @click="removeClient(idx)"
+                    >{{ t('remove') }}</button>
+                  </div>
+                  <div class="form-group form-group--name">
+                    <label>{{ t('dependentFirstName') }} <span class="required-indicator">*</span></label>
+                    <input
+                      :id="`clientFirstName_${idx}`"
+                      v-model="c.firstName"
+                      type="text"
+                      :class="{ 'input-error': !!startClientErrors[idx]?.firstName }"
+                    />
+                  </div>
+                  <div class="form-group form-group--middle">
+                    <label>{{ t('middleNameOptional') }}</label>
+                    <input :id="`clientMiddleName_${idx}`" v-model="c.middleName" type="text" />
+                  </div>
+                  <div class="form-group form-group--name">
+                    <label>
+                      {{ t('dependentLastName') }} <span class="required-indicator">*</span>
+                      <button
+                        type="button"
+                        class="intake-same-as-me"
+                        @click="applySameLastName(idx)"
+                      >{{ t('sameAsMe') }}</button>
+                    </label>
+                    <input
+                      :id="`clientLastName_${idx}`"
+                      v-model="c.lastName"
+                      type="text"
+                      :class="{ 'input-error': !!startClientErrors[idx]?.lastName }"
+                    />
+                  </div>
+                  <div class="form-group form-group--dob">
+                    <label>{{ t('dependentDateOfBirth') }} <span class="required-indicator">*</span></label>
+                    <input
+                      :id="`clientDob_${idx}`"
+                      v-model="c.dateOfBirth"
+                      type="date"
+                      :class="{ 'input-error': !!startClientErrors[idx]?.dob }"
+                    />
+                  </div>
+                </div>
+                <div class="intake-start-add-child">
+                  <button
+                    type="button"
+                    class="df-btn df-btn-secondary"
+                    @click="onClickAddClient"
+                  >+ {{ t('addAnotherDependent') }}</button>
+                </div>
               </div>
-              <div class="form-group form-group--span-6">
-                <label>{{ t('childLastName') }} <span class="required-indicator">*</span></label>
-                <input
-                  id="clientLastName_0"
-                  v-model="clients[0].lastName"
-                  type="text"
-                  :class="{ 'input-error': !!consentErrors.clientLastName }"
-                />
+              <div
+                v-if="multiClientConsentDialogOpen"
+                class="multi-client-consent-panel intake-start-consent"
+                role="dialog"
+                aria-live="polite"
+              >
+                <h4>{{ t('multiDependentConsentTitle') }}</h4>
+                <p>{{ t('multiDependentConsentBody') }}</p>
+                <ul class="multi-client-consent-bullets">
+                  <li>{{ t('multiDependentConsentBullet1') }}</li>
+                  <li>{{ t('multiDependentConsentBullet2') }}</li>
+                  <li>{{ t('multiDependentConsentBullet3') }}</li>
+                </ul>
+                <div class="multi-client-consent-actions">
+                  <button type="button" class="df-btn df-btn-primary" @click="acceptMultiClientConsent">
+                    {{ t('multiDependentConsentAccept') }}
+                  </button>
+                  <button type="button" class="df-btn df-btn-secondary" @click="declineMultiClientConsent">
+                    {{ t('multiDependentConsentDecline') }}
+                  </button>
+                </div>
               </div>
-              <div class="form-group form-group--span-6">
-                <label>{{ t('yourPhone') }} <span class="required-indicator">*</span></label>
-                <input id="guardianPhone" v-model="guardianPhone" type="tel" :class="{ 'input-error': !!consentErrors.guardianPhone }" />
+              <p
+                v-if="multiClientConsentDeclined && !multiClientConsentDialogOpen"
+                class="intake-start-consent-note"
+              >{{ t('multiDependentDeclineNotice') }}</p>
+              <div v-if="isCoGuardianInvitee" class="intake-start-custody">
+                <strong>{{ t('coGuardianIsolatedTitle') }}</strong>
+                <p>{{ t('coGuardianIsolatedLead') }}</p>
               </div>
+              <OtherGuardianIntakeFields
+                v-else
+                class="intake-start-custody"
+                :model="otherGuardian"
+                :copy="otherGuardianCopy"
+                :can-edit="canEditIntakeLegal"
+                :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''"
+                :locale="intakeLocale"
+                @saved="onIntakeLegalSaved"
+              />
             </template>
-            <div class="form-group form-group--span-12">
-              <label>{{ t('yourEmail') }} <span class="required-indicator">*</span></label>
-              <input id="guardianEmail" v-model="guardianEmail" type="email" :class="{ 'input-error': !!consentErrors.guardianEmail }" />
-            </div>
           </div>
 
           <button
@@ -559,6 +643,16 @@
             />
           </div>
         </div>
+        <OtherGuardianIntakeFields
+          v-if="!isOfficeInDepthIntake && !isMedicalRecordsRequest && !isJobApplication && !isClientBound && intakeForSelf === false && !isCoGuardianInvitee"
+          class="intake-start-custody"
+          :model="otherGuardian"
+          :copy="otherGuardianCopy"
+          :can-edit="canEditIntakeLegal"
+          :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''"
+          :locale="intakeLocale"
+          @saved="onIntakeLegalSaved"
+        />
         <div class="form-grid intake-identity-grid">
           <div class="form-group form-group--span-4">
             <label>{{ (intakeForSelf || isMedicalRecordsRequest || isJobApplication) ? t('yourFirstName') : t('guardianFirstName') }}</label>
@@ -1881,14 +1975,36 @@
               </div>
               <div class="office-complete-download">
                 <p>{{ t('savePacketSummary') }}</p>
+                <p class="office-complete-phi">{{ t('phiDownloadNotice') }}</p>
                 <button
                   type="button"
                   class="df-btn df-btn-primary"
                   :disabled="officeSummaryDownloading"
                   @click="downloadOfficeSummaryPdf"
                 >
-                  {{ officeSummaryDownloading ? t('preparingPdf') : t('downloadSummary') }}
+                  {{ officeSummaryDownloading ? t('preparingPdf') : (officePacketClients().length > 1 ? t('downloadPackets') : t('downloadSummary')) }}
                 </button>
+                <div class="office-email-copy">
+                  <input v-model="officeCopyEmail" type="email" :placeholder="t('sendPdfElsewhere')" />
+                  <button type="button" class="df-btn df-btn-secondary" :disabled="officeEmailSending || !officeCopyEmail" @click="emailOfficeSummaryPdf">
+                    {{ officeEmailSending ? t('saving') : t('emailPdfCopy') }}
+                  </button>
+                </div>
+                <p v-if="officeEmailStatus" class="office-complete-phi">{{ officeEmailStatus }}</p>
+              </div>
+              <div v-if="!officePortalDismissed && guardianEmail" class="office-complete-download">
+                <p><strong>{{ t('portalLoginTitle') }}</strong></p>
+                <p>{{ guardianEmail }} — this email is the username. You can change it later.</p>
+                <a class="df-btn df-btn-primary" :href="officePortalHref">Sign in</a>
+                <button type="button" class="df-btn df-btn-secondary" :disabled="officeLoginEmailing" @click="emailOfficeLoginDetails">
+                  {{ officeLoginEmailing ? t('saving') : t('emailLoginDetails') }}
+                </button>
+                <button type="button" class="df-btn df-btn-secondary" @click="officePortalDismissed = true">{{ t('portalLoginSkip') }}</button>
+                <p v-if="officeLoginEmailStatus" class="office-complete-phi">{{ officeLoginEmailStatus }}</p>
+              </div>
+              <div v-if="coGuardianInviteResult?.inviteUrl" class="office-complete-download">
+                <p><strong>{{ t('otherGuardianInviteTitle') }}</strong></p>
+                <p>{{ coGuardianInviteResult.inviteUrl }}</p>
               </div>
               <p v-if="officeSummaryError" class="office-complete-download-error">{{ officeSummaryError }}</p>
             </div>
@@ -2351,6 +2467,7 @@ import {
 import { localizePublicIntakeTitle } from '../utils/publicIntakeTitle.js';
 import { publicIntakeDescription } from '../utils/publicIntakeCopy.js';
 import { useOfficeIntakeStartEditor } from '../composables/useOfficeIntakeStartEditor.js';
+import OtherGuardianIntakeFields from '../components/public-intake/OtherGuardianIntakeFields.vue';
 import {
   JOIN_BOOT_THEME_URL,
   restoreJoinWelcomeCopy,
@@ -2534,10 +2651,49 @@ const INTAKE_TRANSLATIONS = {
     completingForDependents: 'I am a parent or guardian submitting for my child(ren)',
     completingForSomeoneElse: 'I am a parent, guardian, or caregiver completing this for someone else.',
     someoneElse: 'Someone else',
-    myChildDependent: 'My child / dependent',
+    myChildDependent: 'My dependent',
     needSchoolProvider: 'School / provider details',
     continueToIntakePacket: 'Continue to Intake Packet',
     childDateOfBirth: "Child's date of birth",
+    dependentDateOfBirth: "Dependent's date of birth",
+    middleNameOptional: 'Middle name',
+    dependentN: 'Dependent',
+    dependentFirstName: "Dependent's first name",
+    dependentLastName: "Dependent's last name",
+    addAnotherDependent: 'Add another dependent',
+    multiDependentConsentTitle: 'Adding another dependent',
+    multiDependentConsentBody: 'Before you add another dependent to this same packet, please confirm that you understand:',
+    multiDependentConsentBullet1: 'You will sign each form once. The same signatures and releases will apply to every dependent you add.',
+    multiDependentConsentBullet2: 'Each dependent gets their own branded summary packet, named with initials, date of birth, and our organization name.',
+    multiDependentConsentBullet3: 'You can request changes later by contacting our office.',
+    multiDependentConsentAccept: 'Yes, the same signatures apply to both dependents',
+    multiDependentConsentDecline: 'No, I want to sign separately for each dependent',
+    multiDependentDeclineNotice: 'No problem. Please finish this dependent’s packet first. You can then start a fresh packet from the same link to sign separately for the other dependent.',
+    phiDownloadNotice: 'This file contains protected health information. After it is saved on a device, we cannot retrieve, change, or delete that copy. Keep it in a private place and only share it if you mean to.',
+    downloadPackets: 'Download packets',
+    custodyOtherGuardianTitle: 'Custody & other guardian',
+    custodyOtherGuardianLead: 'If another parent has legal rights, they get a private link to complete their own intake. They will not see what you submit. We will not confirm whether they already have an account.',
+    otherGuardianLegalRights: 'Is there another parent or guardian with legal rights who should complete their own intake?',
+    otherGuardianLegalYes: 'Yes — send them their own intake',
+    otherGuardianLegalShared: 'Yes — we share decision-making',
+    otherGuardianLegalNo: 'No other guardian with those rights',
+    otherGuardianNoEmailWarning: 'An email is required to send them a private intake link. If you only have a phone number, intake and start of care may be delayed while our support team or the assigned provider contacts them for the needed permissions.',
+    ageOfConsentNote: 'We follow applicable Colorado law and professional ethics. In Colorado, a minor 12 or older may be able to consent to psychotherapy in some situations. This is information, not legal advice.',
+    otherGuardianFirstName: 'Their first name',
+    otherGuardianLastName: 'Their last name',
+    otherGuardianEmail: 'Their email (becomes their username)',
+    otherGuardianPhone: 'Their phone',
+    otherGuardianRelationship: 'Relationship',
+    otherGuardianSendLink: 'Email them a private intake link now',
+    emailPdfCopy: 'Email PDF',
+    sendPdfElsewhere: 'Send a copy to another email',
+    portalLoginTitle: 'Your portal login',
+    portalLoginSkip: "I'll do this later",
+    emailLoginDetails: 'Email these login details',
+    loginDetailsSent: 'Login details sent. Keep that email private.',
+    otherGuardianInviteTitle: 'Other guardian link',
+    coGuardianIsolatedTitle: 'Your own intake',
+    coGuardianIsolatedLead: 'You are connected to the dependent(s) listed here. You will not see what the other parent submitted. Fill this packet with your information.',
     whoIsThisForTitle: 'Who is this for?',
     whoIsThisForLead: 'This helps us show the right questions and set up the right kind of account.',
     chooseWhoForToContinue: 'Please choose whether you are completing this for yourself or someone else.',
@@ -2562,6 +2718,8 @@ const INTAKE_TRANSLATIONS = {
     relationshipOther: 'Other',
     childFirstName: "Child's first name",
     childLastName: "Child's last name",
+    sameAsMe: 'Same as me',
+    officeChildN: 'Child',
     contactSupportLink: 'Contact support.',
     whatYoullNeed: "What you'll need",
     needContactInfo: 'Contact information',
@@ -2821,10 +2979,49 @@ const INTAKE_TRANSLATIONS = {
     completingForDependents: 'Soy padre, madre o tutor y lo envío para mi(s) hijo(s)',
     completingForSomeoneElse: 'Soy padre, madre, tutor o cuidador y lo completo para otra persona.',
     someoneElse: 'Otra persona',
-    myChildDependent: 'Mi hijo / dependiente',
+    myChildDependent: 'Mi dependiente',
     needSchoolProvider: 'Datos de la escuela o del proveedor',
     continueToIntakePacket: 'Continuar al paquete de admisión',
     childDateOfBirth: 'Fecha de nacimiento del niño',
+    dependentDateOfBirth: 'Fecha de nacimiento del dependiente',
+    middleNameOptional: 'Segundo nombre',
+    dependentN: 'Dependiente',
+    dependentFirstName: 'Nombre del dependiente',
+    dependentLastName: 'Apellido del dependiente',
+    addAnotherDependent: 'Agregar otro dependiente',
+    multiDependentConsentTitle: 'Agregar otro dependiente',
+    multiDependentConsentBody: 'Antes de agregar otro dependiente a este mismo paquete, confirme que entiende:',
+    multiDependentConsentBullet1: 'Firmará cada formulario una vez. Las mismas firmas y autorizaciones aplicarán a cada dependiente que agregue.',
+    multiDependentConsentBullet2: 'Cada dependiente recibe su propio paquete resumido con marca, nombrado con iniciales, fecha de nacimiento y el nombre de la organización.',
+    multiDependentConsentBullet3: 'Puede pedir cambios más adelante contactando a nuestra oficina.',
+    multiDependentConsentAccept: 'Sí, las mismas firmas aplican a ambos dependientes',
+    multiDependentConsentDecline: 'No, quiero firmar por separado para cada dependiente',
+    multiDependentDeclineNotice: 'No hay problema. Termine primero el paquete de este dependiente. Luego puede iniciar un paquete nuevo desde el mismo enlace para firmar por separado.',
+    phiDownloadNotice: 'Este archivo contiene información de salud protegida. Una vez guardado en un dispositivo, no podemos recuperar, cambiar ni eliminar esa copia. Guárdelo en un lugar privado y compártalo solo si realmente lo desea.',
+    downloadPackets: 'Descargar paquetes',
+    custodyOtherGuardianTitle: 'Custodia y otro tutor',
+    custodyOtherGuardianLead: 'Si otro padre o madre tiene derechos legales, recibe un enlace privado para completar su propia admisión. No verá lo que usted envíe. No confirmaremos si ya tiene una cuenta.',
+    otherGuardianLegalRights: '¿Hay otro padre, madre o tutor con derechos legales que deba completar su propia admisión?',
+    otherGuardianLegalYes: 'Sí — enviarles su propia admisión',
+    otherGuardianLegalShared: 'Sí — compartimos las decisiones',
+    otherGuardianLegalNo: 'No hay otro tutor con esos derechos',
+    otherGuardianNoEmailWarning: 'Se necesita un correo para enviarles un enlace privado de admisión. Si solo tiene un teléfono, la admisión y el inicio de servicios pueden retrasarse mientras nuestro equipo de apoyo o el proveedor asignado se comunica para obtener los permisos necesarios.',
+    ageOfConsentNote: 'Seguimos la ley de Colorado aplicable y la ética profesional. En Colorado, un menor de 12 años o más puede, en algunas situaciones, consentir psicoterapia. Esto es información, no asesoría legal.',
+    otherGuardianFirstName: 'Su nombre',
+    otherGuardianLastName: 'Su apellido',
+    otherGuardianEmail: 'Su correo (será su usuario)',
+    otherGuardianPhone: 'Su teléfono',
+    otherGuardianRelationship: 'Parentesco',
+    otherGuardianSendLink: 'Enviarles ahora un enlace privado de admisión',
+    emailPdfCopy: 'Enviar PDF',
+    sendPdfElsewhere: 'Enviar una copia a otro correo',
+    portalLoginTitle: 'Su acceso al portal',
+    portalLoginSkip: 'Lo haré después',
+    emailLoginDetails: 'Enviar estos datos de acceso',
+    loginDetailsSent: 'Datos de acceso enviados. Mantenga ese correo privado.',
+    otherGuardianInviteTitle: 'Enlace del otro tutor',
+    coGuardianIsolatedTitle: 'Su propia admisión',
+    coGuardianIsolatedLead: 'Usted está conectado con el o los dependientes listados. No verá lo que envió el otro padre o madre. Complete este paquete con su información.',
     whoIsThisForTitle: '¿Para quién es esto?',
     whoIsThisForLead: 'Esto nos ayuda a mostrar las preguntas correctas y preparar la cuenta adecuada.',
     chooseWhoForToContinue: 'Elija si lo completa para usted o para otra persona.',
@@ -2849,6 +3046,8 @@ const INTAKE_TRANSLATIONS = {
     relationshipOther: 'Otro',
     childFirstName: 'Nombre del niño',
     childLastName: 'Apellido del niño',
+    sameAsMe: 'Igual que yo',
+    officeChildN: 'Niño/a',
     contactSupportLink: 'Contactar a soporte.',
     whatYoullNeed: 'Qué va a necesitar',
     needContactInfo: 'Información de contacto',
@@ -3492,7 +3691,7 @@ const spanishClarificationMissingKey = ref('');
 
 // Shared intake state must be declared before any watch/computed that reads it.
 const clients = ref([
-  { firstName: '', lastName: '' }
+  { firstName: '', lastName: '', dateOfBirth: '' }
 ]);
 const intakeResponses = reactive({
   guardian: {},
@@ -3589,7 +3788,9 @@ const WHO_FOR_STEP = 0.5;
 
 function goToFirstFormStep() {
   step.value = asksWhoFor.value ? WHO_FOR_STEP : 1;
-  if (asksWhoFor.value && intakeForSelf.value === null) {
+  // Office in-depth start must stay unselected so Who is this for stays on screen
+  // until the person chooses. Only collapse that block after "my dependent".
+  if (asksWhoFor.value && intakeForSelf.value === null && !isOfficeInDepthIntake.value) {
     intakeForSelf.value = true;
   }
 }
@@ -5270,12 +5471,83 @@ const disclosureContext = ref(null);
 const organizationId = ref('');
 
 const guardianFirstName = ref('');
+const guardianMiddleName = ref('');
 const guardianLastName = ref('');
 const guardianEmail = ref('');
 const guardianPhone = ref('');
 const starterDob = ref('');
 const fluentLanguagesInput = ref('');
 const guardianRelationship = ref('');
+const otherGuardian = reactive({
+  hasLegalRights: '',
+  firstName: '',
+  lastName: '',
+  email: '',
+  phone: '',
+  relationship: '',
+  sendInvite: true
+});
+const intakeLegal = ref(null);
+const canEditIntakeLegal = computed(() => {
+  if (!authStore.isAuthenticated) return false;
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'admin' || role === 'support' || role === 'super_admin';
+});
+const otherGuardianCopy = computed(() => {
+  const legal = intakeLegal.value || {};
+  return {
+    title: t('custodyOtherGuardianTitle'),
+    lead: legal.otherGuardianLead || t('custodyOtherGuardianLead'),
+    ageOfConsentNote: legal.ageOfConsentNote || t('ageOfConsentNote'),
+    noEmailWarning: legal.noEmailWarning || t('otherGuardianNoEmailWarning'),
+    resources: Array.isArray(legal.resources) ? legal.resources : [],
+    rightsLabel: t('otherGuardianLegalRights'),
+    selectOption: t('selectOption'),
+    yes: t('otherGuardianLegalYes'),
+    shared: t('otherGuardianLegalShared'),
+    no: t('otherGuardianLegalNo'),
+    firstName: t('otherGuardianFirstName'),
+    lastName: t('otherGuardianLastName'),
+    email: t('otherGuardianEmail'),
+    phone: t('otherGuardianPhone'),
+    relationship: t('otherGuardianRelationship'),
+    sendLink: t('otherGuardianSendLink')
+  };
+});
+function onIntakeLegalSaved(payload) {
+  const loc = String(intakeLocale.value || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
+  intakeLegal.value = payload?.[loc] || payload || intakeLegal.value;
+}
+function otherGuardianFieldBag() {
+  const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
+  return {
+    other_guardian_communication: (rights === 'yes' || rights === 'shared') ? 'yes' : 'no',
+    other_guardian_has_legal_rights: otherGuardian.hasLegalRights,
+    other_guardian_first_name: otherGuardian.firstName,
+    other_guardian_last_name: otherGuardian.lastName,
+    other_guardian_email: otherGuardian.email,
+    other_guardian_phone: otherGuardian.phone,
+    other_guardian_relationship: otherGuardian.relationship,
+    other_guardian_send_intake_link: otherGuardian.sendInvite ? 'yes' : 'no'
+  };
+}
+function otherGuardianContactOk() {
+  if (intakeForSelf.value !== false || isCoGuardianInvitee.value) return true;
+  const rights = otherGuardian.hasLegalRights;
+  if (!rights) return false;
+  if (rights !== 'yes' && rights !== 'shared') return true;
+  const emailOk = String(otherGuardian.email || '').includes('@');
+  const phoneOk = String(otherGuardian.phone || '').replace(/\D/g, '').length >= 7;
+  return emailOk || phoneOk;
+}
+const isCoGuardianInvitee = computed(() => Boolean(String(route.query.coGuardian || '').trim()));
+const officeCopyEmail = ref('');
+const officeEmailSending = ref(false);
+const officeEmailStatus = ref('');
+const officePortalDismissed = ref(false);
+const coGuardianInviteResult = ref(null);
+const officeLoginEmailing = ref(false);
+const officeLoginEmailStatus = ref('');
 const downloadUrl = ref('');
 const officeSummaryDownloading = ref(false);
 const officeSummaryError = ref('');
@@ -5341,12 +5613,24 @@ const consentErrors = reactive({
   clientLastName: '',
   organizationId: ''
 });
+const startClientErrors = ref([]);
 const intakeForSelf = ref(null);
 const whoForError = ref('');
+
+function emptyOfficeClient() {
+  return { firstName: '', middleName: '', lastName: '', dateOfBirth: '' };
+}
+
+function applySameLastName(idx) {
+  const last = String(guardianLastName.value || '').trim();
+  if (!clients.value[idx] || !last) return;
+  clients.value[idx].lastName = last;
+}
 
 function chooseWhoFor(isSelf) {
   intakeForSelf.value = !!isSelf;
   whoForError.value = '';
+  if (!isSelf && !clients.value.length) clients.value = [emptyOfficeClient()];
 }
 
 function continueWhoFor() {
@@ -5384,20 +5668,26 @@ function continueWhoFor() {
   consentErrors.guardianLastName = guardianLastName.value.trim() ? '' : t('required');
   consentErrors.guardianEmail = guardianEmail.value.trim() ? '' : t('required');
   consentErrors.guardianPhone = guardianPhone.value.trim() ? '' : t('required');
-  consentErrors.starterDob = starterDob.value.trim() ? '' : t('required');
   consentErrors.guardianRelationship = intakeForSelf.value === false && !guardianRelationship.value.trim()
     ? t('required')
     : '';
   if (intakeForSelf.value === false) {
-    if (!clients.value[0] || typeof clients.value[0] !== 'object') {
-      clients.value[0] = { firstName: '', lastName: '' };
-    }
-    consentErrors.clientFirstName = String(clients.value[0].firstName || '').trim() ? '' : t('required');
-    consentErrors.clientLastName = String(clients.value[0].lastName || '').trim() ? '' : t('required');
+    if (!clients.value.length) clients.value = [emptyOfficeClient()];
+    startClientErrors.value = clients.value.map((c) => ({
+      firstName: String(c?.firstName || '').trim() ? '' : t('required'),
+      lastName: String(c?.lastName || '').trim() ? '' : t('required'),
+      dob: String(c?.dateOfBirth || '').trim() ? '' : t('required')
+    }));
+    consentErrors.starterDob = '';
+    consentErrors.clientFirstName = startClientErrors.value[0]?.firstName || '';
+    consentErrors.clientLastName = startClientErrors.value[0]?.lastName || '';
   } else {
+    startClientErrors.value = [];
+    consentErrors.starterDob = starterDob.value.trim() ? '' : t('required');
     consentErrors.clientFirstName = '';
     consentErrors.clientLastName = '';
   }
+  const childFieldMissing = startClientErrors.value.some((row) => row.firstName || row.lastName || row.dob);
   if (
     consentErrors.guardianFirstName
     || consentErrors.guardianLastName
@@ -5405,10 +5695,16 @@ function continueWhoFor() {
     || consentErrors.guardianPhone
     || consentErrors.starterDob
     || consentErrors.guardianRelationship
-    || consentErrors.clientFirstName
-    || consentErrors.clientLastName
+    || childFieldMissing
+    || !otherGuardianContactOk()
   ) {
-    whoForError.value = t('requiredFields');
+    whoForError.value = !otherGuardianContactOk() ? t('otherGuardianNoEmailWarning') : t('requiredFields');
+    return;
+  }
+  if (intakeForSelf.value === false && clients.value.length > 1 && !multiClientConsentAccepted.value) {
+    multiClientPlanChoice.value = 'multiple';
+    multiClientConsentDialogOpen.value = true;
+    whoForError.value = t('multiClientConsentTitle');
     return;
   }
   whoForError.value = '';
@@ -5432,6 +5728,35 @@ function continueWhoFor() {
   applyStarterDataAndContinue();
 }
 
+async function applyCoGuardianInviteFromQuery() {
+  const token = String(route.query.coGuardian || '').trim();
+  if (!token) return;
+  try {
+    const { data } = await api.get(`/public/adaptive-intake/co-guardian/${encodeURIComponent(token)}`);
+    const invite = data?.invite;
+    if (!invite) return;
+    intakeForSelf.value = false;
+    whoForError.value = '';
+    if (invite.contact) {
+      if (invite.contact.firstName) guardianFirstName.value = invite.contact.firstName;
+      if (invite.contact.lastName) guardianLastName.value = invite.contact.lastName;
+      if (invite.contact.email) guardianEmail.value = invite.contact.email;
+      if (invite.contact.phone) guardianPhone.value = invite.contact.phone;
+      if (invite.contact.relationship) guardianRelationship.value = invite.contact.relationship;
+    }
+    if (Array.isArray(invite.dependents) && invite.dependents.length) {
+      clients.value = invite.dependents.map((dep) => ({
+        firstName: dep.firstName || '',
+        middleName: '',
+        lastName: '',
+        dateOfBirth: ''
+      }));
+    }
+  } catch {
+    /* keep the normal start page if the token is invalid */
+  }
+}
+
 function applyStarterDataAndContinue() {
   if (intakeForSelf.value) {
     intakeResponses.submission = {
@@ -5444,24 +5769,40 @@ function applyStarterDataAndContinue() {
       preferred_name: intakeResponses.submission?.preferred_name || guardianFirstName.value
     };
   } else {
-    if (!intakeResponses.clients[0] || typeof intakeResponses.clients[0] !== 'object') {
-      intakeResponses.clients[0] = {};
+    while (intakeResponses.clients.length < clients.value.length) {
+      intakeResponses.clients.push({});
     }
-    if (!clients.value[0] || typeof clients.value[0] !== 'object') {
-      clients.value[0] = { firstName: '', lastName: '' };
+    clients.value.forEach((c, i) => {
+      if (!intakeResponses.clients[i] || typeof intakeResponses.clients[i] !== 'object') {
+        intakeResponses.clients[i] = {};
+      }
+      if (!c || typeof c !== 'object') {
+        clients.value[i] = emptyOfficeClient();
+      }
+      const dob = String(clients.value[i].dateOfBirth || '').trim();
+      intakeResponses.clients[i].client_first = clients.value[i].firstName;
+      intakeResponses.clients[i].client_last = clients.value[i].lastName;
+      intakeResponses.clients[i].date_of_birth = dob;
+      intakeResponses.clients[i].child_dob = dob;
+      intakeResponses.clients[i].child_date_of_birth = dob;
+    });
+    if (clients.value[0]?.dateOfBirth) starterDob.value = clients.value[0].dateOfBirth;
+    if (clients.value.length > 1) {
+      multiClientPlanChoice.value = 'multiple';
+      if (!multiClientConsentAccepted.value) {
+        multiClientConsentAccepted.value = true;
+        multiClientConsentAcceptedAt.value = new Date().toISOString();
+      }
     }
-    intakeResponses.clients[0].client_first = clients.value[0].firstName;
-    intakeResponses.clients[0].client_last = clients.value[0].lastName;
-    intakeResponses.clients[0].date_of_birth = starterDob.value;
-    intakeResponses.clients[0].child_dob = starterDob.value;
-    intakeResponses.clients[0].child_date_of_birth = starterDob.value;
     intakeResponses.guardian = {
       ...(intakeResponses.guardian || {}),
       guardian_legal_first: guardianFirstName.value,
       guardian_legal_last: guardianLastName.value,
       guardian_email: guardianEmail.value,
       guardian_phone: guardianPhone.value,
-      guardian_relationship_to_child: guardianRelationship.value
+      guardian_relationship_to_child: guardianRelationship.value,
+      ...otherGuardianFieldBag()
+    };
     };
   }
   submitConsent();
@@ -5848,9 +6189,15 @@ const applyDraftSnapshot = (parsed) => {
     starterDob.value = String(parsed.guardian?.dob || starterDob.value || '');
 
     if (Array.isArray(parsed.clients) && parsed.clients.length) {
-      clients.value = parsed.clients.map((client) => ({
+      clients.value = parsed.clients.map((client, idx) => ({
         firstName: String(client?.firstName || ''),
-        lastName: String(client?.lastName || '')
+        lastName: String(client?.lastName || ''),
+        dateOfBirth: String(
+          client?.dateOfBirth
+          || client?.dob
+          || (idx === 0 ? parsed.guardian?.dob || parsed.guardian?.dateOfBirth : '')
+          || ''
+        )
       }));
     }
     if (parsed.intakeResponses && typeof parsed.intakeResponses === 'object') {
@@ -5859,6 +6206,11 @@ const applyDraftSnapshot = (parsed) => {
       intakeResponses.clients = Array.isArray(parsed.intakeResponses.clients)
         ? parsed.intakeResponses.clients
         : [{}];
+      clients.value.forEach((c, idx) => {
+        if (c.dateOfBirth) return;
+        const bag = intakeResponses.clients[idx] || {};
+        c.dateOfBirth = String(bag.child_dob || bag.date_of_birth || bag.child_date_of_birth || '').trim();
+      });
       const savedClinical = intakeResponses.submission?.clinicalResponses;
       if (savedClinical && typeof savedClinical === 'object') {
         Object.keys(clinicalResponses).forEach((k) => { delete clinicalResponses[k]; });
@@ -5936,6 +6288,7 @@ const restoreDraftSnapshot = () => {
 };
 
 const restoreServerProgress = async () => {
+  if (String(route.query.coGuardian || '').trim()) return false;
   const token = String(sessionToken.value || '').trim();
   if (!token) return false;
   try {
@@ -6749,14 +7102,16 @@ const fillExample = () => {
   guardianRelationship.value = pickDev(['Parent', 'Legal guardian', 'Grandparent']);
   starterDob.value = intakeForSelf.value === false ? randomDevDob(6, 16) : randomDevDob(23, 52);
   if (!clients.value.length) {
-    clients.value = [{ firstName: '', lastName: '' }];
+    clients.value = [emptyOfficeClient()];
     intakeResponses.clients = [{}];
   }
   if (intakeForSelf.value === false) {
-    clients.value.forEach((c) => {
-      c.firstName = childFirst;
+    clients.value.forEach((c, idx) => {
+      c.firstName = idx === 0 ? childFirst : pickDev(DEV_FIRST_NAMES.filter((n) => n !== first && n !== childFirst));
       c.lastName = last;
+      c.dateOfBirth = randomDevDob(6, 16);
     });
+    starterDob.value = clients.value[0].dateOfBirth;
   }
   if (step.value === WHO_FOR_STEP || step.value === 1) {
     fillFields(visibleGuardianFields.value, intakeResponses.guardian, true);
@@ -6884,6 +7239,7 @@ const loadLink = async () => {
     templates.value = resp.data?.templates || [];
     agencyInfo.value = resp.data?.agency || null;
     organizationInfo.value = resp.data?.organization || null;
+    intakeLegal.value = resp.data?.intakeLegal || null;
     formBranding.value = resp.data?.branding || null;
     jobDescriptionSummary.value = resp.data?.jobDescription || null;
     const recaptchaConfig = resp.data?.recaptcha || {};
@@ -6927,6 +7283,7 @@ const loadLink = async () => {
     }
     if (isOfficeInDepthIntake.value) {
       await loadOfficeJoinChrome();
+      await applyCoGuardianInviteFromQuery();
     }
     void hydrateHeavyIntakeAssets();
   } catch (e) {
@@ -7315,6 +7672,13 @@ watch(
   { flush: 'post' }
 );
 
+const packetInitials = (firstName, middleName, lastName) =>
+  [firstName, middleName, lastName]
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .map((part) => part[0].toUpperCase())
+    .join('');
+
 const deriveClientInitials = (firstName, lastName) => {
   const formatTri = (value) => {
     const cleaned = String(value || '').replace(/[^a-zA-Z]/g, '').slice(0, 3);
@@ -7328,19 +7692,52 @@ const deriveClientInitials = (firstName, lastName) => {
 const buildClientPayloads = () =>
   clients.value.map((c) => {
     const rawFirst = String(c?.firstName || '').trim();
+    const rawMiddle = String(c?.middleName || '').trim();
     const rawLast = String(c?.lastName || '').trim();
     const firstName = intakeForSelf.value ? String(guardianFirstName.value || '').trim() : rawFirst;
+    const middleName = intakeForSelf.value ? String(guardianMiddleName.value || '').trim() : rawMiddle;
     const lastName = intakeForSelf.value ? String(guardianLastName.value || '').trim() : rawLast;
-    const fullName = `${firstName} ${lastName}`.trim();
+    const fullName = [firstName, middleName, lastName].filter(Boolean).join(' ');
     return {
       firstName,
+      middleName,
       lastName,
       fullName,
-      initials: deriveClientInitials(firstName, lastName),
-      dateOfBirth: String(starterDob.value || '').trim() || undefined,
+      initials: packetInitials(firstName, middleName, lastName) || deriveClientInitials(firstName, lastName),
+      dateOfBirth: String(c?.dateOfBirth || starterDob.value || '').trim() || undefined,
       contactPhone: String(guardianPhone.value || '').trim() || undefined
     };
   });
+
+function officePacketClients() {
+  if (intakeForSelf.value) {
+    const firstName = String(guardianFirstName.value || '').trim();
+    const middleName = String(guardianMiddleName.value || '').trim();
+    const lastName = String(guardianLastName.value || '').trim();
+    return [{
+      firstName,
+      middleName,
+      lastName,
+      fullName: [firstName, middleName, lastName].filter(Boolean).join(' '),
+      initials: packetInitials(firstName, middleName, lastName),
+      dateOfBirth: String(starterDob.value || '').trim() || undefined,
+      contactPhone: String(guardianPhone.value || '').trim() || undefined
+    }];
+  }
+  const listed = buildClientPayloads().filter((c) => c.firstName || c.lastName);
+  return listed.length ? listed : officePacketClientsSelfFallback();
+}
+
+function officePacketClientsSelfFallback() {
+  return [{
+    firstName: String(guardianFirstName.value || '').trim(),
+    middleName: String(guardianMiddleName.value || '').trim(),
+    lastName: String(guardianLastName.value || '').trim(),
+    fullName: `${guardianFirstName.value || ''} ${guardianLastName.value || ''}`.trim(),
+    initials: packetInitials(guardianFirstName.value, guardianMiddleName.value, guardianLastName.value),
+    dateOfBirth: String(starterDob.value || '').trim() || undefined
+  }];
+}
 
 async function messageFromPdfError(err) {
   const data = err?.response?.data;
@@ -7367,32 +7764,130 @@ async function downloadOfficeSummaryPdf() {
   }
   officeSummaryDownloading.value = true;
   try {
-    const resp = await api.post(
-      `/public-intake/${publicKey}/${id}/summary-pdf`,
-      {
-        sessionToken: token,
-        guardian: {
-          firstName: guardianFirstName.value,
-          lastName: guardianLastName.value,
-          email: guardianEmail.value,
-          phone: guardianPhone.value
+    const packets = officePacketClients();
+    for (const packet of packets) {
+      const resp = await api.post(
+        `/public-intake/${publicKey}/${id}/summary-pdf`,
+        {
+          sessionToken: token,
+          initials: packet.initials,
+          dateOfBirth: packet.dateOfBirth,
+          clientName: packet.fullName,
+          guardian: {
+            firstName: guardianFirstName.value,
+            middleName: guardianMiddleName.value,
+            lastName: guardianLastName.value,
+            email: guardianEmail.value,
+            phone: guardianPhone.value
+          },
+          clients: [packet]
         },
-        clients: buildClientPayloads()
-      },
-      { responseType: 'blob', timeout: 120000, skipGlobalLoading: true }
-    );
-    const blob = resp.data instanceof Blob ? resp.data : new Blob([resp.data], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    const slug = String(agencyInfo.value?.portal_url || agencyInfo.value?.slug || 'intake').trim() || 'intake';
-    anchor.href = url;
-    anchor.download = `${slug}-intake-summary-${id}.pdf`;
-    anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+        { responseType: 'blob', timeout: 120000, skipGlobalLoading: true }
+      );
+      const blob = resp.data instanceof Blob ? resp.data : new Blob([resp.data], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      const tenant = String(agencyInfo.value?.official_name || agencyInfo.value?.name || agencyInfo.value?.portal_url || agencyInfo.value?.slug || 'intake').trim();
+      const dob = String(packet.dateOfBirth || '').replace(/[^0-9]/g, '');
+      anchor.href = url;
+      anchor.download = `${[tenant, packet.initials, dob].filter(Boolean).join('-').replace(/[^a-zA-Z0-9._-]+/g, '-')}.pdf`;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
   } catch (err) {
     officeSummaryError.value = await messageFromPdfError(err);
   } finally {
     officeSummaryDownloading.value = false;
+  }
+}
+
+const officePortalHref = computed(() => {
+  const slug = String(agencyInfo.value?.portal_url || agencyInfo.value?.slug || '').trim();
+  return slug ? `/${encodeURIComponent(slug)}/login` : '/login';
+});
+
+async function emailOfficeLoginDetails() {
+  officeLoginEmailStatus.value = '';
+  officeLoginEmailing.value = true;
+  try {
+    const slug = String(agencyInfo.value?.portal_url || agencyInfo.value?.slug || '').trim();
+    if (!slug || !guardianEmail.value) return;
+    await api.post(`/public/adaptive-intake/${encodeURIComponent(slug)}/portal-login-email`, {
+      email: guardianEmail.value,
+      username: guardianEmail.value,
+      portalPath: officePortalHref.value
+    });
+    officeLoginEmailStatus.value = t('loginDetailsSent');
+  } catch (err) {
+    officeLoginEmailStatus.value = err?.response?.data?.error?.message || t('unableToStartSession');
+  } finally {
+    officeLoginEmailing.value = false;
+  }
+}
+
+async function emailOfficeSummaryPdf() {
+  officeEmailStatus.value = '';
+  officeEmailSending.value = true;
+  try {
+    const token = String(sessionToken.value || '').trim();
+    const id = Number(submissionId.value || 0);
+    const packets = officePacketClients();
+    for (const packet of packets) {
+      await api.post(
+        `/public-intake/${publicKey}/${id}/summary-pdf/email`,
+        {
+          sessionToken: token,
+          email: String(officeCopyEmail.value || '').trim(),
+          initials: packet.initials,
+          dateOfBirth: packet.dateOfBirth,
+          clientName: packet.fullName,
+          guardian: {
+            firstName: guardianFirstName.value,
+            lastName: guardianLastName.value,
+            email: guardianEmail.value,
+            phone: guardianPhone.value
+          },
+          clients: [packet]
+        },
+        { skipGlobalLoading: true }
+      );
+    }
+    officeEmailStatus.value = t('phiDownloadNotice');
+  } catch (err) {
+    officeEmailStatus.value = await messageFromPdfError(err);
+  } finally {
+    officeEmailSending.value = false;
+  }
+}
+
+async function maybeCreateOfficeCoGuardianInvite(finalizeData) {
+  if (isCoGuardianInvitee.value) return;
+  if (finalizeData?.coGuardianInvite?.inviteUrl) {
+    coGuardianInviteResult.value = finalizeData.coGuardianInvite;
+    return;
+  }
+  const rights = otherGuardian.hasLegalRights;
+  if (intakeForSelf.value !== false || (rights !== 'yes' && rights !== 'shared')) return;
+  const hasEmail = String(otherGuardian.email || '').includes('@');
+  const hasPhone = String(otherGuardian.phone || '').replace(/\D/g, '').length >= 7;
+  if (!hasEmail && !hasPhone) return;
+  const slug = String(agencyInfo.value?.portal_url || agencyInfo.value?.slug || '').trim();
+  if (!slug) return;
+  const ids = (finalizeData?.clientBundles || [])
+    .map((b) => Number(b?.clientId || b?.client_id || b?.id))
+    .filter(Boolean);
+  if (!ids.length) return;
+  try {
+    const { data } = await api.post(`/public/adaptive-intake/${encodeURIComponent(slug)}/co-guardian-invite`, {
+      source: isSchoolScopedIntake.value ? 'school' : 'office',
+      publicKey,
+      clientIds: ids,
+      sendEmail: !!otherGuardian.sendInvite,
+      otherGuardian: { ...otherGuardian, legalAuthority: rights }
+    });
+    coGuardianInviteResult.value = data;
+  } catch {
+    /* optional */
   }
 }
 
@@ -7519,8 +8014,11 @@ const submitConsent = async () => {
     || consentErrors.clientFirstName
     || consentErrors.clientLastName
     || consentErrors.organizationId
+    || !otherGuardianContactOk()
   ) {
-    error.value = consentErrors.organizationId
+    error.value = !otherGuardianContactOk()
+      ? t('otherGuardianNoEmailWarning')
+      : consentErrors.organizationId
       ? t('organizationRequired')
       : (
         formTypeKey.value === 'job_application'
@@ -7577,7 +8075,8 @@ const submitConsent = async () => {
       multiClientConsentDialogOpen.value = true;
       await nextTick();
       try {
-        const el = document.querySelector('.multi-client-plan-block');
+        const el = document.querySelector('.intake-start-consent')
+          || document.querySelector('.multi-client-plan-block');
         if (el && typeof el.scrollIntoView === 'function') {
           el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
@@ -7623,7 +8122,8 @@ const submitConsent = async () => {
       lastName: guardianLastName.value,
       email: guardianEmail.value,
       phone: guardianPhone.value,
-      relationship: intakeForSelf.value ? 'Self' : guardianRelationship.value
+      relationship: intakeForSelf.value ? 'Self' : guardianRelationship.value,
+      ...otherGuardianFieldBag()
     };
     const payload = {
       sessionToken: sessionToken.value || null,
@@ -7877,7 +8377,7 @@ const completeQuestionStep = async () => {
   if (Number.isInteger(childIdx)) {
     const bag = intakeResponses.clients[childIdx] || {};
     if (stepId === 'counseling_dep_about_child') {
-      if (!clients.value[childIdx]) clients.value[childIdx] = { firstName: '', lastName: '' };
+      if (!clients.value[childIdx]) clients.value[childIdx] = emptyOfficeClient();
       const first = String(bag.child_preferred_name || bag.child_legal_first || '').trim();
       const last = String(bag.child_legal_last || '').trim();
       if (first) clients.value[childIdx].firstName = first;
@@ -8647,13 +9147,15 @@ const finalizePacket = async () => {
       submissionId: submissionId.value,
       sessionToken: activeSessionToken || null,
       organizationId: organizationId.value,
+      coGuardianToken: String(route.query.coGuardian || '').trim() || null,
       clients: buildClientPayloads(),
       guardian: {
         firstName: guardianFirstName.value,
         lastName: guardianLastName.value,
         email: guardianEmail.value,
         phone: guardianPhone.value,
-        relationship: guardianRelationship.value
+        relationship: guardianRelationship.value,
+        ...otherGuardianFieldBag()
       },
       intakeData: {
         formLocale: intakeLocale.value,
@@ -8664,7 +9166,8 @@ const finalizePacket = async () => {
           lastName: guardianLastName.value,
           email: guardianEmail.value,
           phone: guardianPhone.value,
-          relationship: guardianRelationship.value
+          relationship: guardianRelationship.value,
+          ...otherGuardianFieldBag()
         },
         approval: approvalContext.value || null,
         // Audit trail for the multi-client signature consent prompt. Only
@@ -8718,9 +9221,13 @@ const finalizePacket = async () => {
     }
     step.value = 3;
     clearPersistedDraft();
+    void maybeCreateOfficeCoGuardianInvite(resp.data);
     if (!downloadUrl.value && !jobApplicationSubmitted.value && !hasPerChildPackets) {
       if (!isOfficeInDepthIntake.value) {
         pollForDownloadUrl();
+      } else if (!coGuardianInviteResult.value) {
+        pollingForDownload.value = false;
+        void pollOfficeCoGuardianInvite();
       } else {
         pollingForDownload.value = false;
       }
@@ -8765,6 +9272,9 @@ const pollForDownloadUrl = async (attemptLimit) => {
       // building, instead of waiting for ALL children to be ready.
       if (Array.isArray(resp.data?.clientBundles)) {
         clientBundleLinks.value = resp.data.clientBundles;
+        if (!coGuardianInviteResult.value?.inviteUrl) {
+          void maybeCreateOfficeCoGuardianInvite(resp.data);
+        }
       }
       if (resp.data?.emailDelivery) {
         emailDeliveryStatus.value = resp.data.emailDelivery;
@@ -8799,6 +9309,25 @@ const pollForDownloadUrl = async (attemptLimit) => {
   pollingForDownload.value = false;
 };
 
+async function pollOfficeCoGuardianInvite() {
+  if (coGuardianInviteResult.value?.inviteUrl || isCoGuardianInvitee.value) return;
+  for (let i = 0; i < 12; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    if (coGuardianInviteResult.value?.inviteUrl) return;
+    try {
+      const resp = await api.get(`/public-intake/${publicKey}/status/${submissionId.value}`, {
+        skipGlobalLoading: true
+      });
+      if (Array.isArray(resp.data?.clientBundles) && resp.data.clientBundles.length) {
+        await maybeCreateOfficeCoGuardianInvite(resp.data);
+        if (coGuardianInviteResult.value?.inviteUrl) return;
+      }
+    } catch {
+      /* keep trying */
+    }
+  }
+}
+
 const resetIntakeState = () => {
   agencyRegistrationCatalog.value = [];
   registrationCompletion.value = null;
@@ -8824,7 +9353,7 @@ const resetIntakeState = () => {
   jobDescriptionAcknowledged.value = false;
   jobAckPdfZoom.value = 125;
   signerInitials.value = '';
-  clients.value = [{ firstName: '', lastName: '' }];
+  clients.value = [emptyOfficeClient()];
   intakeResponses.guardian = {};
   intakeResponses.submission = {};
   intakeResponses.clients = [{}];
@@ -8960,7 +9489,7 @@ const handlePageChange = ({ currentPage, totalPages }) => {
 };
 
 const addClient = () => {
-  clients.value.push({ firstName: '', lastName: '' });
+  clients.value.push(emptyOfficeClient());
   intakeResponses.clients.push({});
 };
 
@@ -9026,7 +9555,8 @@ const onClickAddClient = () => {
   // Defer until the panel renders, then scroll it into view.
   setTimeout(() => {
     try {
-      const el = document.querySelector('.multi-client-plan-block');
+      const el = document.querySelector('.intake-start-consent')
+        || document.querySelector('.multi-client-plan-block');
       if (el && typeof el.scrollIntoView === 'function') {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
@@ -9505,7 +10035,7 @@ watch(
 
 watch(intakeForSelf, (val) => {
   if (!val) return;
-  clients.value = [{ firstName: '', lastName: '' }];
+  clients.value = [emptyOfficeClient()];
   intakeResponses.clients = [{}];
   consentErrors.clientFirstName = '';
   consentErrors.clientLastName = '';
@@ -12882,7 +13412,7 @@ onBeforeUnmount(() => {
   border-radius: 24px;
   padding: clamp(1.35rem, 3vw, 2.15rem);
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
-  width: min(860px, 100%);
+  width: min(1080px, 100%);
   margin: 0 auto;
   text-align: left;
 }
@@ -13018,9 +13548,9 @@ onBeforeUnmount(() => {
 }
 
 .intake-start-page .ai-pathway-card {
-  min-height: 5.5rem;
+  min-height: 3.35rem;
   text-align: left;
-  padding: 0.9rem 1rem;
+  padding: 0.65rem 0.85rem;
 }
 
 .intake-start-grid {
@@ -13043,9 +13573,121 @@ onBeforeUnmount(() => {
 }
 
 .intake-start-page .intake-identity-grid {
-  max-width: 36rem;
-  margin-left: auto;
-  margin-right: auto;
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 0.75rem;
+  align-items: flex-end;
+}
+
+.intake-start-page .intake-identity-grid .form-group {
+  grid-column: auto;
+  margin: 0;
+  min-width: 0;
+}
+
+.intake-start-page .intake-identity-grid .form-group--name { width: 13.5rem; }
+.intake-start-page .intake-identity-grid .form-group--middle { width: 10.5rem; }
+.intake-start-page .intake-identity-grid .form-group--phone,
+.intake-start-page .intake-identity-grid .form-group--dob { width: 11.25rem; }
+.intake-start-page .intake-identity-grid .form-group--email { width: 18.5rem; }
+.intake-start-page .intake-identity-grid .form-group--rel { width: 16rem; }
+
+.intake-start-page .intake-identity-grid input,
+.intake-start-page .intake-identity-grid select {
+  width: 100%;
+}
+
+.intake-start-dependents {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  align-items: flex-start;
+}
+
+.intake-start-child {
+  flex: 1 1 22rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.65rem;
+  margin: 0;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid #d7e3dc;
+  border-radius: 12px;
+  background: #f8fbf9;
+}
+
+.intake-start-child-head {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.92rem;
+}
+
+.intake-start-add-child {
+  display: flex;
+  align-items: center;
+  min-height: 4.5rem;
+}
+
+.intake-start-consent,
+.intake-start-consent-note {
+  width: 100%;
+}
+
+@media (max-width: 720px) {
+  .intake-start-page .intake-identity-grid .form-group--name,
+  .intake-start-page .intake-identity-grid .form-group--middle,
+  .intake-start-page .intake-identity-grid .form-group--phone,
+  .intake-start-page .intake-identity-grid .form-group--dob,
+  .intake-start-page .intake-identity-grid .form-group--email,
+  .intake-start-page .intake-identity-grid .form-group--rel {
+    width: 100%;
+  }
+  .intake-start-child {
+    flex: 1 1 100%;
+  }
+}
+
+.intake-start-child-remove,
+.intake-same-as-me {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 700;
+}
+
+.intake-start-child-remove {
+  color: #64748b;
+  font-size: 0.82rem;
+}
+
+.intake-same-as-me {
+  margin-left: 0.45rem;
+  color: var(--df-primary, #1b3d2f);
+  font-size: 0.8rem;
+  text-decoration: underline;
+}
+
+.intake-start-add-child,
+.intake-start-consent,
+.intake-start-consent-note {
+  grid-column: 1 / -1;
+}
+
+.intake-start-add-child {
+  margin: 0.15rem 0 0.2rem;
+}
+
+.intake-start-consent-note {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.88rem;
 }
 
 .intake-start-list {
@@ -13311,10 +13953,37 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;
-  align-items: center;
+  align-items: flex-start;
   margin-top: 1rem;
   padding-top: 0.85rem;
   border-top: 1px solid #d7e3dc;
+}
+.intake-start-custody {
+  width: 100%;
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.75rem;
+  border: 1px solid #d7e3dc;
+  border-radius: 12px;
+}
+.intake-start-custody select,
+.intake-start-custody input {
+  width: 100%;
+  min-height: 2.35rem;
+}
+.office-email-copy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  width: 100%;
+  margin-top: 0.5rem;
+}
+.office-email-copy input {
+  flex: 1 1 12rem;
+  min-height: 2.4rem;
+  border: 1px solid #d7e3dc;
+  border-radius: 10px;
+  padding: 0.35rem 0.65rem;
 }
 .office-complete-download-error {
   margin: 0.45rem 0 0;

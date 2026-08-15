@@ -173,3 +173,17 @@ export const publicSchoolReferralTicketLimiter = rateLimit({
     return slug ? `school-referral-ticket:${slug}:${ip}` : `school-referral-ticket:${ip}`;
   }
 });
+
+/** Public tenant/agency website support form. */
+export const publicAgencySupportTicketLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isDevelopment ? 30 : 5,
+  message: { error: { message: 'Too many support messages from this network. Please try again later.' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const slug = String(req.params?.agencySlug || '').trim().toLowerCase();
+    const ip = getClientIpAddress(req) || req.ip || 'unknown';
+    return slug ? `agency-support-ticket:${slug}:${ip}` : `agency-support-ticket:${ip}`;
+  }
+});

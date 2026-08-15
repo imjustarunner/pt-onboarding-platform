@@ -80,6 +80,20 @@
     </div>
 
     <div v-else class="packet-editor-body">
+      <section class="legal-copy-card">
+        <h3>Age of consent &amp; other-guardian resources</h3>
+        <p class="muted">Shown on school/office intake when another parent has medical decision-making rights, and injected into the Minor Consent packet section. Support/admin can also edit this on the live intake page.</p>
+        <label>Lead<textarea v-model="legalDraft.otherGuardianLead" rows="2" /></label>
+        <label>Age of consent note<textarea v-model="legalDraft.ageOfConsentNote" rows="3" /></label>
+        <label>No-email delay warning<textarea v-model="legalDraft.noEmailWarning" rows="2" /></label>
+        <div v-for="(r, idx) in legalDraft.resources" :key="idx" class="legal-res">
+          <input v-model.trim="r.label" placeholder="Link label" />
+          <input v-model.trim="r.url" placeholder="https://" />
+        </div>
+        <button class="btn btn-secondary btn-sm" type="button" :disabled="legalSaving || !agencySlug" @click="saveLegalCopy">
+          {{ legalSaving ? 'Saving…' : 'Save resource copy' }}
+        </button>
+      </section>
       <HtmlDocumentBuilder
         v-model="htmlContent"
         placeholder="Packet template HTML…"
@@ -91,9 +105,10 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, reactive } from 'vue';
 import api from '../../../services/api';
 import HtmlDocumentBuilder from '../../documents/HtmlDocumentBuilder.vue';
+import { useAgencyStore } from '../../../store/agency';
 
 const props = defineProps({
   schoolOrganizationId: { type: [Number, String], required: true },
@@ -127,6 +142,17 @@ const historyLoading = ref(false);
 const versions = ref([]);
 const previewHtml = ref('');
 const previewVersion = ref(null);
+const legalSaving = ref(false);
+const legalDraft = reactive({
+  otherGuardianLead: '',
+  ageOfConsentNote: '',
+  noEmailWarning: '',
+  resources: [{ label: '', url: '' }, { label: '', url: '' }]
+});
+const agencyStore = useAgencyStore();
+const agencySlug = computed(() =>
+  String(agencyStore.currentAgency?.portal_url || agencyStore.currentAgency?.slug || '').trim()
+);
 
 const dirty = computed(() => htmlContent.value !== originalHtml.value);
 const localeLabel = computed(() => (locale.value === 'es' ? 'ES' : 'EN'));
@@ -187,6 +213,7 @@ const load = async () => {
     htmlContent.value = String(res.data?.html_content || '');
     originalHtml.value = htmlContent.value;
     version.value = Number(res.data?.version || 1);
+    await loadLegalCopy();
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load packet template';
   } finally {
@@ -203,6 +230,40 @@ const switchLocale = async (next) => {
   }
   locale.value = loc;
   await load();
+};
+
+const loadLegalCopy = async () => {
+  if (!agencySlug.value) return;
+  try {
+    const { data } = await api.get(`/public/agency-support/${encodeURIComponent(agencySlug.value)}`, {
+      skipGlobalLoading: true
+    });
+    const pack = data?.intakeLegal?.[locale.value] || data?.intakeLegal?.en || {};
+    legalDraft.otherGuardianLead = pack.otherGuardianLead || '';
+    legalDraft.ageOfConsentNote = pack.ageOfConsentNote || '';
+    legalDraft.noEmailWarning = pack.noEmailWarning || '';
+    const list = Array.isArray(pack.resources) ? pack.resources.map((r) => ({ label: r.label || '', url: r.url || '' })) : [];
+    while (list.length < 2) list.push({ label: '', url: '' });
+    legalDraft.resources = list.slice(0, 4);
+  } catch {
+    /* keep empty until save */
+  }
+};
+
+const saveLegalCopy = async () => {
+  if (!agencySlug.value) return;
+  legalSaving.value = true;
+  try {
+    await api.patch(`/public/agency-support/${encodeURIComponent(agencySlug.value)}/settings`, {
+      locale: locale.value,
+      intakeLegal: { ...legalDraft }
+    });
+    success.value = 'Saved age-of-consent / other-guardian copy.';
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to save resource copy';
+  } finally {
+    legalSaving.value = false;
+  }
 };
 
 const save = async () => {
@@ -300,7 +361,28 @@ onMounted(load);
   border: 1px solid #e5e7eb;
   border-radius: 10px;
   padding: 10px;
+  display: grid;
+  gap: 12px;
 }
+.legal-copy-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.legal-copy-card h3 { margin: 0; font-size: 15px; }
+.legal-copy-card label { display: grid; gap: 4px; font-size: 12px; font-weight: 700; }
+.legal-copy-card textarea,
+.legal-res input {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+}
+.legal-res { display: grid; grid-template-columns: 1fr 1.4fr; gap: 6px; }
 .version-history {
   border: 1px solid #e5e7eb;
   border-radius: 10px;

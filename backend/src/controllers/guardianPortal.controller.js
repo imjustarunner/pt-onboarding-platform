@@ -67,10 +67,19 @@ function getOrgSlug(org) {
   return String(org?.portal_url || org?.slug || '').trim() || null;
 }
 
+function firstNameOnly(fullName) {
+  return String(fullName || '').trim().split(/\s+/)[0] || '';
+}
+
 function enrichGuardianClientRow(c) {
   if (!c || typeof c !== 'object') return c;
+  const noView = ClientGuardian.isNoView(c.permissions_json);
+  const fullName = c.full_name ? String(c.full_name).trim() : '';
   return {
     ...c,
+    full_name: noView ? (firstNameOnly(fullName) || c.initials || 'Dependent') : (fullName || c.full_name),
+    date_of_birth: noView ? null : c.date_of_birth,
+    no_view: noView,
     guardian_portal_locked: isDobAdultLocked(c.date_of_birth)
   };
 }
@@ -194,10 +203,13 @@ export const getGuardianPortalOverview = async (req, res, next) => {
         target.billing_agency_logo_url = c?.agency_logo_url || null;
       }
       const meta = clientMetaById.get(Number(c?.client_id));
+      const noView = ClientGuardian.isNoView(c.permissions_json);
+      const fullName = c?.full_name ? String(c.full_name).trim() : '';
       target.children.push({
         client_id: Number(c?.client_id) || null,
         initials: c?.initials || null,
-        full_name: c?.full_name ? String(c.full_name).trim() || null : null,
+        full_name: noView ? (firstNameOnly(fullName) || c?.initials || 'Dependent') : (fullName || null),
+        no_view: noView,
         guardian_portal_locked: isDobAdultLocked(meta?.date_of_birth)
       });
     }
@@ -1022,7 +1034,7 @@ export const listGuardianDependentsForAgency = async (req, res, next) => {
       `SELECT c.id AS client_id, c.initials, c.full_name, c.grade,
               c.organization_id,
               o.name AS organization_name,
-              cg.relationship_type, cg.relationship_title
+              cg.relationship_type, cg.relationship_title, cg.permissions_json
        FROM client_guardians cg
        JOIN clients c ON c.id = cg.client_id
        LEFT JOIN agencies o ON o.id = c.organization_id
@@ -1032,15 +1044,20 @@ export const listGuardianDependentsForAgency = async (req, res, next) => {
        ORDER BY c.full_name ASC`,
       [uid, agencyId]
     );
-    const dependents = (depRows || []).map((c) => ({
-      clientId: Number(c.client_id),
-      initials: c.initials || null,
-      fullName: c.full_name ? String(c.full_name).trim() || null : null,
-      grade: c.grade ?? null,
-      organizationId: Number(c.organization_id) || null,
-      organizationName: c.organization_name || null,
-      relationshipTitle: c.relationship_title || null
-    }));
+    const dependents = (depRows || []).map((c) => {
+      const noView = ClientGuardian.isNoView(c.permissions_json);
+      const fullName = c.full_name ? String(c.full_name).trim() : '';
+      return {
+        clientId: Number(c.client_id),
+        initials: c.initials || null,
+        fullName: noView ? (firstNameOnly(fullName) || c.initials || 'Dependent') : (fullName || null),
+        grade: noView ? null : (c.grade ?? null),
+        organizationId: Number(c.organization_id) || null,
+        organizationName: c.organization_name || null,
+        relationshipTitle: c.relationship_title || null,
+        noView
+      };
+    });
     res.json({ ok: true, dependents });
   } catch (e) {
     next(e);
@@ -1243,6 +1260,12 @@ export const listMyClientIntakeSignedDocuments = async (req, res, next) => {
     if (!uid) return res.status(401).json({ error: { message: 'Unauthorized' } });
     const clientId = parsePositiveInt(req.params.clientId);
     if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+    const link = await ClientGuardian.getLink({ clientId, guardianUserId: uid });
+    if (ClientGuardian.isNoView(link?.permissions_json)) {
+      return res.status(403).json({
+        error: { message: 'These records are not available on this guardian relationship.', code: 'GUARDIAN_NO_VIEW' }
+      });
+    }
     if (await isClientAdultLockedForGuardian(clientId)) {
       return res.status(403).json({
         error: { message: 'Not available for this client.', code: 'GUARDIAN_ADULT_CLIENT' }
@@ -1269,6 +1292,12 @@ export const getMyClientIntakeSignedDocumentDownloadUrl = async (req, res, next)
     const documentId = parsePositiveInt(req.params.documentId);
     if (!clientId || !documentId) {
       return res.status(400).json({ error: { message: 'clientId and documentId are required' } });
+    }
+    const link = await ClientGuardian.getLink({ clientId, guardianUserId: uid });
+    if (ClientGuardian.isNoView(link?.permissions_json)) {
+      return res.status(403).json({
+        error: { message: 'These records are not available on this guardian relationship.', code: 'GUARDIAN_NO_VIEW' }
+      });
     }
     if (await isClientAdultLockedForGuardian(clientId)) {
       return res.status(403).json({

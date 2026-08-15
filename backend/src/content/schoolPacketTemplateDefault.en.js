@@ -247,6 +247,15 @@ export const DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML = `
   <h2>MINOR CONSENT</h2>
   <p>Counseling services for minors require clear legal authorization. This includes the consent and approval for treatment from both parents or guardians, unless there is specific documentation provided at intake that states otherwise, or in cases where the parents are married and share dual full custody. The signature of a legal custodial parent or guardian on the intake documentation authorizes ITSCO to conduct a mental health assessment and provide treatment to the named minor child. This authorization remains valid until the professional relationship is terminated or the consent is explicitly revoked.</p>
   <p>It's essential for ITSCO to ensure that the individual seeking services for a minor has the legal right to do so. In situations of divorce, both parents' consent is necessary for the minor to receive services. Divorced parents, step-parents, grandparents, guardians, or others may need to provide a copy of the court order that establishes them as the legal custodian of the minor. This process is in place to safeguard the therapeutic environment and to uphold the minor's right to privacy and confidential therapy, in accordance with legal requirements and professional ethics.</p>
+  <!-- intake-legal-resources -->
+  <div class="packet-intake-legal">
+    <p>We follow applicable Colorado law and professional ethics. In Colorado, a minor 12 or older may be able to consent to psychotherapy in some situations. This is information, not legal advice. Your assigned provider will apply the rules that fit this child’s care.</p>
+    <ul>
+      <li><a href="https://resources.csi.state.co.us/wp-content/uploads/2022/07/GT-Alert_Colorado-Lowers-Age-of-Consent-for-Psychotherapy-Services-to-12-Years-Old.pdf" target="_blank" rel="noopener noreferrer">Colorado age of consent for psychotherapy (CSI / GT alert, 2019)</a></li>
+      <li><a href="https://leg.colorado.gov/bills/hb17-1320" target="_blank" rel="noopener noreferrer">Colorado HB17-1320 (related bill history)</a></li>
+    </ul>
+  </div>
+  <!-- /intake-legal-resources -->
 
   <div class="page-break"></div>
   <h2>INFORMED CONSENT</h2>

@@ -170,6 +170,7 @@ import publicUnifiedBookingRoutes from './routes/publicUnifiedBooking.routes.js'
 import platformSessionNotificationsRoutes from './routes/platformSessionNotifications.routes.js';
 import publicSchoolsRoutes from './routes/publicSchools.routes.js';
 import publicSchoolReferralRoutes from './routes/publicSchoolReferral.routes.js';
+import publicAgencySupportRoutes from './routes/publicAgencySupport.routes.js';
 import skillBuildersProviderHubRoutes from './routes/skillBuildersProviderHub.routes.js';
 import publicSkillBuildersRoutes from './routes/publicSkillBuilders.routes.js';
 import publicProgramEventKioskRoutes from './routes/publicProgramEventKiosk.routes.js';
@@ -684,6 +685,7 @@ app.use('/api/platform/session-notification-settings', platformSessionNotificati
 app.use('/api/public/provider-availability', publicProviderAvailabilityRoutes);
 app.use('/api/public/schools', publicSchoolsRoutes);
 app.use('/api/public/school-referral', publicSchoolReferralRoutes);
+app.use('/api/public/agency-support', publicAgencySupportRoutes);
 app.use('/api/public/skill-builders', publicSkillBuildersRoutes);
 app.use('/api/public/program-event', publicProgramEventKioskRoutes);
 app.use('/api/public/school-events', publicSchoolEventsKioskRoutes);

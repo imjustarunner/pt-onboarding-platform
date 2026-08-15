@@ -313,10 +313,22 @@
 .df-main-header {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 1rem;
   padding: clamp(0.85rem, 2vw, 1.35rem) clamp(1.25rem, 3vw, 2rem) 0.5rem;
   flex-wrap: wrap;
+}
+
+.df-main-header-left {
+  margin-right: auto;
+}
+
+.df-main-header-left .df-btn-secondary {
+  background: #fff;
+  color: #143528;
+  border: 1.5px solid #1b3d2f;
+  font-weight: 700;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.18);
 }
 
 .df-main-body {
@@ -552,6 +564,9 @@
   gap: 0.35rem;
   margin-bottom: 1rem;
 }
+.df-field--compact { max-width: 15rem; }
+.df-field--xs { max-width: 11.25rem; }
+.df-field--email { max-width: 20rem; }
 
 .df-field-label {
   font-size: 0.875rem;
@@ -793,13 +808,15 @@
 }
 
 .df-btn-secondary {
-  background: transparent;
-  color: var(--df-primary);
-  border-color: color-mix(in srgb, var(--df-primary) 35%, var(--df-border));
+  background: #fff;
+  color: #143528;
+  border: 1.5px solid #1b3d2f;
+  font-weight: 700;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.16);
 }
 
 .df-btn-secondary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--df-primary) 6%, #fff);
+  background: #f4faf6;
 }
 
 .df-btn-ghost {

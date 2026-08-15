@@ -320,3 +320,8 @@ export function pdfFilename(parts, fallback = 'intake-summary.pdf') {
     .slice(0, 80);
   return slug ? `${slug}.pdf` : fallback;
 }
+
+export function recordPdfFilename({ tenant, initials, dateOfBirth, fallback = 'intake-summary.pdf' } = {}) {
+  const dob = String(dateOfBirth || '').replace(/[^0-9]/g, '');
+  return pdfFilename([tenant, initials, dob], fallback);
+}

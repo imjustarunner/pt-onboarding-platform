@@ -12,6 +12,8 @@ import { buildRegistrationTicketPdf } from '../services/registrationTicketPdf.se
 import DocumentSigningService from '../services/documentSigning.service.js';
 import PublicIntakeClientService, { deriveInitials } from '../services/publicIntakeClient.service.js';
 import { isOfficeEarlyAccountProvisionLink } from '../utils/officeIntakeLink.js';
+import * as CoGuardianInvite from '../services/coGuardianInvite.service.js';
+import { resolveIntakeLegalFromTheme } from '../content/intakeLegalCopy.js';
 import {
   agencyReturningGuardianAutoMatchEnabled,
   tryReturningGuardianAutoMatch
@@ -5098,6 +5100,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
         : { siteKey: null, useEnterprise: false, forceWidget: false },
       organization: toOrgPayload(organization),
       agency: toOrgPayload(agency),
+      intakeLegal: resolveIntakeLegalFromTheme(agency?.theme_settings, link.language_code || 'en'),
       branding: await buildPublicFormBranding({
         organization,
         agency,
@@ -7308,7 +7311,23 @@ export const finalizePublicIntake = async (req, res, next) => {
     let newGuardianPasswordlessLoginUrl = null;
     let createdClients = [];
     let returningAutoMatchInitialsForEmail = '';
-    if (link.create_client) {
+    let coGuardianInviteResult = null;
+    const coGuardianToken = String(req.body?.coGuardianToken || '').trim();
+    if (coGuardianToken) {
+      try {
+        const binding = await CoGuardianInvite.resolveCoGuardianIntakeBinding(coGuardianToken);
+        if (binding?.clients?.length) {
+          createdClients = binding.clients;
+          updatedSubmission = await IntakeSubmission.updateById(submissionId, {
+            client_id: createdClients[0].id,
+            guardian_user_id: binding.acceptedUserId || updatedSubmission.guardian_user_id || null
+          });
+        }
+      } catch (bindErr) {
+        console.warn('[publicIntake] co-guardian binding skipped', bindErr?.message || bindErr);
+      }
+    }
+    if (link.create_client && !createdClients.length) {
       // Retry guard: the submission status is written 'submitted' before PDF
       // generation completes (see updateById above). If finalize fails after
       // client creation but before the PDF is saved, a subsequent retry falls
@@ -7739,11 +7758,40 @@ export const finalizePublicIntake = async (req, res, next) => {
       })();
     }
 
+    if (!coGuardianToken) {
+      try {
+        let agencyIdForInvite = await resolveAgencyIdForLink(link);
+        if (String(link.scope_type || '').toLowerCase() === 'school' && link.organization_id) {
+          const tenantId = await AgencySchool.getActiveAgencyIdForSchool(link.organization_id);
+          if (tenantId) agencyIdForInvite = tenantId;
+        }
+        const ids = (createdClients || []).map((c) => Number(c.id)).filter(Boolean);
+        if (agencyIdForInvite && ids.length) {
+          const scope = String(link.scope_type || '').toLowerCase() === 'school' ? 'school' : 'office';
+          coGuardianInviteResult = await CoGuardianInvite.maybeCreateFromIntakeGuardian({
+            agencyId: agencyIdForInvite,
+            intakeData,
+            clientIds: ids,
+            source: scope,
+            publicKey
+          });
+        }
+      } catch (inviteErr) {
+        console.warn('[publicIntake] co-guardian invite skipped', inviteErr?.message || inviteErr);
+      }
+    }
+
     res.json({
       success: true,
       submission: updatedSubmission,
       status: 'processing',
       submissionId,
+      clientBundles: (createdClients || []).map((c) => ({
+        clientId: c.id,
+        clientName: c.full_name || c.fullName || '',
+        initials: c.initials || null
+      })),
+      coGuardianInvite: coGuardianInviteResult,
       registrationReturningAutoMatch: returningAutoMatchInitialsForEmail
         ? { matched: true, initials: returningAutoMatchInitialsForEmail }
         : null

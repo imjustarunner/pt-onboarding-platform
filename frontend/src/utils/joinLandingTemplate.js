@@ -135,7 +135,76 @@ export function fontFamilyById(id) {
   return JOIN_FONT_OPTIONS.find((f) => f.id === id)?.family || '"Source Sans 3", sans-serif';
 }
 
+/** Public static files in frontend/public/assets/intake-themes (no auth). */
 export const JOIN_BOOT_THEME_URL = '/assets/intake-themes/greenintakethemecounseling.jpg';
+export const PUBLIC_SUPPORT_THEME_URL = '/assets/intake-themes/greenintakethemecounselingV2.jpg';
+export const PUBLIC_INTAKE_THEME_URLS = Object.freeze({
+  counseling: JOIN_BOOT_THEME_URL,
+  counselingSupport: PUBLIC_SUPPORT_THEME_URL,
+  counselingBlue: '/assets/intake-themes/blueintakethemecounseling.jpg',
+  tutoring: '/assets/intake-themes/bluetutoringtheme.jpg',
+  sidebarGreen: '/assets/intake-themes/backgroundsidegreen.jpg'
+});
+
+export const PUBLIC_SUPPORT_LAYOUT_KEYS = [
+  'logo',
+  'kicker',
+  'title',
+  'lead',
+  'login',
+  'join',
+  'careers',
+  'booking',
+  'billing',
+  'card'
+];
+
+export function defaultPublicSupportLayout() {
+  const positions = {};
+  for (const key of PUBLIC_SUPPORT_LAYOUT_KEYS) positions[key] = { x: 0, y: 0 };
+  return {
+    positions,
+    sizes: {
+      logoWidth: 72,
+      kickerWidth: 240,
+      titleWidth: 280,
+      leadWidth: 280,
+      loginWidth: 280,
+      joinWidth: 280,
+      careersWidth: 280,
+      bookingWidth: 280,
+      billingWidth: 280,
+      title: 1.85,
+      lead: 0.9,
+      kicker: 0.74,
+      cardWidth: 980
+    }
+  };
+}
+
+function mergeSupportPoint(saved, fallback) {
+  return {
+    x: Number.isFinite(Number(saved?.x)) ? Number(saved.x) : fallback.x,
+    y: Number.isFinite(Number(saved?.y)) ? Number(saved.y) : fallback.y
+  };
+}
+
+export function mergePublicSupportLayout(saved) {
+  const base = defaultPublicSupportLayout();
+  if (!saved || typeof saved !== 'object') return base;
+  const positions = { ...base.positions };
+  for (const key of PUBLIC_SUPPORT_LAYOUT_KEYS) {
+    const next = mergeSupportPoint(saved.positions?.[key] || saved[key], base.positions[key]);
+    positions[key] = looksBrokenPosition(next) ? { ...base.positions[key] } : next;
+  }
+  const sizes = { ...base.sizes };
+  const incoming = saved.sizes && typeof saved.sizes === 'object' ? saved.sizes : {};
+  for (const key of Object.keys(sizes)) {
+    const n = Number(incoming[key]);
+    if (Number.isFinite(n)) sizes[key] = n;
+  }
+  return { positions, sizes };
+}
 
 export function restoreJoinWelcomeCopy(copy, agencyName) {
   const org = String(agencyName || 'our team').trim() || 'our team';
@@ -184,7 +253,7 @@ export function defaultIntakeStartLayout() {
   return {
     x: 0,
     y: 8,
-    width: 860,
+    width: 1080,
     welcome: { x: 0, y: 0 },
     glad: { x: 0, y: 0 },
     brand: { x: 0, y: 0 },
@@ -222,8 +291,7 @@ export function defaultIntakeStartLayout() {
 }
 
 export const DEFAULT_QUICK_SIDEBAR_STEPS = [
-  { id: 'who', label: 'Who is this for?' },
-  { id: 'basics', label: 'Basic Information' },
+  { id: 'about', label: 'About You' },
   { id: 'needs', label: 'What support?' },
   { id: 'prefs', label: 'Preferences' },
   { id: 'providers', label: 'Provider preview' },
@@ -233,9 +301,13 @@ export const DEFAULT_QUICK_SIDEBAR_STEPS = [
 
 export function mergeQuickSidebarSteps(saved) {
   const base = DEFAULT_QUICK_SIDEBAR_STEPS.map((step) => ({ ...step }));
-  if (!Array.isArray(saved) || !saved.length) return base;
+  let list = Array.isArray(saved) ? saved.filter((step) => step && typeof step === 'object') : [];
+  if (list.length === 7 && (list[0]?.id === 'who' || String(list[0]?.label || '').toLowerCase().includes('who'))) {
+    list = [{ id: 'about', label: String(list[1]?.label || 'About You').trim() || 'About You' }, ...list.slice(2)];
+  }
+  if (!list.length) return base;
   return base.map((step, i) => {
-    const src = saved[i] && typeof saved[i] === 'object' ? saved[i] : {};
+    const src = list[i] && typeof list[i] === 'object' ? list[i] : {};
     const label = String(src.label || '').trim();
     return { ...step, label: label || step.label };
   });
@@ -276,7 +348,9 @@ export function mergeIntakeStartLayout(saved) {
   return {
     x: broken ? base.x : x,
     y: broken ? base.y : y,
-    width: Number.isFinite(width) ? Math.min(1200, Math.max(420, width)) : base.width,
+    width: Number.isFinite(width)
+      ? Math.min(1200, Math.max(420, width === 860 ? base.width : width))
+      : base.width,
     welcome: looksBrokenPosition(saved.welcome) ? { ...base.welcome } : mergeStartPoint(saved.welcome, base.welcome),
     glad: looksBrokenPosition(saved.glad) ? { ...base.glad } : mergeStartPoint(saved.glad, base.glad),
     brand: looksBrokenPosition(saved.brand) ? { ...base.brand } : mergeStartPoint(saved.brand, base.brand),

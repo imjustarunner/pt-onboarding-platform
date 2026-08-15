@@ -736,6 +736,8 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
 
   const clientFirst =
     String(clientInfo.firstName || respondent.firstName || payload.firstName || '').trim();
+  const clientMiddle =
+    String(clientInfo.middleName || respondent.middleName || payload.middleName || '').trim();
   const clientLast =
     String(clientInfo.lastName || respondent.lastName || payload.lastName || '').trim();
 
@@ -752,7 +754,9 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     agencySlugOrId: agencyRow.id,
     payload: {
       firstName: clientFirst,
+      middleName: clientMiddle,
       lastName: clientLast,
+      fullName: [clientFirst, clientMiddle, clientLast].filter(Boolean).join(' '),
       contactPhone: respondent.phone || payload.contactPhone || payload.phone,
       dateOfBirth: birthdate,
       homeAddress,
@@ -855,6 +859,81 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     /* non-fatal */
   }
 
+  const extraDependents = whoFor === 'myself'
+    ? []
+    : (Array.isArray(payload.additionalDependents) ? payload.additionalDependents : []);
+  const extraCreated = [];
+  for (const dep of extraDependents) {
+    const extraFirst = String(dep?.firstName || '').trim();
+    const extraMiddle = String(dep?.middleName || '').trim();
+    const extraLast = String(dep?.lastName || '').trim();
+    if (!extraFirst || !extraLast) continue;
+    const extraDob = normalizeBirthdate(dep.dateOfBirth || dep.birthdate);
+    const extraConcern = String(dep.notes || dep.presentingConcern || '').trim() || accomplishGoal;
+    try {
+      const { client: extraClient } = await ClientExchange.createPublicOfficeIntakeClient({
+        agencySlugOrId: agencyRow.id,
+        payload: {
+          firstName: extraFirst,
+          middleName: extraMiddle,
+          lastName: extraLast,
+          fullName: [extraFirst, extraMiddle, extraLast].filter(Boolean).join(' '),
+          contactPhone: respondent.phone || payload.contactPhone || payload.phone,
+          dateOfBirth: extraDob,
+          homeAddress,
+          addressStreet: addressInfo.street || homeAddress,
+          addressApt: addressInfo.apt || null,
+          addressCity: addressInfo.city || null,
+          addressState: addressInfo.state || null,
+          addressZip: addressInfo.zip || null,
+          presentingConcern: extraConcern || payload.notes || null,
+          preferredDays: preferences.preferredDays || payload.preferredDays,
+          preferredTimeOfDay: preferences.preferredTimeOfDay || payload.preferredTimeOfDay,
+          preferredModality: preferences.preferredModality || payload.preferredModality,
+          preferredLocation: preferences.preferredLocation || payload.preferredLocation,
+          insuranceOrPayment: preferences.insuranceOrPayment || payload.insuranceOrPayment,
+          clientType
+        }
+      });
+      extraCreated.push({
+        client: extraClient,
+        firstName: extraFirst,
+        middleName: extraMiddle,
+        lastName: extraLast,
+        dateOfBirth: extraDob
+      });
+      const extraMeta = {
+        ...meta,
+        additionalDependent: true,
+        linkedPrimaryClientId: client.id,
+        birthdate: extraDob,
+        notes: dep.notes || payload.notes || null
+      };
+      try {
+        await pool.execute(`UPDATE clients SET adaptive_intake_meta_json = ?, source = ? WHERE id = ?`, [
+          JSON.stringify(extraMeta),
+          'ADAPTIVE_QUICK_PROSPECTIVE',
+          extraClient.id
+        ]);
+      } catch (err) {
+        if (!/Unknown column|adaptive_intake_meta/i.test(String(err?.message || ''))) throw err;
+      }
+      try {
+        await notifyNewProspectiveInquiry({
+          agencyId: agencyRow.id,
+          clientId: extraClient.id,
+          clientName: extraClient.full_name || `${extraFirst} ${extraLast}`.trim(),
+          pathway: 'quick_prospective',
+          vertical
+        });
+      } catch {
+        /* non-fatal */
+      }
+    } catch (err) {
+      console.warn('Quick prospective additional dependent skipped:', err?.message || err);
+    }
+  }
+
   const acknowledgments = Array.isArray(payload.acknowledgments)
     ? payload.acknowledgments.map((line) => String(line || '').trim()).filter(Boolean)
     : [];
@@ -869,11 +948,45 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     agencyRow
   });
 
+  if (temporaryAccess?.userId && extraCreated.length) {
+    for (const extra of extraCreated) {
+      await ClientGuardian.upsertLink({
+        clientId: extra.client.id,
+        guardianUserId: temporaryAccess.userId,
+        relationshipType: 'guardian',
+        relationshipTitle: 'Guardian',
+        accessEnabled: true
+      }).catch(() => null);
+    }
+  }
+
+  function packetClientRow(rowClient, firstName, middleName, lastName, dob) {
+    const initials = [firstName, middleName, lastName]
+      .filter(Boolean)
+      .map((part) => String(part)[0].toUpperCase())
+      .join('');
+    return {
+      clientId: rowClient.id,
+      identifierCode: rowClient.identifier_code,
+      initials,
+      dateOfBirth: dob || null,
+      clientName: [firstName, middleName, lastName].filter(Boolean).join(' ')
+    };
+  }
+
+  const packetClients = [
+    packetClientRow(client, clientFirst, clientMiddle, clientLast, birthdate),
+    ...extraCreated.map((extra) =>
+      packetClientRow(extra.client, extra.firstName, extra.middleName, extra.lastName, extra.dateOfBirth)
+    )
+  ];
+
   return {
     client,
     confirmation: {
       identifierCode: client.identifier_code,
       clientId: client.id,
+      packetClients,
       submittedAt: new Date().toISOString(),
       pathway: 'quick_prospective',
       summary: {
@@ -882,7 +995,7 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
           whoFor === 'myself'
             ? 'Myself'
             : whoFor === 'child'
-              ? 'My child / dependent'
+              ? 'My dependent'
               : whoFor === 'legal'
                 ? 'Someone I have legal authority for'
                 : humanizeToken(whoFor),

@@ -841,6 +841,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/support/:agencySlug',
+    name: 'AgencyPublicSupportAlias',
+    component: () => import('../views/public/AgencyPublicSupportView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
     path: '/:organizationSlug/terms',
     name: 'OrganizationLegalTerms',
     component: () => import('../views/public/LegalDocumentView.vue'),
@@ -867,7 +873,7 @@ const routes = [
   {
     path: '/:organizationSlug/support',
     name: 'OrganizationPublicSupport',
-    component: () => import('../views/public/SupportView.vue'),
+    component: () => import('../views/public/AgencyPublicSupportView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
@@ -3257,6 +3263,12 @@ const routes = [
     meta: { requiresGuest: false, hideNav: true }
   },
   {
+    path: '/join/:agencySlug/:serviceType(counseling|tutoring|coaching|consulting)/co-guardian/:token',
+    name: 'CoGuardianInvite',
+    component: () => import('../views/public/CoGuardianInviteView.vue'),
+    meta: { requiresGuest: false, hideNav: true }
+  },
+  {
     path: '/join/:agencySlug/:serviceType(counseling|tutoring|coaching|consulting)',
     name: 'AdaptiveJoinService',
     component: () => import('../views/public/AdaptiveJoinView.vue'),
@@ -3285,6 +3297,12 @@ const routes = [
       query: to.query,
       hash: to.hash
     })
+  },
+  {
+    path: '/:organizationSlug/join/:serviceType(counseling|tutoring|coaching|consulting)/co-guardian/:token',
+    name: 'OrganizationCoGuardianInvite',
+    component: () => import('../views/public/CoGuardianInviteView.vue'),
+    meta: { requiresGuest: false, hideNav: true, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/join/:serviceType(counseling|tutoring|coaching|consulting)',

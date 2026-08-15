@@ -22,6 +22,7 @@ import {
   isSchoolPrintablePacketEnabled
 } from '../constants/schoolPrintablePacket.js';
 import { DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML } from '../content/schoolPacketTemplateDefault.en.js';
+import { injectIntakeLegalIntoPacketHtml, resolveIntakeLegalFromTheme } from '../content/intakeLegalCopy.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -472,6 +473,7 @@ export async function buildSchoolPrintablePacketContext({ organizationId, locale
   }
 
   const agencyId = await resolveAgencyIdForSchool(orgId);
+  const tenantAgency = agencyId ? await Agency.findById(agencyId) : null;
   const template = agencyId
     ? await SchoolPacketTemplate.getOrCreateForAgency(agencyId, { locale: loc })
     : {
@@ -510,7 +512,10 @@ export async function buildSchoolPrintablePacketContext({ organizationId, locale
       slug: String(organization.portal_url || organization.slug || '').trim(),
       address: buildSchoolAddress(organization)
     },
-    templateHtml: String(template?.html_content || defaultHtmlForLocale(loc) || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML),
+    templateHtml: injectIntakeLegalIntoPacketHtml(
+      String(template?.html_content || defaultHtmlForLocale(loc) || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML),
+      resolveIntakeLegalFromTheme(tenantAgency?.theme_settings, loc)
+    ),
     staffRows,
     providers
   };

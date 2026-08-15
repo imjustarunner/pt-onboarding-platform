@@ -83,6 +83,7 @@
               <option value="">Source</option>
               <option value="portal">Portal</option>
               <option value="email">Email</option>
+              <option value="public_web">Public page</option>
             </select>
             <select v-if="!isSchoolStaff" v-model="creatorRoleFilter" @change="loadTickets">
               <option value="">Creator</option>
@@ -91,8 +92,18 @@
             </select>
             <select v-model="topicFilter" @change="loadTickets">
               <option value="">Audience</option>
-              <option v-for="t in ticketTopics" :key="t.id" :value="t.id">{{ t.short }}</option>
+              <option v-for="t in ticketTopics" :key="t.id" :value="t.id">{{ t.id === 'billing' ? 'Billing tickets' : t.short }}</option>
             </select>
+            <button
+              v-if="canFocusBilling"
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :class="{ 'is-active': topicFilter === 'billing' }"
+              title="Show billing tickets. Medical billing access makes these easier to spot; everyone on the desk can still open them."
+              @click="toggleBillingFocus"
+            >
+              Billing tickets
+            </button>
             <select v-model="schoolSort">
               <option value="">School order</option>
               <option value="school_asc">School A→Z</option>
@@ -109,7 +120,7 @@
             v-for="t in tickets"
             :key="t.id"
             class="ticket-row"
-            :class="{ active: selectedId === t.id }"
+            :class="{ active: selectedId === t.id, 'ticket-row--billing': String(t.topic || '') === 'billing' }"
             @click="selectTicket(t)"
           >
             <div class="row-top">
@@ -747,6 +758,25 @@ const creatorRoleFilter = ref('');
 const topicFilter = ref('');
 const schoolSort = ref(''); // '' | 'school_asc' | 'school_desc'
 const ticketTopics = TICKET_TOPICS;
+const hasBillingAccess = computed(() =>
+  !!(authStore.user?.hasBillingAccess || authStore.user?.has_billing_access)
+);
+const canFocusBilling = computed(() =>
+  hasBillingAccess.value || ['admin', 'support', 'super_admin', 'staff'].includes(role.value)
+);
+function toggleBillingFocus() {
+  topicFilter.value = topicFilter.value === 'billing' ? '' : 'billing';
+  loadTickets();
+}
+function sortTicketsForViewer(list) {
+  const rows = Array.isArray(list) ? [...list] : [];
+  if (!hasBillingAccess.value || topicFilter.value) return rows;
+  return rows.sort((a, b) => {
+    const ab = String(a.topic || '') === 'billing' ? 0 : 1;
+    const bb = String(b.topic || '') === 'billing' ? 0 : 1;
+    return ab - bb;
+  });
+}
 /** Selected tenant id (number|null) or 'platform'. null = all tenants. */
 const agencyIdInput = ref(null);
 const agencyCounts = ref([]);
@@ -1113,7 +1143,7 @@ async function loadTickets() {
           (t) => String(t.topic || 'general').toLowerCase() === topicFilter.value
         );
       }
-      tickets.value = list;
+      tickets.value = sortTicketsForViewer(list);
     } else {
       const params = { limit: 80 };
       if (searchInput.value.trim()) params.q = searchInput.value.trim();
@@ -1126,7 +1156,7 @@ async function loadTickets() {
       if (displayStatus.value) params.displayStatus = displayStatus.value;
       if (viewMode.value === 'mine') params.mine = true;
       const r = await api.get('/support-tickets', { params, skipGlobalLoading: true });
-      tickets.value = Array.isArray(r.data) ? r.data : [];
+      tickets.value = sortTicketsForViewer(Array.isArray(r.data) ? r.data : []);
     }
     // Apply school sort if active.
     if (schoolSort.value) {
@@ -1919,6 +1949,9 @@ defineExpose({ loadAll, clearSelection });
 .ticket-row.active {
   background: rgba(45, 106, 79, 0.08);
   border-left: 3px solid var(--primary, #2d6a4f);
+}
+.ticket-row--billing {
+  border-left: 3px solid #65a30d;
 }
 .row-top { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
 .ticket-id { font-size: 11px; font-weight: 800; color: var(--text-secondary, #64748b); }

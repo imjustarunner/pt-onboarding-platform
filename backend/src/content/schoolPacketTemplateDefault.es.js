@@ -265,6 +265,15 @@ export const DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML_ES = `
   <h2>CONSENTIMIENTO DE MENOR</h2>
   <p>Los servicios de consejería para menores requieren una autorización legal clara. Esto incluye el consentimiento y la aprobación para el tratamiento de ambos padres o tutores, a menos que se proporcione documentación específica en el momento del ingreso que indique lo contrario, o en casos en que los padres estén casados y compartan la custodia total conjunta. La firma de un padre o tutor legal custodio en la documentación de ingreso autoriza a ITSCO a realizar una evaluación de salud mental y brindar tratamiento al menor mencionado. Esta autorización permanece vigente hasta que se termine la relación profesional o se revoque explícitamente el consentimiento.</p>
   <p>Es esencial que ITSCO garantice que la persona que solicita servicios para un menor tenga el derecho legal de hacerlo. En situaciones de divorcio, se requiere el consentimiento de ambos padres para que el menor reciba servicios. Los padres divorciados, padrastros/madrastras, abuelos, tutores u otras personas pueden necesitar proporcionar una copia de la orden judicial que los establezca como el custodio legal del menor. Este proceso existe para proteger el entorno terapéutico y salvaguardar el derecho del menor a la privacidad y a una terapia confidencial, de acuerdo con los requisitos legales y la ética profesional.</p>
+  <!-- intake-legal-resources -->
+  <div class="packet-intake-legal">
+    <p>Seguimos la ley de Colorado aplicable y la ética profesional. En Colorado, un menor de 12 años o más puede, en algunas situaciones, consentir psicoterapia. Esto es información, no asesoría legal. El proveedor asignado aplicará las reglas que correspondan a este menor.</p>
+    <ul>
+      <li><a href="https://resources.csi.state.co.us/wp-content/uploads/2022/07/GT-Alert_Colorado-Lowers-Age-of-Consent-for-Psychotherapy-Services-to-12-Years-Old.pdf" target="_blank" rel="noopener noreferrer">Edad de consentimiento para psicoterapia en Colorado (alerta CSI / GT, 2019)</a></li>
+      <li><a href="https://leg.colorado.gov/bills/hb17-1320" target="_blank" rel="noopener noreferrer">Colorado HB17-1320 (historial legislativo relacionado)</a></li>
+    </ul>
+  </div>
+  <!-- /intake-legal-resources -->
 
   <div class="page-break"></div>
   <h2>CONSENTIMIENTO INFORMADO</h2>

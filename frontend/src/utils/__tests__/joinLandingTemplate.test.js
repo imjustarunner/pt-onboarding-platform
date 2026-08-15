@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  mergeIntakeStartLayout,
   mergeJoinLayout,
+  mergePublicSupportLayout,
   mergeQuickSidebarSteps,
   restoreJoinWelcomeCopy,
   sanitizeJoinPositions
@@ -66,10 +68,47 @@ describe('mergeJoinLayout', () => {
   });
 });
 
+describe('mergeIntakeStartLayout', () => {
+  it('widens the previous 860px default card so the start form can sit two-up', () => {
+    expect(mergeIntakeStartLayout(null).width).toBe(1080);
+    expect(mergeIntakeStartLayout({ width: 860 }).width).toBe(1080);
+    expect(mergeIntakeStartLayout({ width: 980 }).width).toBe(980);
+  });
+});
+
 describe('mergeQuickSidebarSteps', () => {
   it('keeps default guide labels when nothing is saved', () => {
     const steps = mergeQuickSidebarSteps(null);
-    expect(steps[0].label).toBe('Who is this for?');
-    expect(steps).toHaveLength(7);
+    expect(steps[0].label).toBe('About You');
+    expect(steps).toHaveLength(6);
+  });
+
+  it('collapses a previously saved 7-step who-for guide into About You', () => {
+    const steps = mergeQuickSidebarSteps([
+      { id: 'who', label: 'Who is this for?' },
+      { id: 'basics', label: 'Your details' },
+      { id: 'needs', label: 'Needs' },
+      { id: 'prefs', label: 'Prefs' },
+      { id: 'providers', label: 'Providers' },
+      { id: 'consent', label: 'Auth' },
+      { id: 'review', label: 'Review' }
+    ]);
+    expect(steps).toHaveLength(6);
+    expect(steps[0].id).toBe('about');
+    expect(steps[0].label).toBe('Your details');
+    expect(steps[1].label).toBe('Needs');
+  });
+});
+
+describe('mergePublicSupportLayout', () => {
+  it('keeps independent positions for each support block', () => {
+    const out = mergePublicSupportLayout({
+      positions: { login: { x: 12, y: 40 }, billing: { x: -8, y: 18 } },
+      sizes: { cardWidth: 1100 }
+    });
+    expect(out.positions.login).toEqual({ x: 12, y: 40 });
+    expect(out.positions.billing).toEqual({ x: -8, y: 18 });
+    expect(out.positions.join).toEqual({ x: 0, y: 0 });
+    expect(out.sizes.cardWidth).toBe(1100);
   });
 });

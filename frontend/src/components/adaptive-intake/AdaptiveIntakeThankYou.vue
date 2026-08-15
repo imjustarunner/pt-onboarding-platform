@@ -8,10 +8,11 @@
       </p>
     </div>
 
-    <section v-if="portalAccess?.email" class="ai-portal-card">
+    <section v-if="portalAccess?.email && !portalDismissed" class="ai-portal-card">
       <h2>Your portal login</h2>
       <p class="ai-portal-why">
-        Sign in at the regular organization login with the email and password below. Save these — this login does not expire. You can change the password after you sign in.
+        Your username is this email. You can keep it or change it after you sign in.
+        You can skip this for now — for medical records we may still need you to have an account.
       </p>
       <dl class="ai-portal-creds">
         <div>
@@ -33,6 +34,18 @@
         </div>
       </dl>
       <a class="df-btn df-btn-primary" :href="portalHref">Sign in</a>
+      <button type="button" class="df-btn df-btn-secondary" :disabled="loginEmailing" @click="emailLoginDetails">
+        {{ loginEmailing ? 'Sending…' : 'Email these login details' }}
+      </button>
+      <button type="button" class="df-btn df-btn-secondary" @click="portalDismissed = true">I'll do this later</button>
+      <p v-if="loginEmailStatus" class="ai-email-copy-status">{{ loginEmailStatus }}</p>
+    </section>
+
+    <section v-if="coGuardianInvite?.inviteUrl" class="ai-portal-card">
+      <h2>Other guardian</h2>
+      <p>Share this private link. They will not see what you submitted.</p>
+      <p><code>{{ coGuardianInvite.inviteUrl }}</code></p>
+      <p v-if="coGuardianInvite.emailed">We also emailed {{ coGuardianInvite.email }}.</p>
     </section>
 
     <article class="ai-receipt">
@@ -96,14 +109,22 @@
 
     <div class="ai-thankyou-download">
       <p>Download a branded PDF of this confirmation for your records.</p>
+      <PhiDownloadNotice />
       <button
         type="button"
         class="df-btn df-btn-primary"
         :disabled="pdfDownloading"
         @click="downloadBrandedPdf"
       >
-        {{ pdfDownloading ? 'Preparing PDF…' : 'Download PDF' }}
+        {{ pdfDownloading ? 'Preparing PDF…' : (packetClients.length > 1 ? 'Download packets' : 'Download PDF') }}
       </button>
+      <div class="ai-email-copy">
+        <input v-model="copyEmail" type="email" placeholder="Send a copy to another email" />
+        <button type="button" class="df-btn df-btn-secondary" :disabled="emailSending || !copyEmail" @click="emailBrandedPdf">
+          {{ emailSending ? 'Sending…' : 'Email PDF' }}
+        </button>
+      </div>
+      <p v-if="emailStatus" class="ai-email-copy-status">{{ emailStatus }}</p>
     </div>
     <p v-if="pdfError" class="ai-thankyou-download-error">{{ pdfError }}</p>
 
@@ -156,6 +177,7 @@
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { DigitalFormField } from '../digital-form';
+import PhiDownloadNotice from './PhiDownloadNotice.vue';
 
 const props = defineProps({
   agencySlug: { type: String, required: true },
@@ -175,11 +197,29 @@ const supportSent = ref(false);
 const supportError = ref('');
 const pdfDownloading = ref(false);
 const pdfError = ref('');
+const portalDismissed = ref(false);
+const loginEmailing = ref(false);
+const loginEmailStatus = ref('');
+const copyEmail = ref('');
+const emailSending = ref(false);
+const emailStatus = ref('');
 const passwordCopied = ref(false);
 
 const referenceCode = computed(() => props.confirmation?.identifierCode || '');
 const summary = computed(() => props.confirmation?.summary || {});
+const packetClients = computed(() => {
+  const listed = Array.isArray(props.confirmation?.packetClients) ? props.confirmation.packetClients : [];
+  if (listed.length) return listed;
+  return [{
+    clientId: props.confirmation?.clientId || null,
+    identifierCode: referenceCode.value,
+    initials: '',
+    dateOfBirth: summary.value?.birthdate || '',
+    clientName: summary.value?.clientName || ''
+  }];
+});
 const portalAccess = computed(() => props.confirmation?.portalAccess || props.confirmation?.temporaryAccess || null);
+const coGuardianInvite = computed(() => props.confirmation?.coGuardianInvite || null);
 const portalPassword = computed(() =>
   String(portalAccess.value?.password || portalAccess.value?.temporaryPassword || '').trim()
 );
@@ -223,7 +263,7 @@ const aboutRows = computed(() => {
     s.contactName ? { label: 'Contact', value: s.contactName } : null,
     s.contactEmail ? { label: 'Email', value: s.contactEmail } : null,
     s.contactPhone ? { label: 'Phone', value: formatPhone(s.contactPhone) } : null,
-    s.clientName && s.whoForLabel && s.whoForLabel !== 'Myself' ? { label: 'Client', value: s.clientName } : null,
+    s.clientName && s.whoForLabel && s.whoForLabel !== 'Myself' ? { label: 'Dependent', value: s.clientName } : null,
     s.birthdate ? { label: 'Date of birth', value: formatDate(s.birthdate) } : null,
     s.homeAddress ? { label: 'Home address', value: s.homeAddress } : null
   ].filter(Boolean);
@@ -320,6 +360,24 @@ async function copyPassword() {
   }
 }
 
+async function emailLoginDetails() {
+  loginEmailStatus.value = '';
+  loginEmailing.value = true;
+  try {
+    await api.post(`/public/adaptive-intake/${encodeURIComponent(props.agencySlug)}/portal-login-email`, {
+      email: portalAccess.value?.email,
+      username: portalAccess.value?.email,
+      temporaryPassword: portalPassword.value || null,
+      portalPath: portalHref.value
+    });
+    loginEmailStatus.value = 'Login details sent. Keep that email private.';
+  } catch (err) {
+    loginEmailStatus.value = err?.response?.data?.error?.message || 'Unable to send login details.';
+  } finally {
+    loginEmailing.value = false;
+  }
+}
+
 async function messageFromPdfError(err) {
   const data = err?.response?.data;
   if (data instanceof Blob) {
@@ -339,32 +397,72 @@ async function downloadBrandedPdf() {
   pdfError.value = '';
   pdfDownloading.value = true;
   try {
-    const resp = await api.post(
-      `/public/adaptive-intake/${encodeURIComponent(props.agencySlug)}/summary-pdf`,
-      {
-        identifierCode: referenceCode.value || null,
-        clientId: props.confirmation?.clientId || null,
-        submittedAt: props.confirmation?.submittedAt || null,
-        summary: {
-          ...summary.value,
-          acknowledgments: acknowledgments.value
-        }
-      },
-      { responseType: 'blob', timeout: 120000, skipGlobalLoading: true }
-    );
-    const blob = resp.data instanceof Blob ? resp.data : new Blob([resp.data], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    const slug = String(props.agencySlug || 'intake').trim() || 'intake';
-    const ref = referenceCode.value || 'confirmation';
-    anchor.href = url;
-    anchor.download = `${slug}-interest-form-${ref}.pdf`;
-    anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    for (const packet of packetClients.value) {
+      const resp = await api.post(
+        `/public/adaptive-intake/${encodeURIComponent(props.agencySlug)}/summary-pdf`,
+        {
+          identifierCode: packet.identifierCode || referenceCode.value || null,
+          clientId: packet.clientId || props.confirmation?.clientId || null,
+          submittedAt: props.confirmation?.submittedAt || null,
+          initials: packet.initials,
+          dateOfBirth: packet.dateOfBirth || summary.value?.birthdate,
+          clientName: packet.clientName || summary.value?.clientName,
+          summary: {
+            ...summary.value,
+            clientName: packet.clientName || summary.value?.clientName,
+            birthdate: packet.dateOfBirth || summary.value?.birthdate,
+            acknowledgments: acknowledgments.value
+          }
+        },
+        { responseType: 'blob', timeout: 120000, skipGlobalLoading: true }
+      );
+      const blob = resp.data instanceof Blob ? resp.data : new Blob([resp.data], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      const tenant = String(props.agencyName || props.agencySlug || 'intake').trim() || 'intake';
+      const dob = String(packet.dateOfBirth || summary.value?.birthdate || '').replace(/[^0-9]/g, '');
+      anchor.href = url;
+      anchor.download = `${[tenant, packet.initials, dob].filter(Boolean).join('-').replace(/[^a-zA-Z0-9._-]+/g, '-')}.pdf`;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
   } catch (err) {
     pdfError.value = await messageFromPdfError(err);
   } finally {
     pdfDownloading.value = false;
+  }
+}
+
+async function emailBrandedPdf() {
+  emailStatus.value = '';
+  emailSending.value = true;
+  try {
+    for (const packet of packetClients.value) {
+      await api.post(
+        `/public/adaptive-intake/${encodeURIComponent(props.agencySlug)}/summary-pdf/email`,
+        {
+          email: String(copyEmail.value || '').trim(),
+          identifierCode: packet.identifierCode || referenceCode.value || null,
+          clientId: packet.clientId || props.confirmation?.clientId || null,
+          submittedAt: props.confirmation?.submittedAt || null,
+          initials: packet.initials,
+          dateOfBirth: packet.dateOfBirth || summary.value?.birthdate,
+          clientName: packet.clientName || summary.value?.clientName,
+          summary: {
+            ...summary.value,
+            clientName: packet.clientName || summary.value?.clientName,
+            birthdate: packet.dateOfBirth || summary.value?.birthdate,
+            acknowledgments: acknowledgments.value
+          }
+        },
+        { skipGlobalLoading: true }
+      );
+    }
+    emailStatus.value = 'Sent. Remind them this file contains protected health information.';
+  } catch (err) {
+    emailStatus.value = err?.response?.data?.error?.message || 'Unable to send that copy right now.';
+  } finally {
+    emailSending.value = false;
   }
 }
 
@@ -671,6 +769,25 @@ async function submitSupport() {
 .ai-thankyou-download p {
   margin: 0;
   color: var(--df-muted);
+}
+.ai-email-copy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  width: 100%;
+}
+.ai-email-copy input {
+  flex: 1 1 12rem;
+  min-height: 2.4rem;
+  border: 1px solid #d7e3dc;
+  border-radius: 10px;
+  padding: 0.35rem 0.65rem;
+}
+.ai-email-copy-status {
+  width: 100%;
+  margin: 0;
+  font-size: 0.85rem;
+  color: #35584a;
 }
 
 .ai-thankyou-download-error {

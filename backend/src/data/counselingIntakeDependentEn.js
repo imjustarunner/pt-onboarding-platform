@@ -403,11 +403,38 @@ function partAFamilyContact() {
         options: yesNo()
       }),
       field({
-        key: 'other_guardian_name',
-        label: 'Name',
+        key: 'other_guardian_has_legal_rights',
+        label: 'Do they have legal rights to consent to treatment or make health-care decisions for this child?',
+        type: 'radio',
+        scope: 'guardian',
+        showIf: { fieldKey: 'other_guardian_communication', equals: 'yes' },
+        options: [
+          opt('yes', 'Yes — they should complete their own intake'),
+          opt('shared', 'Yes — we share decision-making'),
+          opt('no', 'No — they should receive updates only')
+        ]
+      }),
+      field({
+        key: 'other_guardian_first_name',
+        label: 'Their first name',
         type: 'text',
         scope: 'guardian',
         showIf: { fieldKey: 'other_guardian_communication', equals: 'yes' }
+      }),
+      field({
+        key: 'other_guardian_last_name',
+        label: 'Their last name',
+        type: 'text',
+        scope: 'guardian',
+        showIf: { fieldKey: 'other_guardian_communication', equals: 'yes' }
+      }),
+      field({
+        key: 'other_guardian_send_intake_link',
+        label: 'Send them a private link to complete their own intake? They will not see what you submitted.',
+        type: 'radio',
+        scope: 'guardian',
+        showIf: { fieldKey: 'other_guardian_has_legal_rights', equals: ['yes', 'shared'] },
+        options: yesNo()
       }),
       field({
         key: 'other_guardian_relationship',
@@ -421,7 +448,8 @@ function partAFamilyContact() {
         label: 'Email',
         type: 'email',
         scope: 'guardian',
-        showIf: { fieldKey: 'other_guardian_communication', equals: 'yes' }
+        showIf: { fieldKey: 'other_guardian_communication', equals: 'yes' },
+        helperText: 'Required to send them a private intake link and create their account. If you only have a phone number, start of care may be delayed while we collect consent.'
       }),
       field({
         key: 'other_guardian_phone',

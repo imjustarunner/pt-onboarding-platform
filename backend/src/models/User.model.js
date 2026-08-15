@@ -1809,6 +1809,7 @@ class User {
     let hasMyDashboardIcons = false;
     let hasProgramOverviewIcon = false;
     let hasPayrollAccess = false;
+    let hasBillingAccess = false;
     let hasH0032ManualMinutes = false;
     try {
       const [cols] = await pool.execute(
@@ -1829,10 +1830,11 @@ class User {
     // Best-effort: include membership fields from user_agencies.
     try {
       const [uaCols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('has_payroll_access','h0032_requires_manual_minutes','is_active','club_role','supervision_is_prelicensed','supervision_is_compensable','supervision_start_date','supervision_start_individual_hours','supervision_start_group_hours')"
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('has_payroll_access','has_billing_access','h0032_requires_manual_minutes','is_active','club_role','supervision_is_prelicensed','supervision_is_compensable','supervision_start_date','supervision_start_individual_hours','supervision_start_group_hours')"
       );
       const names = (uaCols || []).map((c) => c.COLUMN_NAME);
       hasPayrollAccess = names.includes('has_payroll_access');
+      hasBillingAccess = names.includes('has_billing_access');
       hasH0032ManualMinutes = names.includes('h0032_requires_manual_minutes');
       var hasIsActive = names.includes('is_active'); // eslint-disable-line no-var
       var hasClubRole = names.includes('club_role'); // eslint-disable-line no-var
@@ -1844,6 +1846,7 @@ class User {
       var hasSupervisionStartGrp = names.includes('supervision_start_group_hours'); // eslint-disable-line no-var
     } catch {
       hasPayrollAccess = false;
+      hasBillingAccess = false;
       hasH0032ManualMinutes = false;
       var hasIsActive = false; // eslint-disable-line no-var
       var hasClubRole = false; // eslint-disable-line no-var
@@ -1871,6 +1874,7 @@ class User {
         ? 'pov_i.file_path as program_overview_icon_path, pov_i.name as program_overview_icon_name'
         : null,
       hasPayrollAccess ? 'ua.has_payroll_access' : null,
+      hasBillingAccess ? 'ua.has_billing_access' : null,
       hasH0032ManualMinutes ? 'ua.h0032_requires_manual_minutes' : null,
       hasClubRole ? 'ua.club_role' : null,
       hasSupervisionPrelicensed ? 'ua.supervision_is_prelicensed' : null,

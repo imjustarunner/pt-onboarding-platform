@@ -557,8 +557,9 @@ export async function createPublicOfficeIntakeClient({ agencySlugOrId, payload =
   if (!agency) throw new Error('Organization not found');
 
   const firstName = String(payload.firstName || '').trim();
+  const middleName = String(payload.middleName || '').trim();
   const lastName = String(payload.lastName || '').trim();
-  const fullName = String(payload.fullName || `${firstName} ${lastName}`).trim();
+  const fullName = String(payload.fullName || [firstName, middleName, lastName].filter(Boolean).join(' ')).trim();
   if (!fullName) throw new Error('Name is required');
   const contactPhone = String(payload.contactPhone || payload.phone || '').trim() || null;
   const rawDob = String(payload.dateOfBirth || payload.birthdate || '').trim();

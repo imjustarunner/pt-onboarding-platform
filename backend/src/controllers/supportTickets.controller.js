@@ -152,8 +152,16 @@ async function applyTopicAudienceVisibility({ req, where, params, topicFilter = 
   }
 
   const role = String(req.user?.role || '').toLowerCase();
-  // Admin / super_admin see every topic in their agency/platform scope.
-  if (role === 'super_admin' || role === 'admin') return;
+  // Queue collaborators can see every topic (including billing). Responsibility flags
+  // make specialized tickets more obvious/sortable — they do not hide them.
+  if (
+    role === 'super_admin'
+    || role === 'admin'
+    || role === 'support'
+    || role === 'staff'
+    || role === 'clinical_practice_assistant'
+    || role === 'provider_plus'
+  ) return;
 
   const uid = Number(req.user?.id || 0);
   if (!uid) {
@@ -198,7 +206,14 @@ async function applyTopicAudienceVisibility({ req, where, params, topicFilter = 
 /** Specialized topics: admin always; others need matching responsibility flag (or be creator/claimant). */
 async function actorCanAccessTicketTopic(req, ticket) {
   const role = String(req.user?.role || '').toLowerCase();
-  if (role === 'super_admin' || role === 'admin') return true;
+  if (
+    role === 'super_admin'
+    || role === 'admin'
+    || role === 'support'
+    || role === 'staff'
+    || role === 'clinical_practice_assistant'
+    || role === 'provider_plus'
+  ) return true;
   const uid = Number(req.user?.id || 0);
   if (!uid) return false;
   if (Number(ticket?.created_by_user_id || 0) === uid) return true;

@@ -126,7 +126,8 @@ class ClientGuardian {
          a.slug AS agency_slug,
          a.logo_url AS agency_logo_url,
          ${hasRelationshipType ? 'cg.relationship_type,' : "'guardian' AS relationship_type,"}
-         cg.relationship_title
+         cg.relationship_title,
+         cg.permissions_json
        FROM client_guardians cg
        JOIN clients c ON c.id = cg.client_id
        JOIN agencies o ON o.id = c.organization_id
@@ -137,7 +138,41 @@ class ClientGuardian {
        ORDER BY o.name, c.initials`,
       [uid]
     );
-    return rows || [];
+    return (rows || []).map((r) => ({
+      ...r,
+      permissions_json: this.parsePermissions(r.permissions_json)
+    }));
+  }
+
+  static parsePermissions(raw) {
+    if (!raw) return null;
+    if (typeof raw === 'object') return raw;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  static isNoView(permissions) {
+    const p = this.parsePermissions(permissions) || {};
+    return p.noView === true || p.noViewOtherGuardian === true;
+  }
+
+  static async getLink({ clientId, guardianUserId }) {
+    const cid = Number(clientId);
+    const uid = Number(guardianUserId);
+    if (!cid || !uid) return null;
+    const [rows] = await pool.execute(
+      `SELECT client_id, guardian_user_id, relationship_title, access_enabled, permissions_json
+         FROM client_guardians
+        WHERE client_id = ? AND guardian_user_id = ?
+        LIMIT 1`,
+      [cid, uid]
+    );
+    const row = rows?.[0];
+    if (!row) return null;
+    return { ...row, permissions_json: this.parsePermissions(row.permissions_json) };
   }
 }
 

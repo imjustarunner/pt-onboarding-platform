@@ -24,6 +24,7 @@ import {
   googleOAuthStart,
   googleOAuthCallback,
   requestPasswordReset,
+  requestGuardianTempPassword,
   recoverUsername,
   getRecoveryStatus,
   demoSwitchView,
@@ -226,6 +227,11 @@ router.post('/request-password-reset', recoveryLimiter, [
   body('organizationSlug').optional().isString().trim(),
   body('captchaToken').optional().isString().trim()
 ], requestPasswordReset);
+router.post('/request-guardian-temp-password', recoveryLimiter, [
+  body('email').isEmail().normalizeEmail(),
+  body('organizationSlug').optional().isString().trim(),
+  body('captchaToken').optional().isString().trim()
+], requestGuardianTempPassword);
 router.post('/recover-username', recoveryLimiter, [
   body('firstName').isString().trim().notEmpty(),
   body('lastName').isString().trim().notEmpty(),

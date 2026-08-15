@@ -660,6 +660,16 @@ export const login = async (req, res, next) => {
         const now = new Date();
         const bufferMs = 60 * 1000; // 1 minute
         if (expiresAt.getTime() < (now.getTime() - bufferMs)) {
+          const roleNorm = String(user?.role || '').trim().toLowerCase();
+          if (roleNorm === 'client_guardian' || roleNorm === 'guardian') {
+            return res.status(401).json({
+              error: {
+                message: 'That access token or temporary password expired. Use Access token expired? or Contact us — we will not email a reset link to this account.',
+                temporaryPasswordExpired: true,
+                recoveryMode: 'ticket'
+              }
+            });
+          }
           try {
             const tokenResult = await User.generatePasswordlessToken(user.id, 48, 'reset');
             const agency = await resolvePrimaryAgencyForUser(user.id, null);
@@ -2633,6 +2643,26 @@ const createExternalSupportTicket = async ({
   }
 };
 
+const guardianNeedsIssuedPassword = (user) => {
+  const role = String(user?.role || '').trim().toLowerCase();
+  if (role !== 'client_guardian' && role !== 'guardian') return false;
+  // A real account password means Forgot password can email a reset.
+  if (user?.password_hash) return false;
+  if (!user?.temporary_password_hash) return true;
+  if (!user?.temporary_password_expires_at) return true;
+  return new Date(user.temporary_password_expires_at).getTime() < Date.now();
+};
+
+const fileGuardianTempPasswordTicket = async ({ user, req, orgSlug = null }) => {
+  const { fileGuardianAccessHelpTicket } = await import('../services/coGuardianInvite.service.js');
+  return fileGuardianAccessHelpTicket({
+    email: user?.email,
+    user,
+    orgSlug,
+    req
+  });
+};
+
 const safeGenericRecoveryResponse = (res, extra = {}) => {
   // Always return success-like response to prevent account enumeration.
   return res.json({
@@ -2869,6 +2899,18 @@ export const requestPasswordReset = async (req, res, next) => {
       return safeGenericRecoveryResponse(res);
     }
 
+    if ((roleNorm === 'client_guardian' || roleNorm === 'guardian') && guardianNeedsIssuedPassword(user)) {
+      try {
+        await fileGuardianTempPasswordTicket({ user, req, orgSlug });
+      } catch (e) {
+        console.error('[auth] guardian password reset ticket failed', e?.message || e);
+      }
+      return safeGenericRecoveryResponse(res, {
+        recoveryMode: 'ticket',
+        message: 'If this is a parent or guardian login that still needs an access token, we notified the care team. Password reset email is only sent when the account already has a password.'
+      });
+    }
+
     // If this user is under Workspace-only policy for the requested org, do not issue reset tokens.
     // Keep response generic to avoid account/policy enumeration.
     try {
@@ -2992,6 +3034,38 @@ export const requestPasswordReset = async (req, res, next) => {
     }
 
     return safeGenericRecoveryResponse(res);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const requestGuardianTempPassword = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return safeGenericRecoveryResponse(res);
+    const requestedEmail = String(req.body?.email || '').trim().toLowerCase();
+    const orgSlug = normalizeOrgSlug(req.body?.organizationSlug || req.body?.orgSlug);
+    if (!requestedEmail) return safeGenericRecoveryResponse(res);
+    const captcha = await verifyRecoveryCaptcha({ req, expectedAction: 'login_password_reset' });
+    if (!captcha.ok) return safeGenericRecoveryResponse(res);
+    const user = await User.findByEmail(requestedEmail).catch(() => null);
+    const roleNorm = String(user?.role || '').trim().toLowerCase();
+    const guardianUser = user?.id && (roleNorm === 'client_guardian' || roleNorm === 'guardian') ? user : null;
+    try {
+      const { fileGuardianAccessHelpTicket } = await import('../services/coGuardianInvite.service.js');
+      await fileGuardianAccessHelpTicket({
+        email: requestedEmail,
+        user: guardianUser,
+        orgSlug,
+        req
+      });
+    } catch (e) {
+      console.error('[auth] requestGuardianTempPassword ticket failed', e?.message || e);
+    }
+    return safeGenericRecoveryResponse(res, {
+      recoveryMode: 'ticket',
+      message: 'If this matches a parent or guardian access token, the care team can send a new token or a temporary password. This is not the Forgot password flow.'
+    });
   } catch (e) {
     next(e);
   }

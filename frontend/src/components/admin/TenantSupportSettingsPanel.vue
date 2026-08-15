@@ -79,6 +79,10 @@
       <router-link :to="ticketsPath" class="tss__link">Open tickets desk</router-link>
       to claim, reply, or escalate product-help requests from your team.
     </p>
+    <p v-if="publicSupportUrl" class="tss__footer">
+      Public support page for your website:
+      <a :href="publicSupportUrl" class="tss__link" target="_blank" rel="noopener noreferrer">{{ publicSupportUrl }}</a>
+    </p>
   </div>
 </template>
 
@@ -103,6 +107,17 @@ const orgScopeId = computed(
 const ticketsPath = computed(() => {
   const slug = route.params?.organizationSlug;
   return slug ? `/${slug}/tickets` : '/tickets';
+});
+const publicSupportUrl = computed(() => {
+  const slug = String(
+    route.params?.organizationSlug
+    || agencyStore.currentAgency?.portal_url
+    || agencyStore.currentAgency?.slug
+    || ''
+  ).trim();
+  if (!slug) return '';
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://plottwisthq.com';
+  return `${origin}/${encodeURIComponent(slug)}/support`;
 });
 
 const orgTopic = ref('general');

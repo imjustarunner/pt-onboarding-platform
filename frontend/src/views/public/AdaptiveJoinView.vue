@@ -93,11 +93,16 @@
         <span v-if="sidebarSaveError" class="ai-join-sidebar-error">{{ sidebarSaveError }}</span>
         <span v-if="sidebarSaveOk" class="ai-join-sidebar-ok">{{ sidebarSaveOk }}</span>
       </div>
-      <!-- Step: who for -->
+      <!-- Step: who for + basics -->
       <div v-if="quickStep === 0" class="ai-join-form">
-        <h1 class="ai-page-title">Who is this for?</h1>
-        <p class="ai-page-lead">This helps us set up the right kind of account and follow-up.</p>
-        <div class="ai-pathway-grid" style="grid-template-columns: 1fr;">
+        <h1 class="ai-page-title">Let's get to know you.</h1>
+        <p v-if="isCoGuardianInvitee" class="ai-page-lead">
+          You are completing your own information. You will not see what the other parent submitted.
+          You can edit your name, phone, and email (email is your username).
+        </p>
+        <p v-else class="ai-page-lead">Just the basics so we can reach you. This only takes a few minutes.</p>
+        <p v-if="!isCoGuardianInvitee" class="ai-who-label">Who is this for?</p>
+        <div v-if="!isCoGuardianInvitee" class="ai-who-inline">
           <button
             v-for="opt in whoForOptions"
             :key="opt.value"
@@ -106,57 +111,84 @@
             :class="{ 'ai-pathway-card--selected': form.whoFor === opt.value }"
             @click="chooseWhoFor(opt.value)"
           >
-            <h2 class="ai-pathway-card-title" style="font-size: 1.05rem;">{{ opt.label }}</h2>
+            <h2 class="ai-pathway-card-title">{{ opt.label }}</h2>
             <p class="ai-pathway-card-desc">{{ opt.description }}</p>
           </button>
         </div>
-      </div>
-
-      <!-- Step: basics -->
-      <div v-else-if="quickStep === 1" class="ai-join-form">
-        <h1 class="ai-page-title">Let's get to know you.</h1>
-        <p class="ai-page-lead">Just the basics so we can reach you. This only takes a few minutes.</p>
-        <div class="field-row">
-          <DigitalFormField v-model="form.respondent.firstName" label="Your first name" required />
-          <DigitalFormField v-model="form.respondent.lastName" label="Your last name" required />
+        <div class="field-row field-row--compact">
+          <DigitalFormField v-model="form.respondent.firstName" label="Your first name" required size="compact" />
+          <DigitalFormField v-model="form.respondent.middleName" label="Middle name" size="compact" />
+          <DigitalFormField v-model="form.respondent.lastName" label="Your last name" required size="compact" />
         </div>
-        <DigitalFormField
-          v-model="form.respondent.email"
-          type="email"
-          label="Email"
-          placeholder="name@gmail.com"
-          required
-          :email-domain-hints="true"
-          :error="fieldErrors.email"
-          @blur="validateBasicsField('email')"
-        />
-        <DigitalFormField v-model="form.respondent.phone" type="tel" label="Phone" required :error="fieldErrors.phone" @blur="validateBasicsField('phone')" />
-        <DigitalFormField
-          v-model="form.birthdate"
-          type="date"
-          :label="form.whoFor === 'myself' ? 'Date of birth' : 'Client date of birth'"
-          required
-        />
+        <div class="field-row field-row--compact">
+          <DigitalFormField
+            v-model="form.respondent.email"
+            type="email"
+            label="Email"
+            placeholder="name@gmail.com"
+            required
+            size="email"
+            :email-domain-hints="true"
+            :error="fieldErrors.email"
+            @blur="validateBasicsField('email')"
+          />
+          <DigitalFormField v-model="form.respondent.phone" type="tel" label="Phone" required size="xs" :error="fieldErrors.phone" @blur="validateBasicsField('phone')" />
+          <DigitalFormField
+            v-model="form.birthdate"
+            type="date"
+            :label="form.whoFor === 'myself' ? 'Date of birth' : 'Dependent date of birth'"
+            required
+            size="xs"
+          />
+        </div>
         <DigitalFormField v-model="form.address.street" label="Street address" required />
-        <div class="field-row field-row--address">
-          <DigitalFormField v-model="form.address.apt" label="Apartment (if applicable)" />
-          <DigitalFormField v-model="form.address.zip" label="ZIP" required />
-        </div>
-        <div class="field-row">
-          <DigitalFormField v-model="form.address.city" label="City" required />
-          <DigitalFormField v-model="form.address.state" label="State" required />
+        <div class="field-row field-row--compact">
+          <DigitalFormField v-model="form.address.apt" label="Apartment (if applicable)" size="compact" />
+          <DigitalFormField v-model="form.address.zip" label="ZIP" required size="xs" />
+          <DigitalFormField v-model="form.address.city" label="City" required size="compact" />
+          <DigitalFormField v-model="form.address.state" label="State" required size="xs" />
         </div>
         <template v-if="form.whoFor !== 'myself'">
-          <h2 style="margin: 1.25rem 0 0.5rem; font-size: 1.05rem;">Prospective client</h2>
-          <div class="field-row">
-            <DigitalFormField v-model="form.client.firstName" label="Client first name" required />
-            <DigitalFormField v-model="form.client.lastName" label="Client last name" required />
+          <h2 class="ai-dependent-heading">Dependent 1</h2>
+          <div class="field-row field-row--compact">
+            <DigitalFormField v-model="form.client.firstName" label="First name" required size="compact" />
+            <DigitalFormField v-model="form.client.middleName" label="Middle name" size="compact" />
+            <DigitalFormField v-model="form.client.lastName" label="Last name" required size="compact" />
           </div>
+          <h2 v-if="!isCoGuardianInvitee" class="ai-dependent-heading">Custody &amp; other guardian</h2>
+          <p v-if="!isCoGuardianInvitee" class="ai-page-lead">If another parent has legal rights, they get their own private link. They will not see what you submit. We will not confirm whether they already have an account.</p>
+          <template v-if="!isCoGuardianInvitee">
+          <DigitalFormField
+            v-model="form.otherGuardian.hasLegalRights"
+            type="select"
+            label="Is there another parent or guardian with legal rights who should complete their own intake?"
+            placeholder="Select"
+            :options="legalRightsOptions"
+          />
+          <template v-if="form.otherGuardian.hasLegalRights === 'yes' || form.otherGuardian.hasLegalRights === 'shared'">
+            <div class="field-row field-row--compact">
+              <DigitalFormField v-model="form.otherGuardian.firstName" label="Their first name" size="compact" />
+              <DigitalFormField v-model="form.otherGuardian.lastName" label="Their last name" size="compact" />
+            </div>
+            <div class="field-row field-row--compact">
+              <DigitalFormField v-model="form.otherGuardian.email" type="email" label="Their email (needed to send their private link)" size="email" />
+              <DigitalFormField v-model="form.otherGuardian.phone" type="tel" label="Their phone" size="xs" />
+              <DigitalFormField v-model="form.otherGuardian.relationship" label="Relationship" size="compact" />
+            </div>
+            <p v-if="otherGuardianPhoneOnly" class="ai-page-lead">
+              An email is required to send them a private intake link. If you only have a phone number, intake and start of care may be delayed while our support team or the assigned provider contacts them for the needed permissions.
+            </p>
+            <label class="ai-consent-check">
+              <input type="checkbox" v-model="form.otherGuardian.sendInvite" :disabled="otherGuardianPhoneOnly" />
+              <span>Email them a private intake link now (you can also copy it at the end)</span>
+            </label>
+          </template>
+          </template>
         </template>
       </div>
 
       <!-- Step: needs -->
-      <div v-else-if="quickStep === 2" class="ai-join-form">
+      <div v-else-if="quickStep === 1" class="ai-join-form">
         <h1 class="ai-page-title">What support are you looking for?</h1>
         <p class="ai-page-lead">Select all that apply. You can share more detail below.</p>
         <div class="ai-concern-grid">
@@ -186,7 +218,7 @@
       </div>
 
       <!-- Step: preferences -->
-      <div v-else-if="quickStep === 3" class="ai-join-form">
+      <div v-else-if="quickStep === 2" class="ai-join-form">
         <h1 class="ai-page-title">Preferences & availability</h1>
         <p class="ai-page-lead">Optional — helps us match format and timing.</p>
         <div class="field-row">
@@ -217,18 +249,18 @@
       </div>
 
       <!-- Step: provider preview -->
-      <div v-else-if="quickStep === 4" class="ai-join-form">
+      <div v-else-if="quickStep === 3" class="ai-join-form">
         <AdaptiveProviderPreview
           v-model:selected-id="form.preferredProviderUserId"
           :providers="providers"
           :loading="providersLoading"
           :error="providersError"
-          @skip="form.preferredProviderUserId = null; quickStep = 5"
+          @skip="form.preferredProviderUserId = null; quickStep = 4"
         />
       </div>
 
       <!-- Step: consent / contact permission -->
-      <div v-else-if="quickStep === 5" class="ai-join-form">
+      <div v-else-if="quickStep === 4" class="ai-join-form">
         <h1 class="ai-page-title">Permission to contact you</h1>
         <p class="ai-page-lead">Please review and accept the following before submitting.</p>
         <div class="ai-consent-box">
@@ -264,7 +296,11 @@
           <p><strong>For:</strong> {{ whoForLabel }}</p>
           <p><strong>Contact:</strong> {{ form.respondent.firstName }} {{ form.respondent.lastName }} · {{ form.respondent.email }} · {{ form.respondent.phone }}</p>
           <p v-if="form.whoFor !== 'myself'">
-            <strong>Client:</strong> {{ form.client.firstName }} {{ form.client.lastName }}
+            <strong>Dependent 1:</strong> {{ form.client.firstName }} {{ form.client.middleName }} {{ form.client.lastName }}
+          </p>
+          <p v-if="form.additionalDependent.enabled">
+            <strong>Dependent 2:</strong> {{ form.additionalDependent.firstName }} {{ form.additionalDependent.middleName }} {{ form.additionalDependent.lastName }}
+            <span v-if="form.additionalDependent.dateOfBirth"> · {{ formatBirthdate(form.additionalDependent.dateOfBirth) }}</span>
           </p>
           <p v-if="form.birthdate"><strong>Date of birth:</strong> {{ formatBirthdate(form.birthdate) }}</p>
           <p v-if="formattedHomeAddress"><strong>Home address:</strong> {{ formattedHomeAddress }}</p>
@@ -297,6 +333,32 @@
             </ul>
           </div>
         </div>
+        <template v-if="form.whoFor !== 'myself'">
+          <div v-if="!form.additionalDependent.enabled" class="ai-add-dependent">
+            <button type="button" class="df-btn df-btn-secondary" @click="form.additionalDependent.enabled = true">
+              + Add another dependent
+            </button>
+            <p>Only a few extra details — both dependents stay linked to this same contact.</p>
+          </div>
+          <div v-else class="ai-add-dependent-form">
+            <div class="ai-add-dependent-head">
+              <h2>Dependent 2</h2>
+              <button type="button" class="ai-add-dependent-remove" @click="clearAdditionalDependent">Remove</button>
+            </div>
+            <div class="field-row field-row--compact">
+              <DigitalFormField v-model="form.additionalDependent.firstName" label="First name" required size="compact" />
+              <DigitalFormField v-model="form.additionalDependent.middleName" label="Middle name" size="compact" />
+              <DigitalFormField v-model="form.additionalDependent.lastName" label="Last name" required size="compact" />
+              <DigitalFormField v-model="form.additionalDependent.dateOfBirth" type="date" label="Date of birth" required size="xs" />
+            </div>
+            <DigitalFormField
+              v-model="form.additionalDependent.notes"
+              type="textarea"
+              label="Anything specific we should know about this dependent? (optional)"
+              :rows="2"
+            />
+          </div>
+        </template>
         <div v-if="submitError" class="df-banner df-banner--warn">{{ submitError }}</div>
       </div>
 
@@ -305,10 +367,10 @@
         <button
           type="button"
           class="df-btn df-btn-primary"
-          :disabled="submitting || !canContinueQuick || (quickStep === 5 && !form.consentGiven)"
+          :disabled="submitting || !canContinueQuick || (quickStep === 4 && !form.consentGiven)"
           @click="onQuickContinue"
         >
-          {{ quickStep >= 6 ? (submitting ? 'Submitting…' : 'Submit interest form') : 'Continue' }}
+          {{ quickStep >= 5 ? (submitting ? 'Submitting…' : 'Submit interest form') : 'Continue' }}
         </button>
       </div>
       </div>
@@ -317,7 +379,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { DigitalFormField } from '../../components/digital-form';
@@ -346,6 +408,7 @@ import {
   readJoinLandingCache,
   writeJoinLandingCache
 } from '../../utils/joinLandingTemplate.js';
+import { lookupUsZipCityState } from '../../utils/usZipAutofill.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -404,6 +467,15 @@ const sidebarDraft = ref([]);
 const showJoinBoot = computed(() =>
   !config.value && loading.value && !loadError.value && !submitted.value && phase.value === 'pathway'
 );
+const isCoGuardianInvitee = computed(() => Boolean(String(route.query.coGuardian || '').trim()));
+const otherGuardianNeedsInvite = computed(() =>
+  form.otherGuardian.hasLegalRights === 'yes' || form.otherGuardian.hasLegalRights === 'shared'
+);
+const otherGuardianPhoneOnly = computed(() =>
+  otherGuardianNeedsInvite.value
+  && !String(form.otherGuardian.email || '').includes('@')
+  && String(form.otherGuardian.phone || '').replace(/\D/g, '').length >= 7
+);
 
 const fieldErrors = reactive({
   email: '',
@@ -416,10 +488,27 @@ const providersError = ref('');
 
 const form = reactive({
   whoFor: 'child',
-  respondent: { firstName: '', lastName: '', email: '', phone: '' },
-  client: { firstName: '', lastName: '' },
+  respondent: { firstName: '', middleName: '', lastName: '', email: '', phone: '' },
+  client: { firstName: '', middleName: '', lastName: '' },
   birthdate: '',
   address: { street: '', apt: '', city: '', state: '', zip: '' },
+  additionalDependent: {
+    enabled: false,
+    firstName: '',
+    middleName: '',
+    lastName: '',
+    dateOfBirth: '',
+    notes: ''
+  },
+  otherGuardian: {
+    hasLegalRights: '',
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    relationship: '',
+    sendInvite: true
+  },
   concerns: [],
   accomplishGoal: '',
   notes: '',
@@ -437,14 +526,20 @@ const whoForOptions = [
   { value: 'myself', label: 'Myself', description: 'I will be the client receiving services.' },
   {
     value: 'child',
-    label: 'My child / dependent',
-    description: 'I am a parent or guardian completing this for my child or dependent.'
+    label: 'My dependent',
+    description: 'I am a parent or guardian completing this for a dependent.'
   },
   {
     value: 'legal',
     label: 'Someone I have legal authority for',
     description: 'I am completing this for someone I have legal authority to care for.'
   }
+];
+
+const legalRightsOptions = [
+  { value: 'yes', label: 'Yes — send them their own intake' },
+  { value: 'shared', label: 'Yes — we share decision-making' },
+  { value: 'no', label: 'No other guardian with those rights' }
 ];
 
 const modalityOptions = [
@@ -620,23 +715,37 @@ const canEditLanding = computed(() => {
 });
 
 function openJoinSupport() {
-  const email = joinContactEmail.value;
-  if (!email || typeof window === 'undefined') return;
-  window.location.href = `mailto:${email}?subject=${encodeURIComponent('Join / intake support')}`;
+  if (!agencySlug.value) return;
+  router.push(`/${encodeURIComponent(agencySlug.value)}/support?topic=intake_join`);
 }
 
 const canContinueQuick = computed(() => {
-  if (quickStep.value === 0) return !!form.whoFor;
-  if (quickStep.value === 1) {
+  if (quickStep.value === 0) {
+    if (!form.whoFor) return false;
     const r = form.respondent;
     if (!r.firstName.trim() || !r.lastName.trim() || !r.email.trim() || !r.phone.trim()) return false;
     if (!isValidEmailAddress(r.email) || !isValidUsPhone(r.phone)) return false;
     if (!form.birthdate.trim()) return false;
     if (!form.address.street.trim() || !form.address.city.trim() || !form.address.state.trim() || !form.address.zip.trim()) return false;
     if (form.whoFor !== 'myself') {
-      if (!form.client.firstName.trim() || !form.client.lastName.trim()) return false;
+      if (!form.client.firstName.trim()) return false;
+      if (!isCoGuardianInvitee.value && !form.client.lastName.trim()) return false;
+      if (!isCoGuardianInvitee.value) {
+        const rights = form.otherGuardian.hasLegalRights;
+        if (!rights) return false;
+        if (rights === 'yes' || rights === 'shared') {
+          const emailOk = String(form.otherGuardian.email || '').includes('@');
+          const phoneOk = String(form.otherGuardian.phone || '').replace(/\D/g, '').length >= 7;
+          if (!emailOk && !phoneOk) return false;
+        }
+      }
     }
     return true;
+  }
+  if (quickStep.value === 5 && form.whoFor !== 'myself' && form.additionalDependent.enabled) {
+    return !!form.additionalDependent.firstName.trim()
+      && !!form.additionalDependent.lastName.trim()
+      && !!form.additionalDependent.dateOfBirth.trim();
   }
   return true;
 });
@@ -720,8 +829,23 @@ async function saveSidebarSteps() {
 
 function chooseWhoFor(value) {
   form.whoFor = value;
-  quickStep.value = 1;
 }
+
+function clearAdditionalDependent() {
+  form.additionalDependent.enabled = false;
+  form.additionalDependent.firstName = '';
+  form.additionalDependent.middleName = '';
+  form.additionalDependent.lastName = '';
+  form.additionalDependent.dateOfBirth = '';
+  form.additionalDependent.notes = '';
+}
+
+watch(() => form.address.zip, async (zip) => {
+  const found = await lookupUsZipCityState(zip);
+  if (!found) return;
+  form.address.city = found.city || form.address.city;
+  form.address.state = found.state || form.address.state;
+});
 
 const DEV_FILL_PEOPLE = [
   { first: 'Noah', last: 'Haddad', child: 'Amira', dob: '1985-10-24' },
@@ -735,11 +859,13 @@ function devFillQuick() {
   form.whoFor = form.whoFor || 'myself';
   Object.assign(form.respondent, {
     firstName: person.first,
+    middleName: '',
     lastName: person.last,
     email: `${person.first}.${person.last}${stamp}@example.com`.toLowerCase(),
     phone: '7195557878'
   });
   form.client.firstName = person.child;
+  form.client.middleName = '';
   form.client.lastName = person.last;
   form.birthdate = person.dob;
   Object.assign(form.address, {
@@ -826,10 +952,10 @@ async function loadProviders() {
 }
 
 async function onQuickContinue() {
-  if (quickStep.value === 1 && !validateBasicsFields()) {
+  if (quickStep.value === 0 && !validateBasicsFields()) {
     return;
   }
-  if (quickStep.value < 6) {
+  if (quickStep.value < 5) {
     quickStep.value += 1;
     return;
   }
@@ -844,13 +970,56 @@ async function submitQuick() {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
+    const respondent = {
+      ...form.respondent,
+      email: form.respondent.email.trim(),
+      phone: normalizeUsPhoneForSubmit(form.respondent.phone)
+    };
+    if (isCoGuardianInvitee.value) {
+      const token = String(route.query.coGuardian || '').trim();
+      const { data } = await api.post(`/public/adaptive-intake/co-guardian/${encodeURIComponent(token)}/quick`, {
+        contact: respondent,
+        answers: {
+          whoFor: form.whoFor,
+          respondent,
+          client: { ...form.client },
+          birthdate: form.birthdate,
+          homeAddress: formattedHomeAddress.value,
+          address: { ...form.address },
+          concerns: form.concerns,
+          accomplishGoal: form.accomplishGoal.trim() || null,
+          notes: form.notes,
+          preferences: {
+            preferredModality: form.preferences.preferredModality || null,
+            preferredTimeOfDay: form.preferences.preferredTimeOfDay || null,
+            preferredDays,
+            insuranceOrPayment: form.preferences.insuranceOrPayment || null
+          }
+        }
+      });
+      confirmation.value = data?.confirmation || null;
+      submitted.value = true;
+      return;
+    }
     const clientPayload =
       form.whoFor === 'myself'
         ? {
             firstName: form.respondent.firstName,
+            middleName: form.respondent.middleName,
             lastName: form.respondent.lastName
           }
         : { ...form.client };
+
+    const additionalDependents =
+      form.whoFor !== 'myself' && form.additionalDependent.enabled
+        ? [{
+            firstName: form.additionalDependent.firstName,
+            middleName: form.additionalDependent.middleName,
+            lastName: form.additionalDependent.lastName,
+            dateOfBirth: form.additionalDependent.dateOfBirth,
+            notes: form.additionalDependent.notes
+          }]
+        : [];
 
     const { data } = await api.post(`/public/adaptive-intake/${agencySlug.value}/quick`, {
       serviceType: serviceType.value || config.value?.activeService?.serviceType || null,
@@ -875,14 +1044,75 @@ async function submitQuick() {
         insuranceOrPayment: form.preferences.insuranceOrPayment || null
       },
       consentGiven: form.consentGiven,
-      acknowledgments: form.consentGiven ? consentAcknowledgmentLines : []
+      acknowledgments: form.consentGiven ? consentAcknowledgmentLines : [],
+      additionalDependents
     });
     confirmation.value = data?.confirmation || null;
     submitted.value = true;
+    const rights = form.otherGuardian.hasLegalRights;
+    const otherEmailOk = String(form.otherGuardian.email || '').includes('@');
+    const otherPhoneOk = String(form.otherGuardian.phone || '').replace(/\D/g, '').length >= 7;
+    if (
+      !isCoGuardianInvitee.value
+      && form.whoFor !== 'myself'
+      && (rights === 'yes' || rights === 'shared')
+      && (otherEmailOk || otherPhoneOk)
+    ) {
+      const clientIds = (data?.confirmation?.packetClients || [])
+        .map((row) => Number(row.clientId))
+        .filter(Boolean);
+      if (clientIds.length) {
+        try {
+          const inviteResp = await api.post(`/public/adaptive-intake/${agencySlug.value}/co-guardian-invite`, {
+            source: 'quick',
+            clientIds,
+            sendEmail: !!form.otherGuardian.sendInvite,
+            otherGuardian: {
+              ...form.otherGuardian,
+              legalAuthority: rights,
+              sendInvite: !!form.otherGuardian.sendInvite
+            }
+          });
+          confirmation.value = {
+            ...confirmation.value,
+            coGuardianInvite: inviteResp.data
+          };
+        } catch {
+          /* invite is optional — form already submitted */
+        }
+      }
+    }
   } catch (e) {
     submitError.value = e?.response?.data?.error?.message || e?.message || 'Unable to submit';
   } finally {
     submitting.value = false;
+  }
+}
+
+async function applyCoGuardianInviteFromQuery() {
+  const token = String(route.query.coGuardian || '').trim();
+  if (!token) return;
+  try {
+    const { data } = await api.get(`/public/adaptive-intake/co-guardian/${encodeURIComponent(token)}`);
+    const invite = data?.invite;
+    if (!invite) return;
+    phase.value = 'quick';
+    selectedPathway.value = 'quick';
+    form.whoFor = 'child';
+    if (invite.contact) {
+      if (invite.contact.firstName) form.respondent.firstName = invite.contact.firstName;
+      if (invite.contact.lastName) form.respondent.lastName = invite.contact.lastName;
+      if (invite.contact.email) form.respondent.email = invite.contact.email;
+      if (invite.contact.phone) form.respondent.phone = invite.contact.phone;
+    }
+    const deps = Array.isArray(invite.dependents) ? invite.dependents : [];
+    if (deps[0]?.firstName) form.client.firstName = deps[0].firstName;
+    if (deps[1]?.firstName) {
+      form.additionalDependent.enabled = true;
+      form.additionalDependent.firstName = deps[1].firstName;
+    }
+  } catch {
+    /* keep the normal join flow */
   }
 }
 
@@ -909,8 +1139,10 @@ onMounted(async () => {
     writeJoinLandingCache(agencySlug.value, resolvedServiceType.value || serviceType.value || 'counseling', data);
     providers.value = data?.providerPreview || [];
 
+    await applyCoGuardianInviteFromQuery();
+
     const services = Array.isArray(data?.intakeServices) ? data.intakeServices : [];
-    if (services.length > 1 && !data?.activeService && !serviceType.value) {
+    if (!isCoGuardianInvitee.value && services.length > 1 && !data?.activeService && !serviceType.value) {
       await router.replace(joinWelcomePath() || `/join/${encodeURIComponent(agencySlug.value)}/counseling`);
       return;
     }
@@ -1009,6 +1241,78 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.75rem;
+}
+.field-row--compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 0.75rem;
+  align-items: flex-end;
+}
+.field-row--compact :deep(.df-field) {
+  margin-bottom: 0.35rem;
+}
+.ai-who-label {
+  margin: 0 0 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #35584a;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ai-who-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.ai-who-inline .ai-pathway-card {
+  flex: 1 1 10.5rem;
+  max-width: 16.5rem;
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+}
+.ai-who-inline .ai-pathway-card-title {
+  font-size: 0.95rem;
+  margin: 0;
+}
+.ai-who-inline .ai-pathway-card-desc {
+  font-size: 0.78rem;
+  margin: 0.2rem 0 0;
+}
+.ai-dependent-heading {
+  margin: 1rem 0 0.4rem;
+  font-size: 1.02rem;
+}
+.ai-add-dependent {
+  margin-top: 1rem;
+}
+.ai-add-dependent p {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+.ai-add-dependent-form {
+  margin-top: 1rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #d7e3dc;
+  border-radius: 12px;
+}
+.ai-add-dependent-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.45rem;
+}
+.ai-add-dependent-head h2 {
+  margin: 0;
+  font-size: 1.02rem;
+}
+.ai-add-dependent-remove {
+  border: 0;
+  background: none;
+  color: #64748b;
+  font-weight: 700;
+  cursor: pointer;
 }
 .field-row--address {
   grid-template-columns: 1.4fr 0.8fr;

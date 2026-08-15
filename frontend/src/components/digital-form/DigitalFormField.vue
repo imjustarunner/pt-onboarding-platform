@@ -2,7 +2,7 @@
   <div v-if="type === 'info'" class="df-notice" style="margin-bottom: 1rem;">
     <div class="df-notice-body" v-html="safeInfoHtml" />
   </div>
-  <div v-else class="df-field" :class="{ 'df-field--error': error }">
+  <div v-else class="df-field" :class="{ 'df-field--error': error, [`df-field--${size}`]: !!size }">
     <label v-if="label && type !== 'checkbox'" class="df-field-label" :for="inputId">
       {{ label }}
       <span v-if="required" class="df-field-required">*</span>
@@ -146,7 +146,8 @@ const props = defineProps({
   rows: { type: Number, default: 4 },
   id: { type: String, default: '' },
   /** true = popular domains, or pass custom list like ['@gmail.com'] */
-  emailDomainHints: { type: [Boolean, Array], default: false }
+  emailDomainHints: { type: [Boolean, Array], default: false },
+  size: { type: String, default: '' }
 });
 const emit = defineEmits(['update:modelValue', 'blur']);
 

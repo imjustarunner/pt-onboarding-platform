@@ -140,7 +140,7 @@ export function useOfficeIntakeStartEditor({
       ...alignBlockStyle(officeStartAlign(key))
     };
     if (key === 'card') {
-      style.width = `${Number(layout.width) || 860}px`;
+      style.width = `${Number(layout.width) || 1080}px`;
       style.maxWidth = '100%';
     }
     if (key === 'welcome') style.fontSize = `${Number(sizes.welcome) || 3.2}rem`;
@@ -287,7 +287,7 @@ export function useOfficeIntakeStartEditor({
       key,
       x: event.clientX,
       origW: key === 'card'
-        ? (Number(startLayoutDraft.width) || 860)
+        ? (Number(startLayoutDraft.width) || 1080)
         : key === 'logo'
           ? (Number(startLayoutDraft.sizes?.logoWidth) || 150)
           : (Number(startLayoutDraft.sizes?.[`${key}Width`]) || 220)

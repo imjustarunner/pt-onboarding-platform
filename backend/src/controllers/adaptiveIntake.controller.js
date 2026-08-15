@@ -1,5 +1,7 @@
 import pool from '../config/database.js';
+import Agency from '../models/Agency.model.js';
 import * as AdaptiveIntake from '../services/adaptiveIntake.service.js';
+import * as CoGuardianInvite from '../services/coGuardianInvite.service.js';
 import {
   ensurePractitionerIntakeFrame,
   listPathwayTemplates
@@ -174,6 +176,127 @@ export async function convertProspective(req, res, next) {
     if (/not found|not available|does not belong/i.test(msg)) {
       return res.status(400).json({ error: { message: msg } });
     }
+    next(e);
+  }
+}
+
+async function resolveAgencyFromSlug(slugOrId) {
+  const slug = String(slugOrId || '').trim();
+  if (!slug) return null;
+  if (/^\d+$/.test(slug)) return Agency.findById(Number(slug));
+  return (await Agency.findByPortalUrl(slug)) || (await Agency.findBySlug(slug));
+}
+
+export async function createPublicCoGuardianInvite(req, res, next) {
+  try {
+    const agency = await resolveAgencyFromSlug(req.params.agencySlug);
+    if (!agency) return res.status(404).json({ error: { message: 'Organization not found' } });
+    const og = req.body?.otherGuardian || req.body || {};
+    const sendEmail = req.body?.sendEmail !== false && og.sendInvite !== false;
+    const rights = String(og.hasLegalRights || og.legalAuthority || '').trim().toLowerCase();
+    const result = await CoGuardianInvite.maybeCreateFromIntakeGuardian({
+      agencyId: agency.id,
+      intakeData: {
+        guardian: {
+          other_guardian_has_legal_rights: rights,
+          other_guardian_first_name: og.firstName,
+          other_guardian_last_name: og.lastName,
+          other_guardian_email: og.email,
+          other_guardian_phone: og.phone,
+          other_guardian_relationship: og.relationship,
+          other_guardian_send_intake_link: sendEmail ? 'yes' : 'no'
+        }
+      },
+      clientIds: req.body?.clientIds || [],
+      source: req.body?.source || 'quick',
+      publicKey: req.body?.publicKey || null
+    });
+    if (!result) {
+      return res.status(400).json({
+        error: { message: 'The other guardian needs an email or a phone number we can use to collect consent.' }
+      });
+    }
+    return res.status(201).json({ ok: true, ...result });
+  } catch (e) {
+    const msg = e?.message || 'Unable to create invite';
+    if (/email|dependent|required|not found/i.test(msg)) {
+      return res.status(400).json({ error: { message: msg } });
+    }
+    next(e);
+  }
+}
+
+export async function getPublicCoGuardianInvite(req, res, next) {
+  try {
+    const invite = await CoGuardianInvite.getPublicCoGuardianInvite(req.params.token);
+    return res.json({ ok: true, invite });
+  } catch (e) {
+    const status = e.statusCode || 400;
+    return res.status(status).json({ error: { message: e.message || 'Invite not found' } });
+  }
+}
+
+export async function acceptPublicCoGuardianInvite(req, res, next) {
+  try {
+    const result = await CoGuardianInvite.acceptCoGuardianInvite({
+      token: req.params.token,
+      contact: req.body?.contact || {},
+      answers: req.body?.answers || null
+    });
+    return res.json({ ok: true, ...result });
+  } catch (e) {
+    const status = e.statusCode || 400;
+    return res.status(status).json({ error: { message: e.message || 'Unable to accept invite' } });
+  }
+}
+
+export async function submitCoGuardianQuick(req, res, next) {
+  try {
+    const contact = req.body?.contact || req.body?.respondent || {};
+    const result = await CoGuardianInvite.acceptCoGuardianInvite({
+      token: req.params.token,
+      contact,
+      answers: req.body || null
+    });
+    return res.json({
+      ok: true,
+      ...result,
+      confirmation: {
+        submittedAt: new Date().toISOString(),
+        pathway: 'co_guardian_quick',
+        summary: {
+          whoForLabel: 'Connected dependent(s)',
+          contactName: [contact.firstName, contact.lastName].filter(Boolean).join(' '),
+          contactEmail: contact.email || result?.portalAccess?.email,
+          contactPhone: contact.phone || ''
+        },
+        portalAccess: result.portalAccess || null,
+        isolatedFromOtherGuardian: true
+      }
+    });
+  } catch (e) {
+    const status = e.statusCode || 400;
+    return res.status(status).json({ error: { message: e.message || 'Unable to save your intake' } });
+  }
+}
+
+export async function emailPublicPortalLogin(req, res, next) {
+  try {
+    const agency = await resolveAgencyFromSlug(req.params.agencySlug);
+    if (!agency) return res.status(404).json({ error: { message: 'Organization not found' } });
+    const email = String(req.body?.email || '').trim();
+    await CoGuardianInvite.emailPortalLoginInfo({
+      to: email,
+      agency,
+      username: String(req.body?.username || email).trim(),
+      temporaryPassword: req.body?.temporaryPassword || req.body?.password || null,
+      portalPath: req.body?.portalPath || `/${encodeURIComponent(agency.portal_url || agency.slug || '')}/login`,
+      clientId: req.body?.clientId || null
+    });
+    return res.json({ ok: true });
+  } catch (e) {
+    const msg = e?.message || 'Unable to email login details';
+    if (/email|valid/i.test(msg)) return res.status(400).json({ error: { message: msg } });
     next(e);
   }
 }

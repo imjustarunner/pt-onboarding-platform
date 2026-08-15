@@ -713,6 +713,25 @@
       </div>
     </div>
   </div>
+
+  <footer class="cr-public-support">
+    <p>Questions about working here?</p>
+    <button type="button" class="cr-apply-btn cr-apply-btn--outline" @click="showSupportModal = true">
+      Contact us
+    </button>
+  </footer>
+
+  <div v-if="showSupportModal" class="cr-modal-overlay" @click.self="showSupportModal = false">
+    <div class="cr-modal" role="dialog" aria-modal="true" aria-label="Contact us">
+      <div class="cr-modal-header">
+        <h3>Contact us</h3>
+        <button class="cr-modal-close" type="button" aria-label="Close" @click="showSupportModal = false">✕</button>
+      </div>
+      <div class="cr-modal-body">
+        <PublicAgencySupportForm v-if="slug" :agency-slug="slug" default-category="careers" />
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -722,6 +741,7 @@ import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import JobDescriptionSections from '../../components/careers/JobDescriptionSections.vue';
+import PublicAgencySupportForm from '../../components/public/PublicAgencySupportForm.vue';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import {
@@ -764,6 +784,7 @@ const activeStoryModal = ref(null);
 const savedJobs = ref(new Set());
 const currentPage = ref(1);
 const showAll = ref(false);
+const showSupportModal = ref(false);
 
 const editDraft = ref(null);
 const savingEdit = ref(false);
@@ -1727,5 +1748,14 @@ watch(slug, () => loadCareers(), { immediate: true });
   .cr-pagination { flex-direction: column; align-items: flex-start; }
   .cr-why-grid, .cr-impact-stats, .cr-impact-bottom { grid-template-columns: 1fr; }
   .cr-story-modal { padding: 18px; }
+}
+.cr-public-support {
+  max-width: 1160px;
+  margin: 0 auto 2rem;
+  padding: 0 24px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
 }
 </style>

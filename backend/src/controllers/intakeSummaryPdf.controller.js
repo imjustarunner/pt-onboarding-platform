@@ -6,7 +6,7 @@ import {
   buildOfficeIntakeSummarySpec,
   buildQuickIntakeSummarySpec,
   generateIntakeSummaryPdf,
-  pdfFilename
+  recordPdfFilename
 } from '../services/intakeSummaryPdf.service.js';
 
 function sendPdf(res, buffer, filename) {
@@ -37,6 +37,25 @@ function agencyDisplayName(agency) {
 
 function agencyFileSlug(agency) {
   return String(agency?.portal_url || agency?.slug || 'intake').trim() || 'intake';
+}
+
+function initialsFromName(name) {
+  return String(name || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() || '')
+    .join('')
+    .slice(0, 4);
+}
+
+function summaryPdfFilename(agency, body = {}) {
+  const initials = String(body.initials || '').trim() || initialsFromName(body.clientName);
+  return recordPdfFilename({
+    tenant: agencyDisplayName(agency) || agencyFileSlug(agency),
+    initials,
+    dateOfBirth: body.dateOfBirth,
+    fallback: `${agencyFileSlug(agency)}-intake-summary.pdf`
+  });
 }
 
 /** POST /api/public-intake/:publicKey/:submissionId/summary-pdf */
@@ -73,7 +92,13 @@ export async function downloadPublicIntakeSummaryPdf(req, res, next) {
     return sendPdf(
       res,
       pdf,
-      pdfFilename([agencyFileSlug(agency), 'intake-summary', submissionId])
+      summaryPdfFilename(agency, {
+        initials: req.body?.initials,
+        dateOfBirth: req.body?.dateOfBirth || req.body?.clients?.[0]?.dateOfBirth,
+        clientName: req.body?.clientName
+          || req.body?.clients?.[0]?.fullName
+          || [req.body?.clients?.[0]?.firstName, req.body?.clients?.[0]?.lastName].filter(Boolean).join(' ')
+      })
     );
   } catch (err) {
     if (err?.code === 'PDF_RENDERER_UNAVAILABLE' || err?.statusCode) {
@@ -154,11 +179,125 @@ export async function downloadQuickIntakeSummaryPdf(req, res, next) {
     return sendPdf(
       res,
       pdf,
-      pdfFilename([agencyFileSlug(agency), 'interest-form', identifierCode || clientId || 'confirmation'])
+      summaryPdfFilename(agency, {
+        initials: req.body?.initials,
+        dateOfBirth: req.body?.dateOfBirth || posted.birthdate || storedSummary?.birthdate,
+        clientName: req.body?.clientName || posted.clientName || storedSummary?.clientName
+      })
     );
   } catch (err) {
     if (err?.code === 'PDF_RENDERER_UNAVAILABLE' || err?.statusCode) {
       return pdfUnavailable(res, err);
+    }
+    next(err);
+  }
+}
+
+async function buildOfficeSummaryPdf(req) {
+  const publicKey = String(req.params.publicKey || '').trim();
+  const submissionId = Number(req.params.submissionId || 0);
+  const sessionToken = String(req.body?.sessionToken || req.query?.sessionToken || '').trim();
+  if (!publicKey || !submissionId || !sessionToken) {
+    const err = new Error('sessionToken is required');
+    err.statusCode = 400;
+    throw err;
+  }
+  const link = await IntakeLink.findByPublicKey(publicKey);
+  if (!link) {
+    const err = new Error('Intake link not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const submission = await IntakeSubmission.findBySessionToken(sessionToken);
+  if (!submission || Number(submission.id) !== submissionId) {
+    const err = new Error('Submission not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  if (Number(submission.intake_link_id) !== Number(link.id)) {
+    const err = new Error('Submission not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const agency = await Agency.findById(link.organization_id);
+  const spec = buildOfficeIntakeSummarySpec({
+    agencyName: agencyDisplayName(agency) || String(link.title || 'Intake').trim(),
+    submission,
+    guardian: req.body?.guardian || {},
+    clients: Array.isArray(req.body?.clients) ? req.body.clients : []
+  });
+  const pdf = await generateIntakeSummaryPdf(spec);
+  const filename = summaryPdfFilename(agency, {
+    initials: req.body?.initials,
+    dateOfBirth: req.body?.dateOfBirth || req.body?.clients?.[0]?.dateOfBirth,
+    clientName: req.body?.clientName
+      || req.body?.clients?.[0]?.fullName
+      || [req.body?.clients?.[0]?.firstName, req.body?.clients?.[0]?.lastName].filter(Boolean).join(' ')
+  });
+  return { agency, pdf, filename, clientId: submission.client_id };
+}
+
+/** POST /api/public-intake/:publicKey/:submissionId/summary-pdf/email */
+export async function emailPublicIntakeSummaryPdf(req, res, next) {
+  try {
+    const { emailSummaryPdfCopy } = await import('../services/coGuardianInvite.service.js');
+    const built = await buildOfficeSummaryPdf(req);
+    await emailSummaryPdfCopy({
+      to: req.body?.email,
+      agency: built.agency,
+      filename: built.filename,
+      pdfBuffer: built.pdf,
+      clientId: built.clientId
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    if (err?.code === 'PDF_RENDERER_UNAVAILABLE' || err?.statusCode) {
+      return pdfUnavailable(res, err);
+    }
+    if (/valid email/i.test(String(err?.message || ''))) {
+      return res.status(400).json({ error: { message: err.message } });
+    }
+    next(err);
+  }
+}
+
+/** POST /api/public/adaptive-intake/:agencySlug/summary-pdf/email */
+export async function emailQuickIntakeSummaryPdf(req, res, next) {
+  try {
+    const { emailSummaryPdfCopy } = await import('../services/coGuardianInvite.service.js');
+    const agency = await resolvePublicAgency(req.params.agencySlug);
+    if (!agency || Number(agency.is_active) === 0) {
+      return res.status(404).json({ error: { message: 'Organization not found' } });
+    }
+    const clientId = Number(req.body?.clientId || 0) || null;
+    const identifierCode = String(req.body?.identifierCode || '').trim();
+    const posted = req.body?.summary && typeof req.body.summary === 'object' ? req.body.summary : {};
+    const spec = buildQuickIntakeSummarySpec({
+      agencyName: agencyDisplayName(agency),
+      identifierCode: identifierCode || '',
+      submittedAt: req.body?.submittedAt || new Date().toISOString(),
+      summary: posted
+    });
+    const pdf = await generateIntakeSummaryPdf(spec);
+    const filename = summaryPdfFilename(agency, {
+      initials: req.body?.initials,
+      dateOfBirth: req.body?.dateOfBirth || posted.birthdate,
+      clientName: req.body?.clientName || posted.clientName
+    });
+    await emailSummaryPdfCopy({
+      to: req.body?.email,
+      agency,
+      filename,
+      pdfBuffer: pdf,
+      clientId
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    if (err?.code === 'PDF_RENDERER_UNAVAILABLE' || err?.statusCode) {
+      return pdfUnavailable(res, err);
+    }
+    if (/valid email/i.test(String(err?.message || ''))) {
+      return res.status(400).json({ error: { message: err.message } });
     }
     next(err);
   }

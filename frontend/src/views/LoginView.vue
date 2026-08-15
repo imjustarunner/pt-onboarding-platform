@@ -491,7 +491,13 @@
           <div class="login-help">
             <a href="#" @click.prevent="showForgotPassword" class="help-link">Forgot Password?</a>
             <span class="help-separator">|</span>
+            <a href="#" @click.prevent="showGuardianTempPasswordHelp" class="help-link">Access token expired?</a>
+            <span class="help-separator">|</span>
             <a href="#" @click.prevent="showForgotUsername" class="help-link">Forgot Username?</a>
+            <template v-if="loginSlug">
+              <span class="help-separator">|</span>
+              <router-link :to="`/${encodeURIComponent(loginSlug)}/support?topic=parent_access`" class="help-link">Contact us</router-link>
+            </template>
             <template v-if="showClubLinks && !isAppLike">
               <span class="help-separator">|</span>
               <router-link :to="participantSignupPath" class="help-link">Sign up</router-link>
@@ -547,6 +553,28 @@
               </div>
               <button type="submit" class="btn btn-primary" :disabled="recoveryLoading">
                 {{ recoveryLoading ? 'Sending…' : 'Send reset link' }}
+              </button>
+              <button type="button" class="btn btn-secondary" @click="closeRecoveryModals" :disabled="recoveryLoading">Cancel</button>
+            </form>
+          </div>
+        </div>
+
+        <div v-if="showGuardianTempPasswordMessage" class="modal-overlay" @click.self="closeRecoveryModals">
+          <div class="modal">
+            <h3>Need a new access token?</h3>
+            <p class="modal-subtitle">
+              Parent and guardian access starts with a private token, not staff Forgot password.
+              If that token expired or never arrived, we notify the care team. They can send a new token or a temporary password.
+            </p>
+            <form @submit.prevent="submitGuardianTempPasswordHelp" class="modal-form">
+              <div class="form-group">
+                <label for="guardianTempEmail">Email / username</label>
+                <input id="guardianTempEmail" v-model="forgotPasswordEmail" type="email" required placeholder="name@email.com" />
+              </div>
+              <div v-if="recoveryError" class="error">{{ recoveryError }}</div>
+              <div v-if="recoverySuccess" class="success">{{ recoverySuccess }}</div>
+              <button type="submit" class="btn btn-primary" :disabled="recoveryLoading">
+                {{ recoveryLoading ? 'Sending…' : 'Ask the care team for a new token' }}
               </button>
               <button type="button" class="btn btn-secondary" @click="closeRecoveryModals" :disabled="recoveryLoading">Cancel</button>
             </form>
@@ -1371,6 +1399,7 @@ const identifiedLoginMethod = ref('password');
 const lastVerifiedUsername = ref('');
 const lastUsernameInputAt = ref(0);
 const showForgotPasswordMessage = ref(false);
+const showGuardianTempPasswordMessage = ref(false);
 const showForgotUsernameMessage = ref(false);
 const lastErrorCode = ref(null);
 
@@ -1870,6 +1899,7 @@ const handleLogin = async () => {
 
 const showForgotPassword = () => {
   showForgotPasswordMessage.value = true;
+  showGuardianTempPasswordMessage.value = false;
   showForgotUsernameMessage.value = false;
   recoveryError.value = '';
   recoverySuccess.value = '';
@@ -1896,11 +1926,42 @@ const showForgotUsername = () => {
 
 const closeRecoveryModals = () => {
   showForgotPasswordMessage.value = false;
+  showGuardianTempPasswordMessage.value = false;
   showForgotUsernameMessage.value = false;
   recoveryLoading.value = false;
   recoveryError.value = '';
   recoverySuccess.value = '';
   recoveryDebug.value = null;
+};
+
+const showGuardianTempPasswordHelp = () => {
+  showGuardianTempPasswordMessage.value = true;
+  showForgotPasswordMessage.value = false;
+  showForgotUsernameMessage.value = false;
+  recoveryError.value = '';
+  recoverySuccess.value = '';
+  const u = String(username.value || '').trim();
+  forgotPasswordEmail.value = u.includes('@') ? u : forgotPasswordEmail.value;
+};
+
+const submitGuardianTempPasswordHelp = async () => {
+  recoveryLoading.value = true;
+  recoveryError.value = '';
+  recoverySuccess.value = '';
+  try {
+    const captchaToken = await getRecoveryCaptchaToken('login_password_reset');
+    const resp = await api.post('/auth/request-guardian-temp-password', {
+      email: String(forgotPasswordEmail.value || '').trim(),
+      organizationSlug: loginSlug.value || undefined,
+      captchaToken: captchaToken || undefined
+    }, { skipGlobalLoading: true, skipAuthRedirect: true });
+    recoverySuccess.value = resp?.data?.message
+      || 'If this matches a parent or guardian access token, the care team can send a new token or a temporary password.';
+  } catch {
+    recoverySuccess.value = 'If this matches a parent or guardian access token, the care team can send a new token or a temporary password.';
+  } finally {
+    recoveryLoading.value = false;
+  }
 };
 
 const recoveryRecaptchaSiteKey = String(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '').trim();

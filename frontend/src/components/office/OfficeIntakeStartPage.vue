@@ -616,7 +616,7 @@ if (!ctx) {
   border-radius: 24px;
   padding: clamp(1.35rem, 3vw, 2.15rem);
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
-  width: min(860px, 100%);
+  width: min(1080px, 100%);
   margin: 0 auto;
   text-align: left;
 }
@@ -777,9 +777,9 @@ if (!ctx) {
 }
 
 .intake-start-page .intake-identity-grid {
-  max-width: 36rem;
-  margin-left: auto;
-  margin-right: auto;
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
 }
 
 .intake-start-list {

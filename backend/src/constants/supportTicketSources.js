@@ -4,7 +4,10 @@ export const SUPPORT_TICKET_SOURCE_KEYS = Object.freeze({
   MAILING_LIST: 'mailing_list',
   EXTERNAL_REQUEST: 'external_request',
   PUBLIC_SCHOOL_REFERRAL: 'public_school_referral',
-  PUBLIC_SCHOOL_INTAKE_SPLASH: 'public_school_intake_splash'
+  PUBLIC_SCHOOL_INTAKE_SPLASH: 'public_school_intake_splash',
+  GUARDIAN_TEMP_PASSWORD: 'guardian_temp_password',
+  GUARDIAN_ACCESS_TOKEN: 'guardian_access_token',
+  PUBLIC_AGENCY_SUPPORT: 'public_agency_support'
 });
 
 export function normalizeSupportTicketSourceKey(value) {
@@ -21,7 +24,10 @@ export function supportTicketSourceLabel(value) {
     [SUPPORT_TICKET_SOURCE_KEYS.MAILING_LIST]: 'Mailing List',
     [SUPPORT_TICKET_SOURCE_KEYS.EXTERNAL_REQUEST]: 'External Request',
     [SUPPORT_TICKET_SOURCE_KEYS.PUBLIC_SCHOOL_REFERRAL]: 'Public School Referral Finder',
-    [SUPPORT_TICKET_SOURCE_KEYS.PUBLIC_SCHOOL_INTAKE_SPLASH]: 'Public School Intake Splash'
+    [SUPPORT_TICKET_SOURCE_KEYS.PUBLIC_SCHOOL_INTAKE_SPLASH]: 'Public School Intake Splash',
+    [SUPPORT_TICKET_SOURCE_KEYS.GUARDIAN_TEMP_PASSWORD]: 'Guardian temporary password',
+    [SUPPORT_TICKET_SOURCE_KEYS.GUARDIAN_ACCESS_TOKEN]: 'Guardian access token',
+    [SUPPORT_TICKET_SOURCE_KEYS.PUBLIC_AGENCY_SUPPORT]: 'Public agency support'
   };
   return labels[key] || key;
 }

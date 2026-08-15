@@ -96,7 +96,9 @@ export const authenticate = async (req, res, next) => {
       // Join landing save is mounted under /api/public but must authenticate.
       const isJoinLandingWrite = req.method === 'PATCH'
         && /\/api\/public\/adaptive-intake\/[^/]+\/landing\/?$/.test(requestPath);
-      if (!isJoinLandingWrite) {
+      const isPublicSupportSettingsWrite = req.method === 'PATCH'
+        && /\/api\/public\/agency-support\/[^/]+\/settings\/?$/.test(requestPath);
+      if (!isJoinLandingWrite && !isPublicSupportSettingsWrite) {
         return next();
       }
     }
