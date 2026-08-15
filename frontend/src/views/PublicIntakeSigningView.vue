@@ -5803,7 +5803,6 @@ function applyStarterDataAndContinue() {
       guardian_relationship_to_child: guardianRelationship.value,
       ...otherGuardianFieldBag()
     };
-    };
   }
   submitConsent();
 }

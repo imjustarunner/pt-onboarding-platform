@@ -9,7 +9,7 @@
       aria-hidden="true"
     />
     <label class="pas-span">
-      What can we help with?
+      How can we help today?
       <select v-model="form.category" required>
         <option disabled value="">Select a category</option>
         <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.label }}</option>
@@ -25,47 +25,48 @@
         <input v-model.trim="form.email" type="email" required maxlength="255" />
       </label>
       <label>
-        Callback number
-        <input v-model.trim="form.phone" type="tel" required maxlength="40" placeholder="Number we can call or text" />
+        Phone number
+        <input v-model.trim="form.phone" type="tel" required maxlength="40" placeholder="Best number to call or text" />
       </label>
     </div>
     <label class="pas-check">
       <input v-model="form.preferText" type="checkbox" />
-      <span>I prefer a text back</span>
+      <span>Please text me back instead of calling</span>
     </label>
     <label class="pas-span">
-      Message
-      <textarea v-model.trim="form.message" rows="5" required maxlength="4000" />
+      Your message
+      <textarea v-model.trim="form.message" rows="5" required maxlength="4000" placeholder="Tell us what's going on — we're here to help." />
     </label>
 
     <div v-if="looksLikePhi" class="pas-smart">
       <p>
-        This looks like it may include health details. You can start a quick interest form, or log in
-        and send a secure message in the portal. You can still send this message if you prefer.
+        It looks like your message may include health details — that's okay.
+        For extra privacy, you can log in and send us a secure message in your portal.
+        You're also welcome to send it here.
       </p>
       <div class="pas-smart-actions">
         <router-link v-if="joinPath" class="pas-mini" :to="joinPath">Looking for a counselor?</router-link>
-        <router-link v-if="loginPath" class="pas-mini" :to="loginPath">Login to portal</router-link>
+        <router-link v-if="loginPath" class="pas-mini" :to="loginPath">Log in to your portal</router-link>
       </div>
     </div>
 
     <p class="pas-phi">{{ phiWarning }}</p>
     <p v-if="loginPath" class="pas-phi">
-      Prefer a more secure channel?
-      <router-link :to="loginPath">Log in to the portal</router-link>
-      and send a message there.
+      Want something more private?
+      <router-link :to="loginPath">Log in to your portal</router-link>
+      and send us a secure message there.
     </p>
     <label class="pas-check">
       <input v-model="form.phiAcknowledged" type="checkbox" />
       <span>
-        I understand this public form is not as protected as a portal message. I may include health
-        details, but I will not include a Social Security number or payment card number.
+        I've read the note above. I understand this page is less secure than messaging us in your portal, and I won't
+        include my Social Security number or payment card information.
       </span>
     </label>
     <p v-if="error" class="pas-error">{{ error }}</p>
     <p v-if="success" class="pas-ok">{{ success }}</p>
     <button type="submit" class="pas-submit" :style="{ background: accent }" :disabled="sending || !canSubmit">
-      {{ sending ? 'Sending…' : 'Send message' }}
+      {{ sending ? 'Sending…' : 'Send my message' }}
     </button>
   </form>
 </template>
@@ -85,7 +86,9 @@ const props = defineProps({
 });
 
 const categories = ref([]);
-const phiWarning = ref('You may include health details, but this public page is not as protected as a portal message.');
+const phiWarning = ref(
+  'If sharing health details would help us respond, you can include them here. This page isn\'t as secure as messaging us inside your portal. Please don\'t include Social Security or payment card numbers.'
+);
 const recaptchaSiteKey = ref('');
 const recaptchaRequired = ref(false);
 const sending = ref(false);
@@ -145,7 +148,7 @@ onMounted(async () => {
   } catch {
     categories.value = [
       { id: 'other', label: 'Something else' },
-      { id: 'parent_access', label: 'Parent / guardian access (token or login)' }
+      { id: 'parent_access', label: 'Help with parent or guardian login' }
     ];
   }
 });
@@ -176,7 +179,7 @@ async function submit() {
   error.value = '';
   success.value = '';
   if (!canSubmit.value) {
-    error.value = 'Please complete the required fields, including a callback number.';
+    error.value = 'Almost there — please fill in all the fields, including a phone number we can reach you at.';
     return;
   }
   sending.value = true;
@@ -203,8 +206,8 @@ async function submit() {
       captchaToken
     }, { skipGlobalLoading: true });
     success.value = form.preferText
-      ? 'Message sent. Our team will follow up — you asked for a text back when possible.'
-      : 'Message sent. Our team will follow up by phone or email.';
+      ? 'Thanks! We got your message and will text you back as soon as we can.'
+      : 'Thanks! We got your message and will follow up by phone or email soon.';
     form.message = '';
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Unable to send your message right now.';

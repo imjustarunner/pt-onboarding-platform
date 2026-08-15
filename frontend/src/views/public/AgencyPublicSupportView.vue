@@ -6,7 +6,7 @@
     :branding="{ logoUrl, colors: { primary: accent } }"
     :program-title-override="agencyName || 'Support & contact'"
     form-title-override="Support & contact"
-    form-subtitle="Call, text, or send a message"
+    form-subtitle="We're here to help — call, text, or write to us"
     :scenic-sidebar-url="themeUrl"
     cover-mode
     :show-header="false"
@@ -78,7 +78,7 @@
             class="ajl-resize ajl-resize--e"
             @mousedown.stop="layout.startResize('lead', $event)"
           />
-          <p class="pas-banner-lead">Call, text, or send a message — our team is here to help with care, billing, portal access, and getting started.</p>
+          <p class="pas-banner-lead">Whether it's care, billing, portal access, or getting started — we're here to help. Call, text, or send us a message anytime.</p>
         </div>
 
         <button
@@ -262,11 +262,11 @@
           @mousedown.stop="layout.startResize('card', $event)"
         />
         <header class="pas-card-head">
-          <h1>Send a message</h1>
+          <h1>Get in touch</h1>
           <p class="pas-tagline">{{ intro }}</p>
         </header>
         <div v-if="layout.editing.value || supportContact.phoneDisplay || supportContact.email" class="pas-contact">
-          <h2>Call or text us</h2>
+          <h2>Reach us by phone or text</h2>
           <template v-if="layout.editing.value">
             <label class="pas-field-label">Page intro<textarea v-model="copyDraft.intro" class="pas-edit-area" rows="3" maxlength="800" /></label>
             <label class="pas-field-label">Support phone<input v-model.trim="copyDraft.phone" type="tel" /></label>
@@ -280,13 +280,13 @@
               <span v-else>{{ supportContact.phoneDisplay }}</span>
             </p>
             <p v-if="supportContact.smsHref && supportContact.telHref">
-              Prefer to text? <a :href="supportContact.smsHref">Text this number</a>
+              Rather text? <a :href="supportContact.smsHref">Tap here to start a text</a>
             </p>
             <p v-if="supportContact.email">
-              Email: <a :href="`mailto:${supportContact.email}`">{{ supportContact.email }}</a>
+              Or email us at <a :href="`mailto:${supportContact.email}`">{{ supportContact.email }}</a>
             </p>
             <p v-if="hoursNote" class="pas-hours">{{ hoursNote }}</p>
-            <p class="pas-hours">You can call or text. If you send a message, leave a callback number and tell us if you prefer a text back.</p>
+            <p class="pas-hours">We're happy to hear from you by call or text. When you message below, share the best number to reach you and let us know if you'd like a text back.</p>
           </template>
         </div>
         <p v-if="loadError" class="pas-error">{{ loadError }}</p>
@@ -337,7 +337,16 @@ const copyDraft = reactive({
 
 const agencyName = computed(() => config.value?.agency?.name || '');
 const logoUrl = computed(() => config.value?.agency?.logoUrl || '');
-const intro = computed(() => config.value?.intro || '');
+const intro = computed(() => {
+  const raw = String(config.value?.intro || '').trim();
+  const lower = raw.toLowerCase();
+  const stale = !raw
+    || lower.includes('this organization')
+    || lower.includes('this public page is not as protected')
+    || lower.includes('send a message to this');
+  if (!stale) return raw;
+  return 'We\'re glad you reached out. Share what you need below — it\'s okay to include health details if that helps us assist you. For the most private option, message us through your portal account.';
+});
 const hoursNote = computed(() => config.value?.hoursNote || '');
 const supportContact = computed(() => config.value?.supportContact || {});
 const shortcuts = computed(() => config.value?.shortcuts || {});

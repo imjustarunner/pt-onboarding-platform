@@ -14,27 +14,48 @@ import {
 } from '../content/intakeLegalCopy.js';
 
 export const PUBLIC_SUPPORT_CATEGORIES = [
-  { id: 'parent_access', label: 'Parent / guardian access (token or login)' },
-  { id: 'intake_join', label: 'Join / intake form' },
+  { id: 'parent_access', label: 'Help with parent or guardian login' },
+  { id: 'intake_join', label: 'Questions about joining or intake' },
   { id: 'scheduling', label: 'Scheduling or appointments' },
-  { id: 'billing', label: 'Billing or insurance' },
+  { id: 'billing', label: 'Billing or insurance questions' },
   { id: 'careers', label: 'Careers or employment' },
   { id: 'records', label: 'Records request' },
-  { id: 'technical', label: 'Website or technical issue' },
+  { id: 'technical', label: 'Website or technical help' },
   { id: 'other', label: 'Something else' }
 ];
 
 const DEFAULT_INTRO = [
-  'Send a message to this organization. You can include health details if you need to,',
-  'but this public page is not as protected as a message inside the portal.'
+  'We\'re glad you reached out. Share what you need below — it\'s okay to include health details',
+  'if that helps us assist you. For the most private option, message us through your portal account.'
 ].join(' ');
 
+const LEGACY_INTRO_MARKERS = [
+  'send a message to this organization',
+  'this public page is not as protected',
+  'message inside the portal',
+  'this organization'
+];
+
 const PHI_WARNING = [
-  'You may include protected health information if it helps us help you.',
-  'We cannot guarantee the safety of information sent outside our system.',
-  'For a more secure option, log in to the portal and send a message there.',
-  'Do not include Social Security numbers or payment card numbers.'
+  'If sharing health details would help us respond, you can include them here.',
+  'This page isn\'t as secure as messaging us inside your portal.',
+  'Please don\'t include Social Security or payment card numbers.',
+  'Need extra privacy? Log in to your portal to send us a secure message.'
 ].join(' ');
+
+function defaultIntroForAgency(_agencyName) {
+  return DEFAULT_INTRO;
+}
+
+function resolveSupportIntro(pageIntro, agencyName) {
+  const custom = String(pageIntro || '').trim();
+  if (!custom) return defaultIntroForAgency(agencyName);
+  const lower = custom.toLowerCase();
+  if (LEGACY_INTRO_MARKERS.some((marker) => lower.includes(marker))) {
+    return defaultIntroForAgency(agencyName);
+  }
+  return custom;
+}
 
 function frontendOrigin() {
   return String(process.env.FRONTEND_URL || process.env.APP_URL || 'https://plottwisthq.com').replace(/\/$/, '');
@@ -183,7 +204,7 @@ function buildPublicConfig(agency) {
       colors
     },
     publicUrl: `${origin}/${encodeURIComponent(slug)}/support`,
-    intro: page.intro || DEFAULT_INTRO,
+    intro: resolveSupportIntro(page.intro, String(agency.official_name || agency.name || '').trim()),
     hoursNote: page.hoursNote || '',
     layout: page.layout || {},
     supportContact: {
@@ -372,7 +393,7 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
     throw err;
   }
   if (!phiAcknowledged) {
-    const err = new Error('Please confirm you understand this form is not as protected as a portal message.');
+    const err = new Error('Please check the box to confirm you\'ve read the privacy note above.');
     err.status = 400;
     throw err;
   }
