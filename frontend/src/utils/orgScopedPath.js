@@ -5,6 +5,31 @@ function norm(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+const PATH_SEGMENT_RESERVED = new Set([
+  'login', 'admin', 'dashboard', 'logout', 'schools', 'kiosk',
+  'passwordless-login', 'reset-password', 'change-password', 'intake',
+  'join', 'office-intake', 'i', 'preferences-form', 'careers', 'public',
+  'registration-receipt', 'counseling', 'tutoring', 'coaching', 'consulting'
+]);
+
+/**
+ * Portal slug from the current path. `/join/itsco/counseling` must resolve to
+ * `itsco`, not `join` — otherwise tenant pickers snap to the first alphabetized
+ * agency (Burning Sage).
+ */
+export function resolvePortalSlugFromPath(pathname = '') {
+  const parts = String(pathname || '').split('/').filter(Boolean).map((p) => norm(p));
+  if (!parts.length) return '';
+  const first = parts[0];
+  if (first === 'join' || first === 'office-intake') {
+    const second = parts[1] || '';
+    if (second && !PATH_SEGMENT_RESERVED.has(second)) return second;
+    return '';
+  }
+  if (PATH_SEGMENT_RESERVED.has(first)) return '';
+  return first;
+}
+
 function cachePortalSlugForHost(portalSlug) {
   const resolved = norm(portalSlug);
   if (!resolved || typeof window === 'undefined') return;

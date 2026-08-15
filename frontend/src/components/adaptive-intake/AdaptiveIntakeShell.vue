@@ -9,6 +9,7 @@
     :progress-index="progressIndex"
     :intake-sidebar-steps="coverMode ? [] : sidebarSteps"
     :intake-sidebar-step-index="progressIndex"
+    :intake-sidebar-editing="sidebarEditing"
     :show-intake-sidebar-security="!coverMode && sidebarSteps.length > 0"
     :decor-hero-url="decorHeroUrl"
     :decor-hero-alt="decorHeroAlt"
@@ -27,6 +28,7 @@
     :contact-support-label="contactSupportLabel"
     :scenic-sidebar-url="scenicSidebarUrl"
     @contact-support="$emit('contact-support')"
+    @update-sidebar-label="(payload) => $emit('update-sidebar-label', payload)"
   >
     <template v-if="$slots['header-left']" #header-left>
       <slot name="header-left" />
@@ -81,8 +83,9 @@ defineProps({
   contactEmail: { type: String, default: '' },
   showContactSupportAction: { type: Boolean, default: false },
   contactSupportLabel: { type: String, default: 'Send a message' },
-  scenicSidebarUrl: { type: String, default: '' }
+  scenicSidebarUrl: { type: String, default: '' },
+  sidebarEditing: { type: Boolean, default: false }
 });
 
-defineEmits(['contact-support']);
+defineEmits(['contact-support', 'update-sidebar-label']);
 </script>

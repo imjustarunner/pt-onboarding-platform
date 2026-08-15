@@ -1890,11 +1890,11 @@
       <AddStickyFab v-if="showMomentumStickiesShell" />
       <AddToStickyContextMenu v-if="showMomentumStickiesShell" />
       <!-- <RegistrationPromoToastRail v-if="isAuthenticated" /> -->
-      <HelperWidget v-if="isAuthenticated && !isImmersiveJoinRoute" />
-      <BetaFeedbackWidget v-if="isAuthenticated && !isNative && !isImmersiveJoinRoute" />
-      <FloatingMeetingBar v-if="isAuthenticated" />
-      <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin" />
-      <TourManager v-if="isAuthenticated && !isSummitStatsChallengeChrome" />
+      <HelperWidget v-if="isAuthenticated && !isImmersiveJoinRoute && !hideGlobalNavForSchoolStaff" />
+      <BetaFeedbackWidget v-if="isAuthenticated && !isNative && !isImmersiveJoinRoute && !hideGlobalNavForSchoolStaff" />
+      <FloatingMeetingBar v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" />
+      <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff" />
+      <TourManager v-if="isAuthenticated && !isSummitStatsChallengeChrome && !hideGlobalNavForSchoolStaff" />
       <!-- School staff get DM-only Messages (no global nav); other hidden-chrome verticals stay without it. -->
       <PlatformChatDrawer
         v-if="isAuthenticated && !isImmersiveJoinRoute && !isSscSstcTenant && (String(user?.role || '').toLowerCase() === 'school_staff' || !hideGlobalNavForSchoolStaff)"
@@ -3888,11 +3888,14 @@ const hideGlobalNavForSchoolStaff = computed(() => {
   const path = String(route.path || '');
   // Public digital forms — full-screen participant experience (guest or admin preview).
   if (
+    route.meta?.hideNav === true ||
     /^\/(?:intake|i|preferences-form)\/[^/]+/.test(path) ||
     /^\/registration-receipt\/[^/]+/.test(path) ||
     /^\/public\/hiring\/reference\/[^/]+/.test(path) ||
     /^\/office-intake\/[^/]+/.test(path) ||
-    /\/office-intake$/.test(path)
+    /\/office-intake$/.test(path) ||
+    /^\/join\//.test(path) ||
+    /\/join\/(?:counseling|tutoring|coaching|consulting)(?:\/|$)/.test(path)
   ) {
     return true;
   }

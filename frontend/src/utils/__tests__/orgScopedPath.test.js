@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hubPathPrefix } from '../orgScopedPath.js';
+import { hubPathPrefix, resolvePortalSlugFromPath } from '../orgScopedPath.js';
 
 describe('hubPathPrefix', () => {
   it('stays flat on a dedicated app host even when another agency is selected', () => {
@@ -24,5 +24,21 @@ describe('hubPathPrefix', () => {
       agency: { slug: 'itsco', portal_url: 'itsco' },
       branding: { portalHostPortalUrl: '' }
     })).toBe('/itsco');
+  });
+});
+
+describe('resolvePortalSlugFromPath', () => {
+  it('reads the agency from /join/:slug/counseling instead of treating join as the tenant', () => {
+    expect(resolvePortalSlugFromPath('/join/itsco/counseling')).toBe('itsco');
+    expect(resolvePortalSlugFromPath('/join/itsco')).toBe('itsco');
+  });
+
+  it('reads a scoped org join path', () => {
+    expect(resolvePortalSlugFromPath('/itsco/join/counseling')).toBe('itsco');
+  });
+
+  it('ignores reserved first segments', () => {
+    expect(resolvePortalSlugFromPath('/admin/settings')).toBe('');
+    expect(resolvePortalSlugFromPath('/intake/abc')).toBe('');
   });
 });

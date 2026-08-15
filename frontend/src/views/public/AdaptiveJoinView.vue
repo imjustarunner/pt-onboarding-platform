@@ -41,7 +41,9 @@
     :show-contact-support-action="!!joinContactEmail"
     contact-support-label="Send a message"
     scenic-sidebar-url="/assets/intake-themes/backgroundsidegreen.jpg"
+    :sidebar-editing="editingSidebar"
     @contact-support="openJoinSupport"
+    @update-sidebar-label="onSidebarLabel"
   >
     <template #header-left>
       <button
@@ -69,7 +71,26 @@
     <template v-else-if="phase === 'quick'">
       <div class="ai-join-stage">
       <div v-if="canEditLanding" class="ai-join-devfill">
+        <template v-if="!editingSidebar">
+          <button type="button" @click="startEditSidebar">Edit side panel</button>
+        </template>
+        <template v-else>
+          <button type="button" @click="cancelEditSidebar">Cancel</button>
+          <button type="button" :disabled="savingSidebar" @click="saveSidebarSteps">
+            {{ savingSidebar ? 'Saving…' : 'Save side panel' }}
+          </button>
+        </template>
         <button type="button" @click="devFillQuick">Dev Fill</button>
+      </div>
+      <div v-if="editingSidebar" class="ai-join-sidebar-editor">
+        <strong>Left-side step guide</strong>
+        <p>These labels show in the green panel on the left. Change them here, then save.</p>
+        <label v-for="(step, i) in sidebarDraft" :key="step.id || i">
+          Step {{ i + 1 }}
+          <input v-model="step.label" />
+        </label>
+        <span v-if="sidebarSaveError" class="ai-join-sidebar-error">{{ sidebarSaveError }}</span>
+        <span v-if="sidebarSaveOk" class="ai-join-sidebar-ok">{{ sidebarSaveOk }}</span>
       </div>
       <!-- Step: who for -->
       <div v-if="quickStep === 0" class="ai-join-form">
@@ -318,6 +339,9 @@ import {
 } from '../../utils/contactInput.js';
 import {
   JOIN_BOOT_THEME_URL,
+  mergeQuickSidebarSteps,
+  restoreJoinWelcomeCopy,
+  mergeJoinLayout,
   readJoinLandingCache,
   writeJoinLandingCache
 } from '../../utils/joinLandingTemplate.js';
@@ -340,6 +364,10 @@ const cachedJoin = readJoinLandingCache(
   String(route.params.organizationSlug || route.params.agencySlug || '').trim(),
   String(route.params.serviceType || 'counseling').trim().toLowerCase() || 'counseling'
 );
+if (cachedJoin?.copy) {
+  cachedJoin.copy = restoreJoinWelcomeCopy(cachedJoin.copy, cachedJoin.agency?.name);
+  if (cachedJoin.copy.layout) cachedJoin.copy.layout = mergeJoinLayout(cachedJoin.copy.layout);
+}
 const config = ref((cachedJoin?.agency || cachedJoin?.pathways) ? cachedJoin : null);
 const bootThemeUrl = computed(() =>
   String(config.value?.themeImageUrl || JOIN_BOOT_THEME_URL).trim()
@@ -351,6 +379,11 @@ const submitting = ref(false);
 const submitError = ref('');
 const submitted = ref(false);
 const confirmation = ref(null);
+const editingSidebar = ref(false);
+const savingSidebar = ref(false);
+const sidebarSaveError = ref('');
+const sidebarSaveOk = ref('');
+const sidebarDraft = ref([]);
 const showJoinBoot = computed(() =>
   !config.value && loading.value && !loadError.value && !submitted.value && phase.value === 'pathway'
 );
@@ -419,15 +452,8 @@ const sidebarSteps = computed(() => {
       { id: 'review', label: 'Review & Submit' }
     ];
   }
-  return [
-    { id: 'who', label: 'Who is this for?' },
-    { id: 'basics', label: 'Basic Information' },
-    { id: 'needs', label: 'What support?' },
-    { id: 'prefs', label: 'Preferences' },
-    { id: 'providers', label: 'Provider preview' },
-    { id: 'consent', label: 'Authorization' },
-    { id: 'review', label: 'Review & Submit' }
-  ];
+  if (editingSidebar.value && sidebarDraft.value.length) return sidebarDraft.value;
+  return mergeQuickSidebarSteps(config.value?.copy?.quickSidebarSteps);
 });
 
 const stepIndex = computed(() => {
@@ -625,6 +651,53 @@ function validateBasicsFields() {
   return !fieldErrors.email && !fieldErrors.phone;
 }
 
+function startEditSidebar() {
+  sidebarDraft.value = mergeQuickSidebarSteps(config.value?.copy?.quickSidebarSteps);
+  editingSidebar.value = true;
+  sidebarSaveError.value = '';
+  sidebarSaveOk.value = '';
+}
+
+function cancelEditSidebar() {
+  editingSidebar.value = false;
+  sidebarDraft.value = [];
+  sidebarSaveError.value = '';
+}
+
+function onSidebarLabel({ index, label }) {
+  if (!sidebarDraft.value[index]) return;
+  sidebarDraft.value[index] = { ...sidebarDraft.value[index], label };
+}
+
+async function saveSidebarSteps() {
+  const slug = agencySlug.value;
+  if (!slug) {
+    sidebarSaveError.value = 'Unable to save.';
+    return;
+  }
+  savingSidebar.value = true;
+  sidebarSaveError.value = '';
+  try {
+    const steps = mergeQuickSidebarSteps(sidebarDraft.value);
+    const existing = { ...(config.value?.copy || {}), quickSidebarSteps: steps };
+    const { data } = await api.patch(`/public/adaptive-intake/${encodeURIComponent(slug)}/landing`, {
+      serviceType: resolvedServiceType.value || serviceType.value || 'counseling',
+      copy: existing
+    }, { skipGlobalLoading: true });
+    if (config.value) {
+      config.value.copy = { ...(config.value.copy || {}), ...(data?.copy || existing), quickSidebarSteps: steps };
+      writeJoinLandingCache(slug, resolvedServiceType.value || serviceType.value || 'counseling', config.value);
+    }
+    editingSidebar.value = false;
+    sidebarSaveOk.value = 'Saved.';
+    setTimeout(() => { sidebarSaveOk.value = ''; }, 4000);
+  } catch (e) {
+    sidebarSaveError.value = e?.response?.data?.error?.message || e?.message || 'Could not save.';
+  } finally {
+    savingSidebar.value = false;
+  }
+}
+
 function chooseWhoFor(value) {
   form.whoFor = value;
   quickStep.value = 1;
@@ -803,6 +876,12 @@ onMounted(async () => {
       skipGlobalLoading: true
     });
     config.value = data;
+    if (config.value?.copy) {
+      config.value.copy = restoreJoinWelcomeCopy(config.value.copy, config.value.agency?.name);
+      if (config.value.copy.layout) {
+        config.value.copy.layout = mergeJoinLayout(config.value.copy.layout);
+      }
+    }
     writeJoinLandingCache(agencySlug.value, resolvedServiceType.value || serviceType.value || 'counseling', data);
     providers.value = data?.providerPreview || [];
 
@@ -844,9 +923,54 @@ onMounted(async () => {
   gap: 0.75rem;
 }
 .ai-join-devfill {
+  position: relative;
+  z-index: 50;
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.4rem;
   margin-bottom: 0.5rem;
+}
+.ai-join-sidebar-editor {
+  position: relative;
+  z-index: 40;
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px dashed #94a3b8;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.95);
+  display: grid;
+  gap: 0.45rem;
+}
+.ai-join-sidebar-editor strong {
+  font-size: 0.92rem;
+}
+.ai-join-sidebar-editor p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #475569;
+}
+.ai-join-sidebar-editor label {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #334155;
+}
+.ai-join-sidebar-editor input {
+  font: inherit;
+  font-weight: 500;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+.ai-join-sidebar-error {
+  color: #b42318;
+  font-size: 0.8rem;
+}
+.ai-join-sidebar-ok {
+  color: #166534;
+  font-size: 0.8rem;
 }
 .ai-join-devfill button {
   border: 1px dashed #94a3b8;

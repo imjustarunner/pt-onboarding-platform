@@ -498,8 +498,21 @@ function mergeJoinLandingCopy(vertical, agencyRow, activeService) {
       merged.intakeStartLayout = value;
       continue;
     }
-    // Empty string is intentional (hide this line). Do not fall back to defaults.
-    if (typeof value === 'string') merged[key] = value.trim();
+    if (key === 'quickSidebarSteps' && Array.isArray(value) && value.length) {
+      merged.quickSidebarSteps = value
+        .map((step) => ({
+          id: String(step?.id || '').trim(),
+          label: String(step?.label || '').trim()
+        }))
+        .filter((step) => step.label);
+      continue;
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      // Empty welcome lines mean "use the original copy", not a permanent delete.
+      if (!trimmed && ['welcomeTitle', 'welcomeGlad', 'welcomeLead'].includes(key)) continue;
+      merged[key] = trimmed;
+    }
   }
   if (/non-?judgmental/i.test(String(merged.value1 || ''))) {
     merged.value1 = 'Supportive & Welcoming';

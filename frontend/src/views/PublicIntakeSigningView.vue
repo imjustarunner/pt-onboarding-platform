@@ -34,89 +34,16 @@
     @select-step="jumpToProgressStep"
   >
     <template v-if="isOfficeInDepthIntake && step === 0.5" #sidebar>
-      <div class="intake-start-rail" :class="{ 'intake-start-rail--editing': editingStartLayout }">
-        <div
-          class="intake-start-block intake-start-block--brand"
-          :class="{ 'intake-start-block--selected': editingStartLayout && selectedStartBlock === 'brand' }"
-          :style="officeStartBlockStyle('brand')"
-          @mousedown="onOfficeStartBlockMouseDown('brand', $event)"
-        >
-          <div v-if="editingStartLayout" class="intake-start-block-tools">
-            <button type="button" class="ajl-drag" @mousedown.stop="startOfficeBlockDrag('brand', $event)">Move</button>
-          </div>
-          <div
-            v-if="editingStartLayout && selectedStartBlock === 'brand'"
-            class="ajl-resize ajl-resize--e"
-            @mousedown.stop="startOfficeStartResize('brand', $event)"
-          />
-          <div class="intake-start-brand">
-            <img
-              v-if="officeStartLogoUrl"
-              class="intake-start-logo"
-              :src="officeStartLogoUrl"
-              :alt="officeStartAgencyName"
-              :style="officeStartLogoStyle"
-            />
-            <div v-else class="intake-start-logo-fallback" :style="officeStartLogoStyle">{{ officeStartAgencyInitial }}</div>
-            <p class="intake-start-tagline">
-              <input v-if="editingStartLayout" v-model="startCopyDraft.sidebarTagline" class="ajl-inline" @mousedown.stop />
-              <span v-else>{{ startCopy.sidebarTagline }}</span>
-            </p>
-            <p class="intake-start-script" :style="officeStartScriptStyle">
-              <input v-if="editingStartLayout" v-model="startCopyDraft.sidebarScript" class="ajl-inline ajl-inline--script" @mousedown.stop />
-              <span v-else>{{ startCopy.sidebarScript }}</span>
-            </p>
-            <ul class="intake-start-values">
-              <li>
-                <span aria-hidden="true">♡</span>
-                <input v-if="editingStartLayout" v-model="startCopyDraft.value1" class="ajl-inline" @mousedown.stop />
-                <span v-else>{{ startCopy.value1 }}</span>
-              </li>
-              <li>
-                <span aria-hidden="true">👥</span>
-                <input v-if="editingStartLayout" v-model="startCopyDraft.value2" class="ajl-inline" @mousedown.stop />
-                <span v-else>{{ startCopy.value2 }}</span>
-              </li>
-              <li>
-                <span aria-hidden="true">🌿</span>
-                <input v-if="editingStartLayout" v-model="startCopyDraft.value3" class="ajl-inline" @mousedown.stop />
-                <span v-else>{{ startCopy.value3 }}</span>
-              </li>
-            </ul>
-          </div>
-        </div>
-        <div
-          class="intake-start-block intake-start-block--help"
-          :class="{ 'intake-start-block--selected': editingStartLayout && selectedStartBlock === 'help' }"
-          :style="officeStartBlockStyle('help')"
-          @mousedown="onOfficeStartBlockMouseDown('help', $event)"
-        >
-          <div v-if="editingStartLayout" class="intake-start-block-tools">
-            <button type="button" class="ajl-drag" @mousedown.stop="startOfficeBlockDrag('help', $event)">Move</button>
-          </div>
-          <div
-            v-if="editingStartLayout && selectedStartBlock === 'help'"
-            class="ajl-resize ajl-resize--e"
-            @mousedown.stop="startOfficeStartResize('help', $event)"
-          />
-          <div class="intake-start-help">
-            <h2>
-              <input v-if="editingStartLayout" v-model="startCopyDraft.helpTitle" class="ajl-inline" @mousedown.stop />
-              <span v-else>{{ startCopy.helpTitle }}</span>
-            </h2>
-            <p>
-              <input v-if="editingStartLayout" v-model="startCopyDraft.helpBody" class="ajl-inline" @mousedown.stop />
-              <span v-else>{{ startCopy.helpBody }}</span>
-            </p>
-            <a v-if="splashContactTel" class="intake-start-help-line" :href="`tel:${splashContactTel}`">{{ splashContactPhone }}</a>
-            <a v-if="splashContactEmail" class="intake-start-help-line" :href="`mailto:${splashContactEmail}`">{{ splashContactEmail }}</a>
-            <button type="button" class="intake-start-help-btn" @click="openSplashSupportModal">
-              <input v-if="editingStartLayout" v-model="startCopyDraft.sendMessage" class="ajl-inline" @click.stop @mousedown.stop />
-              <span v-else>{{ startCopy.sendMessage }}</span>
-            </button>
-          </div>
-        </div>
-      </div>
+      <OfficeIntakeStartPage
+        part="rail"
+        :logo-url="officeStartLogoUrl"
+        :agency-name="officeStartAgencyName"
+        :agency-initial="officeStartAgencyInitial"
+        :contact-phone="splashContactPhone"
+        :contact-tel="splashContactTel"
+        :contact-email="splashContactEmail"
+        @support="openSplashSupportModal"
+      />
     </template>
     <template #header-left>
       <button
@@ -146,7 +73,7 @@
         <button type="button" class="intake-inline-error-dismiss" @click="error = ''">&#10005;</button>
       </div>
       <button
-        v-if="canBypassIntakeRequired && !(isJobApplication && step === -1)"
+        v-if="canBypassIntakeRequired && !(isJobApplication && step === -1) && !(isOfficeInDepthIntake && step === 0.5)"
         class="btn btn-secondary btn-sm dev-fill-button"
         type="button"
         @click="fillExample"
@@ -388,150 +315,19 @@
         </div>
       </div>
 
-      <div v-else-if="step === 0.5 && isOfficeInDepthIntake" class="step intake-start-page">
-        <link rel="stylesheet" :href="JOIN_FONT_HREF" />
-        <div v-if="canEditOfficeStart" class="intake-start-editbar">
-          <template v-if="!editingStartLayout">
-            <button type="button" class="ajl-edit-btn" @click="startOfficeStartEdit">Edit this page</button>
-          </template>
-          <template v-else>
-            <button type="button" class="ajl-edit-btn ajl-edit-btn--ghost" @click="cancelOfficeStartEdit">Cancel</button>
-            <button type="button" class="ajl-edit-btn" :disabled="savingStartLayout" @click="saveOfficeStartLayout">
-              {{ savingStartLayout ? 'Saving…' : 'Save' }}
-            </button>
-            <button type="button" class="ajl-edit-btn ajl-edit-btn--ghost" @click="resetOfficeStartLayout">Reset layout</button>
-            <span class="intake-start-edit-target">{{ selectedStartBlockLabel }}</span>
-            <div v-if="selectedStartBlock" class="ajl-align-group" role="group" aria-label="Alignment">
-              <button
-                v-for="opt in START_ALIGN_OPTIONS"
-                :key="opt.id"
-                type="button"
-                class="ajl-align-btn"
-                :class="{ 'ajl-align-btn--active': officeStartAlign(selectedStartBlock) === opt.id }"
-                :title="opt.label"
-                @click="setOfficeStartAlign(selectedStartBlock, opt.id)"
-              >{{ opt.glyph }}</button>
-            </div>
-            <label v-if="selectedStartSizeKey" class="ajl-edit-field">
-              {{ selectedStartSizeLabel }}
-              <input
-                v-model.number="startLayoutDraft.sizes[selectedStartSizeKey]"
-                type="range"
-                :min="selectedStartSizeMin"
-                :max="selectedStartSizeMax"
-                :step="selectedStartSizeStep"
-              />
-            </label>
-            <label v-if="selectedStartBlock === 'brand'" class="ajl-edit-field">
-              Logo size
-              <input v-model.number="startLayoutDraft.sizes.logoWidth" type="range" min="48" max="360" step="4" />
-            </label>
-            <label v-if="selectedStartBlock === 'card'" class="ajl-edit-field">
-              Card width
-              <input v-model.number="startLayoutDraft.width" type="range" min="420" max="1200" step="10" />
-            </label>
-            <span class="intake-start-edit-hint">Drag any block to move it, pull the blue handle to resize, and use the alignment buttons. Hide clears a line and Save keeps it gone.</span>
-          </template>
-          <span v-if="startLayoutError" class="intake-start-edit-error">{{ startLayoutError }}</span>
-          <span v-if="startLayoutOk" class="intake-start-edit-ok">{{ startLayoutOk }}</span>
-        </div>
-        <div
-          v-if="startCopy.welcomeTitle || editingStartLayout"
-          class="intake-start-welcome-block"
-          :class="{
-            'intake-start-block--editing': editingStartLayout,
-            'intake-start-block--selected': editingStartLayout && selectedStartBlock === 'welcome'
-          }"
-          :style="officeStartBlockStyle('welcome')"
-          @mousedown="onOfficeStartBlockMouseDown('welcome', $event)"
-        >
-          <div v-if="editingStartLayout" class="intake-start-block-tools">
-            <button
-              type="button"
-              class="ajl-drag"
-              @mousedown.stop="startOfficeBlockDrag('welcome', $event)"
-            >Move</button>
-            <button
-              type="button"
-              class="ajl-hide"
-              @mousedown.stop
-              @click.stop="hideOfficeStartCopy('welcomeTitle')"
-            >Hide</button>
-          </div>
-          <p class="intake-start-welcome-title">
-            <input
-              v-if="editingStartLayout"
-              v-model="startCopyDraft.welcomeTitle"
-              class="ajl-inline ajl-inline--welcome"
-              placeholder="Welcome line (leave blank to hide)"
-              @mousedown.stop
-            />
-            <span v-else>{{ startCopy.welcomeTitle }}</span>
-          </p>
-        </div>
-        <div
-          v-if="startCopy.welcomeGlad || editingStartLayout"
-          class="intake-start-glad-block"
-          :class="{
-            'intake-start-block--editing': editingStartLayout,
-            'intake-start-block--selected': editingStartLayout && selectedStartBlock === 'glad'
-          }"
-          :style="officeStartBlockStyle('glad')"
-          @mousedown="onOfficeStartBlockMouseDown('glad', $event)"
-        >
-          <div v-if="editingStartLayout" class="intake-start-block-tools">
-            <button
-              type="button"
-              class="ajl-drag"
-              @mousedown.stop="startOfficeBlockDrag('glad', $event)"
-            >Move</button>
-            <button
-              type="button"
-              class="ajl-hide"
-              @mousedown.stop
-              @click.stop="hideOfficeStartCopy('welcomeGlad')"
-            >Hide</button>
-          </div>
-          <p class="intake-start-welcome-glad">
-            <input
-              v-if="editingStartLayout"
-              v-model="startCopyDraft.welcomeGlad"
-              class="ajl-inline"
-              placeholder="Note under welcome (leave blank to hide)"
-              @mousedown.stop
-            />
-            <span v-else>{{ startCopy.welcomeGlad }}</span>
-          </p>
-        </div>
-        <div
-          class="intake-start-card"
-          :class="{
-            'intake-start-card--editing': editingStartLayout,
-            'intake-start-block--selected': editingStartLayout && selectedStartBlock === 'card'
-          }"
-          :style="officeStartBlockStyle('card')"
-          @mousedown="onOfficeStartBlockMouseDown('card', $event)"
-        >
-          <button
-            v-if="editingStartLayout"
-            type="button"
-            class="ajl-drag"
-            @mousedown.stop="startOfficeBlockDrag('card', $event)"
-          >Move</button>
-          <div
-            v-if="editingStartLayout"
-            class="ajl-resize ajl-resize--e"
-            @mousedown.stop="startOfficeStartResize('card', $event)"
-          />
-          <div class="intake-start-heart" aria-hidden="true">♡</div>
-          <h1 class="ai-page-title">
-            <input v-if="editingStartLayout" v-model="startCopyDraft.startTitle" class="ajl-inline" @mousedown.stop />
-            <span v-else>{{ startCopy.startTitle }}</span>
-          </h1>
-          <p class="ai-page-lead">
-            <textarea v-if="editingStartLayout" v-model="startCopyDraft.startLead" class="ajl-inline ajl-inline--area" rows="2" @mousedown.stop />
-            <span v-else>{{ startCopy.startLead }}</span>
-          </p>
+      <OfficeIntakeStartPage
+        v-else-if="step === 0.5 && isOfficeInDepthIntake"
+        part="page"
+        :logo-url="officeStartLogoUrl"
+        :agency-name="officeStartAgencyName"
+        :agency-initial="officeStartAgencyInitial"
+        :contact-phone="splashContactPhone"
+        :contact-tel="splashContactTel"
+        :contact-email="splashContactEmail"
+        :can-dev-fill="canBypassIntakeRequired"
+        @support="openSplashSupportModal"
+        @dev-fill="fillExample"
+      >
           <div v-if="whoForError" class="error" style="margin-bottom: 12px;">{{ whoForError }}</div>
 
           <div class="intake-start-grid">
@@ -667,8 +463,7 @@
               {{ t('contactSupportLink') }}
             </button>
           </p>
-        </div>
-      </div>
+      </OfficeIntakeStartPage>
 
       <div v-else-if="step === 1" class="step">
         <SmartSchoolRoiFlow
@@ -2439,6 +2234,7 @@ import JobDescriptionSections from '../components/careers/JobDescriptionSections
 import SmartSchoolRoiFlow from '../components/public/SmartSchoolRoiFlow.vue';
 import SmartDisclosureFlow from '../components/public/SmartDisclosureFlow.vue';
 import PacketSectionConsentFlow from '../components/public/PacketSectionConsentFlow.vue';
+import OfficeIntakeStartPage from '../components/office/OfficeIntakeStartPage.vue';
 import PDFPreview from '../components/documents/PDFPreview.vue';
 import PublicIntakeGuardianWaiverStep from '../components/public-intake/PublicIntakeGuardianWaiverStep.vue';
 import PublicIntakeInsuranceStep from '../components/public-intake/PublicIntakeInsuranceStep.vue';
@@ -2466,15 +2262,10 @@ import {
 } from '../constants/spanishClarificationIntake.js';
 import { localizePublicIntakeTitle } from '../utils/publicIntakeTitle.js';
 import { publicIntakeDescription } from '../utils/publicIntakeCopy.js';
+import { useOfficeIntakeStartEditor } from '../composables/useOfficeIntakeStartEditor.js';
 import {
-  JOIN_FONT_HREF,
   JOIN_BOOT_THEME_URL,
-  alignBlockStyle,
-  clampOffsetValue,
-  defaultIntakeStartLayout,
-  mergeIntakeStartLayout,
-  localizeOfficeStartCopy,
-  normalizeAlign,
+  restoreJoinWelcomeCopy,
   readJoinLandingCache,
   writeJoinLandingCache
 } from '../utils/joinLandingTemplate.js';
@@ -3971,84 +3762,16 @@ const joinThemeUrl = ref(JOIN_BOOT_THEME_URL);
 const joinWelcomeTitle = ref('');
 const joinWelcomeGlad = ref('');
 const joinLandingCopy = ref(null);
-const editingStartLayout = ref(false);
-const savingStartLayout = ref(false);
-const startLayoutError = ref('');
-const startLayoutOk = ref('');
-const intakeStartLayout = reactive(mergeIntakeStartLayout(null));
-const startLayoutDraft = reactive(mergeIntakeStartLayout(null));
-const startCopyDraft = reactive({
-  welcomeTitle: '',
-  welcomeGlad: '',
-  sidebarTagline: '',
-  sidebarScript: '',
-  value1: '',
-  value2: '',
-  value3: '',
-  helpTitle: '',
-  helpBody: '',
-  sendMessage: '',
-  startTitle: '',
-  startLead: ''
+
+const officeStart = useOfficeIntakeStartEditor({
+  joinLandingCopy,
+  agencyInfo,
+  referralAgencySlug,
+  joinThemeUrl,
+  t,
+  intakeLocale
 });
-let startDragState = null;
-let startResizeState = null;
-let startLayoutOkTimer = null;
-
-const START_ALIGN_OPTIONS = [
-  { id: 'left', label: 'Align left', glyph: '⭰' },
-  { id: 'center', label: 'Center', glyph: '↔' },
-  { id: 'right', label: 'Align right', glyph: '⭲' }
-];
-const START_BLOCK_LABELS = {
-  brand: 'Logo & tagline',
-  help: 'Need help card',
-  welcome: 'Welcome line',
-  glad: 'Note under welcome',
-  card: 'Intake card'
-};
-const START_SIZE_CONTROLS = {
-  welcome: { key: 'welcome', label: 'Welcome size', min: 0.8, max: 7, step: 0.05 },
-  glad: { key: 'glad', label: 'Note size', min: 0.7, max: 3, step: 0.05 },
-  brand: { key: 'script', label: 'Script size', min: 0.8, max: 4, step: 0.05 },
-  help: { key: 'helpWidth', label: 'Card width', min: 120, max: 340, step: 5 }
-};
-const selectedStartBlock = ref('');
-const selectedStartBlockLabel = computed(() => (
-  selectedStartBlock.value
-    ? START_BLOCK_LABELS[selectedStartBlock.value] || selectedStartBlock.value
-    : 'Click a block to edit it'
-));
-const selectedStartSizeControl = computed(() => START_SIZE_CONTROLS[selectedStartBlock.value] || null);
-const selectedStartSizeKey = computed(() => selectedStartSizeControl.value?.key || '');
-const selectedStartSizeLabel = computed(() => selectedStartSizeControl.value?.label || '');
-const selectedStartSizeMin = computed(() => selectedStartSizeControl.value?.min ?? 0);
-const selectedStartSizeMax = computed(() => selectedStartSizeControl.value?.max ?? 1);
-const selectedStartSizeStep = computed(() => selectedStartSizeControl.value?.step ?? 0.05);
-
-function blankStartCopy(source = {}) {
-  const c = source && typeof source === 'object' ? source : {};
-  return {
-    welcomeTitle: String(c.welcomeTitle ?? '').trim(),
-    welcomeGlad: String(c.welcomeGlad ?? '').trim(),
-    sidebarTagline: String(c.sidebarTagline || 'HEAL • GROW • THRIVE').trim(),
-    sidebarScript: String(c.sidebarScript || "You're Not Alone.").trim(),
-    value1: /non-?judgmental/i.test(c.value1 || '') ? 'Supportive & Welcoming' : String(c.value1 || 'Supportive & Welcoming').trim(),
-    value2: String(c.value2 || 'Personalized to Your Needs').trim(),
-    value3: String(c.value3 || 'Focused on Growth & Well-Being').trim(),
-    helpTitle: String(c.helpTitle || 'Need Help?').trim(),
-    helpBody: String(c.helpBody || "We're here for you.").trim(),
-    sendMessage: String(c.sendMessage || 'Send Us a Message').trim(),
-    startTitle: String(c.startTitle || t('letsGetIntakeStarted')).trim(),
-    startLead: String(c.startLead || t('letsGetIntakeStartedLead')).trim()
-  };
-}
-
-const startCopy = computed(() => (
-  editingStartLayout.value
-    ? { ...startCopyDraft }
-    : localizeOfficeStartCopy(blankStartCopy(joinLandingCopy.value), intakeLocale.value)
-));
+provide('officeIntakeStart', officeStart);
 
 const officeScenicSidebarUrl = computed(() => {
   if (isSchoolScopedIntake.value) return '';
@@ -4056,50 +3779,7 @@ const officeScenicSidebarUrl = computed(() => {
   if (!loading.value && step.value !== WHO_FOR_STEP && Number(step.value) > WHO_FOR_STEP) return '';
   return joinThemeUrl.value || JOIN_BOOT_THEME_URL;
 });
-const activeStartLayout = computed(() => (
-  editingStartLayout.value ? startLayoutDraft : intakeStartLayout
-));
 
-function officeStartAlign(key) {
-  const fallback = defaultIntakeStartLayout().align[key] || 'left';
-  return normalizeAlign(activeStartLayout.value.align?.[key], fallback);
-}
-
-function setOfficeStartAlign(key, align) {
-  if (!editingStartLayout.value || !key) return;
-  if (!startLayoutDraft.align) startLayoutDraft.align = {};
-  startLayoutDraft.align[key] = normalizeAlign(align);
-}
-
-function officeStartBlockStyle(key) {
-  const layout = activeStartLayout.value;
-  const pos = key === 'card' ? { x: layout.x, y: layout.y } : (layout[key] || { x: 0, y: 0 });
-  const sizes = layout.sizes || {};
-  const style = {
-    transform: `translate(${Number(pos.x) || 0}px, ${Number(pos.y) || 0}px)`,
-    ...alignBlockStyle(officeStartAlign(key))
-  };
-  if (key === 'card') {
-    style.width = `${Number(layout.width) || 860}px`;
-    style.maxWidth = '100%';
-  }
-  if (key === 'welcome') style.fontSize = `${Number(sizes.welcome) || 3.2}rem`;
-  if (key === 'glad') style.fontSize = `${Number(sizes.glad) || 1.15}rem`;
-  if ((key === 'brand' || key === 'help') && Number(sizes[`${key}Width`]) > 0) {
-    style.width = `${Number(sizes[`${key}Width`])}px`;
-  }
-  return style;
-}
-
-const officeStartLogoStyle = computed(() => ({
-  width: `${Number(activeStartLayout.value.sizes?.logoWidth) || 150}px`,
-  maxWidth: '100%',
-  height: 'auto'
-}));
-
-const officeStartScriptStyle = computed(() => ({
-  fontSize: `${Number(activeStartLayout.value.sizes?.script) || 1.9}rem`
-}));
 const officeStartLogoUrl = computed(() => {
   const existing = String(formBranding.value?.logoUrl || formBranding.value?.agencyLogoUrl || '').trim();
   if (existing) return existing;
@@ -4111,24 +3791,16 @@ const officeStartAgencyName = computed(() =>
 const officeStartAgencyInitial = computed(() =>
   String(officeStartAgencyName.value).trim().charAt(0) || '•'
 );
-const canEditOfficeStart = computed(() => {
-  if (!authStore.isAuthenticated) return false;
-  const role = String(authStore.user?.role || '').toLowerCase();
-  return role === 'admin' || role === 'super_admin';
-});
 
 function applyJoinChrome(data) {
   if (!data) return;
   joinThemeUrl.value = String(data.themeImageUrl || JOIN_BOOT_THEME_URL).trim() || JOIN_BOOT_THEME_URL;
-  joinWelcomeTitle.value = String(data.copy?.welcomeTitle || '').trim();
-  joinWelcomeGlad.value = String(data.copy?.welcomeGlad || '').trim();
-  joinLandingCopy.value = data.copy || null;
-  const next = mergeIntakeStartLayout(data.copy?.intakeStartLayout);
-  Object.assign(intakeStartLayout, next);
-  if (!editingStartLayout.value) {
-    Object.assign(startLayoutDraft, next);
-    Object.assign(startCopyDraft, blankStartCopy(data.copy));
-  }
+  const org = agencyInfo.value?.official_name || agencyInfo.value?.name || 'ITSCO';
+  const restored = restoreJoinWelcomeCopy(data.copy || {}, org);
+  joinLandingCopy.value = restored;
+  joinWelcomeTitle.value = String(restored.welcomeTitle || '').trim();
+  joinWelcomeGlad.value = String(restored.welcomeGlad || '').trim();
+  officeStart.hydrate(restored);
 }
 
 async function loadOfficeJoinChrome() {
@@ -4149,160 +3821,6 @@ async function loadOfficeJoinChrome() {
   }
 }
 
-function hideOfficeStartCopy(key) {
-  if (!Object.prototype.hasOwnProperty.call(startCopyDraft, key)) return;
-  startCopyDraft[key] = '';
-}
-
-function startOfficeStartEdit() {
-  Object.assign(startLayoutDraft, mergeIntakeStartLayout(intakeStartLayout));
-  Object.assign(startCopyDraft, blankStartCopy(joinLandingCopy.value));
-  selectedStartBlock.value = 'card';
-  editingStartLayout.value = true;
-  startLayoutError.value = '';
-}
-
-function cancelOfficeStartEdit() {
-  editingStartLayout.value = false;
-  Object.assign(startLayoutDraft, mergeIntakeStartLayout(intakeStartLayout));
-  Object.assign(startCopyDraft, blankStartCopy(joinLandingCopy.value));
-}
-
-const START_BLOCK_SELECTOR =
-  '.intake-start-card, .intake-start-welcome-block, .intake-start-glad-block, .intake-start-block';
-
-/** Clicking a block selects it; dragging from anywhere except a control moves it. */
-function onOfficeStartBlockMouseDown(key, event) {
-  if (!editingStartLayout.value) return;
-  selectedStartBlock.value = key;
-  if (event.target?.closest('input, textarea, select, button, .ajl-resize')) return;
-  startOfficeBlockDrag(key, event);
-}
-
-function startOfficeBlockDrag(key, event) {
-  if (!editingStartLayout.value || event.button !== 0) return;
-  if (event.target?.closest('input, textarea, select, .ajl-resize')) return;
-  selectedStartBlock.value = key;
-  const layout = startLayoutDraft;
-  const pos = key === 'card' ? layout : (layout[key] || { x: 0, y: 0 });
-  const el = event.target?.closest(START_BLOCK_SELECTOR);
-  const container = el?.closest('.intake-start-page, .intake-start-rail');
-  startDragState = {
-    key,
-    x: event.clientX,
-    y: event.clientY,
-    origX: Number(pos.x) || 0,
-    origY: Number(pos.y) || 0,
-    rect: el ? el.getBoundingClientRect() : null,
-    bounds: container ? container.getBoundingClientRect() : null
-  };
-  window.addEventListener('mousemove', onOfficeStartDrag);
-  window.addEventListener('mouseup', stopOfficeStartDrag);
-}
-
-function onOfficeStartDrag(event) {
-  if (!startDragState) return;
-  let nextX = startDragState.origX + (event.clientX - startDragState.x);
-  let nextY = startDragState.origY + (event.clientY - startDragState.y);
-  const { rect, bounds } = startDragState;
-  if (rect && bounds) {
-    nextX = clampOffsetValue({
-      value: nextX,
-      base: rect.left - startDragState.origX,
-      size: rect.width,
-      min: bounds.left,
-      max: bounds.right
-    });
-    nextY = clampOffsetValue({
-      value: nextY,
-      base: rect.top - startDragState.origY,
-      size: rect.height,
-      min: bounds.top,
-      max: bounds.bottom
-    });
-  }
-  nextX = Math.round(nextX);
-  nextY = Math.round(nextY);
-  if (startDragState.key === 'card') {
-    startLayoutDraft.x = nextX;
-    startLayoutDraft.y = nextY;
-    return;
-  }
-  startLayoutDraft[startDragState.key] = { x: nextX, y: nextY };
-}
-
-function stopOfficeStartDrag() {
-  startDragState = null;
-  window.removeEventListener('mousemove', onOfficeStartDrag);
-  window.removeEventListener('mouseup', stopOfficeStartDrag);
-}
-
-function startOfficeStartResize(key, event) {
-  if (!editingStartLayout.value) return;
-  event.preventDefault();
-  selectedStartBlock.value = key;
-  startResizeState = {
-    key,
-    x: event.clientX,
-    origW: key === 'card'
-      ? (Number(startLayoutDraft.width) || 860)
-      : (Number(startLayoutDraft.sizes?.[`${key}Width`]) || 220)
-  };
-  window.addEventListener('mousemove', onOfficeStartResize);
-  window.addEventListener('mouseup', stopOfficeStartResize);
-}
-
-function onOfficeStartResize(event) {
-  if (!startResizeState) return;
-  const next = startResizeState.origW + (event.clientX - startResizeState.x);
-  if (startResizeState.key === 'card') {
-    startLayoutDraft.width = Math.min(1200, Math.max(420, next));
-    return;
-  }
-  startLayoutDraft.sizes[`${startResizeState.key}Width`] = Math.round(Math.min(340, Math.max(120, next)));
-}
-
-function stopOfficeStartResize() {
-  startResizeState = null;
-  window.removeEventListener('mousemove', onOfficeStartResize);
-  window.removeEventListener('mouseup', stopOfficeStartResize);
-}
-
-function resetOfficeStartLayout() {
-  Object.assign(startLayoutDraft, defaultIntakeStartLayout());
-}
-
-async function saveOfficeStartLayout() {
-  const slug = referralAgencySlug.value;
-  if (!slug) {
-    startLayoutError.value = 'Unable to save this layout.';
-    return;
-  }
-  savingStartLayout.value = true;
-  startLayoutError.value = '';
-  try {
-    const layout = mergeIntakeStartLayout(startLayoutDraft);
-    const existing = { ...(joinLandingCopy.value || {}), ...blankStartCopy(startCopyDraft) };
-    existing.intakeStartLayout = layout;
-    const { data } = await api.patch(`/public/adaptive-intake/${encodeURIComponent(slug)}/landing`, {
-      serviceType: 'counseling',
-      copy: existing
-    }, { skipGlobalLoading: true });
-    Object.assign(intakeStartLayout, layout);
-    joinLandingCopy.value = data?.copy || existing;
-    joinWelcomeTitle.value = String(joinLandingCopy.value?.welcomeTitle || '').trim();
-    joinWelcomeGlad.value = String(joinLandingCopy.value?.welcomeGlad || '').trim();
-    if (data) writeJoinLandingCache(slug, 'counseling', { ...(readJoinLandingCache(slug, 'counseling') || {}), copy: joinLandingCopy.value, themeImageUrl: joinThemeUrl.value });
-    editingStartLayout.value = false;
-    startLayoutOk.value = 'Saved.';
-    if (startLayoutOkTimer) clearTimeout(startLayoutOkTimer);
-    startLayoutOkTimer = setTimeout(() => { startLayoutOk.value = ''; }, 4000);
-  } catch (e) {
-    startLayoutError.value = e?.response?.data?.error?.message || e?.message || 'Could not save.';
-  } finally {
-    savingStartLayout.value = false;
-  }
-}
 const officeStartTrustItems = computed(() => {
   if (isOfficeInDepthIntake.value || officeScenicSidebarUrl.value) {
     return [
@@ -10303,9 +9821,6 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
-  stopOfficeStartDrag();
-  stopOfficeStartResize();
-  if (startLayoutOkTimer) clearTimeout(startLayoutOkTimer);
   if (serverProgressTimer) {
     clearTimeout(serverProgressTimer);
     serverProgressTimer = null;
@@ -10903,7 +10418,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 16px;
   right: 16px;
-  z-index: 5;
+  z-index: 50;
 }
 .btn.btn-outline {
   background: transparent;

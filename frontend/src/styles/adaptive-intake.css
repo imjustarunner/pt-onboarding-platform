@@ -30,12 +30,12 @@
 
 /* —— Intake stepper in green sidebar (mockup layout) —— */
 .df-shell--intake-stepper {
-  --df-sidebar-w: min(22%, 210px);
+  --df-sidebar-w: min(30%, 280px);
 }
 
 .df-shell--intake-stepper .df-sidebar {
-  min-width: 188px;
-  padding: clamp(1rem, 2vw, 1.5rem) clamp(0.75rem, 1.6vw, 1rem);
+  min-width: 240px;
+  padding: clamp(1rem, 2vw, 1.5rem) clamp(0.85rem, 1.8vw, 1.15rem);
 }
 
 .df-shell--intake-stepper .df-sidebar-inner--intake {
@@ -122,10 +122,10 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  width: fit-content;
-  max-width: 11.25rem;
+  width: 100%;
+  max-width: 100%;
   min-height: 0;
-  align-self: flex-start;
+  align-self: stretch;
 }
 
 .df-sidebar-inner--intake {
@@ -178,6 +178,15 @@
 
 .ai-shell-host--join-flow .ai-pathway-badge {
   width: min(44rem, 100%);
+}
+
+.ai-shell-host--join-flow.df-page--scenic-side .df-sidebar-intake-stack {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(18, 60, 109, 0.14);
+  border-radius: 16px;
+  padding: 0.75rem 0.7rem 0.85rem;
+  backdrop-filter: blur(8px);
+}
 }
 
 .df-main-decor-img {
@@ -305,7 +314,7 @@
   display: flex;
   align-items: flex-start;
   width: 100%;
-  max-width: 11.25rem;
+  max-width: 100%;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.22);
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -356,7 +365,7 @@
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 720px) {
   .df-shell--intake-stepper .df-sidebar-intake-stack,
   .df-shell--intake-stepper .df-sidebar-intake-steps,
   .df-shell--intake-stepper .ai-security-badge.ai-security-badge--sidebar {
@@ -416,9 +425,16 @@
   text-decoration: underline;
 }
 
-.ai-sidebar-step-btn:disabled {
-  cursor: default;
-  opacity: 1;
+.ai-sidebar-step-input {
+  width: 100%;
+  min-width: 0;
+  border: 1px dashed #94a3b8;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 0.82rem;
+  border-radius: 8px;
+  padding: 0.15rem 0.35rem;
 }
 
 .ai-sidebar-step--active {

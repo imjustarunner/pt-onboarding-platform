@@ -10,6 +10,7 @@ import {
 import { isBookClubAgency } from '../utils/bookClubAgency.js';
 import { isTenantOrganizationType } from '../utils/organizationTypes.js';
 import { pickFirstNonDemoTenant } from '../utils/demoTenant.js';
+import { resolvePortalSlugFromPath } from '../utils/orgScopedPath.js';
 
 export const useAgencyStore = defineStore('agency', () => {
   const agencies = ref([]);
@@ -280,17 +281,10 @@ export const useAgencyStore = defineStore('agency', () => {
   const pickPortalKey = (org) => String(org?.portal_url || org?.portalUrl || org?.slug || '').trim().toLowerCase();
   const inferPreferredPortalFromRuntime = () => {
     try {
-      // Preferred source: explicit slug in path (e.g. /itsco/login or /nlu/dashboard).
       const pathname = String(window.location?.pathname || '/');
-      const first = pathname.split('/').filter(Boolean)[0] || '';
-      const reserved = new Set([
-        'login', 'admin', 'dashboard', 'logout', 'schools', 'kiosk',
-        'passwordless-login', 'reset-password', 'change-password', 'intake'
-      ]);
-      const slugCandidate = String(first).trim().toLowerCase();
-      if (slugCandidate && !reserved.has(slugCandidate)) return slugCandidate;
+      const fromPath = resolvePortalSlugFromPath(pathname);
+      if (fromPath) return fromPath;
 
-      // Fallback: host-resolved portal cache (set by branding initialization).
       const host = String(window.location?.hostname || '').trim().toLowerCase();
       if (host) {
         const raw = sessionStorage.getItem(`__pt_portal_host__:${host}`);

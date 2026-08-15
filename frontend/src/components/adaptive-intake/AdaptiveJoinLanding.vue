@@ -93,6 +93,7 @@
             {{ saving ? 'Saving…' : 'Save' }}
           </button>
           <button type="button" class="ajl-edit-btn ajl-edit-btn--ghost" @click="resetLayout">Reset layout</button>
+          <button type="button" class="ajl-edit-btn ajl-edit-btn--ghost" @click="restoreOriginalCopy">Restore original text</button>
           <span class="ajl-edit-target">{{ selectedBlockLabel }}</span>
           <div v-if="selectedBlock" class="ajl-align-group" role="group" aria-label="Text alignment">
             <button
@@ -154,7 +155,7 @@
       </div>
 
       <div
-        v-if="editing || copy.welcomeTitle"
+        v-if="editing || (copy.welcomeTitle && !isHidden('welcome'))"
         class="ajl-block ajl-block--overlay"
         :class="{ 'ajl-block--selected': selectedBlock === 'welcome' }"
         :style="blockStyle('welcome')"
@@ -162,7 +163,9 @@
       >
         <div v-if="editing" class="ajl-block-tools">
           <button type="button" class="ajl-drag" @mousedown.stop="startDrag('welcome', $event)">Move</button>
-          <button type="button" class="ajl-hide" @mousedown.stop @click.stop="hideCopyField('welcomeTitle')">Hide</button>
+          <button type="button" class="ajl-hide" @mousedown.stop @click.stop="toggleHidden('welcome')">
+            {{ isHidden('welcome') ? 'Show' : 'Hide' }}
+          </button>
         </div>
         <div v-if="editing && selectedBlock === 'welcome'" class="ajl-resize ajl-resize--se" @mousedown.stop="startResize('welcome', 'se', $event)" />
         <p class="ajl-welcome">
@@ -178,7 +181,7 @@
       </div>
 
       <div
-        v-if="editing || copy.welcomeGlad"
+        v-if="editing || (copy.welcomeGlad && !isHidden('glad'))"
         class="ajl-block ajl-block--overlay"
         :class="{ 'ajl-block--selected': selectedBlock === 'glad' }"
         :style="blockStyle('glad')"
@@ -186,7 +189,9 @@
       >
         <div v-if="editing" class="ajl-block-tools">
           <button type="button" class="ajl-drag" @mousedown.stop="startDrag('glad', $event)">Move</button>
-          <button type="button" class="ajl-hide" @mousedown.stop @click.stop="hideCopyField('welcomeGlad')">Hide</button>
+          <button type="button" class="ajl-hide" @mousedown.stop @click.stop="toggleHidden('glad')">
+            {{ isHidden('glad') ? 'Show' : 'Hide' }}
+          </button>
         </div>
         <div v-if="editing && selectedBlock === 'glad'" class="ajl-resize ajl-resize--se" @mousedown.stop="startResize('glad', 'se', $event)" />
         <p class="ajl-glad">
@@ -202,7 +207,7 @@
       </div>
 
       <div
-        v-if="editing || copy.welcomeLead"
+        v-if="editing || (copy.welcomeLead && !isHidden('lead'))"
         class="ajl-block ajl-block--overlay"
         :class="{ 'ajl-block--selected': selectedBlock === 'lead' }"
         :style="blockStyle('lead')"
@@ -210,7 +215,9 @@
       >
         <div v-if="editing" class="ajl-block-tools">
           <button type="button" class="ajl-drag" @mousedown.stop="startDrag('lead', $event)">Move</button>
-          <button type="button" class="ajl-hide" @mousedown.stop @click.stop="hideCopyField('welcomeLead')">Hide</button>
+          <button type="button" class="ajl-hide" @mousedown.stop @click.stop="toggleHidden('lead')">
+            {{ isHidden('lead') ? 'Show' : 'Hide' }}
+          </button>
         </div>
         <div v-if="editing && selectedBlock === 'lead'" class="ajl-resize ajl-resize--se" @mousedown.stop="startResize('lead', 'se', $event)" />
         <p class="ajl-lead">
@@ -344,6 +351,7 @@ import {
   fontFamilyById,
   mergeJoinLayout,
   normalizeAlign,
+  restoreJoinWelcomeCopy,
   writeJoinLandingCache
 } from '../../utils/joinLandingTemplate.js';
 
@@ -388,7 +396,7 @@ let resizeState = null;
 let saveOkTimer = null;
 let holdEditTimer = null;
 
-const copy = computed(() => props.config?.copy || {});
+const copy = computed(() => restoreJoinWelcomeCopy(props.config?.copy || {}, props.config?.agency?.name));
 const footerTrust = computed(() => {
   const loc = String(props.config?.locale || props.config?.language || document.documentElement?.lang || 'en').toLowerCase();
   if (loc.startsWith('es')) {
@@ -492,9 +500,30 @@ const themeVars = computed(() => {
   };
 });
 
-function hideCopyField(key) {
-  if (!Object.prototype.hasOwnProperty.call(draft, key)) return;
-  draft[key] = '';
+function isHidden(key) {
+  return activeLayout.value.hidden?.[key] === true;
+}
+
+function toggleHidden(key) {
+  if (!editing.value) return;
+  if (!draft.layout.hidden) draft.layout.hidden = { welcome: false, glad: false, lead: false };
+  draft.layout.hidden[key] = !draft.layout.hidden[key];
+}
+
+function restoreOriginalCopy() {
+  const restored = restoreJoinWelcomeCopy({}, props.config?.agency?.name);
+  draft.welcomeTitle = restored.welcomeTitle;
+  draft.welcomeGlad = restored.welcomeGlad;
+  draft.welcomeLead = restored.welcomeLead;
+  if (!draft.layout.hidden) draft.layout.hidden = { welcome: false, glad: false, lead: false };
+  draft.layout.hidden.welcome = false;
+  draft.layout.hidden.glad = false;
+  draft.layout.hidden.lead = false;
+}
+
+function resetLayout() {
+  draft.layout = defaultJoinLayout();
+  restoreOriginalCopy();
 }
 
 function blockAlign(key) {
@@ -615,10 +644,6 @@ function startEdit() {
 function cancelEdit() {
   saveError.value = '';
   closeEditor();
-}
-
-function resetLayout() {
-  draft.layout = defaultJoinLayout();
 }
 
 function selectBlock(key, event) {
@@ -804,7 +829,7 @@ async function saveEdit() {
   --ajl-teal: #0f3d3a;
   --ajl-green: #1f6b4a;
   --ajl-blue: #1d4ed8;
-  --ajl-rail-width: clamp(210px, 22vw, 300px);
+  --ajl-rail-width: clamp(230px, 24vw, 320px);
   min-height: 100vh;
   display: grid;
   grid-template-columns: var(--ajl-rail-width) minmax(0, 1fr);
@@ -833,12 +858,14 @@ async function saveEdit() {
 .ajl-rail {
   grid-column: 1;
   grid-row: 1 / 2;
-  padding: clamp(1.25rem, 2.5vw, 1.75rem) clamp(0.85rem, 1.5vw, 1.15rem) 1.25rem;
+  padding: clamp(1.25rem, 2.5vw, 1.75rem) clamp(1rem, 2vw, 1.5rem) 1.25rem clamp(1.35rem, 2.4vw, 2rem);
   display: flex;
   flex-direction: column;
   gap: 1.1rem;
   color: #123c6d;
   max-width: var(--ajl-rail-width);
+  overflow: visible;
+  z-index: 3;
 }
 
 .ajl-rail--editing {
@@ -953,7 +980,7 @@ async function saveEdit() {
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  overflow: auto;
+  overflow: visible;
 }
 
 .ajl-block--overlay {
@@ -1381,6 +1408,12 @@ async function saveEdit() {
 @media (max-width: 1100px) {
   .ajl-cards {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 960px) {
+  .ajl:not(.ajl--editing) .ajl-block {
+    transform: none !important;
   }
 }
 

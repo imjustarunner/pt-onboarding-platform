@@ -46,9 +46,11 @@
                   :active-index="intakeSidebarStepIndex"
                   :max-reachable-index="intakeSidebarMaxReachable"
                   :interactive="intakeSidebarInteractive"
+                  :editing="intakeSidebarEditing"
                   :you-are-here="language.startsWith('es') ? 'Está aquí' : 'You are here'"
                   :completed-label="language.startsWith('es') ? 'Completado' : 'Completed'"
                   @select="(index) => $emit('select-step', index)"
+                  @update-label="(payload) => $emit('update-sidebar-label', payload)"
                 />
               </div>
               <div class="df-sidebar-spacer" />
@@ -267,6 +269,7 @@ const props = defineProps({
   intakeSidebarStepIndex: { type: Number, default: 0 },
   intakeSidebarMaxReachable: { type: Number, default: 0 },
   intakeSidebarInteractive: { type: Boolean, default: false },
+  intakeSidebarEditing: { type: Boolean, default: false },
   showIntakeSidebarSecurity: { type: Boolean, default: true },
   decorHeroUrl: { type: String, default: '' },
   decorHeroAlt: { type: String, default: '' },
@@ -292,7 +295,7 @@ const props = defineProps({
   scenicSidebarUrl: { type: String, default: '' }
 });
 
-defineEmits(['update:language', 'contact-support', 'select-step']);
+defineEmits(['update:language', 'contact-support', 'select-step', 'update-sidebar-label']);
 
 const TRUST_LABEL_ES = {
   'Your information is secure': 'Su información está segura',

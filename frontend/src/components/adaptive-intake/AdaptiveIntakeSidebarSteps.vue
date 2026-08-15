@@ -37,7 +37,15 @@
             <span v-else>{{ i + 1 }}</span>
           </span>
           <span class="ai-sidebar-step-text">
-            <span class="ai-sidebar-step-label">{{ step.label }}</span>
+            <input
+              v-if="editing"
+              class="ai-sidebar-step-input"
+              :value="step.label"
+              @mousedown.stop
+              @click.stop
+              @input="onLabelInput(i, $event)"
+            />
+            <span v-else class="ai-sidebar-step-label">{{ step.label }}</span>
             <span v-if="i === activeIndex && (step.hint || youAreHere)" class="ai-sidebar-step-hint">
               {{ step.hint || youAreHere }}
             </span>
@@ -58,10 +66,11 @@ const props = defineProps({
   ariaLabel: { type: String, default: 'Intake progress' },
   youAreHere: { type: String, default: 'You are here' },
   completedLabel: { type: String, default: 'Completed' },
-  interactive: { type: Boolean, default: false }
+  interactive: { type: Boolean, default: false },
+  editing: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['select']);
+const emit = defineEmits(['select', 'update-label']);
 
 function isReachable(index) {
   const last = props.steps.length ? props.steps.length - 1 : 0;
@@ -70,7 +79,12 @@ function isReachable(index) {
 }
 
 function selectStep(index) {
+  if (props.editing) return;
   if (!isReachable(index)) return;
   emit('select', index);
+}
+
+function onLabelInput(index, event) {
+  emit('update-label', { index, label: event.target.value });
 }
 </script>

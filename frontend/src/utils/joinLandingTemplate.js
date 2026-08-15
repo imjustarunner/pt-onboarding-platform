@@ -34,14 +34,44 @@ export function alignBlockStyle(align, fallback = 'left') {
 
 /**
  * Keep a dragged block inside its container.
- * `base` is the block's untranslated edge, `size` its length on that axis.
+ * If the block is taller/wider than the container, still allow movement so a
+ * large card can be lifted — only keep a sliver on screen.
  */
 export function clampOffsetValue({ value, base, size, min, max, pad = 8 }) {
+  if (!Number.isFinite(value) || !Number.isFinite(base) || !Number.isFinite(size) || !Number.isFinite(min) || !Number.isFinite(max)) {
+    return value;
+  }
+  const span = max - min;
+  const keepVisible = Math.min(48, Math.max(24, size * 0.15));
+  if (size >= span - pad * 2) {
+    const lo = min + keepVisible - (base + size);
+    const hi = max - keepVisible - base;
+    if (hi < lo) return value;
+    return Math.min(hi, Math.max(lo, value));
+  }
   const lo = min + pad - base;
   const hi = max - pad - (base + size);
-  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return value;
-  if (hi < lo) return lo;
+  if (hi < lo) return value;
   return Math.min(hi, Math.max(lo, value));
+}
+
+function looksBrokenPosition(pos = {}) {
+  const x = Number(pos.x) || 0;
+  const y = Number(pos.y) || 0;
+  return x < -16 || x > 920 || y < -80 || y > 720;
+}
+
+/** Drop saved pixel offsets that were clamped off-canvas in earlier editor builds. */
+export function sanitizeJoinPositions(positions = {}, fallback = {}) {
+  const out = {};
+  for (const key of Object.keys(fallback)) {
+    const src = positions?.[key] && typeof positions[key] === 'object' ? positions[key] : fallback[key];
+    out[key] = looksBrokenPosition(src) ? { ...fallback[key] } : {
+      x: Number(src.x) || 0,
+      y: Number(src.y) || 0
+    };
+  }
+  return out;
 }
 
 export function defaultJoinLayout() {
@@ -67,6 +97,11 @@ export function defaultJoinLayout() {
       logoWidth: 150,
       script: 2
     },
+    hidden: {
+      welcome: false,
+      glad: false,
+      lead: false
+    },
     align: {
       welcome: 'left',
       glad: 'left',
@@ -91,6 +126,17 @@ export function fontFamilyById(id) {
 }
 
 export const JOIN_BOOT_THEME_URL = '/assets/intake-themes/greenintakethemecounseling.jpg';
+
+export function restoreJoinWelcomeCopy(copy, agencyName) {
+  const org = String(agencyName || 'our team').trim() || 'our team';
+  const c = copy && typeof copy === 'object' ? { ...copy } : {};
+  if (!String(c.welcomeTitle || '').trim()) c.welcomeTitle = `Welcome to ${org}!`;
+  if (!String(c.welcomeGlad || '').trim()) c.welcomeGlad = "We're so glad you're here.";
+  if (!String(c.welcomeLead || '').trim()) {
+    c.welcomeLead = `Let's find the right place to start. Choose the type of intake that works best for you with ${org}. You can always add more details later or reach out if you need help.`;
+  }
+  return c;
+}
 
 export function joinLandingCacheKey(slug, serviceType) {
   return `ajl-boot:${String(slug || '').toLowerCase()}:${String(serviceType || 'counseling').toLowerCase()}`;
@@ -147,8 +193,32 @@ export function defaultIntakeStartLayout() {
       card: 'center',
       brand: 'left',
       help: 'left'
+    },
+    hidden: {
+      welcome: false,
+      glad: false
     }
   };
+}
+
+export const DEFAULT_QUICK_SIDEBAR_STEPS = [
+  { id: 'who', label: 'Who is this for?' },
+  { id: 'basics', label: 'Basic Information' },
+  { id: 'needs', label: 'What support?' },
+  { id: 'prefs', label: 'Preferences' },
+  { id: 'providers', label: 'Provider preview' },
+  { id: 'consent', label: 'Authorization' },
+  { id: 'review', label: 'Review & Submit' }
+];
+
+export function mergeQuickSidebarSteps(saved) {
+  const base = DEFAULT_QUICK_SIDEBAR_STEPS.map((step) => ({ ...step }));
+  if (!Array.isArray(saved) || !saved.length) return base;
+  return base.map((step, i) => {
+    const src = saved[i] && typeof saved[i] === 'object' ? saved[i] : {};
+    const label = String(src.label || '').trim();
+    return { ...step, label: label || step.label };
+  });
 }
 
 function mergeStartSizes(saved, base) {
@@ -178,16 +248,23 @@ export function mergeIntakeStartLayout(saved) {
   const base = defaultIntakeStartLayout();
   if (!saved || typeof saved !== 'object') return base;
   const width = Number(saved.width);
+  const x = Number(saved.x) || 0;
+  const y = Number.isFinite(Number(saved.y)) ? Number(saved.y) : base.y;
+  const broken = looksBrokenPosition({ x, y });
   return {
-    x: Number(saved.x) || 0,
-    y: Number.isFinite(Number(saved.y)) ? Number(saved.y) : base.y,
+    x: broken ? base.x : x,
+    y: broken ? base.y : y,
     width: Number.isFinite(width) ? Math.min(1200, Math.max(420, width)) : base.width,
-    welcome: mergeStartPoint(saved.welcome, base.welcome),
-    glad: mergeStartPoint(saved.glad, base.glad),
-    brand: mergeStartPoint(saved.brand, base.brand),
-    help: mergeStartPoint(saved.help, base.help),
+    welcome: looksBrokenPosition(saved.welcome) ? { ...base.welcome } : mergeStartPoint(saved.welcome, base.welcome),
+    glad: looksBrokenPosition(saved.glad) ? { ...base.glad } : mergeStartPoint(saved.glad, base.glad),
+    brand: looksBrokenPosition(saved.brand) ? { ...base.brand } : mergeStartPoint(saved.brand, base.brand),
+    help: looksBrokenPosition(saved.help) ? { ...base.help } : mergeStartPoint(saved.help, base.help),
     sizes: mergeStartSizes(saved.sizes, base.sizes),
-    align: mergeStartAlign(saved.align, base.align)
+    align: mergeStartAlign(saved.align, base.align),
+    hidden: {
+      welcome: saved.hidden?.welcome === true,
+      glad: saved.hidden?.glad === true
+    }
   };
 }
 
@@ -237,6 +314,7 @@ export function localizeOfficeStartCopy(copy, locale) {
 export function mergeJoinLayout(saved) {
   const base = defaultJoinLayout();
   if (!saved || typeof saved !== 'object') return base;
+  const hiddenSrc = saved.hidden && typeof saved.hidden === 'object' ? saved.hidden : {};
   return {
     footerStyle: saved.footerStyle === 'frost' || !saved.footerStyle
       ? 'hidden'
@@ -247,11 +325,19 @@ export function mergeJoinLayout(saved) {
     fonts: { ...base.fonts, ...(saved.fonts || {}) },
     sizes: { ...base.sizes, ...(saved.sizes || {}) },
     align: mergeStartAlign(saved.align, base.align),
-    positions: Object.fromEntries(
-      Object.keys(base.positions).map((key) => [
-        key,
-        { ...base.positions[key], ...(saved.positions?.[key] || {}) }
-      ])
+    hidden: {
+      welcome: hiddenSrc.welcome === true,
+      glad: hiddenSrc.glad === true,
+      lead: hiddenSrc.lead === true
+    },
+    positions: sanitizeJoinPositions(
+      Object.fromEntries(
+        Object.keys(base.positions).map((key) => [
+          key,
+          { ...base.positions[key], ...(saved.positions?.[key] || {}) }
+        ])
+      ),
+      base.positions
     )
   };
 }
