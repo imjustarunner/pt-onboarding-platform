@@ -48,6 +48,23 @@ class IntakeSubmissionDocument {
     return rows;
   }
 
+  static async listSignedForRecord(intakeSubmissionId) {
+    const [rows] = await pool.execute(
+      `SELECT isd.id,
+              isd.document_template_id,
+              isd.pdf_hash,
+              isd.signed_at,
+              isd.audit_trail,
+              dt.name AS document_template_name
+         FROM intake_submission_documents isd
+         LEFT JOIN document_templates dt ON dt.id = isd.document_template_id
+        WHERE isd.intake_submission_id = ?
+        ORDER BY isd.id ASC`,
+      [intakeSubmissionId]
+    );
+    return rows || [];
+  }
+
   static async listUnassigned({ agencyId = null, limit = 100, offset = 0, excludeMedicalRecords = false } = {}) {
     let sql = `SELECT isd.*, dt.name AS document_template_name, il.title AS intake_link_title,
        il.requires_assignment, il.form_type AS intake_link_form_type, s.signer_name, s.signer_email, s.submitted_at, s.id AS intake_submission_id,

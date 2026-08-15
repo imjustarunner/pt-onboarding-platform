@@ -26,7 +26,7 @@ test('builds packet-branded summary HTML with tenant name and answers', () => {
   assert.match(html, /Intake packet summary/);
 });
 
-test('office spec skips secrets and flattens simple answers', () => {
+test('office spec skips secrets and includes nested answers plus e-sign', () => {
   const spec = buildOfficeIntakeSummarySpec({
     agencyName: 'ITSCO',
     submission: {
@@ -34,10 +34,12 @@ test('office spec skips secrets and flattens simple answers', () => {
       submitted_at: '2026-08-14T18:00:00.000Z',
       signer_name: 'Ada Lovelace',
       signer_email: 'ada@example.com',
+      consent_given_at: '2026-08-14T17:55:00.000Z',
+      ip_address: '203.0.113.10',
       intake_data: {
         responses: {
           guardian: { firstName: 'Ada', lastName: 'Lovelace', email: 'ada@example.com', password: 'secret' },
-          submission: { presenting_concern: 'Sleep', insuranceInfo: { n: 1 } }
+          submission: { presenting_concern: 'Sleep', insuranceInfo: { payer: 'Medicaid' } }
         }
       }
     },
@@ -49,6 +51,11 @@ test('office spec skips secrets and flattens simple answers', () => {
   assert.ok(labels.includes('Email'));
   assert.ok(!labels.some((label) => /password/i.test(label)));
   assert.ok(spec.sections.some((section) => section.rows.some((row) => row.value === 'Sleep')));
+  assert.ok(spec.sections.some((section) => section.rows.some((row) => /Medicaid/.test(row.value))));
+  assert.match(spec.esign.statement, /ESIGN Act/);
+  const html = buildIntakeSummaryDocumentHtml({ ...spec, printable: true });
+  assert.match(html, /Electronic Signature Certificate/);
+  assert.match(html, /Medicaid/);
 });
 
 test('quick spec uses confirmation fields without a cover page', () => {

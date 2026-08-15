@@ -2038,6 +2038,13 @@
               <div class="office-complete-download">
                 <p>{{ t('savePacketSummary') }}</p>
                 <p class="office-complete-phi">{{ t('phiDownloadNotice') }}</p>
+                <a
+                  v-if="packetSummaryViewUrl"
+                  class="df-btn df-btn-secondary"
+                  :href="packetSummaryViewUrl"
+                  target="_blank"
+                  rel="noopener"
+                >{{ t('viewPacketNow') }}</a>
                 <button
                   type="button"
                   class="df-btn df-btn-primary"
@@ -2298,10 +2305,8 @@
 
         <div v-if="!isMultiChildPostSubmit" class="intake-download-panel">
           <div class="intake-download-meta">
-            <div v-if="downloadUrl" class="intake-download-ready-label">✓ Packet PDF ready</div>
-            <p class="muted" style="margin: 6px 0 0;">{{ t('packetViewTemporary') }}</p>
-            <p v-if="!downloadUrl && pdfWaitTimedOut" class="muted" style="margin: 6px 0 0;">{{ t('packetPdfStillPreparing') }}</p>
-            <p v-else-if="downloadUrl" class="muted" style="margin: 6px 0 0;">Download links expire in 7 days.</p>
+            <p class="muted" style="margin: 0;">{{ t('packetRecordLead') }}</p>
+            <p v-if="downloadUrl" class="muted" style="margin: 6px 0 0;">{{ t('signedFormsReady') }}</p>
           </div>
           <div class="actions intake-download-actions">
             <a
@@ -2311,9 +2316,15 @@
               target="_blank"
               rel="noopener"
             >{{ t('viewPacketNow') }}</a>
+            <button
+              class="btn btn-secondary"
+              type="button"
+              :disabled="officeSummaryDownloading"
+              @click="downloadOfficeSummaryPdf"
+            >{{ officeSummaryDownloading ? t('preparingPdf') : t('downloadSummary') }}</button>
             <a
               v-if="downloadUrl"
-              class="btn btn-secondary"
+              class="btn btn-outline"
               :href="downloadUrl"
               target="_blank"
               rel="noopener"
@@ -2321,7 +2332,7 @@
               {{
                 formTypeKey === 'smart_school_roi'
                   ? 'View Signed ROI'
-                  : (jobApplicationSubmitted ? 'View Application Copy' : 'Download Packet PDF')
+                  : (jobApplicationSubmitted ? 'View Application Copy' : t('downloadSignedForms'))
               }}
             </a>
           </div>
@@ -2335,7 +2346,7 @@
         -->
         <div v-if="isMultiChildPostSubmit" class="multi-child-prep">
           <p v-if="packetSummaryViewUrl" class="muted" style="margin: 0 0 10px;">
-            {{ t('packetViewTemporary') }}
+            {{ t('packetRecordLead') }}
             <a :href="packetSummaryViewUrl" target="_blank" rel="noopener">{{ t('viewPacketNow') }}</a>
           </p>
           <div v-if="!isMultiChildPacketsAllReady" class="multi-child-prep-header">
@@ -2720,8 +2731,10 @@ const INTAKE_TRANSLATIONS = {
     multiDependentDeclineNotice: 'No problem. Please finish this dependent’s packet first. You can then start a fresh packet from the same link to sign separately for the other dependent.',
     phiDownloadNotice: 'This file contains protected health information. After it is saved on a device, we cannot retrieve, change, or delete that copy. Keep it in a private place and only share it if you mean to.',
     viewPacketNow: 'View your packet',
-    packetViewTemporary: 'This branded summary is temporary. View it now — the full PDF copy is emailed when it is ready, and download links expire.',
-    packetPdfStillPreparing: 'The full signed PDF is still being prepared in the background. You can view your branded summary now.',
+    packetRecordLead: 'View or print your branded packet now — it includes your answers, signatures, approvals, and electronic signature details.',
+    downloadSignedForms: 'Signed form copies',
+    packetViewTemporary: 'View or print your branded packet now — it includes your answers, signatures, approvals, and electronic signature details.',
+    packetPdfStillPreparing: 'Signed legal form copies are still being prepared and will be emailed when ready.',
     downloadPackets: 'Download packets',
     custodyOtherGuardianTitle: 'Custody & other guardian',
     custodyOtherGuardianLead: 'If another parent has legal rights, our team will reach out so they can complete their own intake. They will not see what you submit.',
@@ -2968,7 +2981,7 @@ const INTAKE_TRANSLATIONS = {
     officeNextConnectBody: "We'll reach out within 1–2 business days.",
     officeNextStart: 'Get started:',
     officeNextStartBody: "Once everything is set, we'll help you schedule.",
-    savePacketSummary: 'Download a branded PDF of what you submitted for your records.',
+    savePacketSummary: 'Download a branded PDF of what you submitted — answers, signatures, approvals, and e-sign details.',
     downloadSummary: 'Download PDF',
     downloadSummaryUnavailable: 'This summary is not available yet. Please try again in a moment.',
     preparingPdf: 'Preparing PDF…',
@@ -3062,8 +3075,10 @@ const INTAKE_TRANSLATIONS = {
     multiDependentDeclineNotice: 'No hay problema. Termine primero el paquete de este dependiente. Luego puede iniciar un paquete nuevo desde el mismo enlace para firmar por separado.',
     phiDownloadNotice: 'Este archivo contiene información de salud protegida. Una vez guardado en un dispositivo, no podemos recuperar, cambiar ni eliminar esa copia. Guárdelo en un lugar privado y compártalo solo si realmente lo desea.',
     viewPacketNow: 'Ver su paquete',
-    packetViewTemporary: 'Este resumen con marca es temporal. Véalo ahora: el PDF completo se envía por correo cuando está listo, y los enlaces de descarga caducan.',
-    packetPdfStillPreparing: 'El PDF firmado completo se sigue preparando. Puede ver su resumen con marca ahora.',
+    packetRecordLead: 'Vea o imprima su paquete con marca ahora: incluye sus respuestas, firmas, aprobaciones y los datos de la firma electrónica.',
+    downloadSignedForms: 'Copias de formularios firmados',
+    packetViewTemporary: 'Vea o imprima su paquete con marca ahora: incluye sus respuestas, firmas, aprobaciones y los datos de la firma electrónica.',
+    packetPdfStillPreparing: 'Las copias legales firmadas se siguen preparando y se enviarán por correo cuando estén listas.',
     downloadPackets: 'Descargar paquetes',
     custodyOtherGuardianTitle: 'Custodia y otro tutor',
     custodyOtherGuardianLead: 'Si otro padre o madre tiene derechos legales, nuestro equipo se comunicará para que complete su propia admisión. No verá lo que usted envíe.',
@@ -3290,7 +3305,7 @@ const INTAKE_TRANSLATIONS = {
     officeNextConnectBody: 'Nos comunicaremos en 1–2 días hábiles.',
     officeNextStart: 'Comenzar:',
     officeNextStartBody: 'Cuando todo esté listo, le ayudaremos a agendar.',
-    savePacketSummary: 'Descargue un PDF con la marca de la organización de lo que envió para sus registros.',
+    savePacketSummary: 'Descargue un PDF con marca de lo que envió: respuestas, firmas, aprobaciones y datos de firma electrónica.',
     downloadSummary: 'Descargar PDF',
     downloadSummaryUnavailable: 'Este resumen aún no está disponible. Inténtelo de nuevo en un momento.',
     preparingPdf: 'Preparando PDF…',

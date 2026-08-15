@@ -1,14 +1,15 @@
 import Agency from '../models/Agency.model.js';
 import IntakeLink from '../models/IntakeLink.model.js';
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
+import IntakeSubmissionDocument from '../models/IntakeSubmissionDocument.model.js';
 import pool from '../config/database.js';
 import {
   buildIntakeSummaryDocumentHtml,
-  buildOfficeIntakeSummarySpec,
   buildQuickIntakeSummarySpec,
   generateIntakeSummaryPdf,
   recordPdfFilename
 } from '../services/intakeSummaryPdf.service.js';
+import { buildCompletedIntakeRecord } from '../services/completedIntakeRecord.service.js';
 
 function sendPdf(res, buffer, filename) {
   const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
@@ -49,6 +50,45 @@ function initialsFromName(name) {
     .slice(0, 4);
 }
 
+async function resolveOfficeRecord(req) {
+  const publicKey = String(req.params.publicKey || '').trim();
+  const submissionId = Number(req.params.submissionId || 0);
+  const sessionToken = String(req.body?.sessionToken || req.query?.sessionToken || '').trim();
+  if (!publicKey || !submissionId || !sessionToken) {
+    const err = new Error('sessionToken is required');
+    err.statusCode = 400;
+    throw err;
+  }
+  const link = await IntakeLink.findByPublicKey(publicKey);
+  if (!link) {
+    const err = new Error('Intake link not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const submission = await IntakeSubmission.findBySessionToken(sessionToken);
+  if (!submission || Number(submission.id) !== submissionId) {
+    const err = new Error('Submission not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  if (Number(submission.intake_link_id) !== Number(link.id)) {
+    const err = new Error('Submission not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const agency = await Agency.findById(link.organization_id);
+  const signedDocuments = await IntakeSubmissionDocument.listSignedForRecord(submission.id);
+  const spec = buildCompletedIntakeRecord({
+    agency,
+    link,
+    submission,
+    signedDocuments,
+    guardian: req.body?.guardian || {},
+    clients: Array.isArray(req.body?.clients) ? req.body.clients : []
+  });
+  return { agency, spec, submission };
+}
+
 function summaryPdfFilename(agency, body = {}) {
   const initials = String(body.initials || '').trim() || initialsFromName(body.clientName);
   return recordPdfFilename({
@@ -62,33 +102,7 @@ function summaryPdfFilename(agency, body = {}) {
 /** POST /api/public-intake/:publicKey/:submissionId/summary-pdf */
 export async function downloadPublicIntakeSummaryPdf(req, res, next) {
   try {
-    const publicKey = String(req.params.publicKey || '').trim();
-    const submissionId = Number(req.params.submissionId || 0);
-    const sessionToken = String(req.body?.sessionToken || req.query?.sessionToken || '').trim();
-    if (!publicKey || !submissionId || !sessionToken) {
-      return res.status(400).json({ error: { message: 'sessionToken is required' } });
-    }
-
-    const link = await IntakeLink.findByPublicKey(publicKey);
-    if (!link) {
-      return res.status(404).json({ error: { message: 'Intake link not found' } });
-    }
-
-    const submission = await IntakeSubmission.findBySessionToken(sessionToken);
-    if (!submission || Number(submission.id) !== submissionId) {
-      return res.status(404).json({ error: { message: 'Submission not found' } });
-    }
-    if (Number(submission.intake_link_id) !== Number(link.id)) {
-      return res.status(404).json({ error: { message: 'Submission not found' } });
-    }
-
-    const agency = await Agency.findById(link.organization_id);
-    const spec = buildOfficeIntakeSummarySpec({
-      agencyName: agencyDisplayName(agency) || String(link.title || 'Intake').trim(),
-      submission,
-      guardian: req.body?.guardian || {},
-      clients: Array.isArray(req.body?.clients) ? req.body.clients : []
-    });
+    const { agency, spec } = await resolveOfficeRecord(req);
     const pdf = await generateIntakeSummaryPdf(spec);
     return sendPdf(
       res,
@@ -112,39 +126,15 @@ export async function downloadPublicIntakeSummaryPdf(req, res, next) {
 /** GET /api/public-intake/:publicKey/:submissionId/summary — branded HTML, no PDF wait */
 export async function viewPublicIntakeSummaryHtml(req, res, next) {
   try {
-    const publicKey = String(req.params.publicKey || '').trim();
-    const submissionId = Number(req.params.submissionId || 0);
-    const sessionToken = String(req.query?.sessionToken || '').trim();
-    if (!publicKey || !submissionId || !sessionToken) {
-      return res.status(400).json({ error: { message: 'sessionToken is required' } });
-    }
-
-    const link = await IntakeLink.findByPublicKey(publicKey);
-    if (!link) {
-      return res.status(404).json({ error: { message: 'Intake link not found' } });
-    }
-
-    const submission = await IntakeSubmission.findBySessionToken(sessionToken);
-    if (!submission || Number(submission.id) !== submissionId) {
-      return res.status(404).json({ error: { message: 'Submission not found' } });
-    }
-    if (Number(submission.intake_link_id) !== Number(link.id)) {
-      return res.status(404).json({ error: { message: 'Submission not found' } });
-    }
-
-    const agency = await Agency.findById(link.organization_id);
-    const spec = buildOfficeIntakeSummarySpec({
-      agencyName: agencyDisplayName(agency) || String(link.title || 'Intake').trim(),
-      submission,
-      guardian: {},
-      clients: []
-    });
-    spec.footerNote = 'This branded summary is temporary. The full signed PDF is emailed when it is ready, and download links expire.';
-    const html = buildIntakeSummaryDocumentHtml(spec);
+    const { spec } = await resolveOfficeRecord(req);
+    const html = buildIntakeSummaryDocumentHtml({ ...spec, printable: true });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'private, no-store');
     return res.send(html);
   } catch (err) {
+    if (err?.statusCode) {
+      return res.status(err.statusCode).json({ error: { message: err.message } });
+    }
     next(err);
   }
 }
@@ -235,38 +225,7 @@ export async function downloadQuickIntakeSummaryPdf(req, res, next) {
 }
 
 async function buildOfficeSummaryPdf(req) {
-  const publicKey = String(req.params.publicKey || '').trim();
-  const submissionId = Number(req.params.submissionId || 0);
-  const sessionToken = String(req.body?.sessionToken || req.query?.sessionToken || '').trim();
-  if (!publicKey || !submissionId || !sessionToken) {
-    const err = new Error('sessionToken is required');
-    err.statusCode = 400;
-    throw err;
-  }
-  const link = await IntakeLink.findByPublicKey(publicKey);
-  if (!link) {
-    const err = new Error('Intake link not found');
-    err.statusCode = 404;
-    throw err;
-  }
-  const submission = await IntakeSubmission.findBySessionToken(sessionToken);
-  if (!submission || Number(submission.id) !== submissionId) {
-    const err = new Error('Submission not found');
-    err.statusCode = 404;
-    throw err;
-  }
-  if (Number(submission.intake_link_id) !== Number(link.id)) {
-    const err = new Error('Submission not found');
-    err.statusCode = 404;
-    throw err;
-  }
-  const agency = await Agency.findById(link.organization_id);
-  const spec = buildOfficeIntakeSummarySpec({
-    agencyName: agencyDisplayName(agency) || String(link.title || 'Intake').trim(),
-    submission,
-    guardian: req.body?.guardian || {},
-    clients: Array.isArray(req.body?.clients) ? req.body.clients : []
-  });
+  const { agency, spec, submission } = await resolveOfficeRecord(req);
   const pdf = await generateIntakeSummaryPdf(spec);
   const filename = summaryPdfFilename(agency, {
     initials: req.body?.initials,
