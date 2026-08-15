@@ -338,8 +338,6 @@
         @support="openSplashSupportModal"
         @dev-fill="fillExample"
       >
-          <div v-if="whoForError" class="error" style="margin-bottom: 12px;">{{ whoForError }}</div>
-
           <div v-if="intakeForSelf !== false" class="intake-start-grid">
             <section class="intake-start-col">
               <h2 class="intake-start-col-title">
@@ -411,7 +409,15 @@
             </div>
             <div class="form-group form-group--phone">
               <label>{{ t('yourPhone') }} <span class="required-indicator">*</span></label>
-              <input id="guardianPhone" v-model="guardianPhone" type="tel" :class="{ 'input-error': !!consentErrors.guardianPhone }" />
+              <input
+                id="guardianPhone"
+                :value="guardianPhone"
+                type="tel"
+                inputmode="tel"
+                autocomplete="tel"
+                :class="{ 'input-error': !!consentErrors.guardianPhone }"
+                @input="guardianPhone = formatUsPhoneInput($event.target.value)"
+              />
             </div>
             <div class="form-group form-group--email">
               <label>{{ t('yourEmail') }} <span class="required-indicator">*</span></label>
@@ -537,11 +543,29 @@
                 :can-edit="canEditIntakeLegal"
                 :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''"
                 :locale="intakeLocale"
+                :error="whoForError && !otherGuardianContactOk() ? otherGuardianBlockReason() : ''"
                 @saved="onIntakeLegalSaved"
               />
             </template>
           </div>
 
+          <div
+            v-if="showCaptchaGate && !sessionToken"
+            class="captcha-block captcha-block-start"
+          >
+            <div class="muted">{{ t('protectedByRecaptcha') }}</div>
+            <div v-if="captchaError" class="error">{{ captchaError }}</div>
+            <div class="recaptcha-widget">
+              <div id="recaptcha-widget-start" ref="recaptchaWidgetElStart" />
+              <div v-if="captchaWidgetFailed" class="muted" style="margin-top: 6px; color: var(--warning, #b8860b);">
+                Verification widget failed to load. Please refresh the page.
+              </div>
+              <div v-else-if="!captchaToken" class="muted" style="margin-top: 6px;">
+                {{ t('completeCaptchaToContinue') }}
+              </div>
+            </div>
+          </div>
+          <p v-if="whoForError" class="error" style="margin: 0 0 8px;">{{ whoForError }}</p>
           <button
             type="button"
             class="df-btn df-btn-primary intake-start-continue"
@@ -651,6 +675,7 @@
           :can-edit="canEditIntakeLegal"
           :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''"
           :locale="intakeLocale"
+          :error="stepError && !otherGuardianContactOk() ? otherGuardianBlockReason() : ''"
           @saved="onIntakeLegalSaved"
         />
         <div class="form-grid intake-identity-grid">
@@ -703,9 +728,12 @@
             </label>
             <input
               id="guardianPhone"
-              v-model="guardianPhone"
+              :value="guardianPhone"
               type="tel"
+              inputmode="tel"
+              autocomplete="tel"
               :class="{ 'input-error': !!consentErrors.guardianPhone }"
+              @input="guardianPhone = formatUsPhoneInput($event.target.value)"
             />
             <div v-if="consentErrors.guardianPhone" class="error-text">{{ consentErrors.guardianPhone }}</div>
           </div>
@@ -2510,6 +2538,8 @@ import { localizePublicIntakeTitle } from '../utils/publicIntakeTitle.js';
 import { publicIntakeDescription } from '../utils/publicIntakeCopy.js';
 import { useOfficeIntakeStartEditor } from '../composables/useOfficeIntakeStartEditor.js';
 import OtherGuardianIntakeFields from '../components/public-intake/OtherGuardianIntakeFields.vue';
+import { lookupUsZipCityState } from '../utils/usZipAutofill.js';
+import { formatUsPhoneInput } from '../utils/contactInput.js';
 import {
   JOIN_BOOT_THEME_URL,
   restoreJoinWelcomeCopy,
@@ -2729,6 +2759,13 @@ const INTAKE_TRANSLATIONS = {
     otherGuardianPhone: 'Their phone',
     otherGuardianRelationship: 'Relationship',
     otherGuardianSendLink: 'Email them a private intake link now',
+    otherGuardianSendLater: 'I will send their intake later',
+    otherGuardianSendLaterDelay: 'That is okay. Start of care may be delayed until we can collect the other guardian’s permissions.',
+    otherGuardianPhoneOnlyNote: 'A phone number works. If we do not have their email, intake and start of care may be delayed while we contact them.',
+    otherGuardianMissingContactNote: 'If you do not have their email or phone, upload any court documents you have, or choose to send their intake later. Missing contact information can delay start of care.',
+    otherGuardianCourtDocsLabel: 'Upload court documents (encrypted)',
+    otherGuardianCourtDocsHelp: 'You can always upload custody or court paperwork here. Files are stored encrypted.',
+    otherGuardianViewConsent: 'View custody and consent details',
     emailPdfCopy: 'Email PDF',
     sendPdfElsewhere: 'Send a copy to another email',
     portalLoginTitle: 'Your portal login',
@@ -2869,7 +2906,7 @@ const INTAKE_TRANSLATIONS = {
     submitting: 'Submitting...',
     protectedByRecaptcha: 'Protected by reCAPTCHA',
     verifyHumanFirst: 'Please verify you\'re human first, then fill out the form below.',
-    completeCaptchaToContinue: 'Complete the verification above to continue.',
+    completeCaptchaToContinue: 'Complete the verification to continue.',
     captchaExpiryHint: 'Verification expires after 2 minutes. If the form takes longer, complete it again before submitting.',
     captchaRetry: 'Verification expired or failed. Please complete the captcha again.',
     guardianInfo: 'Guardian Information',
@@ -2909,7 +2946,7 @@ const INTAKE_TRANSLATIONS = {
     completionEmailRequester: 'Your request was submitted successfully. A copy will be emailed to you.',
     completionEmailRegistrant: 'Your registration was submitted successfully. A copy will be emailed to you.',
     completionEmailFailed: 'Your documents were completed, but we could not send the confirmation email. Please use the download buttons below.',
-    completeCaptcha: 'Please complete the captcha verification above.',
+    completeCaptcha: 'Please complete the captcha verification.',
     captchaFailed: 'Captcha verification failed. Please complete the captcha again and try again.',
     noDocumentSelected: 'No document selected.',
     reviewAllPages: 'Please review all pages before continuing.',
@@ -3060,6 +3097,13 @@ const INTAKE_TRANSLATIONS = {
     otherGuardianPhone: 'Su teléfono',
     otherGuardianRelationship: 'Parentesco',
     otherGuardianSendLink: 'Enviarles ahora un enlace privado de admisión',
+    otherGuardianSendLater: 'Enviaré su admisión más tarde',
+    otherGuardianSendLaterDelay: 'Está bien. El inicio de servicios puede retrasarse hasta que podamos obtener los permisos del otro tutor.',
+    otherGuardianPhoneOnlyNote: 'Un teléfono es suficiente. Si no tenemos su correo, la admisión y el inicio de servicios pueden retrasarse mientras nos comunicamos con ellos.',
+    otherGuardianMissingContactNote: 'Si no tiene su correo ni teléfono, suba documentos judiciales o elija enviar su admisión más tarde. Falta de contacto puede retrasar el inicio de servicios.',
+    otherGuardianCourtDocsLabel: 'Subir documentos judiciales (cifrados)',
+    otherGuardianCourtDocsHelp: 'Siempre puede subir papeles de custodia o del tribunal aquí. Los archivos se guardan cifrados.',
+    otherGuardianViewConsent: 'Ver detalles de custodia y consentimiento',
     emailPdfCopy: 'Enviar PDF',
     sendPdfElsewhere: 'Enviar una copia a otro correo',
     portalLoginTitle: 'Su acceso al portal',
@@ -3200,7 +3244,7 @@ const INTAKE_TRANSLATIONS = {
     submitting: 'Enviando...',
     protectedByRecaptcha: 'Protegido por reCAPTCHA',
     verifyHumanFirst: 'Por favor verifique que es humano primero, luego complete el formulario a continuación.',
-    completeCaptchaToContinue: 'Complete la verificación arriba para continuar.',
+    completeCaptchaToContinue: 'Complete la verificación para continuar.',
     captchaExpiryHint: 'La verificación expira después de 2 minutos. Si el formulario tarda más, complétela nuevamente antes de enviar.',
     captchaRetry: 'La verificación expiró o falló. Por favor complete el captcha nuevamente.',
     guardianInfo: 'Información del tutor',
@@ -3225,7 +3269,7 @@ const INTAKE_TRANSLATIONS = {
     cost: 'Costo',
     organizationRequired: 'Se requiere la organización.',
     guardianRequired: 'Se requieren el nombre del tutor y el correo electrónico del tutor.',
-    completeCaptcha: 'Por favor complete la verificación de captcha arriba.',
+    completeCaptcha: 'Por favor complete la verificación de captcha.',
     captchaFailed: 'La verificación de captcha falló. Por favor complete el captcha nuevamente e intente de nuevo.',
     noDocumentSelected: 'No se seleccionó ningún documento.',
     reviewAllPages: 'Por favor revise todas las páginas antes de continuar.',
@@ -3931,15 +3975,10 @@ const demographicsErrors = reactive({ dob: false });
 const autofillDemographicsLocation = async () => {
   const zip = String(demographicsData.addressZip || '').replace(/\D/g, '').slice(0, 5);
   if (zip.length !== 5) return;
-  try {
-    const resp = await fetch(`https://api.zippopotam.us/us/${zip}`);
-    if (!resp.ok) return;
-    const data = await resp.json();
-    const place = Array.isArray(data?.places) ? data.places[0] : null;
-    if (!place) return;
-    if (!demographicsData.addressCity) demographicsData.addressCity = place['place name'] || '';
-    if (!demographicsData.addressState) demographicsData.addressState = place['state abbreviation'] || place['state'] || '';
-  } catch { /* ignore */ }
+  const found = await lookupUsZipCityState(zip);
+  if (!found) return;
+  if (!demographicsData.addressCity) demographicsData.addressCity = found.city || '';
+  if (!demographicsData.addressState) demographicsData.addressState = found.state || '';
 };
 
 // Clinical questions step state
@@ -5533,7 +5572,9 @@ const otherGuardian = reactive({
   email: '',
   phone: '',
   relationship: '',
-  sendInvite: true
+  sendInvite: false,
+  sendLater: false,
+  courtFiles: []
 });
 const intakeLegal = ref(null);
 const canEditIntakeLegal = computed(() => {
@@ -5548,7 +5589,18 @@ const otherGuardianCopy = computed(() => {
     lead: legal.otherGuardianLead || t('custodyOtherGuardianLead'),
     ageOfConsentNote: legal.ageOfConsentNote || t('ageOfConsentNote'),
     noEmailWarning: legal.noEmailWarning || t('otherGuardianNoEmailWarning'),
-    resources: Array.isArray(legal.resources) ? legal.resources : [],
+    resources: Array.isArray(legal.resources) && legal.resources.length
+      ? legal.resources
+      : [
+        {
+          label: 'Colorado age of consent for psychotherapy (CSI / GT alert, 2019)',
+          url: 'https://resources.csi.state.co.us/wp-content/uploads/2022/07/GT-Alert_Colorado-Lowers-Age-of-Consent-for-Psychotherapy-Services-to-12-Years-Old.pdf'
+        },
+        {
+          label: 'Colorado HB17-1320 (related bill history)',
+          url: 'https://leg.colorado.gov/bills/hb17-1320'
+        }
+      ],
     rightsLabel: t('otherGuardianLegalRights'),
     selectOption: t('selectOption'),
     yes: t('otherGuardianLegalYes'),
@@ -5559,7 +5611,15 @@ const otherGuardianCopy = computed(() => {
     email: t('otherGuardianEmail'),
     phone: t('otherGuardianPhone'),
     relationship: t('otherGuardianRelationship'),
-    sendLink: t('otherGuardianSendLink')
+    sendLink: t('otherGuardianSendLink'),
+    sendLater: t('otherGuardianSendLater'),
+    sendLaterDelay: t('otherGuardianSendLaterDelay'),
+    phoneOnlyNote: t('otherGuardianPhoneOnlyNote'),
+    missingContactNote: t('otherGuardianMissingContactNote'),
+    courtDocsLabel: t('otherGuardianCourtDocsLabel'),
+    courtDocsHelp: t('otherGuardianCourtDocsHelp'),
+    viewConsentDetails: t('otherGuardianViewConsent'),
+    close: t('close')
   };
 });
 function onIntakeLegalSaved(payload) {
@@ -5576,7 +5636,9 @@ function otherGuardianFieldBag() {
     other_guardian_email: otherGuardian.email,
     other_guardian_phone: otherGuardian.phone,
     other_guardian_relationship: otherGuardian.relationship,
-    other_guardian_send_intake_link: otherGuardian.sendInvite ? 'yes' : 'no'
+    other_guardian_send_intake_link: otherGuardian.sendInvite ? 'yes' : 'no',
+    other_guardian_send_later: otherGuardian.sendLater ? 'yes' : 'no',
+    other_guardian_court_docs: (otherGuardian.courtFiles || []).length ? 'yes' : 'no'
   };
 }
 function otherGuardianContactOk() {
@@ -5586,13 +5648,30 @@ function otherGuardianContactOk() {
   if (rights !== 'yes' && rights !== 'shared') return true;
   const emailOk = String(otherGuardian.email || '').includes('@');
   const phoneOk = String(otherGuardian.phone || '').replace(/\D/g, '').length >= 7;
-  return emailOk || phoneOk;
+  const filesOk = Array.isArray(otherGuardian.courtFiles) && otherGuardian.courtFiles.length > 0;
+  return emailOk || phoneOk || filesOk || !!otherGuardian.sendLater;
 }
 function otherGuardianBlockReason() {
   if (otherGuardianContactOk()) return '';
   const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
   if (!rights) return t('otherGuardianRightsRequired');
-  return t('otherGuardianContactRequired');
+  return t('otherGuardianMissingContactNote');
+}
+async function uploadOtherGuardianCourtFiles() {
+  const files = Array.isArray(otherGuardian.courtFiles) ? otherGuardian.courtFiles : [];
+  if (!files.length || !submissionId.value) return;
+  const formData = new FormData();
+  formData.append('stepId', 'custody_documents');
+  formData.append('label', 'Court documents');
+  files.forEach((f) => formData.append('files', f));
+  try {
+    await api.post(`/public-intake/${publicKey}/${submissionId.value}/upload`, formData, {
+      skipGlobalLoading: true
+    });
+    otherGuardian.courtFiles = [];
+  } catch {
+    /* optional — packet can continue */
+  }
 }
 const isCoGuardianInvitee = computed(() => Boolean(String(route.query.coGuardian || '').trim()));
 const officeCopyEmail = ref('');
@@ -5751,7 +5830,7 @@ function chooseWhoFor(isSelf) {
   if (!isSelf && !clients.value.length) clients.value = [emptyOfficeClient()];
 }
 
-function continueWhoFor() {
+async function continueWhoFor() {
   if (typeof intakeForSelf.value !== 'boolean') {
     if (canBypassIntakeRequired.value) {
       intakeForSelf.value = true;
@@ -5817,6 +5896,20 @@ function continueWhoFor() {
     || !otherGuardianContactOk()
   ) {
     whoForError.value = otherGuardianBlockReason() || t('requiredFields');
+    await nextTick();
+    const scrollId = !otherGuardianContactOk()
+      ? 'other-guardian-fields'
+      : (consentErrors.guardianFirstName
+        ? 'guardianFirstName'
+        : consentErrors.guardianLastName
+          ? 'guardianLastName'
+          : consentErrors.guardianEmail
+            ? 'guardianEmail'
+            : consentErrors.guardianPhone
+              ? 'guardianPhone'
+              : null);
+    const el = scrollId ? document.getElementById(scrollId) : null;
+    el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
     return;
   }
   if (intakeForSelf.value === false && clients.value.length > 1 && !multiClientConsentAccepted.value) {
@@ -6984,26 +7077,17 @@ const maybeAutofillGuardianLocation = async (field) => {
   if (zipLookupCache.guardian === zip) return;
   zipLookupCache.guardian = zip;
 
-  try {
-    const resp = await fetch(`https://api.zippopotam.us/us/${zip}`);
-    if (!resp.ok) return;
-    const data = await resp.json();
-    const place = Array.isArray(data?.places) ? data.places[0] : null;
-    if (!place) return;
-    const city = place['place name'] || '';
-    const state = place['state abbreviation'] || place['state'] || '';
-    const setIfEmpty = (key, value) => {
-      if (!key || !value) return;
-      const current = intakeResponses.guardian?.[key];
-      if (!String(current || '').trim()) {
-        intakeResponses.guardian[key] = value;
-      }
-    };
-    (guardianLocationKeys.value.city || []).forEach((key) => setIfEmpty(key, city));
-    (guardianLocationKeys.value.state || []).forEach((key) => setIfEmpty(key, state));
-  } catch {
-    // ignore lookup errors
-  }
+  const found = await lookupUsZipCityState(zip);
+  if (!found) return;
+  const setIfEmpty = (key, value) => {
+    if (!key || !value) return;
+    const current = intakeResponses.guardian?.[key];
+    if (!String(current || '').trim()) {
+      intakeResponses.guardian[key] = value;
+    }
+  };
+  (guardianLocationKeys.value.city || []).forEach((key) => setIfEmpty(key, found.city));
+  (guardianLocationKeys.value.state || []).forEach((key) => setIfEmpty(key, found.state));
 };
 
 const maybeAutofillLocation = async (idx, field) => {
@@ -7015,26 +7099,17 @@ const maybeAutofillLocation = async (idx, field) => {
   if (zipLookupCache[`${idx}`] === zip) return;
   zipLookupCache[`${idx}`] = zip;
 
-  try {
-    const resp = await fetch(`https://api.zippopotam.us/us/${zip}`);
-    if (!resp.ok) return;
-    const data = await resp.json();
-    const place = Array.isArray(data?.places) ? data.places[0] : null;
-    if (!place) return;
-    const city = place['place name'] || '';
-    const state = place['state abbreviation'] || place['state'] || '';
-    const setIfEmpty = (key, value) => {
-      if (!key || !value) return;
-      const current = intakeResponses.clients?.[idx]?.[key];
-      if (!String(current || '').trim()) {
-        intakeResponses.clients[idx][key] = value;
-      }
-    };
-    (clientLocationKeys.value.city || []).forEach((key) => setIfEmpty(key, city));
-    (clientLocationKeys.value.state || []).forEach((key) => setIfEmpty(key, state));
-  } catch {
-    // ignore lookup errors
-  }
+  const found = await lookupUsZipCityState(zip);
+  if (!found) return;
+  const setIfEmpty = (key, value) => {
+    if (!key || !value) return;
+    const current = intakeResponses.clients?.[idx]?.[key];
+    if (!String(current || '').trim()) {
+      intakeResponses.clients[idx][key] = value;
+    }
+  };
+  (clientLocationKeys.value.city || []).forEach((key) => setIfEmpty(key, found.city));
+  (clientLocationKeys.value.state || []).forEach((key) => setIfEmpty(key, found.state));
 };
 
 const maybeAutofillQuestionLocation = async (field) => {
@@ -7046,26 +7121,17 @@ const maybeAutofillQuestionLocation = async (field) => {
   const cacheKey = `q_${field.key}`;
   if (zipLookupCache[cacheKey] === zip) return;
   zipLookupCache[cacheKey] = zip;
-  try {
-    const resp = await fetch(`https://api.zippopotam.us/us/${zip}`);
-    if (!resp.ok) return;
-    const data = await resp.json();
-    const place = Array.isArray(data?.places) ? data.places[0] : null;
-    if (!place) return;
-    const city = place['place name'] || '';
-    const state = place['state abbreviation'] || place['state'] || '';
-    (visibleQuestionFields.value || []).forEach((f) => {
-      if (!f?.key || f.key === field.key) return;
-      const k = normalizeKey(f.key);
-      const cur = String(bag?.[f.key] || '').trim();
-      if (!cur) {
-        if (/city|town/.test(k)) bag[f.key] = city;
-        else if (/state|province/.test(k)) bag[f.key] = state;
-      }
-    });
-  } catch {
-    // ignore lookup errors
-  }
+  const found = await lookupUsZipCityState(zip);
+  if (!found) return;
+  (visibleQuestionFields.value || []).forEach((f) => {
+    if (!f?.key || f.key === field.key) return;
+    const k = normalizeKey(f.key);
+    const cur = String(bag?.[f.key] || '').trim();
+    if (!cur) {
+      if (/city|town/.test(k)) bag[f.key] = found.city;
+      else if (/state|province/.test(k)) bag[f.key] = found.state;
+    }
+  });
 };
 
 const isIntakeFieldVisible = (field, values = {}) => {
@@ -7729,7 +7795,7 @@ const resetRecaptchaWidget = async () => {
 };
 
 const updateRecaptchaMode = async () => {
-  if (!recaptchaSiteKey.value || step.value !== -1) return;
+  if (!recaptchaSiteKey.value || (step.value !== -1 && step.value !== WHO_FOR_STEP)) return;
   if (recaptchaInitPromise) {
     await recaptchaInitPromise;
     return;
@@ -7754,7 +7820,7 @@ const updateRecaptchaMode = async () => {
 
 const maybeInitRecaptchaForCover = async () => {
   if (loading.value) return;
-  if (step.value !== -1) return;
+  if (step.value !== -1 && step.value !== WHO_FOR_STEP) return;
   if (!showCaptchaGate.value) return;
   if (!activeRecaptchaSiteKey.value) return;
   await nextTick();
@@ -7772,7 +7838,7 @@ watch(step, async (val, prev) => {
     recaptchaWidgetId.value = null;
     clearCaptchaState();
   }
-  if (val === -1 && recaptchaSiteKey.value) {
+  if ((val === -1 || val === WHO_FOR_STEP) && recaptchaSiteKey.value) {
     await nextTick();
     await updateRecaptchaMode();
   }
@@ -7782,7 +7848,7 @@ watch(
   () => [loading.value, step.value, showCaptchaGate.value, activeRecaptchaSiteKey.value, activeRecaptchaMode.value],
   async ([isLoading, stepVal, showGate, siteKey]) => {
     if (isLoading) return;
-    if (stepVal !== -1) return;
+    if (stepVal !== -1 && stepVal !== WHO_FOR_STEP) return;
     if (!showGate || !siteKey) return;
     await maybeInitRecaptchaForCover();
   },
@@ -8133,6 +8199,18 @@ const submitConsent = async () => {
     || consentErrors.organizationId
     || !otherGuardianContactOk()
   ) {
+    const ogOnly = !otherGuardianContactOk()
+      && !consentErrors.guardianFirstName
+      && !consentErrors.guardianEmail
+      && !consentErrors.guardianLastName
+      && !consentErrors.guardianPhone
+      && !consentErrors.clientFirstName
+      && !consentErrors.clientLastName
+      && !consentErrors.organizationId;
+    if (ogOnly) {
+      error.value = '';
+      stepError.value = otherGuardianBlockReason();
+    } else {
     error.value = otherGuardianBlockReason()
       || (consentErrors.organizationId
         ? t('organizationRequired')
@@ -8146,6 +8224,7 @@ const submitConsent = async () => {
                 : t('guardianRequired')
         ));
     stepError.value = '';
+    }
     await nextTick();
     const firstMissingId = consentErrors.guardianFirstName
       ? 'guardianFirstName'
@@ -8161,7 +8240,7 @@ const submitConsent = async () => {
               ? (intakeForSelf.value ? 'guardianLastName' : 'clientLastName_0')
               : consentErrors.organizationId
                 ? 'organizationId'
-                : null;
+                : (!otherGuardianContactOk() ? 'other-guardian-fields' : null);
     if (firstMissingId) {
       const el = document.getElementById(firstMissingId);
       if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -8264,6 +8343,7 @@ const submitConsent = async () => {
     }
     const resp = await api.post(`/public-intake/${publicKey}/consent`, payload);
     submissionId.value = resp.data?.submission?.id || null;
+    await uploadOtherGuardianCourtFiles();
     if (resp.data?.clientMatch && typeof resp.data.clientMatch === 'object') {
       Object.assign(intakeResponses.submission, resp.data.clientMatch);
     }
@@ -13798,7 +13878,6 @@ onBeforeUnmount(() => {
 }
 .intake-same-as-actions .intake-same-as-me {
   margin-left: 0;
-}
 }
 
 .intake-start-add-child,

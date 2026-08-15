@@ -84,6 +84,16 @@ export const publicIntakeLimiter = rateLimit({
   },
 });
 
+/** Public US ZIP city/state autofill — unknown ZIPs still return 200. */
+export const publicUsZipLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isDevelopment ? 120 : 40,
+  message: { error: { message: 'Too many ZIP lookups, please try again later' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `public-us-zip:${getClientIpAddress(req) || req.ip || 'unknown'}`,
+});
+
 /** Public “nearest event” geocoding (Google) — keep strict in production. */
 export const publicGeocodeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

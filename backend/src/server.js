@@ -93,6 +93,7 @@ import publicAdminUpdateRoutes from './routes/publicAdminUpdate.routes.js';
 import adminUpdateMeRoutes from './routes/adminUpdate.routes.js';
 import clientExchangeRoutes from './routes/clientExchange.routes.js';
 import publicOfficeIntakeRoutes from './routes/publicOfficeIntake.routes.js';
+import publicUsZipRoutes from './routes/publicUsZip.routes.js';
 import publicAdaptiveIntakeRoutes from './routes/publicAdaptiveIntake.routes.js';
 import {
   managerRouter as agencyMarketingSplashManagerRoutes,
@@ -701,6 +702,7 @@ app.use('/api/public/marketing-pages', publicMarketingPagesRoutes);
 app.use('/api/public/translations', publicTranslationsRoutes);
 app.use('/api/public/hiring/reference', publicHiringReferenceRoutes);
 app.use('/api/public/office-intake', publicOfficeIntakeRoutes);
+app.use('/api/public/us-zip', publicUsZipRoutes);
 app.use('/api/public/adaptive-intake', publicAdaptiveIntakeRoutes);
 app.use('/api/discovery-sessions', discoverySessionsRoutes);
 app.use('/api/practitioner-packages', practitionerPackagesRoutes);
