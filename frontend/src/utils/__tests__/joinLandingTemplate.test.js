@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  defaultJoinLayout,
   mergeIntakeStartLayout,
   mergeJoinLayout,
   mergePublicSupportLayout,
@@ -38,6 +39,14 @@ describe('sanitizeJoinPositions', () => {
 });
 
 describe('mergeJoinLayout', () => {
+  it('uses the saved ITSCO join layout when nothing is stored yet', () => {
+    const layout = mergeJoinLayout(null);
+    expect(layout).toEqual(defaultJoinLayout());
+    expect(layout.positions.cards).toEqual({ x: 156, y: 18 });
+    expect(layout.positions.help).toEqual({ x: 18, y: -342 });
+    expect(layout.sizes.logoWidth).toBe(218);
+    expect(layout.sizes.lead).toBe(0.91);
+  });
   it('does not treat hide as a deleted string', () => {
     const layout = mergeJoinLayout({ hidden: { welcome: true } });
     expect(layout.hidden.welcome).toBe(true);
@@ -108,7 +117,7 @@ describe('mergePublicSupportLayout', () => {
     });
     expect(out.positions.login).toEqual({ x: 12, y: 40 });
     expect(out.positions.billing).toEqual({ x: -8, y: 18 });
-    expect(out.positions.join).toEqual({ x: 0, y: 0 });
+    expect(out.positions.join).toEqual({ x: 22, y: -153 });
     expect(out.sizes.cardWidth).toBe(1100);
   });
 });

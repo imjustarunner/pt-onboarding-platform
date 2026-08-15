@@ -182,6 +182,12 @@
         <span v-if="saveError" class="ajl-edit-error">{{ saveError }}</span>
         <span v-if="saveOk" class="ajl-edit-ok">{{ saveOk }}</span>
       </div>
+      <PublicLinkImageEditor
+        v-if="editing && agencySlug"
+        class="ajl-link-image"
+        :agency-slug="agencySlug"
+        page="join"
+      />
 
       <div
         v-if="editing || (copy.welcomeTitle && !isHidden('welcome'))"
@@ -371,6 +377,7 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, toRaw } from 'vue';
 import api from '../../services/api';
+import PublicLinkImageEditor from '../public/PublicLinkImageEditor.vue';
 import {
   JOIN_FONT_HREF,
   JOIN_FONT_OPTIONS,
@@ -1390,6 +1397,12 @@ async function saveEdit() {
   color: #fff;
 }
 
+.ajl-link-image {
+  position: relative;
+  z-index: 30;
+  margin: 0 0 1rem;
+  max-width: 42rem;
+}
 .ajl-editbar {
   position: sticky;
   top: 0;
@@ -1494,11 +1507,14 @@ async function saveEdit() {
 @media (max-width: 860px) {
   .ajl {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr auto;
+  }
+  .ajl:not(.ajl--editing) {
+    overflow: auto;
+    grid-template-rows: auto auto auto;
   }
   .ajl-rail {
     grid-column: 1;
-    grid-row: 1;
+    grid-row: 2;
     max-width: none;
     flex-direction: row;
     flex-wrap: wrap;
@@ -1518,7 +1534,7 @@ async function saveEdit() {
   }
   .ajl-main {
     grid-column: 1;
-    grid-row: 2;
+    grid-row: 1;
   }
   .ajl:not(.ajl--editing) .ajl-cards {
     grid-template-columns: 1fr;

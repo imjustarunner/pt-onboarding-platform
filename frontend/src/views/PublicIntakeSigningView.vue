@@ -963,6 +963,18 @@
                 <label>
                   {{ txField(field) }}
                   <span v-if="field.required" class="required-indicator">*</span>
+                  <button
+                    v-if="canCopySameAsMe(field)"
+                    type="button"
+                    class="intake-same-as-me"
+                    @click="applySameAsMeToClient(idx)"
+                  >{{ t('sameAsMe') }}</button>
+                  <button
+                    v-if="canCopySameAsSibling(field, idx)"
+                    type="button"
+                    class="intake-same-as-me"
+                    @click="applySameAsSiblingToClient(idx)"
+                  >{{ sameAsSiblingLabel(idx) }}</button>
                 </label>
                 <div v-if="field.helperText" class="helper-text">{{ txField(field, 'helperText') }}</div>
                 <div v-if="field.description" class="helper-text muted">{{ tx(field.description) }}</div>
@@ -1593,7 +1605,15 @@
             </div>
             <template v-if="currentFlowStep.showAddress">
               <div class="form-group" style="grid-column: 1 / -1;">
-                <label>{{ tx('Street Address') }}</label>
+                <label>
+                  {{ tx('Street Address') }}
+                  <button
+                    v-if="canCopySameAsMe({ key: 'address_street' })"
+                    type="button"
+                    class="intake-same-as-me"
+                    @click="applySameAsMeToDemographics"
+                  >{{ t('sameAsMe') }}</button>
+                </label>
                 <input type="text" v-model="demographicsData.addressStreet" placeholder="123 Main St" />
               </div>
               <div class="form-group">
@@ -1633,6 +1653,20 @@
                 :class="[intakeFieldGridSpan(row.field), { 'required-missing-glow': isQuestionFieldMissing(row.field), 'question-soft-skip': isQuestionFieldSoftSkip(row.field) }]"
                 :data-question-key="row.field.key"
               >
+                <div v-if="canCopySameAsMe(row.field) || canCopySameAsSibling(row.field, currentFlowStep?.clientIndex)" class="intake-same-as-actions">
+                  <button
+                    v-if="canCopySameAsMe(row.field)"
+                    type="button"
+                    class="intake-same-as-me"
+                    @click="applySameAsMeToQuestions"
+                  >{{ t('sameAsMe') }}</button>
+                  <button
+                    v-if="canCopySameAsSibling(row.field, currentFlowStep?.clientIndex)"
+                    type="button"
+                    class="intake-same-as-me"
+                    @click="applySameAsSiblingToQuestions"
+                  >{{ sameAsSiblingLabel(currentFlowStep?.clientIndex) }}</button>
+                </div>
                 <IntakeQuestionField
                   :field="row.field"
                   :model-value="questionValues[row.field.key]"
@@ -2457,6 +2491,14 @@ import {
   IntakeQuestionField
 } from '../components/digital-form';
 import { toUploadsUrl } from '../utils/uploadsUrl';
+import {
+  copyAddressInto,
+  copyShareableFields,
+  guardianHasAddress,
+  isHouseholdShareableField,
+  isPrimaryAddressField,
+  isAddressField
+} from '../utils/intakeSameAsMe.js';
 import { getHeroPresetByUrl } from '../utils/careersAssets.js';
 import { isMedicaidInsurer } from '../utils/coloradoInsurances';
 import {
@@ -2678,6 +2720,8 @@ const INTAKE_TRANSLATIONS = {
     otherGuardianLegalShared: 'Yes — we share decision-making',
     otherGuardianLegalNo: 'No other guardian with those rights',
     otherGuardianNoEmailWarning: 'An email is required to send them a private intake link. If you only have a phone number, intake and start of care may be delayed while our support team or the assigned provider contacts them for the needed permissions.',
+    otherGuardianRightsRequired: 'Please answer whether another parent or guardian with legal rights should complete their own intake.',
+    otherGuardianContactRequired: 'Please enter their email or a phone number so we can follow up.',
     ageOfConsentNote: 'We follow applicable Colorado law and professional ethics. In Colorado, a minor 12 or older may be able to consent to psychotherapy in some situations. This is information, not legal advice.',
     otherGuardianFirstName: 'Their first name',
     otherGuardianLastName: 'Their last name',
@@ -2719,6 +2763,7 @@ const INTAKE_TRANSLATIONS = {
     childFirstName: "Child's first name",
     childLastName: "Child's last name",
     sameAsMe: 'Same as me',
+    sameAsChild: 'Same as {name}',
     officeChildN: 'Child',
     contactSupportLink: 'Contact support.',
     whatYoullNeed: "What you'll need",
@@ -3006,6 +3051,8 @@ const INTAKE_TRANSLATIONS = {
     otherGuardianLegalShared: 'Sí — compartimos las decisiones',
     otherGuardianLegalNo: 'No hay otro tutor con esos derechos',
     otherGuardianNoEmailWarning: 'Se necesita un correo para enviarles un enlace privado de admisión. Si solo tiene un teléfono, la admisión y el inicio de servicios pueden retrasarse mientras nuestro equipo de apoyo o el proveedor asignado se comunica para obtener los permisos necesarios.',
+    otherGuardianRightsRequired: 'Indique si otro padre, madre o tutor con derechos legales debe completar su propia admisión.',
+    otherGuardianContactRequired: 'Ingrese su correo o un teléfono para poder dar seguimiento.',
     ageOfConsentNote: 'Seguimos la ley de Colorado aplicable y la ética profesional. En Colorado, un menor de 12 años o más puede, en algunas situaciones, consentir psicoterapia. Esto es información, no asesoría legal.',
     otherGuardianFirstName: 'Su nombre',
     otherGuardianLastName: 'Su apellido',
@@ -3047,6 +3094,7 @@ const INTAKE_TRANSLATIONS = {
     childFirstName: 'Nombre del niño',
     childLastName: 'Apellido del niño',
     sameAsMe: 'Igual que yo',
+    sameAsChild: 'Igual que {name}',
     officeChildN: 'Niño/a',
     contactSupportLink: 'Contactar a soporte.',
     whatYoullNeed: 'Qué va a necesitar',
@@ -5533,12 +5581,18 @@ function otherGuardianFieldBag() {
 }
 function otherGuardianContactOk() {
   if (intakeForSelf.value !== false || isCoGuardianInvitee.value) return true;
-  const rights = otherGuardian.hasLegalRights;
+  const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
   if (!rights) return false;
   if (rights !== 'yes' && rights !== 'shared') return true;
   const emailOk = String(otherGuardian.email || '').includes('@');
   const phoneOk = String(otherGuardian.phone || '').replace(/\D/g, '').length >= 7;
   return emailOk || phoneOk;
+}
+function otherGuardianBlockReason() {
+  if (otherGuardianContactOk()) return '';
+  const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
+  if (!rights) return t('otherGuardianRightsRequired');
+  return t('otherGuardianContactRequired');
 }
 const isCoGuardianInvitee = computed(() => Boolean(String(route.query.coGuardian || '').trim()));
 const officeCopyEmail = ref('');
@@ -5627,6 +5681,70 @@ function applySameLastName(idx) {
   clients.value[idx].lastName = last;
 }
 
+function sameAsSiblingLabel(idx) {
+  const i = Number(idx);
+  if (!Number.isInteger(i) || i < 1) return t('sameAsMe');
+  return t('sameAsChild').replace('{name}', childDisplayName(i - 1));
+}
+
+function canCopySameAsMe(field) {
+  if (intakeForSelf.value) return false;
+  return isPrimaryAddressField(field) && guardianHasAddress(intakeResponses.guardian);
+}
+
+function canCopySameAsSibling(field, idx) {
+  const i = Number(idx);
+  if (!Number.isInteger(i) || i < 1) return false;
+  if (!isHouseholdShareableField(field)) return false;
+  if (isAddressField(field) && !isPrimaryAddressField(field)) return false;
+  const sibling = intakeResponses.clients?.[i - 1];
+  return sibling && typeof sibling === 'object' && Object.values(sibling).some((v) => {
+    if (Array.isArray(v)) return v.length > 0;
+    return String(v ?? '').trim() !== '';
+  });
+}
+
+function ensureClientBag(idx) {
+  if (!intakeResponses.clients[idx] || typeof intakeResponses.clients[idx] !== 'object') {
+    intakeResponses.clients[idx] = {};
+  }
+  return intakeResponses.clients[idx];
+}
+
+function applySameAsMeToClient(idx) {
+  copyAddressInto(ensureClientBag(idx), intakeResponses.guardian, visibleClientFields(idx));
+}
+
+function applySameAsSiblingToClient(idx) {
+  copyShareableFields(ensureClientBag(idx), intakeResponses.clients[idx - 1] || {}, visibleClientFields(idx));
+}
+
+function applySameAsMeToQuestions() {
+  copyAddressInto(questionValues.value, intakeResponses.guardian, visibleQuestionFields.value);
+}
+
+function applySameAsSiblingToQuestions() {
+  const idx = currentFlowStep.value?.clientIndex;
+  if (!Number.isInteger(idx) || idx < 1) return;
+  copyShareableFields(questionValues.value, intakeResponses.clients[idx - 1] || {}, visibleQuestionFields.value);
+}
+
+function applySameAsMeToDemographics() {
+  const mapped = {};
+  copyAddressInto(mapped, intakeResponses.guardian, [
+    { key: 'address_street' },
+    { key: 'address_apt' },
+    { key: 'address_city' },
+    { key: 'address_state' },
+    { key: 'address_zip' }
+  ]);
+  if (mapped.address_street) demographicsData.addressStreet = mapped.address_street;
+  if (mapped.address_apt) demographicsData.addressApt = mapped.address_apt;
+  if (mapped.address_city) demographicsData.addressCity = mapped.address_city;
+  if (mapped.address_state) demographicsData.addressState = mapped.address_state;
+  if (mapped.address_zip) demographicsData.addressZip = mapped.address_zip;
+}
+
 function chooseWhoFor(isSelf) {
   intakeForSelf.value = !!isSelf;
   whoForError.value = '';
@@ -5698,7 +5816,7 @@ function continueWhoFor() {
     || childFieldMissing
     || !otherGuardianContactOk()
   ) {
-    whoForError.value = !otherGuardianContactOk() ? t('otherGuardianNoEmailWarning') : t('requiredFields');
+    whoForError.value = otherGuardianBlockReason() || t('requiredFields');
     return;
   }
   if (intakeForSelf.value === false && clients.value.length > 1 && !multiClientConsentAccepted.value) {
@@ -8015,19 +8133,18 @@ const submitConsent = async () => {
     || consentErrors.organizationId
     || !otherGuardianContactOk()
   ) {
-    error.value = !otherGuardianContactOk()
-      ? t('otherGuardianNoEmailWarning')
-      : consentErrors.organizationId
-      ? t('organizationRequired')
-      : (
-        formTypeKey.value === 'job_application'
-          ? t('applicantRequired')
-          : formTypeKey.value === 'medical_records_request'
-            ? t('requesterRequired')
-            : formTypeKey.value === 'smart_registration'
-              ? t('registrantRequired')
-              : t('guardianRequired')
-      );
+    error.value = otherGuardianBlockReason()
+      || (consentErrors.organizationId
+        ? t('organizationRequired')
+        : (
+          formTypeKey.value === 'job_application'
+            ? t('applicantRequired')
+            : formTypeKey.value === 'medical_records_request'
+              ? t('requesterRequired')
+              : formTypeKey.value === 'smart_registration'
+                ? t('registrantRequired')
+                : t('guardianRequired')
+        ));
     stepError.value = '';
     await nextTick();
     const firstMissingId = consentErrors.guardianFirstName
@@ -13671,6 +13788,17 @@ onBeforeUnmount(() => {
   color: var(--df-primary, #1b3d2f);
   font-size: 0.8rem;
   text-decoration: underline;
+}
+
+.intake-same-as-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  margin-bottom: 0.25rem;
+}
+.intake-same-as-actions .intake-same-as-me {
+  margin-left: 0;
+}
 }
 
 .intake-start-add-child,

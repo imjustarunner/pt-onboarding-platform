@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import {
   clampOffsetValue,
   defaultPublicSupportLayout,
@@ -41,6 +41,12 @@ const BLOCK_SELECTOR = '.pas-block, .pas-card';
 
 export function usePublicSupportLayoutEditor() {
   const editing = ref(false);
+  const viewportWidth = ref(typeof window === 'undefined' ? 1200 : window.innerWidth);
+  const skipDesktopLayout = computed(() => !editing.value && viewportWidth.value <= 860);
+
+  function syncViewportWidth() {
+    viewportWidth.value = window.innerWidth;
+  }
   const selected = ref('');
   const selectedKeys = ref([]);
   const saved = reactive(mergePublicSupportLayout(null));
@@ -102,6 +108,7 @@ export function usePublicSupportLayoutEditor() {
   }
 
   function blockStyle(key) {
+    if (skipDesktopLayout.value) return {};
     const pos = active.value.positions?.[key] || { x: 0, y: 0 };
     const sizes = active.value.sizes || {};
     const style = {
@@ -243,7 +250,13 @@ export function usePublicSupportLayoutEditor() {
     window.removeEventListener('mouseup', stopResize);
   }
 
+  onMounted(() => {
+    syncViewportWidth();
+    window.addEventListener('resize', syncViewportWidth);
+  });
+
   onBeforeUnmount(() => {
+    window.removeEventListener('resize', syncViewportWidth);
     stopDrag();
     stopResize();
   });

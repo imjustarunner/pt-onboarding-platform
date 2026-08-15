@@ -87,14 +87,14 @@ export function defaultJoinLayout() {
     sizes: {
       welcome: 4.2,
       glad: 1.25,
-      lead: 1,
+      lead: 0.91,
       cardTitle: 1.45,
       cards: 1,
       cardsWidth: 860,
       cardsMinHeight: 0,
-      brandWidth: 0,
+      brandWidth: 298,
       helpWidth: 0,
-      logoWidth: 150,
+      logoWidth: 218,
       tagline: 0.68,
       script: 2,
       values: 0.84
@@ -118,15 +118,15 @@ export function defaultJoinLayout() {
     },
     positions: {
       welcome: { x: 0, y: 0 },
-      glad: { x: 0, y: 0 },
-      lead: { x: 0, y: 0 },
-      cards: { x: 0, y: 0 },
-      brand: { x: 0, y: 0 },
-      logo: { x: 0, y: 0 },
-      tagline: { x: 0, y: 0 },
-      script: { x: 0, y: 0 },
-      values: { x: 0, y: 0 },
-      help: { x: 0, y: 0 }
+      glad: { x: 28, y: -19 },
+      lead: { x: 74, y: -31 },
+      cards: { x: 156, y: 18 },
+      brand: { x: 16, y: 71 },
+      logo: { x: 18, y: 22 },
+      tagline: { x: 57, y: 3 },
+      script: { x: 20, y: 15 },
+      values: { x: 27, y: 32 },
+      help: { x: 18, y: -342 }
     }
   };
 }
@@ -160,13 +160,22 @@ export const PUBLIC_SUPPORT_LAYOUT_KEYS = [
 ];
 
 export function defaultPublicSupportLayout() {
-  const positions = {};
-  for (const key of PUBLIC_SUPPORT_LAYOUT_KEYS) positions[key] = { x: 0, y: 0 };
   return {
-    positions,
+    positions: {
+      logo: { x: 70, y: -190 },
+      kicker: { x: 26, y: -182 },
+      title: { x: 23, y: -196 },
+      lead: { x: 26, y: -200 },
+      login: { x: 21, y: -168 },
+      join: { x: 22, y: -153 },
+      careers: { x: 22, y: -136 },
+      booking: { x: 0, y: 0 },
+      billing: { x: 21, y: -115 },
+      card: { x: 186, y: -24 }
+    },
     sizes: {
-      logoWidth: 72,
-      kickerWidth: 240,
+      logoWidth: 180,
+      kickerWidth: 280,
       titleWidth: 280,
       leadWidth: 280,
       loginWidth: 280,

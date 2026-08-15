@@ -92,7 +92,6 @@
         </label>
         <span v-if="sidebarSaveError" class="ai-join-sidebar-error">{{ sidebarSaveError }}</span>
         <span v-if="sidebarSaveOk" class="ai-join-sidebar-ok">{{ sidebarSaveOk }}</span>
-        <PublicLinkImageEditor v-if="agencySlug" :agency-slug="agencySlug" page="join" />
       </div>
       <!-- Step: who for + basics -->
       <div v-if="quickStep === 0" class="ai-join-form">
@@ -154,7 +153,15 @@
           <div class="field-row field-row--compact">
             <DigitalFormField v-model="form.client.firstName" label="First name" required size="compact" />
             <DigitalFormField v-model="form.client.middleName" label="Middle name" size="compact" />
-            <DigitalFormField v-model="form.client.lastName" label="Last name" required size="compact" />
+            <div>
+              <button
+                v-if="form.respondent.lastName"
+                type="button"
+                class="ai-same-as-me"
+                @click="form.client.lastName = form.respondent.lastName"
+              >Same as me</button>
+              <DigitalFormField v-model="form.client.lastName" label="Last name" required size="compact" />
+            </div>
           </div>
           <h2 v-if="!isCoGuardianInvitee" class="ai-dependent-heading">Custody &amp; other guardian</h2>
           <p v-if="!isCoGuardianInvitee" class="ai-page-lead">If another parent has legal rights, they get their own private link. They will not see what you submit. We will not confirm whether they already have an account.</p>
@@ -349,7 +356,15 @@
             <div class="field-row field-row--compact">
               <DigitalFormField v-model="form.additionalDependent.firstName" label="First name" required size="compact" />
               <DigitalFormField v-model="form.additionalDependent.middleName" label="Middle name" size="compact" />
-              <DigitalFormField v-model="form.additionalDependent.lastName" label="Last name" required size="compact" />
+              <div>
+                <button
+                  v-if="form.client.lastName || form.respondent.lastName"
+                  type="button"
+                  class="ai-same-as-me"
+                  @click="form.additionalDependent.lastName = form.client.lastName || form.respondent.lastName"
+                >Same as first child</button>
+                <DigitalFormField v-model="form.additionalDependent.lastName" label="Last name" required size="compact" />
+              </div>
               <DigitalFormField v-model="form.additionalDependent.dateOfBirth" type="date" label="Date of birth" required size="xs" />
             </div>
             <DigitalFormField
@@ -410,7 +425,6 @@ import {
   writeJoinLandingCache
 } from '../../utils/joinLandingTemplate.js';
 import { lookupUsZipCityState } from '../../utils/usZipAutofill.js';
-import PublicLinkImageEditor from '../../components/public/PublicLinkImageEditor.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -1284,6 +1298,18 @@ onMounted(async () => {
 .ai-dependent-heading {
   margin: 1rem 0 0.4rem;
   font-size: 1.02rem;
+}
+.ai-same-as-me {
+  display: inline-block;
+  margin: 0 0 0.2rem;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--df-primary, #1b3d2f);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
 }
 .ai-add-dependent {
   margin-top: 1rem;

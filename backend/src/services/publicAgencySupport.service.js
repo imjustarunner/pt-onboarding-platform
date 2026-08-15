@@ -180,8 +180,14 @@ export function scanPublicSupportContent(message) {
   return { flags, block, medicalHits };
 }
 
-function buildPublicConfig(agency) {
-  const slug = String(agency.portal_url || agency.slug || '').trim();
+function tenantSlugForPublicPaths(agency, requestSlug = '') {
+  const requested = String(requestSlug || '').trim();
+  if (requested) return requested;
+  return String(agency.portal_url || agency.slug || '').trim();
+}
+
+function buildPublicConfig(agency, requestSlug = '') {
+  const slug = tenantSlugForPublicPaths(agency, requestSlug);
   const recaptchaConfigured = !!(config.recaptcha?.secretKey || config.recaptcha?.enterpriseApiKey || config.recaptcha?.siteKey);
   const page = parsePublicSupportTheme(agency.theme_settings);
   const colors = parseColorPalette(agency.color_palette);
@@ -240,7 +246,7 @@ export async function getPublicAgencySupportConfig(agencySlug) {
     err.status = 404;
     throw err;
   }
-  return buildPublicConfig(agency);
+  return buildPublicConfig(agency, agencySlug);
 }
 
 export async function updatePublicAgencySupportSettings(agencySlug, payload = {}, user = null) {
@@ -284,7 +290,7 @@ export async function updatePublicAgencySupportSettings(agencySlug, payload = {}
   });
 
   const updated = await Agency.findById(agency.id);
-  return buildPublicConfig(updated || agency);
+  return buildPublicConfig(updated || agency, agencySlug);
 }
 
 async function verifyRequiredCaptcha({ token, req }) {
@@ -485,7 +491,7 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
     /* never block create */
   }
 
-  const slug = String(agency.portal_url || agency.slug || '').trim();
+  const slug = tenantSlugForPublicPaths(agency, agencySlug);
   return {
     ok: true,
     ticketId: insertId || null,

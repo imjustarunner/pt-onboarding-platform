@@ -244,6 +244,12 @@
           </button>
         </template>
       </div>
+      <PublicLinkImageEditor
+        v-if="layout.editing.value && agencySlug"
+        class="pas-link-image"
+        :agency-slug="agencySlug"
+        page="support"
+      />
       <p v-if="editError" class="pas-error pas-edit-msg">{{ editError }}</p>
       <p v-if="editSaved" class="pas-ok pas-edit-msg">Saved. This is the same support phone and email used for the tenant.</p>
 
@@ -273,7 +279,6 @@
             <label class="pas-field-label">Extension<input v-model.trim="copyDraft.phoneExtension" type="text" maxlength="20" /></label>
             <label class="pas-field-label">Support email<input v-model.trim="copyDraft.email" type="email" /></label>
             <label class="pas-field-label">Hours or extra note<input v-model.trim="copyDraft.hoursNote" type="text" maxlength="240" /></label>
-            <PublicLinkImageEditor v-if="agencySlug" :agency-slug="agencySlug" page="support" />
           </template>
           <template v-else>
             <p v-if="supportContact.phoneDisplay" class="pas-contact-phone">
@@ -316,7 +321,7 @@ import { PUBLIC_SUPPORT_THEME_URL } from '../../utils/joinLandingTemplate.js';
 import { usePublicSupportLayoutEditor } from '../../composables/usePublicSupportLayoutEditor.js';
 import PublicAgencySupportForm from '../../components/public/PublicAgencySupportForm.vue';
 import PublicLinkImageEditor from '../../components/public/PublicLinkImageEditor.vue';
-import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath.js';
+import { resolveHostImpliedPortalSlug, buildOrgScopedPath } from '../../utils/orgScopedPath.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -359,7 +364,18 @@ const intro = computed(() => {
 });
 const hoursNote = computed(() => config.value?.hoursNote || '');
 const supportContact = computed(() => config.value?.supportContact || {});
-const shortcuts = computed(() => config.value?.shortcuts || {});
+const shortcuts = computed(() => {
+  const slug = agencySlug.value;
+  if (!slug) return config.value?.shortcuts || {};
+  const host = resolveHostImpliedPortalSlug(brandingStore);
+  const bookingOn = Boolean(config.value?.shortcuts?.bookingPath);
+  return {
+    joinPath: `/join/${encodeURIComponent(slug)}/counseling`,
+    loginPath: buildOrgScopedPath(slug, '/login', null, host),
+    careersPath: `/careers/${encodeURIComponent(slug)}`,
+    bookingPath: bookingOn ? buildOrgScopedPath(slug, '/book-session', null, host) : null
+  };
+});
 const accent = computed(() => config.value?.agency?.colors?.primary || '#1b3d2f');
 const themeUrl = PUBLIC_SUPPORT_THEME_URL;
 const pageStyle = computed(() => ({
@@ -634,6 +650,10 @@ onMounted(async () => {
 .pas-nav-copy strong { font-size: 0.84rem; line-height: 1.2; }
 .pas-nav-copy small { color: #4b6475; font-size: 0.72rem; line-height: 1.25; }
 .pas-nav-btn--on .pas-nav-copy small { color: rgba(255,255,255,0.82); }
+.pas-link-image {
+  margin: 0 0 0.75rem;
+  max-width: 42rem;
+}
 .pas-editor-bar {
   width: 100%;
   display: flex;
@@ -687,6 +707,41 @@ onMounted(async () => {
 .pas-ok { color: #166534; }
 .pas-edit-msg { width: 100%; margin: 0 0 0.5rem; }
 @media (max-width: 860px) {
+  .pas-shell:not(.pas-shell--editing) :deep(.df-shell) {
+    flex-direction: column;
+  }
+  .pas-shell:not(.pas-shell--editing) :deep(.df-main) {
+    order: -1;
+  }
+  .pas-shell:not(.pas-shell--editing) :deep(.df-sidebar) {
+    order: 1;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    min-height: auto;
+    padding: 1rem 1.1rem 1.35rem;
+  }
+  .pas-shell:not(.pas-shell--editing) .pas-banner {
+    min-height: 0;
+    gap: 0.55rem;
+  }
+  .pas-shell:not(.pas-shell--editing) .pas-banner-title,
+  .pas-shell:not(.pas-shell--editing) .pas-banner-lead {
+    display: none;
+  }
+  .pas-shell:not(.pas-shell--editing) .pas-nav-btn {
+    width: 100% !important;
+    max-width: none;
+  }
+  .pas-shell:not(.pas-shell--editing) .pas-card,
+  .pas-shell:not(.pas-shell--editing) .pas-block {
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .pas-shell:not(.pas-shell--editing) .pas-card {
+    padding: 1.05rem 1rem 1.2rem;
+  }
   .pas-shell :deep(.df-sidebar) {
     width: 100%;
     min-width: 0;
