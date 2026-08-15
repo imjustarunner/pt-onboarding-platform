@@ -3,6 +3,7 @@ import IntakeLink from '../models/IntakeLink.model.js';
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
 import pool from '../config/database.js';
 import {
+  buildIntakeSummaryDocumentHtml,
   buildOfficeIntakeSummarySpec,
   buildQuickIntakeSummarySpec,
   generateIntakeSummaryPdf,
@@ -104,6 +105,46 @@ export async function downloadPublicIntakeSummaryPdf(req, res, next) {
     if (err?.code === 'PDF_RENDERER_UNAVAILABLE' || err?.statusCode) {
       return pdfUnavailable(res, err);
     }
+    next(err);
+  }
+}
+
+/** GET /api/public-intake/:publicKey/:submissionId/summary — branded HTML, no PDF wait */
+export async function viewPublicIntakeSummaryHtml(req, res, next) {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const submissionId = Number(req.params.submissionId || 0);
+    const sessionToken = String(req.query?.sessionToken || '').trim();
+    if (!publicKey || !submissionId || !sessionToken) {
+      return res.status(400).json({ error: { message: 'sessionToken is required' } });
+    }
+
+    const link = await IntakeLink.findByPublicKey(publicKey);
+    if (!link) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+
+    const submission = await IntakeSubmission.findBySessionToken(sessionToken);
+    if (!submission || Number(submission.id) !== submissionId) {
+      return res.status(404).json({ error: { message: 'Submission not found' } });
+    }
+    if (Number(submission.intake_link_id) !== Number(link.id)) {
+      return res.status(404).json({ error: { message: 'Submission not found' } });
+    }
+
+    const agency = await Agency.findById(link.organization_id);
+    const spec = buildOfficeIntakeSummarySpec({
+      agencyName: agencyDisplayName(agency) || String(link.title || 'Intake').trim(),
+      submission,
+      guardian: {},
+      clients: []
+    });
+    spec.footerNote = 'This branded summary is temporary. The full signed PDF is emailed when it is ready, and download links expire.';
+    const html = buildIntakeSummaryDocumentHtml(spec);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.send(html);
+  } catch (err) {
     next(err);
   }
 }

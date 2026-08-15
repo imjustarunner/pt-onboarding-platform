@@ -33,7 +33,7 @@ import {
   getPublicRegistrationReceipt,
   getPublicLinkedTranslation
 } from '../controllers/publicIntake.controller.js';
-import { downloadPublicIntakeSummaryPdf, emailPublicIntakeSummaryPdf } from '../controllers/intakeSummaryPdf.controller.js';
+import { downloadPublicIntakeSummaryPdf, emailPublicIntakeSummaryPdf, viewPublicIntakeSummaryHtml } from '../controllers/intakeSummaryPdf.controller.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -123,6 +123,7 @@ router.post(
   finalizePublicIntake
 );
 
+router.get('/:publicKey/:submissionId/summary', viewPublicIntakeSummaryHtml);
 router.post(
   '/:publicKey/:submissionId/summary-pdf',
   [

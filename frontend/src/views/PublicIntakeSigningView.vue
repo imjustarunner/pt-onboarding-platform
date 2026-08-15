@@ -444,32 +444,32 @@
             </div>
             <template v-if="intakeForSelf === false">
               <div class="intake-start-dependents">
+                <div class="intake-start-dependents-head">
+                  <strong>{{ t('dependentN') }}</strong>
+                  <button
+                    type="button"
+                    class="intake-add-dependent"
+                    @click="onClickAddClient"
+                  >+ {{ t('addAnotherDependent') }}</button>
+                </div>
                 <div
                   v-for="(c, idx) in clients"
                   :key="`office-child-${idx}`"
                   class="intake-start-child"
                 >
-                  <div class="intake-start-child-head">
-                    <strong>{{ t('dependentN') }} {{ idx + 1 }}</strong>
-                    <button
-                      v-if="clients.length > 1"
-                      type="button"
-                      class="intake-start-child-remove"
-                      @click="removeClient(idx)"
-                    >{{ t('remove') }}</button>
-                  </div>
                   <div class="form-group form-group--name">
                     <label>{{ t('dependentFirstName') }} <span class="required-indicator">*</span></label>
                     <input
                       :id="`clientFirstName_${idx}`"
                       v-model="c.firstName"
                       type="text"
+                      placeholder="First"
                       :class="{ 'input-error': !!startClientErrors[idx]?.firstName }"
                     />
                   </div>
                   <div class="form-group form-group--middle">
                     <label>{{ t('middleNameOptional') }}</label>
-                    <input :id="`clientMiddleName_${idx}`" v-model="c.middleName" type="text" />
+                    <input :id="`clientMiddleName_${idx}`" v-model="c.middleName" type="text" placeholder="Middle" />
                   </div>
                   <div class="form-group form-group--name">
                     <label>
@@ -484,6 +484,7 @@
                       :id="`clientLastName_${idx}`"
                       v-model="c.lastName"
                       type="text"
+                      placeholder="Last"
                       :class="{ 'input-error': !!startClientErrors[idx]?.lastName }"
                     />
                   </div>
@@ -496,13 +497,12 @@
                       :class="{ 'input-error': !!startClientErrors[idx]?.dob }"
                     />
                   </div>
-                </div>
-                <div class="intake-start-add-child">
                   <button
+                    v-if="clients.length > 1"
                     type="button"
-                    class="df-btn df-btn-secondary"
-                    @click="onClickAddClient"
-                  >+ {{ t('addAnotherDependent') }}</button>
+                    class="intake-start-child-remove"
+                    @click="removeClient(idx)"
+                  >{{ t('remove') }}</button>
                 </div>
               </div>
               <div
@@ -2290,35 +2290,24 @@
           </div>
         </template>
 
-        <!--
-          Download section — always rendered once we're on the success step.
-          Parents reported feeling stuck staring at a blank screen while the
-          packet PDF rendered (it can take a minute on big registration
-          packets), so we now show the success banner immediately and just
-          flip the Download buttons into a loading state until the URL is
-          ready. A copy still gets emailed even if they don't wait.
-        -->
-        <!--
-          Multi-child submissions deliberately have no combined packet —
-          each child gets their own per-child bundle. Hide the
-          single-bundle download panel entirely in that case so the parent
-          isn't staring at a "Preparing PDF…" spinner that will never
-          resolve. Use the per-child list below as the single source of
-          truth instead, with a multi-child specific status header.
-        -->
         <div v-if="!isMultiChildPostSubmit" class="intake-download-panel">
           <div class="intake-download-meta">
-            <div v-if="downloadUrl" class="intake-download-ready-label">✓ Packet ready</div>
-            <div v-else class="intake-download-preparing-label">
-              <span class="preparing-spinner"></span>
-              Preparing your packet… this usually takes under a minute. A copy will also be emailed to you.
-            </div>
-            <p v-if="downloadUrl" class="muted" style="margin: 6px 0 0;">Download links expire in 7 days.</p>
+            <div v-if="downloadUrl" class="intake-download-ready-label">✓ Packet PDF ready</div>
+            <p class="muted" style="margin: 6px 0 0;">{{ t('packetViewTemporary') }}</p>
+            <p v-if="!downloadUrl && pdfWaitTimedOut" class="muted" style="margin: 6px 0 0;">{{ t('packetPdfStillPreparing') }}</p>
+            <p v-else-if="downloadUrl" class="muted" style="margin: 6px 0 0;">Download links expire in 7 days.</p>
           </div>
           <div class="actions intake-download-actions">
             <a
-              v-if="downloadUrl"
+              v-if="packetSummaryViewUrl"
               class="btn btn-primary"
+              :href="packetSummaryViewUrl"
+              target="_blank"
+              rel="noopener"
+            >{{ t('viewPacketNow') }}</a>
+            <a
+              v-if="downloadUrl"
+              class="btn btn-secondary"
               :href="downloadUrl"
               target="_blank"
               rel="noopener"
@@ -2326,29 +2315,9 @@
               {{
                 formTypeKey === 'smart_school_roi'
                   ? 'View Signed ROI'
-                  : (jobApplicationSubmitted ? 'View Application Copy' : 'View Packet PDF')
+                  : (jobApplicationSubmitted ? 'View Application Copy' : 'Download Packet PDF')
               }}
             </a>
-            <button v-else class="btn btn-primary" type="button" disabled>
-              <span class="preparing-spinner preparing-spinner--inline"></span>
-              Preparing PDF…
-            </button>
-            <a
-              v-if="downloadUrl"
-              class="btn btn-secondary"
-              :href="downloadUrl"
-              download
-            >
-              {{
-                formTypeKey === 'smart_school_roi'
-                  ? 'Download Signed ROI'
-                  : (jobApplicationSubmitted ? 'Download Application Copy' : 'Download Packet PDF')
-              }}
-            </a>
-            <button v-else class="btn btn-secondary" type="button" disabled>
-              <span class="preparing-spinner preparing-spinner--inline"></span>
-              Download (preparing)
-            </button>
           </div>
         </div>
         <!--
@@ -2359,12 +2328,15 @@
           that will never resolve into a combined download.
         -->
         <div v-if="isMultiChildPostSubmit" class="multi-child-prep">
+          <p v-if="packetSummaryViewUrl" class="muted" style="margin: 0 0 10px;">
+            {{ t('packetViewTemporary') }}
+            <a :href="packetSummaryViewUrl" target="_blank" rel="noopener">{{ t('viewPacketNow') }}</a>
+          </p>
           <div v-if="!isMultiChildPacketsAllReady" class="multi-child-prep-header">
-            <span class="preparing-spinner"></span>
             <span>
-              Preparing {{ expectedChildCount }} packets… ({{ clientBundleLinks.length }} of {{ expectedChildCount }} ready)
+              {{ clientBundleLinks.length }} of {{ expectedChildCount }} PDF packets ready.
               <br />
-              <span class="muted small">A copy will also be emailed to you. This can take a couple of minutes for multi-child submissions.</span>
+              <span class="muted small">{{ t('packetPdfStillPreparing') }}</span>
             </span>
           </div>
           <div v-else class="multi-child-prep-header multi-child-prep-header--ready">
@@ -2391,8 +2363,7 @@
             class="bundle-item bundle-item--pending"
           >
             <div class="bundle-name">{{ pendingName }}</div>
-            <span class="preparing-spinner preparing-spinner--inline"></span>
-            <span class="muted small">Building packet…</span>
+            <span class="muted small">PDF still preparing — we’ll email it.</span>
           </div>
         </div>
         <div class="actions">
@@ -2727,11 +2698,11 @@ const INTAKE_TRANSLATIONS = {
     needSchoolProvider: 'School / provider details',
     continueToIntakePacket: 'Continue to Intake Packet',
     childDateOfBirth: "Child's date of birth",
-    dependentDateOfBirth: "Dependent's date of birth",
+    dependentDateOfBirth: 'DOB',
     middleNameOptional: 'Middle name',
     dependentN: 'Dependent',
-    dependentFirstName: "Dependent's first name",
-    dependentLastName: "Dependent's last name",
+    dependentFirstName: 'First name',
+    dependentLastName: 'Last name',
     addAnotherDependent: 'Add another dependent',
     multiDependentConsentTitle: 'Adding another dependent',
     multiDependentConsentBody: 'Before you add another dependent to this same packet, please confirm that you understand:',
@@ -2742,10 +2713,13 @@ const INTAKE_TRANSLATIONS = {
     multiDependentConsentDecline: 'No, I want to sign separately for each dependent',
     multiDependentDeclineNotice: 'No problem. Please finish this dependent’s packet first. You can then start a fresh packet from the same link to sign separately for the other dependent.',
     phiDownloadNotice: 'This file contains protected health information. After it is saved on a device, we cannot retrieve, change, or delete that copy. Keep it in a private place and only share it if you mean to.',
+    viewPacketNow: 'View your packet',
+    packetViewTemporary: 'This branded summary is temporary. View it now — the full PDF copy is emailed when it is ready, and download links expire.',
+    packetPdfStillPreparing: 'The full signed PDF is still being prepared in the background. You can view your branded summary now.',
     downloadPackets: 'Download packets',
     custodyOtherGuardianTitle: 'Custody & other guardian',
     custodyOtherGuardianLead: 'If another parent has legal rights, they get a private link to complete their own intake. They will not see what you submit. We will not confirm whether they already have an account.',
-    otherGuardianLegalRights: 'Is there another parent or guardian with legal rights who should complete their own intake?',
+    otherGuardianLegalRights: 'Another parent/guardian with legal rights who will complete their own intake?',
     otherGuardianLegalYes: 'Yes — send them their own intake',
     otherGuardianLegalShared: 'Yes — we share decision-making',
     otherGuardianLegalNo: 'No other guardian with those rights',
@@ -2753,10 +2727,10 @@ const INTAKE_TRANSLATIONS = {
     otherGuardianRightsRequired: 'Please answer whether another parent or guardian with legal rights should complete their own intake.',
     otherGuardianContactRequired: 'Please enter their email or a phone number so we can follow up.',
     ageOfConsentNote: 'We follow applicable Colorado law and professional ethics. In Colorado, a minor 12 or older may be able to consent to psychotherapy in some situations. This is information, not legal advice.',
-    otherGuardianFirstName: 'Their first name',
-    otherGuardianLastName: 'Their last name',
-    otherGuardianEmail: 'Their email (becomes their username)',
-    otherGuardianPhone: 'Their phone',
+    otherGuardianFirstName: 'First name',
+    otherGuardianLastName: 'Last name',
+    otherGuardianEmail: 'Email (becomes their username)',
+    otherGuardianPhone: 'Phone',
     otherGuardianRelationship: 'Relationship',
     otherGuardianSendLink: 'Email them a private intake link now',
     otherGuardianSendLater: 'I will send their intake later',
@@ -2764,8 +2738,10 @@ const INTAKE_TRANSLATIONS = {
     otherGuardianPhoneOnlyNote: 'A phone number works. If we do not have their email, intake and start of care may be delayed while we contact them.',
     otherGuardianMissingContactNote: 'If you do not have their email or phone, upload any court documents you have, or choose to send their intake later. Missing contact information can delay start of care.',
     otherGuardianCourtDocsLabel: 'Upload court documents (encrypted)',
-    otherGuardianCourtDocsHelp: 'You can always upload custody or court paperwork here. Files are stored encrypted.',
+    otherGuardianCourtDocsHelp: 'Files are stored encrypted.',
     otherGuardianViewConsent: 'View custody and consent details',
+    chooseFiles: 'Choose Files',
+    noFileChosen: 'No file chosen',
     emailPdfCopy: 'Email PDF',
     sendPdfElsewhere: 'Send a copy to another email',
     portalLoginTitle: 'Your portal login',
@@ -3065,11 +3041,11 @@ const INTAKE_TRANSLATIONS = {
     needSchoolProvider: 'Datos de la escuela o del proveedor',
     continueToIntakePacket: 'Continuar al paquete de admisión',
     childDateOfBirth: 'Fecha de nacimiento del niño',
-    dependentDateOfBirth: 'Fecha de nacimiento del dependiente',
+    dependentDateOfBirth: 'Fecha de nacimiento',
     middleNameOptional: 'Segundo nombre',
     dependentN: 'Dependiente',
-    dependentFirstName: 'Nombre del dependiente',
-    dependentLastName: 'Apellido del dependiente',
+    dependentFirstName: 'Nombre',
+    dependentLastName: 'Apellido',
     addAnotherDependent: 'Agregar otro dependiente',
     multiDependentConsentTitle: 'Agregar otro dependiente',
     multiDependentConsentBody: 'Antes de agregar otro dependiente a este mismo paquete, confirme que entiende:',
@@ -3080,10 +3056,13 @@ const INTAKE_TRANSLATIONS = {
     multiDependentConsentDecline: 'No, quiero firmar por separado para cada dependiente',
     multiDependentDeclineNotice: 'No hay problema. Termine primero el paquete de este dependiente. Luego puede iniciar un paquete nuevo desde el mismo enlace para firmar por separado.',
     phiDownloadNotice: 'Este archivo contiene información de salud protegida. Una vez guardado en un dispositivo, no podemos recuperar, cambiar ni eliminar esa copia. Guárdelo en un lugar privado y compártalo solo si realmente lo desea.',
+    viewPacketNow: 'Ver su paquete',
+    packetViewTemporary: 'Este resumen con marca es temporal. Véalo ahora: el PDF completo se envía por correo cuando está listo, y los enlaces de descarga caducan.',
+    packetPdfStillPreparing: 'El PDF firmado completo se sigue preparando. Puede ver su resumen con marca ahora.',
     downloadPackets: 'Descargar paquetes',
     custodyOtherGuardianTitle: 'Custodia y otro tutor',
     custodyOtherGuardianLead: 'Si otro padre o madre tiene derechos legales, recibe un enlace privado para completar su propia admisión. No verá lo que usted envíe. No confirmaremos si ya tiene una cuenta.',
-    otherGuardianLegalRights: '¿Hay otro padre, madre o tutor con derechos legales que deba completar su propia admisión?',
+    otherGuardianLegalRights: '¿Otro padre, madre o tutor con derechos legales que completará su propia admisión?',
     otherGuardianLegalYes: 'Sí — enviarles su propia admisión',
     otherGuardianLegalShared: 'Sí — compartimos las decisiones',
     otherGuardianLegalNo: 'No hay otro tutor con esos derechos',
@@ -3102,8 +3081,10 @@ const INTAKE_TRANSLATIONS = {
     otherGuardianPhoneOnlyNote: 'Un teléfono es suficiente. Si no tenemos su correo, la admisión y el inicio de servicios pueden retrasarse mientras nos comunicamos con ellos.',
     otherGuardianMissingContactNote: 'Si no tiene su correo ni teléfono, suba documentos judiciales o elija enviar su admisión más tarde. Falta de contacto puede retrasar el inicio de servicios.',
     otherGuardianCourtDocsLabel: 'Subir documentos judiciales (cifrados)',
-    otherGuardianCourtDocsHelp: 'Siempre puede subir papeles de custodia o del tribunal aquí. Los archivos se guardan cifrados.',
+    otherGuardianCourtDocsHelp: 'Los archivos se guardan cifrados.',
     otherGuardianViewConsent: 'Ver detalles de custodia y consentimiento',
+    chooseFiles: 'Elegir archivos',
+    noFileChosen: 'Ningún archivo elegido',
     emailPdfCopy: 'Enviar PDF',
     sendPdfElsewhere: 'Enviar una copia a otro correo',
     portalLoginTitle: 'Su acceso al portal',
@@ -4660,6 +4641,14 @@ const useEnterpriseRecaptcha = ref(
 const recaptchaForceWidget = ref(false);
 const captchaToken = ref('');
 const pollingForDownload = ref(false);
+const pdfWaitTimedOut = ref(false);
+const packetSummaryViewUrl = computed(() => {
+  const id = Number(submissionId.value || 0);
+  const token = String(sessionToken.value || '').trim();
+  if (!id || !token || !publicKey) return '';
+  const apiBase = String(import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/$/, '');
+  return `${apiBase}/public-intake/${encodeURIComponent(publicKey)}/${id}/summary?sessionToken=${encodeURIComponent(token)}`;
+});
 const captchaError = ref('');
 const showRecaptchaWidget = ref(false);
 const recaptchaWidgetElStart = ref(null);
@@ -5619,6 +5608,13 @@ const otherGuardianCopy = computed(() => {
     courtDocsLabel: t('otherGuardianCourtDocsLabel'),
     courtDocsHelp: t('otherGuardianCourtDocsHelp'),
     viewConsentDetails: t('otherGuardianViewConsent'),
+    chooseFiles: t('chooseFiles'),
+    noFileChosen: t('noFileChosen'),
+    firstPlaceholder: 'First',
+    lastPlaceholder: 'Last',
+    relationshipPlaceholder: intakeLocale.value === 'es' ? 'p. ej., Copadre, Tutor' : 'e.g., Co-parent, Guardian',
+    emailPlaceholder: 'name@email.com',
+    phonePlaceholder: '(555) 123-4567',
     close: t('close')
   };
 });
@@ -9354,7 +9350,8 @@ const finalizePacket = async () => {
     error.value = '';
     stepError.value = '';
     step.value = 3;
-    pollingForDownload.value = true;
+    pollingForDownload.value = false;
+    pdfWaitTimedOut.value = false;
     const activeSessionToken = await ensureSessionToken();
     if (!activeSessionToken) {
       error.value = t('unableToStartSession');
@@ -9469,7 +9466,7 @@ const finalizePacket = async () => {
 
 const pollForDownloadUrl = async (attemptLimit) => {
   if (downloadUrl.value || jobApplicationSubmitted.value) return;
-  pollingForDownload.value = !isOfficeInDepthIntake.value;
+  pollingForDownload.value = false;
   const delays = [1000, 2000, 3000, 4000, 5000];
   const maxAttempts = Number.isFinite(Number(attemptLimit))
     ? Math.max(1, Number(attemptLimit))
@@ -9477,6 +9474,7 @@ const pollForDownloadUrl = async (attemptLimit) => {
   for (let i = 0; i < maxAttempts; i++) {
     const wait = delays[Math.min(i, delays.length - 1)];
     await new Promise((r) => setTimeout(r, wait));
+    if (i >= 6) pdfWaitTimedOut.value = true;
     if (downloadUrl.value || step.value !== 3) break;
     try {
       const resp = await api.get(`/public-intake/${publicKey}/status/${submissionId.value}`, {
@@ -13838,22 +13836,52 @@ onBeforeUnmount(() => {
 
 .intake-start-dependents {
   width: 100%;
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.65rem 0.75rem 0.75rem;
+  border: 1px solid #d7e3dc;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.intake-start-dependents-head {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.85rem;
-  align-items: flex-start;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.intake-start-dependents-head strong {
+  color: var(--df-primary, #1b3d2f);
+  font-size: 0.95rem;
+}
+
+.intake-add-dependent {
+  border: 1px solid var(--df-primary, #1b3d2f);
+  background: #fff;
+  color: var(--df-primary, #1b3d2f);
+  border-radius: 8px;
+  padding: 0.28rem 0.65rem;
+  font-weight: 700;
+  font-size: 0.8rem;
+  cursor: pointer;
 }
 
 .intake-start-child {
-  flex: 1 1 22rem;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem 0.65rem;
+  gap: 0.4rem 0.55rem;
   margin: 0;
-  padding: 0.7rem 0.75rem;
-  border: 1px solid #d7e3dc;
-  border-radius: 12px;
-  background: #f8fbf9;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  align-items: flex-end;
+}
+
+.intake-start-child .form-group {
+  margin: 0;
+  flex: 1 1 8.5rem;
 }
 
 .intake-start-child-head {
@@ -14207,10 +14235,11 @@ onBeforeUnmount(() => {
 .intake-start-custody {
   width: 100%;
   display: grid;
-  gap: 0.45rem;
-  padding: 0.75rem;
+  gap: 0.35rem;
+  padding: 0.65rem 0.75rem 0.75rem;
   border: 1px solid #d7e3dc;
   border-radius: 12px;
+  background: #fff;
 }
 .intake-start-custody select,
 .intake-start-custody input {
