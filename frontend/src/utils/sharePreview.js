@@ -65,7 +65,7 @@ const TENANTS = {
 const DEFAULT_IMAGE = '/branding/plottwisthq-platform-bg.png';
 const DEFAULT_DESC = 'Care, scheduling, billing, and support.';
 
-export const DEFAULT_OG_IMAGE_PLACEHOLDER = `https://plottwisthq.com${DEFAULT_IMAGE}`;
+export const DEFAULT_OG_IMAGE_PLACEHOLDER = 'https://plottwisthq.com/api/public/share-preview/image';
 
 function normHost(host) {
   return String(host || '').split(',')[0].trim().toLowerCase().replace(/:\d+$/, '');
@@ -118,7 +118,7 @@ export function buildShareMeta({ host, path, proto = 'https' } = {}) {
   const description = page.description || tenant.description || DEFAULT_DESC;
   const scheme = proto === 'http' ? 'http' : 'https';
   const origin = hostname ? `${scheme}://${hostname}` : '';
-  const imagePath = tenant.image || DEFAULT_IMAGE;
+  const imagePath = `/api/public/share-preview/image?path=${encodeURIComponent(path || '/')}`;
   const image = origin ? `${origin}${imagePath}` : imagePath;
   const url = origin ? `${origin}${path || '/'}` : (path || '/');
   return { name, title, description, image, url, imagePath };

@@ -273,6 +273,7 @@
             <label class="pas-field-label">Extension<input v-model.trim="copyDraft.phoneExtension" type="text" maxlength="20" /></label>
             <label class="pas-field-label">Support email<input v-model.trim="copyDraft.email" type="email" /></label>
             <label class="pas-field-label">Hours or extra note<input v-model.trim="copyDraft.hoursNote" type="text" maxlength="240" /></label>
+            <PublicLinkImageEditor v-if="agencySlug" :agency-slug="agencySlug" page="support" />
           </template>
           <template v-else>
             <p v-if="supportContact.phoneDisplay" class="pas-contact-phone">
@@ -314,6 +315,7 @@ import { DigitalFormShell } from '../../components/digital-form';
 import { PUBLIC_SUPPORT_THEME_URL } from '../../utils/joinLandingTemplate.js';
 import { usePublicSupportLayoutEditor } from '../../composables/usePublicSupportLayoutEditor.js';
 import PublicAgencySupportForm from '../../components/public/PublicAgencySupportForm.vue';
+import PublicLinkImageEditor from '../../components/public/PublicLinkImageEditor.vue';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath.js';
 
 const route = useRoute();

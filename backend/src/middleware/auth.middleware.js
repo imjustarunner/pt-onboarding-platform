@@ -98,7 +98,9 @@ export const authenticate = async (req, res, next) => {
         && /\/api\/public\/adaptive-intake\/[^/]+\/landing\/?$/.test(requestPath);
       const isPublicSupportSettingsWrite = req.method === 'PATCH'
         && /\/api\/public\/agency-support\/[^/]+\/settings\/?$/.test(requestPath);
-      if (!isJoinLandingWrite && !isPublicSupportSettingsWrite) {
+      const isSharePreviewWrite = (req.method === 'POST' || req.method === 'DELETE')
+        && /\/api\/public\/share-preview\/[^/]+\/image\/?$/.test(requestPath);
+      if (!isJoinLandingWrite && !isPublicSupportSettingsWrite && !isSharePreviewWrite) {
         return next();
       }
     }

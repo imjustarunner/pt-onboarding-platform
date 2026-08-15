@@ -92,6 +92,7 @@
         </label>
         <span v-if="sidebarSaveError" class="ai-join-sidebar-error">{{ sidebarSaveError }}</span>
         <span v-if="sidebarSaveOk" class="ai-join-sidebar-ok">{{ sidebarSaveOk }}</span>
+        <PublicLinkImageEditor v-if="agencySlug" :agency-slug="agencySlug" page="join" />
       </div>
       <!-- Step: who for + basics -->
       <div v-if="quickStep === 0" class="ai-join-form">
@@ -409,6 +410,7 @@ import {
   writeJoinLandingCache
 } from '../../utils/joinLandingTemplate.js';
 import { lookupUsZipCityState } from '../../utils/usZipAutofill.js';
+import PublicLinkImageEditor from '../../components/public/PublicLinkImageEditor.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -700,7 +702,7 @@ const canEditLanding = computed(() => {
   if (!authStore.isAuthenticated) return false;
   const user = authStore.user;
   const role = String(user?.role || '').toLowerCase();
-  if (role !== 'admin' && role !== 'super_admin') return false;
+  if (role !== 'admin' && role !== 'super_admin' && role !== 'support') return false;
   if (role === 'super_admin') return true;
   const agencyId = Number(config.value?.agency?.id || 0);
   if (!agencyId) return false;

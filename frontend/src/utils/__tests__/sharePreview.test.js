@@ -11,7 +11,7 @@ describe('sharePreview', () => {
     expect(meta.name).toBe('ITSCO');
     expect(meta.title).toMatch(/ITSCO/);
     expect(meta.title).toMatch(/Support/);
-    expect(meta.image).toBe('https://app.itsco.health/assets/careers/heroes/itsco-framed.png');
+    expect(meta.image).toBe('https://app.itsco.health/api/public/share-preview/image?path=%2Fsupport');
     expect(meta.title).not.toMatch(/Portal/);
   });
 
@@ -19,7 +19,7 @@ describe('sharePreview', () => {
     const html = `<html><head><title>Portal</title>
     <meta property="og:title" content="Portal">
     <meta name="description" content="Care, scheduling, billing, and support.">
-    <meta property="og:image" content="https://plottwisthq.com/branding/plottwisthq-platform-bg.png">
+    <meta property="og:image" content="https://plottwisthq.com/api/public/share-preview/image">
     </head></html>`;
     const next = injectShareMetaIntoHtml(html, buildShareMeta({
       host: 'app.itsco.health',

@@ -22,6 +22,7 @@
           @click="saveEdit"
         >{{ savingEdit ? 'Saving…' : 'Save' }}</button>
         <button class="cr-editor-btn" type="button" :disabled="savingEdit" @click="cancelEdit">Cancel</button>
+        <PublicLinkImageEditor v-if="slug && canEditLinkImage" class="cr-link-image" :agency-slug="slug" page="careers" />
         <router-link class="cr-editor-link" :to="adminCareersPath">Full editor</router-link>
 
         <div class="cr-style-strip">
@@ -742,6 +743,7 @@ import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import JobDescriptionSections from '../../components/careers/JobDescriptionSections.vue';
 import PublicAgencySupportForm from '../../components/public/PublicAgencySupportForm.vue';
+import PublicLinkImageEditor from '../../components/public/PublicLinkImageEditor.vue';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import {
@@ -817,6 +819,11 @@ const userBelongsToAgency = (user, id) => {
     Array.isArray(list) && list.some((a) => Number(a?.id ?? a) === Number(id))
   );
 };
+
+const canEditLinkImage = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['admin', 'support', 'super_admin'].includes(role);
+});
 
 const canEditCareers = computed(() => {
   if (!authStore.isAuthenticated || !agencyId.value) return false;
@@ -1610,6 +1617,7 @@ watch(slug, () => loadCareers(), { immediate: true });
 .cr-editor-bar--active .cr-editor-btn--primary { background: #bbf7d0; color: #14532d; border-color: #bbf7d0; }
 .cr-editor-link { color: #cbd5e1; font-size: 0.82rem; font-weight: 600; margin-left: auto; }
 .cr-editor-error { flex-basis: 100%; margin: 0; color: #fecaca; font-size: 0.82rem; }
+.cr-link-image { flex: 1 1 100%; }
 .cr-editor-ok { flex-basis: 100%; margin: 0; color: #bbf7d0; font-size: 0.82rem; }
 
 .cr-style-strip {
