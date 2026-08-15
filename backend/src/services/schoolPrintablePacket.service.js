@@ -1058,7 +1058,7 @@ export async function getSchoolPacketTemplateForOrganization(organizationId, { l
   };
 }
 
-export { buildPacketStyleBlock, buildPdfChromeTemplates };
+export { buildPacketStyleBlock, buildPdfChromeTemplates, watermarkDataUrl };
 
 export async function saveSchoolPacketTemplateForOrganization({
   organizationId,

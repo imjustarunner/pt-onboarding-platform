@@ -190,15 +190,16 @@ watch(
   margin-top: 0;
 }
 .packet-section-html {
-  max-height: min(58vh, 640px);
+  max-height: min(70vh, 820px);
   overflow: auto;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  padding: 12px 14px;
+  padding: 16px 18px;
   background: #fafafa;
   margin: 12px 0;
-  font-size: 14px;
-  line-height: 1.45;
+  font-size: 15px;
+  line-height: 1.5;
+  width: 100%;
 }
 .packet-section-html :deep(h2) {
   margin-top: 0;

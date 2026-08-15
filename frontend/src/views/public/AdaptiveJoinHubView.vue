@@ -1,15 +1,13 @@
 <template>
   <AdaptiveIntakeShell
+    class="ai-shell-host--join-flow"
     :branding="config?.branding"
     :program-title="config?.agency?.name || 'Join'"
     form-title="Get Started"
     form-subtitle="Adaptive Intake"
     :sidebar-steps="hubSidebarSteps"
     :progress-index="0"
-    :decor-hero-url="decorHero.url"
-    :decor-hero-alt="decorHero.alt"
-    :decor-hero-frame-style="decorHero.frameStyle"
-    :decor-hero-image-position="decorHero.imagePosition"
+    :wide="true"
     :cover-mode="loading || !!loadError || redirecting"
   >
     <div v-if="loading || redirecting" class="df-loading">
@@ -48,7 +46,6 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { AdaptiveIntakeShell } from '../../components/adaptive-intake';
-import { mergeCareersPageWithDefaults } from '../../utils/careersAssets.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -67,18 +64,6 @@ const services = computed(() =>
 );
 
 const hubSidebarSteps = [{ id: 'service', label: 'Choose a service', hint: 'You are here' }];
-
-const decorHero = computed(() => {
-  const slug = config.value?.agency?.slug || agencySlug.value;
-  const name = config.value?.agency?.name || '';
-  const page = mergeCareersPageWithDefaults(config.value?.decorHero || {}, { slug, agencyName: name });
-  return {
-    url: String(page.heroImageUrl || '').trim(),
-    alt: String(page.heroImageAlt || `${name || 'Organization'} intake`).trim(),
-    frameStyle: String(page.heroFrameStyle || 'preframed').trim().toLowerCase(),
-    imagePosition: String(page.heroImagePosition || 'center center').trim()
-  };
-});
 
 function iconForService(serviceType) {
   if (serviceType === 'tutoring') return '📚';
@@ -112,9 +97,10 @@ async function loadConfig() {
     }
     const { data } = await api.get(`/public/adaptive-intake/${agencySlug.value}`);
     config.value = data;
-    if (services.value.length === 1) {
+    if (services.value.length <= 1) {
       redirecting.value = true;
-      await router.replace(joinServicePath(services.value[0].serviceType));
+      const svc = services.value[0]?.serviceType || 'counseling';
+      await router.replace(joinServicePath(svc));
     }
   } catch (e) {
     loadError.value = e?.response?.data?.error?.message || 'Unable to load intake options.';

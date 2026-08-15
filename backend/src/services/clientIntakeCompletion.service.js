@@ -120,12 +120,14 @@ export async function applyClientIntakeCompletion({
            received_by_user_id = COALESCE(received_by_user_id, VALUES(received_by_user_id))`,
         [cid, t.id, completedDate, actorId]
       );
-      await connection.execute(
-        `INSERT INTO client_paperwork_history
-          (client_id, paperwork_status_id, paperwork_delivery_method_id, effective_date, roi_expires_at, note, changed_by_user_id)
-         VALUES (?, ?, NULL, ?, NULL, ?, ?)`,
-        [cid, t.id, effectiveDate, note, actorId]
-      );
+      if (actorId) {
+        await connection.execute(
+          `INSERT INTO client_paperwork_history
+            (client_id, paperwork_status_id, paperwork_delivery_method_id, effective_date, roi_expires_at, note, changed_by_user_id)
+           VALUES (?, ?, NULL, ?, NULL, ?, ?)`,
+          [cid, t.id, effectiveDate, note, actorId]
+        );
+      }
       marked += 1;
     }
 
@@ -152,18 +154,32 @@ export async function applyClientIntakeCompletion({
       nextPaperworkStatusId = null;
     }
 
-    await connection.execute(
-      `UPDATE clients
-       SET paperwork_status_id = ?,
-           paperwork_received_at = CASE
-             WHEN ? IS NULL THEN paperwork_received_at
-             ELSE COALESCE(paperwork_received_at, ?)
-           END,
-           updated_by_user_id = ?,
-           last_activity_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [nextPaperworkStatusId, markReceivedAt, markReceivedAt, actorId, cid]
-    );
+    if (actorId) {
+      await connection.execute(
+        `UPDATE clients
+         SET paperwork_status_id = ?,
+             paperwork_received_at = CASE
+               WHEN ? IS NULL THEN paperwork_received_at
+               ELSE COALESCE(paperwork_received_at, ?)
+             END,
+             updated_by_user_id = ?,
+             last_activity_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [nextPaperworkStatusId, markReceivedAt, markReceivedAt, actorId, cid]
+      );
+    } else {
+      await connection.execute(
+        `UPDATE clients
+         SET paperwork_status_id = ?,
+             paperwork_received_at = CASE
+               WHEN ? IS NULL THEN paperwork_received_at
+               ELSE COALESCE(paperwork_received_at, ?)
+             END,
+             last_activity_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [nextPaperworkStatusId, markReceivedAt, markReceivedAt, cid]
+      );
+    }
 
     await connection.commit();
     return {

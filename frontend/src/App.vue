@@ -3910,6 +3910,8 @@ const hideGlobalNavForSchoolStaff = computed(() => {
   const role = String(user.value?.role || '').toLowerCase();
   // School staff should only use the School Portal UX (no global nav / personal dashboard).
   if (role === 'school_staff') return true;
+  // Client / guardian accounts use the family portal, not staff chrome (presence, chats, etc.).
+  if (role === 'client_guardian' || role === 'guardian' || role === 'client') return true;
   // Admins/providers opening a school portal: hide tenant My Dashboard chrome.
   if (isSchoolPortalShellActive.value) return true;
   // Life coach / consultant verticals use their own sidebar shells (no typical header).

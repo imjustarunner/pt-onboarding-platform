@@ -58,7 +58,7 @@ export function clampOffsetValue({ value, base, size, min, max, pad = 8 }) {
 function looksBrokenPosition(pos = {}) {
   const x = Number(pos.x) || 0;
   const y = Number(pos.y) || 0;
-  return x < -16 || x > 920 || y < -80 || y > 720;
+  return x < -480 || x > 1400 || y < -400 || y > 1200;
 }
 
 /** Drop saved pixel offsets that were clamped off-canvas in earlier editor builds. */
@@ -95,7 +95,9 @@ export function defaultJoinLayout() {
       brandWidth: 0,
       helpWidth: 0,
       logoWidth: 150,
-      script: 2
+      tagline: 0.68,
+      script: 2,
+      values: 0.84
     },
     hidden: {
       welcome: false,
@@ -108,6 +110,10 @@ export function defaultJoinLayout() {
       lead: 'left',
       cards: 'left',
       brand: 'left',
+      logo: 'left',
+      tagline: 'left',
+      script: 'left',
+      values: 'left',
       help: 'left'
     },
     positions: {
@@ -116,6 +122,10 @@ export function defaultJoinLayout() {
       lead: { x: 0, y: 0 },
       cards: { x: 0, y: 0 },
       brand: { x: 0, y: 0 },
+      logo: { x: 0, y: 0 },
+      tagline: { x: 0, y: 0 },
+      script: { x: 0, y: 0 },
+      values: { x: 0, y: 0 },
       help: { x: 0, y: 0 }
     }
   };
@@ -178,11 +188,17 @@ export function defaultIntakeStartLayout() {
     welcome: { x: 0, y: 0 },
     glad: { x: 0, y: 0 },
     brand: { x: 0, y: 0 },
+    logo: { x: 0, y: 0 },
+    tagline: { x: 0, y: 0 },
+    script: { x: 0, y: 0 },
+    values: { x: 0, y: 0 },
     help: { x: 0, y: 0 },
     sizes: {
       welcome: 3.2,
       glad: 1.15,
       script: 1.9,
+      tagline: 0.68,
+      values: 0.84,
       logoWidth: 150,
       brandWidth: 0,
       helpWidth: 0
@@ -192,6 +208,10 @@ export function defaultIntakeStartLayout() {
       glad: 'center',
       card: 'center',
       brand: 'left',
+      logo: 'left',
+      tagline: 'left',
+      script: 'left',
+      values: 'left',
       help: 'left'
     },
     hidden: {
@@ -231,6 +251,8 @@ function mergeStartSizes(saved, base) {
   out.welcome = Math.min(7, Math.max(0.8, out.welcome));
   out.glad = Math.min(3, Math.max(0.7, out.glad));
   out.script = Math.min(4, Math.max(0.8, out.script));
+  out.tagline = Math.min(1.4, Math.max(0.5, out.tagline || 0.68));
+  out.values = Math.min(1.4, Math.max(0.65, out.values || 0.84));
   out.logoWidth = Math.min(360, Math.max(48, out.logoWidth));
   return out;
 }
@@ -258,6 +280,10 @@ export function mergeIntakeStartLayout(saved) {
     welcome: looksBrokenPosition(saved.welcome) ? { ...base.welcome } : mergeStartPoint(saved.welcome, base.welcome),
     glad: looksBrokenPosition(saved.glad) ? { ...base.glad } : mergeStartPoint(saved.glad, base.glad),
     brand: looksBrokenPosition(saved.brand) ? { ...base.brand } : mergeStartPoint(saved.brand, base.brand),
+    logo: looksBrokenPosition(saved.logo) ? { ...base.logo } : mergeStartPoint(saved.logo, base.logo),
+    tagline: looksBrokenPosition(saved.tagline) ? { ...base.tagline } : mergeStartPoint(saved.tagline, base.tagline),
+    script: looksBrokenPosition(saved.script) ? { ...base.script } : mergeStartPoint(saved.script, base.script),
+    values: looksBrokenPosition(saved.values) ? { ...base.values } : mergeStartPoint(saved.values, base.values),
     help: looksBrokenPosition(saved.help) ? { ...base.help } : mergeStartPoint(saved.help, base.help),
     sizes: mergeStartSizes(saved.sizes, base.sizes),
     align: mergeStartAlign(saved.align, base.align),
@@ -315,6 +341,21 @@ export function mergeJoinLayout(saved) {
   const base = defaultJoinLayout();
   if (!saved || typeof saved !== 'object') return base;
   const hiddenSrc = saved.hidden && typeof saved.hidden === 'object' ? saved.hidden : {};
+  const savedPos = saved.positions && typeof saved.positions === 'object' ? saved.positions : {};
+  const brandPos = { ...base.positions.brand, ...(savedPos.brand || {}) };
+  const hasSplitRail = ['logo', 'tagline', 'script', 'values'].some(
+    (key) => savedPos[key] && typeof savedPos[key] === 'object'
+  );
+  const inheritedRail = hasSplitRail ? { x: 0, y: 0 } : brandPos;
+  const sizes = { ...base.sizes, ...(saved.sizes || {}) };
+  const logoWidth = Number(sizes.logoWidth);
+  const tagline = Number(sizes.tagline);
+  const script = Number(sizes.script);
+  const values = Number(sizes.values);
+  sizes.logoWidth = Number.isFinite(logoWidth) ? Math.min(360, Math.max(48, logoWidth)) : base.sizes.logoWidth;
+  sizes.tagline = Number.isFinite(tagline) ? Math.min(1.4, Math.max(0.5, tagline)) : base.sizes.tagline;
+  sizes.script = Number.isFinite(script) ? Math.min(4, Math.max(0.8, script)) : base.sizes.script;
+  sizes.values = Number.isFinite(values) ? Math.min(1.4, Math.max(0.65, values)) : base.sizes.values;
   return {
     footerStyle: saved.footerStyle === 'frost' || !saved.footerStyle
       ? 'hidden'
@@ -323,7 +364,7 @@ export function mergeJoinLayout(saved) {
         : base.footerStyle,
     showSidebar: saved.showSidebar !== false,
     fonts: { ...base.fonts, ...(saved.fonts || {}) },
-    sizes: { ...base.sizes, ...(saved.sizes || {}) },
+    sizes,
     align: mergeStartAlign(saved.align, base.align),
     hidden: {
       welcome: hiddenSrc.welcome === true,
@@ -331,12 +372,19 @@ export function mergeJoinLayout(saved) {
       lead: hiddenSrc.lead === true
     },
     positions: sanitizeJoinPositions(
-      Object.fromEntries(
-        Object.keys(base.positions).map((key) => [
-          key,
-          { ...base.positions[key], ...(saved.positions?.[key] || {}) }
-        ])
-      ),
+      {
+        ...Object.fromEntries(
+          Object.keys(base.positions).map((key) => [
+            key,
+            { ...base.positions[key], ...(savedPos[key] || {}) }
+          ])
+        ),
+        brand: brandPos,
+        logo: savedPos.logo || inheritedRail,
+        tagline: savedPos.tagline || inheritedRail,
+        script: savedPos.script || inheritedRail,
+        values: savedPos.values || inheritedRail
+      },
       base.positions
     )
   };

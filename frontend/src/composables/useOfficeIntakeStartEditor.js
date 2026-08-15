@@ -21,7 +21,10 @@ const START_ALIGN_OPTIONS = [
 ];
 
 const START_BLOCK_LABELS = {
-  brand: 'Logo & tagline',
+  logo: 'Logo',
+  tagline: 'Tagline',
+  script: 'Script line',
+  values: 'Value list',
   help: 'Need help card',
   welcome: 'Welcome line',
   glad: 'Note under welcome',
@@ -31,7 +34,10 @@ const START_BLOCK_LABELS = {
 const START_SIZE_CONTROLS = {
   welcome: { key: 'welcome', label: 'Welcome size', min: 0.8, max: 7, step: 0.05 },
   glad: { key: 'glad', label: 'Note size', min: 0.7, max: 3, step: 0.05 },
-  brand: { key: 'script', label: 'Script size', min: 0.8, max: 4, step: 0.05 },
+  logo: { key: 'logoWidth', label: 'Logo size', min: 48, max: 360, step: 4 },
+  tagline: { key: 'tagline', label: 'Tagline size', min: 0.5, max: 1.4, step: 0.02 },
+  script: { key: 'script', label: 'Script size', min: 0.8, max: 4, step: 0.05 },
+  values: { key: 'values', label: 'List size', min: 0.65, max: 1.4, step: 0.02 },
   help: { key: 'helpWidth', label: 'Card width', min: 120, max: 340, step: 5 }
 };
 
@@ -139,8 +145,15 @@ export function useOfficeIntakeStartEditor({
     }
     if (key === 'welcome') style.fontSize = `${Number(sizes.welcome) || 3.2}rem`;
     if (key === 'glad') style.fontSize = `${Number(sizes.glad) || 1.15}rem`;
-    if ((key === 'brand' || key === 'help') && Number(sizes[`${key}Width`]) > 0) {
-      style.width = `${Number(sizes[`${key}Width`])}px`;
+    if (key === 'tagline') style.fontSize = `${Number(sizes.tagline) || 0.68}rem`;
+    if (key === 'script') style.fontSize = `${Number(sizes.script) || 1.9}rem`;
+    if (key === 'values') style.fontSize = `${Number(sizes.values) || 0.84}rem`;
+    if (key === 'logo') {
+      style.width = `${Number(sizes.logoWidth) || 150}px`;
+      style.maxWidth = '100%';
+    }
+    if (key === 'help' && Number(sizes.helpWidth) > 0) {
+      style.width = `${Number(sizes.helpWidth)}px`;
     }
     return style;
   }
@@ -207,7 +220,10 @@ export function useOfficeIntakeStartEditor({
     const layout = startLayoutDraft;
     const pos = key === 'card' ? layout : (layout[key] || { x: 0, y: 0 });
     const el = event.target?.closest(START_BLOCK_SELECTOR);
-    const container = el?.closest('.df-main-body, .intake-start-page, .intake-start-rail') || el?.closest('.intake-start-page, .intake-start-rail');
+    const win = typeof window !== 'undefined' ? window : null;
+    const bounds = win
+      ? { left: -280, top: -220, right: win.innerWidth + 280, bottom: win.innerHeight + 220 }
+      : null;
     startDragState = {
       key,
       x: event.clientX,
@@ -215,7 +231,7 @@ export function useOfficeIntakeStartEditor({
       origX: Number(pos.x) || 0,
       origY: Number(pos.y) || 0,
       rect: el ? el.getBoundingClientRect() : null,
-      bounds: container ? container.getBoundingClientRect() : null
+      bounds
     };
     window.addEventListener('mousemove', onOfficeStartDrag);
     window.addEventListener('mouseup', stopOfficeStartDrag);
@@ -244,6 +260,11 @@ export function useOfficeIntakeStartEditor({
     }
     nextX = Math.round(nextX);
     nextY = Math.round(nextY);
+    if (startDragState.key === 'welcome' || startDragState.key === 'glad') {
+      if (!startLayoutDraft.align) startLayoutDraft.align = {};
+      if (nextX < -24) startLayoutDraft.align[startDragState.key] = 'left';
+      else if (nextX > 24) startLayoutDraft.align[startDragState.key] = 'right';
+    }
     if (startDragState.key === 'card') {
       startLayoutDraft.x = nextX;
       startLayoutDraft.y = nextY;
@@ -267,7 +288,9 @@ export function useOfficeIntakeStartEditor({
       x: event.clientX,
       origW: key === 'card'
         ? (Number(startLayoutDraft.width) || 860)
-        : (Number(startLayoutDraft.sizes?.[`${key}Width`]) || 220)
+        : key === 'logo'
+          ? (Number(startLayoutDraft.sizes?.logoWidth) || 150)
+          : (Number(startLayoutDraft.sizes?.[`${key}Width`]) || 220)
     };
     window.addEventListener('mousemove', onOfficeStartResize);
     window.addEventListener('mouseup', stopOfficeStartResize);
@@ -278,6 +301,10 @@ export function useOfficeIntakeStartEditor({
     const next = startResizeState.origW + (event.clientX - startResizeState.x);
     if (startResizeState.key === 'card') {
       startLayoutDraft.width = Math.min(1200, Math.max(420, next));
+      return;
+    }
+    if (startResizeState.key === 'logo') {
+      startLayoutDraft.sizes.logoWidth = Math.round(Math.min(360, Math.max(48, next)));
       return;
     }
     startLayoutDraft.sizes[`${startResizeState.key}Width`] = Math.round(Math.min(340, Math.max(120, next)));

@@ -33,6 +33,7 @@ import {
   getPublicRegistrationReceipt,
   getPublicLinkedTranslation
 } from '../controllers/publicIntake.controller.js';
+import { downloadPublicIntakeSummaryPdf } from '../controllers/intakeSummaryPdf.controller.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -120,6 +121,14 @@ router.post(
     body('sessionToken').optional().isString()
   ],
   finalizePublicIntake
+);
+
+router.post(
+  '/:publicKey/:submissionId/summary-pdf',
+  [
+    body('sessionToken').notEmpty().withMessage('sessionToken is required')
+  ],
+  downloadPublicIntakeSummaryPdf
 );
 
 router.post(

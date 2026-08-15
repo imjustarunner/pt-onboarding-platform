@@ -601,34 +601,83 @@ function formatStructuredAddress(address, fallback) {
   return { formatted: raw || null, street: raw || null, apt: '', city: '', state: '', zip: '' };
 }
 
+async function ensureUserAgencyAffiliation(userId, agencyId) {
+  const uid = Number(userId || 0) || null;
+  const aid = Number(agencyId || 0) || null;
+  if (!uid || !aid) return;
+  try {
+    await pool.execute(
+      `INSERT INTO user_agencies (user_id, agency_id)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE user_id = user_id`,
+      [uid, aid]
+    );
+  } catch (err) {
+    console.warn('Quick prospective user_agencies affiliation failed:', err?.message || err);
+  }
+}
+
+function portalPathForAgency(agencyRow) {
+  const slug = String(agencyRow?.slug || agencyRow?.portal_url || '').trim();
+  return slug ? `/${encodeURIComponent(slug)}/guardian` : '/guardian';
+}
+
+function existingPortalLoginNeedsReset(user) {
+  if (!user?.password_hash) return true;
+  // Leftover 24-hour temp logins should become a lasting client-portal password.
+  return !!user.temporary_password_hash;
+}
+
 async function provisionQuickProspectiveAccess({
   email,
   firstName,
   lastName,
   phone,
   clientId,
-  whoFor
+  whoFor,
+  agencyId,
+  agencyRow
 }) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   if (!normalizedEmail || !clientId) return null;
+  const portalPath = portalPathForAgency(agencyRow);
   try {
-    const existing = await User.findByEmail(normalizedEmail);
-    if (existing?.id) {
+    const linkGuardian = async (userId) => {
+      await ensureUserAgencyAffiliation(userId, agencyId);
       await ClientGuardian.upsertLink({
         clientId,
-        guardianUserId: existing.id,
+        guardianUserId: userId,
         relationshipType: whoFor === 'myself' ? 'self' : 'guardian',
         relationshipTitle: whoFor === 'myself' ? 'Self' : 'Guardian',
         accessEnabled: true
       }).catch(() => null);
+    };
+
+    const existing = await User.findByEmail(normalizedEmail);
+    if (existing?.id) {
+      await linkGuardian(existing.id);
+      if (!existingPortalLoginNeedsReset(existing)) {
+        return {
+          existingAccount: true,
+          email: normalizedEmail,
+          userId: existing.id,
+          portalPath,
+          expiresInHours: null
+        };
+      }
+      const password = await User.generateTemporaryPassword();
+      await User.changePassword(existing.id, password);
       return {
         existingAccount: true,
         email: normalizedEmail,
         userId: existing.id,
-        expiresInHours: 24
+        password,
+        portalPath,
+        expiresInHours: null
       };
     }
-    const temporaryPassword = await User.generateTemporaryPassword();
+
+    const password = await User.generateTemporaryPassword();
     const user = await User.create({
       email: normalizedEmail,
       role: 'client_guardian',
@@ -638,24 +687,18 @@ async function provisionQuickProspectiveAccess({
       status: 'active'
     });
     if (!user?.id) return null;
-    const temp = await User.setTemporaryPassword(user.id, temporaryPassword, 24);
-    await ClientGuardian.upsertLink({
-      clientId,
-      guardianUserId: user.id,
-      relationshipType: whoFor === 'myself' ? 'self' : 'guardian',
-      relationshipTitle: whoFor === 'myself' ? 'Self' : 'Guardian',
-      accessEnabled: true
-    }).catch(() => null);
+    await User.changePassword(user.id, password);
+    await linkGuardian(user.id);
     return {
       existingAccount: false,
       email: normalizedEmail,
       userId: user.id,
-      temporaryPassword,
-      expiresAt: temp?.expiresAt || null,
-      expiresInHours: 24
+      password,
+      portalPath,
+      expiresInHours: null
     };
   } catch (err) {
-    console.warn('Quick prospective temp account skipped:', err?.message || err);
+    console.warn('Quick prospective portal account skipped:', err?.message || err);
     return null;
   }
 }
@@ -821,7 +864,9 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     lastName: respondent.lastName,
     phone: meta.respondent.phone,
     clientId: client.id,
-    whoFor
+    whoFor,
+    agencyId: agencyRow.id,
+    agencyRow
   });
 
   return {
@@ -865,6 +910,12 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
         acknowledgments
       },
       temporaryAccess,
+      portalAccess: temporaryAccess
+        ? {
+            ...temporaryAccess,
+            password: temporaryAccess.password || temporaryAccess.temporaryPassword || null
+          }
+        : null,
       supportContact: resolveClientFacingSupport(agencyRow)
     },
     conversion: {

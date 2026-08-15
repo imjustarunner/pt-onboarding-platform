@@ -1,20 +1,20 @@
 <template>
   <div v-if="part === 'rail'" class="intake-start-rail" :class="{ 'intake-start-rail--editing': ctx.editingStartLayout.value }">
-    <div
-      class="intake-start-block intake-start-block--brand"
-      :class="{ 'intake-start-block--selected': ctx.editingStartLayout.value && ctx.selectedStartBlock.value === 'brand' }"
-      :style="ctx.officeStartBlockStyle('brand')"
-      @mousedown="ctx.onOfficeStartBlockMouseDown('brand', $event)"
-    >
-      <div v-if="ctx.editingStartLayout.value" class="intake-start-block-tools">
-        <button type="button" class="ajl-drag" @mousedown.stop="ctx.startOfficeBlockDrag('brand', $event)">Move</button>
-      </div>
+    <div class="intake-start-brand">
       <div
-        v-if="ctx.editingStartLayout.value && ctx.selectedStartBlock.value === 'brand'"
-        class="ajl-resize ajl-resize--e"
-        @mousedown.stop="ctx.startOfficeStartResize('brand', $event)"
-      />
-      <div class="intake-start-brand">
+        class="intake-start-block intake-start-block--logo"
+        :class="{ 'intake-start-block--selected': ctx.editingStartLayout.value && ctx.selectedStartBlock.value === 'logo' }"
+        :style="ctx.officeStartBlockStyle('logo')"
+        @mousedown="ctx.onOfficeStartBlockMouseDown('logo', $event)"
+      >
+        <div v-if="ctx.editingStartLayout.value" class="intake-start-block-tools">
+          <button type="button" class="ajl-drag" @mousedown.stop="ctx.startOfficeBlockDrag('logo', $event)">Move</button>
+        </div>
+        <div
+          v-if="ctx.editingStartLayout.value && ctx.selectedStartBlock.value === 'logo'"
+          class="ajl-resize ajl-resize--e"
+          @mousedown.stop="ctx.startOfficeStartResize('logo', $event)"
+        />
         <img
           v-if="logoUrl"
           class="intake-start-logo"
@@ -23,14 +23,44 @@
           :style="ctx.officeStartLogoStyle.value"
         />
         <div v-else class="intake-start-logo-fallback" :style="ctx.officeStartLogoStyle.value">{{ agencyInitial }}</div>
+      </div>
+      <div
+        class="intake-start-block intake-start-block--tagline"
+        :class="{ 'intake-start-block--selected': ctx.editingStartLayout.value && ctx.selectedStartBlock.value === 'tagline' }"
+        :style="ctx.officeStartBlockStyle('tagline')"
+        @mousedown="ctx.onOfficeStartBlockMouseDown('tagline', $event)"
+      >
+        <div v-if="ctx.editingStartLayout.value" class="intake-start-block-tools">
+          <button type="button" class="ajl-drag" @mousedown.stop="ctx.startOfficeBlockDrag('tagline', $event)">Move</button>
+        </div>
         <p class="intake-start-tagline">
           <input v-if="ctx.editingStartLayout.value" v-model="ctx.startCopyDraft.sidebarTagline" class="ajl-inline" @mousedown.stop />
           <span v-else>{{ ctx.startCopy.value.sidebarTagline }}</span>
         </p>
-        <p class="intake-start-script" :style="ctx.officeStartScriptStyle.value">
+      </div>
+      <div
+        class="intake-start-block intake-start-block--script"
+        :class="{ 'intake-start-block--selected': ctx.editingStartLayout.value && ctx.selectedStartBlock.value === 'script' }"
+        :style="ctx.officeStartBlockStyle('script')"
+        @mousedown="ctx.onOfficeStartBlockMouseDown('script', $event)"
+      >
+        <div v-if="ctx.editingStartLayout.value" class="intake-start-block-tools">
+          <button type="button" class="ajl-drag" @mousedown.stop="ctx.startOfficeBlockDrag('script', $event)">Move</button>
+        </div>
+        <p class="intake-start-script">
           <input v-if="ctx.editingStartLayout.value" v-model="ctx.startCopyDraft.sidebarScript" class="ajl-inline ajl-inline--script" @mousedown.stop />
           <span v-else>{{ ctx.startCopy.value.sidebarScript }}</span>
         </p>
+      </div>
+      <div
+        class="intake-start-block intake-start-block--values"
+        :class="{ 'intake-start-block--selected': ctx.editingStartLayout.value && ctx.selectedStartBlock.value === 'values' }"
+        :style="ctx.officeStartBlockStyle('values')"
+        @mousedown="ctx.onOfficeStartBlockMouseDown('values', $event)"
+      >
+        <div v-if="ctx.editingStartLayout.value" class="intake-start-block-tools">
+          <button type="button" class="ajl-drag" @mousedown.stop="ctx.startOfficeBlockDrag('values', $event)">Move</button>
+        </div>
         <ul class="intake-start-values">
           <li>
             <span aria-hidden="true">♡</span>
@@ -118,15 +148,11 @@
             :step="ctx.selectedStartSizeStep.value"
           />
         </label>
-        <label v-if="ctx.selectedStartBlock.value === 'brand'" class="ajl-edit-field">
-          Logo size
-          <input v-model.number="ctx.startLayoutDraft.sizes.logoWidth" type="range" min="48" max="360" step="4" />
-        </label>
         <label v-if="ctx.selectedStartBlock.value === 'card'" class="ajl-edit-field">
           Card width
           <input v-model.number="ctx.startLayoutDraft.width" type="range" min="420" max="1200" step="10" />
         </label>
-        <span class="intake-start-edit-hint">Drag to move, pull the blue handle to resize, use alignment for left / center / right. Hide keeps the original wording — it does not delete it.</span>
+        <span class="intake-start-edit-hint">Drag to move, including up over this bar and left into the photo. Pull the blue handle to resize. Alignment is left / center / right. Hide keeps the original wording — it does not delete it.</span>
       </template>
       <button
         v-if="canDevFill"
@@ -273,6 +299,11 @@ if (!ctx) {
 
 .intake-start-block {
   position: relative;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.intake-start-block--values {
   width: 100%;
 }
 
@@ -319,6 +350,11 @@ if (!ctx) {
   font-size: 0.7rem;
   font-weight: 700;
   cursor: grab;
+}
+
+.intake-start-rail .intake-start-block-tools {
+  top: 0.15rem;
+  left: 0.15rem;
 }
 
 .intake-start-block-tools .ajl-drag {
@@ -380,7 +416,7 @@ if (!ctx) {
 .intake-start-tagline {
   margin: 0.55rem 0 0;
   letter-spacing: 0.1em;
-  font-size: 0.68rem;
+  font-size: inherit;
   text-transform: uppercase;
   font-weight: 700;
   color: #1f6b4a;
@@ -389,6 +425,7 @@ if (!ctx) {
 .intake-start-script {
   margin: 0.25rem 0 0;
   font-family: 'Great Vibes', cursive;
+  font-size: inherit;
   line-height: 1.05;
   color: #123c6d;
 }
@@ -399,7 +436,7 @@ if (!ctx) {
   padding: 0;
   display: grid;
   gap: 0.55rem;
-  font-size: 0.84rem;
+  font-size: inherit;
   line-height: 1.35;
 }
 
@@ -470,20 +507,26 @@ if (!ctx) {
 
 
 .intake-start-editbar {
-  position: sticky;
-  top: 0;
-  z-index: 40;
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  translate: -50% 0;
+  z-index: 80;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.75rem;
-  width: 100%;
+  width: min(1100px, calc(100vw - 1.5rem));
+  margin-bottom: 0;
   padding: 0.5rem 0.65rem;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(10px);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  pointer-events: none;
+}
+.intake-start-editbar > * {
+  pointer-events: auto;
 }
 
 .intake-start-edit-target {

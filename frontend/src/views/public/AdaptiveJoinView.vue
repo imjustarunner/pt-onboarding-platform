@@ -35,12 +35,12 @@
     :decor-hero-frame-style="decorHero.frameStyle"
     :decor-hero-image-position="decorHero.imagePosition"
     :cover-mode="loading || !!loadError || submitted || phase === 'pathway'"
+    :wide="phase === 'quick' || submitted"
     :contact-phone-display="joinContactPhone"
     :contact-phone-tel="joinContactTel"
     :contact-email="joinContactEmail"
     :show-contact-support-action="!!joinContactEmail"
     contact-support-label="Send a message"
-    scenic-sidebar-url="/assets/intake-themes/backgroundsidegreen.jpg"
     :sidebar-editing="editingSidebar"
     @contact-support="openJoinSupport"
     @update-sidebar-label="onSidebarLabel"
@@ -66,6 +66,7 @@
       :agency-name="config?.agency?.name || ''"
       :confirmation="confirmation"
       :support-contact="config?.supportContact"
+      :logo-url="thankYouLogoUrl"
     />
 
     <template v-else-if="phase === 'quick'">
@@ -369,6 +370,22 @@ if (cachedJoin?.copy) {
   if (cachedJoin.copy.layout) cachedJoin.copy.layout = mergeJoinLayout(cachedJoin.copy.layout);
 }
 const config = ref((cachedJoin?.agency || cachedJoin?.pathways) ? cachedJoin : null);
+const thankYouLogoUrl = computed(() => {
+  const branding = config.value?.branding || {};
+  const fromApi = String(
+    branding.logoUrl
+    || branding.agencyLogoUrl
+    || branding.organizationLogoUrl
+    || config.value?.agency?.logo_url
+    || config.value?.agency?.logoUrl
+    || ''
+  ).trim();
+  if (fromApi) return fromApi;
+  if (String(agencySlug.value || '').toLowerCase() === 'itsco') {
+    return '/assets/provider-action/itsco-logo.png';
+  }
+  return '';
+});
 const bootThemeUrl = computed(() =>
   String(config.value?.themeImageUrl || JOIN_BOOT_THEME_URL).trim()
 );
@@ -552,6 +569,9 @@ const fullCard = computed(() => {
 });
 
 const decorHero = computed(() => {
+  if (phase.value === 'quick' || submitted.value) {
+    return { url: '', alt: '', frameStyle: 'preframed', imagePosition: 'center center' };
+  }
   const slug = config.value?.agency?.slug || agencySlug.value;
   const name = config.value?.agency?.name || '';
   const page = mergeCareersPageWithDefaults(config.value?.decorHero || {}, { slug, agencyName: name });
@@ -751,13 +771,14 @@ function toggleConcern(value) {
   else form.concerns.push(value);
 }
 
-function joinHubPath() {
+function joinWelcomePath() {
   const slug = agencySlug.value;
+  const svc = resolvedServiceType.value || serviceType.value || 'counseling';
   if (!slug) return '';
   if (route.params.organizationSlug) {
-    return `/${encodeURIComponent(slug)}/join-intake`;
+    return `/${encodeURIComponent(slug)}/join/${encodeURIComponent(svc)}`;
   }
-  return `/join/${encodeURIComponent(slug)}`;
+  return `/join/${encodeURIComponent(slug)}/${encodeURIComponent(svc)}`;
 }
 
 function goBack() {
@@ -765,12 +786,15 @@ function goBack() {
     quickStep.value -= 1;
     return;
   }
-  if ((config.value?.intakeServices?.length || 0) > 1) {
-    router.push(joinHubPath());
+  if (phase.value === 'quick') {
+    phase.value = 'pathway';
+    quickStep.value = 0;
     return;
   }
-  phase.value = 'pathway';
-  quickStep.value = 0;
+  const welcome = joinWelcomePath();
+  if (welcome && route.path !== welcome) {
+    router.push(welcome);
+  }
 }
 
 function onPathwayContinue(pathway) {
@@ -886,8 +910,8 @@ onMounted(async () => {
     providers.value = data?.providerPreview || [];
 
     const services = Array.isArray(data?.intakeServices) ? data.intakeServices : [];
-    if (services.length > 1 && !data?.activeService) {
-      await router.replace(joinHubPath());
+    if (services.length > 1 && !data?.activeService && !serviceType.value) {
+      await router.replace(joinWelcomePath() || `/join/${encodeURIComponent(agencySlug.value)}/counseling`);
       return;
     }
     if (services.length === 0) {
@@ -910,8 +934,7 @@ onMounted(async () => {
 }
 .ai-join-stage {
   width: 100%;
-  max-width: 44rem;
-  margin: 0 auto;
+  max-width: none;
 }
 .ai-join-form {
   width: 100%;

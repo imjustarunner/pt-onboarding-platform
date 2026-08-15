@@ -561,7 +561,8 @@ export async function createPublicOfficeIntakeClient({ agencySlugOrId, payload =
   const fullName = String(payload.fullName || `${firstName} ${lastName}`).trim();
   if (!fullName) throw new Error('Name is required');
   const contactPhone = String(payload.contactPhone || payload.phone || '').trim() || null;
-  const dateOfBirth = String(payload.dateOfBirth || payload.birthdate || '').trim() || null;
+  const rawDob = String(payload.dateOfBirth || payload.birthdate || '').trim();
+  const dateOfBirth = /^\d{4}-\d{2}-\d{2}$/.test(rawDob) ? rawDob : null;
   const homeAddress = String(payload.homeAddress || '').trim() || null;
 
   const initials = fullName

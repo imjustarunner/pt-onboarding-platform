@@ -11,46 +11,75 @@
     <div class="ajl-bg" :style="bgStyle" aria-hidden="true" />
 
     <aside class="ajl-rail" :class="{ 'ajl-rail--editing': editing }">
-      <div
-        class="ajl-block ajl-block--brand"
-        :class="{ 'ajl-block--selected': selectedBlock === 'brand' }"
-        :style="blockStyle('brand')"
-        @mousedown="onBlockMouseDown('brand', $event)"
-      >
-        <div v-if="editing" class="ajl-block-tools">
-          <button type="button" class="ajl-drag" @mousedown.stop="startDrag('brand', $event)">Move</button>
-        </div>
-        <div v-if="editing && selectedBlock === 'brand'" class="ajl-resize ajl-resize--e" @mousedown.stop="startResize('brand', 'e', $event)" />
-        <div class="ajl-brand">
+      <div class="ajl-brand-stack">
+        <div
+          class="ajl-block ajl-block--logo"
+          :class="{ 'ajl-block--selected': selectedBlock === 'logo' }"
+          :style="blockStyle('logo')"
+          @mousedown="onBlockMouseDown('logo', $event)"
+        >
+          <div v-if="editing" class="ajl-block-tools">
+            <button type="button" class="ajl-drag" @mousedown.stop="startDrag('logo', $event)">Move</button>
+          </div>
+          <div v-if="editing && selectedBlock === 'logo'" class="ajl-resize ajl-resize--e" @mousedown.stop="startResize('logo', 'e', $event)" />
           <img v-if="logoUrl" class="ajl-logo" :src="logoUrl" :alt="agencyName" :style="logoStyle" />
           <div v-else class="ajl-logo-fallback" :style="logoStyle">{{ agencyInitial }}</div>
+        </div>
+        <div
+          class="ajl-block ajl-block--tagline"
+          :class="{ 'ajl-block--selected': selectedBlock === 'tagline' }"
+          :style="blockStyle('tagline')"
+          @mousedown="onBlockMouseDown('tagline', $event)"
+        >
+          <div v-if="editing" class="ajl-block-tools">
+            <button type="button" class="ajl-drag" @mousedown.stop="startDrag('tagline', $event)">Move</button>
+          </div>
           <p class="ajl-tagline">
-            <input v-if="editing" v-model="draft.sidebarTagline" class="ajl-inline" />
+            <input v-if="editing" v-model="draft.sidebarTagline" class="ajl-inline" @mousedown.stop />
             <span v-else>{{ copy.sidebarTagline }}</span>
           </p>
+        </div>
+        <div
+          class="ajl-block ajl-block--script"
+          :class="{ 'ajl-block--selected': selectedBlock === 'script' }"
+          :style="blockStyle('script')"
+          @mousedown="onBlockMouseDown('script', $event)"
+        >
+          <div v-if="editing" class="ajl-block-tools">
+            <button type="button" class="ajl-drag" @mousedown.stop="startDrag('script', $event)">Move</button>
+          </div>
           <p class="ajl-script">
-            <input v-if="editing" v-model="draft.sidebarScript" class="ajl-inline ajl-inline--script" />
+            <input v-if="editing" v-model="draft.sidebarScript" class="ajl-inline ajl-inline--script" @mousedown.stop />
             <span v-else>{{ copy.sidebarScript }}</span>
           </p>
         </div>
-
-        <ul class="ajl-values">
-          <li>
-            <span aria-hidden="true">♡</span>
-            <input v-if="editing" v-model="draft.value1" class="ajl-inline" />
-            <span v-else>{{ copy.value1 }}</span>
-          </li>
-          <li>
-            <span aria-hidden="true">👥</span>
-            <input v-if="editing" v-model="draft.value2" class="ajl-inline" />
-            <span v-else>{{ copy.value2 }}</span>
-          </li>
-          <li>
-            <span aria-hidden="true">🌿</span>
-            <input v-if="editing" v-model="draft.value3" class="ajl-inline" />
-            <span v-else>{{ copy.value3 }}</span>
-          </li>
-        </ul>
+        <div
+          class="ajl-block ajl-block--values"
+          :class="{ 'ajl-block--selected': selectedBlock === 'values' }"
+          :style="blockStyle('values')"
+          @mousedown="onBlockMouseDown('values', $event)"
+        >
+          <div v-if="editing" class="ajl-block-tools">
+            <button type="button" class="ajl-drag" @mousedown.stop="startDrag('values', $event)">Move</button>
+          </div>
+          <ul class="ajl-values">
+            <li>
+              <span aria-hidden="true">♡</span>
+              <input v-if="editing" v-model="draft.value1" class="ajl-inline" @mousedown.stop />
+              <span v-else>{{ copy.value1 }}</span>
+            </li>
+            <li>
+              <span aria-hidden="true">👥</span>
+              <input v-if="editing" v-model="draft.value2" class="ajl-inline" @mousedown.stop />
+              <span v-else>{{ copy.value2 }}</span>
+            </li>
+            <li>
+              <span aria-hidden="true">🌿</span>
+              <input v-if="editing" v-model="draft.value3" class="ajl-inline" @mousedown.stop />
+              <span v-else>{{ copy.value3 }}</span>
+            </li>
+          </ul>
+        </div>
       </div>
 
       <div
@@ -116,7 +145,7 @@
               :step="selectedSizeStep"
             />
           </label>
-          <label v-if="selectedBlock === 'brand'" class="ajl-edit-field">
+          <label v-if="selectedBlock === 'logo'" class="ajl-edit-field">
             Logo size
             <input v-model.number="draft.layout.sizes.logoWidth" type="range" min="48" max="360" step="4" />
           </label>
@@ -362,7 +391,10 @@ const ALIGN_OPTIONS = [
 ];
 
 const BLOCK_LABELS = {
-  brand: 'Logo & tagline',
+  logo: 'Logo',
+  tagline: 'Tagline',
+  script: 'Script line',
+  values: 'Value list',
   help: 'Need help card',
   welcome: 'Welcome line',
   glad: 'Note under welcome',
@@ -455,33 +487,42 @@ const selectedSizeKey = computed(() => {
   if (selectedBlock.value === 'welcome') return 'welcome';
   if (selectedBlock.value === 'glad') return 'glad';
   if (selectedBlock.value === 'lead') return 'lead';
+  if (selectedBlock.value === 'tagline') return 'tagline';
+  if (selectedBlock.value === 'script') return 'script';
+  if (selectedBlock.value === 'values') return 'values';
   if (selectedBlock.value === 'cards') return 'cardsWidth';
-  if (selectedBlock.value === 'brand') return 'brandWidth';
   if (selectedBlock.value === 'help') return 'helpWidth';
   return '';
 });
 
 const selectedSizeLabel = computed(() => {
   if (selectedBlock.value === 'cards') return 'Cards width';
-  if (selectedBlock.value === 'brand' || selectedBlock.value === 'help') return `${selectedBlock.value} width`;
+  if (selectedBlock.value === 'help') return 'Help width';
+  if (selectedBlock.value === 'tagline') return 'Tagline size';
+  if (selectedBlock.value === 'script') return 'Script size';
+  if (selectedBlock.value === 'values') return 'List size';
   return `${selectedBlock.value} size`;
 });
 
 const selectedSizeMin = computed(() => {
   if (selectedBlock.value === 'cards') return 360;
-  if (selectedBlock.value === 'brand' || selectedBlock.value === 'help') return 140;
+  if (selectedBlock.value === 'help') return 140;
+  if (selectedBlock.value === 'tagline') return 0.5;
+  if (selectedBlock.value === 'values') return 0.65;
   return 0.7;
 });
 
 const selectedSizeMax = computed(() => {
   if (selectedBlock.value === 'welcome') return 7;
   if (selectedBlock.value === 'cards') return 1200;
-  if (selectedBlock.value === 'brand' || selectedBlock.value === 'help') return 300;
+  if (selectedBlock.value === 'help') return 300;
+  if (selectedBlock.value === 'script') return 4;
+  if (selectedBlock.value === 'tagline' || selectedBlock.value === 'values') return 1.4;
   return 2.4;
 });
 
 const selectedSizeStep = computed(() => (
-  selectedBlock.value === 'cards' || selectedBlock.value === 'brand' || selectedBlock.value === 'help'
+  selectedBlock.value === 'cards' || selectedBlock.value === 'help'
     ? 10
     : 0.05
 ));
@@ -527,7 +568,7 @@ function resetLayout() {
 }
 
 function blockAlign(key) {
-  return normalizeAlign(activeLayout.value.align?.[key], key === 'brand' || key === 'help' ? 'left' : 'left');
+  return normalizeAlign(activeLayout.value.align?.[key], 'left');
 }
 
 function setBlockAlign(key, align) {
@@ -550,10 +591,17 @@ function blockStyle(key) {
       style.minHeight = `${Number(sizes.cardsMinHeight)}px`;
     }
   }
-  if ((key === 'brand' || key === 'help') && Number(sizes[`${key}Width`]) > 0) {
-    style.width = `${Number(sizes[`${key}Width`])}px`;
+  if (key === 'help' && Number(sizes.helpWidth) > 0) {
+    style.width = `${Number(sizes.helpWidth)}px`;
   }
-  if (editing.value && (key === 'welcome' || key === 'glad' || key === 'lead')) {
+  if (key === 'logo') {
+    style.width = `${Number(sizes.logoWidth) || 150}px`;
+    style.maxWidth = '100%';
+  }
+  if (key === 'tagline') style.fontSize = `${Number(sizes.tagline) || 0.68}rem`;
+  if (key === 'script') style.fontSize = `${Number(sizes.script) || 2}rem`;
+  if (key === 'values') style.fontSize = `${Number(sizes.values) || 0.84}rem`;
+  if (editing.value) {
     style.zIndex = selectedBlock.value === key ? 8 : 6;
   }
   return style;
@@ -670,7 +718,10 @@ function startDrag(key, event) {
   if (!draft.layout.positions[key]) draft.layout.positions[key] = { x: 0, y: 0 };
   const pos = draft.layout.positions[key];
   const el = event.target?.closest('.ajl-block');
-  const container = el?.closest('.ajl-main, .ajl-rail');
+  const win = typeof window !== 'undefined' ? window : null;
+  const bounds = win
+    ? { left: -280, top: -220, right: win.innerWidth + 280, bottom: win.innerHeight + 220 }
+    : null;
   dragState = {
     key,
     startX: event.clientX,
@@ -678,7 +729,7 @@ function startDrag(key, event) {
     origX: Number(pos.x) || 0,
     origY: Number(pos.y) || 0,
     rect: el ? el.getBoundingClientRect() : null,
-    bounds: container ? container.getBoundingClientRect() : null
+    bounds
   };
   window.addEventListener('mousemove', onDragMove);
   window.addEventListener('mouseup', stopDrag);
@@ -726,7 +777,7 @@ function startResize(key, edge, event) {
     startY: event.clientY,
     origW: Number(sizes.cardsWidth) || 860,
     origH: Number(sizes.cardsMinHeight) || 0,
-    origBrandW: Number(sizes.brandWidth) || 220,
+    origLogoW: Number(sizes.logoWidth) || 150,
     origHelpW: Number(sizes.helpWidth) || 220,
     origSize: Number(sizes[key]) || 1
   };
@@ -748,8 +799,8 @@ function onResizeMove(event) {
     }
     return;
   }
-  if (key === 'brand' && edge.includes('e')) {
-    draft.layout.sizes.brandWidth = Math.round(Math.min(300, Math.max(140, resizeState.origBrandW + dx)));
+  if (key === 'logo' && edge.includes('e')) {
+    draft.layout.sizes.logoWidth = Math.round(Math.min(360, Math.max(48, resizeState.origLogoW + dx)));
     return;
   }
   if (key === 'help' && edge.includes('e')) {
@@ -757,8 +808,9 @@ function onResizeMove(event) {
     return;
   }
   const delta = edge === 'e' ? dx / 80 : dy / 80;
-  const max = key === 'welcome' ? 7 : 2.4;
-  draft.layout.sizes[key] = Math.round(Math.min(max, Math.max(0.7, resizeState.origSize + delta)) * 100) / 100;
+  const max = key === 'welcome' ? 7 : key === 'script' ? 4 : 2.4;
+  const min = key === 'tagline' ? 0.5 : key === 'values' ? 0.65 : 0.7;
+  draft.layout.sizes[key] = Math.round(Math.min(max, Math.max(min, resizeState.origSize + delta)) * 100) / 100;
 }
 
 function stopResize() {
@@ -873,12 +925,29 @@ async function saveEdit() {
   outline-offset: -4px;
 }
 
-.ajl-block--brand,
-.ajl-block--help {
+.ajl-brand-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.45rem;
   width: 100%;
 }
 
+.ajl-block--tagline {
+  font-size: 0.68rem;
+}
+
+.ajl-block--script {
+  font-size: 2rem;
+}
+
+.ajl-block--values {
+  width: 100%;
+  font-size: 0.84rem;
+}
+
 .ajl-block--help {
+  width: 100%;
   margin-top: auto;
 }
 
@@ -887,7 +956,7 @@ async function saveEdit() {
 }
 
 .ajl-logo {
-  width: min(150px, 100%);
+  width: 100%;
   height: auto;
   object-fit: contain;
   filter: none;
@@ -906,18 +975,18 @@ async function saveEdit() {
 }
 
 .ajl-tagline {
-  margin: 0.55rem 0 0;
+  margin: 0;
   letter-spacing: 0.1em;
-  font-size: 0.68rem;
+  font-size: inherit;
   text-transform: uppercase;
   font-weight: 700;
   color: #1f6b4a;
 }
 
 .ajl-script {
-  margin: 0.25rem 0 0;
+  margin: 0;
   font-family: var(--ajl-script-font, 'Great Vibes', cursive);
-  font-size: clamp(1.65rem, 2.2vw, 2.15rem);
+  font-size: inherit;
   line-height: 1.05;
   color: #123c6d;
 }
@@ -928,7 +997,7 @@ async function saveEdit() {
   padding: 0;
   display: grid;
   gap: 0.55rem;
-  font-size: 0.84rem;
+  font-size: inherit;
   line-height: 1.35;
 }
 
@@ -994,7 +1063,10 @@ async function saveEdit() {
   border-radius: 12px;
 }
 
-.ajl-block--brand .ajl-block-tools,
+.ajl-block--logo .ajl-block-tools,
+.ajl-block--tagline .ajl-block-tools,
+.ajl-block--script .ajl-block-tools,
+.ajl-block--values .ajl-block-tools,
 .ajl-block--help .ajl-block-tools {
   top: 0.15rem;
   left: 0.15rem;
@@ -1054,7 +1126,10 @@ async function saveEdit() {
   border-radius: 12px;
 }
 
-.ajl-block--brand .ajl-drag,
+.ajl-block--logo .ajl-drag,
+.ajl-block--tagline .ajl-drag,
+.ajl-block--script .ajl-drag,
+.ajl-block--values .ajl-drag,
 .ajl-block--help .ajl-drag {
   top: 0.2rem;
   left: 0.2rem;
@@ -1151,7 +1226,6 @@ async function saveEdit() {
   text-align: left;
 }
 
-.ajl-brand,
 .ajl-help {
   text-align: left;
 }
@@ -1432,8 +1506,8 @@ async function saveEdit() {
     gap: 0.75rem 1rem;
     padding-bottom: 0.5rem;
   }
-  .ajl-brand {
-    flex: 1 1 160px;
+  .ajl-brand-stack {
+    flex: 1 1 220px;
   }
   .ajl-values {
     flex: 1 1 180px;

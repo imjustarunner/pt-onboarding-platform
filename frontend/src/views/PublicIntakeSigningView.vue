@@ -63,6 +63,16 @@
         {{ t('saveAndComeBackLater') }}
       </button>
     </template>
+    <template #header-right-extra>
+      <button
+        v-if="canBypassIntakeRequired && isOfficeInDepthIntake && step >= 1 && step < 3"
+        class="btn btn-secondary btn-sm"
+        type="button"
+        @click="fillExample"
+      >
+        Dev Fill
+      </button>
+    </template>
     <div v-if="showFullPageLoading" class="df-loading">{{ loadingText }}</div>
     <div v-else-if="fatalError" class="df-fatal error">{{ fatalError }}</div>
 
@@ -73,7 +83,7 @@
         <button type="button" class="intake-inline-error-dismiss" @click="error = ''">&#10005;</button>
       </div>
       <button
-        v-if="canBypassIntakeRequired && !(isJobApplication && step === -1) && !(isOfficeInDepthIntake && step === 0.5)"
+        v-if="canBypassIntakeRequired && !(isJobApplication && step === -1) && !(isOfficeInDepthIntake && step >= 0.5)"
         class="btn btn-secondary btn-sm dev-fill-button"
         type="button"
         @click="fillExample"
@@ -1018,8 +1028,8 @@
       </div>
 
         <div v-else-if="step === 2" class="step" :class="{ 'intake-interview-page': isOfficeInDepthIntake }">
-        <div :class="{ 'ai-layout ai-layout--help': isOfficeInDepthIntake }">
-        <div :class="{ 'ai-layout-main': isOfficeInDepthIntake }">
+        <div :class="{ 'ai-layout': isOfficeInDepthIntake, 'ai-layout--help': officeHelpColumnVisible }">
+        <div :class="{ 'ai-layout-main': isOfficeInDepthIntake, 'ai-layout-main--full': isOfficeInDepthIntake && !officeHelpColumnVisible }">
         <div v-if="isOfficeInDepthIntake" class="ai-pathway-badge">{{ publicPacketBadge }}</div>
         <h1 v-if="isOfficeInDepthIntake" class="ai-page-title">{{ currentInterviewPageTitle }}</h1>
         <h3 v-else>{{ currentInterviewPageTitle }}</h3>
@@ -1038,6 +1048,7 @@
           body="If you are having thoughts of suicide or feel unsafe, call or text 988. Your therapist will also be notified so this is not missed."
         />
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
+        <div :key="flowStepRenderKey" class="intake-flow-step-body">
         <div v-if="currentFlowStep?.type === 'school_roi'" class="school-roi-step">
           <SmartSchoolRoiFlow
             :public-key="publicKey"
@@ -1518,7 +1529,7 @@
         </div>
 
         <!-- Paged interview questions — one intake_steps questions page at a time -->
-        <div v-if="currentFlowStep?.type === 'questions'" class="questions-step intake-interview-page">
+        <div v-if="currentFlowStep?.type === 'questions' && !isCurrentQuestionnairePage" class="questions-step intake-interview-page">
           <div class="form-grid">
             <template v-for="(row, idx) in currentQuestionRows" :key="row.field?.key || `sec_${idx}`">
               <h4 v-if="row.section" class="df-section-kicker form-group form-group--span-12">{{ row.section }}</h4>
@@ -1535,7 +1546,7 @@
                   :help="txField(row.field, 'helperText')"
                   :placeholder="txField(row.field, 'placeholder')"
                   :options="(row.field.options || []).map((opt) => ({ value: opt.value || opt.label, label: txOption(opt) }))"
-                  :required="!!row.field.required"
+                  :required="isOfficeHardRequiredField(row.field) || (!isOfficeInDepthIntake && !!row.field.required)"
                   :error="isQuestionFieldMissing(row.field)"
                   name-prefix="q_"
                   @update:model-value="(v) => { questionValues[row.field.key] = v; }"
@@ -1560,25 +1571,39 @@
           </div>
         </div>
 
-        <!-- Clinical questions step — rendered identically to regular questions but saved separately -->
-        <div v-if="currentFlowStep?.type === 'clinical_questions'" class="clinical-questions-step intake-interview-page">
-          <p class="muted" style="margin-bottom: 16px; font-size: 13px;">
-            {{ tx('The following questions help your provider understand your needs. Your answers are confidential and only visible to your assigned provider.') }}
+        <div v-if="isCurrentQuestionnairePage" class="clinical-questions-step intake-interview-page">
+          <p v-if="!clinicalFieldGroups.length" class="muted" style="margin-bottom: 16px;">
+            {{ tx('Based on what you already shared, no additional questionnaires are recommended. You can continue.') }}
+          </p>
+          <p v-else class="muted" style="margin-bottom: 16px; font-size: 13px;">
+            {{ tx('These short screens are recommended from what you already shared. They are optional — skip any you would rather not complete.') }}
           </p>
           <div
             v-for="(group, gIdx) in clinicalFieldGroups"
-            :key="'cg_' + gIdx"
+            :key="group.instrument || ('cg_' + gIdx)"
             class="clinical-field-group"
-            :class="{ 'clinical-field-group--shared': !!group.sharedHelper }"
+            :class="{ 'clinical-field-group--shared': !!group.sharedHelper, 'clinical-instrument-card': !!group.meta }"
           >
-            <div v-if="group.sharedHelper" class="clinical-group-header">
+            <div v-if="group.meta" class="clinical-instrument-head">
+              <div>
+                <span class="clinical-instrument-kicker">{{ tx('Recommended') }}</span>
+                <h3 class="clinical-instrument-title">{{ group.meta.title }} — {{ group.meta.subtitle }}</h3>
+                <p v-if="group.sharedHelper" class="clinical-group-header">{{ tx(group.sharedHelper) }}</p>
+              </div>
+              <button
+                type="button"
+                class="df-btn df-btn-secondary btn-sm"
+                @click="skipOfficeInstrument(group.instrument)"
+              >{{ tx('Skip for now') }}</button>
+            </div>
+            <div v-else-if="group.sharedHelper" class="clinical-group-header">
               {{ tx(group.sharedHelper) }}
             </div>
             <div
               v-for="field in group.fields"
               :key="field.key || field.id"
               class="question-field-row"
-              :ref="el => fieldRefs[field.key || field.id] = el"
+              :ref="el => setClinicalFieldRef(field.key || field.id, el)"
             >
               <IntakeQuestionField
                 :field="field"
@@ -1586,8 +1611,8 @@
                 :label="txField(field)"
                 :help="group.sharedHelper ? '' : txField(field, 'helperText')"
                 :options="(field.options || []).map((opt) => ({ value: opt.value || opt.label, label: txOption(opt) }))"
-                :required="!!field.required"
-                :error="isClinicalFieldMissing(field)"
+                :required="false"
+                :error="false"
                 name-prefix="cq_"
                 @update:model-value="(v) => { clinicalResponses[field.key] = v; }"
               />
@@ -1815,11 +1840,74 @@
         </div>
         </div>
         <AdaptiveIntakeHelpPanel
-          v-if="isOfficeInDepthIntake"
+          v-if="officeHelpColumnVisible"
           class="df-desktop-only"
           :blocks="flowStepHelpBlocks"
           :aria-label="t('whyWeAsk')"
         />
+        </div>
+        </div>
+      </div>
+
+      <div v-else-if="step === 3 && isOfficeInDepthIntake" class="step office-complete">
+        <div class="office-complete-layout">
+          <div class="office-complete-main">
+            <div class="ai-pathway-badge">{{ publicPacketBadge }}</div>
+            <h1 class="ai-page-title">{{ t('thankYou') }}</h1>
+            <p class="ai-page-lead">{{ officeCompleteLead }}</p>
+            <p class="office-complete-pager">{{ officeCompletePagerLabel }}</p>
+            <div class="office-complete-bar" aria-hidden="true"><span /></div>
+            <div class="office-complete-card">
+              <div class="office-complete-hero">
+                <div class="office-complete-check" aria-hidden="true">✓</div>
+                <h2>{{ t('youreAllSet') }}</h2>
+                <p class="office-complete-received">{{ t('weReceivedYourPacket') }}</p>
+                <p>{{ t('officeCompleteFollowup') }}</p>
+              </div>
+              <div class="office-complete-grid">
+                <div><span aria-hidden="true">✉️</span><strong>{{ t('confirmationEmailSent') }}</strong><p>{{ intakeSuccessEmailMessage }}</p></div>
+                <div><span aria-hidden="true">👥</span><strong>{{ t('personalizedMatch') }}</strong><p>{{ t('personalizedMatchBody') }}</p></div>
+                <div><span aria-hidden="true">📅</span><strong>{{ t('wellReachOut') }}</strong><p>{{ t('wellReachOutBody') }}</p></div>
+                <div><span aria-hidden="true">♡</span><strong>{{ t('wereHereToHelp') }}</strong><p>{{ t('wereHereToHelpBody') }}</p></div>
+              </div>
+              <div class="office-complete-next">
+                <h3>{{ t('whatHappensNext') }}</h3>
+                <ol>
+                  <li><strong>{{ t('officeNextReview') }}</strong> {{ t('officeNextReviewBody') }}</li>
+                  <li><strong>{{ t('officeNextMatch') }}</strong> {{ t('officeNextMatchBody') }}</li>
+                  <li><strong>{{ t('officeNextConnect') }}</strong> {{ t('officeNextConnectBody') }}</li>
+                  <li><strong>{{ t('officeNextStart') }}</strong> {{ t('officeNextStartBody') }}</li>
+                </ol>
+              </div>
+              <div class="office-complete-download">
+                <p>{{ t('savePacketSummary') }}</p>
+                <button
+                  type="button"
+                  class="df-btn df-btn-primary"
+                  :disabled="officeSummaryDownloading"
+                  @click="downloadOfficeSummaryPdf"
+                >
+                  {{ officeSummaryDownloading ? t('preparingPdf') : t('downloadSummary') }}
+                </button>
+              </div>
+              <p v-if="officeSummaryError" class="office-complete-download-error">{{ officeSummaryError }}</p>
+            </div>
+          </div>
+          <aside class="office-complete-aside">
+            <h3>{{ t('nextSteps') }}</h3>
+            <ol class="office-complete-aside-list">
+              <li>{{ t('officeAsideReview') }}</li>
+              <li>{{ t('officeAsideReachOut') }}</li>
+              <li>{{ t('officeAsideFit') }}</li>
+              <li>{{ t('officeAsideJourney') }}</li>
+            </ol>
+            <div class="office-complete-support">
+              <h4>{{ t('questionsInMeantime') }}</h4>
+              <a v-if="splashContactTel" :href="`tel:${splashContactTel}`">{{ splashContactPhone }}</a>
+              <a v-if="splashContactEmail" :href="`mailto:${splashContactEmail}`">{{ splashContactEmail }}</a>
+              <button type="button" class="df-btn df-btn-secondary" @click="openSplashSupportModal">{{ t('contactSupport') }}</button>
+            </div>
+          </aside>
         </div>
       </div>
 
@@ -2302,6 +2390,12 @@ import {
   normalizeIntakeSexFields,
   plusKeyForSexField
 } from '../utils/intakeSexField.js';
+import {
+  OFFICE_INSTRUMENT_META,
+  indicatedOfficeInstruments,
+  instrumentIdForField,
+  isOfficeHardRequiredField
+} from '../utils/officeQuestionnaireRecommend.js';
 
 const JOB_LANDING_ICON_PATHS = {
   school: [
@@ -2632,7 +2726,40 @@ const INTAKE_TRANSLATIONS = {
     beginSubtitleRegistration: 'Register for one program, class, or event from this secure link. Some links let you choose from multiple options.',
     beginSubtitleProgramEnrollment:
       'Enroll in an individual program or service from this secure link. This is for becoming a client — not for signing up for a group class or dated event unless your provider included that here.',
-    pressEnterToContinue: 'Press Enter ↵ to continue'
+    pressEnterToContinue: 'Press Enter ↵ to continue',
+    thankYou: 'Thank you!',
+    youreAllSet: "You're all set.",
+    weReceivedYourPacket: "We've received your intake packet.",
+    officeCompleteFollowup: 'A member of our team will carefully review your information and will be in touch within 1–2 business days.',
+    confirmationEmailSent: 'Confirmation email sent',
+    personalizedMatch: 'Personalized match',
+    personalizedMatchBody: "We'll identify the right provider for your needs.",
+    wellReachOut: "We'll reach out",
+    wellReachOutBody: "We'll contact you within 1–2 business days.",
+    wereHereToHelp: "We're here to help",
+    wereHereToHelpBody: 'Questions in the meantime? Reach out any time.',
+    whatHappensNext: 'What happens next?',
+    officeNextReview: 'Review:',
+    officeNextReviewBody: 'Our care team will review your intake.',
+    officeNextMatch: 'Match:',
+    officeNextMatchBody: "We'll identify the right provider for you.",
+    officeNextConnect: 'Connect:',
+    officeNextConnectBody: "We'll reach out within 1–2 business days.",
+    officeNextStart: 'Get started:',
+    officeNextStartBody: "Once everything is set, we'll help you schedule.",
+    savePacketSummary: 'Download a branded PDF of what you submitted for your records.',
+    downloadSummary: 'Download PDF',
+    downloadSummaryUnavailable: 'This summary is not available yet. Please try again in a moment.',
+    preparingPdf: 'Preparing PDF…',
+    nextSteps: 'Next Steps',
+    officeAsideReview: 'Review your info',
+    officeAsideReachOut: "We'll reach out",
+    officeAsideFit: 'Find your fit',
+    officeAsideJourney: 'Start your journey',
+    questionsInMeantime: 'Questions in the meantime?',
+    contactSupport: 'Contact Support',
+    officeCompleteSubmitted: 'Your packet was submitted successfully. We appreciate you taking the time to share this with us.',
+    officeSummaryComing: 'Your care team has your packet. You can download a branded PDF summary below.'
   },
   es: {
     loadingLink: 'Cargando enlace de admisión...',
@@ -2866,7 +2993,40 @@ const INTAKE_TRANSLATIONS = {
     endSessionConfirm: '¿Terminar esta sesión y borrar esta admisión de este navegador?',
     unableToStartSession: 'No se pudo iniciar una nueva sesión de admisión. Por favor intente de nuevo.',
     dailyLimitReached: 'Se alcanzó el límite diario de inicio de admisión. Por favor intente mañana.',
-    pressEnterToContinue: 'Presione Enter ↵ para continuar'
+    pressEnterToContinue: 'Presione Enter ↵ para continuar',
+    thankYou: '¡Gracias!',
+    youreAllSet: 'Todo listo.',
+    weReceivedYourPacket: 'Hemos recibido su paquete de admisión.',
+    officeCompleteFollowup: 'Un miembro de nuestro equipo revisará su información y se comunicará en 1–2 días hábiles.',
+    confirmationEmailSent: 'Correo de confirmación enviado',
+    personalizedMatch: 'Asignación personalizada',
+    personalizedMatchBody: 'Identificaremos el proveedor adecuado para usted.',
+    wellReachOut: 'Nos comunicaremos',
+    wellReachOutBody: 'Le contactaremos en 1–2 días hábiles.',
+    wereHereToHelp: 'Estamos aquí para ayudar',
+    wereHereToHelpBody: '¿Preguntas mientras tanto? Escríbanos cuando guste.',
+    whatHappensNext: '¿Qué sigue?',
+    officeNextReview: 'Revisión:',
+    officeNextReviewBody: 'Nuestro equipo de atención revisará su admisión.',
+    officeNextMatch: 'Asignación:',
+    officeNextMatchBody: 'Identificaremos el proveedor adecuado para usted.',
+    officeNextConnect: 'Conexión:',
+    officeNextConnectBody: 'Nos comunicaremos en 1–2 días hábiles.',
+    officeNextStart: 'Comenzar:',
+    officeNextStartBody: 'Cuando todo esté listo, le ayudaremos a agendar.',
+    savePacketSummary: 'Descargue un PDF con la marca de la organización de lo que envió para sus registros.',
+    downloadSummary: 'Descargar PDF',
+    downloadSummaryUnavailable: 'Este resumen aún no está disponible. Inténtelo de nuevo en un momento.',
+    preparingPdf: 'Preparando PDF…',
+    nextSteps: 'Próximos pasos',
+    officeAsideReview: 'Revise su información',
+    officeAsideReachOut: 'Nos comunicaremos',
+    officeAsideFit: 'Encuentre su ajuste',
+    officeAsideJourney: 'Comience su camino',
+    questionsInMeantime: '¿Preguntas mientras tanto?',
+    contactSupport: 'Contactar a soporte',
+    officeCompleteSubmitted: 'Su paquete se envió correctamente. Gracias por tomarse el tiempo de compartirlo con nosotros.',
+    officeSummaryComing: 'Su equipo de atención ya tiene su paquete. Puede descargar un PDF con la marca de la organización abajo.'
   }
 };
 
@@ -3535,6 +3695,29 @@ const autofillDemographicsLocation = async () => {
 
 // Clinical questions step state
 const clinicalResponses = reactive({});
+const fieldRefs = {};
+
+function setClinicalFieldRef(key, el) {
+  if (!key) return;
+  if (el) fieldRefs[key] = el;
+  else delete fieldRefs[key];
+}
+
+function isQuestionnaireFlowStep(step = currentFlowStep.value) {
+  if (!step) return false;
+  const type = String(step.type || '').toLowerCase();
+  if (type === 'clinical_questions') return true;
+  if (type !== 'questions') return false;
+  const id = String(step.id || step.sourceId || '').toLowerCase();
+  const label = String(step.label || '').toLowerCase();
+  return id.includes('questionnaire') || label.includes('questionnaire');
+}
+
+const isCurrentQuestionnairePage = computed(() => isQuestionnaireFlowStep(currentFlowStep.value));
+const flowStepRenderKey = computed(() => {
+  const s = currentFlowStep.value;
+  return `${currentFlowIndex.value}:${String(s?.id || '')}:${String(s?.type || '')}`;
+});
 
 const interviewShowIfValues = computed(() => {
   const step = currentFlowStep.value;
@@ -3552,7 +3735,7 @@ const interviewShowIfValues = computed(() => {
 });
 
 const visibleClinicalFields = computed(() => {
-  if (currentFlowStep.value?.type !== 'clinical_questions') return [];
+  if (!isQuestionnaireFlowStep(currentFlowStep.value)) return [];
   let fields = Array.isArray(currentFlowStep.value?.fields) ? currentFlowStep.value.fields : [];
   if (!fields.length) {
     const all = Array.isArray(link.value?.intake_fields) ? link.value.intake_fields : [];
@@ -3565,6 +3748,17 @@ const visibleClinicalFields = computed(() => {
     });
   }
   const values = interviewShowIfValues.value;
+  if (isOfficeInDepthIntake.value) {
+    const indicated = indicatedOfficeInstruments(values, { forDependent: intakeForSelf.value === false });
+    fields = fields.filter((f) => {
+      const inst = instrumentIdForField(f);
+      if (!inst || indicated[inst] !== true) return false;
+      const skipKey = OFFICE_INSTRUMENT_META[inst]?.skipKey;
+      if (skipKey && String(clinicalResponses[skipKey] || '').toLowerCase() === 'yes') return false;
+      return matchesShowIf(f.showIf, values);
+    }).map((f) => ({ ...f, required: false }));
+    return fields;
+  }
   return fields.filter((f) => {
     if (!f?.key) return false;
     return matchesShowIf(f.showIf, values);
@@ -3586,6 +3780,26 @@ const isClinicalFieldMissing = (field) => {
 // render inline.
 const clinicalFieldGroups = computed(() => {
   const fields = visibleClinicalFields.value || [];
+  if (isOfficeInDepthIntake.value && isCurrentQuestionnairePage.value) {
+    const byInst = new Map();
+    for (const f of fields) {
+      const inst = instrumentIdForField(f) || 'other';
+      if (!byInst.has(inst)) byInst.set(inst, []);
+      byInst.get(inst).push(f);
+    }
+    return [...byInst.entries()].map(([instrument, instFields]) => {
+      const helper = String(instFields[0]?.helperText || '').trim();
+      return {
+        instrument,
+        meta: OFFICE_INSTRUMENT_META[instrument] || {
+          title: instFields[0]?.section || 'Questionnaire',
+          subtitle: ''
+        },
+        sharedHelper: helper,
+        fields: instFields
+      };
+    });
+  }
   const groups = [];
   let current = null;
   for (const f of fields) {
@@ -3597,12 +3811,17 @@ const clinicalFieldGroups = computed(() => {
       groups.push(current);
     }
   }
-  // Only treat a helper as shared when 2+ siblings repeat it.
   return groups.map((g) => ({
     sharedHelper: g.fields.length > 1 ? g.helperKey : '',
     fields: g.fields
   }));
 });
+
+function skipOfficeInstrument(instrument) {
+  const meta = OFFICE_INSTRUMENT_META[instrument];
+  if (!meta?.skipKey) return;
+  clinicalResponses[meta.skipKey] = 'yes';
+}
 const platformTermsUrl = computed(() => currentFlowStep.value?.termsUrlOverride?.trim() || '/terms');
 const platformPrivacyUrl = computed(() => currentFlowStep.value?.privacyUrlOverride?.trim() || '/privacypolicy');
 const communicationsAudience = computed(() => {
@@ -4021,6 +4240,28 @@ function isRepeatPerClientStep(s) {
   return s?.repeatPerClient === true || audience === 'dependent';
 }
 
+function progressBucketId(s) {
+  if (!s) return '';
+  const type = String(s?.type || '');
+  const audience = String(s?.audience || '').trim().toLowerCase();
+  const rawId = String(s?.id || '');
+  if (
+    audience === 'guardian'
+    || rawId.includes('counseling_dep_about_you')
+    || rawId.includes('counseling_dep_family_contact')
+    || rawId.includes('counseling_dep_custody')
+  ) {
+    return 'family';
+  }
+  if (isRepeatPerClientStep(s) || Number.isInteger(s?.clientIndex)) {
+    const i = Number.isInteger(s.clientIndex) ? s.clientIndex : 0;
+    return `child_${i}`;
+  }
+  const source = String(s?.sourceId || '').trim();
+  if (source) return source;
+  return rawId.replace(/__c\d+$/, '') || `${type}`;
+}
+
 const dfProgressSteps = computed(() => {
   const steps = [];
   if (asksWhoFor.value) steps.push({ id: 'who', label: t('letsGetIntakeStarted') });
@@ -4028,9 +4269,8 @@ const dfProgressSteps = computed(() => {
   let familyAdded = false;
   const childAdded = new Set();
   for (const s of flowSteps.value || []) {
-    const type = String(s?.type || '');
-    const audience = String(s?.audience || '').trim().toLowerCase();
-    if (audience === 'guardian' || String(s?.id || '').includes('counseling_dep_about_you') || String(s?.id || '').includes('counseling_dep_family_contact') || String(s?.id || '').includes('counseling_dep_custody')) {
+    const bucket = progressBucketId(s);
+    if (bucket === 'family') {
       if (!familyAdded && !seen.has('family')) {
         seen.add('family');
         familyAdded = true;
@@ -4038,20 +4278,19 @@ const dfProgressSteps = computed(() => {
       }
       continue;
     }
-    if (isRepeatPerClientStep(s) || Number.isInteger(s?.clientIndex)) {
-      const i = Number.isInteger(s.clientIndex) ? s.clientIndex : 0;
-      const cid = `child_${i}`;
+    if (bucket.startsWith('child_')) {
+      const i = Number(bucket.slice(6));
       if (!childAdded.has(i)) {
         childAdded.add(i);
-        seen.add(cid);
-        steps.push({ id: cid, label: childDisplayName(i) });
+        seen.add(bucket);
+        steps.push({ id: bucket, label: childDisplayName(i) });
       }
       continue;
     }
-    const id = String(s?.sourceId || s?.id || `${type}_${steps.length}`);
+    const id = bucket || String(s?.sourceId || s?.id || `${String(s?.type || '')}_${steps.length}`);
     if (seen.has(id)) continue;
     seen.add(id);
-    const raw = String(s?.label || FLOW_STEP_PROGRESS_LABELS[type] || type || 'Step').trim() || 'Step';
+    const raw = String(s?.label || FLOW_STEP_PROGRESS_LABELS[s?.type] || s?.type || 'Step').trim() || 'Step';
     steps.push({
       id,
       label: interpolateChildTokens(tx(raw) || raw, s?.clientIndex)
@@ -4069,24 +4308,24 @@ const dfProgressIndex = computed(() => {
   if (step.value === 1) return asksWhoFor.value ? 1 : 0;
   if (step.value === 2) {
     const current = currentFlowStep.value;
-    const audience = String(current?.audience || '').trim().toLowerCase();
     const collapsed = dfProgressSteps.value;
-    if (audience === 'guardian' || String(current?.id || '').includes('counseling_dep_')) {
-      if (Number.isInteger(current?.clientIndex)) {
-        const cid = `child_${current.clientIndex}`;
-        const idx = collapsed.findIndex((s) => s.id === cid);
-        if (idx >= 0) return Math.min(idx, total - 2);
-      }
-      if (audience === 'guardian') {
-        const idx = collapsed.findIndex((s) => s.id === 'family');
-        if (idx >= 0) return Math.min(idx, total - 2);
-      }
-    }
-    const sid = String(current?.sourceId || current?.id || '');
+    const bucket = progressBucketId(current);
+    const byBucket = collapsed.findIndex((s) => s.id === bucket);
+    if (byBucket >= 0) return Math.min(byBucket, total - 2);
+    const sid = String(current?.sourceId || String(current?.id || '').replace(/__c\d+$/, '') || '');
     const byId = collapsed.findIndex((s) => s.id === sid);
     if (byId >= 0) return Math.min(byId, total - 2);
-    const idx = 1 + Number(currentFlowIndex.value || 0);
-    return Math.min(idx, total - 2);
+    const flowIdx = Number(currentFlowIndex.value || 0);
+    let mapped = -1;
+    const seen = new Set();
+    for (let i = 0; i <= flowIdx && i < (flowSteps.value || []).length; i += 1) {
+      const id = progressBucketId(flowSteps.value[i]);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      mapped = collapsed.findIndex((s) => s.id === id);
+    }
+    if (mapped >= 0) return Math.min(mapped, total - 2);
+    return Math.min(Math.max(flowIdx, 0), total - 2);
   }
   if (step.value === 3) return total - 1;
   return 0;
@@ -4109,7 +4348,8 @@ function jumpToProgressStep(index) {
     return;
   }
   const flowIdx = (flowSteps.value || []).findIndex((s) => {
-    const sid = String(s?.sourceId || s?.id || '');
+    if (progressBucketId(s) === target.id) return true;
+    const sid = String(s?.sourceId || String(s?.id || '').replace(/__c\d+$/, '') || '');
     if (sid === target.id) return true;
     if (target.id === 'family' && (String(s?.audience || '') === 'guardian' || String(s?.id || '').includes('counseling_dep_'))) {
       return !Number.isInteger(s?.clientIndex);
@@ -4342,7 +4582,17 @@ const flowSteps = computed(() => {
               return true;
             });
           }
-          if (isQuestionnairePage && !fields.length) return null;
+          if (isOfficeInDepthIntake.value && isQuestionnairePage && !fields.length) {
+            fields = [];
+          } else if (isQuestionnairePage && !fields.length) {
+            return null;
+          }
+          if (isOfficeInDepthIntake.value) {
+            fields = fields.map((f) => ({
+              ...f,
+              required: isOfficeHardRequiredField(f)
+            }));
+          }
           return { ...s, fields };
         }
         if (s.type === 'child_review') return { ...s };
@@ -4898,6 +5148,14 @@ const successLogoScreens = computed(() => {
 });
 const intakeThankYouName = computed(() => registrationThankYouName.value);
 const intakeThankYouTenantName = computed(() => registrationThankYouTenantName.value);
+const officeCompleteLead = computed(() => t('officeCompleteSubmitted'));
+const officeCompletePagerLabel = computed(() => {
+  const pages = dfProgressSteps.value || [];
+  const total = Math.max(pages.length, 1);
+  return intakeLocale.value === 'es'
+    ? `Paso ${total} de ${total}`
+    : `Step ${total} of ${total}`;
+});
 const intakeRegisteredNames = computed(() => {
   // Prefer the per-client bundle list (always populated after finalize). Fall
   // back to clientDisplayNames when the form is non-registration and bundles
@@ -5019,6 +5277,8 @@ const starterDob = ref('');
 const fluentLanguagesInput = ref('');
 const guardianRelationship = ref('');
 const downloadUrl = ref('');
+const officeSummaryDownloading = ref(false);
+const officeSummaryError = ref('');
 const clientBundleLinks = ref([]);
 const jobApplicationSubmitted = ref(false);
 
@@ -5251,14 +5511,14 @@ function goBackPublicPage() {
   if (step.value === WHO_FOR_STEP) {
     if (skipBrandingIntro.value) {
       const slug = referralAgencySlug.value;
-      if (window.history.length > 1) {
-        router.back();
-        return;
-      }
       if (slug) {
         router.push(`/join/${encodeURIComponent(slug)}/counseling`);
         return;
       }
+      if (window.history.length > 1) {
+        router.back();
+      }
+      return;
     }
     step.value = (!skipBrandingIntro.value && introScreens.value.length) ? 0 : -1;
     return;
@@ -7082,6 +7342,60 @@ const buildClientPayloads = () =>
     };
   });
 
+async function messageFromPdfError(err) {
+  const data = err?.response?.data;
+  if (data instanceof Blob) {
+    try {
+      const parsed = JSON.parse(await data.text());
+      return parsed?.error?.message || 'Unable to download PDF';
+    } catch {
+      return err?.response?.status === 503
+        ? 'The branded PDF could not be created right now. Please try again.'
+        : 'Unable to download PDF';
+    }
+  }
+  return err?.response?.data?.error?.message || err?.message || 'Unable to download PDF';
+}
+
+async function downloadOfficeSummaryPdf() {
+  officeSummaryError.value = '';
+  const token = String(sessionToken.value || '').trim();
+  const id = Number(submissionId.value || 0);
+  if (!token || !id) {
+    officeSummaryError.value = t('downloadSummaryUnavailable');
+    return;
+  }
+  officeSummaryDownloading.value = true;
+  try {
+    const resp = await api.post(
+      `/public-intake/${publicKey}/${id}/summary-pdf`,
+      {
+        sessionToken: token,
+        guardian: {
+          firstName: guardianFirstName.value,
+          lastName: guardianLastName.value,
+          email: guardianEmail.value,
+          phone: guardianPhone.value
+        },
+        clients: buildClientPayloads()
+      },
+      { responseType: 'blob', timeout: 120000, skipGlobalLoading: true }
+    );
+    const blob = resp.data instanceof Blob ? resp.data : new Blob([resp.data], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const slug = String(agencyInfo.value?.portal_url || agencyInfo.value?.slug || 'intake').trim() || 'intake';
+    anchor.href = url;
+    anchor.download = `${slug}-intake-summary-${id}.pdf`;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (err) {
+    officeSummaryError.value = await messageFromPdfError(err);
+  } finally {
+    officeSummaryDownloading.value = false;
+  }
+}
+
 const isLikelyDobKey = (key) => {
   const token = String(key || '').trim().toLowerCase();
   return token.includes('dob') || token.includes('birth');
@@ -8185,7 +8499,7 @@ const completeDemographicsStep = () => {
 
 const completeClinicalQuestionsStep = async () => {
   const step = currentFlowStep.value;
-  if (!step || step.type !== 'clinical_questions') return;
+  if (!isQuestionnaireFlowStep(step)) return;
   const missing = (visibleClinicalFields.value || []).filter((f) => isClinicalFieldMissing(f));
   if (missing.length && !canBypassIntakeRequired.value && !skipConfirmActive.value) {
     skipConfirmActive.value = true;
@@ -8202,6 +8516,7 @@ const completeClinicalQuestionsStep = async () => {
   intakeResponses.submission.clinicalResponses = { ...clinicalResponses };
   intakeResponses.submission.clinicalSafetyAlert = showClinicalSafetyBanner.value;
   stepError.value = '';
+  await nextTick();
   void nextFlowStep();
 };
 
@@ -8224,7 +8539,7 @@ const handleCurrentFlowContinue = () => {
   if (currentFlowStep.value?.type === 'payment_collection') return completePaymentStep();
   if (currentFlowStep.value?.type === 'communications') return completeCommunicationsStep();
   if (currentFlowStep.value?.type === 'demographics') return completeDemographicsStep();
-  if (currentFlowStep.value?.type === 'clinical_questions') return completeClinicalQuestionsStep();
+  if (isQuestionnaireFlowStep(currentFlowStep.value)) return completeClinicalQuestionsStep();
   if (currentFlowStep.value?.type === 'child_review') {
     stepError.value = '';
     return nextFlowStep();
@@ -8239,7 +8554,7 @@ const currentFlowContinueLabel = computed(() => {
   if (currentFlowStep.value?.type === 'payment_collection') return 'Continue';
   if (currentFlowStep.value?.type === 'communications') return 'Save preferences & continue';
   if (currentFlowStep.value?.type === 'demographics') return 'Save & continue';
-  if (currentFlowStep.value?.type === 'clinical_questions') return 'Save & continue';
+  if (isQuestionnaireFlowStep(currentFlowStep.value) || currentFlowStep.value?.type === 'clinical_questions') return 'Save & continue';
   if (currentFlowStep.value?.type === 'questions') return 'Save & continue';
   if (currentFlowStep.value?.type === 'child_review') return t('continue');
   if (currentFlowStep.value?.type === 'document') {
@@ -8385,7 +8700,7 @@ const finalizePacket = async () => {
           referenceContentWaiverAcknowledged: !!referenceContentWaiverAcknowledged.value
         }
       }
-    });
+    }, { skipGlobalLoading: isOfficeInDepthIntake.value });
     downloadUrl.value = resp.data?.downloadUrl || '';
     emailDeliveryStatus.value = resp.data?.emailDelivery || null;
     clientBundleLinks.value = resp.data?.clientBundles || [];
@@ -8404,7 +8719,11 @@ const finalizePacket = async () => {
     step.value = 3;
     clearPersistedDraft();
     if (!downloadUrl.value && !jobApplicationSubmitted.value && !hasPerChildPackets) {
-      pollForDownloadUrl();
+      if (!isOfficeInDepthIntake.value) {
+        pollForDownloadUrl();
+      } else {
+        pollingForDownload.value = false;
+      }
     }
   } catch (e) {
     pollingForDownload.value = false;
@@ -8421,20 +8740,13 @@ const finalizePacket = async () => {
   }
 };
 
-const pollForDownloadUrl = async () => {
+const pollForDownloadUrl = async (attemptLimit) => {
   if (downloadUrl.value || jobApplicationSubmitted.value) return;
-  pollingForDownload.value = true;
-  // Adaptive cadence: poll fast at the start (1s, 2s, 3s, 4s) so single-
-  // child finalizes that complete in <10s feel instant. Then settle into a
-  // 5s cadence for multi-child / slow-network situations. Still capped at
-  // ~5 minutes total wall time so a stuck backend can't hang the UI forever.
-  // Previous behaviour was a flat `await sleep(5000)` BEFORE the first
-  // request, which meant a fast-finishing single-child run still spun for a
-  // minimum of 5 seconds AND a multi-child user staring at the screen had
-  // no incremental "child 1's packet is ready" feedback for the first 5s.
+  pollingForDownload.value = !isOfficeInDepthIntake.value;
   const delays = [1000, 2000, 3000, 4000, 5000];
-  // Total ~5 minutes worth of polling (4 × 1-4s + ~58 × 5s ≈ 300s)
-  const maxAttempts = 60;
+  const maxAttempts = Number.isFinite(Number(attemptLimit))
+    ? Math.max(1, Number(attemptLimit))
+    : 60;
   for (let i = 0; i < maxAttempts; i++) {
     const wait = delays[Math.min(i, delays.length - 1)];
     await new Promise((r) => setTimeout(r, wait));
@@ -8976,6 +9288,14 @@ const flowStepOwnsContinue = computed(() => {
     || isPacketSectionStepType(type);
 });
 
+const officeHelpColumnVisible = computed(() => {
+  if (!isOfficeInDepthIntake.value || step.value !== 2) return false;
+  const type = String(currentFlowStep.value?.type || '');
+  if (type === 'document' || type === 'smart_disclosure' || type === 'disclosure') return false;
+  if (isPacketSectionStepType(type)) return false;
+  return true;
+});
+
 const showIntakePagerFooter = computed(() => {
   if (!isOfficeInDepthIntake.value) return false;
   if (loading.value || fatalError.value) return false;
@@ -9322,6 +9642,7 @@ const advanceIntro = () => {
 };
 
 const nextFlowStep = async () => {
+  await nextTick();
   if (currentFlowIndex.value < flowSteps.value.length - 1) {
     currentFlowIndex.value += 1;
     if (currentFlowStep.value?.type === 'upload') {
@@ -9498,20 +9819,28 @@ const preselectLinkedCompanyEvent = (regStep) => {
   }
 };
 
+let skippingEmptyFlowStep = false;
 watch(
   () => `${currentFlowIndex.value}:${String(currentFlowStep.value?.type || '')}:${String(currentFlowStep.value?.id || '')}`,
   async (id, prev) => {
     if (id === prev) return;
     skipConfirmActive.value = false;
     skipConfirmKeys.value = [];
+    if (skippingEmptyFlowStep) return;
     const type = String(currentFlowStep.value?.type || '');
-    if (type === 'questions' && !visibleQuestionFields.value.length) {
+    if (isQuestionnaireFlowStep(currentFlowStep.value)) return;
+    const emptyQuestions = type === 'questions' && !visibleQuestionFields.value.length;
+    const emptyClinical = type === 'clinical_questions' && !visibleClinicalFields.value.length;
+    if (!emptyQuestions && !emptyClinical) return;
+    skippingEmptyFlowStep = true;
+    try {
+      await nextTick();
+      if (isQuestionnaireFlowStep(currentFlowStep.value)) return;
+      if (type === 'questions' && visibleQuestionFields.value.length) return;
+      if (type === 'clinical_questions' && visibleClinicalFields.value.length) return;
       await nextFlowStep();
-      return;
-    }
-    if (type === 'clinical_questions' && !visibleClinicalFields.value.length) {
-      await nextFlowStep();
-      return;
+    } finally {
+      skippingEmptyFlowStep = false;
     }
   }
 );
@@ -12212,18 +12541,24 @@ onBeforeUnmount(() => {
   background-position: center center;
 }
 
-.public-intake.public-intake--office-start :deep(.df-main-footer) {
-  display: none;
+.public-intake.public-intake--office-start :deep(.df-shell),
+.public-intake.public-intake--office-start :deep(.df-sidebar),
+.public-intake.public-intake--office-start :deep(.df-main),
+.public-intake.public-intake--office-start :deep(.df-main-body),
+.public-intake.public-intake--office-start :deep(.df-sidebar-inner) {
+  overflow: visible;
 }
 
+.public-intake.public-intake--office-start :deep(.df-main-body--cover),
 .public-intake :deep(.df-shell--cover-mode:has(.intake-start-page) .df-main-body--cover) {
   max-width: none;
   width: 100%;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   text-align: left;
-  padding-top: clamp(2.25rem, 8vh, 4.5rem);
+  padding-top: 0.35rem;
   padding-bottom: clamp(1.5rem, 4vh, 2.5rem);
+  overflow: visible;
 }
 
 .intake-start-page {
@@ -12880,5 +13215,173 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.office-complete-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 18rem);
+  gap: 1.5rem;
+  align-items: start;
+}
+.office-complete-pager {
+  margin: 0.35rem 0 0.45rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #3d5c52;
+}
+.office-complete-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: #dce8e2;
+  overflow: hidden;
+  margin-bottom: 1.1rem;
+}
+.office-complete-bar span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #2f6b4f;
+}
+.office-complete-card {
+  background: #fff;
+  border: 1px solid #d7e3dc;
+  border-radius: 20px;
+  padding: 1.4rem 1.5rem 1.15rem;
+  box-shadow: 0 10px 28px rgba(20, 40, 30, 0.08);
+}
+.office-complete-hero {
+  text-align: center;
+  margin-bottom: 1.1rem;
+}
+.office-complete-check {
+  width: 3.4rem;
+  height: 3.4rem;
+  margin: 0 auto 0.75rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: #e7f4ec;
+  color: #1f6b4a;
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+.office-complete-hero h2 {
+  margin: 0 0 0.35rem;
+  font-family: Georgia, 'Times New Roman', serif;
+  color: #16382c;
+}
+.office-complete-received {
+  margin: 0 0 0.35rem;
+  font-weight: 700;
+}
+.office-complete-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin: 0.5rem 0 1rem;
+}
+.office-complete-grid div {
+  background: #f7fbf8;
+  border-radius: 12px;
+  padding: 0.75rem 0.85rem;
+}
+.office-complete-grid strong,
+.office-complete-grid p {
+  display: block;
+  margin: 0.15rem 0 0;
+}
+.office-complete-next {
+  background: #eef6f1;
+  border-radius: 14px;
+  padding: 0.9rem 1rem;
+}
+.office-complete-next h3,
+.office-complete-aside h3,
+.office-complete-support h4 {
+  margin: 0 0 0.55rem;
+}
+.office-complete-next ol,
+.office-complete-aside-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  display: grid;
+  gap: 0.45rem;
+}
+.office-complete-download {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid #d7e3dc;
+}
+.office-complete-download-error {
+  margin: 0.45rem 0 0;
+  color: #b42318;
+  font-size: 0.9rem;
+}
+.office-complete-aside {
+  display: grid;
+  gap: 1rem;
+}
+.office-complete-support {
+  background: #f7fbf8;
+  border-radius: 14px;
+  padding: 0.9rem 1rem;
+  display: grid;
+  gap: 0.35rem;
+}
+.office-complete-support a {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: none;
+}
+.clinical-instrument-card {
+  border: 1px solid #d7e3dc;
+  border-radius: 16px;
+  padding: 1rem 1.1rem 0.35rem;
+  margin-bottom: 1rem;
+  background: #fbfefc;
+}
+.clinical-instrument-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+.clinical-instrument-kicker {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #1f6b4a;
+  background: #e7f4ec;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  margin-bottom: 0.35rem;
+}
+.clinical-instrument-title {
+  margin: 0.15rem 0 0.35rem;
+  font-size: 1.15rem;
+  color: #16382c;
+}
+.public-intake .packet-section-step,
+.public-intake .smart-disclosure-step,
+.public-intake .doc-preview,
+.ai-layout-main--full {
+  max-width: none;
+  width: 100%;
+}
+@media (max-width: 960px) {
+  .office-complete-layout,
+  .office-complete-grid {
+    grid-template-columns: 1fr;
+  }
+  .clinical-instrument-head {
+    flex-direction: column;
+  }
 }
 </style>

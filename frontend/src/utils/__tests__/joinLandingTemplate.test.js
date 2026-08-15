@@ -27,7 +27,7 @@ describe('restoreJoinWelcomeCopy', () => {
 describe('sanitizeJoinPositions', () => {
   it('drops off-canvas saved offsets', () => {
     const out = sanitizeJoinPositions(
-      { cards: { x: -180, y: 0 }, welcome: { x: 12, y: 8 } },
+      { cards: { x: -500, y: 0 }, welcome: { x: 12, y: 8 } },
       { cards: { x: 0, y: 0 }, welcome: { x: 0, y: 0 } }
     );
     expect(out.cards).toEqual({ x: 0, y: 0 });
@@ -40,6 +40,29 @@ describe('mergeJoinLayout', () => {
     const layout = mergeJoinLayout({ hidden: { welcome: true } });
     expect(layout.hidden.welcome).toBe(true);
     expect(layout.hidden.glad).toBe(false);
+  });
+
+  it('splits the left rail so logo, tagline, script, and values can move on their own', () => {
+    const layout = mergeJoinLayout({
+      positions: { brand: { x: 12, y: 8 } }
+    });
+    expect(layout.positions.logo).toEqual({ x: 12, y: 8 });
+    expect(layout.positions.tagline).toEqual({ x: 12, y: 8 });
+    expect(layout.positions.script).toEqual({ x: 12, y: 8 });
+    expect(layout.positions.values).toEqual({ x: 12, y: 8 });
+  });
+
+  it('keeps independently saved rail positions', () => {
+    const layout = mergeJoinLayout({
+      positions: {
+        brand: { x: 12, y: 8 },
+        logo: { x: 4, y: 0 },
+        tagline: { x: 0, y: 20 }
+      }
+    });
+    expect(layout.positions.logo).toEqual({ x: 4, y: 0 });
+    expect(layout.positions.tagline).toEqual({ x: 0, y: 20 });
+    expect(layout.positions.script).toEqual({ x: 0, y: 0 });
   });
 });
 

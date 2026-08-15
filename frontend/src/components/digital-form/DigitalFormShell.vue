@@ -193,6 +193,7 @@
             <slot name="header-left" />
           </div>
           <div class="df-main-header-right">
+            <slot name="header-right-extra" />
             <slot name="header-right">
               <DigitalFormLanguageToggle
                 v-if="showLanguageToggle"
@@ -207,7 +208,7 @@
         </header>
 
         <DigitalFormProgress
-          v-if="progressSteps.length && !coverMode"
+          v-if="progressSteps.length && !coverMode && progressIndex < progressSteps.length - 1"
           :steps="progressSteps"
           :active-index="progressIndex"
           :class="{ 'df-progress--intake-sidebar-companion': hasIntakeSidebarStepper }"

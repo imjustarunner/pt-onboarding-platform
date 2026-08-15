@@ -58,7 +58,8 @@
 
 .df-shell--intake-stepper .packet-section-step,
 .df-shell--intake-stepper .smart-disclosure-step {
-  max-width: 52rem;
+  max-width: none;
+  width: 100%;
 }
 
 .df-shell--intake-stepper .df-main-footer {
