@@ -2,6 +2,7 @@ import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync, readdirSync, statSync, readFileSync } from 'fs';
+import { buildShareMeta, injectShareMetaIntoHtml } from './src/utils/sharePreview.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -114,7 +115,14 @@ app.get('*', (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
-    res.sendFile(indexPath);
+    const html = readFileSync(indexPath, 'utf8');
+    const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
+    const meta = buildShareMeta({
+      host: req.headers.host,
+      path: req.originalUrl || req.path,
+      proto
+    });
+    res.type('html').send(injectShareMetaIntoHtml(html, meta));
   } else {
     console.error(`[ERROR] index.html not found at: ${indexPath}`);
     res.status(500).send('index.html not found');

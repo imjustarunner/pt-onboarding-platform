@@ -220,7 +220,7 @@ async function bootstrap() {
         'Portal';
 
       // Avoid "X Portal Portal" if an org name already contains "Portal".
-      const next = base.toLowerCase().includes('portal') ? base : `${base} Portal`;
+      const next = base || 'Portal';
       document.title = next;
     } catch {
       // ignore
