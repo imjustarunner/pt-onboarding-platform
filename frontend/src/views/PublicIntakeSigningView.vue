@@ -976,7 +976,7 @@
               </div>
             </div>
 
-            <div v-if="clientFields.length && !intakeForSelf" class="custom-fields">
+            <div v-if="visibleClientFields(idx).length && !intakeForSelf" class="custom-fields">
               <h4>{{ t('clientQuestions') }}</h4>
               <div class="muted" style="margin-bottom: 10px;">
                 {{ t('clientQuestionsDesc') }}
@@ -7138,20 +7138,44 @@ const isIntakeFieldVisible = (field, values = {}) => {
   return matchesShowIf(field?.showIf, values);
 };
 
+const pagedInterviewFieldKeys = computed(() => {
+  const keys = new Set();
+  for (const s of intakeSteps.value || []) {
+    const type = String(s?.type || '').toLowerCase();
+    if (type !== 'questions' && type !== 'clinical_questions') continue;
+    for (const f of s.fields || []) {
+      const k = String(f?.key || '').trim();
+      if (k) keys.add(k);
+    }
+  }
+  return keys;
+});
+const isPagedInterviewField = (field) => {
+  const key = String(field?.key || '').trim();
+  return !!(key && pagedInterviewFieldKeys.value.has(key));
+};
+
 const visibleGuardianFields = computed(() => {
   // Self-intake should not render guardian-only prompts.
   if (intakeForSelf.value) return [];
-  return guardianFields.value.filter((f) => isIntakeFieldVisible(f, intakeResponses.guardian));
+  return guardianFields.value.filter((f) => {
+    if (isPagedInterviewField(f)) return false;
+    return isIntakeFieldVisible(f, intakeResponses.guardian);
+  });
 });
 
 const visibleSubmissionFields = computed(() =>
-  submissionFields.value.filter((f) => isIntakeFieldVisible(f, intakeResponses.submission))
+  submissionFields.value.filter((f) => {
+    if (isPagedInterviewField(f)) return false;
+    return isIntakeFieldVisible(f, intakeResponses.submission);
+  })
 );
 
 const reservedClientKeys = new Set(['client_first', 'client_last', 'client_full_name', 'client_name']);
 const visibleClientFields = (idx) =>
   clientFields.value
     .filter((f) => !reservedClientKeys.has(normalizeKey(f?.key)))
+    .filter((f) => !isPagedInterviewField(f))
     .filter((f) => isIntakeFieldVisible(f, intakeResponses.clients[idx] || {}));
 
 /** Grid span for intake dynamic fields — keeps short answers (grade, zip) compact. */
@@ -9862,18 +9886,20 @@ const stepQuestionFields = computed(() => {
       'phone_number',
       'email_address',
       'guardian_legal_first',
+      'guardian_last_name',
       'guardian_legal_last',
       'guardian_email',
       'guardian_phone',
       'guardian_relationship_to_child',
+      'client_first',
+      'client_last',
+      'client_full_name',
+      'client_name',
       'child_dob',
       'child_date_of_birth',
       'child_legal_first',
       'child_legal_last',
-      'child_preferred_name',
-      'child_sex',
-      'child_grade',
-      'school_grade'
+      'child_preferred_name'
     ]);
     const alreadyStarted = !!(
       guardianFirstName.value
@@ -11800,9 +11826,9 @@ onBeforeUnmount(() => {
 }
 
 .clinical-questions-step {
-  margin: 16px 0;
+  margin: 8px 0;
   display: grid;
-  gap: 16px;
+  gap: 8px;
 }
 /* Grouped clinical batteries (e.g. PSC-17). When two or more adjacent fields
    share identical helper text, the group is framed as a panel with one
@@ -11810,7 +11836,7 @@ onBeforeUnmount(() => {
    item. */
 .clinical-field-group {
   display: grid;
-  gap: 14px;
+  gap: 8px;
 }
 .clinical-field-group--shared {
   padding: 14px 16px 8px;
@@ -13200,7 +13226,21 @@ onBeforeUnmount(() => {
 }
 
 .intake-interview-page {
-  margin-top: 0.35rem;
+  margin-top: 0.2rem;
+}
+
+.intake-interview-page :deep(.df-field) {
+  margin-bottom: 0.35rem;
+  gap: 0.12rem;
+}
+
+.intake-interview-page :deep(.df-field-help) {
+  font-size: 0.74rem;
+  line-height: 1.3;
+}
+
+.intake-interview-page :deep(.df-choice-group) {
+  margin: 0.08rem 0 0.12rem;
 }
 
 .df-section-kicker {

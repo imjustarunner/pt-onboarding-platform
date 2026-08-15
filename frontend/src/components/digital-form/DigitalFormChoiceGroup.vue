@@ -26,6 +26,7 @@
         :aria-pressed="isSelected(opt.value)"
         @click="toggle(opt.value)"
       >
+        <span class="df-choice-bubble" aria-hidden="true" />
         <span v-if="opt.icon" class="df-choice-icon" aria-hidden="true">{{ opt.icon }}</span>
         <span class="df-choice-btn-label">{{ opt.label }}</span>
       </button>

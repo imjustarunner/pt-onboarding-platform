@@ -680,23 +680,43 @@
 .df-choice-group {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem;
-  margin: 0.35rem 0 1rem;
+  gap: 0.35rem;
+  margin: 0.15rem 0 0.35rem;
 }
 
 .df-choice-btn {
-  flex: 1 1 100px;
-  min-width: 90px;
-  padding: 0.65rem 0.75rem;
+  flex: 0 0 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.38rem 0.85rem 0.38rem 0.55rem;
   border: 1.5px solid var(--df-border);
-  border-radius: var(--df-radius-sm);
+  border-radius: 999px;
   background: var(--df-input-bg);
   font: inherit;
-  font-size: 0.875rem;
+  font-size: 0.84rem;
   font-weight: 600;
   color: var(--df-text);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.df-choice-bubble {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  position: relative;
+}
+
+.df-choice-btn--selected .df-choice-bubble::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .df-choice-btn:hover {
@@ -721,8 +741,11 @@
   text-align: left;
   font-weight: 600;
   line-height: 1.35;
-  padding: 0.85rem 0.95rem;
+  padding: 0.55rem 0.75rem;
   border-radius: 14px;
+}
+.df-choice-btn--card .df-choice-bubble {
+  display: none;
 }
 
 .df-choice-group--multi .df-choice-btn--selected {
@@ -1260,12 +1283,12 @@ main .df-page--full-bleed .df-shell {
 }
 
 .df-shell--form-mode .df-choice-group {
-  gap: 0.4rem;
-  margin: 0.2rem 0 0.55rem;
+  gap: 0.3rem;
+  margin: 0.1rem 0 0.25rem;
 }
 
 .df-shell--form-mode .df-choice-btn {
-  padding: 0.5rem 0.65rem;
+  padding: 0.32rem 0.75rem 0.32rem 0.5rem;
 }
 
 .df-shell--form-mode .df-progress {
