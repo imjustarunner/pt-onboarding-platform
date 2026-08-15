@@ -15,6 +15,35 @@ export const JOIN_FONT_OPTIONS = [
 export const JOIN_FONT_HREF =
   'https://fonts.googleapis.com/css2?family=Allura&family=Cormorant+Garamond:wght@500;600;700&family=DM+Serif+Display&family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Great+Vibes&family=Lora:wght@500;600;700&family=Nunito:wght@500;700&family=Outfit:wght@500;700&family=Pacifico&family=Playfair+Display:wght@600;700&family=Source+Sans+3:wght@400;600;700&display=swap';
 
+export const BLOCK_ALIGNMENTS = ['left', 'center', 'right'];
+
+export function normalizeAlign(value, fallback = 'left') {
+  const v = String(value || '').trim().toLowerCase();
+  return BLOCK_ALIGNMENTS.includes(v) ? v : fallback;
+}
+
+/** Margin/text-align pair that positions a fit-content block the way a text editor would. */
+export function alignBlockStyle(align, fallback = 'left') {
+  const a = normalizeAlign(align, fallback);
+  return {
+    textAlign: a,
+    marginLeft: a === 'left' ? '0' : 'auto',
+    marginRight: a === 'right' ? '0' : 'auto'
+  };
+}
+
+/**
+ * Keep a dragged block inside its container.
+ * `base` is the block's untranslated edge, `size` its length on that axis.
+ */
+export function clampOffsetValue({ value, base, size, min, max, pad = 8 }) {
+  const lo = min + pad - base;
+  const hi = max - pad - (base + size);
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return value;
+  if (hi < lo) return lo;
+  return Math.min(hi, Math.max(lo, value));
+}
+
 export function defaultJoinLayout() {
   return {
     footerStyle: 'hidden',
@@ -34,7 +63,17 @@ export function defaultJoinLayout() {
       cardsWidth: 860,
       cardsMinHeight: 0,
       brandWidth: 0,
-      helpWidth: 0
+      helpWidth: 0,
+      logoWidth: 150,
+      script: 2
+    },
+    align: {
+      welcome: 'left',
+      glad: 'left',
+      lead: 'left',
+      cards: 'left',
+      brand: 'left',
+      help: 'left'
     },
     positions: {
       welcome: { x: 0, y: 0 },
@@ -91,8 +130,48 @@ export function defaultIntakeStartLayout() {
     y: 8,
     width: 860,
     welcome: { x: 0, y: 0 },
-    glad: { x: 0, y: 0 }
+    glad: { x: 0, y: 0 },
+    brand: { x: 0, y: 0 },
+    help: { x: 0, y: 0 },
+    sizes: {
+      welcome: 3.2,
+      glad: 1.15,
+      script: 1.9,
+      logoWidth: 150,
+      brandWidth: 0,
+      helpWidth: 0
+    },
+    align: {
+      welcome: 'center',
+      glad: 'center',
+      card: 'center',
+      brand: 'left',
+      help: 'left'
+    }
   };
+}
+
+function mergeStartSizes(saved, base) {
+  const src = saved && typeof saved === 'object' ? saved : {};
+  const out = { ...base };
+  for (const key of Object.keys(base)) {
+    const n = Number(src[key]);
+    if (Number.isFinite(n)) out[key] = n;
+  }
+  out.welcome = Math.min(7, Math.max(0.8, out.welcome));
+  out.glad = Math.min(3, Math.max(0.7, out.glad));
+  out.script = Math.min(4, Math.max(0.8, out.script));
+  out.logoWidth = Math.min(360, Math.max(48, out.logoWidth));
+  return out;
+}
+
+function mergeStartAlign(saved, base) {
+  const src = saved && typeof saved === 'object' ? saved : {};
+  const out = { ...base };
+  for (const key of Object.keys(base)) {
+    out[key] = normalizeAlign(src[key], base[key]);
+  }
+  return out;
 }
 
 export function mergeIntakeStartLayout(saved) {
@@ -104,7 +183,11 @@ export function mergeIntakeStartLayout(saved) {
     y: Number.isFinite(Number(saved.y)) ? Number(saved.y) : base.y,
     width: Number.isFinite(width) ? Math.min(1200, Math.max(420, width)) : base.width,
     welcome: mergeStartPoint(saved.welcome, base.welcome),
-    glad: mergeStartPoint(saved.glad, base.glad)
+    glad: mergeStartPoint(saved.glad, base.glad),
+    brand: mergeStartPoint(saved.brand, base.brand),
+    help: mergeStartPoint(saved.help, base.help),
+    sizes: mergeStartSizes(saved.sizes, base.sizes),
+    align: mergeStartAlign(saved.align, base.align)
   };
 }
 
@@ -163,6 +246,7 @@ export function mergeJoinLayout(saved) {
     showSidebar: saved.showSidebar !== false,
     fonts: { ...base.fonts, ...(saved.fonts || {}) },
     sizes: { ...base.sizes, ...(saved.sizes || {}) },
+    align: mergeStartAlign(saved.align, base.align),
     positions: Object.fromEntries(
       Object.keys(base.positions).map((key) => [
         key,

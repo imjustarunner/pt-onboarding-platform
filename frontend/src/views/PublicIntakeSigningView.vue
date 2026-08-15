@@ -34,56 +34,87 @@
     @select-step="jumpToProgressStep"
   >
     <template v-if="isOfficeInDepthIntake && step === 0.5" #sidebar>
-      <div class="intake-start-rail">
-        <div class="intake-start-brand">
-          <img
-            v-if="officeStartLogoUrl"
-            class="intake-start-logo"
-            :src="officeStartLogoUrl"
-            :alt="officeStartAgencyName"
+      <div class="intake-start-rail" :class="{ 'intake-start-rail--editing': editingStartLayout }">
+        <div
+          class="intake-start-block intake-start-block--brand"
+          :class="{ 'intake-start-block--selected': editingStartLayout && selectedStartBlock === 'brand' }"
+          :style="officeStartBlockStyle('brand')"
+          @mousedown="onOfficeStartBlockMouseDown('brand', $event)"
+        >
+          <div v-if="editingStartLayout" class="intake-start-block-tools">
+            <button type="button" class="ajl-drag" @mousedown.stop="startOfficeBlockDrag('brand', $event)">Move</button>
+          </div>
+          <div
+            v-if="editingStartLayout && selectedStartBlock === 'brand'"
+            class="ajl-resize ajl-resize--e"
+            @mousedown.stop="startOfficeStartResize('brand', $event)"
           />
-          <div v-else class="intake-start-logo-fallback">{{ officeStartAgencyInitial }}</div>
-          <p class="intake-start-tagline">
-            <input v-if="editingStartLayout" v-model="startCopyDraft.sidebarTagline" class="ajl-inline" />
-            <span v-else>{{ startCopy.sidebarTagline }}</span>
-          </p>
-          <p class="intake-start-script">
-            <input v-if="editingStartLayout" v-model="startCopyDraft.sidebarScript" class="ajl-inline ajl-inline--script" />
-            <span v-else>{{ startCopy.sidebarScript }}</span>
-          </p>
-          <ul class="intake-start-values">
-            <li>
-              <span aria-hidden="true">♡</span>
-              <input v-if="editingStartLayout" v-model="startCopyDraft.value1" class="ajl-inline" />
-              <span v-else>{{ startCopy.value1 }}</span>
-            </li>
-            <li>
-              <span aria-hidden="true">👥</span>
-              <input v-if="editingStartLayout" v-model="startCopyDraft.value2" class="ajl-inline" />
-              <span v-else>{{ startCopy.value2 }}</span>
-            </li>
-            <li>
-              <span aria-hidden="true">🌿</span>
-              <input v-if="editingStartLayout" v-model="startCopyDraft.value3" class="ajl-inline" />
-              <span v-else>{{ startCopy.value3 }}</span>
-            </li>
-          </ul>
+          <div class="intake-start-brand">
+            <img
+              v-if="officeStartLogoUrl"
+              class="intake-start-logo"
+              :src="officeStartLogoUrl"
+              :alt="officeStartAgencyName"
+              :style="officeStartLogoStyle"
+            />
+            <div v-else class="intake-start-logo-fallback" :style="officeStartLogoStyle">{{ officeStartAgencyInitial }}</div>
+            <p class="intake-start-tagline">
+              <input v-if="editingStartLayout" v-model="startCopyDraft.sidebarTagline" class="ajl-inline" @mousedown.stop />
+              <span v-else>{{ startCopy.sidebarTagline }}</span>
+            </p>
+            <p class="intake-start-script" :style="officeStartScriptStyle">
+              <input v-if="editingStartLayout" v-model="startCopyDraft.sidebarScript" class="ajl-inline ajl-inline--script" @mousedown.stop />
+              <span v-else>{{ startCopy.sidebarScript }}</span>
+            </p>
+            <ul class="intake-start-values">
+              <li>
+                <span aria-hidden="true">♡</span>
+                <input v-if="editingStartLayout" v-model="startCopyDraft.value1" class="ajl-inline" @mousedown.stop />
+                <span v-else>{{ startCopy.value1 }}</span>
+              </li>
+              <li>
+                <span aria-hidden="true">👥</span>
+                <input v-if="editingStartLayout" v-model="startCopyDraft.value2" class="ajl-inline" @mousedown.stop />
+                <span v-else>{{ startCopy.value2 }}</span>
+              </li>
+              <li>
+                <span aria-hidden="true">🌿</span>
+                <input v-if="editingStartLayout" v-model="startCopyDraft.value3" class="ajl-inline" @mousedown.stop />
+                <span v-else>{{ startCopy.value3 }}</span>
+              </li>
+            </ul>
+          </div>
         </div>
-        <div class="intake-start-help">
-          <h2>
-            <input v-if="editingStartLayout" v-model="startCopyDraft.helpTitle" class="ajl-inline" />
-            <span v-else>{{ startCopy.helpTitle }}</span>
-          </h2>
-          <p>
-            <input v-if="editingStartLayout" v-model="startCopyDraft.helpBody" class="ajl-inline" />
-            <span v-else>{{ startCopy.helpBody }}</span>
-          </p>
-          <a v-if="splashContactTel" class="intake-start-help-line" :href="`tel:${splashContactTel}`">{{ splashContactPhone }}</a>
-          <a v-if="splashContactEmail" class="intake-start-help-line" :href="`mailto:${splashContactEmail}`">{{ splashContactEmail }}</a>
-          <button type="button" class="intake-start-help-btn" @click="openSplashSupportModal">
-            <input v-if="editingStartLayout" v-model="startCopyDraft.sendMessage" class="ajl-inline" @click.stop />
-            <span v-else>{{ startCopy.sendMessage }}</span>
-          </button>
+        <div
+          class="intake-start-block intake-start-block--help"
+          :class="{ 'intake-start-block--selected': editingStartLayout && selectedStartBlock === 'help' }"
+          :style="officeStartBlockStyle('help')"
+          @mousedown="onOfficeStartBlockMouseDown('help', $event)"
+        >
+          <div v-if="editingStartLayout" class="intake-start-block-tools">
+            <button type="button" class="ajl-drag" @mousedown.stop="startOfficeBlockDrag('help', $event)">Move</button>
+          </div>
+          <div
+            v-if="editingStartLayout && selectedStartBlock === 'help'"
+            class="ajl-resize ajl-resize--e"
+            @mousedown.stop="startOfficeStartResize('help', $event)"
+          />
+          <div class="intake-start-help">
+            <h2>
+              <input v-if="editingStartLayout" v-model="startCopyDraft.helpTitle" class="ajl-inline" @mousedown.stop />
+              <span v-else>{{ startCopy.helpTitle }}</span>
+            </h2>
+            <p>
+              <input v-if="editingStartLayout" v-model="startCopyDraft.helpBody" class="ajl-inline" @mousedown.stop />
+              <span v-else>{{ startCopy.helpBody }}</span>
+            </p>
+            <a v-if="splashContactTel" class="intake-start-help-line" :href="`tel:${splashContactTel}`">{{ splashContactPhone }}</a>
+            <a v-if="splashContactEmail" class="intake-start-help-line" :href="`mailto:${splashContactEmail}`">{{ splashContactEmail }}</a>
+            <button type="button" class="intake-start-help-btn" @click="openSplashSupportModal">
+              <input v-if="editingStartLayout" v-model="startCopyDraft.sendMessage" class="ajl-inline" @click.stop @mousedown.stop />
+              <span v-else>{{ startCopy.sendMessage }}</span>
+            </button>
+          </div>
         </div>
       </div>
     </template>
@@ -368,7 +399,38 @@
             <button type="button" class="ajl-edit-btn" :disabled="savingStartLayout" @click="saveOfficeStartLayout">
               {{ savingStartLayout ? 'Saving…' : 'Save' }}
             </button>
-            <span class="intake-start-edit-hint">Click a line to edit it. Drag Welcome, the note, or the card to place them.</span>
+            <button type="button" class="ajl-edit-btn ajl-edit-btn--ghost" @click="resetOfficeStartLayout">Reset layout</button>
+            <span class="intake-start-edit-target">{{ selectedStartBlockLabel }}</span>
+            <div v-if="selectedStartBlock" class="ajl-align-group" role="group" aria-label="Alignment">
+              <button
+                v-for="opt in START_ALIGN_OPTIONS"
+                :key="opt.id"
+                type="button"
+                class="ajl-align-btn"
+                :class="{ 'ajl-align-btn--active': officeStartAlign(selectedStartBlock) === opt.id }"
+                :title="opt.label"
+                @click="setOfficeStartAlign(selectedStartBlock, opt.id)"
+              >{{ opt.glyph }}</button>
+            </div>
+            <label v-if="selectedStartSizeKey" class="ajl-edit-field">
+              {{ selectedStartSizeLabel }}
+              <input
+                v-model.number="startLayoutDraft.sizes[selectedStartSizeKey]"
+                type="range"
+                :min="selectedStartSizeMin"
+                :max="selectedStartSizeMax"
+                :step="selectedStartSizeStep"
+              />
+            </label>
+            <label v-if="selectedStartBlock === 'brand'" class="ajl-edit-field">
+              Logo size
+              <input v-model.number="startLayoutDraft.sizes.logoWidth" type="range" min="48" max="360" step="4" />
+            </label>
+            <label v-if="selectedStartBlock === 'card'" class="ajl-edit-field">
+              Card width
+              <input v-model.number="startLayoutDraft.width" type="range" min="420" max="1200" step="10" />
+            </label>
+            <span class="intake-start-edit-hint">Drag any block to move it, pull the blue handle to resize, and use the alignment buttons. Hide clears a line and Save keeps it gone.</span>
           </template>
           <span v-if="startLayoutError" class="intake-start-edit-error">{{ startLayoutError }}</span>
           <span v-if="startLayoutOk" class="intake-start-edit-ok">{{ startLayoutOk }}</span>
@@ -376,44 +438,79 @@
         <div
           v-if="startCopy.welcomeTitle || editingStartLayout"
           class="intake-start-welcome-block"
-          :class="{ 'intake-start-block--editing': editingStartLayout }"
-          :style="officeStartWelcomeStyle"
-          @mousedown="editingStartLayout && startOfficeBlockDrag('welcome', $event)"
+          :class="{
+            'intake-start-block--editing': editingStartLayout,
+            'intake-start-block--selected': editingStartLayout && selectedStartBlock === 'welcome'
+          }"
+          :style="officeStartBlockStyle('welcome')"
+          @mousedown="onOfficeStartBlockMouseDown('welcome', $event)"
         >
-          <button
-            v-if="editingStartLayout"
-            type="button"
-            class="ajl-drag"
-            @mousedown.stop="startOfficeBlockDrag('welcome', $event)"
-          >Move</button>
+          <div v-if="editingStartLayout" class="intake-start-block-tools">
+            <button
+              type="button"
+              class="ajl-drag"
+              @mousedown.stop="startOfficeBlockDrag('welcome', $event)"
+            >Move</button>
+            <button
+              type="button"
+              class="ajl-hide"
+              @mousedown.stop
+              @click.stop="hideOfficeStartCopy('welcomeTitle')"
+            >Hide</button>
+          </div>
           <p class="intake-start-welcome-title">
-            <input v-if="editingStartLayout" v-model="startCopyDraft.welcomeTitle" class="ajl-inline ajl-inline--welcome" />
+            <input
+              v-if="editingStartLayout"
+              v-model="startCopyDraft.welcomeTitle"
+              class="ajl-inline ajl-inline--welcome"
+              placeholder="Welcome line (leave blank to hide)"
+              @mousedown.stop
+            />
             <span v-else>{{ startCopy.welcomeTitle }}</span>
           </p>
         </div>
         <div
           v-if="startCopy.welcomeGlad || editingStartLayout"
           class="intake-start-glad-block"
-          :class="{ 'intake-start-block--editing': editingStartLayout }"
-          :style="officeStartGladStyle"
-          @mousedown="editingStartLayout && startOfficeBlockDrag('glad', $event)"
+          :class="{
+            'intake-start-block--editing': editingStartLayout,
+            'intake-start-block--selected': editingStartLayout && selectedStartBlock === 'glad'
+          }"
+          :style="officeStartBlockStyle('glad')"
+          @mousedown="onOfficeStartBlockMouseDown('glad', $event)"
         >
-          <button
-            v-if="editingStartLayout"
-            type="button"
-            class="ajl-drag"
-            @mousedown.stop="startOfficeBlockDrag('glad', $event)"
-          >Move</button>
+          <div v-if="editingStartLayout" class="intake-start-block-tools">
+            <button
+              type="button"
+              class="ajl-drag"
+              @mousedown.stop="startOfficeBlockDrag('glad', $event)"
+            >Move</button>
+            <button
+              type="button"
+              class="ajl-hide"
+              @mousedown.stop
+              @click.stop="hideOfficeStartCopy('welcomeGlad')"
+            >Hide</button>
+          </div>
           <p class="intake-start-welcome-glad">
-            <input v-if="editingStartLayout" v-model="startCopyDraft.welcomeGlad" class="ajl-inline" />
+            <input
+              v-if="editingStartLayout"
+              v-model="startCopyDraft.welcomeGlad"
+              class="ajl-inline"
+              placeholder="Note under welcome (leave blank to hide)"
+              @mousedown.stop
+            />
             <span v-else>{{ startCopy.welcomeGlad }}</span>
           </p>
         </div>
         <div
           class="intake-start-card"
-          :class="{ 'intake-start-card--editing': editingStartLayout }"
-          :style="officeStartCardStyle"
-          @mousedown="editingStartLayout && startOfficeBlockDrag('card', $event)"
+          :class="{
+            'intake-start-card--editing': editingStartLayout,
+            'intake-start-block--selected': editingStartLayout && selectedStartBlock === 'card'
+          }"
+          :style="officeStartBlockStyle('card')"
+          @mousedown="onOfficeStartBlockMouseDown('card', $event)"
         >
           <button
             v-if="editingStartLayout"
@@ -424,7 +521,7 @@
           <div
             v-if="editingStartLayout"
             class="ajl-resize ajl-resize--e"
-            @mousedown.stop="startOfficeStartResize($event)"
+            @mousedown.stop="startOfficeStartResize('card', $event)"
           />
           <div class="intake-start-heart" aria-hidden="true">♡</div>
           <h1 class="ai-page-title">
@@ -494,19 +591,19 @@
             {{ t('letsStartWithBasics') }}
           </h2>
           <div class="form-grid intake-identity-grid">
-            <div class="form-group form-group--span-3">
+            <div class="form-group form-group--span-6">
               <label>{{ t('yourFirstName') }} <span class="required-indicator">*</span></label>
               <input id="guardianFirstName" v-model="guardianFirstName" type="text" :class="{ 'input-error': !!consentErrors.guardianFirstName }" />
             </div>
-            <div class="form-group form-group--span-3">
+            <div class="form-group form-group--span-6">
               <label>{{ t('yourLastName') }} <span class="required-indicator">*</span></label>
               <input id="guardianLastName" v-model="guardianLastName" type="text" :class="{ 'input-error': !!consentErrors.guardianLastName }" />
             </div>
-            <div class="form-group form-group--span-3">
+            <div class="form-group form-group--span-6">
               <label>{{ intakeForSelf === false ? t('childDateOfBirth') : t('dateOfBirth') }} <span class="required-indicator">*</span></label>
               <input id="starterDob" v-model="starterDob" type="date" :class="{ 'input-error': !!consentErrors.starterDob }" />
             </div>
-            <div v-if="intakeForSelf === false" class="form-group form-group--span-3">
+            <div v-if="intakeForSelf === false" class="form-group form-group--span-6">
               <label>{{ t('relationshipToClient') }} <span class="required-indicator">*</span></label>
               <select
                 id="guardianRelationship"
@@ -521,12 +618,12 @@
                 <option value="Other">{{ t('relationshipOther') }}</option>
               </select>
             </div>
-            <div v-else class="form-group form-group--span-3">
+            <div v-else class="form-group form-group--span-6">
               <label>{{ t('yourPhone') }} <span class="required-indicator">*</span></label>
               <input id="guardianPhone" v-model="guardianPhone" type="tel" :class="{ 'input-error': !!consentErrors.guardianPhone }" />
             </div>
             <template v-if="intakeForSelf === false">
-              <div class="form-group form-group--span-3">
+              <div class="form-group form-group--span-6">
                 <label>{{ t('childFirstName') }} <span class="required-indicator">*</span></label>
                 <input
                   id="clientFirstName_0"
@@ -535,7 +632,7 @@
                   :class="{ 'input-error': !!consentErrors.clientFirstName }"
                 />
               </div>
-              <div class="form-group form-group--span-3">
+              <div class="form-group form-group--span-6">
                 <label>{{ t('childLastName') }} <span class="required-indicator">*</span></label>
                 <input
                   id="clientLastName_0"
@@ -544,12 +641,12 @@
                   :class="{ 'input-error': !!consentErrors.clientLastName }"
                 />
               </div>
-              <div class="form-group form-group--span-3">
+              <div class="form-group form-group--span-6">
                 <label>{{ t('yourPhone') }} <span class="required-indicator">*</span></label>
                 <input id="guardianPhone" v-model="guardianPhone" type="tel" :class="{ 'input-error': !!consentErrors.guardianPhone }" />
               </div>
             </template>
-            <div class="form-group" :class="intakeForSelf === false ? 'form-group--span-3' : 'form-group--span-12'">
+            <div class="form-group form-group--span-12">
               <label>{{ t('yourEmail') }} <span class="required-indicator">*</span></label>
               <input id="guardianEmail" v-model="guardianEmail" type="email" :class="{ 'input-error': !!consentErrors.guardianEmail }" />
             </div>
@@ -2372,8 +2469,12 @@ import { publicIntakeDescription } from '../utils/publicIntakeCopy.js';
 import {
   JOIN_FONT_HREF,
   JOIN_BOOT_THEME_URL,
+  alignBlockStyle,
+  clampOffsetValue,
+  defaultIntakeStartLayout,
   mergeIntakeStartLayout,
   localizeOfficeStartCopy,
+  normalizeAlign,
   readJoinLandingCache,
   writeJoinLandingCache
 } from '../utils/joinLandingTemplate.js';
@@ -3894,11 +3995,42 @@ let startDragState = null;
 let startResizeState = null;
 let startLayoutOkTimer = null;
 
+const START_ALIGN_OPTIONS = [
+  { id: 'left', label: 'Align left', glyph: '⭰' },
+  { id: 'center', label: 'Center', glyph: '↔' },
+  { id: 'right', label: 'Align right', glyph: '⭲' }
+];
+const START_BLOCK_LABELS = {
+  brand: 'Logo & tagline',
+  help: 'Need help card',
+  welcome: 'Welcome line',
+  glad: 'Note under welcome',
+  card: 'Intake card'
+};
+const START_SIZE_CONTROLS = {
+  welcome: { key: 'welcome', label: 'Welcome size', min: 0.8, max: 7, step: 0.05 },
+  glad: { key: 'glad', label: 'Note size', min: 0.7, max: 3, step: 0.05 },
+  brand: { key: 'script', label: 'Script size', min: 0.8, max: 4, step: 0.05 },
+  help: { key: 'helpWidth', label: 'Card width', min: 120, max: 340, step: 5 }
+};
+const selectedStartBlock = ref('');
+const selectedStartBlockLabel = computed(() => (
+  selectedStartBlock.value
+    ? START_BLOCK_LABELS[selectedStartBlock.value] || selectedStartBlock.value
+    : 'Click a block to edit it'
+));
+const selectedStartSizeControl = computed(() => START_SIZE_CONTROLS[selectedStartBlock.value] || null);
+const selectedStartSizeKey = computed(() => selectedStartSizeControl.value?.key || '');
+const selectedStartSizeLabel = computed(() => selectedStartSizeControl.value?.label || '');
+const selectedStartSizeMin = computed(() => selectedStartSizeControl.value?.min ?? 0);
+const selectedStartSizeMax = computed(() => selectedStartSizeControl.value?.max ?? 1);
+const selectedStartSizeStep = computed(() => selectedStartSizeControl.value?.step ?? 0.05);
+
 function blankStartCopy(source = {}) {
   const c = source && typeof source === 'object' ? source : {};
   return {
-    welcomeTitle: String(c.welcomeTitle || joinWelcomeTitle.value || '').trim(),
-    welcomeGlad: String(c.welcomeGlad || joinWelcomeGlad.value || '').trim(),
+    welcomeTitle: String(c.welcomeTitle ?? '').trim(),
+    welcomeGlad: String(c.welcomeGlad ?? '').trim(),
     sidebarTagline: String(c.sidebarTagline || 'HEAL • GROW • THRIVE').trim(),
     sidebarScript: String(c.sidebarScript || "You're Not Alone.").trim(),
     value1: /non-?judgmental/i.test(c.value1 || '') ? 'Supportive & Welcoming' : String(c.value1 || 'Supportive & Welcoming').trim(),
@@ -3924,24 +4056,50 @@ const officeScenicSidebarUrl = computed(() => {
   if (!loading.value && step.value !== WHO_FOR_STEP && Number(step.value) > WHO_FOR_STEP) return '';
   return joinThemeUrl.value || JOIN_BOOT_THEME_URL;
 });
-const officeStartCardStyle = computed(() => {
-  const layout = editingStartLayout.value ? startLayoutDraft : intakeStartLayout;
-  return {
-    transform: `translate(${Number(layout.x) || 0}px, ${Number(layout.y) || 0}px)`,
-    width: `${Number(layout.width) || 860}px`,
-    maxWidth: '100%'
+const activeStartLayout = computed(() => (
+  editingStartLayout.value ? startLayoutDraft : intakeStartLayout
+));
+
+function officeStartAlign(key) {
+  const fallback = defaultIntakeStartLayout().align[key] || 'left';
+  return normalizeAlign(activeStartLayout.value.align?.[key], fallback);
+}
+
+function setOfficeStartAlign(key, align) {
+  if (!editingStartLayout.value || !key) return;
+  if (!startLayoutDraft.align) startLayoutDraft.align = {};
+  startLayoutDraft.align[key] = normalizeAlign(align);
+}
+
+function officeStartBlockStyle(key) {
+  const layout = activeStartLayout.value;
+  const pos = key === 'card' ? { x: layout.x, y: layout.y } : (layout[key] || { x: 0, y: 0 });
+  const sizes = layout.sizes || {};
+  const style = {
+    transform: `translate(${Number(pos.x) || 0}px, ${Number(pos.y) || 0}px)`,
+    ...alignBlockStyle(officeStartAlign(key))
   };
-});
-const officeStartWelcomeStyle = computed(() => {
-  const layout = editingStartLayout.value ? startLayoutDraft : intakeStartLayout;
-  const pos = layout.welcome || { x: 0, y: 0 };
-  return { transform: `translate(${Number(pos.x) || 0}px, ${Number(pos.y) || 0}px)` };
-});
-const officeStartGladStyle = computed(() => {
-  const layout = editingStartLayout.value ? startLayoutDraft : intakeStartLayout;
-  const pos = layout.glad || { x: 0, y: 0 };
-  return { transform: `translate(${Number(pos.x) || 0}px, ${Number(pos.y) || 0}px)` };
-});
+  if (key === 'card') {
+    style.width = `${Number(layout.width) || 860}px`;
+    style.maxWidth = '100%';
+  }
+  if (key === 'welcome') style.fontSize = `${Number(sizes.welcome) || 3.2}rem`;
+  if (key === 'glad') style.fontSize = `${Number(sizes.glad) || 1.15}rem`;
+  if ((key === 'brand' || key === 'help') && Number(sizes[`${key}Width`]) > 0) {
+    style.width = `${Number(sizes[`${key}Width`])}px`;
+  }
+  return style;
+}
+
+const officeStartLogoStyle = computed(() => ({
+  width: `${Number(activeStartLayout.value.sizes?.logoWidth) || 150}px`,
+  maxWidth: '100%',
+  height: 'auto'
+}));
+
+const officeStartScriptStyle = computed(() => ({
+  fontSize: `${Number(activeStartLayout.value.sizes?.script) || 1.9}rem`
+}));
 const officeStartLogoUrl = computed(() => {
   const existing = String(formBranding.value?.logoUrl || formBranding.value?.agencyLogoUrl || '').trim();
   if (existing) return existing;
@@ -3991,9 +4149,15 @@ async function loadOfficeJoinChrome() {
   }
 }
 
+function hideOfficeStartCopy(key) {
+  if (!Object.prototype.hasOwnProperty.call(startCopyDraft, key)) return;
+  startCopyDraft[key] = '';
+}
+
 function startOfficeStartEdit() {
   Object.assign(startLayoutDraft, mergeIntakeStartLayout(intakeStartLayout));
   Object.assign(startCopyDraft, blankStartCopy(joinLandingCopy.value));
+  selectedStartBlock.value = 'card';
   editingStartLayout.value = true;
   startLayoutError.value = '';
 }
@@ -4004,30 +4168,61 @@ function cancelOfficeStartEdit() {
   Object.assign(startCopyDraft, blankStartCopy(joinLandingCopy.value));
 }
 
+const START_BLOCK_SELECTOR =
+  '.intake-start-card, .intake-start-welcome-block, .intake-start-glad-block, .intake-start-block';
+
+/** Clicking a block selects it; dragging from anywhere except a control moves it. */
+function onOfficeStartBlockMouseDown(key, event) {
+  if (!editingStartLayout.value) return;
+  selectedStartBlock.value = key;
+  if (event.target?.closest('input, textarea, select, button, .ajl-resize')) return;
+  startOfficeBlockDrag(key, event);
+}
+
 function startOfficeBlockDrag(key, event) {
   if (!editingStartLayout.value || event.button !== 0) return;
-  if (event.target?.closest('input, textarea, select, button.intake-start-help-btn, button.intake-start-continue')) return;
+  if (event.target?.closest('input, textarea, select, .ajl-resize')) return;
+  selectedStartBlock.value = key;
   const layout = startLayoutDraft;
   const pos = key === 'card' ? layout : (layout[key] || { x: 0, y: 0 });
+  const el = event.target?.closest(START_BLOCK_SELECTOR);
+  const container = el?.closest('.intake-start-page, .intake-start-rail');
   startDragState = {
     key,
     x: event.clientX,
     y: event.clientY,
     origX: Number(pos.x) || 0,
-    origY: Number(pos.y) || 0
+    origY: Number(pos.y) || 0,
+    rect: el ? el.getBoundingClientRect() : null,
+    bounds: container ? container.getBoundingClientRect() : null
   };
   window.addEventListener('mousemove', onOfficeStartDrag);
   window.addEventListener('mouseup', stopOfficeStartDrag);
 }
 
-function startOfficeStartDrag(event) {
-  startOfficeBlockDrag('card', event);
-}
-
 function onOfficeStartDrag(event) {
   if (!startDragState) return;
-  const nextX = startDragState.origX + (event.clientX - startDragState.x);
-  const nextY = startDragState.origY + (event.clientY - startDragState.y);
+  let nextX = startDragState.origX + (event.clientX - startDragState.x);
+  let nextY = startDragState.origY + (event.clientY - startDragState.y);
+  const { rect, bounds } = startDragState;
+  if (rect && bounds) {
+    nextX = clampOffsetValue({
+      value: nextX,
+      base: rect.left - startDragState.origX,
+      size: rect.width,
+      min: bounds.left,
+      max: bounds.right
+    });
+    nextY = clampOffsetValue({
+      value: nextY,
+      base: rect.top - startDragState.origY,
+      size: rect.height,
+      min: bounds.top,
+      max: bounds.bottom
+    });
+  }
+  nextX = Math.round(nextX);
+  nextY = Math.round(nextY);
   if (startDragState.key === 'card') {
     startLayoutDraft.x = nextX;
     startLayoutDraft.y = nextY;
@@ -4042,11 +4237,16 @@ function stopOfficeStartDrag() {
   window.removeEventListener('mouseup', stopOfficeStartDrag);
 }
 
-function startOfficeStartResize(event) {
+function startOfficeStartResize(key, event) {
   if (!editingStartLayout.value) return;
+  event.preventDefault();
+  selectedStartBlock.value = key;
   startResizeState = {
+    key,
     x: event.clientX,
-    origW: Number(startLayoutDraft.width) || 860
+    origW: key === 'card'
+      ? (Number(startLayoutDraft.width) || 860)
+      : (Number(startLayoutDraft.sizes?.[`${key}Width`]) || 220)
   };
   window.addEventListener('mousemove', onOfficeStartResize);
   window.addEventListener('mouseup', stopOfficeStartResize);
@@ -4054,13 +4254,22 @@ function startOfficeStartResize(event) {
 
 function onOfficeStartResize(event) {
   if (!startResizeState) return;
-  startLayoutDraft.width = Math.min(1200, Math.max(420, startResizeState.origW + (event.clientX - startResizeState.x)));
+  const next = startResizeState.origW + (event.clientX - startResizeState.x);
+  if (startResizeState.key === 'card') {
+    startLayoutDraft.width = Math.min(1200, Math.max(420, next));
+    return;
+  }
+  startLayoutDraft.sizes[`${startResizeState.key}Width`] = Math.round(Math.min(340, Math.max(120, next)));
 }
 
 function stopOfficeStartResize() {
   startResizeState = null;
   window.removeEventListener('mousemove', onOfficeStartResize);
   window.removeEventListener('mouseup', stopOfficeStartResize);
+}
+
+function resetOfficeStartLayout() {
+  Object.assign(startLayoutDraft, defaultIntakeStartLayout());
 }
 
 async function saveOfficeStartLayout() {
@@ -12495,15 +12704,18 @@ onBeforeUnmount(() => {
 .public-intake :deep(.df-shell--cover-mode:has(.intake-start-page) .df-main-body--cover) {
   max-width: none;
   width: 100%;
-  align-items: flex-start;
-  justify-content: flex-start;
+  align-items: center;
+  justify-content: center;
   text-align: left;
-  padding-top: clamp(1.25rem, 5vh, 3rem);
+  padding-top: clamp(2.25rem, 8vh, 4.5rem);
+  padding-bottom: clamp(1.5rem, 4vh, 2.5rem);
 }
 
 .intake-start-page {
   width: 100%;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .intake-start-welcome {
@@ -12514,29 +12726,87 @@ onBeforeUnmount(() => {
 .intake-start-glad-block {
   position: relative;
   width: fit-content;
-  max-width: 100%;
-  margin: 0 0 0.35rem 0.15rem;
+  max-width: min(46rem, 100%);
+  margin-bottom: 0.45rem;
+  z-index: 3;
 }
 
-.intake-start-block--editing {
-  outline: 2px dashed rgba(29, 78, 216, 0.35);
+.intake-start-block {
+  position: relative;
+  width: 100%;
+}
+
+.intake-start-block--help {
+  margin-top: auto;
+}
+
+.intake-start-block--editing,
+.intake-start-rail--editing .intake-start-block {
+  outline: 1px dashed rgba(29, 78, 216, 0.3);
   outline-offset: 6px;
   border-radius: 12px;
+  cursor: move;
+  z-index: 6;
+}
+
+.intake-start-block--selected {
+  outline: 2px dashed rgba(29, 78, 216, 0.65);
+  z-index: 8;
+}
+
+.intake-start-block-tools {
+  position: absolute;
+  top: -1.4rem;
+  left: 0;
+  display: flex;
+  gap: 0.35rem;
+  z-index: 7;
+}
+
+/* The rail has no room above its first block, so keep those chips inside. */
+.intake-start-block--brand .intake-start-block-tools,
+.intake-start-block--help .intake-start-block-tools {
+  top: 0.15rem;
+  left: 0.15rem;
+}
+
+.intake-start-block-tools .ajl-hide,
+.intake-start-block-tools .ajl-drag {
+  position: static;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: grab;
+}
+
+.intake-start-block-tools .ajl-drag {
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.intake-start-block-tools .ajl-hide {
+  background: #fff;
+  color: #7f1d1d;
+  border: 1px solid #fecaca;
 }
 
 .intake-start-welcome-title {
   margin: 0;
   font-family: 'Great Vibes', cursive;
-  font-size: clamp(2.4rem, 5vw, 3.8rem);
+  font-size: inherit;
   line-height: 1.05;
   color: #123c6d;
+  text-align: inherit;
 }
 
 .intake-start-welcome-glad {
   margin: 0.2rem 0 0.75rem;
   font-weight: 700;
-  font-size: 1.15rem;
+  font-size: inherit;
   color: #10231f;
+  text-align: inherit;
   text-decoration: underline;
   text-decoration-color: #f5c518;
   text-underline-offset: 0.28rem;
@@ -12551,7 +12821,6 @@ onBeforeUnmount(() => {
 }
 
 .intake-start-logo {
-  width: min(150px, 100%);
   height: auto;
   object-fit: contain;
   display: block;
@@ -12580,7 +12849,6 @@ onBeforeUnmount(() => {
 .intake-start-script {
   margin: 0.25rem 0 0;
   font-family: 'Great Vibes', cursive;
-  font-size: clamp(1.65rem, 2.2vw, 2.15rem);
   line-height: 1.05;
   color: #123c6d;
 }
@@ -12602,7 +12870,6 @@ onBeforeUnmount(() => {
 }
 
 .intake-start-help {
-  margin-top: auto;
   border: 1px solid rgba(18, 60, 109, 0.16);
   background: rgba(255, 255, 255, 0.55);
   border-radius: 12px;
@@ -12662,11 +12929,72 @@ onBeforeUnmount(() => {
 }
 
 .intake-start-editbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.75rem;
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+}
+
+.intake-start-edit-target {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #0f172a;
+  background: #fde68a;
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  white-space: nowrap;
+}
+
+.intake-start-page .ajl-align-group {
+  display: inline-flex;
+  gap: 2px;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 2px;
+}
+
+.intake-start-page .ajl-align-btn {
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #334155;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.intake-start-page .ajl-align-btn--active {
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.intake-start-page .ajl-edit-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #111827;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+}
+
+.intake-start-page .ajl-edit-field input[type='range'] {
+  max-width: 8.5rem;
 }
 
 .intake-start-edit-hint,
@@ -12698,12 +13026,15 @@ onBeforeUnmount(() => {
 
 .intake-start-card {
   position: relative;
+  z-index: 1;
   background: #fff;
   border: 1px solid var(--df-border, #dce8e2);
   border-radius: 24px;
   padding: clamp(1.35rem, 3vw, 2.15rem);
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
   width: min(860px, 100%);
+  margin: 0 auto;
+  text-align: left;
 }
 
 .intake-start-card--editing {
@@ -12733,7 +13064,8 @@ onBeforeUnmount(() => {
   border: 2px solid #fff;
 }
 
-.intake-start-card .ajl-resize--e {
+.intake-start-card .ajl-resize--e,
+.intake-start-block .ajl-resize--e {
   top: 50%;
   right: -7px;
   width: 12px;
@@ -12741,6 +13073,13 @@ onBeforeUnmount(() => {
   margin-top: -14px;
   border-radius: 999px;
   cursor: ew-resize;
+}
+
+.intake-start-block .ajl-resize {
+  position: absolute;
+  z-index: 7;
+  background: #1d4ed8;
+  border: 2px solid #fff;
 }
 
 .intake-start-heart {
@@ -12846,6 +13185,17 @@ onBeforeUnmount(() => {
   margin: 0 0 0.65rem;
   font-size: 1rem;
   color: var(--df-primary, #1b3d2f);
+}
+
+.intake-start-page .intake-start-basics-title {
+  text-align: center;
+  margin-top: 0.35rem;
+}
+
+.intake-start-page .intake-identity-grid {
+  max-width: 36rem;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .intake-start-list {

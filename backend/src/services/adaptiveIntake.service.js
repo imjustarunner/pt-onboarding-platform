@@ -458,7 +458,15 @@ function defaultJoinLanding(vertical, agencyName) {
 }
 
 function isJoinLandingFlat(value) {
-  return !!(value && typeof value === 'object' && (value.welcomeTitle || value.layout || value.quickTitle || value.welcomeLead));
+  if (!value || typeof value !== 'object') return false;
+  return !!(
+    value.layout
+    || value.intakeStartLayout
+    || value.quickTitle
+    || value.welcomeLead
+    || Object.prototype.hasOwnProperty.call(value, 'welcomeTitle')
+    || Object.prototype.hasOwnProperty.call(value, 'welcomeGlad')
+  );
 }
 
 function pickJoinLandingScoped(saved, serviceKey) {
@@ -490,7 +498,8 @@ function mergeJoinLandingCopy(vertical, agencyRow, activeService) {
       merged.intakeStartLayout = value;
       continue;
     }
-    if (typeof value === 'string' && value.trim()) merged[key] = value.trim();
+    // Empty string is intentional (hide this line). Do not fall back to defaults.
+    if (typeof value === 'string') merged[key] = value.trim();
   }
   if (/non-?judgmental/i.test(String(merged.value1 || ''))) {
     merged.value1 = 'Supportive & Welcoming';

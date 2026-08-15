@@ -153,6 +153,33 @@
   line-height: 0;
 }
 
+.ai-shell-host--join-flow .df-main-decor {
+  width: clamp(160px, 26%, 300px);
+}
+
+.ai-shell-host--join-flow.df-page .df-main-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-shell-host--join-flow .ai-layout,
+.ai-shell-host--join-flow .ai-layout-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+}
+
+.ai-shell-host--join-flow .ai-layout-main {
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-shell-host--join-flow .ai-pathway-badge {
+  width: min(44rem, 100%);
+}
+
 .df-main-decor-img {
   display: block;
   width: 100%;

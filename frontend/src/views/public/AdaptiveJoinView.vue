@@ -21,6 +21,7 @@
   />
   <AdaptiveIntakeShell
     v-else-if="!loading || submitted || phase !== 'pathway'"
+    class="ai-shell-host--join-flow"
     :branding="config?.branding"
     :program-title="config?.agency?.name || 'Join'"
     :form-title="pageTitle"
@@ -66,6 +67,10 @@
     />
 
     <template v-else-if="phase === 'quick'">
+      <div class="ai-join-stage">
+      <div v-if="canEditLanding" class="ai-join-devfill">
+        <button type="button" @click="devFillQuick">Dev Fill</button>
+      </div>
       <!-- Step: who for -->
       <div v-if="quickStep === 0" class="ai-join-form">
         <h1 class="ai-page-title">Who is this for?</h1>
@@ -273,7 +278,7 @@
         <div v-if="submitError" class="df-banner df-banner--warn">{{ submitError }}</div>
       </div>
 
-      <div class="df-actions" style="margin-top: 1.25rem; display: flex; justify-content: space-between; gap: 0.75rem;">
+      <div class="df-actions ai-join-actions">
         <button type="button" class="df-btn df-btn-secondary" @click="goBack">Back</button>
         <button
           type="button"
@@ -283,6 +288,7 @@
         >
           {{ quickStep >= 6 ? (submitting ? 'Submitting…' : 'Submit interest form') : 'Continue' }}
         </button>
+      </div>
       </div>
     </template>
   </AdaptiveIntakeShell>
@@ -624,6 +630,48 @@ function chooseWhoFor(value) {
   quickStep.value = 1;
 }
 
+const DEV_FILL_PEOPLE = [
+  { first: 'Noah', last: 'Haddad', child: 'Amira', dob: '1985-10-24' },
+  { first: 'Renee', last: 'Salazar', child: 'Mateo', dob: '1991-03-08' },
+  { first: 'Curtis', last: 'Whitfield', child: 'June', dob: '1978-07-19' }
+];
+
+function devFillQuick() {
+  const person = DEV_FILL_PEOPLE[Math.floor(Math.random() * DEV_FILL_PEOPLE.length)];
+  const stamp = Math.floor(Math.random() * 90) + 10;
+  form.whoFor = form.whoFor || 'myself';
+  Object.assign(form.respondent, {
+    firstName: person.first,
+    lastName: person.last,
+    email: `${person.first}.${person.last}${stamp}@example.com`.toLowerCase(),
+    phone: '7195557878'
+  });
+  form.client.firstName = person.child;
+  form.client.lastName = person.last;
+  form.birthdate = person.dob;
+  Object.assign(form.address, {
+    street: '412 Cascade Avenue',
+    apt: 'Unit 3',
+    city: 'Colorado Springs',
+    state: 'CO',
+    zip: '80903'
+  });
+  if (!form.concerns.length) {
+    const first = concernOptions.value[0]?.value;
+    if (first) form.concerns.push(first);
+  }
+  form.accomplishGoal = 'I want steadier routines and better ways to handle stress before it builds up.';
+  form.notes = 'Weekday afternoons are easiest for us, and we would rather meet in person to start.';
+  Object.assign(form.preferences, {
+    preferredModality: 'in_person',
+    preferredTimeOfDay: 'afternoon',
+    preferredDaysRaw: 'Tuesdays, Thursdays',
+    insuranceOrPayment: 'Aetna PPO'
+  });
+  form.consentGiven = true;
+  validateBasicsFields();
+}
+
 function toggleConcern(value) {
   const i = form.concerns.indexOf(value);
   if (i >= 0) form.concerns.splice(i, 1);
@@ -781,8 +829,34 @@ onMounted(async () => {
   background-position: center;
   background-color: #0f3d3a;
 }
+.ai-join-stage {
+  width: 100%;
+  max-width: 44rem;
+  margin: 0 auto;
+}
 .ai-join-form {
-  max-width: 36rem;
+  width: 100%;
+}
+.ai-join-actions {
+  margin-top: 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.ai-join-devfill {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+}
+.ai-join-devfill button {
+  border: 1px dashed #94a3b8;
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #334155;
+  cursor: pointer;
 }
 .field-row {
   display: grid;
