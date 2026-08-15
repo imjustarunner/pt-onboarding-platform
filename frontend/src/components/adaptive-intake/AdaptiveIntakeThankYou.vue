@@ -41,11 +41,15 @@
       <p v-if="loginEmailStatus" class="ai-email-copy-status">{{ loginEmailStatus }}</p>
     </section>
 
-    <section v-if="coGuardianInvite?.inviteUrl" class="ai-portal-card">
+    <section v-if="coGuardianInvite" class="ai-portal-card">
       <h2>Other guardian</h2>
-      <p>Share this private link. They will not see what you submitted.</p>
-      <p><code>{{ coGuardianInvite.inviteUrl }}</code></p>
-      <p v-if="coGuardianInvite.emailed">We also emailed {{ coGuardianInvite.email }}.</p>
+      <p>Our team will reach out on your behalf so they can complete their own intake. They will not see what you submitted.</p>
+      <p v-if="coGuardianInvite.emailed && coGuardianInvite.email">
+        We emailed them at {{ coGuardianInvite.email }}.
+      </p>
+      <p v-else-if="coGuardianInvite.pendingContact">
+        We have their phone number — our team will call to start their intake.
+      </p>
     </section>
 
     <article class="ai-receipt">

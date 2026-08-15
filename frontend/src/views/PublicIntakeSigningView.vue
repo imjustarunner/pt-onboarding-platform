@@ -2064,9 +2064,15 @@
                 <button type="button" class="df-btn df-btn-secondary" @click="officePortalDismissed = true">{{ t('portalLoginSkip') }}</button>
                 <p v-if="officeLoginEmailStatus" class="office-complete-phi">{{ officeLoginEmailStatus }}</p>
               </div>
-              <div v-if="coGuardianInviteResult?.inviteUrl" class="office-complete-download">
+              <div v-if="showCoGuardianOutreach" class="office-complete-download">
                 <p><strong>{{ t('otherGuardianInviteTitle') }}</strong></p>
-                <p>{{ coGuardianInviteResult.inviteUrl }}</p>
+                <p>{{ t('otherGuardianInviteLead') }}</p>
+                <p v-if="coGuardianInviteResult.emailed && coGuardianInviteResult.email">
+                  We emailed them at {{ coGuardianInviteResult.email }}.
+                </p>
+                <p v-else-if="coGuardianInviteResult.pendingContact">
+                  {{ t('otherGuardianInvitePhoneFollowUp') }}
+                </p>
               </div>
               <p v-if="officeSummaryError" class="office-complete-download-error">{{ officeSummaryError }}</p>
             </div>
@@ -2744,7 +2750,10 @@ const INTAKE_TRANSLATIONS = {
     portalLoginSkip: "I'll do this later",
     emailLoginDetails: 'Email these login details',
     loginDetailsSent: 'Login details sent. Keep that email private.',
-    otherGuardianInviteTitle: 'Other guardian link',
+    otherGuardianInviteTitle: 'Other guardian outreach',
+    otherGuardianInviteLead: 'Our team will reach out on your behalf so they can complete their own intake. They will not see what you submitted.',
+    otherGuardianInviteEmailed: 'We emailed them at {email}.',
+    otherGuardianInvitePhoneFollowUp: 'We have their phone number — our team will call to start their intake.',
     coGuardianIsolatedTitle: 'Your own intake',
     coGuardianIsolatedLead: 'You are connected to the dependent(s) listed here. You will not see what the other parent submitted. Fill this packet with your information.',
     whoIsThisForTitle: 'Who is this for?',
@@ -3083,7 +3092,10 @@ const INTAKE_TRANSLATIONS = {
     portalLoginSkip: 'Lo haré después',
     emailLoginDetails: 'Enviar estos datos de acceso',
     loginDetailsSent: 'Datos de acceso enviados. Mantenga ese correo privado.',
-    otherGuardianInviteTitle: 'Enlace del otro tutor',
+    otherGuardianInviteTitle: 'Contacto del otro tutor',
+    otherGuardianInviteLead: 'Nuestro equipo se comunicará en su nombre para que completen su propia admisión. No verán lo que usted envió.',
+    otherGuardianInviteEmailed: 'Les enviamos un correo a {email}.',
+    otherGuardianInvitePhoneFollowUp: 'Tenemos su teléfono — nuestro equipo llamará para iniciar su admisión.',
     coGuardianIsolatedTitle: 'Su propia admisión',
     coGuardianIsolatedLead: 'Usted está conectado con el o los dependientes listados. No verá lo que envió el otro padre o madre. Complete este paquete con su información.',
     whoIsThisForTitle: '¿Para quién es esto?',
@@ -5660,6 +5672,11 @@ const officeEmailSending = ref(false);
 const officeEmailStatus = ref('');
 const officePortalDismissed = ref(false);
 const coGuardianInviteResult = ref(null);
+const showCoGuardianOutreach = computed(() => {
+  const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
+  if (rights !== 'yes' && rights !== 'shared') return false;
+  return !!coGuardianInviteResult.value;
+});
 const officeLoginEmailing = ref(false);
 const officeLoginEmailStatus = ref('');
 const downloadUrl = ref('');
@@ -7136,10 +7153,26 @@ const isPagedInterviewField = (field) => {
   return !!(key && pagedInterviewFieldKeys.value.has(key));
 };
 
+const otherGuardianStartFieldKeys = new Set([
+  'other_guardian_communication',
+  'other_guardian_has_legal_rights',
+  'other_guardian_first_name',
+  'other_guardian_last_name',
+  'other_guardian_email',
+  'other_guardian_phone',
+  'other_guardian_relationship',
+  'other_guardian_send_intake_link',
+  'other_guardian_send_later',
+  'other_guardian_share',
+  'other_guardian_court_docs'
+]);
+
 const visibleGuardianFields = computed(() => {
   // Self-intake should not render guardian-only prompts.
   if (intakeForSelf.value) return [];
   return guardianFields.value.filter((f) => {
+    const key = String(f?.key || '').trim();
+    if (otherGuardianStartFieldKeys.has(key)) return false;
     if (isPagedInterviewField(f)) return false;
     return isIntakeFieldVisible(f, intakeResponses.guardian);
   });
@@ -8050,7 +8083,7 @@ async function emailOfficeSummaryPdf() {
 
 async function maybeCreateOfficeCoGuardianInvite(finalizeData) {
   if (isCoGuardianInvitee.value) return;
-  if (finalizeData?.coGuardianInvite?.inviteUrl) {
+  if (finalizeData?.coGuardianInvite) {
     coGuardianInviteResult.value = finalizeData.coGuardianInvite;
     return;
   }

@@ -163,35 +163,13 @@
               <DigitalFormField v-model="form.client.lastName" label="Last name" required size="compact" />
             </div>
           </div>
-          <h2 v-if="!isCoGuardianInvitee" class="ai-dependent-heading">Custody &amp; other guardian</h2>
-          <p v-if="!isCoGuardianInvitee" class="ai-page-lead">If another parent has legal rights, they get their own private link. They will not see what you submit. We will not confirm whether they already have an account.</p>
-          <template v-if="!isCoGuardianInvitee">
-          <DigitalFormField
-            v-model="form.otherGuardian.hasLegalRights"
-            type="select"
-            label="Is there another parent or guardian with legal rights who should complete their own intake?"
-            placeholder="Select"
-            :options="legalRightsOptions"
+          <OtherGuardianIntakeFields
+            v-if="!isCoGuardianInvitee"
+            class="ai-other-guardian"
+            :model="form.otherGuardian"
+            :copy="otherGuardianCopy"
+            :error="otherGuardianError"
           />
-          <template v-if="form.otherGuardian.hasLegalRights === 'yes' || form.otherGuardian.hasLegalRights === 'shared'">
-            <div class="field-row field-row--compact">
-              <DigitalFormField v-model="form.otherGuardian.firstName" label="Their first name" size="compact" />
-              <DigitalFormField v-model="form.otherGuardian.lastName" label="Their last name" size="compact" />
-            </div>
-            <div class="field-row field-row--compact">
-              <DigitalFormField v-model="form.otherGuardian.email" type="email" label="Their email (needed to send their private link)" size="email" />
-              <DigitalFormField v-model="form.otherGuardian.phone" type="tel" label="Their phone" size="xs" />
-              <DigitalFormField v-model="form.otherGuardian.relationship" label="Relationship" size="compact" />
-            </div>
-            <p v-if="otherGuardianPhoneOnly" class="ai-page-lead">
-              An email is required to send them a private intake link. If you only have a phone number, intake and start of care may be delayed while our support team or the assigned provider contacts them for the needed permissions.
-            </p>
-            <label class="ai-consent-check">
-              <input type="checkbox" v-model="form.otherGuardian.sendInvite" :disabled="otherGuardianPhoneOnly" />
-              <span>Email them a private intake link now (you can also copy it at the end)</span>
-            </label>
-          </template>
-          </template>
         </template>
       </div>
 
@@ -397,6 +375,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import OtherGuardianIntakeFields from '../../components/public-intake/OtherGuardianIntakeFields.vue';
 import api from '../../services/api';
 import { DigitalFormField } from '../../components/digital-form';
 import { useAuthStore } from '../../store/auth';
@@ -484,14 +463,54 @@ const showJoinBoot = computed(() =>
   !config.value && loading.value && !loadError.value && !submitted.value && phase.value === 'pathway'
 );
 const isCoGuardianInvitee = computed(() => Boolean(String(route.query.coGuardian || '').trim()));
-const otherGuardianNeedsInvite = computed(() =>
-  form.otherGuardian.hasLegalRights === 'yes' || form.otherGuardian.hasLegalRights === 'shared'
-);
-const otherGuardianPhoneOnly = computed(() =>
-  otherGuardianNeedsInvite.value
-  && !String(form.otherGuardian.email || '').includes('@')
-  && String(form.otherGuardian.phone || '').replace(/\D/g, '').length >= 7
-);
+const otherGuardianError = ref('');
+const otherGuardianCopy = {
+  title: 'Custody & other guardian',
+  lead: 'If another parent has legal rights, our team will reach out so they can complete their own intake. They will not see what you submit.',
+  ageOfConsentNote: 'We follow applicable Colorado law and professional ethics. In Colorado, a minor 12 or older may be able to consent to psychotherapy in some situations. This is information, not legal advice.',
+  noEmailWarning: 'We reach out on your behalf. A correct email is best; if you only have a phone number, our team will call to complete their intake.',
+  resources: [
+    {
+      label: 'Colorado age of consent for psychotherapy (CSI / GT alert, 2019)',
+      url: 'https://resources.csi.state.co.us/wp-content/uploads/2022/07/GT-Alert_Colorado-Lowers-Age-of-Consent-for-Psychotherapy-Services-to-12-Years-Old.pdf'
+    },
+    {
+      label: 'Colorado HB17-1320 (related bill history)',
+      url: 'https://leg.colorado.gov/bills/hb17-1320'
+    }
+  ],
+  rightsLabel: 'Another parent/guardian with legal rights who will complete their own intake?',
+  selectOption: 'Select',
+  yes: 'Yes — send them their intake',
+  no: 'No other guardian with those rights',
+  firstName: 'First name',
+  lastName: 'Last name',
+  email: 'Email (becomes their username)',
+  phone: 'Phone',
+  relationship: 'Relationship',
+  reachOutNote: 'We will reach out to them on your behalf. Please provide their correct email (best) or phone. If you do not have either, upload any court documents you have. Missing contact information can delay start of care.',
+  courtDocsLabel: 'Upload court documents (encrypted)',
+  courtDocsHelp: 'Files are stored encrypted.',
+  viewConsentDetails: 'View custody and consent details',
+  chooseFiles: 'Choose Files',
+  noFileChosen: 'No file chosen',
+  firstPlaceholder: 'First',
+  lastPlaceholder: 'Last',
+  relationshipPlaceholder: 'e.g., Co-parent, Guardian',
+  emailPlaceholder: 'name@email.com',
+  phonePlaceholder: '(555) 123-4567',
+  close: 'Close'
+};
+
+function otherGuardianContactOk() {
+  const rights = String(form.otherGuardian.hasLegalRights || '').trim().toLowerCase();
+  if (!rights) return false;
+  if (rights !== 'yes' && rights !== 'shared') return true;
+  const emailOk = String(form.otherGuardian.email || '').includes('@');
+  const phoneOk = String(form.otherGuardian.phone || '').replace(/\D/g, '').length >= 7;
+  const filesOk = Array.isArray(form.otherGuardian.courtFiles) && form.otherGuardian.courtFiles.length > 0;
+  return emailOk || phoneOk || filesOk;
+}
 
 const fieldErrors = reactive({
   email: '',
@@ -523,7 +542,7 @@ const form = reactive({
     email: '',
     phone: '',
     relationship: '',
-    sendInvite: true
+    courtFiles: []
   },
   concerns: [],
   accomplishGoal: '',
@@ -550,12 +569,6 @@ const whoForOptions = [
     label: 'Someone I have legal authority for',
     description: 'I am completing this for someone I have legal authority to care for.'
   }
-];
-
-const legalRightsOptions = [
-  { value: 'yes', label: 'Yes — send them their own intake' },
-  { value: 'shared', label: 'Yes — we share decision-making' },
-  { value: 'no', label: 'No other guardian with those rights' }
 ];
 
 const modalityOptions = [
@@ -747,13 +760,7 @@ const canContinueQuick = computed(() => {
       if (!form.client.firstName.trim()) return false;
       if (!isCoGuardianInvitee.value && !form.client.lastName.trim()) return false;
       if (!isCoGuardianInvitee.value) {
-        const rights = form.otherGuardian.hasLegalRights;
-        if (!rights) return false;
-        if (rights === 'yes' || rights === 'shared') {
-          const emailOk = String(form.otherGuardian.email || '').includes('@');
-          const phoneOk = String(form.otherGuardian.phone || '').replace(/\D/g, '').length >= 7;
-          if (!emailOk && !phoneOk) return false;
-        }
+        if (!otherGuardianContactOk()) return false;
       }
     }
     return true;
@@ -968,8 +975,13 @@ async function loadProviders() {
 }
 
 async function onQuickContinue() {
-  if (quickStep.value === 0 && !validateBasicsFields()) {
-    return;
+  if (quickStep.value === 0) {
+    if (!validateBasicsFields()) return;
+    if (form.whoFor !== 'myself' && !isCoGuardianInvitee.value && !otherGuardianContactOk()) {
+      otherGuardianError.value = 'Please enter their email or phone so we can reach out on your behalf.';
+      return;
+    }
+    otherGuardianError.value = '';
   }
   if (quickStep.value < 5) {
     quickStep.value += 1;
@@ -1082,11 +1094,11 @@ async function submitQuick() {
           const inviteResp = await api.post(`/public/adaptive-intake/${agencySlug.value}/co-guardian-invite`, {
             source: 'quick',
             clientIds,
-            sendEmail: !!form.otherGuardian.sendInvite,
+            sendEmail: otherEmailOk,
             otherGuardian: {
               ...form.otherGuardian,
               legalAuthority: rights,
-              sendInvite: !!form.otherGuardian.sendInvite
+              sendInvite: true
             }
           });
           confirmation.value = {
@@ -1365,6 +1377,9 @@ onMounted(async () => {
 .ai-review-ack ul {
   margin: 0.4rem 0 0;
   padding-left: 1.15rem;
+}
+.ai-other-guardian {
+  margin-top: 0.75rem;
 }
 .ai-concern-grid {
   display: grid;
