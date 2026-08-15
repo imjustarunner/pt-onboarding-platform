@@ -2718,25 +2718,21 @@ const INTAKE_TRANSLATIONS = {
     packetPdfStillPreparing: 'The full signed PDF is still being prepared in the background. You can view your branded summary now.',
     downloadPackets: 'Download packets',
     custodyOtherGuardianTitle: 'Custody & other guardian',
-    custodyOtherGuardianLead: 'If another parent has legal rights, they get a private link to complete their own intake. They will not see what you submit. We will not confirm whether they already have an account.',
+    custodyOtherGuardianLead: 'If another parent has legal rights, our team will reach out so they can complete their own intake. They will not see what you submit.',
     otherGuardianLegalRights: 'Another parent/guardian with legal rights who will complete their own intake?',
-    otherGuardianLegalYes: 'Yes — send them their own intake',
+    otherGuardianLegalYes: 'Yes — send them their intake',
     otherGuardianLegalShared: 'Yes — we share decision-making',
     otherGuardianLegalNo: 'No other guardian with those rights',
-    otherGuardianNoEmailWarning: 'An email is required to send them a private intake link. If you only have a phone number, intake and start of care may be delayed while our support team or the assigned provider contacts them for the needed permissions.',
+    otherGuardianNoEmailWarning: 'We reach out on your behalf. A correct email is best; if you only have a phone number, our team will call to complete their intake. Missing contact information can delay start of care.',
     otherGuardianRightsRequired: 'Please answer whether another parent or guardian with legal rights should complete their own intake.',
-    otherGuardianContactRequired: 'Please enter their email or a phone number so we can follow up.',
+    otherGuardianContactRequired: 'Please enter their email or phone so we can reach out on your behalf.',
     ageOfConsentNote: 'We follow applicable Colorado law and professional ethics. In Colorado, a minor 12 or older may be able to consent to psychotherapy in some situations. This is information, not legal advice.',
     otherGuardianFirstName: 'First name',
     otherGuardianLastName: 'Last name',
     otherGuardianEmail: 'Email (becomes their username)',
     otherGuardianPhone: 'Phone',
     otherGuardianRelationship: 'Relationship',
-    otherGuardianSendLink: 'Email them a private intake link now',
-    otherGuardianSendLater: 'I will send their intake later',
-    otherGuardianSendLaterDelay: 'That is okay. Start of care may be delayed until we can collect the other guardian’s permissions.',
-    otherGuardianPhoneOnlyNote: 'A phone number works. If we do not have their email, intake and start of care may be delayed while we contact them.',
-    otherGuardianMissingContactNote: 'If you do not have their email or phone, upload any court documents you have, or choose to send their intake later. Missing contact information can delay start of care.',
+    otherGuardianReachOutNote: 'We will reach out to them on your behalf. Please provide their correct email (best) or phone. If you do not have either, upload any court documents you have. Missing contact information can delay start of care.',
     otherGuardianCourtDocsLabel: 'Upload court documents (encrypted)',
     otherGuardianCourtDocsHelp: 'Files are stored encrypted.',
     otherGuardianViewConsent: 'View custody and consent details',
@@ -3061,25 +3057,21 @@ const INTAKE_TRANSLATIONS = {
     packetPdfStillPreparing: 'El PDF firmado completo se sigue preparando. Puede ver su resumen con marca ahora.',
     downloadPackets: 'Descargar paquetes',
     custodyOtherGuardianTitle: 'Custodia y otro tutor',
-    custodyOtherGuardianLead: 'Si otro padre o madre tiene derechos legales, recibe un enlace privado para completar su propia admisión. No verá lo que usted envíe. No confirmaremos si ya tiene una cuenta.',
+    custodyOtherGuardianLead: 'Si otro padre o madre tiene derechos legales, nuestro equipo se comunicará para que complete su propia admisión. No verá lo que usted envíe.',
     otherGuardianLegalRights: '¿Otro padre, madre o tutor con derechos legales que completará su propia admisión?',
-    otherGuardianLegalYes: 'Sí — enviarles su propia admisión',
+    otherGuardianLegalYes: 'Sí — enviarles su admisión',
     otherGuardianLegalShared: 'Sí — compartimos las decisiones',
     otherGuardianLegalNo: 'No hay otro tutor con esos derechos',
-    otherGuardianNoEmailWarning: 'Se necesita un correo para enviarles un enlace privado de admisión. Si solo tiene un teléfono, la admisión y el inicio de servicios pueden retrasarse mientras nuestro equipo de apoyo o el proveedor asignado se comunica para obtener los permisos necesarios.',
+    otherGuardianNoEmailWarning: 'Nos comunicamos en su nombre. Un correo correcto es lo mejor; si solo tiene teléfono, nuestro equipo llamará para completar su admisión. Falta de contacto puede retrasar el inicio de servicios.',
     otherGuardianRightsRequired: 'Indique si otro padre, madre o tutor con derechos legales debe completar su propia admisión.',
-    otherGuardianContactRequired: 'Ingrese su correo o un teléfono para poder dar seguimiento.',
+    otherGuardianContactRequired: 'Ingrese su correo o teléfono para que podamos comunicarnos en su nombre.',
     ageOfConsentNote: 'Seguimos la ley de Colorado aplicable y la ética profesional. En Colorado, un menor de 12 años o más puede, en algunas situaciones, consentir psicoterapia. Esto es información, no asesoría legal.',
-    otherGuardianFirstName: 'Su nombre',
-    otherGuardianLastName: 'Su apellido',
-    otherGuardianEmail: 'Su correo (será su usuario)',
-    otherGuardianPhone: 'Su teléfono',
+    otherGuardianFirstName: 'Nombre',
+    otherGuardianLastName: 'Apellido',
+    otherGuardianEmail: 'Correo (será su usuario)',
+    otherGuardianPhone: 'Teléfono',
     otherGuardianRelationship: 'Parentesco',
-    otherGuardianSendLink: 'Enviarles ahora un enlace privado de admisión',
-    otherGuardianSendLater: 'Enviaré su admisión más tarde',
-    otherGuardianSendLaterDelay: 'Está bien. El inicio de servicios puede retrasarse hasta que podamos obtener los permisos del otro tutor.',
-    otherGuardianPhoneOnlyNote: 'Un teléfono es suficiente. Si no tenemos su correo, la admisión y el inicio de servicios pueden retrasarse mientras nos comunicamos con ellos.',
-    otherGuardianMissingContactNote: 'Si no tiene su correo ni teléfono, suba documentos judiciales o elija enviar su admisión más tarde. Falta de contacto puede retrasar el inicio de servicios.',
+    otherGuardianReachOutNote: 'Nos comunicaremos con ellos en su nombre. Proporcione su correo correcto (lo mejor) o teléfono. Si no tiene ninguno, suba documentos judiciales. Falta de contacto puede retrasar el inicio de servicios.',
     otherGuardianCourtDocsLabel: 'Subir documentos judiciales (cifrados)',
     otherGuardianCourtDocsHelp: 'Los archivos se guardan cifrados.',
     otherGuardianViewConsent: 'Ver detalles de custodia y consentimiento',
@@ -5561,8 +5553,6 @@ const otherGuardian = reactive({
   email: '',
   phone: '',
   relationship: '',
-  sendInvite: false,
-  sendLater: false,
   courtFiles: []
 });
 const intakeLegal = ref(null);
@@ -5593,18 +5583,13 @@ const otherGuardianCopy = computed(() => {
     rightsLabel: t('otherGuardianLegalRights'),
     selectOption: t('selectOption'),
     yes: t('otherGuardianLegalYes'),
-    shared: t('otherGuardianLegalShared'),
     no: t('otherGuardianLegalNo'),
     firstName: t('otherGuardianFirstName'),
     lastName: t('otherGuardianLastName'),
     email: t('otherGuardianEmail'),
     phone: t('otherGuardianPhone'),
     relationship: t('otherGuardianRelationship'),
-    sendLink: t('otherGuardianSendLink'),
-    sendLater: t('otherGuardianSendLater'),
-    sendLaterDelay: t('otherGuardianSendLaterDelay'),
-    phoneOnlyNote: t('otherGuardianPhoneOnlyNote'),
-    missingContactNote: t('otherGuardianMissingContactNote'),
+    reachOutNote: t('otherGuardianReachOutNote'),
     courtDocsLabel: t('otherGuardianCourtDocsLabel'),
     courtDocsHelp: t('otherGuardianCourtDocsHelp'),
     viewConsentDetails: t('otherGuardianViewConsent'),
@@ -5632,8 +5617,8 @@ function otherGuardianFieldBag() {
     other_guardian_email: otherGuardian.email,
     other_guardian_phone: otherGuardian.phone,
     other_guardian_relationship: otherGuardian.relationship,
-    other_guardian_send_intake_link: otherGuardian.sendInvite ? 'yes' : 'no',
-    other_guardian_send_later: otherGuardian.sendLater ? 'yes' : 'no',
+    other_guardian_send_intake_link: (rights === 'yes' || rights === 'shared') ? 'yes' : 'no',
+    other_guardian_send_later: 'no',
     other_guardian_court_docs: (otherGuardian.courtFiles || []).length ? 'yes' : 'no'
   };
 }
@@ -5645,13 +5630,13 @@ function otherGuardianContactOk() {
   const emailOk = String(otherGuardian.email || '').includes('@');
   const phoneOk = String(otherGuardian.phone || '').replace(/\D/g, '').length >= 7;
   const filesOk = Array.isArray(otherGuardian.courtFiles) && otherGuardian.courtFiles.length > 0;
-  return emailOk || phoneOk || filesOk || !!otherGuardian.sendLater;
+  return emailOk || phoneOk || filesOk;
 }
 function otherGuardianBlockReason() {
   if (otherGuardianContactOk()) return '';
   const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
   if (!rights) return t('otherGuardianRightsRequired');
-  return t('otherGuardianMissingContactNote');
+  return t('otherGuardianContactRequired');
 }
 async function uploadOtherGuardianCourtFiles() {
   const files = Array.isArray(otherGuardian.courtFiles) ? otherGuardian.courtFiles : [];
@@ -8085,7 +8070,7 @@ async function maybeCreateOfficeCoGuardianInvite(finalizeData) {
       source: isSchoolScopedIntake.value ? 'school' : 'office',
       publicKey,
       clientIds: ids,
-      sendEmail: !!otherGuardian.sendInvite,
+      sendEmail: hasEmail,
       otherGuardian: { ...otherGuardian, legalAuthority: rights }
     });
     coGuardianInviteResult.value = data;

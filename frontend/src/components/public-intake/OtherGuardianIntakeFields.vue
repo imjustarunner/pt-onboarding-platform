@@ -7,7 +7,6 @@
       <select v-model="model.hasLegalRights">
         <option value="">{{ copy.selectOption }}</option>
         <option value="yes">{{ copy.yes }}</option>
-        <option value="shared">{{ copy.shared }}</option>
         <option value="no">{{ copy.no }}</option>
       </select>
     </label>
@@ -54,17 +53,8 @@
       </div>
       <p class="ogi-info">
         <span aria-hidden="true">ⓘ</span>
-        {{ copy.missingContactNote }}
+        {{ copy.reachOutNote }}
       </p>
-      <label v-if="hasEmail" class="ogi-check">
-        <input type="checkbox" v-model="model.sendInvite" />
-        <span>{{ copy.sendLink }}</span>
-      </label>
-      <label class="ogi-check">
-        <input type="checkbox" v-model="model.sendLater" />
-        <span>{{ copy.sendLater }}</span>
-      </label>
-      <p v-if="model.sendLater" class="ogi-note">{{ copy.sendLaterDelay }}</p>
 
       <button type="button" class="ogi-acc" :aria-expanded="infoOpen ? 'true' : 'false'" @click="infoOpen = !infoOpen">
         <span class="ogi-chev" :class="{ 'is-open': infoOpen }" aria-hidden="true">▾</span>
@@ -132,7 +122,6 @@ const infoOpen = ref(false);
 const needsOtherGuardian = computed(() =>
   props.model.hasLegalRights === 'yes' || props.model.hasLegalRights === 'shared'
 );
-const hasEmail = computed(() => String(props.model.email || '').includes('@'));
 const localError = computed(() => String(props.error || '').trim());
 const fileNames = computed(() =>
   (Array.isArray(props.model.courtFiles) ? props.model.courtFiles : []).map((f) => f.name)
@@ -165,10 +154,6 @@ watch(
 
 watch(needsOtherGuardian, (open) => {
   if (!open) infoOpen.value = false;
-});
-
-watch(hasEmail, (ok) => {
-  if (!ok) props.model.sendInvite = false;
 });
 
 function onPhone(event) {
@@ -259,14 +244,6 @@ async function save() {
   line-height: 1.35;
   color: #475569;
 }
-.ogi-check {
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
-  font-size: 0.82rem;
-  font-weight: 600;
-}
-.ogi-check input { width: auto; min-height: 0; }
 .ogi-acc {
   justify-self: start;
   display: inline-flex;
