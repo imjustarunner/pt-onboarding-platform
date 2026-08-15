@@ -837,7 +837,15 @@ const routes = [
   {
     path: '/support',
     name: 'PublicSupport',
-    component: () => import('../views/public/SupportView.vue'),
+    // Dedicated tenant hosts (app.itsco.health) flatten /itsco/support → /support.
+    // That flat path is the SSTC/platform page only on Summit hosts — not counseling tenants.
+    component: () => {
+      const host = resolveHostPortalSlug();
+      if (host && !isSummitPlatformRouteSlug(host) && !isSstcTenantSlug(host)) {
+        return import('../views/public/AgencyPublicSupportView.vue');
+      }
+      return import('../views/public/SupportView.vue');
+    },
     meta: { requiresGuest: false }
   },
   {

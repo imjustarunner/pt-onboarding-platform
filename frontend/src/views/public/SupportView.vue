@@ -1,5 +1,6 @@
 <template>
-  <div class="support-page" :style="{ background: pageBackground }">
+  <AgencyPublicSupportView v-if="useAgencySupportPage" />
+  <div v-else class="support-page" :style="{ background: pageBackground }">
     <main class="support-shell">
       <header class="support-header">
         <img v-if="displayLogoUrl" :src="displayLogoUrl" alt="" class="support-logo" />
@@ -64,8 +65,17 @@
 <script setup>
 import { computed, onMounted } from 'vue';
 import { useBrandingStore } from '../../store/branding';
+import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath.js';
+import { isSstcTenantSlug } from '../../config/tenantAppProfiles.js';
+import { isSummitPlatformRouteSlug } from '../../utils/summitPlatformSlugs.js';
+import AgencyPublicSupportView from './AgencyPublicSupportView.vue';
 
 const brandingStore = useBrandingStore();
+
+const useAgencySupportPage = computed(() => {
+  const host = resolveHostImpliedPortalSlug(brandingStore);
+  return Boolean(host && !isSummitPlatformRouteSlug(host) && !isSstcTenantSlug(host));
+});
 
 const defaults = {
   title: 'Support',

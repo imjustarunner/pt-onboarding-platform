@@ -309,17 +309,25 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { useBrandingStore } from '../../store/branding';
 import { DigitalFormShell } from '../../components/digital-form';
 import { PUBLIC_SUPPORT_THEME_URL } from '../../utils/joinLandingTemplate.js';
 import { usePublicSupportLayoutEditor } from '../../composables/usePublicSupportLayoutEditor.js';
 import PublicAgencySupportForm from '../../components/public/PublicAgencySupportForm.vue';
+import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath.js';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const brandingStore = useBrandingStore();
 const layout = usePublicSupportLayoutEditor();
 const agencySlug = computed(() =>
-  String(route.params.organizationSlug || route.params.agencySlug || '').trim()
+  String(
+    route.params.organizationSlug
+    || route.params.agencySlug
+    || resolveHostImpliedPortalSlug(brandingStore)
+    || ''
+  ).trim()
 );
 const config = ref(null);
 const loadError = ref('');
