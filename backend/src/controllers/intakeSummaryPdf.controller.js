@@ -1,4 +1,5 @@
 import Agency from '../models/Agency.model.js';
+import AgencyOfficeIntakeMaster from '../models/AgencyOfficeIntakeMaster.model.js';
 import IntakeLink from '../models/IntakeLink.model.js';
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
 import IntakeSubmissionDocument from '../models/IntakeSubmissionDocument.model.js';
@@ -60,7 +61,7 @@ async function resolveOfficeRecord(req) {
     err.statusCode = 400;
     throw err;
   }
-  const link = await IntakeLink.findByPublicKey(publicKey);
+  let link = await IntakeLink.findByPublicKey(publicKey);
   if (!link) {
     const err = new Error('Intake link not found');
     err.statusCode = 404;
@@ -78,6 +79,11 @@ async function resolveOfficeRecord(req) {
     throw err;
   }
   const agency = await Agency.findById(link.organization_id);
+  try {
+    link = await AgencyOfficeIntakeMaster.applyMasterToLink(link, { agencyId: agency?.id || link.organization_id });
+  } catch (inheritErr) {
+    console.warn('[intakeSummaryPdf] office master overlay failed', inheritErr?.message || inheritErr);
+  }
   const signedDocuments = await IntakeSubmissionDocument.listSignedForRecord(submission.id);
   const spec = buildCompletedIntakeRecord({
     agency,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchesShowIf, normalizeShowIfList } from '../intakeShowIf.js';
+import { matchesShowIf, normalizeShowIfList, childAgeFlags } from '../intakeShowIf.js';
 
 describe('intakeShowIf', () => {
   it('normalizes checkbox-group arrays and JSON strings', () => {
@@ -37,5 +37,13 @@ describe('intakeShowIf', () => {
     expect(matchesShowIf(cond, { alcohol_use: 'never', other_substances: 'no' })).toBe(false);
     expect(matchesShowIf(cond, { alcohol_use: 'weekly', other_substances: 'no' })).toBe(true);
     expect(matchesShowIf(cond, { alcohol_use: 'never', other_substances: 'yes' })).toBe(true);
+  });
+
+  it('marks substance indicated only from presenting concerns, not age', () => {
+    const teen = childAgeFlags('2012-01-15', { presenting_concerns: ['worry_anxiety'] });
+    expect(teen._substance_indicated).toBe('no');
+    expect(teen._age_gte_11).toBe('yes');
+    const flagged = childAgeFlags('2018-06-01', { presenting_concerns: ['substance_use'] });
+    expect(flagged._substance_indicated).toBe('yes');
   });
 });

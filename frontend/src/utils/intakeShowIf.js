@@ -160,9 +160,9 @@ export function childAgeFlags(dob, clientBag = {}) {
     _age_unknown: unknown ? 'yes' : 'no',
     _age_gte_4: unknown || years >= 4 ? 'yes' : 'no',
     _age_gte_8: unknown || years >= 8 ? 'yes' : 'no',
-    _age_gte_11: substance || (!unknown && years >= 11) ? 'yes' : 'no',
+    _age_gte_11: !unknown && years >= 11 ? 'yes' : 'no',
     _age_gte_12: !unknown && years >= 12 ? 'yes' : 'no',
     _age_lte_17: unknown || years <= 17 ? 'yes' : 'no',
-    _substance_indicated: substance || (!unknown && years >= 11) ? 'yes' : 'no'
+    _substance_indicated: substance ? 'yes' : 'no'
   };
 }

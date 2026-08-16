@@ -1,7 +1,8 @@
 import {
   buildPacketStyleBlock,
   headerLogoDataUrl,
-  watermarkDataUrl
+  watermarkDataUrl,
+  coverPageDataUrl
 } from './schoolPrintablePacket.service.js';
 import { OFFICE_PRINTABLE_PACKET_VERSION } from '../constants/officePrintablePacket.js';
 import { buildCompletedIntakeRecord } from './completedIntakeRecord.service.js';
@@ -277,13 +278,37 @@ async function renderCompletedIntakePdf(spec = {}) {
   const pageH = 792;
   const margin = 48;
   const maxWidth = pageW - margin * 2;
+  const cover = await embedPngFromDataUrl(pdfDoc, spec.coverImageUrl || coverPageDataUrl());
+  if (cover) {
+    const coverPage = pdfDoc.addPage([pageW, pageH]);
+    coverPage.drawImage(cover, { x: 0, y: 0, width: pageW, height: pageH });
+  }
   let page = pdfDoc.addPage([pageW, pageH]);
   let y = pageH - margin;
   const logo = await embedPngFromDataUrl(pdfDoc, spec.brandLogoUrl || headerLogoDataUrl());
+  const watermark = await embedPngFromDataUrl(pdfDoc, spec.watermarkUrl || watermarkDataUrl());
+  const stampWatermark = (target) => {
+    if (!watermark || !target) return;
+    try {
+      const width = 210;
+      const height = (watermark.height / watermark.width) * width;
+      target.drawImage(watermark, {
+        x: pageW - width - 18,
+        y: 18,
+        width,
+        height,
+        opacity: 0.07
+      });
+    } catch {
+      /* watermark is decorative */
+    }
+  };
+  stampWatermark(page);
 
   const ensure = (need) => {
     if (y - need < margin) {
       page = pdfDoc.addPage([pageW, pageH]);
+      stampWatermark(page);
       y = pageH - margin;
     }
   };

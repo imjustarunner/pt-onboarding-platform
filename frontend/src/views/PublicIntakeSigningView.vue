@@ -1575,6 +1575,57 @@
           </section>
         </div>
 
+        <div v-if="currentFlowStep?.type === 'provider_match'" class="provider-match-step">
+          <p class="muted" style="margin-bottom: 12px;">
+            {{ tx('These are providers who are globally available. People with open office slots are listed first. Others are waitlist — you can still select them.') }}
+          </p>
+          <p v-if="officeProvidersLoading" class="muted">{{ tx('Loading providers…') }}</p>
+          <p v-else-if="!sortedOfficeProviders.length" class="muted">{{ tx('No available providers are listed yet. You can continue.') }}</p>
+          <div v-else class="provider-match-table-wrap">
+            <table class="provider-match-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>
+                    <button type="button" class="provider-match-sort" @click="setOfficeProviderSort('name')">
+                      {{ tx('Provider') }}{{ officeProviderSortMark('name') }}
+                    </button>
+                  </th>
+                  <th>
+                    <button type="button" class="provider-match-sort" @click="setOfficeProviderSort('title')">
+                      {{ tx('Title') }}{{ officeProviderSortMark('title') }}
+                    </button>
+                  </th>
+                  <th>
+                    <button type="button" class="provider-match-sort" @click="setOfficeProviderSort('openSlots')">
+                      {{ tx('Open slots') }}{{ officeProviderSortMark('openSlots') }}
+                    </button>
+                  </th>
+                  <th>{{ tx('Status') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in sortedOfficeProviders" :key="row.id">
+                  <td>
+                    <input
+                      type="checkbox"
+                      :checked="selectedOfficeProviderIds.includes(String(row.id))"
+                      @change="toggleOfficeProvider(row)"
+                    />
+                  </td>
+                  <td>{{ row.name }}</td>
+                  <td>{{ row.title || row.credential || '—' }}</td>
+                  <td>{{ row.openSlots || 0 }}</td>
+                  <td>
+                    <span v-if="row.waitlist" class="provider-waitlist">{{ tx('Waitlist') }}</span>
+                    <span v-else class="provider-open">{{ tx('Has openings') }}</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <!-- Demographics step -->
         <div v-if="currentFlowStep?.type === 'demographics'" class="demographics-step">
           <p class="muted" style="margin-bottom: 16px;">
@@ -3361,6 +3412,22 @@ const step = ref(1);
 const inPageLocale = ref('en');
 const userChoseLocale = ref(false);
 const SCHOOL_ON_ABOUT_KEYS = new Set(['child_school', 'child_grade', 'school_name', 'school_grade']);
+const SAFETY_DENY_ALL_KEYS = [
+  'hurt_another_person',
+  'talked_hurting_someone',
+  'runaway_unsafe',
+  'self_harm',
+  'talked_wanting_to_die',
+  'wanting_to_die_current',
+  'asq_1',
+  'asq_2',
+  'asq_3',
+  'asq_4',
+  'asq_5',
+  'means_firearms',
+  'means_medications',
+  'means_other'
+];
 
 function sanitizeOfficeIntakeSteps(steps = []) {
   return (Array.isArray(steps) ? steps : []).flatMap((step) => {
@@ -3374,34 +3441,28 @@ function sanitizeOfficeIntakeSteps(steps = []) {
     if (/about_child/i.test(id) || /^about /i.test(label)) {
       nextFields = nextFields.filter((f) => !SCHOOL_ON_ABOUT_KEYS.has(String(f?.key || '')));
     }
-    if (/safety/i.test(id) && !nextFields.some((f) => f?.key === 'safety_deny_all' || f?.type === 'deny_all')) {
-      nextFields = [
-        {
-          id: 'field_safety_deny_all',
-          key: 'safety_deny_all',
-          type: 'deny_all',
-          label: 'Deny all — none of these safety concerns apply',
-          helperText: 'Sets every safety question below to No.',
-          denyAllValue: 'no',
-          denyAllKeys: [
-            'hurt_another_person',
-            'talked_hurting_someone',
-            'runaway_unsafe',
-            'self_harm',
-            'talked_wanting_to_die',
-            'wanting_to_die_current',
-            'asq_1',
-            'asq_2',
-            'asq_3',
-            'asq_4',
-            'asq_5',
-            'means_firearms',
-            'means_medications',
-            'means_other'
-          ]
-        },
-        ...nextFields
-      ];
+    if (/safety/i.test(id)) {
+      const denyIdx = nextFields.findIndex((f) => f?.key === 'safety_deny_all' || f?.type === 'deny_all');
+      if (denyIdx < 0) {
+        nextFields = [
+          {
+            id: 'field_safety_deny_all',
+            key: 'safety_deny_all',
+            type: 'deny_all',
+            label: 'Deny all — none of these safety concerns apply',
+            helperText: 'Sets every safety question below to No.',
+            denyAllValue: 'no',
+            denyAllKeys: [...SAFETY_DENY_ALL_KEYS]
+          },
+          ...nextFields
+        ];
+      } else if (!Array.isArray(nextFields[denyIdx]?.denyAllKeys) || !nextFields[denyIdx].denyAllKeys.length) {
+        nextFields = nextFields.map((f, i) => (
+          i === denyIdx
+            ? { ...f, type: 'deny_all', denyAllValue: f.denyAllValue || 'no', denyAllKeys: [...SAFETY_DENY_ALL_KEYS] }
+            : f
+        ));
+      }
     }
     return [{ ...step, fields: nextFields }];
   });
@@ -4013,6 +4074,65 @@ const communications = reactive({
   internalWorkforceOptIn: ''
 });
 
+const officeProviders = ref([]);
+const officeProvidersLoading = ref(false);
+const officeProviderSortKey = ref('openSlots');
+const officeProviderSortDir = ref('desc');
+const selectedOfficeProviderIds = computed(() => {
+  const raw = intakeResponses.submission?.preferred_office_provider_ids;
+  return Array.isArray(raw) ? raw.map((id) => String(id)) : [];
+});
+const sortedOfficeProviders = computed(() => {
+  const rows = [...(officeProviders.value || [])];
+  const key = officeProviderSortKey.value;
+  const dir = officeProviderSortDir.value === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    const av = key === 'openSlots' ? Number(a.openSlots || 0) : String(a[key] || a.name || '').toLowerCase();
+    const bv = key === 'openSlots' ? Number(b.openSlots || 0) : String(b[key] || b.name || '').toLowerCase();
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return String(a.name || '').localeCompare(String(b.name || ''));
+  });
+  return rows;
+});
+function setOfficeProviderSort(key) {
+  if (officeProviderSortKey.value === key) {
+    officeProviderSortDir.value = officeProviderSortDir.value === 'asc' ? 'desc' : 'asc';
+    return;
+  }
+  officeProviderSortKey.value = key;
+  officeProviderSortDir.value = key === 'openSlots' ? 'desc' : 'asc';
+}
+function officeProviderSortMark(key) {
+  if (officeProviderSortKey.value !== key) return '';
+  return officeProviderSortDir.value === 'asc' ? ' ↑' : ' ↓';
+}
+function toggleOfficeProvider(row) {
+  const id = String(row?.id || '');
+  if (!id) return;
+  const cur = selectedOfficeProviderIds.value.slice();
+  const idx = cur.indexOf(id);
+  if (idx >= 0) cur.splice(idx, 1);
+  else cur.push(id);
+  intakeResponses.submission.preferred_office_provider_ids = cur;
+  const selected = (officeProviders.value || []).filter((p) => cur.includes(String(p.id)));
+  intakeResponses.submission.preferred_office_provider_summary = selected
+    .map((p) => `${p.name}${p.waitlist ? ' (waitlist)' : ''}`)
+    .join(', ');
+}
+async function loadOfficeIntakeProviders() {
+  if (!publicKey || officeProvidersLoading.value) return;
+  officeProvidersLoading.value = true;
+  try {
+    const resp = await api.get(`/public-intake/${encodeURIComponent(publicKey)}/available-providers`);
+    officeProviders.value = Array.isArray(resp.data?.providers) ? resp.data.providers : [];
+  } catch {
+    officeProviders.value = [];
+  } finally {
+    officeProvidersLoading.value = false;
+  }
+}
+
 // Demographics step state
 const demographicsData = reactive({
   dob: '',
@@ -4536,6 +4656,7 @@ const FLOW_STEP_PROGRESS_LABELS = {
   insurance_info: 'Insurance',
   payment_collection: 'Payment',
   communications: 'Communications',
+  provider_match: 'Available providers',
   references: 'References',
   demographics: 'Demographics',
     questions: 'Questions',
@@ -4600,7 +4721,9 @@ function progressBucketId(s) {
   const type = String(s?.type || '');
   const audience = String(s?.audience || '').trim().toLowerCase();
   const rawId = String(s?.id || '');
-  if (String(s?.type || '') === 'communications') return 'family';
+  if (type === 'communications') return 'communications';
+  if (type === 'provider_match') return 'provider_match';
+  if (rawId.includes('scheduling_prefs')) return 'scheduling_prefs';
   if (
     audience === 'guardian'
     || rawId.includes('counseling_dep_about_you')
@@ -4622,34 +4745,35 @@ const dfProgressSteps = computed(() => {
   const steps = [];
   if (asksWhoFor.value) steps.push({ id: 'who', label: t('letsGetIntakeStarted'), marker: '1' });
   const seen = new Set();
-  let familyAdded = false;
   const childMinors = {};
-  const childMajorBase = asksWhoFor.value ? 3 : 2;
-  let extraMajor = childMajorBase;
+  const childMajors = {};
+  let nextMajor = asksWhoFor.value ? 2 : 1;
   for (const s of flowSteps.value || []) {
     const bucket = progressBucketId(s);
     if (bucket === 'family') {
-      if (!familyAdded && !seen.has('family')) {
+      if (!seen.has('family')) {
         seen.add('family');
-        familyAdded = true;
         steps.push({
           id: 'family',
           label: t('yourFamily'),
-          marker: String(asksWhoFor.value ? 2 : 1)
+          marker: String(nextMajor)
         });
+        nextMajor += 1;
       }
       continue;
     }
     if (Number.isInteger(s?.clientIndex)) {
       const i = s.clientIndex;
+      if (childMajors[i] == null) {
+        childMajors[i] = nextMajor;
+        nextMajor += 1;
+      }
       childMinors[i] = (childMinors[i] || 0) + 1;
-      const major = childMajorBase + i;
-      extraMajor = Math.max(extraMajor, major + 1);
       const raw = String(s?.label || FLOW_STEP_PROGRESS_LABELS[s?.type] || s?.type || 'Step').trim() || 'Step';
       steps.push({
         id: String(s?.id || s?.sourceId || `${bucket}_${childMinors[i]}`),
         label: interpolateChildTokens(tx(raw) || raw, i),
-        marker: `${major}.${childMinors[i]}`,
+        marker: `${childMajors[i]}.${childMinors[i]}`,
         substep: true,
         childIndex: i
       });
@@ -4662,11 +4786,11 @@ const dfProgressSteps = computed(() => {
     steps.push({
       id,
       label: interpolateChildTokens(tx(raw) || raw, s?.clientIndex),
-      marker: String(extraMajor)
+      marker: String(nextMajor)
     });
-    extraMajor += 1;
+    nextMajor += 1;
   }
-  steps.push({ id: 'complete', label: t('completed'), marker: String(extraMajor) });
+  steps.push({ id: 'complete', label: t('completed'), marker: String(nextMajor) });
   return steps;
 });
 
@@ -4863,6 +4987,7 @@ const flowSteps = computed(() => {
           || s?.type === 'insurance_info'
           || s?.type === 'payment_collection'
           || s?.type === 'communications'
+          || s?.type === 'provider_match'
           || s?.type === 'references'
           || s?.type === 'demographics'
           || s?.type === 'clinical_questions'
@@ -4926,7 +5051,20 @@ const flowSteps = computed(() => {
         if (s.type === 'guardian_waiver') return { ...s };
         if (s.type === 'insurance_info') return { ...s };
         if (s.type === 'payment_collection') return { ...s };
-        if (s.type === 'communications') return { ...s };
+        if (s.type === 'communications') {
+          if (isOfficeInDepthIntake.value) {
+            return {
+              ...s,
+              campaigns: {
+                ...(s.campaigns || {}),
+                programUpdates: false,
+                internalWorkforce: false
+              }
+            };
+          }
+          return { ...s };
+        }
+        if (s.type === 'provider_match') return { ...s };
         if (s.type === 'references') return { ...s };
         if (s.type === 'demographics') return { ...s };
         if (s.type === 'clinical_questions' || s.type === 'questions') {
@@ -5732,7 +5870,8 @@ function otherGuardianFieldBag() {
     other_guardian_relationship: otherGuardian.relationship,
     other_guardian_send_intake_link: (rights === 'yes' || rights === 'shared') ? 'yes' : 'no',
     other_guardian_send_later: 'no',
-    other_guardian_court_docs: (otherGuardian.courtFiles || []).length ? 'yes' : 'no'
+    other_guardian_court_docs: (otherGuardian.courtFiles || []).length ? 'yes' : 'no',
+    legal_authority: (rights === 'yes' || rights === 'shared') ? 'shared' : 'yes'
   };
 }
 function otherGuardianContactOk() {
@@ -7244,10 +7383,25 @@ const onInterviewFieldUpdate = (field, value) => {
 const applyDenyAllField = (field) => {
   const bag = questionValues.value;
   if (!bag || !field) return;
-  const keys = Array.isArray(field.denyAllKeys) ? field.denyAllKeys : [];
   const value = field.denyAllValue || 'no';
+  const keys = new Set(
+    (Array.isArray(field.denyAllKeys) ? field.denyAllKeys : [])
+      .map((key) => String(key || '').trim())
+      .filter(Boolean)
+  );
+  const pageFields = Array.isArray(currentFlowStep.value?.fields)
+    ? currentFlowStep.value.fields
+    : (visibleQuestionFields.value || []);
+  for (const f of pageFields) {
+    if (!f?.key || f.type === 'info' || f.type === 'deny_all') continue;
+    if (f.type !== 'radio' && f.type !== 'select') continue;
+    const opts = Array.isArray(f.options) ? f.options : [];
+    if (opts.some((o) => String(o?.value ?? '') === String(value))) {
+      keys.add(f.key);
+    }
+  }
   keys.forEach((key) => {
-    if (key) bag[key] = value;
+    bag[key] = value;
   });
 };
 
@@ -7394,6 +7548,13 @@ const intakeFieldGridSpan = (field) => {
 const pickOption = (field) => {
   const options = Array.isArray(field?.options) ? field.options : [];
   if (!options.length) return '';
+  const prefer = ['no', 'none', 'none_describe', 'going_well', 'no_preference', 'any', 'skip', 'not_sure', 'flexible'];
+  for (const wanted of prefer) {
+    const found = options.find((o) => String(o?.value ?? '').toLowerCase() === wanted);
+    if (found) return found.value ?? found.label ?? wanted;
+  }
+  const first = String(options[0]?.value ?? '').toLowerCase();
+  if (first === 'yes' && options[1]) return options[1].value ?? options[1].label ?? '';
   return options[0].value ?? options[0].label ?? '';
 };
 
@@ -7411,25 +7572,85 @@ const randomDevDob = (minAge, maxAge) => {
   return `${year}-${month}-${day}`;
 };
 
+const DEV_FILL_SKIP_KEY = /^(psc|vanderbilt|scared5?|asq|phq|gad|crafft|send_child)_/i;
+const isDevFillSkipField = (field) => {
+  const key = String(field?.key || '');
+  const instrument = String(field?.instrument || '').trim();
+  if (instrument) return true;
+  return DEV_FILL_SKIP_KEY.test(key);
+};
+
+const DEV_TEXT_BY_KEY = {
+  main_reason_seeking: 'School drop-off has gotten harder and she is more withdrawn with friends.',
+  why_seeking_now: 'The school counselor asked us to get support after a few hard weeks.',
+  most_concerned_about: 'The sadness and school avoidance are the biggest strain at home.',
+  concern_what_happened: 'A close friend moved away in March and her mood shifted after that.',
+  concern_triggers: 'Mornings before school and Sunday evenings are the hardest.',
+  concern_what_helps: 'A slower morning routine and sitting with her after school.',
+  behavior_before: 'She gets quiet and then refuses to get in the car.',
+  behavior_function: 'It seems to delay leaving the house.',
+  behavior_recover: 'She settles after about twenty minutes if we stay calm.',
+  behavior_recover_time: 'Usually 15–20 minutes.',
+  behavior_adults_tried: 'We tried earlier bedtimes and a visual morning chart.',
+  behavior_worked: 'The morning chart helps some days.',
+  behavior_worse: 'Rushing or raising our voices makes it worse.',
+  child_interests: 'Soccer, drawing, and being outdoors.',
+  child_strengths: 'Kind with younger kids and sticks with art projects.',
+  describe_this_child: 'Curious, sensitive, and funny once she feels safe.',
+  people_misunderstand_child: 'Adults sometimes read her quietness as defiance.',
+  communication_learning_notes: 'She does better with one instruction at a time.',
+  provider_comfort: 'A calm adult who does not rush her.',
+  provider_good_fit: 'Someone comfortable with school-age girls and anxiety.',
+  currently_helping_with: 'Her teacher has been checking in at lunch.',
+  health_history_describe: 'Generally healthy. No hospitalizations.',
+  counseling_why: 'We tried a few sessions last year for school stress.',
+  counseling_helped: 'It helped a little with naming feelings.',
+  counseling_not_help: 'It was hard to get there after school.',
+  lives_with: 'Mom, dad, and a younger brother.',
+  household_schedule: 'Weekdays with us; every other weekend with grandparents.',
+  diagnosis_list: 'None that we know of.',
+  anything_not_asked: 'She sleeps better when we keep screens out of the bedroom.',
+  presenting_concerns_other: '',
+  custody_arrangement_notes: ''
+};
+
 const fillValueByField = (field) => {
-  const key = normalizeKey(field?.key);
+  const key = String(field?.key || '');
+  const keyNorm = normalizeKey(key);
   const label = normalizeKey(field?.label);
-  const token = `${key} ${label}`;
+  const token = `${keyNorm} ${label}`;
   const type = String(field?.type || '').toLowerCase();
   if (type === 'info' || type === 'deny_all') return undefined;
+  if (isDevFillSkipField(field)) return undefined;
+  if (DEV_TEXT_BY_KEY[key] !== undefined && (type === 'textarea' || type === 'text')) {
+    return DEV_TEXT_BY_KEY[key];
+  }
+  if (key === 'presenting_concerns') return ['worry_anxiety', 'school_avoidance'];
   if (isCheckboxGroupField(field)) {
     const exclusive = String(field?.exclusiveValue || '').trim();
+    if (exclusive) return [exclusive];
+    const options = Array.isArray(field?.options) ? field.options : [];
+    const usable = options.filter((o) => !['none', 'none_describe', 'deny_all', 'no'].includes(String(o?.value || '').toLowerCase()));
+    if (key === 'appointment_reminder_who') return ['me'];
+    if (key === 'days_that_work') return ['monday', 'wednesday'].filter((v) => usable.some((o) => o.value === v));
+    if (usable.length) return [usable[0].value];
     return exclusive ? [exclusive] : [];
   }
   if (type === 'checkbox') return false;
   if (type === 'select' || type === 'radio') return pickOption(field);
-  if (type === 'date') return randomDevDob(7, 14);
+  if (type === 'date') {
+    if (token.includes('guardian') || token.includes('parent')) return randomDevDob(28, 48);
+    return randomDevDob(7, 14);
+  }
   if (token.includes('zip') || token.includes('postal')) return pickDev(DEV_ZIPS);
   if (token.includes('city')) return pickDev(DEV_CITIES);
   if (token.includes('state')) return 'CO';
   if (token.includes('email')) return `${pickDev(DEV_FIRST_NAMES).toLowerCase()}.${pickDev(DEV_LAST_NAMES).toLowerCase()}${Math.floor(Math.random() * 90)}@example.com`;
   if (token.includes('phone')) return randomDevPhone();
-  if (token.includes('dob') || token.includes('birth')) return randomDevDob(7, 14);
+  if (token.includes('dob') || token.includes('birth')) {
+    if (token.includes('guardian') || token.includes('parent')) return randomDevDob(28, 48);
+    return randomDevDob(7, 14);
+  }
   if (token.includes('language')) return 'English';
   if (token.includes('street') || token.includes('address')) return '2140 N Nevada Ave';
   if (token.includes('apt') || token.includes('unit')) return '';
@@ -7438,20 +7659,39 @@ const fillValueByField = (field) => {
   if (token.includes('first')) return pickDev(DEV_FIRST_NAMES);
   if (token.includes('last')) return pickDev(DEV_LAST_NAMES);
   if (token.includes('name')) return `${pickDev(DEV_FIRST_NAMES)} ${pickDev(DEV_LAST_NAMES)}`;
-  if (type === 'textarea') {
-    return pickDev(['Video games', 'Soccer', 'Drawing', 'Reading', 'Being outdoors']);
+  if (type === 'textarea' || type === 'text') {
+    const readable = String(field?.label || key).replace(/\{childName\}/gi, 'this child').replace(/:$/, '');
+    return `A little more about ${readable.toLowerCase()}.`;
   }
-  return pickDev(['Okay', 'No concerns', 'Typical for age', 'Not sure']);
+  return 'No concerns';
 };
 
-const fillFields = (fields, target, overwrite = false) => {
-  (fields || []).forEach((field) => {
-    if (!field || field.type === 'info' || field.type === 'deny_all') return;
-    if (!overwrite && target[field.key]) return;
-    const next = fillValueByField(field);
-    if (next === undefined) return;
-    target[field.key] = next;
-  });
+const fillFields = (fields, target, overwrite = false, extraValues = {}) => {
+  const usable = (fields || []).filter((field) => field && field.type !== 'info' && field.type !== 'deny_all' && !isDevFillSkipField(field));
+  const applyPass = () => {
+    const values = { ...extraValues, ...target };
+    usable.forEach((field) => {
+      if (!matchesShowIf(field.showIf, values)) return;
+      if (!overwrite && target[field.key]) return;
+      const next = fillValueByField(field);
+      if (next === undefined) return;
+      target[field.key] = next;
+    });
+  };
+  applyPass();
+  applyPass();
+};
+
+const fillDevOtherGuardian = () => {
+  const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
+  if (rights !== 'yes' && rights !== 'shared') return;
+  const first = pickDev(DEV_FIRST_NAMES.filter((n) => n !== guardianFirstName.value));
+  const last = pickDev(DEV_LAST_NAMES);
+  otherGuardian.firstName = first;
+  otherGuardian.lastName = last;
+  otherGuardian.relationship = 'Co-parent';
+  otherGuardian.email = `${first}.${last}${String(10 + Math.floor(Math.random() * 89))}@example.com`.toLowerCase();
+  otherGuardian.phone = randomDevPhone();
 };
 
 const fillExample = () => {
@@ -7477,6 +7717,11 @@ const fillExample = () => {
     });
     starterDob.value = clients.value[0].dateOfBirth;
   }
+  fillDevOtherGuardian();
+  communications.emailPreference = communications.emailPreference || 'all';
+  communications.smsPreference = communications.smsPreference || 'scheduling_only';
+  communications.providerTextingOptIn = communications.providerTextingOptIn || 'no';
+  communications.programUpdatesOptIn = communications.programUpdatesOptIn || 'no';
   if (step.value === WHO_FOR_STEP || step.value === 1) {
     fillFields(visibleGuardianFields.value, intakeResponses.guardian, true);
     fillFields(visibleSubmissionFields.value, intakeResponses.submission, true);
@@ -7485,28 +7730,28 @@ const fillExample = () => {
     });
   } else if (step.value === 2) {
     if (currentFlowStep.value?.type === 'questions') {
-      fillFields(visibleQuestionFields.value, questionValues.value, true);
+      fillFields(visibleQuestionFields.value, questionValues.value, true, interviewShowIfValues.value);
     } else if (currentFlowStep.value?.type === 'clinical_questions') {
       fillFields(visibleClinicalFields.value, clinicalResponses, true);
     } else if (currentFlowStep.value?.type === 'document') {
       fillFields(visibleFieldDefinitions.value, currentFieldValues.value, true);
     }
     for (const s of flowSteps.value || []) {
+      if (isQuestionnaireFlowStep(s) || s.type === 'clinical_questions') continue;
       const fields = Array.isArray(s?.fields) ? s.fields : [];
       if (!fields.length) continue;
-      if (s.type === 'clinical_questions') {
-        fillFields(fields, clinicalResponses, true);
-        continue;
-      }
       if (s.type !== 'questions') continue;
       const idx = Number.isInteger(s.clientIndex) ? s.clientIndex : null;
       if (idx != null) {
         if (!intakeResponses.clients[idx]) intakeResponses.clients[idx] = {};
-        fillFields(fields, intakeResponses.clients[idx], true);
+        const ident = clients.value?.[idx] || {};
+        const bag = intakeResponses.clients[idx];
+        const flags = childAgeFlags(bag.child_dob || ident.dob || ident.dateOfBirth, bag);
+        fillFields(fields, bag, true, mergeShowIfValues(intakeResponses.submission, intakeResponses.guardian, bag, flags));
       } else if (String(s.audience || '') === 'guardian') {
-        fillFields(fields, intakeResponses.guardian, true);
+        fillFields(fields, intakeResponses.guardian, true, intakeResponses.guardian);
       } else {
-        fillFields(fields, intakeResponses.submission, true);
+        fillFields(fields, intakeResponses.submission, true, intakeResponses.submission);
       }
     }
   }
@@ -9418,6 +9663,10 @@ const handleCurrentFlowContinue = () => {
   if (currentFlowStep.value?.type === 'insurance_info') return completeInsuranceStep();
   if (currentFlowStep.value?.type === 'payment_collection') return completePaymentStep();
   if (currentFlowStep.value?.type === 'communications') return completeCommunicationsStep();
+  if (currentFlowStep.value?.type === 'provider_match') {
+    stepError.value = '';
+    return nextFlowStep();
+  }
   if (currentFlowStep.value?.type === 'demographics') return completeDemographicsStep();
   if (isQuestionnaireFlowStep(currentFlowStep.value)) return completeClinicalQuestionsStep();
   if (currentFlowStep.value?.type === 'child_review') {
@@ -9433,6 +9682,7 @@ const currentFlowContinueLabel = computed(() => {
   if (currentFlowStep.value?.type === 'insurance_info') return 'Save & continue';
   if (currentFlowStep.value?.type === 'payment_collection') return 'Continue';
   if (currentFlowStep.value?.type === 'communications') return 'Save preferences & continue';
+  if (currentFlowStep.value?.type === 'provider_match') return t('continue');
   if (currentFlowStep.value?.type === 'demographics') return 'Save & continue';
   if (isQuestionnaireFlowStep(currentFlowStep.value) || currentFlowStep.value?.type === 'clinical_questions') return 'Save & continue';
   if (currentFlowStep.value?.type === 'questions') return 'Save & continue';
@@ -10162,6 +10412,7 @@ const currentInterviewPageTitle = computed(() => {
   if (type === 'insurance_info') return tx(s?.label) || t('insuranceInformation');
   if (type === 'payment_collection') return tx(s?.label) || t('paymentInformation');
   if (type === 'communications') return tx(s?.label) || t('communicationPreferences');
+  if (type === 'provider_match') return tx(s?.label) || tx('Available providers');
   if (type === 'demographics') return tx(s?.label) || t('demographics');
   if (type === 'clinical_questions') return currentFlowStepTitle.value || t('clinicalQuestions');
   if (type === 'references') return tx(s?.label) || t('professionalReferences');
@@ -10791,6 +11042,9 @@ watch(currentFlowStep, async (step) => {
   }
   if (step?.type === 'smart_disclosure' || step?.type === 'disclosure') {
     await ensureDisclosureContext();
+  }
+  if (step?.type === 'provider_match') {
+    await loadOfficeIntakeProviders();
   }
   if (step?.type === 'upload') {
     uploadStepFiles.value = [];
@@ -12044,6 +12298,61 @@ onBeforeUnmount(() => {
   margin: 16px 0;
   display: grid;
   gap: 12px;
+}
+.provider-match-step {
+  margin: 16px 0;
+}
+.provider-match-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border, #d7e3dc);
+  border-radius: 12px;
+  background: #fff;
+}
+.provider-match-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.provider-match-table th,
+.provider-match-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e6eee9;
+  vertical-align: middle;
+}
+.provider-match-table th {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #4b5563;
+  background: #f6f9f7;
+}
+.provider-match-sort {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  font-weight: 700;
+}
+.provider-waitlist {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 650;
+}
+.provider-open {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e7f3ea;
+  color: #1b3d2f;
+  font-size: 12px;
+  font-weight: 650;
 }
 .spanish-clarification-step {
   margin: 16px 0;

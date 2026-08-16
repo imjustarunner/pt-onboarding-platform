@@ -43,7 +43,9 @@ function field({
   scope = 'client',
   instrument = '',
   defaultValue = undefined,
-  inputKind = ''
+  inputKind = '',
+  denyAllKeys,
+  denyAllValue
 }) {
   return {
     id: `field_${key}`,
@@ -64,7 +66,9 @@ function field({
     category: 'clinical',
     instrument: instrument || undefined,
     defaultValue,
-    inputKind: inputKind || undefined
+    inputKind: inputKind || undefined,
+    denyAllKeys: Array.isArray(denyAllKeys) ? denyAllKeys : undefined,
+    denyAllValue: denyAllValue || undefined
   };
 }
 
@@ -181,7 +185,7 @@ function partAAboutYou() {
     id: 'about_you',
     label: 'About You',
     helperText: 'First, tell us who is completing these forms.',
-    whyWeAsk: 'We need to know who is enrolling the child and whether they can consent to treatment.',
+    whyWeAsk: 'We need a primary contact for this packet. Custody and the other parent/guardian are collected on the welcome page so we do not ask them again here.',
     fields: [
       field({
         key: 'guardian_legal_first',
@@ -267,65 +271,6 @@ function partAAboutYou() {
         type: 'text',
         scope: 'guardian',
         showIf: { fieldKey: 'guardian_relationship_to_child', equals: 'other' }
-      }),
-      field({
-        key: 'legal_authority',
-        label: 'Do you have legal authority to consent to treatment?',
-        type: 'radio',
-        scope: 'guardian',
-        options: [
-          opt('yes', 'Yes'),
-          opt('no', 'No'),
-          opt('shared', 'Shared authority')
-        ]
-      }),
-      field({
-        key: 'authority_name',
-        label: 'Who has legal authority? Name',
-        type: 'text',
-        scope: 'guardian',
-        showIf: { fieldKey: 'legal_authority', equals: 'no' }
-      }),
-      field({
-        key: 'authority_relationship',
-        label: 'Relationship',
-        type: 'text',
-        scope: 'guardian',
-        showIf: { fieldKey: 'legal_authority', equals: 'no' }
-      }),
-      field({
-        key: 'authority_contact',
-        label: 'Contact information',
-        type: 'textarea',
-        scope: 'guardian',
-        showIf: { fieldKey: 'legal_authority', equals: 'no' }
-      }),
-      field({
-        key: 'shared_authority_name',
-        label: 'Who else shares legal authority? Name',
-        type: 'text',
-        scope: 'guardian',
-        showIf: { fieldKey: 'legal_authority', equals: 'shared' }
-      }),
-      field({
-        key: 'shared_authority_relationship',
-        label: 'Relationship',
-        type: 'text',
-        scope: 'guardian',
-        showIf: { fieldKey: 'legal_authority', equals: 'shared' }
-      }),
-      field({
-        key: 'shared_authority_contact',
-        label: 'Contact information',
-        type: 'textarea',
-        scope: 'guardian',
-        showIf: { fieldKey: 'legal_authority', equals: 'shared' }
-      }),
-      field({
-        key: 'custody_arrangement_notes',
-        label: 'Is there anything about the custody or decision-making arrangement we need to know before beginning services?',
-        optional: true,
-        scope: 'guardian'
       })
     ]
   });
@@ -372,20 +317,6 @@ function partAFamilyContact() {
         scope: 'guardian'
       }),
       field({
-        key: 'appointment_reminder_who',
-        label: 'Who should receive appointment reminders?',
-        type: 'checkbox',
-        layout: 'cards',
-        scope: 'guardian',
-        section: 'Reminders & communication',
-        helperText: 'Scheduling reminders follow the email and text choices on the Communications page. Pick everyone who should get them.',
-        options: [
-          opt('me', 'Me'),
-          opt('other_parent', 'Another parent or guardian'),
-          opt('emergency_contact', 'Emergency contact')
-        ]
-      }),
-      field({
         key: 'emergency_contact_name',
         label: 'Emergency contact — Name',
         type: 'text',
@@ -430,6 +361,30 @@ function partAFamilyContact() {
         label: 'What would be helpful for us to know?',
         scope: 'guardian',
         showIf: { fieldKey: 'family_logistics', notEquals: 'no' }
+      })
+    ]
+  });
+}
+
+function partASchedulingPrefs() {
+  return guardianStep({
+    id: 'scheduling_prefs',
+    label: 'Communication & scheduling preferences',
+    helperText: 'Reminders follow the email and text choices you just made.',
+    whyWeAsk: 'These preferences sit with communications so the family page stays contact-only.',
+    fields: [
+      field({
+        key: 'appointment_reminder_who',
+        label: 'Who should receive appointment reminders?',
+        type: 'checkbox',
+        layout: 'cards',
+        scope: 'guardian',
+        helperText: 'Pick everyone who should get scheduling reminders. This uses the email and text consents from the previous page.',
+        options: [
+          opt('me', 'Me'),
+          opt('other_parent', 'Another parent or guardian'),
+          opt('emergency_contact', 'Emergency contact')
+        ]
       })
     ]
   });
@@ -1924,6 +1879,7 @@ export function buildCounselingDependentEnSteps() {
       'We need a primary contact and household logistics before the child pages.',
       [partAAboutYou(), partAFamilyContact()]
     ),
+    partASchedulingPrefs(),
     childAbout(),
     childProviderPrefs(),
     combineChildSteps(
@@ -1976,6 +1932,7 @@ export function mergeCounselingOfficeEnIntoSteps(existingSteps = []) {
     const id = String(s?.id || '');
     if (id.startsWith(COUNSELING_SELF_STEP_PREFIX)) return false;
     if (id.startsWith(COUNSELING_DEP_STEP_PREFIX)) return false;
+    if (String(s?.type || '') === 'provider_match') return false;
     if (String(s?.type || '') === 'questions' && (!Array.isArray(s.fields) || s.fields.length === 0)) {
       return false;
     }
@@ -1989,13 +1946,30 @@ export function mergeCounselingOfficeEnIntoSteps(existingSteps = []) {
   });
   const comms = kept.filter((s) => String(s?.type || '') === 'communications');
   const rest = kept.filter((s) => String(s?.type || '') !== 'communications');
-  const family = dep.filter((s) => s.audience === 'guardian');
+  const family = dep.filter((s) => s.audience === 'guardian' && !String(s.id || '').includes('scheduling_prefs'));
+  const prefs = dep.filter((s) => String(s.id || '').includes('scheduling_prefs'));
   const restDep = dep.filter((s) => s.audience !== 'guardian');
-  const commsStep = comms[0] || {
-    id: 'office_communications',
+  const incomingComms = comms[0] || {};
+  const commsStep = {
+    id: incomingComms.id || 'office_communications',
     type: 'communications',
-    label: 'Communications',
-    visibility: 'always'
+    label: incomingComms.label || 'Communications',
+    visibility: incomingComms.visibility || 'always',
+    campaigns: {
+      ...(incomingComms.campaigns || {}),
+      providerTexting: incomingComms.campaigns?.providerTexting !== false,
+      programUpdates: false,
+      internalWorkforce: false
+    }
   };
-  return [...self, ...family, commsStep, ...restDep, ...rest];
+  const providersStep = {
+    id: 'office_available_providers',
+    type: 'provider_match',
+    label: 'Available providers',
+    helperText: 'Providers who are globally available. Those with open office slots are listed first; others are waitlist.',
+    audience: 'guardian',
+    visibility: 'always',
+    fields: []
+  };
+  return [...self, ...family, commsStep, ...prefs, providersStep, ...restDep, ...rest];
 }

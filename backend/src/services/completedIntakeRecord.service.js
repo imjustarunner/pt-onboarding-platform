@@ -11,7 +11,7 @@ import {
   resolveIntakeFormLocale,
   resolveOptionLabel
 } from '../utils/intakeFieldLabels.js';
-import { matchesShowIf } from '../utils/intakeShowIf.js';
+import { matchesShowIf, childAgeFlags } from '../utils/intakeShowIf.js';
 
 const SECRET_KEY = /password|preview|card_number|cvc|cvv|ssn|secret|signaturedata|dataurl|token/i;
 const PHOTO_KEY = /photo|image|front|back|preview/i;
@@ -138,14 +138,22 @@ function instrumentIdForField(field) {
   return String(field?.instrument || '').trim().toLowerCase();
 }
 
+function looksLikeBlankLikert(raw) {
+  return raw === 0 || raw === '0';
+}
+
 function instrumentWasCompleted(fields, values) {
-  const answered = fields.filter((field) => {
-    if (!field?.key || field.type === 'info') return false;
+  const dataFields = fields.filter((field) => field?.key && field.type !== 'info');
+  if (!dataFields.length) return false;
+  const answered = dataFields.filter((field) => {
     const raw = values?.[field.key];
     if (raw === false) return true;
     return hasValue(raw);
   });
-  return answered.length > 0;
+  if (!answered.length) return false;
+  const allBlankLikert = answered.every((field) => looksLikeBlankLikert(values?.[field.key]));
+  if (allBlankLikert) return false;
+  return true;
 }
 
 function formatDateTime(value) {
@@ -170,12 +178,26 @@ function fieldIndex(link) {
   return byKey;
 }
 
+const INSTRUMENT_LEFTOVER_KEY = /^(psc|vanderbilt|scared5?|asq|phq9?|gad7?|crafft|send_child)_/i;
+
 const FALLBACK_VALUE_LABELS = {
   send: 'Send to the child',
   skip: 'Skip for now',
   yes: 'Yes',
   no: 'No',
-  not_sure: 'Not sure'
+  not_sure: 'Not sure',
+  going_well: 'Going well',
+  some_difficulty: 'Some difficulty',
+  significant_difficulty: 'Significant difficulty',
+  in_person: 'In person',
+  school_based: 'School based',
+  most_important: 'Most important',
+  no_preference: 'No preference',
+  '2_weeks_2_months': '2 weeks to 2 months',
+  sadness_low_mood: 'Sadness or low mood',
+  school_avoidance: 'School avoidance',
+  eating_concerns: 'Eating concerns',
+  worry_anxiety: 'Worry or anxiety'
 };
 
 function formatFieldValue(field, value, locale, link) {
@@ -188,8 +210,11 @@ function formatFieldValue(field, value, locale, link) {
       String(o?.value ?? '') === String(raw) || String(o?.label ?? '') === String(raw)
     );
     if (found) return resolveOptionLabel(found, locale, link) || String(found.label || found.value || raw);
-    const fallback = FALLBACK_VALUE_LABELS[String(raw).trim().toLowerCase()];
-    return fallback || String(raw).trim();
+    const slug = String(raw).trim().toLowerCase();
+    const fallback = FALLBACK_VALUE_LABELS[slug];
+    if (fallback) return fallback;
+    if (/^[a-z0-9]+(?:_[a-z0-9]+)+$/.test(slug)) return humanizeKey(slug);
+    return String(raw).trim();
   };
   if (Array.isArray(value)) {
     if (value.every((item) => item == null || typeof item !== 'object')) {
@@ -207,25 +232,28 @@ function pushRow(rows, label, value) {
   rows.push({ label: String(label).trim(), value: text.length > 4000 ? `${text.slice(0, 3997)}…` : text });
 }
 
-function walkBag(bag, { byKey, locale, link, prefix = '', skipKeys = new Set() }, rows, printed) {
+function walkBag(bag, { byKey, locale, link, prefix = '', skipKeys = new Set(), values = null }, rows, printed) {
   if (!bag || typeof bag !== 'object' || Array.isArray(bag)) return;
+  const showIfValues = values && typeof values === 'object' ? values : bag;
   for (const [key, raw] of Object.entries(bag)) {
     if (!key || skipKeys.has(key) || SKIP_BAG_KEYS.has(key) || isSecretKey(key) || printed.has(key)) continue;
     if (looksLikeHtml(raw)) continue;
     if (PHOTO_KEY.test(key) && typeof raw === 'string' && raw.startsWith('data:')) continue;
+    if (INSTRUMENT_LEFTOVER_KEY.test(key)) continue;
     const field = byKey.get(key);
+    if (field?.showIf && !matchesShowIf(field.showIf, showIfValues)) continue;
     const label = [prefix, field ? (resolveIntakeFieldLabel(field, locale, link) || humanizeKey(key)) : humanizeKey(key)]
       .filter(Boolean)
       .join(' · ');
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-      walkBag(raw, { byKey, locale, link, prefix: label, skipKeys }, rows, printed);
+      walkBag(raw, { byKey, locale, link, prefix: label, skipKeys, values: showIfValues }, rows, printed);
       printed.add(key);
       continue;
     }
     if (Array.isArray(raw) && raw.some((item) => item && typeof item === 'object')) {
       raw.forEach((item, index) => {
         if (item && typeof item === 'object') {
-          walkBag(item, { byKey, locale, link, prefix: `${label} ${index + 1}`, skipKeys }, rows, printed);
+          walkBag(item, { byKey, locale, link, prefix: `${label} ${index + 1}`, skipKeys, values: showIfValues }, rows, printed);
         }
       });
       printed.add(key);
@@ -310,7 +338,13 @@ function resolvePublicOrigin(explicit = '') {
 
 function publicDocUrl(publicKey, kind, id, origin = '') {
   const key = String(publicKey || '').trim();
-  if (!key || !id) return '';
+  if (!key) return '';
+  if (kind === 'disclosure') {
+    const path = `/api/public-intake/${encodeURIComponent(key)}/disclosure/view`;
+    const base = resolvePublicOrigin(origin);
+    return base ? `${base}${path}` : path;
+  }
+  if (!id) return '';
   const path = kind === 'section'
     ? `/api/public-intake/${encodeURIComponent(key)}/packet-section/${encodeURIComponent(id)}/view`
     : `/api/public-intake/${encodeURIComponent(key)}/document/${encodeURIComponent(id)}/view`;
@@ -410,7 +444,7 @@ function buildSignatures({ signedDocuments = [], intakeData = {}, publicKey = ''
       intakeData,
       [['smartDisclosure'], ['disclosure'], ['responses', 'submission', 'smartDisclosure']],
       'Disclosure Statement',
-      publicKey ? `/api/public-intake/${encodeURIComponent(publicKey)}/disclosure-context` : '',
+      publicDocUrl(publicKey, 'disclosure', null, publicOrigin),
       signerName
     ),
     collectNamedAgreement(
@@ -522,23 +556,33 @@ export function buildCompletedIntakeRecord({
   const clinicalBag = (submissionBag.clinicalResponses && typeof submissionBag.clinicalResponses === 'object')
     ? submissionBag.clinicalResponses
     : {};
-  const interviewValues = { ...submissionBag, ...guardianBag, ...clinicalBag, ...(clientBags[0] || {}) };
+  const firstDob = String(listedClients[0]?.dateOfBirth || listedClients[0]?.date_of_birth || clientBags[0]?.child_dob || '').trim();
+  const interviewValues = {
+    ...submissionBag,
+    ...guardianBag,
+    ...clinicalBag,
+    ...(clientBags[0] || {}),
+    ...childAgeFlags(firstDob, clientBags[0] || {})
+  };
   const interviewSections = rowsFromInterview(link, interviewValues, locale, printed);
 
   const leftoverGuardian = [];
-  walkBag(guardianBag, { byKey, locale, link, skipKeys: new Set([...IDENTITY_KEYS, ...SKIP_BAG_KEYS]) }, leftoverGuardian, printed);
+  walkBag(guardianBag, { byKey, locale, link, skipKeys: new Set([...IDENTITY_KEYS, ...SKIP_BAG_KEYS]), values: interviewValues }, leftoverGuardian, printed);
   const leftoverSubmission = [];
   walkBag(submissionBag, {
     byKey,
     locale,
     link,
-    skipKeys: new Set(['whoFor', 'this_is_for', 'formLocale', 'acknowledgments', ...SKIP_BAG_KEYS])
+    skipKeys: new Set(['whoFor', 'this_is_for', 'formLocale', 'acknowledgments', ...SKIP_BAG_KEYS]),
+    values: interviewValues
   }, leftoverSubmission, printed);
 
   const clientSections = clientBags.map((bag, index) => {
     const rows = [];
     const identitySkip = new Set(['firstName', 'lastName', 'middleName', 'fullName', 'dateOfBirth', 'date_of_birth']);
-    walkBag(bag, { byKey, locale, link, skipKeys: identitySkip }, rows, new Set(printed));
+    const dob = String(listedClients[index]?.dateOfBirth || listedClients[index]?.date_of_birth || bag?.child_dob || '').trim();
+    const values = { ...bag, ...childAgeFlags(dob, bag || {}) };
+    walkBag(bag, { byKey, locale, link, skipKeys: identitySkip, values }, rows, new Set(printed));
     const name = String(listedClients[index]?.fullName || `${listedClients[index]?.firstName || ''} ${listedClients[index]?.lastName || ''}`.trim() || `Client ${index + 1}`).trim();
     return rows.length ? { title: listedClients.length > 1 ? `${name} details` : 'Client details', rows } : null;
   }).filter(Boolean);

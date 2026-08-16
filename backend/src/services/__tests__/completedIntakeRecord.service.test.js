@@ -111,3 +111,60 @@ test('packet sections become per-document signature cards and skipped questionna
   assert.match(spec.signatures[0].publicUrl, /packet-section\/policy_services\/view/);
   assert.equal(spec.signatures[0].hash, 'hash-policy');
 });
+
+test('omits all-zero Vanderbilt/SCARED leftovers and humanizes option slugs', () => {
+  const spec = buildCompletedIntakeRecord({
+    agency: { name: 'ITSCO' },
+    publicKey: 'office-intake-2-en',
+    publicOrigin: 'https://app.itsco.health',
+    link: {
+      public_key: 'office-intake-2-en',
+      intake_steps: [
+        {
+          type: 'questions',
+          label: 'Daily life',
+          fields: [
+            {
+              key: 'life_sleep',
+              label: 'Sleep',
+              type: 'radio',
+              options: [
+                { value: 'going_well', label: 'Going well' },
+                { value: 'some_difficulty', label: 'Some difficulty' }
+              ]
+            }
+          ]
+        },
+        {
+          type: 'clinical_questions',
+          label: 'Standard Questionnaires',
+          fields: [
+            { key: 'vanderbilt_1', label: 'Vanderbilt 1', type: 'select', instrument: 'vanderbilt_adhd18' },
+            { key: 'scared5_1', label: 'Scared5 1', type: 'select', instrument: 'scared5_parent' }
+          ]
+        }
+      ]
+    },
+    submission: {
+      id: 801,
+      signer_name: 'Ada Lovelace',
+      intake_data: {
+        smartDisclosure: { acknowledged: true, contentHash: 'disc-hash' },
+        responses: {
+          clients: [{
+            life_sleep: 'going_well',
+            vanderbilt_1: '0',
+            scared5_1: '0',
+            send_child_anxiety: 'send'
+          }]
+        }
+      }
+    }
+  });
+  const rows = spec.sections.flatMap((section) => section.rows.map((row) => `${row.label}|${row.value}`));
+  assert.ok(rows.some((row) => /Going well/i.test(row)));
+  assert.ok(!rows.some((row) => /Vanderbilt|Scared5|Send Child/i.test(row)));
+  const disclosure = spec.signatures.find((row) => /Disclosure/i.test(row.documentName));
+  assert.ok(disclosure);
+  assert.match(disclosure.publicUrl, /https:\/\/app\.itsco\.health\/api\/public-intake\/office-intake-2-en\/disclosure\/view/);
+});

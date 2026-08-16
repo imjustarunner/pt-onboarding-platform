@@ -124,6 +124,7 @@ import {
   persistDisclosureAcknowledgement,
   validateSmartDisclosureResponse
 } from '../services/smartDisclosure.service.js';
+import { listOfficeIntakeProviders } from '../services/officeIntakeProviders.service.js';
 import {
   PACKET_SECTION_KEYS,
   buildPacketSectionContext,
@@ -5343,6 +5344,65 @@ export const getPublicIntakeDisclosureContext = async (req, res, next) => {
     });
     res.setHeader('Cache-Control', 'no-store');
     res.json({ disclosureContext });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const viewPublicDisclosureHtml = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const resolved = await resolvePublicIntakeContext(publicKey);
+    let link = resolved.link;
+    const issuedRoiLink = resolved.issuedRoiLink;
+    const boundClient = resolved.boundClient;
+    if (!link || (!link.is_active && !issuedRoiLink)) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
+    try {
+      link = await applyOfficeMasterReadOnly(link, agency);
+    } catch (inheritErr) {
+      console.warn('[publicIntake] office master inherit failed', inheritErr?.message || inheritErr);
+    }
+    const disclosureContext = await buildSmartDisclosureContext({
+      link,
+      boundClient,
+      organization,
+      agency,
+      locale: link.language_code || 'en'
+    });
+    const html = disclosureContext
+      ? buildSmartDisclosureHtml({ disclosureContext })
+      : wrapPublicLegalHtml({
+        title: 'Disclosure Statement',
+        versionLabel: '',
+        fingerprint: '',
+        agencyName: agency?.official_name || agency?.name || '',
+        bodyHtml: '<p>A disclosure statement is on file with the organization.</p>'
+      });
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    return res.send(html);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const listPublicOfficeIntakeProviders = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const resolved = await resolvePublicIntakeContext(publicKey);
+    const link = resolved.link;
+    const issuedRoiLink = resolved.issuedRoiLink;
+    const boundClient = resolved.boundClient;
+    if (!link || (!link.is_active && !issuedRoiLink)) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const { agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
+    const providers = await listOfficeIntakeProviders(Number(agency?.id || link.organization_id || 0));
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ providers });
   } catch (error) {
     next(error);
   }
