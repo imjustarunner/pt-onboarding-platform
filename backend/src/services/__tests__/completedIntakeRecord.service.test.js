@@ -168,3 +168,46 @@ test('omits all-zero Vanderbilt/SCARED leftovers and humanizes option slugs', ()
   assert.ok(disclosure);
   assert.match(disclosure.publicUrl, /https:\/\/app\.itsco\.health\/api\/public-intake\/office-intake-2-en\/disclosure\/view/);
 });
+
+test('interpolates child name, skips organization id leftovers, and exposes clickable terms links', () => {
+  const spec = buildCompletedIntakeRecord({
+    agency: { official_name: 'ITSCO' },
+    publicKey: 'office-intake-2-en',
+    publicOrigin: 'https://app.itsco.health',
+    link: {
+      public_key: 'office-intake-2-en',
+      intake_steps: [
+        { type: 'questions', label: 'About {childName}', fields: [{ key: 'child_legal_first', label: 'Legal first name', type: 'text' }] }
+      ]
+    },
+    submission: {
+      id: 810,
+      signer_name: 'Ada Lovelace',
+      intake_data: {
+        responses: {
+          guardian: { firstName: 'Ada', lastName: 'Lovelace' },
+          clients: [{ child_legal_first: 'Owen', child_preferred_name: 'Imani' }],
+          submission: {
+            organizationId: 2,
+            communicationPreferences: {
+              emailPreference: 'all',
+              smsPreference: 'scheduling_only',
+              providerTextingOptIn: 'yes',
+              termsUrl: '/terms',
+              privacyUrl: '/privacypolicy'
+            }
+          }
+        }
+      }
+    },
+    clients: [{ firstName: 'Imani', lastName: 'Ellis', dateOfBirth: '2015-09-09' }]
+  });
+  assert.ok(spec.sections.some((section) => section.title === 'About Imani'));
+  const leftover = spec.sections.find((section) => /Additional answers/i.test(section.title));
+  assert.ok(!leftover || leftover.rows.every((row) => !/Organization Id/i.test(row.label)));
+  const comms = spec.sections.find((section) => /Communication preferences/i.test(section.title));
+  assert.ok(comms);
+  const terms = comms.rows.find((row) => /Terms/i.test(row.label));
+  assert.equal(terms.href, 'https://app.itsco.health/terms');
+  assert.equal(terms.value, 'https://app.itsco.health/terms');
+});

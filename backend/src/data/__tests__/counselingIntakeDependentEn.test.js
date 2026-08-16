@@ -21,7 +21,7 @@ describe('counseling dependent EN intake', () => {
     assert.ok(!aboutYou.fields.some((f) => f.key === 'legal_authority' || f.key === 'custody_arrangement_notes'));
     assert.ok(!aboutYou.fields.some((f) => f.key === 'appointment_reminder_who'));
     const prefs = steps.find((s) => s.id === `${COUNSELING_DEP_STEP_PREFIX}scheduling_prefs`);
-    assert.equal(prefs.fields.find((f) => f.key === 'appointment_reminder_who')?.type, 'checkbox');
+    assert.equal(prefs.type, 'reminder_contacts');
     const safetyDeny = steps
       .find((s) => s.id === `${COUNSELING_DEP_STEP_PREFIX}safety`)
       .fields.find((f) => f.key === 'safety_deny_all');

@@ -14,6 +14,7 @@ import PublicIntakeClientService, { deriveInitials } from '../services/publicInt
 import { isOfficeEarlyAccountProvisionLink } from '../utils/officeIntakeLink.js';
 import * as CoGuardianInvite from '../services/coGuardianInvite.service.js';
 import { resolveIntakeLegalFromTheme } from '../content/intakeLegalCopy.js';
+import { resolveOfficeCommunicationsFromTheme } from '../content/officeCommunicationsCopy.js';
 import {
   agencyReturningGuardianAutoMatchEnabled,
   tryReturningGuardianAutoMatch
@@ -5104,6 +5105,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
       organization: toOrgPayload(organization),
       agency: toOrgPayload(agency),
       intakeLegal: resolveIntakeLegalFromTheme(agency?.theme_settings, link.language_code || 'en'),
+      officeCommunications: resolveOfficeCommunicationsFromTheme(agency?.theme_settings),
       branding: await buildPublicFormBranding({
         organization,
         agency,
@@ -5400,7 +5402,11 @@ export const listPublicOfficeIntakeProviders = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
     const { agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
-    const providers = await listOfficeIntakeProviders(Number(agency?.id || link.organization_id || 0));
+    const ages = String(req.query.ages || '')
+      .split(',')
+      .map((v) => Number(v))
+      .filter((n) => Number.isFinite(n) && n >= 0 && n < 120);
+    const providers = await listOfficeIntakeProviders(Number(agency?.id || link.organization_id || 0), { ages });
     res.setHeader('Cache-Control', 'no-store');
     return res.json({ providers });
   } catch (error) {

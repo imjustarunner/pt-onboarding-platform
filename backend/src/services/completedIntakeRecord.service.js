@@ -35,7 +35,17 @@ const SKIP_BAG_KEYS = new Set([
   'skip_dast10',
   'skip_pcptsd5',
   'skip_psc17',
-  'clinicalResponses'
+  'clinicalResponses',
+  'organizationId',
+  'organization_id',
+  'clinicalSafetyAlert',
+  'communicationPreferences',
+  'preferred_office_provider_ids',
+  'preferred_office_provider_summary',
+  'appointment_reminder_contacts',
+  'appointment_reminder_who',
+  'termsUrl',
+  'privacyUrl'
 ]);
 const INSTRUMENT_SKIP_KEYS = {
   phq9: 'skip_phq9',
@@ -226,10 +236,79 @@ function formatFieldValue(field, value, locale, link) {
   return mapOne(value);
 }
 
-function pushRow(rows, label, value) {
+function pushRow(rows, label, value, extra = {}) {
   const text = String(value || '').trim();
   if (!label || !text) return;
-  rows.push({ label: String(label).trim(), value: text.length > 4000 ? `${text.slice(0, 3997)}…` : text });
+  rows.push({
+    label: String(label).trim(),
+    value: text.length > 4000 ? `${text.slice(0, 3997)}…` : text,
+    ...(extra.href ? { href: String(extra.href).trim() } : {})
+  });
+}
+
+function interpolateChildName(text, name) {
+  const resolved = String(name || 'this child').trim() || 'this child';
+  return String(text || '')
+    .replaceAll('{childName}', resolved)
+    .replaceAll('{CHILDNAME}', resolved)
+    .replaceAll('{ChildName}', resolved)
+    .replaceAll('[Child Name]', resolved);
+}
+
+function absolutePublicUrl(path, origin = '') {
+  const raw = String(path || '').trim();
+  if (!raw || raw === 'null' || raw === 'undefined') return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const base = resolvePublicOrigin(origin);
+  if (!base) return raw.startsWith('/') ? raw : `/${raw}`;
+  return `${base}${raw.startsWith('/') ? raw : `/${raw}`}`;
+}
+
+function commChoiceLabel(kind, value) {
+  const v = String(value || '').trim().toLowerCase();
+  if (kind === 'email') {
+    if (v === 'all') return 'Yes — scheduling + all program communications';
+    if (v === 'scheduling_only') return 'Yes — scheduling only';
+    if (v === 'no') return 'No';
+  }
+  if (kind === 'sms') {
+    if (v === 'scheduling_only') return 'Yes — scheduling and appointment reminders';
+    if (v === 'no') return 'No — do not text me';
+  }
+  if (kind === 'yesno') {
+    if (v === 'yes') return 'Yes';
+    if (v === 'no') return 'No';
+  }
+  return humanizeKey(value);
+}
+
+function communicationsSection(submissionBag, publicOrigin) {
+  const cp = submissionBag?.communicationPreferences;
+  if (!cp || typeof cp !== 'object') return null;
+  const rows = [];
+  if (cp.emailPreference) pushRow(rows, 'Email', commChoiceLabel('email', cp.emailPreference));
+  if (cp.smsPreference) pushRow(rows, 'Text messages (SMS)', commChoiceLabel('sms', cp.smsPreference));
+  if (cp.providerTextingOptIn) pushRow(rows, 'Provider / care-team texting', commChoiceLabel('yesno', cp.providerTextingOptIn));
+  if (cp.programUpdatesOptIn) pushRow(rows, 'Program updates', commChoiceLabel('yesno', cp.programUpdatesOptIn));
+  const terms = absolutePublicUrl(cp.termsUrl || '/terms', publicOrigin);
+  const privacy = absolutePublicUrl(cp.privacyUrl || '/privacypolicy', publicOrigin);
+  if (terms) rows.push({ label: 'Terms of Use', value: terms, href: terms });
+  if (privacy) rows.push({ label: 'Privacy Policy', value: privacy, href: privacy });
+  return rows.length ? { title: 'Communication preferences', rows } : null;
+}
+
+function reminderContactsSection(submissionBag) {
+  const contacts = Array.isArray(submissionBag?.appointment_reminder_contacts)
+    ? submissionBag.appointment_reminder_contacts
+    : [];
+  const included = contacts.filter((c) => c && c.included !== false && (c.name || c.email || c.phone));
+  if (!included.length) return null;
+  const rows = [];
+  included.forEach((c) => {
+    const bits = [c.name, c.relationship, c.email, c.phone].map((v) => String(v || '').trim()).filter(Boolean);
+    pushRow(rows, String(c.label || humanizeKey(c.role || 'Contact')), bits.join(' — '));
+  });
+  return rows.length ? { title: 'Appointment reminder contacts', rows } : null;
 }
 
 function walkBag(bag, { byKey, locale, link, prefix = '', skipKeys = new Set(), values = null }, rows, printed) {
@@ -266,12 +345,12 @@ function walkBag(bag, { byKey, locale, link, prefix = '', skipKeys = new Set(), 
   }
 }
 
-function rowsFromInterview(link, values, locale, printed) {
+function rowsFromInterview(link, values, locale, printed, childName = '') {
   const sections = [];
   const steps = Array.isArray(link?.intake_steps) ? link.intake_steps : [];
   for (const step of steps) {
     const type = String(step?.type || '').toLowerCase();
-    if (type !== 'questions' && type !== 'clinical_questions') continue;
+    if (type !== 'questions' && type !== 'clinical_questions' && type !== 'reminder_contacts') continue;
     const fields = Array.isArray(step.fields) ? step.fields : [];
     const byInstrument = new Map();
     for (const field of fields) {
@@ -310,7 +389,10 @@ function rowsFromInterview(link, values, locale, printed) {
       printed.add(field.key);
     }
     if (rows.length) {
-      sections.push({ title: String(step.label || 'Questions').trim() || 'Questions', rows });
+      sections.push({
+        title: interpolateChildName(String(step.label || 'Questions').trim() || 'Questions', childName),
+        rows
+      });
     }
   }
   return sections;
@@ -564,7 +646,14 @@ export function buildCompletedIntakeRecord({
     ...(clientBags[0] || {}),
     ...childAgeFlags(firstDob, clientBags[0] || {})
   };
-  const interviewSections = rowsFromInterview(link, interviewValues, locale, printed);
+  const childName = String(
+    listedClients[0]?.preferredName
+    || clientBags[0]?.child_preferred_name
+    || listedClients[0]?.firstName
+    || clientBags[0]?.child_legal_first
+    || 'this child'
+  ).trim() || 'this child';
+  const interviewSections = rowsFromInterview(link, interviewValues, locale, printed, childName);
 
   const leftoverGuardian = [];
   walkBag(guardianBag, { byKey, locale, link, skipKeys: new Set([...IDENTITY_KEYS, ...SKIP_BAG_KEYS]), values: interviewValues }, leftoverGuardian, printed);
@@ -573,9 +662,15 @@ export function buildCompletedIntakeRecord({
     byKey,
     locale,
     link,
-    skipKeys: new Set(['whoFor', 'this_is_for', 'formLocale', 'acknowledgments', ...SKIP_BAG_KEYS]),
+    skipKeys: new Set(['whoFor', 'this_is_for', 'formLocale', 'acknowledgments', 'termsUrl', 'privacyUrl', ...SKIP_BAG_KEYS]),
     values: interviewValues
   }, leftoverSubmission, printed);
+  const commsBlock = communicationsSection(submissionBag, publicOrigin);
+  const reminderBlock = reminderContactsSection(submissionBag);
+  const providerSummary = String(submissionBag.preferred_office_provider_summary || '').trim();
+  const providersBlock = providerSummary
+    ? { title: 'Preferred providers', rows: [{ label: 'Selected', value: providerSummary }] }
+    : null;
 
   const clientSections = clientBags.map((bag, index) => {
     const rows = [];
@@ -590,6 +685,9 @@ export function buildCompletedIntakeRecord({
   const sections = [
     contactRows.length ? { title: 'Who this packet is for', rows: contactRows } : null,
     leftoverGuardian.length ? { title: 'Parent / guardian', rows: leftoverGuardian } : null,
+    commsBlock,
+    reminderBlock,
+    providersBlock,
     ...interviewSections,
     leftoverSubmission.length ? { title: 'Additional answers', rows: leftoverSubmission } : null,
     ...clientSections

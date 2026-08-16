@@ -1,12 +1,15 @@
 import {
   buildPacketStyleBlock,
+  buildPdfChromeTemplates,
   headerLogoDataUrl,
+  footerMarkDataUrl,
   watermarkDataUrl,
   coverPageDataUrl
 } from './schoolPrintablePacket.service.js';
 import { OFFICE_PRINTABLE_PACKET_VERSION } from '../constants/officePrintablePacket.js';
 import { buildCompletedIntakeRecord } from './completedIntakeRecord.service.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import DocumentSigningService from './documentSigning.service.js';
 
 const SUMMARY_EXTRA_CSS = `
       .intake-summary-kicker {
@@ -116,12 +119,17 @@ function formatSubmittedAt(value) {
 function renderRows(rows) {
   return (rows || [])
     .filter((row) => row?.label && row?.value)
-    .map((row) => `
+    .map((row) => {
+      const valueHtml = row.href
+        ? `<a href="${escapeHtml(row.href)}">${escapeHtml(row.value)}</a>`
+        : escapeHtml(row.value);
+      return `
       <div class="intake-summary-row">
         <dt>${escapeHtml(row.label)}</dt>
-        <dd>${escapeHtml(row.value)}</dd>
+        <dd>${valueHtml}</dd>
       </div>
-    `)
+    `;
+    })
     .join('');
 }
 
@@ -137,7 +145,8 @@ export function buildIntakeSummaryDocumentHtml({
   approvals = [],
   esign = null,
   footerNote,
-  printable = false
+  printable = false,
+  pdfMode = ''
 } = {}) {
   const watermark = watermarkDataUrl();
   const sectionHtml = (sections || [])
@@ -188,7 +197,7 @@ export function buildIntakeSummaryDocumentHtml({
       </div>
     `
     : '';
-  const toolbarHtml = printable
+  const toolbarHtml = printable && pdfMode !== 'body'
     ? `
       <div class="record-toolbar">
         <button type="button" onclick="window.print()">Print this packet</button>
@@ -197,6 +206,13 @@ export function buildIntakeSummaryDocumentHtml({
     `
     : '';
   const metaHtml = (metaLines || []).filter(Boolean).map((line) => escapeHtml(line)).join(' · ');
+  const brandHtml = pdfMode === 'body'
+    ? ''
+    : `
+        <div class="intake-summary-brand">
+          ${brandLogoUrl ? `<img src="${escapeHtml(brandLogoUrl)}" alt="${escapeHtml(agencyName || 'Organization')}" />` : ''}
+        </div>
+      `;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -213,9 +229,7 @@ ${SUMMARY_EXTRA_CSS}
       ${watermark ? `<img class="packet-watermark" src="${watermark}" alt="" />` : ''}
       <div class="packet-body">
         ${toolbarHtml}
-        <div class="intake-summary-brand">
-          ${brandLogoUrl ? `<img src="${escapeHtml(brandLogoUrl)}" alt="${escapeHtml(agencyName || 'Organization')}" />` : ''}
-        </div>
+        ${brandHtml}
         ${kicker ? `<p class="intake-summary-kicker">${escapeHtml(kicker)}</p>` : ''}
         <h1>${escapeHtml(title || 'Intake packet')}</h1>
         ${agencyName ? `<p class="intake-summary-agency"><strong>${escapeHtml(agencyName)}</strong></p>` : ''}
@@ -236,7 +250,8 @@ function wrapPdfText(font, text, size, maxWidth) {
   const words = String(text || '')
     .normalize('NFC')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '?')
+    .replace(/[·•]/g, ' - ')
+    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '')
     .split(/\s+/)
     .filter(Boolean);
   const lines = [];
@@ -267,6 +282,47 @@ async function embedPngFromDataUrl(pdfDoc, dataUrl) {
   }
 }
 
+async function renderCoverOnlyPdf(spec = {}) {
+  const coverUrl = spec.coverImageUrl || coverPageDataUrl();
+  if (!coverUrl) return null;
+  const pdfDoc = await PDFDocument.create();
+  const cover = await embedPngFromDataUrl(pdfDoc, coverUrl);
+  if (!cover) return null;
+  const page = pdfDoc.addPage([612, 792]);
+  page.drawImage(cover, { x: 0, y: 0, width: 612, height: 792 });
+  return Buffer.from(await pdfDoc.save());
+}
+
+async function mergeCoverAndBody(coverBytes, bodyBytes) {
+  if (!coverBytes) return Buffer.isBuffer(bodyBytes) ? bodyBytes : Buffer.from(bodyBytes);
+  const merged = await PDFDocument.create();
+  const coverDoc = await PDFDocument.load(coverBytes);
+  const bodyDoc = await PDFDocument.load(bodyBytes);
+  const coverPages = await merged.copyPages(coverDoc, coverDoc.getPageIndices());
+  coverPages.forEach((p) => merged.addPage(p));
+  const bodyPages = await merged.copyPages(bodyDoc, bodyDoc.getPageIndices());
+  bodyPages.forEach((p) => merged.addPage(p));
+  return Buffer.from(await merged.save());
+}
+
+async function renderCompletedIntakePdfWithPuppeteer(spec = {}) {
+  const { headerTemplate, footerTemplate } = buildPdfChromeTemplates({
+    packetVersionLabel: spec.packetVersionLabel || OFFICE_PRINTABLE_PACKET_VERSION
+  });
+  const html = buildIntakeSummaryDocumentHtml({ ...spec, printable: false, pdfMode: 'body' });
+  const bodyPdfBytes = await DocumentSigningService.convertHTMLToPDF(html, {
+    printBackground: true,
+    margin: { top: '0.75in', right: '0.5in', bottom: '0.5in', left: '0.5in' },
+    preferCSSPageSize: false,
+    displayHeaderFooter: true,
+    headerTemplate,
+    footerTemplate,
+    disableFallback: true
+  });
+  const coverBytes = await renderCoverOnlyPdf(spec);
+  return mergeCoverAndBody(coverBytes, bodyPdfBytes);
+}
+
 async function renderCompletedIntakePdf(spec = {}) {
   const pdfDoc = await PDFDocument.create();
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -276,16 +332,20 @@ async function renderCompletedIntakePdf(spec = {}) {
   const black = rgb(0.07, 0.09, 0.11);
   const pageW = 612;
   const pageH = 792;
-  const margin = 48;
-  const maxWidth = pageW - margin * 2;
+  const side = 36;
+  const contentTop = 62;
+  const contentBottom = 44;
+  const maxWidth = pageW - side * 2;
+  const versionLabel = String(spec.packetVersionLabel || OFFICE_PRINTABLE_PACKET_VERSION);
   const cover = await embedPngFromDataUrl(pdfDoc, spec.coverImageUrl || coverPageDataUrl());
   if (cover) {
     const coverPage = pdfDoc.addPage([pageW, pageH]);
     coverPage.drawImage(cover, { x: 0, y: 0, width: pageW, height: pageH });
   }
   let page = pdfDoc.addPage([pageW, pageH]);
-  let y = pageH - margin;
+  let y = pageH - contentTop;
   const logo = await embedPngFromDataUrl(pdfDoc, spec.brandLogoUrl || headerLogoDataUrl());
+  const footerMark = await embedPngFromDataUrl(pdfDoc, footerMarkDataUrl());
   const watermark = await embedPngFromDataUrl(pdfDoc, spec.watermarkUrl || watermarkDataUrl());
   const stampWatermark = (target) => {
     if (!watermark || !target) return;
@@ -294,7 +354,7 @@ async function renderCompletedIntakePdf(spec = {}) {
       const height = (watermark.height / watermark.width) * width;
       target.drawImage(watermark, {
         x: pageW - width - 18,
-        y: 18,
+        y: 36,
         width,
         height,
         opacity: 0.07
@@ -306,30 +366,24 @@ async function renderCompletedIntakePdf(spec = {}) {
   stampWatermark(page);
 
   const ensure = (need) => {
-    if (y - need < margin) {
+    if (y - need < contentBottom) {
       page = pdfDoc.addPage([pageW, pageH]);
       stampWatermark(page);
-      y = pageH - margin;
+      y = pageH - contentTop;
     }
   };
   const drawLines = (lines, { size = 10, type = font, color = black, gap = 13 } = {}) => {
     for (const line of lines) {
       ensure(gap);
-      page.drawText(String(line || ''), { x: margin, y, size, font: type, color });
+      page.drawText(String(line || ''), { x: side, y, size, font: type, color });
       y -= gap;
     }
   };
 
-  if (logo) {
-    const height = 36;
-    const width = (logo.width / logo.height) * height;
-    page.drawImage(logo, { x: (pageW - width) / 2, y: y - height, width, height });
-    y -= height + 14;
-  }
   drawLines([spec.agencyName || ''], { size: 11, type: bold, color: green, gap: 16 });
   drawLines([spec.title || 'Completed intake packet'], { size: 16, type: bold, gap: 18 });
   if (spec.metaLines?.length) {
-    drawLines([spec.metaLines.filter(Boolean).join('  ·  ')], { size: 9, color: gray, gap: 16 });
+    drawLines([spec.metaLines.filter(Boolean).join('  -  ')], { size: 9, color: gray, gap: 16 });
   }
 
   const drawRows = (rows) => {
@@ -339,9 +393,9 @@ async function renderCompletedIntakePdf(spec = {}) {
       const valueLines = wrapPdfText(font, String(row.value), 9, maxWidth - 170);
       const used = Math.max(labelLines.length, valueLines.length);
       ensure(used * 12 + 6);
-      page.drawText(labelLines[0], { x: margin, y, size: 9, font: bold, color: black });
+      page.drawText(labelLines[0], { x: side, y, size: 9, font: bold, color: black });
       valueLines.forEach((line, idx) => {
-        page.drawText(line, { x: margin + 170, y: y - (idx * 12), size: 9, font, color: black });
+        page.drawText(line, { x: side + 170, y: y - (idx * 12), size: 9, font, color: black });
       });
       y -= used * 12 + 4;
     }
@@ -382,7 +436,7 @@ async function renderCompletedIntakePdf(spec = {}) {
         const height = 36;
         const width = Math.min(180, (image.width / image.height) * height);
         ensure(height + 8);
-        page.drawImage(image, { x: margin, y: y - height, width, height });
+        page.drawImage(image, { x: side, y: y - height, width, height });
         y -= height + 10;
       }
     }
@@ -400,12 +454,41 @@ async function renderCompletedIntakePdf(spec = {}) {
     drawLines(wrapPdfText(font, spec.footerNote, 8, maxWidth), { size: 8, color: gray, gap: 11 });
   }
 
+  const pages = pdfDoc.getPages();
+  const bodyStart = cover ? 1 : 0;
+  for (let i = bodyStart; i < pages.length; i += 1) {
+    const target = pages[i];
+    if (logo) {
+      const height = 32;
+      const width = Math.min(180, (logo.width / logo.height) * height);
+      target.drawImage(logo, { x: (pageW - width) / 2, y: pageH - 46, width, height });
+    }
+    if (footerMark) {
+      const height = 16;
+      const width = (footerMark.width / footerMark.height) * height;
+      target.drawImage(footerMark, { x: side, y: 14, width, height });
+    }
+    const versionText = `Version ${versionLabel}`;
+    const versionWidth = bold.widthOfTextAtSize(versionText, 9);
+    target.drawText(versionText, { x: (pageW - versionWidth) / 2, y: 16, size: 9, font: bold, color: black });
+    const pageText = `PAGE ${i - bodyStart + 1}`;
+    const pageWidth = bold.widthOfTextAtSize(pageText, 9);
+    target.drawText(pageText, { x: pageW - side - pageWidth, y: 16, size: 9, font: bold, color: black });
+  }
+
   const bytes = await pdfDoc.save();
   return Buffer.from(bytes);
 }
 
 export async function generateIntakeSummaryPdf(spec = {}) {
-  return renderCompletedIntakePdf(spec);
+  try {
+    return await renderCompletedIntakePdfWithPuppeteer(spec);
+  } catch (err) {
+    if (err?.code === 'PDF_RENDERER_UNAVAILABLE' || err?.statusCode === 503) {
+      return renderCompletedIntakePdf(spec);
+    }
+    throw err;
+  }
 }
 
 export function buildOfficeIntakeSummarySpec({

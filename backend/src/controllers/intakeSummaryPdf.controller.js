@@ -12,6 +12,11 @@ import {
 } from '../services/intakeSummaryPdf.service.js';
 import { buildCompletedIntakeRecord } from '../services/completedIntakeRecord.service.js';
 import { headerLogoDataUrl } from '../services/schoolPrintablePacket.service.js';
+import { assertCanEditPublicAgencySupport } from '../services/publicAgencySupport.service.js';
+import {
+  getIntakeSummaryPdfEmailSettings,
+  upsertIntakeSummaryPdfEmailSettings
+} from '../services/intakeSummaryPdfEmail.service.js';
 
 function sendPdf(res, buffer, filename) {
   const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
@@ -261,8 +266,11 @@ export async function emailPublicIntakeSummaryPdf(req, res, next) {
     });
     return res.json({ ok: true });
   } catch (err) {
-    if (err?.code === 'PDF_RENDERER_UNAVAILABLE' || err?.statusCode) {
+    if (err?.code === 'PDF_RENDERER_UNAVAILABLE' || err?.statusCode === 503) {
       return pdfUnavailable(res, err);
+    }
+    if (err?.status || err?.statusCode) {
+      return res.status(err.status || err.statusCode).json({ error: { message: err.message } });
     }
     if (/valid email/i.test(String(err?.message || ''))) {
       return res.status(400).json({ error: { message: err.message } });
@@ -310,5 +318,53 @@ export async function emailQuickIntakeSummaryPdf(req, res, next) {
       return res.status(400).json({ error: { message: err.message } });
     }
     next(err);
+  }
+}
+
+async function resolveAgencyForPublicKey(publicKey) {
+  const link = await IntakeLink.findByPublicKey(String(publicKey || '').trim());
+  if (!link) {
+    const err = new Error('Intake link not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const agency = await Agency.findById(link.organization_id);
+  if (!agency) {
+    const err = new Error('Organization not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  return { link, agency };
+}
+
+/** GET /api/public-intake/:publicKey/summary-pdf/email-template */
+export async function getPublicIntakeSummaryPdfEmailTemplate(req, res) {
+  try {
+    const { agency } = await resolveAgencyForPublicKey(req.params.publicKey);
+    await assertCanEditPublicAgencySupport(req.user, agency.id);
+    const settings = await getIntakeSummaryPdfEmailSettings(agency.id);
+    return res.json({ ok: true, ...settings });
+  } catch (err) {
+    const status = err.status || err.statusCode || 500;
+    return res.status(status).json({ error: { message: err.message || 'Unable to load email settings.' } });
+  }
+}
+
+/** PUT /api/public-intake/:publicKey/summary-pdf/email-template */
+export async function putPublicIntakeSummaryPdfEmailTemplate(req, res) {
+  try {
+    const { agency } = await resolveAgencyForPublicKey(req.params.publicKey);
+    await assertCanEditPublicAgencySupport(req.user, agency.id);
+    const settings = await upsertIntakeSummaryPdfEmailSettings({
+      agencyId: agency.id,
+      subject: req.body?.subject,
+      body: req.body?.body,
+      senderIdentityId: req.body?.senderIdentityId,
+      actorUserId: req.user?.id || null
+    });
+    return res.json({ ok: true, ...settings });
+  } catch (err) {
+    const status = err.status || err.statusCode || 500;
+    return res.status(status).json({ error: { message: err.message || 'Unable to save email settings.' } });
   }
 }

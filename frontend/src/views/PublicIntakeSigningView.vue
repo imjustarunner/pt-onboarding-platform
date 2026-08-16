@@ -1447,6 +1447,25 @@
           <p class="muted">
             {{ communicationsIntroText }}
           </p>
+          <div v-if="canEditIntakeLegal" class="intake-inline-editor">
+            <p class="intake-inline-editor-label">Edit communication copy (saved to this organization)</p>
+            <label>Email title <input v-model="officeCommsDraft.emailTitle" /></label>
+            <label>Email disclosure <textarea v-model="officeCommsDraft.emailDisclosure" rows="3" /></label>
+            <label>Email — all communications label <input v-model="officeCommsDraft.emailAllLabel" /></label>
+            <label>Email — scheduling only label <input v-model="officeCommsDraft.emailSchedulingOnlyLabel" /></label>
+            <label>SMS title <input v-model="officeCommsDraft.smsTitle" /></label>
+            <label>SMS disclosure <textarea v-model="officeCommsDraft.smsDisclosure" rows="4" /></label>
+            <label>SMS yes label <input v-model="officeCommsDraft.smsYesLabel" /></label>
+            <label>Provider texting title <input v-model="officeCommsDraft.providerTitle" /></label>
+            <label>Provider texting intro <textarea v-model="officeCommsDraft.providerIntro" rows="3" /></label>
+            <label>Provider texting closing <textarea v-model="officeCommsDraft.providerClosing" rows="2" /></label>
+            <label>Provider yes label <input v-model="officeCommsDraft.providerYesLabel" /></label>
+            <label>Provider no label <input v-model="officeCommsDraft.providerNoLabel" /></label>
+            <button type="button" class="df-btn df-btn-secondary" :disabled="officeCommsSaving" @click="saveOfficeCommunicationsCopy">
+              {{ officeCommsSaving ? t('saving') : 'Save communication copy' }}
+            </button>
+            <p v-if="officeCommsSaveStatus" class="muted">{{ officeCommsSaveStatus }}</p>
+          </div>
 
           <section class="communications-campaign-card">
             <h4>{{ communicationsEmailTitle }} <span class="required-indicator">*</span></h4>
@@ -1473,8 +1492,8 @@
             <h4>{{ communicationsSmsTitle }} <span class="required-indicator">*</span></h4>
             <p class="communications-disclosure">
               {{ communicationsSmsDisclosure }}
-              {{ tx('Terms:') }} <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
-              {{ tx('Privacy:') }} <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
+              {{ tx('Terms:') }} <a :href="platformTermsHref" target="_blank" rel="noopener noreferrer">{{ platformTermsHref }}</a>.
+              {{ tx('Privacy:') }} <a :href="platformPrivacyHref" target="_blank" rel="noopener noreferrer">{{ platformPrivacyHref }}</a>.
             </p>
             <div class="radio-group">
               <label class="radio-row">
@@ -1488,7 +1507,7 @@
             </div>
           </section>
 
-          <section v-if="currentFlowStep?.campaigns?.providerTexting" class="communications-campaign-card">
+          <section v-if="currentFlowStep?.campaigns?.providerTexting || isOfficeInDepthIntake" class="communications-campaign-card">
             <h4>{{ communicationsProviderTextingTitle }} <span class="required-indicator">*</span></h4>
             <!-- Custom intro override replaces the default intro paragraph -->
             <p v-if="communicationsProviderTextingIntro" class="communications-disclosure">
@@ -1513,8 +1532,8 @@
             </template>
             <p class="communications-disclosure" style="margin-top: 8px;">
               {{ communicationsProviderTextingClosing || (tx('Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. Appointment reminders/confirmations are not sent from individual provider numbers. Additional terms apply —')) }}
-              {{ tx('Terms:') }} <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
-              {{ tx('Privacy:') }} <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
+              {{ tx('Terms:') }} <a :href="platformTermsHref" target="_blank" rel="noopener noreferrer">{{ platformTermsHref }}</a>.
+              {{ tx('Privacy:') }} <a :href="platformPrivacyHref" target="_blank" rel="noopener noreferrer">{{ platformPrivacyHref }}</a>.
             </p>
             <div class="radio-group">
               <label class="radio-row">
@@ -1528,8 +1547,8 @@
             </div>
             <p class="communications-disclosure communications-opt-out-note" style="margin-top: 10px;">
               <strong>{{ tx('Please note:') }}</strong> {{ tx('Your provider/care team sends these messages through PlotTwistHQ, and you receive/reply to them as standard SMS messages on your phone. If you choose to respond to or initiate a text message with your provider or care team via SMS, you acknowledge and agree that the same terms and conditions outlined above apply to that exchange. Additional terms are always available at') }}
-              <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a> {{ tx('and') }}
-              <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
+              <a :href="platformTermsHref" target="_blank" rel="noopener noreferrer">{{ platformTermsHref }}</a> {{ tx('and') }}
+              <a :href="platformPrivacyHref" target="_blank" rel="noopener noreferrer">{{ platformPrivacyHref }}</a>.
             </p>
           </section>
 
@@ -1539,8 +1558,8 @@
             <p class="communications-disclosure">
               <template v-if="communicationsProgramUpdatesDisclosure">{{ communicationsProgramUpdatesDisclosure }}</template>
               <template v-else>{{ tx('If you choose Yes,') }} {{ communicationsTenantName }} {{ tx('may send optional SMS updates through PlotTwistHQ about this agency\'s programs and services (for example, openings, enrollment options, and availability). You may also receive limited updates about relevant affiliate services. Affiliates never receive access to your personal or clinical information through this update channel, and any affiliate program requires its own separate opt-in for communication and registration. Message frequency varies (no more than twice per month). Message and data rates may apply. Reply STOP to unsubscribe. Reply HELP for help.') }}</template>
-              {{ tx('Terms:') }} <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
-              {{ tx('Privacy:') }} <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
+              {{ tx('Terms:') }} <a :href="platformTermsHref" target="_blank" rel="noopener noreferrer">{{ platformTermsHref }}</a>.
+              {{ tx('Privacy:') }} <a :href="platformPrivacyHref" target="_blank" rel="noopener noreferrer">{{ platformPrivacyHref }}</a>.
             </p>
             <div class="radio-group">
               <label class="radio-row">
@@ -1559,8 +1578,8 @@
             <p class="communications-disclosure">
               <template v-if="communicationsWorkforceDisclosure">{{ communicationsWorkforceDisclosure }}</template>
               <template v-else>{{ tx('By opting in, you agree to receive SMS/text messages from') }} {{ communicationsTenantName }} {{ tx('through PlotTwistHQ for operational notifications and reminders, internal announcements, and optional polls/voting related to your participation on the platform. Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. Support: 833-756-8894 ext. 701 | hq@plottwistco.com.') }}</template>
-              {{ tx('Terms:') }} <a :href="platformTermsUrl" target="_blank" rel="noopener noreferrer">{{ platformTermsUrl }}</a>.
-              {{ tx('Privacy:') }} <a :href="platformPrivacyUrl" target="_blank" rel="noopener noreferrer">{{ platformPrivacyUrl }}</a>.
+              {{ tx('Terms:') }} <a :href="platformTermsHref" target="_blank" rel="noopener noreferrer">{{ platformTermsHref }}</a>.
+              {{ tx('Privacy:') }} <a :href="platformPrivacyHref" target="_blank" rel="noopener noreferrer">{{ platformPrivacyHref }}</a>.
             </p>
             <div class="radio-group">
               <label class="radio-row">
@@ -1573,6 +1592,42 @@
               </label>
             </div>
           </section>
+        </div>
+
+        <div v-if="currentFlowStep?.type === 'reminder_contacts'" class="reminder-contacts-step">
+          <p class="muted">{{ tx(currentFlowStep?.helperText) || tx('Add or confirm the people who should receive scheduling reminders.') }}</p>
+          <article
+            v-for="contact in reminderContacts"
+            :key="contact.id"
+            class="reminder-contact-card"
+            :class="{ 'is-included': contact.included }"
+          >
+            <div class="reminder-contact-head">
+              <div>
+                <strong>{{ contact.label }}</strong>
+                <p class="muted">{{ contact.source }}{{ contact.name ? ` · ${contact.name}` : ' · not added yet' }}</p>
+              </div>
+              <label class="reminder-include">
+                <input type="checkbox" v-model="contact.included" />
+                {{ contact.included ? tx('Included') : tx('Not included') }}
+              </label>
+            </div>
+            <div class="reminder-contact-fields">
+              <label>{{ tx('Name') }} <input v-model="contact.name" autocomplete="name" /></label>
+              <label>{{ tx('Relationship') }} <input v-model="contact.relationship" autocomplete="off" /></label>
+              <label>{{ tx('Email') }} <input v-model="contact.email" type="email" autocomplete="email" /></label>
+              <label>{{ tx('Phone') }} <input v-model="contact.phone" type="tel" autocomplete="tel" /></label>
+            </div>
+            <button
+              v-if="contact.role === 'other'"
+              type="button"
+              class="df-btn df-btn-secondary"
+              @click="removeReminderContact(contact.id)"
+            >{{ tx('Remove') }}</button>
+          </article>
+          <button type="button" class="df-btn df-btn-secondary" @click="addReminderContact">
+            {{ tx('Add someone else') }}
+          </button>
         </div>
 
         <div v-if="currentFlowStep?.type === 'provider_match'" class="provider-match-step">
@@ -2115,6 +2170,24 @@
                     {{ officeEmailSending ? t('saving') : t('emailPdfCopy') }}
                   </button>
                 </div>
+                <div v-if="canEditIntakeLegal" class="intake-inline-editor office-email-editor">
+                  <p class="intake-inline-editor-label">Edit this PDF email (From, subject, and body for this organization)</p>
+                  <label>From
+                    <select v-model="officePdfEmailDraft.senderIdentityId">
+                      <option value="">Use the default intake / notifications mailbox</option>
+                      <option v-for="identity in officePdfEmailIdentities" :key="identity.id" :value="String(identity.id)">
+                        {{ identity.displayName }} &lt;{{ identity.fromEmail }}&gt;
+                      </option>
+                    </select>
+                  </label>
+                  <label>Subject <input v-model="officePdfEmailDraft.subject" /></label>
+                  <label>Body <textarea v-model="officePdfEmailDraft.body" rows="6" /></label>
+                  <p class="muted">Tokens: {{ '{{AGENCY_NAME}}' }}</p>
+                  <button type="button" class="df-btn df-btn-secondary" :disabled="officePdfEmailSaving" @click="saveOfficePdfEmailTemplate">
+                    {{ officePdfEmailSaving ? t('saving') : 'Save email settings' }}
+                  </button>
+                  <p v-if="officePdfEmailStatus" class="muted">{{ officePdfEmailStatus }}</p>
+                </div>
                 <p v-if="officeEmailStatus" class="office-complete-phi">{{ officeEmailStatus }}</p>
               </div>
               <div v-if="!officePortalDismissed && guardianEmail" class="office-complete-download">
@@ -2595,7 +2668,8 @@ import {
   mergeShowIfValues,
   isCheckboxGroupField,
   isClinicalSafetyPositive,
-  childAgeFlags
+  childAgeFlags,
+  ageYearsFromDob
 } from '../utils/intakeShowIf.js';
 import {
   lookupStructuredIntakeTranslation,
@@ -4066,6 +4140,27 @@ const fatalError = ref('');
 const error = ref('');
 const stepError = ref('');
 const beginError = ref('');
+const officeCommunicationsCopy = ref({});
+const officeCommsDraft = reactive({
+  emailTitle: '',
+  emailDisclosure: '',
+  emailAllLabel: '',
+  emailSchedulingOnlyLabel: '',
+  smsTitle: '',
+  smsDisclosure: '',
+  smsYesLabel: '',
+  providerTitle: '',
+  providerIntro: '',
+  providerClosing: '',
+  providerYesLabel: '',
+  providerNoLabel: ''
+});
+const officeCommsSaving = ref(false);
+const officeCommsSaveStatus = ref('');
+function officeCommsSaved(key) {
+  return String(officeCommunicationsCopy.value?.[key] || '').trim();
+}
+const reminderContacts = ref([]);
 const communications = reactive({
   emailPreference: '',
   smsPreference: '',
@@ -4124,7 +4219,12 @@ async function loadOfficeIntakeProviders() {
   if (!publicKey || officeProvidersLoading.value) return;
   officeProvidersLoading.value = true;
   try {
-    const resp = await api.get(`/public-intake/${encodeURIComponent(publicKey)}/available-providers`);
+    const ages = (clients.value || [])
+      .map((c) => ageYearsFromDob(c?.dateOfBirth || c?.dob))
+      .filter((n) => Number.isFinite(n) && n >= 0);
+    const resp = await api.get(`/public-intake/${encodeURIComponent(publicKey)}/available-providers`, {
+      params: ages.length ? { ages: ages.join(',') } : {}
+    });
     officeProviders.value = Array.isArray(resp.data?.providers) ? resp.data.providers : [];
   } catch {
     officeProviders.value = [];
@@ -4299,6 +4399,15 @@ function skipOfficeInstrument(instrument) {
 }
 const platformTermsUrl = computed(() => currentFlowStep.value?.termsUrlOverride?.trim() || '/terms');
 const platformPrivacyUrl = computed(() => currentFlowStep.value?.privacyUrlOverride?.trim() || '/privacypolicy');
+function resolvePublicHref(path) {
+  const raw = String(path || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return origin ? `${origin}${raw.startsWith('/') ? raw : `/${raw}`}` : raw;
+}
+const platformTermsHref = computed(() => resolvePublicHref(platformTermsUrl.value));
+const platformPrivacyHref = computed(() => resolvePublicHref(platformPrivacyUrl.value));
 const communicationsAudience = computed(() => {
   const explicit = String(currentFlowStep.value?.audience || '').trim().toLowerCase();
   if (['guardian_client', 'workforce', 'school_staff'].includes(explicit)) return explicit;
@@ -4314,15 +4423,21 @@ const communicationsIntroText = computed(() =>
     : tx('Choose how you would like to receive platform communications. You can update these preferences at any time.')
 );
 const communicationsEmailTitle = computed(() => {
+  const saved = officeCommsSaved('emailTitle');
+  if (saved) return tx(saved);
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.emailTitle?.trim();
   if (override) return tx(override);
   return isWorkforceAudience.value ? tx('Email Notifications Preference') : tx('Email Communication Preference');
 });
 const communicationsSmsTitle = computed(() => {
+  const saved = officeCommsSaved('smsTitle');
+  if (saved) return tx(saved);
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.smsTitle?.trim();
   return tx(override || 'Text Message (SMS) Communication Preference');
 });
 const communicationsEmailDisclosure = computed(() => {
+  const saved = officeCommsSaved('emailDisclosure');
+  if (saved) return tx(saved);
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.emailDisclosure?.trim();
   if (override) return tx(override);
   return tx(isWorkforceAudience.value
@@ -4336,6 +4451,8 @@ const communicationsTenantName = computed(() => {
   return agencyName || orgName || 'This agency';
 });
 const communicationsSmsDisclosure = computed(() => {
+  const saved = officeCommsSaved('smsDisclosure');
+  if (saved) return tx(saved);
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.smsDisclosure?.trim();
   if (override) return tx(override);
   const name = communicationsTenantName.value;
@@ -4345,6 +4462,8 @@ const communicationsSmsDisclosure = computed(() => {
   );
 });
 const communicationsEmailAllLabel = computed(() => {
+  const saved = officeCommsSaved('emailAllLabel');
+  if (saved) return tx(saved);
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.emailAllLabel?.trim();
   if (override) return tx(override);
   return tx(isWorkforceAudience.value
@@ -4352,34 +4471,48 @@ const communicationsEmailAllLabel = computed(() => {
     : 'Yes - Scheduling + all program communications');
 });
 const communicationsEmailSchedulingOnlyLabel = computed(() => {
+  const saved = officeCommsSaved('emailSchedulingOnlyLabel');
+  if (saved) return tx(saved);
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.emailSchedulingOnlyLabel?.trim();
   return tx(override || 'Yes - Scheduling only');
 });
 const communicationsSmsYesLabel = computed(() => {
+  const saved = officeCommsSaved('smsYesLabel');
+  if (saved) return tx(saved);
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.smsYesLabel?.trim();
   return tx(override || 'Yes - Scheduling and appointment reminders');
 });
 // Campaign 2 — Provider/care-team texting
-const communicationsProviderTextingTitle = computed(() =>
-  tx(currentFlowStep.value?.campaigns?.content?.providerTexting?.title?.trim() || 'SMS With Your Provider/Care Team')
-);
-const communicationsProviderTextingIntro = computed(() =>
-  currentFlowStep.value?.campaigns?.content?.providerTexting?.disclosure?.trim()
+const communicationsProviderTextingTitle = computed(() => {
+  const saved = officeCommsSaved('providerTitle');
+  if (saved) return tx(saved);
+  return tx(currentFlowStep.value?.campaigns?.content?.providerTexting?.title?.trim() || 'SMS With Your Provider/Care Team');
+});
+const communicationsProviderTextingIntro = computed(() => {
+  const saved = officeCommsSaved('providerIntro');
+  if (saved) return tx(saved);
+  return currentFlowStep.value?.campaigns?.content?.providerTexting?.disclosure?.trim()
     ? tx(currentFlowStep.value.campaigns.content.providerTexting.disclosure.trim())
-    : null
-);
-const communicationsProviderTextingClosing = computed(() =>
-  currentFlowStep.value?.campaigns?.content?.providerTexting?.closingDisclosure?.trim()
+    : null;
+});
+const communicationsProviderTextingClosing = computed(() => {
+  const saved = officeCommsSaved('providerClosing');
+  if (saved) return tx(saved);
+  return currentFlowStep.value?.campaigns?.content?.providerTexting?.closingDisclosure?.trim()
     ? tx(currentFlowStep.value.campaigns.content.providerTexting.closingDisclosure.trim())
-    : null
-);
-const communicationsProviderTextingYesLabel = computed(() =>
-  tx(currentFlowStep.value?.campaigns?.content?.providerTexting?.yesLabel?.trim() ||
-  'Yes - I opt in to provider/care-team texting and agree to the terms above')
-);
-const communicationsProviderTextingNoLabel = computed(() =>
-  tx(currentFlowStep.value?.campaigns?.content?.providerTexting?.noLabel?.trim() || 'No - Keep provider texting off')
-);
+    : null;
+});
+const communicationsProviderTextingYesLabel = computed(() => {
+  const saved = officeCommsSaved('providerYesLabel');
+  if (saved) return tx(saved);
+  return tx(currentFlowStep.value?.campaigns?.content?.providerTexting?.yesLabel?.trim() ||
+  'Yes - I opt in to provider/care-team texting and agree to the terms above');
+});
+const communicationsProviderTextingNoLabel = computed(() => {
+  const saved = officeCommsSaved('providerNoLabel');
+  if (saved) return tx(saved);
+  return tx(currentFlowStep.value?.campaigns?.content?.providerTexting?.noLabel?.trim() || 'No - Keep provider texting off');
+});
 // Campaign 3 — Program updates
 const communicationsProgramUpdatesTitle = computed(() =>
   tx(currentFlowStep.value?.campaigns?.content?.programUpdates?.title?.trim() || 'Optional Program & Service Updates')
@@ -4987,6 +5120,7 @@ const flowSteps = computed(() => {
           || s?.type === 'insurance_info'
           || s?.type === 'payment_collection'
           || s?.type === 'communications'
+          || s?.type === 'reminder_contacts'
           || s?.type === 'provider_match'
           || s?.type === 'references'
           || s?.type === 'demographics'
@@ -5858,6 +5992,166 @@ function onIntakeLegalSaved(payload) {
   const loc = String(intakeLocale.value || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
   intakeLegal.value = payload?.[loc] || payload || intakeLegal.value;
 }
+
+function seedOfficeCommsDraft() {
+  officeCommsDraft.emailTitle = officeCommsSaved('emailTitle') || communicationsEmailTitle.value;
+  officeCommsDraft.emailDisclosure = officeCommsSaved('emailDisclosure') || communicationsEmailDisclosure.value;
+  officeCommsDraft.emailAllLabel = officeCommsSaved('emailAllLabel') || communicationsEmailAllLabel.value;
+  officeCommsDraft.emailSchedulingOnlyLabel = officeCommsSaved('emailSchedulingOnlyLabel') || communicationsEmailSchedulingOnlyLabel.value;
+  officeCommsDraft.smsTitle = officeCommsSaved('smsTitle') || communicationsSmsTitle.value;
+  officeCommsDraft.smsDisclosure = officeCommsSaved('smsDisclosure') || communicationsSmsDisclosure.value;
+  officeCommsDraft.smsYesLabel = officeCommsSaved('smsYesLabel') || communicationsSmsYesLabel.value;
+  officeCommsDraft.providerTitle = officeCommsSaved('providerTitle') || communicationsProviderTextingTitle.value;
+  officeCommsDraft.providerIntro = officeCommsSaved('providerIntro') || communicationsProviderTextingIntro.value || '';
+  officeCommsDraft.providerClosing = officeCommsSaved('providerClosing') || communicationsProviderTextingClosing.value || '';
+  officeCommsDraft.providerYesLabel = officeCommsSaved('providerYesLabel') || communicationsProviderTextingYesLabel.value;
+  officeCommsDraft.providerNoLabel = officeCommsSaved('providerNoLabel') || communicationsProviderTextingNoLabel.value;
+}
+
+async function saveOfficeCommunicationsCopy() {
+  const slug = String(agencyInfo.value?.portal_url || agencyInfo.value?.slug || '').trim();
+  if (!slug) return;
+  officeCommsSaving.value = true;
+  officeCommsSaveStatus.value = '';
+  try {
+    const { data } = await api.patch(`/public/agency-support/${encodeURIComponent(slug)}/settings`, {
+      officeCommunications: { ...officeCommsDraft }
+    });
+    officeCommunicationsCopy.value = data?.officeCommunications || { ...officeCommsDraft };
+    officeCommsSaveStatus.value = 'Saved.';
+  } catch (e) {
+    officeCommsSaveStatus.value = e?.response?.data?.error?.message || 'Unable to save.';
+  } finally {
+    officeCommsSaving.value = false;
+  }
+}
+
+function personDisplayName(...parts) {
+  return parts.map((p) => String(p || '').trim()).filter(Boolean).join(' ');
+}
+
+function seedReminderContacts() {
+  const stored = Array.isArray(intakeResponses.submission?.appointment_reminder_contacts)
+    ? intakeResponses.submission.appointment_reminder_contacts
+    : [];
+  const byRole = new Map(stored.filter((c) => c?.role && c.role !== 'other').map((c) => [c.role, c]));
+  const extras = stored.filter((c) => c?.role === 'other' || String(c?.id || '').startsWith('extra'));
+  const g = intakeResponses.guardian || {};
+  const me = byRole.get('me') || {};
+  const cards = [{
+    id: 'me',
+    role: 'me',
+    label: 'Me',
+    included: me.included !== false,
+    name: me.name || personDisplayName(guardianFirstName.value, guardianLastName.value),
+    email: me.email || guardianEmail.value || g.email || '',
+    phone: me.phone || guardianPhone.value || g.phone || g.phoneNumber || '',
+    relationship: me.relationship || guardianRelationship.value || 'Parent / guardian',
+    source: 'You'
+  }];
+  const ogName = personDisplayName(otherGuardian.firstName, otherGuardian.lastName);
+  const other = byRole.get('other_parent') || {};
+  if (ogName || otherGuardian.email || other.name || other.email) {
+    cards.push({
+      id: 'other_parent',
+      role: 'other_parent',
+      label: 'Another parent or guardian',
+      included: other.included !== undefined ? !!other.included : !!(ogName || otherGuardian.email),
+      name: other.name || ogName,
+      email: other.email || otherGuardian.email || '',
+      phone: other.phone || otherGuardian.phone || '',
+      relationship: other.relationship || otherGuardian.relationship || 'Co-parent',
+      source: 'From earlier in this packet'
+    });
+  }
+  const emergency = byRole.get('emergency_contact') || {};
+  const emName = String(emergency.name || g.emergency_contact_name || intakeResponses.submission?.emergency_contact_name || '').trim();
+  const emPhone = String(emergency.phone || g.emergency_contact_phone || intakeResponses.submission?.emergency_contact_phone || '').trim();
+  const emRel = String(emergency.relationship || g.emergency_contact_relationship || intakeResponses.submission?.emergency_contact_relationship || '').trim();
+  if (emName || emPhone || emergency.email) {
+    cards.push({
+      id: 'emergency_contact',
+      role: 'emergency_contact',
+      label: 'Emergency contact',
+      included: emergency.included !== undefined ? !!emergency.included : !!(emName || emPhone),
+      name: emName,
+      email: emergency.email || '',
+      phone: emPhone,
+      relationship: emRel || 'Emergency contact',
+      source: 'From family contact'
+    });
+  }
+  extras.forEach((c, idx) => {
+    cards.push({
+      id: c.id || `extra-${idx + 1}`,
+      role: 'other',
+      label: c.label || 'Someone else',
+      included: c.included !== false,
+      name: c.name || '',
+      email: c.email || '',
+      phone: c.phone || '',
+      relationship: c.relationship || '',
+      source: 'Added on this page'
+    });
+  });
+  reminderContacts.value = cards;
+}
+
+function addReminderContact() {
+  reminderContacts.value = [
+    ...reminderContacts.value,
+    {
+      id: `extra-${Date.now()}`,
+      role: 'other',
+      label: 'Someone else',
+      included: true,
+      name: '',
+      email: '',
+      phone: '',
+      relationship: '',
+      source: 'Added on this page'
+    }
+  ];
+}
+
+function removeReminderContact(id) {
+  reminderContacts.value = reminderContacts.value.filter((c) => c.id !== id);
+}
+
+async function loadOfficePdfEmailTemplate() {
+  if (!canEditIntakeLegal.value || officePdfEmailLoaded.value || !publicKey) return;
+  try {
+    const { data } = await api.get(`/public-intake/${encodeURIComponent(publicKey)}/summary-pdf/email-template`);
+    officePdfEmailDraft.subject = data?.subject || '';
+    officePdfEmailDraft.body = data?.body || '';
+    officePdfEmailDraft.senderIdentityId = data?.senderIdentityId ? String(data.senderIdentityId) : '';
+    officePdfEmailIdentities.value = Array.isArray(data?.identities) ? data.identities : [];
+    officePdfEmailLoaded.value = true;
+  } catch {
+    officePdfEmailLoaded.value = false;
+  }
+}
+
+async function saveOfficePdfEmailTemplate() {
+  officePdfEmailSaving.value = true;
+  officePdfEmailStatus.value = '';
+  try {
+    const { data } = await api.put(`/public-intake/${encodeURIComponent(publicKey)}/summary-pdf/email-template`, {
+      subject: officePdfEmailDraft.subject,
+      body: officePdfEmailDraft.body,
+      senderIdentityId: officePdfEmailDraft.senderIdentityId || null
+    });
+    officePdfEmailDraft.subject = data?.subject || officePdfEmailDraft.subject;
+    officePdfEmailDraft.body = data?.body || officePdfEmailDraft.body;
+    officePdfEmailDraft.senderIdentityId = data?.senderIdentityId ? String(data.senderIdentityId) : '';
+    officePdfEmailIdentities.value = Array.isArray(data?.identities) ? data.identities : officePdfEmailIdentities.value;
+    officePdfEmailStatus.value = 'Saved.';
+  } catch (e) {
+    officePdfEmailStatus.value = e?.response?.data?.error?.message || 'Unable to save.';
+  } finally {
+    officePdfEmailSaving.value = false;
+  }
+}
 function otherGuardianFieldBag() {
   const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
   return {
@@ -5910,6 +6204,15 @@ const isCoGuardianInvitee = computed(() => Boolean(String(route.query.coGuardian
 const officeCopyEmail = ref('');
 const officeEmailSending = ref(false);
 const officeEmailStatus = ref('');
+const officePdfEmailDraft = reactive({
+  subject: '',
+  body: '',
+  senderIdentityId: ''
+});
+const officePdfEmailIdentities = ref([]);
+const officePdfEmailSaving = ref(false);
+const officePdfEmailStatus = ref('');
+const officePdfEmailLoaded = ref(false);
 const officePortalDismissed = ref(false);
 const coGuardianInviteResult = ref(null);
 const showCoGuardianOutreach = computed(() => {
@@ -7718,10 +8021,6 @@ const fillExample = () => {
     starterDob.value = clients.value[0].dateOfBirth;
   }
   fillDevOtherGuardian();
-  communications.emailPreference = communications.emailPreference || 'all';
-  communications.smsPreference = communications.smsPreference || 'scheduling_only';
-  communications.providerTextingOptIn = communications.providerTextingOptIn || 'no';
-  communications.programUpdatesOptIn = communications.programUpdatesOptIn || 'no';
   if (step.value === WHO_FOR_STEP || step.value === 1) {
     fillFields(visibleGuardianFields.value, intakeResponses.guardian, true);
     fillFields(visibleSubmissionFields.value, intakeResponses.submission, true);
@@ -7849,6 +8148,7 @@ const loadLink = async () => {
     agencyInfo.value = resp.data?.agency || null;
     organizationInfo.value = resp.data?.organization || null;
     intakeLegal.value = resp.data?.intakeLegal || null;
+    officeCommunicationsCopy.value = resp.data?.officeCommunications || {};
     formBranding.value = resp.data?.branding || null;
     jobDescriptionSummary.value = resp.data?.jobDescription || null;
     const recaptchaConfig = resp.data?.recaptcha || {};
@@ -8267,6 +8567,9 @@ watch(step, async (val, prev) => {
   if ((val === -1 || val === WHO_FOR_STEP) && recaptchaSiteKey.value) {
     await nextTick();
     await updateRecaptchaMode();
+  }
+  if (val === 3 && canEditIntakeLegal.value) {
+    await loadOfficePdfEmailTemplate();
   }
 });
 
@@ -9538,7 +9841,7 @@ const completeCommunicationsStep = () => {
     stepError.value = tx('Please choose an SMS communication preference.');
     return;
   }
-  if (step?.campaigns?.providerTexting && !communications.providerTextingOptIn) {
+  if ((step?.campaigns?.providerTexting || isOfficeInDepthIntake.value) && !communications.providerTextingOptIn) {
     stepError.value = tx('Please choose whether to enable provider/care-team texting.');
     return;
   }
@@ -9553,12 +9856,31 @@ const completeCommunicationsStep = () => {
   intakeResponses.submission.communicationPreferences = {
     emailPreference: communications.emailPreference,
     smsPreference: communications.smsPreference,
-    providerTextingOptIn: step?.campaigns?.providerTexting ? communications.providerTextingOptIn : null,
+    providerTextingOptIn: (step?.campaigns?.providerTexting || isOfficeInDepthIntake.value) ? communications.providerTextingOptIn : null,
     programUpdatesOptIn: step?.campaigns?.programUpdates ? communications.programUpdatesOptIn : null,
     internalWorkforceOptIn: step?.campaigns?.internalWorkforce ? communications.internalWorkforceOptIn : null,
-    termsUrl: platformTermsUrl.value,
-    privacyUrl: platformPrivacyUrl.value
+    termsUrl: platformTermsHref.value,
+    privacyUrl: platformPrivacyHref.value
   };
+  stepError.value = '';
+  void nextFlowStep();
+};
+
+const completeReminderContactsStep = () => {
+  const step = currentFlowStep.value;
+  if (!step || step.type !== 'reminder_contacts') return;
+  const included = (reminderContacts.value || []).filter((c) => c.included && (c.name || c.email || c.phone));
+  intakeResponses.submission.appointment_reminder_contacts = (reminderContacts.value || []).map((c) => ({
+    id: c.id,
+    role: c.role,
+    label: c.label,
+    included: !!c.included,
+    name: String(c.name || '').trim(),
+    email: String(c.email || '').trim(),
+    phone: String(c.phone || '').trim(),
+    relationship: String(c.relationship || '').trim()
+  }));
+  intakeResponses.submission.appointment_reminder_who = included.map((c) => c.role || c.id);
   stepError.value = '';
   void nextFlowStep();
 };
@@ -9663,6 +9985,7 @@ const handleCurrentFlowContinue = () => {
   if (currentFlowStep.value?.type === 'insurance_info') return completeInsuranceStep();
   if (currentFlowStep.value?.type === 'payment_collection') return completePaymentStep();
   if (currentFlowStep.value?.type === 'communications') return completeCommunicationsStep();
+  if (currentFlowStep.value?.type === 'reminder_contacts') return completeReminderContactsStep();
   if (currentFlowStep.value?.type === 'provider_match') {
     stepError.value = '';
     return nextFlowStep();
@@ -9682,6 +10005,7 @@ const currentFlowContinueLabel = computed(() => {
   if (currentFlowStep.value?.type === 'insurance_info') return 'Save & continue';
   if (currentFlowStep.value?.type === 'payment_collection') return 'Continue';
   if (currentFlowStep.value?.type === 'communications') return 'Save preferences & continue';
+  if (currentFlowStep.value?.type === 'reminder_contacts') return 'Save contacts & continue';
   if (currentFlowStep.value?.type === 'provider_match') return t('continue');
   if (currentFlowStep.value?.type === 'demographics') return 'Save & continue';
   if (isQuestionnaireFlowStep(currentFlowStep.value) || currentFlowStep.value?.type === 'clinical_questions') return 'Save & continue';
@@ -10412,6 +10736,7 @@ const currentInterviewPageTitle = computed(() => {
   if (type === 'insurance_info') return tx(s?.label) || t('insuranceInformation');
   if (type === 'payment_collection') return tx(s?.label) || t('paymentInformation');
   if (type === 'communications') return tx(s?.label) || t('communicationPreferences');
+  if (type === 'reminder_contacts') return tx(s?.label) || tx('Who should get appointment reminders?');
   if (type === 'provider_match') return tx(s?.label) || tx('Available providers');
   if (type === 'demographics') return tx(s?.label) || t('demographics');
   if (type === 'clinical_questions') return currentFlowStepTitle.value || t('clinicalQuestions');
@@ -11042,6 +11367,12 @@ watch(currentFlowStep, async (step) => {
   }
   if (step?.type === 'smart_disclosure' || step?.type === 'disclosure') {
     await ensureDisclosureContext();
+  }
+  if (step?.type === 'communications' && canEditIntakeLegal.value) {
+    seedOfficeCommsDraft();
+  }
+  if (step?.type === 'reminder_contacts') {
+    seedReminderContacts();
   }
   if (step?.type === 'provider_match') {
     await loadOfficeIntakeProviders();
@@ -12364,6 +12695,88 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #fff;
+}
+.intake-inline-editor {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px dashed #9bb5a6;
+  border-radius: 10px;
+  background: #f7fbf8;
+}
+.intake-inline-editor-label {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #1b3d2f;
+}
+.intake-inline-editor label {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+.intake-inline-editor input,
+.intake-inline-editor textarea,
+.intake-inline-editor select {
+  width: 100%;
+  border: 1px solid #d7e3dc;
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+  box-sizing: border-box;
+}
+.reminder-contacts-step {
+  display: grid;
+  gap: 0.75rem;
+}
+.reminder-contact-card {
+  border: 1px solid #d7e3dc;
+  border-radius: 12px;
+  padding: 0.75rem 0.85rem;
+  background: #fff;
+  display: grid;
+  gap: 0.55rem;
+}
+.reminder-contact-card.is-included {
+  border-color: #1b3d2f;
+}
+.reminder-contact-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+.reminder-contact-head p {
+  margin: 0.15rem 0 0;
+  font-size: 0.82rem;
+}
+.reminder-include {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.reminder-contact-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem 0.65rem;
+}
+.reminder-contact-fields label {
+  display: grid;
+  gap: 0.15rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+.reminder-contact-fields input {
+  min-height: 2.2rem;
+  border: 1px solid #d7e3dc;
+  border-radius: 8px;
+  padding: 0.3rem 0.5rem;
+  font: inherit;
 }
 .communications-campaign-card h4 {
   margin: 0 0 8px;

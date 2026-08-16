@@ -21,6 +21,7 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   school_roi_release: ['school_intake', 'intake'],
   smart_school_roi: ['school_intake', 'intake'],
   intake: ['school_intake', 'intake'],
+  intake_summary_pdf_copy: ['school_intake', 'intake', 'notifications'],
   manual: ['notifications'],
   job_applications: ['job_applications', 'notifications'],
   hiring_references: ['hiring_references', 'notifications'],

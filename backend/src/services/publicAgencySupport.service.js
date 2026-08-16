@@ -12,6 +12,10 @@ import {
   mergeIntakeLegalIntoTheme,
   resolveIntakeLegalFromTheme
 } from '../content/intakeLegalCopy.js';
+import {
+  mergeOfficeCommunicationsIntoTheme,
+  resolveOfficeCommunicationsFromTheme
+} from '../content/officeCommunicationsCopy.js';
 
 export const PUBLIC_SUPPORT_CATEGORIES = [
   { id: 'parent_access', label: 'Help with parent or guardian login' },
@@ -232,6 +236,7 @@ function buildPublicConfig(agency, requestSlug = '') {
       en: resolveIntakeLegalFromTheme(agency.theme_settings, 'en'),
       es: resolveIntakeLegalFromTheme(agency.theme_settings, 'es')
     },
+    officeCommunications: resolveOfficeCommunicationsFromTheme(agency.theme_settings),
     categories: PUBLIC_SUPPORT_CATEGORIES,
     phiWarning: PHI_WARNING,
     recaptchaSiteKey: String(config.recaptcha?.siteKey || process.env.RECAPTCHA_SITE_KEY || '').trim() || null,
@@ -269,6 +274,9 @@ export async function updatePublicAgencySupportSettings(agencySlug, payload = {}
   };
   theme.publicSupport = nextPage;
   let nextTheme = theme;
+  if (payload.officeCommunications && typeof payload.officeCommunications === 'object') {
+    nextTheme = mergeOfficeCommunicationsIntoTheme(nextTheme, payload.officeCommunications);
+  }
   if (payload.intakeLegal && typeof payload.intakeLegal === 'object') {
     if (payload.intakeLegal.en || payload.intakeLegal.es) {
       if (payload.intakeLegal.en) nextTheme = mergeIntakeLegalIntoTheme(nextTheme, payload.intakeLegal.en, 'en');

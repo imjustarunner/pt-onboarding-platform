@@ -367,27 +367,17 @@ function partAFamilyContact() {
 }
 
 function partASchedulingPrefs() {
-  return guardianStep({
-    id: 'scheduling_prefs',
-    label: 'Communication & scheduling preferences',
-    helperText: 'Reminders follow the email and text choices you just made.',
-    whyWeAsk: 'These preferences sit with communications so the family page stays contact-only.',
-    fields: [
-      field({
-        key: 'appointment_reminder_who',
-        label: 'Who should receive appointment reminders?',
-        type: 'checkbox',
-        layout: 'cards',
-        scope: 'guardian',
-        helperText: 'Pick everyone who should get scheduling reminders. This uses the email and text consents from the previous page.',
-        options: [
-          opt('me', 'Me'),
-          opt('other_parent', 'Another parent or guardian'),
-          opt('emergency_contact', 'Emergency contact')
-        ]
-      })
-    ]
-  });
+  return {
+    id: `${COUNSELING_DEP_STEP_PREFIX}scheduling_prefs`,
+    type: 'reminder_contacts',
+    label: 'Who should get appointment reminders?',
+    helperText: 'Add or confirm the people who should receive scheduling reminders. You can leave extra people off.',
+    whyWeAsk: 'Reminders go to named contacts, not unnamed chips.',
+    audience: 'guardian',
+    scope: 'guardian',
+    visibility: 'always',
+    fields: []
+  };
 }
 
 function childAbout() {

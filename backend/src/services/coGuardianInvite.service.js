@@ -587,41 +587,7 @@ export async function acceptCoGuardianInvite({ token, contact = {}, answers = nu
   };
 }
 
-export async function emailSummaryPdfCopy({
-  to,
-  agency,
-  filename,
-  pdfBuffer,
-  clientId = null
-}) {
-  const email = String(to || '').trim().toLowerCase();
-  if (!email || !email.includes('@')) throw new Error('Enter a valid email address.');
-  const org = String(agency?.official_name || agency?.name || 'Care team').trim();
-  const bytes = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
-  const subject = `${org}: copy of intake summary`;
-  const text = [
-    `A copy of an intake summary from ${org} is attached.`,
-    '',
-    'This file contains protected health information. After it is saved on a device, we cannot retrieve, change, or delete that copy. Keep it private and only share it if you mean to.',
-    '',
-    'If you received this in error, delete the email and the attachment.'
-  ].join('\n');
-  await EmailService.sendEmail({
-    to: email,
-    subject,
-    text,
-    agencyId: agency.id,
-    clientId,
-    source: 'intake_summary_pdf_copy',
-    templateType: 'intake_summary_pdf_copy',
-    attachments: [{
-      filename: filename || 'intake-summary.pdf',
-      contentType: 'application/pdf',
-      contentBase64: bytes.toString('base64')
-    }]
-  });
-  return { ok: true };
-}
+export { emailSummaryPdfCopy } from './intakeSummaryPdfEmail.service.js';
 
 export async function emailPortalLoginInfo({
   to,
