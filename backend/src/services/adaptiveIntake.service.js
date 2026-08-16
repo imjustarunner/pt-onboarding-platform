@@ -7,6 +7,7 @@ import {
 import { notifyNewProspectiveInquiry } from './clientNotifications.service.js';
 import User from '../models/User.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
+import { pickTenantWelcomeUrl } from '../content/tenantBrandAssets.js';
 
 function parseJson(value, fallback = null) {
   if (value == null) return fallback;
@@ -387,6 +388,8 @@ export function resolveClientFacingSupport(agencyRow = {}) {
 
 export function resolveJoinThemeImage(agencyRow = {}, activeService = null) {
   const slug = agencySlugKey(agencyRow);
+  const seasonal = pickTenantWelcomeUrl(slug);
+  if (seasonal) return seasonal;
   const serviceType = String(activeService?.serviceType || '').toLowerCase();
   const hay = `${slug} ${agencyRow.name || ''}`.toLowerCase();
   const isNlu = hay.includes('nlu') || hay.includes('new life') || hay.includes('newlife');

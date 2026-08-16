@@ -3,6 +3,12 @@ import Agency from '../models/Agency.model.js';
 import StorageService from './storage.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { canEditPublicAgencySupport } from './publicAgencySupport.service.js';
+import {
+  HOST_TO_TENANT,
+  normalizeTenantBrandKey,
+  pathToSharePageKey,
+  tenantSmsImage
+} from '../content/tenantBrandAssets.js';
 
 export const SHARE_IMAGE_SPEC = {
   width: 1200,
@@ -15,11 +21,27 @@ export const SHARE_IMAGE_SPEC = {
   tips: 'Use 1200×630 PNG or JPG. Keep the logo and page name in the center; iMessage crops the edges.'
 };
 
-const PAGE_KEYS = new Set(['support', 'join', 'careers', 'login', 'book', 'home']);
+const PAGE_KEYS = new Set([
+  'support',
+  'join',
+  'careers',
+  'login',
+  'book',
+  'home',
+  'events',
+  'providers',
+  'terms',
+  'privacy',
+  'school_referral',
+  'counseling',
+  'coaching',
+  'tutoring',
+  'tutors'
+]);
 
 const DEFAULT_IMAGES = {
-  'app.itsco.health': '/assets/careers/heroes/itsco-framed.png',
-  'app.nextleveluplcc.com': '/assets/careers/heroes/nlu-framed.png'
+  'app.itsco.health': '/assets/SMSAssets/ITSCO/04_Support.png',
+  'app.nextleveluplcc.com': '/assets/SMSAssets/NLU/04_Support.png'
 };
 const FALLBACK_IMAGE = '/branding/plottwisthq-platform-bg.png';
 
@@ -39,14 +61,8 @@ function normHost(host) {
 }
 
 export function pathToSharePage(pathname) {
-  const p = String(pathname || '/').split('?')[0].toLowerCase();
-  if (p === '/support' || p.endsWith('/support')) return 'support';
-  if (p.includes('/join') || p.includes('/office-intake') || p.includes('/intake')) return 'join';
-  if (p.includes('/careers')) return 'careers';
-  if (p.includes('/login')) return 'login';
-  if (p.includes('/book')) return 'book';
-  if (p === '/' || p === '') return 'home';
-  return 'home';
+  const key = pathToSharePageKey(pathname);
+  return PAGE_KEYS.has(key) ? key : 'home';
 }
 
 export function normalizeSharePage(page, pathname = '') {
@@ -92,8 +108,13 @@ async function resolveAgencyFromHostOrSlug({ host, agencySlug }) {
   return Agency.findByCustomDomain(hostname);
 }
 
-function defaultImageForHost(host) {
+function defaultImageForHost(host, pageKey = 'home', agency = null) {
   const hostname = normHost(host);
+  const tenant = normalizeTenantBrandKey(agency?.slug || agency?.portal_url || HOST_TO_TENANT[hostname] || hostname);
+  const sms = tenantSmsImage(tenant, pageKey)
+    || (pageKey !== 'join' && pageKey !== 'home' ? tenantSmsImage(tenant, 'join') : '')
+    || tenantSmsImage(tenant, 'support');
+  if (sms) return sms;
   return DEFAULT_IMAGES[hostname] || FALLBACK_IMAGE;
 }
 
@@ -118,7 +139,7 @@ export async function getSharePreviewState({ host, agencySlug, page, pathname } 
   const pageKey = normalizeSharePage(page, pathname);
   const pages = agency ? parsePublicShare(agency.theme_settings) : {};
   const custom = pages[pageKey] || null;
-  const imagePath = custom?.imagePath || defaultImageForHost(host);
+  const imagePath = custom?.imagePath || defaultImageForHost(host, pageKey, agency);
   return {
     page: pageKey,
     imageUrl: publicUrlFromStored(imagePath) || imagePath,
@@ -133,7 +154,7 @@ export async function resolveSharePreviewRedirect(req) {
   const pathname = String(req.query?.path || '/');
   const state = await getSharePreviewState({ host, pathname });
   const origin = requestOrigin(req);
-  const url = state.imageUrl || defaultImageForHost(host);
+  const url = state.imageUrl || defaultImageForHost(host, state.page);
   if (/^https?:\/\//i.test(url)) return url;
   const bust = state.updatedAt ? `?v=${encodeURIComponent(state.updatedAt)}` : '';
   return `${origin}${url}${bust}`;

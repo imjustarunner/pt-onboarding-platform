@@ -186,7 +186,7 @@
         v-if="editing && agencySlug"
         class="ajl-link-image"
         :agency-slug="agencySlug"
-        page="join"
+        :page="joinSharePageKey"
       />
 
       <div
@@ -390,6 +390,7 @@ import {
   restoreJoinWelcomeCopy,
   writeJoinLandingCache
 } from '../../utils/joinLandingTemplate.js';
+import { pickTenantWelcomeUrl, tenantSmsImage } from '../../utils/tenantBrandAssets.js';
 
 const ALIGN_OPTIONS = [
   { id: 'left', label: 'Align left', glyph: '⭰' },
@@ -454,6 +455,13 @@ const footerTrust = computed(() => {
   ];
 });
 const agencyName = computed(() => props.config?.agency?.name || 'Welcome');
+const joinSharePageKey = computed(() => {
+  const st = String(props.serviceType || props.config?.activeService?.serviceType || '').toLowerCase();
+  const key = st === 'tutoring' || st === 'coaching' || st === 'counseling' ? st : 'join';
+  const slug = props.agencySlug || props.config?.agency?.slug;
+  if (key !== 'join' && tenantSmsImage(slug, key)) return key;
+  return 'join';
+});
 const agencyInitial = computed(() => String(agencyName.value).trim().charAt(0) || '•');
 const logoUrl = computed(() => {
   const branding = props.config?.branding || {};
@@ -471,7 +479,11 @@ const logoUrl = computed(() => {
   return '';
 });
 const themeUrl = computed(() =>
-  String(props.config?.themeImageUrl || '/assets/intake-themes/greenintakethemecounseling.jpg').trim()
+  String(
+    pickTenantWelcomeUrl(props.agencySlug || props.config?.agency?.slug)
+    || props.config?.themeImageUrl
+    || '/assets/intake-themes/greenintakethemecounseling.jpg'
+  ).trim()
 );
 const bgStyle = computed(() => ({
   backgroundImage: `url(${themeUrl.value})`

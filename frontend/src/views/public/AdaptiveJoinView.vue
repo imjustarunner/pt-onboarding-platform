@@ -34,6 +34,7 @@
     :decor-hero-alt="decorHero.alt"
     :decor-hero-frame-style="decorHero.frameStyle"
     :decor-hero-image-position="decorHero.imagePosition"
+    :scenic-sidebar-url="joinQuestionnaireScenicUrl"
     :cover-mode="loading || !!loadError || submitted || phase === 'pathway'"
     :wide="phase === 'quick' || submitted"
     :contact-phone-display="joinContactPhone"
@@ -403,6 +404,7 @@ import {
   readJoinLandingCache,
   writeJoinLandingCache
 } from '../../utils/joinLandingTemplate.js';
+import { pickTenantBackgroundUrl, pickTenantWelcomeUrl } from '../../utils/tenantBrandAssets.js';
 import { lookupUsZipCityState } from '../../utils/usZipAutofill.js';
 
 const route = useRoute();
@@ -445,8 +447,16 @@ const thankYouLogoUrl = computed(() => {
   return '';
 });
 const bootThemeUrl = computed(() =>
-  String(config.value?.themeImageUrl || JOIN_BOOT_THEME_URL).trim()
+  String(
+    pickTenantWelcomeUrl(agencySlug.value)
+    || config.value?.themeImageUrl
+    || JOIN_BOOT_THEME_URL
+  ).trim()
 );
+const joinQuestionnaireScenicUrl = computed(() => {
+  if (phase.value === 'pathway' || submitted.value) return '';
+  return pickTenantBackgroundUrl(agencySlug.value);
+});
 const phase = ref('pathway');
 const selectedPathway = ref('');
 const quickStep = ref(0);

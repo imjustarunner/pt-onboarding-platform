@@ -2663,6 +2663,7 @@ import {
   readJoinLandingCache,
   writeJoinLandingCache
 } from '../utils/joinLandingTemplate.js';
+import { pickTenantBackgroundUrl, pickTenantWelcomeUrl } from '../utils/tenantBrandAssets.js';
 import {
   matchesShowIf,
   mergeShowIfValues,
@@ -4586,6 +4587,7 @@ const isOfficeInDepthIntake = computed(() => {
 });
 
 const joinThemeUrl = ref(JOIN_BOOT_THEME_URL);
+const officeQuestionnaireBgUrl = ref('');
 const joinWelcomeTitle = ref('');
 const joinWelcomeGlad = ref('');
 const joinLandingCopy = ref(null);
@@ -4603,8 +4605,11 @@ provide('officeIntakeStart', officeStart);
 const officeScenicSidebarUrl = computed(() => {
   if (isSchoolScopedIntake.value) return '';
   if (link.value && !isOfficeInDepthIntake.value) return '';
-  if (!loading.value && step.value !== WHO_FOR_STEP && Number(step.value) > WHO_FOR_STEP) return '';
-  return joinThemeUrl.value || JOIN_BOOT_THEME_URL;
+  const slug = String(referralAgencySlug.value || agencyInfo.value?.portal_url || agencyInfo.value?.slug || '').trim();
+  if (isOfficeInDepthIntake.value && Number(step.value) > WHO_FOR_STEP) {
+    return officeQuestionnaireBgUrl.value || pickTenantBackgroundUrl(slug) || '';
+  }
+  return joinThemeUrl.value || pickTenantWelcomeUrl(slug) || JOIN_BOOT_THEME_URL;
 });
 
 const officeStartLogoUrl = computed(() => {
@@ -4621,7 +4626,9 @@ const officeStartAgencyInitial = computed(() =>
 
 function applyJoinChrome(data) {
   if (!data) return;
-  joinThemeUrl.value = String(data.themeImageUrl || JOIN_BOOT_THEME_URL).trim() || JOIN_BOOT_THEME_URL;
+  const slug = String(referralAgencySlug.value || agencyInfo.value?.portal_url || agencyInfo.value?.slug || '').trim();
+  joinThemeUrl.value = String(pickTenantWelcomeUrl(slug) || data.themeImageUrl || JOIN_BOOT_THEME_URL).trim()
+    || JOIN_BOOT_THEME_URL;
   const org = agencyInfo.value?.official_name || agencyInfo.value?.name || 'ITSCO';
   const restored = restoreJoinWelcomeCopy(data.copy || {}, org);
   joinLandingCopy.value = restored;
@@ -8563,6 +8570,10 @@ watch(step, async (val, prev) => {
   if (prev !== undefined && prev !== val) {
     recaptchaWidgetId.value = null;
     clearCaptchaState();
+  }
+  if (isOfficeInDepthIntake.value && Number(val) > WHO_FOR_STEP && !officeQuestionnaireBgUrl.value) {
+    const slug = String(referralAgencySlug.value || agencyInfo.value?.portal_url || agencyInfo.value?.slug || '').trim();
+    officeQuestionnaireBgUrl.value = pickTenantBackgroundUrl(slug);
   }
   if ((val === -1 || val === WHO_FOR_STEP) && recaptchaSiteKey.value) {
     await nextTick();
