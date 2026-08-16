@@ -394,13 +394,12 @@
   padding-left: 0.85rem;
 }
 
-.ai-sidebar-step {
-  display: flex;
-  gap: 0.65rem;
-  align-items: flex-start;
-  color: var(--df-muted);
-  font-size: 0.82rem;
-  line-height: 1.3;
+.ai-sidebar-step--sub {
+  padding-left: 0.35rem;
+}
+.ai-sidebar-step--sub .ai-sidebar-step-marker {
+  min-width: 2.1rem;
+  font-size: 0.72rem;
 }
 
 .ai-sidebar-step-btn {

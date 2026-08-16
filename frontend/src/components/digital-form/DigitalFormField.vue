@@ -79,8 +79,9 @@
       :required="required"
       :disabled="disabled"
       :rows="rows"
-      @input="$emit('update:modelValue', $event.target.value)"
-    />
+        @input="$emit('update:modelValue', $event.target.value)"
+        @blur="$emit('blur')"
+      />
 
     <select
       v-else-if="type === 'select'"

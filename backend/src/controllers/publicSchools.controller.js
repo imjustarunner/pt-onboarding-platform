@@ -1,4 +1,5 @@
 import Agency from '../models/Agency.model.js';
+import { COLORADO_OUTREACH_SCHOOLS } from '../data/coloradoOutreachSchools.js';
 
 function normalizeKey(input) {
   const s = String(input || '')
@@ -120,6 +121,21 @@ export const searchPublicSchools = async (req, res, next) => {
         score: sc
       });
     }
+    for (const s of COLORADO_OUTREACH_SCHOOLS || []) {
+      const sc = scoreMatch(queryKey, { ...s, slug: s.key });
+      if (sc === null) continue;
+      scored.push({
+        id: `catalog:${s.key}`,
+        slug: s.key,
+        name: s.name,
+        address: s.address || null,
+        city: s.city || null,
+        district: s.district || null,
+        logo_path: null,
+        logo_url: null,
+        score: sc
+      });
+    }
 
     scored.sort((a, b) => (b.score - a.score) || String(a.name || '').localeCompare(String(b.name || '')));
 
@@ -131,7 +147,7 @@ export const searchPublicSchools = async (req, res, next) => {
       if (!key || seen.has(key)) continue;
       seen.add(key);
       out.push(r);
-      if (out.length >= 10) break;
+      if (out.length >= 12) break;
     }
 
     res.json(out);

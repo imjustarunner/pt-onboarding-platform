@@ -15,6 +15,41 @@ import { matchesShowIf } from '../utils/intakeShowIf.js';
 
 const SECRET_KEY = /password|preview|card_number|cvc|cvv|ssn|secret|signaturedata|dataurl|token/i;
 const PHOTO_KEY = /photo|image|front|back|preview/i;
+const SKIP_BAG_KEYS = new Set([
+  'packetSections',
+  'packetInformedGroupConsent',
+  'packetPolicyServices',
+  'packetHipaaNotice',
+  'smartSchoolRoi',
+  'smartDisclosure',
+  'disclosure',
+  'snapshotHtml',
+  'html',
+  'sectionHtml',
+  'signatureData',
+  'signatureMeta',
+  'acknowledgments',
+  'skip_phq9',
+  'skip_gad7',
+  'skip_auditc',
+  'skip_dast10',
+  'skip_pcptsd5',
+  'skip_psc17',
+  'clinicalResponses'
+]);
+const INSTRUMENT_SKIP_KEYS = {
+  phq9: 'skip_phq9',
+  gad7: 'skip_gad7',
+  auditc: 'skip_auditc',
+  dast10: 'skip_dast10',
+  pcptsd5: 'skip_pcptsd5',
+  psc17: 'skip_psc17'
+};
+const PACKET_SECTION_TITLES = {
+  informed_group_consent: 'Informed Consent + Group Consent',
+  policy_services: 'Policy and Services Agreement',
+  hipaa_notice: 'HIPAA Privacy Policy and Notice of Privacy Practices'
+};
 const IDENTITY_KEYS = new Set([
   'firstName', 'lastName', 'middleName', 'email', 'phone', 'phoneNumber',
   'first_name', 'last_name', 'middle_name', 'email_address', 'phone_number',
@@ -90,6 +125,29 @@ function isSecretKey(key) {
   return SECRET_KEY.test(String(key || ''));
 }
 
+function looksLikeHtml(value) {
+  const text = String(value || '').trim();
+  return text.startsWith('<') && /<\/[a-z][\w:-]*>/i.test(text);
+}
+
+function isSkipped(values, skipKey) {
+  return String(values?.[skipKey] || '').trim().toLowerCase() === 'yes';
+}
+
+function instrumentIdForField(field) {
+  return String(field?.instrument || '').trim().toLowerCase();
+}
+
+function instrumentWasCompleted(fields, values) {
+  const answered = fields.filter((field) => {
+    if (!field?.key || field.type === 'info') return false;
+    const raw = values?.[field.key];
+    if (raw === false) return true;
+    return hasValue(raw);
+  });
+  return answered.length > 0;
+}
+
 function formatDateTime(value) {
   if (!value) return '';
   const date = value instanceof Date ? value : new Date(value);
@@ -143,7 +201,8 @@ function pushRow(rows, label, value) {
 function walkBag(bag, { byKey, locale, link, prefix = '', skipKeys = new Set() }, rows, printed) {
   if (!bag || typeof bag !== 'object' || Array.isArray(bag)) return;
   for (const [key, raw] of Object.entries(bag)) {
-    if (!key || skipKeys.has(key) || isSecretKey(key) || printed.has(key)) continue;
+    if (!key || skipKeys.has(key) || SKIP_BAG_KEYS.has(key) || isSecretKey(key) || printed.has(key)) continue;
+    if (looksLikeHtml(raw)) continue;
     if (PHOTO_KEY.test(key) && typeof raw === 'string' && raw.startsWith('data:')) continue;
     const field = byKey.get(key);
     const label = [prefix, field ? (resolveIntakeFieldLabel(field, locale, link) || humanizeKey(key)) : humanizeKey(key)]
@@ -176,12 +235,37 @@ function rowsFromInterview(link, values, locale, printed) {
   for (const step of steps) {
     const type = String(step?.type || '').toLowerCase();
     if (type !== 'questions' && type !== 'clinical_questions') continue;
+    const fields = Array.isArray(step.fields) ? step.fields : [];
+    const byInstrument = new Map();
+    for (const field of fields) {
+      const inst = instrumentIdForField(field);
+      if (!inst) continue;
+      if (!byInstrument.has(inst)) byInstrument.set(inst, []);
+      byInstrument.get(inst).push(field);
+    }
+    const skippedInstruments = new Set();
+    for (const [inst, instFields] of byInstrument.entries()) {
+      const skipKey = INSTRUMENT_SKIP_KEYS[inst];
+      if ((skipKey && isSkipped(values, skipKey)) || !instrumentWasCompleted(instFields, values)) {
+        skippedInstruments.add(inst);
+        instFields.forEach((field) => {
+          if (field?.key) printed.add(field.key);
+        });
+      }
+    }
     const rows = [];
-    for (const field of step.fields || []) {
+    for (const field of fields) {
       if (!field?.key || field.type === 'info') continue;
+      if (SKIP_BAG_KEYS.has(field.key)) {
+        printed.add(field.key);
+        continue;
+      }
+      const inst = instrumentIdForField(field);
+      if (inst && skippedInstruments.has(inst)) continue;
       if (!matchesShowIf(field.showIf, values)) continue;
       const value = values[field.key];
-      if (!hasValue(value) && value !== false && value !== 0) continue;
+      if (value !== false && value !== 0 && !hasValue(value)) continue;
+      if (looksLikeHtml(value)) continue;
       const rendered = formatFieldValue(field, value, locale, link);
       if (!rendered) continue;
       const label = resolveIntakeFieldLabel(field, locale, link) || humanizeKey(field.key);
@@ -206,16 +290,126 @@ function signatureImage(trail) {
   return '';
 }
 
-function buildSignatures(signedDocuments = []) {
-  return (signedDocuments || []).map((doc, index) => {
+function publicDocUrl(publicKey, kind, id) {
+  const key = String(publicKey || '').trim();
+  if (!key || !id) return '';
+  if (kind === 'section') return `/api/public-intake/${encodeURIComponent(key)}/packet-section/${encodeURIComponent(id)}/view`;
+  return `/api/public-intake/${encodeURIComponent(key)}/document/${encodeURIComponent(id)}/view`;
+}
+
+function agreementCard({
+  documentName,
+  signedAt,
+  hash,
+  imageDataUrl,
+  publicUrl,
+  versionLabel,
+  signerName
+}) {
+  const name = String(documentName || '').trim();
+  if (!name) return null;
+  return {
+    documentName: name,
+    signedAt: signedAt || '',
+    hash: String(hash || '').trim(),
+    imageDataUrl: imageDataUrl || '',
+    publicUrl: String(publicUrl || '').trim(),
+    versionLabel: String(versionLabel || '').trim(),
+    signerName: String(signerName || '').trim()
+  };
+}
+
+function collectPacketSectionAgreements(intakeData, publicKey, signerName) {
+  const bags = [
+    intakeData?.packetSections,
+    intakeData?.responses?.submission?.packetSections
+  ].filter((bag) => bag && typeof bag === 'object');
+  const out = [];
+  const seen = new Set();
+  for (const bag of bags) {
+    for (const [key, response] of Object.entries(bag)) {
+      if (!response || seen.has(key)) continue;
+      const sig = signatureImage(response);
+      if (!response.acknowledged && !sig) continue;
+      seen.add(key);
+      out.push(agreementCard({
+        documentName: PACKET_SECTION_TITLES[key] || humanizeKey(key),
+        signedAt: formatDateTime(response.signedAt || response.acknowledgedAt),
+        hash: response.contentHash || '',
+        imageDataUrl: sig,
+        publicUrl: publicDocUrl(publicKey, 'section', key),
+        versionLabel: response.packetVersion ? `Version ${response.packetVersion}` : '',
+        signerName: response.signerName || signerName
+      }));
+    }
+  }
+  return out.filter(Boolean);
+}
+
+function collectNamedAgreement(intakeData, paths, title, publicUrl, signerName) {
+  for (const pathParts of paths) {
+    let cur = intakeData;
+    for (const part of pathParts) {
+      cur = cur?.[part];
+    }
+    if (!cur || typeof cur !== 'object') continue;
+    const sig = signatureImage(cur);
+    if (!cur.acknowledged && !sig) continue;
+    return agreementCard({
+      documentName: title,
+      signedAt: formatDateTime(cur.signedAt || cur.acknowledgedAt),
+      hash: cur.contentHash || '',
+      imageDataUrl: sig,
+      publicUrl,
+      versionLabel: cur.packetVersion || cur.version ? `Version ${cur.packetVersion || cur.version}` : '',
+      signerName: cur.signerName || signerName
+    });
+  }
+  return null;
+}
+
+function buildSignatures({ signedDocuments = [], intakeData = {}, publicKey = '', signerName = '' } = {}) {
+  const fromDb = (signedDocuments || []).map((doc, index) => {
     const trail = parseMaybeJson(doc?.audit_trail, {});
-    return {
+    const templateId = doc?.document_template_id;
+    return agreementCard({
       documentName: String(doc?.document_template_name || trail?.documentName || `Signed document ${index + 1}`).trim(),
       signedAt: formatDateTime(doc?.signed_at || trail?.submittedAt || trail?.signedAt),
-      hash: String(doc?.pdf_hash || '').trim(),
-      imageDataUrl: signatureImage(trail)
-    };
-  }).filter((row) => row.documentName);
+      hash: String(doc?.pdf_hash || trail?.documentReference || '').trim(),
+      imageDataUrl: signatureImage(trail),
+      publicUrl: publicDocUrl(publicKey, 'document', templateId),
+      versionLabel: doc?.version ? `Version ${doc.version}` : '',
+      signerName: trail?.signerName || signerName
+    });
+  }).filter(Boolean);
+
+  const fromSections = collectPacketSectionAgreements(intakeData, publicKey, signerName);
+  const extra = [
+    collectNamedAgreement(
+      intakeData,
+      [['smartDisclosure'], ['disclosure'], ['responses', 'submission', 'smartDisclosure']],
+      'Disclosure Statement',
+      publicKey ? `/api/public-intake/${encodeURIComponent(publicKey)}/disclosure-context` : '',
+      signerName
+    ),
+    collectNamedAgreement(
+      intakeData,
+      [['smartSchoolRoi'], ['responses', 'submission', 'smartSchoolRoi']],
+      'School Release of Information',
+      '',
+      signerName
+    )
+  ].filter(Boolean);
+
+  const merged = [];
+  const seen = new Set();
+  for (const row of [...fromSections, ...extra, ...fromDb]) {
+    const key = `${row.documentName}|${row.hash || row.publicUrl || row.signedAt}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(row);
+  }
+  return merged;
 }
 
 function buildApprovals(intakeData = {}) {
@@ -271,7 +465,9 @@ export function buildCompletedIntakeRecord({
   submission = {},
   signedDocuments = [],
   guardian = {},
-  clients = []
+  clients = [],
+  publicKey = '',
+  brandLogoUrl = ''
 } = {}) {
   const intakeData = normalizeIntakeDataShape(parseMaybeJson(submission?.intake_data, {}));
   const locale = resolveIntakeFormLocale(link, intakeData);
@@ -301,17 +497,20 @@ export function buildCompletedIntakeRecord({
     pushRow(contactRows, listedClients.length > 1 ? `Client ${index + 1}` : 'Client', dob ? `${name} · Date of birth ${dob}` : name);
   });
 
-  const interviewValues = { ...submissionBag, ...guardianBag, ...(clientBags[0] || {}) };
+  const clinicalBag = (submissionBag.clinicalResponses && typeof submissionBag.clinicalResponses === 'object')
+    ? submissionBag.clinicalResponses
+    : {};
+  const interviewValues = { ...submissionBag, ...guardianBag, ...clinicalBag, ...(clientBags[0] || {}) };
   const interviewSections = rowsFromInterview(link, interviewValues, locale, printed);
 
   const leftoverGuardian = [];
-  walkBag(guardianBag, { byKey, locale, link, skipKeys: IDENTITY_KEYS }, leftoverGuardian, printed);
+  walkBag(guardianBag, { byKey, locale, link, skipKeys: new Set([...IDENTITY_KEYS, ...SKIP_BAG_KEYS]) }, leftoverGuardian, printed);
   const leftoverSubmission = [];
   walkBag(submissionBag, {
     byKey,
     locale,
     link,
-    skipKeys: new Set(['whoFor', 'this_is_for', 'formLocale', 'acknowledgments'])
+    skipKeys: new Set(['whoFor', 'this_is_for', 'formLocale', 'acknowledgments', ...SKIP_BAG_KEYS])
   }, leftoverSubmission, printed);
 
   const clientSections = clientBags.map((bag, index) => {
@@ -330,7 +529,12 @@ export function buildCompletedIntakeRecord({
     ...clientSections
   ].filter((section) => section && section.rows?.length);
 
-  const signatures = buildSignatures(signedDocuments);
+  const signatures = buildSignatures({
+    signedDocuments,
+    intakeData,
+    publicKey: publicKey || link?.public_key || '',
+    signerName: contactName
+  });
   const approvals = buildApprovals(intakeData);
   const submittedAt = formatDateTime(submission?.submitted_at);
   const esignRows = [
@@ -349,6 +553,7 @@ export function buildCompletedIntakeRecord({
     title: 'Completed intake packet',
     kicker: 'For your records',
     agencyName: agencyDisplayName(agency) || String(link?.title || 'Intake').trim(),
+    brandLogoUrl: String(brandLogoUrl || '').trim(),
     packetVersionLabel: '1.0',
     metaLines: [
       submission?.id ? `Submission ${submission.id}` : '',

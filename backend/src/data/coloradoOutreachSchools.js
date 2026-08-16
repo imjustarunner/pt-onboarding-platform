@@ -4,10 +4,11 @@
  */
 
 import { COLORADO_OUTREACH_SCHOOL_LOCATIONS } from './coloradoOutreachSchoolLocations.js';
+import { COLORADO_SPRINGS_OUTREACH_SCHOOLS } from './coloradoSpringsOutreachSchools.js';
 
-const s = (name, district, city, level, region = '') => {
+const s = (name, district, city, level, region = '', locOverride = null) => {
   const key = `${district}:${name}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  const loc = COLORADO_OUTREACH_SCHOOL_LOCATIONS[key] || {};
+  const loc = locOverride || COLORADO_OUTREACH_SCHOOL_LOCATIONS[key] || {};
   return {
     key,
     name,
@@ -26,6 +27,8 @@ const APS = 'Aurora Public Schools';
 const PUEBLO60 = 'Pueblo City Schools';
 const PUEBLO70 = 'Pueblo County School District 70';
 const POUDRE = 'Poudre School District';
+const D11 = 'Colorado Springs School District 11';
+const D20 = 'Academy School District 20';
 
 export const COLORADO_OUTREACH_SCHOOLS = [
   // —— Denver Public Schools ——
@@ -310,10 +313,17 @@ export const COLORADO_OUTREACH_SCHOOLS = [
   s('PSD Global Academy', POUDRE, 'Fort Collins', 'k12'),
   s('Liberty Common School', POUDRE, 'Fort Collins', 'k12'),
   s('Ridgeview Classical Schools', POUDRE, 'Fort Collins', 'k12'),
-  s('Compass Community Collaborative School', POUDRE, 'Fort Collins', 'k12')
+  s('Compass Community Collaborative School', POUDRE, 'Fort Collins', 'k12'),
+  ...COLORADO_SPRINGS_OUTREACH_SCHOOLS.map((entry) =>
+    s(entry.name, entry.district, entry.city, entry.level, entry.city, {
+      address: entry.address,
+      lat: entry.lat,
+      lng: entry.lng
+    })
+  )
 ];
 
-export const OUTREACH_DISTRICTS = [DPS, APS, PUEBLO60, PUEBLO70, POUDRE];
+export const OUTREACH_DISTRICTS = [DPS, APS, PUEBLO60, PUEBLO70, POUDRE, D11, D20];
 
 export function normalizeOutreachName(name) {
   return String(name || '')

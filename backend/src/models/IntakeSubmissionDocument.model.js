@@ -55,7 +55,8 @@ class IntakeSubmissionDocument {
               isd.pdf_hash,
               isd.signed_at,
               isd.audit_trail,
-              dt.name AS document_template_name
+              dt.name AS document_template_name,
+              dt.version AS version
          FROM intake_submission_documents isd
          LEFT JOIN document_templates dt ON dt.id = isd.document_template_id
         WHERE isd.intake_submission_id = ?

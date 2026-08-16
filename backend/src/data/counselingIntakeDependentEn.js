@@ -41,7 +41,9 @@ function field({
   layout = '',
   maxLength = 0,
   scope = 'client',
-  instrument = ''
+  instrument = '',
+  defaultValue = undefined,
+  inputKind = ''
 }) {
   return {
     id: `field_${key}`,
@@ -49,7 +51,7 @@ function field({
     label,
     type,
     required: optional ? false : required,
-    helperText,
+    helperText: String(helperText || '').trim().toLowerCase() === 'optional' ? '' : helperText,
     placeholder,
     scope,
     visibility: 'always',
@@ -60,7 +62,9 @@ function field({
     layout: layout || undefined,
     maxLength: maxLength || undefined,
     category: 'clinical',
-    instrument: instrument || undefined
+    instrument: instrument || undefined,
+    defaultValue,
+    inputKind: inputKind || undefined
   };
 }
 
@@ -123,14 +127,6 @@ function combineChildSteps(id, label, helperText, whyWeAsk, parts) {
 }
 
 const CONCERN_ANY = { fieldKey: 'presenting_concerns', equals: [] };
-const EMOTION_ANY = { fieldKey: 'emotional_symptoms', notEquals: 'none' };
-const HIGH_ENERGY = {
-  any: [
-    { fieldKey: 'emotional_symptoms', includes: 'unusually_high_energy' },
-    { fieldKey: 'emotional_symptoms', includes: 'needing_little_sleep' }
-  ]
-};
-const UNUSUAL_PERCEPTIONS = { fieldKey: 'emotional_symptoms', includes: 'unusual_perceptions' };
 const SLEEP_DIFFICULTY = { fieldKey: 'life_sleep', equals: ['some_difficulty', 'significant_difficulty'] };
 const EATING_CONCERN = { fieldKey: 'life_eating', equals: ['some_concerns', 'significant_concerns'] };
 const SCHOOL_SUPPORT_ANY = { fieldKey: 'school_supports', notEquals: 'none' };
@@ -162,8 +158,7 @@ const ADHD_INDICATED = {
 };
 const ANXIETY_INDICATED = {
   any: [
-    { fieldKey: 'presenting_concerns', includesAny: ['worry_anxiety', 'school_avoidance'] },
-    { fieldKey: 'emotional_symptoms', includesAny: ['more_worry', 'panic'] }
+    { fieldKey: 'presenting_concerns', includesAny: ['worry_anxiety', 'school_avoidance'] }
   ]
 };
 const PSC_SHOW = {
@@ -256,11 +251,13 @@ function partAAboutYou() {
         layout: 'cards',
         scope: 'guardian',
         options: [
-          opt('parent', 'Parent'),
+          opt('mother', 'Mother'),
+          opt('father', 'Father'),
           opt('legal_guardian', 'Legal guardian'),
           opt('foster_parent', 'Foster parent'),
           opt('grandparent', 'Grandparent'),
-          opt('stepparent', 'Stepparent'),
+          opt('stepmother', 'Stepmother'),
+          opt('stepfather', 'Stepfather'),
           opt('other', 'Other')
         ]
       }),
@@ -334,21 +331,6 @@ function partAAboutYou() {
   });
 }
 
-function partACustodyUpload() {
-  return {
-    id: `${COUNSELING_DEP_STEP_PREFIX}custody_upload`,
-    type: 'upload',
-    label: 'Upload custody documentation, if applicable',
-    helperText: 'You can skip this if it does not apply.',
-    audience: 'guardian',
-    scope: 'guardian',
-    visibility: 'always',
-    required: false,
-    maxFiles: 5,
-    fields: []
-  };
-}
-
 function partAFamilyContact() {
   return guardianStep({
     id: 'family_contact',
@@ -390,10 +372,18 @@ function partAFamilyContact() {
         scope: 'guardian'
       }),
       field({
-        key: 'appointment_reminder_recipients',
+        key: 'appointment_reminder_who',
         label: 'Who should receive appointment reminders?',
-        type: 'textarea',
-        scope: 'guardian'
+        type: 'checkbox',
+        layout: 'cards',
+        scope: 'guardian',
+        section: 'Reminders & communication',
+        helperText: 'Scheduling reminders follow the email and text choices on the Communications page. Pick everyone who should get them.',
+        options: [
+          opt('me', 'Me'),
+          opt('other_parent', 'Another parent or guardian'),
+          opt('emergency_contact', 'Emergency contact')
+        ]
       }),
       field({
         key: 'emergency_contact_name',
@@ -469,9 +459,7 @@ function childAbout() {
       field({
         key: 'child_preferred_called',
         label: 'If they want to be called something different, write it here',
-        type: 'text',
-        optional: true,
-        helperText: 'Optional'
+        type: 'text'
       }),
       field({
         key: 'child_preferred_language',
@@ -480,11 +468,9 @@ function childAbout() {
         placeholder: 'e.g. English, Spanish'
       }),
       field({ key: 'address_street', label: 'Street address', type: 'text' }),
+      field({ key: 'address_zip', label: 'ZIP code', type: 'text' }),
       field({ key: 'address_city', label: 'City', type: 'text' }),
       field({ key: 'address_state', label: 'State', type: 'text' }),
-      field({ key: 'address_zip', label: 'ZIP code', type: 'text' }),
-      field({ key: 'child_grade', label: 'Current grade', type: 'text' }),
-      field({ key: 'child_school', label: 'School', type: 'text' }),
       field({
         key: 'time_outside_school',
         label: 'What do they spend most of their time doing outside of school?'
@@ -497,15 +483,11 @@ function childAbout() {
       }),
       field({
         key: 'people_misunderstand_child',
-        label: 'What is something people tend to misunderstand about them?',
-        optional: true,
-        helperText: 'Optional'
+        label: 'What is something people tend to misunderstand about them?'
       }),
       field({
         key: 'communication_learning_notes',
-        label: 'Is there anything about how they communicate, learn, or interact with people that would be helpful for us to know?',
-        optional: true,
-        helperText: 'Optional'
+        label: 'Is there anything about how they communicate, learn, or interact with people that would be helpful for us to know?'
       })
     ]
   });
@@ -554,7 +536,7 @@ function childWhatBrings() {
           opt('substance_use', 'Substance use'),
           opt('self_harm_safety', 'Self-harm or safety concerns'),
           opt('something_else', 'Something else'),
-          opt('none_describe', 'None of these describe it well')
+          opt('none_describe', 'Deny all')
         ]
       }),
       field({
@@ -605,94 +587,6 @@ function childWhatBrings() {
         key: 'concern_what_helps',
         label: 'What seems to help?',
         showIf: CONCERN_ANY
-      })
-    ]
-  });
-}
-
-function childEmotional() {
-  return childStep({
-    id: 'emotional',
-    label: 'How {childName} Has Been Doing Emotionally',
-    helperText: 'Answer based on what you actually see or what your child has told you.',
-    whyWeAsk: 'Recent emotional changes help us know what to assess first.',
-    fields: [
-      field({
-        key: 'emotional_symptoms',
-        label: 'During the past few weeks, have you noticed:',
-        type: 'checkbox',
-        layout: 'cards',
-        exclusiveValue: 'none',
-        options: [
-          opt('more_sadness', 'More sadness than usual'),
-          opt('less_interest', 'Less interest in things they normally enjoy'),
-          opt('more_worry', 'More worry or fear'),
-          opt('panic', 'Panic'),
-          opt('increased_irritability', 'Increased irritability'),
-          opt('frequent_anger', 'Frequent anger'),
-          opt('mood_changing_quickly', 'Mood changing quickly'),
-          opt('crying_more', 'Crying more often'),
-          opt('trouble_calming', 'Trouble calming down'),
-          opt('overwhelmed_easily', 'Becoming overwhelmed easily'),
-          opt('withdrawing', 'Withdrawing from others'),
-          opt('wanting_to_be_alone', 'Wanting to be alone more'),
-          opt('reassurance_seeking', 'Increased reassurance seeking'),
-          opt('physical_complaints', 'Frequent physical complaints when stressed'),
-          opt('nightmares', 'Nightmares'),
-          opt('avoiding_situations', 'Avoiding certain situations'),
-          opt('unwanted_thoughts', 'Unwanted or repetitive thoughts'),
-          opt('repetitive_checking', 'Repetitive checking or behaviors'),
-          opt('appearing_disconnected', 'Appearing disconnected or "not there"'),
-          opt('unusually_high_energy', 'Unusually high energy'),
-          opt('needing_little_sleep', 'Needing very little sleep without appearing tired'),
-          opt('dramatically_different', 'Behavior that seems dramatically different from their usual self'),
-          opt('unusual_perceptions', 'Reporting hearing or seeing things others do not'),
-          opt('none', 'None of these')
-        ]
-      }),
-      field({
-        key: 'emotional_most_often',
-        label: 'Which concerns happen most often?',
-        showIf: EMOTION_ANY
-      }),
-      field({
-        key: 'emotional_how_often',
-        label: 'How often?',
-        type: 'radio',
-        layout: 'cards',
-        showIf: EMOTION_ANY,
-        options: [
-          opt('occasionally', 'Occasionally'),
-          opt('few_times_month', 'A few times a month'),
-          opt('few_times_week', 'A few times a week'),
-          opt('most_days', 'Most days'),
-          opt('multiple_times_day', 'Multiple times a day')
-        ]
-      }),
-      field({
-        key: 'high_energy_duration',
-        label: 'How long do these periods usually last?',
-        showIf: HIGH_ENERGY
-      }),
-      field({
-        key: 'high_energy_impulsive',
-        label:
-          'During these periods do they become noticeably more impulsive, reckless, talkative, aggressive, or difficult to slow down?',
-        type: 'radio',
-        showIf: HIGH_ENERGY,
-        options: yesNoNotSure()
-      }),
-      field({
-        key: 'unusual_perceptions_described',
-        label: 'What have they described?',
-        showIf: UNUSUAL_PERCEPTIONS
-      }),
-      field({
-        key: 'unusual_perceptions_current',
-        label: 'Is this happening currently?',
-        type: 'radio',
-        showIf: UNUSUAL_PERCEPTIONS,
-        options: yesNo()
       })
     ]
   });
@@ -800,6 +694,7 @@ function childDailyLife() {
         key: 'life_sleep',
         label: 'How is your child doing with: Sleep',
         type: 'radio',
+        defaultValue: 'going_well',
         options: [
           opt('going_well', 'Going well'),
           opt('some_difficulty', 'Some difficulty'),
@@ -826,6 +721,7 @@ function childDailyLife() {
         key: 'life_eating',
         label: 'Eating',
         type: 'radio',
+        defaultValue: 'going_well',
         options: [
           opt('going_well', 'Going well'),
           opt('some_concerns', 'Some concerns'),
@@ -836,6 +732,7 @@ function childDailyLife() {
         key: 'life_hygiene',
         label: 'Hygiene and self-care',
         type: 'radio',
+        defaultValue: 'age_appropriate',
         options: [
           opt('age_appropriate', 'Age appropriate'),
           opt('needs_more_help', 'Needs more help than expected'),
@@ -846,6 +743,7 @@ function childDailyLife() {
         key: 'life_responsibilities',
         label: 'Responsibilities',
         type: 'radio',
+        defaultValue: 'going_well',
         options: [
           opt('going_well', 'Going well'),
           opt('some_difficulty', 'Some difficulty'),
@@ -856,6 +754,7 @@ function childDailyLife() {
         key: 'life_family',
         label: 'Family relationships',
         type: 'radio',
+        defaultValue: 'going_well',
         options: [
           opt('going_well', 'Going well'),
           opt('some_difficulty', 'Some difficulty'),
@@ -866,6 +765,7 @@ function childDailyLife() {
         key: 'life_friendships',
         label: 'Friendships',
         type: 'radio',
+        defaultValue: 'going_well',
         options: [
           opt('going_well', 'Going well'),
           opt('some_difficulty', 'Some difficulty'),
@@ -876,6 +776,7 @@ function childDailyLife() {
         key: 'life_activities',
         label: 'Activities and hobbies',
         type: 'radio',
+        defaultValue: 'participating_normally',
         options: [
           opt('participating_normally', 'Participating normally'),
           opt('participating_less', 'Participating less'),
@@ -902,13 +803,14 @@ function childSchool() {
     whyWeAsk:
       'School and peer functioning are standard parts of child psychiatric assessment and can provide information that may differ substantially from what is seen at home.',
     fields: [
-      field({ key: 'school_name', label: 'Current school', type: 'text' }),
+      field({ key: 'school_name', label: 'Current school', type: 'school' }),
       field({ key: 'school_grade', label: 'Current grade', type: 'text' }),
       field({
         key: 'feel_about_school',
         label: 'How does your child generally feel about school?',
         type: 'radio',
         layout: 'cards',
+        defaultValue: 'mostly_okay',
         options: [
           opt('likes_it', 'Likes it'),
           opt('mostly_okay', 'Mostly okay'),
@@ -921,6 +823,7 @@ function childSchool() {
         key: 'school_attendance',
         label: 'How is attendance?',
         type: 'radio',
+        defaultValue: 'no_concerns',
         options: [
           opt('no_concerns', 'No concerns'),
           opt('some_absences', 'Some absences/tardiness'),
@@ -931,6 +834,7 @@ function childSchool() {
         key: 'academics',
         label: 'How are they doing academically?',
         type: 'radio',
+        defaultValue: 'meeting',
         options: [
           opt('above', 'Above expectations'),
           opt('meeting', 'Meeting expectations'),
@@ -943,6 +847,7 @@ function childSchool() {
         key: 'grades_changed',
         label: 'Have grades changed recently?',
         type: 'radio',
+        defaultValue: 'no',
         options: yesNoNotSure()
       }),
       field({
@@ -962,6 +867,7 @@ function childSchool() {
         type: 'checkbox',
         layout: 'cards',
         exclusiveValue: 'none',
+        defaultValue: ['none'],
         options: [
           opt('attention', 'Attention'),
           opt('completing_work', 'Completing work'),
@@ -974,7 +880,7 @@ function childSchool() {
           opt('behavior', 'Behavior'),
           opt('attendance', 'Attendance'),
           opt('test_anxiety', 'Test anxiety'),
-          opt('none', 'None')
+          opt('none', 'Deny all')
         ]
       }),
       field({
@@ -983,6 +889,7 @@ function childSchool() {
         type: 'checkbox',
         layout: 'cards',
         exclusiveValue: 'none',
+        defaultValue: ['none'],
         options: [
           opt('iep', 'IEP'),
           opt('plan_504', '504 Plan'),
@@ -992,7 +899,7 @@ function childSchool() {
           opt('ot', 'Occupational therapy'),
           opt('school_counseling', 'School counseling'),
           opt('other', 'Other school support'),
-          opt('none', 'None')
+          opt('none', 'Deny all')
         ]
       }),
       field({
@@ -1004,6 +911,7 @@ function childSchool() {
         key: 'teacher_concerns',
         label: 'Have teachers or school staff raised concerns?',
         type: 'radio',
+        defaultValue: 'no',
         options: yesNo()
       }),
       field({
@@ -1016,6 +924,7 @@ function childSchool() {
         label: 'Does your child have at least one friend they feel connected to?',
         type: 'radio',
         section: 'Peers',
+        defaultValue: 'yes',
         options: yesNoNotSure()
       }),
       field({
@@ -1033,7 +942,7 @@ function childSchool() {
           opt('being_bullied', 'Being bullied'),
           opt('isolation', 'Isolation'),
           opt('social_judgment', 'Social judgment'),
-          opt('none', 'None')
+          opt('none', 'Deny all')
         ]
       })
     ]
@@ -1087,7 +996,7 @@ function childDevelopmentHealth() {
           opt('fine_motor', 'Fine motor skills'),
           opt('social', 'Social development'),
           opt('learning', 'Learning'),
-          opt('none', 'None'),
+          opt('none', 'Deny all'),
           opt('not_sure', 'Not sure')
         ]
       }),
@@ -1114,6 +1023,7 @@ function childDevelopmentHealth() {
         type: 'checkbox',
         layout: 'cards',
         exclusiveValue: 'none',
+        defaultValue: ['none'],
         options: [
           opt('significant_illness', 'Significant illness'),
           opt('surgery', 'Surgery'),
@@ -1124,7 +1034,7 @@ function childDevelopmentHealth() {
           opt('chronic_pain', 'Chronic pain'),
           opt('hearing', 'Hearing difficulty'),
           opt('vision', 'Vision difficulty'),
-          opt('none', 'None')
+          opt('none', 'Deny all')
         ]
       }),
       field({
@@ -1224,6 +1134,7 @@ function childPreviousHelp() {
         type: 'checkbox',
         layout: 'cards',
         exclusiveValue: 'none',
+        defaultValue: ['none'],
         options: [
           opt('psychiatry', 'Psychiatry'),
           opt('psych_testing', 'Psychological testing'),
@@ -1236,7 +1147,7 @@ function childPreviousHelp() {
           opt('emergency_mh', 'Emergency mental-health evaluation'),
           opt('psych_hospital', 'Psychiatric hospitalization'),
           opt('residential', 'Residential treatment'),
-          opt('none', 'None')
+          opt('none', 'Deny all')
         ]
       }),
       field({
@@ -1347,6 +1258,7 @@ function childFamilyRelationships() {
         type: 'checkbox',
         layout: 'cards',
         exclusiveValue: 'none',
+        defaultValue: ['none'],
         options: [
           opt('parent_separation', 'Parent separation/divorce'),
           opt('move', 'Move'),
@@ -1359,7 +1271,7 @@ function childFamilyRelationships() {
           opt('financial_change', 'Financial change'),
           opt('legal_involvement', 'Legal involvement'),
           opt('other', 'Other'),
-          opt('none', 'None')
+          opt('none', 'Deny all')
         ]
       }),
       field({
@@ -1443,13 +1355,14 @@ function childSubstance() {
         type: 'checkbox',
         layout: 'cards',
         exclusiveValue: 'none',
+        defaultValue: ['none'],
         options: [
           opt('alcohol', 'Alcohol'),
           opt('cannabis', 'Cannabis'),
           opt('nicotine', 'Nicotine/vaping'),
           opt('rx_not_theirs', 'Prescription medication not prescribed to them'),
           opt('other', 'Other drugs'),
-          opt('none', 'None'),
+          opt('none', 'Deny all'),
           opt('dont_know', "I don't know")
         ]
       }),
@@ -1503,6 +1416,28 @@ function childSafety() {
     whyWeAsk:
       'AAP recommends age- and clinically appropriate screening, with a brief safety assessment following a positive screen. Means-access questions appear only after concern is identified.',
     fields: [
+      field({
+        key: 'safety_deny_all',
+        type: 'deny_all',
+        label: 'Deny all — none of these safety concerns apply',
+        denyAllValue: 'no',
+        denyAllKeys: [
+          'hurt_another_person',
+          'talked_hurting_someone',
+          'runaway_unsafe',
+          'self_harm',
+          'talked_wanting_to_die',
+          'wanting_to_die_current',
+          'asq_1',
+          'asq_2',
+          'asq_3',
+          'asq_4',
+          'asq_5',
+          'means_firearms',
+          'means_medications',
+          'means_other'
+        ]
+      }),
       field({
         key: 'hurt_another_person',
         label: 'Has this child intentionally seriously hurt another person?',
@@ -1988,14 +1923,14 @@ export function buildCounselingDependentEnSteps() {
       'We need a primary contact and household logistics before the child pages.',
       [partAAboutYou(), partAFamilyContact()]
     ),
-    partACustodyUpload(),
     childAbout(),
+    childProviderPrefs(),
     combineChildSteps(
       'presenting',
       'What Brings You Here & How They Are Doing',
-      'Concerns, emotions, and behavior together.',
+      'Concerns and behavior together.',
       'Grouping these keeps the story in one place without losing any questions.',
-      [childWhatBrings(), childEmotional(), childBehavior()]
+      [childWhatBrings(), childBehavior()]
     ),
     combineChildSteps(
       'daily_context',
@@ -2022,10 +1957,10 @@ export function buildCounselingDependentEnSteps() {
     childSafety(),
     combineChildSteps(
       'goals_prefs',
-      'What Helps, Goals & Preferences',
-      'What already helps, what you want to change, and scheduling preferences.',
-      'Goals and preferences help us match the right clinician and plan.',
-      [childWhatHelps(), childProviderKnow(), childWantToChange(), childProviderPrefs()]
+      'What Helps & Goals',
+      'What already helps and what you want to change.',
+      'Goals help us match the right clinician and plan.',
+      [childWhatHelps(), childProviderKnow(), childWantToChange()]
     ),
     childQuestionnaires(),
     childAnythingMissed(),
@@ -2045,5 +1980,15 @@ export function mergeCounselingOfficeEnIntoSteps(existingSteps = []) {
     }
     return true;
   });
-  return [...self, ...dep, ...kept];
+  const comms = kept.filter((s) => String(s?.type || '') === 'communications');
+  const rest = kept.filter((s) => String(s?.type || '') !== 'communications');
+  const family = dep.filter((s) => s.audience === 'guardian');
+  const restDep = dep.filter((s) => s.audience !== 'guardian');
+  const commsStep = comms[0] || {
+    id: 'office_communications',
+    type: 'communications',
+    label: 'Communications',
+    visibility: 'always'
+  };
+  return [...self, ...family, commsStep, ...restDep, ...rest];
 }

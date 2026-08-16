@@ -1673,8 +1673,11 @@
                       v-for="(field, fIdx) in getStepFields(step)"
                       :key="field.id || fIdx"
                       class="question-block"
-                      :class="{ 'qblock-selected': isGroupSelectModeForStep(step) && isFieldGroupSelected(field) }"
+                      :class="{ 'qblock-selected': isGroupSelectModeForStep(step) && isFieldGroupSelected(field), 'qblock-locked': isDemographicLockedField(field, step) }"
                     >
+                      <div v-if="questionSectionHeading(step, field, fIdx)" class="question-section-head">
+                        {{ questionSectionHeading(step, field, fIdx) }}
+                      </div>
                       <div class="question-label-row">
                         <label v-if="isGroupSelectModeForStep(step)" class="group-select-checkbox" :title="'Include this question in the saved group'">
                           <input
@@ -1741,6 +1744,7 @@
                           class="category-badge"
                           :data-category="field.category || defaultCategoryForField(field, step)"
                         >{{ field.category || defaultCategoryForField(field, step) }}</span>
+                        <span v-if="isDemographicLockedField(field, step)" class="demo-lock-badge" title="This question writes to the client demographic profile and cannot be deleted">Connected to demographics</span>
                         <label class="checkbox">
                           <input v-model="field.required" type="checkbox" :disabled="field.type === 'info'" />
                           Required
@@ -1760,7 +1764,13 @@
                             :title="questionSets.length ? 'Insert a saved group of questions after this one' : 'No saved question sets yet — use Group Select to save one'"
                             @click="openQSetPicker({ step, index: fIdx })"
                           >＋ Grp</button>
-                          <button class="btn btn-xs btn-danger" type="button" @click="removeField(step, fIdx)" title="Delete this question">×</button>
+                          <button
+                            class="btn btn-xs btn-danger"
+                            type="button"
+                            :disabled="isDemographicLockedField(field, step)"
+                            @click="removeField(step, fIdx)"
+                            :title="isDemographicLockedField(field, step) ? 'Demographic-connected questions cannot be deleted' : 'Delete this question'"
+                          >×</button>
                         </div>
                       </div>
                       <div class="question-meta">
@@ -5327,6 +5337,8 @@ const addFieldAfter = (step, idx) => {
 };
 
 const removeField = (step, idx) => {
+  const field = step?.fields?.[idx];
+  if (isDemographicLockedField(field, step)) return;
   step.fields.splice(idx, 1);
 };
 
@@ -5911,6 +5923,29 @@ const defaultCategoryForField = (field, step) => {
   return 'other';
 };
 
+const DEMOGRAPHIC_KEYS = /^(date_?of_?birth|dob|gender|sex|ethnicity|race|address|street|city|state|zip|postal|preferred_?language)$/i;
+
+const isDemographicLockedField = (field, step) => {
+  if (!field) return false;
+  if (String(step?.type || '') === 'demographics') return true;
+  const category = String(field.category || defaultCategoryForField(field, step) || '').toLowerCase();
+  if (category === 'demographic') return true;
+  const key = String(field.key || field.documentKey || '');
+  return DEMOGRAPHIC_KEYS.test(key.replace(/^(client_|child_|guardian_)/, ''));
+};
+
+const questionSectionHeading = (step, field, fIdx) => {
+  const fields = getStepFields(step);
+  const prev = fIdx > 0 ? fields[fIdx - 1] : null;
+  const title = String(field?.section || field?.groupLabel || field?.instrument || '').trim();
+  const prevTitle = String(prev?.section || prev?.groupLabel || prev?.instrument || '').trim();
+  if (!title || title === prevTitle) return '';
+  if (field?.instrument) {
+    return `Counseling section · ${String(field.instrument).toUpperCase()}`;
+  }
+  return title;
+};
+
 const buildPayloadFromSteps = () => {
   const intakeSteps = sanitizeSteps(form.intakeSteps, { formType: form.formType }).map((step) => ({ ...step }));
   intakeSteps.forEach((step) => {
@@ -6139,6 +6174,31 @@ watch(
 .category-badge[data-category="profile"]     { background: #ecfccb; color: #3f6212; border-color: #d9f99d; }
 .category-badge[data-category="guardian"]    { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
 .category-badge[data-category="other"]       { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
+.demo-lock-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #e0f2fe;
+  color: #075985;
+  border: 1px solid #bae6fd;
+  white-space: nowrap;
+}
+.question-section-head {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #065f46;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin: 0 0 8px;
+}
+.qblock-locked { border-color: #bae6fd; }
 .filters {
   display: flex;
   gap: 10px;

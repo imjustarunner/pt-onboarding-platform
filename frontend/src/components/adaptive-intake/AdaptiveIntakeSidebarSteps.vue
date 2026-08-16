@@ -9,7 +9,8 @@
           'ai-sidebar-step--done': i < activeIndex,
           'ai-sidebar-step--active': i === activeIndex,
           'ai-sidebar-step--upcoming': i > activeIndex,
-          'ai-sidebar-step--clickable': interactive && isReachable(i)
+          'ai-sidebar-step--clickable': interactive && isReachable(i),
+          'ai-sidebar-step--sub': !!step.substep
         }"
       >
         <button
@@ -21,7 +22,7 @@
         >
           <span class="ai-sidebar-step-marker" aria-hidden="true">
             <span v-if="i < activeIndex" class="ai-sidebar-step-check">✓</span>
-            <span v-else>{{ i + 1 }}</span>
+            <span v-else>{{ step.marker || (i + 1) }}</span>
           </span>
           <span class="ai-sidebar-step-text">
             <span class="ai-sidebar-step-label">{{ step.label }}</span>
@@ -34,7 +35,7 @@
         <template v-else>
           <span class="ai-sidebar-step-marker" aria-hidden="true">
             <span v-if="i < activeIndex" class="ai-sidebar-step-check">✓</span>
-            <span v-else>{{ i + 1 }}</span>
+            <span v-else>{{ step.marker || (i + 1) }}</span>
           </span>
           <span class="ai-sidebar-step-text">
             <input

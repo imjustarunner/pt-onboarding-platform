@@ -64,3 +64,50 @@ test('completed record includes nested answers, skips secrets, and keeps ESIGN +
   assert.ok(spec.esign.rows.some((row) => row.label === 'IP address' && row.value === '203.0.113.10'));
   assert.match(spec.esign.statement, /ESIGN Act/);
 });
+
+test('packet sections become per-document signature cards and skipped questionnaires are omitted', () => {
+  const spec = buildCompletedIntakeRecord({
+    agency: { name: 'ITSCO' },
+    publicKey: 'office-intake-key',
+    link: {
+      public_key: 'office-intake-key',
+      intake_steps: [
+        {
+          type: 'clinical_questions',
+          label: 'Standard Questionnaires',
+          fields: [
+            { key: 'phq9_1', label: 'Little interest', type: 'select', instrument: 'phq9' },
+            { key: 'skip_phq9', label: 'Skip PHQ-9', type: 'text' }
+          ]
+        }
+      ]
+    },
+    submission: {
+      id: 793,
+      signer_name: 'Ada Lovelace',
+      intake_data: {
+        responses: {
+          submission: {
+            clinicalResponses: { skip_phq9: 'yes', phq9_1: '0' },
+            packetSections: {
+              policy_services: {
+                acknowledged: true,
+                signerName: 'Ada Lovelace',
+                contentHash: 'hash-policy',
+                packetVersion: 4,
+                signatureData: 'data:image/png;base64,bbbb',
+                snapshotHtml: '<p>Very long policy text that must not dump into answers</p>'
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+  assert.ok(!spec.sections.some((section) => /Questionnaire/i.test(section.title)));
+  assert.ok(!spec.sections.some((section) => section.rows.some((row) => /Very long policy/i.test(row.value))));
+  assert.equal(spec.signatures.length, 1);
+  assert.equal(spec.signatures[0].documentName, 'Policy and Services Agreement');
+  assert.match(spec.signatures[0].publicUrl, /packet-section\/policy_services\/view/);
+  assert.equal(spec.signatures[0].hash, 'hash-policy');
+});

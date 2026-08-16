@@ -435,9 +435,12 @@
                 :class="{ 'input-error': !!consentErrors.guardianRelationship }"
               >
                 <option value="">{{ t('selectRelationship') }}</option>
-                <option value="Parent">{{ t('relationshipParent') }}</option>
+                <option value="Mother">{{ t('relationshipMother') }}</option>
+                <option value="Father">{{ t('relationshipFather') }}</option>
                 <option value="Legal guardian">{{ t('relationshipLegalGuardian') }}</option>
-                <option value="Step-parent">{{ t('relationshipStepParent') }}</option>
+                <option value="Stepmother">{{ t('relationshipStepmother') }}</option>
+                <option value="Stepfather">{{ t('relationshipStepfather') }}</option>
+                <option value="Foster parent">{{ t('relationshipFosterParent') }}</option>
                 <option value="Grandparent">{{ t('relationshipGrandparent') }}</option>
                 <option value="Other">{{ t('relationshipOther') }}</option>
               </select>
@@ -1674,7 +1677,7 @@
         <div v-if="currentFlowStep?.type === 'questions' && !isCurrentQuestionnairePage" class="questions-step intake-interview-page">
           <div class="form-grid">
             <template v-for="(row, idx) in currentQuestionRows" :key="row.field?.key || `sec_${idx}`">
-              <h4 v-if="row.section" class="df-section-kicker form-group form-group--span-12">{{ row.section }}</h4>
+              <h4 v-if="row.section" class="df-section-kicker form-group form-group--span-12">{{ interpolateChildTokens(row.section) }}</h4>
               <div
                 v-else-if="row.field"
                 class="form-group"
@@ -1705,7 +1708,9 @@
                   :required="isOfficeHardRequiredField(row.field) || (!isOfficeInDepthIntake && !!row.field.required)"
                   :error="isQuestionFieldMissing(row.field)"
                   name-prefix="q_"
-                  @update:model-value="(v) => { questionValues[row.field.key] = v; }"
+                  @update:model-value="(v) => onInterviewFieldUpdate(row.field, v)"
+                  @blur="maybeAutofillQuestionLocation(row.field)"
+                  @deny-all="applyDenyAllField"
                 />
                 <div v-if="isSexField(row.field)" class="intake-sex-plus-wrap">
                   <button
@@ -1815,7 +1820,7 @@
             </div>
             <button
               v-else
-              class="btn btn-secondary"
+              class="btn btn-primary child-review-add-btn"
               type="button"
               @click="addAnotherChildFromReview"
             >+ {{ t('addAnotherChild') }}</button>
@@ -2787,8 +2792,13 @@ const INTAKE_TRANSLATIONS = {
     relationshipToClient: 'Relationship to client',
     selectRelationship: 'Select relationship',
     relationshipParent: 'Parent',
+    relationshipMother: 'Mother',
+    relationshipFather: 'Father',
     relationshipLegalGuardian: 'Legal guardian',
     relationshipStepParent: 'Step-parent',
+    relationshipStepmother: 'Stepmother',
+    relationshipStepfather: 'Stepfather',
+    relationshipFosterParent: 'Foster parent',
     relationshipGrandparent: 'Grandparent',
     relationshipOther: 'Other',
     childFirstName: "Child's first name",
@@ -3131,8 +3141,13 @@ const INTAKE_TRANSLATIONS = {
     relationshipToClient: 'Parentesco con el cliente',
     selectRelationship: 'Seleccione el parentesco',
     relationshipParent: 'Padre / Madre',
+    relationshipMother: 'Madre',
+    relationshipFather: 'Padre',
     relationshipLegalGuardian: 'Tutor legal',
     relationshipStepParent: 'Padrastro / Madrastra',
+    relationshipStepmother: 'Madrastra',
+    relationshipStepfather: 'Padrastro',
+    relationshipFosterParent: 'Padre o madre de crianza',
     relationshipGrandparent: 'Abuelo / Abuela',
     relationshipOther: 'Otro',
     childFirstName: 'Nombre del niño',
@@ -3445,6 +3460,8 @@ const interpolateChildTokens = (str, clientIndex = currentFlowStep.value?.client
   const name = childDisplayName(clientIndex);
   return String(str || '')
     .replaceAll('{childName}', name)
+    .replaceAll('{CHILDNAME}', name)
+    .replaceAll('{ChildName}', name)
     .replaceAll('[Child Name]', name);
 };
 
@@ -3459,6 +3476,7 @@ const txField = (field, prop = 'label') => {
   if (stored) return interpolateChildTokens(stored);
   const en =
     prop === 'label' ? String(field.label || field.key || '').trim() : String(field[prop] || '').trim();
+  if (prop === 'helperText' && en.trim().toLowerCase() === 'optional') return '';
   return interpolateChildTokens(tx(en));
 };
 
@@ -4533,6 +4551,7 @@ function progressBucketId(s) {
   const type = String(s?.type || '');
   const audience = String(s?.audience || '').trim().toLowerCase();
   const rawId = String(s?.id || '');
+  if (String(s?.type || '') === 'communications') return 'family';
   if (
     audience === 'guardian'
     || rawId.includes('counseling_dep_about_you')
@@ -4552,27 +4571,39 @@ function progressBucketId(s) {
 
 const dfProgressSteps = computed(() => {
   const steps = [];
-  if (asksWhoFor.value) steps.push({ id: 'who', label: t('letsGetIntakeStarted') });
+  if (asksWhoFor.value) steps.push({ id: 'who', label: t('letsGetIntakeStarted'), marker: '1' });
   const seen = new Set();
   let familyAdded = false;
-  const childAdded = new Set();
+  const childMinors = {};
+  const childMajorBase = asksWhoFor.value ? 3 : 2;
+  let extraMajor = childMajorBase;
   for (const s of flowSteps.value || []) {
     const bucket = progressBucketId(s);
     if (bucket === 'family') {
       if (!familyAdded && !seen.has('family')) {
         seen.add('family');
         familyAdded = true;
-        steps.push({ id: 'family', label: t('yourFamily') });
+        steps.push({
+          id: 'family',
+          label: t('yourFamily'),
+          marker: String(asksWhoFor.value ? 2 : 1)
+        });
       }
       continue;
     }
-    if (bucket.startsWith('child_')) {
-      const i = Number(bucket.slice(6));
-      if (!childAdded.has(i)) {
-        childAdded.add(i);
-        seen.add(bucket);
-        steps.push({ id: bucket, label: childDisplayName(i) });
-      }
+    if (Number.isInteger(s?.clientIndex)) {
+      const i = s.clientIndex;
+      childMinors[i] = (childMinors[i] || 0) + 1;
+      const major = childMajorBase + i;
+      extraMajor = Math.max(extraMajor, major + 1);
+      const raw = String(s?.label || FLOW_STEP_PROGRESS_LABELS[s?.type] || s?.type || 'Step').trim() || 'Step';
+      steps.push({
+        id: String(s?.id || s?.sourceId || `${bucket}_${childMinors[i]}`),
+        label: interpolateChildTokens(tx(raw) || raw, i),
+        marker: `${major}.${childMinors[i]}`,
+        substep: true,
+        childIndex: i
+      });
       continue;
     }
     const id = bucket || String(s?.sourceId || s?.id || `${String(s?.type || '')}_${steps.length}`);
@@ -4581,10 +4612,12 @@ const dfProgressSteps = computed(() => {
     const raw = String(s?.label || FLOW_STEP_PROGRESS_LABELS[s?.type] || s?.type || 'Step').trim() || 'Step';
     steps.push({
       id,
-      label: interpolateChildTokens(tx(raw) || raw, s?.clientIndex)
+      label: interpolateChildTokens(tx(raw) || raw, s?.clientIndex),
+      marker: String(extraMajor)
     });
+    extraMajor += 1;
   }
-  steps.push({ id: 'complete', label: t('completed') });
+  steps.push({ id: 'complete', label: t('completed'), marker: String(extraMajor) });
   return steps;
 });
 
@@ -4598,19 +4631,22 @@ const dfProgressIndex = computed(() => {
     const current = currentFlowStep.value;
     const collapsed = dfProgressSteps.value;
     const bucket = progressBucketId(current);
-    const byBucket = collapsed.findIndex((s) => s.id === bucket);
-    if (byBucket >= 0) return Math.min(byBucket, total - 2);
+    if (bucket === 'family') {
+      const byFamily = collapsed.findIndex((s) => s.id === 'family');
+      if (byFamily >= 0) return Math.min(byFamily, total - 2);
+    }
+    const currentId = String(current?.id || '');
+    const byExact = collapsed.findIndex((s) => s.id === currentId);
+    if (byExact >= 0) return Math.min(byExact, total - 2);
     const sid = String(current?.sourceId || String(current?.id || '').replace(/__c\d+$/, '') || '');
     const byId = collapsed.findIndex((s) => s.id === sid);
     if (byId >= 0) return Math.min(byId, total - 2);
     const flowIdx = Number(currentFlowIndex.value || 0);
     let mapped = -1;
-    const seen = new Set();
     for (let i = 0; i <= flowIdx && i < (flowSteps.value || []).length; i += 1) {
-      const id = progressBucketId(flowSteps.value[i]);
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      mapped = collapsed.findIndex((s) => s.id === id);
+      const fs = flowSteps.value[i];
+      const idx = collapsed.findIndex((s) => s.id === String(fs?.id || '') || s.id === progressBucketId(fs));
+      if (idx >= 0) mapped = idx;
     }
     if (mapped >= 0) return Math.min(mapped, total - 2);
     return Math.min(Math.max(flowIdx, 0), total - 2);
@@ -4636,10 +4672,11 @@ function jumpToProgressStep(index) {
     return;
   }
   const flowIdx = (flowSteps.value || []).findIndex((s) => {
+    if (String(s?.id || '') === String(target.id || '')) return true;
     if (progressBucketId(s) === target.id) return true;
     const sid = String(s?.sourceId || String(s?.id || '').replace(/__c\d+$/, '') || '');
     if (sid === target.id) return true;
-    if (target.id === 'family' && (String(s?.audience || '') === 'guardian' || String(s?.id || '').includes('counseling_dep_'))) {
+    if (target.id === 'family' && (String(s?.audience || '') === 'guardian' || String(s?.type || '') === 'communications' || String(s?.id || '').includes('counseling_dep_'))) {
       return !Number.isInteger(s?.clientIndex);
     }
     if (target.id.startsWith('child_') && Number.isInteger(s?.clientIndex)) {
@@ -7147,6 +7184,36 @@ const maybeAutofillQuestionLocation = async (field) => {
   });
 };
 
+const onInterviewFieldUpdate = (field, value) => {
+  if (!field?.key) return;
+  questionValues.value[field.key] = value;
+  if (/zip|postal/i.test(normalizeKey(field.key))) {
+    maybeAutofillQuestionLocation(field);
+  }
+};
+
+const applyDenyAllField = (field) => {
+  const bag = questionValues.value;
+  if (!bag || !field) return;
+  const keys = Array.isArray(field.denyAllKeys) ? field.denyAllKeys : [];
+  const value = field.denyAllValue || 'no';
+  keys.forEach((key) => {
+    if (key) bag[key] = value;
+  });
+};
+
+const applyQuestionDefaults = () => {
+  const bag = questionValues.value;
+  if (!bag) return;
+  for (const f of visibleQuestionFields.value || []) {
+    const key = String(f?.key || '').trim();
+    if (!key || f.defaultValue === undefined || f.defaultValue === null) continue;
+    const cur = bag[key];
+    const empty = Array.isArray(cur) ? cur.length === 0 : String(cur ?? '').trim() === '';
+    if (empty) bag[key] = Array.isArray(f.defaultValue) ? [...f.defaultValue] : f.defaultValue;
+  }
+};
+
 const isIntakeFieldVisible = (field, values = {}) => {
   return matchesShowIf(field?.showIf, values);
 };
@@ -7335,7 +7402,7 @@ const fillExample = () => {
   guardianLastName.value = last;
   guardianEmail.value = `${first}.${last}${suffix}@example.com`.toLowerCase();
   guardianPhone.value = randomDevPhone();
-  guardianRelationship.value = pickDev(['Parent', 'Legal guardian', 'Grandparent']);
+  guardianRelationship.value = pickDev(['Mother', 'Father', 'Legal guardian', 'Grandparent']);
   starterDob.value = intakeForSelf.value === false ? randomDevDob(6, 16) : randomDevDob(23, 52);
   if (!clients.value.length) {
     clients.value = [emptyOfficeClient()];
@@ -8032,6 +8099,9 @@ async function downloadOfficeSummaryPdf() {
     }
   } catch (err) {
     officeSummaryError.value = await messageFromPdfError(err);
+    if (packetSummaryViewUrl.value) {
+      window.open(packetSummaryViewUrl.value, '_blank', 'noopener');
+    }
   } finally {
     officeSummaryDownloading.value = false;
   }
@@ -10149,29 +10219,50 @@ const currentChildReviewName = computed(() => {
   const last = String(ident.lastName || bag.child_legal_last || '').trim();
   return `${first} ${last}`.trim() || childDisplayName(idx);
 });
-const formatReviewValue = (raw) => {
+const formatReviewValue = (raw, fieldKey = '') => {
   if (raw == null || raw === '') return '—';
-  if (Array.isArray(raw)) return raw.length ? raw.join(', ') : '—';
-  return String(raw);
+  const labelFor = (value) => {
+    const v = String(value ?? '').trim();
+    if (!v) return '';
+    const fields = (flowSteps.value || []).flatMap((s) => s?.fields || []);
+    const field = fields.find((f) => f?.key === fieldKey)
+      || fields.find((f) => (f?.options || []).some((o) => String(o.value || o.label) === v));
+    const opt = (field?.options || []).find((o) => String(o.value || o.label) === v);
+    if (opt?.label) return String(opt.label);
+    return v.replace(/_/g, ' ');
+  };
+  if (Array.isArray(raw)) {
+    const parts = raw.map((item) => labelFor(item)).filter(Boolean);
+    return parts.length ? parts.join(', ') : '—';
+  }
+  return labelFor(raw);
 };
 const currentChildReviewRows = computed(() => {
   const idx = currentFlowStep.value?.clientIndex;
   const bag = Number.isInteger(idx) ? (intakeResponses.clients?.[idx] || {}) : {};
+  const firstText = (...keys) => {
+    for (const key of keys) {
+      const val = bag[key];
+      if (Array.isArray(val) && val.length) return formatReviewValue(val, key);
+      if (val != null && String(val).trim() !== '') return formatReviewValue(val, key);
+    }
+    return '—';
+  };
   return [
-    { label: 'Primary concerns', value: formatReviewValue(bag.biggest_concern_now || bag.presenting_concerns) },
-    { label: 'Current functioning', value: formatReviewValue(bag.hardest_everyday) },
-    { label: 'School', value: formatReviewValue(bag.academics || bag.feel_about_school) },
-    { label: 'Medical/developmental', value: formatReviewValue(bag.medical_know || bag.development_noticed || bag.medical_condition) },
-    { label: 'Prior treatment', value: formatReviewValue(bag.prior_services_know || bag.received_counseling) },
-    { label: 'Safety', value: bag.clinicalSafetyAlert ? 'Needs attention before first appointment' : formatReviewValue(bag.self_harm || bag.talked_wanting_to_die || 'No acute flags recorded') },
-    { label: 'Strengths', value: formatReviewValue(bag.child_strengths || bag.enjoys) },
-    { label: 'Goals', value: formatReviewValue(bag.three_important_help || bag.actually_helping) },
+    { label: 'Primary concerns', value: firstText('biggest_concern_now', 'presenting_concerns') },
+    { label: 'Current functioning', value: firstText('hardest_everyday', 'life_sleep') },
+    { label: 'School', value: firstText('school_name', 'feel_about_school', 'academics') },
+    { label: 'Medical/developmental', value: firstText('medical_know', 'development_noticed', 'medical_condition') },
+    { label: 'Prior treatment', value: firstText('prior_services_know', 'received_counseling', 'prior_services') },
+    { label: 'Safety', value: bag.clinicalSafetyAlert ? 'Needs attention before first appointment' : firstText('self_harm', 'talked_wanting_to_die') },
+    { label: 'Strengths', value: firstText('child_strengths', 'enjoys', 'especially_good_at') },
+    { label: 'Goals', value: firstText('three_important_help', 'actually_helping') },
     { label: 'Questionnaires', value: formatReviewValue([
       bag.psc_1 ? 'PSC-17 started' : null,
       bag.send_child_depression === 'send' ? 'Depression measure: send to child' : null,
       bag.send_child_anxiety === 'send' ? 'Anxiety measure: send to child' : null
     ].filter(Boolean)) },
-    { label: 'Provider preferences', value: formatReviewValue(bag.preferred_service_format || bag.provider_good_fit) }
+    { label: 'Provider preferences', value: firstText('preferred_service_format', 'provider_good_fit', 'days_that_work') }
   ];
 });
 const jumpToChildFirstPage = (clientIndex) => {
@@ -10629,6 +10720,10 @@ watch(
 );
 
 watch(currentFlowStep, async (step) => {
+  if (String(step?.type || '') === 'questions') {
+    await nextTick();
+    applyQuestionDefaults();
+  }
   if (isPacketSectionStepType(step?.type)) {
     const key = PACKET_SECTION_STEP_TO_KEY[String(step?.type || '').trim().toLowerCase()];
     await ensurePacketSectionContext(key);
@@ -13327,7 +13422,18 @@ onBeforeUnmount(() => {
 }
 
 .child-review-add {
-  margin-top: 0.5rem;
+  margin-top: 1.25rem;
+  padding: 1.1rem 1.2rem;
+  border: 1.5px dashed var(--df-primary, #1e4d3b);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--df-primary, #1e4d3b) 6%, #fff);
+}
+.child-review-add-btn {
+  min-height: 3.1rem;
+  padding: 0.85rem 1.4rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  width: min(100%, 22rem);
 }
 
 .public-intake :deep(.df-notice) {

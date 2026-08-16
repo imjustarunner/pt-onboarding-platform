@@ -10,6 +10,7 @@ import {
   recordPdfFilename
 } from '../services/intakeSummaryPdf.service.js';
 import { buildCompletedIntakeRecord } from '../services/completedIntakeRecord.service.js';
+import { headerLogoDataUrl } from '../services/schoolPrintablePacket.service.js';
 
 function sendPdf(res, buffer, filename) {
   const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
@@ -84,7 +85,9 @@ async function resolveOfficeRecord(req) {
     submission,
     signedDocuments,
     guardian: req.body?.guardian || {},
-    clients: Array.isArray(req.body?.clients) ? req.body.clients : []
+    clients: Array.isArray(req.body?.clients) ? req.body.clients : [],
+    publicKey,
+    brandLogoUrl: String(agency?.logo_url || '').trim() || headerLogoDataUrl()
   });
   return { agency, spec, submission };
 }

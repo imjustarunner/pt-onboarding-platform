@@ -12,6 +12,8 @@ import {
   getPublicIntakeLink,
   getPublicIntakeTemplateHtml,
   getPublicIntakePacketSection,
+  viewPublicPacketSectionHtml,
+  viewPublicDocumentVersionHtml,
   getPublicIntakeDisclosureContext,
   listPublicCareers,
   getPublicIntakeRegistrationCatalog,
@@ -74,7 +76,9 @@ router.get('/:publicKey', getPublicIntakeLink);
 router.get('/:publicKey/status/:submissionId', getPublicIntakeStatus);
 router.get('/:publicKey/document/:templateId/preview', previewPublicTemplate);
 router.get('/:publicKey/document/:templateId/html', getPublicIntakeTemplateHtml);
+router.get('/:publicKey/document/:templateId/view', viewPublicDocumentVersionHtml);
 router.get('/:publicKey/packet-section/:sectionKey', getPublicIntakePacketSection);
+router.get('/:publicKey/packet-section/:sectionKey/view', viewPublicPacketSectionHtml);
 router.get('/:publicKey/disclosure-context', getPublicIntakeDisclosureContext);
 router.post('/:publicKey/approve', authenticate, approvePublicIntake);
 

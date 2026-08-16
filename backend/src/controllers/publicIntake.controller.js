@@ -132,6 +132,7 @@ import {
   sectionTitle
 } from '../services/schoolPacketSections.service.js';
 import { persistIntakeGuardianWaiversFromFinalize } from '../services/guardianWaivers.service.js';
+import { persistIntakeClinicianSummaries } from '../services/intakeClinicianSummary.service.js';
 
 function buildPacketSectionSignedHtml({ sectionContext, response, signedAt }) {
   const title = sectionContext?.title || sectionTitle(sectionContext?.sectionKey, sectionContext?.locale);
@@ -5215,6 +5216,102 @@ export const getPublicIntakePacketSection = async (req, res, next) => {
     });
     res.setHeader('Cache-Control', 'no-store');
     res.json(ctx);
+  } catch (error) {
+    next(error);
+  }
+};
+
+function wrapPublicLegalHtml({ title, versionLabel, fingerprint, agencyName, bodyHtml }) {
+  const esc = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>${esc(title)}</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #111; line-height: 1.5; max-width: 800px; margin: 24px auto; padding: 0 20px 48px; }
+    .meta { color: #4b5563; font-size: 13px; margin: 0 0 18px; }
+    .legal-body { font-size: 14px; }
+    @media print { body { margin: 0; } }
+  </style>
+</head>
+<body>
+  <p class="meta">${esc(agencyName || '')}${versionLabel ? ` · ${esc(versionLabel)}` : ''}${fingerprint ? ` · Fingerprint ${esc(fingerprint)}` : ''}</p>
+  <h1>${esc(title)}</h1>
+  <div class="legal-body">${bodyHtml || ''}</div>
+</body>
+</html>`;
+}
+
+export const viewPublicPacketSectionHtml = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const sectionKey = String(req.params.sectionKey || '').trim();
+    const resolved = await resolvePublicIntakeContext(publicKey);
+    const link = resolved.link;
+    const issuedRoiLink = resolved.issuedRoiLink;
+    const boundClient = resolved.boundClient;
+    if (!link || (!link.is_active && !issuedRoiLink)) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
+    const schoolOrgId = Number(organization?.id || link.organization_id || boundClient?.organization_id || 0);
+    const orgType = String(organization?.organization_type || '').toLowerCase();
+    const officePacket = String(link.scope_type || '').toLowerCase() === 'agency'
+      && !['school', 'program', 'learning'].includes(orgType);
+    const ctx = await buildPacketSectionContext({
+      organizationId: officePacket ? 0 : schoolOrgId,
+      agencyId: Number(agency?.id || 0) || null,
+      locale: link.language_code || 'en',
+      sectionKey,
+      office: officePacket,
+      variant: String(req.query?.variant || 'self')
+    });
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    return res.send(wrapPublicLegalHtml({
+      title: ctx.title || sectionTitle(sectionKey, link.language_code || 'en'),
+      versionLabel: ctx.packetVersion ? `Version ${ctx.packetVersion}` : '',
+      fingerprint: ctx.contentHash || '',
+      agencyName: agency?.official_name || agency?.name || '',
+      bodyHtml: ctx.html || ''
+    }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const viewPublicDocumentVersionHtml = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const templateId = parseInt(req.params.templateId, 10);
+    if (!templateId) {
+      return res.status(400).json({ error: { message: 'templateId is required' } });
+    }
+    const { link } = await resolvePublicIntakeContext(publicKey);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const template = await loadTemplateById(link, templateId);
+    if (!template) {
+      return res.status(404).json({ error: { message: 'Template not found' } });
+    }
+    if (template.template_type === 'pdf' && template.file_path) {
+      return previewPublicTemplate(req, res, next);
+    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    return res.send(wrapPublicLegalHtml({
+      title: template.name || 'Document',
+      versionLabel: template.version ? `Version ${template.version}` : '',
+      fingerprint: '',
+      agencyName: '',
+      bodyHtml: template.html_content || '<p>This document version is on file with the organization.</p>'
+    }));
   } catch (error) {
     next(error);
   }
@@ -10427,6 +10524,20 @@ export const submitPublicIntake = async (req, res, next) => {
     } catch (signedPacketErr) {
       console.warn('[publicIntake] signed school packet bundle failed', signedPacketErr?.message || signedPacketErr);
     }
+
+    void persistIntakeClinicianSummaries({
+      agency: orgContextHoisted?.agency || null,
+      link,
+      submission: updatedSubmission,
+      signedDocuments: signedDocs,
+      clientIds: [
+        ...(createdClients || []).map((c) => c?.id),
+        updatedSubmission?.client_id,
+        ...(intakeClientRows || []).map((row) => row?.client_id)
+      ]
+    }).catch((err) => {
+      console.warn('[publicIntake] clinician AI summary failed', err?.message || err);
+    });
 
     res.json({
       success: true,

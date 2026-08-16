@@ -10,10 +10,10 @@ import { flattenIntakeFields, COUNSELING_SELF_STEP_PREFIX } from '../counselingI
 describe('counseling dependent EN intake', () => {
   it('builds consolidated family and child pages, review, and unique keys', () => {
     const steps = buildCounselingDependentEnSteps();
-    assert.equal(steps.filter((s) => s.audience === 'guardian').length, 2);
-    assert.equal(steps.filter((s) => s.type === 'upload').length, 1);
+    assert.equal(steps.filter((s) => s.audience === 'guardian').length, 1);
+    assert.equal(steps.filter((s) => s.type === 'upload').length, 0);
     const childPages = steps.filter((s) => s.audience === 'dependent' && s.type === 'questions');
-    assert.equal(childPages.length, 10);
+    assert.equal(childPages.length, 11);
     assert.equal(steps.some((s) => s.type === 'child_review'), true);
     const substance = steps.find((s) => s.id === `${COUNSELING_DEP_STEP_PREFIX}substance`);
     assert.equal(substance.showWhen, 'substance_indicated');
@@ -37,11 +37,17 @@ describe('counseling dependent EN intake', () => {
     const flat = flattenIntakeFields(steps);
     assert.ok(flat.some((f) => f.scope === 'guardian'));
     assert.ok(flat.some((f) => f.scope === 'client' && f.key === 'psc_1'));
+    assert.equal(steps.some((s) => String(s.id || '').includes('emotional')), false);
+    assert.equal(steps.filter((s) => String(s.id || '').includes('provider_prefs')).length, 1);
+    const daily = steps.find((s) => s.id === `${COUNSELING_DEP_STEP_PREFIX}daily_context`);
+    assert.equal(daily.fields.find((f) => f.key === 'school_name')?.type, 'school');
+    assert.ok(!daily.fields.some((f) => f.key === 'child_school'));
   });
 
   it('merges with self pages and keeps packet steps', () => {
     const merged = mergeCounselingOfficeEnIntoSteps([
       { id: 'packet_informed_group_consent', type: 'packet_informed_group_consent', label: 'Informed' },
+      { id: 'office_communications', type: 'communications', label: 'Communications' },
       { id: `${COUNSELING_SELF_STEP_PREFIX}old`, type: 'questions', fields: [] },
       { id: `${COUNSELING_DEP_STEP_PREFIX}old`, type: 'questions', fields: [] }
     ]);
@@ -51,5 +57,9 @@ describe('counseling dependent EN intake', () => {
     assert.equal(depCount, 13);
     assert.equal(merged.some((s) => s.type === 'packet_informed_group_consent'), true);
     assert.equal(merged.some((s) => s.id === `${COUNSELING_DEP_STEP_PREFIX}old`), false);
+    const commsIdx = merged.findIndex((s) => s.type === 'communications');
+    const familyIdx = merged.findIndex((s) => String(s.id || '').startsWith(COUNSELING_DEP_STEP_PREFIX) && s.audience === 'guardian');
+    const childIdx = merged.findIndex((s) => String(s.id || '').includes('about_child'));
+    assert.ok(commsIdx > familyIdx && commsIdx < childIdx);
   });
 });

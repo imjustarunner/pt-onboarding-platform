@@ -1,13 +1,11 @@
-import DocumentSigningService from './documentSigning.service.js';
 import {
   buildPacketStyleBlock,
-  buildPdfChromeTemplates,
+  headerLogoDataUrl,
   watermarkDataUrl
 } from './schoolPrintablePacket.service.js';
 import { OFFICE_PRINTABLE_PACKET_VERSION } from '../constants/officePrintablePacket.js';
 import { buildCompletedIntakeRecord } from './completedIntakeRecord.service.js';
-
-const BODY_PDF_MARGIN = { top: '0.75in', right: '0.5in', bottom: '0.5in', left: '0.5in' };
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 const SUMMARY_EXTRA_CSS = `
       .intake-summary-kicker {
@@ -18,7 +16,20 @@ const SUMMARY_EXTRA_CSS = `
         margin: 0 0 6px;
         color: #4b5563;
       }
-      .intake-summary-agency { text-align: center; margin: 0 0 4px; }
+      .intake-summary-brand {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        margin: 0 0 16px;
+      }
+      .intake-summary-brand img {
+        display: block;
+        max-height: 56px;
+        max-width: 180px;
+        object-fit: contain;
+      }
+      .intake-summary-sign-card a { color: #1b3d2f; font-weight: 700; }
       .intake-summary-meta { text-align: center; margin: 0 0 18px; color: #374151; }
       .intake-summary-dl { margin: 0 0 16px; }
       .intake-summary-row {
@@ -117,6 +128,7 @@ export function buildIntakeSummaryDocumentHtml({
   title,
   kicker,
   agencyName,
+  brandLogoUrl = '',
   metaLines = [],
   sections = [],
   acknowledgments = [],
@@ -156,8 +168,10 @@ export function buildIntakeSummaryDocumentHtml({
         ${signatures.map((sig) => `
           <div class="intake-summary-sign-card">
             <strong>${escapeHtml(sig.documentName || 'Signed document')}</strong>
-            ${sig.signedAt ? `<p class="intake-summary-sign-meta">Signed ${escapeHtml(sig.signedAt)}</p>` : ''}
-            ${sig.hash ? `<p class="intake-summary-sign-meta">Document hash ${escapeHtml(sig.hash)}</p>` : ''}
+            ${sig.versionLabel ? `<p class="intake-summary-sign-meta">${escapeHtml(sig.versionLabel)}</p>` : ''}
+            ${sig.signedAt ? `<p class="intake-summary-sign-meta">Signed ${escapeHtml(sig.signedAt)}${sig.signerName ? ` by ${escapeHtml(sig.signerName)}` : ''}</p>` : ''}
+            ${sig.hash ? `<p class="intake-summary-sign-meta">Fingerprint ${escapeHtml(sig.hash)}</p>` : ''}
+            ${sig.publicUrl ? `<p class="intake-summary-sign-meta"><a href="${escapeHtml(sig.publicUrl)}" target="_blank" rel="noopener">View this version</a></p>` : ''}
             ${sig.imageDataUrl ? `<img src="${escapeHtml(sig.imageDataUrl)}" alt="Signature for ${escapeHtml(sig.documentName || 'document')}" />` : '<p class="intake-summary-sign-meta">Signature captured electronically.</p>'}
           </div>
         `).join('')}
@@ -198,6 +212,9 @@ ${SUMMARY_EXTRA_CSS}
       ${watermark ? `<img class="packet-watermark" src="${watermark}" alt="" />` : ''}
       <div class="packet-body">
         ${toolbarHtml}
+        <div class="intake-summary-brand">
+          ${brandLogoUrl ? `<img src="${escapeHtml(brandLogoUrl)}" alt="${escapeHtml(agencyName || 'Organization')}" />` : ''}
+        </div>
         ${kicker ? `<p class="intake-summary-kicker">${escapeHtml(kicker)}</p>` : ''}
         <h1>${escapeHtml(title || 'Intake packet')}</h1>
         ${agencyName ? `<p class="intake-summary-agency"><strong>${escapeHtml(agencyName)}</strong></p>` : ''}
@@ -214,21 +231,156 @@ ${SUMMARY_EXTRA_CSS}
 </html>`;
 }
 
+function wrapPdfText(font, text, size, maxWidth) {
+  const words = String(text || '')
+    .normalize('NFC')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '?')
+    .split(/\s+/)
+    .filter(Boolean);
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (font.widthOfTextAtSize(next, size) <= maxWidth) {
+      current = next;
+    } else {
+      if (current) lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length ? lines : [''];
+}
+
+async function embedPngFromDataUrl(pdfDoc, dataUrl) {
+  const raw = String(dataUrl || '').trim();
+  const match = raw.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/i);
+  if (!match) return null;
+  try {
+    const bytes = Buffer.from(match[2], 'base64');
+    if (/jpeg|jpg/i.test(match[1])) return pdfDoc.embedJpg(bytes);
+    return pdfDoc.embedPng(bytes);
+  } catch {
+    return null;
+  }
+}
+
+async function renderCompletedIntakePdf(spec = {}) {
+  const pdfDoc = await PDFDocument.create();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const green = rgb(0.11, 0.24, 0.18);
+  const gray = rgb(0.29, 0.33, 0.39);
+  const black = rgb(0.07, 0.09, 0.11);
+  const pageW = 612;
+  const pageH = 792;
+  const margin = 48;
+  const maxWidth = pageW - margin * 2;
+  let page = pdfDoc.addPage([pageW, pageH]);
+  let y = pageH - margin;
+  const logo = await embedPngFromDataUrl(pdfDoc, spec.brandLogoUrl || headerLogoDataUrl());
+
+  const ensure = (need) => {
+    if (y - need < margin) {
+      page = pdfDoc.addPage([pageW, pageH]);
+      y = pageH - margin;
+    }
+  };
+  const drawLines = (lines, { size = 10, type = font, color = black, gap = 13 } = {}) => {
+    for (const line of lines) {
+      ensure(gap);
+      page.drawText(String(line || ''), { x: margin, y, size, font: type, color });
+      y -= gap;
+    }
+  };
+
+  if (logo) {
+    const height = 36;
+    const width = (logo.width / logo.height) * height;
+    page.drawImage(logo, { x: (pageW - width) / 2, y: y - height, width, height });
+    y -= height + 14;
+  }
+  drawLines([spec.agencyName || ''], { size: 11, type: bold, color: green, gap: 16 });
+  drawLines([spec.title || 'Completed intake packet'], { size: 16, type: bold, gap: 18 });
+  if (spec.metaLines?.length) {
+    drawLines([spec.metaLines.filter(Boolean).join('  ·  ')], { size: 9, color: gray, gap: 16 });
+  }
+
+  const drawRows = (rows) => {
+    for (const row of rows || []) {
+      if (!row?.label || !row?.value) continue;
+      const labelLines = wrapPdfText(bold, `${row.label}:`, 9, 160);
+      const valueLines = wrapPdfText(font, String(row.value), 9, maxWidth - 170);
+      const used = Math.max(labelLines.length, valueLines.length);
+      ensure(used * 12 + 6);
+      page.drawText(labelLines[0], { x: margin, y, size: 9, font: bold, color: black });
+      valueLines.forEach((line, idx) => {
+        page.drawText(line, { x: margin + 170, y: y - (idx * 12), size: 9, font, color: black });
+      });
+      y -= used * 12 + 4;
+    }
+  };
+
+  for (const section of spec.sections || []) {
+    if (!section?.title || !section.rows?.length) continue;
+    ensure(28);
+    y -= 8;
+    drawLines([section.title], { size: 12, type: bold, color: green, gap: 16 });
+    drawRows(section.rows);
+  }
+
+  for (const block of spec.approvals || []) {
+    if (!block?.title || !block.rows?.length) continue;
+    ensure(28);
+    y -= 8;
+    drawLines([block.title], { size: 12, type: bold, color: green, gap: 16 });
+    drawRows(block.rows);
+  }
+
+  if (spec.signatures?.length) {
+    ensure(28);
+    y -= 8;
+    drawLines(['Signed documents'], { size: 12, type: bold, color: green, gap: 16 });
+    for (const sig of spec.signatures) {
+      ensure(70);
+      drawLines([sig.documentName || 'Signed document'], { size: 10, type: bold, gap: 13 });
+      const meta = [
+        sig.versionLabel,
+        sig.signedAt ? `Signed ${sig.signedAt}${sig.signerName ? ` by ${sig.signerName}` : ''}` : '',
+        sig.hash ? `Fingerprint ${sig.hash}` : '',
+        sig.publicUrl ? `View this version: ${sig.publicUrl}` : ''
+      ].filter(Boolean);
+      drawLines(meta, { size: 8, color: gray, gap: 11 });
+      const image = await embedPngFromDataUrl(pdfDoc, sig.imageDataUrl);
+      if (image) {
+        const height = 36;
+        const width = Math.min(180, (image.width / image.height) * height);
+        ensure(height + 8);
+        page.drawImage(image, { x: margin, y: y - height, width, height });
+        y -= height + 10;
+      }
+    }
+  }
+
+  if (spec.esign?.statement) {
+    ensure(40);
+    y -= 8;
+    drawLines(['Electronic Signature Certificate'], { size: 12, type: bold, color: green, gap: 16 });
+    drawLines(wrapPdfText(font, spec.esign.statement, 8, maxWidth), { size: 8, color: gray, gap: 11 });
+    drawRows(spec.esign.rows || []);
+  }
+  if (spec.footerNote) {
+    y -= 8;
+    drawLines(wrapPdfText(font, spec.footerNote, 8, maxWidth), { size: 8, color: gray, gap: 11 });
+  }
+
+  const bytes = await pdfDoc.save();
+  return Buffer.from(bytes);
+}
+
 export async function generateIntakeSummaryPdf(spec = {}) {
-  const html = buildIntakeSummaryDocumentHtml(spec);
-  const { headerTemplate, footerTemplate } = buildPdfChromeTemplates({
-    packetVersionLabel: spec.packetVersionLabel || OFFICE_PRINTABLE_PACKET_VERSION
-  });
-  const pdfBytes = await DocumentSigningService.convertHTMLToPDF(html, {
-    printBackground: true,
-    margin: BODY_PDF_MARGIN,
-    preferCSSPageSize: false,
-    displayHeaderFooter: true,
-    headerTemplate,
-    footerTemplate,
-    disableFallback: true
-  });
-  return Buffer.isBuffer(pdfBytes) ? pdfBytes : Buffer.from(pdfBytes);
+  return renderCompletedIntakePdf(spec);
 }
 
 export function buildOfficeIntakeSummarySpec({
