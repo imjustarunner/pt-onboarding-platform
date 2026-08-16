@@ -170,6 +170,14 @@ function fieldIndex(link) {
   return byKey;
 }
 
+const FALLBACK_VALUE_LABELS = {
+  send: 'Send to the child',
+  skip: 'Skip for now',
+  yes: 'Yes',
+  no: 'No',
+  not_sure: 'Not sure'
+};
+
 function formatFieldValue(field, value, locale, link) {
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   const options = Array.isArray(field?.options) ? field.options : [];
@@ -180,7 +188,8 @@ function formatFieldValue(field, value, locale, link) {
       String(o?.value ?? '') === String(raw) || String(o?.label ?? '') === String(raw)
     );
     if (found) return resolveOptionLabel(found, locale, link) || String(found.label || found.value || raw);
-    return String(raw).trim();
+    const fallback = FALLBACK_VALUE_LABELS[String(raw).trim().toLowerCase()];
+    return fallback || String(raw).trim();
   };
   if (Array.isArray(value)) {
     if (value.every((item) => item == null || typeof item !== 'object')) {
@@ -290,11 +299,23 @@ function signatureImage(trail) {
   return '';
 }
 
-function publicDocUrl(publicKey, kind, id) {
+function resolvePublicOrigin(explicit = '') {
+  return String(
+    explicit
+    || process.env.PUBLIC_APP_URL
+    || process.env.FRONTEND_URL
+    || ''
+  ).trim().replace(/\/$/, '');
+}
+
+function publicDocUrl(publicKey, kind, id, origin = '') {
   const key = String(publicKey || '').trim();
   if (!key || !id) return '';
-  if (kind === 'section') return `/api/public-intake/${encodeURIComponent(key)}/packet-section/${encodeURIComponent(id)}/view`;
-  return `/api/public-intake/${encodeURIComponent(key)}/document/${encodeURIComponent(id)}/view`;
+  const path = kind === 'section'
+    ? `/api/public-intake/${encodeURIComponent(key)}/packet-section/${encodeURIComponent(id)}/view`
+    : `/api/public-intake/${encodeURIComponent(key)}/document/${encodeURIComponent(id)}/view`;
+  const base = resolvePublicOrigin(origin);
+  return base ? `${base}${path}` : path;
 }
 
 function agreementCard({
@@ -319,7 +340,7 @@ function agreementCard({
   };
 }
 
-function collectPacketSectionAgreements(intakeData, publicKey, signerName) {
+function collectPacketSectionAgreements(intakeData, publicKey, signerName, origin = '') {
   const bags = [
     intakeData?.packetSections,
     intakeData?.responses?.submission?.packetSections
@@ -337,7 +358,7 @@ function collectPacketSectionAgreements(intakeData, publicKey, signerName) {
         signedAt: formatDateTime(response.signedAt || response.acknowledgedAt),
         hash: response.contentHash || '',
         imageDataUrl: sig,
-        publicUrl: publicDocUrl(publicKey, 'section', key),
+        publicUrl: publicDocUrl(publicKey, 'section', key, origin),
         versionLabel: response.packetVersion ? `Version ${response.packetVersion}` : '',
         signerName: response.signerName || signerName
       }));
@@ -368,7 +389,7 @@ function collectNamedAgreement(intakeData, paths, title, publicUrl, signerName) 
   return null;
 }
 
-function buildSignatures({ signedDocuments = [], intakeData = {}, publicKey = '', signerName = '' } = {}) {
+function buildSignatures({ signedDocuments = [], intakeData = {}, publicKey = '', signerName = '', publicOrigin = '' } = {}) {
   const fromDb = (signedDocuments || []).map((doc, index) => {
     const trail = parseMaybeJson(doc?.audit_trail, {});
     const templateId = doc?.document_template_id;
@@ -377,13 +398,13 @@ function buildSignatures({ signedDocuments = [], intakeData = {}, publicKey = ''
       signedAt: formatDateTime(doc?.signed_at || trail?.submittedAt || trail?.signedAt),
       hash: String(doc?.pdf_hash || trail?.documentReference || '').trim(),
       imageDataUrl: signatureImage(trail),
-      publicUrl: publicDocUrl(publicKey, 'document', templateId),
+      publicUrl: publicDocUrl(publicKey, 'document', templateId, publicOrigin),
       versionLabel: doc?.version ? `Version ${doc.version}` : '',
       signerName: trail?.signerName || signerName
     });
   }).filter(Boolean);
 
-  const fromSections = collectPacketSectionAgreements(intakeData, publicKey, signerName);
+  const fromSections = collectPacketSectionAgreements(intakeData, publicKey, signerName, publicOrigin);
   const extra = [
     collectNamedAgreement(
       intakeData,
@@ -467,7 +488,8 @@ export function buildCompletedIntakeRecord({
   guardian = {},
   clients = [],
   publicKey = '',
-  brandLogoUrl = ''
+  brandLogoUrl = '',
+  publicOrigin = ''
 } = {}) {
   const intakeData = normalizeIntakeDataShape(parseMaybeJson(submission?.intake_data, {}));
   const locale = resolveIntakeFormLocale(link, intakeData);
@@ -533,7 +555,8 @@ export function buildCompletedIntakeRecord({
     signedDocuments,
     intakeData,
     publicKey: publicKey || link?.public_key || '',
-    signerName: contactName
+    signerName: contactName,
+    publicOrigin
   });
   const approvals = buildApprovals(intakeData);
   const submittedAt = formatDateTime(submission?.submitted_at);

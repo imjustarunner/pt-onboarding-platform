@@ -3,6 +3,7 @@
  * matching the DPS / Aurora pattern (name, district, address, lat/lng).
  */
 const D11 = 'Colorado Springs School District 11';
+const D12 = 'Cheyenne Mountain School District 12';
 const D20 = 'Academy School District 20';
 
 const loc = (address, lat, lng) => ({ address, lat, lng });
@@ -74,5 +75,13 @@ export const COLORADO_SPRINGS_OUTREACH_SCHOOLS = [
   { name: 'Prairie Hills Elementary School', district: D20, city: 'Colorado Springs', level: 'elementary', ...loc('8020 Lexington Dr, Colorado Springs, CO 80920', 38.9452, -104.7754) },
   { name: 'Ranch Creek Elementary School', district: D20, city: 'Colorado Springs', level: 'elementary', ...loc('10665 Ranch Creek Dr, Colorado Springs, CO 80908', 39.0028, -104.7286) },
   { name: 'Rockrimmon Elementary School', district: D20, city: 'Colorado Springs', level: 'elementary', ...loc('401 S Parkside Dr, Colorado Springs, CO 80919', 38.9286, -104.8472) },
-  { name: 'Woodmen-Roberts Elementary School', district: D20, city: 'Colorado Springs', level: 'elementary', ...loc('1740 Woodmen Rd, Colorado Springs, CO 80919', 38.9336, -104.8388) }
+  { name: 'Woodmen-Roberts Elementary School', district: D20, city: 'Colorado Springs', level: 'elementary', ...loc('1740 Woodmen Rd, Colorado Springs, CO 80919', 38.9336, -104.8388) },
+  { name: 'Cheyenne Mountain High School', district: D12, city: 'Colorado Springs', level: 'high', ...loc('1200 W Cheyenne Rd, Colorado Springs, CO 80906', 38.8128, -104.8608) },
+  { name: 'Cheyenne Mountain Junior High School', district: D12, city: 'Colorado Springs', level: 'middle', ...loc('1200 W Cheyenne Rd, Colorado Springs, CO 80906', 38.8142, -104.8586) },
+  { name: 'Broadmoor Elementary School', district: D12, city: 'Colorado Springs', level: 'elementary', ...loc('445 Marland Rd, Colorado Springs, CO 80906', 38.8006, -104.8482) },
+  { name: 'Canon Elementary School', district: D12, city: 'Colorado Springs', level: 'elementary', ...loc('2115 Skyway Dr, Colorado Springs, CO 80906', 38.8124, -104.8356) },
+  { name: 'Cheyenne Mountain Elementary School', district: D12, city: 'Colorado Springs', level: 'elementary', ...loc('5250 Pine Ln, Colorado Springs, CO 80906', 38.8068, -104.8524) },
+  { name: 'Gold Camp Elementary School', district: D12, city: 'Colorado Springs', level: 'elementary', ...loc('4615 La Paloma Dr, Colorado Springs, CO 80906', 38.8052, -104.8726) },
+  { name: 'Pinon Valley Elementary School', district: D12, city: 'Colorado Springs', level: 'elementary', ...loc('5408 Lutzke Ln, Colorado Springs, CO 80906', 38.8214, -104.8688) },
+  { name: 'Skyway Park Elementary School', district: D12, city: 'Colorado Springs', level: 'elementary', ...loc('1100 Skyway Dr, Colorado Springs, CO 80906', 38.8168, -104.8312) }
 ];

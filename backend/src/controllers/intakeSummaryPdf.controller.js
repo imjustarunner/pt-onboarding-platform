@@ -87,7 +87,8 @@ async function resolveOfficeRecord(req) {
     guardian: req.body?.guardian || {},
     clients: Array.isArray(req.body?.clients) ? req.body.clients : [],
     publicKey,
-    brandLogoUrl: String(agency?.logo_url || '').trim() || headerLogoDataUrl()
+    brandLogoUrl: String(agency?.logo_url || '').trim() || headerLogoDataUrl(),
+    publicOrigin: String(req.get('origin') || process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '')
   });
   return { agency, spec, submission };
 }

@@ -1,6 +1,8 @@
 import pool from '../config/database.js';
 import crypto from 'crypto';
 import IntakeLink from './IntakeLink.model.js';
+import { flattenIntakeFields } from '../data/counselingIntakeSelfEn.js';
+import { mergeCounselingOfficeEnIntoSteps } from '../data/counselingIntakeDependentEn.js';
 
 function normalizeLang(languageCode) {
   const raw = String(languageCode || 'en').trim().toLowerCase();
@@ -454,10 +456,15 @@ class AgencyOfficeIntakeMaster {
     if (!aid) return link;
     const master = await this.getOrCreateForAgency(aid, { languageCode: link.language_code || 'en' });
     if (!master) return link;
+    const lang = normalizeLang(link.language_code || 'en');
+    const intakeSteps = lang === 'en'
+      ? mergeCounselingOfficeEnIntoSteps(master.intake_steps || [])
+      : (master.intake_steps || []);
+    const intakeFields = lang === 'en' ? flattenIntakeFields(intakeSteps) : master.intake_fields;
     return {
       ...link,
-      intake_steps: master.intake_steps,
-      intake_fields: master.intake_fields,
+      intake_steps: intakeSteps,
+      intake_fields: intakeFields,
       master_form_version: master.version,
       master_form_id: master.id,
       title: link.title || master.title

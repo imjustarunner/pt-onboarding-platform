@@ -13,6 +13,7 @@
     <button type="button" class="intake-deny-all" @click="$emit('deny-all', field)">
       {{ label || 'Deny all' }}
     </button>
+    <p v-if="displayHelp" class="df-field-help">{{ displayHelp }}</p>
   </div>
   <div
     v-else
@@ -198,17 +199,18 @@ watch(
   margin-bottom: 0.65rem;
 }
 .intake-deny-all {
-  display: inline-flex;
+  display: flex;
+  width: 100%;
   align-items: center;
   justify-content: center;
-  min-height: 2.6rem;
-  padding: 0.55rem 1.1rem;
-  border-radius: 999px;
+  min-height: 3rem;
+  padding: 0.7rem 1.1rem;
+  border-radius: 12px;
   border: 1.5px solid var(--df-primary, #1e4d3b);
-  background: color-mix(in srgb, var(--df-primary, #1e4d3b) 8%, #fff);
+  background: color-mix(in srgb, var(--df-primary, #1e4d3b) 10%, #fff);
   color: var(--df-primary, #1e4d3b);
   font: inherit;
-  font-weight: 650;
+  font-weight: 700;
   cursor: pointer;
 }
 .intake-school-hits {

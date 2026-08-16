@@ -4679,6 +4679,7 @@ const applyOfficeMasterReadOnly = async (link, agency) => {
     link.language_code || 'en'
   );
   if (!master) return link;
+  const inherited = await AgencyOfficeIntakeMaster.applyMasterToLink(link, { agencyId: agencyIdForOffice });
   const rewriteSex = (steps) => hydrateEmptyOfficeQuestionnaireSteps(steps, link).map((step) => {
     const fields = Array.isArray(step?.fields) ? step.fields : [];
     if (!fields.length) return step;
@@ -4714,12 +4715,12 @@ const applyOfficeMasterReadOnly = async (link, agency) => {
     };
   });
   return {
-    ...link,
-    intake_steps: rewriteSex(master.intake_steps),
-    intake_fields: master.intake_fields,
-    master_form_version: master.version,
-    master_form_id: master.id,
-    title: link.title || master.title
+    ...inherited,
+    intake_steps: rewriteSex(inherited.intake_steps),
+    intake_fields: inherited.intake_fields,
+    master_form_version: inherited.master_form_version || master.version,
+    master_form_id: inherited.master_form_id || master.id,
+    title: inherited.title || link.title || master.title
   };
 };
 

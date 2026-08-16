@@ -48,6 +48,7 @@ describe('counseling dependent EN intake', () => {
     const merged = mergeCounselingOfficeEnIntoSteps([
       { id: 'packet_informed_group_consent', type: 'packet_informed_group_consent', label: 'Informed' },
       { id: 'office_communications', type: 'communications', label: 'Communications' },
+      { id: 'legacy_custody', type: 'upload', label: 'Upload custody documentation, if applicable' },
       { id: `${COUNSELING_SELF_STEP_PREFIX}old`, type: 'questions', fields: [] },
       { id: `${COUNSELING_DEP_STEP_PREFIX}old`, type: 'questions', fields: [] }
     ]);
@@ -56,7 +57,7 @@ describe('counseling dependent EN intake', () => {
     assert.equal(selfCount, 9);
     assert.equal(depCount, 13);
     assert.equal(merged.some((s) => s.type === 'packet_informed_group_consent'), true);
-    assert.equal(merged.some((s) => s.id === `${COUNSELING_DEP_STEP_PREFIX}old`), false);
+    assert.equal(merged.some((s) => /custody/i.test(`${s.id || ''} ${s.label || ''}`)), false);
     const commsIdx = merged.findIndex((s) => s.type === 'communications');
     const familyIdx = merged.findIndex((s) => String(s.id || '').startsWith(COUNSELING_DEP_STEP_PREFIX) && s.audience === 'guardian');
     const childIdx = merged.findIndex((s) => String(s.id || '').includes('about_child'));

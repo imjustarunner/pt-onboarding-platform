@@ -1420,6 +1420,7 @@ function childSafety() {
         key: 'safety_deny_all',
         type: 'deny_all',
         label: 'Deny all — none of these safety concerns apply',
+        helperText: 'Sets every safety question below to No. Use this when there are no safety concerns to report.',
         denyAllValue: 'no',
         denyAllKeys: [
           'hurt_another_person',
@@ -1817,27 +1818,27 @@ function childQuestionnaires() {
       ...buildScared5ParentFields({ scope: 'client', showIf: ANXIETY_INDICATED }),
       field({
         key: 'send_child_depression',
-        label: 'Depression measure',
+        label: 'Should we send a depression questionnaire to this child to complete on their own?',
         helperText:
-          'Completed by: {childName}. We will ask {childName} to complete this separately. Parent-report and child self-report stay as separate records.',
+          'This is a separate child questionnaire, not a parent form. “Send” means we will invite {childName} to complete it. “Skip” means do not send it now.',
         type: 'radio',
         optional: true,
         showIf: { fieldKey: '_age_gte_12', equals: 'yes' },
-        options: [opt('send', 'Send to Child'), opt('skip', 'Skip for now')]
+        options: [opt('send', 'Send to the child'), opt('skip', 'Skip for now')]
       }),
       field({
         key: 'send_child_anxiety',
-        label: 'Anxiety measure',
-        helperText: 'Completed by: {childName}. We will ask {childName} to complete this separately.',
+        label: 'Should we send an anxiety questionnaire to this child to complete on their own?',
+        helperText: '“Send” invites {childName} to complete it separately. “Skip” means do not send it now.',
         type: 'radio',
         optional: true,
         showIf: { fieldKey: '_age_gte_12', equals: 'yes' },
-        options: [opt('send', 'Send to Child'), opt('skip', 'Skip for now')]
+        options: [opt('send', 'Send to the child'), opt('skip', 'Skip for now')]
       }),
       field({
         key: 'send_child_trauma',
-        label: 'Trauma measure',
-        helperText: 'Completed by: {childName}. We will ask {childName} to complete this separately.',
+        label: 'Should we send a trauma questionnaire to this child to complete on their own?',
+        helperText: '“Send” invites {childName} to complete it separately. “Skip” means do not send it now.',
         type: 'radio',
         optional: true,
         showIf: {
@@ -1846,18 +1847,18 @@ function childQuestionnaires() {
             { fieldKey: 'trauma_experienced', equals: ['yes', 'not_sure'] }
           ]
         },
-        options: [opt('send', 'Send to Child'), opt('skip', 'Skip for now')]
+        options: [opt('send', 'Send to the child'), opt('skip', 'Skip for now')]
       }),
       field({
         key: 'send_child_adhd',
-        label: 'ADHD measure',
-        helperText: 'Completed by: {childName}. We will ask {childName} to complete this separately.',
+        label: 'Should we send an ADHD questionnaire to this child to complete on their own?',
+        helperText: '“Send” invites {childName} to complete it separately. “Skip” means do not send it now.',
         type: 'radio',
         optional: true,
         showIf: {
           all: [{ fieldKey: '_age_gte_12', equals: 'yes' }, ADHD_INDICATED]
         },
-        options: [opt('send', 'Send to Child'), opt('skip', 'Skip for now')]
+        options: [opt('send', 'Send to the child'), opt('skip', 'Skip for now')]
       })
     ]
   });
@@ -1976,6 +1977,12 @@ export function mergeCounselingOfficeEnIntoSteps(existingSteps = []) {
     if (id.startsWith(COUNSELING_SELF_STEP_PREFIX)) return false;
     if (id.startsWith(COUNSELING_DEP_STEP_PREFIX)) return false;
     if (String(s?.type || '') === 'questions' && (!Array.isArray(s.fields) || s.fields.length === 0)) {
+      return false;
+    }
+    if (
+      String(s?.type || '') === 'upload'
+      && /custody/i.test(`${id} ${String(s?.label || '')}`)
+    ) {
       return false;
     }
     return true;

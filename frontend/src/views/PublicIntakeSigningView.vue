@@ -3360,9 +3360,58 @@ const link = ref(null);
 const step = ref(1);
 const inPageLocale = ref('en');
 const userChoseLocale = ref(false);
-const intakeSteps = computed(() =>
-  Array.isArray(link.value?.intake_steps) ? link.value.intake_steps : []
-);
+const SCHOOL_ON_ABOUT_KEYS = new Set(['child_school', 'child_grade', 'school_name', 'school_grade']);
+
+function sanitizeOfficeIntakeSteps(steps = []) {
+  return (Array.isArray(steps) ? steps : []).flatMap((step) => {
+    if (!step) return [];
+    const id = String(step.id || '');
+    const label = String(step.label || '');
+    if (String(step.type || '') === 'upload' && /custody/i.test(`${id} ${label}`)) return [];
+    const fields = Array.isArray(step.fields) ? step.fields : null;
+    if (!fields) return [step];
+    let nextFields = fields;
+    if (/about_child/i.test(id) || /^about /i.test(label)) {
+      nextFields = nextFields.filter((f) => !SCHOOL_ON_ABOUT_KEYS.has(String(f?.key || '')));
+    }
+    if (/safety/i.test(id) && !nextFields.some((f) => f?.key === 'safety_deny_all' || f?.type === 'deny_all')) {
+      nextFields = [
+        {
+          id: 'field_safety_deny_all',
+          key: 'safety_deny_all',
+          type: 'deny_all',
+          label: 'Deny all — none of these safety concerns apply',
+          helperText: 'Sets every safety question below to No.',
+          denyAllValue: 'no',
+          denyAllKeys: [
+            'hurt_another_person',
+            'talked_hurting_someone',
+            'runaway_unsafe',
+            'self_harm',
+            'talked_wanting_to_die',
+            'wanting_to_die_current',
+            'asq_1',
+            'asq_2',
+            'asq_3',
+            'asq_4',
+            'asq_5',
+            'means_firearms',
+            'means_medications',
+            'means_other'
+          ]
+        },
+        ...nextFields
+      ];
+    }
+    return [{ ...step, fields: nextFields }];
+  });
+}
+
+const intakeSteps = computed(() => {
+  const raw = Array.isArray(link.value?.intake_steps) ? link.value.intake_steps : [];
+  if (Number(link.value?.inherits_office_master || 0) === 1) return sanitizeOfficeIntakeSteps(raw);
+  return raw;
+});
 const hasDocumentTranslationMap = computed(() => {
   const map = link.value?.document_translation_map;
   return map != null && typeof map === 'object' && Object.keys(map).length > 0;
@@ -4802,7 +4851,7 @@ const flowSteps = computed(() => {
       .filter(
         (s) =>
           s?.type === 'document'
-          || s?.type === 'upload'
+          || (s?.type === 'upload' && !/custody/i.test(`${s?.id || ''} ${s?.label || ''}`))
           || s?.type === 'school_roi'
           || s?.type === 'smart_disclosure'
           || s?.type === 'disclosure'
@@ -7366,30 +7415,42 @@ const fillValueByField = (field) => {
   const key = normalizeKey(field?.key);
   const label = normalizeKey(field?.label);
   const token = `${key} ${label}`;
-  if (field?.type === 'checkbox') return true;
-  if (field?.type === 'select' || field?.type === 'radio') return pickOption(field);
-  if (field?.type === 'date') return '2012-01-01';
+  const type = String(field?.type || '').toLowerCase();
+  if (type === 'info' || type === 'deny_all') return undefined;
+  if (isCheckboxGroupField(field)) {
+    const exclusive = String(field?.exclusiveValue || '').trim();
+    return exclusive ? [exclusive] : [];
+  }
+  if (type === 'checkbox') return false;
+  if (type === 'select' || type === 'radio') return pickOption(field);
+  if (type === 'date') return randomDevDob(7, 14);
   if (token.includes('zip') || token.includes('postal')) return pickDev(DEV_ZIPS);
   if (token.includes('city')) return pickDev(DEV_CITIES);
   if (token.includes('state')) return 'CO';
   if (token.includes('email')) return `${pickDev(DEV_FIRST_NAMES).toLowerCase()}.${pickDev(DEV_LAST_NAMES).toLowerCase()}${Math.floor(Math.random() * 90)}@example.com`;
   if (token.includes('phone')) return randomDevPhone();
   if (token.includes('dob') || token.includes('birth')) return randomDevDob(7, 14);
-  return pickDev([
-    'Sleep has been off for a few weeks and mornings are harder.',
-    'Worry shows up most at bedtime and before tests or appointments.',
-    'A calmer evening routine helped a little, but the big feelings are still there.',
-    'Family wants support after a recent move and some school stress.',
-    'Concentration drops in the afternoon and homework takes much longer.',
-    'Relationships at home are mostly steady, with more arguments than usual this month.'
-  ]);
+  if (token.includes('language')) return 'English';
+  if (token.includes('street') || token.includes('address')) return '2140 N Nevada Ave';
+  if (token.includes('apt') || token.includes('unit')) return '';
+  if (token.includes('grade')) return '4';
+  if (token.includes('school')) return 'Cheyenne Mountain Elementary School';
+  if (token.includes('first')) return pickDev(DEV_FIRST_NAMES);
+  if (token.includes('last')) return pickDev(DEV_LAST_NAMES);
+  if (token.includes('name')) return `${pickDev(DEV_FIRST_NAMES)} ${pickDev(DEV_LAST_NAMES)}`;
+  if (type === 'textarea') {
+    return pickDev(['Video games', 'Soccer', 'Drawing', 'Reading', 'Being outdoors']);
+  }
+  return pickDev(['Okay', 'No concerns', 'Typical for age', 'Not sure']);
 };
 
 const fillFields = (fields, target, overwrite = false) => {
   (fields || []).forEach((field) => {
-    if (!field || field.type === 'info') return;
+    if (!field || field.type === 'info' || field.type === 'deny_all') return;
     if (!overwrite && target[field.key]) return;
-    target[field.key] = fillValueByField(field);
+    const next = fillValueByField(field);
+    if (next === undefined) return;
+    target[field.key] = next;
   });
 };
 
@@ -10259,8 +10320,8 @@ const currentChildReviewRows = computed(() => {
     { label: 'Goals', value: firstText('three_important_help', 'actually_helping') },
     { label: 'Questionnaires', value: formatReviewValue([
       bag.psc_1 ? 'PSC-17 started' : null,
-      bag.send_child_depression === 'send' ? 'Depression measure: send to child' : null,
-      bag.send_child_anxiety === 'send' ? 'Anxiety measure: send to child' : null
+      bag.send_child_depression === 'send' ? 'Depression questionnaire: send to the child' : null,
+      bag.send_child_anxiety === 'send' ? 'Anxiety questionnaire: send to the child' : null
     ].filter(Boolean)) },
     { label: 'Provider preferences', value: firstText('preferred_service_format', 'provider_good_fit', 'days_that_work') }
   ];

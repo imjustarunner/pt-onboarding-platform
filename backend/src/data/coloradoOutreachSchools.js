@@ -28,6 +28,7 @@ const PUEBLO60 = 'Pueblo City Schools';
 const PUEBLO70 = 'Pueblo County School District 70';
 const POUDRE = 'Poudre School District';
 const D11 = 'Colorado Springs School District 11';
+const D12 = 'Cheyenne Mountain School District 12';
 const D20 = 'Academy School District 20';
 
 export const COLORADO_OUTREACH_SCHOOLS = [
@@ -323,7 +324,7 @@ export const COLORADO_OUTREACH_SCHOOLS = [
   )
 ];
 
-export const OUTREACH_DISTRICTS = [DPS, APS, PUEBLO60, PUEBLO70, POUDRE, D11, D20];
+export const OUTREACH_DISTRICTS = [DPS, APS, PUEBLO60, PUEBLO70, POUDRE, D11, D12, D20];
 
 export function normalizeOutreachName(name) {
   return String(name || '')
