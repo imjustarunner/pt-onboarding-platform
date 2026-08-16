@@ -38,6 +38,8 @@ describe('tenantBrandAssets', () => {
     expect(pickTenantWelcomeUrl('nlu', date)).toBe(pickTenantWelcomeUrl('innerstrength', date));
     expect(pickTenantBackgroundUrl('nlu', date)).toBe(pickTenantBackgroundUrl('theinnerstrengthinstitute', date));
     expect(pickTenantWelcomeUrl('itsco', date)).toMatch(/WelcomeImages\/ITSCO/);
+    expect(pickTenantWelcomeUrl('nlu', new Date('2026-10-15T18:00:00Z'))).toMatch(/WelcomeFall|PMfall/);
+    expect(pickTenantWelcomeUrl('nlu', new Date('2027-01-10T18:00:00Z'))).toMatch(/WelcomeWinter/);
   });
 
   it('maps public paths to SMS page keys', () => {

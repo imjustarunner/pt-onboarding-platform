@@ -170,13 +170,20 @@ export const TENANT_WELCOME_POOLS = {
   },
   nlu: {
     default: [
-      'NavyWelcome1.png',
-      'Welcome, 01_35_49 PM.png',
-      'Welcome, 01_35_51 PM.png',
-      'Welcome, 01_35_56 PM.png'
+      'NavyWelcome1.png'
     ].map(nluW),
-    fall: [],
-    winter: []
+    fall: [
+      'WelcomeFall1.png',
+      'WelcomeFall2.png',
+      'WelcomeFall3.png',
+      'WelcomeFall4.png',
+      'Welcome, 01_35_51 PMfall.png'
+    ].map(nluW),
+    winter: [
+      'WelcomeWinter1.png',
+      'WelcomeWinter2.png',
+      'WelcomeWinter3.png'
+    ].map(nluW)
   }
 };
 
@@ -222,7 +229,8 @@ export const TENANT_BACKGROUND_POOLS = {
       'NavyBackgroundFall4.png',
       'NavyBackground_24_20 PM (4)Fall1.png',
       'NavyBackground_24_21 PM (5)Fall2.png',
-      'NavyBackground_24_21 PM (6)Fall3.png'
+      'NavyBackground_24_21 PM (6)Fall3.png',
+      'Backgroundfall.png'
     ].map(nluW),
     winter: [
       'NavyBackgroundWinter.png',
