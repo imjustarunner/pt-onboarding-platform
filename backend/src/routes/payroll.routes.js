@@ -14,7 +14,11 @@ import {
   getPaySystemStatus,
   updateUserPaySystemFlags,
   getMyPaySystemRates,
-  estimatePaySystem
+  estimatePaySystem,
+  listPaySystemAssignments,
+  savePaySystemPending,
+  clearPaySystemPending,
+  goPaySystem
 } from '../controllers/payrollPaySystem.controller.js';
 import {
   createPayrollPeriod,
@@ -463,11 +467,15 @@ router.get('/users/:userId/compensation-level', getUserCompensationLevel);
 router.post('/users/:userId/compensation-level', assignUserCompensationLevel);
 router.delete('/users/:userId/compensation-level', removeUserCompensationLevel);
 
-// New pay system (category/level rates, transition, calculator)
+// New pay system (category/level rates, deferred Go activation, calculator)
 router.get('/pay-system/status', getPaySystemStatus);
 router.get('/pay-system/rates', listPaySystemRates);
 router.put('/pay-system/rates', savePaySystemRates);
 router.post('/pay-system/transition', transitionToPaySystem);
+router.get('/pay-system/assignments', listPaySystemAssignments);
+router.put('/pay-system/pending', savePaySystemPending);
+router.delete('/pay-system/pending', clearPaySystemPending);
+router.post('/pay-system/go', goPaySystem);
 router.get('/pay-system/my-rates', getMyPaySystemRates);
 router.post('/pay-system/estimate', estimatePaySystem);
 router.patch('/users/:userId/pay-system-flags', updateUserPaySystemFlags);

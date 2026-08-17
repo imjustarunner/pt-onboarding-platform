@@ -133,29 +133,70 @@ export const CLINICAL_BILLING_SUPERVISOR_LICENSE_HINT =
   'LPC, LCSW, LMFT, LAC, PsyD, or PhD';
 
 /**
- * Auto-classify whether a supervisee should be treated as "prelicensed"
- * (meaning 99414/99416 are displayed but don't pay or accrue PTO).
+ * True when role is intern/intern_plus OR credential contains a whole-word INTERN.
+ * Interns are pay Cat 1 (not payroll-prelicensed) but still on a clinical pre-licensure track.
+ */
+export function isInternRoleOrCredential({ role, credential } = {}) {
+  const roleLower = String(role || '').trim().toLowerCase();
+  if (roleLower === 'intern' || roleLower === 'intern_plus') return true;
+  const upper = String(credential || '').trim().toUpperCase();
+  return /\bINTERN\b/.test(upper);
+}
+
+/** True prelicensed / candidate clinical tokens (LPCC, MFTC, LSW, etc.) — excludes Intern and bare master's. */
+function _hasTruePrelicensedCredentialToken(upperCred) {
+  if (!upperCred) return false;
+  // LSW yes, LCSW no
+  if (/\bLSW\b/.test(upperCred) && !/\bLCSW\b/.test(upperCred)) return true;
+  const tokens = [
+    'LPCC', 'MFTC', 'SWC', 'CANDIDATE', 'ASSOCIATE',
+    'UNLICENSED', 'PRE-LICENSED', 'PRELICENSED', 'LPC-A',
+    'LPC-ASSOCIATE', 'LMFTC',
+  ];
+  return tokens.some((t) => new RegExp(`\\b${t}\\b`).test(upperCred));
+}
+
+/** Bare master's (MA/MS/MEd/MSW/MCouns) without a full independent license — pay Cat 1 "unlicensed masters". */
+function _hasUnlicensedMastersCredentialToken(upperCred) {
+  if (!upperCred) return false;
+  return (
+    /\bMA\b/.test(upperCred) ||
+    /\bMS\b/.test(upperCred) ||
+    /\bMED\b/.test(upperCred) ||
+    /\bMSW\b/.test(upperCred) ||
+    /\bMCOUNS\b/.test(upperCred)
+  );
+}
+
+/**
+ * Auto-classify whether a supervisee should be treated as payroll "prelicensed"
+ * (meaning 99414/99416 are displayed but don't pay or accrue PTO until 50/100 hours).
  *
  * Priority order:
  *   1. is_hourly_worker → always PAID (overrides everything)
  *   2. Title / Job Title = "Facilitator" → PAID
- *   3. Credential has "Intern" (even with BA/BS) → PRELICENSED
- *   4. Credential has MA, LPCC, LSW (not LCSW), MFTC, SWC, candidate,
- *      associate, unlicensed, pre-licensed → PRELICENSED
+ *   3. Intern (role intern/intern_plus OR credential \bINTERN\b) → INTERN (not payroll-prelicensed)
+ *   4. Credential has LPCC, LSW (not LCSW), MFTC, SWC, candidate,
+ *      associate, unlicensed, pre-licensed, OR bare master's → PRELICENSED
  *   5. Credential has BA, BS, MBA (no Intern) → PAID
  *      (flags if is_hourly_worker is not on — should be hourly)
  *   6. Fully licensed (LCSW, LPC, LMFT, LAC, PsyD, PhD) → PAID
  *   7. No usable signal → UNKNOWN + conflict flag
  *
  * Returns:
- *   classifiedAs : 'paid' | 'prelicensed' | 'unknown'
+ *   classifiedAs : 'paid' | 'prelicensed' | 'intern' | 'unknown'
  *   conflictReason : string | null   — surfaced as an admin warning
  *   autoDetected : boolean           — false when manual flag was the only signal
+ *
+ * Note: Interns are NOT payroll-prelicensed. The 50/100-hour pay gate applies only when
+ * classifiedAs === 'prelicensed' (or the manual Prelicensed toggle is On). Clinical
+ * license-status via determineLicenseStatus still shows interns on a pre-licensure track.
  */
 export function classifyPrelicensedStatus({
   credential,
   title,
   jobTitle,
+  role,
   isHourlyWorker,
   manualIsPrelicensed = null,   // current DB value (true/false/null)
 } = {}) {
@@ -186,13 +227,16 @@ export function classifyPrelicensedStatus({
     return { classifiedAs: 'paid', conflictReason: conflict, autoDetected: true };
   }
 
-  // ── Rule 3: Intern token wins over bachelor's ─────────────────────────────
-  if (/\bINTERN\b/.test(upper)) {
+  // ── Rule 3: Intern is pay Cat 1 — NOT payroll-prelicensed ─────────────────
+  // Leaving the Prelicensed toggle Off is correct; do not prompt admins to turn it On.
+  if (isInternRoleOrCredential({ role, credential: cred })) {
     const conflict =
-      manualIsPrelicensed === false
-        ? `Credential "${cred}" contains "Intern" (prelicensed) but manually marked as NOT prelicensed — verify`
+      manualIsPrelicensed === true
+        ? (cred
+            ? `Credential/role indicates Intern (pay Cat 1 — not payroll-prelicensed) but manually marked as Prelicensed — uncheck Prelicensed unless intentionally applying the 50/100-hour gate`
+            : 'Role is Intern (pay Cat 1 — not payroll-prelicensed) but manually marked as Prelicensed — uncheck Prelicensed unless intentionally applying the 50/100-hour gate')
         : null;
-    return { classifiedAs: 'prelicensed', conflictReason: conflict, autoDetected: true };
+    return { classifiedAs: 'intern', conflictReason: conflict, autoDetected: true };
   }
 
   // ── Rule 4: Prelicensed credential tokens ─────────────────────────────────
@@ -240,22 +284,171 @@ export function classifyPrelicensedStatus({
   return { classifiedAs: 'unknown', conflictReason: unknownReason, autoDetected: false };
 }
 
-/** MA, LPCC, LSW (not LCSW), MFTC, SWC, and similar pre-license tokens. */
+/**
+ * Payroll-gate prelicensed tokens: true Cat-2 prelicensed OR bare master's
+ * (still treated as supervision-prelicensed for the 50/100-hour gate).
+ * Intern is handled separately and is NOT payroll-prelicensed.
+ */
 function _hasPrelicensedCredentialToken(upperCred) {
   if (!upperCred) return false;
-  // LSW yes, LCSW no
-  if (/\bLSW\b/.test(upperCred) && !/\bLCSW\b/.test(upperCred)) return true;
-  const tokens = [
-    'LPCC', 'MFTC', 'SWC', 'CANDIDATE', 'ASSOCIATE',
-    'UNLICENSED', 'PRE-LICENSED', 'PRELICENSED', 'LPC-A',
-    'LPC-ASSOCIATE', 'LMFTC',
-    // Master's degree alone (MA, MS, MEd) without a full license = prelicensed clinician
-    // Matched with word boundary so "LMFT" doesn't trigger "MFT" rule
-  ];
-  if (tokens.some((t) => new RegExp(`\\b${t}\\b`).test(upperCred))) return true;
-  // Bare MA / MS / MEd with word boundary (degree without full license)
-  if (/\bMA\b/.test(upperCred) || /\bMS\b/.test(upperCred) || /\bMED\b/.test(upperCred)) return true;
+  if (_hasTruePrelicensedCredentialToken(upperCred)) return true;
+  // Bare MA / MS / MEd / MSW without a full license = supervision-prelicensed clinician
+  if (_hasUnlicensedMastersCredentialToken(upperCred)) return true;
   return false;
+}
+
+const PAY_CATEGORY_LABELS = {
+  1: 'Cat 1 — Bachelors / unlicensed masters / interns',
+  2: 'Cat 2 — Prelicensed (LPCC, MFTC, LSW, SWC, etc.)',
+  3: 'Cat 3 — Fully licensed',
+};
+
+const HCBS_CATEGORY_LABELS = {
+  1: 'Cat 1 — Bachelors / unlicensed masters',
+  2: 'Cat 2 — Prelicensed (includes interns)',
+  3: 'Cat 3 — Fully licensed',
+};
+
+/**
+ * Shared Pay Category classifier (compensation / pay axis).
+ *   1 = Bachelors, unlicensed masters, interns
+ *   2 = True prelicensed (LPCC, MFTC, LSW, SWC, etc.) — NOT interns
+ *   3 = Fully licensed
+ *
+ * Distinct from H0032 Cat1 Hour / Cat2 Flat (billing-minutes mode).
+ */
+export function classifyPayCategory({
+  credential,
+  title,
+  jobTitle,
+  role,
+  isHourlyWorker,
+} = {}) {
+  const cred = String(credential || '').trim();
+  const upper = cred.toUpperCase();
+  const titleLower = String(title || '').trim().toLowerCase();
+  const jobTitleLower = String(jobTitle || '').trim().toLowerCase();
+  const roleLower = String(role || '').trim().toLowerCase();
+  const hourly = !!(isHourlyWorker === true || isHourlyWorker === 1 || isHourlyWorker === '1');
+
+  if (isInternRoleOrCredential({ role, credential: cred })) {
+    return {
+      category: 1,
+      label: PAY_CATEGORY_LABELS[1],
+      reason: 'Intern (role or credential) — pay Cat 1, not pay-Cat-2 prelicensed',
+    };
+  }
+
+  if (isFullyLicensedCredentialText(cred)) {
+    return {
+      category: 3,
+      label: PAY_CATEGORY_LABELS[3],
+      reason: `Credential "${cred}" is fully licensed — pay Cat 3`,
+    };
+  }
+
+  // True Cat-2 prelicensed before bare master's / bachelors
+  if (_hasTruePrelicensedCredentialToken(upper)) {
+    return {
+      category: 2,
+      label: PAY_CATEGORY_LABELS[2],
+      reason: `Credential "${cred}" indicates prelicensed (LPCC/MFTC/LSW/SWC/etc.) — pay Cat 2`,
+    };
+  }
+
+  if (_hasUnlicensedMastersCredentialToken(upper)) {
+    return {
+      category: 1,
+      label: PAY_CATEGORY_LABELS[1],
+      reason: `Credential "${cred}" is an unlicensed master's — pay Cat 1`,
+    };
+  }
+
+  const hasBachelors =
+    isBachelorsCredentialText(cred) ||
+    /\bMBA\b/.test(upper) ||
+    /\bBBA\b/.test(upper);
+  if (hasBachelors) {
+    return {
+      category: 1,
+      label: PAY_CATEGORY_LABELS[1],
+      reason: `Credential "${cred}" indicates bachelor's-level — pay Cat 1`,
+    };
+  }
+
+  if (roleLower === 'qbha' || roleLower === 'clinical_practice_assistant') {
+    return {
+      category: 1,
+      label: PAY_CATEGORY_LABELS[1],
+      reason: `Role "${roleLower}" — pay Cat 1`,
+    };
+  }
+  if (titleLower === 'facilitator' || jobTitleLower === 'facilitator') {
+    return {
+      category: 1,
+      label: PAY_CATEGORY_LABELS[1],
+      reason: 'Title is Facilitator — pay Cat 1',
+    };
+  }
+  if (hourly && !cred) {
+    return {
+      category: 1,
+      label: PAY_CATEGORY_LABELS[1],
+      reason: 'Hourly worker with no clinical credential — pay Cat 1',
+    };
+  }
+
+  return {
+    category: null,
+    label: null,
+    reason: cred
+      ? `Credential "${cred}" could not be mapped to a pay category`
+      : 'Cannot determine pay category (no credential / role signal)',
+  };
+}
+
+/**
+ * HCBS Category — same bands as pay, except interns count as Cat 2
+ * (for future State Supervision Oversight Requirements).
+ */
+export function classifyHcbsCategory(args = {}) {
+  const cred = String(args.credential || '').trim();
+  if (isInternRoleOrCredential({ role: args.role, credential: cred })) {
+    return {
+      category: 2,
+      label: HCBS_CATEGORY_LABELS[2],
+      reason: 'Interns count as HCBS Cat 2 (prelicensed band) for future State Supervision Oversight Requirements',
+    };
+  }
+  const pay = classifyPayCategory(args);
+  if (pay.category == null) {
+    return {
+      category: null,
+      label: null,
+      reason: pay.reason?.replace(/\bpay category\b/gi, 'HCBS category') || pay.reason,
+    };
+  }
+  return {
+    category: pay.category,
+    label: HCBS_CATEGORY_LABELS[pay.category] || pay.label,
+    reason: String(pay.reason || '').replace(/\bpay Cat\b/g, 'HCBS Cat').replace(/\bpay category\b/gi, 'HCBS category'),
+  };
+}
+
+/**
+ * Both axes in one call for API / UI display.
+ */
+export function classifyPayAndHcbsCategories(args = {}) {
+  const pay = classifyPayCategory(args);
+  const hcbs = classifyHcbsCategory(args);
+  return {
+    payCategory: pay.category,
+    payCategoryLabel: pay.label,
+    payCategoryReason: pay.reason,
+    hcbsCategory: hcbs.category,
+    hcbsCategoryLabel: hcbs.label,
+    hcbsCategoryReason: hcbs.reason,
+  };
 }
 
 /**
@@ -319,9 +512,13 @@ export function determineLicenseStatus({
   if (/\bLP\b/.test(upper) && !/\bLPC/.test(upper)) return { status: 'licensed', reason: 'Credential contains LP (Licensed Psychologist — fully licensed)' };
   if (/\bLICENSED\s+PSYCHOLOGIST\b/i.test(cred)) return { status: 'licensed', reason: 'Credential contains "Licensed Psychologist" — fully licensed' };
 
-  // ── PRELICENSED ───────────────────────────────────────────────────────────
-  if (roleLower === 'intern') return { status: 'prelicensed', reason: 'User role is "Intern" — working toward licensure under supervision' };
-  if (/\bINTERN\b/.test(upper)) return { status: 'prelicensed', reason: `Credential "${cred}" contains "Intern" — working toward licensure under supervision` };
+  // ── PRELICENSED / intern clinical track ───────────────────────────────────
+  // Interns remain on the clinical pre-licensure track for display/filters.
+  // Payroll pay-gate uses classifyPrelicensedStatus (intern ≠ payroll-prelicensed).
+  if (roleLower === 'intern' || roleLower === 'intern_plus') {
+    return { status: 'prelicensed', reason: `User role is "${roleLower}" (Intern) — clinical pre-licensure track under supervision` };
+  }
+  if (/\bINTERN\b/.test(upper)) return { status: 'prelicensed', reason: `Credential "${cred}" contains "Intern" — clinical pre-licensure track under supervision` };
   if (/\bUNLICENSED\b/.test(upper)) return { status: 'prelicensed', reason: `Credential "${cred}" contains "Unlicensed" — working toward licensure under supervision` };
   if (/\bPRE[- ]?LICENSED\b/.test(upper) || /\bPRELICENSED\b/.test(upper)) return { status: 'prelicensed', reason: `Credential "${cred}" explicitly states pre-licensed status` };
   if (/\bLPCC\b/.test(upper)) return { status: 'prelicensed', reason: `Credential "${cred}" contains LPCC (Licensed Professional Counselor Candidate — prelicensed, working toward LPC)` };

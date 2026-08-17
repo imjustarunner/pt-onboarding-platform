@@ -165,6 +165,10 @@ const PayrollCompensationLevel = {
       sets.push('location_bonus_eligible = ?');
       params.push(flags.locationBonusEligible ? 1 : 0);
     }
+    if (flags.paySystemEffectiveStart !== undefined) {
+      sets.push('pay_system_effective_start = ?');
+      params.push(flags.paySystemEffectiveStart || null);
+    }
     if (!sets.length) return;
     sets.push('updated_at = CURRENT_TIMESTAMP');
     params.push(agencyId, userId);
@@ -185,6 +189,187 @@ const PayrollCompensationLevel = {
       [agencyId]
     );
     return result?.affectedRows || 0;
+  },
+
+  /** Current live assignments with user names for rollout UI. */
+  async listAssignmentsForAgency(agencyId) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT u.agency_id, u.user_id, u.category, u.level, u.bypass,
+                u.pay_system_enabled, u.pay_system_effective_start,
+                u.waive_probation, u.waive_minimum_workload,
+                u.spanish_bonus_eligible, u.location_bonus_eligible,
+                us.first_name, us.last_name, us.email, us.company_email,
+                c.label AS level_label
+         FROM payroll_user_compensation_levels u
+         INNER JOIN users us ON us.id = u.user_id
+         LEFT JOIN payroll_compensation_levels c
+           ON c.agency_id = u.agency_id AND c.category = u.category AND c.level = u.level
+         WHERE u.agency_id = ?
+         ORDER BY us.last_name ASC, us.first_name ASC`,
+        [agencyId]
+      );
+      return rows || [];
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [rows] = await pool.execute(
+        `SELECT u.agency_id, u.user_id, u.category, u.level, u.bypass,
+                u.pay_system_enabled, NULL AS pay_system_effective_start,
+                u.waive_probation, u.waive_minimum_workload,
+                u.spanish_bonus_eligible, u.location_bonus_eligible,
+                us.first_name, us.last_name, us.email, us.company_email,
+                c.label AS level_label
+         FROM payroll_user_compensation_levels u
+         INNER JOIN users us ON us.id = u.user_id
+         LEFT JOIN payroll_compensation_levels c
+           ON c.agency_id = u.agency_id AND c.category = u.category AND c.level = u.level
+         WHERE u.agency_id = ?
+         ORDER BY us.last_name ASC, us.first_name ASC`,
+        [agencyId]
+      );
+      return rows || [];
+    }
+  },
+
+  async listPendingForAgency(agencyId) {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT p.*, us.first_name, us.last_name, us.email, us.company_email,
+                cur.category AS current_category, cur.level AS current_level,
+                cur.bypass AS current_bypass, cur.pay_system_enabled AS current_pay_system_enabled,
+                cur.pay_system_effective_start AS current_effective_start
+         FROM payroll_user_compensation_level_pending p
+         INNER JOIN users us ON us.id = p.user_id
+         LEFT JOIN payroll_user_compensation_levels cur
+           ON cur.agency_id = p.agency_id AND cur.user_id = p.user_id
+         WHERE p.agency_id = ?
+         ORDER BY us.last_name ASC, us.first_name ASC`,
+        [agencyId]
+      );
+      return rows || [];
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') return [];
+      throw e;
+    }
+  },
+
+  async upsertPending(agencyId, userId, {
+    category,
+    level = null,
+    bypass = false,
+    paySystemEnabled = true,
+    batchId = null,
+    notes = null,
+    createdByUserId = null
+  } = {}) {
+    await pool.execute(
+      `INSERT INTO payroll_user_compensation_level_pending
+         (agency_id, user_id, category, level, bypass, pay_system_enabled, batch_id, notes, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         category = VALUES(category),
+         level = VALUES(level),
+         bypass = VALUES(bypass),
+         pay_system_enabled = VALUES(pay_system_enabled),
+         batch_id = VALUES(batch_id),
+         notes = VALUES(notes),
+         created_by_user_id = VALUES(created_by_user_id),
+         created_at = CURRENT_TIMESTAMP`,
+      [
+        agencyId,
+        userId,
+        category,
+        level,
+        bypass ? 1 : 0,
+        paySystemEnabled ? 1 : 0,
+        batchId,
+        notes,
+        createdByUserId
+      ]
+    );
+  },
+
+  async clearPending(agencyId, userId = null) {
+    if (userId) {
+      await pool.execute(
+        `DELETE FROM payroll_user_compensation_level_pending WHERE agency_id = ? AND user_id = ?`,
+        [agencyId, userId]
+      );
+      return;
+    }
+    await pool.execute(
+      `DELETE FROM payroll_user_compensation_level_pending WHERE agency_id = ?`,
+      [agencyId]
+    );
+  },
+
+  /**
+   * Apply staged pay-level changes and activate the new pay system from effectiveStart.
+   * Overrides compensation tables for enrolled users once payroll period ends on/after that date.
+   */
+  async applyGo(agencyId, {
+    effectiveStart,
+    waiveProbation = true,
+    enrollExistingWithoutPending = true,
+    appliedByUserId = null
+  } = {}) {
+    if (!effectiveStart || !/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveStart).slice(0, 10))) {
+      throw new Error('effectiveStart (YYYY-MM-DD) is required');
+    }
+    const start = String(effectiveStart).slice(0, 10);
+    const pending = await this.listPendingForAgency(agencyId);
+    let appliedPending = 0;
+
+    for (const row of pending) {
+      const existingBefore = await this.getForUser(agencyId, row.user_id);
+      await this.assignToUser(
+        agencyId,
+        row.user_id,
+        Number(row.category),
+        row.level != null ? Number(row.level) : null,
+        appliedByUserId || row.created_by_user_id,
+        Number(row.bypass) === 1,
+        {
+          paySystemEnabled: Number(row.pay_system_enabled) !== 0,
+          waiveProbation: !!waiveProbation,
+          waiveMinimumWorkload: Number(existingBefore?.waive_minimum_workload || 0) === 1,
+          probationStartOverride: existingBefore?.probation_start_override || null,
+          spanishBonusEligible: Number(existingBefore?.spanish_bonus_eligible || 0) === 1
+        }
+      );
+      await this.updatePaySystemFlags(agencyId, row.user_id, {
+        paySystemEnabled: Number(row.pay_system_enabled) !== 0,
+        waiveProbation: !!waiveProbation,
+        paySystemEffectiveStart: start,
+        locationBonusEligible: Number(existingBefore?.location_bonus_eligible || 0) === 1
+      });
+      appliedPending += 1;
+    }
+
+    await this.clearPending(agencyId);
+
+    let enrolledExisting = 0;
+    if (enrollExistingWithoutPending) {
+      const [result] = await pool.execute(
+        `UPDATE payroll_user_compensation_levels
+         SET pay_system_enabled = 1,
+             pay_system_effective_start = ?,
+             waive_probation = IF(?, 1, waive_probation),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE agency_id = ?`,
+        [start, waiveProbation ? 1 : 0, agencyId]
+      );
+      enrolledExisting = result?.affectedRows || 0;
+    } else {
+      await pool.execute(
+        `UPDATE payroll_user_compensation_levels
+         SET pay_system_effective_start = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE agency_id = ? AND pay_system_enabled = 1`,
+        [start, agencyId]
+      );
+    }
+
+    return { appliedPending, enrolledExisting, effectiveStart: start };
   },
 
   async removeFromUser(agencyId, userId) {

@@ -8510,7 +8510,11 @@ export const getSupervisionPrelicensedClassification = async (req, res, next) =>
     const userId = parseInt(req.params.id, 10);
     if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
 
-    const { classifyPrelicensedStatus, determineLicenseStatus } = await import('../utils/credentialNormalization.js');
+    const {
+      classifyPrelicensedStatus,
+      determineLicenseStatus,
+      classifyPayAndHcbsCategories,
+    } = await import('../utils/credentialNormalization.js');
 
     // Fetch user base fields (role needed for license status) + all agency memberships
     const pool = (await import('../config/database.js')).default;
@@ -8543,12 +8547,21 @@ export const getSupervisionPrelicensedClassification = async (req, res, next) =>
       isHourlyWorker,
     });
 
+    const categoryAxes = classifyPayAndHcbsCategories({
+      credential: user.credential,
+      title: user.title,
+      jobTitle: null,
+      role: user.role,
+      isHourlyWorker,
+    });
+
     const results = (agencyRows || []).map((ua) => {
       const manualFlag = !!(ua.supervision_is_prelicensed === 1 || ua.supervision_is_prelicensed === true || ua.supervision_is_prelicensed === '1');
       const cls = classifyPrelicensedStatus({
         credential: user.credential,
         title: user.title,
         jobTitle: null,
+        role: user.role,
         isHourlyWorker: user.is_hourly_worker,
         manualIsPrelicensed: manualFlag,
       });
@@ -8565,6 +8578,13 @@ export const getSupervisionPrelicensedClassification = async (req, res, next) =>
         // License status fields (user-level, same for every agency row)
         licenseStatus: licenseClassification.status,       // 'licensed' | 'prelicensed' | 'unlicensed' | 'unknown'
         licenseStatusReason: licenseClassification.reason, // human-readable rule explanation
+        // Derived pay / HCBS categories (user-level; not H0032 billing-minutes mode)
+        payCategory: categoryAxes.payCategory,
+        payCategoryLabel: categoryAxes.payCategoryLabel,
+        payCategoryReason: categoryAxes.payCategoryReason,
+        hcbsCategory: categoryAxes.hcbsCategory,
+        hcbsCategoryLabel: categoryAxes.hcbsCategoryLabel,
+        hcbsCategoryReason: categoryAxes.hcbsCategoryReason,
       };
     });
 

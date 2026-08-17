@@ -609,7 +609,7 @@
                         <div
                           v-if="canEditUser && canShowH0032Mode"
                           class="agency-item-row"
-                          title="H0032 mode is per-organization. Cat1 Hour means H0032 rows require manual minutes entry and will appear in Payroll → Raw Import → Process H0032. Cat2 Flat means H0032 defaults to 30 minutes and will not appear in that queue."
+                          title="H0032 Cat1 Hour / Cat2 Flat is a billing-minutes mode only (how H0032 minutes are entered). It is not Pay Category or HCBS Category."
                         >
                           <span class="muted" style="font-size: 12px; font-weight: 700;">H0032</span>
                           <select
@@ -622,6 +622,7 @@
                             <option value="cat1_hour">Cat1 Hour (manual minutes)</option>
                             <option value="cat2_flat">Cat2 Flat (auto 30 min)</option>
                           </select>
+                          <span class="muted" style="font-size: 11px;">billing minutes — not Pay/HCBS</span>
                         </div>
 
                         <!-- Auto-generated License Classification row -->
@@ -640,23 +641,68 @@
                               'license-status-badge--unknown': prelicensedClassificationFor(agency.id).licenseStatus === 'unknown',
                             }"
                           >
-                            {{
-                              prelicensedClassificationFor(agency.id).licenseStatus === 'licensed' ? 'Licensed' :
-                              prelicensedClassificationFor(agency.id).licenseStatus === 'prelicensed' ? 'Prelicensed' :
-                              prelicensedClassificationFor(agency.id).licenseStatus === 'unlicensed' ? 'Unlicensed' :
-                              'Unknown'
-                            }}
+                            {{ licenseStatusBadgeLabel(prelicensedClassificationFor(agency.id)) }}
                           </span>
                           <span class="license-status-reason">
                             {{ prelicensedClassificationFor(agency.id).licenseStatusReason }}
                           </span>
                         </div>
 
+                        <!-- Derived Pay / HCBS categories (not H0032 billing mode) -->
+                        <div
+                          v-if="canShowPrelicensedSupervision && prelicensedClassificationFor(agency.id)"
+                          class="agency-item-row license-classification-row category-axes-row"
+                          style="flex-wrap: wrap; gap: 8px;"
+                        >
+                          <span class="muted" style="font-size: 12px; font-weight: 700; min-width: 120px;">Pay Category</span>
+                          <span
+                            class="category-axis-badge"
+                            :title="prelicensedClassificationFor(agency.id).payCategoryReason || ''"
+                          >
+                            {{
+                              prelicensedClassificationFor(agency.id).payCategory
+                                ? `Cat ${prelicensedClassificationFor(agency.id).payCategory}`
+                                : 'Unknown'
+                            }}
+                          </span>
+                          <span class="muted" style="font-size: 11px;">
+                            {{ prelicensedClassificationFor(agency.id).payCategoryLabel || 'Could not derive from credential/role' }}
+                          </span>
+                        </div>
+                        <div
+                          v-if="canShowPrelicensedSupervision && prelicensedClassificationFor(agency.id)"
+                          class="agency-item-row license-classification-row category-axes-row"
+                          style="flex-wrap: wrap; gap: 8px;"
+                        >
+                          <span class="muted" style="font-size: 12px; font-weight: 700; min-width: 120px;">HCBS Category</span>
+                          <span
+                            class="category-axis-badge category-axis-badge--hcbs"
+                            :title="prelicensedClassificationFor(agency.id).hcbsCategoryReason || ''"
+                          >
+                            {{
+                              prelicensedClassificationFor(agency.id).hcbsCategory
+                                ? `Cat ${prelicensedClassificationFor(agency.id).hcbsCategory}`
+                                : 'Unknown'
+                            }}
+                          </span>
+                          <span class="muted" style="font-size: 11px;">
+                            {{ prelicensedClassificationFor(agency.id).hcbsCategoryLabel || 'Could not derive from credential/role' }}
+                          </span>
+                        </div>
+                        <div
+                          v-if="canShowPrelicensedSupervision && prelicensedClassificationFor(agency.id)"
+                          class="category-axes-note muted"
+                        >
+                          Current 50/100 supervision hours apply to pay-Cat-2 prelicensed only (not interns).
+                          HCBS category will feed future State Supervision Oversight Requirements (not built yet).
+                          H0032 Cat1/Cat2 above is billing-minutes mode, not Pay/HCBS.
+                        </div>
+
                         <div
                           v-if="canShowPrelicensedSupervision"
                           class="agency-item-row"
                           style="flex-wrap: wrap;"
-                          title="Prelicensed supervision tracking is per-organization. Effective start date gates which logged sessions count toward 50/100 hours (sessions before that date stay logged but do not count). After ≥50 individual and ≥100 total countable hours, supervisees are paid at the MEETING rate — not 99414/indirect. Pre-100 supervision does not accrue PTO."
+                          title="Prelicensed supervision tracking is per-organization. Effective start date gates which logged sessions count toward 50/100 hours (sessions before that date stay logged but do not count). After ≥50 individual and ≥100 total countable hours, supervisees are paid at the MEETING rate — not 99414/indirect. Pre-100 supervision does not accrue PTO. Applies to pay-Cat-2 prelicensed only — not interns (pay Cat 1) unless this toggle is manually On."
                         >
                           <span class="muted" style="font-size: 12px; font-weight: 700;">Prelicensed</span>
                           <label class="muted" style="display:flex; align-items:center; gap: 6px;">
@@ -727,7 +773,7 @@
                                 Mark as Prelicensed
                               </button>
                               <button
-                                v-else-if="prelicensedClassificationFor(agency.id).classifiedAs === 'paid' && isPrelicensedForAgency(agency) && canEditUser"
+                                v-else-if="(prelicensedClassificationFor(agency.id).classifiedAs === 'paid' || prelicensedClassificationFor(agency.id).classifiedAs === 'intern') && isPrelicensedForAgency(agency) && canEditUser"
                                 type="button"
                                 class="btn btn-warning btn-sm"
                                 :disabled="updatingPrelicensedAgencyId === agency.id"
@@ -5984,6 +6030,16 @@ const fetchPrelicensedClassification = async () => {
   }
 };
 const prelicensedClassificationFor = (agencyId) => prelicensedClassifications.value?.[agencyId] || null;
+const licenseStatusBadgeLabel = (cls) => {
+  if (!cls) return 'Unknown';
+  if (cls.classifiedAs === 'intern' || /intern/i.test(String(cls.licenseStatusReason || ''))) {
+    return 'Intern (pre-licensure track)';
+  }
+  if (cls.licenseStatus === 'licensed') return 'Licensed';
+  if (cls.licenseStatus === 'prelicensed') return 'Prelicensed';
+  if (cls.licenseStatus === 'unlicensed') return 'Unlicensed';
+  return 'Unknown';
+};
 const applyPrelicensedSuggestion = async (agency, markAsPrelicensed) => {
   await savePrelicensedSettings(agency, { isPrelicensed: markAsPrelicensed });
   await fetchPrelicensedClassification();
@@ -7767,6 +7823,34 @@ onUnmounted(() => {
   background: #fef2f2;
   color: #991b1b;
   border: 1px solid #fca5a5;
+}
+
+.category-axis-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: #e0e7ff;
+  color: #3730a3;
+  border: 1px solid #a5b4fc;
+}
+.category-axis-badge--hcbs {
+  background: #ecfeff;
+  color: #155e75;
+  border: 1px solid #67e8f9;
+}
+.category-axes-note {
+  width: 100%;
+  font-size: 11px;
+  line-height: 1.45;
+  margin: -2px 0 8px;
+  padding: 0 0 6px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
 }
 
 .license-status-reason {

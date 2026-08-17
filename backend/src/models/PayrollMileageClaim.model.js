@@ -38,7 +38,11 @@ class PayrollMileageClaim {
     notes = null,
     attestation = 0,
     tierLevel = null,
-    suggestedPayrollPeriodId = null
+    suggestedPayrollPeriodId = null,
+    attachmentFilePath = null,
+    attachmentOriginalName = null,
+    attachmentMimeType = null,
+    attachmentSizeBytes = null
   }) {
     const resolvedSuggestedPayrollPeriodId =
       Number.isFinite(Number(suggestedPayrollPeriodId)) && Number(suggestedPayrollPeriodId) > 0
@@ -58,12 +62,14 @@ class PayrollMileageClaim {
        (agency_id, user_id, submitted_by_user_id, status, claim_type, drive_date, school_organization_id, office_location_id, office_key,
         home_school_roundtrip_miles, home_office_roundtrip_miles, eligible_miles,
         miles, round_trip, start_location, end_location, trip_purpose, trip_approved_by, trip_preapproved, cost_center,
-        notes, attestation, suggested_payroll_period_id, tier_level)
+        notes, attestation, suggested_payroll_period_id, tier_level,
+        attachment_file_path, attachment_original_name, attachment_mime_type, attachment_size_bytes)
        VALUES (
          ?, ?, ?, 'submitted',
          ?, ?, ?, ?, ?,
          ?, ?, ?,
          ?, ?, ?, ?, ?, ?, ?, ?,
+         ?, ?, ?, ?,
          ?, ?, ?, ?
        )`,
       [
@@ -89,7 +95,11 @@ class PayrollMileageClaim {
         notes,
         attestation ? 1 : 0,
         resolvedSuggestedPayrollPeriodId,
-        tierLevel
+        tierLevel,
+        attachmentFilePath,
+        attachmentOriginalName,
+        attachmentMimeType,
+        attachmentSizeBytes != null ? Number(attachmentSizeBytes) : null
       ]
     );
     const id = result?.insertId || null;

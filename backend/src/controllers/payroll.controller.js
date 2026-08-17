@@ -1553,13 +1553,20 @@ const receiptUpload = multer({
       'image/gif',
       'image/webp'
     ]);
-    if (allowedMimes.has(file.mimetype)) return cb(null, true);
-    if (name.endsWith('.pdf') || name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.gif') || name.endsWith('.webp')) {
+    if (allowedMimes.has(file.mimetype) || name.endsWith('.pdf') || name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.gif') || name.endsWith('.webp')) {
       return cb(null, true);
     }
     cb(new Error('Invalid file type. Only PDF or image files are allowed for receipts.'), false);
   }
 });
+
+/** Optional multipart for mileage (JSON body still works for school travel). */
+const optionalMileageAttachmentUpload = (req, res, next) => {
+  if (String(req.headers['content-type'] || '').includes('multipart/form-data')) {
+    return receiptUpload.single('attachment')(req, res, next);
+  }
+  return next();
+};
 
 const isAdminRole = (role) => role === 'admin' || role === 'super_admin';
 
@@ -1980,6 +1987,29 @@ function ymdFromDbDate(v) {
   // Avoid "Sat Jan 10 2026 ..." (String(Date)) which does not slice to ymd.
   const parsed = ymdToDateUtc(s.slice(0, 10));
   return parsed ? formatYmd(parsed) : '';
+}
+
+/** Keep undated rows; drop DOS outside the pay period window. */
+function isServiceDateInPayPeriod(serviceDate, periodStart, periodEnd) {
+  const d = ymdFromDbDate(serviceDate);
+  if (!d) return true;
+  const start = ymdFromDbDate(periodStart);
+  const end = ymdFromDbDate(periodEnd);
+  if (!start || !end) return true;
+  return d >= start && d <= end;
+}
+
+function filterRowsToPayPeriod(rows, period) {
+  const start = period?.period_start;
+  const end = period?.period_end;
+  const list = Array.isArray(rows) ? rows : [];
+  const kept = [];
+  let excluded = 0;
+  for (const r of list) {
+    if (isServiceDateInPayPeriod(r?.service_date ?? r?.serviceDate, start, end)) kept.push(r);
+    else excluded += 1;
+  }
+  return { rows: kept, excludedOutOfPeriod: excluded };
 }
 
 function isScheduleAlignedForPeriod({ sched, periodStartYmd, periodEndYmd }) {
@@ -5178,6 +5208,7 @@ async function loadSupervisionPayGateMaps({ agencyId, periodStart }) {
               ua.supervision_is_prelicensed,
               u.credential,
               u.title,
+              u.role,
               u.is_hourly_worker
        FROM user_agencies ua
        JOIN users u ON u.id = ua.user_id
@@ -5195,6 +5226,7 @@ async function loadSupervisionPayGateMaps({ agencyId, periodStart }) {
         credential: r.credential,
         title: r.title,
         jobTitle: null,   // job_title not on users table; title is the primary signal
+        role: r.role,
         isHourlyWorker: r.is_hourly_worker,
         manualIsPrelicensed: manualFlag,
       });
@@ -5205,8 +5237,8 @@ async function loadSupervisionPayGateMaps({ agencyId, periodStart }) {
       });
     }
 
-    // Prelicensed set = manual flag OR auto-detected as prelicensed.
-    // This way no one slips through just because the admin forgot to check the box.
+    // Prelicensed set = manual flag OR auto-detected as true Cat-2 prelicensed.
+    // Interns (classifiedAs === 'intern') do NOT auto-enter the 100-hour gate.
     const prelicensedRows = (uaRows || []).filter((r) => {
       const uid = Number(r.user_id || 0);
       if (!uid) return false;
@@ -6961,7 +6993,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
               else {
                 lines.push({
                   type: 'bonus',
-                  label: 'Tier / Spanish bonus',
+                  label: 'Tier / Spanish / Location bonus',
                   taxable: true,
                   amount: paySystemBonusAmount,
                   meta: { paySystem: true, ...(meta.bonuses || {}) }
@@ -7588,7 +7620,9 @@ export const batchCatchUp = [
               originalFilename: f2.originalname || (slotToAddForPersist === 3 ? 'file3.csv' : 'file2.csv'),
               uploadedByUserId: req.user.id
             });
-            const rowsToInsertPersist = parsed2.map((r) => {
+            const rowsToInsertPersist = parsed2
+              .filter((r) => isServiceDateInPayPeriod(r.serviceDate, period.period_start, period.period_end))
+              .map((r) => {
               const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
               const codeKey = String(r.serviceCode || '').trim().toUpperCase();
               const { unitCount, requiresProcessing } = normalizeImportRowProcessing({
@@ -7618,6 +7652,15 @@ export const batchCatchUp = [
                 clientPaidAmount: r.clientPaidAmount ?? null
               };
             });
+            const skippedOutOfPeriod = Math.max(0, parsed2.length - rowsToInsertPersist.length);
+            if (!rowsToInsertPersist.length) {
+              return res.status(400).json({
+                error: {
+                  message: `Run ${slotToAddForPersist} file had no rows within ${ymdFromDbDate(period.period_start)} → ${ymdFromDbDate(period.period_end)}. Check that you uploaded the correct period export.`
+                },
+                skippedOutOfPeriod
+              });
+            }
             await PayrollImportRow.bulkInsert(rowsToInsertPersist);
             if (!isEffectivelyPostedOrFinalized(period)) {
               await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [period.id]);
@@ -7631,7 +7674,10 @@ export const batchCatchUp = [
               persisted: true,
               slotNumber: slotToAddForPersist,
               inserted: rowsToInsertPersist.length,
-              message: `Run ${slotToAddForPersist} saved. View it in Manage Imports.`
+              skippedOutOfPeriod,
+              message: skippedOutOfPeriod > 0
+                ? `Run ${slotToAddForPersist} saved (${rowsToInsertPersist.length} rows). Skipped ${skippedOutOfPeriod} outside ${ymdFromDbDate(period.period_start)} → ${ymdFromDbDate(period.period_end)}.`
+                : `Run ${slotToAddForPersist} saved. View it in Manage Imports.`
             });
           }
           return res.json({
@@ -11256,12 +11302,25 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
     const effectiveSelectedImportId = selectedImportId || selectedImportIdFromRun;
     const effectiveBaselineImportId = baselineImportId || baselineImportIdFromRun || effectiveSelectedImportId;
 
-    const selectedRowsRaw = effectiveSelectedImportId
+    const selectedRowsRawUnfiltered = effectiveSelectedImportId
       ? await PayrollImportRow.listForImportId({ payrollPeriodId, payrollImportId: effectiveSelectedImportId })
       : [];
-    const baselineRowsRaw = effectiveBaselineImportId
+    const baselineRowsRawUnfiltered = effectiveBaselineImportId
       ? await PayrollImportRow.listForImportId({ payrollPeriodId, payrollImportId: effectiveBaselineImportId })
       : [];
+
+    // Catch-up / draft-audit imports sometimes include DOS outside the period (e.g. current
+    // period sessions mixed into a "prior Run 2" export). Only show the selected period.
+    const includeOutOfPeriod = String(req.query?.includeOutOfPeriod || '').toLowerCase() === 'true';
+    const selectedFiltered = includeOutOfPeriod
+      ? { rows: selectedRowsRawUnfiltered, excludedOutOfPeriod: 0 }
+      : filterRowsToPayPeriod(selectedRowsRawUnfiltered, period);
+    const baselineFiltered = includeOutOfPeriod
+      ? { rows: baselineRowsRawUnfiltered, excludedOutOfPeriod: 0 }
+      : filterRowsToPayPeriod(baselineRowsRawUnfiltered, period);
+    const selectedRowsRaw = selectedFiltered.rows;
+    const baselineRowsRaw = baselineFiltered.rows;
+    const excludedOutOfPeriod = selectedFiltered.excludedOutOfPeriod;
 
     const comparingAgainstEarlierImport =
       Number(effectiveBaselineImportId || 0) > 0
@@ -11325,7 +11384,10 @@ export const getPayrollPeriodRawAudit = async (req, res, next) => {
       baselineRunNumber: baselineRun ? Number(baselineRun?.run_number || 1) : null,
       isLatestRun: latestRunId && Number(latestRunId) === Number(selectedRunId),
       rows,
-      changes
+      changes,
+      excludedOutOfPeriod,
+      periodStart: ymdFromDbDate(period.period_start),
+      periodEnd: ymdFromDbDate(period.period_end)
     });
   } catch (e) {
     next(e);
@@ -14793,7 +14855,9 @@ export const upsertAgencyMileageRates = async (req, res, next) => {
   }
 };
 
-export const createMyMileageClaim = async (req, res, next) => {
+export const createMyMileageClaim = [
+  optionalMileageAttachmentUpload,
+  async (req, res, next) => {
   try {
     const userId = req.user?.id;
     const body = req.body || {};
@@ -14832,7 +14896,10 @@ export const createMyMileageClaim = async (req, res, next) => {
 
     // Backward-compat (older UI): allow miles + roundTrip
     const miles = body.miles === null || body.miles === undefined || body.miles === '' ? null : Number(body.miles);
-    const roundTrip = body.roundTrip ? 1 : 0;
+    const roundTripRaw = body.roundTrip;
+    const roundTrip = roundTripRaw === true || roundTripRaw === 1 || roundTripRaw === '1' || String(roundTripRaw).toLowerCase() === 'true'
+      ? 1
+      : 0;
 
     const startLocation = body.startLocation ? String(body.startLocation).slice(0, 255) : null;
     const endLocation = body.endLocation ? String(body.endLocation).slice(0, 255) : null;
@@ -14849,7 +14916,10 @@ export const createMyMileageClaim = async (req, res, next) => {
           : (tripPreapprovedRaw === false || tripPreapprovedRaw === 0 || tripPreapprovedRaw === '0' || String(tripPreapprovedRaw).toLowerCase() === 'false')
             ? 0
             : null;
-    const attestation = body.attestation ? 1 : 0;
+    const attestationRaw = body.attestation;
+    const attestation = attestationRaw === true || attestationRaw === 1 || attestationRaw === '1' || String(attestationRaw).toLowerCase() === 'true'
+      ? 1
+      : 0;
     const tierLevelRaw = body.tierLevel === null || body.tierLevel === undefined || body.tierLevel === '' ? null : Number(body.tierLevel);
     const tierLevel = tierLevelRaw === null ? null : tierLevelRaw;
 
@@ -15019,6 +15089,22 @@ export const createMyMileageClaim = async (req, res, next) => {
     // Auditing: who actually submitted this request (provider vs admin-on-behalf).
     const submittedByUserId = req.actorUser?.id ? Number(req.actorUser.id) : userId;
 
+    let attachmentFilePath = null;
+    let attachmentOriginalName = null;
+    let attachmentMimeType = null;
+    let attachmentSizeBytes = null;
+    if (req.file && claimType !== 'school_travel') {
+      const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+      const original = req.file.originalname || 'attachment';
+      const ext = (original.includes('.') ? `.${original.split('.').pop()}` : '');
+      const filename = `mileage-${agencyId}-${userId}-${uniqueSuffix}${ext}`;
+      const storageResult = await StorageService.saveMileageAttachment(req.file.buffer, filename, req.file.mimetype);
+      attachmentFilePath = storageResult.relativePath;
+      attachmentOriginalName = String(original).slice(0, 255);
+      attachmentMimeType = String(req.file.mimetype || '').slice(0, 128) || null;
+      attachmentSizeBytes = Number(req.file.size || 0) || null;
+    }
+
     const claim = await PayrollMileageClaim.create({
       agencyId,
       userId,
@@ -15042,15 +15128,22 @@ export const createMyMileageClaim = async (req, res, next) => {
       notes,
       attestation,
       tierLevel,
-      suggestedPayrollPeriodId: suggestedPayrollPeriodIdOverride
+      suggestedPayrollPeriodId: suggestedPayrollPeriodIdOverride,
+      attachmentFilePath,
+      attachmentOriginalName,
+      attachmentMimeType,
+      attachmentSizeBytes
     });
     res.json({ claim, submissionWarning });
   } catch (e) {
     next(e);
   }
-};
+  }
+];
 
-export const createUserMileageClaim = async (req, res, next) => {
+export const createUserMileageClaim = [
+  optionalMileageAttachmentUpload,
+  async (req, res, next) => {
   try {
     const targetUserId = req.params.userId ? parseInt(req.params.userId, 10) : null;
     const body = req.body || {};
@@ -15064,7 +15157,7 @@ export const createUserMileageClaim = async (req, res, next) => {
     req.actorUser = prev;
     req.user = { ...(prev || {}), id: targetUserId, role: 'provider' };
     try {
-      return await createMyMileageClaim(req, res, next);
+      return await createMyMileageClaim[1](req, res, next);
     } finally {
       req.user = prev;
       req.actorUser = prevActor;
@@ -15072,7 +15165,8 @@ export const createUserMileageClaim = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
-};
+  }
+];
 
 export const listAgencySchoolsForPayroll = async (req, res, next) => {
   try {
@@ -16006,6 +16100,9 @@ export const createMyReimbursementClaim = [
       if (purchasePreapproved === null) {
         return res.status(400).json({ error: { message: 'purchasePreapproved must be true/false' } });
       }
+      if (!vendor || !String(vendor).trim()) {
+        return res.status(400).json({ error: { message: 'vendor is required' } });
+      }
       if (!paymentMethod) {
         return res.status(400).json({ error: { message: 'paymentMethod is required' } });
       }
@@ -16218,6 +16315,9 @@ export const updateMyReimbursementClaim = [
       }
       if (purchasePreapproved === null) {
         return res.status(400).json({ error: { message: 'purchasePreapproved must be true/false' } });
+      }
+      if (!vendor || !String(vendor).trim()) {
+        return res.status(400).json({ error: { message: 'vendor is required' } });
       }
       if (!paymentMethod) {
         return res.status(400).json({ error: { message: 'paymentMethod is required' } });

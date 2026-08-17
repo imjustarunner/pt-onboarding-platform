@@ -170,6 +170,9 @@
           <template v-if="catchUpMode && hiddenAlreadyPaidCount > 0 && rowFilter !== 'all'">
             · {{ hiddenAlreadyPaidCount }} already in Run 1 hidden
           </template>
+          <template v-if="excludedOutOfPeriod > 0">
+            · {{ excludedOutOfPeriod }} outside {{ periodBounds.start || 'period' }}→{{ periodBounds.end || '' }} hidden
+          </template>
           .
         </span>
         <button v-if="filteredRows.length > rowLimit" type="button" class="btn btn-secondary btn-sm" @click="rowLimit = filteredRows.length">Show all</button>
@@ -204,6 +207,8 @@ const error = ref('');
 const rows = ref([]);
 const imports = ref([]);
 const selectedImportId = ref(null);
+const excludedOutOfPeriod = ref(0);
+const periodBounds = ref({ start: '', end: '' });
 const search = ref('');
 const rowFilter = ref(props.catchUpMode && String(props.initialMode || '').startsWith('process_')
   ? 'catchup_focus'
@@ -363,6 +368,11 @@ const reload = async () => {
     imports.value = resp.data?.imports || [];
     selectedImportId.value = Number(resp.data?.selectedImportId || selectedImportId.value || 0) || (imports.value[imports.value.length - 1]?.id ?? null);
     rows.value = resp.data?.rows || [];
+    excludedOutOfPeriod.value = Number(resp.data?.excludedOutOfPeriod || 0) || 0;
+    periodBounds.value = {
+      start: String(resp.data?.periodStart || resp.data?.period?.period_start || '').slice(0, 10),
+      end: String(resp.data?.periodEnd || resp.data?.period?.period_end || '').slice(0, 10)
+    };
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load raw audit';
     rows.value = [];

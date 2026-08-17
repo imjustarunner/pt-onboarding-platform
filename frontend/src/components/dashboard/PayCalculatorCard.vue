@@ -111,9 +111,18 @@
           <div v-if="estimate.summary.spanishBonusAmount > 0" class="pay-calc__sum-row">
             <span>Spanish bonus</span><strong>${{ fmt(estimate.summary.spanishBonusAmount) }}</strong>
           </div>
+          <div v-if="estimate.summary.locationBonusAmount > 0" class="pay-calc__sum-row">
+            <span>Location / Denver bonus</span><strong>${{ fmt(estimate.summary.locationBonusAmount) }}</strong>
+          </div>
           <div class="pay-calc__sum-row pay-calc__sum-row--total">
             <span>Estimated total</span><strong>${{ fmt(estimate.summary.grandTotal) }}</strong>
           </div>
+          <p
+            v-if="(estimate.lines || []).some((l) => l.splitNote)"
+            class="pay-calc__hint"
+          >
+            H-code packages for Cat 2/3 split into direct + auto-indirect (embedded; not added on top).
+          </p>
           <p v-if="status?.useReducedRates" class="pay-calc__hint pay-calc__hint--warn">
             Using Minimum Workload / probationary credit &amp; H-code rates.
           </p>

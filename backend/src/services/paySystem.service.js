@@ -129,6 +129,7 @@ export function resolveUserPaySystemStatus({
   const waiveProbation = Number(assignment?.waive_probation || assignment?.waiveProbation || 0) === 1;
   const waiveMwr = Number(assignment?.waive_minimum_workload || assignment?.waiveMinimumWorkload || 0) === 1;
   const spanishEligible = Number(assignment?.spanish_bonus_eligible || assignment?.spanishBonusEligible || 0) === 1;
+  const locationEligible = Number(assignment?.location_bonus_eligible || assignment?.locationBonusEligible || 0) === 1;
 
   const overrideStart = parseDateOnly(assignment?.probation_start_override || assignment?.probationStartOverride);
   const start = overrideStart || parseDateOnly(providerStartDate);
@@ -152,6 +153,7 @@ export function resolveUserPaySystemStatus({
     waiveProbation,
     waiveMinimumWorkload: waiveMwr,
     spanishBonusEligible: spanishEligible,
+    locationBonusEligible: locationEligible,
     tierLevel,
     currentTierLevel: currentTier,
     graceActive: !!graceActive,
@@ -188,14 +190,20 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
       ? (rateProfile?.hcodeRateProbation ?? rateProfile?.hcodeRate ?? 0)
       : (rateProfile?.hcodeRate ?? 0)) || 0;
     rateLabel = reduced ? 'hcode_rate_probation' : 'hcode_rate';
-    amount = qty.hourEquivalent * rate;
+    const gross = qty.hourEquivalent * rate;
 
-    // Auto-indirect for categories 2 and 3 only
+    // Cat 2/3: H-code rate is the total package for the hour and already includes
+    // embedded auto-indirect (default 10 min). Split for display/PTO — do NOT add on top.
+    // Example: $32/hr H + $24/hr indirect → $28 direct + $4 (10 min) indirect = $32 total.
     if (category >= 2 && qty.hourEquivalent > 1e-9) {
       const minsPerHour = Number(rateProfile?.autoIndirectMinutesPerHour ?? 10) || 10;
       autoIndirectHours = qty.hourEquivalent * (minsPerHour / 60);
       const indRate = Number(rateProfile?.indirectRate || 0) || 0;
-      autoIndirectAmount = autoIndirectHours * indRate;
+      autoIndirectAmount = round2(autoIndirectHours * indRate);
+      if (autoIndirectAmount > gross) autoIndirectAmount = round2(gross);
+      amount = round2(gross - autoIndirectAmount);
+    } else {
+      amount = round2(gross);
     }
   } else if (payType === 'indirect') {
     rate = Number(rateProfile?.indirectRate || 0) || 0;
@@ -216,35 +224,74 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
     amount: round2(amount),
     autoIndirectHours: round2(autoIndirectHours),
     autoIndirectAmount: round2(autoIndirectAmount),
-    totalWithAutoIndirect: round2(amount + autoIndirectAmount)
+    /** Gross H-package before split (direct + embedded auto-indirect). */
+    hcodeGrossAmount: payType === 'hcode'
+      ? round2(amount + autoIndirectAmount)
+      : round2(amount),
+    totalWithAutoIndirect: round2(amount + autoIndirectAmount),
+    splitNote: autoIndirectAmount > 1e-9
+      ? `${round2(amount)} direct + ${round2(autoIndirectAmount)} auto-indirect (${round2(autoIndirectHours)} h @ indirect rate)`
+      : null
   };
 }
 
 /**
- * Compute tier + Spanish bonuses for a period's total productive hour-equivalent.
+ * Compute tier + Spanish + location (Denver) bonuses for productive hour-equivalent.
+ * Optional separate FFS vs H-code tier bonuses; each falls back to shared tierBonus.
  * Bonuses apply regardless of probation/MWR (those only affect base rates).
  */
-export function computeBonuses({ rateProfile, status, totalHourEquivalent }) {
+export function computeBonuses({
+  rateProfile,
+  status,
+  totalHourEquivalent,
+  ffsHourEquivalent = null,
+  hcodeHourEquivalent = null
+}) {
   const hours = Number(totalHourEquivalent) || 0;
+  const ffsHours = ffsHourEquivalent != null ? Number(ffsHourEquivalent) || 0 : hours;
+  const hHours = hcodeHourEquivalent != null ? Number(hcodeHourEquivalent) || 0 : 0;
   const tier = Number(status?.tierLevel || 0);
-  const tierBonusPer = tier >= 1
-    ? Number(rateProfile?.tierBonus?.[tier] ?? rateProfile?.tierBonus?.[String(tier)] ?? 0) || 0
-    : 0;
+
+  const sharedTier = (map) =>
+    tier >= 1 ? Number(map?.[tier] ?? map?.[String(tier)] ?? 0) || 0 : 0;
+
+  const ffsTierMap = rateProfile?.tierBonusFfs || rateProfile?.tierBonus;
+  const hTierMap = rateProfile?.tierBonusHcode || rateProfile?.tierBonus;
+
+  // When separate FFS/H maps aren't set, use shared tier on total productive hours once.
+  const useSplitTier = !!(rateProfile?.tierBonusFfs || rateProfile?.tierBonusHcode);
+  const tierBonusPerFfs = sharedTier(ffsTierMap);
+  const tierBonusPerH = sharedTier(hTierMap);
+  const tierBonusPerShared = sharedTier(rateProfile?.tierBonus);
+
+  const tierBonusAmount = useSplitTier
+    ? round2(ffsHours * tierBonusPerFfs + hHours * tierBonusPerH)
+    : round2(hours * tierBonusPerShared);
+
   const spanishPer = (status?.spanishBonusEligible && tier >= 1)
     ? Number(rateProfile?.spanishBonus?.[tier] ?? rateProfile?.spanishBonus?.[String(tier)] ?? 0) || 0
     : 0;
+  const locationPer = (status?.locationBonusEligible && tier >= 1)
+    ? Number(rateProfile?.locationBonus?.[tier] ?? rateProfile?.locationBonus?.[String(tier)] ?? 0) || 0
+    : 0;
 
-  const tierBonusAmount = round2(hours * tierBonusPer);
   const spanishBonusAmount = round2(hours * spanishPer);
+  const locationBonusAmount = round2(hours * locationPer);
 
   return {
     productiveHourEquivalent: round2(hours),
+    ffsHourEquivalent: round2(ffsHours),
+    hcodeHourEquivalent: round2(hHours),
     tierLevel: tier,
-    tierBonusPerHour: tierBonusPer,
+    tierBonusPerHour: useSplitTier ? null : tierBonusPerShared,
+    tierBonusPerFfsHour: useSplitTier ? tierBonusPerFfs : tierBonusPerShared,
+    tierBonusPerHcodeHour: useSplitTier ? tierBonusPerH : tierBonusPerShared,
     spanishBonusPerHour: spanishPer,
+    locationBonusPerHour: locationPer,
     tierBonusAmount,
     spanishBonusAmount,
-    totalBonusAmount: round2(tierBonusAmount + spanishBonusAmount)
+    locationBonusAmount,
+    totalBonusAmount: round2(tierBonusAmount + spanishBonusAmount + locationBonusAmount)
   };
 }
 
@@ -256,6 +303,8 @@ export function estimatePay({ rateProfile, status, lines = [], rulesByCode = new
   let baseAmount = 0;
   let autoIndirectTotal = 0;
   let productiveHours = 0;
+  let ffsHours = 0;
+  let hcodeHours = 0;
   let totalHourEquivalent = 0;
 
   for (const line of lines) {
@@ -274,15 +323,21 @@ export function estimatePay({ rateProfile, status, lines = [], rulesByCode = new
     baseAmount += result.amount;
     autoIndirectTotal += result.autoIndirectAmount;
     totalHourEquivalent += result.hourEquivalent;
-    if (result.payType === 'credit' || result.payType === 'hcode') {
+    if (result.payType === 'credit') {
       productiveHours += result.hourEquivalent;
+      ffsHours += result.hourEquivalent;
+    } else if (result.payType === 'hcode') {
+      productiveHours += result.hourEquivalent;
+      hcodeHours += result.hourEquivalent;
     }
   }
 
   const bonuses = computeBonuses({
     rateProfile,
     status,
-    totalHourEquivalent: productiveHours
+    totalHourEquivalent: productiveHours,
+    ffsHourEquivalent: ffsHours,
+    hcodeHourEquivalent: hcodeHours
   });
 
   const grandTotal = round2(baseAmount + autoIndirectTotal + bonuses.totalBonusAmount);
@@ -294,6 +349,7 @@ export function estimatePay({ rateProfile, status, lines = [], rulesByCode = new
       autoIndirectAmount: round2(autoIndirectTotal),
       tierBonusAmount: bonuses.tierBonusAmount,
       spanishBonusAmount: bonuses.spanishBonusAmount,
+      locationBonusAmount: bonuses.locationBonusAmount,
       totalBonusAmount: bonuses.totalBonusAmount,
       productiveHourEquivalent: bonuses.productiveHourEquivalent,
       totalHourEquivalent: round2(totalHourEquivalent),
@@ -321,6 +377,22 @@ export async function loadUserPaySystemContext({ agencyId, userId, periodEnd, be
       agencyEnabled: true,
       userEnabled,
       assignment
+    };
+  }
+
+  // Deferred activation: rates only apply once the period ends on/after effective start.
+  const effectiveStart = parseDateOnly(
+    assignment.pay_system_effective_start || assignment.paySystemEffectiveStart
+  );
+  const periodEndDate = parseDateOnly(periodEnd);
+  if (effectiveStart && periodEndDate && periodEndDate < effectiveStart) {
+    return {
+      enabled: false,
+      agencyEnabled: true,
+      userEnabled: true,
+      assignment,
+      notYetEffective: true,
+      paySystemEffectiveStart: effectiveStart.toISOString().slice(0, 10)
     };
   }
 
@@ -375,6 +447,8 @@ export function applyPaySystemToBreakdown({ breakdown, rateProfile, status, shif
   let servicePay = 0;
   let autoIndirectTotal = 0;
   let productiveHours = 0;
+  let ffsHours = 0;
+  let hcodeHours = 0;
   const lineResults = [];
   const autoIndirectLines = [];
 
@@ -405,10 +479,20 @@ export function applyPaySystemToBreakdown({ breakdown, rateProfile, status, shif
     row.rateSource = 'pay_system';
     row.payType = result.payType;
     row.hourEquivalent = result.hourEquivalent;
+    if (result.splitNote) {
+      row.paySystemSplitNote = result.splitNote;
+      row.hcodeGrossAmount = result.hcodeGrossAmount;
+      row.directAmount = result.amount;
+      row.embeddedIndirectAmount = result.autoIndirectAmount;
+    }
     servicePay += result.amount;
 
-    if (result.payType === 'credit' || result.payType === 'hcode') {
+    if (result.payType === 'credit') {
       productiveHours += result.hourEquivalent;
+      ffsHours += result.hourEquivalent;
+    } else if (result.payType === 'hcode') {
+      productiveHours += result.hourEquivalent;
+      hcodeHours += result.hourEquivalent;
     }
     if (result.autoIndirectAmount > 1e-9) {
       autoIndirectTotal += result.autoIndirectAmount;
@@ -416,7 +500,9 @@ export function applyPaySystemToBreakdown({ breakdown, rateProfile, status, shif
         sourceCode: code,
         hours: result.autoIndirectHours,
         amount: result.autoIndirectAmount,
-        rate: Number(rateProfile.indirectRate || 0) || 0
+        rate: Number(rateProfile.indirectRate || 0) || 0,
+        directAmount: result.amount,
+        grossAmount: result.hcodeGrossAmount
       });
     }
     lineResults.push(result);
@@ -434,12 +520,15 @@ export function applyPaySystemToBreakdown({ breakdown, rateProfile, status, shif
   const shiftHoursPay = round2(shiftDirectPay + shiftIndirectPay);
   if ((Number(shiftDirectHours) || 0) > 1e-9) {
     productiveHours += Number(shiftDirectHours) || 0;
+    ffsHours += Number(shiftDirectHours) || 0;
   }
 
   const bonuses = computeBonuses({
     rateProfile,
     status,
-    totalHourEquivalent: productiveHours
+    totalHourEquivalent: productiveHours,
+    ffsHourEquivalent: ffsHours,
+    hcodeHourEquivalent: hcodeHours
   });
 
   const paySystemBase = round2(servicePay + autoIndirectTotal + shiftHoursPay);
@@ -487,13 +576,18 @@ export function applyPaySystemToBreakdown({ breakdown, rateProfile, status, shif
         rateUnit: 'per_hour',
         rateSource: 'pay_system_auto_indirect',
         payType: 'indirect',
-        amount: round2(autoIndirectTotal)
+        amount: round2(autoIndirectTotal),
+        label: 'Auto-indirect (embedded in H-code package)',
+        note: autoIndirectLines.map((l) =>
+          `${l.sourceCode}: ${l.directAmount} direct + ${l.amount} indirect (${l.hours} h)`
+        ).join('; ')
       };
     }
-    if (bonuses.tierBonusAmount > 1e-9 || bonuses.spanishBonusAmount > 1e-9) {
+    if (bonuses.tierBonusAmount > 1e-9 || bonuses.spanishBonusAmount > 1e-9 || bonuses.locationBonusAmount > 1e-9) {
       breakdown.__paySystemBonuses = {
         tierBonusAmount: bonuses.tierBonusAmount,
         spanishBonusAmount: bonuses.spanishBonusAmount,
+        locationBonusAmount: bonuses.locationBonusAmount,
         totalBonusAmount: bonuses.totalBonusAmount,
         productiveHourEquivalent: bonuses.productiveHourEquivalent,
         tierLevel: bonuses.tierLevel

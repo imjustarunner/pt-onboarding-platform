@@ -254,6 +254,14 @@
           <label>Cost center / client / school (optional)</label>
           <input v-model="mileageForm.costCenter" type="text" placeholder="Optional" />
         </div>
+        <div class="field" style="margin-top: 10px;">
+          <label>Supporting document (optional)</label>
+          <input type="file" accept=".pdf,image/*" @change="onMileageAttachmentChange" />
+          <div v-if="mileageAttachmentFile" class="hint" style="margin-top: 4px;">
+            {{ mileageAttachmentFile.name }}
+            <button type="button" class="btn btn-secondary btn-sm" style="margin-left: 8px;" @click="clearMileageAttachment">Remove</button>
+          </div>
+        </div>
       </div>
 
       <div v-if="mileageForm.claimType !== 'school_travel'" class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
@@ -699,7 +707,7 @@
 
       <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
         <div class="field">
-          <label>Vendor (optional)</label>
+          <label>Vendor (required)</label>
           <input v-model="reimbursementForm.vendor" type="text" placeholder="Vendor" />
         </div>
         <div class="field">
@@ -1301,6 +1309,13 @@ const mileageOffices = ref([]);
 const mileageAssignedOffices = ref([]);
 const schoolTravelManualMilesMode = ref(false);
 const mileageQueuedClaims = ref([]); // queued mileage form snapshots (same claimType as current)
+const mileageAttachmentFile = ref(null);
+const onMileageAttachmentChange = (e) => {
+  mileageAttachmentFile.value = e?.target?.files?.[0] || null;
+};
+const clearMileageAttachment = () => {
+  mileageAttachmentFile.value = null;
+};
 
 const mileageForm = ref({
   claimType: 'school_travel',
@@ -1889,6 +1904,7 @@ const closeMileageModal = () => {
   editingHomeAddress.value = false;
   schoolTravelManualMilesMode.value = false;
   mileageQueuedClaims.value = [];
+  mileageAttachmentFile.value = null;
 };
 
 const submitMileage = async () => {
@@ -1907,8 +1923,10 @@ const submitMileage = async () => {
     }
 
     let sent = 0;
-    for (const c of claimsToSend) {
-      const resp = await api.post(`${apiBase.value}/mileage-claims`, {
+    for (let i = 0; i < claimsToSend.length; i += 1) {
+      const c = claimsToSend[i];
+      const isLast = i === claimsToSend.length - 1;
+      const payload = {
         agencyId: props.agencyId,
         claimType: c.claimType || 'school_travel',
         driveDate: c.driveDate,
@@ -1925,7 +1943,20 @@ const submitMileage = async () => {
         tripPurpose: c.tripPurpose,
         costCenter: c.costCenter,
         attestation: !!c.attestation
-      });
+      };
+      let resp;
+      if (String(payload.claimType) !== 'school_travel' && isLast && mileageAttachmentFile.value) {
+        const fd = new FormData();
+        Object.entries(payload).forEach(([k, v]) => {
+          if (v === null || v === undefined) return;
+          if (typeof v === 'boolean') fd.append(k, v ? '1' : '0');
+          else fd.append(k, String(v));
+        });
+        fd.append('attachment', mileageAttachmentFile.value);
+        resp = await api.post(`${apiBase.value}/mileage-claims`, fd);
+      } else {
+        resp = await api.post(`${apiBase.value}/mileage-claims`, payload);
+      }
       sent += 1;
       const claimId = resp?.data?.claim?.id || resp?.data?.id || null;
       const ct = String(c.claimType || '').toLowerCase() === 'school_travel' ? 'School Mileage' : 'Other Mileage';
@@ -2106,14 +2137,18 @@ const submitReimbursement = async () => {
       submitReimbursementError.value = 'Who approved this purchase is required.';
       return;
     }
-    if (reimbursementForm.value.purchasePreapproved !== true && reimbursementForm.value.purchasePreapproved !== false) {
-      submitReimbursementError.value = 'Please select whether the purchase was pre-approved.';
-      return;
-    }
-    if (!String(reimbursementForm.value.reason || '').trim()) {
-      submitReimbursementError.value = 'Reason is required.';
-      return;
-    }
+      if (reimbursementForm.value.purchasePreapproved !== true && reimbursementForm.value.purchasePreapproved !== false) {
+        submitReimbursementError.value = 'Please select whether the purchase was pre-approved.';
+        return;
+      }
+      if (!String(reimbursementForm.value.vendor || '').trim()) {
+        submitReimbursementError.value = 'Vendor is required.';
+        return;
+      }
+      if (!String(reimbursementForm.value.reason || '').trim()) {
+        submitReimbursementError.value = 'Reason is required.';
+        return;
+      }
     if (!String(reimbursementForm.value.notes || '').trim()) {
       submitReimbursementError.value = 'Notes are required.';
       return;
@@ -2145,7 +2180,7 @@ const submitReimbursement = async () => {
     fd.append('expenseDate', expenseDate);
     fd.append('amount', String(amount));
     fd.append('paymentMethod', String(reimbursementForm.value.paymentMethod || '').trim());
-    if (String(reimbursementForm.value.vendor || '').trim()) fd.append('vendor', String(reimbursementForm.value.vendor || '').trim());
+    fd.append('vendor', String(reimbursementForm.value.vendor || '').trim());
     fd.append('purchaseApprovedBy', String(reimbursementForm.value.purchaseApprovedBy || '').trim());
     fd.append('purchasePreapproved', reimbursementForm.value.purchasePreapproved ? '1' : '0');
     if (String(reimbursementForm.value.projectRef || '').trim()) fd.append('projectRef', String(reimbursementForm.value.projectRef || '').trim());

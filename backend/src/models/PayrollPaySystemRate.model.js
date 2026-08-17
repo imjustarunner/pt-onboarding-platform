@@ -19,8 +19,25 @@ function parseBonusJson(raw, fallback) {
   }
 }
 
+function normalizeBonusMap(fieldsBonus, fallback) {
+  if (!fieldsBonus || typeof fieldsBonus !== 'object') return { ...fallback };
+  return {
+    1: Number(fieldsBonus[1] ?? fieldsBonus['1'] ?? 0) || 0,
+    2: Number(fieldsBonus[2] ?? fieldsBonus['2'] ?? 0) || 0,
+    3: Number(fieldsBonus[3] ?? fieldsBonus['3'] ?? 0) || 0
+  };
+}
+
 function rowToProfile(row) {
   if (!row) return null;
+  const tierBonus = parseBonusJson(row.tier_bonus_json, DEFAULT_TIER_BONUS);
+  // Optional separate FFS / H tier maps; null when unset so calc falls back to shared tierBonus.
+  const tierBonusFfs = row.tier_bonus_ffs_json != null
+    ? parseBonusJson(row.tier_bonus_ffs_json, tierBonus)
+    : null;
+  const tierBonusHcode = row.tier_bonus_hcode_json != null
+    ? parseBonusJson(row.tier_bonus_hcode_json, tierBonus)
+    : null;
   return {
     id: row.id,
     agencyId: Number(row.agency_id),
@@ -33,7 +50,9 @@ function rowToProfile(row) {
     indirectRate: row.indirect_rate != null ? Number(row.indirect_rate) : null,
     supportActivityRate: row.support_activity_rate != null ? Number(row.support_activity_rate) : null,
     autoIndirectMinutesPerHour: Number(row.auto_indirect_minutes_per_hour ?? 10) || 10,
-    tierBonus: parseBonusJson(row.tier_bonus_json, DEFAULT_TIER_BONUS),
+    tierBonus,
+    tierBonusFfs,
+    tierBonusHcode,
     spanishBonus: parseBonusJson(row.spanish_bonus_json, DEFAULT_SPANISH_BONUS),
     locationBonus: parseBonusJson(row.location_bonus_json, DEFAULT_LOCATION_BONUS)
   };
@@ -69,6 +88,8 @@ const PayrollPaySystemRate = {
               supportActivityRate: null,
               autoIndirectMinutesPerHour: 10,
               tierBonus: { ...DEFAULT_TIER_BONUS },
+              tierBonusFfs: null,
+              tierBonusHcode: null,
               spanishBonus: { ...DEFAULT_SPANISH_BONUS },
               locationBonus: { ...DEFAULT_LOCATION_BONUS }
             });
@@ -88,35 +109,30 @@ const PayrollPaySystemRate = {
   },
 
   async upsert(agencyId, category, level, fields = {}) {
-    const tierBonus = fields.tierBonus && typeof fields.tierBonus === 'object'
-      ? {
-          1: Number(fields.tierBonus[1] ?? fields.tierBonus['1'] ?? 0) || 0,
-          2: Number(fields.tierBonus[2] ?? fields.tierBonus['2'] ?? 0) || 0,
-          3: Number(fields.tierBonus[3] ?? fields.tierBonus['3'] ?? 0) || 0
-        }
-      : { ...DEFAULT_TIER_BONUS };
-    const spanishBonus = fields.spanishBonus && typeof fields.spanishBonus === 'object'
-      ? {
-          1: Number(fields.spanishBonus[1] ?? fields.spanishBonus['1'] ?? 0) || 0,
-          2: Number(fields.spanishBonus[2] ?? fields.spanishBonus['2'] ?? 0) || 0,
-          3: Number(fields.spanishBonus[3] ?? fields.spanishBonus['3'] ?? 0) || 0
-        }
-      : { ...DEFAULT_SPANISH_BONUS };
-    const locationBonus = fields.locationBonus && typeof fields.locationBonus === 'object'
-      ? {
-          1: Number(fields.locationBonus[1] ?? fields.locationBonus['1'] ?? 0) || 0,
-          2: Number(fields.locationBonus[2] ?? fields.locationBonus['2'] ?? 0) || 0,
-          3: Number(fields.locationBonus[3] ?? fields.locationBonus['3'] ?? 0) || 0
-        }
-      : { ...DEFAULT_LOCATION_BONUS };
+    const tierBonus = normalizeBonusMap(fields.tierBonus, DEFAULT_TIER_BONUS);
+    const spanishBonus = normalizeBonusMap(fields.spanishBonus, DEFAULT_SPANISH_BONUS);
+    const locationBonus = normalizeBonusMap(fields.locationBonus, DEFAULT_LOCATION_BONUS);
+    const updateFfs = fields.tierBonusFfs !== undefined;
+    const updateHcode = fields.tierBonusHcode !== undefined;
+    const tierBonusFfsJson = !updateFfs
+      ? null
+      : (fields.tierBonusFfs === null
+        ? null
+        : JSON.stringify(normalizeBonusMap(fields.tierBonusFfs, tierBonus)));
+    const tierBonusHcodeJson = !updateHcode
+      ? null
+      : (fields.tierBonusHcode === null
+        ? null
+        : JSON.stringify(normalizeBonusMap(fields.tierBonusHcode, tierBonus)));
 
     await pool.execute(
       `INSERT INTO payroll_pay_system_rates
          (agency_id, category, level,
           credit_rate, credit_rate_probation, hcode_rate, hcode_rate_probation,
           indirect_rate, support_activity_rate, auto_indirect_minutes_per_hour,
-          tier_bonus_json, spanish_bonus_json, location_bonus_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          tier_bonus_json, tier_bonus_ffs_json, tier_bonus_hcode_json,
+          spanish_bonus_json, location_bonus_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          credit_rate = VALUES(credit_rate),
          credit_rate_probation = VALUES(credit_rate_probation),
@@ -126,6 +142,8 @@ const PayrollPaySystemRate = {
          support_activity_rate = VALUES(support_activity_rate),
          auto_indirect_minutes_per_hour = VALUES(auto_indirect_minutes_per_hour),
          tier_bonus_json = VALUES(tier_bonus_json),
+         tier_bonus_ffs_json = IF(? = 1, VALUES(tier_bonus_ffs_json), tier_bonus_ffs_json),
+         tier_bonus_hcode_json = IF(? = 1, VALUES(tier_bonus_hcode_json), tier_bonus_hcode_json),
          spanish_bonus_json = VALUES(spanish_bonus_json),
          location_bonus_json = VALUES(location_bonus_json),
          updated_at = CURRENT_TIMESTAMP`,
@@ -139,8 +157,12 @@ const PayrollPaySystemRate = {
         fields.supportActivityRate != null && fields.supportActivityRate !== '' ? Number(fields.supportActivityRate) : null,
         fields.autoIndirectMinutesPerHour != null ? Number(fields.autoIndirectMinutesPerHour) : 10,
         JSON.stringify(tierBonus),
+        tierBonusFfsJson,
+        tierBonusHcodeJson,
         JSON.stringify(spanishBonus),
-        JSON.stringify(locationBonus)
+        JSON.stringify(locationBonus),
+        updateFfs ? 1 : 0,
+        updateHcode ? 1 : 0
       ]
     );
   },

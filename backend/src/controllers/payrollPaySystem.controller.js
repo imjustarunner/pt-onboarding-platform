@@ -72,6 +72,8 @@ export const savePaySystemRates = async (req, res, next) => {
         supportActivityRate: row.supportActivityRate,
         autoIndirectMinutesPerHour: row.autoIndirectMinutesPerHour,
         tierBonus: row.tierBonus,
+        ...(row.tierBonusFfs !== undefined ? { tierBonusFfs: row.tierBonusFfs } : {}),
+        ...(row.tierBonusHcode !== undefined ? { tierBonusHcode: row.tierBonusHcode } : {}),
         spanishBonus: row.spanishBonus,
         locationBonus: row.locationBonus
       });
@@ -87,7 +89,8 @@ export const savePaySystemRates = async (req, res, next) => {
 /**
  * POST /payroll/pay-system/transition
  * body: { agencyId }
- * Enables agency flag and bulk-enrolls existing compensation-level users with waive_probation=1.
+ * Turns the agency flag ON so rates can be configured. Does NOT enroll staff —
+ * use POST /pay-system/go with an effective start date to activate payroll rates.
  */
 export const transitionToPaySystem = async (req, res, next) => {
   try {
@@ -95,15 +98,124 @@ export const transitionToPaySystem = async (req, res, next) => {
     if (!agencyId) return;
 
     await PayrollPaySystemRate.setAgencyEnabled(agencyId, true);
-    const enrolled = await PayrollCompensationLevel.transitionAgencyUsersToPaySystem(agencyId);
 
     res.json({
       ok: true,
       enabled: true,
-      usersEnrolled: enrolled,
-      message: `New pay system enabled. ${enrolled} existing staff enrolled with 90-day probation waived.`
+      usersEnrolled: 0,
+      message: 'Agency pay system flag is ON. Stage pay-level updates below, then click Go and enter the start date to activate rates for payroll.'
     });
   } catch (e) { next(e); }
+};
+
+/**
+ * GET /payroll/pay-system/assignments?agencyId=
+ * Live compensation-level assignments + pending staged changes for rollout UI.
+ */
+export const listPaySystemAssignments = async (req, res, next) => {
+  try {
+    const agencyId = requireAgencyId(req, res);
+    if (!agencyId) return;
+    const [assignments, pending, enabled] = await Promise.all([
+      PayrollCompensationLevel.listAssignmentsForAgency(agencyId),
+      PayrollCompensationLevel.listPendingForAgency(agencyId),
+      PayrollPaySystemRate.isAgencyEnabled(agencyId)
+    ]);
+    res.json({ assignments, pending, enabled });
+  } catch (e) { next(e); }
+};
+
+/**
+ * PUT /payroll/pay-system/pending
+ * body: { agencyId, changes: [{ userId, category, level, bypass? }], batchId?, notes? }
+ * Stages pay-level changes. Does not affect live payroll until Go.
+ */
+export const savePaySystemPending = async (req, res, next) => {
+  try {
+    const agencyId = requireAgencyId(req, res);
+    if (!agencyId) return;
+    const { changes, batchId, notes } = req.body || {};
+    if (!Array.isArray(changes) || !changes.length) {
+      return res.status(400).json({ error: { message: 'changes array is required' } });
+    }
+    for (const row of changes) {
+      const userId = parseInt(row.userId, 10);
+      const cat = parseInt(row.category, 10);
+      const levelRaw = row.level != null ? parseInt(row.level, 10) : null;
+      const level = LEVEL_IDS.includes(levelRaw) ? levelRaw : null;
+      if (!userId || !CATEGORY_IDS.includes(cat)) continue;
+      await PayrollCompensationLevel.upsertPending(agencyId, userId, {
+        category: cat,
+        level,
+        bypass: row.bypass === true || row.bypass === 1 || level == null,
+        paySystemEnabled: row.paySystemEnabled !== false,
+        batchId: batchId || null,
+        notes: notes || row.notes || null,
+        createdByUserId: req.user?.id || null
+      });
+    }
+    const pending = await PayrollCompensationLevel.listPendingForAgency(agencyId);
+    res.json({ pending, staged: changes.length });
+  } catch (e) { next(e); }
+};
+
+/**
+ * DELETE /payroll/pay-system/pending?agencyId=&userId=
+ * Clear one pending row or all for the agency.
+ */
+export const clearPaySystemPending = async (req, res, next) => {
+  try {
+    const agencyId = requireAgencyId(req, res);
+    if (!agencyId) return;
+    const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
+    await PayrollCompensationLevel.clearPending(agencyId, userId || null);
+    const pending = await PayrollCompensationLevel.listPendingForAgency(agencyId);
+    res.json({ pending, ok: true });
+  } catch (e) { next(e); }
+};
+
+/**
+ * POST /payroll/pay-system/go
+ * body: { agencyId, effectiveStart: 'YYYY-MM-DD', waiveProbation?, enrollExistingWithoutPending? }
+ * Applies pending level changes and activates new pay-system rates from the start date
+ * (overrides compensation tables for periods ending on/after that date).
+ */
+export const goPaySystem = async (req, res, next) => {
+  try {
+    const agencyId = requireAgencyId(req, res);
+    if (!agencyId) return;
+    const effectiveStart = String(req.body?.effectiveStart || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveStart)) {
+      return res.status(400).json({ error: { message: 'effectiveStart (YYYY-MM-DD) is required' } });
+    }
+
+    await PayrollPaySystemRate.setAgencyEnabled(agencyId, true);
+    const result = await PayrollCompensationLevel.applyGo(agencyId, {
+      effectiveStart,
+      waiveProbation: req.body?.waiveProbation !== false,
+      enrollExistingWithoutPending: req.body?.enrollExistingWithoutPending !== false,
+      appliedByUserId: req.user?.id || null
+    });
+
+    const [assignments, pending] = await Promise.all([
+      PayrollCompensationLevel.listAssignmentsForAgency(agencyId),
+      PayrollCompensationLevel.listPendingForAgency(agencyId)
+    ]);
+
+    res.json({
+      ok: true,
+      enabled: true,
+      ...result,
+      assignments,
+      pending,
+      message: `Pay system live from ${result.effectiveStart}. Applied ${result.appliedPending} staged level change(s); enrolled/updated ${result.enrolledExisting} assignment(s).`
+    });
+  } catch (e) {
+    if (e?.message?.includes('effectiveStart')) {
+      return res.status(400).json({ error: { message: e.message } });
+    }
+    next(e);
+  }
 };
 
 /** GET /payroll/pay-system/status?agencyId= */
@@ -144,7 +256,10 @@ export const updateUserPaySystemFlags = async (req, res, next) => {
         ? (body.probationStartOverride || null)
         : undefined,
       spanishBonusEligible: body.spanishBonusEligible !== undefined ? !!body.spanishBonusEligible : undefined,
-      locationBonusEligible: body.locationBonusEligible !== undefined ? !!body.locationBonusEligible : undefined
+      locationBonusEligible: body.locationBonusEligible !== undefined ? !!body.locationBonusEligible : undefined,
+      paySystemEffectiveStart: body.paySystemEffectiveStart !== undefined
+        ? (body.paySystemEffectiveStart || null)
+        : undefined
     });
 
     const assignment = await PayrollCompensationLevel.getForUser(agencyId, userId);

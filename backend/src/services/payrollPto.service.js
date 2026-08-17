@@ -541,12 +541,15 @@ function isPtoSheetEmployeeRow(row) {
   const status = String(row?.status || '').trim().toLowerCase();
   if (PREHIRE_STATUSES.has(status)) return false;
   if (row?.is_archived === true || row?.is_archived === 1 || row?.is_archived === '1') return false;
-  // Must have a work email on file (may still be provisional / personal for some staff).
-  return !!normalizeEmail(row?.work_email);
+  // Prefer work_email; fall back to a non-freemail login email so staff aren't dropped
+  // when work_email was never filled (common for interns / newer hires).
+  if (normalizeEmail(row?.work_email)) return true;
+  const login = normalizeEmail(row?.email);
+  return !!(login && !isFreemailAddress(login));
 }
 
 /**
- * Agency-wide PTO sheet: agency employees with a work email on file.
+ * Agency-wide PTO sheet: agency employees with a work email or company login email.
  * Excludes school staff / guardians / applicants / prehire. Does not freemail-filter
  * work_email (personal addresses are often attached; display prefers company email).
  */
@@ -573,8 +576,6 @@ export async function listAgencyPtoSheet({ agencyId }) {
      INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
      LEFT JOIN payroll_pto_accounts a ON a.user_id = u.id AND a.agency_id = ?
      WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
-       AND u.work_email IS NOT NULL
-       AND TRIM(u.work_email) <> ''
      ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
     [agencyId, agencyId]
   );

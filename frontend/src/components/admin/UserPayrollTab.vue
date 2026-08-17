@@ -261,6 +261,11 @@
                 <span>Probation start override</span>
                 <input type="date" v-model="paySysFlags.probationStartOverride" :disabled="paySysFlagsSaving" />
               </label>
+              <label class="pay-sys-flag pay-sys-flag--date">
+                <span>Pay-system effective start</span>
+                <input type="date" v-model="paySysFlags.paySystemEffectiveStart" :disabled="paySysFlagsSaving" />
+                <span class="pay-sys-flag-hint">(rates apply to periods ending on/after this date)</span>
+              </label>
             </div>
             <div class="pay-sys-flags-actions">
               <button
@@ -1033,7 +1038,8 @@ const paySysFlags = ref({
   waiveMinimumWorkload: false,
   spanishBonusEligible: false,
   locationBonusEligible: false,
-  probationStartOverride: ''
+  probationStartOverride: '',
+  paySystemEffectiveStart: ''
 });
 const paySysFlagsSaving = ref(false);
 const paySysFlagsError = ref('');
@@ -1048,6 +1054,9 @@ const syncPaySysFlagsFromAssignment = (assignment) => {
     locationBonusEligible: !!Number(assignment?.location_bonus_eligible || 0),
     probationStartOverride: assignment?.probation_start_override
       ? String(assignment.probation_start_override).slice(0, 10)
+      : '',
+    paySystemEffectiveStart: assignment?.pay_system_effective_start
+      ? String(assignment.pay_system_effective_start).slice(0, 10)
       : ''
   };
 };
@@ -1084,7 +1093,8 @@ const savePaySysFlags = async () => {
       waiveMinimumWorkload: !!paySysFlags.value.waiveMinimumWorkload,
       spanishBonusEligible: !!paySysFlags.value.spanishBonusEligible,
       locationBonusEligible: !!paySysFlags.value.locationBonusEligible,
-      probationStartOverride: paySysFlags.value.probationStartOverride || null
+      probationStartOverride: paySysFlags.value.probationStartOverride || null,
+      paySystemEffectiveStart: paySysFlags.value.paySystemEffectiveStart || null
     });
     currentCompLevel.value = res.data?.assignment || currentCompLevel.value;
     syncPaySysFlagsFromAssignment(currentCompLevel.value);

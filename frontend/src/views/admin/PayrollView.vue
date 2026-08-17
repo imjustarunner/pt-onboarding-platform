@@ -2641,7 +2641,7 @@
                       <th>Submitted</th>
                       <th>Submitted by</th>
                       <th>Date</th>
-                      <th class="right">Eligible miles</th>
+                      <th class="right">Miles</th>
                       <th class="right">Rate / Tier</th>
                       <th class="right">Pay period</th>
                       <th class="right">Est.</th>
@@ -2655,7 +2655,15 @@
                       <td>{{ submitterLabel(c) }}</td>
                       <td>{{ c.drive_date }}</td>
                       <td class="right">
-                        {{ fmtNum(Number(c.eligible_miles ?? c.miles ?? 0)) }}
+                        {{
+                          fmtNum(
+                            Number(
+                              String(c.claim_type || '').toLowerCase() === 'school_travel'
+                                ? (c.eligible_miles ?? c.miles ?? 0)
+                                : (c.miles ?? 0)
+                            )
+                          )
+                        }}
                       </td>
                       <td class="right">
                         <select v-if="mileageClaimUsesTierRate(c)" v-model="mileageTierByClaimId[c.id]" :disabled="approvingMileageClaimId === c.id">
@@ -2803,6 +2811,7 @@
                       <td>
                         <div class="muted" style="line-height: 1.25;">
                           <div v-if="c.payment_method"><strong>Payment:</strong> {{ String(c.payment_method || '').replaceAll('_',' ') }}</div>
+                          <div v-if="c.vendor"><strong>Vendor:</strong> {{ c.vendor }}</div>
                           <div v-if="c.purchase_approved_by"><strong>Approver:</strong> {{ c.purchase_approved_by }}</div>
                           <div v-if="c.project_ref"><strong>Project:</strong> {{ c.project_ref }}</div>
                           <div v-if="c.reason"><strong>Reason:</strong> {{ c.reason }}</div>
@@ -3942,32 +3951,51 @@
                   <div class="row"><strong>Provider:</strong> {{ nameForUserId(selectedMileageClaim.user_id) }}</div>
                   <div class="row"><strong>Submitted:</strong> {{ submittedAtYmd(selectedMileageClaim) }}</div>
                   <div class="row"><strong>Submitted by:</strong> {{ submitterLabel(selectedMileageClaim) }}</div>
-                  <div class="row"><strong>Date:</strong> {{ selectedMileageClaim.drive_date }}</div>
                   <div class="row"><strong>Type:</strong> {{ String(selectedMileageClaim.claim_type || '').toLowerCase() === 'school_travel' ? 'School Mileage' : 'Other Mileage' }}</div>
                   <div class="row"><strong>Status:</strong> {{ String(selectedMileageClaim.status || '').toUpperCase() }}</div>
-                  <div class="row"><strong>Eligible miles:</strong> {{ fmtNum(Number(selectedMileageClaim.eligible_miles ?? selectedMileageClaim.miles ?? 0)) }}</div>
-                  <div class="row"><strong>Claim miles (stored):</strong> {{ fmtNum(Number(selectedMileageClaim.miles ?? 0)) }}</div>
-                  <div class="row"><strong>Home↔School RT:</strong> {{ fmtNum(Number(selectedMileageClaim.home_school_roundtrip_miles ?? 0)) }}</div>
-                  <div class="row"><strong>Home↔Office RT:</strong> {{ fmtNum(Number(selectedMileageClaim.home_office_roundtrip_miles ?? 0)) }}</div>
-                  <div class="row"><strong>School org id:</strong> {{ selectedMileageClaim.school_organization_id }}</div>
-                  <div class="row"><strong>Office location id:</strong> {{ selectedMileageClaim.office_location_id }}</div>
-                  <div class="row"><strong>Start location:</strong> {{ selectedMileageClaim.start_location || '—' }}</div>
-                  <div class="row"><strong>End location:</strong> {{ selectedMileageClaim.end_location || '—' }}</div>
-                  <div v-if="String(selectedMileageClaim.claim_type || '').toLowerCase() !== 'school_travel'" class="card" style="margin-top: 10px;">
-                    <h3 class="card-title" style="margin: 0 0 6px 0;">Trip details (Other Mileage)</h3>
+                  <div class="row"><strong>Date:</strong> {{ selectedMileageClaim.drive_date }}</div>
+
+                  <template v-if="String(selectedMileageClaim.claim_type || '').toLowerCase() === 'school_travel'">
+                    <div class="row"><strong>Eligible miles:</strong> {{ fmtNum(Number(selectedMileageClaim.eligible_miles ?? selectedMileageClaim.miles ?? 0)) }}</div>
+                    <div class="row"><strong>Claim miles (stored):</strong> {{ fmtNum(Number(selectedMileageClaim.miles ?? 0)) }}</div>
+                    <div class="row"><strong>Home↔School RT:</strong> {{ fmtNum(Number(selectedMileageClaim.home_school_roundtrip_miles ?? 0)) }}</div>
+                    <div class="row"><strong>Home↔Office RT:</strong> {{ fmtNum(Number(selectedMileageClaim.home_office_roundtrip_miles ?? 0)) }}</div>
+                    <div class="row"><strong>School org id:</strong> {{ selectedMileageClaim.school_organization_id }}</div>
+                    <div class="row"><strong>Office location id:</strong> {{ selectedMileageClaim.office_location_id }}</div>
+                    <div class="row"><strong>Start location:</strong> {{ selectedMileageClaim.start_location || '—' }}</div>
+                    <div class="row"><strong>End location:</strong> {{ selectedMileageClaim.end_location || '—' }}</div>
+                    <div class="row"><strong>Notes:</strong> {{ selectedMileageClaim.notes || '—' }}</div>
+                  </template>
+
+                  <template v-else>
+                    <div class="row"><strong>Miles:</strong> {{ fmtNum(Number(selectedMileageClaim.miles ?? 0)) }}</div>
+                    <div class="row">
+                      <strong>Round trip:</strong>
+                      {{ selectedMileageClaim.round_trip === 0 || selectedMileageClaim.round_trip === false ? 'No' : 'Yes' }}
+                    </div>
+                    <div class="row"><strong>Start location:</strong> {{ selectedMileageClaim.start_location || '—' }}</div>
+                    <div class="row"><strong>End location:</strong> {{ selectedMileageClaim.end_location || '—' }}</div>
                     <div class="row"><strong>Approved by:</strong> {{ selectedMileageClaim.trip_approved_by || '—' }}</div>
                     <div class="row">
                       <strong>Pre-approved:</strong>
                       {{
-                        selectedMileageClaim.trip_preapproved === 1
+                        selectedMileageClaim.trip_preapproved === 1 || selectedMileageClaim.trip_preapproved === true
                           ? 'Yes'
-                          : (selectedMileageClaim.trip_preapproved === 0 ? 'No' : '—')
+                          : (selectedMileageClaim.trip_preapproved === 0 || selectedMileageClaim.trip_preapproved === false ? 'No' : '—')
                       }}
                     </div>
                     <div class="row"><strong>Purpose:</strong> {{ selectedMileageClaim.trip_purpose || '—' }}</div>
                     <div class="row"><strong>Cost center / client / school:</strong> {{ selectedMileageClaim.cost_center || '—' }}</div>
-                  </div>
-                  <div class="row"><strong>Notes:</strong> {{ selectedMileageClaim.notes || '—' }}</div>
+                    <div class="row"><strong>Notes:</strong> {{ selectedMileageClaim.notes || '—' }}</div>
+                    <div v-if="selectedMileageClaim.attachment_file_path" class="row">
+                      <strong>Attachment:</strong>
+                      <a
+                        :href="receiptUrl({ receipt_file_path: selectedMileageClaim.attachment_file_path })"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >{{ selectedMileageClaim.attachment_original_name || 'View attachment' }}</a>
+                    </div>
+                  </template>
                 </div>
               </div>
             </div>
@@ -5307,6 +5335,9 @@
                 <div style="display: flex; align-items: center; gap: 10px;" v-if="rawModeRows.length">
                   <div class="hint">
                     Showing {{ Math.min(rawModeRows.length, rawRowLimit) }} of {{ rawModeRows.length }} rows.
+                    <span v-if="rawExcludedOutOfPeriod > 0">
+                      · {{ rawExcludedOutOfPeriod }} outside this pay period’s dates hidden
+                    </span>
                   </div>
                   <label class="muted" style="display: inline-flex; align-items: center; gap: 6px;">
                     Show
@@ -6889,6 +6920,7 @@ const previewTwoPeriodsAgoUnpaid = computed(() => {
 });
 const showCarryoverModal = ref(false);
 const rawImportRows = ref([]);
+const rawExcludedOutOfPeriod = ref(0);
 const rawAuditRuns = ref([]);
 const rawAuditImports = ref([]);
 const rawAuditSelectedRunId = ref(null);
@@ -10450,36 +10482,41 @@ const mileageClaimUsesTierRate = (c) => {
 
 const billableMilesForClaim = (c) => {
   const claimType = String(c?.claim_type || '').toLowerCase();
-  const eligibleMiles = Number(c?.eligible_miles ?? c?.miles ?? 0);
-  const miles = Number.isFinite(eligibleMiles) ? eligibleMiles : 0;
-  if (claimType === 'school_travel') return Math.max(0, miles);
+  if (claimType === 'school_travel') {
+    const eligibleMiles = Number(c?.eligible_miles ?? c?.miles ?? 0);
+    return Math.max(0, Number.isFinite(eligibleMiles) ? eligibleMiles : 0);
+  }
+  const miles = Number(c?.miles ?? 0);
+  const base = Number.isFinite(miles) ? Math.max(0, miles) : 0;
   const roundTrip = c?.round_trip === 1 || c?.round_trip === true;
-  return roundTrip ? (Math.max(0, miles) * 2) : Math.max(0, miles);
+  return roundTrip ? base * 2 : base;
+};
+
+const mileageRateKnownForClaim = (c) => {
+  const usesTierRate = mileageClaimUsesTierRate(c);
+  const tierLevel = Number(mileageTierByClaimId.value?.[c?.id] || c?.tier_level || 0);
+  if (usesTierRate && !(tierLevel > 0)) return { known: false, rate: 0, tierLevel, usesTierRate };
+  const rate = usesTierRate ? mileageRateForTier(tierLevel) : mileageStandardRatePerMile.value;
+  return { known: rate > 0, rate: rate > 0 ? rate : 0, tierLevel, usesTierRate };
 };
 
 const estimateMileageAmount = (c) => {
-  const rate = mileageClaimUsesTierRate(c)
-    ? mileageRateForTier(Number(mileageTierByClaimId.value?.[c?.id] || c?.tier_level || 0))
-    : mileageStandardRatePerMile.value;
+  const { known, rate } = mileageRateKnownForClaim(c);
+  if (!known) return null;
   const miles = billableMilesForClaim(c);
-  if (!(rate > 0) || !(miles > 0)) return null;
+  if (!(miles > 0)) return null;
   return Math.round((miles * rate) * 100) / 100;
 };
 
 const estimateMileageDisplay = (c) => {
-  const rate = mileageClaimUsesTierRate(c)
-    ? mileageRateForTier(Number(mileageTierByClaimId.value?.[c?.id] || c?.tier_level || 0))
-    : mileageStandardRatePerMile.value;
-  if (!(rate > 0)) return '—';
   const est = estimateMileageAmount(c);
   return est !== null ? fmtMoney(est) : '—';
 };
 
 const estimateMileageTitle = (c) => {
-  const tierLevel = Number(mileageTierByClaimId.value?.[c?.id] || c?.tier_level || 0);
-  const usesTierRate = mileageClaimUsesTierRate(c);
-  const rate = usesTierRate ? mileageRateForTier(tierLevel) : mileageStandardRatePerMile.value;
-  if (!(rate > 0)) {
+  const { known, rate, tierLevel, usesTierRate } = mileageRateKnownForClaim(c);
+  if (!known) {
+    if (usesTierRate && !(tierLevel > 0)) return 'Select a mileage tier to estimate payout';
     return usesTierRate
       ? `Tier ${tierLevel || '—'} mileage rate is not configured`
       : 'Other Mileage agency rate is not configured';
@@ -12552,6 +12589,7 @@ const loadRawAuditData = async ({ runId = null, baselineRunId = null, importId =
     rawAuditLatestImportId.value = Number(rawAuditImports.value?.[rawAuditImports.value.length - 1]?.id || 0) || null;
     rawImportRows.value = resp.data?.rows || [];
     rawAuditChanges.value = resp.data?.changes || [];
+    rawExcludedOutOfPeriod.value = Number(resp.data?.excludedOutOfPeriod || 0) || 0;
   } catch (e) {
     rawDraftError.value = e.response?.data?.error?.message || e.message || 'Failed to load raw run audit';
     rawAuditRuns.value = [];

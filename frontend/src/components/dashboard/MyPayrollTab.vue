@@ -269,14 +269,41 @@
               <div class="right">Rate</div>
               <div class="right">Amount</div>
             </div>
-            <div v-for="l in expandedServiceLines" :key="l.code" class="code-row">
-              <div class="code">{{ l.code }}</div>
-              <div class="right muted">{{ fmtNum(l.noNoteUnits ?? 0) }}</div>
-              <div class="right muted">{{ fmtNum(l.draftUnits ?? 0) }}</div>
-              <div class="right">{{ fmtNum(l.finalizedUnits ?? l.units ?? 0) }}</div>
-              <div class="right muted">{{ fmtNum(l.supervisionTrackingHours ?? l.hours ?? 0) }}</div>
-              <div class="right muted">{{ fmtMoney(l.rateAmount ?? 0) }}</div>
-              <div class="right">{{ fmtMoney(l.amount ?? 0) }}</div>
+            <template v-for="l in expandedServiceLines" :key="l.code">
+              <div class="code-row">
+                <div class="code">{{ l.code }}</div>
+                <div class="right muted">{{ fmtNum(l.noNoteUnits ?? 0) }}</div>
+                <div class="right muted">{{ fmtNum(l.draftUnits ?? 0) }}</div>
+                <div class="right">{{ fmtNum(l.finalizedUnits ?? l.units ?? 0) }}</div>
+                <div class="right muted">{{ fmtNum(l.supervisionTrackingHours ?? l.hours ?? 0) }}</div>
+                <div class="right muted">{{ fmtMoney(l.rateAmount ?? 0) }}</div>
+                <div class="right">{{ fmtMoney(l.amount ?? 0) }}</div>
+              </div>
+              <div
+                v-if="l.paySystemSplitNote || (String(l.code || '').toUpperCase() === 'AUTO INDIRECT' && l.note)"
+                class="code-row-note muted"
+              >
+                {{ l.paySystemSplitNote || l.note }}
+              </div>
+            </template>
+            <div
+              v-if="expanded.breakdown && expanded.breakdown.__paySystemBonuses"
+              class="card"
+              style="margin-top: 10px;"
+            >
+              <h3 class="card-title" style="margin: 0 0 6px 0;">Tier / Spanish / Location bonus</h3>
+              <div class="row" v-if="Number(expanded.breakdown.__paySystemBonuses.tierBonusAmount || 0) > 0">
+                <strong>Tier bonus:</strong> {{ fmtMoney(expanded.breakdown.__paySystemBonuses.tierBonusAmount) }}
+              </div>
+              <div class="row" v-if="Number(expanded.breakdown.__paySystemBonuses.spanishBonusAmount || 0) > 0">
+                <strong>Spanish bonus:</strong> {{ fmtMoney(expanded.breakdown.__paySystemBonuses.spanishBonusAmount) }}
+              </div>
+              <div class="row" v-if="Number(expanded.breakdown.__paySystemBonuses.locationBonusAmount || 0) > 0">
+                <strong>Location / Denver bonus:</strong> {{ fmtMoney(expanded.breakdown.__paySystemBonuses.locationBonusAmount) }}
+              </div>
+              <div class="row">
+                <strong>Total bonuses:</strong> {{ fmtMoney(expanded.breakdown.__paySystemBonuses.totalBonusAmount || 0) }}
+              </div>
             </div>
             <div v-if="expanded.breakdown && expanded.breakdown.__adjustments" class="adjustments">
               <h3 class="card-title" style="margin-top: 10px;">Additional Pay / Overrides</h3>
@@ -1063,8 +1090,15 @@
     <div class="modal" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
-          <div class="modal-title">Submit Mileage</div>
-          <div class="hint">Your submission will be reviewed by payroll before it is added to a pay period.</div>
+          <div class="modal-title">{{ mileageForm.claimType === 'school_travel' ? 'Submit Mileage' : 'Submit Mileage Claim' }}</div>
+          <div class="hint">
+            <template v-if="mileageForm.claimType === 'school_travel'">
+              Your submission will be reviewed by payroll before it is added to a pay period.
+            </template>
+            <template v-else>
+              Review and complete all details before submitting.
+            </template>
+          </div>
         </div>
         <button class="btn btn-secondary btn-sm" @click="closeMileageModal">Close</button>
       </div>
@@ -1163,12 +1197,16 @@
         </div>
       </div>
 
-      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+      <div
+        v-if="mileageForm.claimType === 'school_travel'"
+        class="field-row"
+        style="margin-top: 10px; grid-template-columns: 1fr 1fr;"
+      >
         <div class="field">
           <label>Date of drive</label>
           <input v-model="mileageForm.driveDate" type="date" />
         </div>
-        <div class="field" v-if="mileageForm.claimType === 'school_travel'">
+        <div class="field">
           <label>Assigned school</label>
           <select v-model="mileageForm.schoolOrganizationId">
             <option :value="null" disabled>Select a school…</option>
@@ -1179,8 +1217,12 @@
         </div>
       </div>
 
-      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
-        <div class="field" v-if="mileageForm.claimType === 'school_travel'">
+      <div
+        v-if="mileageForm.claimType === 'school_travel'"
+        class="field-row"
+        style="margin-top: 10px; grid-template-columns: 1fr 1fr;"
+      >
+        <div class="field">
           <label>Assigned building office</label>
           <select v-model="mileageForm.officeLocationId">
             <option :value="null" disabled>Select an assigned office…</option>
@@ -1197,7 +1239,7 @@
             Using address: {{ selectedMileageOffice.addressLine }}
           </div>
         </div>
-        <div class="field" v-if="mileageForm.claimType === 'school_travel'">
+        <div class="field">
           <label>Tier (for rate)</label>
           <select v-model="mileageForm.tierLevel">
             <option :value="null">Unknown / Other</option>
@@ -1212,30 +1254,78 @@
         Eligible miles will be calculated automatically when you submit (Home↔School RT − Home↔Office RT).
       </div>
 
-      <div v-if="mileageForm.claimType !== 'school_travel'" class="card" style="margin-top: 10px;">
-        <h3 class="card-title" style="margin: 0 0 6px 0;">Trip details</h3>
-        <div class="hint">These details help payroll validate that the trip was approved and eligible.</div>
-        <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
-          <div class="field">
-            <label>Who approved the trip? (required)</label>
-            <input v-model="mileageForm.tripApprovedBy" type="text" placeholder="Name or email" />
+      <div v-if="mileageForm.claimType !== 'school_travel'" class="mileage-other-form" style="margin-top: 10px;">
+        <div class="field" style="margin-bottom: 12px;">
+          <label>Date of drive *</label>
+          <input v-model="mileageForm.driveDate" type="date" />
+        </div>
+
+        <div class="card" style="margin-bottom: 12px;">
+          <h3 class="card-title" style="margin: 0 0 6px 0;">Approval details</h3>
+          <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+            <div class="field">
+              <label>Approved by *</label>
+              <input v-model="mileageForm.tripApprovedBy" type="text" placeholder="Name or email" />
+            </div>
+            <div class="field">
+              <label>Was trip pre-approved? *</label>
+              <select v-model="mileageForm.tripPreapproved">
+                <option :value="null" disabled>Select…</option>
+                <option :value="true">Yes</option>
+                <option :value="false">No</option>
+              </select>
+            </div>
           </div>
-          <div class="field">
-            <label>Was this trip pre-approved? (required)</label>
-            <select v-model="mileageForm.tripPreapproved">
-              <option :value="null" disabled>Select…</option>
-              <option :value="true">Yes</option>
-              <option :value="false">No</option>
-            </select>
+          <div class="field" style="margin-top: 10px;">
+            <label>Trip purpose *</label>
+            <textarea v-model="mileageForm.tripPurpose" rows="3" placeholder="Describe the purpose of your trip, e.g., 'Client meeting at Foster Brook school'"></textarea>
           </div>
         </div>
-        <div class="field" style="margin-top: 10px;">
-          <label>What was the trip for? (required)</label>
-          <textarea v-model="mileageForm.tripPurpose" rows="2" placeholder="Brief purpose (client/school/admin need)…"></textarea>
+
+        <div class="card" style="margin-bottom: 12px;">
+          <h3 class="card-title" style="margin: 0 0 6px 0;">Route &amp; mileage</h3>
+          <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+            <div class="field">
+              <label>Start location</label>
+              <input v-model="mileageForm.startLocation" type="text" placeholder="Address or description…" />
+            </div>
+            <div class="field">
+              <label>End location</label>
+              <input v-model="mileageForm.endLocation" type="text" placeholder="Address or description…" />
+            </div>
+          </div>
+          <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr; align-items: end;">
+            <div class="field">
+              <label>Miles traveled *</label>
+              <input v-model="mileageForm.miles" type="number" min="0" step="0.01" placeholder="0" />
+            </div>
+            <div class="field">
+              <label class="control" style="display: flex; gap: 10px; align-items: center; margin-top: 22px;">
+                <input v-model="mileageForm.roundTrip" type="checkbox" />
+                <span>Round trip</span>
+              </label>
+            </div>
+          </div>
         </div>
-        <div class="field" style="margin-top: 10px;">
-          <label>Cost center / client / school (optional)</label>
-          <input v-model="mileageForm.costCenter" type="text" placeholder="Optional" />
+
+        <div class="card" style="margin-bottom: 12px;">
+          <h3 class="card-title" style="margin: 0 0 6px 0;">Additional information (optional)</h3>
+          <div class="field" style="margin-top: 10px;">
+            <label>Cost center / client / school</label>
+            <input v-model="mileageForm.costCenter" type="text" placeholder="Select or search…" />
+          </div>
+          <div class="field" style="margin-top: 10px;">
+            <label>Notes for payroll</label>
+            <textarea v-model="mileageForm.notes" rows="2" placeholder="Add any context…"></textarea>
+          </div>
+          <div class="field" style="margin-top: 10px;">
+            <label>Supporting document (optional)</label>
+            <input type="file" accept=".pdf,image/*" @change="onMileageAttachmentChange" />
+            <div v-if="mileageAttachmentFile" class="hint" style="margin-top: 4px;">
+              {{ mileageAttachmentFile.name }}
+              <button type="button" class="btn btn-secondary btn-sm" style="margin-left: 8px;" @click="clearMileageAttachment">Remove</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1259,20 +1349,7 @@
         </div>
       </div>
 
-      <div v-if="mileageForm.claimType !== 'school_travel'" class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
-        <div class="field">
-          <label>Miles</label>
-          <input v-model="mileageForm.miles" type="number" min="0" step="0.01" placeholder="0" />
-        </div>
-        <div class="field">
-          <label>&nbsp;</label>
-          <label class="control" style="display: flex; gap: 10px; align-items: center;">
-            <input v-model="mileageForm.roundTrip" type="checkbox" />
-            <span>Round trip</span>
-          </label>
-        </div>
-      </div>
-
+      <template v-if="mileageForm.claimType === 'school_travel'">
       <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
         <div class="field">
           <label>Start location (optional)</label>
@@ -1288,6 +1365,7 @@
         <label>Notes (optional)</label>
         <textarea v-model="mileageForm.notes" rows="3" placeholder="Add any context for payroll review…"></textarea>
       </div>
+      </template>
 
       <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
         <input v-model="mileageForm.attestation" type="checkbox" />
@@ -1637,63 +1715,54 @@
 
       <div v-if="submitReimbursementError" class="warn-box" style="margin-top: 10px;">{{ submitReimbursementError }}</div>
 
-      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
-        <div class="field">
-          <label>Expense date</label>
-          <input v-model="reimbursementForm.expenseDate" type="date" />
+      <div class="reimb-section" style="margin-top: 12px;">
+        <h3 class="card-title" style="margin: 0 0 8px 0;">1. Basic expense details</h3>
+        <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr;">
+          <div class="field">
+            <label>Expense date *</label>
+            <input v-model="reimbursementForm.expenseDate" type="date" />
+          </div>
+          <div class="field">
+            <label>Amount *</label>
+            <input v-model="reimbursementForm.amount" type="number" step="0.01" min="0" placeholder="0.00" />
+          </div>
+          <div class="field">
+            <label>Vendor *</label>
+            <input v-model="reimbursementForm.vendor" type="text" placeholder="Vendor name" />
+          </div>
         </div>
-        <div class="field">
-          <label>Amount</label>
-          <input v-model="reimbursementForm.amount" type="number" step="0.01" min="0" placeholder="0.00" />
-        </div>
-      </div>
-
-      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
-        <div class="field">
-          <label>Payment method (required)</label>
-          <select v-model="reimbursementForm.paymentMethod">
-            <option :value="null" disabled>Select…</option>
-            <option value="personal_card">Personal card</option>
-            <option value="cash">Cash</option>
-            <option value="check">Check</option>
-            <option value="other">Other</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Project / school / client initials (optional)</label>
-          <input v-model="reimbursementForm.projectRef" type="text" placeholder="Optional" />
-        </div>
-      </div>
-
-      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
-        <div class="field">
-          <label>Supervisor / approver (required)</label>
-          <input v-model="reimbursementForm.purchaseApprovedBy" type="text" placeholder="Name (or name + email)" />
-          <div class="hint">Enter the approver who authorized this purchase prior to buying.</div>
-        </div>
-        <div class="field">
-          <label>Was it pre-approved? (required)</label>
-          <select v-model="reimbursementForm.purchasePreapproved">
-            <option :value="null" disabled>Select…</option>
-            <option :value="true">Yes</option>
-            <option :value="false">No</option>
-          </select>
+        <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+          <div class="field">
+            <label>Payment method *</label>
+            <select v-model="reimbursementForm.paymentMethod">
+              <option :value="null" disabled>Select…</option>
+              <option value="personal_card">Personal card</option>
+              <option value="cash">Cash</option>
+              <option value="check">Check</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Project / school / client initials (optional)</label>
+            <input v-model="reimbursementForm.projectRef" type="text" placeholder="Initials" />
+          </div>
         </div>
       </div>
 
-      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+      <div class="reimb-section" style="margin-top: 14px;">
+        <h3 class="card-title" style="margin: 0 0 8px 0;">2. Expense purpose &amp; notes</h3>
         <div class="field">
-          <label>Vendor (optional)</label>
-          <input v-model="reimbursementForm.vendor" type="text" placeholder="Vendor" />
+          <label>Expense reason *</label>
+          <input v-model="reimbursementForm.reason" type="text" placeholder="What is this for?" />
         </div>
-        <div class="field">
-          <label>Reason (required)</label>
-          <input v-model="reimbursementForm.reason" type="text" placeholder="Why was this expense needed?" />
+        <div class="field" style="margin-top: 10px;">
+          <label>Notes for payroll review *</label>
+          <textarea v-model="reimbursementForm.notes" rows="3" placeholder="Add detailed notes or context…"></textarea>
         </div>
       </div>
 
-      <div class="card" style="margin-top: 10px;">
-        <h3 class="card-title" style="margin: 0 0 6px 0;">Category split (optional)</h3>
+      <div class="reimb-section card" style="margin-top: 14px;">
+        <h3 class="card-title" style="margin: 0 0 6px 0;">3. Budget allocation (optional)</h3>
         <div class="hint">If you split the amount across categories, the split total must match the amount.</div>
         <div
           v-for="(s, idx) in (reimbursementForm.splits || [])"
@@ -1722,29 +1791,48 @@
         </div>
       </div>
 
-      <div class="field" style="margin-top: 10px;">
-        <label>Notes (required)</label>
-        <textarea v-model="reimbursementForm.notes" rows="3" placeholder="Add any context for payroll review…"></textarea>
-      </div>
-
-      <div class="field" style="margin-top: 10px;">
-        <label>Receipt {{ editingReimbursementClaimId ? '(optional if unchanged)' : '(required)' }}</label>
-        <div v-if="editingReimbursementClaimId && editingReimbursementExistingReceiptPath" class="hint" style="margin-bottom: 6px;">
-          Current receipt:
-          <a :href="receiptUrl({ receipt_file_path: editingReimbursementExistingReceiptPath })" target="_blank" rel="noopener noreferrer">View</a>
+      <div class="reimb-section" style="margin-top: 14px;">
+        <h3 class="card-title" style="margin: 0 0 8px 0;">4. Approval details</h3>
+        <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+          <div class="field">
+            <label>Was it pre-approved? *</label>
+            <select v-model="reimbursementForm.purchasePreapproved">
+              <option :value="null" disabled>Select…</option>
+              <option :value="true">Yes</option>
+              <option :value="false">No</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Supervisor / approver *</label>
+            <input v-model="reimbursementForm.purchaseApprovedBy" type="text" placeholder="Name or email…" />
+            <div class="hint">Enter the person who authorized this purchase before it was made.</div>
+          </div>
         </div>
-        <input type="file" accept="application/pdf,image/png,image/jpeg,image/jpg,image/gif,image/webp" @change="onReceiptPick" />
-        <div class="hint" v-if="reimbursementForm.receiptName">Selected: <strong>{{ reimbursementForm.receiptName }}</strong></div>
       </div>
 
-      <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
-        <input v-model="reimbursementForm.attestation" type="checkbox" />
-        <span>I certify this reimbursement is accurate and I have not submitted it elsewhere.</span>
-      </label>
+      <div class="reimb-section" style="margin-top: 14px;">
+        <h3 class="card-title" style="margin: 0 0 8px 0;">5. Documentation</h3>
+        <div class="field">
+          <label>Receipt {{ editingReimbursementClaimId ? '(optional if unchanged)' : '*' }}</label>
+          <div v-if="editingReimbursementClaimId && editingReimbursementExistingReceiptPath" class="hint" style="margin-bottom: 6px;">
+            Current receipt:
+            <a :href="receiptUrl({ receipt_file_path: editingReimbursementExistingReceiptPath })" target="_blank" rel="noopener noreferrer">View</a>
+          </div>
+          <input type="file" accept="application/pdf,image/png,image/jpeg,image/jpg,image/gif,image/webp" @change="onReceiptPick" />
+          <div class="hint" v-if="reimbursementForm.receiptName">Selected: <strong>{{ reimbursementForm.receiptName }}</strong></div>
+        </div>
+      </div>
 
-      <div class="hint" style="margin-top: 10px;">
-        To be paid in the pay period that ends Friday, submit by Sunday 11:59 PM. After that, it will be considered for the next pay period.
-        Background check and other reimbursements are not limited to 60 days from the expense date.
+      <div class="reimb-section" style="margin-top: 14px;">
+        <h3 class="card-title" style="margin: 0 0 8px 0;">6. Certification &amp; submission</h3>
+        <label class="control" style="display: flex; gap: 10px; align-items: center;">
+          <input v-model="reimbursementForm.attestation" type="checkbox" />
+          <span>I certify this reimbursement is accurate and I have not submitted it elsewhere.</span>
+        </label>
+        <div class="hint" style="margin-top: 10px;">
+          To be paid in the current pay period (ending Friday), submit by Sunday 11:59 PM. Submissions after this will be processed in the next pay period.
+          Background check and other reimbursements are not limited to 60 days from the expense date.
+        </div>
       </div>
 
       <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
@@ -2542,6 +2630,15 @@ const onPayrollActionItem = (item) => {
 const showMileageModal = ref(false);
 const submittingMileage = ref(false);
 const submitMileageError = ref('');
+const mileageAttachmentFile = ref(null);
+
+const onMileageAttachmentChange = (e) => {
+  const f = e?.target?.files?.[0] || null;
+  mileageAttachmentFile.value = f || null;
+};
+const clearMileageAttachment = () => {
+  mileageAttachmentFile.value = null;
+};
 const submitSuccess = ref('');
 const mileageClaims = ref([]);
 const mileageClaimsLoading = ref(false);
@@ -3543,6 +3640,7 @@ const closeMileageModal = () => {
   editingHomeAddress.value = false;
   schoolTravelManualMilesMode.value = false;
   schoolTravelManualMilesReason.value = '';
+  mileageAttachmentFile.value = null;
   emit('mileage-modal-closed');
 };
 
@@ -3693,7 +3791,7 @@ const submitMileage = async () => {
         }
       }
     }
-    const resp = await api.post('/payroll/me/mileage-claims', {
+    const payload = {
       agencyId: agencyId.value,
       claimType: mileageForm.value.claimType || 'school_travel',
       driveDate: mileageForm.value.driveDate,
@@ -3710,9 +3808,26 @@ const submitMileage = async () => {
       tripPurpose: mileageForm.value.tripPurpose,
       costCenter: mileageForm.value.costCenter,
       attestation: !!mileageForm.value.attestation
-    });
+    };
+
+    let resp;
+    if (payload.claimType !== 'school_travel') {
+      const fd = new FormData();
+      Object.entries(payload).forEach(([k, v]) => {
+        if (v === null || v === undefined) return;
+        if (typeof v === 'boolean') fd.append(k, v ? '1' : '0');
+        else fd.append(k, String(v));
+      });
+      if (mileageAttachmentFile.value) {
+        fd.append('attachment', mileageAttachmentFile.value);
+      }
+      resp = await api.post('/payroll/me/mileage-claims', fd);
+    } else {
+      resp = await api.post('/payroll/me/mileage-claims', payload);
+    }
     emit('mileage-submitted');
     closeMileageModal();
+    mileageAttachmentFile.value = null;
     const warn = resp?.data?.submissionWarning ? String(resp.data.submissionWarning) : '';
     submitSuccess.value = warn
       ? `Mileage submission sent. Note: ${warn}`
@@ -3989,18 +4104,22 @@ const submitReimbursement = async () => {
       submitReimbursementError.value = 'Payment method is required.';
       return;
     }
-    if (!String(reimbursementForm.value.purchaseApprovedBy || '').trim()) {
-      submitReimbursementError.value = 'Who approved this purchase is required.';
-      return;
-    }
-    if (reimbursementForm.value.purchasePreapproved !== true && reimbursementForm.value.purchasePreapproved !== false) {
-      submitReimbursementError.value = 'Please select whether the purchase was pre-approved.';
-      return;
-    }
-    if (!String(reimbursementForm.value.reason || '').trim()) {
-      submitReimbursementError.value = 'Reason is required.';
-      return;
-    }
+      if (!String(reimbursementForm.value.purchaseApprovedBy || '').trim()) {
+        submitReimbursementError.value = 'Who approved this purchase is required.';
+        return;
+      }
+      if (reimbursementForm.value.purchasePreapproved !== true && reimbursementForm.value.purchasePreapproved !== false) {
+        submitReimbursementError.value = 'Please select whether the purchase was pre-approved.';
+        return;
+      }
+      if (!String(reimbursementForm.value.vendor || '').trim()) {
+        submitReimbursementError.value = 'Vendor is required.';
+        return;
+      }
+      if (!String(reimbursementForm.value.reason || '').trim()) {
+        submitReimbursementError.value = 'Reason is required.';
+        return;
+      }
     if (!String(reimbursementForm.value.notes || '').trim()) {
       submitReimbursementError.value = 'Notes are required.';
       return;
@@ -4033,7 +4152,11 @@ const submitReimbursement = async () => {
     fd.append('expenseDate', expenseDate);
     fd.append('amount', String(amount));
     fd.append('paymentMethod', String(reimbursementForm.value.paymentMethod || '').trim());
-    if (String(reimbursementForm.value.vendor || '').trim()) fd.append('vendor', String(reimbursementForm.value.vendor || '').trim());
+    if (String(reimbursementForm.value.vendor || '').trim()) {
+      fd.append('vendor', String(reimbursementForm.value.vendor || '').trim());
+    } else {
+      fd.append('vendor', '');
+    }
     fd.append('purchaseApprovedBy', String(reimbursementForm.value.purchaseApprovedBy || '').trim());
     fd.append('purchasePreapproved', reimbursementForm.value.purchasePreapproved ? '1' : '0');
     if (String(reimbursementForm.value.projectRef || '').trim()) fd.append('projectRef', String(reimbursementForm.value.projectRef || '').trim());
@@ -5790,6 +5913,12 @@ select {
   grid-template-columns: minmax(88px, 1fr) repeat(6, minmax(72px, 92px));
   gap: 6px;
   align-items: baseline;
+}
+.code-row-note {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  padding: 0 0 8px 0;
+  margin-top: -2px;
 }
 .code {
   font-weight: 600;

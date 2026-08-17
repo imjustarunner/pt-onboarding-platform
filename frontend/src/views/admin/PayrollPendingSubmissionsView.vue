@@ -661,32 +661,50 @@
               <div class="field"><label>Status</label><div>{{ String(reviewedMileageClaim.status || '—').toUpperCase() }}</div></div>
               <div class="field"><label>Drive date</label><div>{{ fmtDate(reviewedMileageClaim.drive_date || reviewedMileageClaim.claim_date || reviewedMileageClaim.trip_date) }}</div></div>
               <div class="field"><label>Type</label><div>{{ mileageTypeLabel(reviewedMileageClaim) }}</div></div>
-              <div class="field"><label>Eligible miles</label><div>{{ fmtNum(Number(reviewedMileageClaim.eligible_miles ?? reviewedMileageClaim.miles ?? 0)) }}</div></div>
-              <div class="field"><label>Claim miles (stored)</label><div>{{ fmtNum(Number(reviewedMileageClaim.miles ?? 0)) }}</div></div>
               <div class="field"><label>Suggested pay period</label><div>{{ periodLabelForId(reviewedMileageClaim.suggested_payroll_period_id) }}</div></div>
               <div class="field"><label>Submitted by</label><div>{{ submitterLabel(reviewedMileageClaim) }}</div></div>
             </div>
 
-            <div class="pps-detail-grid">
-              <div class="field"><label>Home ↔ School RT</label><div>{{ fmtNum(Number(reviewedMileageClaim.home_school_roundtrip_miles ?? 0)) }}</div></div>
-              <div class="field"><label>Home ↔ Office RT</label><div>{{ fmtNum(Number(reviewedMileageClaim.home_office_roundtrip_miles ?? 0)) }}</div></div>
-              <div class="field"><label>Round trip</label><div>{{ reviewedMileageClaim.round_trip === 0 || reviewedMileageClaim.round_trip === false ? 'No' : 'Yes' }}</div></div>
-              <div class="field"><label>Tier level</label><div>{{ reviewedMileageClaim.tier_level ?? '—' }}</div></div>
-            </div>
+            <template v-if="String(reviewedMileageClaim.claim_type || '').toLowerCase() === 'school_travel'">
+              <div class="pps-detail-grid">
+                <div class="field"><label>Eligible miles</label><div>{{ fmtNum(Number(reviewedMileageClaim.eligible_miles ?? reviewedMileageClaim.miles ?? 0)) }}</div></div>
+                <div class="field"><label>Claim miles (stored)</label><div>{{ fmtNum(Number(reviewedMileageClaim.miles ?? 0)) }}</div></div>
+                <div class="field"><label>Home ↔ School RT</label><div>{{ fmtNum(Number(reviewedMileageClaim.home_school_roundtrip_miles ?? 0)) }}</div></div>
+                <div class="field"><label>Home ↔ Office RT</label><div>{{ fmtNum(Number(reviewedMileageClaim.home_office_roundtrip_miles ?? 0)) }}</div></div>
+                <div class="field" v-if="reviewedMileageClaim.tier_level != null && reviewedMileageClaim.tier_level !== ''">
+                  <label>Tier level</label><div>{{ reviewedMileageClaim.tier_level }}</div>
+                </div>
+              </div>
+              <div class="pps-detail-grid">
+                <div class="field"><label>Start location</label><div style="white-space: pre-wrap;">{{ reviewedMileageClaim.start_location || '—' }}</div></div>
+                <div class="field"><label>End location</label><div style="white-space: pre-wrap;">{{ reviewedMileageClaim.end_location || '—' }}</div></div>
+              </div>
+            </template>
 
-            <div class="pps-detail-grid">
-              <div class="field"><label>Start location</label><div style="white-space: pre-wrap;">{{ reviewedMileageClaim.start_location || '—' }}</div></div>
-              <div class="field"><label>End location</label><div style="white-space: pre-wrap;">{{ reviewedMileageClaim.end_location || '—' }}</div></div>
-            </div>
-
-            <template v-if="String(reviewedMileageClaim.claim_type || '').toLowerCase() !== 'school_travel'">
-              <div class="card" style="padding: 10px; margin-top: 4px;">
-                <strong style="display:block; margin-bottom: 8px;">Trip details (Other Mileage)</strong>
-                <div class="pps-detail-grid">
-                  <div class="field"><label>Approved by</label><div>{{ reviewedMileageClaim.trip_approved_by || '—' }}</div></div>
-                  <div class="field"><label>Pre-approved</label><div>{{ mileagePreapprovedLabel(reviewedMileageClaim) }}</div></div>
-                  <div class="field"><label>Purpose</label><div style="white-space: pre-wrap;">{{ reviewedMileageClaim.trip_purpose || '—' }}</div></div>
-                  <div class="field"><label>Cost center / client / school</label><div style="white-space: pre-wrap;">{{ reviewedMileageClaim.cost_center || '—' }}</div></div>
+            <template v-else>
+              <div class="pps-detail-grid">
+                <div class="field"><label>Miles</label><div>{{ fmtNum(Number(reviewedMileageClaim.miles ?? 0)) }}</div></div>
+                <div class="field"><label>Round trip</label><div>{{ reviewedMileageClaim.round_trip === 0 || reviewedMileageClaim.round_trip === false ? 'No' : 'Yes' }}</div></div>
+                <div class="field"><label>Approved by</label><div>{{ reviewedMileageClaim.trip_approved_by || '—' }}</div></div>
+                <div class="field"><label>Pre-approved</label><div>{{ mileagePreapprovedLabel(reviewedMileageClaim) }}</div></div>
+              </div>
+              <div class="pps-detail-grid">
+                <div class="field"><label>Start location</label><div style="white-space: pre-wrap;">{{ reviewedMileageClaim.start_location || '—' }}</div></div>
+                <div class="field"><label>End location</label><div style="white-space: pre-wrap;">{{ reviewedMileageClaim.end_location || '—' }}</div></div>
+                <div class="field"><label>Purpose</label><div style="white-space: pre-wrap;">{{ reviewedMileageClaim.trip_purpose || '—' }}</div></div>
+                <div class="field"><label>Cost center / client / school</label><div style="white-space: pre-wrap;">{{ reviewedMileageClaim.cost_center || '—' }}</div></div>
+              </div>
+              <div
+                v-if="reviewedMileageClaim.attachment_file_path"
+                class="field"
+              >
+                <label>Attachment</label>
+                <div>
+                  <a
+                    :href="proofUrl(reviewedMileageClaim.attachment_file_path)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >{{ reviewedMileageClaim.attachment_original_name || 'View attachment' }}</a>
                 </div>
               </div>
             </template>

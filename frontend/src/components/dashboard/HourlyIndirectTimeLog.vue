@@ -419,7 +419,7 @@
           <p v-if="selectedTypeIds.size === 1" class="itl-single-alloc-summary">
             One independent time claim for <strong>{{ singleSelectedActivityLabel }}</strong>
             ({{ formatHm(sessionTotalMinutes) }}).
-            Enter who approved this time below, certify accuracy, and submit.
+            Add a short description, enter who approved this time below, certify accuracy, and submit.
           </p>
 
           <IndirectTimeAllocationPanel
@@ -434,6 +434,18 @@
             @update:selected-type-ids="onAllocationSelectedIds"
             @validity="allocationValid = $event"
           />
+
+          <label v-if="selectedTypeIds.size === 1" class="itl-approver-field itl-single-note-field">
+            <span class="itl-approver-label">Activity note <em>(suggested)</em></span>
+            <textarea
+              v-model="singleActivityNote"
+              class="itl-approver-input"
+              rows="2"
+              maxlength="1000"
+              :placeholder="`What did you do for ${singleSelectedActivityLabel}?`"
+            />
+            <span class="itl-approver-hint">A short description helps payroll review. Optional — you'll be asked to confirm if blank.</span>
+          </label>
 
           <div v-if="selectedCategoryWarnings.length" class="itl-category-warnings" role="status">
             <p v-for="(w, idx) in selectedCategoryWarnings" :key="idx" class="itl-category-warning">
@@ -718,6 +730,7 @@ const manualEnd = ref('');
 const manualTimeStepComplete = ref(false);
 const attestation = ref(false);
 const approvedByName = ref('');
+const singleActivityNote = ref('');
 const serviceTypes = ref([]);
 const typesLoading = ref(false);
 const selectedTypeIds = ref(new Set());
@@ -1097,6 +1110,7 @@ function chooseEntryMethod(method) {
   clearAllTypes();
   attestation.value = false;
   approvedByName.value = '';
+  singleActivityNote.value = '';
   manualTimeStepComplete.value = false;
   if (method === 'manual') {
     claimDate.value = '';
@@ -1267,6 +1281,7 @@ function buildSingleActivityAllocation() {
   if (!Number.isFinite(mins) || mins < 1) return null;
   const startTime = sessionBoundsHm.value.start || manualStart.value || null;
   const endTime = sessionBoundsHm.value.end || manualEnd.value || null;
+  const note = String(singleActivityNote.value || '').trim().slice(0, 1000);
   return enrichAllocationWithActivityCode({
     serviceTypeId: Number(typeRec.id),
     serviceTypeKey: typeKeyOf(typeRec),
@@ -1274,7 +1289,7 @@ function buildSingleActivityAllocation() {
     minutes: mins,
     startTime,
     endTime,
-    note: ''
+    ...(note ? { note } : { note: '' })
   });
 }
 
@@ -1674,7 +1689,10 @@ async function postIndirectTimeClaim({
 async function submitTime() {
   if (!canSubmit.value || !agencyId.value) return;
   const panel = allocationPanelRef.value;
-  const emptyNotes = selectedTypeIds.value.size > 1 ? (panel?.getEmptyNoteLabels?.() || []) : [];
+  let emptyNotes = selectedTypeIds.value.size > 1 ? (panel?.getEmptyNoteLabels?.() || []) : [];
+  if (selectedTypeIds.value.size === 1 && !String(singleActivityNote.value || '').trim()) {
+    emptyNotes = [singleSelectedActivityLabel.value || 'this activity'];
+  }
   if (emptyNotes.length) {
     const list = emptyNotes.slice(0, 6).join(', ') + (emptyNotes.length > 6 ? '…' : '');
     const ok = window.confirm(
@@ -1753,6 +1771,7 @@ async function submitTime() {
 
     attestation.value = false;
     approvedByName.value = '';
+    singleActivityNote.value = '';
     clearAllTypes();
     try {
       const key = selectionStorageKey();
@@ -2149,6 +2168,15 @@ onUnmounted(() => stopTick());
   border: 1px solid var(--itl-border);
   border-radius: 8px;
   font-size: 0.95rem;
+}
+textarea.itl-approver-input {
+  resize: vertical;
+  min-height: 64px;
+  font-family: inherit;
+  line-height: 1.4;
+}
+.itl-single-note-field {
+  margin: 12px 0 4px;
 }
 .itl-approver-hint {
   font-size: 0.78rem;
