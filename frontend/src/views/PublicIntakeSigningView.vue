@@ -2182,7 +2182,7 @@
                   </label>
                   <label>Subject <input v-model="officePdfEmailDraft.subject" /></label>
                   <label>Body <textarea v-model="officePdfEmailDraft.body" rows="6" /></label>
-                  <p class="muted">Tokens: {{ '{{AGENCY_NAME}}' }}</p>
+                  <p class="muted">Tokens: <code v-text="'{{AGENCY_NAME}}'"></code></p>
                   <button type="button" class="df-btn df-btn-secondary" :disabled="officePdfEmailSaving" @click="saveOfficePdfEmailTemplate">
                     {{ officePdfEmailSaving ? t('saving') : 'Save email settings' }}
                   </button>
