@@ -120,16 +120,27 @@ class ClientSchoolStaffRoiAccess {
            u.last_name,
            u.email,
            u.phone_number,
+           u.work_phone,
+           u.personal_phone,
+           u.title,
            u.role AS role_key,
            u.status,
            (
              SELECT sc.role_title
              FROM school_contacts sc
              WHERE sc.school_organization_id = ua.agency_id
-               AND LOWER(COALESCE(sc.email, '')) = LOWER(COALESCE(u.email, ''))
+               AND (
+                 (COALESCE(u.email, '') <> '' AND LOWER(COALESCE(sc.email, '')) = LOWER(u.email))
+                 OR (COALESCE(u.work_email, '') <> '' AND LOWER(COALESCE(sc.email, '')) = LOWER(u.work_email))
+                 OR (
+                   TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) <> ''
+                   AND LOWER(TRIM(COALESCE(sc.full_name, ''))) = LOWER(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))))
+                 )
+               )
+               AND COALESCE(sc.role_title, '') <> ''
              ORDER BY sc.id DESC
              LIMIT 1
-           ) AS role_title
+           ) AS contact_role_title
          FROM user_agencies ua
          JOIN users u
            ON u.id = ua.user_id
@@ -141,7 +152,10 @@ class ClientSchoolStaffRoiAccess {
              SELECT 1
              FROM school_contacts sc
              WHERE sc.school_organization_id = ua.agency_id
-               AND LOWER(COALESCE(sc.email, '')) = LOWER(COALESCE(u.email, ''))
+               AND (
+                 (COALESCE(u.email, '') <> '' AND LOWER(COALESCE(sc.email, '')) = LOWER(u.email))
+                 OR (COALESCE(u.work_email, '') <> '' AND LOWER(COALESCE(sc.email, '')) = LOWER(u.work_email))
+               )
                AND COALESCE(sc.is_scheduler, 0) = 1
            )
          ORDER BY u.last_name ASC, u.first_name ASC, u.email ASC`,
@@ -157,9 +171,12 @@ class ClientSchoolStaffRoiAccess {
            u.last_name,
            u.email,
            u.phone_number,
+           u.work_phone,
+           u.personal_phone,
+           u.title,
            u.role AS role_key,
            u.status,
-           NULL AS role_title
+           NULL AS contact_role_title
          FROM user_agencies ua
          JOIN users u
            ON u.id = ua.user_id
@@ -178,9 +195,9 @@ class ClientSchoolStaffRoiAccess {
       first_name: row.first_name || null,
       last_name: row.last_name || null,
       email: row.email || null,
-      phone_number: row.phone_number || null,
+      phone_number: String(row.phone_number || row.work_phone || row.personal_phone || '').trim() || null,
       role_key: row.role_key || 'school_staff',
-      role_title: row.role_title || null,
+      role_title: String(row.contact_role_title || row.title || '').trim() || null,
       status: row.status || null
     }));
   }

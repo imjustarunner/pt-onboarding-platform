@@ -14,7 +14,10 @@ import {
 } from '../schoolPrintablePacket.service.js';
 import {
   formatDisclosureEducation,
-  formatSupervisorTypeLabel
+  formatSupervisorTypeLabel,
+  isDemoPacketIdentity,
+  isDisclosureClinicalRole,
+  isNonClinicalDisclosureTitle
 } from '../smartDisclosure.service.js';
 import { DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML } from '../../content/schoolPacketTemplateDefault.en.js';
 
@@ -199,4 +202,38 @@ test('content hash changes when school staff roster changes, not when unrelated 
   });
   assert.notEqual(a, b);
   assert.equal(a, c);
+});
+
+test('disclosure clinical roles include CPA and provider plus, exclude admin', () => {
+  assert.equal(isDisclosureClinicalRole('clinical_practice_assistant'), true);
+  assert.equal(isDisclosureClinicalRole('CPA'), true);
+  assert.equal(isDisclosureClinicalRole('provider_plus'), true);
+  assert.equal(isDisclosureClinicalRole('Provider Plus'), true);
+  assert.equal(isDisclosureClinicalRole('intern_plus'), true);
+  assert.equal(isDisclosureClinicalRole('facilitator'), true);
+  assert.equal(isDisclosureClinicalRole('admin'), false);
+  assert.equal(isDisclosureClinicalRole('super_admin'), false);
+  assert.equal(isDisclosureClinicalRole('staff'), false);
+  assert.equal(isDisclosureClinicalRole('school_staff'), false);
+  assert.equal(isNonClinicalDisclosureTitle('Credentialing Specialist'), true);
+  assert.equal(isNonClinicalDisclosureTitle('Billing & Support Specialist'), true);
+  assert.equal(isNonClinicalDisclosureTitle('Therapist'), false);
+});
+
+test('demo packet identity covers known test disclosure names', () => {
+  assert.equal(isDemoPacketIdentity({ first_name: 'Robin', last_name: 'Williams' }), true);
+  assert.equal(isDemoPacketIdentity({ first_name: 'Piper', last_name: 'Finch' }), true);
+  assert.equal(isDemoPacketIdentity({ first_name: 'QR', last_name: 'Tester' }), true);
+  assert.equal(isDemoPacketIdentity({ first_name: 'Admin', last_name: 'One' }), true);
+  assert.equal(isDemoPacketIdentity({ first_name: 'Harry', last_name: 'Potter' }), true);
+  assert.equal(isDemoPacketIdentity({ first_name: 'Ivy', last_name: 'Boyer-Morton' }), false);
+});
+
+test('care team grouping drops demo/test identities even if they were school-assigned', () => {
+  const grouped = groupDisclosureProvidersByCareTeam([
+    { id: 1, fullName: 'Robin Williams', schoolAssigned: true, category: 'PRE_LICENSED' },
+    { id: 2, fullName: 'Real Provider', schoolAssigned: true, category: 'FULLY_LICENSED' }
+  ]);
+  assert.equal(grouped.yourCareTeam.length, 1);
+  assert.equal(grouped.yourCareTeam[0].fullName, 'Real Provider');
 });

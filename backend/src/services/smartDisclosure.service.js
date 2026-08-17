@@ -191,6 +191,35 @@ function isDisclosureEligibleUserStatus(status) {
   return !['ARCHIVED', 'PROSPECTIVE', 'INACTIVE_EMPLOYEE', 'TERMINATED_PENDING', 'PREHIRE_OPEN', 'PREHIRE_CLOSED', 'DENIED', 'WITHDRAWN'].includes(s);
 }
 
+/** Roles that belong on a disclosure statement (clinical / providing care). */
+export const DISCLOSURE_CLINICAL_ROLES = [
+  'provider',
+  'provider_plus',
+  'intern',
+  'intern_plus',
+  'supervisor',
+  'clinical_practice_assistant',
+  'qbha',
+  'facilitator'
+];
+
+export function normalizeDisclosureRole(role) {
+  const raw = String(role || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (raw === 'cpa' || raw === 'clinical_practice_asst') return 'clinical_practice_assistant';
+  return raw;
+}
+
+export function isDisclosureClinicalRole(role) {
+  return DISCLOSURE_CLINICAL_ROLES.includes(normalizeDisclosureRole(role));
+}
+
+export function isNonClinicalDisclosureTitle(title) {
+  const t = String(title || '').trim().toLowerCase();
+  if (!t) return false;
+  return /credentialing specialist/.test(t)
+    || /billing\s*(?:&|and)\s*support/.test(t);
+}
+
 const HOGWARTS_DEMO_FULL_NAMES = new Set([
   'sirius black',
   'alastor moody',
@@ -209,7 +238,14 @@ const HOGWARTS_DEMO_FULL_NAMES = new Set([
   'luna lovegood',
   'neville longbottom',
   'remus lupin',
-  'dolores umbridge'
+  'dolores umbridge',
+  'robin williams',
+  'piper finch',
+  'qr tester',
+  'sloppy lady',
+  'admin one',
+  'ada lovelace',
+  'karen kool'
 ]);
 
 function isHogwartsDemoIdentity(row = {}) {
@@ -221,7 +257,7 @@ function isHogwartsDemoIdentity(row = {}) {
     .join(' ');
   if (/\bhogwarts\b|\bdurmstrang\b|@hogwarts\.|@durmstrang\./i.test(hay)) return true;
   if (HOGWARTS_DEMO_FULL_NAMES.has(full)) return true;
-  if (/^super\s*admin$|^admin\s*user$|^test\s*user$/i.test(full)) return true;
+  if (/^super\s*admin$|^admin\s*user$|^test\s*user$|^qr\s*tester$/i.test(full)) return true;
   return false;
 }
 
@@ -254,11 +290,16 @@ function deriveServiceProviderLabel({ credential = '', role = '', category = '' 
   if (String(category || '').toUpperCase() !== 'UNLICENSED') return null;
   const cred = String(credential || '').trim();
   const upper = cred.toUpperCase();
-  if (/\bINTERN\b/.test(upper) || String(role || '').toLowerCase() === 'intern') return 'Intern';
+  const roleNorm = normalizeDisclosureRole(role);
+  if (roleNorm === 'clinical_practice_assistant' || roleNorm === 'qbha' || /\bCPA\b/.test(upper)) {
+    return 'Clinical Practice Assistant';
+  }
+  if (roleNorm === 'provider_plus') return cred || 'Provider Plus';
+  if (/\bINTERN\b/.test(upper) || roleNorm === 'intern' || roleNorm === 'intern_plus') return 'Intern';
   if (/\bPEER\s*SPECIALIST\b/i.test(cred)) return 'Peer Specialist';
   if (isBachelorsCredentialText(cred)) return "Bachelor's";
   if (/in[- ]?process/i.test(cred)) return 'In-Process';
-  return cred || 'Intern';
+  return cred || null;
 }
 
 function fingerprintProvider(row) {
@@ -445,7 +486,10 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
        WHERE ua.agency_id = ?
          AND COALESCE(ua.is_active, 1) = 1
          ${activeUserClause}
-         AND LOWER(COALESCE(u.role, '')) IN ('provider', 'provider_plus', 'intern', 'supervisor', 'admin', 'super_admin')
+         AND LOWER(REPLACE(REPLACE(TRIM(COALESCE(u.role, '')), ' ', '_'), '-', '_')) IN (
+           'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor',
+           'clinical_practice_assistant', 'qbha', 'facilitator', 'cpa'
+         )
        ORDER BY u.last_name ASC, u.first_name ASC`,
       [aid]
     );
@@ -461,7 +505,13 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
     if (!id || seen.has(id)) continue;
     if (!isDisclosureEligibleUserStatus(row.status)) continue;
     if (isHogwartsDemoIdentity(row)) continue;
-    ordered.push({ ...row, _schoolFirst: schoolProviders.some((s) => Number(s.id) === id) });
+    const fromSchool = schoolProviders.some((s) => Number(s.id) === id);
+    // Agency-wide roster: clinical roles only (no admins / billing / credentialing staff).
+    // School assignments still include whoever is actually assigned to that campus,
+    // so a credentialing specialist who sees clients at NLU remains on NLU packets.
+    if (!fromSchool && !isDisclosureClinicalRole(row.role)) continue;
+    if (!fromSchool && isNonClinicalDisclosureTitle(row.title)) continue;
+    ordered.push({ ...row, _schoolFirst: fromSchool });
   }
 
   const infoMap = await loadUserInfoMap(ordered.map((r) => r.id));
