@@ -5,10 +5,20 @@
 
 import { COLORADO_OUTREACH_SCHOOL_LOCATIONS } from './coloradoOutreachSchoolLocations.js';
 import { COLORADO_SPRINGS_OUTREACH_SCHOOLS } from './coloradoSpringsOutreachSchools.js';
+import {
+  COLORADO_OUTREACH_SCHOOL_ADDITIONS,
+  COLORADO_OUTREACH_LOCATION_OVERRIDES,
+  COLORADO_OUTREACH_SCHOOL_ALIASES,
+  COLORADO_OUTREACH_CHARTER_KEYS
+} from './coloradoOutreachSchoolAdditions.js';
 
-const s = (name, district, city, level, region = '', locOverride = null) => {
+const s = (name, district, city, level, region = '', locOverride = null, extra = {}) => {
   const key = `${district}:${name}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  const loc = locOverride || COLORADO_OUTREACH_SCHOOL_LOCATIONS[key] || {};
+  const loc = locOverride
+    || (Object.prototype.hasOwnProperty.call(COLORADO_OUTREACH_LOCATION_OVERRIDES, key)
+      ? COLORADO_OUTREACH_LOCATION_OVERRIDES[key]
+      : COLORADO_OUTREACH_SCHOOL_LOCATIONS[key])
+    || {};
   return {
     key,
     name,
@@ -18,7 +28,9 @@ const s = (name, district, city, level, region = '', locOverride = null) => {
     region: region || city,
     address: loc.address || null,
     lat: loc.lat ?? null,
-    lng: loc.lng ?? null
+    lng: loc.lng ?? null,
+    aliases: COLORADO_OUTREACH_SCHOOL_ALIASES[key] || extra.aliases || [],
+    isCharter: extra.isCharter === true || COLORADO_OUTREACH_CHARTER_KEYS.has(key)
   };
 };
 
@@ -30,6 +42,7 @@ const POUDRE = 'Poudre School District';
 const D11 = 'Colorado Springs School District 11';
 const D12 = 'Cheyenne Mountain School District 12';
 const D20 = 'Academy School District 20';
+const CHARTER = 'Charter';
 
 export const COLORADO_OUTREACH_SCHOOLS = [
   // —— Denver Public Schools ——
@@ -321,10 +334,17 @@ export const COLORADO_OUTREACH_SCHOOLS = [
       lat: entry.lat,
       lng: entry.lng
     })
+  ),
+  ...COLORADO_OUTREACH_SCHOOL_ADDITIONS.map((entry) =>
+    s(entry.name, entry.district, entry.city, entry.level, entry.city, {
+      address: entry.address,
+      lat: entry.lat,
+      lng: entry.lng
+    }, { isCharter: entry.isCharter === true })
   )
 ];
 
-export const OUTREACH_DISTRICTS = [DPS, APS, PUEBLO60, PUEBLO70, POUDRE, D11, D12, D20];
+export const OUTREACH_DISTRICTS = [DPS, APS, PUEBLO60, PUEBLO70, POUDRE, D11, D12, D20, CHARTER];
 
 export function normalizeOutreachName(name) {
   return String(name || '')

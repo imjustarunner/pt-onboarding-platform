@@ -3,6 +3,7 @@ import { authenticate, requireCapability } from '../middleware/auth.middleware.j
 import {
   listSchools,
   geocodeSchoolAddresses,
+  lookupSchoolAddress,
   getSummary,
   getSchool,
   patchSchool,
@@ -33,6 +34,7 @@ router.use(authenticate, requireCapability('canAccessOutreach'));
 router.get('/task-list', getTaskList);
 router.get('/schools', listSchools);
 router.post('/schools/geocode', geocodeSchoolAddresses);
+router.post('/schools/:id/lookup-address', lookupSchoolAddress);
 router.get('/summary', getSummary);
 router.get('/timeline', getTimeline);
 router.get('/trips', listTrips);

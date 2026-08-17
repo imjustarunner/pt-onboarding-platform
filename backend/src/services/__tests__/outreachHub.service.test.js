@@ -124,11 +124,11 @@ describe('outreach school address resolution helpers', () => {
 });
 
 describe('outreach school seed locations', () => {
-  it('attaches a street address and coordinates to every directory school', async () => {
+  it('attaches a street address and coordinates to every directory school except flagged gaps', async () => {
     const { COLORADO_OUTREACH_SCHOOLS } = await import('../../data/coloradoOutreachSchools.js');
-    assert.equal(COLORADO_OUTREACH_SCHOOLS.length, 349);
-    const missing = COLORADO_OUTREACH_SCHOOLS.filter((s) => !s.address || !/\d/.test(s.address) || s.lat == null || s.lng == null);
-    assert.deepEqual(missing.map((s) => s.name), []);
+    assert.ok(COLORADO_OUTREACH_SCHOOLS.length > 349);
+    const missing = COLORADO_OUTREACH_SCHOOLS.filter((s) => !s.address || !/\d/.test(s.address));
+    assert.deepEqual(missing.map((s) => s.name), ['Pueblo West Elementary School']);
     const east = COLORADO_OUTREACH_SCHOOLS.find((s) => s.name === 'East High School' && s.city === 'Denver');
     assert.ok(east.address.toLowerCase().includes('city park esplanade'));
     const palmer = COLORADO_OUTREACH_SCHOOLS.find((s) => s.name === 'Palmer Elementary School');
@@ -137,6 +137,19 @@ describe('outreach school seed locations', () => {
     assert.ok(palmer?.address);
     assert.ok(swigert?.address);
     assert.ok(montviewMs?.address);
+    const manual = COLORADO_OUTREACH_SCHOOLS.find((s) => s.key === 'denver-public-schools-mcauliffe-manual-middle-school');
+    assert.ok(manual);
+    assert.ok(manual.aliases.some((a) => /manual middle/i.test(a)));
+    const frontier = COLORADO_OUTREACH_SCHOOLS.find((s) => s.name === 'Aurora Frontier P-8');
+    assert.ok(frontier.address.toLowerCase().includes('jericho'));
+    const highlands = COLORADO_OUTREACH_SCHOOLS.find((s) => s.name === 'Aurora Highlands P-8');
+    assert.ok(highlands.address.includes('42nd'));
+    const gilpin = COLORADO_OUTREACH_SCHOOLS.find((s) => s.name === 'Denver Language School - Gilpin');
+    assert.ok(gilpin.address.toLowerCase().includes('california'));
+    const cec = COLORADO_OUTREACH_SCHOOLS.find((s) => s.name === 'CEC Early College');
+    assert.ok(cec.address.toLowerCase().includes('eliot'));
+    const csi = COLORADO_OUTREACH_SCHOOLS.filter((s) => s.district === 'Charter');
+    assert.ok(csi.length >= 20);
   });
 });
 

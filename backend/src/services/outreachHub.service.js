@@ -4,6 +4,9 @@ import {
   COLORADO_OUTREACH_SCHOOLS
 } from '../data/coloradoOutreachSchools.js';
 import {
+  COLORADO_OUTREACH_KNOWN_BAD_ADDRESSES
+} from '../data/coloradoOutreachSchoolAdditions.js';
+import {
   WINDCHIME_ORIGIN,
   tripOutboundMiles,
   tripReturnMiles,
@@ -111,40 +114,41 @@ async function reconcileOutreachPartnerLinks(agencyId) {
   }
 }
 
+function seededStreetAddress(entry) {
+  const address = String(entry?.address || '').trim();
+  return address && /\d/.test(address) ? address.slice(0, 255) : null;
+}
+
+function seededAddressStatus(entry) {
+  return seededStreetAddress(entry) ? 'verified' : 'missing';
+}
+
+function knownBadAddressFragment(entry) {
+  return String(COLORADO_OUTREACH_KNOWN_BAD_ADDRESSES[entry?.key] || '').trim();
+}
+
 export async function ensureOutreachDirectory(agencyId) {
   const id = Number(agencyId || 0);
   if (!id) return { inserted: 0, updated: 0 };
-  const expected = COLORADO_OUTREACH_SCHOOLS.length;
-  try {
-    const [countRows] = await pool.execute(
-      'SELECT COUNT(*) AS n FROM outreach_schools WHERE agency_id = ?',
-      [id]
-    );
-    const existing = Number(countRows?.[0]?.n || 0);
-    if (existing >= expected) {
-      await reconcileOutreachPartnerLinks(id);
-      const seeded = await applySeededOutreachLocations(id);
-      await reconcileVisitedSchoolsFollowUp(id);
-      void syncExistingSchoolStaffToOutreachContacts(id).catch(() => {});
-      return { inserted: 0, updated: seeded, skipped: true };
-    }
-  } catch {
-    /* table may not exist yet */
-  }
-  const affiliated = await loadAffiliatedSchools(id);
   let inserted = 0;
   let updated = 0;
-  for (const entry of COLORADO_OUTREACH_SCHOOLS) {
+  const affiliated = await loadAffiliatedSchools(id);
+  try {
+    for (const entry of COLORADO_OUTREACH_SCHOOLS) {
     const linked = pickLinkedOrg(entry, affiliated);
     const stage = linked ? 'partnered' : 'not_started';
-    const address = entry.address || `${entry.name}, ${entry.city}, CO`;
+    const address = seededStreetAddress(entry);
     const lat = Number.isFinite(Number(entry.lat)) ? Number(entry.lat) : null;
     const lng = Number.isFinite(Number(entry.lng)) ? Number(entry.lng) : null;
+    const aliases = Array.isArray(entry.aliases) && entry.aliases.length
+      ? entry.aliases.join(' | ').slice(0, 512)
+      : null;
     const [result] = await pool.execute(
       `INSERT INTO outreach_schools (
          agency_id, directory_key, linked_organization_id, name, district_name,
-         city, region, school_level, address, lat, lng, outreach_stage
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         city, region, school_level, address, lat, lng, outreach_stage,
+         is_charter, search_aliases, address_status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          linked_organization_id = IF(VALUES(linked_organization_id) IS NULL, linked_organization_id, VALUES(linked_organization_id)),
          name = VALUES(name),
@@ -152,9 +156,12 @@ export async function ensureOutreachDirectory(agencyId) {
          city = VALUES(city),
          region = VALUES(region),
          school_level = VALUES(school_level),
+         is_charter = VALUES(is_charter),
+         search_aliases = VALUES(search_aliases),
          address = IF(address IS NULL OR address = '' OR address NOT REGEXP '[0-9]', VALUES(address), address),
          lat = COALESCE(lat, VALUES(lat)),
          lng = COALESCE(lng, VALUES(lng)),
+         address_status = IF(address IS NULL OR address = '' OR address NOT REGEXP '[0-9]', VALUES(address_status), address_status),
          outreach_stage = IF(outreach_stage = 'not_started' AND VALUES(outreach_stage) = 'partnered', 'partnered', outreach_stage)`,
       [
         id,
@@ -168,11 +175,18 @@ export async function ensureOutreachDirectory(agencyId) {
         address,
         lat,
         lng,
-        stage
+        stage,
+        entry.isCharter ? 1 : 0,
+        aliases,
+        seededAddressStatus(entry)
       ]
     );
     if (result?.insertId) inserted += 1;
     else if (result?.affectedRows > 0) updated += 1;
+  }
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return { inserted: 0, updated: 0 };
+    throw e;
   }
   await reconcileOutreachPartnerLinks(id);
   await applySeededOutreachLocations(id);
@@ -181,38 +195,58 @@ export async function ensureOutreachDirectory(agencyId) {
   return { inserted, updated };
 }
 
-/** Fill placeholder city-only addresses from the seeded NCES/CDE directory. */
+/** Fill placeholder/wrong copied addresses from the seeded NCES/CDE directory. */
 export async function applySeededOutreachLocations(agencyId) {
   const id = Number(agencyId || 0);
   if (!id) return 0;
-  const [needRows] = await pool.execute(
-    `SELECT COUNT(*) AS n FROM outreach_schools
-     WHERE agency_id = ?
-       AND (
-         address IS NULL OR address = '' OR address NOT REGEXP '[0-9]'
-         OR lat IS NULL OR lng IS NULL
-       )`,
-    [id]
-  );
-  if (!Number(needRows?.[0]?.n || 0)) return 0;
-
   let updated = 0;
   for (const entry of COLORADO_OUTREACH_SCHOOLS) {
-    if (!entry.address || !/\d/.test(entry.address)) continue;
+    const seeded = seededStreetAddress(entry);
     const lat = Number.isFinite(Number(entry.lat)) ? Number(entry.lat) : null;
     const lng = Number.isFinite(Number(entry.lng)) ? Number(entry.lng) : null;
+    const status = seededAddressStatus(entry);
+    const badFrag = knownBadAddressFragment(entry);
     const [result] = await pool.execute(
       `UPDATE outreach_schools
-       SET address = ?,
-           lat = COALESCE(?, lat),
-           lng = COALESCE(?, lng)
+       SET address = IF(
+             address IS NULL OR address = '' OR address NOT REGEXP '[0-9]'
+               OR (? != '' AND address LIKE CONCAT('%', ?, '%')),
+             ?,
+             address
+           ),
+           lat = IF(
+             lat IS NULL
+               OR (? != '' AND address LIKE CONCAT('%', ?, '%')),
+             ?,
+             lat
+           ),
+           lng = IF(
+             lng IS NULL
+               OR (? != '' AND address LIKE CONCAT('%', ?, '%')),
+             ?,
+             lng
+           ),
+           address_status = IF(
+             address IS NULL OR address = '' OR address NOT REGEXP '[0-9]'
+               OR (? != '' AND address LIKE CONCAT('%', ?, '%')),
+             ?,
+             IF(address REGEXP '[0-9]', 'verified', address_status)
+           )
        WHERE agency_id = ?
          AND directory_key = ?
          AND (
            address IS NULL OR address = '' OR address NOT REGEXP '[0-9]'
            OR lat IS NULL OR lng IS NULL
+           OR (? != '' AND address LIKE CONCAT('%', ?, '%'))
          )`,
-      [entry.address, lat, lng, id, entry.key]
+      [
+        badFrag, badFrag, seeded,
+        badFrag, badFrag, lat,
+        badFrag, badFrag, lng,
+        badFrag, badFrag, status,
+        id, entry.key,
+        badFrag, badFrag
+      ]
     );
     updated += Number(result?.affectedRows || 0);
   }
@@ -243,6 +277,10 @@ function mapSchoolRow(row, activityCounts = null) {
     primary_contact_phone: row.primary_contact_phone || null,
     primary_contact_title: row.primary_contact_title || null,
     agency_contact_id: row.agency_contact_id ? Number(row.agency_contact_id) : null,
+    is_charter: Number(row.is_charter || 0) === 1,
+    search_aliases: row.search_aliases || null,
+    address_status: row.address_status || (row.address && /\d/.test(String(row.address)) ? 'verified' : 'missing'),
+    needs_address: !(row.address && /\d/.test(String(row.address))),
     email_count: Number(counts.email || row.email_count || 0),
     letter_count: Number(counts.letter || row.letter_count || 0),
     phone_count: Number(counts.phone || row.phone_count || 0),
@@ -258,6 +296,7 @@ export async function listOutreachSchools(agencyId, filters = {}) {
   const stage = String(filters.stage || '').trim().toLowerCase();
   const level = String(filters.level || '').trim().toLowerCase();
   const q = String(filters.q || '').trim();
+  const needsAddress = String(filters.needsAddress || filters.address || '').trim().toLowerCase();
   if (district) {
     where.push('s.district_name = ?');
     params.push(district);
@@ -270,10 +309,13 @@ export async function listOutreachSchools(agencyId, filters = {}) {
     where.push('s.school_level = ?');
     params.push(level);
   }
+  if (needsAddress === 'missing' || needsAddress === '1' || needsAddress === 'true') {
+    where.push("(s.address IS NULL OR s.address = '' OR s.address NOT REGEXP '[0-9]' OR s.address_status = 'missing')");
+  }
   if (q) {
-    where.push('(s.name LIKE ? OR s.city LIKE ? OR s.district_name LIKE ? OR COALESCE(s.address, \'\') LIKE ?)');
+    where.push('(s.name LIKE ? OR s.city LIKE ? OR s.district_name LIKE ? OR COALESCE(s.address, \'\') LIKE ? OR COALESCE(s.search_aliases, \'\') LIKE ?)');
     const like = `%${q}%`;
-    params.push(like, like, like, like);
+    params.push(like, like, like, like, like);
   }
   const sortKey = String(filters.sort || filters.sortBy || 'district').trim().toLowerCase();
   const sortDir = String(filters.sortDir || 'asc').trim().toLowerCase() === 'desc' ? 'DESC' : 'ASC';
@@ -310,6 +352,7 @@ async function queryOutreachSchoolRows(agencyId, filters = {}) {
   const stage = String(filters.stage || '').trim().toLowerCase();
   const level = String(filters.level || '').trim().toLowerCase();
   const q = String(filters.q || '').trim();
+  const needsAddress = String(filters.needsAddress || filters.address || '').trim().toLowerCase();
   if (district) {
     where.push('s.district_name = ?');
     params.push(district);
@@ -322,10 +365,13 @@ async function queryOutreachSchoolRows(agencyId, filters = {}) {
     where.push('s.school_level = ?');
     params.push(level);
   }
+  if (needsAddress === 'missing' || needsAddress === '1' || needsAddress === 'true') {
+    where.push("(s.address IS NULL OR s.address = '' OR s.address NOT REGEXP '[0-9]' OR s.address_status = 'missing')");
+  }
   if (q) {
-    where.push('(s.name LIKE ? OR s.city LIKE ? OR s.district_name LIKE ? OR COALESCE(s.address, \'\') LIKE ?)');
+    where.push('(s.name LIKE ? OR s.city LIKE ? OR s.district_name LIKE ? OR COALESCE(s.address, \'\') LIKE ? OR COALESCE(s.search_aliases, \'\') LIKE ?)');
     const like = `%${q}%`;
-    params.push(like, like, like, like);
+    params.push(like, like, like, like, like);
   }
   const [rows] = await pool.execute(
     `SELECT s.* FROM outreach_schools s WHERE ${where.join(' AND ')} ORDER BY s.district_name ASC, s.name ASC`,
@@ -387,7 +433,7 @@ async function resolveOutreachSchoolLocation(row) {
         return {
           latitude: geo.latitude,
           longitude: geo.longitude,
-          formattedAddress: geo.formattedAddress,
+          formattedAddress: /\d/.test(String(geo.formattedAddress || '')) ? geo.formattedAddress : null,
           source: 'geocode_name_city'
         };
       } catch (inner) {
@@ -536,6 +582,107 @@ export async function getOutreachSchool(agencyId, schoolId) {
   return { ...school, activities: acts || [], notes, contacts };
 }
 
+function parseGeminiJsonObject(text) {
+  const raw = String(text || '').trim();
+  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const body = fence ? fence[1] : raw;
+  const start = body.indexOf('{');
+  const end = body.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(body.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+function cityLooksRight(expectedCity, formatted) {
+  const city = String(expectedCity || '').trim().toLowerCase();
+  const line = String(formatted || '').toLowerCase();
+  if (!city || !line) return false;
+  return line.includes(city);
+}
+
+/** Gemini lookup for schools missing a street address. Saves only after geocode confirms the city. */
+export async function lookupOutreachSchoolAddress(agencyId, schoolId) {
+  const school = await getOutreachSchool(agencyId, schoolId);
+  if (!school) {
+    const err = new Error('School not found');
+    err.status = 404;
+    throw err;
+  }
+  if (school.address && /\d/.test(school.address) && school.address_status !== 'missing') {
+    return { updated: false, reason: 'already_verified', school };
+  }
+
+  const { callGeminiText } = await import('./geminiText.service.js');
+  const prompt = [
+    'Find the official physical street address for this Colorado public school.',
+    'Use only district, CDE, or the school\'s own website. Do not guess.',
+    `School name: ${school.name}`,
+    `District: ${school.district_name}`,
+    `City: ${school.city || ''}`,
+    'Return JSON only with keys address, confidence, source.',
+    'confidence must be "high" only if you found a street number on an official page.',
+    'If you cannot find a street number, return {"address":null,"confidence":"none","source":null}.'
+  ].join('\n');
+  const gemini = await callGeminiText({ prompt, temperature: 0, maxOutputTokens: 400 });
+  const parsed = parseGeminiJsonObject(gemini?.text);
+  const candidate = String(parsed?.address || '').trim();
+  const confidence = String(parsed?.confidence || '').trim().toLowerCase();
+  if (!candidate || !/\d/.test(candidate) || confidence !== 'high') {
+    await pool.execute(
+      `UPDATE outreach_schools SET address_status = 'missing' WHERE agency_id = ? AND id = ?`,
+      [agencyId, schoolId]
+    );
+    return {
+      updated: false,
+      reason: 'not_found',
+      school: await getOutreachSchool(agencyId, schoolId)
+    };
+  }
+
+  try {
+    const { geocodeAddressWithGoogle } = await import('./googleGeocode.service.js');
+    const geo = await geocodeAddressWithGoogle({
+      addressText: candidate,
+      state: 'CO',
+      countryCode: 'US'
+    });
+    const formatted = String(geo?.formattedAddress || candidate);
+    if (!/\d/.test(formatted) || !cityLooksRight(school.city, formatted)) {
+      await pool.execute(
+        `UPDATE outreach_schools SET address_status = 'lookup_failed' WHERE agency_id = ? AND id = ?`,
+        [agencyId, schoolId]
+      );
+      return {
+        updated: false,
+        reason: 'city_mismatch',
+        candidate,
+        school: await getOutreachSchool(agencyId, schoolId)
+      };
+    }
+    await pool.execute(
+      `UPDATE outreach_schools
+       SET address = ?, lat = ?, lng = ?, address_status = 'verified'
+       WHERE agency_id = ? AND id = ?`,
+      [formatted.slice(0, 255), geo.latitude, geo.longitude, agencyId, schoolId]
+    );
+    return { updated: true, reason: 'verified', school: await getOutreachSchool(agencyId, schoolId) };
+  } catch (e) {
+    await pool.execute(
+      `UPDATE outreach_schools SET address_status = 'lookup_failed' WHERE agency_id = ? AND id = ?`,
+      [agencyId, schoolId]
+    );
+    return {
+      updated: false,
+      reason: 'geocode_unavailable',
+      candidate,
+      school: await getOutreachSchool(agencyId, schoolId)
+    };
+  }
+}
+
 export async function updateOutreachSchool(agencyId, schoolId, patch = {}) {
   const fields = [];
   const params = [];
@@ -556,6 +703,8 @@ export async function updateOutreachSchool(agencyId, schoolId, patch = {}) {
   if (patch.address !== undefined) {
     fields.push('address = ?');
     params.push(patch.address ? String(patch.address).slice(0, 255) : null);
+    fields.push('address_status = ?');
+    params.push(patch.address && /\d/.test(String(patch.address)) ? 'verified' : 'missing');
   }
   if (patch.primary_contact_name !== undefined) {
     fields.push('primary_contact_name = ?');
@@ -688,6 +837,19 @@ export async function getOutreachSummary(agencyId) {
        AND next_follow_up_at <= DATE_ADD(CURDATE(), INTERVAL 7 DAY)`,
     [agencyId]
   );
+  let missingAddresses = 0;
+  try {
+    const [miss] = await pool.execute(
+      `SELECT COUNT(*) AS n
+       FROM outreach_schools
+       WHERE agency_id = ?
+         AND (address IS NULL OR address = '' OR address NOT REGEXP '[0-9]' OR address_status = 'missing')`,
+      [agencyId]
+    );
+    missingAddresses = Number(miss?.[0]?.n || 0);
+  } catch {
+    missingAddresses = 0;
+  }
   const byStage = {};
   let total = 0;
   for (const r of stageRows || []) {
@@ -704,6 +866,7 @@ export async function getOutreachSummary(agencyId) {
     active_outreach: total - (byStage.not_started || 0) - (byStage.on_hold || 0),
     meeting_scheduled: byStage.meeting_scheduled || 0,
     follow_ups_due: Number(follow?.[0]?.n || 0),
+    missing_addresses: missingAddresses,
     by_stage: byStage,
     by_district: (districtRows || []).map((r) => ({ district: r.district_name, count: Number(r.n || 0) })),
     by_contact_type: byType

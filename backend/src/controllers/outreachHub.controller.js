@@ -16,6 +16,7 @@ import {
   completeOutreachTrip,
   updateOutreachTripStopAttendance,
   backfillOutreachSchoolGeocodes,
+  lookupOutreachSchoolAddress,
   previewHistoricalOutreachImport,
   importHistoricalOutreachRows,
   syncExistingSchoolStaffToOutreachContacts
@@ -50,6 +51,7 @@ export const listSchools = async (req, res, next) => {
       stage: req.query.stage,
       level: req.query.level,
       q: req.query.q,
+      needsAddress: req.query.needsAddress || req.query.needs_address,
       sort: req.query.sort,
       sortDir: req.query.sortDir || req.query.sort_dir
     });
@@ -79,6 +81,18 @@ export const getSummary = async (req, res, next) => {
     res.json(summary);
   } catch (err) {
     next(err);
+  }
+};
+
+export const lookupSchoolAddress = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFrom(req);
+    const schoolId = Number(req.params.id || 0);
+    if (!agencyId || !schoolId) return res.status(400).json({ error: { message: 'agencyId and school id are required' } });
+    const result = await lookupOutreachSchoolAddress(agencyId, schoolId);
+    res.json(result);
+  } catch (err) {
+    handleServiceError(res, err);
   }
 };
 

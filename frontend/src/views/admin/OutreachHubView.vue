@@ -53,6 +53,11 @@
         <strong>{{ summary.follow_ups_due || 0 }}</strong>
         <em>Next 7 days</em>
       </div>
+      <div class="ohub-kpi warn">
+        <span>Need address</span>
+        <strong>{{ summary.missing_addresses || 0 }}</strong>
+        <em>Flagged for manual / Gemini lookup</em>
+      </div>
       <div class="ohub-kpi visit">
         <span>Visits logged</span>
         <strong>{{ summary.by_contact_type?.visit || 0 }}</strong>
@@ -78,6 +83,10 @@
         <select v-model="filters.stage" @change="reload">
           <option value="">All stages</option>
           <option v-for="st in stageOptions" :key="st.id" :value="st.id">{{ st.label }}</option>
+        </select>
+        <select v-model="filters.needsAddress" @change="reload">
+          <option value="">All addresses</option>
+          <option value="missing">Needs address</option>
         </select>
         <button v-if="hasFilters" type="button" class="btn-link" @click="clearFilters">Clear filters</button>
         <button type="button" class="btn-link" @click="showImport = !showImport">
@@ -166,7 +175,12 @@
               >
                 <td>
                   <strong>{{ row.name }}</strong>
-                  <div class="ohub-muted">{{ row.address || row.city || '—' }}</div>
+                  <span v-if="row.is_charter" class="ohub-charter">Charter</span>
+                  <div class="ohub-muted">
+                    <span v-if="row.needs_address" class="ohub-missing-addr">Needs address</span>
+                    <template v-else>{{ row.address || row.city || '—' }}</template>
+                  </div>
+                  <div v-if="row.search_aliases" class="ohub-muted">Also {{ (row.search_aliases || '').split(' | ').join(', ') }}</div>
                 </td>
                 <td>{{ levelLabel(row.school_level) }}</td>
                 <td>{{ shortDistrict(row.district_name) }}</td>
@@ -362,8 +376,18 @@
 
           <template v-if="panelTab === 'overview'">
           <dl class="ohub-meta">
-            <div><dt>Address</dt><dd>{{ selected.address || '—' }}</dd></div>
-            <div><dt>District</dt><dd>{{ selected.district_name }}</dd></div>
+            <div><dt>Address</dt>
+              <dd>
+                <template v-if="selected.needs_address">
+                  <span class="ohub-missing-addr">Needs address — do not visit until confirmed</span>
+                  <button type="button" class="btn-link" :disabled="addressLookupSaving" @click="lookupSelectedAddress">
+                    {{ addressLookupSaving ? 'Looking up…' : 'Look up with Gemini' }}
+                  </button>
+                </template>
+                <template v-else>{{ selected.address || '—' }}</template>
+              </dd>
+            </div>
+            <div><dt>District</dt><dd>{{ selected.district_name }}{{ selected.is_charter ? ' · Charter' : '' }}</dd></div>
             <div><dt>Level</dt><dd>{{ levelLabel(selected.school_level) }}</dd></div>
             <div><dt>City</dt><dd>{{ selected.city || '—' }}</dd></div>
             <div><dt>Partner school</dt><dd>{{ selected.linked_organization_id ? 'Yes — already in our caseload' : 'Not yet' }}</dd></div>
@@ -773,6 +797,7 @@ const WINDCHIME_COORDS = { lat: 38.9246, lng: -104.8452 };
 
 const loading = ref(false);
 const saving = ref(false);
+const addressLookupSaving = ref(false);
 const error = ref('');
 const viewMode = ref('tracker');
 const schools = ref([]);
@@ -808,7 +833,7 @@ const timeline = ref([]);
 const timelineType = ref('visit');
 const timelineFrom = ref('');
 const timelineTo = ref('');
-const filters = reactive({ q: '', district: '', level: '', stage: '' });
+const filters = reactive({ q: '', district: '', level: '', stage: '', needsAddress: '' });
 const sortKey = ref('district');
 const sortDir = ref('asc');
 const noteForm = reactive({ body: '' });
@@ -870,7 +895,7 @@ const importSaving = ref(false);
 
 const districts = computed(() => (summary.value.by_district || []).map((d) => d.district));
 const districtCount = computed(() => districts.value.length);
-const hasFilters = computed(() => !!(filters.q || filters.district || filters.level || filters.stage));
+const hasFilters = computed(() => !!(filters.q || filters.district || filters.level || filters.stage || filters.needsAddress));
 const orgPrefix = computed(() => {
   const slug = typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : '';
   return slug ? `/${slug}` : '';
@@ -951,6 +976,7 @@ const shortDistrict = (name) => {
   if (n.includes('Pueblo City')) return 'Pueblo D60';
   if (n.includes('Pueblo County')) return 'Pueblo D70';
   if (n.includes('Poudre')) return 'Poudre';
+  if (n === 'Charter' || n.includes('Charter School Institute')) return 'Charter';
   return n;
 };
 
@@ -984,6 +1010,7 @@ const clearFilters = () => {
   filters.district = '';
   filters.level = '';
   filters.stage = '';
+  filters.needsAddress = '';
   void reload();
 };
 
@@ -1003,6 +1030,7 @@ const reload = async () => {
     if (filters.district) params.district = filters.district;
     if (filters.level) params.level = filters.level;
     if (filters.stage) params.stage = filters.stage;
+    if (filters.needsAddress) params.needsAddress = filters.needsAddress;
     if (sortKey.value) params.sort = sortKey.value;
     if (sortDir.value) params.sortDir = sortDir.value;
     const [sumRes, listRes] = await Promise.all([
@@ -1040,6 +1068,28 @@ const selectSchool = async (id) => {
     await loadSchoolExtras(id);
   } catch (err) {
     error.value = err.response?.data?.error?.message || err.message || 'Could not load school.';
+  }
+};
+
+const lookupSelectedAddress = async () => {
+  if (!selectedId.value) return;
+  addressLookupSaving.value = true;
+  error.value = '';
+  try {
+    const res = await api.post(`/outreach/schools/${selectedId.value}/lookup-address`);
+    if (res.data?.school) selected.value = res.data.school;
+    if (!res.data?.updated) {
+      error.value = res.data?.reason === 'not_found'
+        ? 'No official street address found. Leave it blank and enter it manually.'
+        : res.data?.reason === 'city_mismatch'
+          ? 'A possible address was found but it did not match this city, so it was not saved.'
+          : 'Could not confirm an address. It was left blank.';
+    }
+    await reload();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Address lookup failed.';
+  } finally {
+    addressLookupSaving.value = false;
   }
 };
 
@@ -1897,6 +1947,19 @@ onMounted(async () => {
   color: #166534;
   font-weight: 700;
   margin-right: 6px;
+}
+.ohub-missing-addr { color: #b45309; font-weight: 700; }
+.ohub-charter {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6d28d9;
+  background: #f3e8ff;
+  padding: 1px 6px;
+  border-radius: 999px;
 }
 .ohub-inline-err { color: #b91c1c; font-size: 12px; margin: 0; }
 .ohub-inline-ok { color: #166534; font-size: 12px; margin: 0; }
