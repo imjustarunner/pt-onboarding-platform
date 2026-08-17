@@ -35,6 +35,31 @@ jobs:
 
       - id: 'auth'
         name: 'Authenticate to Google Cloud'
+        continue-on-error: true
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Wait after GitHub rate limit on GCP auth
+        if: steps.auth.outcome == 'failure'
+        run: sleep 25
+
+      - id: 'auth-retry'
+        name: 'Retry authenticate to Google Cloud'
+        if: steps.auth.outcome == 'failure'
+        continue-on-error: true
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Wait after second GitHub rate limit on GCP auth
+        if: steps.auth.outcome == 'failure' && steps.auth-retry.outcome == 'failure'
+        run: sleep 40
+
+      - name: 'Final authenticate to Google Cloud'
+        if: steps.auth.outcome == 'failure' && steps.auth-retry.outcome == 'failure'
         uses: 'google-github-actions/auth@v2'
         with:
           credentials_json: '${{ secrets.GCP_SA_KEY }}'

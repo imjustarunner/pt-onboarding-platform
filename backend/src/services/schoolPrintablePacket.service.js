@@ -32,27 +32,34 @@ const FONT_DIR = path.join(__dirname, '../assets/schoolPrintablePacket/fonts');
 const COMFORTAA_PATH = path.join(FONT_DIR, 'Comfortaa-Variable.ttf');
 const ANTON_PATH = path.join(FONT_DIR, 'Anton-Regular.ttf');
 const BRAND_DIR = path.join(__dirname, '../assets/schoolPrintablePacket/brand');
-const BRAND_FALLBACK_ROOT = path.resolve(__dirname, '../../../assets/ITSCO Brand');
+const BRAND_FALLBACK_ROOT = path.resolve(__dirname, '../../../assets/PrintingAssets/ITSCO Brand');
+const BRAND_FALLBACK_ROOT_LEGACY = path.resolve(__dirname, '../../../assets/ITSCO Brand');
 /** Header wordmark PNG (from ITSCO Brand / Google export image1). */
 const HEADER_LOGO_CANDIDATES = [
   path.join(BRAND_DIR, 'header-logo.png'),
   path.join(BRAND_DIR, 'image1.jpg'),
-  path.join(BRAND_FALLBACK_ROOT, 'images', 'image1.jpg')
+  path.join(BRAND_FALLBACK_ROOT, 'images', 'image1.jpg'),
+  path.join(BRAND_FALLBACK_ROOT_LEGACY, 'images', 'image1.jpg')
 ];
 /** Bottom-left footer mark: ITSCOpnginvisiblebackgroundBW (black ITSCO mark). */
 const FOOTER_MARK_CANDIDATES = [
   path.join(BRAND_DIR, 'footer-mark-from-bw.png'),
   path.join(BRAND_DIR, 'footer-mark-bw.png'),
   path.join(BRAND_DIR, 'ITSCOpnginvisiblebackgroundBW.png'),
-  path.join(BRAND_FALLBACK_ROOT, 'ITSCOpnginvisiblebackgroundBW.png')
+  path.join(BRAND_FALLBACK_ROOT, 'ITSCOpnginvisiblebackgroundBW.png'),
+  path.join(BRAND_FALLBACK_ROOT_LEGACY, 'ITSCOpnginvisiblebackgroundBW.png')
 ];
 const WATERMARK_CANDIDATES = [
   path.join(BRAND_DIR, 'ITSCOpnginvisiblebackgroundBW.png'),
   path.join(BRAND_DIR, 'itsco-watermark-bw.png'),
-  path.join(BRAND_FALLBACK_ROOT, 'ITSCOpnginvisiblebackgroundBW.png')
+  path.join(BRAND_FALLBACK_ROOT, 'ITSCOpnginvisiblebackgroundBW.png'),
+  path.join(BRAND_FALLBACK_ROOT_LEGACY, 'ITSCOpnginvisiblebackgroundBW.png')
 ];
 const COVER_PAGE_CANDIDATES = [
-  path.join(BRAND_DIR, 'cover-page.png')
+  path.join(BRAND_DIR, 'ITSCOSchoolPacketCover.png'),
+  path.join(BRAND_FALLBACK_ROOT, 'ITSCOSchoolPacketCover.png'),
+  path.join(BRAND_DIR, 'cover-page.png'),
+  path.join(BRAND_FALLBACK_ROOT, 'ITSCOCoverPacket.png')
 ];
 
 const PAGE_SIZE = { widthIn: 8.5, heightIn: 11 };
@@ -82,6 +89,10 @@ function resolveBrandFile(filename) {
   if (fs.existsSync(fallbackImage)) return fallbackImage;
   const fallbackRoot = path.join(BRAND_FALLBACK_ROOT, filename);
   if (fs.existsSync(fallbackRoot)) return fallbackRoot;
+  const legacyImage = path.join(BRAND_FALLBACK_ROOT_LEGACY, 'images', filename);
+  if (fs.existsSync(legacyImage)) return legacyImage;
+  const legacyRoot = path.join(BRAND_FALLBACK_ROOT_LEGACY, filename);
+  if (fs.existsSync(legacyRoot)) return legacyRoot;
   throw new Error(`Missing school packet brand asset: ${filename}`);
 }
 
@@ -99,7 +110,11 @@ function firstExistingDataUrl(candidates, mime) {
 function headerLogoDataUrl() {
   return firstExistingDataUrl(HEADER_LOGO_CANDIDATES, 'image/png')
     || firstExistingDataUrl(
-      [path.join(BRAND_DIR, 'image1.jpg'), path.join(BRAND_FALLBACK_ROOT, 'images', 'image1.jpg')],
+      [
+        path.join(BRAND_DIR, 'image1.jpg'),
+        path.join(BRAND_FALLBACK_ROOT, 'images', 'image1.jpg'),
+        path.join(BRAND_FALLBACK_ROOT_LEGACY, 'images', 'image1.jpg')
+      ],
       'image/jpeg'
     );
 }
@@ -433,18 +448,17 @@ function buildCoverPageHtml(packetContext = {}) {
   const brand = packetContext?.brand || null;
   const cover = brand?.coverDataUrl || (brand && brand.useItscoChrome === false ? null : coverPageDataUrl());
   const schoolName = String(packetContext?.organization?.name || 'School').trim();
-  const title = `<h1 class="cover-page-title">${escapeHtml(schoolName)} School Packet</h1>`;
   if (!cover) {
     return `
       <section class="packet-cover packet-cover-fallback">
-        ${title}
+        <h1 class="cover-page-title">${escapeHtml(schoolName)} School Packet</h1>
       </section>
     `;
   }
   return `
-    <section class="packet-cover">
-      <img class="cover-photo" src="${cover}" alt="${escapeHtml(schoolName)} School Packet cover" />
-      ${title}
+    <section class="packet-cover packet-cover-designed">
+      <img class="cover-photo" src="${cover}" alt="${escapeHtml(schoolName)} school packet cover" />
+      <p class="cover-school-caption">${escapeHtml(schoolName)}</p>
     </section>
   `;
 }
@@ -503,7 +517,7 @@ export async function buildSchoolPrintablePacketContext({ organizationId, locale
     }
   }
 
-  const brand = await resolvePacketBrandChrome(tenantAgency || organization);
+  const brand = await resolvePacketBrandChrome(tenantAgency || organization, { packetKind: 'school' });
 
   return {
     version: Number(template?.version || 1),
@@ -609,10 +623,19 @@ function buildPacketStyleBlock(brand = null) {
       .cover-photo {
         display: block;
         width: 100%;
-        max-height: 8.6in;
+        max-height: 9.2in;
         height: auto;
         object-fit: contain;
         object-position: center center;
+      }
+      .cover-school-caption {
+        margin: 0.12in 0 0;
+        text-align: center;
+        font-family: ${bodyFont};
+        font-weight: 700;
+        font-size: 16px;
+        letter-spacing: 0.04em;
+        color: #1b3d2f;
       }
       .cover-title {
         margin: 1in auto;

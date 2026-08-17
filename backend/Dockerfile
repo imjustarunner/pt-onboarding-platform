@@ -135,6 +135,9 @@ COPY backend/uploads ./uploads
 # Focus Music catalog (streamed via /api/focus-music/*; not in frontend dist).
 COPY assets/focus-music ./assets/focus-music
 
+# Packet covers / print chrome (ITSCO school vs office, NLU intake cover).
+COPY assets/PrintingAssets ./assets/PrintingAssets
+
 # Copy built frontend from builder stage to public directory
 COPY --from=frontend-builder /app/frontend/dist ./public
 

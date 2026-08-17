@@ -61,18 +61,16 @@ function buildOfficeCoverPageHtml(packetContext = {}) {
   const locale = packetContext?.locale || 'en';
   const brand = packetContext?.brand || null;
   const cover = brand?.coverDataUrl || null;
-  const title = `<h1 class="cover-page-title">${officePacketTitle(variant, locale)}</h1>`;
   if (!cover) {
     return `
       <section class="packet-cover packet-cover-fallback">
-        ${title}
+        <h1 class="cover-page-title">${officePacketTitle(variant, locale)}</h1>
       </section>
     `;
   }
   return `
-    <section class="packet-cover">
+    <section class="packet-cover packet-cover-designed">
       <img class="cover-photo" src="${cover}" alt="${officePacketTitle(variant, locale)} cover" />
-      ${title}
     </section>
   `;
 }
@@ -110,7 +108,7 @@ export async function buildOfficePrintablePacketContext({ agencyId, locale = 'en
   const agencyName = String(agency.official_name || agency.name || 'Agency').trim();
   const agencyAddress = buildAgencyAddress(agency);
   const agencyPhone = String(agency.phone_number || agency.phone || '').trim();
-  const brand = await resolvePacketBrandChrome(agency);
+  const brand = await resolvePacketBrandChrome(agency, { packetKind: 'office' });
   let templateHtml = String(template?.html_content || defaultHtmlForLocale(loc, pack));
   if (isNluPacketChromeAgency(agency)) {
     templateHtml = applyNluOfficeLegalIfNeeded(templateHtml);

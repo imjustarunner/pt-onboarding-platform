@@ -40,7 +40,7 @@ const PAGE_KEYS = new Set([
 ]);
 
 const DEFAULT_IMAGES = {
-  'app.itsco.health': '/assets/SMSAssets/ITSCO/04_Support.png',
+  'app.itsco.health': '/assets/SMSAssets/ITSCO/ITSCOSupport.png',
   'app.nextleveluplcc.com': '/assets/SMSAssets/NLU/04_Support.png'
 };
 const FALLBACK_IMAGE = '/branding/plottwisthq-platform-bg.png';

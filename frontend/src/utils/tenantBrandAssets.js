@@ -51,15 +51,15 @@ function welcome(folder, file) {
 }
 
 const ITSCO_SMS = {
-  careers: sms('ITSCO', '01_Careers.png'),
-  join: sms('ITSCO', '02_Join_Us.png'),
-  school_referral: sms('ITSCO', '03_School_Referral.png'),
-  support: sms('ITSCO', '04_Support.png'),
-  events: sms('ITSCO', '05_Events.png'),
-  providers: sms('ITSCO', '06_Providers.png'),
-  terms: sms('ITSCO', '07_Terms.png'),
-  privacy: sms('ITSCO', '08_Policy_and_Services.png'),
-  login: sms('ITSCO', '09_Login.png')
+  careers: sms('ITSCO', 'ITSCOCareers.png'),
+  join: sms('ITSCO', 'ITSCOJoinUs.png'),
+  school_referral: sms('ITSCO', 'ITSCOSchoolReferral.png'),
+  support: sms('ITSCO', 'ITSCOSupport.png'),
+  events: sms('ITSCO', 'ITSCOEvents.png'),
+  providers: sms('ITSCO', 'ITSCOProviders.png'),
+  terms: sms('ITSCO', 'ITSCOTermsandConditions.png'),
+  privacy: sms('ITSCO', 'ITSCOPrivacyPolicy.png'),
+  login: sms('ITSCO', 'ITSCOLogin.png')
 };
 
 const NLU_SMS = {

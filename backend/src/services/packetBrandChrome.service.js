@@ -14,9 +14,13 @@ import { normalizeTenantBrandKey } from '../content/tenantBrandAssets.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const BRAND_DIR = path.join(__dirname, '../assets/schoolPrintablePacket/brand');
-const BRAND_FALLBACK_ROOT = path.resolve(__dirname, '../../../assets/ITSCO Brand');
+const BRAND_FALLBACK_ROOT = path.resolve(__dirname, '../../../assets/PrintingAssets/ITSCO Brand');
+const BRAND_FALLBACK_ROOT_LEGACY = path.resolve(__dirname, '../../../assets/ITSCO Brand');
 const NLU_BRAND_DIR = path.join(BRAND_DIR, 'nlu');
 const NLU_PRINTING_DIR = path.resolve(__dirname, '../../../assets/PrintingAssets/NLU Assets');
+const NLU_PRINTING_DIR_DOCKER = path.resolve(__dirname, '../../assets/PrintingAssets/NLU Assets');
+const ITSCO_PRINTING_DIR = path.resolve(__dirname, '../../../assets/PrintingAssets/ITSCO Brand');
+const ITSCO_PRINTING_DIR_DOCKER = path.resolve(__dirname, '../../assets/PrintingAssets/ITSCO Brand');
 const FONTS_DIR = path.join(__dirname, '../assets/fonts');
 
 const ITSCO_SLUGS = new Set(['itsco', 'demo', 'itsco-demo']);
@@ -95,8 +99,21 @@ export function isItscoPacketChromeAgency(agency = {}) {
   return name === 'itsco' || name.startsWith('itsco ');
 }
 
-function itscoCoverDataUrl() {
-  return firstExistingDataUrl([path.join(BRAND_DIR, 'cover-page.png')], 'image/png');
+function itscoCoverDataUrl(packetKind = 'office') {
+  const kind = String(packetKind || 'office').trim().toLowerCase();
+  const preferred = kind === 'school'
+    ? ['ITSCOSchoolPacketCover.png']
+    : ['ITSCOOfficePacketCover.png'];
+  const fallbacks = ['ITSCOCoverPacket.png', 'cover-page.png'];
+  const names = [...preferred, ...fallbacks];
+  const dirs = [BRAND_DIR, ITSCO_PRINTING_DIR, ITSCO_PRINTING_DIR_DOCKER, BRAND_FALLBACK_ROOT_LEGACY];
+  const candidates = [];
+  for (const name of names) {
+    for (const dir of dirs) {
+      candidates.push(path.join(dir, name));
+    }
+  }
+  return firstExistingDataUrl(candidates, 'image/png');
 }
 
 function itscoHeaderLogoDataUrl() {
@@ -104,11 +121,16 @@ function itscoHeaderLogoDataUrl() {
     [
       path.join(BRAND_DIR, 'header-logo.png'),
       path.join(BRAND_DIR, 'image1.jpg'),
-      path.join(BRAND_FALLBACK_ROOT, 'images', 'image1.jpg')
+      path.join(BRAND_FALLBACK_ROOT, 'images', 'image1.jpg'),
+      path.join(BRAND_FALLBACK_ROOT_LEGACY, 'images', 'image1.jpg')
     ],
     'image/png'
   ) || firstExistingDataUrl(
-    [path.join(BRAND_DIR, 'image1.jpg'), path.join(BRAND_FALLBACK_ROOT, 'images', 'image1.jpg')],
+    [
+      path.join(BRAND_DIR, 'image1.jpg'),
+      path.join(BRAND_FALLBACK_ROOT, 'images', 'image1.jpg'),
+      path.join(BRAND_FALLBACK_ROOT_LEGACY, 'images', 'image1.jpg')
+    ],
     'image/jpeg'
   );
 }
@@ -118,7 +140,8 @@ function itscoFooterMarkDataUrl() {
     [
       path.join(BRAND_DIR, 'footer-mark-bw.png'),
       path.join(BRAND_DIR, 'ITSCOpnginvisiblebackgroundBW.png'),
-      path.join(BRAND_FALLBACK_ROOT, 'ITSCOpnginvisiblebackgroundBW.png')
+      path.join(BRAND_FALLBACK_ROOT, 'ITSCOpnginvisiblebackgroundBW.png'),
+      path.join(BRAND_FALLBACK_ROOT_LEGACY, 'ITSCOpnginvisiblebackgroundBW.png')
     ],
     'image/png'
   );
@@ -128,7 +151,8 @@ function itscoWatermarkDataUrl() {
   return firstExistingDataUrl(
     [
       path.join(BRAND_DIR, 'ITSCOpnginvisiblebackgroundBW.png'),
-      path.join(BRAND_FALLBACK_ROOT, 'ITSCOpnginvisiblebackgroundBW.png')
+      path.join(BRAND_FALLBACK_ROOT, 'ITSCOpnginvisiblebackgroundBW.png'),
+      path.join(BRAND_FALLBACK_ROOT_LEGACY, 'ITSCOpnginvisiblebackgroundBW.png')
     ],
     'image/png'
   );
@@ -145,14 +169,18 @@ export function isNluPacketChromeAgency(agency = {}) {
 
 function nluAssetDataUrl(filename) {
   return firstExistingDataUrl(
-    [path.join(NLU_BRAND_DIR, filename), path.join(NLU_PRINTING_DIR, filename)],
+    [
+      path.join(NLU_BRAND_DIR, filename),
+      path.join(NLU_PRINTING_DIR, filename),
+      path.join(NLU_PRINTING_DIR_DOCKER, filename)
+    ],
     mimeFromPath(filename)
   );
 }
 
 function nluBundledChrome() {
   return {
-    coverDataUrl: nluAssetDataUrl('NLULogo.png'),
+    coverDataUrl: nluAssetDataUrl('NLUIntakeCover.png') || nluAssetDataUrl('NLULogo.png'),
     headerLogoDataUrl: nluAssetDataUrl('NLULogo.png'),
     headerImageDataUrl: nluAssetDataUrl('NLUHeader.png'),
     footerMarkDataUrl: nluAssetDataUrl('NLUFooter.png'),
@@ -182,8 +210,9 @@ function montserratSemiBoldDataUrl() {
  *   montserratSemiBoldDataUrl: string|null
  * }>}
  */
-export async function resolvePacketBrandChrome(agency = {}) {
+export async function resolvePacketBrandChrome(agency = {}, options = {}) {
   const useItsco = isItscoPacketChromeAgency(agency);
+  const packetKind = String(options?.packetKind || 'office').trim().toLowerCase() || 'office';
   const versionLabel = String(
     agency?.packet_version_label || OFFICE_PRINTABLE_PACKET_VERSION || '1.0'
   ).trim() || '1.0';
@@ -192,7 +221,7 @@ export async function resolvePacketBrandChrome(agency = {}) {
     return {
       useItscoChrome: true,
       bodyFontFamily: "'Comfortaa', Arial, sans-serif",
-      coverDataUrl: itscoCoverDataUrl(),
+      coverDataUrl: itscoCoverDataUrl(packetKind),
       headerLogoDataUrl: itscoHeaderLogoDataUrl(),
       headerImageDataUrl: null,
       footerMarkDataUrl: itscoFooterMarkDataUrl(),
@@ -239,7 +268,7 @@ export function applyPacketBrandToSpec(spec = {}, brand = null) {
 }
 
 export async function brandedIntakeSummarySpec(spec, agency) {
-  const brand = await resolvePacketBrandChrome(agency || {});
+  const brand = await resolvePacketBrandChrome(agency || {}, { packetKind: 'intake' });
   return applyPacketBrandToSpec(spec, brand);
 }
 

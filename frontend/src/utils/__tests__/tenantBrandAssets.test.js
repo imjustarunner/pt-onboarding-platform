@@ -10,8 +10,8 @@ import {
 
 describe('tenantBrandAssets', () => {
   it('maps SMS pages per tenant', () => {
-    expect(tenantSmsImage('itsco', 'support')).toContain('/SMSAssets/ITSCO/04_Support.png');
-    expect(tenantSmsImage('itsco', 'counseling')).toContain('/SMSAssets/ITSCO/02_Join_Us.png');
+    expect(tenantSmsImage('itsco', 'support')).toContain('/SMSAssets/ITSCO/ITSCOSupport.png');
+    expect(tenantSmsImage('itsco', 'counseling')).toContain('/SMSAssets/ITSCO/ITSCOJoinUs.png');
     expect(tenantSmsImage('nlu', 'counseling')).toContain('/SMSAssets/NLU/11_Counseling.png');
     expect(tenantSmsImage('nlu', 'tutoring')).toContain('/SMSAssets/NLU/12_Tutoring.png');
     expect(tenantSmsImage('nlu', 'tutors')).toContain('/SMSAssets/NLU/10_Tutors.png');
