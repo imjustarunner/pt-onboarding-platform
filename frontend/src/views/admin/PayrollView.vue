@@ -858,6 +858,13 @@
                 </div>
               </div>
 
+              <div v-else-if="wizardStep?.key === 'missed_appts'" class="hint">
+                Review Missed Appointment fees flagged as Paid in Full from the billing import.
+                <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                  <button class="btn btn-secondary" type="button" @click="wizardOpenRawMode('missed_appts_paid_in_full')" :disabled="!selectedPeriodId">Open Missed Appointment Fees</button>
+                </div>
+              </div>
+
               <div v-else-if="wizardStep?.key === 'h0031'" class="hint">
                 Process H0031 minutes + mark Done.
                 <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
@@ -6035,6 +6042,13 @@
                   </div>
                 </div>
 
+                <div v-else-if="wizardStep?.key === 'missed_appts'" class="hint">
+                  Review Missed Appointment fees flagged as Paid in Full from the billing import.
+                  <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                    <button class="btn btn-secondary" type="button" @click="wizardOpenRawMode('missed_appts_paid_in_full')" :disabled="!selectedPeriodId">Open Missed Appointment Fees</button>
+                  </div>
+                </div>
+
                 <div v-else-if="wizardStep?.key === 'h0031'" class="hint">
                   Process H0031 minutes + mark Done.
                   <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
@@ -7921,6 +7935,7 @@ const wizardSteps = computed(() => {
     { key: 'batch_catchup', title: 'Batch catch-up (prior period, optional)' },
     { key: 'upload_current', title: 'Upload current period billing report' },
     { key: 'drafts', title: 'Draft audit (mark unpaid)' },
+    { key: 'missed_appts', title: 'Missed Appointment Fees (Paid in Full)' },
     { key: 'h0031', title: 'Process H0031' },
     { key: 'h0032', title: 'Process H0032' },
     { key: 'h2014', title: 'Process H2014' },

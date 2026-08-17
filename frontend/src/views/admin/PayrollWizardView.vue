@@ -954,7 +954,7 @@ const iconSubmit = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" 
 const phases = [
   { key: 'uploads', title: 'Upload Reports', subtitle: 'Current + prior catch-up files', icon: iconCalendar, stepKeys: ['upload_reports'] },
   { key: 'prior', title: 'Prior Catch-up', subtitle: 'Draft audit Run 2 & 3', icon: iconReview, stepKeys: ['draft_audit_prior', 'batch_catchup'] },
-  { key: 'review', title: 'Review Data', subtitle: 'Drafts & process codes', icon: iconAdjust, stepKeys: ['drafts', 'h0031', 'h0032', 'h2014', '90853', 'h2032'] },
+  { key: 'review', title: 'Review Data', subtitle: 'Drafts, missed appts & codes', icon: iconAdjust, stepKeys: ['drafts', 'missed_appts', 'h0031', 'h0032', 'h2014', '90853', 'h2032'] },
   { key: 'stage', title: 'Adjustments', subtitle: 'Claims, stage & to-dos', icon: iconPreview, stepKeys: ['claims', 'stage'] },
   { key: 'submit', title: 'Run & Post', subtitle: 'Calculate and publish', icon: iconSubmit, stepKeys: ['run', 'preview', 'post'] }
 ];
@@ -1009,6 +1009,22 @@ const steps = [
     checklist: ['Review Draft Audit in this wizard', 'Review and mark unpaid drafts', 'Close when finished'],
     actions: [
       { id: 'open_raw', label: 'Review Draft Audit', primary: true, open: 'raw', mode: 'draft_audit' },
+      { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
+    ],
+    skippable: false
+  },
+  {
+    key: 'missed_appts',
+    title: 'Missed Appointment Fees',
+    description: 'Review Missed Appointment rows flagged as Paid in Full from this period’s billing import (by clinician). Display-only — confirm fees look right before processing codes.',
+    tip: 'These come from the billing report when Type includes “Missed Appointment” and Patient Balance Status is “Paid in Full”. No pay math is changed here; use this checklist so nothing is skipped.',
+    checklist: [
+      'Open Missed Appointment Fees for the current period',
+      'Review clinician totals and row counts',
+      'Note any surprises before continuing to H-codes'
+    ],
+    actions: [
+      { id: 'open_raw', label: 'Review Missed Appointment Fees', primary: true, open: 'raw', mode: 'missed_appts_paid_in_full' },
       { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: false

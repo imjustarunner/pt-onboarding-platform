@@ -4,6 +4,7 @@
       <div>
         <div class="rip-title">
           <span v-if="mode === 'draft_audit'">Raw Import (Draft Audit)</span>
+          <span v-else-if="mode === 'missed_appts_paid_in_full'">Raw Import (Missed Appointment Fees)</span>
           <span v-else-if="mode === 'process_h0031'">Raw Import (Process H0031)</span>
           <span v-else-if="mode === 'process_h0032'">Raw Import (Process H0032)</span>
           <span v-else-if="mode === 'process_h2014'">Raw Import (Process H2014)</span>
@@ -14,6 +15,9 @@
         <div class="rip-hint">
           <span v-if="mode === 'draft_audit'">
             Review DRAFT rows and mark payable vs not payable. Changes save immediately and appear on the Payroll page too.
+          </span>
+          <span v-else-if="mode === 'missed_appts_paid_in_full'">
+            Missed Appointment rows from the billing import where Patient Balance Status is Paid in Full. Display-only (no pay math) — review clinician totals before continuing.
           </span>
           <span v-else-if="String(mode).startsWith('process_') && catchUpMode">
             Enter accurate minutes (billing units are often wrong), then mark Done. FINALIZED notes are Payable for this catch-up. Sessions already in Run 1 stay hidden.
@@ -27,6 +31,7 @@
       </div>
       <div v-if="!embedded" class="rip-header-actions">
         <button type="button" class="btn btn-secondary btn-sm" :class="{ active: mode === 'draft_audit' }" @click="setMode('draft_audit')">Draft Audit</button>
+        <button type="button" class="btn btn-secondary btn-sm" :class="{ active: mode === 'missed_appts_paid_in_full' }" @click="setMode('missed_appts_paid_in_full')">Missed Fees</button>
         <button type="button" class="btn btn-secondary btn-sm" :class="{ active: mode === 'process_h0031' }" @click="setMode('process_h0031')">H0031</button>
         <button type="button" class="btn btn-secondary btn-sm" :class="{ active: mode === 'process_h0032' }" @click="setMode('process_h0032')">H0032</button>
         <button type="button" class="btn btn-secondary btn-sm" :class="{ active: mode === 'process_h2014' }" @click="setMode('process_h2014')">H2014</button>
@@ -40,6 +45,7 @@
     <!-- Embedded tab row: mode switcher shown as full-width tabs when inside wizard -->
     <div v-if="embedded" class="rip-tabs">
       <button type="button" class="rip-tab" :class="{ active: mode === 'draft_audit' }" @click="setMode('draft_audit')">Draft Audit</button>
+      <button type="button" class="rip-tab" :class="{ active: mode === 'missed_appts_paid_in_full' }" @click="setMode('missed_appts_paid_in_full')">Missed Fees</button>
       <button type="button" class="rip-tab" :class="{ active: mode === 'process_h0031' }" @click="setMode('process_h0031')">H0031</button>
       <button type="button" class="rip-tab" :class="{ active: mode === 'process_h0032' }" @click="setMode('process_h0032')">H0032</button>
       <button type="button" class="rip-tab" :class="{ active: mode === 'process_h2014' }" @click="setMode('process_h2014')">H2014</button>
@@ -53,7 +59,7 @@
 
     <template v-else>
       <div class="rip-controls">
-        <div class="field">
+        <div class="field" v-if="mode !== 'missed_appts_paid_in_full'">
           <label>Imported Snapshot</label>
           <select v-model="selectedImportId" @change="reload">
             <option v-for="imp in imports" :key="imp.id" :value="imp.id">{{ importLabel(imp) }}</option>
@@ -61,7 +67,11 @@
         </div>
         <div class="field">
           <label>Search</label>
-          <input v-model="search" type="text" placeholder="Search provider / code / DOS…" />
+          <input
+            v-model="search"
+            type="text"
+            :placeholder="mode === 'missed_appts_paid_in_full' ? 'Search clinician…' : 'Search provider / code / DOS…'"
+          />
         </div>
         <div class="field" v-if="mode === 'draft_audit' || (catchUpMode && String(mode).startsWith('process_'))">
           <label>Rows Filter</label>
@@ -83,7 +93,31 @@
         </div>
       </div>
 
-      <div class="rip-table-wrap">
+      <div v-if="mode === 'missed_appts_paid_in_full'" class="rip-table-wrap">
+        <table class="rip-table rip-table--missed">
+          <thead>
+            <tr>
+              <th>Clinician Name</th>
+              <th class="right">Total Patient Amount Paid</th>
+              <th class="right">Rows</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in visibleMissedRows" :key="r.clinician_name">
+              <td>{{ r.clinician_name || '—' }}</td>
+              <td class="right">{{ fmtMoney(r.total_patient_amount_paid) }}</td>
+              <td class="right">{{ fmtNum(r.row_count) }}</td>
+            </tr>
+            <tr v-if="!visibleMissedRows.length">
+              <td colspan="3" class="rip-muted">
+                No Paid-in-Full missed appointment rows were detected in the latest billing import for this period.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-else class="rip-table-wrap">
         <table class="rip-table">
           <thead>
             <tr>
@@ -165,7 +199,11 @@
       </div>
 
       <div class="rip-footer">
-        <span class="rip-muted">
+        <span v-if="mode === 'missed_appts_paid_in_full'" class="rip-muted">
+          Showing {{ visibleMissedRows.length }} of {{ filteredMissedRows.length }} clinician{{ filteredMissedRows.length === 1 ? '' : 's' }}
+          ({{ missedRows.length }} total).
+        </span>
+        <span v-else class="rip-muted">
           Showing {{ visibleRows.length }} of {{ filteredRows.length }} filtered rows ({{ rows.length }} total)
           <template v-if="catchUpMode && hiddenAlreadyPaidCount > 0 && rowFilter !== 'all'">
             · {{ hiddenAlreadyPaidCount }} already in Run 1 hidden
@@ -175,7 +213,22 @@
           </template>
           .
         </span>
-        <button v-if="filteredRows.length > rowLimit" type="button" class="btn btn-secondary btn-sm" @click="rowLimit = filteredRows.length">Show all</button>
+        <button
+          v-if="mode === 'missed_appts_paid_in_full' && filteredMissedRows.length > rowLimit"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          @click="rowLimit = filteredMissedRows.length"
+        >
+          Show all
+        </button>
+        <button
+          v-else-if="mode !== 'missed_appts_paid_in_full' && filteredRows.length > rowLimit"
+          type="button"
+          class="btn btn-secondary btn-sm"
+          @click="rowLimit = filteredRows.length"
+        >
+          Show all
+        </button>
       </div>
     </template>
   </div>
@@ -205,6 +258,7 @@ const mode = ref(props.initialMode || 'draft_audit');
 const loading = ref(false);
 const error = ref('');
 const rows = ref([]);
+const missedRows = ref([]);
 const imports = ref([]);
 const selectedImportId = ref(null);
 const excludedOutOfPeriod = ref(0);
@@ -292,6 +346,12 @@ const fmtNum = (n) => {
   return String(v);
 };
 
+const fmtMoney = (n) => {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '—';
+  return `$${v.toFixed(2)}`;
+};
+
 const importLabel = (imp) => {
   const slot = Number(imp?.slot_number || 0) || 1;
   const imported = String(imp?.created_at || '').slice(0, 10);
@@ -341,6 +401,18 @@ const filteredRows = computed(() => {
 
 const visibleRows = computed(() => (filteredRows.value || []).slice(0, rowLimit.value));
 
+const filteredMissedRows = computed(() => {
+  let list = (missedRows.value || []).slice();
+  const q = String(search.value || '').trim().toLowerCase();
+  if (q) {
+    list = list.filter((r) => String(r?.clinician_name || '').toLowerCase().includes(q));
+  }
+  list.sort((a, b) => String(a?.clinician_name || '').localeCompare(String(b?.clinician_name || '')));
+  return list;
+});
+
+const visibleMissedRows = computed(() => (filteredMissedRows.value || []).slice(0, rowLimit.value));
+
 const setMode = (m) => {
   mode.value = m;
   rowLimit.value = 200;
@@ -349,6 +421,7 @@ const setMode = (m) => {
   } else if (m === 'draft_audit') {
     rowFilter.value = 'unpaid_only';
   }
+  if (m === 'missed_appts_paid_in_full') reload();
 };
 
 watch(() => props.catchUpMode, (on) => {
@@ -360,22 +433,41 @@ const reload = async () => {
   loading.value = true;
   error.value = '';
   try {
-    const resp = await api.get(`/payroll/periods/${props.periodId}/raw-audit`, {
-      params: {
-        importId: selectedImportId.value || undefined
+    if (mode.value === 'missed_appts_paid_in_full') {
+      const resp = await api.get(`/payroll/periods/${props.periodId}`);
+      missedRows.value = resp.data?.missedAppointmentsPaidInFull || [];
+      periodBounds.value = {
+        start: String(resp.data?.period?.period_start || '').slice(0, 10),
+        end: String(resp.data?.period?.period_end || '').slice(0, 10)
+      };
+      // Still load imports so switching tabs works without an empty snapshot list.
+      try {
+        const audit = await api.get(`/payroll/periods/${props.periodId}/raw-audit`);
+        imports.value = audit.data?.imports || [];
+        selectedImportId.value = Number(audit.data?.selectedImportId || 0)
+          || (imports.value[imports.value.length - 1]?.id ?? null);
+      } catch {
+        /* ignore — missed fees still show from period details */
       }
-    });
-    imports.value = resp.data?.imports || [];
-    selectedImportId.value = Number(resp.data?.selectedImportId || selectedImportId.value || 0) || (imports.value[imports.value.length - 1]?.id ?? null);
-    rows.value = resp.data?.rows || [];
-    excludedOutOfPeriod.value = Number(resp.data?.excludedOutOfPeriod || 0) || 0;
-    periodBounds.value = {
-      start: String(resp.data?.periodStart || resp.data?.period?.period_start || '').slice(0, 10),
-      end: String(resp.data?.periodEnd || resp.data?.period?.period_end || '').slice(0, 10)
-    };
+    } else {
+      const resp = await api.get(`/payroll/periods/${props.periodId}/raw-audit`, {
+        params: {
+          importId: selectedImportId.value || undefined
+        }
+      });
+      imports.value = resp.data?.imports || [];
+      selectedImportId.value = Number(resp.data?.selectedImportId || selectedImportId.value || 0) || (imports.value[imports.value.length - 1]?.id ?? null);
+      rows.value = resp.data?.rows || [];
+      excludedOutOfPeriod.value = Number(resp.data?.excludedOutOfPeriod || 0) || 0;
+      periodBounds.value = {
+        start: String(resp.data?.periodStart || resp.data?.period?.period_start || '').slice(0, 10),
+        end: String(resp.data?.periodEnd || resp.data?.period?.period_end || '').slice(0, 10)
+      };
+    }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load raw audit';
     rows.value = [];
+    missedRows.value = [];
   } finally {
     loading.value = false;
   }
@@ -445,7 +537,10 @@ watch(() => props.periodId, () => {
 });
 
 watch(() => props.initialMode, (m) => {
-  if (m) mode.value = m;
+  if (m) {
+    mode.value = m;
+    if (m === 'missed_appts_paid_in_full') reload();
+  }
 });
 
 onMounted(reload);
