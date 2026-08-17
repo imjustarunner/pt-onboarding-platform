@@ -35,7 +35,40 @@
 
 .df-shell--intake-stepper .df-sidebar {
   min-width: 240px;
+  flex-shrink: 0;
   padding: clamp(1rem, 2vw, 1.5rem) clamp(0.85rem, 1.8vw, 1.15rem);
+  overflow-x: hidden;
+}
+
+/* Scenic office intake: a true fixed-width column, not a transparent strip on the photo. */
+.df-page--scenic-side .df-shell--intake-stepper {
+  --df-sidebar-w: 240px;
+}
+
+.df-page--scenic-side .df-shell--intake-stepper .df-sidebar {
+  width: 240px;
+  min-width: 240px;
+  height: 100vh;
+  height: 100dvh;
+  padding: 20px 16px;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: rgba(255, 255, 255, 0.94);
+  border-right: 1px solid rgba(27, 61, 47, 0.12);
+  color: #123c6d;
+}
+
+.df-page--scenic-side .df-shell--intake-stepper .df-sidebar-contact,
+.df-page--scenic-side .df-shell--intake-stepper .ai-security-badge.ai-security-badge--sidebar {
+  width: 100%;
+  max-width: 100%;
+}
+
+.df-page--scenic-side .df-shell--intake-stepper .ai-security-badge.ai-security-badge--sidebar {
+  background: #6b7280;
+  border-color: transparent;
+  color: #fff;
 }
 
 .df-shell--intake-stepper .df-sidebar-inner--intake {
@@ -85,7 +118,7 @@
 }
 
 .df-sidebar-intake-header {
-  margin-bottom: 1rem;
+  margin-bottom: 1.35rem;
   width: 100%;
   display: flex;
   justify-content: center;
@@ -114,9 +147,11 @@
 
 .df-sidebar-intake-steps {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: 0;
 }
 
 .df-sidebar-intake-stack {
@@ -130,7 +165,9 @@
 }
 
 .df-sidebar-inner--intake {
-  align-items: flex-start;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
 }
 
 .df-sidebar-intake-stack .df-sidebar-spacer {
@@ -184,7 +221,7 @@
 
 /* Soft cream wash so form text stays readable over the mountain photo */
 .ai-shell-host--join-flow.df-page--scenic-side {
-  --df-sidebar-w: clamp(220px, 22vw, 250px);
+  --df-sidebar-w: 240px;
   position: relative;
 }
 
@@ -222,17 +259,18 @@
 }
 
 .ai-shell-host--join-flow.df-page--scenic-side .df-sidebar {
-  min-width: 220px;
+  width: 240px;
+  min-width: 240px;
 }
 
 .ai-shell-host--join-flow.df-page--scenic-side .df-sidebar-intake-stack {
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(18, 60, 109, 0.12);
-  border-radius: 18px;
-  padding: 0.85rem 0.75rem 1rem;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.06);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .ai-shell-host--join-flow .ai-join-stage {
@@ -329,68 +367,9 @@
   display: none;
 }
 
-.ai-sidebar-steps--dark .ai-sidebar-steps-list {
-  border-left: none;
-  padding-left: 0;
-  gap: 0;
-  position: relative;
-}
-
-.ai-sidebar-steps--dark .ai-sidebar-steps-list::before {
-  content: '';
-  position: absolute;
-  left: 0.78rem;
-  top: 1.1rem;
-  bottom: 1.1rem;
-  width: 2px;
-  background: rgba(255, 255, 255, 0.22);
-  border-radius: 2px;
-}
-
-.ai-sidebar-steps--dark .ai-sidebar-step {
-  position: relative;
-  padding: 0.55rem 0 0.55rem 2.35rem;
-  color: rgba(255, 255, 255, 0.55);
-  font-size: 0.88rem;
-}
-
-.ai-sidebar-steps--dark .ai-sidebar-step--active {
-  color: #fff;
-  font-weight: 600;
-}
-
-.ai-sidebar-steps--dark .ai-sidebar-step--done {
-  color: rgba(255, 255, 255, 0.78);
-}
-
-.ai-sidebar-steps--dark .ai-sidebar-step-marker {
-  position: absolute;
-  left: 0;
-  top: 0.45rem;
-  margin-left: 0;
-  width: 1.6rem;
-  height: 1.6rem;
-  border: 2px solid rgba(255, 255, 255, 0.45);
-  background: transparent;
-  color: rgba(255, 255, 255, 0.65);
-}
-
-.ai-sidebar-steps--dark .ai-sidebar-step--active .ai-sidebar-step-marker {
-  background: #fff;
-  color: var(--df-primary, #1b3d2f);
-  border-color: #fff;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
-}
-
-.ai-sidebar-steps--dark .ai-sidebar-step--done .ai-sidebar-step-marker {
-  background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(255, 255, 255, 0.55);
-  color: #fff;
-}
-
-.ai-sidebar-steps--dark .ai-sidebar-step-hint {
-  color: rgba(255, 255, 255, 0.62);
-  font-size: 0.74rem;
+.ai-sidebar-steps {
+  width: 100%;
+  min-width: 0;
 }
 
 .ai-security-badge.ai-security-badge--sidebar {
@@ -472,26 +451,52 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
-  border-left: 2px solid color-mix(in srgb, var(--df-primary) 25%, transparent);
-  padding-left: 0.85rem;
+  gap: 0;
+  border-left: none;
+  position: relative;
 }
 
-.ai-sidebar-step--sub {
-  padding-left: 0.35rem;
+.ai-sidebar-steps-list::before {
+  content: '';
+  position: absolute;
+  left: 20px;
+  top: 20px;
+  bottom: 20px;
+  width: 1px;
+  background: color-mix(in srgb, var(--df-primary) 22%, transparent);
+  border-radius: 1px;
+  z-index: 0;
+  pointer-events: none;
 }
-.ai-sidebar-step--sub .ai-sidebar-step-marker {
-  min-width: 2.1rem;
-  font-size: 0.72rem;
+
+.ai-sidebar-step {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  color: color-mix(in srgb, var(--df-text) 78%, #64748b);
+  font-size: 0.84rem;
+}
+
+.ai-sidebar-step-btn,
+.ai-sidebar-step:not(:has(> .ai-sidebar-step-btn)) {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: start;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 6px;
+  margin: 0 0 2px;
+  box-sizing: border-box;
+}
+
+.ai-sidebar-step--sub:not(:has(> .ai-sidebar-step-btn)),
+.ai-sidebar-step--sub .ai-sidebar-step-btn {
+  padding-left: 10px;
 }
 
 .ai-sidebar-step-btn {
-  display: flex;
-  gap: 0.65rem;
-  align-items: flex-start;
-  width: 100%;
-  margin: 0;
-  padding: 0;
   border: 0;
   background: transparent;
   color: inherit;
@@ -525,23 +530,38 @@
   font-weight: 600;
 }
 
+.ai-sidebar-step--active:not(:has(> .ai-sidebar-step-btn)),
+.ai-sidebar-step--active .ai-sidebar-step-btn {
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--df-primary) 9%, #fff);
+}
+
 .ai-sidebar-step--done {
   color: var(--df-secondary);
 }
 
 .ai-sidebar-step-marker {
-  flex-shrink: 0;
-  width: 1.55rem;
-  height: 1.55rem;
+  position: relative;
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  margin: 1px 0 0;
+  justify-self: center;
   border-radius: 999px;
   border: 2px solid color-mix(in srgb, var(--df-primary) 35%, #fff);
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 700;
-  margin-left: -1.7rem;
   background: #fff;
+  box-sizing: border-box;
+  line-height: 1;
+}
+
+.ai-sidebar-step--sub .ai-sidebar-step-marker {
+  font-size: 0.62rem;
 }
 
 .ai-sidebar-step--active .ai-sidebar-step-marker {
@@ -560,13 +580,69 @@
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
-  padding-top: 0.15rem;
+  min-width: 0;
+  padding-top: 0.05rem;
+  line-height: 1.35;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.ai-sidebar-step-label {
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
 .ai-sidebar-step-hint {
   font-size: 0.72rem;
   font-weight: 400;
   color: var(--df-muted);
+  line-height: 1.3;
+}
+
+.ai-sidebar-steps--dark .ai-sidebar-steps-list::before {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.ai-sidebar-steps--dark .ai-sidebar-step {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.88rem;
+}
+
+.ai-sidebar-steps--dark .ai-sidebar-step--active {
+  color: #fff;
+}
+
+.ai-sidebar-steps--dark .ai-sidebar-step--active:not(:has(> .ai-sidebar-step-btn)),
+.ai-sidebar-steps--dark .ai-sidebar-step--active .ai-sidebar-step-btn {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.ai-sidebar-steps--dark .ai-sidebar-step--done {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.ai-sidebar-steps--dark .ai-sidebar-step-marker {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: color-mix(in srgb, var(--df-primary) 86%, #000);
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.ai-sidebar-steps--dark .ai-sidebar-step--active .ai-sidebar-step-marker {
+  background: #fff;
+  color: var(--df-primary, #1b3d2f);
+  border-color: #fff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
+}
+
+.ai-sidebar-steps--dark .ai-sidebar-step--done .ai-sidebar-step-marker {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.55);
+  color: #fff;
+}
+
+.ai-sidebar-steps--dark .ai-sidebar-step-hint {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.74rem;
 }
 
 .ai-security-badge:not(.ai-security-badge--sidebar) {
