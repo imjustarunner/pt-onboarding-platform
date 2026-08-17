@@ -87,6 +87,14 @@ const attemptLogin = async (lastNameValue = null) => {
     
     // Set auth user (token is in HttpOnly cookie, set by backend)
     authStore.setAuth(response.data.token || null, response.data.user, response.data.sessionId);
+    try {
+      const { markSchoolPortalFirstLoginOnboarding } = await import('../utils/schoolPortalFirstLoginOnboarding.js');
+      markSchoolPortalFirstLoginOnboarding(response.data.user, {
+        isFirstLogin: response.data.isFirstLogin === true
+      });
+    } catch {
+      // ignore
+    }
     
     // Mark that we just logged in to help with cookie/Bearer timing issues
     try {

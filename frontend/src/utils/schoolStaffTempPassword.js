@@ -91,3 +91,17 @@ export function formatStaffTempPasswordExpiry(hours = SCHOOL_STAFF_TEMP_PASSWORD
   }
   return `${hours} hour${hours === 1 ? '' : 's'}`;
 }
+
+const CUSTOM_TEMP_PASSWORD_ROLES = new Set(['admin', 'super_admin', 'support']);
+
+export function canSetCustomSchoolStaffTempPassword(role) {
+  return CUSTOM_TEMP_PASSWORD_ROLES.has(String(role || '').toLowerCase());
+}
+
+export function validateCustomSchoolStaffTempPassword(password) {
+  const value = String(password || '').trim();
+  if (value.length < 8) return 'Temporary password must be at least 8 characters';
+  if (value.length > 128) return 'Temporary password must be no more than 128 characters';
+  if (!/[a-zA-Z]/.test(value)) return 'Temporary password must contain at least one letter';
+  return '';
+}

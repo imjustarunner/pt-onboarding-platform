@@ -35,6 +35,7 @@ import { driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 import { useAuthStore } from '../../store/auth';
 import { useTutorialStore } from '../../store/tutorial';
+import { consumeSchoolPortalFirstLoginOnboarding } from '../../utils/schoolPortalFirstLoginOnboarding';
 import {
   SCHOOL_PORTAL_TUTORIAL_ID,
   SCHOOL_PORTAL_TUTORIAL_VERSION,
@@ -555,6 +556,14 @@ watch(
 onMounted(() => {
   document.addEventListener('pointerover', onPointerOver, true);
   document.addEventListener('pointerout', onPointerOut, true);
+  if (consumeSchoolPortalFirstLoginOnboarding()) {
+    if (tutorialStore.enabled) {
+      void startGuidedTour({ force: true });
+    } else {
+      tutorialStore.setEnabled(true);
+    }
+    return;
+  }
   if (tutorialStore.enabled) {
     void startGuidedTour();
   }

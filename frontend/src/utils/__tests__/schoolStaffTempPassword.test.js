@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   extractSchoolNumberSuffix,
   generateStaffTempPassword,
-  schoolInitials
+  schoolInitials,
+  canSetCustomSchoolStaffTempPassword,
+  validateCustomSchoolStaffTempPassword
 } from '../schoolStaffTempPassword.js';
 
 describe('schoolStaffTempPassword', () => {
@@ -44,5 +46,22 @@ describe('schoolStaffTempPassword', () => {
       Array.from({ length: 12 }, () => generateStaffTempPassword(input))
     );
     expect(passwords.size).toBeGreaterThan(1);
+  });
+});
+
+describe('custom school staff temp passwords', () => {
+  it('allows only admin, super_admin, and support', () => {
+    expect(canSetCustomSchoolStaffTempPassword('admin')).toBe(true);
+    expect(canSetCustomSchoolStaffTempPassword('super_admin')).toBe(true);
+    expect(canSetCustomSchoolStaffTempPassword('support')).toBe(true);
+    expect(canSetCustomSchoolStaffTempPassword('staff')).toBe(false);
+    expect(canSetCustomSchoolStaffTempPassword('school_staff')).toBe(false);
+    expect(canSetCustomSchoolStaffTempPassword('provider_plus')).toBe(false);
+  });
+
+  it('requires 8+ characters and a letter', () => {
+    expect(validateCustomSchoolStaffTempPassword('short')).toMatch(/at least 8/);
+    expect(validateCustomSchoolStaffTempPassword('12345678')).toMatch(/letter/);
+    expect(validateCustomSchoolStaffTempPassword('TempPass1')).toBe('');
   });
 });

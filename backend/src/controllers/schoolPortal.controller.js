@@ -3915,11 +3915,38 @@ export const removeSchoolStaff = async (req, res, next) => {
 
 /**
  * Generate a temporary password for a school staff member (school portal).
+const CUSTOM_SCHOOL_STAFF_TEMP_PASSWORD_ROLES = new Set(['admin', 'super_admin', 'support']);
+
+function actorCanSetCustomSchoolStaffTempPassword(actorRole) {
+  return CUSTOM_SCHOOL_STAFF_TEMP_PASSWORD_ROLES.has(String(actorRole || '').toLowerCase());
+}
+
+function resolveSchoolStaffTemporaryPassword({ actorRole, requestedPassword, minLength = 8 }) {
+  const requested = String(requestedPassword || '').trim();
+  if (!requested) return { ok: true, password: null };
+  if (!actorCanSetCustomSchoolStaffTempPassword(actorRole)) {
+    return { ok: true, password: null };
+  }
+  if (requested.length < minLength) {
+    return { ok: false, error: `Temporary password must be at least ${minLength} characters` };
+  }
+  if (requested.length > 128) {
+    return { ok: false, error: 'Temporary password must be no more than 128 characters' };
+  }
+  if (!/[a-zA-Z]/.test(requested)) {
+    return { ok: false, error: 'Temporary password must contain at least one letter' };
+  }
+  return { ok: true, password: requested };
+}
+
+/**
  * POST /api/school-portal/:organizationId/school-staff/:userId/send-reset-password
  * School Admins and agency backoffice roles (admin, super_admin, support, etc.) can reset
  * passwords for school staff from the school portal.
  * The plaintext temporary password is returned once for the admin to share privately.
  * Staff must log in with it and will be prompted to set a new permanent password.
+ * Admin / super_admin / support may optionally send `{ temporaryPassword }` to set a custom
+ * value; other roles always receive a generated random password.
  */
 export const sendSchoolStaffResetPassword = async (req, res, next) => {
   try {
@@ -3981,7 +4008,14 @@ export const sendSchoolStaffResetPassword = async (req, res, next) => {
     }
 
     const expiresInHours = 48;
-    const temporaryPassword = await User.generateTemporaryPassword();
+    const resolvedPassword = resolveSchoolStaffTemporaryPassword({
+      actorRole,
+      requestedPassword: req.body?.temporaryPassword
+    });
+    if (!resolvedPassword.ok) {
+      return res.status(400).json({ error: { message: resolvedPassword.error } });
+    }
+    const temporaryPassword = resolvedPassword.password || await User.generateTemporaryPassword();
     const temporaryPasswordResult = await User.setTemporaryPassword(targetUserId, temporaryPassword, expiresInHours);
 
     // Activating a pending school staff account via temp password.
@@ -4126,13 +4160,14 @@ export const activateSchoolStaff = async (req, res, next) => {
       : null;
     const isSchoolAdminFlag = req.body?.isSchoolAdmin === true;
     const isSchedulerFlag = req.body?.isScheduler === true;
-    let temporaryPassword = String(req.body?.temporaryPassword || '').trim();
-    if (!temporaryPassword) {
-      temporaryPassword = await User.generateTemporaryPassword();
+    const resolvedPassword = resolveSchoolStaffTemporaryPassword({
+      actorRole,
+      requestedPassword: req.body?.temporaryPassword
+    });
+    if (!resolvedPassword.ok) {
+      return res.status(400).json({ error: { message: resolvedPassword.error } });
     }
-    if (temporaryPassword.length < 6) {
-      return res.status(400).json({ error: { message: 'Temporary password must be at least 6 characters' } });
-    }
+    const temporaryPassword = resolvedPassword.password || await User.generateTemporaryPassword();
 
     const email = normalizeEmail(user.email || user.work_email);
     const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || email;
@@ -4325,67 +4360,26 @@ export const addSchoolStaff = async (req, res, next) => {
       ? `${frontendBase}/${portalSlug}/passwordless-login/${setupLink.token}`
       : `${frontendBase}/passwordless-login/${setupLink.token}`;
 
-    let emailSent = false;
-    const to = [user.email, user.username, user.work_email].filter(Boolean).map((e) => String(e).trim().toLowerCase()).find((e) => e.includes('@'));
-    if (to) {
-      try {
-        const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
-        const agencyId = userAgencies?.[0]?.id || null;
-        const agency = agencyId ? await Agency.findById(agencyId) : null;
-        const template = await EmailTemplateService.getTemplateForAgency(agencyId, 'invitation');
-        let subject = 'Set up your school portal account';
-        let body = `You have been added to the school portal. Set up your account using this link (expires in 7 days):\n${setupUrl}`;
-        if (template?.body) {
-          const params = await EmailTemplateService.collectParameters(user, agency, {
-            passwordlessToken: setupLink.token,
-            senderName: req.user?.first_name || req.user?.email || 'Primary Contact'
-          });
-          const rendered = EmailTemplateService.renderTemplate(template, params);
-          subject = rendered.subject || subject;
-          body = rendered.body || body;
-        }
-        const { sendEmailFromIdentity } = await import('../services/unifiedEmail/unifiedEmailSender.service.js');
-        const { resolvePreferredSenderIdentityForAgency } = await import('../services/emailSenderIdentityResolver.service.js');
-        const EmailService = (await import('../services/email.service.js')).default;
-        const identity = await resolvePreferredSenderIdentityForAgency({
-          agencyId: agencyId || null,
-          preferredKeys: ['login_recovery', 'system', 'default', 'notifications']
-        });
-        if (identity?.id) {
-          await sendEmailFromIdentity({
-            senderIdentityId: identity.id,
-            to,
-            subject,
-            text: body,
-            html: null,
-            source: 'auto'
-          });
-          emailSent = true;
-        } else {
-          await EmailService.sendEmail({
-            to,
-            subject,
-            text: body,
-            html: null,
-            fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
-            fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
-            replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-            source: 'auto',
-            agencyId: agencyId || null
-          });
-          emailSent = true;
-        }
-      } catch (err) {
-        console.error('[addSchoolStaff] Failed to send setup email:', err);
-      }
-    }
+    const to = [user.email, user.username, user.work_email]
+      .filter(Boolean)
+      .map((e) => String(e).trim().toLowerCase())
+      .find((e) => e.includes('@'));
+    const senderName = req.user?.first_name || req.user?.email || 'Primary Contact';
+    const addedUserId = user.id;
+    const addedEmail = user.email || email;
+    const addedFirstName = user.first_name || '';
+    const addedLastName = user.last_name || '';
+    const setupToken = setupLink.token;
+    const setupExpiresAt = setupLink.expiresAt;
+    const agencyIdForEmail = userAgencies?.[0]?.id || null;
+    const orgName = org?.name || org?.official_name || `School #${orgId}`;
 
     const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
     logAuditEvent(req, {
       actionType: 'school_portal_school_staff_added',
       agencyId: activeAgencyId || undefined,
       targetType: 'user',
-      targetId: user.id,
+      targetId: addedUserId,
       metadata: {
         schoolOrganizationId: orgId,
         actorRole,
@@ -4393,39 +4387,97 @@ export const addSchoolStaff = async (req, res, next) => {
         assignedRoles: { isSchoolAdmin: assignSchoolAdmin, isScheduler: assignScheduler }
       }
     }).catch(() => {});
-    if (activeAgencyId) {
-      const orgName = org?.name || org?.official_name || `School #${orgId}`;
-      try {
-        await notifyAgencyAdmins({
-          agencyId: activeAgencyId,
-          title: 'School staff account added',
-          message: `${user.first_name || ''} ${user.last_name || ''} (${user.email || email}) was added to ${orgName}` +
-            `${assignSchoolAdmin ? ' as School Admin' : ''}${assignScheduler ? `${assignSchoolAdmin ? ' and ' : ' as '}Scheduler` : ''}.`,
-          actorUserId: actorId,
-          relatedEntityType: 'user',
-          relatedEntityId: user.id
-        });
-      } catch (err) {
-        console.error('[addSchoolStaff] notifyAgencyAdmins failed:', err?.message || err);
-      }
-    }
 
+    // Respond as soon as the account exists. SMTP hangs were leaving the portal spinner
+    // running even after the staff member was already created.
     res.status(201).json({
       ok: true,
       user: {
-        id: user.id,
-        email: user.email || email,
-        first_name: user.first_name,
-        last_name: user.last_name,
+        id: addedUserId,
+        email: addedEmail,
+        first_name: addedFirstName,
+        last_name: addedLastName,
         role: user.role,
         status: user.status,
         is_school_admin: assignSchoolAdmin,
         is_scheduler: assignScheduler
       },
       setupLink: setupUrl,
-      setupExpiresAt: setupLink.expiresAt,
-      emailSent,
-      message: emailSent ? 'School staff added and setup email sent' : 'School staff added; share the setup link manually'
+      setupExpiresAt,
+      emailSent: !!to,
+      message: to
+        ? 'School staff added. Setup email is being sent.'
+        : 'School staff added; share the setup link manually'
+    });
+
+    setImmediate(() => {
+      void (async () => {
+        if (to) {
+          try {
+            const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
+            const agency = agencyIdForEmail ? await Agency.findById(agencyIdForEmail) : null;
+            const template = await EmailTemplateService.getTemplateForAgency(agencyIdForEmail, 'invitation');
+            let subject = 'Set up your school portal account';
+            let body = `You have been added to the school portal. Set up your account using this link (expires in 7 days):\n${setupUrl}`;
+            if (template?.body) {
+              const params = await EmailTemplateService.collectParameters(user, agency, {
+                passwordlessToken: setupToken,
+                senderName
+              });
+              const rendered = EmailTemplateService.renderTemplate(template, params);
+              subject = rendered.subject || subject;
+              body = rendered.body || body;
+            }
+            const { sendEmailFromIdentity } = await import('../services/unifiedEmail/unifiedEmailSender.service.js');
+            const { resolvePreferredSenderIdentityForAgency } = await import('../services/emailSenderIdentityResolver.service.js');
+            const EmailService = (await import('../services/email.service.js')).default;
+            const identity = await resolvePreferredSenderIdentityForAgency({
+              agencyId: agencyIdForEmail || null,
+              preferredKeys: ['login_recovery', 'system', 'default', 'notifications']
+            });
+            if (identity?.id) {
+              await sendEmailFromIdentity({
+                senderIdentityId: identity.id,
+                to,
+                subject,
+                text: body,
+                html: null,
+                source: 'auto'
+              });
+            } else {
+              await EmailService.sendEmail({
+                to,
+                subject,
+                text: body,
+                html: null,
+                fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
+                fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+                replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+                source: 'auto',
+                agencyId: agencyIdForEmail || null
+              });
+            }
+          } catch (err) {
+            console.error('[addSchoolStaff] Failed to send setup email:', err);
+          }
+        }
+
+        if (activeAgencyId) {
+          try {
+            await notifyAgencyAdmins({
+              agencyId: activeAgencyId,
+              title: 'School staff account added',
+              message: `${addedFirstName} ${addedLastName} (${addedEmail}) was added to ${orgName}` +
+                `${assignSchoolAdmin ? ' as School Admin' : ''}${assignScheduler ? `${assignSchoolAdmin ? ' and ' : ' as '}Scheduler` : ''}.`,
+              actorUserId: actorId,
+              relatedEntityType: 'user',
+              relatedEntityId: addedUserId
+            });
+          } catch (err) {
+            console.error('[addSchoolStaff] notifyAgencyAdmins failed:', err?.message || err);
+          }
+        }
+      })();
     });
   } catch (e) {
     next(e);

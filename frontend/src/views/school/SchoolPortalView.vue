@@ -2302,7 +2302,7 @@
 
     <!-- ── Printable Forms modal ──────────────────────────────────────────── -->
     <div v-if="showPrintableModal" class="modal-overlay" @click.self="showPrintableModal = false">
-      <div class="modal printable-modal" @click.stop>
+      <div class="modal printable-modal" data-tour="school-printable-forms-panel" @click.stop>
         <div class="modal-header">
           <strong>Printable Forms</strong>
           <button class="btn btn-secondary btn-sm" type="button" @click="showPrintableModal = false">Close</button>
@@ -4105,6 +4105,11 @@ const schoolPortalNavigateMode = async (mode) => {
     closeTutorialPanels();
     await setPortalMode('home');
     await openIntakeModal('qr');
+    return;
+  }
+  if (m === 'printable_forms' || m === 'printable_packets') {
+    closeTutorialPanels();
+    await openPrintableModal();
     return;
   }
   if (m === 'upload_packet') {

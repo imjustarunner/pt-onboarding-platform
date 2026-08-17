@@ -3,6 +3,7 @@ import { useAgencyStore } from '../store/agency';
 import { getDashboardRoute } from './router';
 import { getPrimarySchoolStaffPortalSlug } from './schoolStaffPortal.js';
 import { storeUserAgencies } from './loginRedirect.js';
+import { markSchoolPortalFirstLoginOnboarding } from './schoolPortalFirstLoginOnboarding.js';
 
 function markJustLoggedIn() {
   try {
@@ -24,6 +25,7 @@ export async function completePasswordTokenLogin(payload, router) {
   const agencies = Array.isArray(payload?.agencies) ? payload.agencies : [];
 
   authStore.setAuth(payload?.token || null, user ? { ...user, agencies } : null, payload?.sessionId);
+  markSchoolPortalFirstLoginOnboarding(user, { isFirstLogin: payload?.isFirstLogin === true });
   markJustLoggedIn();
 
   if (agencies.length && String(user?.role || '').toLowerCase() !== 'super_admin') {

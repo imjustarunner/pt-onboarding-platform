@@ -525,7 +525,8 @@ class UserActivityLog {
        WHERE user_id = ? AND action_type = 'login'`,
       [userId]
     );
-    return parseInt(rows[0]?.count || 0) === 1;
+    // Called before the current login is written, so 0 prior logins means first login.
+    return parseInt(rows[0]?.count || 0) === 0;
   }
 }
 

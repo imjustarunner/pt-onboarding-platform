@@ -1,7 +1,10 @@
 /**
- * School Portal tutorial steps — guided walkthrough with page navigation.
+ * School Portal tutorial steps — condensed first-login walkthrough with page navigation.
  * `portalMode`: panel to open before highlighting (home = portal home).
  * `selector`: data-tour anchor; omit for centered intro/outro cards.
+ *
+ * Version stays at 4 so staff who already finished the longer tour are not forced to replay.
+ * First-login school staff start this condensed tour via session flag instead of a version bump.
  */
 export const SCHOOL_PORTAL_TUTORIAL_ID = 'school_portal';
 export const SCHOOL_PORTAL_TUTORIAL_VERSION = 4;
@@ -11,116 +14,44 @@ export const schoolPortalGuidedSteps = [
     id: 'welcome',
     popover: {
       title: 'Welcome to the School Portal',
-        description:
-          'This walkthrough visits each main area. Press Space or → to advance, or use Jump to step to skip ahead. Hover highlighted areas later for quick tips while Tutorial is on.',
+      description:
+        'This short tour lights up the areas you will use most. Press Space or → to advance, or Jump to skip ahead.',
       side: 'bottom',
       align: 'center'
     }
   },
   {
-    id: 'header',
-    portalMode: 'home',
-    selector: '[data-tour="school-header-title"]',
+    id: 'nav-digital-forms',
+    portalMode: 'digital_forms',
+    selector: '[data-tour="school-digital-forms-panel"], [data-tour="school-nav-digital-forms"], [data-tour="school-home-card-digital-intake"]',
     popover: {
-      title: 'Portal header',
+      title: 'Digital packet link',
       description:
-        'Your school name appears here. Use the Tutorial toggle anytime to turn this guide on or off.',
-      side: 'bottom',
-      align: 'start'
-    }
-  },
-  {
-    id: 'top-actions',
-    portalMode: 'home',
-    selector: '[data-tour="school-top-actions"]',
-    popover: {
-      title: 'Top actions',
-      description:
-        'Settings (admins) and Logout. Use the codes/initials toggle (next step) for privacy, or Contact admin from the sidebar when you need agency help.',
-      side: 'bottom',
-      align: 'start'
-    }
-  },
-  {
-    id: 'privacy-codes',
-    portalMode: 'home',
-    selector: '[data-tour="school-codes-toggle"]',
-    popover: {
-      title: 'Codes vs initials',
-      description:
-        'Use Show codes or Show initials to protect student anonymity. Codes hide identities more; initials are easier to recognize at a glance. Switch anytime from here.',
-      side: 'bottom',
-      align: 'start'
-    }
-  },
-  {
-    id: 'home-snapshot',
-    portalMode: 'home',
-    selector: '[data-tour="school-home-snapshot"]',
-    popover: {
-      title: 'At a glance',
-      description:
-        'Quick stats for notifications, days supported, clients, slots, waitlist, and staff. Click a pill to jump to that section.',
-      side: 'bottom',
-      align: 'start'
-    }
-  },
-  {
-    id: 'nav-rail',
-    portalMode: 'home',
-    selector: '[data-tour="school-nav-rail"]',
-    popover: {
-      title: 'Sidebar navigation',
-      description:
-        'Switch between Home, Days, Providers, Roster, Events, Calendar, Staff, Docs, FAQ, Notifications, Messages, Digital forms, Upload packet, and Contact admin.',
+        'This is where you access the digital packet link for parents — copy a URL or show a QR code so they can complete intake online.',
       side: 'right',
-      align: 'center'
-    }
-  },
-  {
-    id: 'nav-days',
-    portalMode: 'days',
-    selector: '[data-tour="school-days-daybar"]',
-    popover: {
-      title: 'Pick a weekday',
-      description:
-        'Use these day buttons (Mon–Fri) to switch which day you are viewing. Provider lists and schedules update for the day you select.',
-      side: 'bottom',
-      align: 'center'
-    }
-  },
-  {
-    id: 'nav-days-capacity',
-    portalMode: 'days',
-    selector: '[data-tour="school-days-capacity"]',
-    popover: {
-      title: 'Provider capacity at a glance',
-      description:
-        'Each card shows assigned vs total slots, open spots (green / yellow / full), and on-site hours. Click a card to jump to that provider’s schedule below.',
-      side: 'bottom',
       align: 'start'
     }
   },
   {
-    id: 'nav-days-soft-schedule',
-    portalMode: 'days',
-    selector: '[data-tour="school-soft-schedule"]',
+    id: 'nav-printable-forms',
+    portalMode: 'printable_forms',
+    selector: '[data-tour="school-printable-forms-panel"], [data-tour="school-nav-printable-forms"]',
     popover: {
-      title: 'Soft schedule',
+      title: 'Printable packets',
       description:
-        'Optional and not mandatory — use this at your discretion to aid communication with providers. Share order, times, and pickup/location notes (no PHI). It does not replace official records.',
-      side: 'top',
+        'This is where you access printable packets when a parent needs a paper copy. Print from here; do not email this link.',
+      side: 'right',
       align: 'start'
     }
   },
   {
-    id: 'nav-providers',
-    portalMode: 'providers',
-    selector: '[data-tour="school-providers-panel"], [data-tour="school-nav-providers"]',
+    id: 'nav-upload-packet',
+    portalMode: 'upload_packet',
+    selector: '[data-tour="school-upload-packet-panel"], [data-tour="school-nav-upload"], [data-tour="school-home-card-upload"]',
     popover: {
-      title: 'Providers',
+      title: 'Upload paper packets',
       description:
-        'See assigned providers, open profiles, and send messages.',
+        'This is where you upload paper packets after a parent returns a completed packet in person.',
       side: 'right',
       align: 'start'
     }
@@ -132,43 +63,20 @@ export const schoolPortalGuidedSteps = [
     popover: {
       title: 'Roster',
       description:
-        'View clients with codes or initials. Click any client to open their profile.',
+        'New clients show up in the roster after their packet is in. Once they are Ready to Schedule, add them to the soft schedule. After your provider’s first session they change to Being Seen.',
       side: 'right',
       align: 'start'
     }
   },
   {
-    id: 'client-profile-actions',
+    id: 'nav-waitlist',
     portalMode: 'roster',
-    selector: '[data-tour="school-roster-panel"]',
+    selector: '[data-tour="school-roster-waitlist"], [data-tour="school-roster-panel"]',
     popover: {
-      title: 'Comments & support tickets',
-      description:
-        'In a client profile, add brief comments for the team (no PHI), or send a message that opens a tracked support ticket for agency staff. Use comments for notes; use messages when you need a reply.',
-      side: 'right',
-      align: 'start'
-    }
-  },
-  {
-    id: 'nav-events',
-    portalMode: 'events',
-    selector: '[data-tour="school-events-panel"], [data-tour="school-nav-events"]',
-    popover: {
-      title: 'Events',
-      description:
-        'School events appear here and on the calendar. Post back-to-school or spring events when prompted.',
-      side: 'right',
-      align: 'start'
-    }
-  },
-  {
-    id: 'nav-calendar',
-    portalMode: 'calendar',
-    selector: '[data-tour="school-nav-calendar"]',
-    popover: {
-      title: 'School calendar',
-      description: 'Holidays, days off, and posted school events in one calendar view.',
-      side: 'right',
+      title: 'Waitlist',
+        description:
+          'You’ll see waitlisted clients in this status column. Hover or click Waitlist to read why they are waiting.',
+      side: 'bottom',
       align: 'start'
     }
   },
@@ -178,102 +86,46 @@ export const schoolPortalGuidedSteps = [
     selector: '[data-tour="school-staff-panel"], [data-tour="school-nav-staff"]',
     popover: {
       title: 'School staff',
-      description: 'Manage linked staff accounts and new access requests.',
+      description:
+        'School staff live here. This is where accounts can be added and access can be managed for your school.',
       side: 'right',
       align: 'start'
     }
   },
   {
-    id: 'nav-docs',
-    portalMode: 'documents',
-    selector: '[data-tour="school-docs-panel"], [data-tour="school-staff-docs-panel"], [data-tour="school-nav-docs"]',
+    id: 'nav-providers',
+    portalMode: 'providers',
+    selector: '[data-tour="school-providers-panel"], [data-tour="school-nav-providers"]',
     popover: {
-      title: 'Docs / Links',
+      title: 'Providers',
       description:
-        'School staff packets and reference documents live here. The same intake/referral packets are also on the Home dashboard (Digital forms and Upload packet cards) for quick access.',
+        'Open the Providers link to see who is assigned to your school and to message them.',
       side: 'right',
       align: 'start'
     }
   },
   {
-    id: 'nav-digital-forms',
-    portalMode: 'digital_forms',
-    selector: '[data-tour="school-digital-forms-panel"], [data-tour="school-nav-digital-forms"], [data-tour="school-home-card-digital-intake"]',
+    id: 'nav-days',
+    portalMode: 'days',
+    selector: '[data-tour="school-days-daybar"], [data-tour="school-nav-days"]',
     popover: {
-      title: 'Digital forms',
+      title: 'Days',
       description:
-        'Share the digital intake packet with parents — copy a link or show a QR code. This replaces the paper packet workflow and is also available from Docs / Links.',
-      side: 'right',
-      align: 'start'
-    }
-  },
-  {
-    id: 'nav-upload-packet',
-    portalMode: 'upload_packet',
-    selector: '[data-tour="school-upload-packet-panel"], [data-tour="school-nav-upload"], [data-tour="school-home-card-upload"]',
-    popover: {
-      title: 'Upload packet',
-      description:
-        'Upload a scanned paper referral packet (PDF or images). Use this when parents return a physical packet instead of completing digital forms.',
-      side: 'right',
-      align: 'start'
-    }
-  },
-  {
-    id: 'nav-contact-admin',
-    portalMode: 'contact_admin',
-    selector: '[data-tour="school-contact-admin-panel"], [data-tour="school-nav-help"], [data-tour="school-home-card-help"]',
-    popover: {
-      title: 'Contact admin',
-      description:
-        'Send an email-style message to agency staff when you need help. Pick a topic, write your question, and track replies here or in Notifications.',
-      side: 'right',
-      align: 'start'
-    }
-  },
-  {
-    id: 'nav-faq',
-    portalMode: 'faq',
-    selector: '[data-tour="school-faq-panel"], [data-tour="school-nav-faq"]',
-    popover: {
-      title: 'FAQ',
-      description: 'Quick answers to common portal questions.',
-      side: 'right',
-      align: 'start'
-    }
-  },
-  {
-    id: 'nav-notifications',
-    portalMode: 'notifications',
-    selector: '[data-tour="school-nav-notifications"]',
-    popover: {
-      title: 'Notifications',
-      description:
-        'Announcements, tickets, comments, and checklist updates. Filter by type in the panel.',
-      side: 'left',
-      align: 'start'
-    }
-  },
-  {
-    id: 'nav-messages',
-    portalMode: 'messages',
-    selector: '[data-tour="school-messages-panel"], [data-tour="school-nav-messages"], [data-tour="school-home-card-messages"]',
-    popover: {
-      title: 'Messages',
-      description:
-        'Read and reply to conversations from providers, other school staff, or agency admin. Direct provider messages and school threads appear here so you can respond in one place.',
-      side: 'right',
-      align: 'start'
-    }
-  },
-  {
-    id: 'tickets-vs-comments',
-    popover: {
-      title: 'Tickets vs Comments',
-      description:
-        'Messages create tracked tickets for agency staff. Comments are brief notes for everyone (no PHI) — not for questions.',
+        'Use Days to see each weekday your providers are on site. This is where you set the soft schedule once a client is ready.',
       side: 'bottom',
       align: 'center'
+    }
+  },
+  {
+    id: 'nav-days-soft-schedule',
+    portalMode: 'days',
+    selector: '[data-tour="school-soft-schedule"], [data-tour="school-days-capacity"]',
+    popover: {
+      title: 'Soft schedule',
+      description:
+        'Place Ready to Schedule clients into open slots here. After the provider’s first session that year, the client moves to Being Seen.',
+      side: 'top',
+      align: 'start'
     }
   },
   {
@@ -282,7 +134,7 @@ export const schoolPortalGuidedSteps = [
     popover: {
       title: 'You are all set',
       description:
-        'Hover any sidebar item or home card while Tutorial is on for quick reminders. Turn Tutorial off from the header anytime.',
+        'Hover any sidebar item while Tutorial is on for a quick reminder. Turn Tutorial off from the header anytime.',
       side: 'bottom',
       align: 'center'
     }
@@ -317,11 +169,11 @@ export const schoolPortalHoverTips = {
   },
   'school-nav-days': {
     title: 'Days / Schedule',
-    description: 'Weekday schedules and on-site providers.'
+    description: 'Weekday schedules, on-site providers, and the soft schedule.'
   },
   'school-days-daybar': {
     title: 'Weekday picker',
-    description: 'Tap Mon–Fri to view providers and schedules for that day.'
+    description: 'Tap Mon–Fri to view providers and set the soft schedule for that day.'
   },
   'school-days-capacity': {
     title: 'Provider capacity',
@@ -330,15 +182,19 @@ export const schoolPortalHoverTips = {
   'school-soft-schedule': {
     title: 'Soft schedule',
     description:
-      'Optional — not mandatory. Use at your discretion to aid communication with providers (times, order, pickup notes; no PHI).'
+      'Add Ready to Schedule clients to open slots. After the first session they change to Being Seen.'
   },
   'school-nav-providers': {
     title: 'Providers',
-    description: 'Provider directory for your school.'
+    description: 'See assigned providers for your school.'
   },
   'school-nav-roster': {
     title: 'Roster',
-    description: 'Full client list — click a student to open their profile.'
+    description: 'New clients appear here. Click a student to open their profile.'
+  },
+  'school-roster-waitlist': {
+    title: 'Waitlist',
+    description: 'Filter waitlisted clients and hover a waitlist mark to see why.'
   },
   'school-client-modal': {
     title: 'Client profile',
@@ -366,7 +222,7 @@ export const schoolPortalHoverTips = {
   },
   'school-nav-staff': {
     title: 'School staff',
-    description: 'Staff accounts linked to this portal.'
+    description: 'Staff accounts linked to this portal — add people from this page.'
   },
   'school-nav-docs': {
     title: 'Docs / Links',
@@ -381,8 +237,8 @@ export const schoolPortalHoverTips = {
     description: 'Jump to school documents and shared links from the home dashboard.'
   },
   'school-nav-digital-forms': {
-    title: 'Digital forms',
-    description: 'Open the digital intake packet link or QR code for parents.'
+    title: 'Digital packet link',
+    description: 'Share the digital intake packet link or QR code with parents.'
   },
   'school-home-card-digital-intake': {
     title: 'Digital forms card',
@@ -392,8 +248,16 @@ export const schoolPortalHoverTips = {
     title: 'Digital intake packet',
     description: 'Copy the parent link, show a QR code, or launch a staff-assisted session.'
   },
+  'school-nav-printable-forms': {
+    title: 'Printable packets',
+    description: 'Open printable referral packets for parents who need a paper copy.'
+  },
+  'school-printable-forms-panel': {
+    title: 'Printable packets',
+    description: 'View, print, or download the English and Spanish paper packets.'
+  },
   'school-nav-upload': {
-    title: 'Upload packet',
+    title: 'Upload paper packets',
     description: 'Upload a scanned paper referral packet when parents do not use digital forms.'
   },
   'school-home-card-upload': {
@@ -448,11 +312,14 @@ export const schoolPortalHoverTips = {
 
 /** When a hover tip has no direct guided-step selector, jump to this step id. */
 const schoolPortalHoverTipStepIds = {
-  'school-client-modal': 'client-profile-actions',
-  'school-client-modal-comments': 'client-profile-actions',
-  'school-client-modal-messages': 'client-profile-actions',
+  'school-client-modal': 'nav-roster',
+  'school-client-modal-comments': 'nav-roster',
+  'school-client-modal-messages': 'nav-roster',
   'school-home-roster': 'nav-roster',
-  'school-nav-home': 'home-snapshot'
+  'school-nav-home': 'welcome',
+  'school-home-card-digital-intake': 'nav-digital-forms',
+  'school-home-card-upload': 'nav-upload-packet',
+  'school-nav-printable-forms': 'nav-printable-forms'
 };
 
 /** Best guided-walkthrough step index for a hovered data-tour id, or -1. */

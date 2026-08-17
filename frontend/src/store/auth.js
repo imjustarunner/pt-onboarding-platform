@@ -26,6 +26,7 @@ import {
 } from '../utils/demoWindowSession';
 import { isPrivilegedPresenceRole } from '../utils/presenceStatus';
 import { openLogoutStatusPrompt } from '../utils/statusPromptBridge';
+import { markSchoolPortalFirstLoginOnboarding } from '../utils/schoolPortalFirstLoginOnboarding';
 
 export const useAuthStore = defineStore('auth', () => {
   // Token is now stored in HttpOnly cookie, not localStorage
@@ -211,6 +212,9 @@ export const useAuthStore = defineStore('auth', () => {
       
       // Pass token explicitly so it can be stored in localStorage for Capacitor/iOS
       setAuth(response.data.token || null, response.data.user, response.data.sessionId);
+      markSchoolPortalFirstLoginOnboarding(response.data.user, {
+        isFirstLogin: response.data.isFirstLogin === true
+      });
 
       // Persist token in secure Preferences so biometrics can unlock it on next open
       saveBiometricToken(response.data.token, response.data.user).catch(() => {});
@@ -249,6 +253,9 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const response = await api.post('/auth/passwordless-login', { email });
       setAuth(response.data.token || null, response.data.user, response.data.sessionId);
+      markSchoolPortalFirstLoginOnboarding(response.data.user, {
+        isFirstLogin: response.data.isFirstLogin === true
+      });
       return { success: true };
     } catch (error) {
       return {

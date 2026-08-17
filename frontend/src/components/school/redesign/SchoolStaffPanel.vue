@@ -325,6 +325,7 @@
           <button class="ssp-btn ssp-btn-outline" type="button" @click="closeActivate">Close</button>
         </div>
         <div class="ssp-modal-body">
+          <div v-if="error" class="ssp-alert ssp-alert-error">{{ error }}</div>
           <template v-if="!activateResult">
             <p class="ssp-reset-lead">
               This person is visible in the portal but cannot log in until you set their title/access and issue a temporary password.
@@ -341,6 +342,26 @@
               <input v-model="activateForm.isScheduler" type="checkbox" />
               Scheduler
             </label>
+            <p class="ssp-reset-lead">
+              A random temporary password is recommended so client information stays protected.
+            </p>
+            <label v-if="canSetCustomTempPassword" class="ssp-check-row">
+              <input v-model="useCustomTempPassword" type="checkbox" />
+              Set a custom temporary password instead
+            </label>
+            <p v-if="canSetCustomTempPassword" class="ssp-role-help">
+              Only use a custom password when the staff member cannot use the random one. Random passwords better protect client data.
+            </p>
+            <label v-if="canSetCustomTempPassword && useCustomTempPassword" class="ssp-field">
+              <span>Custom temporary password</span>
+              <input
+                v-model="customTempPassword"
+                class="ssp-plain-input"
+                type="text"
+                autocomplete="new-password"
+                placeholder="At least 8 characters, include a letter"
+              />
+            </label>
             <div class="ssp-modal-actions">
               <button class="ssp-btn ssp-btn-outline" type="button" @click="closeActivate">Cancel</button>
               <button
@@ -349,7 +370,7 @@
                 :disabled="activatingId === activateTarget?.id"
                 @click="confirmActivate"
               >
-                {{ activatingId === activateTarget?.id ? 'Activating…' : 'Activate & generate temp password' }}
+                {{ activatingId === activateTarget?.id ? 'Activating…' : (useCustomTempPassword && canSetCustomTempPassword ? 'Activate & set temp password' : 'Activate & generate temp password') }}
               </button>
             </div>
           </template>
@@ -379,22 +400,41 @@
           <button class="ssp-btn ssp-btn-outline" type="button" @click="closeResetPasswordModal">Close</button>
         </div>
         <div class="ssp-modal-body">
+          <div v-if="error" class="ssp-alert ssp-alert-error">{{ error }}</div>
           <template v-if="!resetResult">
             <p class="ssp-reset-lead">
               This creates a <strong>temporary password</strong> for {{ resetTarget?.email || 'this staff member' }}.
               It replaces their current password immediately.
+              A random password is recommended so client information stays protected.
             </p>
             <ol class="ssp-reset-steps">
-              <li>Confirm below to generate a random temporary password.</li>
+              <li>{{ canSetCustomTempPassword && useCustomTempPassword ? 'Confirm below to set your custom temporary password.' : 'Confirm below to generate a random temporary password.' }}</li>
               <li>Share it privately with the staff member (in person, phone, or secure message).</li>
               <li>They sign in with their school email and the temporary password.</li>
-              <li>On first login, they will be prompted to set a new permanent password.</li>
+              <li>On first login, they will be prompted to set a new permanent password, then a short portal tour.</li>
               <li>The temporary password expires in 48 hours.</li>
             </ol>
+            <label v-if="canSetCustomTempPassword" class="ssp-check-row">
+              <input v-model="useCustomTempPassword" type="checkbox" />
+              Set a custom temporary password instead
+            </label>
+            <p v-if="canSetCustomTempPassword" class="ssp-role-help">
+              Only use a custom password when the staff member cannot use the random one. Random passwords better protect client data.
+            </p>
+            <label v-if="canSetCustomTempPassword && useCustomTempPassword" class="ssp-field">
+              <span>Custom temporary password</span>
+              <input
+                v-model="customTempPassword"
+                class="ssp-plain-input"
+                type="text"
+                autocomplete="new-password"
+                placeholder="At least 8 characters, include a letter"
+              />
+            </label>
             <div class="ssp-modal-actions">
               <button class="ssp-btn ssp-btn-outline" type="button" @click="closeResetPasswordModal">Cancel</button>
               <button class="ssp-btn ssp-btn-primary" type="button" :disabled="sendingResetId === resetTarget?.id" @click="confirmResetPassword">
-                {{ sendingResetId === resetTarget?.id ? 'Generating…' : 'Generate temporary password' }}
+                {{ sendingResetId === resetTarget?.id ? 'Saving…' : (useCustomTempPassword && canSetCustomTempPassword ? 'Set custom temporary password' : 'Generate temporary password') }}
               </button>
             </div>
           </template>
@@ -499,6 +539,10 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../../services/api';
 import { useAuthStore } from '../../../store/auth';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
+import {
+  canSetCustomSchoolStaffTempPassword,
+  validateCustomSchoolStaffTempPassword
+} from '../../../utils/schoolStaffTempPassword';
 
 const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },
@@ -545,6 +589,9 @@ const canToggleSchoolRoles = (u) => isAgencyAdmin.value || (roleNorm.value === '
 const canManageTickets = computed(() =>
   ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value)
 );
+const canSetCustomTempPassword = computed(() => canSetCustomSchoolStaffTempPassword(roleNorm.value));
+const useCustomTempPassword = ref(false);
+const customTempPassword = ref('');
 
 const ticketsPath = computed(() => {
   const query = `schoolOrganizationId=${encodeURIComponent(props.schoolOrganizationId)}`;
@@ -740,9 +787,25 @@ const copyTempPassword = async (u, passwordOverride = null) => {
   }
 };
 
+const resetCustomTempPasswordFields = () => {
+  useCustomTempPassword.value = false;
+  customTempPassword.value = '';
+};
+
+const resolveCustomTempPasswordPayload = () => {
+  if (!canSetCustomTempPassword.value || !useCustomTempPassword.value) return {};
+  const validationError = validateCustomSchoolStaffTempPassword(customTempPassword.value);
+  if (validationError) {
+    error.value = validationError;
+    return null;
+  }
+  return { temporaryPassword: String(customTempPassword.value || '').trim() };
+};
+
 const openResetPasswordModal = (u) => {
   resetTarget.value = u;
   resetResult.value = null;
+  resetCustomTempPasswordFields();
   showResetModal.value = true;
 };
 
@@ -750,11 +813,13 @@ const closeResetPasswordModal = () => {
   showResetModal.value = false;
   resetTarget.value = null;
   resetResult.value = null;
+  resetCustomTempPasswordFields();
 };
 
 const openActivate = (u) => {
   activateTarget.value = u;
   activateResult.value = null;
+  resetCustomTempPasswordFields();
   activateForm.value = {
     roleTitle: u?.role_title || '',
     isSchoolAdmin: !!u?.is_school_admin,
@@ -767,6 +832,7 @@ const closeActivate = () => {
   showActivateModal.value = false;
   activateTarget.value = null;
   activateResult.value = null;
+  resetCustomTempPasswordFields();
 };
 
 const confirmActivate = async () => {
@@ -776,10 +842,13 @@ const confirmActivate = async () => {
   try {
     activatingId.value = id;
     error.value = '';
+    const passwordPayload = resolveCustomTempPasswordPayload();
+    if (passwordPayload === null) return;
     const r = await api.post(`/school-portal/${props.schoolOrganizationId}/school-staff/${id}/activate`, {
       roleTitle: activateForm.value.roleTitle || null,
       isSchoolAdmin: activateForm.value.isSchoolAdmin === true,
-      isScheduler: activateForm.value.isScheduler === true
+      isScheduler: activateForm.value.isScheduler === true,
+      ...passwordPayload
     });
     activateResult.value = {
       temporaryPassword: r.data?.temporaryPassword,
@@ -805,7 +874,12 @@ const confirmResetPassword = async () => {
   try {
     sendingResetId.value = id;
     error.value = '';
-    const r = await api.post(`/school-portal/${props.schoolOrganizationId}/school-staff/${id}/send-reset-password`);
+    const passwordPayload = resolveCustomTempPasswordPayload();
+    if (passwordPayload === null) return;
+    const r = await api.post(
+      `/school-portal/${props.schoolOrganizationId}/school-staff/${id}/send-reset-password`,
+      passwordPayload
+    );
     const temporaryPassword = r.data?.temporaryPassword;
     const expiresAt = r.data?.expiresAt;
     resetResult.value = {
@@ -1092,7 +1166,7 @@ const addStaff = async () => {
     addEmail.value = '';
     addRoleTitle.value = '';
     addAccessRole.value = 'standard';
-    addSuccess.value = 'Staff added. Setup email sent.';
+    addSuccess.value = 'Staff added. They should appear in the list now; a setup email is being sent.';
     await load();
     if (error.value) {
       addSuccess.value = 'Staff added, but the roster could not be refreshed. Please reload the page.';

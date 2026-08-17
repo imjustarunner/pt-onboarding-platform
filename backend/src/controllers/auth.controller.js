@@ -895,6 +895,7 @@ export const login = async (req, res, next) => {
 
     const responseData = {
       token,
+      isFirstLogin,
       user: {
         id: user.id,
         email: user.email,
@@ -902,6 +903,7 @@ export const login = async (req, res, next) => {
         status: user.status,
         firstName: user.first_name,
         lastName: user.last_name,
+        isFirstLogin,
         preferredName: freshUser?.preferred_name || null,
         username: user.username || user.email,
         medcancelEnabled,
@@ -2139,6 +2141,7 @@ export const passwordlessTokenLogin = async (req, res, next) => {
 
       // Get user agencies
       const userAgencies = await User.getAgencies(user.id);
+      const isFirstLogin = await UserActivityLog.isFirstLogin(user.id);
 
       // Log login activity using centralized service
       // Note: req.user doesn't exist yet during login, so we pass userId explicitly
@@ -2150,7 +2153,8 @@ export const passwordlessTokenLogin = async (req, res, next) => {
           email: user.email,
           role: user.role,
           loginType: 'passwordless',
-          isPending: user.status === 'pending'
+          isPending: user.status === 'pending',
+          isFirstLogin
         }
       }, req);
 
@@ -2172,6 +2176,7 @@ export const passwordlessTokenLogin = async (req, res, next) => {
       console.log('[passwordlessTokenLogin] Login successful for user:', user.id, user.first_name, user.last_name);
       res.json({
         token: jwtToken,
+        isFirstLogin,
         user: {
           id: user.id,
           email: user.email,
@@ -2180,6 +2185,7 @@ export const passwordlessTokenLogin = async (req, res, next) => {
           preferredName: fullUser?.preferred_name || user.preferred_name || null,
           role: user.role,
           status: user.status,
+          isFirstLogin,
           requiresPasswordChange: pw.requiresPasswordChange,
           passwordExpiresAt: pw.passwordExpiresAt,
           passwordExpired: pw.passwordExpired,
@@ -2367,6 +2373,7 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
 
       // Get user agencies
       const userAgencies = await User.getAgencies(user.id);
+      const isFirstLogin = await UserActivityLog.isFirstLogin(user.id);
 
       // Log login activity using centralized service
       ActivityLogService.logActivity({
@@ -2378,7 +2385,8 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
           role: user.role,
           loginType: 'passwordless',
           isPending: user.status === 'pending',
-          method: 'body' // Indicate this was body-based login
+          method: 'body',
+          isFirstLogin
         }
       }, req);
 
@@ -2402,6 +2410,7 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
       const pw = calcPasswordExpiry(fullUser);
       
       const response = {
+        isFirstLogin,
         user: {
           id: user.id,
           email: user.email,
@@ -2410,6 +2419,7 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
           preferredName: fullUser?.preferred_name || user.preferred_name || null,
           role: user.role,
           status: user.status,
+          isFirstLogin,
           requiresPasswordChange: pw.requiresPasswordChange,
           passwordExpiresAt: pw.passwordExpiresAt,
           passwordExpired: pw.passwordExpired,
@@ -3398,6 +3408,7 @@ export const initialSetup = async (req, res, next) => {
 
     // Get user agencies
     const userAgencies = await User.getAgencies(user.id);
+    const isFirstLogin = true;
 
     // Log login activity
     ActivityLogService.logActivity({
@@ -3408,7 +3419,8 @@ export const initialSetup = async (req, res, next) => {
         email: user.username || user.email,
         role: user.role,
         loginType: 'passwordless_initial_setup',
-        isPending: user.status === 'PREHIRE_OPEN' || user.status === 'PENDING_SETUP'
+        isPending: user.status === 'PREHIRE_OPEN' || user.status === 'PENDING_SETUP',
+        isFirstLogin
       }
     }, req);
 
@@ -3434,6 +3446,7 @@ export const initialSetup = async (req, res, next) => {
     
     res.json({
       token: jwtToken,
+      isFirstLogin,
       user: {
         id: updatedUser.id,
         email: updatedUser.username || updatedUser.email,
@@ -3443,6 +3456,7 @@ export const initialSetup = async (req, res, next) => {
         role: updatedUser.role,
         status: updatedUser.status,
         username: updatedUser.username || updatedUser.personal_email || updatedUser.email,
+        isFirstLogin,
         ...(await buildPayrollCaps(updatedUser))
       },
       sessionId,

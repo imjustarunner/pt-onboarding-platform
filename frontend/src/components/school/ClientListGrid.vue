@@ -78,6 +78,7 @@
             </button>
             <div
               class="waitlist-pill-wrap"
+              data-tour="school-roster-waitlist"
               @mouseenter="showWaitlistAvailabilityAlert ? (waitlistAlertOpen = true) : null"
               @mouseleave="waitlistAlertOpen = false"
             >
@@ -191,7 +192,7 @@
               Client
               <span class="sort-indicator" v-if="sortKey === 'initials'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
-            <th class="sortable" @click="toggleSort('status')" role="button" tabindex="0">
+            <th class="sortable" data-tour="school-roster-waitlist" @click="toggleSort('status')" role="button" tabindex="0">
               Client Status
               <span class="sort-indicator" v-if="sortKey === 'status'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
