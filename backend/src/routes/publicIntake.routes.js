@@ -29,6 +29,8 @@ import {
   submitPublicIntake,
   uploadIntakeFiles,
   saveInsuranceCardPhotos,
+  verifyIntakeIdentity,
+  issuePublicIntakePortalCredentials,
   saveGuardianPaymentCard,
   getStripeConfig,
   createStripeSetupIntent,
@@ -159,6 +161,17 @@ router.post(
     { name: 'secondary_back', maxCount: 1 }
   ]),
   saveInsuranceCardPhotos
+);
+
+router.post(
+  '/:publicKey/:submissionId/identity-verify',
+  upload.single('file'),
+  verifyIntakeIdentity
+);
+
+router.post(
+  '/:publicKey/:submissionId/portal-credentials',
+  issuePublicIntakePortalCredentials
 );
 
 router.post('/:publicKey/preferences/identify', identifyPreferencesUser);

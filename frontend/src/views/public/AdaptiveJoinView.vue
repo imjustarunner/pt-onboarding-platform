@@ -83,6 +83,17 @@
           </button>
         </template>
         <button type="button" @click="devFillQuick">Dev Fill</button>
+        <label v-if="isCounselingJoin" class="ai-join-choose-toggle">
+          <input type="checkbox" :checked="showChooseProvider" :disabled="savingChooseToggle" @change="toggleChooseProvider" />
+          Show Choose a provider
+        </label>
+        <a
+          v-if="isCounselingJoin"
+          class="ai-join-view-page"
+          :href="`/${encodeURIComponent(agencySlug)}/choose-provider`"
+          target="_blank"
+          rel="noopener noreferrer"
+        >View page</a>
       </div>
       <div v-if="editingSidebar" class="ai-join-sidebar-editor">
         <strong>Left-side step guide</strong>
@@ -94,90 +105,151 @@
         <span v-if="sidebarSaveError" class="ai-join-sidebar-error">{{ sidebarSaveError }}</span>
         <span v-if="sidebarSaveOk" class="ai-join-sidebar-ok">{{ sidebarSaveOk }}</span>
       </div>
+      <div class="ai-join-sheet ai-join-panel">
+      <p v-if="pathwayBadge" class="ai-join-eyebrow">{{ pathwayBadge }}</p>
       <!-- Step: who for + basics -->
       <div v-if="quickStep === 0" class="ai-join-form">
-        <h1 class="ai-page-title">Let's get to know you.</h1>
-        <p v-if="isCoGuardianInvitee" class="ai-page-lead">
-          You are completing your own information. You will not see what the other parent submitted.
-          You can edit your name, phone, and email (email is your username).
-        </p>
-        <p v-else class="ai-page-lead">Just the basics so we can reach you. This only takes a few minutes.</p>
-        <p v-if="!isCoGuardianInvitee" class="ai-who-label">Who is this for?</p>
-        <div v-if="!isCoGuardianInvitee" class="ai-who-inline">
-          <button
-            v-for="opt in whoForOptions"
-            :key="opt.value"
-            type="button"
-            class="ai-pathway-card"
-            :class="{ 'ai-pathway-card--selected': form.whoFor === opt.value }"
-            @click="chooseWhoFor(opt.value)"
-          >
-            <h2 class="ai-pathway-card-title">{{ opt.label }}</h2>
-            <p class="ai-pathway-card-desc">{{ opt.description }}</p>
-          </button>
-        </div>
-        <div class="field-row field-row--compact">
-          <DigitalFormField v-model="form.respondent.firstName" label="Your first name" required size="compact" />
-          <DigitalFormField v-model="form.respondent.middleName" label="Middle name" size="compact" />
-          <DigitalFormField v-model="form.respondent.lastName" label="Your last name" required size="compact" />
-        </div>
-        <div class="field-row field-row--compact">
-          <DigitalFormField
-            v-model="form.respondent.email"
-            type="email"
-            label="Email"
-            placeholder="name@gmail.com"
-            required
-            size="email"
-            :email-domain-hints="true"
-            :error="fieldErrors.email"
-            @blur="validateBasicsField('email')"
-          />
-          <DigitalFormField v-model="form.respondent.phone" type="tel" label="Phone" required size="xs" :error="fieldErrors.phone" @blur="validateBasicsField('phone')" />
-          <DigitalFormField
-            v-model="form.birthdate"
-            type="date"
-            :label="form.whoFor === 'myself' ? 'Date of birth' : 'Dependent date of birth'"
-            required
-            size="xs"
-          />
-        </div>
-        <DigitalFormField v-model="form.address.street" label="Street address" required />
-        <div class="field-row field-row--compact">
-          <DigitalFormField v-model="form.address.apt" label="Apartment (if applicable)" size="compact" />
-          <DigitalFormField v-model="form.address.zip" label="ZIP" required size="xs" />
-          <DigitalFormField v-model="form.address.city" label="City" required size="compact" />
-          <DigitalFormField v-model="form.address.state" label="State" required size="xs" />
-        </div>
-        <template v-if="form.whoFor !== 'myself'">
-          <h2 class="ai-dependent-heading">Dependent 1</h2>
-          <div class="field-row field-row--compact">
-            <DigitalFormField v-model="form.client.firstName" label="First name" required size="compact" />
-            <DigitalFormField v-model="form.client.middleName" label="Middle name" size="compact" />
-            <div>
-              <button
-                v-if="form.respondent.lastName"
-                type="button"
-                class="ai-same-as-me"
-                @click="form.client.lastName = form.respondent.lastName"
-              >Same as me</button>
-              <DigitalFormField v-model="form.client.lastName" label="Last name" required size="compact" />
+        <header class="ai-join-header">
+          <h1 class="ai-page-title">Let's get to know you.</h1>
+          <p v-if="isCoGuardianInvitee" class="ai-page-lead">
+            You are completing your own information. You will not see what the other parent submitted.
+            You can edit your name, phone, and email (email is your username).
+          </p>
+          <p v-else class="ai-page-lead">Just the basics so we can reach out—this only takes a few minutes.</p>
+        </header>
+
+        <section v-if="!isCoGuardianInvitee" class="ai-join-section">
+          <p class="ai-who-label">Who is this for?</p>
+          <div class="ai-who-grid" role="radiogroup" aria-label="Who is this for?">
+            <button
+              v-for="opt in whoForOptions"
+              :key="opt.value"
+              type="button"
+              role="radio"
+              class="ai-who-card"
+              :class="{ 'ai-who-card--selected': form.whoFor === opt.value }"
+              :aria-checked="form.whoFor === opt.value"
+              @click="chooseWhoFor(opt.value)"
+            >
+              <span class="ai-who-card-radio" aria-hidden="true" />
+              <span class="ai-who-card-copy">
+                <span class="ai-who-card-title">{{ opt.label }}</span>
+                <span class="ai-who-card-desc">{{ opt.description }}</span>
+              </span>
+            </button>
+          </div>
+        </section>
+
+        <section class="ai-join-section">
+          <h2 class="ai-join-section-title">Your information</h2>
+          <div class="ai-join-grid">
+            <div class="ai-span-4">
+              <DigitalFormField v-model="form.respondent.firstName" label="First name" required />
+            </div>
+            <div class="ai-span-4">
+              <DigitalFormField v-model="form.respondent.middleName" label="Middle name" />
+            </div>
+            <div class="ai-span-4">
+              <DigitalFormField v-model="form.respondent.lastName" label="Last name" required />
             </div>
           </div>
-          <OtherGuardianIntakeFields
-            v-if="!isCoGuardianInvitee"
-            class="ai-other-guardian"
-            :model="form.otherGuardian"
-            :copy="otherGuardianCopy"
-            :error="otherGuardianError"
-          />
+          <div class="ai-join-grid">
+            <div class="ai-span-4">
+              <DigitalFormField
+                v-model="form.respondent.email"
+                type="email"
+                label="Email"
+                placeholder="name@gmail.com"
+                required
+                :email-domain-hints="true"
+                :error="fieldErrors.email"
+                @blur="validateBasicsField('email')"
+              />
+            </div>
+            <div class="ai-span-4">
+              <DigitalFormField
+                v-model="form.respondent.phone"
+                type="tel"
+                label="Phone"
+                required
+                :error="fieldErrors.phone"
+                @blur="validateBasicsField('phone')"
+              />
+            </div>
+            <div class="ai-span-4">
+              <DigitalFormField
+                v-model="form.birthdate"
+                type="date"
+                :label="form.whoFor === 'myself' ? 'Date of birth' : 'Dependent date of birth'"
+                required
+              />
+            </div>
+          </div>
+        </section>
+
+        <section class="ai-join-section">
+          <h2 class="ai-join-section-title">Address</h2>
+          <div class="ai-join-grid">
+            <div class="ai-span-12">
+              <DigitalFormField v-model="form.address.street" label="Street address" required />
+            </div>
+            <div class="ai-span-5">
+              <DigitalFormField v-model="form.address.apt" label="Apartment, suite, or unit" />
+            </div>
+            <div class="ai-span-2">
+              <DigitalFormField v-model="form.address.zip" label="ZIP" required />
+            </div>
+            <div class="ai-span-3">
+              <DigitalFormField v-model="form.address.city" label="City" required />
+            </div>
+            <div class="ai-span-2">
+              <DigitalFormField v-model="form.address.state" label="State" required />
+            </div>
+          </div>
+        </section>
+
+        <template v-if="form.whoFor !== 'myself'">
+          <section class="ai-join-section">
+            <h2 class="ai-join-section-title">Dependent information</h2>
+            <p class="ai-dependent-heading">Dependent 1</p>
+            <div class="ai-join-grid">
+              <div class="ai-span-4">
+                <DigitalFormField v-model="form.client.firstName" label="First name" required />
+              </div>
+              <div class="ai-span-4">
+                <DigitalFormField v-model="form.client.middleName" label="Middle name" />
+              </div>
+              <div class="ai-span-4 ai-join-last-with-action">
+                <button
+                  v-if="form.respondent.lastName"
+                  type="button"
+                  class="ai-same-as-me"
+                  @click="form.client.lastName = form.respondent.lastName"
+                >Same as me</button>
+                <DigitalFormField v-model="form.client.lastName" label="Last name" required />
+              </div>
+            </div>
+          </section>
+          <section v-if="!isCoGuardianInvitee" class="ai-join-section ai-join-section--custody">
+            <h2 class="ai-join-section-title">Custody &amp; guardianship</h2>
+            <OtherGuardianIntakeFields
+              class="ai-other-guardian"
+              :model="form.otherGuardian"
+              :copy="otherGuardianCopy"
+              :error="otherGuardianError"
+            />
+          </section>
         </template>
       </div>
 
       <!-- Step: needs -->
       <div v-else-if="quickStep === 1" class="ai-join-form">
         <h1 class="ai-page-title">What support are you looking for?</h1>
-        <p class="ai-page-lead">Select all that apply. You can share more detail below.</p>
+        <p class="ai-page-lead">
+          {{ form.whoFor === 'myself'
+            ? 'Select anything that has been a real problem recently. You can share more detail below.'
+            : 'Select all that apply for this dependent. You can share more detail below.' }}
+        </p>
         <div class="ai-concern-grid">
           <button
             v-for="c in concernOptions"
@@ -235,15 +307,23 @@
         />
       </div>
 
-      <!-- Step: provider preview -->
+      <!-- Step: Choose a provider -->
       <div v-else-if="quickStep === 3" class="ai-join-form">
-        <AdaptiveProviderPreview
-          v-model:selected-id="form.preferredProviderUserId"
+        <ChooseProviderDirectory
+          v-if="showChooseProvider"
+          mode="join"
+          title="Choose a provider"
+          lead="If you have a preference, choose someone below. Or let the team choose based on fit and availability."
           :providers="providers"
           :loading="providersLoading"
           :error="providersError"
+          :selected-id="form.preferredProviderUserId"
+          @update:selected-id="form.preferredProviderUserId = $event"
           @skip="form.preferredProviderUserId = null; quickStep = 4"
         />
+        <div v-else class="df-banner">
+          Choose a provider is turned off for this join. Continue to consent, or turn it back on above.
+        </div>
       </div>
 
       <!-- Step: consent / contact permission -->
@@ -361,12 +441,14 @@
         <button type="button" class="df-btn df-btn-secondary" @click="goBack">Back</button>
         <button
           type="button"
-          class="df-btn df-btn-primary"
+          class="df-btn df-btn-primary ai-join-continue"
           :disabled="submitting || !canContinueQuick || (quickStep === 4 && !form.consentGiven)"
           @click="onQuickContinue"
         >
-          {{ quickStep >= 5 ? (submitting ? 'Submitting…' : 'Submit interest form') : 'Continue' }}
+          <span>{{ quickStep >= 5 ? (submitting ? 'Submitting…' : 'Submit interest form') : 'Continue' }}</span>
+          <span v-if="quickStep < 5" class="ai-join-continue-arrow" aria-hidden="true">→</span>
         </button>
+      </div>
       </div>
       </div>
     </template>
@@ -383,9 +465,9 @@ import { useAuthStore } from '../../store/auth';
 import {
   AdaptiveIntakeShell,
   AdaptiveJoinLanding,
-  AdaptiveIntakeThankYou,
-  AdaptiveProviderPreview
+  AdaptiveIntakeThankYou
 } from '../../components/adaptive-intake';
+import ChooseProviderDirectory from '../../components/public/ChooseProviderDirectory.vue';
 import { mergeCareersPageWithDefaults } from '../../utils/careersAssets.js';
 import {
   resolveSchoolOnboardingSupportEmail,
@@ -530,9 +612,17 @@ const fieldErrors = reactive({
 const providers = ref([]);
 const providersLoading = ref(false);
 const providersError = ref('');
+const savingChooseToggle = ref(false);
+
+const isCounselingJoin = computed(() => resolvedServiceType.value === 'counseling');
+const showChooseProvider = computed(() => {
+  // Off until explicitly enabled (agency toggle on counseling join).
+  const flag = config.value?.copy?.showChooseProvider;
+  return flag === true || flag === 1 || flag === '1' || flag === 'true';
+});
 
 const form = reactive({
-  whoFor: 'child',
+  whoFor: 'myself',
   respondent: { firstName: '', middleName: '', lastName: '', email: '', phone: '' },
   client: { firstName: '', middleName: '', lastName: '' },
   birthdate: '',
@@ -603,13 +693,21 @@ const sidebarSteps = computed(() => {
       { id: 'review', label: 'Review & Submit' }
     ];
   }
-  if (editingSidebar.value && sidebarDraft.value.length) return sidebarDraft.value;
-  return mergeQuickSidebarSteps(config.value?.copy?.quickSidebarSteps);
+  if (editingSidebar.value && sidebarDraft.value.length) {
+    return showChooseProvider.value
+      ? sidebarDraft.value
+      : sidebarDraft.value.filter((s) => s.id !== 'providers' && !/provider/i.test(String(s.label || '')));
+  }
+  return mergeQuickSidebarSteps(config.value?.copy?.quickSidebarSteps, {
+    includeProviders: showChooseProvider.value
+  });
 });
 
 const stepIndex = computed(() => {
   if (phase.value === 'pathway') return 0;
-  return Math.min(quickStep.value, sidebarSteps.value.length - 1);
+  let qs = quickStep.value;
+  if (!showChooseProvider.value && qs >= 4) qs -= 1;
+  return Math.min(qs, Math.max(0, sidebarSteps.value.length - 1));
 });
 
 const pathwayBadge = computed(() => {
@@ -622,11 +720,24 @@ const pathwayBadge = computed(() => {
 
 const pageTitle = computed(() => {
   if (submitted.value) return 'Thank you';
-  if (phase.value === 'quick') return sidebarSteps.value[quickStep.value]?.label || 'Quick Prospective';
+  if (phase.value === 'quick') {
+    const idx = stepIndex.value;
+    return sidebarSteps.value[idx]?.label || 'Quick Prospective';
+  }
   return 'Get Started';
 });
 
-const concernOptions = computed(() => config.value?.concernOptions || []);
+const concernOptions = computed(() => {
+  const clinical = String(config.value?.vertical || '').toLowerCase() === 'clinical'
+    || String(resolvedServiceType.value || '').toLowerCase() === 'counseling';
+  if (clinical) {
+    if (form.whoFor === 'myself') {
+      return config.value?.selfConcernOptions || config.value?.concernOptions || [];
+    }
+    return config.value?.dependentConcernOptions || config.value?.concernOptions || [];
+  }
+  return config.value?.concernOptions || [];
+});
 
 const whoForLabel = computed(
   () => whoForOptions.find((o) => o.value === form.whoFor)?.label || form.whoFor
@@ -861,7 +972,10 @@ async function saveSidebarSteps() {
 }
 
 function chooseWhoFor(value) {
-  form.whoFor = value;
+  const next = String(value || '').trim();
+  if (form.whoFor === next) return;
+  form.whoFor = next;
+  form.concerns.splice(0, form.concerns.length);
 }
 
 function clearAdditionalDependent() {
@@ -925,6 +1039,13 @@ function devFillQuick() {
 }
 
 function toggleConcern(value) {
+  const exclusive = new Set(['none', 'none_describe']);
+  if (exclusive.has(value)) {
+    form.concerns.splice(0, form.concerns.length, value);
+    return;
+  }
+  const noneIdx = form.concerns.findIndex((v) => exclusive.has(v));
+  if (noneIdx >= 0) form.concerns.splice(noneIdx, 1);
   const i = form.concerns.indexOf(value);
   if (i >= 0) form.concerns.splice(i, 1);
   else form.concerns.push(value);
@@ -942,7 +1063,9 @@ function joinWelcomePath() {
 
 function goBack() {
   if (phase.value === 'quick' && quickStep.value > 0) {
-    quickStep.value -= 1;
+    let prev = quickStep.value - 1;
+    if (prev === 3 && !showChooseProvider.value) prev = 2;
+    quickStep.value = prev;
     return;
   }
   if (phase.value === 'quick') {
@@ -972,15 +1095,41 @@ async function loadProviders() {
   providersLoading.value = true;
   providersError.value = '';
   try {
-    const { data } = await api.get(`/public/adaptive-intake/${agencySlug.value}/providers`);
-    providers.value = data?.providers || config.value?.providerPreview || [];
+    const { data } = await api.get(
+      `/public/agency-services/${encodeURIComponent(agencySlug.value)}/choose-providers`
+    );
+    providers.value = Array.isArray(data?.providers) ? data.providers : (config.value?.providerPreview || []);
   } catch (e) {
-    providers.value = config.value?.providerPreview || [];
+    try {
+      const fallback = await api.get(`/public/adaptive-intake/${agencySlug.value}/providers`);
+      providers.value = fallback.data?.providers || config.value?.providerPreview || [];
+    } catch {
+      providers.value = config.value?.providerPreview || [];
+    }
     if (!providers.value.length) {
       providersError.value = e?.response?.data?.error?.message || '';
     }
   } finally {
     providersLoading.value = false;
+  }
+}
+
+async function toggleChooseProvider(event) {
+  const enabled = !!event?.target?.checked;
+  savingChooseToggle.value = true;
+  try {
+    const { data } = await api.patch(`/public/adaptive-intake/${agencySlug.value}/landing`, {
+      serviceType: resolvedServiceType.value || 'counseling',
+      copy: { showChooseProvider: enabled }
+    });
+    if (config.value) {
+      config.value.copy = { ...(config.value.copy || {}), ...(data?.copy || {}), showChooseProvider: enabled };
+    }
+  } catch (e) {
+    providersError.value = e?.response?.data?.error?.message || e.message || 'Failed to save toggle';
+    if (event?.target) event.target.checked = showChooseProvider.value;
+  } finally {
+    savingChooseToggle.value = false;
   }
 }
 
@@ -994,7 +1143,9 @@ async function onQuickContinue() {
     otherGuardianError.value = '';
   }
   if (quickStep.value < 5) {
-    quickStep.value += 1;
+    let next = quickStep.value + 1;
+    if (next === 3 && !showChooseProvider.value) next = 4;
+    quickStep.value = next;
     return;
   }
   await submitQuick();
@@ -1179,6 +1330,11 @@ onMounted(async () => {
 
     await applyCoGuardianInviteFromQuery();
 
+    const prefProvider = Number(route.query.providerId || route.query.preferredProviderUserId || 0);
+    if (prefProvider) {
+      form.preferredProviderUserId = prefProvider;
+    }
+
     const services = Array.isArray(data?.intakeServices) ? data.intakeServices : [];
     if (!isCoGuardianInvitee.value && services.length > 1 && !data?.activeService && !serviceType.value) {
       await router.replace(joinWelcomePath() || `/join/${encodeURIComponent(agencySlug.value)}/counseling`);
@@ -1204,16 +1360,104 @@ onMounted(async () => {
 }
 .ai-join-stage {
   width: 100%;
-  max-width: none;
 }
 .ai-join-form {
   width: 100%;
 }
+.ai-join-header {
+  max-width: 38rem;
+  margin-bottom: 1.75rem;
+}
+.ai-join-header .ai-page-lead {
+  margin-bottom: 0;
+}
+.ai-join-section {
+  margin-top: 1.65rem;
+}
+.ai-join-section:first-of-type {
+  margin-top: 0;
+}
+.ai-join-section-title {
+  margin: 0 0 0.85rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--df-primary, #1b3d2f);
+  letter-spacing: 0.01em;
+}
+.ai-join-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 1rem 1.15rem;
+  margin-bottom: 0.35rem;
+}
+.ai-span-2 { grid-column: span 2; }
+.ai-span-3 { grid-column: span 3; }
+.ai-span-4 { grid-column: span 4; }
+.ai-span-5 { grid-column: span 5; }
+.ai-span-6 { grid-column: span 6; }
+.ai-span-12 { grid-column: span 12; }
+.ai-join-panel :deep(.df-field),
+.ai-join-panel :deep(.df-field--compact),
+.ai-join-panel :deep(.df-field--xs),
+.ai-join-panel :deep(.df-field--email) {
+  max-width: none;
+  width: 100%;
+  margin-bottom: 0;
+}
+.ai-join-panel :deep(.df-field-label) {
+  font-size: 0.84rem;
+}
+.ai-join-panel :deep(.df-input),
+.ai-join-panel :deep(.df-select),
+.ai-join-panel :deep(.df-textarea) {
+  min-height: 3rem;
+  border-radius: 11px;
+  background: #fff;
+  border-color: #d7e0db;
+  padding: 0.7rem 0.9rem;
+}
+.ai-join-panel :deep(.df-email-domain-hints) {
+  margin-top: 0.35rem;
+  gap: 0.3rem;
+}
+.ai-join-panel :deep(.df-email-domain-hints-label) {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #64748b;
+}
+.ai-join-panel :deep(.df-email-domain-chip) {
+  padding: 0.12rem 0.45rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid #d5ddd8;
+  color: #475569;
+  box-shadow: none;
+}
+.ai-join-panel :deep(.df-email-domain-chip:hover:not(:disabled)) {
+  background: #f8faf9;
+  border-color: #b7c7be;
+  color: var(--df-primary, #1b3d2f);
+}
 .ai-join-actions {
-  margin-top: 1.5rem;
+  margin-top: 0;
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.ai-join-continue {
+  min-width: 9rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+}
+.ai-join-continue-arrow {
+  font-size: 1.05em;
+  line-height: 1;
 }
 .ai-join-devfill {
   position: relative;
@@ -1222,8 +1466,32 @@ onMounted(async () => {
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 0.4rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.65rem;
+  align-items: center;
 }
+.ai-join-choose-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #334155;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+}
+.ai-join-view-page {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #0f766e;
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #99f6e4;
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+}
+.ai-join-view-page:hover { text-decoration: underline; }
 .ai-join-sidebar-editor {
   position: relative;
   z-index: 40;
@@ -1280,50 +1548,94 @@ onMounted(async () => {
   grid-template-columns: 1fr 1fr;
   gap: 0.75rem;
 }
-.field-row--compact {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.65rem 0.75rem;
-  align-items: flex-end;
-}
-.field-row--compact :deep(.df-field) {
-  margin-bottom: 0.35rem;
-}
 .ai-who-label {
-  margin: 0 0 0.45rem;
-  font-size: 0.82rem;
+  margin: 0 0 0.65rem;
+  font-size: 0.78rem;
   font-weight: 700;
   color: #35584a;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
-.ai-who-inline {
+.ai-who-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+.ai-who-card {
+  appearance: none;
+  -webkit-appearance: none;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-.ai-who-inline .ai-pathway-card {
-  flex: 1 1 10.5rem;
-  max-width: 16.5rem;
-  padding: 0.55rem 0.7rem;
+  align-items: flex-start;
+  gap: 0.7rem;
   text-align: left;
+  width: 100%;
+  min-height: 6.25rem;
+  padding: 1rem 1.05rem;
+  border-radius: 15px;
+  border: 1px solid #d5ddd8;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
-.ai-who-inline .ai-pathway-card-title {
-  font-size: 0.95rem;
-  margin: 0;
+.ai-who-card:hover {
+  border-color: color-mix(in srgb, var(--df-primary, #1b3d2f) 35%, #d5ddd8);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
 }
-.ai-who-inline .ai-pathway-card-desc {
-  font-size: 0.78rem;
-  margin: 0.2rem 0 0;
+.ai-who-card--selected {
+  background: color-mix(in srgb, var(--df-secondary, #2d6a4f) 12%, #fff);
+  border-color: var(--df-primary, #1b3d2f);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--df-primary, #1b3d2f) 35%, transparent);
+}
+.ai-who-card-radio {
+  width: 1.05rem;
+  height: 1.05rem;
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1.5px solid #94a3b8;
+  background: #fff;
+  position: relative;
+}
+.ai-who-card--selected .ai-who-card-radio {
+  border-color: var(--df-primary, #1b3d2f);
+  background: var(--df-primary, #1b3d2f);
+  box-shadow: inset 0 0 0 3px #fff;
+}
+.ai-who-card-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.ai-who-card-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--df-primary, #1b3d2f);
+  line-height: 1.25;
+}
+.ai-who-card-desc {
+  font-size: 0.8rem;
+  color: #64748b;
+  line-height: 1.4;
 }
 .ai-dependent-heading {
-  margin: 1rem 0 0.4rem;
-  font-size: 1.02rem;
+  margin: 0 0 0.65rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--df-secondary, #2d6a4f);
+}
+.ai-join-last-with-action {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 0;
 }
 .ai-same-as-me {
   display: inline-block;
-  margin: 0 0 0.2rem;
+  align-self: flex-end;
+  margin: 0 0 0.25rem;
   border: 0;
   background: none;
   padding: 0;
@@ -1364,20 +1676,14 @@ onMounted(async () => {
   font-weight: 700;
   cursor: pointer;
 }
-.field-row--address {
-  grid-template-columns: 1.4fr 0.8fr;
-}
-.ai-join-form :deep(.ai-pathway-card--selected),
 .ai-join-form :deep(.ai-concern-chip.ai-pathway-card--selected) {
-  background: var(--df-primary, #1b3d2f);
+  background: color-mix(in srgb, var(--df-secondary, #2d6a4f) 14%, #fff);
   border-color: var(--df-primary, #1b3d2f);
-  color: #fff;
-  box-shadow: 0 0 0 1px var(--df-primary, #1b3d2f);
+  color: var(--df-primary, #1b3d2f);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--df-primary, #1b3d2f) 30%, transparent);
 }
-.ai-join-form :deep(.ai-pathway-card--selected .ai-pathway-card-title),
-.ai-join-form :deep(.ai-pathway-card--selected .ai-pathway-card-desc),
 .ai-join-form :deep(.ai-concern-chip.ai-pathway-card--selected strong) {
-  color: #fff;
+  color: var(--df-primary, #1b3d2f);
 }
 .ai-review-ack {
   margin-top: 0.85rem;
@@ -1389,29 +1695,84 @@ onMounted(async () => {
   padding-left: 1.15rem;
 }
 .ai-other-guardian {
-  margin-top: 0.75rem;
+  margin-top: 0.15rem;
+  max-width: 42rem;
+}
+.ai-join-section--custody :deep(.ogi-title) {
+  display: none;
+}
+.ai-join-section--custody :deep(.ogi-rights) {
+  display: grid;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+.ai-join-section--custody :deep(.ogi-rights select),
+.ai-join-section--custody :deep(.ogi input),
+.ai-join-section--custody :deep(.ogi select) {
+  width: 100%;
+  max-width: 100%;
+  min-height: 3rem;
+  border-radius: 11px;
+  border: 1px solid #d7e0db;
+  background: #fff;
+  padding: 0.7rem 0.9rem;
+  font: inherit;
 }
 .ai-concern-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr));
   gap: 0.65rem;
   margin-bottom: 1rem;
 }
 .ai-concern-grid .ai-concern-chip {
-  text-align: center;
-  align-items: center;
-  justify-content: center;
-  padding: 0.55rem 0.65rem;
-  min-height: 0;
+  text-align: left;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 0.7rem 0.8rem;
+  min-height: 3.4rem;
 }
 .ai-concern-grid .ai-concern-chip strong {
-  font-size: 0.92rem;
-  line-height: 1.25;
+  font-size: 0.84rem;
+  line-height: 1.3;
+  font-weight: 600;
+}
+@media (max-width: 900px) {
+  .ai-who-grid {
+    grid-template-columns: 1fr;
+  }
+  .ai-span-2,
+  .ai-span-3,
+  .ai-span-4,
+  .ai-span-5,
+  .ai-span-6 {
+    grid-column: span 6;
+  }
+  .ai-span-12 {
+    grid-column: span 12;
+  }
 }
 @media (max-width: 640px) {
-  .field-row,
-  .field-row--address {
+  .field-row {
     grid-template-columns: 1fr;
+  }
+  .ai-span-2,
+  .ai-span-3,
+  .ai-span-4,
+  .ai-span-5,
+  .ai-span-6,
+  .ai-span-12 {
+    grid-column: span 12;
+  }
+  .ai-join-actions {
+    flex-direction: column-reverse;
+  }
+  .ai-join-actions .df-btn {
+    width: 100%;
+  }
+  .ai-join-continue {
+    min-width: 0;
   }
 }
 /* Consent step */

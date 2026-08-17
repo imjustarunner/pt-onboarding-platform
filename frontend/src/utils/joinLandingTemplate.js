@@ -308,11 +308,16 @@ export const DEFAULT_QUICK_SIDEBAR_STEPS = [
   { id: 'review', label: 'Review & Submit' }
 ];
 
-export function mergeQuickSidebarSteps(saved) {
-  const base = DEFAULT_QUICK_SIDEBAR_STEPS.map((step) => ({ ...step }));
+export function mergeQuickSidebarSteps(saved, { includeProviders = false } = {}) {
+  const base = DEFAULT_QUICK_SIDEBAR_STEPS
+    .filter((step) => includeProviders || step.id !== 'providers')
+    .map((step) => ({ ...step }));
   let list = Array.isArray(saved) ? saved.filter((step) => step && typeof step === 'object') : [];
   if (list.length === 7 && (list[0]?.id === 'who' || String(list[0]?.label || '').toLowerCase().includes('who'))) {
     list = [{ id: 'about', label: String(list[1]?.label || 'About You').trim() || 'About You' }, ...list.slice(2)];
+  }
+  if (!includeProviders) {
+    list = list.filter((step) => step.id !== 'providers' && !/provider/i.test(String(step.label || '')));
   }
   if (!list.length) return base;
   return base.map((step, i) => {

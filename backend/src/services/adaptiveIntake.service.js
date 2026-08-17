@@ -7,7 +7,14 @@ import {
 import { notifyNewProspectiveInquiry } from './clientNotifications.service.js';
 import User from '../models/User.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
+import Agency from '../models/Agency.model.js';
+import ClientNotes from '../models/ClientNotes.model.js';
+import EmailService from './email.service.js';
 import { pickTenantWelcomeUrl } from '../content/tenantBrandAssets.js';
+import {
+  SELF_QUICK_CONCERN_OPTIONS,
+  DEPENDENT_QUICK_CONCERN_OPTIONS
+} from '../constants/adaptiveQuickConcerns.js';
 
 function parseJson(value, fallback = null) {
   if (value == null) return fallback;
@@ -173,7 +180,7 @@ function verticalFromOrgType(organizationType) {
   return 'clinical';
 }
 
-async function findFullIntakePublicKey(agencyId) {
+export async function findFullIntakePublicKey(agencyId) {
   try {
     const AgencyOfficeIntakeMaster = (await import('../models/AgencyOfficeIntakeMaster.model.js')).default;
     const IntakeLink = (await import('../models/IntakeLink.model.js')).default;
@@ -265,8 +272,7 @@ export async function getAdaptiveIntakeConfig(agencySlugOrId, req, options = {})
   const vertical = activeService
     ? verticalFromServiceType(activeService.serviceType, agencyRow.organization_type)
     : verticalFromOrgType(agencyRow.organization_type);
-  const [concernTemplate, practitionerTemplate, fullIntake, providers] = await Promise.all([
-    loadPathwayTemplate(vertical === 'clinical' ? 'clinical' : vertical),
+  const [practitionerTemplate, fullIntake, providers] = await Promise.all([
     vertical === 'clinical' ? null : loadPathwayTemplate(vertical),
     findFullIntakePublicKey(agencyRow.id),
     listProviderPreview(agencyRow.id)
@@ -285,7 +291,7 @@ export async function getAdaptiveIntakeConfig(agencySlugOrId, req, options = {})
 
   const concernOptions =
     vertical === 'clinical'
-      ? concernTemplate?.fields || []
+      ? SELF_QUICK_CONCERN_OPTIONS
       : [
           { value: 'goals', label: 'Goals & growth' },
           { value: 'stress', label: 'Stress / overwhelm' },
@@ -335,6 +341,8 @@ export async function getAdaptiveIntakeConfig(agencySlugOrId, req, options = {})
       }
     },
     concernOptions,
+    selfConcernOptions: vertical === 'clinical' ? SELF_QUICK_CONCERN_OPTIONS : concernOptions,
+    dependentConcernOptions: vertical === 'clinical' ? DEPENDENT_QUICK_CONCERN_OPTIONS : concernOptions,
     practitionerFrame: practitionerTemplate,
     providerPreview: providers,
     copy: mergeJoinLandingCopy(vertical, agencyRow, activeService),
@@ -510,6 +518,10 @@ function mergeJoinLandingCopy(vertical, agencyRow, activeService) {
         .filter((step) => step.label);
       continue;
     }
+    if (key === 'showChooseProvider' || key === 'showProviderDirectory') {
+      merged.showChooseProvider = value === true || value === 1 || value === '1' || value === 'true';
+      continue;
+    }
     if (typeof value === 'string') {
       const trimmed = value.trim();
       // Empty welcome lines mean "use the original copy", not a permanent delete.
@@ -517,6 +529,7 @@ function mergeJoinLandingCopy(vertical, agencyRow, activeService) {
       merged[key] = trimmed;
     }
   }
+  if (merged.showChooseProvider == null) merged.showChooseProvider = false;
   if (/non-?judgmental/i.test(String(merged.value1 || ''))) {
     merged.value1 = 'Supportive & Welcoming';
   }
@@ -537,6 +550,14 @@ export async function updateJoinLandingCopy({ agencySlugOrId, serviceType, copy 
       continue;
     }
     if ((field === 'layout' || field === 'intakeStartLayout') && value && typeof value === 'object') {
+      next[field] = value;
+      continue;
+    }
+    if (field === 'showChooseProvider' || field === 'showProviderDirectory') {
+      next.showChooseProvider = value === true || value === 1 || value === '1' || value === 'true';
+      continue;
+    }
+    if (typeof value === 'boolean') {
       next[field] = value;
       continue;
     }
@@ -790,11 +811,17 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
     whoFor,
     respondent: {
       firstName: respondent.firstName || null,
+      middleName: respondent.middleName || null,
       lastName: respondent.lastName || null,
       email: respondent.email || payload.email || null,
       phone: respondent.phone || payload.contactPhone || payload.phone || null,
       preferredContactMethod: respondent.preferredContactMethod || preferences.preferredContactMethod || null,
       relationship: respondent.relationship || (whoFor === 'myself' ? 'self' : 'guardian')
+    },
+    client: {
+      firstName: clientFirst || null,
+      middleName: clientMiddle || null,
+      lastName: clientLast || null
     },
     concerns,
     accomplishGoal,
@@ -1045,13 +1072,16 @@ export async function convertProspectiveToFullIntake({
   clientId,
   agencyId,
   intakePublicKey = null,
-  actingUserId = null
+  actingUserId = null,
+  sendEmail = false
 }) {
   const id = Number(clientId);
   if (!id) throw new Error('clientId is required');
 
   const [rows] = await pool.execute(
-    `SELECT id, agency_id, full_name, intake_preferences_json, adaptive_intake_meta_json, contact_phone
+    `SELECT id, agency_id, full_name, date_of_birth,
+            intake_preferences_json, adaptive_intake_meta_json, contact_phone,
+            address_street, address_apt, address_city, address_state, address_zip
      FROM clients WHERE id = ? LIMIT 1`,
     [id]
   );
@@ -1070,17 +1100,68 @@ export async function convertProspectiveToFullIntake({
 
   const meta = parseJson(client.adaptive_intake_meta_json, {}) || {};
   const prefs = parseJson(client.intake_preferences_json, {}) || {};
+  const whoFor = String(meta.whoFor || prefs.whoFor || 'myself').trim() || 'myself';
+  const isSelf = whoFor === 'myself';
+  const address = meta.address && typeof meta.address === 'object'
+    ? meta.address
+    : {
+        street: client.address_street || null,
+        apt: client.address_apt || null,
+        city: client.address_city || null,
+        state: client.address_state || null,
+        zip: client.address_zip || null,
+        formatted: meta.homeAddress || null
+      };
+  const birthdate = meta.birthdate || prefs.birthdate || client.date_of_birth || null;
+  const concerns = prefs.concerns || meta.concerns || [];
+  const accomplishGoal = prefs.accomplishGoal || meta.accomplishGoal || prefs.presentingConcern || null;
+  const preferredDays = Array.isArray(prefs.preferredDays)
+    ? prefs.preferredDays
+    : (prefs.preferredDaysRaw ? String(prefs.preferredDaysRaw).split(/[,;]/).map((s) => s.trim()).filter(Boolean) : []);
+
+  const respondent = meta.respondent || {};
+  const clientBag = meta.client || {};
   const prefill = {
-    guardianFirstName: meta.respondent?.firstName || null,
-    guardianLastName: meta.respondent?.lastName || null,
-    guardianEmail: meta.respondent?.email || null,
-    guardianPhone: meta.respondent?.phone || client.contact_phone || null,
+    whoFor,
+    intakeForSelf: isSelf,
+    guardianFirstName: respondent.firstName || null,
+    guardianMiddleName: respondent.middleName || null,
+    guardianLastName: respondent.lastName || null,
+    guardianEmail: respondent.email || null,
+    guardianPhone: respondent.phone || client.contact_phone || null,
+    clientFirstName: isSelf
+      ? (respondent.firstName || null)
+      : (clientBag.firstName || null),
+    clientMiddleName: isSelf
+      ? (respondent.middleName || null)
+      : (clientBag.middleName || null),
+    clientLastName: isSelf
+      ? (respondent.lastName || null)
+      : (clientBag.lastName || null),
     clientFullName: client.full_name || null,
-    presentingConcern: prefs.presentingConcern || null,
+    birthdate,
+    address,
+    presentingConcern: accomplishGoal,
+    accomplishGoal,
     preferredModality: prefs.preferredModality || null,
     preferredTimeOfDay: prefs.preferredTimeOfDay || null,
-    preferredDays: prefs.preferredDays || [],
-    concerns: prefs.concerns || meta.concerns || []
+    preferredDays,
+    preferredDaysRaw: prefs.preferredDaysRaw || preferredDays.join(', ') || null,
+    insuranceOrPayment: prefs.insuranceOrPayment || null,
+    concerns,
+    notes: meta.notes || null,
+    questionValues: buildConvertQuestionValues({
+      whoFor,
+      respondent,
+      clientInfo: clientBag,
+      clientRow: client,
+      birthdate,
+      address,
+      concerns,
+      accomplishGoal,
+      prefs,
+      notes: meta.notes
+    })
   };
 
   const nextMeta = {
@@ -1109,12 +1190,173 @@ export async function convertProspectiveToFullIntake({
     })
   ).toString('base64url');
 
+  const intakeUrlPath = `/intake/${publicKey}?convert=${encodeURIComponent(token)}`;
+  const frontendBase = String(process.env.FRONTEND_URL || process.env.APP_URL || 'https://plottwisthq.com')
+    .replace(/\/$/, '');
+  const inviteUrl = `${frontendBase}${intakeUrlPath}`;
+
+  let emailed = false;
+  let emailedTo = null;
+  if (sendEmail) {
+    const to = String(prefill.guardianEmail || '').trim();
+    if (!to) throw new Error('No email on file for this inquiry');
+    const agency = await Agency.findById(client.agency_id);
+    const org = String(agency?.official_name || agency?.name || 'our care team').trim();
+    const first = String(prefill.guardianFirstName || '').trim();
+    const greeting = first ? `Hi ${first},` : 'Hello,';
+    const subject = `${org}: continue your intake`;
+    const text = [
+      greeting,
+      '',
+      `Thank you for reaching out to ${org}. When you are ready, use this secure link to complete your full intake.`,
+      'Your contact details and preferences from the interest form are already filled in for you.',
+      '',
+      inviteUrl,
+      '',
+      'If you have questions, reply to this email or contact the care team.',
+      '',
+      'This message may contain protected health information. If you received it in error, delete it.'
+    ].join('\n');
+    await EmailService.sendEmail({
+      to,
+      subject,
+      text,
+      agencyId: client.agency_id,
+      clientId: id,
+      source: 'adaptive_full_intake_invite',
+      templateType: 'adaptive_full_intake_invite',
+      linkUrl: inviteUrl
+    });
+    emailed = true;
+    emailedTo = to;
+    nextMeta.conversionEmailSentAt = new Date().toISOString();
+    nextMeta.conversionEmailTo = to;
+    try {
+      await pool.execute(`UPDATE clients SET adaptive_intake_meta_json = ? WHERE id = ?`, [
+        JSON.stringify(nextMeta),
+        id
+      ]);
+    } catch {
+      /* non-fatal */
+    }
+    if (actingUserId) {
+      try {
+        await ClientNotes.create(
+          {
+            client_id: id,
+            author_id: actingUserId,
+            message: `Emailed full intake link to ${to}.`,
+            is_internal_only: true,
+            category: 'administrative',
+            urgency: 'low'
+          },
+          { hasAgencyAccess: true, canViewInternalNotes: true }
+        );
+      } catch (err) {
+        console.warn('adaptive convert note skipped:', err?.message || err);
+      }
+    }
+  }
+
   return {
     clientId: id,
     publicKey,
-    intakeUrlPath: `/intake/${publicKey}?convert=${encodeURIComponent(token)}`,
+    intakeUrlPath,
+    inviteUrl,
+    emailed,
+    emailedTo,
     prefill,
     meta: nextMeta
+  };
+}
+
+function buildConvertQuestionValues({
+  whoFor,
+  respondent,
+  clientInfo,
+  clientRow,
+  birthdate,
+  address,
+  concerns,
+  accomplishGoal,
+  prefs,
+  notes
+}) {
+  const isSelf = whoFor === 'myself';
+  const street = address?.street || address?.formatted || null;
+  const zip = address?.zip || null;
+  const city = address?.city || null;
+  const state = address?.state || null;
+  const concernList = Array.isArray(concerns) ? concerns.filter(Boolean) : [];
+
+  if (isSelf) {
+    return {
+      legal_first_name: respondent.firstName || null,
+      legal_last_name: respondent.lastName || null,
+      date_of_birth: birthdate || null,
+      phone_number: respondent.phone || clientRow.contact_phone || null,
+      email_address: respondent.email || null,
+      address_street: street,
+      address_zip: zip,
+      address_city: city,
+      address_state: state,
+      main_reason_for_therapy: accomplishGoal || null,
+      recent_symptoms: concernList,
+      know_before_first_session: notes || null
+    };
+  }
+
+  return {
+    guardian_legal_first: respondent.firstName || null,
+    guardian_legal_last: respondent.lastName || null,
+    guardian_email: respondent.email || null,
+    guardian_phone: respondent.phone || clientRow.contact_phone || null,
+    child_legal_first: clientInfo.firstName || null,
+    child_legal_last: clientInfo.lastName || null,
+    child_dob: birthdate || null,
+    address_street: street,
+    address_zip: zip,
+    address_city: city,
+    address_state: state,
+    main_reason_and_concerns: accomplishGoal || null,
+    presenting_concerns: concernList
+  };
+}
+
+/** Public resolve of convert token → prefill bag for intake form. */
+export async function resolveConvertPrefillToken(token) {
+  const raw = String(token || '').trim();
+  if (!raw) throw new Error('Convert token is required');
+  let parsed;
+  try {
+    parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+  } catch {
+    throw new Error('Invalid convert token');
+  }
+  const clientId = Number(parsed?.clientId);
+  const publicKey = String(parsed?.publicKey || '').trim();
+  if (!clientId || !publicKey) throw new Error('Invalid convert token');
+
+  const [rows] = await pool.execute(
+    `SELECT id, agency_id, adaptive_intake_meta_json FROM clients WHERE id = ? LIMIT 1`,
+    [clientId]
+  );
+  const client = rows[0];
+  if (!client) throw new Error('Inquiry not found');
+  const meta = parseJson(client.adaptive_intake_meta_json, {}) || {};
+  if (String(meta.linkedIntakePublicKey || '') !== publicKey) {
+    throw new Error('Convert link does not match this intake');
+  }
+  const issuedAt = Number(parsed.issuedAt || 0);
+  // Links older than 90 days still work if meta matches; soft check only.
+  if (issuedAt && Date.now() - issuedAt > 1000 * 60 * 60 * 24 * 120) {
+    throw new Error('This intake link has expired. Please ask the care team for a new one.');
+  }
+  return {
+    clientId,
+    publicKey,
+    prefill: meta.prefill || null,
+    whoFor: meta.whoFor || meta.prefill?.whoFor || 'myself'
   };
 }
 

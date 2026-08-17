@@ -173,15 +173,14 @@
       <section class="pref-section">
         <h3 class="df-section-title">Display Preferences</h3>
 
-        <div class="pref-toggle-row">
-          <div class="pref-toggle-info">
-            <strong>Dark Mode</strong>
-            <span class="pref-muted">Switch the platform to a dark color scheme.</span>
-          </div>
-          <label class="pref-toggle">
-            <input type="checkbox" v-model="prefs.dark_mode" />
-            <span class="pref-toggle-track" />
-          </label>
+        <div class="pref-field">
+          <label for="pref-appearance">Appearance</label>
+          <select id="pref-appearance" v-model="prefs.theme_preference" class="df-select">
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+            <option value="system">Match device</option>
+          </select>
+          <span class="pref-muted">Match device follows your phone or computer light/dark setting.</span>
         </div>
 
         <div class="pref-field">
@@ -311,6 +310,7 @@ const prefs = reactive({
   notification_sound_enabled: true,
   push_notifications_enabled: false,
   dark_mode: false,
+  theme_preference: 'light',
   timezone: '',
   layout_density: 'standard',
   show_read_receipts: false,
@@ -395,6 +395,7 @@ const identify = async () => {
       notification_sound_enabled: p.notification_sound_enabled ?? true,
       push_notifications_enabled: p.push_notifications_enabled ?? false,
       dark_mode: p.dark_mode ?? false,
+      theme_preference: p.theme_preference || (p.dark_mode ? 'dark' : 'light'),
       timezone: p.timezone || '',
       layout_density: p.layout_density || 'standard',
       show_read_receipts: p.show_read_receipts ?? false,
@@ -439,8 +440,11 @@ const save = async () => {
     categories.internal_workforce_sms_by_tenant = perTenant;
     categories.internal_workforce_sms = anyOptedIn;
 
+    const theme = String(prefs.theme_preference || (prefs.dark_mode ? 'dark' : 'light')).toLowerCase();
     const payload = {
       ...prefs,
+      theme_preference: ['light', 'dark', 'system'].includes(theme) ? theme : 'light',
+      dark_mode: theme === 'dark',
       quiet_hours_allowed_days: quietDaysSelected.value,
       notification_categories: categories,
     };

@@ -37,6 +37,37 @@
       This copy still looks like the old school-cloned packet. Use office default to load
       disclosure, informed consent, policy and services, and HIPAA for this audience only.
     </div>
+
+    <div v-if="!loading && packetBrand && !packetBrand.useItscoChrome" class="packet-brand-panel">
+      <h3 style="margin:0 0 6px;">Packet chrome (non-ITSCO)</h3>
+      <p class="muted" style="margin:0 0 10px;">
+        Upload cover, header logo, footer logo, and optional header banner. Body text uses Montserrat;
+        version and page numbers stay Impact. ITSCO tenants keep the platform brand assets.
+      </p>
+      <div class="packet-brand-grid">
+        <label v-for="slot in brandSlots" :key="slot.key" class="packet-brand-slot">
+          <span>{{ slot.label }}</span>
+          <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" :disabled="brandUploading" @change="onBrandFile(slot.key, $event)" />
+          <span v-if="brandPath(slot.key)" class="muted brand-path">{{ brandPath(slot.key) }}</span>
+        </label>
+      </div>
+      <div class="packet-brand-version">
+        <label>
+          Printed version label
+          <input v-model="brandVersionLabel" type="text" maxlength="32" placeholder="1.0" />
+        </label>
+        <button class="btn btn-secondary btn-sm" type="button" :disabled="brandUploading" @click="saveBrandVersion">
+          Save version label
+        </button>
+      </div>
+      <div v-if="brandMessage" class="muted" style="margin-top:8px;">{{ brandMessage }}</div>
+    </div>
+    <div v-else-if="!loading && packetBrand?.useItscoChrome" class="packet-brand-panel itsco-note">
+      <p class="muted" style="margin:0;">
+        This agency uses ITSCO packet chrome (Comfortaa cover, logos, Impact footer). Platform brand assets are unchanged.
+      </p>
+    </div>
+
     <div v-if="error" class="error" style="margin-top:10px;">{{ error }}</div>
     <div v-if="success" class="success" style="margin-top:10px;">{{ success }}</div>
     <div v-if="loading" class="loading" style="margin-top:10px;">Loading template…</div>
@@ -118,6 +149,17 @@ const previewHtml = ref('');
 const previewVersion = ref(null);
 const defaultHtml = ref('');
 const looksLikeSchoolSeed = ref(false);
+const packetBrand = ref(null);
+const brandVersionLabel = ref('1.0');
+const brandUploading = ref(false);
+const brandMessage = ref('');
+
+const brandSlots = [
+  { key: 'cover', label: 'Cover page' },
+  { key: 'logo', label: 'Header logo' },
+  { key: 'footer', label: 'Footer logo' },
+  { key: 'header', label: 'Header banner (optional)' }
+];
 
 const packetParams = () => ({ locale: locale.value, variant: props.variant || 'self' });
 const packetFileSlug = computed(() =>
@@ -127,10 +169,68 @@ const packetFileSlug = computed(() =>
 const dirty = computed(() => htmlContent.value !== originalHtml.value);
 const localeLabel = computed(() => (locale.value === 'es' ? 'ES' : 'EN'));
 
+function brandPath(slot) {
+  const b = packetBrand.value || {};
+  if (slot === 'cover') return b.coverPath || '';
+  if (slot === 'logo') return b.logoPath || '';
+  if (slot === 'footer') return b.footerLogoPath || '';
+  if (slot === 'header') return b.headerImagePath || '';
+  return '';
+}
+
 function formatWhen(v) {
   if (!v) return '';
   try { return new Date(v).toLocaleString(); } catch { return String(v); }
 }
+
+const loadBrand = async () => {
+  try {
+    const res = await api.get(`/agencies/${props.agencyId}/office-packet-brand`);
+    packetBrand.value = res.data || null;
+    brandVersionLabel.value = String(res.data?.versionLabel || '1.0');
+  } catch {
+    packetBrand.value = null;
+  }
+};
+
+const onBrandFile = async (slot, event) => {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  try {
+    brandUploading.value = true;
+    brandMessage.value = '';
+    error.value = '';
+    const form = new FormData();
+    form.append('file', file);
+    const res = await api.post(`/agencies/${props.agencyId}/office-packet-brand/${slot}`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    brandMessage.value = `Uploaded ${slot}.`;
+    await loadBrand();
+    if (res.data?.path) brandMessage.value = `Saved ${slot}: ${res.data.path}`;
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Upload failed';
+  } finally {
+    brandUploading.value = false;
+    if (event?.target) event.target.value = '';
+  }
+};
+
+const saveBrandVersion = async () => {
+  try {
+    brandUploading.value = true;
+    brandMessage.value = '';
+    await api.put(`/agencies/${props.agencyId}/office-packet-brand/version`, {
+      versionLabel: brandVersionLabel.value || '1.0'
+    });
+    brandMessage.value = 'Version label saved.';
+    await loadBrand();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to save version label';
+  } finally {
+    brandUploading.value = false;
+  }
+};
 
 const loadVersions = async () => {
   historyLoading.value = true;
@@ -179,6 +279,12 @@ const load = async () => {
     defaultHtml.value = String(res.data?.default_html || '');
     looksLikeSchoolSeed.value = !!res.data?.looks_like_school_seed;
     version.value = Number(res.data?.version || res.data?.template?.version || 1);
+    if (res.data?.packetBrand) {
+      packetBrand.value = res.data.packetBrand;
+      brandVersionLabel.value = String(res.data.packetBrand.versionLabel || '1.0');
+    } else {
+      await loadBrand();
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load packet template';
   } finally {
@@ -269,6 +375,49 @@ onMounted(load);
 .version-preview-head { display: flex; justify-content: space-between; padding: 8px 12px; background: #f9fafb; }
 .version-preview-frame { width: 100%; height: 480px; border: 0; background: #fff; }
 .packet-editor-body { margin-top: 14px; }
+.packet-brand-panel {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f9fafb;
+}
+.packet-brand-panel.itsco-note { background: #f0fdf4; border-color: #bbf7d0; }
+.packet-brand-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.packet-brand-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+.packet-brand-slot input[type="file"] { font-weight: 400; font-size: 12px; }
+.brand-path { font-weight: 400; font-size: 11px; word-break: break-all; }
+.packet-brand-version {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  margin-top: 12px;
+}
+.packet-brand-version label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.packet-brand-version input {
+  min-width: 120px;
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+}
 .muted { color: #6b7280; }
 .error { color: #b91c1c; }
 .success { color: #047857; }

@@ -2,11 +2,29 @@ import AgencyOfficeIntakeMaster from '../models/AgencyOfficeIntakeMaster.model.j
 import AgencyChannelIntakeMaster from '../models/AgencyChannelIntakeMaster.model.js';
 import OfficePacketTemplate from '../models/OfficePacketTemplate.model.js';
 import Agency from '../models/Agency.model.js';
+import pool from '../config/database.js';
+import multer from 'multer';
+import path from 'path';
+import StorageService from '../services/storage.service.js';
 import {
   generateOfficePrintablePacketPdf,
   getOfficePacketTemplateForAgency,
   saveOfficePacketTemplateForAgency
 } from '../services/officePrintablePacket.service.js';
+import {
+  isItscoPacketChromeAgency,
+  packetBrandAssetColumn
+} from '../services/packetBrandChrome.service.js';
+import { OFFICE_PRINTABLE_PACKET_VERSION } from '../constants/officePrintablePacket.js';
+
+export const packetBrandUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = /^image\/(png|jpe?g|webp|gif)$/i.test(String(file?.mimetype || ''));
+    cb(ok ? null : new Error('Upload a PNG, JPEG, WebP, or GIF image'), ok);
+  }
+});
 
 function roleCanEdit(role) {
   const r = String(role || '').toLowerCase();
@@ -166,6 +184,83 @@ export const getAgencyOfficePacketTemplateVersion = async (req, res, next) => {
     const row = await OfficePacketTemplate.getVersion(aid, locale, version, variant);
     if (!row) return res.status(404).json({ error: { message: 'Version not found' } });
     res.json({ version: row });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const getAgencyPacketBrand = async (req, res, next) => {
+  try {
+    const { agencyId } = req.params;
+    const { aid, agency } = await assertAgencyAccess(req, agencyId);
+    res.json({
+      agencyId: aid,
+      useItscoChrome: isItscoPacketChromeAgency(agency),
+      coverPath: agency.packet_cover_path || null,
+      logoPath: agency.packet_logo_path || null,
+      footerLogoPath: agency.packet_footer_logo_path || null,
+      headerImagePath: agency.packet_header_image_path || null,
+      versionLabel: agency.packet_version_label || OFFICE_PRINTABLE_PACKET_VERSION
+    });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const putAgencyPacketBrandVersion = async (req, res, next) => {
+  try {
+    const { agencyId } = req.params;
+    const { aid, agency } = await assertAgencyAccess(req, agencyId);
+    if (isItscoPacketChromeAgency(agency)) {
+      return res.status(400).json({
+        error: { message: 'ITSCO packet chrome is managed by platform brand assets.' }
+      });
+    }
+    const label = String(req.body?.versionLabel || req.body?.packet_version_label || '').trim().slice(0, 32);
+    if (!label) {
+      return res.status(400).json({ error: { message: 'versionLabel is required' } });
+    }
+    await pool.execute(`UPDATE agencies SET packet_version_label = ? WHERE id = ?`, [label, aid]);
+    res.json({ agencyId: aid, versionLabel: label });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const uploadAgencyPacketBrandAsset = async (req, res, next) => {
+  try {
+    const { agencyId, slot } = req.params;
+    const { aid, agency } = await assertAgencyAccess(req, agencyId);
+    if (isItscoPacketChromeAgency(agency)) {
+      return res.status(400).json({
+        error: { message: 'ITSCO packet chrome is managed by platform brand assets.' }
+      });
+    }
+    const column = packetBrandAssetColumn(slot);
+    if (!column) {
+      return res.status(400).json({ error: { message: 'Invalid slot. Use cover, logo, footer, or header.' } });
+    }
+    if (!req.file?.buffer) {
+      return res.status(400).json({ error: { message: 'Choose an image to upload.' } });
+    }
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const ext = path.extname(req.file.originalname || '') || '.png';
+    const filename = `packet-${slot}-${aid}-${uniqueSuffix}${ext}`;
+    const storageResult = await StorageService.saveLogo(req.file.buffer, filename, req.file.mimetype);
+    const filePath = storageResult.relativePath || storageResult.path;
+    await pool.execute(`UPDATE agencies SET ${column} = ? WHERE id = ?`, [filePath, aid]);
+    const publicRel = String(filePath || '').startsWith('uploads/')
+      ? String(filePath).substring('uploads/'.length)
+      : String(filePath || '');
+    res.json({
+      success: true,
+      slot: String(slot).toLowerCase(),
+      path: filePath,
+      url: `/uploads/${publicRel}`
+    });
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);

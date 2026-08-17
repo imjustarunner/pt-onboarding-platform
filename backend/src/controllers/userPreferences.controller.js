@@ -185,6 +185,7 @@ const buildDefaultPreferences = (userRole) => {
     larger_text: false,
     default_landing_page: 'dashboard',
     dark_mode: false,
+    theme_preference: 'light',
     timezone: null,
     schedule_default_view: 'open_finder',
     layout_density: 'standard',
@@ -416,6 +417,17 @@ export const updateUserPreferences = async (req, res, next) => {
         });
       } else {
         updates.dashboard_glance_order_json = sanitizeDashboardGlanceOrder(raw);
+      }
+    }
+
+    if ('theme_preference' in updates) {
+      const v = String(updates.theme_preference || '').trim().toLowerCase();
+      if (!['light', 'dark', 'system'].includes(v)) {
+        return res.status(400).json({ error: { message: 'theme_preference must be light, dark, or system' } });
+      }
+      updates.theme_preference = v;
+      if (!('dark_mode' in updates)) {
+        updates.dark_mode = v === 'dark';
       }
     }
 

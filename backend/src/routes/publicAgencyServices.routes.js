@@ -1,6 +1,7 @@
 import express from 'express';
 import {
   getAgencyServicesHub,
+  listChooseProviders,
   listCounselors,
   listCoaches,
   listConsultants,
@@ -21,6 +22,7 @@ const router = express.Router();
 
 // Public — no auth
 router.get('/:agencySlug', getAgencyServicesHub);
+router.get('/:agencySlug/choose-providers', listChooseProviders);
 router.get('/:agencySlug/counselors', listCounselors);
 router.get('/:agencySlug/coaches', listCoaches);
 router.get('/:agencySlug/consultants', listConsultants);

@@ -122,6 +122,9 @@
                 <strong>Provider info</strong>
                 <div class="blurb-text">{{ profile.school_info_blurb }}</div>
               </div>
+              <div v-if="psychologyTodayHref" class="blurb pt-link">
+                <a :href="psychologyTodayHref" target="_blank" rel="noopener noreferrer">Psychology Today profile</a>
+              </div>
               <div class="hero-actions" data-tour="school-provider-actions">
                 <button class="btn btn-secondary btn-sm" type="button" :disabled="chatWorking" @click="openChat" data-tour="school-provider-message">
                   {{ chatWorking ? 'Opening…' : 'Message provider' }}
@@ -377,6 +380,7 @@ import { toUploadsUrl } from '../../../utils/uploadsUrl';
 import AcceptedInsuranceBadges from '../../admin/AcceptedInsuranceBadges.vue';
 import { supervisorTypeLabel } from '../../../constants/supervisorTypes.js';
 import { formatPhoneForDisplay } from '../../../utils/phoneDisplay.js';
+import { psychologyTodayHref as toPsychologyTodayHref } from '../../../utils/psychologyTodayUrl.js';
 import { isSchoolScheduleClientLocked } from '../../../utils/schoolStaffRoiLabels.js';
 import {
   useSlotVerification,
@@ -643,6 +647,8 @@ const providerDisplayName = computed(() => {
   const full = `${first} ${last}`.trim();
   return full || 'this provider';
 });
+
+const psychologyTodayHref = computed(() => toPsychologyTodayHref(profile.value?.psychology_today_url));
 
 const openSupervisorDetails = (supervisor) => {
   selectedSupervisor.value = supervisor || null;
@@ -1408,6 +1414,13 @@ watch(
   white-space: pre-wrap;
   max-height: 220px;
   overflow: auto;
+}
+.pt-link {
+  margin-top: 8px;
+}
+.pt-link a {
+  font-weight: 700;
+  color: var(--primary, #C69A2B);
 }
 label {
   display: block;

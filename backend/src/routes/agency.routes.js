@@ -20,6 +20,10 @@ import {
   downloadAgencyOfficePacketTemplatePdf,
   listAgencyOfficePacketTemplateVersions,
   getAgencyOfficePacketTemplateVersion,
+  getAgencyPacketBrand,
+  putAgencyPacketBrandVersion,
+  uploadAgencyPacketBrandAsset,
+  packetBrandUpload,
   listAgencyChannelIntakeMasters,
   getAgencyChannelIntakeMaster,
   putAgencyChannelIntakeMaster
@@ -557,6 +561,14 @@ router.put('/:agencyId/office-packet-template', authenticate, putAgencyOfficePac
 router.get('/:agencyId/office-packet-template/pdf', authenticate, downloadAgencyOfficePacketTemplatePdf);
 router.get('/:agencyId/office-packet-template-versions', authenticate, listAgencyOfficePacketTemplateVersions);
 router.get('/:agencyId/office-packet-template-versions/:version', authenticate, getAgencyOfficePacketTemplateVersion);
+router.get('/:agencyId/office-packet-brand', authenticate, getAgencyPacketBrand);
+router.put('/:agencyId/office-packet-brand/version', authenticate, putAgencyPacketBrandVersion);
+router.post(
+  '/:agencyId/office-packet-brand/:slot',
+  authenticate,
+  packetBrandUpload.single('file'),
+  uploadAgencyPacketBrandAsset
+);
 router.get('/:agencyId/channel-intake-masters', authenticate, listAgencyChannelIntakeMasters);
 router.get('/:agencyId/channel-intake-masters/:channel', authenticate, getAgencyChannelIntakeMaster);
 router.put('/:agencyId/channel-intake-masters/:channel', authenticate, putAgencyChannelIntakeMaster);

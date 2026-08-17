@@ -250,7 +250,8 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
                 psa.start_time,
                 psa.end_time,
                 psa.is_active,
-                COALESCE(u.provider_school_info_blurb, psp.school_info_blurb) AS school_info_blurb
+                COALESCE(u.provider_school_info_blurb, psp.school_info_blurb) AS school_info_blurb,
+                u.psychology_today_url
          FROM provider_school_assignments psa
          JOIN users u ON u.id = psa.provider_user_id
          JOIN user_agencies ua
@@ -303,7 +304,8 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
           ...x,
           accepting_new_clients_effective: true,
           provider_accepting_new_clients: true,
-          accepting_new_clients_override: null
+          accepting_new_clients_override: null,
+          psychology_today_url: x.psychology_today_url || null
         }));
       } catch (e2) {
         const msg2 = String(e2?.message || '');
@@ -355,6 +357,7 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
           provider_accepting_new_clients: r.provider_accepting_new_clients !== undefined ? !!r.provider_accepting_new_clients : true,
           profile_photo_url: null,
           school_info_blurb: r.school_info_blurb || null,
+          psychology_today_url: r.psychology_today_url || null,
           assignments: []
         });
       }

@@ -13,8 +13,26 @@ describe('counseling dependent EN intake', () => {
     assert.equal(steps.filter((s) => s.audience === 'guardian').length, 2);
     assert.equal(steps.filter((s) => s.type === 'upload').length, 0);
     const childPages = steps.filter((s) => s.audience === 'dependent' && s.type === 'questions');
-    assert.equal(childPages.length, 11);
+    assert.equal(childPages.length, 9);
     assert.equal(steps.some((s) => s.type === 'child_review'), true);
+    assert.equal(steps.some((s) => String(s.id || '').includes('goals_prefs')), false);
+    assert.equal(steps.some((s) => String(s.id || '').includes('anything_missed')), false);
+    assert.ok(childPages.find((s) => s.id === `${COUNSELING_DEP_STEP_PREFIX}about_child`)
+      ?.fields.some((f) => f.key === 'child_interests_and_strengths'));
+    assert.ok(childPages.find((s) => s.id === `${COUNSELING_DEP_STEP_PREFIX}about_child`)
+      ?.fields.some((f) => f.key === 'how_child_usually'));
+    assert.ok(!childPages.find((s) => s.id === `${COUNSELING_DEP_STEP_PREFIX}about_child`)
+      ?.fields.some((f) => f.key === 'describe_this_child' || f.key === 'child_interests'));
+    const presenting = steps.find((s) => s.id === `${COUNSELING_DEP_STEP_PREFIX}presenting`);
+    assert.ok(presenting.fields.some((f) => f.key === 'main_reason_and_concerns'));
+    assert.ok(presenting.fields.some((f) => f.key === 'actually_helping'));
+    assert.ok(!presenting.fields.some((f) => f.key === 'main_reason_seeking'));
+    const health = steps.find((s) => s.id === `${COUNSELING_DEP_STEP_PREFIX}health_history`);
+    assert.ok(!health.fields.some((f) => f.key === 'pregnancy_complications' || f.key === 'development_delays'));
+    const prefsStep = steps.find((s) => s.id === `${COUNSELING_DEP_STEP_PREFIX}provider_prefs`);
+    assert.ok(prefsStep.fields.some((f) => f.key === 'child_would_tell_provider'));
+    assert.ok(!prefsStep.fields.find((f) => f.key === 'preferred_service_format')?.options
+      ?.some((o) => o.value === 'school_based'));
     const substance = steps.find((s) => s.id === `${COUNSELING_DEP_STEP_PREFIX}substance`);
     assert.equal(substance.showWhen, 'substance_indicated');
     const aboutYou = steps.find((s) => s.id === `${COUNSELING_DEP_STEP_PREFIX}about_you`);
@@ -64,8 +82,8 @@ describe('counseling dependent EN intake', () => {
     ]);
     const selfCount = merged.filter((s) => String(s.id || '').startsWith(COUNSELING_SELF_STEP_PREFIX)).length;
     const depCount = merged.filter((s) => String(s.id || '').startsWith(COUNSELING_DEP_STEP_PREFIX)).length;
-    assert.equal(selfCount, 9);
-    assert.equal(depCount, 14);
+    assert.equal(selfCount, 7);
+    assert.equal(depCount, 12);
     assert.equal(merged.some((s) => s.type === 'packet_informed_group_consent'), true);
     assert.equal(merged.some((s) => /custody/i.test(`${s.id || ''} ${s.label || ''}`)), false);
     const commsIdx = merged.findIndex((s) => s.type === 'communications');

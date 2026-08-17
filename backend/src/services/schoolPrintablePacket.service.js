@@ -23,6 +23,7 @@ import {
 } from '../constants/schoolPrintablePacket.js';
 import { DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML } from '../content/schoolPacketTemplateDefault.en.js';
 import { injectIntakeLegalIntoPacketHtml, resolveIntakeLegalFromTheme } from '../content/intakeLegalCopy.js';
+import { resolvePacketBrandChrome } from './packetBrandChrome.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -428,7 +429,8 @@ function buildCoverPageHtml(packetContext = {}) {
   // Uneditable cover: exact copy of page 1 from the master packet PDF, plus a
   // dynamic school title header. No watermark, header/footer chrome, or page
   // number belongs on this page — it is rendered as its own standalone PDF.
-  const cover = coverPageDataUrl();
+  const brand = packetContext?.brand || null;
+  const cover = brand?.coverDataUrl || (brand && brand.useItscoChrome === false ? null : coverPageDataUrl());
   const schoolName = String(packetContext?.organization?.name || 'School').trim();
   const title = `<h1 class="cover-page-title">${escapeHtml(schoolName)} School Packet</h1>`;
   if (!cover) {
@@ -500,10 +502,13 @@ export async function buildSchoolPrintablePacketContext({ organizationId, locale
     }
   }
 
+  const brand = await resolvePacketBrandChrome(tenantAgency || organization);
+
   return {
     version: Number(template?.version || 1),
     locale: loc,
-    packetVersionLabel: SCHOOL_PRINTABLE_PACKET_VERSION,
+    packetVersionLabel: brand.versionLabel || SCHOOL_PRINTABLE_PACKET_VERSION,
+    brand,
     generatedAt: new Date(),
     agencyId: agencyId || null,
     organization: {
@@ -521,8 +526,29 @@ export async function buildSchoolPrintablePacketContext({ organizationId, locale
   };
 }
 
-function buildPacketStyleBlock() {
-  return `
+function buildPacketStyleBlock(brand = null) {
+  const useItsco = !brand || brand.useItscoChrome !== false;
+  const bodyFont = useItsco
+    ? "'Comfortaa', Arial, sans-serif"
+    : (brand?.bodyFontFamily || "'Montserrat', Arial, Helvetica, sans-serif");
+  const montserratFaces = !useItsco && brand?.montserratRegularDataUrl
+    ? `
+      @font-face {
+        font-family: 'Montserrat';
+        src: url('${brand.montserratRegularDataUrl}');
+        font-weight: 400;
+        font-display: swap;
+      }
+      ${brand.montserratSemiBoldDataUrl ? `@font-face {
+        font-family: 'Montserrat';
+        src: url('${brand.montserratSemiBoldDataUrl}');
+        font-weight: 600 700;
+        font-display: swap;
+      }` : ''}
+    `
+    : '';
+  const itscoFaces = useItsco
+    ? `
       @font-face {
         font-family: 'Comfortaa';
         src: url('${comfortaaDataUrl()}');
@@ -535,6 +561,11 @@ function buildPacketStyleBlock() {
         font-weight: 400;
         font-display: swap;
       }
+    `
+    : '';
+  return `
+      ${itscoFaces}
+      ${montserratFaces}
       /* No explicit @page margin here: Chrome's PDF engine honors an @page
          margin (even 0) over Puppeteer's page.pdf() margin option, which was
          collapsing our 0.5in print margins to nothing. Margins are controlled
@@ -547,7 +578,7 @@ function buildPacketStyleBlock() {
         margin: 0;
         padding: 0;
         color: #111;
-        font-family: 'Comfortaa', Arial, sans-serif;
+        font-family: ${bodyFont};
         font-size: 13.3px; /* ~10pt */
         line-height: 1.5;
       }
@@ -569,7 +600,7 @@ function buildPacketStyleBlock() {
       .cover-page-title {
         margin: 0.3in 0 0;
         text-align: center;
-        font-family: 'Comfortaa', Arial, sans-serif;
+        font-family: ${bodyFont};
         font-weight: 700;
         font-size: 30px;
         letter-spacing: 0.03em;
@@ -606,7 +637,7 @@ function buildPacketStyleBlock() {
         pointer-events: none;
       }
       .packet-body h1, .packet-body h2, .packet-body h3, .packet-body h4 {
-        font-family: 'Comfortaa', Arial, sans-serif;
+        font-family: ${bodyFont};
         page-break-after: avoid;
       }
       .packet-body h1,
@@ -884,7 +915,10 @@ function buildPacketBodyContentHtml(packetContext = {}) {
   const bodyLocale = packetContext?.locale || 'en';
   const staffTableHtml = buildSchoolStaffTableHtml(packetContext?.staffRows || [], bodyLocale);
   const disclosureHtml = buildDisclosureCareTeamHtml(packetContext?.providers || [], bodyLocale);
-  const watermark = watermarkDataUrl();
+  const brand = packetContext?.brand || null;
+  const watermark = brand
+    ? (brand.watermarkDataUrl || null)
+    : watermarkDataUrl();
 
   const bodyHtml = substituteTokens(
     packetContext?.templateHtml || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML,
@@ -906,14 +940,14 @@ function buildPacketBodyContentHtml(packetContext = {}) {
   `;
 }
 
-function wrapPacketHtmlDocument(schoolName, innerHtml) {
+function wrapPacketHtmlDocument(schoolName, innerHtml, brand = null) {
   return `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <title>${escapeHtml(schoolName || 'School')} School Packet</title>
     <style>
-${buildPacketStyleBlock()}
+${buildPacketStyleBlock(brand)}
     </style>
   </head>
   <body>
@@ -924,9 +958,11 @@ ${buildPacketStyleBlock()}
 
 export function buildSchoolPrintablePacketHtml(packetContext = {}) {
   const schoolName = packetContext?.organization?.name || '';
+  const brand = packetContext?.brand || null;
   return wrapPacketHtmlDocument(
     schoolName,
-    `${buildCoverPageHtml(packetContext)}${buildPacketBodyContentHtml(packetContext)}`
+    `${buildCoverPageHtml(packetContext)}${buildPacketBodyContentHtml(packetContext)}`,
+    brand
   );
 }
 
@@ -934,28 +970,35 @@ export function buildSchoolPrintablePacketHtml(packetContext = {}) {
 // dynamic school title — no watermark, no header/footer chrome, no page number.
 function buildSchoolPrintablePacketCoverDocument(packetContext = {}) {
   const schoolName = packetContext?.organization?.name || '';
-  return wrapPacketHtmlDocument(schoolName, buildCoverPageHtml(packetContext));
+  return wrapPacketHtmlDocument(schoolName, buildCoverPageHtml(packetContext), packetContext?.brand || null);
 }
 
 // Content pages are rendered separately so the header logo, footer, page
 // numbers, and watermark only ever apply to these pages — never the cover.
 function buildSchoolPrintablePacketBodyDocument(packetContext = {}) {
   const schoolName = packetContext?.organization?.name || '';
-  return wrapPacketHtmlDocument(schoolName, buildPacketBodyContentHtml(packetContext));
+  return wrapPacketHtmlDocument(schoolName, buildPacketBodyContentHtml(packetContext), packetContext?.brand || null);
 }
 
 function buildPdfChromeTemplates(packetContext = {}) {
-  const packetVersionLabel = packetContext?.packetVersionLabel || SCHOOL_PRINTABLE_PACKET_VERSION;
-  const logo = headerLogoDataUrl();
-  const footerMark = footerMarkDataUrl();
+  const brand = packetContext?.brand || null;
+  const packetVersionLabel = brand?.versionLabel
+    || packetContext?.packetVersionLabel
+    || SCHOOL_PRINTABLE_PACKET_VERSION;
+  const logo = brand
+    ? (brand.headerImageDataUrl || brand.headerLogoDataUrl || null)
+    : headerLogoDataUrl();
+  const footerMark = brand
+    ? (brand.footerMarkDataUrl || null)
+    : footerMarkDataUrl();
   // Header logo back to its ~50%-of-original size now that the 0.75in top
   // margin gives it comfortable clearance above body content.
   const headerTemplate = `
     <div style="width:100%; box-sizing:border-box; margin:0; padding:0 0.5in; text-align:center; line-height:0;">
-      <img src="${logo}" style="height:46px; width:auto; max-width:3.5in; object-fit:contain; vertical-align:top;" />
+      ${logo ? `<img src="${logo}" style="height:46px; width:auto; max-width:3.5in; object-fit:contain; vertical-align:top;" />` : '<span style="display:inline-block;height:46px;"></span>'}
     </div>
   `;
-  // Bottom-left: ITSCOpnginvisiblebackgroundBW. Center: Version only. Right: page.
+  // Bottom-left: footer mark. Center: Version only (Impact). Right: page (Impact).
   const footerTemplate = `
     <div style="width:100%; box-sizing:border-box; padding:0 0.5in; color:#111; display:flex; justify-content:space-between; align-items:center; font-size:10px;">
       <div style="width:28%; text-align:left;">

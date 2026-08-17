@@ -531,6 +531,7 @@ export const getProviderSchoolProfile = async (req, res, next) => {
       work_phone_extension: u.work_phone_extension || null,
       profile_photo_url: publicUploadsUrlFromStoredPath(u.profile_photo_path || null),
       school_info_blurb: schoolInfoBlurb,
+      psychology_today_url: u.psychology_today_url || null,
       insurances_accepted: insuranceInfo.accepted,
       accepts_tricare_override: insuranceInfo.acceptsTricareOverride,
       supervisors,

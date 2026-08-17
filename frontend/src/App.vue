@@ -6582,7 +6582,7 @@ onMounted(async () => {
       if (uid) {
         try {
           const { default: api } = await import('./services/api');
-          const { setDarkMode, getStoredDarkMode } = await import('./utils/darkMode');
+          const { setThemePreference, getStoredThemePreference, normalizeThemePreference } = await import('./utils/darkMode');
           const {
             applyAccessibilityPrefs,
             getStoredAccessibilityPrefs,
@@ -6592,9 +6592,9 @@ onMounted(async () => {
           const { useUserPreferencesStore } = await import('./store/userPreferences');
           const res = await api.get(`/users/${uid}/preferences`, { skipGlobalLoading: true });
           const data = res?.data || {};
-          const stored = getStoredDarkMode(uid);
-          const dark = stored !== null ? stored : !!data.dark_mode;
-          setDarkMode(uid, dark);
+          const stored = getStoredThemePreference(uid);
+          const theme = stored || normalizeThemePreference(data.theme_preference, data.dark_mode);
+          setThemePreference(uid, theme);
           const storedNavHover = getStoredNavHoverMenusEnabled(uid);
           const navHover = storedNavHover !== null ? storedNavHover : data.nav_hover_menus_enabled !== false;
           setStoredNavHoverMenusEnabled(uid, navHover);

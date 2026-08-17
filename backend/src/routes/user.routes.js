@@ -27,6 +27,16 @@ import {
 import { authenticate, requireAdmin, requireBackofficeAdmin, requireBackofficeAdminOrCpa } from '../middleware/auth.middleware.js';
 import { getUserWorkSchedule, putUserWorkSchedule } from '../controllers/userWorkSchedule.controller.js';
 import {
+  getUserGridFields,
+  getUserGrid,
+  putUserGridCells,
+  putUserGridBulk,
+  postUserGridBulkArchive,
+  postUserGridBulkDelete,
+  postUserGridFile,
+  gridUpload
+} from '../controllers/userGrid.controller.js';
+import {
   getUserLifecycle,
   updateLifecycleDates,
   updateSeparationInfo,
@@ -49,6 +59,13 @@ router.get('/me/agencies', authenticate, getUserAgencies);
 router.get('/me/supervisee-portal-slugs', authenticate, getSuperviseePortalSlugs);
 router.get('/me/providers-for-support', authenticate, getProvidersForSupport);
 router.get('/', authenticate, requireAdmin, getAllUsers);
+router.get('/grid/fields', authenticate, requireBackofficeAdmin, getUserGridFields);
+router.get('/grid', authenticate, requireBackofficeAdmin, getUserGrid);
+router.put('/grid/cells', authenticate, requireBackofficeAdmin, putUserGridCells);
+router.put('/grid/bulk', authenticate, requireBackofficeAdmin, putUserGridBulk);
+router.post('/grid/bulk-archive', authenticate, requireBackofficeAdmin, postUserGridBulkArchive);
+router.post('/grid/bulk-delete', authenticate, requireBackofficeAdmin, postUserGridBulkDelete);
+router.post('/grid/:userId/file', authenticate, requireBackofficeAdmin, gridUpload.single('file'), postUserGridFile);
 router.get('/guardians', authenticate, requireBackofficeAdmin, getGuardianUsers);
 router.delete('/guardians/bulk', authenticate, requireBackofficeAdmin, bulkDeleteGuardians);
 router.get('/ai-query', authenticate, requireBackofficeAdmin, aiQueryUsers);

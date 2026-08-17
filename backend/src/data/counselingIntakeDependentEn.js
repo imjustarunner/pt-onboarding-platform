@@ -420,19 +420,35 @@ function childAbout() {
         key: 'time_outside_school',
         label: 'What do they spend most of their time doing outside of school?'
       }),
-      field({ key: 'child_interests', label: 'What are they interested in?' }),
-      field({ key: 'child_strengths', label: 'What are they good at?' }),
       field({
-        key: 'describe_this_child',
-        label: 'If you were describing this child to someone who had never met them, what would you want that person to know?'
+        key: 'child_interests_and_strengths',
+        label: 'What are they interested in, and what are they good at?'
       }),
       field({
         key: 'people_misunderstand_child',
         label: 'What is something people tend to misunderstand about them?'
       }),
       field({
-        key: 'communication_learning_notes',
-        label: 'Is there anything about how they communicate, learn, or interact with people that would be helpful for us to know?'
+        key: 'how_child_usually',
+        label: 'Does your child usually:',
+        type: 'checkbox',
+        layout: 'cards',
+        options: [
+          opt('open_up_quickly', 'Open up quickly'),
+          opt('need_time', 'Need time'),
+          opt('talk_during_activity', 'Talk more while doing an activity'),
+          opt('answer_direct', 'Answer direct questions'),
+          opt('avoid_feelings', 'Avoid talking about feelings'),
+          opt('use_humor', 'Use humor'),
+          opt('shut_down_pressured', 'Shut down when pressured'),
+          opt('other', 'Other')
+        ]
+      }),
+      field({
+        key: 'how_child_usually_other',
+        label: 'Please describe.',
+        type: 'text',
+        showIf: { fieldKey: 'how_child_usually', includes: 'other' }
       })
     ]
   });
@@ -446,11 +462,10 @@ function childWhatBrings() {
     whyWeAsk: 'Your words about why now help the provider start in the right place.',
     fields: [
       field({
-        key: 'main_reason_seeking',
-        label: 'What is the main reason you are seeking support for this child?'
+        key: 'main_reason_and_concerns',
+        label: 'What is the main reason you are seeking support for this child, and what are you most concerned about?'
       }),
       field({ key: 'why_seeking_now', label: 'Why are you seeking help now?' }),
-      field({ key: 'most_concerned_about', label: 'What are you most concerned about?' }),
       field({
         key: 'presenting_concerns',
         label: 'What have you been noticing? Select all that apply:',
@@ -532,6 +547,18 @@ function childWhatBrings() {
         key: 'concern_what_helps',
         label: 'What seems to help?',
         showIf: CONCERN_ANY
+      }),
+      field({
+        key: 'therapy_working_well_looks_like',
+        label: 'If therapy were working really well, what would it look like?'
+      }),
+      field({
+        key: 'notice_at_home_or_school',
+        label: 'What would you notice at home or school?'
+      }),
+      field({
+        key: 'actually_helping',
+        label: 'What would make you say, "This is actually helping my child"?'
       })
     ]
   });
@@ -865,14 +892,6 @@ function childSchool() {
         showIf: { fieldKey: 'teacher_concerns', equals: 'yes' }
       }),
       field({
-        key: 'has_connected_friend',
-        label: 'Does your child have at least one friend they feel connected to?',
-        type: 'radio',
-        section: 'Peers',
-        defaultValue: 'yes',
-        options: yesNoNotSure()
-      }),
-      field({
         key: 'peer_concerns',
         label: 'Any current concerns involving:',
         type: 'checkbox',
@@ -898,58 +917,10 @@ function childDevelopmentHealth() {
   return childStep({
     id: 'development_health',
     label: 'Development & Health',
-    helperText: 'Development and physical health can affect behavior, mood, attention, and learning.',
+    helperText: 'Physical health can affect behavior, mood, attention, and learning.',
     whyWeAsk:
-      'Developmental and medical history—including pregnancy/birth, milestones, illness, injuries, medication, sleep, and development—is part of a comprehensive child assessment.',
+      'Medical history—including illness, injuries, medication, and sleep—is part of a comprehensive child assessment.',
     fields: [
-      field({
-        key: 'pregnancy_complications',
-        label: 'Were there significant pregnancy, birth, or newborn complications?',
-        type: 'radio',
-        section: 'Pregnancy and birth',
-        options: yesNoNotSure()
-      }),
-      field({
-        key: 'pregnancy_what',
-        label: 'What happened?',
-        showIf: { fieldKey: 'pregnancy_complications', equals: 'yes' }
-      }),
-      field({
-        key: 'born_premature',
-        label: 'Was your child born prematurely?',
-        type: 'radio',
-        options: yesNoNotSure()
-      }),
-      field({
-        key: 'how_early',
-        label: 'Approximately how early?',
-        type: 'text',
-        showIf: { fieldKey: 'born_premature', equals: 'yes' }
-      }),
-      field({
-        key: 'development_delays',
-        label: 'Were there concerns or delays with:',
-        type: 'checkbox',
-        layout: 'cards',
-        exclusiveValue: 'none',
-        section: 'Development',
-        options: [
-          opt('walking', 'Walking'),
-          opt('talking', 'Talking'),
-          opt('language', 'Language'),
-          opt('toilet_training', 'Toilet training'),
-          opt('fine_motor', 'Fine motor skills'),
-          opt('social', 'Social development'),
-          opt('learning', 'Learning'),
-          opt('none', 'Deny all'),
-          opt('not_sure', 'Not sure')
-        ]
-      }),
-      field({
-        key: 'development_noticed',
-        label: 'What did you notice?',
-        showIf: DEV_DELAY_ANY
-      }),
       field({
         key: 'medical_condition',
         label: 'Does your child have a medical condition that affects everyday life?',
@@ -1648,10 +1619,12 @@ function childWantToChange() {
 }
 
 function childProviderPrefs() {
+  const noPreferred = { fieldKey: '_has_preferred_providers', equals: 'no' };
   return childStep({
     id: 'provider_prefs',
     label: 'Provider & Scheduling Preferences',
-    helperText: "We'll use this to show providers who can realistically work with your child.",
+    helperText:
+      'If you already chose a provider earlier, we only ask a few fit questions. Otherwise we use schedule preferences to match openings.',
     whyWeAsk: 'These answers feed provider matching rather than existing only as intake text.',
     fields: [
       field({
@@ -1660,7 +1633,6 @@ function childProviderPrefs() {
         type: 'radio',
         options: [
           opt('in_person', 'In person'),
-          opt('school_based', 'School based'),
           opt('virtual', 'Virtual'),
           opt('any', 'Any')
         ]
@@ -1670,6 +1642,7 @@ function childProviderPrefs() {
         label: 'Days that generally work',
         type: 'checkbox',
         layout: 'cards',
+        showIf: noPreferred,
         options: [
           opt('monday', 'Monday'),
           opt('tuesday', 'Tuesday'),
@@ -1685,6 +1658,7 @@ function childProviderPrefs() {
         label: 'Times that generally work',
         type: 'checkbox',
         layout: 'cards',
+        showIf: noPreferred,
         options: [
           opt('morning', 'Morning'),
           opt('afternoon', 'Afternoon'),
@@ -1696,6 +1670,7 @@ function childProviderPrefs() {
         key: 'earliest_availability',
         label: 'How important is earliest availability?',
         type: 'radio',
+        showIf: noPreferred,
         options: [
           opt('most_important', 'Most important'),
           opt('important', 'Important'),
@@ -1706,17 +1681,29 @@ function childProviderPrefs() {
         key: 'has_provider_preference',
         label: 'Does your child have a provider preference?',
         type: 'radio',
+        showIf: noPreferred,
         options: [opt('no_preference', 'No preference'), opt('yes', 'Yes')]
       }),
       field({
         key: 'provider_comfort',
         label: 'What would help them feel comfortable with a provider?',
-        showIf: { fieldKey: 'has_provider_preference', equals: 'yes' }
+        showIf: {
+          all: [
+            noPreferred,
+            { fieldKey: 'has_provider_preference', equals: 'yes' }
+          ]
+        }
       }),
       field({
         key: 'provider_good_fit',
         label: 'Anything else that would make a provider a particularly good fit for this child?',
-        optional: true
+        optional: true,
+        showIf: noPreferred
+      }),
+      field({
+        key: 'child_would_tell_provider',
+        label:
+          'If your child could tell their provider one thing before the first meeting, what do you think they would want them to know?'
       })
     ]
   });
@@ -1727,7 +1714,7 @@ function childQuestionnaires() {
     id: 'questionnaires',
     label: 'Questionnaires',
     helperText:
-      'These give the provider another view of how your child is doing and provide a baseline we can compare with later.',
+      'PSC-17 is standard for dependents ages 4–17. Additional screens may appear when indicated by earlier answers.',
     whyWeAsk:
       'A comprehensive evaluation incorporates both parent/guardian and child/adolescent perspectives rather than treating one as a substitute for the other.',
     fields: [
@@ -1850,8 +1837,8 @@ function childReview() {
   return {
     id: `${COUNSELING_DEP_STEP_PREFIX}child_review`,
     type: 'child_review',
-    label: 'Child Review — {childName}',
-    helperText: 'A simple summary of this child’s intake. You can edit before adding another child.',
+    label: 'Dependent Review — {childName}',
+    helperText: 'A summary of this dependent’s intake. You can edit before adding another dependent.',
     audience: 'dependent',
     scope: 'client',
     repeatPerClient: true,
@@ -1902,15 +1889,7 @@ export function buildCounselingDependentEnSteps() {
     ),
     childSubstance(),
     childSafety(),
-    combineChildSteps(
-      'goals_prefs',
-      'What Helps & Goals',
-      'What already helps and what you want to change.',
-      'Goals help us match the right clinician and plan.',
-      [childWhatHelps(), childProviderKnow(), childWantToChange()]
-    ),
     childQuestionnaires(),
-    childAnythingMissed(),
     childReview()
   ];
 }
@@ -1920,15 +1899,27 @@ export function mergeCounselingOfficeEnIntoSteps(existingSteps = []) {
   const dep = buildCounselingDependentEnSteps();
   const kept = (Array.isArray(existingSteps) ? existingSteps : []).filter((s) => {
     const id = String(s?.id || '');
+    const type = String(s?.type || '');
+    const label = String(s?.label || s?.title || '');
     if (id.startsWith(COUNSELING_SELF_STEP_PREFIX)) return false;
     if (id.startsWith(COUNSELING_DEP_STEP_PREFIX)) return false;
-    if (String(s?.type || '') === 'provider_match') return false;
-    if (String(s?.type || '') === 'questions' && (!Array.isArray(s.fields) || s.fields.length === 0)) {
+    if (type === 'provider_match') return false;
+    if (type === 'guardian_waiver' || type === 'guardian_waivers') return false;
+    if (type === 'questions' && (!Array.isArray(s.fields) || s.fields.length === 0)) {
+      return false;
+    }
+    // Drop leftover school interview "questions" pages from office masters.
+    if (
+      type === 'questions'
+      && !id.startsWith('office_')
+      && !id.startsWith(COUNSELING_SELF_STEP_PREFIX)
+      && !id.startsWith(COUNSELING_DEP_STEP_PREFIX)
+    ) {
       return false;
     }
     if (
-      String(s?.type || '') === 'upload'
-      && /custody/i.test(`${id} ${String(s?.label || '')}`)
+      type === 'upload'
+      && /custody/i.test(`${id} ${label}`)
     ) {
       return false;
     }
@@ -1955,9 +1946,9 @@ export function mergeCounselingOfficeEnIntoSteps(existingSteps = []) {
   const providersStep = {
     id: 'office_available_providers',
     type: 'provider_match',
-    label: 'Available providers',
-    helperText: 'Providers who are globally available. Those with open office slots are listed first; others are waitlist.',
-    audience: 'guardian',
+    label: 'Choose a provider',
+    helperText:
+      'Select one or more providers. Optionally rank your top 3. Choosing a slot is a preference — not a booking. First come first served; expect a callback within 24–48 hours.',
     visibility: 'always',
     fields: []
   };

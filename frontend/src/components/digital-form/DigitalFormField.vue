@@ -6,8 +6,9 @@
     <label v-if="label && type !== 'checkbox'" class="df-field-label" :for="inputId">
       {{ label }}
       <span v-if="required" class="df-field-required">*</span>
+      <span v-else-if="optionalBadge" class="df-field-optional">optional</span>
     </label>
-    <p v-if="help && type !== 'checkbox'" class="df-field-help">{{ help }}</p>
+    <p v-if="help && type !== 'checkbox' && String(help).trim().toLowerCase() !== 'optional'" class="df-field-help">{{ help }}</p>
 
     <template v-if="type === 'email'">
       <input
@@ -141,6 +142,7 @@ const props = defineProps({
   help: { type: String, default: '' },
   placeholder: { type: String, default: '' },
   required: { type: Boolean, default: false },
+  optionalBadge: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
   options: { type: Array, default: () => [] },
   error: { type: String, default: '' },

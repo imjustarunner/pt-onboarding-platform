@@ -15,6 +15,8 @@ import {
   providerServesAgeBucket,
   textMatchesClinicalProfile
 } from '../utils/ageMatch.util.js';
+import { listOfficeIntakeProviders } from '../services/officeIntakeProviders.service.js';
+import { findFullIntakePublicKey } from '../services/adaptiveIntake.service.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -710,6 +712,37 @@ export const getAgencyServicesHub = async (req, res, next) => {
         heroImageUrl: st.hero_image_url || null,
         sortOrder: st.sort_order || 0
       }))
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// GET /:agencySlug/choose-providers — shared office Choose a provider directory
+// ---------------------------------------------------------------------------
+
+export const listChooseProviders = async (req, res, next) => {
+  try {
+    const agency = await requireAgencyBySlug(res, req.params.agencySlug);
+    if (!agency) return;
+    const ages = String(req.query.ages || '')
+      .split(',')
+      .map((v) => Number(v))
+      .filter((n) => Number.isFinite(n) && n >= 0 && n < 120);
+    const providers = await listOfficeIntakeProviders(agency.id, { ages, includeNotAccepting: true });
+    const fullIntake = await findFullIntakePublicKey(agency.id);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({
+      agency: {
+        id: agency.id,
+        name: agency.name,
+        slug: agency.slug || agency.portal_url
+      },
+      providers,
+      fullIntake: fullIntake?.publicKey
+        ? { publicKey: fullIntake.publicKey, title: fullIntake.title || null }
+        : null
     });
   } catch (e) {
     next(e);

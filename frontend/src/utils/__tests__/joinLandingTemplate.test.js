@@ -89,7 +89,14 @@ describe('mergeQuickSidebarSteps', () => {
   it('keeps default guide labels when nothing is saved', () => {
     const steps = mergeQuickSidebarSteps(null);
     expect(steps[0].label).toBe('About You');
+    expect(steps.map((s) => s.id)).not.toContain('providers');
+    expect(steps).toHaveLength(5);
+  });
+
+  it('includes provider preview when requested', () => {
+    const steps = mergeQuickSidebarSteps(null, { includeProviders: true });
     expect(steps).toHaveLength(6);
+    expect(steps.some((s) => s.id === 'providers')).toBe(true);
   });
 
   it('collapses a previously saved 7-step who-for guide into About You', () => {
@@ -101,7 +108,7 @@ describe('mergeQuickSidebarSteps', () => {
       { id: 'providers', label: 'Providers' },
       { id: 'consent', label: 'Auth' },
       { id: 'review', label: 'Review' }
-    ]);
+    ], { includeProviders: true });
     expect(steps).toHaveLength(6);
     expect(steps[0].id).toBe('about');
     expect(steps[0].label).toBe('Your details');

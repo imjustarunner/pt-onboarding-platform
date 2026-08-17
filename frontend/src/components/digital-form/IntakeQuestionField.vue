@@ -24,8 +24,9 @@
       v-if="isChoiceGroup"
       :model-value="choiceValue"
       :options="normalizedOptions"
-      :label="label"
-      :help="displayHelp"
+      :label="labelWithOptional"
+      :help="choiceHelp"
+      :optional-badge="showOptionalBadge"
       :required="required"
       :multiple="isMulti"
       :exclusive-value="exclusiveValue"
@@ -38,8 +39,9 @@
         :id="inputId"
         :model-value="scalarValue"
         :type="resolvedInputType"
-        :label="label"
-        :help="displayHelp"
+        :label="labelWithOptional"
+        :help="fieldHelp"
+        :optional-badge="showOptionalBadge"
         :placeholder="placeholder"
         :required="required"
         :options="normalizedOptions"
@@ -88,10 +90,28 @@ const exclusiveValue = computed(() => String(props.field?.exclusiveValue || '').
 const inputId = computed(() => `${props.namePrefix}${props.field?.key || props.field?.id || 'field'}`);
 const isSchool = computed(() => type.value === 'school' || String(props.field?.inputKind || '').toLowerCase() === 'school');
 const displayHelp = computed(() => {
-  const raw = String(props.help || '').trim();
-  if (!raw || raw.toLowerCase() === 'optional') return '';
+  const raw = String(props.help || props.field?.helperText || '').trim();
+  if (!raw) return '';
   return raw;
 });
+const choiceHelp = computed(() => {
+  const raw = displayHelp.value;
+  if (!raw) return '';
+  if (raw.toLowerCase() === 'optional') return '';
+  return raw;
+});
+const fieldHelp = computed(() => choiceHelp.value);
+const showOptionalBadge = computed(() => {
+  const help = String(props.help || props.field?.helperText || '').trim().toLowerCase();
+  if (help === 'optional') return true;
+  if (props.field?.optional === true) return true;
+  const showIf = props.field?.showIf;
+  if (showIf && typeof showIf === 'object' && (showIf.fieldKey || showIf.any || showIf.all)) {
+    return props.required !== true && props.field?.required !== true;
+  }
+  return false;
+});
+const labelWithOptional = computed(() => String(props.label || props.field?.label || '').trim());
 const schoolHits = ref([]);
 let schoolTimer = null;
 

@@ -385,7 +385,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_outreach_access', 'has_platform_support', 'has_medical_records_release_access', 'has_games_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'company_car_submit_access', 'company_car_manage_access', 'profile_photo_path', 'password_changed_at', 'title', 'department', 'work_location', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'group_supervision_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'hourly_dual_rate_enabled', 'employee_id', 'sso_password_override', 'provider_start_date', 'work_role', 'employment_type', 'benefits_notes', 'benefits_eligibility_overrides_json', 'benefits_enrollment_json')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_outreach_access', 'has_platform_support', 'has_medical_records_release_access', 'has_games_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'psychology_today_url', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'company_car_submit_access', 'company_car_manage_access', 'profile_photo_path', 'password_changed_at', 'title', 'department', 'work_location', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'group_supervision_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'hourly_dual_rate_enabled', 'employee_id', 'sso_password_override', 'provider_start_date', 'work_role', 'employment_type', 'benefits_notes', 'benefits_eligibility_overrides_json', 'benefits_enrollment_json')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -404,6 +404,7 @@ class User {
       if (existingColumns.includes('has_staff_access')) query += ', has_staff_access';
       if (existingColumns.includes('provider_accepting_new_clients')) query += ', provider_accepting_new_clients';
       if (existingColumns.includes('provider_school_info_blurb')) query += ', provider_school_info_blurb';
+      if (existingColumns.includes('psychology_today_url')) query += ', psychology_today_url';
       if (existingColumns.includes('personal_phone')) query += ', personal_phone';
       if (existingColumns.includes('work_phone')) query += ', work_phone';
       if (existingColumns.includes('work_phone_extension')) query += ', work_phone_extension';
@@ -773,6 +774,7 @@ class User {
       hasStaffAccess,
       providerAcceptingNewClients,
       providerSchoolInfoBlurb,
+      psychologyTodayUrl,
       personalPhone,
       workPhone,
       workPhoneExtension,
@@ -1699,6 +1701,22 @@ class User {
         }
       } catch (err) {
         throw err;
+      }
+    }
+
+    if (psychologyTodayUrl !== undefined) {
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'psychology_today_url'",
+          [dbName]
+        );
+        if (columns.length > 0) {
+          updates.push('psychology_today_url = ?');
+          values.push(psychologyTodayUrl === null || psychologyTodayUrl === undefined ? null : String(psychologyTodayUrl).trim() || null);
+        }
+      } catch (err) {
+        console.warn('psychology_today_url column does not exist yet:', err.message);
       }
     }
 

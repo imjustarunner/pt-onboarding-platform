@@ -294,12 +294,64 @@
 
     <div v-if="!isSelfPay" class="pi-ins-card pi-ins-guarantor-card">
       <h4 class="pi-ins-card-title">{{ tx('Responsible Party (Guarantor)') }}</h4>
-      <p class="pi-ins-field-note" style="margin-top: 0;">
-        {{ tx('Name: Parent/Guardian') }}
-      </p>
+      <template v-if="props.intakeForSelf">
+        <div class="pi-ins-guarantor-choices">
+          <label class="pi-ins-selfpay-row" :class="{ 'pi-ins-selfpay-row--active': guarantorMode === 'self' }">
+            <input v-model="guarantorMode" type="radio" value="self" @change="onGuarantorModeChange" />
+            <span><strong>{{ tx('This is me') }}</strong> — {{ guarantorSelfName || tx('the person completing this form') }}</span>
+          </label>
+          <label class="pi-ins-selfpay-row" :class="{ 'pi-ins-selfpay-row--active': guarantorMode === 'other' }">
+            <input v-model="guarantorMode" type="radio" value="other" @change="onGuarantorModeChange" />
+            <span><strong>{{ tx('Someone else') }}</strong></span>
+          </label>
+        </div>
+        <div v-if="guarantorMode === 'other'" class="pi-ins-guarantor-other">
+          <div class="form-group">
+            <label class="pi-ins-lbl">{{ tx('Responsible party name') }}</label>
+            <input v-model="guarantorOtherName" class="pi-ins-input" type="text" @input="push" />
+          </div>
+          <div class="form-group">
+            <label class="pi-ins-lbl">{{ tx('Responsible party phone or email') }}</label>
+            <input v-model="guarantorOtherContact" class="pi-ins-input" type="text" @input="push" />
+          </div>
+        </div>
+        <p v-else class="pi-ins-field-note">
+          {{ tx('You are listed as financially responsible for services provided to you.') }}
+        </p>
+      </template>
+      <template v-else>
+        <p class="pi-ins-field-note" style="margin-top: 0;">
+          {{ tx('Name: Parent/Guardian') }}{{ guarantorSelfName ? ` — ${guarantorSelfName}` : '' }}
+        </p>
+        <p class="pi-ins-field-note">
+          {{ tx('Contact info: captured earlier in intake and used for billing/consent communications.') }}
+        </p>
+      </template>
+    </div>
+
+    <div class="pi-ins-card pi-ins-identity-card">
+      <h4 class="pi-ins-card-title">{{ tx('Identity verification') }}</h4>
       <p class="pi-ins-field-note">
-        {{ tx('Contact info: captured earlier in intake and used for billing/consent communications.') }}
+        {{ tx('To help prevent insurance fraud and protect you, our organization, and our providers, we ask that you verify you are who you say you are. You can skip for now and may be asked later in the portal to provide or upload ID.') }}
       </p>
+      <div class="pi-ins-photos" style="grid-template-columns: 1fr;">
+        <div class="pi-ins-photo-slot">
+          <label class="pi-ins-lbl">{{ tx('Driver’s license or government ID (optional)') }}</label>
+          <div class="pi-ins-photo-area" @click="triggerIdUpload">
+            <img v-if="idPreview" :src="idPreview" alt="ID" class="pi-ins-photo-img" />
+            <div v-else class="pi-ins-photo-placeholder"><span>🪪</span><span>{{ tx('Tap to upload') }}</span></div>
+          </div>
+          <input ref="idInput" type="file" accept="image/*" capture="environment" style="display:none" @change="onIdSelected" />
+          <button v-if="idPreview" type="button" class="pi-ins-remove-btn" @click.stop="clearId">{{ tx('Remove') }}</button>
+        </div>
+      </div>
+      <p v-if="identityStatusMessage" class="pi-ins-identity-status" :class="{ ok: identityVerified === true }">
+        {{ identityStatusMessage }}
+      </p>
+      <label class="pi-ins-selfpay-row" style="margin-top: 8px;">
+        <input v-model="identitySkipped" type="checkbox" @change="onIdentitySkip" />
+        <span>{{ tx('Skip identity verification for now') }}</span>
+      </label>
     </div>
 
     <!-- Insurance disclaimer -->
@@ -410,6 +462,7 @@
 import { ref, reactive, computed, watch } from 'vue';
 import { filterInsurances, isMedicaidInsurer } from '../../utils/coloradoInsurances.js';
 import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
+import api from '../../services/api.js';
 
 const { tx } = useIntakeStepTx();
 
@@ -425,6 +478,10 @@ const props = defineProps({
   clientNames: { type: Array, default: () => [] },
   intakeForSelf: { type: Boolean, default: false },
   agencyName: { type: String, default: '' },
+  legalFirstName: { type: String, default: '' },
+  legalLastName: { type: String, default: '' },
+  publicKey: { type: String, default: '' },
+  submissionId: { type: [Number, String], default: null },
   /**
    * The signature image data URL the parent already drew earlier in the
    * intake. When present, the Insurance Authorization block lets them re-use
@@ -495,6 +552,25 @@ const primaryFrontInput = ref(null);
 const primaryBackInput = ref(null);
 const secondaryFrontInput = ref(null);
 const secondaryBackInput = ref(null);
+const idInput = ref(null);
+const idFile = ref(null);
+const idPreview = ref(props.modelValue?.identity?.preview || '');
+const identityVerified = ref(
+  props.modelValue?.identity?.verified === true
+    ? true
+    : props.modelValue?.identity?.verified === false
+      ? false
+      : null
+);
+const identitySkipped = ref(!!props.modelValue?.identity?.skipped);
+const identityStatusMessage = ref(String(props.modelValue?.identity?.message || ''));
+const identityImageUrl = ref(props.modelValue?.identity?.imageUrl || '');
+const guarantorMode = ref(
+  props.modelValue?.guarantor?.mode
+    || (props.intakeForSelf ? 'self' : 'guardian')
+);
+const guarantorOtherName = ref(props.modelValue?.guarantor?.otherName || '');
+const guarantorOtherContact = ref(props.modelValue?.guarantor?.otherContact || '');
 
 // Typeahead
 const primaryQuery = ref(local.primary.insurerName);
@@ -509,6 +585,10 @@ const primaryIsMedicaid = computed(() => isMedicaidInsurer(local.primary.insurer
 const secondaryIsMedicaid = computed(() => isMedicaidInsurer(local.secondary.insurerName));
 const allMedicaid = computed(() => primaryIsMedicaid.value && (!hasSecondary.value || isMedicaidInsurer(local.secondary.insurerName)));
 const guardianDisplayName = computed(() => String(props.guardianName || '').trim());
+const guarantorSelfName = computed(() => {
+  const fromLegal = `${props.legalFirstName || ''} ${props.legalLastName || ''}`.trim();
+  return fromLegal || guardianDisplayName.value || '';
+});
 const firstClientDisplayName = computed(() => String((props.clientNames || [])[0] || '').trim());
 const clientDisplayNames = computed(() =>
   (Array.isArray(props.clientNames) ? props.clientNames : []).map((name, idx) => {
@@ -675,7 +755,25 @@ function push() {
     primaryIsMedicaid: primaryIsMedicaid.value,
     medicaidPlanPosition: medicaidPlanPosition.value || null,
     medicaidByClient: medicaidRows,
-    isSelfPay: isSelfPay.value
+    isSelfPay: isSelfPay.value,
+    guarantor: {
+      mode: guarantorMode.value,
+      name: guarantorMode.value === 'other'
+        ? String(guarantorOtherName.value || '').trim()
+        : (guarantorSelfName.value || guardianDisplayName.value || ''),
+      otherName: String(guarantorOtherName.value || '').trim(),
+      otherContact: String(guarantorOtherContact.value || '').trim(),
+      contact: guarantorMode.value === 'other'
+        ? String(guarantorOtherContact.value || '').trim()
+        : String(props.guardianPhone || '').trim()
+    },
+    identity: {
+      verified: identityVerified.value,
+      skipped: !!identitySkipped.value,
+      message: identityStatusMessage.value || '',
+      preview: idPreview.value || '',
+      imageUrl: identityImageUrl.value || ''
+    }
   };
   emit('update:modelValue', out);
   emit('medicaid-change', primaryIsMedicaid.value);
@@ -683,7 +781,79 @@ function push() {
 
 /** Returns the photo File objects (for upload at form finalize time). */
 function getPhotoFiles() {
-  return { ...photoFiles };
+  return { ...photoFiles, identity_id: idFile.value || null };
+}
+
+function onGuarantorModeChange() {
+  push();
+}
+
+function triggerIdUpload() {
+  idInput.value?.click();
+}
+
+function clearId() {
+  idFile.value = null;
+  idPreview.value = '';
+  identityVerified.value = null;
+  identityStatusMessage.value = '';
+  identityImageUrl.value = '';
+  identitySkipped.value = false;
+  push();
+}
+
+function onIdentitySkip() {
+  if (identitySkipped.value) {
+    identityStatusMessage.value = 'Thank you for your submission.';
+    identityVerified.value = null;
+  }
+  push();
+}
+
+async function onIdSelected(event) {
+  const file = event.target?.files?.[0];
+  event.target.value = '';
+  if (!file) return;
+  idFile.value = file;
+  identitySkipped.value = false;
+  try {
+    idPreview.value = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  } catch {
+    idPreview.value = '';
+  }
+  identityStatusMessage.value = 'Checking…';
+  push();
+  const pk = String(props.publicKey || '').trim();
+  const sid = Number(props.submissionId || 0);
+  if (!pk || !sid) {
+    identityVerified.value = null;
+    identityStatusMessage.value = 'Thank you for your submission.';
+    push();
+    return;
+  }
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('legalFirstName', props.legalFirstName || '');
+    form.append('legalLastName', props.legalLastName || '');
+    const res = await api.post(`/public-intake/${encodeURIComponent(pk)}/${sid}/identity-verify`, form, {
+      skipGlobalLoading: true
+    });
+    identityVerified.value = !!res.data?.verified;
+    identityImageUrl.value = String(res.data?.imageUrl || '');
+    identityStatusMessage.value = identityVerified.value
+      ? 'Thank you, you’ve been verified.'
+      : 'Thank you for your submission.';
+  } catch {
+    identityVerified.value = null;
+    identityStatusMessage.value = 'Thank you for your submission.';
+  }
+  push();
 }
 
 function getInsuranceEntryState() {

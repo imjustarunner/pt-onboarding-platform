@@ -953,7 +953,7 @@ const TEMPLATE = {
     },
     {
       title: 'External Marketing Profile (Psychology Today)',
-      description: 'Data for the website bio and Psychology Today profile.',
+      description: 'Data for the website bio and Psychology Today profile. The live public link lives on Account Information and shows on school portal bios.',
       categoryKey: 'provider_external_marketing_profile',
       fields: [
         {

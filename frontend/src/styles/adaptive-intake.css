@@ -156,6 +156,7 @@
 
 .ai-shell-host--join-flow .df-main-decor {
   width: clamp(160px, 26%, 300px);
+  opacity: 0.55;
 }
 
 .ai-shell-host--join-flow.df-page .df-main-body {
@@ -173,21 +174,103 @@
 }
 
 .ai-shell-host--join-flow .ai-layout-main {
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: flex-start;
+  max-width: 72rem;
+  margin: 0 auto;
+  width: 100%;
+  padding: 0 clamp(0.75rem, 2vw, 1.5rem) 1.5rem;
+}
+
+/* Soft cream wash so form text stays readable over the mountain photo */
+.ai-shell-host--join-flow.df-page--scenic-side {
+  --df-sidebar-w: clamp(220px, 22vw, 250px);
+  position: relative;
+}
+
+.ai-shell-host--join-flow.df-page--scenic-side::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(250, 252, 248, 0.98) 0%,
+    rgba(250, 252, 248, 0.9) 45%,
+    rgba(250, 252, 248, 0.35) 75%,
+    rgba(250, 252, 248, 0.1) 100%
+  );
+}
+
+.ai-shell-host--join-flow.df-page--scenic-side .df-shell {
+  position: relative;
+  z-index: 1;
 }
 
 .ai-shell-host--join-flow .ai-pathway-badge {
-  width: min(44rem, 100%);
+  display: none;
+}
+
+.ai-shell-host--join-flow .ai-join-eyebrow {
+  margin: 0 0 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--df-secondary, #2d6a4f);
+}
+
+.ai-shell-host--join-flow.df-page--scenic-side .df-sidebar {
+  min-width: 220px;
 }
 
 .ai-shell-host--join-flow.df-page--scenic-side .df-sidebar-intake-stack {
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(18, 60, 109, 0.14);
-  border-radius: 16px;
-  padding: 0.75rem 0.7rem 0.85rem;
-  backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(18, 60, 109, 0.12);
+  border-radius: 18px;
+  padding: 0.85rem 0.75rem 1rem;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.06);
 }
+
+.ai-shell-host--join-flow .ai-join-stage {
+  width: 100%;
+  max-width: 70rem;
+  margin: 0 auto;
+}
+
+.ai-shell-host--join-flow .ai-join-sheet.ai-join-panel,
+.ai-shell-host--join-flow .ai-join-panel {
+  width: 100%;
+  max-width: 70rem;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 3vw, 2.75rem);
+  border-radius: 28px;
+  background: rgba(252, 251, 248, 0.94);
+  border: 1px solid rgba(27, 61, 47, 0.08);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 18px 48px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.ai-shell-host--join-flow .ai-join-actions {
+  width: 100%;
+  margin: 1.35rem 0 0;
+  padding-top: 1.15rem;
+  border-top: 1px solid rgba(27, 61, 47, 0.08);
+}
+
+.ai-shell-host--join-flow.df-shell--intake-stepper .df-main-footer {
+  background: transparent;
+  box-shadow: none;
+}
+
+.ai-shell-host--join-flow .df-main--intake-decor {
+  background: transparent;
 }
 
 .df-main-decor-img {

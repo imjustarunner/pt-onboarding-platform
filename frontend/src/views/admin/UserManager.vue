@@ -142,16 +142,17 @@
             <div class="type-filter-row um-persona-row">
               <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: directoryPersona === 'employees' }" @click="setDirectoryPersona('employees')">Employees</button>
               <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: directoryPersona === 'school_staff' }" @click="setDirectoryPersona('school_staff')">School staff</button>
+              <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: directoryPersona === 'guardians' }" @click="setDirectoryPersona('guardians')">Guardians</button>
             </div>
             <div class="filter-label um-persona-elsewhere-label">Other directories</div>
             <div class="type-filter-row um-persona-row">
-              <router-link to="/admin/guardians" class="btn btn-secondary btn-sm type-filter-btn">Guardians ↗</router-link>
+              <router-link to="/admin/guardians" class="btn btn-secondary btn-sm type-filter-btn">Guardians page ↗</router-link>
               <router-link to="/admin/clients" class="btn btn-secondary btn-sm type-filter-btn">Clients ↗</router-link>
               <router-link v-if="canSeeClientExchange" :to="clientExchangeLink" class="btn btn-secondary btn-sm type-filter-btn">Exchange ↗</router-link>
             </div>
           </div>
 
-          <div class="filter-section">
+          <div v-if="!rosterEditorMode" class="filter-section">
             <label for="userSearch" class="filter-label">Search</label>
             <input
               id="userSearch"
@@ -307,21 +308,41 @@
             </div>
           </div>
 
-          <div class="users-table" :class="{ 'users-table--expanded': userTableExpanded }" data-tour="users-table">
+          <div class="users-table" :class="{ 'users-table--expanded': userTableExpanded, 'users-table--roster': rosterEditorMode }" data-tour="users-table">
             <div class="users-table-toolbar" data-tour="users-table-toolbar">
-              <span class="um-found-count">{{ directoryResultCount }} found</span>
-              <button type="button" class="btn btn-secondary btn-sm" @click="userTableExpanded = !userTableExpanded">
+              <span class="um-found-count">{{ rosterEditorMode ? 'Roster editor' : `${directoryResultCount} found` }}</span>
+              <button
+                v-if="!isSscSstcTenant"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :class="{ active: rosterEditorMode }"
+                @click="rosterEditorMode = !rosterEditorMode"
+              >
+                {{ rosterEditorMode ? 'List view' : 'Roster editor' }}
+              </button>
+              <button v-if="!rosterEditorMode" type="button" class="btn btn-secondary btn-sm" @click="userTableExpanded = !userTableExpanded">
                 {{ userTableExpanded ? 'Collapse columns' : 'Columns' }}
               </button>
               <span class="muted users-table-toolbar-hint">
-                When expanded, scroll horizontally to see all columns.
+                {{ rosterEditorMode ? 'Pick up to 10 fields, edit down the column, sort, and bulk-fill.' : 'When expanded, scroll horizontally to see all columns.' }}
               </span>
             </div>
 
-            <!-- Employees / School staff / SSTC members.
-                 Guardians and Clients have their own dedicated views; the sidebar links
-                 to them rather than loading those directories here. -->
-            <table>
+            <UserSmartGrid
+              v-if="rosterEditorMode && !isSscSstcTenant"
+              :key="directoryPersona"
+              :persona="directoryPersona"
+              :agency-id="agencySort"
+              :organization-id="organizationSort"
+              :role-filter="directoryPersona === 'school_staff' ? 'school_staff' : roleSort"
+              :extra-role="userTypeFilter"
+              :can-archive="isSuperAdmin"
+              :can-delete="isSuperAdmin"
+              :profile-base="rosterProfileBase"
+            />
+
+            <!-- Employees / School staff / Guardians / SSTC members. -->
+            <table v-else>
               <thead>
                 <tr>
                   <th class="sortable" @click="toggleTableSort('name')">
@@ -1757,6 +1778,7 @@ import { getStatusLabel, getStatusBadgeClass } from '../../utils/statusUtils.js'
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 import BulkDocumentAssignmentDialog from '../../components/documents/BulkDocumentAssignmentDialog.vue';
 import AskAssistantPanel from '../../components/assistant/AskAssistantPanel.vue';
+import UserSmartGrid from '../../components/admin/UserSmartGrid.vue';
 import { canSeeClientExchangeNav, clientExchangePath } from '../../utils/clientExchangeNav.js';
 
 const router = useRouter();
@@ -1902,11 +1924,14 @@ const showCreateModal = ref(false);
 const showBulkAssignModal = ref(false);
 const editingUser = ref(null);
 const saving = ref(false);
-/** Directory personas: employees (default) | school_staff | guardians | clients */
-// Guardians and Clients live in their own views (/admin/guardians, /admin/clients);
-// this directory only covers people with user accounts.
-const DIRECTORY_PERSONAS = ['employees', 'school_staff'];
+/** Directory personas: employees (default) | school_staff | guardians */
+const DIRECTORY_PERSONAS = ['employees', 'school_staff', 'guardians'];
 const directoryPersona = ref('employees');
+const rosterEditorMode = ref(false);
+const rosterProfileBase = computed(() => {
+  const slug = String(route.params.organizationSlug || '').trim();
+  return slug ? `/${slug}/admin/users` : '/admin/users';
+});
 // Default to Active Employee per admin workflow.
 const statusSort = ref('ACTIVE_EMPLOYEE');
 const agencySort = ref('');
@@ -2277,6 +2302,7 @@ const affiliationsPopoverStyle = computed(() => {
 const directoryPersonaLabel = computed(() => {
   if (isSscSstcTenant.value) return 'Members';
   if (directoryPersona.value === 'school_staff') return 'School staff';
+  if (directoryPersona.value === 'guardians') return 'Guardians';
   return 'Employees';
 });
 
@@ -2294,6 +2320,11 @@ const setDirectoryPersona = (persona) => {
   if (next === 'school_staff') {
     roleSort.value = '';
     userTypeFilter.value = '';
+  }
+  if (next === 'guardians') {
+    roleSort.value = '';
+    userTypeFilter.value = '';
+    statusSort.value = '';
   }
   if (next === 'employees' && !statusSort.value) {
     statusSort.value = 'ACTIVE_EMPLOYEE';
@@ -2586,6 +2617,9 @@ const fetchUsers = async () => {
       // SSTC context but no club ID yet (agency store still hydrating).
       // Leave the list empty — the selectedClubId watcher will trigger a re-fetch once it resolves.
       users.value = [];
+    } else if (directoryPersona.value === 'guardians') {
+      const response = await api.get('/users/guardians', { skipGlobalLoading: true });
+      users.value = Array.isArray(response.data) ? response.data : [];
     } else {
       // Archived users are managed in Settings → Archive, not in the main user list.
       // skipGlobalLoading: the global overlay stays up until every in-flight request
@@ -3955,10 +3989,12 @@ const sortedUsers = computed(() => {
   // In non-SSTC contexts (PT onboarding) keep the original guardian filter.
   let filtered = isSscSstcTenant.value
     ? [...(users.value || [])]
-    : (users.value || []).filter((u) => String(u?.role || '').toLowerCase() !== 'client_guardian');
+    : directoryPersona.value === 'guardians'
+      ? [...(users.value || [])]
+      : (users.value || []).filter((u) => String(u?.role || '').toLowerCase() !== 'client_guardian');
 
   // Directory personas (User Manager revamp): Employees exclude school_staff / kiosk;
-  // School staff shows only school_staff role.
+  // School staff shows only school_staff role; Guardians shows client_guardian.
   if (!isSscSstcTenant.value) {
     if (directoryPersona.value === 'school_staff') {
       filtered = filtered.filter((u) => String(u?.role || '').toLowerCase() === 'school_staff');
@@ -3967,8 +4003,9 @@ const sortedUsers = computed(() => {
         const r = String(u?.role || '').toLowerCase();
         return r !== 'school_staff' && r !== 'kiosk' && r !== 'client_guardian';
       });
+    } else if (directoryPersona.value === 'guardians') {
+      filtered = filtered.filter((u) => String(u?.role || '').toLowerCase() === 'client_guardian');
     } else {
-      // Guardians / Clients use their own tables — keep employees empty here.
       return [];
     }
   }
@@ -5237,6 +5274,15 @@ onUnmounted(() => window.removeEventListener('click', closeActionsMenus));
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
+}
+
+.users-table--roster {
+  overflow: visible;
+}
+
+.users-table-toolbar .btn.active {
+  border-color: var(--primary, #C69A2B);
+  background: var(--bg);
 }
 
 .users-table-toolbar {

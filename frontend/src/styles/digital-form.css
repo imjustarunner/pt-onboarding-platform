@@ -579,6 +579,26 @@
   margin-left: 0.15rem;
 }
 
+.df-field-optional {
+  margin-left: 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  color: #2f6f6a;
+  background: rgba(47, 111, 106, 0.12);
+  border: 1px solid rgba(47, 111, 106, 0.28);
+  border-radius: 999px;
+  padding: 0.08rem 0.45rem;
+  vertical-align: middle;
+}
+
+[data-theme="dark"] .df-field-optional {
+  color: #7dcdc4;
+  background: rgba(125, 205, 196, 0.14);
+  border-color: rgba(125, 205, 196, 0.35);
+}
+
 .df-field-help {
   font-size: 0.8rem;
   color: var(--df-muted);

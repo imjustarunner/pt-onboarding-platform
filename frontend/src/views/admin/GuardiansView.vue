@@ -4,18 +4,26 @@
       <h1>{{ schoolAffiliatedOnly ? 'School Guardians' : 'Guardians' }}</h1>
       <div class="header-actions">
         <button
-          v-if="selectedIds.size > 0"
+          v-if="selectedIds.size > 0 && !rosterEditorMode"
           class="btn btn-danger"
           type="button"
           @click="openBulkDeleteModal"
         >
           Delete {{ selectedIds.size }} Selected
         </button>
+        <button
+          class="btn btn-secondary"
+          type="button"
+          :class="{ active: rosterEditorMode }"
+          @click="rosterEditorMode = !rosterEditorMode"
+        >
+          {{ rosterEditorMode ? 'List view' : 'Roster editor' }}
+        </button>
         <button class="btn btn-primary" type="button" @click="openCreateModal">Add Guardian</button>
       </div>
     </div>
 
-    <div class="filters-row">
+    <div v-if="!rosterEditorMode" class="filters-row">
       <div class="filter-group">
         <label>Search</label>
         <input
@@ -47,8 +55,16 @@
       </div>
     </div>
 
-    <div v-if="loading" class="loading">Loading guardians...</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
+    <div v-if="loading && !rosterEditorMode" class="loading">Loading guardians...</div>
+    <div v-else-if="error && !rosterEditorMode" class="error">{{ error }}</div>
+    <UserSmartGrid
+      v-else-if="rosterEditorMode"
+      persona="guardians"
+      :agency-id="agencyFilter"
+      :can-archive="isSuperAdmin"
+      :can-delete="isSuperAdmin"
+      :profile-base="guardianProfileBase"
+    />
     <div v-else class="table-wrap">
       <table class="table">
         <thead>
@@ -209,9 +225,18 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { getStatusBadgeClass, getStatusLabel } from '../../utils/statusUtils.js';
+import { useAuthStore } from '../../store/auth';
+import UserSmartGrid from '../../components/admin/UserSmartGrid.vue';
 
 const router = useRouter();
 const route = useRoute();
+const authStore = useAuthStore();
+const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
+const rosterEditorMode = ref(false);
+const guardianProfileBase = computed(() => {
+  const orgSlug = String(route.params.organizationSlug || '').trim();
+  return orgSlug ? `/${orgSlug}/admin/users` : '/admin/users';
+});
 
 const loading = ref(false);
 const error = ref('');
@@ -503,10 +528,8 @@ onMounted(async () => {
   margin-bottom: 16px;
 }
 
-.header-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
+.header-actions .btn.active {
+  border-color: var(--primary, #C69A2B);
 }
 
 .filters-row {

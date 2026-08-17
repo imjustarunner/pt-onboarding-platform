@@ -3636,6 +3636,7 @@ const accountForm = ref({
   personalEmail: '',
   title: '',
   serviceFocus: '',
+  psychologyTodayUrl: '',
   languagesSpoken: '',
   phoneNumber: '',
   personalPhone: '',
@@ -5332,6 +5333,7 @@ const fetchUser = async () => {
       personalEmail: user.value.personal_email || accountForm.value?.personalEmail || '',
       title: user.value.title ?? accountForm.value?.title ?? '',
       serviceFocus: user.value.service_focus ?? accountForm.value?.serviceFocus ?? '',
+      psychologyTodayUrl: user.value.psychology_today_url ?? accountForm.value?.psychologyTodayUrl ?? '',
       languagesSpoken: user.value.languages_spoken ?? accountForm.value?.languagesSpoken ?? '',
       phoneNumber: user.value.phone_number || accountForm.value?.phoneNumber || '',
       personalPhone: user.value.personal_phone || accountForm.value?.personalPhone || '',
@@ -5459,6 +5461,9 @@ const fetchAccountInfo = async () => {
     }
     if (response.data?.languagesSpoken !== undefined) {
       accountForm.value.languagesSpoken = response.data.languagesSpoken ?? '';
+    }
+    if (response.data?.psychologyTodayUrl !== undefined) {
+      accountForm.value.psychologyTodayUrl = response.data.psychologyTodayUrl ?? '';
     }
     // Contracts & flags: payroll, hourly worker, hiring access (from account-info)
     if (response.data?.hasPayrollAccess !== undefined) {
@@ -6293,6 +6298,7 @@ const saveAccount = async (options = {}) => {
       personalEmail: accountForm.value.personalEmail,
       title: accountForm.value.title,
       serviceFocus: accountForm.value.serviceFocus,
+      psychologyTodayUrl: accountForm.value.psychologyTodayUrl || null,
       languagesSpoken: accountForm.value.languagesSpoken,
       phoneNumber: accountForm.value.phoneNumber,
       personalPhone: accountForm.value.personalPhone,

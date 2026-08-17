@@ -214,6 +214,12 @@
             <label>Service Focus:</label>
             <span>{{ accountInfo.serviceFocus || 'Not provided' }}</span>
           </div>
+          <div v-if="accountInfo.psychologyTodayUrl" class="info-item">
+            <label>Psychology Today:</label>
+            <span>
+              <a :href="accountInfo.psychologyTodayUrl" target="_blank" rel="noopener noreferrer">View profile</a>
+            </span>
+          </div>
           <div class="info-item">
             <label>Personal Email:</label>
             <span>{{ accountInfo.personalEmail || 'Not provided' }}</span>
@@ -574,6 +580,25 @@
             <div class="field-item">
               <label>Preferred name</label>
               <input v-model="preferredNameForm" type="text" placeholder="e.g., Katie" />
+            </div>
+          </div>
+        </div>
+
+        <div v-if="!isSsc && isProviderLike" class="card compact-card" style="margin-top: 16px;">
+          <div class="section-header">
+            <h3 style="margin: 0;">Psychology Today</h3>
+            <button class="btn btn-primary btn-compact" type="button" @click="savePsychologyTodayUrl" :disabled="savingPsychologyTodayUrl">
+              {{ savingPsychologyTodayUrl ? 'Saving...' : 'Save' }}
+            </button>
+          </div>
+          <div class="hint" style="margin-top: 6px;">
+            Optional public profile link shown on your school portal bio. Leave blank to hide it.
+          </div>
+          <div v-if="psychologyTodayError" class="error" style="margin-top: 10px;">{{ psychologyTodayError }}</div>
+          <div class="fields-grid" style="margin-top: 12px;">
+            <div class="field-item" style="grid-column: 1 / -1;">
+              <label>Profile URL</label>
+              <input v-model="psychologyTodayForm" type="url" placeholder="https://www.psychologytoday.com/us/therapists/..." />
             </div>
           </div>
         </div>
@@ -1353,6 +1378,7 @@ const accountInfo = ref({
   preferredName: '',
   title: '',
   serviceFocus: '',
+  psychologyTodayUrl: '',
   personalEmail: '', 
   phoneNumber: '', 
   personalPhone: '',
@@ -1375,6 +1401,9 @@ const tokenExpirationDays = ref(7);
 const preferredNameForm = ref('');
 const savingPreferredName = ref(false);
 const preferredNameError = ref('');
+const psychologyTodayForm = ref('');
+const savingPsychologyTodayUrl = ref(false);
+const psychologyTodayError = ref('');
 
 // SSTC editable personal info
 const editingPersonalInfo = ref(false);
@@ -1713,7 +1742,15 @@ const providerPublicProfile = ref({
 });
 const isProviderLike = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  return role === 'provider' || role === 'supervisor' || !!authStore.user?.has_provider_access || !!authStore.user?.hasProviderAccess;
+  return (
+    role === 'provider' ||
+    role === 'supervisor' ||
+    role === 'intern' ||
+    role === 'facilitator' ||
+    role === 'provider_plus' ||
+    !!authStore.user?.has_provider_access ||
+    !!authStore.user?.hasProviderAccess
+  );
 });
 
 const normalizeMultiSelectValue = (raw) => {
@@ -2039,6 +2076,7 @@ const fetchAccountInfo = async () => {
     const response = await api.get(`/users/${userId.value}/account-info`);
     accountInfo.value = response.data;
     preferredNameForm.value = response.data?.preferredName || '';
+    psychologyTodayForm.value = response.data?.psychologyTodayUrl || '';
     // Seed SSTC personal-info form with current values (stays hidden until user clicks Edit)
     personalInfoForm.value = {
       username: response.data?.username || '',
@@ -2082,6 +2120,20 @@ const cancelEditingHomeAddress = () => {
   homeAddressError.value = '';
   if (savedHomeAddressSnapshot.value) {
     homeAddressForm.value = { ...savedHomeAddressSnapshot.value };
+  }
+};
+
+const savePsychologyTodayUrl = async () => {
+  try {
+    if (!userId.value) return;
+    savingPsychologyTodayUrl.value = true;
+    psychologyTodayError.value = '';
+    await api.put(`/users/${userId.value}`, { psychologyTodayUrl: psychologyTodayForm.value || null });
+    await fetchAccountInfo();
+  } catch (err) {
+    psychologyTodayError.value = err.response?.data?.error?.message || 'Failed to save Psychology Today URL';
+  } finally {
+    savingPsychologyTodayUrl.value = false;
   }
 };
 

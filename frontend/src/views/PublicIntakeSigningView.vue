@@ -606,6 +606,7 @@
           :link="link"
           :bound-client="boundClient"
           :locale="intakeLocale"
+          :session-saved-signature="lastSignatureData"
           mode="standalone"
           @completed="handleSmartDisclosureCompleted"
         />
@@ -1213,6 +1214,7 @@
             :bound-client="boundClient"
             :locale="intakeLocale"
             :saved-capture="embeddedSmartDisclosure"
+            :session-saved-signature="lastSignatureData"
             mode="embedded"
             @captured="handleEmbeddedDisclosureCaptured"
             @back="goBackPublicPage"
@@ -1226,6 +1228,7 @@
             ref="packetSectionFlowRef"
             :section-context="packetSectionContextForStep(currentFlowStep)"
             :saved-capture="currentPacketSavedCapture"
+            :session-saved-signature="lastSignatureData"
             :locale="intakeLocale"
             @captured="handleEmbeddedPacketSectionCaptured"
           />
@@ -1423,6 +1426,10 @@
             :client-names="insuranceClientNames"
             :intake-for-self="intakeForSelf"
             :agency-name="agencyInfo?.official_name || agencyInfo?.name || ''"
+            :legal-first-name="insuranceLegalFirstName"
+            :legal-last-name="insuranceLegalLastName"
+            :public-key="publicKey"
+            :submission-id="submissionId"
             :saved-signature-data="lastSignatureData"
             :validation-errors="insuranceErrors"
             @update:model-value="(v) => { intakeResponses.submission.insuranceInfo = v; clearInsuranceErrorsOnEdit(v); }"
@@ -1631,54 +1638,16 @@
         </div>
 
         <div v-if="currentFlowStep?.type === 'provider_match'" class="provider-match-step">
-          <p class="muted" style="margin-bottom: 12px;">
-            {{ tx('These are providers who are globally available. People with open office slots are listed first. Others are waitlist — you can still select them.') }}
-          </p>
-          <p v-if="officeProvidersLoading" class="muted">{{ tx('Loading providers…') }}</p>
-          <p v-else-if="!sortedOfficeProviders.length" class="muted">{{ tx('No available providers are listed yet. You can continue.') }}</p>
-          <div v-else class="provider-match-table-wrap">
-            <table class="provider-match-table">
-              <thead>
-                <tr>
-                  <th></th>
-                  <th>
-                    <button type="button" class="provider-match-sort" @click="setOfficeProviderSort('name')">
-                      {{ tx('Provider') }}{{ officeProviderSortMark('name') }}
-                    </button>
-                  </th>
-                  <th>
-                    <button type="button" class="provider-match-sort" @click="setOfficeProviderSort('title')">
-                      {{ tx('Title') }}{{ officeProviderSortMark('title') }}
-                    </button>
-                  </th>
-                  <th>
-                    <button type="button" class="provider-match-sort" @click="setOfficeProviderSort('openSlots')">
-                      {{ tx('Open slots') }}{{ officeProviderSortMark('openSlots') }}
-                    </button>
-                  </th>
-                  <th>{{ tx('Status') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in sortedOfficeProviders" :key="row.id">
-                  <td>
-                    <input
-                      type="checkbox"
-                      :checked="selectedOfficeProviderIds.includes(String(row.id))"
-                      @change="toggleOfficeProvider(row)"
-                    />
-                  </td>
-                  <td>{{ row.name }}</td>
-                  <td>{{ row.title || row.credential || '—' }}</td>
-                  <td>{{ row.openSlots || 0 }}</td>
-                  <td>
-                    <span v-if="row.waitlist" class="provider-waitlist">{{ tx('Waitlist') }}</span>
-                    <span v-else class="provider-open">{{ tx('Has openings') }}</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <ChooseProviderDirectory
+            mode="intake"
+            title="Choose a provider"
+            lead="Select one or more providers. Optionally rank your top 3. Choosing a slot is a preference — not a booking."
+            :show-header="true"
+            :providers="officeProviders"
+            :loading="officeProvidersLoading"
+            :selected-ids="selectedOfficeProviderIds"
+            @update:selected-ids="setSelectedOfficeProviderIds"
+          />
         </div>
 
         <!-- Demographics step -->
@@ -1902,7 +1871,7 @@
             </button>
           </div>
           <div class="child-review-add">
-            <p class="df-section-help">Are you signing up another child?</p>
+            <p class="df-section-help">Are you signing up another dependent?</p>
             <div
               v-if="reviewAddConsentOpen"
               class="multi-client-consent-panel"
@@ -1931,7 +1900,7 @@
               @click="addAnotherChildFromReview"
             >+ {{ t('addAnotherChild') }}</button>
             <p class="muted" style="margin-top: 8px;">
-              We'll ask the same questions about this child separately so each child has their own intake and care record.
+              We'll ask the same questions about this dependent separately so each person has their own intake and care record.
             </p>
           </div>
         </div>
@@ -2060,28 +2029,37 @@
         </div>
 
         <div v-if="currentFlowStep?.type === 'document' && currentDoc?.document_action_type === 'signature'" class="signature-block" ref="signatureBlockRef" :class="{ 'signature-block--flash': signatureBlockFlash }">
-          <AdaptiveSignatureCapture
-            :signer-name="guardianDisplayName || ''"
-            :model-value="signatureData || ''"
-            :title="t('signature') || 'Digital Signature'"
-            @update:model-value="onSigned"
-            @signed="(payload) => onSigned(payload?.dataUrl || payload)"
-          />
-          <div v-if="lastSignatureData && !signatureData" class="signature-reuse-actions" style="margin-top: 12px;">
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              @click="onUseSavedSignatureClick"
-            >
-              {{ t('useSavedSignature') }}
+          <div v-if="signatureData" class="doc-sig-applied">
+            <div class="doc-sig-saved-label">✓ {{ t('signatureReady') || 'Signature saved' }}</div>
+            <img :src="signatureData" alt="Signature" class="doc-sig-preview" />
+            <button type="button" class="btn btn-secondary btn-sm" @click="signatureData = ''; showSavedSigPrompt = false">
+              {{ t('signAgain') || 'Sign again' }}
             </button>
           </div>
-          <div v-if="signatureData" class="ai-signature-captured" style="margin-top: 6px;">✓ {{ t('signatureReady') }}</div>
-          <!-- Keep SignaturePad available as fallback for environments where typed canvas fails -->
-          <details class="signature-fallback" style="margin-top: 10px;">
-            <summary class="muted" style="cursor: pointer; font-size: 0.85rem;">Prefer classic draw pad</summary>
-            <SignaturePad compact :locale="intakeLocale" @signed="onSigned" />
-          </details>
+          <template v-else>
+            <div v-if="lastSignatureData" class="doc-sig-reuse">
+              <p class="muted small">{{ t('signatureReady') || 'Signature saved' }}</p>
+              <button type="button" class="doc-sig-thumb" @click="onUseSavedSignatureClick">
+                <img :src="lastSignatureData" alt="Saved signature preview" />
+                <span>{{ t('applyMySignature') || 'Apply my signature' }}</span>
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="showSavedSigPrompt = false; forceDocResign = true">
+                {{ t('useNewSignature') || 'Use a new signature' }}
+              </button>
+            </div>
+            <AdaptiveSignatureCapture
+              v-if="!lastSignatureData || forceDocResign"
+              :signer-name="guardianDisplayName || ''"
+              :model-value="signatureData || ''"
+              :title="t('signature') || 'Digital Signature'"
+              @update:model-value="onSigned"
+              @signed="(payload) => onSigned(payload?.dataUrl || payload)"
+            />
+            <details v-if="!lastSignatureData || forceDocResign" class="signature-fallback" style="margin-top: 10px;">
+              <summary class="muted" style="cursor: pointer; font-size: 0.85rem;">Prefer classic draw pad</summary>
+              <SignaturePad compact :locale="intakeLocale" @signed="onSigned" />
+            </details>
+          </template>
         </div>
 
         <div v-if="showSavedSigPrompt" class="saved-sig-prompt">
@@ -2190,14 +2168,53 @@
                 </div>
                 <p v-if="officeEmailStatus" class="office-complete-phi">{{ officeEmailStatus }}</p>
               </div>
-              <div v-if="!officePortalDismissed && guardianEmail" class="office-complete-download">
-                <p><strong>{{ t('portalLoginTitle') }}</strong></p>
-                <p>{{ guardianEmail }} — this email is the username. You can change it later.</p>
-                <a class="df-btn df-btn-primary" :href="officePortalHref">Sign in</a>
-                <button type="button" class="df-btn df-btn-secondary" :disabled="officeLoginEmailing" @click="emailOfficeLoginDetails">
-                  {{ officeLoginEmailing ? t('saving') : t('emailLoginDetails') }}
-                </button>
-                <button type="button" class="df-btn df-btn-secondary" @click="officePortalDismissed = true">{{ t('portalLoginSkip') }}</button>
+              <div v-if="!officePortalDismissed && guardianEmail" class="office-complete-portal">
+                <div class="office-complete-portal-head">
+                  <h3>{{ t('portalLoginTitle') || 'Your parent/guardian portal login' }}</h3>
+                  <p>Use this login on the website to check status, upload documents, and manage care for your dependent(s).</p>
+                </div>
+                <div class="office-complete-portal-creds">
+                  <div>
+                    <span>Website</span>
+                    <strong>
+                      <a :href="officePortalCreds?.portalLoginUrl || officePortalHref">
+                        {{ officePortalCreds?.portalLoginUrl || officePortalHref }}
+                      </a>
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Username</span>
+                    <strong>{{ officePortalCreds?.username || guardianEmail }}</strong>
+                  </div>
+                  <div v-if="officePortalCreds?.temporaryPassword">
+                    <span>Temporary password</span>
+                    <strong class="office-temp-pw">{{ officePortalCreds.temporaryPassword }}</strong>
+                    <p class="muted small">Valid for up to 7 days. After that, request a new temporary password from the login page.</p>
+                  </div>
+                  <p v-else-if="officePortalCredsLoading" class="muted">Generating your temporary password…</p>
+                  <p v-else-if="officePortalCreds?.note" class="muted">{{ officePortalCreds.note }}</p>
+                </div>
+                <div class="office-complete-portal-actions">
+                  <a
+                    v-if="officePortalCreds?.setPasswordUrl"
+                    class="df-btn df-btn-primary"
+                    :href="officePortalCreds.setPasswordUrl"
+                  >Set password now</a>
+                  <a class="df-btn df-btn-secondary" :href="officePortalCreds?.portalLoginUrl || officePortalHref">
+                    Login later
+                  </a>
+                  <button
+                    type="button"
+                    class="df-btn df-btn-secondary"
+                    :disabled="officeLoginEmailing || officePortalCredsLoading"
+                    @click="emailOfficeLoginDetails"
+                  >
+                    {{ officeLoginEmailing ? t('saving') : (t('emailLoginDetails') || 'Email these login details') }}
+                  </button>
+                  <button type="button" class="df-btn df-btn-secondary" @click="officePortalDismissed = true">
+                    {{ t('portalLoginSkip') || 'Skip for now' }}
+                  </button>
+                </div>
                 <p v-if="officeLoginEmailStatus" class="office-complete-phi">{{ officeLoginEmailStatus }}</p>
               </div>
               <div v-if="showCoGuardianOutreach" class="office-complete-download">
@@ -2617,6 +2634,7 @@ import JobDescriptionSections from '../components/careers/JobDescriptionSections
 import SmartSchoolRoiFlow from '../components/public/SmartSchoolRoiFlow.vue';
 import SmartDisclosureFlow from '../components/public/SmartDisclosureFlow.vue';
 import PacketSectionConsentFlow from '../components/public/PacketSectionConsentFlow.vue';
+import ChooseProviderDirectory from '../components/public/ChooseProviderDirectory.vue';
 import OfficeIntakeStartPage from '../components/office/OfficeIntakeStartPage.vue';
 import PDFPreview from '../components/documents/PDFPreview.vue';
 import PublicIntakeGuardianWaiverStep from '../components/public-intake/PublicIntakeGuardianWaiverStep.vue';
@@ -2817,7 +2835,7 @@ const INTAKE_TRANSLATIONS = {
     upload: 'Upload',
     registration: 'Registration',
     guardianWaiversSafety: 'Guardian waivers & safety',
-    insuranceInformation: 'Insurance information',
+    insuranceInformation: 'Insurance information and identity verification',
     paymentInformation: 'Payment information',
     communicationPreferences: 'Communication preferences',
     demographics: 'Demographics',
@@ -3166,7 +3184,7 @@ const INTAKE_TRANSLATIONS = {
     upload: 'Carga',
     registration: 'Registro',
     guardianWaiversSafety: 'Autorizaciones y seguridad del tutor',
-    insuranceInformation: 'Información del seguro',
+    insuranceInformation: 'Información del seguro y verificación de identidad',
     paymentInformation: 'Información de pago',
     communicationPreferences: 'Preferencias de comunicación',
     demographics: 'Datos demográficos',
@@ -3516,7 +3534,14 @@ function sanitizeOfficeIntakeSteps(steps = []) {
     if (/about_child/i.test(id) || /^about /i.test(label)) {
       nextFields = nextFields.filter((f) => !SCHOOL_ON_ABOUT_KEYS.has(String(f?.key || '')));
     }
-    if (/safety/i.test(id)) {
+    // Adult/self safety: deny-all must set "feel physically safe?" to Yes (safe), not No.
+    // Dependent/child safety: deny-all sets concern items to No.
+    const audience = String(step.audience || '').trim().toLowerCase();
+    const isAdultSelfSafety =
+      audience === 'self'
+      || /counseling_self_safety/i.test(id)
+      || (/safety/i.test(id) && !/child|dependent|guardian/i.test(`${id} ${audience}`));
+    if (/safety/i.test(id) && !isAdultSelfSafety) {
       const denyIdx = nextFields.findIndex((f) => f?.key === 'safety_deny_all' || f?.type === 'deny_all');
       if (denyIdx < 0) {
         nextFields = [
@@ -3535,6 +3560,51 @@ function sanitizeOfficeIntakeSteps(steps = []) {
         nextFields = nextFields.map((f, i) => (
           i === denyIdx
             ? { ...f, type: 'deny_all', denyAllValue: f.denyAllValue || 'no', denyAllKeys: [...SAFETY_DENY_ALL_KEYS] }
+            : f
+        ));
+      }
+    } else if (/safety/i.test(id) && isAdultSelfSafety) {
+      const adultDenyKeys = [
+        'feel_physically_safe',
+        'afraid_someone_may_hurt_you',
+        'safety_immediate_danger',
+        'hurt_yourself_past',
+        'suicide_attempt_ever',
+        'cssrs_1',
+        'cssrs_2',
+        'cssrs_3',
+        'cssrs_4',
+        'cssrs_5',
+        'cssrs_6'
+      ];
+      const adultDenyField = {
+        id: 'field_safety_deny_all',
+        key: 'safety_deny_all',
+        type: 'deny_all',
+        label: 'Deny all — none of these safety concerns apply',
+        helperText: 'Sets every safety question below to the no-concern answer.',
+        denyAllValue: 'no',
+        denyAllOverrides: { feel_physically_safe: 'yes' },
+        denyAllKeys: adultDenyKeys
+      };
+      const denyIdx = nextFields.findIndex((f) => f?.key === 'safety_deny_all' || f?.type === 'deny_all');
+      if (denyIdx < 0) {
+        nextFields = [adultDenyField, ...nextFields];
+      } else {
+        nextFields = nextFields.map((f, i) => (
+          i === denyIdx
+            ? {
+                ...f,
+                type: 'deny_all',
+                denyAllValue: f.denyAllValue || 'no',
+                denyAllOverrides: {
+                  feel_physically_safe: 'yes',
+                  ...(f.denyAllOverrides && typeof f.denyAllOverrides === 'object' ? f.denyAllOverrides : {})
+                },
+                denyAllKeys: Array.isArray(f.denyAllKeys) && f.denyAllKeys.length
+                  ? f.denyAllKeys
+                  : adultDenyKeys
+              }
             : f
         ));
       }
@@ -3661,7 +3731,7 @@ const txField = (field, prop = 'label') => {
   if (stored) return interpolateChildTokens(stored);
   const en =
     prop === 'label' ? String(field.label || field.key || '').trim() : String(field[prop] || '').trim();
-  if (prop === 'helperText' && en.trim().toLowerCase() === 'optional') return '';
+  if (prop === 'helperText' && en.trim().toLowerCase() === 'optional') return 'Optional';
   return interpolateChildTokens(tx(en));
 };
 
@@ -4172,49 +4242,33 @@ const communications = reactive({
 
 const officeProviders = ref([]);
 const officeProvidersLoading = ref(false);
-const officeProviderSortKey = ref('openSlots');
-const officeProviderSortDir = ref('desc');
 const selectedOfficeProviderIds = computed(() => {
   const raw = intakeResponses.submission?.preferred_office_provider_ids;
   return Array.isArray(raw) ? raw.map((id) => String(id)) : [];
 });
-const sortedOfficeProviders = computed(() => {
-  const rows = [...(officeProviders.value || [])];
-  const key = officeProviderSortKey.value;
-  const dir = officeProviderSortDir.value === 'asc' ? 1 : -1;
-  rows.sort((a, b) => {
-    const av = key === 'openSlots' ? Number(a.openSlots || 0) : String(a[key] || a.name || '').toLowerCase();
-    const bv = key === 'openSlots' ? Number(b.openSlots || 0) : String(b[key] || b.name || '').toLowerCase();
-    if (av < bv) return -1 * dir;
-    if (av > bv) return 1 * dir;
-    return String(a.name || '').localeCompare(String(b.name || ''));
-  });
-  return rows;
-});
-function setOfficeProviderSort(key) {
-  if (officeProviderSortKey.value === key) {
-    officeProviderSortDir.value = officeProviderSortDir.value === 'asc' ? 'desc' : 'asc';
-    return;
-  }
-  officeProviderSortKey.value = key;
-  officeProviderSortDir.value = key === 'openSlots' ? 'desc' : 'asc';
-}
-function officeProviderSortMark(key) {
-  if (officeProviderSortKey.value !== key) return '';
-  return officeProviderSortDir.value === 'asc' ? ' ↑' : ' ↓';
+function setSelectedOfficeProviderIds(ids) {
+  if (!intakeResponses.submission) intakeResponses.submission = {};
+  const cur = (Array.isArray(ids) ? ids : []).map((id) => String(id));
+  intakeResponses.submission.preferred_office_provider_ids = cur;
+  const selected = (officeProviders.value || []).filter((p) => cur.includes(String(p.id)));
+  const ranked = cur
+    .map((id, idx) => {
+      const row = selected.find((p) => String(p.id) === String(id));
+      if (!row) return null;
+      const rank = idx < 3 ? `#${idx + 1} ` : '';
+      return `${rank}${row.name}${row.waitlist ? ' (waitlist)' : ''}`;
+    })
+    .filter(Boolean);
+  intakeResponses.submission.preferred_office_provider_summary = ranked.join(', ');
 }
 function toggleOfficeProvider(row) {
   const id = String(row?.id || '');
   if (!id) return;
-  const cur = selectedOfficeProviderIds.value.slice();
+  const cur = [...selectedOfficeProviderIds.value];
   const idx = cur.indexOf(id);
   if (idx >= 0) cur.splice(idx, 1);
   else cur.push(id);
-  intakeResponses.submission.preferred_office_provider_ids = cur;
-  const selected = (officeProviders.value || []).filter((p) => cur.includes(String(p.id)));
-  intakeResponses.submission.preferred_office_provider_summary = selected
-    .map((p) => `${p.name}${p.waitlist ? ' (waitlist)' : ''}`)
-    .join(', ');
+  setSelectedOfficeProviderIds(cur);
 }
 async function loadOfficeIntakeProviders() {
   if (!publicKey || officeProvidersLoading.value) return;
@@ -4224,14 +4278,25 @@ async function loadOfficeIntakeProviders() {
       .map((c) => ageYearsFromDob(c?.dateOfBirth || c?.dob))
       .filter((n) => Number.isFinite(n) && n >= 0);
     const resp = await api.get(`/public-intake/${encodeURIComponent(publicKey)}/available-providers`, {
-      params: ages.length ? { ages: ages.join(',') } : {}
+      params: ages.length ? { ages: ages.join(',') } : {},
+      skipGlobalLoading: true
     });
     officeProviders.value = Array.isArray(resp.data?.providers) ? resp.data.providers : [];
+    applyProviderPrefillFromQuery();
   } catch {
     officeProviders.value = [];
   } finally {
     officeProvidersLoading.value = false;
   }
+}
+function applyProviderPrefillFromQuery() {
+  const qid = String(route.query.providerId || route.query.preferredProviderId || '').trim();
+  if (!qid) return;
+  const exists = (officeProviders.value || []).some((p) => String(p.id) === qid);
+  if (!exists && !(officeProviders.value || []).length) return;
+  const cur = selectedOfficeProviderIds.value;
+  if (cur.includes(qid)) return;
+  setSelectedOfficeProviderIds([qid, ...cur.filter((id) => id !== qid)]);
 }
 
 // Demographics step state
@@ -4301,13 +4366,26 @@ const interviewShowIfValues = computed(() => {
   const clientBag = idx != null ? (intakeResponses.clients?.[idx] || {}) : {};
   const ident = idx != null ? (clients.value?.[idx] || {}) : {};
   const dob = clientBag.child_dob || ident.dob || ident.dateOfBirth;
-  return mergeShowIfValues(
+  const merged = mergeShowIfValues(
     intakeResponses.submission || {},
     intakeResponses.guardian || {},
     clientBag,
     clinicalResponses,
     childAgeFlags(dob, clientBag)
   );
+  const active = ['occasionally', 'weekly', 'several_times_week', 'daily'];
+  let substanceCount = 0;
+  if (active.includes(String(merged.alcohol_use || '').toLowerCase())) substanceCount += 1;
+  if (active.includes(String(merged.cannabis_use || '').toLowerCase())) substanceCount += 1;
+  if (String(merged.other_substances || '').toLowerCase() === 'yes') substanceCount += 1;
+  if (String(merged.nonprescribed_meds || '').toLowerCase() === 'yes') substanceCount += 1;
+  merged._substance_active_count = substanceCount;
+  const preferredIds = intakeResponses.submission?.preferred_office_provider_ids;
+  const hasPreferred = Array.isArray(preferredIds)
+    ? preferredIds.filter(Boolean).length > 0
+    : !!String(preferredIds || '').trim();
+  merged._has_preferred_providers = hasPreferred ? 'yes' : 'no';
+  return merged;
 });
 
 const visibleClinicalFields = computed(() => {
@@ -4787,16 +4865,16 @@ const FLOW_STEP_PROGRESS_LABELS = {
   upload: 'Uploads',
   registration: 'Registration',
   school_roi: 'School ROI',
-  smart_disclosure: 'Disclosure',
-  disclosure: 'Disclosure',
+  smart_disclosure: 'Disclosure Statement',
+  disclosure: 'Disclosure Statement',
   packet_informed_group_consent: 'Informed + Group Consent',
   packet_policy_services: 'Policy & Services',
   packet_hipaa_notice: 'HIPAA Notice',
   guardian_waiver: 'Waivers',
-  insurance_info: 'Insurance',
+  insurance_info: 'Insurance & identity',
   payment_collection: 'Payment',
   communications: 'Communications',
-  provider_match: 'Available providers',
+  provider_match: 'Choose a provider',
   references: 'References',
   demographics: 'Demographics',
     questions: 'Questions',
@@ -4830,7 +4908,7 @@ const shellFormSubtitle = computed(() => {
   const ft = formTypeKey.value;
   if (ft === 'job_application') return t('digitalIntakeJob');
   if (ft === 'smart_school_roi') return t('releaseOfInformation');
-  if (ft === 'smart_disclosure') return tx('Disclosure') || 'Disclosure';
+  if (ft === 'smart_disclosure') return tx('Disclosure Statement') || 'Disclosure Statement';
   if (ft === 'smart_registration') return t('registration');
   if (ft === 'medical_records_request') return t('digitalIntakeMedical');
   if (ft === 'public_form') return t('information');
@@ -5141,6 +5219,12 @@ const flowSteps = computed(() => {
         if (s?.type === 'payment_collection') {
           if (shouldSkipPaymentCollectionStep()) return false;
         }
+        // Self completers answer emergency contact on About You — skip guardian waivers.
+        // Office dependent path also skips waivers/safety packet (emergency contact asked earlier).
+        if (s?.type === 'guardian_waiver' || s?.type === 'guardian_waivers') {
+          if (intakeForSelf.value === true) return false;
+          if (isOfficeInDepthIntake.value) return false;
+        }
         const audience = String(s?.audience || '').trim().toLowerCase();
         if (audience === 'self' && !intakeForSelf.value) return false;
         if ((audience === 'dependent' || audience === 'guardian') && intakeForSelf.value) return false;
@@ -5393,6 +5477,14 @@ const guardianWaiverClientLabels = computed(() => {
 const guardianDisplayNameForInsurance = computed(() =>
   [guardianFirstName.value, guardianLastName.value].filter(Boolean).join(' ').trim()
 );
+const insuranceLegalFirstName = computed(() => {
+  const bag = intakeResponses.submission || {};
+  return String(bag.legal_first_name || guardianFirstName.value || '').trim();
+});
+const insuranceLegalLastName = computed(() => {
+  const bag = intakeResponses.submission || {};
+  return String(bag.legal_last_name || guardianLastName.value || '').trim();
+});
 const insuranceClientNames = computed(() => guardianWaiverClientLabels.value);
 const guardianDefaultPickup = computed(() => ({
   name: guardianDisplayNameForInsurance.value,
@@ -5604,6 +5696,7 @@ const signatureBlockRef = ref(null);
 const signatureBlockFlash = ref(false);
 const signatureData = ref('');
 const lastSignatureData = ref('');
+const forceDocResign = ref(false);
 const showSavedSigPrompt = ref(false);
 const signatureDocFlowIndexes = computed(() =>
   flowSteps.value
@@ -6221,6 +6314,8 @@ const officePdfEmailSaving = ref(false);
 const officePdfEmailStatus = ref('');
 const officePdfEmailLoaded = ref(false);
 const officePortalDismissed = ref(false);
+const officePortalCreds = ref(null);
+const officePortalCredsLoading = ref(false);
 const coGuardianInviteResult = ref(null);
 const showCoGuardianOutreach = computed(() => {
   const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
@@ -7693,24 +7788,34 @@ const onInterviewFieldUpdate = (field, value) => {
 const applyDenyAllField = (field) => {
   const bag = questionValues.value;
   if (!bag || !field) return;
-  const value = field.denyAllValue || 'no';
-  const keys = new Set(
-    (Array.isArray(field.denyAllKeys) ? field.denyAllKeys : [])
-      .map((key) => String(key || '').trim())
-      .filter(Boolean)
-  );
-  const pageFields = Array.isArray(currentFlowStep.value?.fields)
-    ? currentFlowStep.value.fields
-    : (visibleQuestionFields.value || []);
-  for (const f of pageFields) {
-    if (!f?.key || f.type === 'info' || f.type === 'deny_all') continue;
-    if (f.type !== 'radio' && f.type !== 'select') continue;
-    const opts = Array.isArray(f.options) ? f.options : [];
-    if (opts.some((o) => String(o?.value ?? '') === String(value))) {
-      keys.add(f.key);
+  const defaultValue = field.denyAllValue || 'no';
+  const overrides =
+    field.denyAllOverrides && typeof field.denyAllOverrides === 'object'
+      ? field.denyAllOverrides
+      : {};
+  const explicitKeys = (Array.isArray(field.denyAllKeys) ? field.denyAllKeys : [])
+    .map((key) => String(key || '').trim())
+    .filter(Boolean);
+  const keys = new Set(explicitKeys);
+  // Only auto-scan the page when no explicit key list was provided (legacy deny-all).
+  // Explicit lists avoid inverted items (e.g. "feel physically safe?") getting set to No.
+  if (!keys.size) {
+    const pageFields = Array.isArray(currentFlowStep.value?.fields)
+      ? currentFlowStep.value.fields
+      : (visibleQuestionFields.value || []);
+    for (const f of pageFields) {
+      if (!f?.key || f.type === 'info' || f.type === 'deny_all') continue;
+      if (f.type !== 'radio' && f.type !== 'select') continue;
+      const opts = Array.isArray(f.options) ? f.options : [];
+      if (opts.some((o) => String(o?.value ?? '') === String(defaultValue))) {
+        keys.add(f.key);
+      }
     }
   }
   keys.forEach((key) => {
+    const value = Object.prototype.hasOwnProperty.call(overrides, key)
+      ? overrides[key]
+      : defaultValue;
     bag[key] = value;
   });
 };
@@ -8200,6 +8305,7 @@ const loadLink = async () => {
     if (isOfficeInDepthIntake.value) {
       await loadOfficeJoinChrome();
       await applyCoGuardianInviteFromQuery();
+      await applyConvertPrefillFromQuery();
     }
     void hydrateHeavyIntakeAssets();
   } catch (e) {
@@ -8208,6 +8314,88 @@ const loadLink = async () => {
     loading.value = false;
   }
 };
+
+async function applyConvertPrefillFromQuery() {
+  const token = String(route.query.convert || '').trim();
+  if (!token) return;
+  try {
+    const { data } = await api.get('/public/adaptive-intake/convert-prefill', {
+      params: { token },
+      skipGlobalLoading: true
+    });
+    const prefill = data?.prefill;
+    if (!prefill || typeof prefill !== 'object') return;
+
+    if (typeof prefill.intakeForSelf === 'boolean') {
+      intakeForSelf.value = prefill.intakeForSelf;
+    } else if (prefill.whoFor === 'myself') {
+      intakeForSelf.value = true;
+    } else if (prefill.whoFor) {
+      intakeForSelf.value = false;
+    }
+
+    if (prefill.guardianFirstName) guardianFirstName.value = String(prefill.guardianFirstName);
+    if (prefill.guardianLastName) guardianLastName.value = String(prefill.guardianLastName);
+    if (prefill.guardianEmail) guardianEmail.value = String(prefill.guardianEmail);
+    if (prefill.guardianPhone) guardianPhone.value = String(prefill.guardianPhone);
+    if (prefill.birthdate) starterDob.value = String(prefill.birthdate).slice(0, 10);
+
+    const qv = prefill.questionValues && typeof prefill.questionValues === 'object'
+      ? prefill.questionValues
+      : {};
+    if (intakeForSelf.value === true) {
+      Object.assign(intakeResponses.submission, qv);
+    } else {
+      if (!intakeResponses.guardian || typeof intakeResponses.guardian !== 'object') {
+        intakeResponses.guardian = {};
+      }
+      if (!intakeResponses.clients[0]) intakeResponses.clients[0] = {};
+      const guardianKeys = [
+        'guardian_legal_first', 'guardian_legal_last', 'guardian_email', 'guardian_phone',
+        'guardian_dob', 'guardian_preferred_contact', 'guardian_best_time'
+      ];
+      for (const [key, value] of Object.entries(qv)) {
+        if (value == null || value === '') continue;
+        if (guardianKeys.includes(key) || key.startsWith('guardian_')) {
+          intakeResponses.guardian[key] = value;
+        } else if (key.startsWith('child_') || key === 'presenting_concerns' || key === 'main_reason_and_concerns') {
+          intakeResponses.clients[0][key] = value;
+        } else {
+          intakeResponses.submission[key] = value;
+        }
+      }
+      const first = prefill.clientFirstName || qv.child_legal_first;
+      const last = prefill.clientLastName || qv.child_legal_last;
+      if (first || last) {
+        clients.value = [{
+          firstName: String(first || ''),
+          lastName: String(last || '')
+        }];
+        intakeResponses.clients[0].child_legal_first = String(first || intakeResponses.clients[0].child_legal_first || '');
+        intakeResponses.clients[0].child_legal_last = String(last || intakeResponses.clients[0].child_legal_last || '');
+        if (prefill.birthdate) intakeResponses.clients[0].child_dob = String(prefill.birthdate).slice(0, 10);
+      }
+    }
+
+    // Preferences may not have dedicated interview keys yet — keep on submission for review/staff.
+    if (prefill.preferredModality) {
+      intakeResponses.submission.preferred_service_format = prefill.preferredModality;
+      intakeResponses.submission._quick_preferred_modality = prefill.preferredModality;
+    }
+    if (prefill.preferredTimeOfDay) {
+      intakeResponses.submission._quick_preferred_time = prefill.preferredTimeOfDay;
+    }
+    if (prefill.preferredDaysRaw || (Array.isArray(prefill.preferredDays) && prefill.preferredDays.length)) {
+      intakeResponses.submission._quick_preferred_days =
+        prefill.preferredDaysRaw || prefill.preferredDays.join(', ');
+    }
+    if (prefill.insuranceOrPayment) {
+      intakeResponses.submission._quick_insurance_or_payment = prefill.insuranceOrPayment;
+    }
+  } catch (err) {
+    console.warn('[publicIntake] convert prefill skipped', err?.response?.data?.error?.message || err?.message || err);
+  }
+}
 
 const ensureTemplateHtml = async (template) => {
   if (!template?.id || template.template_type !== 'html') return template;
@@ -8732,16 +8920,45 @@ const officePortalHref = computed(() => {
   return slug ? `/${encodeURIComponent(slug)}/login` : '/login';
 });
 
+async function ensureOfficePortalCredentials() {
+  if (!isOfficeInDepthIntake.value || !submissionId.value || !guardianEmail.value) return;
+  if (officePortalCreds.value?.temporaryPassword || officePortalCredsLoading.value) return;
+  officePortalCredsLoading.value = true;
+  try {
+    const resp = await api.post(
+      `/public-intake/${encodeURIComponent(publicKey)}/${submissionId.value}/portal-credentials`,
+      {
+        sessionToken: sessionToken.value || null,
+        email: guardianEmail.value
+      },
+      { skipGlobalLoading: true }
+    );
+    officePortalCreds.value = resp.data || null;
+  } catch (err) {
+    officePortalCreds.value = {
+      username: guardianEmail.value,
+      portalLoginUrl: officePortalHref.value,
+      note: err?.response?.data?.error?.message || 'Unable to generate a temporary password right now.'
+    };
+  } finally {
+    officePortalCredsLoading.value = false;
+  }
+}
+
 async function emailOfficeLoginDetails() {
   officeLoginEmailStatus.value = '';
   officeLoginEmailing.value = true;
   try {
     const slug = String(agencyInfo.value?.portal_url || agencyInfo.value?.slug || '').trim();
     if (!slug || !guardianEmail.value) return;
+    if (!officePortalCreds.value?.temporaryPassword) {
+      await ensureOfficePortalCredentials();
+    }
     await api.post(`/public/adaptive-intake/${encodeURIComponent(slug)}/portal-login-email`, {
       email: guardianEmail.value,
-      username: guardianEmail.value,
-      portalPath: officePortalHref.value
+      username: officePortalCreds.value?.username || guardianEmail.value,
+      temporaryPassword: officePortalCreds.value?.temporaryPassword || null,
+      portalPath: officePortalCreds.value?.portalLoginUrl || officePortalHref.value
     });
     officeLoginEmailStatus.value = t('loginDetailsSent');
   } catch (err) {
@@ -9106,6 +9323,7 @@ const onSigned = (dataUrl) => {
   }
   signatureData.value = value;
   lastSignatureData.value = value;
+  forceDocResign.value = false;
   showSavedSigPrompt.value = false;
   signatureBlockFlash.value = false;
 };
@@ -9138,6 +9356,7 @@ const onUseSavedSignatureClick = () => {
   }
   if (lastSignatureData.value) {
     signatureData.value = lastSignatureData.value;
+    forceDocResign.value = false;
     stepError.value = '';
   }
 };
@@ -10185,6 +10404,9 @@ const finalizePacket = async () => {
     if (downloadUrl.value || jobApplicationSubmitted.value || hasPerChildPackets) {
       pollingForDownload.value = false;
     }
+    if (isOfficeInDepthIntake.value) {
+      ensureOfficePortalCredentials();
+    }
     step.value = 3;
     clearPersistedDraft();
     void maybeCreateOfficeCoGuardianInvite(resp.data);
@@ -10740,19 +10962,19 @@ const currentInterviewPageTitle = computed(() => {
   if (type === 'document') return t('document');
   if (type === 'upload') return tx(s?.label) || t('upload');
   if (type === 'school_roi') return t('schoolRoi');
-  if (type === 'smart_disclosure' || type === 'disclosure') return tx(s?.label) || 'Disclosure';
+  if (type === 'smart_disclosure' || type === 'disclosure') return tx(s?.label) || 'Disclosure Statement';
   if (isPacketSectionStepType(type)) return tx(s?.label) || packetSectionTitleForStep(s);
   if (type === 'registration') return tx(s?.label) || t('registration');
   if (type === 'guardian_waiver') return tx(s?.label) || t('guardianWaiversSafety');
-  if (type === 'insurance_info') return tx(s?.label) || t('insuranceInformation');
+  if (type === 'insurance_info') return tx(s?.label) || t('insuranceInformation') || 'Insurance information and identity verification';
   if (type === 'payment_collection') return tx(s?.label) || t('paymentInformation');
   if (type === 'communications') return tx(s?.label) || t('communicationPreferences');
   if (type === 'reminder_contacts') return tx(s?.label) || tx('Who should get appointment reminders?');
-  if (type === 'provider_match') return tx(s?.label) || tx('Available providers');
+  if (type === 'provider_match') return tx(s?.label) || tx('Choose a provider');
   if (type === 'demographics') return tx(s?.label) || t('demographics');
   if (type === 'clinical_questions') return currentFlowStepTitle.value || t('clinicalQuestions');
   if (type === 'references') return tx(s?.label) || t('professionalReferences');
-  if (type === 'child_review') return currentFlowStepTitle.value || 'Child Review';
+  if (type === 'child_review') return currentFlowStepTitle.value || 'Dependent Review';
   if (type === 'questions') return currentFlowStepTitle.value || t('questions');
   return currentFlowStepTitle.value || tx(s?.label) || t('questions');
 });
@@ -10855,7 +11077,7 @@ const currentChildBanner = computed(() => {
   if (!Number.isInteger(currentFlowStep.value?.clientIndex)) return '';
   const i = currentFlowStep.value.clientIndex;
   const total = Math.max(clients.value.length, 1);
-  return `Child ${i + 1} of ${total} — ${childDisplayName(i)}`;
+  return `Dependent ${i + 1} of ${total} — ${childDisplayName(i)}`;
 });
 const reviewAddConsentOpen = ref(false);
 const currentChildReviewName = computed(() => {
@@ -10897,20 +11119,28 @@ const currentChildReviewRows = computed(() => {
     return '—';
   };
   return [
+    { label: 'Name / DOB', value: firstText('child_preferred_name', 'child_legal_first', 'child_dob') },
+    { label: 'Why seeking support', value: firstText('main_reason_and_concerns', 'main_reason_seeking', 'most_concerned_about') },
+    { label: 'Why now', value: firstText('why_seeking_now') },
     { label: 'Primary concerns', value: firstText('biggest_concern_now', 'presenting_concerns') },
+    { label: 'What helping would look like', value: firstText('therapy_working_well_looks_like', 'notice_at_home_or_school', 'actually_helping') },
+    { label: 'Interests & strengths', value: firstText('child_interests_and_strengths', 'child_interests', 'child_strengths') },
+    { label: 'How they usually communicate', value: firstText('how_child_usually') },
     { label: 'Current functioning', value: firstText('hardest_everyday', 'life_sleep') },
-    { label: 'School', value: firstText('school_name', 'feel_about_school', 'academics') },
-    { label: 'Medical/developmental', value: firstText('medical_know', 'development_noticed', 'medical_condition') },
+    { label: 'School', value: firstText('school_name', 'school_grade', 'feel_about_school', 'academics') },
+    { label: 'Peer concerns', value: firstText('peer_concerns') },
+    { label: 'Medical', value: firstText('medical_know', 'medical_condition', 'taking_medication') },
     { label: 'Prior treatment', value: firstText('prior_services_know', 'received_counseling', 'prior_services') },
     { label: 'Safety', value: bag.clinicalSafetyAlert ? 'Needs attention before first appointment' : firstText('self_harm', 'talked_wanting_to_die') },
-    { label: 'Strengths', value: firstText('child_strengths', 'enjoys', 'especially_good_at') },
-    { label: 'Goals', value: firstText('three_important_help', 'actually_helping') },
+    { label: 'Tell provider before first meeting', value: firstText('child_would_tell_provider') },
     { label: 'Questionnaires', value: formatReviewValue([
       bag.psc_1 ? 'PSC-17 started' : null,
       bag.send_child_depression === 'send' ? 'Depression questionnaire: send to the child' : null,
       bag.send_child_anxiety === 'send' ? 'Anxiety questionnaire: send to the child' : null
     ].filter(Boolean)) },
-    { label: 'Provider preferences', value: firstText('preferred_service_format', 'provider_good_fit', 'days_that_work') }
+    { label: 'Service format', value: firstText('preferred_service_format') },
+    { label: 'Schedule preferences', value: firstText('days_that_work', 'times_that_work', 'earliest_availability') },
+    { label: 'Provider fit notes', value: firstText('provider_good_fit', 'provider_comfort', 'preferred_office_provider_summary') }
   ];
 });
 const jumpToChildFirstPage = (clientIndex) => {
@@ -11637,6 +11867,8 @@ const handleEmbeddedPacketSectionCaptured = async (payload = {}) => {
     stepError.value = 'Unable to save this agreement step.';
     return;
   }
+  const sig = String(payload?.signatureData || '').trim();
+  if (sig) lastSignatureData.value = sig;
   embeddedPacketSections.value = {
     ...(embeddedPacketSections.value || {}),
     [key]: payload
@@ -14213,6 +14445,52 @@ onBeforeUnmount(() => {
 .child-review-summary dd {
   margin: 0;
   font-size: 0.95rem;
+  line-height: 1.45;
+  color: #1f2937;
+  word-break: break-word;
+}
+
+.doc-sig-applied,
+.doc-sig-reuse {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.5rem;
+}
+.doc-sig-saved-label {
+  font-weight: 700;
+  color: #166534;
+}
+.doc-sig-preview {
+  max-width: 280px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+.doc-sig-thumb {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  border: 1px solid #99f6e4;
+  background: #f0fdfa;
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  max-width: 320px;
+  text-align: left;
+  font: inherit;
+  font-weight: 700;
+  color: #0f766e;
+}
+.doc-sig-thumb img {
+  max-width: 240px;
+  max-height: 72px;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
 }
 
 .child-review-add {
@@ -15164,6 +15442,57 @@ onBeforeUnmount(() => {
   margin-top: 1rem;
   padding-top: 0.85rem;
   border-top: 1px solid #d7e3dc;
+}
+.office-complete-portal {
+  margin-top: 1.35rem;
+  padding: 1.15rem 1.2rem;
+  border: 2px solid #0f766e;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f0fdfa 0%, #ffffff 48%);
+  box-shadow: 0 10px 28px rgba(15, 118, 110, 0.08);
+  display: block;
+}
+.office-complete-portal-head h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1.2rem;
+  color: #0f766e;
+}
+.office-complete-portal-head p {
+  margin: 0 0 0.85rem;
+  color: #374151;
+}
+.office-complete-portal-creds {
+  display: grid;
+  gap: 0.65rem;
+  margin-bottom: 0.9rem;
+}
+.office-complete-portal-creds > div {
+  display: grid;
+  gap: 0.15rem;
+}
+.office-complete-portal-creds span {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  font-weight: 700;
+}
+.office-complete-portal-creds strong {
+  font-size: 1rem;
+  word-break: break-word;
+}
+.office-temp-pw {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: #ecfdf5;
+  border: 1px dashed #5eead4;
+  border-radius: 8px;
+  padding: 0.4rem 0.55rem;
+  display: inline-block;
+}
+.office-complete-portal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 .intake-start-custody {
   width: 100%;

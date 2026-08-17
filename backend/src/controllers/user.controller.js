@@ -14,6 +14,7 @@ import { fileURLToPath } from 'url';
 import { getUserCapabilities, buildAgencyAccessCaps } from '../utils/capabilities.js';
 import { calcPasswordExpiry } from '../utils/passwordPolicy.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import { sanitizePsychologyTodayUrl } from '../utils/psychologyTodayUrl.js';
 import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import ExternalBusyCalendarService from '../services/externalBusyCalendar.service.js';
@@ -2438,6 +2439,7 @@ export const updateUser = async (req, res, next) => {
       hasStaffAccess,
       providerAcceptingNewClients,
       providerSchoolInfoBlurb,
+      psychologyTodayUrl,
       personalPhone,
       workPhone,
       workPhoneExtension,
@@ -2692,6 +2694,13 @@ export const updateUser = async (req, res, next) => {
     if (languagesSpoken !== undefined) {
       const v = String(languagesSpoken || '').trim();
       updateData.languagesSpoken = v || null;
+    }
+    if (psychologyTodayUrl !== undefined) {
+      try {
+        updateData.psychologyTodayUrl = sanitizePsychologyTodayUrl(psychologyTodayUrl);
+      } catch (err) {
+        return res.status(400).json({ error: { message: err.message || 'Invalid Psychology Today URL' } });
+      }
     }
     if (providerStartDate !== undefined) {
       if (providerStartDate === null || providerStartDate === '') {
@@ -9884,6 +9893,7 @@ export const getAccountInfo = async (req, res, next) => {
       title: user.title ?? null,
       serviceFocus: user.service_focus ?? null,
       languagesSpoken: user.languages_spoken ?? null,
+      psychologyTodayUrl: user.psychology_today_url ?? null,
       providerStartDate: toYmdDateOnly(user.provider_start_date),
       personalEmail: personalEmail || user.personal_email || null,
       phoneNumber: user.phone_number || null, // Keep for backward compatibility
@@ -11936,6 +11946,7 @@ export const getProfileOverview = async (req, res, next) => {
           preferredName: user.preferred_name || null,
           title: user.title || null,
           serviceFocus: user.service_focus || null,
+          psychologyTodayUrl: user.psychology_today_url || null,
           phoneNumber: user.phone_number || null,
           personalPhone: user.personal_phone || null,
           workPhone: user.work_phone || null,

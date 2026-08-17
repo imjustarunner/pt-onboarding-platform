@@ -1315,6 +1315,20 @@ const buildMergedDemographicsForPersist = ({
     addressCity: pickPerChild('address_city', pickPerChild('client_city', submission.address_city || base.addressCity)),
     addressState: pickPerChild('address_state', pickPerChild('client_state', submission.address_state || base.addressState)),
     addressZip: pickPerChild('address_zip', pickPerChild('client_zip', submission.address_zip || base.addressZip)),
+    emergencyContactName: pickPerChild(
+      'emergency_contact_name',
+      clinical.emergency_contact_name || submission.emergency_contact_name || base.emergencyContactName
+    ),
+    emergencyContactRelationship: pickPerChild(
+      'emergency_contact_relationship',
+      clinical.emergency_contact_relationship
+        || submission.emergency_contact_relationship
+        || base.emergencyContactRelationship
+    ),
+    emergencyContactPhone: pickPerChild(
+      'emergency_contact_phone',
+      clinical.emergency_contact_phone || submission.emergency_contact_phone || base.emergencyContactPhone
+    ),
     eloping: pickPerChild('client_eloping', clinical.client_eloping ?? base.eloping),
     elopingNotes: pickPerChild('client_eloping_notes', clinical.client_eloping_notes ?? base.elopingNotes),
     extraAssistance: pickPerChild(
@@ -1401,6 +1415,9 @@ const persistClientDemographicsIfProvided = async ({ clientId, demographicsInfo 
   addIfPresent('address_city', demographicsInfo.addressCity);
   addIfPresent('address_state', demographicsInfo.addressState);
   addIfPresent('address_zip', demographicsInfo.addressZip);
+  addIfPresent('emergency_contact_name', demographicsInfo.emergencyContactName);
+  addIfPresent('emergency_contact_relationship', demographicsInfo.emergencyContactRelationship);
+  addIfPresent('emergency_contact_phone', demographicsInfo.emergencyContactPhone);
 
   const gradeRaw = demographicsInfo.grade ?? demographicsInfo.clientGrade ?? null;
   if (gradeRaw !== null && gradeRaw !== undefined && String(gradeRaw).trim()) {
@@ -1516,19 +1533,83 @@ const persistChildIntakeData = async ({
     });
   }
 
-  // 3) Primary insurer name from the insurance step.
+  // 3) Primary insurer + charge fields from the insurance step.
   try {
     const insuranceInfo = intakeData?.responses?.submission?.insuranceInfo;
     const primaryInsurerName = String(insuranceInfo?.primary?.insurerName || '').trim();
-    if (primaryInsurerName) {
+    const memberId = String(insuranceInfo?.primary?.memberId || '').trim();
+    const groupNumber = String(insuranceInfo?.primary?.groupNumber || '').trim();
+    const subscriberName = String(insuranceInfo?.primary?.subscriberName || '').trim();
+    if (primaryInsurerName || memberId || groupNumber || subscriberName) {
+      const cols = [];
+      const vals = [];
+      if (primaryInsurerName) {
+        cols.push('primary_insurer_name = ?');
+        vals.push(primaryInsurerName.slice(0, 255));
+      }
+      if (memberId) {
+        cols.push('insurance_member_id = ?');
+        vals.push(memberId.slice(0, 128));
+      }
+      if (groupNumber) {
+        cols.push('insurance_group_number = ?');
+        vals.push(groupNumber.slice(0, 128));
+      }
+      if (subscriberName) {
+        cols.push('insurance_subscriber_name = ?');
+        vals.push(subscriberName.slice(0, 255));
+      }
+      if (cols.length) {
+        vals.push(cid);
+        await pool.execute(`UPDATE clients SET ${cols.join(', ')} WHERE id = ?`, vals);
+        result.insurerPersisted = true;
+      }
+    }
+    const identity = insuranceInfo?.identity;
+    if (identity && typeof identity === 'object') {
+      const status = identity.verified === true
+        ? 'verified'
+        : identity.skipped
+          ? 'skipped'
+          : 'submitted';
       await pool.execute(
-        `UPDATE clients SET primary_insurer_name = ? WHERE id = ?`,
-        [primaryInsurerName.slice(0, 255), cid]
+        `UPDATE clients
+            SET identity_verification_status = ?,
+                identity_verified_at = CASE WHEN ? = 'verified' THEN NOW() ELSE identity_verified_at END
+          WHERE id = ?`,
+        [status, status, cid]
       );
-      result.insurerPersisted = true;
+    }
+    const agencyId = Number(
+      intakeData?.agencyId
+      || intakeData?.responses?.submission?.agencyId
+      || 0
+    );
+    const guardianUserId = Number(
+      intakeData?.guardianUserId
+      || intakeData?.responses?.submission?.guardianUserId
+      || 0
+    );
+    if (agencyId && guardianUserId && insuranceInfo?.primary) {
+      try {
+        await GuardianInsuranceProfile.upsert({
+          guardianUserId,
+          clientId: cid,
+          agencyId,
+          intakeSubmissionId: submissionId || null,
+          primary: insuranceInfo.primary || {},
+          secondary: insuranceInfo.secondary || null,
+          primaryCardFrontUrl: insuranceInfo.primary_front_url || null,
+          primaryCardBackUrl: insuranceInfo.primary_back_url || null,
+          secondaryCardFrontUrl: insuranceInfo.secondary_front_url || null,
+          secondaryCardBackUrl: insuranceInfo.secondary_back_url || null
+        });
+      } catch (profileErr) {
+        console.warn('[publicIntake] GuardianInsuranceProfile upsert failed', profileErr?.message || profileErr);
+      }
     }
   } catch {
-    // primary_insurer_name column may not exist yet (migration pending) — non-fatal.
+    // insurance columns may not exist yet (migration pending) — non-fatal.
   }
 
   // 4) Auto-mark the Document Status checklist as RECEIVED. Intake completion
@@ -10899,6 +10980,224 @@ async function extractInsuranceCardFieldsBestEffort(file) {
   }
 }
 
+function normalizePersonName(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z\s'-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function namesLikelyMatch(ocrText, legalFirstName, legalLastName) {
+  const text = normalizePersonName(ocrText);
+  const first = normalizePersonName(legalFirstName);
+  const last = normalizePersonName(legalLastName);
+  if (!text || (!first && !last)) return false;
+  const hasFirst = first ? text.includes(first) : true;
+  const hasLast = last ? text.includes(last) : true;
+  return hasFirst && hasLast;
+}
+
+/**
+ * POST /:publicKey/:submissionId/identity-verify
+ * Lightweight encrypted ID upload + OCR name match against legal name.
+ */
+export const verifyIntakeIdentity = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const submissionId = parseInt(req.params.submissionId, 10);
+    if (!submissionId) {
+      return res.status(400).json({ error: { message: 'submissionId is required' } });
+    }
+    const { link } = await resolvePublicIntakeContext(publicKey);
+    if (!link?.is_active) return res.status(404).json({ error: { message: 'Intake link not found' } });
+    const submission = await IntakeSubmission.findById(submissionId);
+    if (!submission || submission.intake_link_id !== link.id) {
+      return res.status(404).json({ error: { message: 'Submission not found' } });
+    }
+    const file = req.file;
+    if (!file?.buffer) {
+      return res.status(400).json({ error: { message: 'ID image is required' } });
+    }
+    const legalFirstName = String(req.body?.legalFirstName || '').trim();
+    const legalLastName = String(req.body?.legalLastName || '').trim();
+
+    const bucket = await StorageService.getGCSBucket();
+    const useEncryption = DocumentEncryptionService.isConfigured();
+    const objectPath = `intake-identity/${submissionId}/id-${Date.now()}.jpg`;
+    let imageUrl = null;
+    if (bucket) {
+      const gcsFile = bucket.file(objectPath);
+      let fileBuffer = file.buffer;
+      let saveMimeType = file.mimetype || 'image/jpeg';
+      let metadata = { intakeSubmissionId: String(submissionId), kind: 'identity_id' };
+      if (useEncryption) {
+        const aad = JSON.stringify({
+          intakeSubmissionId: submissionId,
+          kind: 'identity_id',
+          filename: String(file.originalname || 'identity-id').slice(0, 255)
+        });
+        const encResult = await DocumentEncryptionService.encryptBuffer(file.buffer, { aad });
+        fileBuffer = encResult.encryptedBuffer;
+        saveMimeType = 'application/octet-stream';
+        metadata = {
+          ...metadata,
+          isEncrypted: '1',
+          encryptionKeyId: String(encResult.encryptionKeyId || ''),
+          encryptionWrappedKey: String(encResult.encryptionWrappedKeyB64 || ''),
+          encryptionIv: String(encResult.encryptionIvB64 || ''),
+          encryptionAuthTag: String(encResult.encryptionAuthTagB64 || ''),
+          encryptionAlg: String(encResult.encryptionAlg || ''),
+          encryptionAad: aad
+        };
+      }
+      await gcsFile.save(fileBuffer, { contentType: saveMimeType, metadata });
+      imageUrl = `gs://${bucket.name}/${objectPath}`;
+    }
+
+    let ocrText = '';
+    try {
+      ocrText = await ReferralOcrService.extractText({
+        buffer: file.buffer,
+        mimeType: file.mimetype || 'image/jpeg'
+      });
+    } catch {
+      ocrText = '';
+    }
+    const verified = namesLikelyMatch(ocrText, legalFirstName, legalLastName);
+    return res.json({
+      verified,
+      imageUrl,
+      message: verified
+        ? 'Thank you, you’ve been verified.'
+        : 'Thank you for your submission.'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /:publicKey/:submissionId/portal-credentials
+ * Issue a 7-day temporary password + set-password-now link for the guardian portal.
+ */
+export const issuePublicIntakePortalCredentials = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const submissionId = parseInt(req.params.submissionId, 10);
+    if (!submissionId) {
+      return res.status(400).json({ error: { message: 'submissionId is required' } });
+    }
+    const { link, issuedRoiLink, boundClient } = await resolvePublicIntakeContext(publicKey);
+    if (!link || (!link.is_active && !issuedRoiLink)) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const submission = await IntakeSubmission.findById(submissionId);
+    if (!submission || submission.intake_link_id !== link.id) {
+      return res.status(404).json({ error: { message: 'Submission not found' } });
+    }
+    const sessionToken = String(req.body?.sessionToken || req.headers['x-intake-session'] || '').trim();
+    if (sessionToken && submission.session_token && sessionToken !== submission.session_token) {
+      return res.status(403).json({ error: { message: 'Invalid session' } });
+    }
+
+    const { agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
+    const intakeData = typeof submission.intake_data === 'string'
+      ? (() => { try { return JSON.parse(submission.intake_data); } catch { return {}; } })()
+      : (submission.intake_data || {});
+    const guardian = intakeData?.guardian || {};
+    const email = String(
+      req.body?.email
+      || guardian.email
+      || submission.signer_email
+      || ''
+    ).trim().toLowerCase();
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ error: { message: 'Guardian email is required to create portal login details.' } });
+    }
+
+    const profile = {
+      email,
+      firstName: String(guardian.firstName || submission.signer_name || 'Guardian').trim() || 'Guardian',
+      lastName: String(guardian.lastName || '').trim(),
+      phone: String(guardian.phone || '').trim() || null,
+      relationship: String(guardian.relationship || 'Guardian').trim() || 'Guardian'
+    };
+
+    let clientId = Number(boundClient?.id || 0);
+    if (!clientId) {
+      try {
+        const rows = await IntakeSubmissionClient.listBySubmissionId(submissionId);
+        clientId = Number(rows?.[0]?.client_id || 0);
+      } catch {
+        clientId = 0;
+      }
+    }
+    let guardianUser = await User.findByEmail(email);
+    if (guardianUser && String(guardianUser.role || '').toLowerCase() !== 'client_guardian') {
+      const slug = String(agency?.portal_url || agency?.slug || '').trim();
+      const portalPath = slug ? `/${encodeURIComponent(slug)}/login` : '/login';
+      return res.json({
+        username: email,
+        temporaryPassword: null,
+        expiresAt: null,
+        portalLoginUrl: portalPath,
+        setPasswordUrl: null,
+        note: 'An account already exists for this email. Use password recovery if you need a new temporary password.'
+      });
+    }
+    if (!guardianUser) {
+      guardianUser = await User.create({
+        email,
+        passwordHash: null,
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        phoneNumber: profile.phone,
+        personalEmail: email,
+        role: 'client_guardian',
+        status: 'PENDING_SETUP'
+      });
+    }
+    if (clientId) {
+      await ensureGuardianAccountLinkedForClient({
+        clientId,
+        profile,
+        accessEnabled: true
+      });
+    } else if (agency?.id) {
+      try {
+        await pool.execute(
+          `INSERT INTO user_agencies (user_id, agency_id)
+           VALUES (?, ?)
+           ON DUPLICATE KEY UPDATE user_id = user_id`,
+          [Number(guardianUser.id), Number(agency.id)]
+        );
+      } catch {
+        /* best effort */
+      }
+    }
+
+    const temporaryPassword = await User.generateTemporaryPassword();
+    const pwResult = await User.setTemporaryPassword(Number(guardianUser.id), temporaryPassword, 24 * 7);
+    const tokenResult = await User.generatePasswordlessToken(Number(guardianUser.id), 24 * 7, 'setup');
+    const slug = String(agency?.portal_url || agency?.slug || '').trim();
+    const portalPath = slug ? `/${encodeURIComponent(slug)}/login` : '/login';
+    const setPasswordPath = slug
+      ? `/${encodeURIComponent(slug)}/passwordless-login/${encodeURIComponent(tokenResult.token)}`
+      : `/passwordless-login/${encodeURIComponent(tokenResult.token)}`;
+
+    return res.json({
+      username: email,
+      temporaryPassword,
+      expiresAt: pwResult?.expiresAt ? new Date(pwResult.expiresAt).toISOString() : null,
+      portalLoginUrl: portalPath,
+      setPasswordUrl: setPasswordPath
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const saveInsuranceCardPhotos = async (req, res, next) => {
   try {
     const publicKey = String(req.params.publicKey || '').trim();
@@ -11522,6 +11821,7 @@ export const identifyPreferencesUser = async (req, res, next) => {
         notification_sound_enabled: prefs.notification_sound_enabled ?? true,
         push_notifications_enabled: prefs.push_notifications_enabled ?? false,
         dark_mode: prefs.dark_mode ?? false,
+        theme_preference: prefs.theme_preference || (prefs.dark_mode ? 'dark' : 'light'),
         timezone: prefs.timezone || null,
         layout_density: prefs.layout_density || 'standard',
         show_read_receipts: prefs.show_read_receipts ?? false,
@@ -11572,7 +11872,7 @@ export const savePreferencesUser = async (req, res, next) => {
       'quiet_hours_enabled', 'quiet_hours_start_time', 'quiet_hours_end_time', 'quiet_hours_allowed_days',
       'notification_categories',
       'notification_sound_enabled', 'push_notifications_enabled',
-      'dark_mode', 'timezone', 'layout_density',
+      'dark_mode', 'theme_preference', 'timezone', 'layout_density',
       'show_read_receipts', 'allow_staff_step_in'
     ];
 

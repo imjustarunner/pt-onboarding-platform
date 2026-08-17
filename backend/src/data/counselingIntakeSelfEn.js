@@ -34,15 +34,22 @@ function field({
   exclusiveValue = '',
   section = '',
   layout = '',
-  maxLength = 0
+  maxLength = 0,
+  defaultValue = undefined,
+  denyAllKeys,
+  denyAllValue,
+  denyAllOverrides
 }) {
+  const hasShowIf = showIf && (showIf.fieldKey || showIf.any || showIf.all);
+  const resolvedHelper = helperText
+    || (optional && hasShowIf ? 'Optional' : '');
   return {
     id: `field_${key}`,
     key,
     label,
     type,
     required: optional ? false : required,
-    helperText,
+    helperText: resolvedHelper,
     placeholder,
     scope: 'self',
     visibility: 'always',
@@ -52,6 +59,11 @@ function field({
     section,
     layout: layout || undefined,
     maxLength: maxLength || undefined,
+    defaultValue,
+    denyAllKeys: Array.isArray(denyAllKeys) ? denyAllKeys : undefined,
+    denyAllValue: denyAllValue || undefined,
+    denyAllOverrides:
+      denyAllOverrides && typeof denyAllOverrides === 'object' ? denyAllOverrides : undefined,
     category: 'clinical'
   };
 }
@@ -110,12 +122,40 @@ const SUBSTANCE_FREQ = [
 ];
 
 const SYMPTOM_ANY = { fieldKey: 'recent_symptoms', notEquals: 'none' };
+const SUBSTANCE_USE_ACTIVE = ['occasionally', 'weekly', 'several_times_week', 'daily'];
 const SUBSTANCE_REPORTED = {
   any: [
-    { fieldKey: 'alcohol_use', includesAny: ['occasionally', 'weekly', 'several_times_week', 'daily'] },
-    { fieldKey: 'cannabis_use', includesAny: ['occasionally', 'weekly', 'several_times_week', 'daily'] },
+    { fieldKey: 'alcohol_use', includesAny: SUBSTANCE_USE_ACTIVE },
+    { fieldKey: 'cannabis_use', includesAny: SUBSTANCE_USE_ACTIVE },
     { fieldKey: 'other_substances', equals: 'yes' },
     { fieldKey: 'nonprescribed_meds', equals: 'yes' }
+  ]
+};
+const SUBSTANCE_WHICH_OPTIONS = [
+  opt('alcohol', 'Alcohol'),
+  opt('cannabis', 'Cannabis'),
+  opt('recreational', 'Recreational drugs'),
+  opt('prescription', 'Prescription drugs')
+];
+const SUBSTANCE_WHICH_WHEN_PROBLEMS = {
+  all: [
+    SUBSTANCE_REPORTED,
+    { fieldKey: 'substance_causes_problems', equals: ['yes', 'maybe'] },
+    { fieldKey: '_substance_active_count', equals: ['2', '3', '4'] }
+  ]
+};
+const SUBSTANCE_WHICH_WHEN_CONCERNED = {
+  all: [
+    SUBSTANCE_REPORTED,
+    { fieldKey: 'substance_others_concerned', equals: 'yes' },
+    { fieldKey: '_substance_active_count', equals: ['2', '3', '4'] }
+  ]
+};
+const SUBSTANCE_WHICH_WHEN_HELP = {
+  all: [
+    SUBSTANCE_REPORTED,
+    { fieldKey: 'substance_want_help', equals: ['yes', 'not_sure'] },
+    { fieldKey: '_substance_active_count', equals: ['2', '3', '4'] }
   ]
 };
 const SAFETY_SCREEN_POSITIVE = {
@@ -140,7 +180,13 @@ function aboutYou() {
     fields: [
       field({ key: 'legal_first_name', label: 'Legal first name (i.e. Johnathan ; Rebecca)', type: 'text' }),
       field({ key: 'legal_last_name', label: 'Legal last name', type: 'text' }),
-      field({ key: 'preferred_name', label: 'What name do you go by? (i.e., John ; Becky)', type: 'text' }),
+      field({
+        key: 'preferred_name',
+        label: 'If you prefer a different name, please enter it here.',
+        type: 'text',
+        optional: true,
+        helperText: 'Optional'
+      }),
       field({ key: 'date_of_birth', label: 'Date of birth', type: 'date' }),
       field({ key: 'phone_number', label: 'Phone number', type: 'tel' }),
       field({ key: 'email_address', label: 'Email address', type: 'email' }),
@@ -168,9 +214,9 @@ function aboutYou() {
         placeholder: 'e.g. English, Spanish'
       }),
       field({ key: 'address_street', label: 'Street address', type: 'text' }),
+      field({ key: 'address_zip', label: 'ZIP code', type: 'text' }),
       field({ key: 'address_city', label: 'City', type: 'text' }),
       field({ key: 'address_state', label: 'State', type: 'text' }),
-      field({ key: 'address_zip', label: 'ZIP code', type: 'text' }),
       field({
         key: 'preferred_contact_method',
         label: 'Preferred contact method',
@@ -195,31 +241,46 @@ function aboutYou() {
         ]
       }),
       field({
-        key: 'time_spent_doing',
-        label: 'What do you spend most of your time doing right now?  (select all that apply)',
-        type: 'checkbox',
-        layout: 'cards',
-        options: [
-          opt('working', 'Working'),
-          opt('school_training', 'School/training'),
-          opt('parenting_caregiving', 'Parenting/caregiving'),
-          opt('retired', 'Retired'),
-          opt('between_jobs', 'Between jobs'),
-          opt('unable_to_work', 'Unable to work'),
-          opt('other', 'Other')
-        ]
-      }),
-      field({
-        key: 'time_spent_other',
-        label: 'What else do you spend most of your time doing?',
-        type: 'text',
-        showIf: { fieldKey: 'time_spent_doing', includes: 'other' }
-      }),
-      field({
         key: 'describe_yourself',
         label: 'In a few sentences, how would you describe yourself — and anything useful for your therapist to know from the beginning?',
         optional: true,
         helperText: 'Optional'
+      }),
+      field({
+        key: 'want_emergency_contact',
+        label: 'Would you like to add an emergency contact?',
+        type: 'radio',
+        options: yesNo(),
+        optional: true,
+        helperText: 'Optional',
+        section: 'Emergency contact'
+      }),
+      field({
+        key: 'emergency_contact_name',
+        label: 'Emergency contact name',
+        type: 'text',
+        optional: true,
+        helperText: 'Optional',
+        showIf: { fieldKey: 'want_emergency_contact', equals: 'yes' },
+        section: 'Emergency contact'
+      }),
+      field({
+        key: 'emergency_contact_relationship',
+        label: 'Relationship to you',
+        type: 'text',
+        optional: true,
+        helperText: 'Optional',
+        showIf: { fieldKey: 'want_emergency_contact', equals: 'yes' },
+        section: 'Emergency contact'
+      }),
+      field({
+        key: 'emergency_contact_phone',
+        label: 'Emergency contact phone',
+        type: 'tel',
+        optional: true,
+        helperText: 'Optional',
+        showIf: { fieldKey: 'want_emergency_contact', equals: 'yes' },
+        section: 'Emergency contact'
       })
     ]
   });
@@ -269,16 +330,29 @@ function whatBringsYou() {
         key: 'how_much_affecting',
         label: 'How much is this affecting your life right now?',
         type: 'radio',
-        layout: 'cards',
-        options: [
-          opt('0', '0 — Not really'),
-          opt('1_3', '1–3 — Mild'),
-          opt('4_6', '4–6 — Moderate'),
-          opt('7_8', '7–8 — Significant'),
-          opt('9_10', '9–10 — Taking over my life')
-        ]
+        layout: 'pills',
+        options: Array.from({ length: 11 }, (_, i) => opt(String(i), String(i)))
       }),
-      field({ key: 'help_with_first', label: 'What would you most like help with first?' })
+      field({
+        key: 'readiness_0_10',
+        label: 'How ready are you to work on this right now?',
+        type: 'radio',
+        layout: 'pills',
+        options: Array.from({ length: 11 }, (_, i) => opt(String(i), String(i)))
+      }),
+      field({
+        key: 'what_would_need_to_change_for_ready',
+        label: 'What would need to change for you to feel more ready?',
+        optional: true,
+        helperText: 'Optional',
+        showIf: { fieldKey: 'readiness_0_10', equals: ['0', '1', '2', '3', '4'] }
+      }),
+      field({
+        key: 'know_before_first_session',
+        label: 'Is there anything you want your therapist to know before you walk into the first session?',
+        optional: true,
+        helperText: 'Optional'
+      })
     ]
   });
 }
@@ -383,7 +457,8 @@ function lifeArea(key, label) {
     label,
     type: 'radio',
     options: LIFE_AREA,
-    section: 'How are things going in each area?'
+    section: 'How are things going in each area?',
+    defaultValue: 'going_well'
   });
 }
 
@@ -630,13 +705,6 @@ function healthMedsSubstances() {
         section: 'Alcohol and substances'
       }),
       field({
-        key: 'nicotine_use',
-        label: 'Do you currently use nicotine?',
-        type: 'radio',
-        options: yesNo(),
-        section: 'Alcohol and substances'
-      }),
-      field({
         key: 'other_substances',
         label: 'Do you currently use any other recreational substances?',
         type: 'radio',
@@ -659,6 +727,17 @@ function healthMedsSubstances() {
         section: 'Alcohol and substances'
       }),
       field({
+        key: 'substance_causes_problems_which',
+        label: 'Which substance(s)?',
+        type: 'checkbox',
+        layout: 'pills',
+        options: SUBSTANCE_WHICH_OPTIONS,
+        optional: true,
+        helperText: 'Optional',
+        showIf: SUBSTANCE_WHICH_WHEN_PROBLEMS,
+        section: 'Alcohol and substances'
+      }),
+      field({
         key: 'substance_others_concerned',
         label: 'Have other people expressed concern about it?',
         type: 'radio',
@@ -667,11 +746,40 @@ function healthMedsSubstances() {
         section: 'Alcohol and substances'
       }),
       field({
+        key: 'substance_others_concerned_which',
+        label: 'Which substance(s)?',
+        type: 'checkbox',
+        layout: 'pills',
+        options: SUBSTANCE_WHICH_OPTIONS,
+        optional: true,
+        helperText: 'Optional',
+        showIf: SUBSTANCE_WHICH_WHEN_CONCERNED,
+        section: 'Alcohol and substances'
+      }),
+      field({
         key: 'substance_want_help',
         label: 'Would you like help changing your use?',
         type: 'radio',
         options: yesNoNotSure(),
         showIf: SUBSTANCE_REPORTED,
+        section: 'Alcohol and substances'
+      }),
+      field({
+        key: 'substance_want_help_which',
+        label: 'Which substance(s)?',
+        type: 'checkbox',
+        layout: 'pills',
+        options: SUBSTANCE_WHICH_OPTIONS,
+        optional: true,
+        helperText: 'Optional',
+        showIf: SUBSTANCE_WHICH_WHEN_HELP,
+        section: 'Alcohol and substances'
+      }),
+      field({
+        key: 'nicotine_use',
+        label: 'Do you currently use nicotine?',
+        type: 'radio',
+        options: yesNo(),
         section: 'Alcohol and substances'
       })
     ]
@@ -694,31 +802,6 @@ function lifeAndPeople() {
         options: [opt('yes', 'Yes'), opt('somewhat', 'Somewhat'), opt('no', 'No')]
       }),
       field({
-        key: 'relationships_major_stress',
-        label: 'Are any of your close relationships a major source of stress right now?',
-        type: 'radio',
-        options: yesNo()
-      }),
-      field({
-        key: 'relationships_stress_what',
-        label: 'What is happening?',
-        showIf: { fieldKey: 'relationships_major_stress', equals: 'yes' }
-      }),
-      field({
-        key: 'caring_for_someone',
-        label: 'Are you currently responsible for caring for anyone else?',
-        type: 'checkbox',
-        layout: 'cards',
-        exclusiveValue: 'no',
-        options: [
-          opt('children', 'Children'),
-          opt('partner', 'Partner'),
-          opt('parent_family', 'Parent/family member'),
-          opt('other', 'Other'),
-          opt('no', 'No')
-        ]
-      }),
-      field({
         key: 'day_to_day_role',
         label: 'What do you do for work, school, or your primary day-to-day role?'
       }),
@@ -730,23 +813,11 @@ function lifeAndPeople() {
         options: yesNo()
       }),
       field({
-        key: 'high_risk_work',
-        label:
-          'Have you worked in a job where exposure to danger, serious injury, violence, death, or crisis is a regular part of the work?',
-        type: 'radio',
-        options: yesNo()
-      }),
-      field({
         key: 'service_connected_to_therapy',
         label: 'Is anything from that experience connected to why you are seeking therapy?',
         type: 'radio',
         options: [opt('yes', 'Yes'), opt('no', 'No'), opt('maybe', 'Maybe')],
-        showIf: {
-          any: [
-            { fieldKey: 'military_service', equals: 'yes' },
-            { fieldKey: 'high_risk_work', equals: 'yes' }
-          ]
-        }
+        showIf: { fieldKey: 'military_service', equals: 'yes' }
       }),
       field({
         key: 'service_connected_what',
@@ -852,6 +923,27 @@ function safety() {
       'We ask the same basic safety questions so your therapist knows whether anything needs attention right away.',
     whyWeAsk: 'These questions help us know whether anything needs attention before the first session.',
     fields: [
+      field({
+        key: 'safety_deny_all',
+        type: 'deny_all',
+        label: 'Deny all — none of these safety concerns apply',
+        helperText: 'Sets every safety question below to the no-concern answer.',
+        denyAllValue: 'no',
+        denyAllOverrides: { feel_physically_safe: 'yes' },
+        denyAllKeys: [
+          'feel_physically_safe',
+          'afraid_someone_may_hurt_you',
+          'safety_immediate_danger',
+          'hurt_yourself_past',
+          'suicide_attempt_ever',
+          'cssrs_1',
+          'cssrs_2',
+          'cssrs_3',
+          'cssrs_4',
+          'cssrs_5',
+          'cssrs_6'
+        ]
+      }),
       field({
         key: 'feel_physically_safe',
         label: 'Do you feel physically safe where you live?',
@@ -1163,7 +1255,7 @@ export function buildCounselingSelfEnSteps() {
     combineSteps(
       'symptoms_and_life',
       'How You Feel & How Life Is Going',
-      'Symptoms and how they show up day to day.',
+      'Symptoms and how they show up day to day. Life-area ratings start as Going well for convenience — please update as needed.',
       'This helps us understand both what you are experiencing and how it is affecting daily life.',
       [howFeeling(), howLifeGoing()]
     ),
@@ -1182,15 +1274,7 @@ export function buildCounselingSelfEnSteps() {
       [lifeAndPeople(), yourHistory()]
     ),
     safety(),
-    combineSteps(
-      'goals_and_fit',
-      'What Helps & What You Want',
-      'What already helps, how you want therapy to work, and what you want to change.',
-      'Your goals and preferences help us match approach and pacing.',
-      [whatHelps(), howTherapyWorks(), whatToChange()]
-    ),
-    questionnaires(),
-    anythingMissed()
+    questionnaires()
   ];
 }
 

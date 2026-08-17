@@ -181,6 +181,14 @@
             </div>
             <div v-if="p.email" class="line">{{ p.email }}</div>
             <div v-if="p.school_info_blurb" class="blurb">{{ p.school_info_blurb }}</div>
+            <a
+              v-if="psychologyTodayHrefFor(p)"
+              class="pt-link"
+              :href="psychologyTodayHrefFor(p)"
+              target="_blank"
+              rel="noopener noreferrer"
+              @click.stop
+            >Psychology Today</a>
             <div class="badges">
               <span
                 :class="['badge', (p?.isOnLeave && p?.leaveLabel) ? 'badge-warning' : 'badge-secondary']"
@@ -203,6 +211,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
+import { psychologyTodayHref } from '../../../utils/psychologyTodayUrl';
 import api from '../../../services/api';
 import {
   useSlotVerification,
@@ -236,6 +245,8 @@ const addForm = reactive({
   startTime: '08:00',
   endTime: '15:00'
 });
+
+const psychologyTodayHrefFor = (p) => psychologyTodayHref(p?.psychology_today_url);
 
 const canSubmitAdd = computed(
   () =>
@@ -808,6 +819,13 @@ const runClientFind = async () => {
   -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.pt-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--primary, #C69A2B);
 }
 .badges {
   margin-top: 8px;

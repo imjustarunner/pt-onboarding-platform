@@ -1,6 +1,3 @@
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
 import { PDFDocument } from 'pdf-lib';
 import Agency from '../models/Agency.model.js';
 import OfficePacketTemplate, {
@@ -25,39 +22,10 @@ import {
   buildPdfChromeTemplates
 } from './schoolPrintablePacket.service.js';
 import { defaultOfficePacketHtml } from '../content/officePacketTemplateDefault.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const BRAND_DIR = path.join(__dirname, '../assets/schoolPrintablePacket/brand');
-const BRAND_FALLBACK_ROOT = path.resolve(__dirname, '../../../assets/ITSCO Brand');
-const COVER_PAGE_CANDIDATES = [
-  path.join(BRAND_DIR, 'cover-page.png')
-];
-
+import { isItscoPacketChromeAgency, resolvePacketBrandChrome } from './packetBrandChrome.service.js';
 
 const COVER_PDF_MARGIN = { top: '0.5in', right: '0.5in', bottom: '0.5in', left: '0.5in' };
 const BODY_PDF_MARGIN = { top: '0.75in', right: '0.5in', bottom: '0.5in', left: '0.5in' };
-
-const _dataUrlCache = new Map();
-
-function fileToDataUrl(filePath, mime) {
-  if (_dataUrlCache.has(filePath)) return _dataUrlCache.get(filePath);
-  const base64 = fs.readFileSync(filePath).toString('base64');
-  const dataUrl = `data:${mime};base64,${base64}`;
-  _dataUrlCache.set(filePath, dataUrl);
-  return dataUrl;
-}
-
-function firstExistingDataUrl(candidates, mime) {
-  for (const filePath of candidates) {
-    if (fs.existsSync(filePath)) return fileToDataUrl(filePath, mime);
-  }
-  return null;
-}
-
-function coverPageDataUrl() {
-  return firstExistingDataUrl(COVER_PAGE_CANDIDATES, 'image/png');
-}
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -88,8 +56,11 @@ function substituteTokens(templateHtml, tokens = {}) {
   return html;
 }
 
-function buildOfficeCoverPageHtml(variant = 'self', locale = 'en') {
-  const cover = coverPageDataUrl();
+function buildOfficeCoverPageHtml(packetContext = {}) {
+  const variant = packetContext?.variant || 'self';
+  const locale = packetContext?.locale || 'en';
+  const brand = packetContext?.brand || null;
+  const cover = brand?.coverDataUrl || null;
   const title = `<h1 class="cover-page-title">${officePacketTitle(variant, locale)}</h1>`;
   if (!cover) {
     return `
@@ -106,14 +77,14 @@ function buildOfficeCoverPageHtml(variant = 'self', locale = 'en') {
   `;
 }
 
-function wrapPacketHtmlDocument(title, innerHtml) {
+function wrapPacketHtmlDocument(title, innerHtml, brand = null) {
   return `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <title>${escapeHtml(title)}</title>
     <style>
-${buildPacketStyleBlock()}
+${buildPacketStyleBlock(brand)}
     </style>
   </head>
   <body>
@@ -138,6 +109,7 @@ export async function buildOfficePrintablePacketContext({ agencyId, locale = 'en
   const template = await OfficePacketTemplate.getOrCreateForAgency(aid, { locale: loc, variant: pack });
   const agencyName = String(agency.name || 'Agency').trim();
   const agencyAddress = buildAgencyAddress(agency);
+  const brand = await resolvePacketBrandChrome(agency);
 
   let providers = [];
   try {
@@ -151,7 +123,8 @@ export async function buildOfficePrintablePacketContext({ agencyId, locale = 'en
     version: Number(template?.version || 1),
     locale: loc,
     variant: pack,
-    packetVersionLabel: OFFICE_PRINTABLE_PACKET_VERSION,
+    packetVersionLabel: brand.versionLabel || OFFICE_PRINTABLE_PACKET_VERSION,
+    brand,
     generatedAt: new Date(),
     agencyId: aid,
     agency: {
@@ -171,6 +144,8 @@ function buildOfficePacketBodyContentHtml(packetContext = {}) {
   const agencyAddress = packetContext?.agency?.address || '';
   const staffTableHtml = buildSchoolStaffTableHtml([], loc);
   const disclosureHtml = buildDisclosureCareTeamHtml(packetContext?.providers || [], loc);
+  const brand = packetContext?.brand || null;
+  const watermark = brand?.watermarkDataUrl || null;
 
   const bodyHtml = substituteTokens(
     packetContext?.templateHtml || defaultHtmlForLocale(packetContext?.locale, packetContext?.variant),
@@ -184,12 +159,6 @@ function buildOfficePacketBodyContentHtml(packetContext = {}) {
     }
   );
 
-  const watermarkCandidates = [
-    path.join(BRAND_DIR, 'ITSCOpnginvisiblebackgroundBW.png'),
-    path.join(BRAND_FALLBACK_ROOT, 'ITSCOpnginvisiblebackgroundBW.png')
-  ];
-  const watermark = firstExistingDataUrl(watermarkCandidates, 'image/png');
-
   return `
     <div class="packet-body-wrap">
       ${watermark ? `<img class="packet-watermark" src="${watermark}" alt="" />` : ''}
@@ -202,13 +171,18 @@ function buildOfficePacketBodyContentHtml(packetContext = {}) {
 
 function buildOfficePrintablePacketCoverDocument(packetContext = {}) {
   const title = officePacketTitle(packetContext?.variant, packetContext?.locale);
-  return wrapPacketHtmlDocument(title, buildOfficeCoverPageHtml(packetContext?.variant, packetContext?.locale));
+  return wrapPacketHtmlDocument(
+    title,
+    buildOfficeCoverPageHtml(packetContext),
+    packetContext?.brand || null
+  );
 }
 
 function buildOfficePrintablePacketBodyDocument(packetContext = {}) {
   return wrapPacketHtmlDocument(
     officePacketTitle(packetContext?.variant, packetContext?.locale),
-    buildOfficePacketBodyContentHtml(packetContext)
+    buildOfficePacketBodyContentHtml(packetContext),
+    packetContext?.brand || null
   );
 }
 
@@ -270,7 +244,15 @@ export async function getOfficePacketTemplateForAgency(agencyId, { locale = 'en'
     looks_like_school_seed: looksLikeSchoolSeedHtml(html),
     version: Number(template?.version || 1),
     updatedAt: template?.updated_at ? new Date(template.updated_at).toISOString() : null,
-    updatedByUserId: template?.updated_by_user_id || null
+    updatedByUserId: template?.updated_by_user_id || null,
+    packetBrand: {
+      useItscoChrome: isItscoPacketChromeAgency(agency),
+      coverPath: agency.packet_cover_path || null,
+      logoPath: agency.packet_logo_path || null,
+      footerLogoPath: agency.packet_footer_logo_path || null,
+      headerImagePath: agency.packet_header_image_path || null,
+      versionLabel: agency.packet_version_label || OFFICE_PRINTABLE_PACKET_VERSION
+    }
   };
 }
 

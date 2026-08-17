@@ -238,7 +238,7 @@
         @mouseleave="onDashboardRailWrapLeave"
       >
         <div v-if="authStore.user?.id && !previewMode && !isSchoolStaff" class="rail-dark-mode-toggle rail-dark-mode-top" :class="{ 'rail-collapsed': railEffectiveCollapsed }">
-          <label class="rail-dark-mode-label" :title="isDarkMode ? 'Turn off dark mode' : 'Turn on dark mode'">
+          <label class="rail-dark-mode-label" :title="isDarkMode ? 'Turn off dark mode (My Settings can also Match device)' : 'Turn on dark mode'">
             <span class="toggle-switch toggle-switch-sm">
               <input
                 type="checkbox"
@@ -1272,7 +1272,7 @@ import { SKILL_BUILDERS_AVAILABILITY_ENABLED } from '../config/availabilityFeatu
 import { getDashboardRailCardDescriptors } from '../tutorial/tours/dashboard.tour';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
-import { setDarkMode } from '../utils/darkMode';
+import { setThemePreference, persistThemePreference, applyDarkMode } from '../utils/darkMode';
 import { useSummitStatsChallengeChrome } from '../composables/useSummitStatsChallengeChrome';
 import { usePlotTwistHqShell } from '../composables/usePlotTwistHqShell';
 import { isBookClubAgency as isBookClubPortalOrg } from '../utils/bookClubAgency.js';
@@ -1328,7 +1328,7 @@ async function handlePlatformShellLogout() {
 watch(
   usePlatformShell,
   (on) => {
-    if (on) setDarkMode(true);
+    if (on) applyDarkMode(true);
   },
   { immediate: true }
 );
@@ -1507,7 +1507,11 @@ const toggleCardDescriptor = (cardId) => {
 function onDarkModeToggle(e) {
   const enabled = !!e.target?.checked;
   const uid = authStore.user?.id;
-  if (uid) setDarkMode(uid, enabled);
+  const pref = enabled ? 'dark' : 'light';
+  if (uid) {
+    setThemePreference(uid, pref);
+    persistThemePreference(uid, pref);
+  }
   isDarkMode.value = enabled;
 }
 

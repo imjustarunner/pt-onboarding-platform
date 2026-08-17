@@ -136,18 +136,40 @@
       <h3>{{ tr('Electronic signature', 'Firma electronica') }}</h3>
       <p>
         {{ tr(
-          'Sign below to complete your acknowledgment of this disclosure.',
-          'Firme a continuacion para completar su reconocimiento de esta divulgacion.'
+          'Apply your saved signature to complete this disclosure, or draw a new one.',
+          'Aplique su firma guardada para completar esta divulgacion, o dibuje una nueva.'
         ) }}
       </p>
-      <div class="review-block">
-        <SignaturePad
-          compact
-          :locale="resolvedLocale"
-          :initial-value="savedCapture?.signatureData || ''"
-          @signed="onSigned"
-        />
+
+      <div v-if="signatureData && !forceResign" class="applied-sig">
+        <div class="applied-sig-check">✓ {{ tr('Signature saved', 'Firma guardada') }}</div>
+        <img :src="signatureData" alt="Saved signature" class="applied-sig-img" />
+        <button type="button" class="btn btn-secondary btn-sm" @click="resign">
+          {{ tr('Sign again', 'Firmar de nuevo') }}
+        </button>
       </div>
+
+      <template v-else>
+        <div v-if="sessionSavedSignature" class="saved-sig-preview">
+          <p class="muted small">{{ tr('Signature saved', 'Firma guardada') }}</p>
+          <button type="button" class="saved-sig-thumb" @click="applySessionSignature">
+            <img :src="sessionSavedSignature" alt="Saved signature preview" />
+            <span>{{ tr('Apply my signature', 'Aplicar mi firma') }}</span>
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="forceResign = true">
+            {{ tr('Use a new signature', 'Usar una firma nueva') }}
+          </button>
+        </div>
+        <div v-if="!sessionSavedSignature || forceResign" class="review-block">
+          <SignaturePad
+            compact
+            :locale="resolvedLocale"
+            :initial-value="''"
+            @signed="onSigned"
+          />
+        </div>
+      </template>
+
       <div class="actions">
         <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
         <button
@@ -242,6 +264,10 @@ const props = defineProps({
   savedCapture: {
     type: Object,
     default: null
+  },
+  sessionSavedSignature: {
+    type: String,
+    default: ''
   }
 });
 
@@ -250,6 +276,7 @@ const emit = defineEmits(['completed', 'captured', 'back']);
 const stageIndex = ref(0);
 const localSubmissionId = ref(props.submissionId || null);
 const signatureData = ref('');
+const forceResign = ref(false);
 const downloadUrl = ref('');
 const submitting = ref(false);
 const acknowledged = ref(false);
@@ -457,8 +484,22 @@ defineExpose({ goNext, goBack });
 
 const onSigned = (dataUrl) => {
   signatureData.value = dataUrl || '';
+  forceResign.value = false;
   error.value = '';
 };
+
+function applySessionSignature() {
+  const sig = String(props.sessionSavedSignature || '').trim();
+  if (!sig) return;
+  signatureData.value = sig;
+  forceResign.value = false;
+  error.value = '';
+}
+
+function resign() {
+  signatureData.value = '';
+  forceResign.value = true;
+}
 
 watch(
   () => props.savedCapture,
@@ -727,6 +768,53 @@ const submitDisclosure = async () => {
 
 .review-block {
   margin: 16px 0;
+}
+
+.saved-sig-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+}
+.saved-sig-thumb {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  border: 1px solid #99f6e4;
+  background: #f0fdfa;
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  max-width: 320px;
+  text-align: left;
+  font: inherit;
+  font-weight: 700;
+  color: #0f766e;
+}
+.saved-sig-thumb img {
+  max-width: 240px;
+  max-height: 72px;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+.applied-sig {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+.applied-sig-check {
+  font-weight: 700;
+  color: #166534;
+}
+.applied-sig-img {
+  max-width: 280px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
 }
 
 .actions {

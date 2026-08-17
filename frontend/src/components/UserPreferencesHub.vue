@@ -460,11 +460,15 @@
         <div class="prefs-grid">
           <div class="card">
             <h3 class="card-title">Appearance</h3>
-            <label class="field checkbox">
-              <input v-model="prefs.dark_mode" type="checkbox" :disabled="viewOnly" />
-              Dark mode
-            </label>
-            <div class="field-help">Use a dark theme across the app (including school portals).</div>
+            <div class="field">
+              <label>Appearance</label>
+              <select v-model="prefs.theme_preference" :disabled="viewOnly">
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="system">Match device</option>
+              </select>
+              <div class="field-help">Dark theme across the app (including school portals). Match device follows your OS light/dark setting.</div>
+            </div>
             <div class="field">
               <label>Layout density</label>
               <select v-model="prefs.layout_density" :disabled="viewOnly">
@@ -801,7 +805,7 @@ import { useUserPreferencesStore } from '../store/userPreferences';
 import api from '../services/api';
 import NotificationTypeSettingsPanel from './notifications/NotificationTypeSettingsPanel.vue';
 import { refetchSessionLockConfig } from '../utils/activityTracker';
-import { setDarkMode, getStoredDarkMode } from '../utils/darkMode';
+import { setThemePreference, getStoredThemePreference, normalizeThemePreference, resolveIsDark } from '../utils/darkMode';
 import {
   applyAccessibilityPrefs,
   getStoredAccessibilityPrefs,
@@ -913,6 +917,7 @@ const prefs = ref({
   high_contrast_mode: false,
   larger_text: false,
   dark_mode: false,
+  theme_preference: 'light',
   timezone: null,
   schedule_default_view: 'open_finder',
   layout_density: 'standard',
@@ -1054,14 +1059,18 @@ watch(
 
 // Debounced auto-save of quick UI toggles (so server stays in sync)
 let quickSaveTimer = null;
-const buildQuickSavePayload = () => ({
-  dark_mode: !!prefs.value.dark_mode,
-  layout_density: prefs.value.layout_density || 'standard',
-  nav_hover_menus_enabled: prefs.value.nav_hover_menus_enabled !== false,
-  high_contrast_mode: !!prefs.value.high_contrast_mode,
-  larger_text: !!prefs.value.larger_text,
-  reduced_motion: !!prefs.value.reduced_motion
-});
+const buildQuickSavePayload = () => {
+  const theme = normalizeThemePreference(prefs.value.theme_preference, prefs.value.dark_mode);
+  return {
+    theme_preference: theme,
+    dark_mode: resolveIsDark(theme),
+    layout_density: prefs.value.layout_density || 'standard',
+    nav_hover_menus_enabled: prefs.value.nav_hover_menus_enabled !== false,
+    high_contrast_mode: !!prefs.value.high_contrast_mode,
+    larger_text: !!prefs.value.larger_text,
+    reduced_motion: !!prefs.value.reduced_motion
+  };
+};
 
 const runQuickSave = async () => {
   if (props.userId !== authStore.user?.id || props.viewOnly || hydrating.value) return;
@@ -1103,11 +1112,14 @@ const flushQuickSave = async () => {
 
 // Apply dark mode and layout density immediately when toggled (instant feedback + persist to DB)
 watch(
-  () => prefs.value.dark_mode,
-  (enabled) => {
+  () => prefs.value.theme_preference,
+  (pref) => {
     if (hydrating.value) return;
     if (props.userId === authStore.user?.id) {
-      setDarkMode(props.userId, !!enabled);
+      const normalized = normalizeThemePreference(pref, prefs.value.dark_mode);
+      prefs.value.theme_preference = normalized;
+      prefs.value.dark_mode = resolveIsDark(normalized);
+      setThemePreference(props.userId, normalized);
       quickSave();
     }
   }
@@ -1286,8 +1298,10 @@ const load = async () => {
     prefs.value.session_lock_pin_set = !!data?.session_lock_pin_set;
     prefs.value.kiosk_pin_set = !!data?.kiosk_pin_set;
     // Prefer localStorage over server for toggles that apply instantly (avoids remount race)
-    const storedDark = getStoredDarkMode(props.userId);
-    prefs.value.dark_mode = storedDark !== null ? storedDark : !!data?.dark_mode;
+    const storedTheme = getStoredThemePreference(props.userId);
+    const theme = storedTheme || normalizeThemePreference(data?.theme_preference, data?.dark_mode);
+    prefs.value.theme_preference = theme;
+    prefs.value.dark_mode = resolveIsDark(theme);
     const storedNavHover = getStoredNavHoverMenusEnabled(props.userId);
     prefs.value.nav_hover_menus_enabled = storedNavHover !== null
       ? storedNavHover
@@ -1305,7 +1319,7 @@ const load = async () => {
 
     // Apply dark mode and sync store when loading own preferences
     if (props.userId === authStore.user?.id) {
-      setDarkMode(props.userId, prefs.value.dark_mode);
+      setThemePreference(props.userId, prefs.value.theme_preference);
       userPrefsStore.setFromApi(prefs.value);
       applyLayoutDensity(prefs.value.layout_density);
       applyAccessibilityPrefs({
@@ -1394,7 +1408,8 @@ const save = async () => {
       reduced_motion: !!prefs.value.reduced_motion,
       high_contrast_mode: !!prefs.value.high_contrast_mode,
       larger_text: !!prefs.value.larger_text,
-      dark_mode: !!prefs.value.dark_mode,
+      theme_preference: normalizeThemePreference(prefs.value.theme_preference, prefs.value.dark_mode),
+      dark_mode: resolveIsDark(normalizeThemePreference(prefs.value.theme_preference, prefs.value.dark_mode)),
       timezone: prefs.value.timezone || null,
       schedule_default_view: prefs.value.schedule_default_view || 'open_finder',
       layout_density: prefs.value.layout_density || 'standard',
@@ -1489,8 +1504,8 @@ const save = async () => {
     if (props.userId === authStore.user?.id && (payload.session_lock_enabled !== undefined || payload.inactivity_timeout_minutes !== undefined || payload.session_lock_pin)) {
       refetchSessionLockConfig();
     }
-    if (props.userId === authStore.user?.id && payload.dark_mode !== undefined) {
-      setDarkMode(props.userId, payload.dark_mode);
+    if (props.userId === authStore.user?.id && payload.theme_preference) {
+      setThemePreference(props.userId, payload.theme_preference);
     }
     if (props.userId === authStore.user?.id) {
       userPrefsStore.setFromApi({ ...prefs.value, ...payload });

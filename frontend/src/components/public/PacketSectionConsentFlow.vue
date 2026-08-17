@@ -30,7 +30,7 @@
         </span>
       </label>
       <div class="actions">
-        <button type="button" class="btn btn-primary" :disabled="!acknowledged || !sectionReady" @click="stage = 'sign'">
+        <button type="button" class="btn btn-primary" :disabled="!acknowledged || !sectionReady" @click="goToSign">
           {{ tr('Continue to signature', 'Continuar a la firma') }}
         </button>
       </div>
@@ -41,19 +41,43 @@
       <p>
         {{
           tr(
-            'Sign below to acknowledge this section.',
-            'Firme abajo para reconocer esta sección.'
+            'Apply your saved signature to this section, or draw a new one.',
+            'Aplique su firma guardada a esta sección, o dibuje una nueva.'
           )
         }}
       </p>
-      <div class="review-block">
-        <SignaturePad
-          compact
-          :locale="resolvedLocale"
-          :initial-value="savedCapture?.signatureData || ''"
-          @signed="onSigned"
-        />
+
+      <div v-if="signatureData && !forceResign" class="applied-sig">
+        <div class="applied-sig-check">✓ {{ tr('Signature saved', 'Firma guardada') }}</div>
+        <img :src="signatureData" alt="Saved signature" class="applied-sig-img" />
+        <div class="saved-sig-actions">
+          <button type="button" class="btn btn-secondary btn-sm" @click="resign">
+            {{ tr('Sign again', 'Firmar de nuevo') }}
+          </button>
+        </div>
       </div>
+
+      <template v-else>
+        <div v-if="sessionSavedSignature" class="saved-sig-preview">
+          <p class="muted small">{{ tr('Signature saved', 'Firma guardada') }}</p>
+          <button type="button" class="saved-sig-thumb" @click="applySessionSignature">
+            <img :src="sessionSavedSignature" alt="Saved signature preview" />
+            <span>{{ tr('Apply my signature', 'Aplicar mi firma') }}</span>
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="forceResign = true">
+            {{ tr('Use a new signature', 'Usar una firma nueva') }}
+          </button>
+        </div>
+        <div v-if="!sessionSavedSignature || forceResign" class="review-block">
+          <SignaturePad
+            compact
+            :locale="resolvedLocale"
+            :initial-value="''"
+            @signed="onSigned"
+          />
+        </div>
+      </template>
+
       <div class="actions">
         <button type="button" class="btn btn-secondary" @click="stage = 'review'">
           {{ tr('Back', 'Atrás') }}
@@ -78,6 +102,7 @@ import SignaturePad from '../SignaturePad.vue';
 const props = defineProps({
   sectionContext: { type: Object, default: null },
   savedCapture: { type: Object, default: null },
+  sessionSavedSignature: { type: String, default: '' },
   locale: { type: String, default: 'en' }
 });
 
@@ -86,6 +111,7 @@ const emit = defineEmits(['captured']);
 const stage = ref('review');
 const acknowledged = ref(false);
 const signatureData = ref(null);
+const forceResign = ref(false);
 const error = ref('');
 
 const resolvedLocale = computed(() => {
@@ -100,6 +126,7 @@ const sectionReady = computed(() => !!sectionKey.value && !!sectionHtml.value);
 const isLoading = computed(() =>
   !!sectionKey.value && !sectionHtml.value && props.sectionContext?.lite === true
 );
+const sessionSavedSignature = computed(() => String(props.sessionSavedSignature || '').trim());
 
 const tr = (en, es) => (resolvedLocale.value === 'es' ? es : en);
 
@@ -108,14 +135,35 @@ const restoreSaved = (key) => {
   if (saved && String(saved.sectionKey || '') === key && saved.signatureData) {
     acknowledged.value = true;
     signatureData.value = saved.signatureData;
+    forceResign.value = false;
     stage.value = 'sign';
     return true;
   }
   return false;
 };
 
+const goToSign = () => {
+  stage.value = 'sign';
+  forceResign.value = false;
+  if (!signatureData.value && sessionSavedSignature.value) {
+    // Offer apply buttons; do not auto-apply.
+  }
+};
+
+const applySessionSignature = () => {
+  if (!sessionSavedSignature.value) return;
+  signatureData.value = sessionSavedSignature.value;
+  forceResign.value = false;
+};
+
+const resign = () => {
+  signatureData.value = null;
+  forceResign.value = true;
+};
+
 const onSigned = (data) => {
   signatureData.value = data || null;
+  forceResign.value = false;
 };
 
 const complete = () => {
@@ -150,7 +198,7 @@ const goNext = () => {
       );
       return;
     }
-    stage.value = 'sign';
+    goToSign();
     return;
   }
   if (stage.value === 'sign') {
@@ -164,6 +212,7 @@ watch(
   () => props.sectionContext?.sectionKey,
   (key) => {
     error.value = '';
+    forceResign.value = false;
     if (restoreSaved(String(key || ''))) return;
     stage.value = 'review';
     acknowledged.value = false;
@@ -196,42 +245,81 @@ watch(
   border-radius: 8px;
   padding: 16px 18px;
   background: #fafafa;
-  margin: 12px 0;
-  font-size: 15px;
-  line-height: 1.5;
-  width: 100%;
-}
-.packet-section-html :deep(h2) {
-  margin-top: 0;
-  font-size: 1.1rem;
-}
-.packet-section-html :deep(h3) {
-  font-size: 1rem;
 }
 .ack-checkbox {
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  margin: 12px 0;
-  font-size: 14px;
+  margin-top: 12px;
+  font-weight: 600;
 }
 .ack-checkbox.required-highlight {
-  outline: 2px solid #fca5a5;
-  outline-offset: 4px;
-  border-radius: 6px;
-  padding: 4px;
+  outline: 2px solid #f59e0b;
+  border-radius: 8px;
+  padding: 8px;
 }
 .actions {
   display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+.saved-sig-actions {
+  display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 12px;
+  margin-bottom: 12px;
+}
+.saved-sig-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.saved-sig-thumb {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  border: 1px solid #99f6e4;
+  background: #f0fdfa;
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  max-width: 320px;
+  text-align: left;
+  font: inherit;
+  font-weight: 700;
+  color: #0f766e;
+}
+.saved-sig-thumb img {
+  max-width: 240px;
+  max-height: 72px;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+.applied-sig {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.applied-sig-check {
+  font-weight: 700;
+  color: #166534;
+}
+.applied-sig-img {
+  max-width: 280px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
 }
 .error {
   color: #b91c1c;
-  font-size: 13px;
 }
-.review-block {
-  margin: 12px 0;
+.muted {
+  color: #6b7280;
 }
 </style>

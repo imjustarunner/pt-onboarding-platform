@@ -3,6 +3,7 @@
     <div v-if="label" class="df-field-label">
       {{ label }}
       <span v-if="required" class="df-field-required">*</span>
+      <span v-else-if="optionalBadge" class="df-field-optional">optional</span>
     </div>
     <p v-if="help" class="df-field-help">{{ help }}</p>
     <div
@@ -43,6 +44,7 @@ const props = defineProps({
   label: { type: String, default: '' },
   help: { type: String, default: '' },
   required: { type: Boolean, default: false },
+  optionalBadge: { type: Boolean, default: false },
   multiple: { type: Boolean, default: false },
   exclusiveValue: { type: String, default: '' },
   layout: { type: String, default: 'pills' }

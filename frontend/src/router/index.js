@@ -966,6 +966,12 @@ const routes = [
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/choose-provider',
+    name: 'PublicChooseProvider',
+    component: () => import('../views/public/PublicChooseProviderView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/find-tutor',
     name: 'PublicTutorFinder',
     component: () => import('../views/public/PublicTutorFinderView.vue'),

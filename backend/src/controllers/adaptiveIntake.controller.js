@@ -168,12 +168,28 @@ export async function convertProspective(req, res, next) {
       clientId,
       agencyId,
       intakePublicKey: req.body?.intakePublicKey || null,
-      actingUserId: req.user?.id || null
+      actingUserId: req.user?.id || null,
+      sendEmail: req.body?.sendEmail === true || req.body?.sendEmail === 1 || req.body?.sendEmail === '1'
     });
     res.json({ ok: true, ...result });
   } catch (e) {
     const msg = e?.message || 'Conversion failed';
-    if (/not found|not available|does not belong/i.test(msg)) {
+    if (/not found|not available|does not belong|No email|expired|Invalid convert/i.test(msg)) {
+      return res.status(400).json({ error: { message: msg } });
+    }
+    next(e);
+  }
+}
+
+/** GET /api/public/adaptive-intake/convert-prefill?token= */
+export async function getConvertPrefill(req, res, next) {
+  try {
+    const token = String(req.query?.token || req.params?.token || '').trim();
+    const result = await AdaptiveIntake.resolveConvertPrefillToken(token);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    const msg = e?.message || 'Unable to load prefill';
+    if (/required|Invalid|not found|does not match|expired/i.test(msg)) {
       return res.status(400).json({ error: { message: msg } });
     }
     next(e);

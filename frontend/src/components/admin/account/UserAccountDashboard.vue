@@ -123,6 +123,12 @@
                 <div class="acct-field"><span class="acct-field-label">Personal Email</span><span class="acct-field-value">{{ form.personalEmail || '—' }}</span></div>
                 <div class="acct-field"><span class="acct-field-label">Title</span><span class="acct-field-value">{{ form.title || '—' }}</span></div>
                 <div class="acct-field"><span class="acct-field-label">Service Focus</span><span class="acct-field-value">{{ form.serviceFocus || '—' }}</span></div>
+                <div v-if="form.psychologyTodayUrl" class="acct-field acct-field--full">
+                  <span class="acct-field-label">Psychology Today</span>
+                  <span class="acct-field-value">
+                    <a :href="form.psychologyTodayUrl" target="_blank" rel="noopener noreferrer">{{ form.psychologyTodayUrl }}</a>
+                  </span>
+                </div>
                 <div class="acct-field"><span class="acct-field-label">Languages Spoken</span><span class="acct-field-value">{{ form.languagesSpoken || '—' }}</span></div>
                 <div class="acct-field"><span class="acct-field-label">Personal Phone</span><span class="acct-field-value">{{ form.personalPhone || '—' }}</span></div>
                 <div class="acct-field"><span class="acct-field-label">Work Phone</span><span class="acct-field-value">{{ form.workPhone || '—' }}</span></div>
@@ -141,6 +147,10 @@
                 <div class="acct-field acct-field--edit"><label>Personal Email</label><input v-model="form.personalEmail" type="email" /></div>
                 <div class="acct-field acct-field--edit"><label>Title</label><input v-model="form.title" type="text" /></div>
                 <div class="acct-field acct-field--edit"><label>Service Focus</label><input v-model="form.serviceFocus" type="text" /></div>
+                <div class="acct-field acct-field--edit acct-field--full">
+                  <label>Psychology Today profile URL</label>
+                  <input v-model="form.psychologyTodayUrl" type="url" placeholder="https://www.psychologytoday.com/us/therapists/..." />
+                </div>
                 <div class="acct-field acct-field--edit"><label>Languages Spoken</label><input v-model="form.languagesSpoken" type="text" /></div>
                 <div class="acct-field acct-field--edit"><label>Personal Phone</label><input v-model="form.personalPhone" type="tel" /></div>
                 <div class="acct-field acct-field--edit"><label>Work Phone</label><input v-model="form.workPhone" type="tel" /></div>

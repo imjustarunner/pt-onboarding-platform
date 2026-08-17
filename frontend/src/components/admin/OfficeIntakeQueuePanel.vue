@@ -275,6 +275,40 @@
           </div>
         </section>
 
+        <!-- Contact notes -->
+        <section v-if="selected" class="oiq-section oiq-section--notes">
+          <div class="oiq-section-title">Contact notes</div>
+          <p class="oiq-convert-hint">
+            Internal notes for outreach before a full file is built — calls, voicemails, scheduling attempts.
+          </p>
+          <div v-if="notesLoadingId === selected.id" class="oiq-notes-muted">Loading notes…</div>
+          <ul v-else-if="(notesByClient[selected.id] || []).length" class="oiq-notes-list">
+            <li v-for="n in notesByClient[selected.id]" :key="n.id" class="oiq-note-item">
+              <div class="oiq-note-meta">
+                <strong>{{ n.author_name || 'Team' }}</strong>
+                <span>{{ formatDate(n.created_at) }}</span>
+                <span v-if="n.is_internal_only" class="oiq-pill">Internal</span>
+              </div>
+              <p class="oiq-note-body">{{ n.message }}</p>
+            </li>
+          </ul>
+          <p v-else class="oiq-notes-muted">No contact notes yet.</p>
+          <textarea
+            v-model="noteDrafts[selected.id]"
+            class="oiq-note-input"
+            rows="3"
+            placeholder="Add a contact note (call outcome, next step, etc.)"
+          />
+          <button
+            type="button"
+            class="oiq-btn oiq-btn--ghost"
+            :disabled="notesSavingId === selected.id || !String(noteDrafts[selected.id] || '').trim()"
+            @click="saveContactNote(selected)"
+          >
+            {{ notesSavingId === selected.id ? 'Saving…' : 'Save contact note' }}
+          </button>
+        </section>
+
         <!-- Assign + actions -->
         <section class="oiq-section oiq-section--assign">
           <div class="oiq-section-title">Assign to provider</div>
@@ -295,17 +329,31 @@
             </button>
           </div>
           <div v-if="isProspectivePathway(selected)" class="oiq-convert-section">
-            <p class="oiq-convert-hint">Send a full intake to gather complete information.</p>
-            <button
-              type="button"
-              class="oiq-btn oiq-btn--ghost"
-              :disabled="convertingId === selected.id"
-              @click="convertToFull(selected)"
-            >
-              {{ convertingId === selected.id ? 'Preparing…' : 'Send full intake link' }}
-            </button>
+            <p class="oiq-convert-hint">
+              Email a full intake link that opens with their interest-form details already filled in.
+            </p>
+            <div class="oiq-convert-actions">
+              <button
+                type="button"
+                class="oiq-btn oiq-btn--primary"
+                :disabled="convertingId === selected.id"
+                @click="convertToFull(selected, true)"
+              >
+                {{ convertingId === selected.id ? 'Sending…' : 'Email full intake link' }}
+              </button>
+              <button
+                type="button"
+                class="oiq-btn oiq-btn--ghost"
+                :disabled="convertingId === selected.id"
+                @click="convertToFull(selected, false)"
+              >
+                Prepare link only
+              </button>
+            </div>
+            <p v-if="conversionMessages[selected.id]" class="oiq-convert-ok">{{ conversionMessages[selected.id] }}</p>
             <div v-if="conversionLinks[selected.id]" class="oiq-convert-link">
               <a :href="conversionLinks[selected.id]" target="_blank" rel="noopener">Open full intake →</a>
+              <button type="button" class="oiq-btn oiq-btn--ghost" @click="copyConversionLink(selected.id)">Copy link</button>
             </div>
           </div>
         </section>
@@ -329,7 +377,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useClientDisplayMode } from '../../composables/useClientDisplayMode';
@@ -360,6 +408,11 @@ const assignSelections = reactive({});
 const assigningId = ref(null);
 const convertingId = ref(null);
 const conversionLinks = reactive({});
+const conversionMessages = reactive({});
+const notesByClient = reactive({});
+const noteDrafts = reactive({});
+const notesLoadingId = ref(null);
+const notesSavingId = ref(null);
 const acceptance = ref(null);
 const selectedId = ref(null);
 const listEl = ref(null);
@@ -560,23 +613,77 @@ async function assign(client) {
   }
 }
 
-async function convertToFull(client) {
+async function convertToFull(client, sendEmail = true) {
   if (!agencyId.value) return;
   convertingId.value = client.id;
   error.value = '';
+  conversionMessages[client.id] = '';
   try {
     const res = await api.post('/client-exchange/adaptive-convert', {
       clientId: client.id,
-      agencyId: agencyId.value
+      agencyId: agencyId.value,
+      sendEmail: !!sendEmail
     });
-    const path = res.data?.intakeUrlPath;
+    const path = res.data?.inviteUrl || res.data?.intakeUrlPath;
     if (path) conversionLinks[client.id] = path;
+    if (res.data?.emailed) {
+      conversionMessages[client.id] = `Intake link emailed to ${res.data.emailedTo}.`;
+      await loadContactNotes(client.id);
+    } else {
+      conversionMessages[client.id] = 'Intake link ready — copy or open below.';
+    }
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to prepare full intake link';
   } finally {
     convertingId.value = null;
   }
 }
+
+function copyConversionLink(clientId) {
+  const url = conversionLinks[clientId];
+  if (!url) return;
+  navigator.clipboard?.writeText(url).then(() => {
+    conversionMessages[clientId] = 'Link copied to clipboard.';
+  }).catch(() => {});
+}
+
+async function loadContactNotes(clientId) {
+  if (!clientId) return;
+  notesLoadingId.value = clientId;
+  try {
+    const { data } = await api.get(`/clients/${clientId}/notes`);
+    notesByClient[clientId] = Array.isArray(data) ? data : (data?.notes || []);
+  } catch {
+    notesByClient[clientId] = notesByClient[clientId] || [];
+  } finally {
+    notesLoadingId.value = null;
+  }
+}
+
+async function saveContactNote(client) {
+  const message = String(noteDrafts[client.id] || '').trim();
+  if (!message) return;
+  notesSavingId.value = client.id;
+  error.value = '';
+  try {
+    await api.post(`/clients/${client.id}/notes`, {
+      message,
+      is_internal_only: true,
+      category: 'administrative',
+      urgency: 'low'
+    });
+    noteDrafts[client.id] = '';
+    await loadContactNotes(client.id);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to save contact note';
+  } finally {
+    notesSavingId.value = null;
+  }
+}
+
+watch(selectedId, (id) => {
+  if (id && !notesByClient[id]) loadContactNotes(id);
+});
 
 onMounted(() => {
   loadAll();
@@ -1025,12 +1132,77 @@ a.oiq-detail-value {
   color: var(--text-secondary, #6b7280);
   margin: 0 0 0.5rem;
 }
+.oiq-convert-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.oiq-convert-ok {
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  color: #166534;
+}
 .oiq-convert-link {
   margin-top: 0.5rem;
   font-size: 0.85rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
 }
 .oiq-convert-link a {
   color: var(--primary, #2d6a4f);
+}
+.oiq-section--notes {
+  background: #fafafa;
+}
+.oiq-notes-list {
+  list-style: none;
+  margin: 0 0 0.65rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  max-height: 14rem;
+  overflow: auto;
+}
+.oiq-note-item {
+  background: #fff;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+}
+.oiq-note-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #6b7280);
+  margin-bottom: 0.25rem;
+}
+.oiq-note-body {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.oiq-note-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  font-size: 0.88rem;
+  margin-bottom: 0.5rem;
+  resize: vertical;
+  background: #fff;
+}
+.oiq-notes-muted {
+  font-size: 0.82rem;
+  color: var(--text-secondary, #6b7280);
+  margin: 0 0 0.55rem;
 }
 
 /* ── Acceptance ────────────────────────────────────── */

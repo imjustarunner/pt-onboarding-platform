@@ -993,7 +993,8 @@ export async function loadProvidersForSchool(schoolOrganizationId) {
               u.email,
               u.profile_photo_path,
               COALESCE(psa.accepting_new_clients_override, u.provider_accepting_new_clients, TRUE) AS accepting_new_clients_effective,
-              COALESCE(u.provider_school_info_blurb, psp.school_info_blurb) AS school_info_blurb
+              COALESCE(u.provider_school_info_blurb, psp.school_info_blurb) AS school_info_blurb,
+              u.psychology_today_url
        FROM provider_school_assignments psa
        JOIN users u ON u.id = psa.provider_user_id
        JOIN user_agencies ua
@@ -1057,6 +1058,7 @@ export async function loadProvidersForSchool(schoolOrganizationId) {
         email: r.email,
         photoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path),
         schoolInfoBlurb: r.school_info_blurb || null,
+        psychologyTodayUrl: r.psychology_today_url || null,
         acceptingNewClients: r.accepting_new_clients_effective !== undefined ? !!r.accepting_new_clients_effective : true,
         assignments: [],
       });

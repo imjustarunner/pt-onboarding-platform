@@ -10,12 +10,14 @@ import {
   getPublicCoGuardianInvite,
   acceptPublicCoGuardianInvite,
   submitCoGuardianQuick,
-  emailPublicPortalLogin
+  emailPublicPortalLogin,
+  getConvertPrefill
 } from '../controllers/adaptiveIntake.controller.js';
 import { downloadQuickIntakeSummaryPdf, emailQuickIntakeSummaryPdf } from '../controllers/intakeSummaryPdf.controller.js';
 
 const router = express.Router();
 
+router.get('/convert-prefill', getConvertPrefill);
 router.get('/co-guardian/:token', getPublicCoGuardianInvite);
 router.post('/co-guardian/:token/accept', acceptPublicCoGuardianInvite);
 router.post('/co-guardian/:token/quick', submitCoGuardianQuick);

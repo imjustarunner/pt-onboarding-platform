@@ -222,6 +222,12 @@
                   <div class="ov-field-row"><span class="ov-fl">Work Email</span><span class="ov-fv">{{ user.work_email || '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Title</span><span class="ov-fv">{{ user.title || '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Service Focus</span><span class="ov-fv">{{ ai?.serviceFocus || '—' }}</span></div>
+                  <div v-if="ai?.psychologyTodayUrl" class="ov-field-row">
+                    <span class="ov-fl">Psychology Today</span>
+                    <span class="ov-fv">
+                      <a :href="ai.psychologyTodayUrl" target="_blank" rel="noopener noreferrer">View profile</a>
+                    </span>
+                  </div>
                 </div>
               </template>
 
@@ -238,6 +244,7 @@
                   <label class="ov-eg-row"><span class="ov-fl">Postal Code</span><input v-model="personalDraft.homePostalCode" class="ov-input" type="text"/></label>
                   <label class="ov-eg-row"><span class="ov-fl">Languages</span><input v-model="personalDraft.languagesSpoken" class="ov-input" type="text"/></label>
                   <label class="ov-eg-row"><span class="ov-fl">Service Focus</span><input v-model="personalDraft.serviceFocus" class="ov-input" type="text"/></label>
+                  <label class="ov-eg-row ov-eg-row--full"><span class="ov-fl">Psychology Today URL</span><input v-model="personalDraft.psychologyTodayUrl" class="ov-input" type="url" placeholder="https://www.psychologytoday.com/us/therapists/..."/></label>
                 </div>
               </template>
             </div>
@@ -702,6 +709,7 @@ const startEditPersonal = () => {
     homePostalCode: ai.value?.homePostalCode || '',
     languagesSpoken: ai.value?.languagesSpoken || props.user?.languages_spoken || '',
     serviceFocus: ai.value?.serviceFocus || props.user?.service_focus || '',
+    psychologyTodayUrl: ai.value?.psychologyTodayUrl || props.user?.psychology_today_url || '',
   };
   personalSaveError.value = '';
   editingPersonal.value = true;
@@ -723,6 +731,7 @@ const savePersonal = async () => {
       homePostalCode: personalDraft.value.homePostalCode || null,
       languagesSpoken: personalDraft.value.languagesSpoken || null,
       serviceFocus: personalDraft.value.serviceFocus || null,
+      psychologyTodayUrl: personalDraft.value.psychologyTodayUrl || null,
     });
     if (ai.value) ai.value = { ...ai.value, ...personalDraft.value };
     editingPersonal.value = false;
