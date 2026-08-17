@@ -1677,7 +1677,15 @@
                         :disabled="printablePacketLoading.en"
                         @click="openPrintablePacket('en')"
                       >
-                        {{ printablePacketLoading.en ? 'Opening…' : 'View / Print' }}
+                        {{ printablePacketLoading.en ? 'Opening…' : 'View' }}
+                      </button>
+                      <button
+                        class="btn btn-secondary btn-sm"
+                        type="button"
+                        :disabled="printablePacketLoading.en"
+                        @click="printPrintablePacket('en')"
+                      >
+                        {{ printablePacketLoading.en ? 'Preparing…' : 'Print' }}
                       </button>
                       <button
                         class="btn btn-secondary btn-sm"
@@ -1715,7 +1723,15 @@
                         :disabled="printablePacketLoading.es"
                         @click="openPrintablePacket('es')"
                       >
-                        {{ printablePacketLoading.es ? 'Opening…' : 'View / Print' }}
+                        {{ printablePacketLoading.es ? 'Opening…' : 'View' }}
+                      </button>
+                      <button
+                        class="btn btn-secondary btn-sm"
+                        type="button"
+                        :disabled="printablePacketLoading.es"
+                        @click="printPrintablePacket('es')"
+                      >
+                        {{ printablePacketLoading.es ? 'Preparing…' : 'Print' }}
                       </button>
                       <button
                         class="btn btn-secondary btn-sm"
@@ -2318,6 +2334,12 @@
                 :disabled="printablePacketLoading.en"
                 @click="openPrintablePacket('en')"
               >{{ printablePacketLoading.en ? 'Opening…' : 'Open PDF' }}</button>
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                :disabled="printablePacketLoading.en"
+                @click="printPrintablePacket('en')"
+              >{{ printablePacketLoading.en ? 'Preparing…' : 'Print' }}</button>
             </div>
             <div class="printable-qr-section">
               <div class="printable-qr-img-wrap">
@@ -2347,6 +2369,12 @@
                 :disabled="printablePacketLoading.es"
                 @click="openPrintablePacket('es')"
               >{{ printablePacketLoading.es ? 'Opening…' : 'Open PDF' }}</button>
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                :disabled="printablePacketLoading.es"
+                @click="printPrintablePacket('es')"
+              >{{ printablePacketLoading.es ? 'Preparing…' : 'Print' }}</button>
             </div>
             <div class="printable-qr-section">
               <div class="printable-qr-img-wrap">
@@ -5305,6 +5333,29 @@ async function openPrintablePacket(locale) {
     setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
   } catch (e) {
     printablePacketError.value = await messageFromBlobError(e, 'Failed to open packet.');
+  } finally {
+    printablePacketLoading[locale] = false;
+  }
+}
+
+async function printPrintablePacket(locale) {
+  if (printablePacketLoading[locale]) return;
+  printablePacketLoading[locale] = true;
+  printablePacketError.value = '';
+  try {
+    const blob = await fetchPrintablePacketBlob(locale);
+    const blobUrl = URL.createObjectURL(blob);
+    const w = window.open(blobUrl, '_blank', 'noopener');
+    if (w) {
+      const triggerPrint = () => {
+        try { w.focus(); w.print(); } catch { /* ignore */ }
+      };
+      w.addEventListener?.('load', triggerPrint);
+      setTimeout(triggerPrint, 1200);
+    }
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+  } catch (e) {
+    printablePacketError.value = await messageFromBlobError(e, 'Failed to print packet.');
   } finally {
     printablePacketLoading[locale] = false;
   }

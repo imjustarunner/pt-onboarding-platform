@@ -252,7 +252,7 @@
         No documents yet.
       </div>
       <div v-else-if="!currentYearDocs.length" class="empty-state" style="margin-top: 10px;">
-        No {{ CUR_YEAR }} documents yet — see archived docs below.
+        No {{ CUR_YEAR }} documents yet — prior-year documents are hidden below.
       </div>
       <div v-else class="table-wrap" style="margin-top: 10px;">
         <table class="table">
@@ -303,7 +303,7 @@
                 </template>
                 <template v-else>
                   <span class="muted">{{ formatCategory(d.category_key) }}</span>
-                  <div v-if="d.school_year" class="muted" style="font-size:11px;">{{ d.school_year }}</div>
+                  <div v-if="d.school_year || effectiveSchoolYear(d)" class="muted" style="font-size:11px;">{{ d.school_year || effectiveSchoolYear(d) }}</div>
                 </template>
               </td>
               <td class="muted">{{ formatDate(d.updated_at) }}</td>
@@ -437,18 +437,23 @@
         </table>
       </div>
 
-      <!-- ── Archived docs (previous school years) ──────────────────────────── -->
+      <!-- ── Prior-year docs (hidden until staff ask for them) ─────────────── -->
       <div v-if="archivedDocs.length" style="margin-top: 16px;">
         <button
           class="archived-toggle-btn"
           type="button"
           @click="showArchivedDocs = !showArchivedDocs"
         >
-          {{ showArchivedDocs ? '▲ Hide' : '▼ Show' }} archived documents
+          {{ showArchivedDocs ? '▲ Hide' : '▼ Show' }} prior-year documents
           <span class="archived-count-badge">{{ archivedDocs.length }}</span>
         </button>
 
         <div v-if="showArchivedDocs" class="archived-section">
+          <div class="archived-disclaimer">
+            These documents are from a prior school year
+            <template v-if="PRIOR_YEAR">({{ PRIOR_YEAR }} and earlier)</template>
+            and may be out of date. Prefer current-year materials unless you specifically need last year’s copy.
+          </div>
           <div class="archived-search-row">
             <input
               v-model="archivedSearch"
@@ -489,7 +494,7 @@
                     </select>
                   </template>
                   <template v-else>
-                    <span class="badge badge-outline" style="font-size:11px;">{{ d.school_year || '—' }}</span>
+                    <span class="badge badge-outline" style="font-size:11px;">{{ effectiveSchoolYear(d) || d.school_year || '—' }}</span>
                   </template>
                 </td>
                 <td>
@@ -592,6 +597,11 @@ import QRCode from 'qrcode';
 import { useAuthStore } from '../../../store/auth';
 import SchoolPacketTemplateEditor from './SchoolPacketTemplateEditor.vue';
 import { messageFromBlobError } from '../../../utils/apiBlobError';
+import {
+  computeCurrentSchoolYearLabel,
+  normalizeSchoolYearLabel,
+  previousSchoolYearLabel
+} from '../../../utils/schoolYear.js';
 
 const props = defineProps({
   schoolOrganizationId: { type: [Number, String], required: true }
@@ -621,25 +631,23 @@ const qrModalUrl = ref('');
 const qrModalDataUrl = ref('');
 
 // ── School-year helpers (last Monday of July — matches backend schoolYear.js) ─
-function lastMondayOfJuly(year) {
-  const d = new Date(year, 7, 0); // last day of July
-  while (d.getDay() !== 1) d.setDate(d.getDate() - 1);
-  return d;
-}
-function currentSchoolYear(now = new Date()) {
-  const y = now.getFullYear();
-  const m = now.getMonth() + 1;
-  if (m < 7) return `${y - 1}-${y}`;
-  if (m > 7) return `${y}-${y + 1}`;
-  const rollover = lastMondayOfJuly(y);
-  const today = new Date(y, now.getMonth(), now.getDate());
-  return today.getTime() >= rollover.getTime() ? `${y}-${y + 1}` : `${y - 1}-${y}`;
-}
-const CUR_YEAR = currentSchoolYear();
+const CUR_YEAR = computeCurrentSchoolYearLabel();
+const PRIOR_YEAR = previousSchoolYearLabel(CUR_YEAR);
 const schoolYearOptions = (() => {
-  const [sy] = CUR_YEAR.split('-').map(Number);
+  const [sy] = String(CUR_YEAR).split('-').map(Number);
   return [CUR_YEAR, `${sy - 1}-${sy}`, `${sy - 2}-${sy - 1}`];
 })();
+
+function effectiveSchoolYear(doc) {
+  if (String(doc?.kind || '').toLowerCase() === 'system_printable_packet') return CUR_YEAR;
+  const explicit = normalizeSchoolYearLabel(doc?.school_year);
+  if (explicit) return explicit;
+  const stamp = doc?.created_at || doc?.updated_at;
+  if (!stamp) return null;
+  const dt = new Date(stamp);
+  if (Number.isNaN(dt.getTime())) return null;
+  return computeCurrentSchoolYearLabel(dt);
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 const newDoc = ref({ title: '', categoryKey: '', schoolYear: CUR_YEAR });
@@ -705,11 +713,15 @@ const primaryDigitalFormLinks = computed(() =>
 
 // ── Year-based library filters ────────────────────────────────────────────────
 const currentYearDocs = computed(() =>
-  docs.value.filter(d => !d.school_year || d.school_year === CUR_YEAR)
+  docs.value.filter((d) => effectiveSchoolYear(d) === CUR_YEAR)
 );
 const archivedDocs = computed(() =>
-  docs.value.filter(d => d.school_year && d.school_year !== CUR_YEAR)
-    .sort((a, b) => (b.school_year || '').localeCompare(a.school_year || '') || (b.id - a.id))
+  docs.value
+    .filter((d) => {
+      const year = effectiveSchoolYear(d);
+      return year && year !== CUR_YEAR;
+    })
+    .sort((a, b) => (effectiveSchoolYear(b) || '').localeCompare(effectiveSchoolYear(a) || '') || (b.id - a.id))
 );
 const filteredArchivedDocs = computed(() => {
   const q = archivedSearch.value.toLowerCase().trim();
@@ -1587,6 +1599,16 @@ onMounted(load);
   border-radius: 8px;
   padding: 12px 14px;
   background: #fafafa;
+}
+.archived-disclaimer {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
+  font-size: 13px;
+  line-height: 1.4;
 }
 .archived-search-row {
   display: flex;

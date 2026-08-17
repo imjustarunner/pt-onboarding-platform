@@ -61,3 +61,12 @@ export function formatSchoolYearDisplay(label) {
   const n = normalizeSchoolYearLabel(label);
   return n ? `${n} school year` : 'School year';
 }
+
+/** Prior roster year for a label (2026-2027 → 2025-2026). */
+export function previousSchoolYearLabel(label = null) {
+  const current = normalizeSchoolYearLabel(label) || computeCurrentSchoolYearLabel();
+  const m = String(current).match(/^(\d{4})-(\d{4})$/);
+  if (!m) return null;
+  const start = parseInt(m[1], 10);
+  return `${start - 1}-${start}`;
+}

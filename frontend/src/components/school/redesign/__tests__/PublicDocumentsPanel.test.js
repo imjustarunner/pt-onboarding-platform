@@ -94,8 +94,61 @@ describe('PublicDocumentsPanel', () => {
     await flush();
 
     const printButtons = wrapper.findAll('button').filter((b) => b.text().trim() === 'Print');
-    expect(printButtons.length).toBe(1);
+    expect(printButtons.length).toBeGreaterThanOrEqual(1);
     expect(wrapper.text()).toContain('Open to print');
+    expect(wrapper.text()).toContain('Non-google link');
+  });
+
+  it('keeps prior-year library docs hidden until staff expand them', async () => {
+    api.get.mockImplementation((url) => {
+      if (String(url).includes('/public-documents')) {
+        return Promise.resolve({
+          data: {
+            documents: [
+              {
+                id: 10,
+                kind: 'link',
+                title: 'Fremont School Packet',
+                link_url: 'https://docs.google.com/document/d/prior-year/edit',
+                category_key: 'other',
+                school_year: null,
+                created_at: '2026-02-09T18:38:17.000Z',
+                updated_at: '2026-02-09T18:38:17.000Z'
+              },
+              {
+                id: 11,
+                kind: 'link',
+                title: 'Current year handbook',
+                link_url: 'https://example.com/handbook',
+                category_key: 'other',
+                school_year: '2026-2027',
+                created_at: '2026-08-10T12:00:00.000Z',
+                updated_at: '2026-08-10T12:00:00.000Z'
+              }
+            ]
+          }
+        });
+      }
+      if (String(url).includes('/intake-links')) {
+        return Promise.resolve({ data: { links: [] } });
+      }
+      return Promise.reject(new Error('Unexpected GET'));
+    });
+
+    const wrapper = mountPanel('admin');
+    await flush();
+
+    expect(wrapper.text()).toContain('Current year handbook');
+    expect(wrapper.text()).not.toContain('Fremont School Packet');
+    expect(wrapper.text()).toContain('prior-year documents');
+
+    const toggle = wrapper.findAll('button').find((b) => b.text().includes('prior-year documents'));
+    expect(toggle).toBeTruthy();
+    await toggle.trigger('click');
+    await flush();
+
+    expect(wrapper.text()).toContain('Fremont School Packet');
+    expect(wrapper.text()).toMatch(/may be out of date/i);
   });
 
   it('renders intake links and opens QR modal', async () => {
@@ -117,7 +170,7 @@ describe('PublicDocumentsPanel', () => {
     const wrapper = mountPanel('admin');
     await flush();
 
-    expect(wrapper.text()).toContain('Affiliated digital forms');
+    expect(wrapper.text()).toContain('Digital Forms');
     expect(wrapper.text()).toContain('My intake link');
 
     const qrBtn = wrapper.findAll('button').find((b) => b.text().trim() === 'QR');
