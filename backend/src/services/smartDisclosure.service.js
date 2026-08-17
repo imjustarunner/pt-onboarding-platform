@@ -200,7 +200,8 @@ export const DISCLOSURE_CLINICAL_ROLES = [
   'supervisor',
   'clinical_practice_assistant',
   'qbha',
-  'facilitator'
+  'facilitator',
+  'tutor'
 ];
 
 export function normalizeDisclosureRole(role) {
@@ -218,6 +219,30 @@ export function isNonClinicalDisclosureTitle(title) {
   if (!t) return false;
   return /credentialing specialist/.test(t)
     || /billing\s*(?:&|and)\s*support/.test(t);
+}
+
+export function parseDisclosureIncludeFlag(raw) {
+  if (raw === true || raw === 1 || raw === '1') return 1;
+  if (raw === false || raw === 0 || raw === '0') return 0;
+  return null;
+}
+
+/**
+ * Per-tenant disclosure membership.
+ * includeOnDisclosure 1/0 is an explicit override; NULL means Auto:
+ * clinical agency/profile role, or an admin who actually supervises at this tenant.
+ */
+export function shouldIncludeOnDisclosure({
+  includeOnDisclosure = null,
+  effectiveRole = '',
+  isActingSupervisor = false
+} = {}) {
+  const flag = parseDisclosureIncludeFlag(includeOnDisclosure);
+  if (flag === 1) return true;
+  if (flag === 0) return false;
+  if (isActingSupervisor) return true;
+  if (normalizeDisclosureRole(effectiveRole) === 'supervisor') return true;
+  return isDisclosureClinicalRole(effectiveRole);
 }
 
 const HOGWARTS_DEMO_FULL_NAMES = new Set([
@@ -295,6 +320,7 @@ function deriveServiceProviderLabel({ credential = '', role = '', category = '' 
     return 'Clinical Practice Assistant';
   }
   if (roleNorm === 'provider_plus') return cred || 'Provider Plus';
+  if (roleNorm === 'tutor' || /\bTUTOR\b/.test(upper)) return 'Tutor';
   if (/\bINTERN\b/.test(upper) || roleNorm === 'intern' || roleNorm === 'intern_plus') return 'Intern';
   if (/\bPEER\s*SPECIALIST\b/i.test(cred)) return 'Peer Specialist';
   if (isBachelorsCredentialText(cred)) return "Bachelor's";
@@ -480,22 +506,53 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
   let agencyProviders = [];
   try {
     const [rows] = await pool.execute(
-      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.credential, u.email, u.role, u.title, u.status
+      `SELECT DISTINCT
+          u.id, u.first_name, u.last_name, u.credential, u.email, u.role, u.title, u.status,
+          u.has_supervisor_privileges,
+          ua.agency_role, ua.agency_position, ua.include_on_disclosure
        FROM user_agencies ua
        JOIN users u ON u.id = ua.user_id
        WHERE ua.agency_id = ?
          AND COALESCE(ua.is_active, 1) = 1
          ${activeUserClause}
-         AND LOWER(REPLACE(REPLACE(TRIM(COALESCE(u.role, '')), ' ', '_'), '-', '_')) IN (
-           'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor',
-           'clinical_practice_assistant', 'qbha', 'facilitator', 'cpa'
-         )
        ORDER BY u.last_name ASC, u.first_name ASC`,
       [aid]
     );
     agencyProviders = rows || [];
   } catch {
-    agencyProviders = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.credential, u.email, u.role, u.title, u.status
+         FROM user_agencies ua
+         JOIN users u ON u.id = ua.user_id
+         WHERE ua.agency_id = ?
+           AND COALESCE(ua.is_active, 1) = 1
+           ${activeUserClause}
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [aid]
+      );
+      agencyProviders = rows || [];
+    } catch {
+      agencyProviders = [];
+    }
+  }
+
+  const membershipByUserId = new Map();
+  for (const row of agencyProviders) {
+    const id = Number(row.id);
+    if (!id) continue;
+    membershipByUserId.set(id, row);
+  }
+
+  const actingSupervisorIds = new Set();
+  try {
+    const assignments = await SupervisorAssignment.findByAgency(aid);
+    for (const a of assignments || []) {
+      const sid = Number(a.supervisor_id || 0);
+      if (sid) actingSupervisorIds.add(sid);
+    }
+  } catch {
+    // ignore
   }
 
   const seen = new Set();
@@ -505,13 +562,29 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
     if (!id || seen.has(id)) continue;
     if (!isDisclosureEligibleUserStatus(row.status)) continue;
     if (isHogwartsDemoIdentity(row)) continue;
+    const membership = membershipByUserId.get(id) || row;
     const fromSchool = schoolProviders.some((s) => Number(s.id) === id);
-    // Agency-wide roster: clinical roles only (no admins / billing / credentialing staff).
-    // School assignments still include whoever is actually assigned to that campus,
-    // so a credentialing specialist who sees clients at NLU remains on NLU packets.
-    if (!fromSchool && !isDisclosureClinicalRole(row.role)) continue;
-    if (!fromSchool && isNonClinicalDisclosureTitle(row.title)) continue;
-    ordered.push({ ...row, _schoolFirst: fromSchool });
+    const effectiveRole = String(membership.agency_role || row.role || '').trim() || row.role;
+    const effectiveTitle = String(membership.agency_position || row.title || '').trim() || row.title;
+    const roleNorm = normalizeDisclosureRole(effectiveRole);
+    const isActingSupervisor = actingSupervisorIds.has(id)
+      || roleNorm === 'supervisor'
+      || (
+        Number(membership.has_supervisor_privileges || row.has_supervisor_privileges || 0) === 1
+        && (roleNorm === 'admin' || roleNorm === 'super_admin')
+      );
+    if (!shouldIncludeOnDisclosure({
+      includeOnDisclosure: membership.include_on_disclosure,
+      effectiveRole,
+      isActingSupervisor
+    })) continue;
+    ordered.push({
+      ...row,
+      ...membership,
+      role: effectiveRole,
+      title: effectiveTitle,
+      _schoolFirst: fromSchool
+    });
   }
 
   const infoMap = await loadUserInfoMap(ordered.map((r) => r.id));

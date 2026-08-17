@@ -27,6 +27,7 @@ import pool from '../config/database.js';
 import { canUserManageClub } from '../utils/sscClubAccess.js';
 import { detachUserFromOrganization, detachUserGlobalLinks } from '../services/userStaffDetach.service.js';
 import { runSummitStrictErasureForAccountDeletion } from '../services/summitStrictErasure.service.js';
+import { AGENCY_POSITION_ROLE_VALUES, normalizeAgencyRole } from '../constants/agencyMembership.js';
 import { syncProgramMembershipForSkillBuilderEligibleUser } from '../services/skillBuildersProgramAffiliation.service.js';
 import { isSkillBuildersSchoolProgramActiveForParentAgencyId } from '../utils/skillBuildersSchoolProgramFeature.js';
 import { isStravaRolloutEnabledForEmail } from '../utils/stravaRollout.js';
@@ -9094,6 +9095,67 @@ export const setUserAgencyH0032Mode = async (req, res, next) => {
       agencyId: agencyIdNum,
       mode: requiresManualMinutes ? 'cat1_hour' : 'cat2_flat',
       h0032RequiresManualMinutes: !!(updated?.h0032_requires_manual_minutes === 1 || updated?.h0032_requires_manual_minutes === true || updated?.h0032_requires_manual_minutes === '1')
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const setUserAgencyMembershipRole = async (req, res, next) => {
+  try {
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    const userId = parseInt(req.params.id, 10);
+    const agencyIdNum = parseInt(req.body?.agencyId, 10);
+    if (!userId || !agencyIdNum) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+
+    const membership = await User.getAgencyMembership(userId, agencyIdNum);
+    if (!membership) {
+      return res.status(400).json({ error: { message: 'User is not assigned to this agency' } });
+    }
+
+    let agencyRole = undefined;
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'agencyRole')) {
+      const normalized = normalizeAgencyRole(req.body.agencyRole);
+      if (normalized && !AGENCY_POSITION_ROLE_VALUES.has(normalized)) {
+        return res.status(400).json({ error: { message: 'Invalid agency role' } });
+      }
+      agencyRole = normalized || null;
+    }
+
+    let agencyPosition = undefined;
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'agencyPosition')) {
+      agencyPosition = String(req.body.agencyPosition || '').trim().slice(0, 120);
+    }
+
+    let includeOnDisclosure = undefined;
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'includeOnDisclosure')) {
+      const raw = req.body.includeOnDisclosure;
+      if (raw === 'include' || raw === 1 || raw === true || raw === '1') includeOnDisclosure = 1;
+      else if (raw === 'exclude' || raw === 0 || raw === false || raw === '0') includeOnDisclosure = 0;
+      else includeOnDisclosure = null;
+    }
+
+    const updated = await User.setAgencyMembershipRole({
+      userId,
+      agencyId: agencyIdNum,
+      agencyRole,
+      agencyPosition,
+      includeOnDisclosure
+    });
+
+    res.json({
+      userId,
+      agencyId: agencyIdNum,
+      agencyRole: updated?.agency_role || null,
+      agencyPosition: updated?.agency_position || null,
+      includeOnDisclosure: updated?.include_on_disclosure === 1 || updated?.include_on_disclosure === true
+        ? 1
+        : (updated?.include_on_disclosure === 0 || updated?.include_on_disclosure === false ? 0 : null)
     });
   } catch (error) {
     next(error);

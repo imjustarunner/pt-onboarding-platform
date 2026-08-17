@@ -1848,7 +1848,7 @@ class User {
     // Best-effort: include membership fields from user_agencies.
     try {
       const [uaCols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('has_payroll_access','has_billing_access','h0032_requires_manual_minutes','is_active','club_role','supervision_is_prelicensed','supervision_is_compensable','supervision_start_date','supervision_start_individual_hours','supervision_start_group_hours')"
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('has_payroll_access','has_billing_access','h0032_requires_manual_minutes','is_active','club_role','supervision_is_prelicensed','supervision_is_compensable','supervision_start_date','supervision_start_individual_hours','supervision_start_group_hours','agency_role','agency_position','include_on_disclosure')"
       );
       const names = (uaCols || []).map((c) => c.COLUMN_NAME);
       hasPayrollAccess = names.includes('has_payroll_access');
@@ -1862,6 +1862,9 @@ class User {
       var hasSupervisionStartDate = names.includes('supervision_start_date'); // eslint-disable-line no-var
       var hasSupervisionStartInd = names.includes('supervision_start_individual_hours'); // eslint-disable-line no-var
       var hasSupervisionStartGrp = names.includes('supervision_start_group_hours'); // eslint-disable-line no-var
+      var hasAgencyRole = names.includes('agency_role'); // eslint-disable-line no-var
+      var hasAgencyPosition = names.includes('agency_position'); // eslint-disable-line no-var
+      var hasIncludeOnDisclosure = names.includes('include_on_disclosure'); // eslint-disable-line no-var
     } catch {
       hasPayrollAccess = false;
       hasBillingAccess = false;
@@ -1874,6 +1877,9 @@ class User {
       var hasSupervisionStartDate = false; // eslint-disable-line no-var
       var hasSupervisionStartInd = false; // eslint-disable-line no-var
       var hasSupervisionStartGrp = false; // eslint-disable-line no-var
+      var hasAgencyRole = false; // eslint-disable-line no-var
+      var hasAgencyPosition = false; // eslint-disable-line no-var
+      var hasIncludeOnDisclosure = false; // eslint-disable-line no-var
     }
 
     const selectExtra = [
@@ -1899,7 +1905,10 @@ class User {
       hasSupervisionCompensable ? 'ua.supervision_is_compensable' : null,
       hasSupervisionStartDate ? 'ua.supervision_start_date' : null,
       hasSupervisionStartInd ? 'ua.supervision_start_individual_hours' : null,
-      hasSupervisionStartGrp ? 'ua.supervision_start_group_hours' : null
+      hasSupervisionStartGrp ? 'ua.supervision_start_group_hours' : null,
+      hasAgencyRole ? 'ua.agency_role' : null,
+      hasAgencyPosition ? 'ua.agency_position' : null,
+      hasIncludeOnDisclosure ? 'ua.include_on_disclosure' : null
     ].filter(Boolean).join(', ');
 
     const joins = [
@@ -2130,6 +2139,47 @@ class User {
     } catch {
       return null;
     }
+  }
+
+  static async setAgencyMembershipRole({
+    userId,
+    agencyId,
+    agencyRole = undefined,
+    agencyPosition = undefined,
+    includeOnDisclosure = undefined
+  } = {}) {
+    const uid = Number(userId || 0);
+    const aid = Number(agencyId || 0);
+    if (!uid || !aid) return null;
+
+    const [cols] = await pool.execute(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies'
+         AND COLUMN_NAME IN ('agency_role','agency_position','include_on_disclosure')`
+    );
+    const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+    const fields = [];
+    const params = [];
+    if (agencyRole !== undefined && names.has('agency_role')) {
+      fields.push('agency_role = ?');
+      params.push(agencyRole ? String(agencyRole).trim() : null);
+    }
+    if (agencyPosition !== undefined && names.has('agency_position')) {
+      const pos = String(agencyPosition || '').trim();
+      fields.push('agency_position = ?');
+      params.push(pos || null);
+    }
+    if (includeOnDisclosure !== undefined && names.has('include_on_disclosure')) {
+      fields.push('include_on_disclosure = ?');
+      params.push(includeOnDisclosure);
+    }
+    if (!fields.length) return this.getAgencyMembership(uid, aid);
+    params.push(uid, aid);
+    await pool.execute(
+      `UPDATE user_agencies SET ${fields.join(', ')} WHERE user_id = ? AND agency_id = ?`,
+      params
+    );
+    return this.getAgencyMembership(uid, aid);
   }
 
   /** Set has_payroll_access for all agencies this user belongs to (global toggle from profile). */

@@ -17,7 +17,8 @@ import {
   formatSupervisorTypeLabel,
   isDemoPacketIdentity,
   isDisclosureClinicalRole,
-  isNonClinicalDisclosureTitle
+  isNonClinicalDisclosureTitle,
+  shouldIncludeOnDisclosure
 } from '../smartDisclosure.service.js';
 import { DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML } from '../../content/schoolPacketTemplateDefault.en.js';
 
@@ -211,6 +212,7 @@ test('disclosure clinical roles include CPA and provider plus, exclude admin', (
   assert.equal(isDisclosureClinicalRole('Provider Plus'), true);
   assert.equal(isDisclosureClinicalRole('intern_plus'), true);
   assert.equal(isDisclosureClinicalRole('facilitator'), true);
+  assert.equal(isDisclosureClinicalRole('tutor'), true);
   assert.equal(isDisclosureClinicalRole('admin'), false);
   assert.equal(isDisclosureClinicalRole('super_admin'), false);
   assert.equal(isDisclosureClinicalRole('staff'), false);
@@ -218,6 +220,31 @@ test('disclosure clinical roles include CPA and provider plus, exclude admin', (
   assert.equal(isNonClinicalDisclosureTitle('Credentialing Specialist'), true);
   assert.equal(isNonClinicalDisclosureTitle('Billing & Support Specialist'), true);
   assert.equal(isNonClinicalDisclosureTitle('Therapist'), false);
+});
+
+test('per-tenant disclosure include: auto for clinical/supervisor-admins, explicit override wins', () => {
+  assert.equal(shouldIncludeOnDisclosure({
+    effectiveRole: 'admin',
+    isActingSupervisor: true
+  }), true);
+  assert.equal(shouldIncludeOnDisclosure({
+    effectiveRole: 'admin',
+    isActingSupervisor: false
+  }), false);
+  assert.equal(shouldIncludeOnDisclosure({
+    effectiveRole: 'tutor'
+  }), true);
+  assert.equal(shouldIncludeOnDisclosure({
+    effectiveRole: 'clinical_practice_assistant'
+  }), true);
+  assert.equal(shouldIncludeOnDisclosure({
+    effectiveRole: 'provider',
+    includeOnDisclosure: 0
+  }), false);
+  assert.equal(shouldIncludeOnDisclosure({
+    effectiveRole: 'admin',
+    includeOnDisclosure: 1
+  }), true);
 });
 
 test('demo packet identity covers known test disclosure names', () => {

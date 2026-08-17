@@ -607,6 +607,60 @@
                         </div>
 
                         <div
+                          v-if="canEditUser"
+                          class="agency-item-row"
+                          title="Role and title at this tenant. Disclosure statements use this instead of the global profile role, so someone can be an ITSCO admin/supervisor and a tutor at Next Level Up."
+                        >
+                          <span class="muted" style="font-size: 12px; font-weight: 700;">Role here</span>
+                          <select
+                            class="agency-select"
+                            style="min-width: 170px;"
+                            :value="agencyRoleFor(agency)"
+                            :disabled="savingAgencyMembershipId === agency.id"
+                            @change="saveAgencyMembership(agency.id, { agencyRole: $event.target.value })"
+                          >
+                            <option
+                              v-for="opt in AGENCY_POSITION_ROLE_OPTIONS"
+                              :key="opt.value || 'inherit'"
+                              :value="opt.value"
+                            >
+                              {{ opt.label }}
+                            </option>
+                          </select>
+                          <span class="muted" style="font-size: 12px; font-weight: 700;">Position</span>
+                          <input
+                            class="agency-select"
+                            style="min-width: 180px;"
+                            :value="agency.agency_position || ''"
+                            :disabled="savingAgencyMembershipId === agency.id"
+                            placeholder="Title at this agency"
+                            @change="saveAgencyMembership(agency.id, { agencyPosition: $event.target.value })"
+                          />
+                        </div>
+                        <div
+                          v-if="canEditUser"
+                          class="agency-item-row"
+                          title="Auto includes clinical roles and admins who supervise at this tenant. Override to always or never list them on paper/virtual disclosure."
+                        >
+                          <span class="muted" style="font-size: 12px; font-weight: 700;">Disclosure</span>
+                          <select
+                            class="agency-select"
+                            style="min-width: 220px;"
+                            :value="disclosureIncludeFromMembership(agency)"
+                            :disabled="savingAgencyMembershipId === agency.id"
+                            @change="saveAgencyMembership(agency.id, { includeOnDisclosure: $event.target.value })"
+                          >
+                            <option
+                              v-for="opt in DISCLOSURE_INCLUDE_OPTIONS"
+                              :key="opt.value"
+                              :value="opt.value"
+                            >
+                              {{ opt.label }}
+                            </option>
+                          </select>
+                        </div>
+
+                        <div
                           v-if="canEditUser && canShowH0032Mode"
                           class="agency-item-row"
                           title="H0032 Cat1 Hour / Cat2 Flat is a billing-minutes mode only (how H0032 minutes are entered). It is not Pay Category or HCBS Category."
@@ -2710,6 +2764,11 @@ import MovePendingToActiveModal from '../../components/admin/MovePendingToActive
 import LeaveOfAbsenceModal from '../../components/admin/LeaveOfAbsenceModal.vue';
 import UserPreferencesHub from '../../components/UserPreferencesHub.vue';
 import ScheduleAvailabilityGrid from '../../components/schedule/ScheduleAvailabilityGrid.vue';
+import {
+  AGENCY_POSITION_ROLE_OPTIONS,
+  DISCLOSURE_INCLUDE_OPTIONS,
+  disclosureIncludeFromMembership
+} from '../../constants/agencyMembership.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -6007,6 +6066,24 @@ const setH0032Mode = async (agencyId, mode) => {
     alert(err.response?.data?.error?.message || 'Failed to update H0032 mode');
   } finally {
     updatingH0032AgencyId.value = null;
+  }
+};
+
+const savingAgencyMembershipId = ref(null);
+const agencyRoleFor = (agency) => String(agency?.agency_role || '').trim();
+const saveAgencyMembership = async (agencyId, patch = {}) => {
+  try {
+    if (!agencyId) return;
+    savingAgencyMembershipId.value = agencyId;
+    await api.put(`/users/${userId.value}/agency-membership`, {
+      agencyId,
+      ...patch
+    });
+    await fetchUserAgencies();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to update agency role');
+  } finally {
+    savingAgencyMembershipId.value = null;
   }
 };
 
