@@ -7768,14 +7768,34 @@ export const finalizePublicIntake = async (req, res, next) => {
 
     const signedDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
     const signedByTemplate = new Map(signedDocs.map((d) => [d.document_template_id, d]));
+
+    // When the intake is completed in Spanish using the in-page locale toggle, the
+    // frontend resolves the Spanish template ID from document_translation_map and signs
+    // that Spanish template. filterPacketDocumentTemplates always uses the English
+    // template IDs from link.intake_steps, so we must also accept the Spanish
+    // equivalent as satisfying a required English template.
+    const docTranslationMap = (link.document_translation_map && typeof link.document_translation_map === 'object')
+      ? link.document_translation_map
+      : {};
+    const esIdForEnId = {};
+    for (const [enKey, esVal] of Object.entries(docTranslationMap)) {
+      const enId = Number(enKey);
+      const esId = Number(esVal);
+      if (enId > 0 && esId > 0) esIdForEnId[enId] = esId;
+    }
+
     for (const t of packetDocumentTemplates) {
-      if (!signedByTemplate.has(t.id)) {
+      const esId = esIdForEnId[t.id];
+      if (!signedByTemplate.has(t.id) && !(esId && signedByTemplate.has(esId))) {
         return res.status(400).json({ error: { message: `Missing signed document for ${t.name || 'document'}` } });
       }
     }
 
     const signer = buildSignerFromSubmission(updatedSubmission);
-    const signedDocsOrdered = packetDocumentTemplates.map((t) => signedByTemplate.get(t.id)).filter(Boolean);
+    const signedDocsOrdered = packetDocumentTemplates.map((t) => {
+      const esId = esIdForEnId[t.id];
+      return signedByTemplate.get(t.id) || (esId ? signedByTemplate.get(esId) : null) || null;
+    }).filter(Boolean);
     const pdfPaths = [];
     const clientBundles = [];
     const workflowData = buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } });
