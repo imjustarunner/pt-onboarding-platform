@@ -117,7 +117,8 @@ import {
 } from '../../../composables/useSlotVerification';
 import {
   providerAssignmentSummary,
-  providerCapacityColor
+  providerCapacityColor,
+  withSoftScheduleOccupancy
 } from '../../../utils/providerSlotCapacity';
 
 const props = defineProps({
@@ -178,8 +179,11 @@ const formatClock = (t) => {
   return `${h12}:${String(mm).padStart(2, '0')} ${suffix}`;
 };
 
-const capacityColorForProvider = computed(() => providerCapacityColor(props.provider));
-const slotSummaryForProvider = computed(() => providerAssignmentSummary(props.provider));
+const occupancyProvider = computed(() =>
+  withSoftScheduleOccupancy(props.provider, props.slots, props.caseloadClients)
+);
+const capacityColorForProvider = computed(() => providerCapacityColor(occupancyProvider.value));
+const slotSummaryForProvider = computed(() => providerAssignmentSummary(occupancyProvider.value));
 
 const canRequestAvailability = computed(() => {
   const role = String(props.currentUserRole || '').toLowerCase();

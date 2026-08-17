@@ -51,3 +51,37 @@ export function providerAssignmentSummary(provider) {
   const openText = open !== null ? (open <= 0 ? 'Full' : `${open} open`) : '—';
   return `${usedText} / ${total} assigned · ${openText}`;
 }
+
+/** A slot is filled only when it has a real client selected on the soft schedule. */
+export function countFilledSoftScheduleSlots(slots, caseloadClients = null) {
+  const list = Array.isArray(slots) ? slots : [];
+  let allowed = null;
+  if (Array.isArray(caseloadClients) && caseloadClients.length) {
+    allowed = new Set(
+      caseloadClients
+        .map((c) => Number(c?.id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    );
+  }
+  let filled = 0;
+  for (const slot of list) {
+    const id = Number(slot?.client_id);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    if (allowed && !allowed.has(id)) continue;
+    filled += 1;
+  }
+  return filled;
+}
+
+/** Overlay API caseload counts with who is actually placed on the day's time grid. */
+export function withSoftScheduleOccupancy(provider, slots, caseloadClients = null) {
+  const list = Array.isArray(slots) ? slots : [];
+  if (!list.length) return provider;
+  const total = providerSlotsTotal(provider) ?? list.length;
+  const used = countFilledSoftScheduleSlots(list, caseloadClients);
+  return {
+    ...provider,
+    slots_used: used,
+    slots_available_calculated: total == null ? null : Math.max(0, total - used)
+  };
+}

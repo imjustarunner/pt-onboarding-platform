@@ -330,14 +330,39 @@ export async function getDemoDayProviders(token, weekdayRaw) {
      ORDER BY u.last_name ASC, u.first_name ASC`,
     [schoolId, weekday]
   ).catch(() => [[]]);
-  return (rows || []).map((r) => ({
-    ...r,
-    email: scrubEmail(),
-    slots_used: Math.max(0, Number(r.slots_total || 0) - Number(r.slots_available || 0)),
-    slots_available_calculated: Number(r.slots_available || 0),
-    profile_photo_path: r.profile_photo_path || null,
-    profile_photo_url: publicUploadsUrlFromStoredPath(r.profile_photo_path || null)
-  }));
+  const filledByProvider = new Map();
+  try {
+    const providerIds = (rows || []).map((r) => Number(r.provider_user_id)).filter(Boolean);
+    if (providerIds.length) {
+      const placeholders = providerIds.map(() => '?').join(',');
+      const [cntRows] = await pool.execute(
+        `SELECT provider_user_id, COUNT(*) AS cnt
+         FROM soft_schedule_slots
+         WHERE school_organization_id = ?
+           AND weekday = ?
+           AND provider_user_id IN (${placeholders})
+           AND client_id IS NOT NULL
+           AND client_id > 0
+         GROUP BY provider_user_id`,
+        [schoolId, weekday, ...providerIds]
+      );
+      for (const r of cntRows || []) filledByProvider.set(Number(r.provider_user_id), Number(r.cnt || 0));
+    }
+  } catch {
+    // occupancy stays 0 when the soft-schedule table is missing
+  }
+  return (rows || []).map((r) => {
+    const total = Number(r.slots_total || 0);
+    const used = filledByProvider.get(Number(r.provider_user_id)) || 0;
+    return {
+      ...r,
+      email: scrubEmail(),
+      slots_used: used,
+      slots_available_calculated: Math.max(0, total - used),
+      profile_photo_path: r.profile_photo_path || null,
+      profile_photo_url: publicUploadsUrlFromStoredPath(r.profile_photo_path || null)
+    };
+  });
 }
 
 export async function getDemoSchedulingProviders(token) {

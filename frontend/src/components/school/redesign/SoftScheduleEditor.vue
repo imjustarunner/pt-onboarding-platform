@@ -29,7 +29,7 @@
               v-model="s.client_id"
               :class="['input', { 'input-locked': isLockedClientId(s.client_id) }]"
             >
-              <option :value="null">Open slot</option>
+              <option value="">Open slot</option>
               <option v-for="c in caseloadClients" :key="c.id" :value="Number(c.id)" :style="optionStyle(c)">
                 {{ displayClient(c) }}
               </option>
@@ -92,13 +92,16 @@ const emit = defineEmits(['save']);
 
 const draftSlots = ref([]);
 
-const normalize = (s) => ({
-  id: s?.id || null,
-  client_id: s?.client_id === undefined || s?.client_id === null || s?.client_id === '' ? null : Number(s.client_id),
-  start_time: s?.start_time ? String(s.start_time).slice(0, 5) : '',
-  end_time: s?.end_time ? String(s.end_time).slice(0, 5) : '',
-  note: s?.note ? String(s.note) : ''
-});
+const normalize = (s) => {
+  const rawId = Number(s?.client_id);
+  return {
+    id: s?.id || null,
+    client_id: Number.isFinite(rawId) && rawId > 0 ? rawId : '',
+    start_time: s?.start_time ? String(s.start_time).slice(0, 5) : '',
+    end_time: s?.end_time ? String(s.end_time).slice(0, 5) : '',
+    note: s?.note ? String(s.note) : ''
+  };
+};
 
 watch(
   () => props.slots,
@@ -143,7 +146,7 @@ const displayClient = (c) => {
 const save = () => {
   const out = draftSlots.value.map((s) => ({
     id: s.id || null,
-    client_id: s.client_id === null ? null : Number(s.client_id),
+    client_id: s.client_id === '' || s.client_id === null || s.client_id === undefined ? null : Number(s.client_id),
     start_time: s.start_time ? String(s.start_time) : null,
     end_time: s.end_time ? String(s.end_time) : null,
     note: s.note ? String(s.note) : null

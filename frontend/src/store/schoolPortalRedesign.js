@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import api from '../services/api';
+import { withSoftScheduleOccupancy } from '../utils/providerSlotCapacity';
 
 const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -170,6 +171,14 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
     return providerPanels.value[key];
   };
 
+  const patchDayProviderOccupancy = (providerUserId, slots, caseloadClients) => {
+    const pid = Number(providerUserId);
+    dayProviders.value = (dayProviders.value || []).map((p) => {
+      if (Number(p.provider_user_id) !== pid) return p;
+      return withSoftScheduleOccupancy(p, slots, caseloadClients);
+    });
+  };
+
   const fetchProviderCaseload = async (weekday, providerUserId) => {
     if (!schoolId.value) return;
     const panel = ensurePanel(weekday, providerUserId);
@@ -178,6 +187,9 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
       skipGlobalLoading: true
     });
     panel.caseloadClients = Array.isArray(r.data) ? r.data : [];
+    if (Array.isArray(panel.slots) && panel.slots.length) {
+      patchDayProviderOccupancy(providerUserId, panel.slots, panel.caseloadClients);
+    }
   };
 
   const fetchSoftSlots = async (weekday, providerUserId) => {
@@ -189,6 +201,7 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
     );
     panel.persisted = !!r.data?.persisted;
     panel.slots = Array.isArray(r.data?.slots) ? r.data.slots : [];
+    patchDayProviderOccupancy(providerUserId, panel.slots, panel.caseloadClients);
   };
 
   const loadProviderPanel = async (
@@ -231,6 +244,7 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
       );
       panel.persisted = !!r.data?.persisted;
       panel.slots = Array.isArray(r.data?.slots) ? r.data.slots : [];
+      patchDayProviderOccupancy(providerUserId, panel.slots, panel.caseloadClients);
     } catch (e) {
       panel.error = e.response?.data?.error?.message || 'Failed to save schedule';
       throw e;
@@ -248,6 +262,7 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
       { direction }
     );
     panel.slots = Array.isArray(r.data?.slots) ? r.data.slots : panel.slots;
+    patchDayProviderOccupancy(providerUserId, panel.slots, panel.caseloadClients);
   };
 
   const selectedDayMeta = computed(() => days.value.find((d) => d.weekday === selectedWeekday.value) || null);

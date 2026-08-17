@@ -141,7 +141,8 @@ import ProviderPanel from './ProviderPanel.vue';
 import {
   providerAssignmentSummary,
   providerCapacityColor,
-  providerSlotsOpenLabel
+  providerSlotsOpenLabel,
+  withSoftScheduleOccupancy
 } from '../../../utils/providerSlotCapacity';
 
 const props = defineProps({
@@ -203,7 +204,11 @@ const compareProvidersByStartTime = (a, b) => {
 
 const sortedProviders = computed(() => {
   const list = Array.isArray(props.providers) ? props.providers.slice() : [];
-  return list.sort(compareProvidersByStartTime);
+  const withOccupancy = list.map((p) => {
+    const panel = props.panelFor?.(p?.provider_user_id);
+    return withSoftScheduleOccupancy(p, panel?.slots, panel?.caseloadClients);
+  });
+  return withOccupancy.sort(compareProvidersByStartTime);
 });
 
 const showAddProvider = ref(false);
