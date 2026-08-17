@@ -223,7 +223,11 @@ async function persistPacketSectionFromIntakeData({
     || 0
   ) || null;
   const agencyId = Number(boundClient.agency_id || agency?.id || 0) || null;
-  if (!agencyId || !schoolOrgId) return;
+  const orgType = String(organization?.organization_type || '').toLowerCase();
+  const officePacket = String(link?.scope_type || '').toLowerCase() === 'agency'
+    && !['school', 'program', 'learning'].includes(orgType);
+  if (!agencyId) return;
+  if (!officePacket && !schoolOrgId) return;
 
   const seen = new Set();
   for (const { sectionKey, response } of candidates) {
@@ -232,10 +236,12 @@ async function persistPacketSectionFromIntakeData({
     if (!response.acknowledged || !response.signatureData) continue;
 
     const sectionContext = await buildPacketSectionContext({
-      organizationId: schoolOrgId,
+      organizationId: officePacket ? 0 : schoolOrgId,
       agencyId,
       locale: response.locale || link.language_code || 'en',
-      sectionKey
+      sectionKey,
+      office: officePacket,
+      variant: response.variant || 'self'
     });
 
     const html = buildPacketSectionSignedHtml({

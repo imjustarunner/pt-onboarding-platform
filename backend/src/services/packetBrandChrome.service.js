@@ -1,6 +1,7 @@
 /**
  * Resolve printable-packet chrome (cover / header / footer / body font) per agency.
  * ITSCO (and demo ITSCO) keep legacy Comfortaa/Anton + bundled brand assets.
+ * NLU uses bundled Next Level Up print assets (header, logo, footer, watermark).
  * Other tenants use Montserrat body + agency-uploaded assets (no ITSCO inheritance).
  */
 import path from 'path';
@@ -8,11 +9,14 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import StorageService from './storage.service.js';
 import { OFFICE_PRINTABLE_PACKET_VERSION } from '../constants/officePrintablePacket.js';
+import { normalizeTenantBrandKey } from '../content/tenantBrandAssets.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const BRAND_DIR = path.join(__dirname, '../assets/schoolPrintablePacket/brand');
 const BRAND_FALLBACK_ROOT = path.resolve(__dirname, '../../../assets/ITSCO Brand');
+const NLU_BRAND_DIR = path.join(BRAND_DIR, 'nlu');
+const NLU_PRINTING_DIR = path.resolve(__dirname, '../../../assets/PrintingAssets/NLU Assets');
 const FONTS_DIR = path.join(__dirname, '../assets/fonts');
 
 const ITSCO_SLUGS = new Set(['itsco', 'demo', 'itsco-demo']);
@@ -130,6 +134,32 @@ function itscoWatermarkDataUrl() {
   );
 }
 
+export function isNluPacketChromeAgency(agency = {}) {
+  const slug = String(agency?.slug || agency?.portal_url || '').trim().toLowerCase();
+  if (normalizeTenantBrandKey(slug) === 'nlu') return true;
+  const name = String(agency?.official_name || agency?.name || '').trim().toLowerCase();
+  const nameKey = name.replace(/[^a-z0-9-]+/g, '');
+  if (normalizeTenantBrandKey(nameKey) === 'nlu') return true;
+  return /\bnext level up\b/.test(name) || /\bnlu\b/.test(`${slug} ${name}`);
+}
+
+function nluAssetDataUrl(filename) {
+  return firstExistingDataUrl(
+    [path.join(NLU_BRAND_DIR, filename), path.join(NLU_PRINTING_DIR, filename)],
+    mimeFromPath(filename)
+  );
+}
+
+function nluBundledChrome() {
+  return {
+    coverDataUrl: nluAssetDataUrl('NLULogo.png'),
+    headerLogoDataUrl: nluAssetDataUrl('NLULogo.png'),
+    headerImageDataUrl: nluAssetDataUrl('NLUHeader.png'),
+    footerMarkDataUrl: nluAssetDataUrl('NLUFooter.png'),
+    watermarkDataUrl: nluAssetDataUrl('NLUWatermark.png')
+  };
+}
+
 function montserratRegularDataUrl() {
   return fileToDataUrl(path.join(FONTS_DIR, 'Montserrat-Regular.ttf'), 'font/ttf');
 }
@@ -176,22 +206,41 @@ export async function resolvePacketBrandChrome(agency = {}) {
   const [coverDataUrl, headerLogoDataUrl, footerMarkDataUrl, headerImageDataUrl] = await Promise.all([
     storagePathToDataUrl(agency?.packet_cover_path),
     storagePathToDataUrl(agency?.packet_logo_path || agency?.logo_path),
-    storagePathToDataUrl(agency?.packet_footer_logo_path || agency?.packet_logo_path || agency?.logo_path),
+    storagePathToDataUrl(agency?.packet_footer_logo_path),
     storagePathToDataUrl(agency?.packet_header_image_path)
   ]);
+
+  const nlu = isNluPacketChromeAgency(agency) ? nluBundledChrome() : null;
 
   return {
     useItscoChrome: false,
     bodyFontFamily: "'Montserrat', Arial, Helvetica, sans-serif",
-    coverDataUrl: coverDataUrl || null,
-    headerLogoDataUrl: headerLogoDataUrl || null,
-    headerImageDataUrl: headerImageDataUrl || null,
-    footerMarkDataUrl: footerMarkDataUrl || null,
-    watermarkDataUrl: null,
+    coverDataUrl: coverDataUrl || nlu?.coverDataUrl || null,
+    headerLogoDataUrl: headerLogoDataUrl || nlu?.headerLogoDataUrl || null,
+    headerImageDataUrl: headerImageDataUrl || nlu?.headerImageDataUrl || null,
+    footerMarkDataUrl: footerMarkDataUrl || nlu?.footerMarkDataUrl || null,
+    watermarkDataUrl: nlu?.watermarkDataUrl || null,
     versionLabel,
     montserratRegularDataUrl: montserratRegularDataUrl(),
     montserratSemiBoldDataUrl: montserratSemiBoldDataUrl()
   };
+}
+
+export function applyPacketBrandToSpec(spec = {}, brand = null) {
+  if (!brand) return spec;
+  return {
+    ...spec,
+    brand,
+    coverImageUrl: spec.coverImageUrl || brand.coverDataUrl || null,
+    brandLogoUrl: brand.headerImageDataUrl || brand.headerLogoDataUrl || spec.brandLogoUrl || '',
+    watermarkUrl: spec.watermarkUrl || brand.watermarkDataUrl || null,
+    packetVersionLabel: spec.packetVersionLabel || brand.versionLabel
+  };
+}
+
+export async function brandedIntakeSummarySpec(spec, agency) {
+  const brand = await resolvePacketBrandChrome(agency || {});
+  return applyPacketBrandToSpec(spec, brand);
 }
 
 export function packetBrandAssetColumn(slot) {

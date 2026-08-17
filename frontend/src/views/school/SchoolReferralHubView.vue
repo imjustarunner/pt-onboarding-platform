@@ -385,7 +385,7 @@ async function openPrintable(lang) {
     const res = await api.get(`/school-portal/${id}/printable-packet`, {
       params: { locale: lang, _ts: Date.now() },
       responseType: 'blob',
-      timeout: 120000
+      timeout: 180000
     });
     const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);

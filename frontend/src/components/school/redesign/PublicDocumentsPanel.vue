@@ -801,7 +801,7 @@ const fetchSmartPacketBlob = async (locale = 'en') => {
     const res = await api.get(`/school-portal/${props.schoolOrganizationId}/printable-packet`, {
       params: { locale, _ts: Date.now() },
       responseType: 'blob',
-      timeout: 120000
+      timeout: 180000
     });
     return normalizePacketBlob(res.data);
   } catch (e) {

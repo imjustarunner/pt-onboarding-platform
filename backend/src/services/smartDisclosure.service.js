@@ -16,15 +16,12 @@ import {
   mergeRegulatoryBoardSettings,
   resolveRegulatoryBoard
 } from '../utils/disclosureRegulatoryBoards.js';
+import {
+  FALLBACK_ITSCO_BUSINESS_ENTITY,
+  resolveDisclosureBusinessEntity
+} from '../utils/disclosureBusinessEntity.js';
 
 const DEMO_SCHOOL_SLUGS = new Set(['hogwarts']);
-
-const DEFAULT_BUSINESS_ENTITY = {
-  name: 'ITSCO LLC',
-  address: '437 Windchime Place Colorado Springs CO, 80919',
-  phone: '833-444-8726',
-  email: null
-};
 
 const DEFAULT_COPY_EN = {
   title: 'DISCLOSURE STATEMENT',
@@ -579,8 +576,7 @@ export async function buildSmartDisclosureContext({
       regulatoryBoards: mergeRegulatoryBoardSettings({}, DEFAULT_DISCLOSURE_STATE)
     };
   const copy = { ...defaultCopy(loc), ...(settings.terminology || {}) };
-  const businessEntity = { ...DEFAULT_BUSINESS_ENTITY, ...(settings.businessEntity || {}) };
-  if (agency?.name && !settings.businessEntity?.name) businessEntity.name = agency.name;
+  const businessEntity = resolveDisclosureBusinessEntity(agency, settings.businessEntity);
 
   const providers = agencyId
     ? await listDisclosureProviders({
@@ -653,7 +649,7 @@ export function validateSmartDisclosureResponse(response) {
 
 export function buildSmartDisclosureHtml({ disclosureContext = {}, response = {}, signedAt = new Date() } = {}) {
   const copy = disclosureContext.copy || defaultCopy(disclosureContext.locale);
-  const entity = disclosureContext.businessEntity || DEFAULT_BUSINESS_ENTITY;
+  const entity = disclosureContext.businessEntity || FALLBACK_ITSCO_BUSINESS_ENTITY;
   const providers = response.providers || disclosureContext.providers || [];
   const groups = [
     { key: 'FULLY_LICENSED', label: copy.fullyLicensedHeading, items: [] },

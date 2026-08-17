@@ -1,7 +1,8 @@
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
@@ -1015,42 +1016,123 @@ function buildPdfChromeTemplates(packetContext = {}) {
   return { headerTemplate, footerTemplate };
 }
 
-const COVER_PDF_MARGIN = { top: '0.5in', right: '0.5in', bottom: '0.5in', left: '0.5in' };
 // Body pages get a taller 0.75in top margin (sides/bottom stay 0.5in) so the
 // header logo has clearance above the content.
 const BODY_PDF_MARGIN = { top: '0.75in', right: '0.5in', bottom: '0.5in', left: '0.5in' };
 
+async function embedImageFromDataUrl(pdfDoc, dataUrl) {
+  const raw = String(dataUrl || '').trim();
+  const match = raw.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/i);
+  if (!match) return null;
+  try {
+    const bytes = Buffer.from(match[2], 'base64');
+    if (/jpeg|jpg/i.test(match[1])) return pdfDoc.embedJpg(bytes);
+    return pdfDoc.embedPng(bytes);
+  } catch {
+    return null;
+  }
+}
+
+function coverTitleText(packetContext = {}) {
+  const schoolName = String(packetContext?.organization?.name || 'School').trim() || 'School';
+  return `${schoolName} School Packet`
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\x20-\x7E]/g, '');
+}
+
+/**
+ * Cover page via pdf-lib (same approach as completed digital-intake PDFs).
+ * Chromium is only used for the body — launching it twice is what hung school
+ * paper packets until the browser timed out.
+ */
+async function renderSchoolPacketCoverPdf(packetContext = {}) {
+  const pdfDoc = await PDFDocument.create();
+  const pageW = 612;
+  const pageH = 792;
+  const page = pdfDoc.addPage([pageW, pageH]);
+  const brand = packetContext?.brand || null;
+  const coverUrl = brand?.coverDataUrl
+    || (brand && brand.useItscoChrome === false ? null : coverPageDataUrl());
+  const title = coverTitleText(packetContext);
+  const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const titleSize = 22;
+  const cover = coverUrl ? await embedImageFromDataUrl(pdfDoc, coverUrl) : null;
+
+  if (cover) {
+    const titleBlock = 44;
+    const maxH = pageH - 48 - titleBlock;
+    const scale = Math.min(pageW / cover.width, maxH / cover.height);
+    const w = cover.width * scale;
+    const h = cover.height * scale;
+    const groupH = h + 18 + titleSize;
+    const top = Math.max(24, (pageH - groupH) / 2);
+    page.drawImage(cover, {
+      x: (pageW - w) / 2,
+      y: pageH - top - h,
+      width: w,
+      height: h
+    });
+    const tw = font.widthOfTextAtSize(title, titleSize);
+    page.drawText(title, {
+      x: Math.max(24, (pageW - tw) / 2),
+      y: pageH - top - h - 18 - titleSize,
+      size: titleSize,
+      font,
+      color: rgb(0.07, 0.07, 0.07)
+    });
+  } else {
+    const tw = font.widthOfTextAtSize(title, titleSize);
+    page.drawText(title, {
+      x: Math.max(24, (pageW - tw) / 2),
+      y: pageH / 2,
+      size: titleSize,
+      font,
+      color: rgb(0.07, 0.07, 0.07)
+    });
+  }
+
+  return Buffer.from(await pdfDoc.save());
+}
+
+export function schoolPrintablePacketContentHash(packetContext = {}) {
+  const staff = (packetContext.staffRows || [])
+    .map((row) => Number(row.school_staff_user_id || row.id || 0))
+    .filter((id) => id > 0)
+    .sort((a, b) => a - b);
+  const providers = (packetContext.providers || [])
+    .map((row) => Number(row.id || row.user_id || 0))
+    .filter((id) => id > 0)
+    .sort((a, b) => a - b);
+  const payload = JSON.stringify({
+    v: SCHOOL_PRINTABLE_PACKET_VERSION,
+    locale: packetContext.locale || 'en',
+    templateVersion: Number(packetContext.version || 1),
+    school: String(packetContext.organization?.name || ''),
+    address: String(packetContext.organization?.address || ''),
+    brand: String(packetContext.packetVersionLabel || packetContext.brand?.versionLabel || ''),
+    staff,
+    providers
+  });
+  return crypto.createHash('sha256').update(payload).digest('hex');
+}
+
 export async function generateSchoolPrintablePacketPdf(packetContext) {
-  const coverHtml = buildSchoolPrintablePacketCoverDocument(packetContext);
   const bodyHtml = buildSchoolPrintablePacketBodyDocument(packetContext);
   const { headerTemplate, footerTemplate } = buildPdfChromeTemplates(packetContext);
 
-  // One Chromium process for cover + body — two launches OOMs/503s Cloud Run.
-  const [coverPdfBytes, bodyPdfBytes] = await DocumentSigningService.convertHTMLDocumentsToPdfs(
-    [
-      {
-        html: coverHtml,
-        options: {
-          printBackground: true,
-          margin: COVER_PDF_MARGIN,
-          preferCSSPageSize: false,
-          displayHeaderFooter: false
-        }
-      },
-      {
-        html: bodyHtml,
-        options: {
-          printBackground: true,
-          margin: BODY_PDF_MARGIN,
-          preferCSSPageSize: false,
-          displayHeaderFooter: true,
-          headerTemplate,
-          footerTemplate
-        }
-      }
-    ],
-    { disableFallback: true }
-  );
+  // Match completed digital-intake PDFs: one Chromium render for the body,
+  // pdf-lib for the cover. Do not change convertHTMLToPDF itself.
+  const bodyPdfBytes = await DocumentSigningService.convertHTMLToPDF(bodyHtml, {
+    printBackground: true,
+    margin: BODY_PDF_MARGIN,
+    preferCSSPageSize: false,
+    displayHeaderFooter: true,
+    headerTemplate,
+    footerTemplate,
+    disableFallback: true
+  });
+  const coverPdfBytes = await renderSchoolPacketCoverPdf(packetContext);
 
   const merged = await PDFDocument.create();
   const coverDoc = await PDFDocument.load(coverPdfBytes);

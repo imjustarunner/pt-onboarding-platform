@@ -5276,7 +5276,7 @@ async function fetchPrintablePacketBlob(locale) {
   const res = await api.get(`/school-portal/${organizationId.value}/printable-packet`, {
     params: { locale, _ts: Date.now() },
     responseType: 'blob',
-    timeout: 120000
+    timeout: 180000
   });
   const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'application/pdf' });
   const type = String(blob.type || '').toLowerCase();

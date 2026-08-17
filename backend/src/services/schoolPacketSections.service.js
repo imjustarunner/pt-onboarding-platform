@@ -5,8 +5,10 @@ import { DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML } from '../content/schoolPacketTemp
 import { DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML_ES } from '../content/schoolPacketTemplateDefault.es.js';
 import { buildSchoolPrintablePacketContext } from './schoolPrintablePacket.service.js';
 import OfficePacketTemplate from '../models/OfficePacketTemplate.model.js';
-import { defaultOfficePacketHtml } from '../content/officePacketTemplateDefault.js';
+import Agency from '../models/Agency.model.js';
+import { defaultOfficePacketHtml, applyNluOfficeLegalIfNeeded } from '../content/officePacketTemplateDefault.js';
 import { normalizeOfficePacketVariant } from '../constants/officePrintablePacket.js';
+import { isNluPacketChromeAgency } from './packetBrandChrome.service.js';
 
 export const PACKET_SECTION_KEYS = Object.freeze({
   INFORMED_GROUP_CONSENT: 'informed_group_consent',
@@ -59,7 +61,10 @@ const SECTION_HEADING_MAP = {
       'Notice of Privacy Practices',
       'Aviso de Prácticas de Privacidad'
     ],
-    endExclusive: []
+    endExclusive: [
+      'Signatures',
+      'Firmas'
+    ]
   }
 };
 
@@ -97,12 +102,7 @@ function findHeadingIndex(html, headings, fromIndex = 0) {
   return best < 0 ? -1 : best + Math.max(0, Number(fromIndex) || 0);
 }
 
-/**
- * Extract a section slice from packet HTML using h2 heading markers.
- * informed_group_consent = INFORMED CONSENT through (not including) POLICY...
- * (includes GROUP CONSENT between those headings).
- */
-export function extractPacketSectionHtml(htmlContent, sectionKey) {
+function packetSectionBounds(htmlContent, sectionKey, { throwIfMissing = true } = {}) {
   const key = String(sectionKey || '').trim();
   const cfg = SECTION_HEADING_MAP[key];
   if (!cfg) {
@@ -116,6 +116,7 @@ export function extractPacketSectionHtml(htmlContent, sectionKey) {
     start = findHeadingIndex(html, ['HIPAA', 'Notice of Privacy Practices']);
   }
   if (start < 0) {
+    if (!throwIfMissing) return null;
     const err = new Error(`Packet section heading not found for ${key}`);
     err.status = 404;
     throw err;
@@ -126,10 +127,31 @@ export function extractPacketSectionHtml(htmlContent, sectionKey) {
     const next = findHeadingIndex(html, cfg.endExclusive, start + 1);
     if (next > start) end = next;
   }
+  return { start, end };
+}
 
-  let slice = html.slice(start, end).trim();
+/**
+ * Extract a section slice from packet HTML using h2 heading markers.
+ * informed_group_consent = INFORMED CONSENT through (not including) POLICY...
+ * (includes GROUP CONSENT between those headings).
+ */
+export function extractPacketSectionHtml(htmlContent, sectionKey) {
+  const html = String(htmlContent || '');
+  const bounds = packetSectionBounds(html, sectionKey);
+  let slice = html.slice(bounds.start, bounds.end).trim();
   slice = slice.replace(/^(\s*<div[^>]*class=["'][^"']*page-break[^"']*["'][^>]*>\s*<\/div>\s*)+/i, '');
   return slice;
+}
+
+export function replacePacketSectionHtml(htmlContent, sectionKey, replacementHtml) {
+  const html = String(htmlContent || '');
+  const replacement = String(replacementHtml || '').trim();
+  if (!replacement) return html;
+  const bounds = packetSectionBounds(html, sectionKey, { throwIfMissing: false });
+  if (!bounds) return html;
+  const before = html.slice(0, bounds.start).replace(/\s+$/, '\n');
+  const after = html.slice(bounds.end).replace(/^\s*/, '\n');
+  return `${before}${replacement}${after}`;
 }
 
 export function hashPacketSectionHtml(html) {
@@ -209,6 +231,14 @@ export async function buildPacketSectionContext({
     const template = await OfficePacketTemplate.findByAgencyId(resolvedAgencyId, loc, pack);
     templateHtml = String(template?.html_content || defaultOfficePacketHtml(pack, loc) || '');
     packetVersion = Number(template?.version || 1);
+    try {
+      const agency = await Agency.findById(resolvedAgencyId);
+      if (isNluPacketChromeAgency(agency)) {
+        templateHtml = applyNluOfficeLegalIfNeeded(templateHtml);
+      }
+    } catch {
+      /* keep seeded office HTML */
+    }
   } else if (orgId) {
     const ctx = await buildSchoolPrintablePacketContext({
       organizationId: orgId,

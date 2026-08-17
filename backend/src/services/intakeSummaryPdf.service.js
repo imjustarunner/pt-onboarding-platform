@@ -138,6 +138,8 @@ export function buildIntakeSummaryDocumentHtml({
   kicker,
   agencyName,
   brandLogoUrl = '',
+  watermarkUrl = '',
+  brand = null,
   metaLines = [],
   sections = [],
   acknowledgments = [],
@@ -148,7 +150,7 @@ export function buildIntakeSummaryDocumentHtml({
   printable = false,
   pdfMode = ''
 } = {}) {
-  const watermark = watermarkDataUrl();
+  const watermark = watermarkUrl || brand?.watermarkDataUrl || (!brand || brand.useItscoChrome ? watermarkDataUrl() : null);
   const sectionHtml = (sections || [])
     .filter((section) => section?.title && Array.isArray(section.rows) && section.rows.length)
     .map((section) => `
@@ -220,7 +222,7 @@ export function buildIntakeSummaryDocumentHtml({
     <meta charset="utf-8" />
     <title>${escapeHtml(title || 'Intake packet')}</title>
     <style>
-${buildPacketStyleBlock()}
+${buildPacketStyleBlock(brand)}
 ${SUMMARY_EXTRA_CSS}
     </style>
   </head>
@@ -283,13 +285,27 @@ async function embedPngFromDataUrl(pdfDoc, dataUrl) {
 }
 
 async function renderCoverOnlyPdf(spec = {}) {
-  const coverUrl = spec.coverImageUrl || coverPageDataUrl();
+  const coverUrl = spec.coverImageUrl
+    || spec.brand?.coverDataUrl
+    || (!spec.brand || spec.brand.useItscoChrome ? coverPageDataUrl() : null);
   if (!coverUrl) return null;
   const pdfDoc = await PDFDocument.create();
   const cover = await embedPngFromDataUrl(pdfDoc, coverUrl);
   if (!cover) return null;
   const page = pdfDoc.addPage([612, 792]);
-  page.drawImage(cover, { x: 0, y: 0, width: 612, height: 792 });
+  if (!spec.brand || spec.brand.useItscoChrome) {
+    page.drawImage(cover, { x: 0, y: 0, width: 612, height: 792 });
+  } else {
+    const scale = Math.min(612 / cover.width, 792 / cover.height);
+    const w = cover.width * scale;
+    const h = cover.height * scale;
+    page.drawImage(cover, {
+      x: (612 - w) / 2,
+      y: (792 - h) / 2,
+      width: w,
+      height: h
+    });
+  }
   return Buffer.from(await pdfDoc.save());
 }
 
@@ -307,7 +323,8 @@ async function mergeCoverAndBody(coverBytes, bodyBytes) {
 
 async function renderCompletedIntakePdfWithPuppeteer(spec = {}) {
   const { headerTemplate, footerTemplate } = buildPdfChromeTemplates({
-    packetVersionLabel: spec.packetVersionLabel || OFFICE_PRINTABLE_PACKET_VERSION
+    packetVersionLabel: spec.packetVersionLabel || spec.brand?.versionLabel || OFFICE_PRINTABLE_PACKET_VERSION,
+    brand: spec.brand || null
   });
   const html = buildIntakeSummaryDocumentHtml({ ...spec, printable: false, pdfMode: 'body' });
   const bodyPdfBytes = await DocumentSigningService.convertHTMLToPDF(html, {
@@ -336,17 +353,36 @@ async function renderCompletedIntakePdf(spec = {}) {
   const contentTop = 62;
   const contentBottom = 44;
   const maxWidth = pageW - side * 2;
-  const versionLabel = String(spec.packetVersionLabel || OFFICE_PRINTABLE_PACKET_VERSION);
-  const cover = await embedPngFromDataUrl(pdfDoc, spec.coverImageUrl || coverPageDataUrl());
+  const versionLabel = String(spec.packetVersionLabel || spec.brand?.versionLabel || OFFICE_PRINTABLE_PACKET_VERSION);
+  const cover = await embedPngFromDataUrl(
+    pdfDoc,
+    spec.coverImageUrl
+      || spec.brand?.coverDataUrl
+      || (!spec.brand || spec.brand.useItscoChrome ? coverPageDataUrl() : null)
+  );
   if (cover) {
     const coverPage = pdfDoc.addPage([pageW, pageH]);
     coverPage.drawImage(cover, { x: 0, y: 0, width: pageW, height: pageH });
   }
   let page = pdfDoc.addPage([pageW, pageH]);
   let y = pageH - contentTop;
-  const logo = await embedPngFromDataUrl(pdfDoc, spec.brandLogoUrl || headerLogoDataUrl());
-  const footerMark = await embedPngFromDataUrl(pdfDoc, footerMarkDataUrl());
-  const watermark = await embedPngFromDataUrl(pdfDoc, spec.watermarkUrl || watermarkDataUrl());
+  const logo = await embedPngFromDataUrl(
+    pdfDoc,
+    spec.brandLogoUrl
+      || spec.brand?.headerImageDataUrl
+      || spec.brand?.headerLogoDataUrl
+      || (!spec.brand || spec.brand.useItscoChrome ? headerLogoDataUrl() : null)
+  );
+  const footerMark = await embedPngFromDataUrl(
+    pdfDoc,
+    spec.brand?.footerMarkDataUrl || (!spec.brand || spec.brand.useItscoChrome ? footerMarkDataUrl() : null)
+  );
+  const watermark = await embedPngFromDataUrl(
+    pdfDoc,
+    spec.watermarkUrl
+      || spec.brand?.watermarkDataUrl
+      || (!spec.brand || spec.brand.useItscoChrome ? watermarkDataUrl() : null)
+  );
   const stampWatermark = (target) => {
     if (!watermark || !target) return;
     try {

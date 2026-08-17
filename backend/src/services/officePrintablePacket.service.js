@@ -21,8 +21,8 @@ import {
   buildPacketStyleBlock,
   buildPdfChromeTemplates
 } from './schoolPrintablePacket.service.js';
-import { defaultOfficePacketHtml } from '../content/officePacketTemplateDefault.js';
-import { isItscoPacketChromeAgency, resolvePacketBrandChrome } from './packetBrandChrome.service.js';
+import { defaultOfficePacketHtml, applyNluOfficeLegalIfNeeded, tokenizeOfficeDisclosureEntity } from '../content/officePacketTemplateDefault.js';
+import { isItscoPacketChromeAgency, isNluPacketChromeAgency, resolvePacketBrandChrome } from './packetBrandChrome.service.js';
 
 const COVER_PDF_MARGIN = { top: '0.5in', right: '0.5in', bottom: '0.5in', left: '0.5in' };
 const BODY_PDF_MARGIN = { top: '0.75in', right: '0.5in', bottom: '0.5in', left: '0.5in' };
@@ -107,9 +107,16 @@ export async function buildOfficePrintablePacketContext({ agencyId, locale = 'en
   }
 
   const template = await OfficePacketTemplate.getOrCreateForAgency(aid, { locale: loc, variant: pack });
-  const agencyName = String(agency.name || 'Agency').trim();
+  const agencyName = String(agency.official_name || agency.name || 'Agency').trim();
   const agencyAddress = buildAgencyAddress(agency);
+  const agencyPhone = String(agency.phone_number || agency.phone || '').trim();
   const brand = await resolvePacketBrandChrome(agency);
+  let templateHtml = String(template?.html_content || defaultHtmlForLocale(loc, pack));
+  if (isNluPacketChromeAgency(agency)) {
+    templateHtml = applyNluOfficeLegalIfNeeded(templateHtml);
+  } else {
+    templateHtml = tokenizeOfficeDisclosureEntity(templateHtml);
+  }
 
   let providers = [];
   try {
@@ -131,9 +138,10 @@ export async function buildOfficePrintablePacketContext({ agencyId, locale = 'en
       id: aid,
       name: agencyName,
       slug: String(agency.portal_url || agency.slug || '').trim(),
-      address: agencyAddress
+      address: agencyAddress,
+      phone: agencyPhone
     },
-    templateHtml: String(template?.html_content || defaultHtmlForLocale(loc, pack)),
+    templateHtml,
     providers
   };
 }
@@ -142,18 +150,22 @@ function buildOfficePacketBodyContentHtml(packetContext = {}) {
   const loc = packetContext?.locale || 'en';
   const agencyName = packetContext?.agency?.name || '';
   const agencyAddress = packetContext?.agency?.address || '';
+  const agencyPhone = packetContext?.agency?.phone || '';
   const staffTableHtml = buildSchoolStaffTableHtml([], loc);
   const disclosureHtml = buildDisclosureCareTeamHtml(packetContext?.providers || [], loc);
   const brand = packetContext?.brand || null;
   const watermark = brand?.watermarkDataUrl || null;
 
   const bodyHtml = substituteTokens(
-    packetContext?.templateHtml || defaultHtmlForLocale(packetContext?.locale, packetContext?.variant),
+    tokenizeOfficeDisclosureEntity(
+      packetContext?.templateHtml || defaultHtmlForLocale(packetContext?.locale, packetContext?.variant)
+    ),
     {
       SCHOOL_NAME: escapeHtml(agencyName),
       AGENCY_NAME: escapeHtml(agencyName),
       SCHOOL_ADDRESS: escapeHtml(agencyAddress),
       AGENCY_ADDRESS: escapeHtml(agencyAddress),
+      AGENCY_PHONE: escapeHtml(agencyPhone),
       SCHOOL_STAFF_TABLE: staffTableHtml,
       DISCLOSURE_CARE_TEAM: disclosureHtml
     }
@@ -241,14 +253,22 @@ export async function getOfficePacketTemplateForAgency(agencyId, { locale = 'en'
     throw err;
   }
   const template = await OfficePacketTemplate.getOrCreateForAgency(aid, { locale: loc, variant: pack });
-  const html = String(template?.html_content || defaultHtmlForLocale(loc, pack));
+  let html = String(template?.html_content || defaultHtmlForLocale(loc, pack));
+  let defaultHtml = defaultOfficePacketHtml(pack, loc);
+  if (isNluPacketChromeAgency(agency)) {
+    html = applyNluOfficeLegalIfNeeded(html);
+    defaultHtml = applyNluOfficeLegalIfNeeded(defaultHtml);
+  } else {
+    html = tokenizeOfficeDisclosureEntity(html);
+    defaultHtml = tokenizeOfficeDisclosureEntity(defaultHtml);
+  }
   return {
     agencyId: aid,
     locale: loc,
     variant: pack,
     title: officePacketTitle(pack, loc),
     html_content: html,
-    default_html: defaultOfficePacketHtml(pack, loc),
+    default_html: defaultHtml,
     looks_like_school_seed: looksLikeSchoolSeedHtml(html),
     version: Number(template?.version || 1),
     updatedAt: template?.updated_at ? new Date(template.updated_at).toISOString() : null,

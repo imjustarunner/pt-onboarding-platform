@@ -27,6 +27,32 @@ let _puppeteerCircuitOpen = false;
 let _puppeteerLastFailure = 0;
 const CIRCUIT_RESET_MS = 30 * 1000;
 
+// One Chromium at a time. Concurrent launches (View + Print, two tabs) OOM
+// Alpine Chromium and surface as Target.setDiscoverTargets / Target closed.
+let _pdfWorkTail = Promise.resolve();
+
+function enqueuePdfWork(work) {
+  const run = _pdfWorkTail.then(work, work);
+  _pdfWorkTail = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function puppeteerLaunchArgs() {
+  return [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--disable-accelerated-2d-canvas',
+    '--no-first-run',
+    '--no-zygote'
+  ];
+}
+
 async function resolveChromiumExecutable() {
   const candidates = [
     process.env.PUPPETEER_EXECUTABLE_PATH,
@@ -51,17 +77,9 @@ async function resolveChromiumExecutable() {
   return null;
 }
 
-function puppeteerLaunchArgs() {
-  return [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-gpu',
-    '--disable-accelerated-2d-canvas',
-    '--no-first-run',
-    '--no-zygote',
-    '--single-process'
-  ];
+function isChromiumProtocolCrash(error) {
+  const msg = String(error?.message || error || '');
+  return /Target closed|setDiscoverTargets|Protocol error|Browser closed|Session closed|Connection closed/i.test(msg);
 }
 
 function pdfOptionsFrom(options = {}) {
@@ -251,15 +269,40 @@ class DocumentSigningService {
     throw err;
   }
 
-  static async launchPdfBrowser() {
+  static async launchPdfBrowser({ headless = 'new' } = {}) {
     const executablePath = await resolveChromiumExecutable();
     if (!executablePath) return null;
     return puppeteer.launch({
       executablePath,
-      headless: 'new',
+      headless,
       args: puppeteerLaunchArgs(),
-      timeout: 30000
+      timeout: 30000,
+      protocolTimeout: 120000
     });
+  }
+
+  static async launchPdfBrowserResilient() {
+    const attempts = [{ headless: 'new' }, { headless: 'new' }, { headless: true }];
+    let lastError = null;
+    for (let i = 0; i < attempts.length; i++) {
+      try {
+        const browser = await this.launchPdfBrowser(attempts[i]);
+        if (!browser) return null;
+        if (typeof browser.isConnected === 'function' && !browser.isConnected()) {
+          try { await browser.close(); } catch { /* ignore */ }
+          throw new Error('Chromium disconnected immediately after launch');
+        }
+        return browser;
+      } catch (error) {
+        lastError = error;
+        console.warn(
+          `DocumentSigningService.launchPdfBrowser: attempt ${i + 1} failed:`,
+          error?.message || error
+        );
+        await sleep(400 * (i + 1));
+      }
+    }
+    throw lastError || new Error('Unable to launch Chromium');
   }
 
   static async renderHtmlWithBrowser(browser, htmlContent, options = {}) {
@@ -277,6 +320,10 @@ class DocumentSigningService {
   }
 
   static async convertHTMLToPDF(htmlContent, options = {}) {
+    return enqueuePdfWork(() => this._convertHTMLToPDFLocked(htmlContent, options));
+  }
+
+  static async _convertHTMLToPDFLocked(htmlContent, options = {}) {
     const disableFallback = options.disableFallback === true;
     const failNoRender = (detail) => this.failPdfRendererUnavailable(detail);
 
@@ -292,7 +339,7 @@ class DocumentSigningService {
 
     let browser;
     try {
-      browser = await this.launchPdfBrowser();
+      browser = await this.launchPdfBrowserResilient();
       if (!browser) {
         console.warn('DocumentSigningService.convertHTMLToPDF: no Chromium found — using fallback');
         _puppeteerCircuitOpen = true;
@@ -314,6 +361,9 @@ class DocumentSigningService {
         try { await browser.close(); } catch { /* ignore */ }
       }
       if (disableFallback) return failNoRender(error.message);
+      if (isChromiumProtocolCrash(error)) {
+        console.warn('DocumentSigningService.convertHTMLToPDF: Chromium protocol crash — using fallback');
+      }
     }
 
     console.warn('DocumentSigningService.convertHTMLToPDF: using fallback PDF generation');
@@ -324,6 +374,10 @@ class DocumentSigningService {
    * Render several HTML documents in one Chromium process (cover + body packets).
    */
   static async convertHTMLDocumentsToPdfs(documents = [], sharedOptions = {}) {
+    return enqueuePdfWork(() => this._convertHTMLDocumentsToPdfsLocked(documents, sharedOptions));
+  }
+
+  static async _convertHTMLDocumentsToPdfsLocked(documents = [], sharedOptions = {}) {
     const disableFallback = sharedOptions.disableFallback === true
       || documents.some((d) => d?.options?.disableFallback === true);
     const failNoRender = (detail) => this.failPdfRendererUnavailable(detail);
@@ -336,7 +390,7 @@ class DocumentSigningService {
 
     let browser;
     try {
-      browser = await this.launchPdfBrowser();
+      browser = await this.launchPdfBrowserResilient();
       if (!browser) {
         _puppeteerCircuitOpen = true;
         _puppeteerLastFailure = Date.now();

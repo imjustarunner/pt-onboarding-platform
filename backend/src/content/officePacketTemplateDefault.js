@@ -2,8 +2,12 @@ import { DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML } from './schoolPacketTemplateDefau
 import { DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML_ES } from './schoolPacketTemplateDefault.es.js';
 import {
   extractPacketSectionHtml,
+  replacePacketSectionHtml,
   PACKET_SECTION_KEYS
 } from '../services/schoolPacketSections.service.js';
+import { NLU_OFFICE_POLICY_SERVICES_HTML } from './nluOfficePolicyServicesAgreement.en.js';
+import { NLU_OFFICE_INFORMED_CONSENT_HTML } from './nluOfficeInformedConsent.en.js';
+import { NLU_OFFICE_HIPAA_NOTICE_HTML } from './nluOfficeHipaaNotice.en.js';
 import {
   OFFICE_PACKET_VARIANTS,
   normalizeOfficePacketVariant,
@@ -170,18 +174,43 @@ function buildOfficeInformed(source, locale) {
   return informed;
 }
 
+/**
+ * Paper-packet disclosure header should merge from the tenant, not stay
+ * hardcoded as ITSCO LLC from the original school seed.
+ */
+export function tokenizeOfficeDisclosureEntity(html) {
+  return String(html || '')
+    .replace(
+      /<p><strong>Business Entity:<\/strong>\s*[^<]*<\/p>/gi,
+      '<p><strong>Business Entity:</strong> {{AGENCY_NAME}}</p>'
+    )
+    .replace(
+      /<p><strong>Business Address:<\/strong>\s*[^<]*<\/p>/gi,
+      '<p><strong>Business Address:</strong> {{AGENCY_ADDRESS}}</p>'
+    )
+    .replace(
+      /<p><strong>Phone Number:<\/strong>\s*[^<]*<\/p>/gi,
+      '<p><strong>Phone Number:</strong> {{AGENCY_PHONE}}</p>'
+    )
+    .replace(/The direct entity, ITSCO LLC,/gi, 'The direct entity, {{AGENCY_NAME}},')
+    .replace(/employees of ITSCO LLC/gi, 'employees of {{AGENCY_NAME}}');
+}
+
 function buildOfficeDisclosure(source, locale) {
+  let html;
   if (normalizeLocale(locale) === 'es') {
-    return [
+    html = [
       sliceByH2(source, 'DERECHOS DEL CLIENTE', 'INFORMACIÓN DEL PROFESIONAL DE SALUD MENTAL'),
       sliceByH2(source, 'INFORMACIÓN DEL PROFESIONAL DE SALUD MENTAL', 'Política de Privacidad de HIPAA y Aviso de Prácticas de Privacidad')
     ].filter(Boolean).join('\n  <div class="page-break"></div>\n  ');
+  } else {
+    html = [
+      sliceByH2(source, 'CLIENT RIGHTS', 'MENTAL HEALTH PROFESSIONAL INFORMATION'),
+      sliceByH2(source, 'MENTAL HEALTH PROFESSIONAL INFORMATION', 'HIPAA Privacy Policy &amp; Notice of Privacy Practices')
+        || sliceByH2(source, 'MENTAL HEALTH PROFESSIONAL INFORMATION', 'HIPAA Privacy Policy & Notice of Privacy Practices')
+    ].filter(Boolean).join('\n  <div class="page-break"></div>\n  ');
   }
-  return [
-    sliceByH2(source, 'CLIENT RIGHTS', 'MENTAL HEALTH PROFESSIONAL INFORMATION'),
-    sliceByH2(source, 'MENTAL HEALTH PROFESSIONAL INFORMATION', 'HIPAA Privacy Policy &amp; Notice of Privacy Practices')
-      || sliceByH2(source, 'MENTAL HEALTH PROFESSIONAL INFORMATION', 'HIPAA Privacy Policy & Notice of Privacy Practices')
-  ].filter(Boolean).join('\n  <div class="page-break"></div>\n  ');
+  return tokenizeOfficeDisclosureEntity(html);
 }
 
 function buildOfficeHipaa(source) {
@@ -210,6 +239,56 @@ export function looksLikeSchoolSeedHtml(html) {
     || /Confidencialidad en las Escuelas/i.test(text)
     || /About our Services In The Schools/i.test(text)
     || /Acerca de Nuestros Servicios en las Escuelas/i.test(text);
+}
+
+export function officePacketHasNluPolicy(html) {
+  return /<h3>\s*WELCOME TO NEXT LEVEL UP!/i.test(String(html || ''))
+    || /Cost Estimates for Services/i.test(String(html || ''));
+}
+
+export function officePacketHasNluInformed(html) {
+  return /Welcome to Next Level Up! This document contains important information about the client/i.test(String(html || ''));
+}
+
+export function officePacketHasNluHipaa(html) {
+  return /PO@NextLevelUpLCC\.com/i.test(String(html || ''))
+    || /As a healthcare provider, Next Level Up is required/i.test(String(html || ''));
+}
+
+/**
+ * Swap office informed consent, policy, and HIPAA for NLU's in-office versions.
+ * ITSCO school packets are unchanged; this only rewrites office HTML.
+ */
+export function applyNluOfficeLegalIfNeeded(html) {
+  let source = String(html || '');
+  if (!source.trim()) return source;
+  if (!officePacketHasNluInformed(source)) {
+    source = replacePacketSectionHtml(
+      source,
+      PACKET_SECTION_KEYS.INFORMED_GROUP_CONSENT,
+      NLU_OFFICE_INFORMED_CONSENT_HTML
+    );
+  }
+  if (!officePacketHasNluPolicy(source)) {
+    source = replacePacketSectionHtml(
+      source,
+      PACKET_SECTION_KEYS.POLICY_SERVICES,
+      NLU_OFFICE_POLICY_SERVICES_HTML
+    );
+  }
+  if (!officePacketHasNluHipaa(source)) {
+    source = replacePacketSectionHtml(
+      source,
+      PACKET_SECTION_KEYS.HIPAA_NOTICE,
+      NLU_OFFICE_HIPAA_NOTICE_HTML
+    );
+  }
+  return tokenizeOfficeDisclosureEntity(source);
+}
+
+/** @deprecated use applyNluOfficeLegalIfNeeded */
+export function applyNluOfficePolicyIfNeeded(html) {
+  return applyNluOfficeLegalIfNeeded(html);
 }
 
 export function defaultOfficePacketHtml(variant = 'self', locale = 'en') {

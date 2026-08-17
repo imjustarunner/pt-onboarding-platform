@@ -14,11 +14,15 @@ import {
 import {
   buildSchoolPrintablePacketContext,
   buildSchoolPrintablePacketHtml,
-  generateSchoolPrintablePacketPdf,
   getSchoolPrintablePacketAvailability,
   getSchoolPacketTemplateForOrganization,
   saveSchoolPacketTemplateForOrganization
 } from '../services/schoolPrintablePacket.service.js';
+import {
+  getOrCreateSchoolPrintablePacketPdf,
+  warmSchoolPrintablePacketCache,
+  invalidateAgencyPrintablePacketCaches
+} from '../services/schoolPrintablePacketCache.service.js';
 
 // Configure multer for memory storage (files will be uploaded to GCS or local fallback)
 const upload = multer({
@@ -507,6 +511,7 @@ export const getSchoolPrintablePacketAvailabilityHandler = async (req, res, next
     const { organizationId } = req.params;
     await assertSchoolPortalAccess(req, organizationId);
     const availability = await getSchoolPrintablePacketAvailability(organizationId);
+    warmSchoolPrintablePacketCache(organizationId);
     res.json(availability);
   } catch (e) {
     next(e);
@@ -526,7 +531,7 @@ export const renderSchoolPrintablePacket = async (req, res, next) => {
       return res.send(buildSchoolPrintablePacketHtml(packetContext));
     }
 
-    const pdfBytes = await generateSchoolPrintablePacketPdf(packetContext);
+    const pdfBytes = await getOrCreateSchoolPrintablePacketPdf(organizationId, locale);
     const schoolSlug = String(packetContext?.organization?.slug || 'school').replace(/[^a-z0-9-]+/gi, '-');
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
@@ -583,6 +588,8 @@ export const updateSchoolPrintablePacketTemplate = async (req, res, next) => {
       actorUserId: req.user?.id || null,
       locale
     });
+    await invalidateAgencyPrintablePacketCaches(saved?.agencyId);
+    warmSchoolPrintablePacketCache(organizationId);
     res.json(saved);
   } catch (e) {
     if (e?.statusCode || e?.status) {

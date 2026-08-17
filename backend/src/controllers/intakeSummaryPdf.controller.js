@@ -11,7 +11,7 @@ import {
   recordPdfFilename
 } from '../services/intakeSummaryPdf.service.js';
 import { buildCompletedIntakeRecord } from '../services/completedIntakeRecord.service.js';
-import { headerLogoDataUrl } from '../services/schoolPrintablePacket.service.js';
+import { brandedIntakeSummarySpec } from '../services/packetBrandChrome.service.js';
 import { assertCanEditPublicAgencySupport } from '../services/publicAgencySupport.service.js';
 import {
   getIntakeSummaryPdfEmailSettings,
@@ -90,7 +90,7 @@ async function resolveOfficeRecord(req) {
     console.warn('[intakeSummaryPdf] office master overlay failed', inheritErr?.message || inheritErr);
   }
   const signedDocuments = await IntakeSubmissionDocument.listSignedForRecord(submission.id);
-  const spec = buildCompletedIntakeRecord({
+  const spec = await brandedIntakeSummarySpec(buildCompletedIntakeRecord({
     agency,
     link,
     submission,
@@ -98,9 +98,9 @@ async function resolveOfficeRecord(req) {
     guardian: req.body?.guardian || {},
     clients: Array.isArray(req.body?.clients) ? req.body.clients : [],
     publicKey,
-    brandLogoUrl: String(agency?.logo_url || '').trim() || headerLogoDataUrl(),
+    brandLogoUrl: String(agency?.logo_url || '').trim(),
     publicOrigin: String(req.get('origin') || process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '')
-  });
+  }), agency);
   return { agency, spec, submission };
 }
 
@@ -215,12 +215,12 @@ export async function downloadQuickIntakeSummaryPdf(req, res, next) {
     }
 
     const posted = req.body?.summary && typeof req.body.summary === 'object' ? req.body.summary : {};
-    const spec = buildQuickIntakeSummarySpec({
+    const spec = await brandedIntakeSummarySpec(buildQuickIntakeSummarySpec({
       agencyName: agencyDisplayName(agency),
       identifierCode: identifierCode || req.body?.identifierCode || '',
       submittedAt: req.body?.submittedAt || storedSubmittedAt || new Date().toISOString(),
       summary: { ...storedSummary, ...posted }
-    });
+    }), agency);
     const pdf = await generateIntakeSummaryPdf(spec);
     return sendPdf(
       res,
@@ -290,12 +290,12 @@ export async function emailQuickIntakeSummaryPdf(req, res, next) {
     const clientId = Number(req.body?.clientId || 0) || null;
     const identifierCode = String(req.body?.identifierCode || '').trim();
     const posted = req.body?.summary && typeof req.body.summary === 'object' ? req.body.summary : {};
-    const spec = buildQuickIntakeSummarySpec({
+    const spec = await brandedIntakeSummarySpec(buildQuickIntakeSummarySpec({
       agencyName: agencyDisplayName(agency),
       identifierCode: identifierCode || '',
       submittedAt: req.body?.submittedAt || new Date().toISOString(),
       summary: posted
-    });
+    }), agency);
     const pdf = await generateIntakeSummaryPdf(spec);
     const filename = summaryPdfFilename(agency, {
       initials: req.body?.initials,

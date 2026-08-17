@@ -9,7 +9,8 @@ import {
   buildSchoolPrintablePacketHtml,
   buildSchoolStaffTableHtml,
   buildDisclosureCareTeamHtml,
-  groupDisclosureProvidersByCareTeam
+  groupDisclosureProvidersByCareTeam,
+  schoolPrintablePacketContentHash
 } from '../schoolPrintablePacket.service.js';
 import {
   formatDisclosureEducation,
@@ -176,4 +177,26 @@ test('merges live tokens into agency template HTML with cover and fonts', () => 
   assert.doesNotMatch(html, /\{\{SCHOOL_NAME\}\}/);
   assert.doesNotMatch(html, /\{\{SCHOOL_STAFF_TABLE\}\}/);
   assert.doesNotMatch(html, /\{\{DISCLOSURE_CARE_TEAM\}\}/);
+});
+
+test('content hash changes when school staff roster changes, not when unrelated fields do', () => {
+  const base = {
+    version: 1,
+    locale: 'en',
+    packetVersionLabel: '1.15',
+    organization: { name: 'Grant Elementary School', address: '1 Main St' },
+    staffRows: [{ school_staff_user_id: 10 }],
+    providers: [{ id: 20 }]
+  };
+  const a = schoolPrintablePacketContentHash(base);
+  const b = schoolPrintablePacketContentHash({
+    ...base,
+    staffRows: [{ school_staff_user_id: 10 }, { school_staff_user_id: 11 }]
+  });
+  const c = schoolPrintablePacketContentHash({
+    ...base,
+    generatedAt: new Date('2099-01-01')
+  });
+  assert.notEqual(a, b);
+  assert.equal(a, c);
 });
