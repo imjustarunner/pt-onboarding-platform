@@ -3,6 +3,7 @@
  * Returning / leftover current rows show Fall Confirmation Pending (no weekday)
  * or Ready to Schedule (weekday assigned).
  */
+import { isDateInCurrentSchoolYear } from './schoolYear.js';
 
 const KEEP_KEY_LABELS = {
   being_seen: 'Being Seen',
@@ -60,6 +61,12 @@ function isReturningSchoolClient(client, now = new Date()) {
   return false;
 }
 
+function servicesConfirmedThisSchoolYear(client, now = new Date()) {
+  if (isDateInCurrentSchoolYear(client?.services_started_at, now)) return true;
+  if (isReturningSchoolClient(client, now)) return false;
+  return isDateInCurrentSchoolYear(client?.first_service_at, now);
+}
+
 function isLegacyCurrent(client) {
   const key = String(client?.client_status_key || '').toLowerCase();
   const label = String(client?.client_status_label || '').trim();
@@ -86,12 +93,19 @@ export function displaySchoolClientStatusLabel(client, now = new Date()) {
     return catalogLabel || KEEP_KEY_LABELS[key] || catalogLabel || '—';
   }
 
+  const weekday = hasWeekday(client);
+  const returning = isReturningSchoolClient(client, now);
+
+  if (key === 'being_seen') {
+    if (servicesConfirmedThisSchoolYear(client, now) || !returning) {
+      return KEEP_KEY_LABELS.being_seen;
+    }
+    return weekday ? KEEP_KEY_LABELS.scheduled : FALL_PENDING_LABEL;
+  }
+
   if (KEEP_KEY_LABELS[key] && key !== 'ready_to_schedule') {
     return KEEP_KEY_LABELS[key];
   }
-
-  const weekday = hasWeekday(client);
-  const returning = isReturningSchoolClient(client, now);
   const fallPendingKeys = new Set([
     'confirmation_pending',
     'continuation_unknown',

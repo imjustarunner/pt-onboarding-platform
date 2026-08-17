@@ -152,6 +152,7 @@ describe('deriveLifecycleAction', () => {
         client_status_key: 'scheduled',
         staff_onboarding_completed_at: '2026-04-01',
         first_service_at: '2026-02-10',
+        services_started_at: '2026-02-10',
         school_year: '2026-2027'
       },
       viewerRole: 'provider',
@@ -170,9 +171,26 @@ describe('deriveLifecycleAction', () => {
         services_started_at: '2026-08-18',
         first_service_at: '2026-02-10'
       },
-      viewerRole: 'provider'
+      viewerRole: 'provider',
+      now: new Date('2026-08-20T12:00:00')
     });
     assert.equal(action, null);
+  });
+
+  it('gives Mark Being Seen when leftover last-year Being Seen is still on a weekday', () => {
+    const action = deriveLifecycleAction({
+      client: {
+        client_type: 'school',
+        client_status_key: 'being_seen',
+        staff_onboarding_completed_at: '2026-04-01',
+        services_started_at: '2026-02-10',
+        first_service_at: '2026-02-10',
+        service_day: 'Tuesday'
+      },
+      viewerRole: 'provider',
+      now: new Date('2026-08-17T12:00:00')
+    });
+    assert.equal(action?.actionKey, 'confirm_services_started');
   });
 
   it('does not ask providers for fall confirmation when a weekday is already assigned', () => {

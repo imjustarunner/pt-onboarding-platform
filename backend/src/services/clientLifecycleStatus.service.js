@@ -9,7 +9,7 @@ import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { isPaperPacketClient } from '../utils/paperPacketClient.js';
 import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
 import { deriveLifecycleAction } from '../utils/clientLifecycleAction.js';
-import { isReturningSchoolClient } from '../utils/fallReadiness.js';
+import { isReturningSchoolClient, servicesConfirmedThisSchoolYear } from '../utils/fallReadiness.js';
 
 export { deriveLifecycleAction };
 
@@ -180,12 +180,10 @@ export async function reconcileSchoolClientStatus({ clientId, actorUserId = null
   const hasWeekday = await clientHasWeekdayAssignment(cid);
   const hasProvider = await clientHasProvider(cid, client);
   const returning = isReturningSchoolClient(client);
-  const servicesStarted = returning
-    ? !!client.services_started_at
-    : !!(client.services_started_at || client.first_service_at);
+  const servicesStarted = servicesConfirmedThisSchoolYear(client);
 
   // Being Seen wins when this-year services are confirmed and still scheduled.
-  // Returners require the provider "Mark Being Seen" action (services_started_at), not last year's first_service_at.
+  // Returners require the provider "Mark Being Seen" action (services_started_at this year), not last year's first_service_at.
   if (servicesStarted && hasWeekday) {
     return setClientLifecycleStatus({
       clientId: cid,
@@ -200,6 +198,14 @@ export async function reconcileSchoolClientStatus({ clientId, actorUserId = null
   if (hasWeekday) {
     if (currentKey === 'scheduled') {
       return { statusKey: 'scheduled', changed: false };
+    }
+    if (currentKey === 'being_seen' && returning && !servicesStarted) {
+      return setClientLifecycleStatus({
+        clientId: cid,
+        statusKey: LIFECYCLE_STATUS_KEYS.SCHEDULED,
+        actorUserId,
+        note: note || 'Reconcile: last-year Being Seen without this-year confirmation → Scheduled'
+      });
     }
     return setClientLifecycleStatus({
       clientId: cid,
@@ -373,8 +379,7 @@ export async function markClientScheduledFromPlacement({ clientId, actorUserId =
   const key = String(client.client_status_key || '').toLowerCase();
   if (TERMINAL.has(key) || key === 'waitlist' || key === 'terminated') return { statusKey: key, changed: false };
 
-  const returning = isReturningSchoolClient(client);
-  const startedThisYear = !!client.services_started_at || (!returning && !!client.first_service_at);
+  const startedThisYear = servicesConfirmedThisSchoolYear(client);
   if (startedThisYear) {
     return setClientLifecycleStatus({
       clientId,
@@ -396,6 +401,7 @@ export async function markClientScheduledFromPlacement({ clientId, actorUserId =
     'returning',
     'continuation_unknown',
     'scheduled',
+    'being_seen',
     'current',
     ''
   ]);

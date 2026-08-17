@@ -199,7 +199,7 @@ function rosterLifecycleFields(client, { viewerRole, disposition }) {
 }
 
 function buildRosterOnboardingMeta(client) {
-  const statusKey = String(client?.client_status_key || '').toLowerCase();
+  const statusKey = String(rosterDisplayStatus(client)?.key || client?.client_status_key || '').toLowerCase();
   // Prefer shared Status vocabulary over legacy Fall-pending Readiness labels.
   const lifecycleLabels = {
     confirmation_pending: 'Fall Confirmation Pending',

@@ -61,6 +61,21 @@ describe('displaySchoolClientStatusLabel', () => {
       })
     ).toBe('Being Seen');
   });
+
+  it('maps leftover last-year Being Seen to Scheduled until this year is confirmed', () => {
+    const now = new Date('2026-08-17T12:00:00');
+    expect(
+      displaySchoolClientStatusLabel({
+        client_type: 'school',
+        client_status_key: 'being_seen',
+        organization_id: 10,
+        staff_onboarding_completed_at: '2026-04-01',
+        services_started_at: '2026-02-10',
+        first_service_at: '2026-02-10',
+        service_day: 'Tuesday'
+      }, now)
+    ).toBe('Scheduled');
+  });
 });
 
 describe('assignedDayDisplay', () => {

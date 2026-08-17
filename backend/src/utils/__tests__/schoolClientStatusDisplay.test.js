@@ -45,4 +45,31 @@ describe('resolveSchoolRosterDisplayStatus', () => {
     assert.equal(display.key, 'being_seen');
     assert.equal(display.label, 'Being Seen');
   });
+
+  it('maps leftover last-year Being Seen to Scheduled until this year is confirmed', () => {
+    const now = new Date('2026-08-17T12:00:00');
+    const display = resolveSchoolRosterDisplayStatus({
+      client_type: 'school',
+      client_status_key: 'being_seen',
+      staff_onboarding_completed_at: '2026-04-01',
+      services_started_at: '2026-02-10',
+      first_service_at: '2026-02-10',
+      service_day: 'Tuesday'
+    }, now);
+    assert.equal(display.key, 'scheduled');
+    assert.equal(display.label, 'Scheduled');
+  });
+
+  it('keeps Being Seen after this-year confirmation', () => {
+    const now = new Date('2026-08-17T12:00:00');
+    const display = resolveSchoolRosterDisplayStatus({
+      client_type: 'school',
+      client_status_key: 'being_seen',
+      staff_onboarding_completed_at: '2026-04-01',
+      services_started_at: '2026-08-12',
+      service_day: 'Tuesday'
+    }, now);
+    assert.equal(display.key, 'being_seen');
+    assert.equal(display.label, 'Being Seen');
+  });
 });

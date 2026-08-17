@@ -20,7 +20,8 @@ import {
   continuingClientDisclosureAutoOk,
   continuingInsuranceOverrideActive,
   isContinuingSchoolClient,
-  isReturningSchoolClient
+  isReturningSchoolClient,
+  servicesConfirmedThisSchoolYear
 } from './fallReadiness.js';
 
 const NO_AGENCY_CLEARANCE = new Set([
@@ -164,7 +165,11 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
     const hasWeekday = clientHasWeekday(client);
     const hasProvider = clientHasAssignedProvider(client);
     const returning = isReturningSchoolClient({ ...client, client_type: client?.client_type || 'school' }, now);
-    const beingSeenConfirmed = !!client?.services_started_at;
+    const beingSeenConfirmed = servicesConfirmedThisSchoolYear(
+      { ...client, client_type: client?.client_type || 'school' },
+      now
+    );
+    const leftoverBeingSeen = returning && statusKey === 'being_seen' && !beingSeenConfirmed;
     const fallPendingStatuses = ['confirmation_pending', 'continuation_unknown', 'unable_to_reach', 'other_transfer'];
     const fallConfirmedOrTerminated = fallOutcome === 'confirmed_returning' || fallOutcome === 'recommend_termination';
     // Unassigned / already placed returning clients: do not show a generic Fall confirmation.
@@ -187,7 +192,8 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
       return { role: 'provider', actionKey: 'fall_confirmation', label: 'Fall confirmation – Action Needed' };
     }
     // Returners: after Scheduled, one action to mark Being Seen (last year's first_service_at does not count).
-    if (returning && statusKey === 'scheduled' && !beingSeenConfirmed) {
+    if (returning && (statusKey === 'scheduled' || leftoverBeingSeen) && !beingSeenConfirmed) {
+      if (leftoverBeingSeen && !hasWeekday) return null;
       return { role: 'provider', actionKey: 'confirm_services_started', label: 'Mark Being Seen' };
     }
     if (returning && statusKey === 'ready_to_schedule' && hasWeekday) {

@@ -49,6 +49,22 @@ export function computeCurrentSchoolYearLabel(now = new Date()) {
   return `${y - 1}-${y}`;
 }
 
+function parseSchoolYearDate(dateLike) {
+  if (dateLike instanceof Date && Number.isFinite(dateLike.getTime())) return dateLike;
+  const s = String(dateLike || '').trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+  const d = new Date(s);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+/** True when the date falls in the active school year (last Monday of July rollover). */
+export function isDateInCurrentSchoolYear(dateLike, now = new Date()) {
+  const dt = parseSchoolYearDate(dateLike);
+  if (!dt) return false;
+  return computeCurrentSchoolYearLabel(dt) === computeCurrentSchoolYearLabel(now);
+}
+
 /** Prior roster year for a label (2026-2027 → 2025-2026). */
 export function previousSchoolYearLabel(label = null) {
   const current = normalizeSchoolYearLabel(label) || computeCurrentSchoolYearLabel();

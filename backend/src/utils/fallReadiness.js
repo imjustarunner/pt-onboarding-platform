@@ -2,7 +2,7 @@
  * Fall returning-client readiness helpers.
  * School year cutoff is July 1 (see computeCurrentSchoolYearLabel).
  */
-import { computeCurrentSchoolYearLabel, normalizeSchoolYearLabel } from './schoolYear.js';
+import { computeCurrentSchoolYearLabel, isDateInCurrentSchoolYear, normalizeSchoolYearLabel } from './schoolYear.js';
 
 export const CONTINUATION_WEEKDAYS = new Set(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']);
 export const CONTINUATION_SERVICES_PLANS = new Set([
@@ -71,6 +71,16 @@ export function isReturningSchoolClient(client, now = new Date()) {
   if (anchor && anchor < julyCutoffYmd(now)) return true;
 
   return false;
+}
+
+/**
+ * Provider confirmed services for the current school year.
+ * Returners: only this year's Mark Being Seen date counts (not last year's first_service_at).
+ */
+export function servicesConfirmedThisSchoolYear(client, now = new Date()) {
+  if (isDateInCurrentSchoolYear(client?.services_started_at, now)) return true;
+  if (isReturningSchoolClient(client, now)) return false;
+  return isDateInCurrentSchoolYear(client?.first_service_at, now);
 }
 
 /** New-intake pipeline — not continuing / returning for fall. */
