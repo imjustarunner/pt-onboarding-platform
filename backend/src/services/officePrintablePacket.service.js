@@ -193,23 +193,31 @@ export async function generateOfficePrintablePacketPdf({ agencyId, locale = 'en'
   const bodyHtml = buildOfficePrintablePacketBodyDocument(packetContext);
   const { headerTemplate, footerTemplate } = buildPdfChromeTemplates(packetContext);
 
-  const coverPdfBytes = await DocumentSigningService.convertHTMLToPDF(coverHtml, {
-    printBackground: true,
-    margin: COVER_PDF_MARGIN,
-    preferCSSPageSize: false,
-    displayHeaderFooter: false,
-    disableFallback: true
-  });
-
-  const bodyPdfBytes = await DocumentSigningService.convertHTMLToPDF(bodyHtml, {
-    printBackground: true,
-    margin: BODY_PDF_MARGIN,
-    preferCSSPageSize: false,
-    displayHeaderFooter: true,
-    headerTemplate,
-    footerTemplate,
-    disableFallback: true
-  });
+  const [coverPdfBytes, bodyPdfBytes] = await DocumentSigningService.convertHTMLDocumentsToPdfs(
+    [
+      {
+        html: coverHtml,
+        options: {
+          printBackground: true,
+          margin: COVER_PDF_MARGIN,
+          preferCSSPageSize: false,
+          displayHeaderFooter: false
+        }
+      },
+      {
+        html: bodyHtml,
+        options: {
+          printBackground: true,
+          margin: BODY_PDF_MARGIN,
+          preferCSSPageSize: false,
+          displayHeaderFooter: true,
+          headerTemplate,
+          footerTemplate
+        }
+      }
+    ],
+    { disableFallback: true }
+  );
 
   const merged = await PDFDocument.create();
   const coverDoc = await PDFDocument.load(coverPdfBytes);

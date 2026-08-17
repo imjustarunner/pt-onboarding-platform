@@ -1025,26 +1025,32 @@ export async function generateSchoolPrintablePacketPdf(packetContext) {
   const bodyHtml = buildSchoolPrintablePacketBodyDocument(packetContext);
   const { headerTemplate, footerTemplate } = buildPdfChromeTemplates(packetContext);
 
-  // Cover is generated as its own PDF with no header/footer chrome so it is an
-  // exact, unmodified copy of page 1 — no logo duplication, no page number.
-  const coverPdfBytes = await DocumentSigningService.convertHTMLToPDF(coverHtml, {
-    printBackground: true,
-    margin: COVER_PDF_MARGIN,
-    preferCSSPageSize: false,
-    displayHeaderFooter: false,
-    disableFallback: true
-  });
-
-  // Content pages get the header logo, footer, page numbers, and watermark.
-  const bodyPdfBytes = await DocumentSigningService.convertHTMLToPDF(bodyHtml, {
-    printBackground: true,
-    margin: BODY_PDF_MARGIN,
-    preferCSSPageSize: false,
-    displayHeaderFooter: true,
-    headerTemplate,
-    footerTemplate,
-    disableFallback: true
-  });
+  // One Chromium process for cover + body — two launches OOMs/503s Cloud Run.
+  const [coverPdfBytes, bodyPdfBytes] = await DocumentSigningService.convertHTMLDocumentsToPdfs(
+    [
+      {
+        html: coverHtml,
+        options: {
+          printBackground: true,
+          margin: COVER_PDF_MARGIN,
+          preferCSSPageSize: false,
+          displayHeaderFooter: false
+        }
+      },
+      {
+        html: bodyHtml,
+        options: {
+          printBackground: true,
+          margin: BODY_PDF_MARGIN,
+          preferCSSPageSize: false,
+          displayHeaderFooter: true,
+          headerTemplate,
+          footerTemplate
+        }
+      }
+    ],
+    { disableFallback: true }
+  );
 
   const merged = await PDFDocument.create();
   const coverDoc = await PDFDocument.load(coverPdfBytes);

@@ -7269,7 +7269,7 @@ export const listBulkSchoolPortalAnnouncements = async (req, res, next) => {
          COUNT(*) AS portal_count,
          CONCAT(TRIM(u.first_name), ' ', TRIM(u.last_name)) AS created_by_name
        FROM school_portal_announcements a
-       INNER JOIN agency_schools asc2 ON asc2.school_id = a.organization_id AND asc2.agency_id = ?
+       INNER JOIN agency_schools asc2 ON asc2.school_organization_id = a.organization_id AND asc2.agency_id = ?
        LEFT JOIN users u ON u.id = a.created_by_user_id
        WHERE a.bulk_group_id IS NOT NULL
        GROUP BY a.bulk_group_id, a.title, a.message, a.display_type, a.audience, a.starts_at, a.ends_at,

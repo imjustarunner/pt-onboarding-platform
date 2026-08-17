@@ -20,10 +20,68 @@ const sanitizeForPdf = (text) =>
     .replace(/[\u2026]/g, '...')
     .replace(/[^\x20-\x7E\xA0-\xFF]/g, '');
 
-// Circuit-breaker: skip Puppeteer entirely after consecutive failures
+// Circuit-breaker: skip Puppeteer briefly after failures (not 5 minutes —
+// printable packets cannot use the text fallback, so a long open circuit
+// makes every school print/download fail with 503).
 let _puppeteerCircuitOpen = false;
 let _puppeteerLastFailure = 0;
-const CIRCUIT_RESET_MS = 5 * 60 * 1000; // re-try Puppeteer every 5 minutes
+const CIRCUIT_RESET_MS = 30 * 1000;
+
+async function resolveChromiumExecutable() {
+  const candidates = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    '/usr/lib/chromium/chrome',
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium'
+  ].filter(Boolean);
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const p = String(candidate || '').trim();
+    if (!p || seen.has(p)) continue;
+    seen.add(p);
+    try {
+      await fs.stat(p);
+      return p;
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
+function puppeteerLaunchArgs() {
+  return [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--disable-accelerated-2d-canvas',
+    '--no-first-run',
+    '--no-zygote',
+    '--single-process'
+  ];
+}
+
+function pdfOptionsFrom(options = {}) {
+  const pdfOptions = {
+    printBackground: options.printBackground !== undefined ? options.printBackground : true,
+    margin: options.margin || { top: '1in', right: '1in', bottom: '1in', left: '1in' },
+    preferCSSPageSize: options.preferCSSPageSize || false,
+    displayHeaderFooter: options.displayHeaderFooter === true,
+    headerTemplate: options.headerTemplate || '<div></div>',
+    footerTemplate: options.footerTemplate || '<div></div>',
+    timeout: options.pdfTimeout || 60000
+  };
+  if (options.width && options.height) {
+    pdfOptions.width = options.width;
+    pdfOptions.height = options.height;
+  } else {
+    pdfOptions.format = options.format || 'Letter';
+  }
+  return pdfOptions;
+}
 
 class DocumentSigningService {
   static resolveSignatureCoords(template = {}, fieldDefinitions = null) {
@@ -179,24 +237,53 @@ class DocumentSigningService {
   /**
    * Convert HTML to PDF using Puppeteer with fallback to simple PDF generation
    */
+  static failPdfRendererUnavailable(detail = '') {
+    const extra = String(detail || '').trim();
+    const err = new Error(
+      extra
+        ? `PDF rendering is unavailable (${extra}). Retry in a moment, or contact support if this keeps happening.`
+        : 'PDF rendering is unavailable (no working Chromium/Puppeteer). This document requires real ' +
+          'browser rendering and cannot use the plain-text fallback — set PUPPETEER_EXECUTABLE_PATH to a ' +
+          'local Chrome/Chromium binary to render it in this environment.'
+    );
+    err.statusCode = 503;
+    err.code = 'PDF_RENDERER_UNAVAILABLE';
+    throw err;
+  }
+
+  static async launchPdfBrowser() {
+    const executablePath = await resolveChromiumExecutable();
+    if (!executablePath) return null;
+    return puppeteer.launch({
+      executablePath,
+      headless: 'new',
+      args: puppeteerLaunchArgs(),
+      timeout: 30000
+    });
+  }
+
+  static async renderHtmlWithBrowser(browser, htmlContent, options = {}) {
+    const page = await browser.newPage();
+    try {
+      await page.setContent(htmlContent, {
+        waitUntil: 'domcontentloaded',
+        timeout: options.setContentTimeout || 30000
+      });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      return await page.pdf(pdfOptionsFrom(options));
+    } finally {
+      try { await page.close(); } catch { /* ignore */ }
+    }
+  }
+
   static async convertHTMLToPDF(htmlContent, options = {}) {
     const disableFallback = options.disableFallback === true;
-    const failNoRender = () => {
-      const err = new Error(
-        'PDF rendering is unavailable (no working Chromium/Puppeteer). This document requires real ' +
-        'browser rendering and cannot use the plain-text fallback — set PUPPETEER_EXECUTABLE_PATH to a ' +
-        'local Chrome/Chromium binary to render it in this environment.'
-      );
-      err.statusCode = 503;
-      err.code = 'PDF_RENDERER_UNAVAILABLE';
-      throw err;
-    };
+    const failNoRender = (detail) => this.failPdfRendererUnavailable(detail);
 
-    // Circuit-breaker: if Puppeteer failed recently, skip directly to fallback
     if (_puppeteerCircuitOpen) {
       if (Date.now() - _puppeteerLastFailure < CIRCUIT_RESET_MS) {
         console.log('DocumentSigningService.convertHTMLToPDF: circuit open — skipping Puppeteer, using fallback');
-        if (disableFallback) return failNoRender();
+        if (disableFallback) return failNoRender('renderer recovering after a recent failure');
         return this.convertHTMLToPDFFallback(htmlContent, options);
       }
       _puppeteerCircuitOpen = false;
@@ -204,74 +291,19 @@ class DocumentSigningService {
     }
 
     let browser;
-
     try {
-      let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
-      if (!executablePath) {
-        const chromiumPaths = [
-          '/usr/bin/chromium-browser',
-          '/usr/bin/chromium',
-          '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-          '/Applications/Chromium.app/Contents/MacOS/Chromium'
-        ];
-        for (const chromiumPath of chromiumPaths) {
-          try {
-            await fs.stat(chromiumPath);
-            executablePath = chromiumPath;
-            break;
-          } catch {
-            // path doesn't exist
-          }
-        }
-      }
-      if (!executablePath) {
+      browser = await this.launchPdfBrowser();
+      if (!browser) {
         console.warn('DocumentSigningService.convertHTMLToPDF: no Chromium found — using fallback');
         _puppeteerCircuitOpen = true;
         _puppeteerLastFailure = Date.now();
-        if (disableFallback) return failNoRender();
+        if (disableFallback) return failNoRender('no Chromium binary found');
         return this.convertHTMLToPDFFallback(htmlContent, options);
       }
 
-      browser = await puppeteer.launch({
-        executablePath,
-        headless: 'new',
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
-          '--single-process'
-        ],
-        timeout: 12000
-      });
-
-      const page = await browser.newPage();
-      await page.setContent(htmlContent, {
-        waitUntil: 'domcontentloaded',
-        timeout: 10000
-      });
-      await page.waitForTimeout(500);
-
-      const pdfOptions = {
-        printBackground: options.printBackground !== undefined ? options.printBackground : true,
-        margin: options.margin || { top: '1in', right: '1in', bottom: '1in', left: '1in' },
-        preferCSSPageSize: options.preferCSSPageSize || false,
-        displayHeaderFooter: options.displayHeaderFooter === true,
-        headerTemplate: options.headerTemplate || '<div></div>',
-        footerTemplate: options.footerTemplate || '<div></div>',
-        timeout: options.pdfTimeout || 20000
-      };
-      if (options.width && options.height) {
-        pdfOptions.width = options.width;
-        pdfOptions.height = options.height;
-      } else {
-        pdfOptions.format = options.format || 'Letter';
-      }
-      const pdf = await page.pdf(pdfOptions);
-
+      const pdf = await this.renderHtmlWithBrowser(browser, htmlContent, options);
       console.log(`DocumentSigningService.convertHTMLToPDF: PDF generated, size: ${pdf.length} bytes`);
+      _puppeteerCircuitOpen = false;
       await browser.close();
       return pdf;
     } catch (error) {
@@ -281,11 +313,56 @@ class DocumentSigningService {
       if (browser) {
         try { await browser.close(); } catch { /* ignore */ }
       }
-      if (disableFallback) return failNoRender();
+      if (disableFallback) return failNoRender(error.message);
     }
 
     console.warn('DocumentSigningService.convertHTMLToPDF: using fallback PDF generation');
     return this.convertHTMLToPDFFallback(htmlContent, options);
+  }
+
+  /**
+   * Render several HTML documents in one Chromium process (cover + body packets).
+   */
+  static async convertHTMLDocumentsToPdfs(documents = [], sharedOptions = {}) {
+    const disableFallback = sharedOptions.disableFallback === true
+      || documents.some((d) => d?.options?.disableFallback === true);
+    const failNoRender = (detail) => this.failPdfRendererUnavailable(detail);
+
+    if (_puppeteerCircuitOpen && Date.now() - _puppeteerLastFailure < CIRCUIT_RESET_MS) {
+      if (disableFallback) return failNoRender('renderer recovering after a recent failure');
+    } else if (_puppeteerCircuitOpen) {
+      _puppeteerCircuitOpen = false;
+    }
+
+    let browser;
+    try {
+      browser = await this.launchPdfBrowser();
+      if (!browser) {
+        _puppeteerCircuitOpen = true;
+        _puppeteerLastFailure = Date.now();
+        return failNoRender('no Chromium binary found');
+      }
+      const out = [];
+      for (const doc of documents) {
+        const html = doc?.html ?? doc?.htmlContent ?? '';
+        const options = { ...sharedOptions, ...(doc?.options || {}) };
+        const pdf = await this.renderHtmlWithBrowser(browser, html, options);
+        out.push(pdf);
+      }
+      _puppeteerCircuitOpen = false;
+      await browser.close();
+      browser = null;
+      return out;
+    } catch (error) {
+      console.error('DocumentSigningService.convertHTMLDocumentsToPdfs: Puppeteer failed:', error.message);
+      _puppeteerCircuitOpen = true;
+      _puppeteerLastFailure = Date.now();
+      if (browser) {
+        try { await browser.close(); } catch { /* ignore */ }
+      }
+      if (error?.code === 'PDF_RENDERER_UNAVAILABLE') throw error;
+      return failNoRender(error.message);
+    }
   }
 
   /**

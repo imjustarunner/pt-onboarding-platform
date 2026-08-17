@@ -591,6 +591,7 @@ import { buildPublicIntakeUrl } from '../../../utils/publicIntakeUrl';
 import QRCode from 'qrcode';
 import { useAuthStore } from '../../../store/auth';
 import SchoolPacketTemplateEditor from './SchoolPacketTemplateEditor.vue';
+import { messageFromBlobError } from '../../../utils/apiBlobError';
 
 const props = defineProps({
   schoolOrganizationId: { type: [Number, String], required: true }
@@ -796,12 +797,16 @@ const normalizePacketBlob = async (blob) => {
 };
 
 const fetchSmartPacketBlob = async (locale = 'en') => {
-  const res = await api.get(`/school-portal/${props.schoolOrganizationId}/printable-packet`, {
-    params: { locale, _ts: Date.now() },
-    responseType: 'blob',
-    timeout: 120000
-  });
-  return normalizePacketBlob(res.data);
+  try {
+    const res = await api.get(`/school-portal/${props.schoolOrganizationId}/printable-packet`, {
+      params: { locale, _ts: Date.now() },
+      responseType: 'blob',
+      timeout: 120000
+    });
+    return normalizePacketBlob(res.data);
+  } catch (e) {
+    throw new Error(await messageFromBlobError(e, 'Failed to generate printable packet'));
+  }
 };
 
 const viewPrintablePacketLocale = async (locale) => {

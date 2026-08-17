@@ -137,6 +137,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import QRCode from 'qrcode';
 import api from '../../services/api';
+import { messageFromBlobError } from '../../utils/apiBlobError';
 import { useAgencyStore } from '../../store/agency';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import SchoolPacketTemplateEditor from '../../components/school/redesign/SchoolPacketTemplateEditor.vue';
@@ -391,7 +392,7 @@ async function openPrintable(lang) {
     window.open(url, '_blank', 'noopener');
     window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
   } catch (e) {
-    linksError.value = e?.response?.data?.error?.message || e.message || 'Failed to open printable packet';
+    linksError.value = await messageFromBlobError(e, 'Failed to open printable packet');
   } finally {
     printableLoadingLang.value = '';
   }

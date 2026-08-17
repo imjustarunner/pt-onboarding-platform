@@ -2548,6 +2548,7 @@ import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
 import { useAuthStore } from '../../store/auth';
 import TestAccountSwitcher from '../../components/TestAccountSwitcher.vue';
 import api from '../../services/api';
+import { messageFromBlobError } from '../../utils/apiBlobError';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { isSupervisor } from '../../utils/helpers';
@@ -5271,20 +5272,61 @@ async function openPrintableModal() {
   }
 }
 
+async function fetchPrintablePacketBlob(locale) {
+  const res = await api.get(`/school-portal/${organizationId.value}/printable-packet`, {
+    params: { locale, _ts: Date.now() },
+    responseType: 'blob',
+    timeout: 120000
+  });
+  const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'application/pdf' });
+  const type = String(blob.type || '').toLowerCase();
+  if (type.includes('json') || (type.includes('text') && !type.includes('pdf'))) {
+    const text = await blob.text();
+    let message = 'Failed to generate printable packet';
+    try {
+      const parsed = JSON.parse(text);
+      message = parsed?.error?.message || parsed?.message || message;
+    } catch {
+      if (text.trim()) message = text.trim().slice(0, 240);
+    }
+    throw new Error(message);
+  }
+  return blob;
+}
+
 async function openPrintablePacket(locale) {
   if (printablePacketLoading[locale]) return;
   printablePacketLoading[locale] = true;
   printablePacketError.value = '';
   try {
-    const res = await api.get(`/school-portal/${organizationId.value}/printable-packet`, {
-      params: { locale }, responseType: 'blob', timeout: 120000
-    });
-    const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'application/pdf' });
+    const blob = await fetchPrintablePacketBlob(locale);
     const blobUrl = URL.createObjectURL(blob);
     window.open(blobUrl, '_blank', 'noopener');
     setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
   } catch (e) {
-    printablePacketError.value = e?.response?.data?.error?.message || e?.message || 'Failed to open packet.';
+    printablePacketError.value = await messageFromBlobError(e, 'Failed to open packet.');
+  } finally {
+    printablePacketLoading[locale] = false;
+  }
+}
+
+async function downloadPrintablePacket(locale) {
+  if (printablePacketLoading[locale]) return;
+  printablePacketLoading[locale] = true;
+  printablePacketError.value = '';
+  try {
+    const blob = await fetchPrintablePacketBlob(locale);
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = `school-referral-packet-${locale}.pdf`;
+    a.rel = 'noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+  } catch (e) {
+    printablePacketError.value = await messageFromBlobError(e, 'Failed to download packet.');
   } finally {
     printablePacketLoading[locale] = false;
   }
