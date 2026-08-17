@@ -106,6 +106,35 @@ export const AUTOMATED_EMAIL_CATALOG = [
     preferredKeys: ['school_intake', 'intake']
   },
   {
+    key: 'co_guardian_invite',
+    kind: 'template',
+    category: 'Intake',
+    label: 'Secondary Guardian',
+    description: 'Invite email to another parent/guardian with medical decision-making rights so they can complete their own consent and intake forms. School sends are queued until this sender identity is configured; office can send immediately.',
+    trigger: 'A primary guardian lists another decision-maker on intake, or staff send a secondary-guardian invite.',
+    triggerKind: 'Immediate · Event-based (office) · Queued until enabled (school)',
+    sourceLinks: [
+      { label: 'School digital intakes', path: '/admin/school-digital-intakes' },
+      { label: 'Office Join', path: '/join' },
+      { label: 'Email Settings', path: '/admin/communications?mode=automation' }
+    ],
+    preferredKeys: ['school_intake', 'intake', 'notifications'],
+    recommendedFromHint: 'Map a From identity (school_intake or intake) before enabling school auto-send.'
+  },
+  {
+    key: 'adaptive_full_intake_invite',
+    kind: 'template',
+    category: 'Intake',
+    label: 'Full intake link (from interest form)',
+    description: 'Email from New Intakes that sends a prefilled full intake link to a quick prospective inquiry.',
+    trigger: 'Staff clicks Email full intake link on a prospective inquiry.',
+    triggerKind: 'Immediate · Staff action',
+    sourceLinks: [
+      { label: 'New Intakes', path: '/admin/office-intake-queue' }
+    ],
+    preferredKeys: ['intake', 'notifications']
+  },
+  {
     key: 'job_applications',
     kind: 'template',
     category: 'Hiring',

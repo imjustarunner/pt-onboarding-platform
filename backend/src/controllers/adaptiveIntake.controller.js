@@ -208,7 +208,10 @@ export async function createPublicCoGuardianInvite(req, res, next) {
     const agency = await resolveAgencyFromSlug(req.params.agencySlug);
     if (!agency) return res.status(404).json({ error: { message: 'Organization not found' } });
     const og = req.body?.otherGuardian || req.body || {};
-    const sendEmail = req.body?.sendEmail !== false && og.sendInvite !== false;
+    const source = String(req.body?.source || 'quick').trim().toLowerCase() || 'quick';
+    const isSchool = source === 'school';
+    // School secondary guardians: record + agency follow-up; do not auto-email until settings are ready.
+    const sendEmail = !isSchool && req.body?.sendEmail !== false && og.sendInvite !== false;
     const rights = String(og.hasLegalRights || og.legalAuthority || '').trim().toLowerCase();
     const result = await CoGuardianInvite.maybeCreateFromIntakeGuardian({
       agencyId: agency.id,
@@ -224,8 +227,9 @@ export async function createPublicCoGuardianInvite(req, res, next) {
         }
       },
       clientIds: req.body?.clientIds || [],
-      source: req.body?.source || 'quick',
-      publicKey: req.body?.publicKey || null
+      source,
+      publicKey: req.body?.publicKey || null,
+      submissionId: req.body?.submissionId || null
     });
     if (!result) {
       return res.status(400).json({

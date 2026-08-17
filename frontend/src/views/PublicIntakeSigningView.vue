@@ -671,17 +671,6 @@
             />
           </div>
         </div>
-        <OtherGuardianIntakeFields
-          v-if="!isOfficeInDepthIntake && !isMedicalRecordsRequest && !isJobApplication && !isClientBound && intakeForSelf === false && !isCoGuardianInvitee"
-          class="intake-start-custody"
-          :model="otherGuardian"
-          :copy="otherGuardianCopy"
-          :can-edit="canEditIntakeLegal"
-          :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''"
-          :locale="intakeLocale"
-          :error="stepError && !otherGuardianContactOk() ? otherGuardianBlockReason() : ''"
-          @saved="onIntakeLegalSaved"
-        />
         <div class="form-grid intake-identity-grid">
           <div class="form-group form-group--span-4">
             <label>{{ (intakeForSelf || isMedicalRecordsRequest || isJobApplication) ? t('yourFirstName') : t('guardianFirstName') }}</label>
@@ -727,8 +716,9 @@
               {{
                 isJobApplication
                   ? 'Applicant phone'
-                  : ((intakeForSelf || isMedicalRecordsRequest) ? t('yourPhoneOptional') : t('guardianPhoneOptional'))
+                  : ((intakeForSelf || isMedicalRecordsRequest) ? t('yourPhone') : t('guardianPhone'))
               }}
+              <span class="required-indicator">*</span>
             </label>
             <input
               id="guardianPhone"
@@ -755,6 +745,18 @@
             <input v-model="guardianRelationship" type="text" :placeholder="t('relationshipPlaceholder')" />
           </div>
         </div>
+        <OtherGuardianIntakeFields
+          v-if="!isOfficeInDepthIntake && !isMedicalRecordsRequest && !isJobApplication && !isClientBound && intakeForSelf === false && !isCoGuardianInvitee"
+          class="intake-start-custody"
+          :class="{ 'intake-start-custody--school': isSchoolScopedIntake }"
+          :model="otherGuardian"
+          :copy="otherGuardianCopy"
+          :can-edit="canEditIntakeLegal"
+          :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''"
+          :locale="intakeLocale"
+          :error="stepError && !otherGuardianContactOk() ? otherGuardianBlockReason() : ''"
+          @saved="onIntakeLegalSaved"
+        />
         </div>
 
         <div v-if="isClientBound && !isMedicalRecordsRequest && !isJobApplication" class="bound-client-card">
@@ -2219,9 +2221,12 @@
               </div>
               <div v-if="showCoGuardianOutreach" class="office-complete-download">
                 <p><strong>{{ t('otherGuardianInviteTitle') }}</strong></p>
-                <p>{{ t('otherGuardianInviteLead') }}</p>
+                <p>{{ isSchoolScopedIntake ? t('otherGuardianInviteLeadSchool') : t('otherGuardianInviteLead') }}</p>
                 <p v-if="coGuardianInviteResult.emailed && coGuardianInviteResult.email">
-                  We emailed them at {{ coGuardianInviteResult.email }}.
+                  {{ t('otherGuardianInviteEmailed').replace('{email}', coGuardianInviteResult.email) }}
+                </p>
+                <p v-else-if="isSchoolScopedIntake && (coGuardianInviteResult.inviteId || coGuardianInviteResult.queued)">
+                  {{ t('otherGuardianInviteQueuedSchool') }}
                 </p>
                 <p v-else-if="coGuardianInviteResult.pendingContact">
                   {{ t('otherGuardianInvitePhoneFollowUp') }}
@@ -2887,8 +2892,10 @@ const INTAKE_TRANSLATIONS = {
     downloadPackets: 'Download packets',
     custodyOtherGuardianTitle: 'Custody & other guardian',
     custodyOtherGuardianLead: 'If another parent has legal rights, our team will reach out so they can complete their own intake. They will not see what you submit.',
+    custodyOtherGuardianLeadSchool: 'If another parent or guardian has medical decision-making rights, our team will follow up so they can complete their own consent and intake forms. They will not see what you submit. A portal login is not created unless they ask for one.',
     otherGuardianLegalRights: 'Another parent/guardian with legal rights who will complete their own intake?',
     otherGuardianLegalYes: 'Yes — send them their intake',
+    otherGuardianLegalYesSchool: 'Yes — they have decision-making rights and need their own forms',
     otherGuardianLegalShared: 'Yes — we share decision-making',
     otherGuardianLegalNo: 'No other guardian with those rights',
     otherGuardianNoEmailWarning: 'We reach out on your behalf. A correct email is best; if you only have a phone number, our team will call to complete their intake. Missing contact information can delay start of care.',
@@ -2898,9 +2905,11 @@ const INTAKE_TRANSLATIONS = {
     otherGuardianFirstName: 'First name',
     otherGuardianLastName: 'Last name',
     otherGuardianEmail: 'Email (becomes their username)',
+    otherGuardianEmailSchool: 'Email',
     otherGuardianPhone: 'Phone',
     otherGuardianRelationship: 'Relationship',
     otherGuardianReachOutNote: 'We will reach out to them on your behalf. Please provide their correct email (best) or phone. If you do not have either, upload any court documents you have. Missing contact information can delay start of care.',
+    otherGuardianReachOutNoteSchool: 'Our team will follow up so they can complete their own consent and intake forms. Provide their email (best) or phone. If you do not have either, upload any court documents you have. Missing contact information can delay start of care.',
     otherGuardianCourtDocsLabel: 'Upload court documents (encrypted)',
     otherGuardianCourtDocsHelp: 'Files are stored encrypted.',
     otherGuardianViewConsent: 'View custody and consent details',
@@ -2914,6 +2923,8 @@ const INTAKE_TRANSLATIONS = {
     loginDetailsSent: 'Login details sent. Keep that email private.',
     otherGuardianInviteTitle: 'Other guardian outreach',
     otherGuardianInviteLead: 'Our team will reach out on your behalf so they can complete their own intake. They will not see what you submitted.',
+    otherGuardianInviteLeadSchool: 'Our team will follow up so the other parent/guardian can complete their own forms. They will not see what you submitted. A portal login is not created automatically.',
+    otherGuardianInviteQueuedSchool: 'Their intake is queued for our team to send when ready. We will follow up with them.',
     otherGuardianInviteEmailed: 'We emailed them at {email}.',
     otherGuardianInvitePhoneFollowUp: 'We have their phone number — our team will call to start their intake.',
     coGuardianIsolatedTitle: 'Your own intake',
@@ -3236,8 +3247,10 @@ const INTAKE_TRANSLATIONS = {
     downloadPackets: 'Descargar paquetes',
     custodyOtherGuardianTitle: 'Custodia y otro tutor',
     custodyOtherGuardianLead: 'Si otro padre o madre tiene derechos legales, nuestro equipo se comunicará para que complete su propia admisión. No verá lo que usted envíe.',
+    custodyOtherGuardianLeadSchool: 'Si otro padre, madre o tutor tiene derechos de decisión médica, nuestro equipo dará seguimiento para que complete su propio consentimiento y formularios. No verá lo que usted envíe. No se crea un inicio de sesión a menos que lo solicite.',
     otherGuardianLegalRights: '¿Otro padre, madre o tutor con derechos legales que completará su propia admisión?',
     otherGuardianLegalYes: 'Sí — enviarles su admisión',
+    otherGuardianLegalYesSchool: 'Sí — tienen derechos de decisión y necesitan sus propios formularios',
     otherGuardianLegalShared: 'Sí — compartimos las decisiones',
     otherGuardianLegalNo: 'No hay otro tutor con esos derechos',
     otherGuardianNoEmailWarning: 'Nos comunicamos en su nombre. Un correo correcto es lo mejor; si solo tiene teléfono, nuestro equipo llamará para completar su admisión. Falta de contacto puede retrasar el inicio de servicios.',
@@ -3247,9 +3260,11 @@ const INTAKE_TRANSLATIONS = {
     otherGuardianFirstName: 'Nombre',
     otherGuardianLastName: 'Apellido',
     otherGuardianEmail: 'Correo (será su usuario)',
+    otherGuardianEmailSchool: 'Correo electrónico',
     otherGuardianPhone: 'Teléfono',
     otherGuardianRelationship: 'Parentesco',
     otherGuardianReachOutNote: 'Nos comunicaremos con ellos en su nombre. Proporcione su correo correcto (lo mejor) o teléfono. Si no tiene ninguno, suba documentos judiciales. Falta de contacto puede retrasar el inicio de servicios.',
+    otherGuardianReachOutNoteSchool: 'Nuestro equipo dará seguimiento para que completen su propio consentimiento y formularios. Proporcione su correo (lo mejor) o teléfono. Si no tiene ninguno, suba documentos judiciales. Falta de contacto puede retrasar el inicio de servicios.',
     otherGuardianCourtDocsLabel: 'Subir documentos judiciales (cifrados)',
     otherGuardianCourtDocsHelp: 'Los archivos se guardan cifrados.',
     otherGuardianViewConsent: 'Ver detalles de custodia y consentimiento',
@@ -3263,6 +3278,8 @@ const INTAKE_TRANSLATIONS = {
     loginDetailsSent: 'Datos de acceso enviados. Mantenga ese correo privado.',
     otherGuardianInviteTitle: 'Contacto del otro tutor',
     otherGuardianInviteLead: 'Nuestro equipo se comunicará en su nombre para que completen su propia admisión. No verán lo que usted envió.',
+    otherGuardianInviteLeadSchool: 'Nuestro equipo dará seguimiento para que el otro padre o tutor complete sus propios formularios. No verán lo que usted envió. No se crea un inicio de sesión automáticamente.',
+    otherGuardianInviteQueuedSchool: 'Su admisión quedó en cola para que nuestro equipo la envíe cuando esté lista. Daremos seguimiento.',
     otherGuardianInviteEmailed: 'Les enviamos un correo a {email}.',
     otherGuardianInvitePhoneFollowUp: 'Tenemos su teléfono — nuestro equipo llamará para iniciar su admisión.',
     coGuardianIsolatedTitle: 'Su propia admisión',
@@ -3615,8 +3632,22 @@ function sanitizeOfficeIntakeSteps(steps = []) {
 
 const intakeSteps = computed(() => {
   const raw = Array.isArray(link.value?.intake_steps) ? link.value.intake_steps : [];
-  if (Number(link.value?.inherits_office_master || 0) === 1) return sanitizeOfficeIntakeSteps(raw);
-  return raw;
+  let steps = Number(link.value?.inherits_office_master || 0) === 1
+    ? sanitizeOfficeIntakeSteps(raw)
+    : raw;
+  if (isSchoolScopedIntake.value) {
+    steps = (Array.isArray(steps) ? steps : []).map((step) => {
+      const fields = Array.isArray(step?.fields) ? step.fields : null;
+      if (!fields) return step;
+      const nextFields = fields.filter((f) => {
+        const key = String(f?.key || '').trim();
+        if (otherGuardianStartFieldKeys.has(key)) return false;
+        return !isLegacySchoolCustodyField(f);
+      });
+      return nextFields.length === fields.length ? step : { ...step, fields: nextFields };
+    });
+  }
+  return steps;
 });
 const hasDocumentTranslationMap = computed(() => {
   const map = link.value?.document_translation_map;
@@ -6048,9 +6079,10 @@ const canEditIntakeLegal = computed(() => {
 });
 const otherGuardianCopy = computed(() => {
   const legal = intakeLegal.value || {};
+  const school = isSchoolScopedIntake.value;
   return {
     title: t('custodyOtherGuardianTitle'),
-    lead: legal.otherGuardianLead || t('custodyOtherGuardianLead'),
+    lead: legal.otherGuardianLead || (school ? t('custodyOtherGuardianLeadSchool') : t('custodyOtherGuardianLead')),
     ageOfConsentNote: legal.ageOfConsentNote || t('ageOfConsentNote'),
     noEmailWarning: legal.noEmailWarning || t('otherGuardianNoEmailWarning'),
     resources: Array.isArray(legal.resources) && legal.resources.length
@@ -6067,14 +6099,14 @@ const otherGuardianCopy = computed(() => {
       ],
     rightsLabel: t('otherGuardianLegalRights'),
     selectOption: t('selectOption'),
-    yes: t('otherGuardianLegalYes'),
+    yes: school ? t('otherGuardianLegalYesSchool') : t('otherGuardianLegalYes'),
     no: t('otherGuardianLegalNo'),
     firstName: t('otherGuardianFirstName'),
     lastName: t('otherGuardianLastName'),
-    email: t('otherGuardianEmail'),
+    email: school ? t('otherGuardianEmailSchool') : t('otherGuardianEmail'),
     phone: t('otherGuardianPhone'),
     relationship: t('otherGuardianRelationship'),
-    reachOutNote: t('otherGuardianReachOutNote'),
+    reachOutNote: school ? t('otherGuardianReachOutNoteSchool') : t('otherGuardianReachOutNote'),
     courtDocsLabel: t('otherGuardianCourtDocsLabel'),
     courtDocsHelp: t('otherGuardianCourtDocsHelp'),
     viewConsentDetails: t('otherGuardianViewConsent'),
@@ -6254,18 +6286,23 @@ async function saveOfficePdfEmailTemplate() {
 }
 function otherGuardianFieldBag() {
   const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
+  const needsOther = rights === 'yes' || rights === 'shared';
+  const school = isSchoolScopedIntake.value;
+  // School: queue for agency follow-up (do not auto-send / auto-portal).
+  // Office: send when rights are yes/shared.
+  const sendLink = needsOther && !school ? 'yes' : 'no';
   return {
-    other_guardian_communication: (rights === 'yes' || rights === 'shared') ? 'yes' : 'no',
+    other_guardian_communication: needsOther ? 'yes' : 'no',
     other_guardian_has_legal_rights: otherGuardian.hasLegalRights,
     other_guardian_first_name: otherGuardian.firstName,
     other_guardian_last_name: otherGuardian.lastName,
     other_guardian_email: otherGuardian.email,
     other_guardian_phone: otherGuardian.phone,
     other_guardian_relationship: otherGuardian.relationship,
-    other_guardian_send_intake_link: (rights === 'yes' || rights === 'shared') ? 'yes' : 'no',
-    other_guardian_send_later: 'no',
+    other_guardian_send_intake_link: sendLink,
+    other_guardian_send_later: school && needsOther ? 'yes' : 'no',
     other_guardian_court_docs: (otherGuardian.courtFiles || []).length ? 'yes' : 'no',
-    legal_authority: (rights === 'yes' || rights === 'shared') ? 'shared' : 'yes'
+    legal_authority: needsOther ? 'shared' : 'yes'
   };
 }
 function otherGuardianContactOk() {
@@ -7867,12 +7904,22 @@ const otherGuardianStartFieldKeys = new Set([
   'other_guardian_court_docs'
 ]);
 
+/** Legacy school master custody prompts replaced by OtherGuardianIntakeFields. */
+function isLegacySchoolCustodyField(field) {
+  const key = String(field?.key || '').trim().toLowerCase();
+  const label = String(field?.label || field?.title || '').trim().toLowerCase();
+  const blob = `${key} ${label}`;
+  if (/legal_authority|custodial_parent|other_parent|other_guardian|custody_/.test(key)) return true;
+  return /legal parent|custodian of the|100%\s*legal|legal right to obtain treatment|other custodial parent|list any other parent|other parent\/guardian|other parents\/guardians|willing to provide documentation/i.test(blob);
+}
+
 const visibleGuardianFields = computed(() => {
   // Self-intake should not render guardian-only prompts.
   if (intakeForSelf.value) return [];
   return guardianFields.value.filter((f) => {
     const key = String(f?.key || '').trim();
     if (otherGuardianStartFieldKeys.has(key)) return false;
+    if (isSchoolScopedIntake.value && isLegacySchoolCustodyField(f)) return false;
     if (isPagedInterviewField(f)) return false;
     return isIntakeFieldVisible(f, intakeResponses.guardian);
   });
@@ -9025,8 +9072,9 @@ async function maybeCreateOfficeCoGuardianInvite(finalizeData) {
       source: isSchoolScopedIntake.value ? 'school' : 'office',
       publicKey,
       clientIds: ids,
-      sendEmail: hasEmail,
-      otherGuardian: { ...otherGuardian, legalAuthority: rights }
+      // School secondary guardians: create invite record but do not email until prefs/settings are ready.
+      sendEmail: hasEmail && !isSchoolScopedIntake.value,
+      otherGuardian: { ...otherGuardian, legalAuthority: rights, sendInvite: !isSchoolScopedIntake.value }
     });
     coGuardianInviteResult.value = data;
   } catch {
@@ -14491,7 +14539,6 @@ onBeforeUnmount(() => {
   border: 1px solid #e5e7eb;
   border-radius: 6px;
 }
-}
 
 .child-review-add {
   margin-top: 1.25rem;
@@ -15502,6 +15549,48 @@ onBeforeUnmount(() => {
   border: 1px solid #d7e3dc;
   border-radius: 12px;
   background: #fff;
+}
+.intake-start-custody--school {
+  margin: 0.85rem 0 1.1rem;
+  padding: 1rem 1.05rem 1.15rem;
+  border-color: color-mix(in srgb, var(--df-primary, #1e4d3b) 22%, #d7e3dc);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--df-primary, #1e4d3b) 4%, #fff);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.intake-start-custody--school :deep(.ogi-title) {
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--df-primary, #1e4d3b);
+  margin-bottom: 0.35rem;
+}
+.intake-start-custody--school :deep(.ogi-rights),
+.intake-start-custody--school :deep(.ogi-row label) {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+.intake-start-custody--school :deep(.ogi-rights select),
+.intake-start-custody--school :deep(.ogi input),
+.intake-start-custody--school :deep(.ogi select) {
+  min-height: 2.65rem;
+  border-radius: 10px;
+  border: 1px solid #d7e0db;
+  background: #fff;
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+}
+.intake-start-custody--school :deep(.ogi-info),
+.intake-start-custody--school :deep(.ogi-details) {
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: #475569;
+}
+.intake-start-custody--school :deep(.ogi-upload) {
+  border: 1px dashed #b7c9be;
+  border-radius: 12px;
+  background: #fff;
+  padding: 0.75rem;
 }
 .intake-start-custody select,
 .intake-start-custody input {

@@ -99,7 +99,8 @@ export async function createCoGuardianInvite({
   clientIds = [],
   source = 'office',
   publicKey = null,
-  sendEmail = true
+  sendEmail = true,
+  enablePortalOnMatch = true
 }) {
   const agency = await Agency.findById(agencyId);
   if (!agency) throw new Error('Organization not found');
@@ -147,7 +148,8 @@ export async function createCoGuardianInvite({
     clientIds: ids,
     relationshipTitle: person.relationship || 'Guardian',
     inviteId,
-    invitedByUserId
+    invitedByUserId,
+    enablePortal: enablePortalOnMatch !== false
   });
 
   const inviteUrl = invitePublicUrl({ agency, token, publicKey });
@@ -166,6 +168,7 @@ export async function createCoGuardianInvite({
     token,
     inviteUrl,
     emailed,
+    queued: !emailed,
     expiresAt: expiresAt.toISOString(),
     email: person.email
   };
@@ -176,7 +179,8 @@ async function silentlyLinkMatchingGuardian({
   clientIds,
   relationshipTitle,
   inviteId,
-  invitedByUserId = null
+  invitedByUserId = null,
+  enablePortal = true
 }) {
   try {
     const user = await User.findByEmail(email);
@@ -195,6 +199,7 @@ async function silentlyLinkMatchingGuardian({
         accessEnabled: true,
         permissionsJson: noViewPermissionsForInvite(inviteId, existing?.permissions_json)
       });
+      if (enablePortal === false) continue;
       try {
         await pool.execute(
           `UPDATE clients SET guardian_portal_enabled = 1 WHERE id = ? AND (guardian_portal_enabled IS NULL OR guardian_portal_enabled = 0)`,
@@ -315,7 +320,8 @@ export async function maybeCreateFromIntakeGuardian({
   intakeData = {},
   clientIds = [],
   source = 'office',
-  publicKey = null
+  publicKey = null,
+  submissionId = null
 } = {}) {
   const guardian = intakeData?.guardian && typeof intakeData.guardian === 'object'
     ? intakeData.guardian
@@ -324,7 +330,14 @@ export async function maybeCreateFromIntakeGuardian({
   if (rights !== 'yes' && rights !== 'shared') return null;
   const email = String(guardian.other_guardian_email || '').trim().toLowerCase();
   const phone = String(guardian.other_guardian_phone || '').trim();
-  const sendInvite = String(guardian.other_guardian_send_intake_link || 'yes').trim().toLowerCase() !== 'no';
+  const isSchool = String(source || '').toLowerCase() === 'school';
+  // School: never auto-email until Secondary Guardian email settings are intentionally enabled.
+  // Staff can still send later from the invite / follow-up task.
+  const sendInviteFlag = String(guardian.other_guardian_send_intake_link || (isSchool ? 'no' : 'yes'))
+    .trim()
+    .toLowerCase() !== 'no';
+  const sendEmail = !isSchool && sendInviteFlag;
+  let inviteResult = null;
   if (email.includes('@')) {
     const created = await createCoGuardianInvite({
       agencyId,
@@ -335,21 +348,28 @@ export async function maybeCreateFromIntakeGuardian({
         phone,
         relationship: guardian.other_guardian_relationship,
         legalAuthority: rights,
-        sendInvite
+        sendInvite: sendEmail
       },
       clientIds,
       source,
       publicKey,
-      sendEmail: sendInvite
+      sendEmail,
+      enablePortalOnMatch: !isSchool
     });
-    return toPublicInviteResult(created);
-  }
-  if (String(phone).replace(/\D/g, '').length >= 7) {
+    inviteResult = {
+      ...toPublicInviteResult(created),
+      queued: isSchool || !sendEmail
+    };
+  } else if (String(phone).replace(/\D/g, '').length >= 7) {
     await insertGuardianAccessTicket({
       agencyId,
-      subject: 'Other guardian listed without email — follow up for consent',
+      subject: isSchool
+        ? 'Secondary guardian listed without email — school follow-up'
+        : 'Other guardian listed without email — follow up for consent',
       question: [
-        'A parent completed intake and said another guardian has medical decision-making rights, but did not provide an email.',
+        isSchool
+          ? 'A school intake listed another guardian with medical decision-making rights, but did not provide an email.'
+          : 'A parent completed intake and said another guardian has medical decision-making rights, but did not provide an email.',
         'Care start may be delayed until we collect that person’s informed consent.',
         `Name: ${[guardian.other_guardian_first_name, guardian.other_guardian_last_name].filter(Boolean).join(' ') || '(not given)'}`,
         `Phone: ${phone}`,
@@ -360,9 +380,30 @@ export async function maybeCreateFromIntakeGuardian({
         `Dependent client IDs: ${(clientIds || []).join(', ')}`
       ].join('\n')
     });
-    return { pendingContact: true, reason: 'no_email' };
+    inviteResult = { pendingContact: true, reason: 'no_email', queued: true };
+  } else if (isSchool) {
+    // Court docs / incomplete contact still need agency follow-up for school secondary guardians.
+    inviteResult = { pendingContact: true, reason: 'docs_or_incomplete', queued: true };
   }
-  return null;
+
+  if (isSchool && inviteResult) {
+    try {
+      const { maybeCreateSecondaryGuardianFollowUpTask } = await import('./secondaryGuardianFollowUp.service.js');
+      await maybeCreateSecondaryGuardianFollowUpTask({
+        agencyId,
+        clientIds,
+        submissionId,
+        publicKey,
+        guardian,
+        invite: inviteResult,
+        source: 'school'
+      });
+    } catch (err) {
+      console.warn('[coGuardianInvite] secondary guardian follow-up task skipped', err?.message || err);
+    }
+  }
+
+  return inviteResult;
 }
 
 export async function resolveCoGuardianIntakeBinding(token) {
@@ -480,7 +521,7 @@ export async function getPublicCoGuardianInvite(token) {
   };
 }
 
-export async function acceptCoGuardianInvite({ token, contact = {}, answers = null }) {
+export async function acceptCoGuardianInvite({ token, contact = {}, answers = null, createPortal = null }) {
   const row = await loadInviteByToken(token);
   if (!row) {
     const err = new Error('This invite link is not valid.');
@@ -498,7 +539,38 @@ export async function acceptCoGuardianInvite({ token, contact = {}, answers = nu
   const email = String(contact.email || row.invited_email || '').trim().toLowerCase();
   const phone = String(contact.phone || row.invited_phone || '').trim() || null;
   if (!email || !email.includes('@')) {
-    throw new Error('Email is required. You can keep the invited address or change it — it becomes your username.');
+    throw new Error('Email is required to complete this intake.');
+  }
+
+  const isSchool = String(row.source || '').toLowerCase() === 'school';
+  const wantPortal = createPortal === true || (!isSchool && createPortal !== false);
+  const clients = await loadInviteClients(row.id);
+
+  if (!wantPortal) {
+    const responseJson = answers && typeof answers === 'object' ? JSON.stringify(answers) : row.response_json;
+    await pool.execute(
+      `UPDATE co_guardian_invites
+          SET status = 'accepted',
+              accepted_at = NOW(),
+              invited_email = ?,
+              invited_first_name = ?,
+              invited_last_name = ?,
+              invited_phone = ?,
+              response_json = ?
+        WHERE id = ?`,
+      [email, firstName, lastName, phone, responseJson, row.id]
+    );
+    return {
+      accepted: true,
+      created: false,
+      portalAccess: null,
+      dependents: clients.map((c) => ({
+        id: c.id,
+        firstName: firstNameOnly(c.full_name)
+      })),
+      publicKey: row.public_key || null,
+      source: row.source
+    };
   }
 
   let user = await User.findByEmail(email);
@@ -529,7 +601,6 @@ export async function acceptCoGuardianInvite({ token, contact = {}, answers = nu
     created = true;
   }
 
-  const clients = await loadInviteClients(row.id);
   for (const client of clients) {
     const existing = await ClientGuardian.getLink({ clientId: client.id, guardianUserId: user.id });
     await ClientGuardian.upsertLink({

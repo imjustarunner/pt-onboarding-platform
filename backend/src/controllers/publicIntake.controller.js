@@ -8018,7 +8018,8 @@ export const finalizePublicIntake = async (req, res, next) => {
             intakeData,
             clientIds: ids,
             source: scope,
-            publicKey
+            publicKey,
+            submissionId
           });
         }
       } catch (inviteErr) {
