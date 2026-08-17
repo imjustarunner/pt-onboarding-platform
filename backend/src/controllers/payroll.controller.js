@@ -11064,12 +11064,30 @@ export const replacePayrollImport = [
       const period = await PayrollPeriod.findById(payrollPeriodId);
       if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
       if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
-      if (isEffectivelyPostedOrFinalized(period)) {
-        return res.status(409).json({ error: { message: 'Pay period is posted/finalized and cannot be re-imported.' } });
-      }
       const imp = await PayrollImport.findById(importId);
       if (!imp || Number(imp.payroll_period_id) !== payrollPeriodId) {
         return res.status(404).json({ error: { message: 'Import not found or does not belong to this period' } });
+      }
+
+      const isLocked = isEffectivelyPostedOrFinalized(period);
+      const slotNumber = Number(imp.slot_number || 0) || 1;
+      const isCatchUpSlot = slotNumber >= 2;
+      if (isLocked) {
+        // Posted periods: only allow replacing catch-up Run 2/3 (uploaded after posting),
+        // never the Run 1 that was used to pay the period.
+        const [[{ usedByRun }]] = await pool.execute(
+          'SELECT COUNT(*) AS usedByRun FROM payroll_period_runs WHERE payroll_import_id = ?',
+          [importId]
+        );
+        if (!isCatchUpSlot || Number(usedByRun || 0) > 0) {
+          return res.status(409).json({
+            error: {
+              message: isCatchUpSlot
+                ? 'Cannot replace this import: it was used in a payroll run.'
+                : 'Pay period is posted/finalized. Delete/replace Run 2 or Run 3 catch-up imports only — not Run 1.'
+            }
+          });
+        }
       }
       if (!req.file) return res.status(400).json({ error: { message: 'No CSV/XLSX file uploaded' } });
 
@@ -11132,7 +11150,9 @@ export const replacePayrollImport = [
 
       await PayrollImportRow.deleteByImportId(importId);
 
-      const rowsToInsert = parsed.map((r) => {
+      const rowsToInsert = parsed
+        .filter((r) => isServiceDateInPayPeriod(r.serviceDate, period.period_start, period.period_end))
+        .map((r) => {
         const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
         const codeKey = String(r.serviceCode || '').trim().toUpperCase();
         const { unitCount, requiresProcessing } = normalizeImportRowProcessing({
@@ -11170,6 +11190,15 @@ export const replacePayrollImport = [
           clientPaidAmount: r.clientPaidAmount ?? null
         };
       });
+      const skippedOutOfPeriod = Math.max(0, (parsed || []).length - rowsToInsert.length);
+      if (!rowsToInsert.length && !(missedAppointmentsPaidInFull || []).length) {
+        return res.status(400).json({
+          error: {
+            message: `No rows within ${ymdFromDbDate(period.period_start)} → ${ymdFromDbDate(period.period_end)}. Check that you uploaded the correct period export.`
+          },
+          skippedOutOfPeriod
+        });
+      }
 
       await PayrollImportRow.bulkInsert(rowsToInsert);
       await PayrollImport.updateFilename(importId, req.file.originalname);
@@ -11185,17 +11214,21 @@ export const replacePayrollImport = [
         if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
       }
 
-      await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [payrollPeriodId]);
-      await pool.execute(
-        `UPDATE payroll_periods SET status = 'raw_imported', ran_at = NULL, ran_by_user_id = NULL WHERE id = ?`,
-        [payrollPeriodId]
-      );
+      // Don't un-post a finalized prior period when only replacing catch-up Run 2/3.
+      if (!isLocked) {
+        await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [payrollPeriodId]);
+        await pool.execute(
+          `UPDATE payroll_periods SET status = 'raw_imported', ran_at = NULL, ran_by_user_id = NULL WHERE id = ?`,
+          [payrollPeriodId]
+        );
+      }
 
       const unmatched = rowsToInsert.filter((r) => !r.userId).slice(0, 50);
       res.json({
         import: { ...imp, original_filename: req.file.originalname },
         replaced: true,
         inserted: rowsToInsert.length,
+        skippedOutOfPeriod,
         flaggedMissedAppointmentsPaidInFull: (missedAppointmentsPaidInFull || []).length,
         createdUsers,
         unmatchedProvidersSample: unmatched.map((u) => u.providerName)
