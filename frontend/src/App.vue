@@ -2536,8 +2536,16 @@ const loadNavActiveSeason = async () => {
   }
 };
 
-// Global loading overlay (tracks API calls + navigation + icon preloads)
-const pageLoading = ref(true);
+function routeLooksLikePublicIntake(r) {
+  const name = String(r?.name || '');
+  if (name === 'PublicIntakeSigning' || name === 'PublicIntakeSigningShort') return true;
+  const path = String(r?.path || '');
+  return /^\/intake\//.test(path) || /^\/i\//.test(path);
+}
+
+// Global loading overlay (tracks API calls + navigation + icon preloads).
+// Public intake covers have their own layout — do not start with the ITSCO overlay.
+const pageLoading = ref(!routeLooksLikePublicIntake(route));
 const loadingText = getLoadingTextRef();
 let loadingStartedAt = 0;
 /** Only show overlay after continuous load — avoids flash storms from brief nav/API pulses. */
@@ -2708,10 +2716,30 @@ function suppressSchoolPortalFullscreenLoader() {
   pageLoading.value = false;
 }
 
+const isPublicIntakeRoute = computed(() => routeLooksLikePublicIntake(route));
+
+function suppressPublicIntakeFullscreenLoader() {
+  if (!isPublicIntakeRoute.value) return;
+  if (loaderShowTimer) {
+    clearTimeout(loaderShowTimer);
+    loaderShowTimer = null;
+  }
+  if (loaderHideTimer) {
+    clearTimeout(loaderHideTimer);
+    loaderHideTimer = null;
+  }
+  pageLoading.value = false;
+}
+if (isPublicIntakeRoute.value) suppressPublicIntakeFullscreenLoader();
+
 function syncPageLoading(isOn) {
   try {
     if (isSchoolPortalShellActive.value) {
       suppressSchoolPortalFullscreenLoader();
+      return;
+    }
+    if (isPublicIntakeRoute.value) {
+      suppressPublicIntakeFullscreenLoader();
       return;
     }
     if (isOn) {
@@ -2760,6 +2788,9 @@ function syncPageLoading(isOn) {
 watch(globalLoading, syncPageLoading);
 watch(isSchoolPortalShellActive, (active) => {
   if (active) suppressSchoolPortalFullscreenLoader();
+});
+watch(isPublicIntakeRoute, (active) => {
+  if (active) suppressPublicIntakeFullscreenLoader();
 });
 
 // HQ surface swaps (tickets ↔ command center): use fullscreenloadplatform.mp4.

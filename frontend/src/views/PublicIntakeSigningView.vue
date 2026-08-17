@@ -55,7 +55,7 @@
         {{ isOfficeInDepthIntake && step === 0.5 ? t('backToWelcome') : t('back') }}
       </button>
       <button
-        v-if="!isOfficeInDepthIntake && (step === 1 || step === 2)"
+        v-if="!loading && !isOfficeInDepthIntake && (step === 1 || step === 2)"
         type="button"
         class="df-btn df-btn-secondary intake-save-later-btn"
         @click="saveAndComeBackLater"
@@ -203,7 +203,7 @@
               <button
                 class="btn btn-primary job-landing-start-btn"
                 type="button"
-                :disabled="(requiresCaptchaAtStart && (!showRecaptchaWidget || !captchaToken)) || consentLoading"
+                :disabled="loading || (requiresCaptchaAtStart && (!showRecaptchaWidget || !captchaToken)) || consentLoading"
                 @click="beginIntakeSession"
               >
                 <span>{{ jobLandingStartButtonText }}</span>
@@ -262,7 +262,7 @@
 
           <DigitalFormActions
             :primary-label="beginIntakeButtonText"
-            :primary-disabled="(requiresCaptchaAtStart && (!showRecaptchaWidget || !captchaToken)) || consentLoading"
+            :primary-disabled="loading || (requiresCaptchaAtStart && (!showRecaptchaWidget || !captchaToken)) || consentLoading"
             :hint="t('pressEnterToContinue')"
             @primary="beginIntakeSession"
           />
@@ -348,20 +348,20 @@
                 <button
                   type="button"
                   class="ai-pathway-card"
-                  :class="{ 'ai-pathway-card--selected': intakeForSelf === true }"
-                  @click="chooseWhoFor(true)"
-                >
-                  <span class="intake-who-icon" aria-hidden="true">👤</span>
-                  <h3 class="ai-pathway-card-title">{{ t('myself') }}</h3>
-                </button>
-                <button
-                  type="button"
-                  class="ai-pathway-card"
                   :class="{ 'ai-pathway-card--selected': intakeForSelf === false }"
                   @click="chooseWhoFor(false)"
                 >
                   <span class="intake-who-icon" aria-hidden="true">👨‍👩‍👧</span>
                   <h3 class="ai-pathway-card-title">{{ t('myChildDependent') }}</h3>
+                </button>
+                <button
+                  type="button"
+                  class="ai-pathway-card"
+                  :class="{ 'ai-pathway-card--selected': intakeForSelf === true }"
+                  @click="chooseWhoFor(true)"
+                >
+                  <span class="intake-who-icon" aria-hidden="true">👤</span>
+                  <h3 class="ai-pathway-card-title">{{ t('myself') }}</h3>
                 </button>
               </div>
             </section>
@@ -656,18 +656,18 @@
           <h3 class="df-section-title">{{ t('whoIsIntakeFor') }}</h3>
           <div class="df-choice-grid">
             <DigitalFormSelectionCard
-              :title="t('myself')"
-              :description="t('completingForMyself')"
-              icon="👤"
-              :selected="intakeForSelf === true"
-              @select="intakeForSelf = true"
-            />
-            <DigitalFormSelectionCard
               :title="t('myDependents')"
               :description="t('completingForDependents')"
               icon="👨‍👩‍👧"
               :selected="intakeForSelf === false"
               @select="intakeForSelf = false"
+            />
+            <DigitalFormSelectionCard
+              :title="t('myself')"
+              :description="t('completingForMyself')"
+              icon="👤"
+              :selected="intakeForSelf === true"
+              @select="intakeForSelf = true"
             />
           </div>
         </div>
@@ -3518,7 +3518,7 @@ const authStore = useAuthStore();
 // Keep link initialized before any computed/translation helpers that read link.value.
 // Prevents TDZ crashes in production minified bundles.
 const link = ref(null);
-const step = ref(1);
+const step = ref(-1);
 const inPageLocale = ref('en');
 const userChoseLocale = ref(false);
 const SCHOOL_ON_ABOUT_KEYS = new Set(['child_school', 'child_grade', 'school_name', 'school_grade']);
@@ -3682,7 +3682,10 @@ const canBypassIntakeRequired = computed(() => {
 const isAssistedIntakeSession = computed(() => canBypassIntakeRequired.value);
 
 const showFullPageLoading = computed(() =>
-  loading.value && !looksLikeOfficeIntake.value && !fatalError.value
+  loading.value
+  && !looksLikeOfficeIntake.value
+  && !fatalError.value
+  && Number(step.value) >= 1
 );
 
 const storesPhiInBrowser = computed(() => false);
@@ -4185,9 +4188,9 @@ const WHO_FOR_STEP = 0.5;
 function goToFirstFormStep() {
   step.value = asksWhoFor.value ? WHO_FOR_STEP : 1;
   // Office in-depth start must stay unselected so Who is this for stays on screen
-  // until the person chooses. Only collapse that block after "my dependent".
-  if (asksWhoFor.value && intakeForSelf.value === null && !isOfficeInDepthIntake.value) {
-    intakeForSelf.value = true;
+  // until the person chooses. School packets default to dependents.
+  if (intakeForSelf.value === null && !isOfficeInDepthIntake.value && !isJobApplication.value && !isMedicalRecordsRequest.value) {
+    intakeForSelf.value = false;
   }
 }
 const beginIntakeButtonText = computed(() => {
@@ -4712,7 +4715,10 @@ const officeStart = useOfficeIntakeStartEditor({
 provide('officeIntakeStart', officeStart);
 
 const officeScenicSidebarUrl = computed(() => {
+  // Do not paint the office mountain theme until we know this is office intake.
+  // School packets were flashing that scenic layout while the link loaded.
   if (isSchoolScopedIntake.value) return '';
+  if (!isOfficeInDepthIntake.value && !looksLikeOfficeIntake.value) return '';
   if (link.value && !isOfficeInDepthIntake.value) return '';
   const slug = String(referralAgencySlug.value || agencyInfo.value?.portal_url || agencyInfo.value?.slug || '').trim();
   if (isOfficeInDepthIntake.value && Number(step.value) > WHO_FOR_STEP) {
@@ -8337,6 +8343,12 @@ const loadLink = async () => {
     if (String(link.value?.form_type || '').toLowerCase() === 'job_application') {
       intakeForSelf.value = true;
       jobDescriptionAcknowledged.value = false;
+    } else if (
+      intakeForSelf.value === null
+      && !isOfficeInDepthIntake.value
+      && String(link.value?.form_type || '').toLowerCase() !== 'medical_records_request'
+    ) {
+      intakeForSelf.value = false;
     }
     if (boundClient.value?.id) {
       const nameParts = splitClientName(boundClient.value.full_name);
@@ -11824,6 +11836,7 @@ async function createIntakeSession() {
 }
 
 const beginIntakeSession = async () => {
+  if (loading.value || !link.value) return;
   consentLoading.value = true;
   try {
     beginError.value = '';
@@ -11951,7 +11964,11 @@ onMounted(async () => {
       await maybeInitRecaptchaForCover();
       return;
     }
-    if (!looksLikeOfficeIntake.value) step.value = -1;
+    if (isOfficeInDepthIntake.value || looksLikeOfficeIntake.value) {
+      goToFirstFormStep();
+    } else {
+      step.value = -1;
+    }
     await maybeInitRecaptchaForCover();
     return;
   }

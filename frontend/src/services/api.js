@@ -158,7 +158,9 @@ api.interceptors.request.use(
       const url = String(config?.url || '');
       const isSchoolPortalApi =
         url.includes('/school-portal/') || url.startsWith('school-portal/');
-      if (!config?.skipGlobalLoading && (isSchoolPortalShellActive.value || isSchoolPortalApi)) {
+      const isPublicIntakeApi =
+        url.includes('/public-intake/') || url.startsWith('public-intake/');
+      if (!config?.skipGlobalLoading && (isSchoolPortalShellActive.value || isSchoolPortalApi || isPublicIntakeApi)) {
         config.skipGlobalLoading = true;
       }
       if (!config?.skipGlobalLoading) {
