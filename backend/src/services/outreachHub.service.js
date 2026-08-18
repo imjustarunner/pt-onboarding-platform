@@ -15,7 +15,9 @@ import {
   canAutoPartnerDistrict,
   haversineMiles,
   schoolMapPoint,
-  formatOutreachAddressLine
+  formatOutreachAddressLine,
+  rankSchoolsBetweenAnchors,
+  stopColorForOrder
 } from '../utils/outreachHubPure.js';
 import {
   isUniquePrefixSchoolMatch,
@@ -297,9 +299,25 @@ export async function listOutreachSchools(agencyId, filters = {}) {
   const level = String(filters.level || '').trim().toLowerCase();
   const q = String(filters.q || '').trim();
   const needsAddress = String(filters.needsAddress || filters.address || '').trim().toLowerCase();
+  const charterOnly = filters.charterOnly === true
+    || filters.charterOnly === 1
+    || filters.charterOnly === '1'
+    || filters.charterOnly === 'true'
+    || String(filters.charter || '').trim().toLowerCase() === '1'
+    || String(filters.charter || '').trim().toLowerCase() === 'true';
   if (district) {
-    where.push('s.district_name = ?');
-    params.push(district);
+    // D11 + charter: include CSI/"Charter" campuses in Colorado Springs alongside D11
+    const isD11 = /colorado springs school district 11/i.test(district);
+    if (isD11 && charterOnly) {
+      where.push(`(
+        s.district_name = ?
+        OR (s.district_name = 'Charter' AND LOWER(COALESCE(s.city, '')) = 'colorado springs' AND s.is_charter = 1)
+      )`);
+      params.push(district);
+    } else {
+      where.push('s.district_name = ?');
+      params.push(district);
+    }
   }
   if (stage && isValidOutreachStage(stage)) {
     where.push('s.outreach_stage = ?');
@@ -308,6 +326,9 @@ export async function listOutreachSchools(agencyId, filters = {}) {
   if (level) {
     where.push('s.school_level = ?');
     params.push(level);
+  }
+  if (charterOnly) {
+    where.push('s.is_charter = 1');
   }
   if (needsAddress === 'missing' || needsAddress === '1' || needsAddress === 'true') {
     where.push("(s.address IS NULL OR s.address = '' OR s.address NOT REGEXP '[0-9]' OR s.address_status = 'missing')");
@@ -353,9 +374,25 @@ async function queryOutreachSchoolRows(agencyId, filters = {}) {
   const level = String(filters.level || '').trim().toLowerCase();
   const q = String(filters.q || '').trim();
   const needsAddress = String(filters.needsAddress || filters.address || '').trim().toLowerCase();
+  const charterOnly = filters.charterOnly === true
+    || filters.charterOnly === 1
+    || filters.charterOnly === '1'
+    || filters.charterOnly === 'true'
+    || String(filters.charter || '').trim().toLowerCase() === '1'
+    || String(filters.charter || '').trim().toLowerCase() === 'true';
   if (district) {
-    where.push('s.district_name = ?');
-    params.push(district);
+    // D11 + charter: include CSI/"Charter" campuses in Colorado Springs alongside D11
+    const isD11 = /colorado springs school district 11/i.test(district);
+    if (isD11 && charterOnly) {
+      where.push(`(
+        s.district_name = ?
+        OR (s.district_name = 'Charter' AND LOWER(COALESCE(s.city, '')) = 'colorado springs' AND s.is_charter = 1)
+      )`);
+      params.push(district);
+    } else {
+      where.push('s.district_name = ?');
+      params.push(district);
+    }
   }
   if (stage && isValidOutreachStage(stage)) {
     where.push('s.outreach_stage = ?');
@@ -364,6 +401,9 @@ async function queryOutreachSchoolRows(agencyId, filters = {}) {
   if (level) {
     where.push('s.school_level = ?');
     params.push(level);
+  }
+  if (charterOnly) {
+    where.push('s.is_charter = 1');
   }
   if (needsAddress === 'missing' || needsAddress === '1' || needsAddress === 'true') {
     where.push("(s.address IS NULL OR s.address = '' OR s.address NOT REGEXP '[0-9]' OR s.address_status = 'missing')");
@@ -544,31 +584,74 @@ export async function getOutreachSchool(agencyId, schoolId) {
   );
   const school = rows?.[0] ? mapSchoolRow(rows[0]) : null;
   if (!school) return null;
-  const [acts] = await pool.execute(
-    `SELECT
-       a.id, a.contact_type, a.activity_at, a.summary, a.notes, a.created_at,
-       a.created_by_user_id,
-       TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS created_by_name
-     FROM outreach_activities a
-     LEFT JOIN users u ON u.id = a.created_by_user_id
-     WHERE a.outreach_school_id = ?
-     ORDER BY a.activity_at DESC, a.id DESC`,
-    [schoolId]
-  );
+  let acts = [];
+  try {
+    const [actRows] = await pool.execute(
+      `SELECT
+         a.id, a.contact_type, a.activity_at, a.summary, a.notes, a.created_at,
+         a.created_by_user_id, a.trip_id, a.trip_stop_id,
+         t.title AS trip_title,
+         ts.stop_color, ts.stop_order,
+         TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS created_by_name
+       FROM outreach_activities a
+       LEFT JOIN users u ON u.id = a.created_by_user_id
+       LEFT JOIN outreach_trips t ON t.id = a.trip_id
+       LEFT JOIN outreach_trip_stops ts ON ts.id = a.trip_stop_id
+       WHERE a.outreach_school_id = ?
+       ORDER BY a.activity_at DESC, a.id DESC`,
+      [schoolId]
+    );
+    acts = actRows || [];
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    const [actRows] = await pool.execute(
+      `SELECT
+         a.id, a.contact_type, a.activity_at, a.summary, a.notes, a.created_at,
+         a.created_by_user_id,
+         TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS created_by_name
+       FROM outreach_activities a
+       LEFT JOIN users u ON u.id = a.created_by_user_id
+       WHERE a.outreach_school_id = ?
+       ORDER BY a.activity_at DESC, a.id DESC`,
+      [schoolId]
+    );
+    acts = actRows || [];
+  }
   let notes = [];
   let contacts = [];
   try {
-    const [noteRows] = await pool.execute(
-      `SELECT
-         n.id, n.body, n.created_at, n.created_by_user_id,
-         TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS created_by_name
-       FROM outreach_school_notes n
-       LEFT JOIN users u ON u.id = n.created_by_user_id
-       WHERE n.outreach_school_id = ?
-       ORDER BY n.created_at DESC, n.id DESC`,
-      [schoolId]
-    );
-    notes = noteRows || [];
+    try {
+      const [noteRows] = await pool.execute(
+        `SELECT
+           n.id, n.body, n.created_at, n.created_by_user_id,
+           n.note_kind, n.trip_id, n.trip_stop_id, n.contact_id,
+           n.spoken_with_name, n.follow_up_at,
+           t.title AS trip_title,
+           ts.stop_color, ts.stop_order,
+           TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS created_by_name
+         FROM outreach_school_notes n
+         LEFT JOIN users u ON u.id = n.created_by_user_id
+         LEFT JOIN outreach_trips t ON t.id = n.trip_id
+         LEFT JOIN outreach_trip_stops ts ON ts.id = n.trip_stop_id
+         WHERE n.outreach_school_id = ?
+         ORDER BY n.created_at DESC, n.id DESC`,
+        [schoolId]
+      );
+      notes = noteRows || [];
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [noteRows] = await pool.execute(
+        `SELECT
+           n.id, n.body, n.created_at, n.created_by_user_id,
+           TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS created_by_name
+         FROM outreach_school_notes n
+         LEFT JOIN users u ON u.id = n.created_by_user_id
+         WHERE n.outreach_school_id = ?
+         ORDER BY n.created_at DESC, n.id DESC`,
+        [schoolId]
+      );
+      notes = (noteRows || []).map((n) => ({ ...n, note_kind: 'general' }));
+    }
     const [contactRows] = await pool.execute(
       `SELECT * FROM outreach_school_contacts
        WHERE outreach_school_id = ?
@@ -579,7 +662,92 @@ export async function getOutreachSchool(agencyId, schoolId) {
   } catch (e) {
     if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
   }
-  return { ...school, activities: acts || [], notes, contacts };
+
+  let taskFeed = [];
+  try {
+    const [taskRows] = await pool.execute(
+      `SELECT t.id, t.title, t.status, t.due_date, t.created_at, t.urgency,
+              t.outreach_trip_id AS trip_id,
+              ot.title AS trip_title,
+              TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS created_by_name
+       FROM tasks t
+       LEFT JOIN users u ON u.id = t.assigned_by_user_id
+       LEFT JOIN outreach_trips ot ON ot.id = t.outreach_trip_id
+       WHERE t.assigned_to_agency_id = ?
+         AND t.outreach_school_id = ?
+       ORDER BY t.created_at DESC
+       LIMIT 50`,
+      [agencyId, schoolId]
+    );
+    taskFeed = taskRows || [];
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+  }
+
+  const feed = buildSchoolActivityFeed({ activities: acts, notes, tasks: taskFeed });
+  return { ...school, activities: acts || [], notes, contacts, feed };
+}
+
+function buildSchoolActivityFeed({ activities = [], notes = [], tasks = [] } = {}) {
+  const items = [];
+  for (const a of activities || []) {
+    items.push({
+      id: `act-${a.id}`,
+      entry_type: 'contact',
+      contact_type: a.contact_type,
+      title: a.summary || a.contact_type,
+      body: a.notes || null,
+      occurred_at: a.activity_at || a.created_at,
+      created_by_name: a.created_by_name || null,
+      trip_id: a.trip_id != null ? Number(a.trip_id) : null,
+      trip_title: a.trip_title || null,
+      trip_stop_id: a.trip_stop_id != null ? Number(a.trip_stop_id) : null,
+      stop_color: a.stop_color || (a.stop_order != null ? stopColorForOrder(Number(a.stop_order) - 1) : null)
+    });
+  }
+  for (const n of notes || []) {
+    const kind = String(n.note_kind || 'general');
+    items.push({
+      id: `note-${n.id}`,
+      entry_type: kind === 'conversation' ? 'conversation' : kind === 'follow_up' ? 'follow_up' : 'note',
+      note_kind: kind,
+      title: kind === 'follow_up'
+        ? (n.follow_up_at ? `Follow-up · ${String(n.follow_up_at).slice(0, 10)}` : 'Follow-up')
+        : kind === 'conversation'
+          ? (n.spoken_with_name ? `Spoke with ${n.spoken_with_name}` : 'Conversation')
+          : 'Note',
+      body: n.body,
+      spoken_with_name: n.spoken_with_name || null,
+      follow_up_at: n.follow_up_at || null,
+      occurred_at: n.created_at,
+      created_by_name: n.created_by_name || null,
+      trip_id: n.trip_id != null ? Number(n.trip_id) : null,
+      trip_title: n.trip_title || null,
+      trip_stop_id: n.trip_stop_id != null ? Number(n.trip_stop_id) : null,
+      stop_color: n.stop_color || (n.stop_order != null ? stopColorForOrder(Number(n.stop_order) - 1) : null)
+    });
+  }
+  for (const t of tasks || []) {
+    items.push({
+      id: `task-${t.id}`,
+      entry_type: 'task',
+      title: t.title,
+      body: t.status === 'completed' ? 'Completed' : (t.due_date ? `Due ${String(t.due_date).slice(0, 10)}` : null),
+      occurred_at: t.created_at,
+      created_by_name: t.created_by_name || null,
+      trip_id: t.trip_id != null ? Number(t.trip_id) : null,
+      trip_title: t.trip_title || null,
+      stop_color: null,
+      task_status: t.status,
+      urgency: t.urgency
+    });
+  }
+  items.sort((a, b) => {
+    const ta = new Date(a.occurred_at || 0).getTime();
+    const tb = new Date(b.occurred_at || 0).getTime();
+    return tb - ta;
+  });
+  return items;
 }
 
 function parseGeminiJsonObject(text) {
@@ -748,20 +916,46 @@ export async function logOutreachActivity(agencyId, schoolId, payload, userId) {
     [agencyId, schoolId]
   );
   if (!own?.[0]) throw new Error('School not found');
-  const [result] = await pool.execute(
-    `INSERT INTO outreach_activities (
-       outreach_school_id, agency_id, contact_type, activity_at, summary, notes, created_by_user_id
-     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
-      schoolId,
-      agencyId,
-      type,
-      mysqlAt,
-      payload?.summary ? String(payload.summary).slice(0, 500) : null,
-      payload?.notes ? String(payload.notes) : null,
-      userId || null
-    ]
-  );
+  const tripId = payload?.trip_id || payload?.tripId ? Number(payload.trip_id || payload.tripId) : null;
+  const tripStopId = payload?.trip_stop_id || payload?.tripStopId
+    ? Number(payload.trip_stop_id || payload.tripStopId)
+    : null;
+  let result;
+  try {
+    [result] = await pool.execute(
+      `INSERT INTO outreach_activities (
+         outreach_school_id, agency_id, contact_type, activity_at, summary, notes,
+         created_by_user_id, trip_id, trip_stop_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        schoolId,
+        agencyId,
+        type,
+        mysqlAt,
+        payload?.summary ? String(payload.summary).slice(0, 500) : null,
+        payload?.notes ? String(payload.notes) : null,
+        userId || null,
+        tripId,
+        tripStopId
+      ]
+    );
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    [result] = await pool.execute(
+      `INSERT INTO outreach_activities (
+         outreach_school_id, agency_id, contact_type, activity_at, summary, notes, created_by_user_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        schoolId,
+        agencyId,
+        type,
+        mysqlAt,
+        payload?.summary ? String(payload.summary).slice(0, 500) : null,
+        payload?.notes ? String(payload.notes) : null,
+        userId || null
+      ]
+    );
+  }
   await pool.execute(
     `UPDATE outreach_schools
      SET last_contact_at = GREATEST(COALESCE(last_contact_at, '1970-01-01'), ?)
@@ -1012,16 +1206,89 @@ function mysqlDateTime(value) {
   return d.toISOString().slice(0, 19).replace('T', ' ');
 }
 
-export async function addOutreachSchoolNote(agencyId, schoolId, body, userId) {
-  const text = String(body || '').trim();
+export async function addOutreachSchoolNote(agencyId, schoolId, bodyOrPayload, userId) {
+  const payload = bodyOrPayload && typeof bodyOrPayload === 'object' && !Array.isArray(bodyOrPayload)
+    ? bodyOrPayload
+    : { body: bodyOrPayload };
+  const text = String(payload.body || payload.notes || '').trim();
   if (!text) throw new Error('Note text is required');
   const school = await getOutreachSchool(agencyId, schoolId);
   if (!school) throw new Error('School not found');
-  await pool.execute(
-    `INSERT INTO outreach_school_notes (outreach_school_id, agency_id, body, created_by_user_id)
-     VALUES (?, ?, ?, ?)`,
-    [schoolId, agencyId, text.slice(0, 8000), userId || null]
-  );
+
+  const noteKindRaw = String(payload.note_kind || payload.noteKind || 'general').trim().toLowerCase();
+  const noteKind = ['general', 'conversation', 'follow_up'].includes(noteKindRaw) ? noteKindRaw : 'general';
+  const tripId = payload.trip_id || payload.tripId ? Number(payload.trip_id || payload.tripId) : null;
+  const tripStopId = payload.trip_stop_id || payload.tripStopId
+    ? Number(payload.trip_stop_id || payload.tripStopId)
+    : null;
+  let contactId = payload.contact_id || payload.contactId
+    ? Number(payload.contact_id || payload.contactId)
+    : null;
+  let spokenWith = String(payload.spoken_with_name || payload.spokenWithName || '').trim() || null;
+  const followUpAt = payload.follow_up_at || payload.followUpAt
+    ? String(payload.follow_up_at || payload.followUpAt).slice(0, 10)
+    : null;
+
+  // Conversation: create contact from typed name if needed
+  if (noteKind === 'conversation' && spokenWith && !contactId) {
+    const existing = (school.contacts || []).find(
+      (c) => String(c.full_name || '').trim().toLowerCase() === spokenWith.toLowerCase()
+    );
+    if (existing) {
+      contactId = Number(existing.id);
+    } else {
+      const updated = await addOutreachSchoolContact(agencyId, schoolId, {
+        full_name: spokenWith,
+        title: payload.contact_title || payload.contactTitle || null,
+        email: payload.contact_email || payload.contactEmail || null,
+        phone: payload.contact_phone || payload.contactPhone || null,
+        is_primary: false
+      }, userId);
+      const created = (updated?.contacts || []).find(
+        (c) => String(c.full_name || '').trim().toLowerCase() === spokenWith.toLowerCase()
+      );
+      contactId = created?.id ? Number(created.id) : null;
+    }
+  }
+
+  try {
+    await pool.execute(
+      `INSERT INTO outreach_school_notes (
+         outreach_school_id, agency_id, body, created_by_user_id,
+         note_kind, trip_id, trip_stop_id, contact_id, spoken_with_name, follow_up_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        schoolId,
+        agencyId,
+        text.slice(0, 8000),
+        userId || null,
+        noteKind,
+        tripId,
+        tripStopId,
+        contactId,
+        spokenWith,
+        followUpAt
+      ]
+    );
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    await pool.execute(
+      `INSERT INTO outreach_school_notes (outreach_school_id, agency_id, body, created_by_user_id)
+       VALUES (?, ?, ?, ?)`,
+      [schoolId, agencyId, text.slice(0, 8000), userId || null]
+    );
+  }
+
+  if (noteKind === 'follow_up' && followUpAt) {
+    await pool.execute(
+      `UPDATE outreach_schools
+       SET next_follow_up_at = ?,
+           outreach_stage = IF(outreach_stage = 'partnered', outreach_stage, 'follow_up_needed')
+       WHERE id = ? AND agency_id = ?`,
+      [followUpAt, schoolId, agencyId]
+    );
+  }
+
   return getOutreachSchool(agencyId, schoolId);
 }
 
@@ -1394,13 +1661,43 @@ export async function importHistoricalOutreachRows(agencyId, rows = [], userId, 
   return { contactsAdded, notesAdded, visitsAdded, dryRun: !!dryRun, results };
 }
 
-export async function rankSchoolsFromOrigin(agencyId, { originSchoolId = null, excludeIds = [] } = {}) {
-  const schools = await queryOutreachSchoolRows(agencyId, {});
-  const origin = originSchoolId
-    ? schoolMapPoint(schools.find((s) => Number(s.id) === Number(originSchoolId)))
-    : { lat: WINDCHIME_ORIGIN.lat, lng: WINDCHIME_ORIGIN.lng, approx: false };
+export async function rankSchoolsFromOrigin(agencyId, {
+  originSchoolId = null,
+  secondSchoolId = null,
+  excludeIds = [],
+  charterOnly = false
+} = {}) {
+  const schools = await queryOutreachSchoolRows(agencyId, { charterOnly: !!charterOnly });
   const skip = new Set((excludeIds || []).map((id) => Number(id)));
   if (originSchoolId) skip.add(Number(originSchoolId));
+  if (secondSchoolId) skip.add(Number(secondSchoolId));
+
+  // Closest-to-both: rank by detour extra miles between two anchors
+  if (originSchoolId && secondSchoolId) {
+    const schoolA = schools.find((s) => Number(s.id) === Number(originSchoolId))
+      || (await queryOutreachSchoolRows(agencyId, {})).find((s) => Number(s.id) === Number(originSchoolId));
+    const schoolB = schools.find((s) => Number(s.id) === Number(secondSchoolId))
+      || (await queryOutreachSchoolRows(agencyId, {})).find((s) => Number(s.id) === Number(secondSchoolId));
+    const pointA = schoolMapPoint(schoolA);
+    const pointB = schoolMapPoint(schoolB);
+    const ranked = rankSchoolsBetweenAnchors(schools, pointA, pointB, { excludeIds: [...skip] });
+    return {
+      origin: {
+        type: 'between',
+        school_id: Number(originSchoolId),
+        second_school_id: Number(secondSchoolId),
+        school_a_name: schoolA?.name || null,
+        school_b_name: schoolB?.name || null
+      },
+      mode: 'closest_to_both',
+      schools: ranked
+    };
+  }
+
+  const origin = originSchoolId
+    ? schoolMapPoint(schools.find((s) => Number(s.id) === Number(originSchoolId))
+      || (await queryOutreachSchoolRows(agencyId, {})).find((s) => Number(s.id) === Number(originSchoolId)))
+    : { lat: WINDCHIME_ORIGIN.lat, lng: WINDCHIME_ORIGIN.lng, approx: false };
   const ranked = schools
     .filter((s) => !skip.has(Number(s.id)))
     .map((s) => {
@@ -1422,6 +1719,7 @@ export async function rankSchoolsFromOrigin(agencyId, { originSchoolId = null, e
     origin: originSchoolId
       ? { type: 'school', school_id: Number(originSchoolId) }
       : { type: 'windchime', ...WINDCHIME_ORIGIN },
+    mode: 'from_origin',
     schools: ranked
   };
 }
@@ -1458,10 +1756,21 @@ async function enrichDrivingDistances(origin, ranked) {
   }
 }
 
-export async function previewTripStops(agencyId, { originSchoolId = null, excludeIds = [], useDriving = false } = {}) {
+export async function previewTripStops(agencyId, {
+  originSchoolId = null,
+  secondSchoolId = null,
+  excludeIds = [],
+  useDriving = false,
+  charterOnly = false
+} = {}) {
   const geo = await backfillOutreachSchoolGeocodes(agencyId, { limit: 40 });
-  const ranked = await rankSchoolsFromOrigin(agencyId, { originSchoolId, excludeIds });
-  if (!useDriving) {
+  const ranked = await rankSchoolsFromOrigin(agencyId, {
+    originSchoolId,
+    secondSchoolId,
+    excludeIds,
+    charterOnly
+  });
+  if (!useDriving || ranked.mode === 'closest_to_both') {
     return { ...ranked, geocode_remaining: geo.remaining };
   }
   const origin = originSchoolId
@@ -1488,7 +1797,8 @@ function mapTripRow(row, stops = [], participants = []) {
     lng: s.lng != null ? Number(s.lng) : null,
     attendance_status: s.attendance_status || 'pending',
     attendance_notes: s.attendance_notes || null,
-    attended_at: s.attended_at || null
+    attended_at: s.attended_at || null,
+    stop_color: s.stop_color || stopColorForOrder(Math.max(0, Number(s.stop_order || 1) - 1))
   }));
   return {
     id: Number(row.id),
@@ -1572,11 +1882,21 @@ export async function createOutreachTrip(agencyId, payload, userId) {
     const school = byId.get(Number(sid));
     const pt = schoolMapPoint(school);
     const miles = prev && pt ? haversineMiles(prev, pt) : null;
-    await pool.execute(
-      `INSERT INTO outreach_trip_stops (trip_id, outreach_school_id, stop_order, miles_from_prev)
-       VALUES (?, ?, ?, ?)`,
-      [tripId, sid, order, miles]
-    );
+    const color = stopColorForOrder(order - 1);
+    try {
+      await pool.execute(
+        `INSERT INTO outreach_trip_stops (trip_id, outreach_school_id, stop_order, miles_from_prev, stop_color)
+         VALUES (?, ?, ?, ?, ?)`,
+        [tripId, sid, order, miles, color]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      await pool.execute(
+        `INSERT INTO outreach_trip_stops (trip_id, outreach_school_id, stop_order, miles_from_prev)
+         VALUES (?, ?, ?, ?)`,
+        [tripId, sid, order, miles]
+      );
+    }
     prev = pt || prev;
     order += 1;
   }
@@ -1596,7 +1916,115 @@ export async function createOutreachTrip(agencyId, payload, userId) {
       ]
     );
   }
-  return getOutreachTrip(agencyId, tripId);
+  const trip = await getOutreachTrip(agencyId, tripId);
+  await syncOutreachTripCalendarEvents(agencyId, trip, userId);
+  return trip;
+}
+
+/**
+ * Create/update OUTREACH_TRIP provider_schedule_events for each participant with a user_id.
+ */
+export async function syncOutreachTripCalendarEvents(agencyId, trip, actorUserId = null) {
+  if (!trip?.id) return;
+  const plannedDate = trip.planned_date ? String(trip.planned_date).slice(0, 10) : null;
+  const stopCount = (trip.stops || []).length;
+  const title = String(trip.title || `Outreach trip: ${stopCount} stop${stopCount === 1 ? '' : 's'}`).slice(0, 200);
+  const description = [
+    `${stopCount} school stop${stopCount === 1 ? '' : 's'}`,
+    ...(trip.stops || []).slice(0, 12).map((s, i) => `${i + 1}. ${s.school_name || s.name || 'School'}`),
+    trip.notes ? `\n${trip.notes}` : '',
+    `\nOpen in Outreach Hub`
+  ].filter(Boolean).join('\n');
+
+  // Cancel existing events if trip cancelled
+  if (trip.status === 'cancelled') {
+    try {
+      await pool.execute(
+        `UPDATE provider_schedule_events
+         SET status = 'CANCELLED', updated_by_user_id = ?
+         WHERE outreach_trip_id = ? AND agency_id = ? AND status = 'ACTIVE'`,
+        [actorUserId || null, trip.id, agencyId]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') console.warn('[outreachHub] cancel calendar events', e?.message);
+    }
+    return;
+  }
+
+  if (!plannedDate) return;
+
+  const participants = (trip.participants || []).filter((p) => Number(p.user_id || p.userId || 0) > 0);
+  for (const p of participants) {
+    const providerId = Number(p.user_id || p.userId);
+    const startTime = p.start_time || p.startTime;
+    const endTime = p.end_time || p.endTime;
+    const allDay = !startTime;
+    let startAt = null;
+    let endAt = null;
+    let startDate = plannedDate;
+    let endDate = plannedDate;
+    if (startTime) {
+      startAt = mysqlDateTime(startTime);
+      endAt = mysqlDateTime(endTime) || startAt;
+      startDate = null;
+      endDate = null;
+    }
+    try {
+      const [existing] = await pool.execute(
+        `SELECT id FROM provider_schedule_events
+         WHERE outreach_trip_id = ? AND provider_id = ? AND agency_id = ? AND status = 'ACTIVE'
+         LIMIT 1`,
+        [trip.id, providerId, agencyId]
+      );
+      if (existing?.[0]?.id) {
+        await pool.execute(
+          `UPDATE provider_schedule_events
+           SET title = ?, description = ?, all_day = ?, start_at = ?, end_at = ?,
+               start_date = ?, end_date = ?, updated_by_user_id = ?, kind = 'OUTREACH_TRIP'
+           WHERE id = ?`,
+          [
+            title,
+            description.slice(0, 4000),
+            allDay ? 1 : 0,
+            startAt,
+            endAt,
+            startDate,
+            endDate,
+            actorUserId || null,
+            existing[0].id
+          ]
+        );
+      } else {
+        await pool.execute(
+          `INSERT INTO provider_schedule_events (
+             agency_id, provider_id, kind, title, description, is_private, all_day,
+             start_at, end_at, start_date, end_date, status,
+             created_by_user_id, updated_by_user_id, outreach_trip_id
+           ) VALUES (?, ?, 'OUTREACH_TRIP', ?, ?, 0, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)`,
+          [
+            agencyId,
+            providerId,
+            title,
+            description.slice(0, 4000),
+            allDay ? 1 : 0,
+            startAt,
+            endAt,
+            startDate,
+            endDate,
+            actorUserId || null,
+            actorUserId || null,
+            trip.id
+          ]
+        );
+      }
+    } catch (e) {
+      if (e?.code === 'ER_BAD_FIELD_ERROR') {
+        console.warn('[outreachHub] outreach_trip_id column missing on provider_schedule_events — run migration 1239');
+      } else {
+        console.warn('[outreachHub] calendar sync skipped', e?.message);
+      }
+    }
+  }
 }
 
 export async function completeOutreachTrip(agencyId, tripId, payload, userId) {
@@ -1625,7 +2053,9 @@ export async function completeOutreachTrip(agencyId, tripId, payload, userId) {
     `UPDATE outreach_trips SET status = 'completed', completed_at = NOW(), notes = COALESCE(?, notes) WHERE id = ?`,
     [payload?.notes ? String(payload.notes) : null, tripId]
   );
-  return getOutreachTrip(agencyId, tripId);
+  const completed = await getOutreachTrip(agencyId, tripId);
+  await syncOutreachTripCalendarEvents(agencyId, completed, userId);
+  return completed;
 }
 
 export async function updateOutreachTripStopAttendance(agencyId, tripId, stopId, payload, userId) {
@@ -1656,7 +2086,9 @@ export async function updateOutreachTripStopAttendance(agencyId, tripId, stopId,
     await logOutreachActivity(agencyId, stop.outreach_school_id, {
       contact_type: 'visit',
       summary: `Campus visit${names ? ` with ${names}` : ''} (trip: ${trip.title})`,
-      notes: notes || trip.notes || `Trip stop ${stop.stop_order}`
+      notes: notes || trip.notes || `Trip stop ${stop.stop_order}`,
+      trip_id: trip.id,
+      trip_stop_id: stop.id
     }, userId);
   }
   return getOutreachTrip(agencyId, tripId);

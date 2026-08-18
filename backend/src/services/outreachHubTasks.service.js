@@ -184,7 +184,8 @@ export async function createOutreachSchoolTask({
   description = null,
   dueDate = null,
   assignedToUserId = null,
-  urgency = 'medium'
+  urgency = 'medium',
+  tripId = null
 } = {}) {
   const school = await getOutreachSchool(agencyId, schoolId);
   if (!school) {
@@ -205,6 +206,7 @@ export async function createOutreachSchoolTask({
   if (assignee) {
     await TaskListMember.add(list.id, assignee, 'editor');
   }
+  const oid = tripId ? Number(tripId) : null;
   const task = await Task.create({
     taskType: 'custom',
     title: titleStr,
@@ -220,6 +222,7 @@ export async function createOutreachSchoolTask({
     sourceRefId: String(schoolId),
     metadata: {
       outreachSchoolId: Number(schoolId),
+      outreachTripId: oid || null,
       schoolName: school.name,
       districtName: school.district_name || null,
       linkedOrganizationId: school.linked_organization_id || null
@@ -231,6 +234,16 @@ export async function createOutreachSchoolTask({
     actorUserId,
     school
   });
+  if (oid) {
+    try {
+      await pool.execute(
+        `UPDATE tasks SET outreach_trip_id = ? WHERE id = ?`,
+        [oid, task.id]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    }
+  }
   const rows = await listOutreachSchoolTasks(agencyId, schoolId);
   return rows.find((t) => Number(t.id) === Number(task.id)) || serializeOutreachTask(task);
 }

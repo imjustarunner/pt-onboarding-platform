@@ -52,6 +52,7 @@ export const listSchools = async (req, res, next) => {
       level: req.query.level,
       q: req.query.q,
       needsAddress: req.query.needsAddress || req.query.needs_address,
+      charterOnly: req.query.charterOnly === 'true' || req.query.charter === '1' || req.query.charter === 'true',
       sort: req.query.sort,
       sortDir: req.query.sortDir || req.query.sort_dir
     });
@@ -188,7 +189,8 @@ export const createSchoolTask = async (req, res, next) => {
       description: req.body?.description,
       dueDate: req.body?.dueDate || req.body?.due_date || null,
       assignedToUserId: req.body?.assignedToUserId ?? req.body?.assigned_to_user_id ?? null,
-      urgency: req.body?.urgency
+      urgency: req.body?.urgency,
+      tripId: req.body?.tripId || req.body?.trip_id || req.body?.outreachTripId || null
     });
     res.status(201).json({ task });
   } catch (err) {
@@ -247,7 +249,11 @@ export const addSchoolNote = async (req, res, next) => {
     const agencyId = agencyIdFrom(req);
     const schoolId = Number(req.params.id || 0);
     if (!agencyId || !schoolId) return res.status(400).json({ error: { message: 'agencyId and school id are required' } });
-    const school = await addOutreachSchoolNote(agencyId, schoolId, req.body?.body || req.body?.notes, req.user?.id);
+    const payload = {
+      ...(req.body || {}),
+      body: req.body?.body || req.body?.notes
+    };
+    const school = await addOutreachSchoolNote(agencyId, schoolId, payload, req.user?.id);
     res.status(201).json({ school });
   } catch (err) {
     handleServiceError(res, err);
@@ -276,8 +282,13 @@ export const previewTrip = async (req, res, next) => {
       : String(excludeRaw).split(',').map((s) => Number(s)).filter(Boolean);
     const data = await previewTripStops(agencyId, {
       originSchoolId: req.body?.originSchoolId || req.query?.originSchoolId || null,
+      secondSchoolId: req.body?.secondSchoolId || req.query?.secondSchoolId || null,
       excludeIds,
-      useDriving: req.body?.useDriving === true || req.query?.useDriving === 'true'
+      useDriving: req.body?.useDriving === true || req.query?.useDriving === 'true',
+      charterOnly: req.body?.charterOnly === true
+        || req.body?.charterOnly === 1
+        || req.query?.charterOnly === 'true'
+        || req.query?.charter === '1'
     });
     res.json(data);
   } catch (err) {

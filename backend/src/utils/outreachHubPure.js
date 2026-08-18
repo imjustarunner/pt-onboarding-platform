@@ -179,3 +179,93 @@ export function schoolMapPoint(school) {
   if (hit) return { ...hit, approx: true };
   return null;
 }
+
+/** Fixed palette for trip stop color-coding (cycles by stop order). */
+export const OUTREACH_STOP_COLORS = [
+  '#16a34a', // green
+  '#2563eb', // blue
+  '#7c3aed', // purple
+  '#ca8a04', // yellow/amber
+  '#ea580c', // orange
+  '#dc2626'  // red
+];
+
+export function stopColorForOrder(stopOrder) {
+  const idx = Math.max(0, Number(stopOrder) || 0) % OUTREACH_STOP_COLORS.length;
+  return OUTREACH_STOP_COLORS[idx];
+}
+
+/**
+ * Extra miles vs going A→B directly when inserting C between them.
+ * Lower is better (on the way). Null if any leg cannot be computed.
+ */
+export function detourExtraMiles(pointA, pointC, pointB) {
+  const ac = haversineMiles(pointA, pointC);
+  const cb = haversineMiles(pointC, pointB);
+  const ab = haversineMiles(pointA, pointB);
+  if (ac == null || cb == null || ab == null) return null;
+  return Math.round((ac + cb - ab) * 10) / 10;
+}
+
+/**
+ * Rank candidates by how little they add when inserted between A and B.
+ * Returns schools with miles_to_a, miles_to_b, extra_miles, miles_from_origin (= extra).
+ */
+export function rankSchoolsBetweenAnchors(schools, pointA, pointB, { excludeIds = [] } = {}) {
+  const skip = new Set((excludeIds || []).map((id) => Number(id)));
+  return (schools || [])
+    .filter((s) => !skip.has(Number(s.id)))
+    .map((s) => {
+      const pt = schoolMapPoint(s);
+      const milesToA = pointA && pt ? haversineMiles(pointA, pt) : null;
+      const milesToB = pointB && pt ? haversineMiles(pt, pointB) : null;
+      const extra = pointA && pointB && pt ? detourExtraMiles(pointA, pt, pointB) : null;
+      return {
+        ...s,
+        miles_to_a: milesToA,
+        miles_to_b: milesToB,
+        extra_miles: extra,
+        miles_from_origin: extra,
+        distance_approx: !!(pt?.approx)
+      };
+    })
+    .sort((a, b) => {
+      if (a.extra_miles == null && b.extra_miles == null) {
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      }
+      if (a.extra_miles == null) return 1;
+      if (b.extra_miles == null) return -1;
+      if (a.extra_miles !== b.extra_miles) return a.extra_miles - b.extra_miles;
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+}
+
+/**
+ * Find the best insert index (0..stops.length) for candidate between first and last
+ * anchors that least increases total route miles (Windchime → stops → Windchime ignored;
+ * only among consecutive pairs from firstStopIdx to lastStopIdx inclusive of the A→B segment).
+ * Prefer inserting strictly between first and last when possible.
+ */
+export function bestInsertIndexBetween(stops, candidate, firstIdx = 0, lastIdx = null) {
+  const list = Array.isArray(stops) ? stops : [];
+  const end = lastIdx == null ? Math.max(0, list.length - 1) : lastIdx;
+  const start = Math.max(0, Math.min(firstIdx, end));
+  const candPt = schoolMapPoint(candidate);
+  if (!candPt || list.length < 2 || start >= end) {
+    return Math.min(list.length, Math.max(1, end));
+  }
+  let bestIdx = start + 1;
+  let bestExtra = Infinity;
+  for (let i = start; i < end; i += 1) {
+    const a = schoolMapPoint(list[i]);
+    const b = schoolMapPoint(list[i + 1]);
+    if (!a || !b) continue;
+    const extra = detourExtraMiles(a, candPt, b);
+    if (extra == null) continue;
+    if (extra < bestExtra) {
+      bestExtra = extra;
+      bestIdx = i + 1;
+    }
+  }
+  return bestIdx;
+}

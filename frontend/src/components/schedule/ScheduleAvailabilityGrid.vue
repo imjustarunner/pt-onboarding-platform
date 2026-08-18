@@ -6378,6 +6378,7 @@ const peerTypedBlocksInCell = (uid, dayName, hour, ws, minute = 0) => {
       else if (kind === 'INDIRECT_SERVICES') { activityType = 'indirect'; title = title || 'Indirect'; }
       else if (kind === 'TEAM_MEETING') { activityType = 'team_meeting'; title = title || 'Team meeting'; }
       else if (kind === 'HUDDLE') { activityType = 'huddle'; title = title || 'Huddle'; }
+      else if (kind === 'OUTREACH_TRIP') { activityType = 'outreach_trip'; title = title || 'Outreach trip'; }
       else if (kind === 'PERSONAL_EVENT') {
         if (isClientSessionScheduleEvent(row)) {
           activityType = 'session';
@@ -24032,6 +24033,20 @@ const openAppointmentEditInScheduleModal = async ({
     || list[0];
 
   const targetKind = String(target?.eventKind || '').trim().toUpperCase();
+  const outreachTripId = Number(target?.outreachTripId || 0);
+  if (targetKind === 'OUTREACH_TRIP' && outreachTripId > 0) {
+    showRequestModal.value = false;
+    const slug = String(route.params?.organizationSlug || '').trim();
+    const path = slug
+      ? `/${slug}/admin/outreach-hub?trip=${outreachTripId}`
+      : `/admin/outreach-hub?trip=${outreachTripId}`;
+    try {
+      await router.push(path);
+    } catch {
+      window.location.assign(path);
+    }
+    return;
+  }
   const isMeetingView = targetKind === 'TEAM_MEETING' || targetKind === 'HUDDLE';
   // Attendees (and other non-editors) still get the shared meeting shell so Join / Info match the host UI.
   if (!isEditableScheduleStackItem(target) && !isMeetingView) {
@@ -24077,6 +24092,21 @@ const openAppointmentEditInScheduleModal = async ({
 const pickScheduleEventForEdit = async (item) => {
   if (!item) return;
   const kind = String(item?.eventKind || '').trim().toUpperCase();
+  const outreachTripId = Number(item?.outreachTripId || 0);
+  if (kind === 'OUTREACH_TRIP' && outreachTripId > 0) {
+    showRequestModal.value = false;
+    showStackDetailsModal.value = false;
+    const slug = String(route.params?.organizationSlug || '').trim();
+    const path = slug
+      ? `/${slug}/admin/outreach-hub?trip=${outreachTripId}`
+      : `/admin/outreach-hub?trip=${outreachTripId}`;
+    try {
+      await router.push(path);
+    } catch {
+      window.location.assign(path);
+    }
+    return;
+  }
   const isMeetingView = kind === 'TEAM_MEETING' || kind === 'HUDDLE';
   if (!isEditableScheduleStackItem(item) && !isMeetingView) {
     openStackDetailsModal({
@@ -24462,6 +24492,8 @@ const SCHEDULE_EVENT_KIND_LABELS = {
   DOCUMENTATION: 'Documentation',
   FALL_CHECKIN_PRESLOT: 'School visit pre-slot',
   FALL_CHECKIN_BOOKED: 'School visit',
+  OUTREACH_TRIP: 'Outreach trip',
+  SCHEDULE_HOLD: 'Schedule hold'
 };
 
 const scheduleKindLabel = (kindRaw, ev = null) => {
@@ -24643,6 +24675,7 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     meetLink: cancelled ? '' : (String(ev?.meetLink || '').trim() || ''),
     eventId: Number(ev?.id || 0) || null,
     eventKind: targetKind,
+    outreachTripId: Number(ev?.outreachTripId || ev?.outreach_trip_id || 0) || null,
     recurrenceSeriesId: String(ev?.recurrenceSeriesId || '').trim() || '',
     ...scheduleEventStackExtras(ev),
     ...overrides

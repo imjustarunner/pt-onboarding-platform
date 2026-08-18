@@ -44,7 +44,8 @@ const KIND_TITLES = {
   HUDDLE: 'Huddle',
   PERSONAL_EVENT: 'Session',
   SCHEDULE_HOLD: 'Schedule Hold',
-  SCHEDULE_HOLD_ALL_DAY: 'All-day Schedule Block'
+  SCHEDULE_HOLD_ALL_DAY: 'All-day Schedule Block',
+  OUTREACH_TRIP: 'Outreach Trip'
 };
 
 export function appointmentEditorTitleForKind(kind, { hideOfficeAndCalendarIntegration = false, kindLabel = '', allDay = false } = {}) {

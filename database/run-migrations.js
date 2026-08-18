@@ -262,6 +262,8 @@ async function runMigration(migrationFile, dryRun = false) {
       code === 'ER_DUP_FIELDNAME' || errno === 1060 || msg.includes('Duplicate column name') ||
       code === 'ER_DUP_KEYNAME' || errno === 1061 || msg.includes('Duplicate key name') ||
       code === 'ER_DUP_ENTRY' || errno === 1062 ||
+      // MySQL 8: ALTER TABLE ADD CONSTRAINT when the FK name already exists
+      code === 'ER_FK_DUP_NAME' || errno === 1826 || msg.includes('Duplicate foreign key constraint name') ||
       // MySQL: can't create table / already exists (should be rare if IF NOT EXISTS used)
       code === 'ER_TABLE_EXISTS_ERROR' || errno === 1050 || msg.includes('already exists')
     );

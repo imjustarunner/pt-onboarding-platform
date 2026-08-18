@@ -15,7 +15,7 @@ export const COLORADO_SPRINGS_OUTREACH_SCHOOLS = [
   { name: 'Mitchell High School', district: D11, city: 'Colorado Springs', level: 'high', ...loc('1205 Potter Dr, Colorado Springs, CO 80909', 38.8601, -104.7734) },
   { name: 'Odyssey Early College and Career Options', district: D11, city: 'Colorado Springs', level: 'high', ...loc('3205 N Academy Blvd, Colorado Springs, CO 80917', 38.8742, -104.7571) },
   { name: 'Tesla Educational Opportunity Academy', district: D11, city: 'Colorado Springs', level: 'high', ...loc('1250 N Chestnut St, Colorado Springs, CO 80905', 38.8489, -104.8288) },
-  { name: 'Community Prep School', district: D11, city: 'Colorado Springs', level: 'high', ...loc('1132 N Circle Dr, Colorado Springs, CO 80909', 38.8476, -104.7789) },
+  { name: 'Community Prep School', district: D11, city: 'Colorado Springs', level: 'high', isCharter: true, ...loc('1132 N Circle Dr, Colorado Springs, CO 80909', 38.8476, -104.7789) },
   { name: 'Galileo School of Math and Science', district: D11, city: 'Colorado Springs', level: 'middle', ...loc('1600 N Union Blvd, Colorado Springs, CO 80909', 38.8521, -104.7922) },
   { name: 'Holmes Middle School', district: D11, city: 'Colorado Springs', level: 'middle', ...loc('2105 N Circle Dr, Colorado Springs, CO 80909', 38.8624, -104.7784) },
   { name: 'Jenkins Middle School', district: D11, city: 'Colorado Springs', level: 'middle', ...loc('4225 E San Miguel St, Colorado Springs, CO 80909', 38.8567, -104.7568) },

@@ -88,6 +88,10 @@
           <option value="">All addresses</option>
           <option value="missing">Needs address</option>
         </select>
+        <label class="ohub-check ohub-filter-check">
+          <input v-model="filters.charterOnly" type="checkbox" @change="reload" />
+          Charter only
+        </label>
         <button v-if="hasFilters" type="button" class="btn-link" @click="clearFilters">Clear filters</button>
         <button type="button" class="btn-link" @click="showImport = !showImport">
           {{ showImport ? 'Hide import' : 'Import DPS history' }}
@@ -217,39 +221,41 @@
                 <strong>Start · Windchime (office)</strong>
                 <div class="ohub-muted">437 Windchime Place, Colorado Springs, CO 80919 · 0 mi</div>
               </li>
-              <li
-                v-for="(stop, idx) in openedTrip.stops || []"
-                :key="stop.id"
-                class="ohub-route-stop"
-                :class="{ selected: Number(selectedId) === Number(stop.outreach_school_id) }"
-              >
-                <button type="button" class="ohub-route-stop-btn" @click="selectSchool(stop.outreach_school_id)">
-                  <div class="ohub-route-stop-head">
-                    <strong>{{ idx + 1 }}. {{ stop.school_name }}</strong>
-                    <span class="ohub-stage sm" :class="stop.outreach_stage">{{ stageLabel(stop.outreach_stage) }}</span>
-                  </div>
-                  <div class="ohub-muted ohub-route-stop-meta">
-                    {{ shortDistrict(stop.district_name) }} · {{ levelLabel(stop.school_level) }}
-                    <template v-if="stop.miles_from_prev != null"> · {{ roundMiles(stop.miles_from_prev) }} mi from {{ idx === 0 ? 'office' : 'previous' }}</template>
-                  </div>
-                  <div class="ohub-muted ohub-route-stop-addr">{{ stop.address || stop.city }}</div>
-                </button>
-                <div class="ohub-attend">
-                  <span class="ohub-attend-label">This stop</span>
-                  <button
-                    v-for="opt in attendanceOptions"
-                    :key="`${stop.id}-${opt.id}`"
-                    type="button"
-                    class="ohub-attend-btn"
-                    :class="{ on: stop.attendance_status === opt.id }"
-                    :disabled="tripSaving || openedTrip.status === 'completed'"
-                    @click="setStopAttendance(stop, opt.id)"
-                  >{{ opt.label }}</button>
+            <li
+              v-for="(stop, idx) in openedTrip.stops || []"
+              :key="stop.id"
+              class="ohub-route-stop"
+              :class="{ selected: Number(selectedId) === Number(stop.outreach_school_id) }"
+              :style="stopAccentStyle(stop, idx)"
+            >
+              <button type="button" class="ohub-route-stop-btn" @click="selectTripStop(stop)">
+                <div class="ohub-route-stop-head">
+                  <span class="ohub-stop-dot" :style="{ background: stopColorAt(idx, stop) }" />
+                  <strong>{{ idx + 1 }}. {{ stop.school_name }}</strong>
+                  <span class="ohub-stage sm" :class="stop.outreach_stage">{{ stageLabel(stop.outreach_stage) }}</span>
                 </div>
-                <p v-if="stop.attendance_status && stop.attendance_status !== 'pending'" class="ohub-muted ohub-attend-status">
-                  {{ attendanceLabel(stop.attendance_status) }}
-                </p>
-              </li>
+                <div class="ohub-muted ohub-route-stop-meta">
+                  {{ shortDistrict(stop.district_name) }} · {{ levelLabel(stop.school_level) }}
+                  <template v-if="stop.miles_from_prev != null"> · {{ roundMiles(stop.miles_from_prev) }} mi from {{ idx === 0 ? 'office' : 'previous' }}</template>
+                </div>
+                <div class="ohub-muted ohub-route-stop-addr">{{ stop.address || stop.city }}</div>
+              </button>
+              <div class="ohub-attend">
+                <span class="ohub-attend-label">This stop</span>
+                <button
+                  v-for="opt in attendanceOptions"
+                  :key="`${stop.id}-${opt.id}`"
+                  type="button"
+                  class="ohub-attend-btn"
+                  :class="{ on: stop.attendance_status === opt.id }"
+                  :disabled="tripSaving || openedTrip.status === 'completed'"
+                  @click="setStopAttendance(stop, opt.id)"
+                >{{ opt.label }}</button>
+              </div>
+              <p v-if="stop.attendance_status && stop.attendance_status !== 'pending'" class="ohub-muted ohub-attend-status">
+                {{ attendanceLabel(stop.attendance_status) }}
+              </p>
+            </li>
               <li class="ohub-route-origin">
                 <strong>Return · Windchime (office)</strong>
                 <div class="ohub-muted">
@@ -273,8 +279,15 @@
               <strong>Start · Windchime (office)</strong>
               <div class="ohub-muted">437 Windchime Place, Colorado Springs, CO 80919 · 0 mi</div>
             </li>
-            <li v-for="(stop, idx) in tripStops" :key="stop.id" class="ohub-route-stop" :class="{ selected: Number(selectedId) === Number(stop.id) }">
+            <li
+              v-for="(stop, idx) in tripStops"
+              :key="stop.id"
+              class="ohub-route-stop"
+              :class="{ selected: Number(selectedId) === Number(stop.id) }"
+              :style="stopAccentStyle(stop, idx)"
+            >
               <div class="ohub-route-stop-head">
+                <span class="ohub-stop-dot" :style="{ background: stopColorAt(idx, stop) }" />
                 <button type="button" class="ohub-route-stop-name" @click="selectSchool(stop.id)">
                   <strong>{{ idx + 1 }}. {{ stop.name }}</strong>
                 </button>
@@ -306,8 +319,21 @@
               <option value="">All districts</option>
               <option v-for="d in tripDistrictOptions" :key="`td-${d}`" :value="d">{{ shortDistrict(d) }}</option>
             </select>
+            <label class="ohub-check ohub-filter-check">
+              <input v-model="tripCharterOnly" type="checkbox" @change="loadTripPreview" />
+              Charter
+            </label>
+            <button
+              v-if="tripStops.length >= 2"
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :class="{ on: tripClosestToBoth }"
+              @click="toggleClosestToBoth"
+            >
+              {{ tripClosestToBoth ? 'Closest to both ✓' : 'Closest to both' }}
+            </button>
             <select v-model="tripSort" class="ohub-trip-select">
-              <option value="closest">Closest first</option>
+              <option value="closest">{{ tripClosestToBoth ? 'Least detour first' : 'Closest first' }}</option>
               <option value="miles">Distance</option>
               <option value="school">School name</option>
               <option value="district">District</option>
@@ -315,14 +341,20 @@
               <option value="level">Level</option>
             </select>
             <button
-              v-if="tripStageFilter || tripDistrictFilter || tripSearch"
+              v-if="tripStageFilter || tripDistrictFilter || tripSearch || tripCharterOnly"
               type="button"
               class="btn-link ohub-trip-clear"
               @click="clearTripFilters"
             >Clear filters</button>
           </div>
           <p class="ohub-muted">
-            {{ tripStops.length ? `Closest from ${lastTripStopName}` : 'Closest from Windchime (office)' }}
+            <template v-if="tripClosestToBoth && tripStops.length >= 2">
+              Closest to both {{ tripStops[0]?.name }} and {{ tripStops[tripStops.length - 1]?.name }}
+              (extra miles vs going directly)
+            </template>
+            <template v-else>
+              {{ tripStops.length ? `Closest from ${lastTripStopName}` : 'Closest from Windchime (office)' }}
+            </template>
             <template v-if="filteredNearbySchools.length !== tripNearby.length">
               · showing {{ filteredNearbySchools.length }} of {{ tripNearby.length }}
             </template>
@@ -335,16 +367,26 @@
             <li v-for="row in filteredNearbySchools" :key="row.id">
               <button type="button" class="ohub-nearby-btn" @click="addTripStop(row)">
                 <span class="ohub-nearby-miles">
-                  {{ row.miles_from_origin != null ? row.miles_from_origin : '—' }}
-                  <em>mi</em>
+                  <template v-if="tripClosestToBoth && row.extra_miles != null">
+                    +{{ row.extra_miles }}
+                    <em>extra</em>
+                  </template>
+                  <template v-else>
+                    {{ row.miles_from_origin != null ? row.miles_from_origin : '—' }}
+                    <em>mi</em>
+                  </template>
                 </span>
                 <span class="ohub-nearby-main">
                   <span class="ohub-nearby-title-row">
                     <strong>{{ row.name }}</strong>
+                    <span v-if="row.is_charter" class="ohub-charter">Charter</span>
                     <span class="ohub-stage sm" :class="row.outreach_stage">{{ stageLabel(row.outreach_stage) }}</span>
                   </span>
                   <span class="ohub-nearby-meta">
                     {{ shortDistrict(row.district_name) }} · {{ levelLabel(row.school_level) }}
+                    <template v-if="tripClosestToBoth && row.miles_to_a != null">
+                      · {{ row.miles_to_a }} mi to A · {{ row.miles_to_b }} mi to B
+                    </template>
                     <template v-if="row.distance_approx"> · approx.</template>
                   </span>
                   <em class="ohub-nearby-addr">{{ row.address || row.city }}</em>
@@ -358,7 +400,33 @@
           </template>
         </section>
 
-        <aside v-if="selected" class="ohub-detail">
+        <OutreachTripStopEditor
+          v-if="viewMode === 'trips' && selected && activeTripStopContext"
+          :school="selected"
+          :trip-id="activeTripStopContext.tripId"
+          :trip-stop-id="activeTripStopContext.tripStopId"
+          :trip-title="activeTripStopContext.tripTitle"
+          :stop-order="activeTripStopContext.stopOrder"
+          :stop-total="activeTripStopContext.stopTotal"
+          :stop-color="activeTripStopContext.stopColor"
+          :attendance-status="activeTripStopContext.attendanceStatus"
+          :attendance-options="attendanceOptions"
+          :show-attendance="!!openedTrip"
+          :assignable-users="assignableUsers"
+          :stage-label="stageLabel"
+          :short-district="shortDistrict"
+          :format-date-time="formatDateTime"
+          :saving="tripEditorSaving"
+          :disabled="openedTrip?.status === 'completed'"
+          @close="closeSchoolPanel"
+          @open-full="openFullSchoolFromTrip"
+          @set-attendance="(status) => activeTripStopContext.stop && setStopAttendance(activeTripStopContext.stop, status)"
+          @add-contact="onTripEditorAddContact"
+          @save-note="onTripEditorSaveNote"
+          @create-task="onTripEditorCreateTask"
+        />
+
+        <aside v-else-if="selected" class="ohub-detail" :class="{ 'ohub-detail--expand': true }">
           <div class="ohub-detail-head">
             <div>
               <h2>{{ selected.name }}</h2>
@@ -380,7 +448,7 @@
             <button type="button" :class="{ active: panelTab === 'overview' }" @click="panelTab = 'overview'">Overview</button>
             <button type="button" :class="{ active: panelTab === 'tasks' }" @click="panelTab = 'tasks'">Tasks</button>
             <button type="button" :class="{ active: panelTab === 'contacts' }" @click="panelTab = 'contacts'">Contacts</button>
-            <button type="button" :class="{ active: panelTab === 'history' }" @click="panelTab = 'history'">History</button>
+            <button type="button" :class="{ active: panelTab === 'history' }" @click="panelTab = 'history'">Activity</button>
             <button type="button" :class="{ active: panelTab === 'onboarding' }" @click="panelTab = 'onboarding'">Onboarding</button>
           </div>
 
@@ -415,104 +483,126 @@
               </button>
             </div>
           </form>
-          <dl class="ohub-meta">
-            <div v-if="!editingSchoolDetails"><dt>Address</dt>
-              <dd>
-                <template v-if="selected.needs_address">
-                  <span class="ohub-missing-addr">Needs address — do not visit until confirmed</span>
-                  <button type="button" class="btn-link" :disabled="addressLookupSaving" @click="lookupSelectedAddress">
-                    {{ addressLookupSaving ? 'Looking up…' : 'Look up with Gemini' }}
-                  </button>
-                </template>
-                <template v-else>{{ selected.address || '—' }}</template>
-              </dd>
-            </div>
-            <div><dt>District</dt><dd>{{ selected.district_name }}{{ selected.is_charter ? ' · Charter' : '' }}</dd></div>
-            <div><dt>Level</dt><dd>{{ levelLabel(selected.school_level) }}</dd></div>
-            <div><dt>City</dt><dd>{{ selected.city || '—' }}</dd></div>
-            <div><dt>Partner school</dt><dd>{{ selected.linked_organization_id ? 'Yes — already in our caseload' : 'Not yet' }}</dd></div>
-            <div><dt>Primary contact</dt><dd>{{ selected.primary_contact_name || '—' }}<template v-if="selected.primary_contact_email"><br>{{ selected.primary_contact_email }}</template></dd></div>
-          </dl>
-          <button v-if="viewMode !== 'trips'" type="button" class="btn btn-secondary" @click="startTripFromSchool(selected)">Plan trip from this school</button>
 
-          <label class="ohub-field">
-            <span>Stage</span>
-            <select :value="selected.outreach_stage" @change="saveStage($event.target.value)">
-              <option v-for="st in stageOptions" :key="st.id" :value="st.id">{{ st.label }}</option>
-            </select>
-          </label>
-          <label class="ohub-field">
-            <span>Next follow-up</span>
-            <input type="date" :value="dateInput(selected.next_follow_up_at)" @change="saveFollowUp($event.target.value)" />
-          </label>
-
-          <h3>Open tasks</h3>
-          <ul class="ohub-task-list">
-            <li v-for="t in schoolTasks.slice(0, 4)" :key="`ov-${t.id}`">
-              <div>
-                <strong :class="{ done: t.status === 'completed' }">{{ t.title }}</strong>
-                <div class="ohub-muted">
-                  <template v-if="t.due_date">due {{ formatDate(t.due_date) }}</template>
+          <div class="ohub-overview-grid">
+            <section class="ohub-card ohub-card--details">
+              <h3>School details</h3>
+              <dl class="ohub-meta">
+                <div v-if="!editingSchoolDetails"><dt>Address</dt>
+                  <dd>
+                    <template v-if="selected.needs_address">
+                      <span class="ohub-missing-addr">Needs address — do not visit until confirmed</span>
+                      <button type="button" class="btn-link" :disabled="addressLookupSaving" @click="lookupSelectedAddress">
+                        {{ addressLookupSaving ? 'Looking up…' : 'Look up with Gemini' }}
+                      </button>
+                    </template>
+                    <template v-else>{{ selected.address || '—' }}</template>
+                  </dd>
                 </div>
-              </div>
-            </li>
-            <li v-if="!schoolTasks.length" class="ohub-muted">No tasks yet. Add them on the Tasks tab.</li>
-          </ul>
-          <button type="button" class="btn-link" @click="panelTab = 'tasks'">Open full Tasks tab</button>
+                <div><dt>District</dt><dd>{{ selected.district_name }}{{ selected.is_charter ? ' · Charter' : '' }}</dd></div>
+                <div><dt>Level</dt><dd>{{ levelLabel(selected.school_level) }}</dd></div>
+                <div><dt>City</dt><dd>{{ selected.city || '—' }}</dd></div>
+                <div><dt>Partner school</dt><dd>{{ selected.linked_organization_id ? 'Yes — already in our caseload' : 'Not yet' }}</dd></div>
+                <div><dt>Primary contact</dt><dd>{{ selected.primary_contact_name || '—' }}<template v-if="selected.primary_contact_email"><br><a :href="`mailto:${selected.primary_contact_email}`">{{ selected.primary_contact_email }}</a></template></dd></div>
+              </dl>
+              <button v-if="viewMode !== 'trips'" type="button" class="btn btn-secondary" @click="startTripFromSchool(selected)">Plan trip from this school</button>
+            </section>
 
-          <h3>Notes</h3>
-          <form class="ohub-log" @submit.prevent="submitNote">
-            <label class="ohub-field">
-              <span>Add a note</span>
-              <textarea v-model="noteForm.body" rows="2" required placeholder="What happened, who you spoke with…" />
-            </label>
-            <button type="submit" class="btn btn-secondary" :disabled="noteSaving">{{ noteSaving ? 'Saving…' : 'Save note' }}</button>
-          </form>
-          <ol class="ohub-timeline">
-            <li v-for="n in selected.notes || []" :key="`note-${n.id}`">
-              <div>
-                <strong>{{ n.body }}</strong>
-                <div class="ohub-muted">{{ formatDateTime(n.created_at) }}{{ n.created_by_name ? ` · ${n.created_by_name}` : '' }}</div>
-              </div>
-            </li>
-            <li v-if="!(selected.notes || []).length" class="ohub-muted">No notes yet.</li>
-          </ol>
-
-          <h3>Log contact</h3>
-          <form class="ohub-log" @submit.prevent="submitLog">
-            <div class="ohub-types">
-              <label v-for="t in contactTypes" :key="t.id" :class="{ on: logForm.contact_type === t.id, visit: t.id === 'visit' }">
-                <input v-model="logForm.contact_type" type="radio" :value="t.id" />
-                {{ t.label }}
+            <section class="ohub-card ohub-card--next">
+              <h3>Next steps</h3>
+              <label class="ohub-field">
+                <span>Stage</span>
+                <select :value="selected.outreach_stage" @change="saveStage($event.target.value)">
+                  <option v-for="st in stageOptions" :key="st.id" :value="st.id">{{ st.label }}</option>
+                </select>
               </label>
-            </div>
-            <label class="ohub-field">
-              <span>When</span>
-              <input v-model="logForm.activity_at" type="datetime-local" required />
-            </label>
-            <label class="ohub-field">
-              <span>Summary</span>
-              <input v-model="logForm.summary" type="text" :placeholder="logForm.contact_type === 'visit' ? 'Campus visit, who you met…' : 'What happened'" />
-            </label>
-            <label class="ohub-field">
-              <span>Notes</span>
-              <textarea v-model="logForm.notes" rows="3" placeholder="Optional details" />
-            </label>
-            <button type="submit" class="btn btn-primary" :disabled="saving">{{ saving ? 'Saving…' : 'Log activity' }}</button>
-          </form>
+              <label class="ohub-field">
+                <span>Next follow-up</span>
+                <input type="date" :value="dateInput(selected.next_follow_up_at)" @change="saveFollowUp($event.target.value)" />
+              </label>
+              <h4 class="ohub-card-sub">Open tasks</h4>
+              <ul class="ohub-plain-list">
+                <li v-for="t in schoolTasks.slice(0, 4)" :key="`ov-${t.id}`">
+                  <strong :class="{ done: t.status === 'completed' }">{{ t.title }}</strong>
+                  <div class="ohub-muted">
+                    <template v-if="t.due_date">due {{ formatDate(t.due_date) }}</template>
+                  </div>
+                </li>
+                <li v-if="!schoolTasks.length" class="ohub-muted">No tasks yet. Add them on the Tasks tab.</li>
+              </ul>
+              <button type="button" class="btn-link" @click="panelTab = 'tasks'">Open Tasks</button>
+            </section>
 
-          <h3>Activity</h3>
-          <ol class="ohub-timeline">
-            <li v-for="act in selected.activities || []" :key="act.id">
-              <span class="ohub-type-pill" :class="act.contact_type">{{ act.contact_type }}</span>
-              <div>
-                <strong>{{ act.summary || stageLabel(act.contact_type) }}</strong>
-                <div class="ohub-muted">{{ formatDateTime(act.activity_at) }}{{ act.created_by_name ? ` · ${act.created_by_name}` : '' }}</div>
-                <p v-if="act.notes">{{ act.notes }}</p>
-              </div>
-            </li>
-            <li v-if="!(selected.activities || []).length" class="ohub-muted">No contacts logged yet.</li>
-          </ol>
+            <section class="ohub-card ohub-card--notes">
+              <h3>Notes</h3>
+              <form class="ohub-log" @submit.prevent="submitNote">
+                <label class="ohub-field">
+                  <span>Add a note</span>
+                  <textarea v-model="noteForm.body" rows="2" required placeholder="What happened, who you spoke with…" />
+                </label>
+                <button type="submit" class="btn btn-secondary" :disabled="noteSaving">{{ noteSaving ? 'Saving…' : 'Save note' }}</button>
+              </form>
+              <ol class="ohub-timeline">
+                <li v-for="n in selected.notes || []" :key="`note-${n.id}`">
+                  <div>
+                    <strong>{{ n.body }}</strong>
+                    <div class="ohub-muted">{{ formatDateTime(n.created_at) }}{{ n.created_by_name ? ` · ${n.created_by_name}` : '' }}</div>
+                  </div>
+                </li>
+                <li v-if="!(selected.notes || []).length" class="ohub-muted">No notes yet.</li>
+              </ol>
+            </section>
+
+            <section class="ohub-card ohub-card--log">
+              <h3>Log contact</h3>
+              <form class="ohub-log" @submit.prevent="submitLog">
+                <div class="ohub-types">
+                  <label v-for="t in contactTypes" :key="t.id" :class="{ on: logForm.contact_type === t.id, visit: t.id === 'visit' }">
+                    <input v-model="logForm.contact_type" type="radio" :value="t.id" />
+                    {{ t.label }}
+                  </label>
+                </div>
+                <label class="ohub-field">
+                  <span>When</span>
+                  <input v-model="logForm.activity_at" type="datetime-local" required />
+                </label>
+                <label class="ohub-field">
+                  <span>Summary</span>
+                  <input v-model="logForm.summary" type="text" :placeholder="logForm.contact_type === 'visit' ? 'Campus visit, who you met…' : 'What happened'" />
+                </label>
+                <label class="ohub-field">
+                  <span>Notes</span>
+                  <textarea v-model="logForm.notes" rows="3" placeholder="Optional details" />
+                </label>
+                <button type="submit" class="btn btn-primary" :disabled="saving">{{ saving ? 'Saving…' : 'Log activity' }}</button>
+              </form>
+            </section>
+
+            <section class="ohub-card ohub-card--activity">
+              <h3>Activity</h3>
+              <ol class="ohub-timeline">
+                <li v-for="item in (selected.feed || []).slice(0, 8)" :key="item.id">
+                  <span
+                    class="ohub-type-pill"
+                    :class="item.entry_type === 'contact' ? item.contact_type : item.entry_type"
+                    :style="item.stop_color ? { borderColor: item.stop_color } : undefined"
+                  >{{ feedEntryLabel(item) }}</span>
+                  <div>
+                    <strong>{{ item.title }}</strong>
+                    <p v-if="item.body">{{ item.body }}</p>
+                    <div class="ohub-muted">
+                      {{ formatDateTime(item.occurred_at) }}{{ item.created_by_name ? ` · ${item.created_by_name}` : '' }}
+                      <span v-if="item.trip_title" class="ohub-trip-chip" :style="item.stop_color ? { borderColor: item.stop_color, color: item.stop_color } : undefined">
+                        {{ item.trip_title }}
+                      </span>
+                    </div>
+                  </div>
+                </li>
+                <li v-if="!(selected.feed || []).length" class="ohub-muted">No activity yet.</li>
+              </ol>
+              <button type="button" class="btn-link" @click="panelTab = 'history'">View full activity</button>
+            </section>
+          </div>
           </template>
 
           <template v-else-if="panelTab === 'tasks'">
@@ -568,7 +658,7 @@
                   </div>
                 </div>
               </li>
-              <li v-if="!schoolTasks.length" class="ohub-muted">No tasks tagged to this school yet.</li>
+              <li v-if="!schoolTasks.length" class="ohub-muted plain">No tasks tagged to this school yet.</li>
             </ul>
           </template>
 
@@ -599,16 +689,14 @@
                 {{ contactSaving ? 'Saving…' : 'Add contact' }}
               </button>
             </form>
-            <ul class="ohub-task-list">
+            <ul class="ohub-plain-list">
               <li v-for="c in selected.contacts || []" :key="c.id">
-                <div>
-                  <strong>{{ c.full_name }}</strong>
-                  <span v-if="c.is_primary" class="ohub-stage partnered">Primary</span>
-                  <div class="ohub-muted">
-                    {{ c.title || 'Contact' }}
-                    <template v-if="c.email"> · {{ c.email }}</template>
-                    <template v-if="c.phone"> · {{ c.phone }}</template>
-                  </div>
+                <strong>{{ c.full_name }}</strong>
+                <span v-if="c.is_primary" class="ohub-stage partnered">Primary</span>
+                <div class="ohub-muted">
+                  {{ c.title || 'Contact' }}
+                  <template v-if="c.email"> · {{ c.email }}</template>
+                  <template v-if="c.phone"> · {{ c.phone }}</template>
                 </div>
               </li>
               <li v-if="!(selected.contacts || []).length" class="ohub-muted">No contacts on file yet.</li>
@@ -616,18 +704,33 @@
           </template>
 
           <template v-else-if="panelTab === 'history'">
-            <p class="ohub-muted">Email, phone, letter, and visit history for this school.</p>
-            <ol class="ohub-timeline">
-              <li v-for="act in selected.activities || []" :key="`hist-${act.id}`">
-                <span class="ohub-type-pill" :class="act.contact_type">{{ act.contact_type }}</span>
-                <div>
-                  <strong>{{ act.summary || stageLabel(act.contact_type) }}</strong>
-                  <div class="ohub-muted">{{ formatDateTime(act.activity_at) }}{{ act.created_by_name ? ` · ${act.created_by_name}` : '' }}</div>
-                  <p v-if="act.notes">{{ act.notes }}</p>
-                </div>
-              </li>
-              <li v-if="!(selected.activities || []).length" class="ohub-muted">No contacts logged yet.</li>
-            </ol>
+            <p class="ohub-muted">Running list of notes, conversations, follow-ups, tasks, and contacts for this school.</p>
+            <div v-for="group in activityGroups" :key="group.key" class="ohub-activity-group">
+              <h4 class="ohub-activity-group-title">
+                <span
+                  v-if="group.color"
+                  class="ohub-stop-dot"
+                  :style="{ background: group.color }"
+                />
+                {{ group.label }}
+              </h4>
+              <ol class="ohub-timeline">
+                <li v-for="item in group.items" :key="item.id">
+                  <span
+                    class="ohub-type-pill"
+                    :class="item.entry_type === 'contact' ? item.contact_type : item.entry_type"
+                  >{{ feedEntryLabel(item) }}</span>
+                  <div>
+                    <strong>{{ item.title }}</strong>
+                    <p v-if="item.body">{{ item.body }}</p>
+                    <div class="ohub-muted">
+                      {{ formatDateTime(item.occurred_at) }}{{ item.created_by_name ? ` · ${item.created_by_name}` : '' }}
+                    </div>
+                  </div>
+                </li>
+              </ol>
+            </div>
+            <p v-if="!activityGroups.length" class="ohub-muted">No activity yet.</p>
           </template>
 
           <template v-else-if="panelTab === 'onboarding'">
@@ -694,23 +797,26 @@
           </template>
         </aside>
 
+        <aside v-else-if="viewMode === 'tracker'" class="ohub-detail ohub-detail--empty">
+          <h2>Choose a school</h2>
+          <p class="ohub-muted">Select a school from the list to see details, notes, tasks, and activity.</p>
+        </aside>
+
         <section v-else-if="viewMode === 'trips'" class="ohub-trip-meta">
           <template v-if="openedTrip">
             <h2>Who’s going</h2>
-            <ul class="ohub-task-list">
+            <ul class="ohub-plain-list">
               <li v-for="(p, i) in openedTrip.participants || []" :key="`${p.display_name}-${i}`">
-                <div>
-                  <strong>{{ p.display_name }}</strong>
-                  <div class="ohub-muted">
-                    {{ p.start_time ? formatDateTime(p.start_time) : 'Start TBD' }}
-                    → {{ p.end_time ? formatDateTime(p.end_time) : 'End TBD' }}
-                  </div>
+                <strong>{{ p.display_name }}</strong>
+                <div class="ohub-muted">
+                  {{ p.start_time ? formatDateTime(p.start_time) : 'Start TBD' }}
+                  → {{ p.end_time ? formatDateTime(p.end_time) : 'End TBD' }}
                 </div>
               </li>
               <li v-if="!(openedTrip.participants || []).length" class="ohub-muted">No travelers listed.</li>
             </ul>
             <p v-if="openedTrip.notes" class="ohub-muted">{{ openedTrip.notes }}</p>
-            <p class="ohub-muted">Mark each school attended, skipped, or short on time. Visits log when you mark Attended.</p>
+            <p class="ohub-muted">Tap a stop on the left to log conversations, follow-ups, and tasks for that school.</p>
             <button
               v-if="openedTrip.status !== 'completed'"
               type="button"
@@ -723,8 +829,19 @@
             <h2>Who’s going</h2>
             <form class="ohub-log" @submit.prevent="addParticipant">
               <label class="ohub-field">
-                <span>Name</span>
-                <input v-model="participantForm.name" required placeholder="Staff name" />
+                <span>Staff</span>
+                <select v-model="participantForm.userId">
+                  <option value="">Guest / type a name below</option>
+                  <option
+                    v-for="u in assignableUsersWithMe"
+                    :key="`p-${u.id}`"
+                    :value="String(u.id)"
+                  >{{ u.first_name }} {{ u.last_name }}</option>
+                </select>
+              </label>
+              <label class="ohub-field">
+                <span>Display name</span>
+                <input v-model="participantForm.name" :required="!participantForm.userId" placeholder="Staff name" />
               </label>
               <label class="ohub-field">
                 <span>Start</span>
@@ -736,8 +853,8 @@
               </label>
               <button type="submit" class="btn btn-secondary">Add person</button>
             </form>
-            <ul class="ohub-task-list">
-              <li v-for="(p, i) in tripParticipants" :key="`${p.display_name}-${i}`">
+            <ul class="ohub-plain-list">
+              <li v-for="(p, i) in tripParticipants" :key="`${p.display_name}-${i}`" class="ohub-participant-row">
                 <div>
                   <strong>{{ p.display_name }}</strong>
                   <div class="ohub-muted">
@@ -801,15 +918,23 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api.js';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import OutreachTripStopEditor from '../../components/admin/OutreachTripStopEditor.vue';
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+
+const STOP_COLORS = ['#16a34a', '#2563eb', '#7c3aed', '#ca8a04', '#ea580c', '#dc2626'];
+const stopColorAt = (idx, stop = null) => stop?.stop_color || STOP_COLORS[Math.max(0, Number(idx) || 0) % STOP_COLORS.length];
+const stopAccentStyle = (stop, idx) => {
+  const c = stopColorAt(idx, stop);
+  return { borderLeft: `4px solid ${c}` };
+};
 
 const onboardingSteps = [
   { key: 'school_information', label: 'School information' },
@@ -832,6 +957,12 @@ const attendanceOptions = [
   { id: 'attended', label: 'Attended' },
   { id: 'skipped', label: 'Skipped' },
   { id: 'time_short', label: "Couldn't make it (time)" }
+];
+const contactTypes = [
+  { id: 'visit', label: 'Visit' },
+  { id: 'email', label: 'Email' },
+  { id: 'phone', label: 'Phone' },
+  { id: 'letter', label: 'Letter' }
 ];
 const WINDCHIME_COORDS = { lat: 38.9246, lng: -104.8452 };
 
@@ -876,7 +1007,7 @@ const timeline = ref([]);
 const timelineType = ref('visit');
 const timelineFrom = ref('');
 const timelineTo = ref('');
-const filters = reactive({ q: '', district: '', level: '', stage: '', needsAddress: '' });
+const filters = reactive({ q: '', district: '', level: '', stage: '', needsAddress: '', charterOnly: false });
 const sortKey = ref('district');
 const sortDir = ref('asc');
 const noteForm = reactive({ body: '' });
@@ -915,15 +1046,19 @@ const tripNearby = ref([]);
 const tripSearch = ref('');
 const tripStageFilter = ref('');
 const tripDistrictFilter = ref('');
+const tripCharterOnly = ref(false);
+const tripClosestToBoth = ref(false);
 const tripSort = ref('closest');
 const tripDate = ref('');
 const tripNotes = ref('');
 const tripSaving = ref(false);
+const tripEditorSaving = ref(false);
 const tripPreviewLoading = ref(false);
 const tripGeocodeRemaining = ref(null);
 const tripParticipants = ref([]);
 const openedTripId = ref(null);
-const participantForm = reactive({ name: '', start_time: '', end_time: '' });
+const participantForm = reactive({ name: '', userId: '', start_time: '', end_time: '' });
+const selectedTripStopId = ref(null);
 const logForm = reactive({
   contact_type: 'visit',
   activity_at: '',
@@ -938,7 +1073,9 @@ const importSaving = ref(false);
 
 const districts = computed(() => (summary.value.by_district || []).map((d) => d.district));
 const districtCount = computed(() => districts.value.length);
-const hasFilters = computed(() => !!(filters.q || filters.district || filters.level || filters.stage || filters.needsAddress));
+const hasFilters = computed(() => !!(
+  filters.q || filters.district || filters.level || filters.stage || filters.needsAddress || filters.charterOnly
+));
 const orgPrefix = computed(() => {
   const slug = typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : '';
   return slug ? `/${slug}` : '';
@@ -951,6 +1088,100 @@ const inviteStepClass = (inv, key) => {
   const st = String(inv?.stepProgress?.[key] || 'not_started');
   return { complete: st === 'complete', current: st === 'in_progress' };
 };
+
+const openedTrip = computed(() =>
+  trips.value.find((t) => Number(t.id) === Number(openedTripId.value)) || null
+);
+
+const assignableUsersWithMe = computed(() => {
+  const me = authStore.user;
+  const list = [...(assignableUsers.value || [])];
+  if (me?.id && !list.some((u) => Number(u.id) === Number(me.id))) {
+    list.unshift({
+      id: me.id,
+      first_name: me.first_name || me.firstName || 'Me',
+      last_name: me.last_name || me.lastName || ''
+    });
+  }
+  return list;
+});
+
+const feedEntryLabel = (item) => {
+  const t = String(item?.entry_type || '');
+  if (t === 'conversation') return 'Conversation';
+  if (t === 'follow_up') return 'Follow-up';
+  if (t === 'note') return 'Note';
+  if (t === 'task') return 'Task';
+  if (t === 'contact') return item.contact_type || 'Contact';
+  return t || 'Entry';
+};
+
+const activityGroups = computed(() => {
+  const feed = selected.value?.feed || [];
+  if (!feed.length) return [];
+  const map = new Map();
+  for (const item of feed) {
+    const tid = item.trip_id != null ? Number(item.trip_id) : 0;
+    const key = tid || 'none';
+    if (!map.has(key)) {
+      map.set(key, {
+        key: String(key),
+        label: tid ? (item.trip_title || `Trip #${tid}`) : 'Not on a trip',
+        color: item.stop_color || null,
+        items: []
+      });
+    }
+    const g = map.get(key);
+    if (!g.color && item.stop_color) g.color = item.stop_color;
+    g.items.push(item);
+  }
+  return [...map.values()];
+});
+
+const activeTripStopContext = computed(() => {
+  if (viewMode.value !== 'trips' || !selected.value) return null;
+  if (openedTrip.value) {
+    const stops = openedTrip.value.stops || [];
+    const stop = stops.find((s) => Number(s.outreach_school_id) === Number(selectedId.value))
+      || stops.find((s) => Number(s.id) === Number(selectedTripStopId.value));
+    if (!stop) {
+      return {
+        tripId: openedTrip.value.id,
+        tripStopId: null,
+        tripTitle: openedTrip.value.title,
+        stopOrder: null,
+        stopTotal: stops.length,
+        stopColor: null,
+        attendanceStatus: 'pending',
+        stop: null
+      };
+    }
+    const idx = stops.findIndex((s) => Number(s.id) === Number(stop.id));
+    return {
+      tripId: openedTrip.value.id,
+      tripStopId: stop.id,
+      tripTitle: openedTrip.value.title,
+      stopOrder: idx >= 0 ? idx + 1 : Number(stop.stop_order) || null,
+      stopTotal: stops.length,
+      stopColor: stopColorAt(idx >= 0 ? idx : 0, stop),
+      attendanceStatus: stop.attendance_status || 'pending',
+      stop
+    };
+  }
+  // Planning mode: school selected from draft stops (no trip id yet)
+  const idx = tripStops.value.findIndex((s) => Number(s.id) === Number(selectedId.value));
+  if (idx < 0) return null;
+  return {
+    tripId: null,
+    tripStopId: null,
+    tripTitle: 'Unsaved trip',
+    stopOrder: idx + 1,
+    stopTotal: tripStops.value.length,
+    stopColor: stopColorAt(idx),
+    attendanceStatus: 'pending',
+    stop: null
+  };
+});
 
 const resetTaskForm = () => {
   taskForm.title = '';
@@ -1054,6 +1285,7 @@ const clearFilters = () => {
   filters.level = '';
   filters.stage = '';
   filters.needsAddress = '';
+  filters.charterOnly = false;
   void reload();
 };
 
@@ -1074,6 +1306,7 @@ const reload = async () => {
     if (filters.level) params.level = filters.level;
     if (filters.stage) params.stage = filters.stage;
     if (filters.needsAddress) params.needsAddress = filters.needsAddress;
+    if (filters.charterOnly) params.charterOnly = 'true';
     if (sortKey.value) params.sort = sortKey.value;
     if (sortDir.value) params.sortDir = sortDir.value;
     const [sumRes, listRes] = await Promise.all([
@@ -1097,6 +1330,17 @@ const closeSchoolPanel = () => {
   editingSchoolDetails.value = false;
   selectedId.value = null;
   selected.value = null;
+  selectedTripStopId.value = null;
+};
+
+const selectTripStop = async (stop) => {
+  selectedTripStopId.value = stop?.id || null;
+  await selectSchool(stop.outreach_school_id);
+};
+
+const openFullSchoolFromTrip = () => {
+  viewMode.value = 'tracker';
+  panelTab.value = 'overview';
 };
 
 const selectSchool = async (id) => {
@@ -1384,9 +1628,6 @@ const submitContact = async () => {
 };
 
 const lastTripStopName = computed(() => tripStops.value.at(-1)?.name || 'Windchime');
-const openedTrip = computed(() =>
-  trips.value.find((t) => Number(t.id) === Number(openedTripId.value)) || null
-);
 
 const roundMiles = (n) => {
   const v = Number(n);
@@ -1449,9 +1690,18 @@ const filteredNearbySchools = computed(() => {
   const q = String(tripSearch.value || '').trim().toLowerCase();
   const stage = tripStageFilter.value;
   const district = tripDistrictFilter.value;
+  const d11Selected = /colorado springs school district 11/i.test(district || '');
   let list = (tripNearby.value || []).filter((s) => {
     if (stage && s.outreach_stage !== stage) return false;
-    if (district && s.district_name !== district) return false;
+    if (district) {
+      if (d11Selected && tripCharterOnly.value) {
+        const ok = s.district_name === district
+          || (s.district_name === 'Charter' && String(s.city || '').toLowerCase() === 'colorado springs' && s.is_charter);
+        if (!ok) return false;
+      } else if (s.district_name !== district) {
+        return false;
+      }
+    }
     if (!q) return true;
     const stageText = stageLabel(s.outreach_stage).toLowerCase();
     return [s.name, s.city, s.district_name, s.address, stageText].some((v) =>
@@ -1490,7 +1740,157 @@ const clearTripFilters = () => {
   tripSearch.value = '';
   tripStageFilter.value = '';
   tripDistrictFilter.value = '';
+  tripCharterOnly.value = false;
   tripSort.value = 'closest';
+  void loadTripPreview();
+};
+
+const toggleClosestToBoth = () => {
+  tripClosestToBoth.value = !tripClosestToBoth.value;
+  void loadTripPreview();
+};
+
+const loadTripPreview = async () => {
+  tripPreviewLoading.value = true;
+  try {
+    const excludeIds = tripStops.value.map((s) => s.id);
+    const payload = {
+      excludeIds,
+      charterOnly: tripCharterOnly.value || undefined
+    };
+    if (tripClosestToBoth.value && tripStops.value.length >= 2) {
+      payload.originSchoolId = tripStops.value[0].id;
+      payload.secondSchoolId = tripStops.value[tripStops.value.length - 1].id;
+    } else {
+      payload.originSchoolId = tripStops.value.at(-1)?.id || null;
+    }
+    const res = await api.post('/outreach/trips/preview', payload, { skipGlobalLoading: true });
+    tripNearby.value = res.data?.schools || [];
+    tripGeocodeRemaining.value = Number(res.data?.geocode_remaining ?? res.data?.remaining ?? 0) || null;
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not load trip distances.';
+  } finally {
+    tripPreviewLoading.value = false;
+  }
+};
+
+const bestInsertIndexLocal = (stops, candidate) => {
+  if (!tripClosestToBoth.value || stops.length < 2) return stops.length;
+  const haversine = (a, b) => haversineMilesLocal(a, b);
+  const cand = { lat: candidate.lat, lng: candidate.lng };
+  let bestIdx = 1;
+  let bestExtra = Infinity;
+  for (let i = 0; i < stops.length - 1; i += 1) {
+    const a = stops[i];
+    const b = stops[i + 1];
+    const ac = haversine(a, cand);
+    const cb = haversine(cand, b);
+    const ab = haversine(a, b);
+    if (ac == null || cb == null || ab == null) continue;
+    const extra = ac + cb - ab;
+    if (extra < bestExtra) {
+      bestExtra = extra;
+      bestIdx = i + 1;
+    }
+  }
+  return bestIdx;
+};
+
+const addTripStop = async (row) => {
+  const legMiles = row.miles_from_origin != null ? Number(row.miles_from_origin) : null;
+  const next = {
+    ...row,
+    miles_from_prev: legMiles,
+    miles_from_origin: legMiles
+  };
+  if (tripClosestToBoth.value && tripStops.value.length >= 2) {
+    const idx = bestInsertIndexLocal(tripStops.value, row);
+    const copy = [...tripStops.value];
+    copy.splice(idx, 0, next);
+    tripStops.value = copy;
+  } else {
+    tripStops.value = [...tripStops.value, next];
+  }
+  await loadTripPreview();
+};
+
+const addParticipant = () => {
+  let name = String(participantForm.name || '').trim();
+  let userId = participantForm.userId ? Number(participantForm.userId) : null;
+  if (userId) {
+    const u = assignableUsersWithMe.value.find((x) => Number(x.id) === userId);
+    if (u && !name) name = `${u.first_name || ''} ${u.last_name || ''}`.trim();
+  }
+  if (!name) return;
+  tripParticipants.value.push({
+    display_name: name,
+    user_id: userId || null,
+    start_time: participantForm.start_time || null,
+    end_time: participantForm.end_time || null
+  });
+  participantForm.name = '';
+  participantForm.userId = '';
+  participantForm.start_time = '';
+  participantForm.end_time = '';
+};
+
+watch(
+  () => participantForm.userId,
+  (id) => {
+    if (!id) return;
+    const u = assignableUsersWithMe.value.find((x) => String(x.id) === String(id));
+    if (u) participantForm.name = `${u.first_name || ''} ${u.last_name || ''}`.trim();
+  }
+);
+
+const onTripEditorAddContact = async (payload) => {
+  if (!selectedId.value) return;
+  tripEditorSaving.value = true;
+  error.value = '';
+  try {
+    const res = await api.post(`/outreach/schools/${selectedId.value}/contacts`, payload, { skipGlobalLoading: true });
+    selected.value = res.data?.school || selected.value;
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not add contact.';
+  } finally {
+    tripEditorSaving.value = false;
+  }
+};
+
+const onTripEditorSaveNote = async (payload) => {
+  if (!selectedId.value) return;
+  tripEditorSaving.value = true;
+  error.value = '';
+  try {
+    const res = await api.post(`/outreach/schools/${selectedId.value}/notes`, payload, { skipGlobalLoading: true });
+    selected.value = res.data?.school || selected.value;
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not save note.';
+  } finally {
+    tripEditorSaving.value = false;
+  }
+};
+
+const onTripEditorCreateTask = async (payload) => {
+  if (!selectedId.value) return;
+  tripEditorSaving.value = true;
+  error.value = '';
+  try {
+    await api.post(`/outreach/schools/${selectedId.value}/tasks`, {
+      title: payload.title,
+      dueDate: payload.dueDate || null,
+      assignedToUserId: payload.assignedToUserId || null,
+      tripId: payload.tripId || null
+    }, { skipGlobalLoading: true });
+    await Promise.all([
+      selectSchool(selectedId.value),
+      loadSchoolExtras(selectedId.value)
+    ]);
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not create task.';
+  } finally {
+    tripEditorSaving.value = false;
+  }
 };
 
 const savedTripTotalMiles = (trip) => {
@@ -1554,33 +1954,10 @@ const setStopAttendance = async (stop, status) => {
   }
 };
 
-const loadTripPreview = async () => {
-  tripPreviewLoading.value = true;
-  try {
-    const originSchoolId = tripStops.value.at(-1)?.id || null;
-    const excludeIds = tripStops.value.map((s) => s.id);
-    const res = await api.post('/outreach/trips/preview', { originSchoolId, excludeIds }, { skipGlobalLoading: true });
-    tripNearby.value = res.data?.schools || [];
-    tripGeocodeRemaining.value = Number(res.data?.geocode_remaining ?? res.data?.remaining ?? 0) || null;
-  } catch (err) {
-    error.value = err.response?.data?.error?.message || err.message || 'Could not load trip distances.';
-  } finally {
-    tripPreviewLoading.value = false;
-  }
-};
-
-const addTripStop = async (row) => {
-  const legMiles = row.miles_from_origin != null ? Number(row.miles_from_origin) : null;
-  tripStops.value = [...tripStops.value, {
-    ...row,
-    miles_from_prev: legMiles,
-    miles_from_origin: legMiles
-  }];
-  await loadTripPreview();
-};
 const startTripFromSchool = async (row) => {
   if (!row?.id) return;
   openedTripId.value = null;
+  tripClosestToBoth.value = false;
   viewMode.value = 'trips';
   tripStops.value = [row];
   try {
@@ -1591,19 +1968,8 @@ const startTripFromSchool = async (row) => {
 };
 const removeTripStop = async (idx) => {
   tripStops.value = tripStops.value.filter((_, i) => i !== idx);
+  if (tripStops.value.length < 2) tripClosestToBoth.value = false;
   await loadTripPreview();
-};
-const addParticipant = () => {
-  const name = String(participantForm.name || '').trim();
-  if (!name) return;
-  tripParticipants.value.push({
-    display_name: name,
-    start_time: participantForm.start_time || null,
-    end_time: participantForm.end_time || null
-  });
-  participantForm.name = '';
-  participantForm.start_time = '';
-  participantForm.end_time = '';
 };
 
 const loadTrips = async () => {
@@ -1768,7 +2134,20 @@ onMounted(async () => {
   resetLogForm();
   await Promise.all([reload(), loadAssignableUsers(), loadOutreachList()]);
   const qid = Number(route.query?.school || 0);
-  if (qid) await selectSchool(qid);
+  const tripQ = Number(route.query?.trip || 0);
+  if (tripQ) {
+    viewMode.value = 'trips';
+    try {
+      await loadTrips();
+      openedTripId.value = tripQ;
+      const schoolFromTrip = Number(route.query?.school || 0);
+      if (schoolFromTrip) await selectSchool(schoolFromTrip);
+    } catch (err) {
+      error.value = err.response?.data?.error?.message || err.message || 'Could not open trip.';
+    }
+  } else if (qid) {
+    await selectSchool(qid);
+  }
 });
 </script>
 
@@ -1833,11 +2212,12 @@ onMounted(async () => {
   background: #fff;
 }
 .ohub-search { min-width: 220px; flex: 1; }
-.ohub-body { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(340px, 0.8fr); gap: 16px; align-items: start; }
+.ohub-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(380px, 1.2fr); gap: 16px; align-items: start; }
 .ohub-table th.sortable { cursor: pointer; user-select: none; }
 .ohub-table th.sortable:hover { color: #14532d; }
 .ohub-check { display: flex; gap: 8px; align-items: center; font-size: 13px; margin: 8px 0; }
-.ohub-trip-layout { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr); gap: 16px; margin-bottom: 24px; }
+.ohub-filter-check { margin: 0; white-space: nowrap; }
+.ohub-trip-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 1.15fr); gap: 16px; margin-bottom: 24px; align-items: start; }
 .ohub-trips-overview {
   background: #fff;
   border: 1px solid #e2e8f0;
@@ -1957,6 +2337,8 @@ onMounted(async () => {
 .ohub-saved-trip { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 @media (max-width: 980px) {
   .ohub-body, .ohub-trip-layout { grid-template-columns: 1fr; }
+  .ohub-overview-grid { grid-template-columns: 1fr; }
+  .ohub-attend-btn { min-height: 44px; padding: 8px 12px; }
 }
 .ohub-table-wrap { overflow: auto; border: 1px solid #e2e8f0; border-radius: 14px; background: #fff; }
 .ohub-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -1986,10 +2368,120 @@ onMounted(async () => {
   border: 1px solid #e2e8f0;
   border-radius: 14px;
   padding: 16px;
-  position: sticky;
-  top: 16px;
-  max-height: calc(100vh - 40px);
-  overflow: auto;
+  min-width: 0;
+}
+.ohub-detail--expand {
+  /* Prefer full page scroll when space allows; sticky only on short viewports */
+}
+.ohub-detail--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 220px;
+  color: #334155;
+}
+.ohub-detail--empty h2 {
+  margin: 0 0 8px;
+  color: #14532d;
+}
+@media (min-width: 981px) {
+  .ohub-detail--expand {
+    position: sticky;
+    top: 16px;
+    max-height: none;
+    overflow: visible;
+  }
+}
+@media (max-width: 980px) {
+  .ohub-detail {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}
+.ohub-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.ohub-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #fafefa;
+  min-width: 0;
+}
+.ohub-card h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: #14532d;
+}
+.ohub-card-sub {
+  margin: 12px 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.ohub-card--activity {
+  grid-column: 1 / -1;
+}
+.ohub-plain-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.ohub-plain-list li {
+  min-width: 0;
+  word-break: break-word;
+}
+.ohub-plain-list strong.done { text-decoration: line-through; color: #64748b; }
+.ohub-participant-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+.ohub-stop-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.ohub-trip-chip {
+  display: inline-flex;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  border: 1px solid #bbf7d0;
+  background: #ecfdf5;
+  color: #166534;
+}
+.ohub-activity-group { margin-bottom: 16px; }
+.ohub-activity-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #334155;
+}
+.ohub-type-pill.conversation { background: #ede9fe; color: #6d28d9; }
+.ohub-type-pill.follow_up { background: #ffedd5; color: #c2410c; }
+.ohub-type-pill.note { background: #dcfce7; color: #166534; }
+.ohub-type-pill.task { background: #e0f2fe; color: #0369a1; }
+.btn.btn-sm.on, .btn-secondary.on {
+  border-color: #14532d;
+  background: #14532d;
+  color: #fff;
 }
 .ohub-panel-tabs {
   display: flex;
@@ -2018,7 +2510,17 @@ onMounted(async () => {
 }
 .ohub-task-form { display: grid; gap: 6px; margin-bottom: 14px; }
 .ohub-task-list, .ohub-invite-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
-.ohub-task-list li { display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: start; }
+.ohub-task-list li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+}
+.ohub-task-list li.plain {
+  grid-template-columns: minmax(0, 1fr);
+}
+.ohub-task-list li > div { min-width: 0; word-break: break-word; }
 .ohub-task-check {
   width: 16px;
   height: 16px;

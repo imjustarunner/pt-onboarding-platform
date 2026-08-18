@@ -56,6 +56,7 @@ export const COLORADO_OUTREACH_CHARTER_KEYS = new Set([
   "charter-victory-preparatory-academy-middle",
   "colorado-springs-school-district-11-academy-for-advanced-and-creative-learning",
   "colorado-springs-school-district-11-civa-charter-academy",
+  "colorado-springs-school-district-11-community-prep-school",
   "colorado-springs-school-district-11-community-prep-charter-school",
   "colorado-springs-school-district-11-eastlake-high-school-of-colorado-springs",
   "colorado-springs-school-district-11-globe-charter-school",

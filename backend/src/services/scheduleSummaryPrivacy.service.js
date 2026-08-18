@@ -141,6 +141,9 @@ function activityFromScheduleEvent(row = {}) {
   if (kind === 'HUDDLE') {
     return { activityType: 'huddle', title: 'Huddle', agencyId };
   }
+  if (kind === 'OUTREACH_TRIP') {
+    return { activityType: 'outreach_trip', title: 'Outreach trip', agencyId };
+  }
   if (kind === 'PERSONAL_EVENT') {
     return { activityType: 'personal', title: 'Personal', agencyId };
   }

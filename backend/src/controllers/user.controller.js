@@ -4747,7 +4747,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
           meetingCompleted,
           canEdit: canEditThisEvent && !cancelled,
           // Default; refined after attendees + host names attach (admin-meeting invitees can reschedule).
-          canReschedule: canEditThisEvent && !cancelled
+          canReschedule: canEditThisEvent && !cancelled,
+          outreachTripId: Number(r.outreach_trip_id || 0) || null
         };
       });
 
@@ -5926,8 +5927,8 @@ export const createUserScheduleEvent = async (req, res, next) => {
     if (!subjectEmail) return res.status(400).json({ error: { message: 'Provider email is required to create calendar events' } });
 
     const kind = String(req.body?.kind || '').trim().toUpperCase();
-    if (!['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES', 'TEAM_MEETING', 'HUDDLE'].includes(kind)) {
-      return res.status(400).json({ error: { message: 'kind must be PERSONAL_EVENT, SCHEDULE_HOLD, INDIRECT_SERVICES, TEAM_MEETING, or HUDDLE' } });
+    if (!['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES', 'TEAM_MEETING', 'HUDDLE', 'OUTREACH_TRIP'].includes(kind)) {
+      return res.status(400).json({ error: { message: 'kind must be PERSONAL_EVENT, SCHEDULE_HOLD, INDIRECT_SERVICES, TEAM_MEETING, HUDDLE, or OUTREACH_TRIP' } });
     }
     if (kind === 'HUDDLE') {
       const hostRole = String(provider?.role || '').trim().toLowerCase();
@@ -6188,7 +6189,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
     // impersonation fails (invalid_grant, missing user, revoked grant, etc.).
     // TEAM_MEETING/HUDDLE always allow local save; Google sync is best-effort (Meet link may be absent).
     const allowLocalFallback = req.body?.allowLocalOnly === true
-      || ['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES', 'TEAM_MEETING', 'HUDDLE'].includes(kind)
+      || ['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES', 'TEAM_MEETING', 'HUDDLE', 'OUTREACH_TRIP'].includes(kind)
       || ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && createPlatformVideoLink && !createMeetLink);
     if (!googleOk && !allowLocalFallback) {
       return res.status(502).json({ error: { message: googleError || 'Could not create calendar event' } });
@@ -6459,7 +6460,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
     }
 
     const kind = String(target.kind || '').trim().toUpperCase();
-    if (!['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES', 'TEAM_MEETING', 'HUDDLE'].includes(kind)) {
+    if (!['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES', 'TEAM_MEETING', 'HUDDLE', 'OUTREACH_TRIP'].includes(kind)) {
       return res.status(400).json({ error: { message: 'This event type cannot be edited here' } });
     }
     const hostProviderId = Number(target.provider_id || userId) || userId;
