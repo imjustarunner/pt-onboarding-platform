@@ -44,16 +44,8 @@
             <input v-model="clientQuery" type="search" placeholder="Type to search…" @input="debouncedLoadClients" />
           </label>
           <label>
-            Session type
-            <input v-model="form.sessionTypeLabel" :readonly="!editingOverview" />
-          </label>
-          <label>
             Location / modality
             <input v-model="form.modalityLabel" :readonly="!editingOverview" />
-          </label>
-          <label>
-            Service code
-            <input v-model="form.serviceCode" :readonly="!editingOverview" placeholder="e.g. 90837" />
           </label>
           <label>
             Date of service
@@ -104,21 +96,23 @@
       <section class="sr-card">
         <h2>Recording Checklist</h2>
         <ul class="checklist">
-          <li :class="{ ok: consentOnFile || consentSignedThisSession }">
+          <li :class="{ ok: consentOnFile || consentSignedThisSession || isSuperAdmin }">
             Consent confirmed and documented
             <button
-              v-if="!consentOnFile && !consentSignedThisSession"
+              v-if="!consentOnFile && !consentSignedThisSession && !isSuperAdmin"
               type="button"
               class="btn-sm"
               @click="openConsentPanel"
             >
               Capture consent
             </button>
-            <span v-else class="ok-tag">Done</span>
+            <span v-else-if="consentOnFile || consentSignedThisSession" class="ok-tag">Done</span>
+            <span v-else class="ok-tag">Skipped (test)</span>
           </li>
-          <li :class="{ ok: !!form.clientId }">
+          <li :class="{ ok: !!form.clientId || isSuperAdmin }">
             Client on file
-            <span v-if="!form.clientId" class="hint">Select a client, or capture consent with name and birthdate to create one.</span>
+            <span v-if="!form.clientId && isSuperAdmin" class="hint">Optional for super admin test recordings.</span>
+            <span v-else-if="!form.clientId" class="hint">Select a client, or capture consent with name and birthdate to create one.</span>
           </li>
           <li :class="{ ok: micReady }">Microphone connected and working</li>
           <li class="ok">Environment is quiet and private</li>
@@ -162,7 +156,6 @@
         <h2>Selected Note Aid</h2>
         <p><strong>{{ selectedNoteAid.label }}</strong></p>
         <p class="hint">{{ selectedNoteAid.guidance || 'Structured progress note from the session summary.' }}</p>
-        <p class="meta">Service code: {{ selectedNoteAid.serviceCode || form.serviceCode || '—' }}</p>
       </section>
 
       <section class="sr-card privacy">
@@ -172,6 +165,21 @@
           after you leave this page. Transcript and summary text are stored encrypted at rest. We do not keep long-term
           audio recordings.
         </p>
+      </section>
+
+      <section class="sr-card sr-actions-card">
+        <h2>Ready to record</h2>
+        <p v-if="isSuperAdmin" class="hint">
+          Super admin test mode: you can start without a client or consent to verify the recording flow.
+        </p>
+        <p v-else class="hint">Recording begins as soon as you click Start recording session.</p>
+        <div class="action-buttons">
+          <button type="button" class="btn-secondary" @click="cancelSetup">Cancel</button>
+          <button type="button" class="btn-secondary" :disabled="busy" @click="saveSetup">Save setup</button>
+          <button type="button" class="btn-primary" :disabled="!canStart || busy" @click="startSession">
+            Start recording session
+          </button>
+        </div>
       </section>
     </div>
 
@@ -184,9 +192,7 @@
             <span class="meta">{{ selectedClientLabel || 'Unlinked session' }}</span>
           </div>
           <div class="meta-row">
-            <span>{{ form.sessionTypeLabel || 'Session' }}</span>
             <span>{{ form.modalityLabel || '—' }}</span>
-            <span>{{ form.serviceCode || '—' }}</span>
             <span>{{ form.dateOfService || '—' }}</span>
           </div>
           <p v-if="selectedNoteAid" class="hint">Note Aid: {{ selectedNoteAid.label }}</p>
@@ -210,7 +216,24 @@
             <div v-for="(m, i) in markers" :key="i" class="marker">
               <strong>{{ m.time }}</strong> — {{ m.label }}
             </div>
-            <button type="button" class="btn-sm" @click="addMarker">Add Marker</button>
+            <button type="button" class="btn-sm" @click="addMarker">Add marker</button>
+          </div>
+        </section>
+
+        <section class="sr-card sr-actions-card">
+          <h2>Recording controls</h2>
+          <div class="action-buttons">
+            <button type="button" class="btn-secondary" @click="togglePause">
+              {{ recording ? 'Pause recording' : 'Resume recording' }}
+            </button>
+            <button type="button" class="btn-secondary" @click="addMarker">Add marker</button>
+            <button type="button" class="btn-danger" :disabled="ending" @click="endSession">
+              {{ ending ? 'Processing…' : 'End recording' }}
+            </button>
+          </div>
+          <div class="footer-status">
+            <span>{{ recording ? 'Capturing audio' : 'Paused' }}</span>
+            <span>{{ form.generateStructuredNote ? 'Summary + note on end' : 'Summary on end' }}</span>
           </div>
         </section>
       </div>
@@ -218,7 +241,7 @@
       <aside class="sr-live-side sr-card">
         <h2>Structured Note Draft</h2>
         <p class="hint">{{ isTutoringTenant ? 'Summary updates when recording ends.' : 'Draft updates when recording ends (and periodically if auto-draft is on).' }}</p>
-        <p v-if="selectedNoteAid" class="meta">{{ selectedNoteAid.label }} · {{ form.serviceCode || selectedNoteAid.serviceCode }}</p>
+        <p v-if="selectedNoteAid" class="meta">{{ selectedNoteAid.label }}</p>
         <div v-if="summaryResult" class="draft-body">
           <h3>Summary</h3>
           <p>{{ summaryResult.narrative }}</p>
@@ -299,28 +322,6 @@
       </ul>
     </section>
 
-    <footer v-if="phase === 'setup' && !accessError" class="sr-footer">
-      <button type="button" class="btn-secondary" @click="cancelSetup">Cancel</button>
-      <button type="button" class="btn-secondary" :disabled="busy" @click="saveSetup">Save Setup</button>
-      <button type="button" class="btn-primary" :disabled="!canStart || busy" @click="startSession">
-        Start Recording Session
-      </button>
-      <p class="footer-note">Recording begins as soon as you click Start Recording Session.</p>
-    </footer>
-
-    <footer v-else-if="phase === 'live'" class="sr-footer live-footer">
-      <button type="button" class="btn-secondary" @click="togglePause">
-        {{ recording ? 'Pause Recording' : 'Resume Recording' }}
-      </button>
-      <button type="button" class="btn-secondary" @click="addMarker">Add Marker</button>
-      <button type="button" class="btn-danger" :disabled="ending" @click="endSession">
-        {{ ending ? 'Processing…' : 'End Recording' }}
-      </button>
-      <div class="footer-status">
-        <span>{{ recording ? 'Capturing audio' : 'Paused' }}</span>
-        <span>{{ form.generateStructuredNote ? 'Summary + note on end' : 'Summary on end' }}</span>
-      </div>
-    </footer>
   </div>
 </template>
 
@@ -335,8 +336,7 @@ import { parseAgencyFeatureFlags } from '../../config/medicalBillingAccess.js';
 import {
   SESSION_RECORDING_NOTE_AIDS,
   canUseSessionRecordingRole,
-  isSessionRecordingEnabledForAgencyFlags,
-  resolveSessionRecordingNoteAid
+  isSessionRecordingEnabledForAgencyFlags
 } from '../../config/sessionRecordingAccess.js';
 
 const route = useRoute();
@@ -367,9 +367,7 @@ const queryLearningSessionId = computed(() =>
 
 const form = reactive({
   clientId: queryClientId.value || '',
-  sessionTypeLabel: String(route.query.sessionType || 'Session'),
   modalityLabel: String(route.query.modality || 'In person / Telehealth'),
-  serviceCode: String(route.query.serviceCode || '').toUpperCase(),
   dateOfService: new Date().toISOString().slice(0, 10),
   noteAidId: '',
   sessionFocus: '',
@@ -377,9 +375,11 @@ const form = reactive({
   highlightInterventions: true
 });
 
+const isSuperAdmin = computed(() => role.value === 'super_admin');
+
 const selectedNoteAid = computed(() => {
-  if (form.noteAidId) return noteAids.value.find((a) => a.id === form.noteAidId) || null;
-  return resolveSessionRecordingNoteAid({ serviceCode: form.serviceCode });
+  if (!form.noteAidId) return null;
+  return noteAids.value.find((a) => a.id === form.noteAidId) || null;
 });
 
 const selectedClientLabel = computed(() => {
@@ -488,8 +488,9 @@ function applyFinalTranscript(text, source = '') {
 }
 
 const canStart = computed(() => {
-  if (!agencyId.value) return false;
-  return !!form.clientId && micReady.value && (consentOnFile.value || consentSignedThisSession.value);
+  if (!agencyId.value || !micReady.value) return false;
+  if (isSuperAdmin.value) return true;
+  return !!form.clientId && (consentOnFile.value || consentSignedThisSession.value);
 });
 
 function assertAccess() {
@@ -515,14 +516,9 @@ async function loadContext() {
   isTutoringTenant.value = !!res.data?.isTutoringTenant;
   if (isTutoringTenant.value) {
     form.generateStructuredNote = false;
-    form.sessionTypeLabel = form.sessionTypeLabel || 'Tutoring session';
   }
   audioAgreementTemplates.value = res.data?.audioAgreementTemplates || [];
   if (res.data?.noteAids?.length) noteAids.value = res.data.noteAids;
-  if (!form.noteAidId && form.serviceCode) {
-    const aid = resolveSessionRecordingNoteAid({ serviceCode: form.serviceCode });
-    if (aid) form.noteAidId = aid.id;
-  }
 }
 
 async function loadClients() {
@@ -698,13 +694,13 @@ async function saveSetup() {
   try {
     const payload = {
       agencyId: agencyId.value,
-      sessionKind: isTutoringTenant.value ? 'tutoring' : form.noteAidId || form.serviceCode ? 'clinical' : 'standalone',
+      sessionKind: isTutoringTenant.value ? 'tutoring' : form.noteAidId ? 'clinical' : 'standalone',
       clientId: form.clientId ? Number(form.clientId) : null,
       officeEventId: queryOfficeEventId.value ? Number(queryOfficeEventId.value) : null,
       learningClassSessionId: queryLearningSessionId.value ? Number(queryLearningSessionId.value) : null,
-      serviceCode: form.serviceCode || null,
+      serviceCode: selectedNoteAid.value?.serviceCode || null,
       noteAidId: form.noteAidId || null,
-      sessionTypeLabel: form.sessionTypeLabel,
+      sessionTypeLabel: isTutoringTenant.value ? 'Tutoring session' : 'Session',
       modalityLabel: form.modalityLabel,
       dateOfService: form.dateOfService,
       sessionFocus: form.sessionFocus,
@@ -909,7 +905,7 @@ onBeforeUnmount(() => {
 .sr-page {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 20px 20px 120px;
+  padding: 20px;
 }
 .sr-header {
   display: flex;
@@ -1037,37 +1033,22 @@ textarea {
   color: #047857;
   font-weight: 600;
 }
-.privacy {
+.privacy,
+.sr-actions-card {
   grid-column: 1 / -1;
 }
-.sr-footer {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+.action-buttons {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
-  justify-content: flex-end;
-  padding: 12px 20px;
-  background: rgba(255, 255, 255, 0.96);
-  border-top: 1px solid #e2e8f0;
-  z-index: 40;
+  margin-top: 12px;
 }
-.live-footer {
-  justify-content: space-between;
-}
-.footer-note {
-  width: 100%;
-  margin: 0;
-  text-align: right;
-  color: #64748b;
-  font-size: 0.85rem;
-}
-.footer-status {
+.sr-actions-card .footer-status {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
+  margin-top: 10px;
   color: #64748b;
   font-size: 0.85rem;
 }
@@ -1086,9 +1067,14 @@ textarea {
   background: #2563eb;
   color: #fff;
 }
+.btn-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .btn-secondary {
   background: #fff;
   border-color: #cbd5e1;
+  color: #0f172a;
 }
 .btn-danger {
   background: #dc2626;
