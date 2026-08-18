@@ -7,7 +7,7 @@ import { getNoteAidToolById } from '../config/noteAidTools.js';
 import { getKnowledgeBaseContext } from '../services/clinicalKnowledgeBase.service.js';
 import { listEligiblePolicyServiceCodes, resolvePolicyRuleForServiceCode } from '../services/billingPolicy.service.js';
 import { callGeminiText } from '../services/geminiText.service.js';
-import { isTreatmentPlanToolId, shouldUseGeminiPro, TRANSCRIPT_FIDELITY_INSTRUCTIONS } from '../config/clinicalNotePlanOutput.js';
+import { isTreatmentPlanToolId, isProgressNoteToolId, shouldUseGeminiPro, TRANSCRIPT_FIDELITY_INSTRUCTIONS } from '../config/clinicalNotePlanOutput.js';
 import { transcribeLongAudio } from '../services/speechTranscription.service.js';
 import { decryptChatText, encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
 import { validationResult } from 'express-validator';
@@ -1024,7 +1024,8 @@ export const generateClinicalNote = async (req, res, next) => {
     if (programLabel && serviceCode === 'H2014') {
       prompt = [prompt, '', `Program: ${programLabel}`].join('\n');
     }
-    if (includeInteractiveComplexity) {
+    const applyInteractiveComplexity = includeInteractiveComplexity && isProgressNoteToolId(toolId);
+    if (applyInteractiveComplexity) {
       prompt = [
         prompt,
         '',
@@ -1132,7 +1133,7 @@ export const generateClinicalNote = async (req, res, next) => {
         toolId,
         model: modelName,
         latencyMs,
-        includeInteractiveComplexity: !!includeInteractiveComplexity,
+        includeInteractiveComplexity: !!applyInteractiveComplexity,
         dateWritten: dateWritten || null,
         dateOfService: dateOfService || null,
         initials: initials || null,

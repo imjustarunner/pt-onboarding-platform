@@ -329,3 +329,95 @@ export function findNoteAidByToolOrCode({ toolId, serviceCode } = {}) {
   }
   return null;
 }
+
+export const NOTE_AID_KIND_FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'intake', label: 'Intake' },
+  { id: 'progress', label: 'Progress Note' },
+  { id: 'plan', label: 'Treatment Plan' },
+  { id: 'consultation', label: 'Consultation' },
+  { id: 'summary', label: 'Summary' },
+  { id: 'termination', label: 'Termination' },
+  { id: 'other', label: 'More' }
+];
+
+export const NOTE_AID_CATEGORY_TONES = {
+  universal: 'blue',
+  psychotherapy: 'teal',
+  skill_builder: 'purple',
+  therapy_tutoring: 'orange',
+  additional: 'slate'
+};
+
+export function aidKind(aid) {
+  if (aid?.kind) return aid.kind;
+  const blob = `${aid?.toolId || ''} ${aid?.id || ''} ${aid?.label || ''}`.toLowerCase();
+  if (blob.includes('terminat')) return 'termination';
+  if (blob.includes('summary')) return 'summary';
+  if (
+    blob.includes('consult')
+    || blob.includes('h0023')
+    || blob.includes('h0031_additional')
+    || blob.includes('pcp_note')
+  ) {
+    return 'consultation';
+  }
+  if (
+    blob.includes('intake')
+    || blob.includes('h0031_intake')
+    || blob.includes('90791_intake')
+    || blob.includes('nlu_assessment')
+    || blob.includes('psc_17')
+    || blob.includes('h0002')
+  ) {
+    return 'intake';
+  }
+  if (blob.includes('_plan') || blob.includes('treatment plan') || blob.includes('plan writer')) {
+    return 'plan';
+  }
+  if (blob.includes('diagnosis') || blob.includes('nlu_docs') || blob.includes('activity development')) {
+    return 'other';
+  }
+  return 'progress';
+}
+
+export function aidSetting(aid) {
+  if (aid?.needsProgram || /group program|12-week/i.test(String(aid?.label || ''))) return 'group';
+  if (/family/i.test(String(aid?.label || ''))) return 'family';
+  return 'individual';
+}
+
+/** Library card sublabel — e.g. 90837/90834/90832 for psychotherapy code groups. */
+export function aidServiceCodeDisplay(aid) {
+  const custom = String(aid?.serviceCodeDisplay || '').trim();
+  if (custom) return custom;
+  if (aid?.codeGroupId) {
+    const g = NOTE_TYPE_CODE_GROUPS.find((x) => x.id === aid.codeGroupId);
+    if (g?.codes?.length) {
+      const sorted = [...g.codes].sort((a, b) => Number(b) - Number(a));
+      return sorted.join('/');
+    }
+  }
+  return String(aid?.serviceCode || '').trim();
+}
+
+/** Interactive Complexity (90785) is a progress-note add-on only. */
+export function aidAllowsInteractiveComplexity(aid) {
+  return aidKind(aid) === 'progress';
+}
+
+export function flattenNoteAids(categories = NOTE_AID_CATEGORIES) {
+  const out = [];
+  for (const cat of categories) {
+    for (const aid of cat.aids || []) {
+      out.push({
+        ...aid,
+        categoryId: cat.id,
+        categoryLabel: cat.label,
+        kind: aidKind(aid),
+        setting: aidSetting(aid)
+      });
+    }
+  }
+  return out;
+}

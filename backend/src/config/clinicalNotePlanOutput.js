@@ -56,6 +56,12 @@ export function isTreatmentPlanToolId(toolId) {
   return TREATMENT_PLAN_TOOL_IDS.has(String(toolId || ''));
 }
 
+/** 90785 Interactive Complexity — progress notes (and Code Decider) only. */
+export function isProgressNoteToolId(toolId) {
+  const id = String(toolId || '');
+  return PROGRESS_NOTE_TOOL_IDS.has(id) || id === 'clinical_code_decider';
+}
+
 export function shouldUseGeminiPro(toolId) {
   const id = String(toolId || '');
   return TREATMENT_PLAN_TOOL_IDS.has(id) || PROGRESS_NOTE_TOOL_IDS.has(id);

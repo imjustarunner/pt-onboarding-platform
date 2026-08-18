@@ -135,7 +135,7 @@
         </div>
       </aside>
 
-      <main class="na-main">
+      <main class="na-main" :class="{ 'na-main--library': showLibraryPanel }">
         <div class="na-privacy">
           <strong>Privacy notice:</strong>
           Drafts (including archived) are permanently deleted after 7 days. Copy into your EHR before then.
@@ -154,74 +154,29 @@
           <span v-else-if="draftId" class="muted">Draft #{{ draftId }}</span>
         </div>
 
+        <NoteAidLibraryPanel
+          v-if="showLibraryPanel"
+          :categories="libraryCategories"
+          :user-id="libraryUserId"
+          @select="onLibrarySelect"
+        />
+
+        <template v-else>
+        <div class="na-aid-bar">
+          <div class="na-aid-bar-copy">
+            <span class="na-aid-kicker">{{ selectedCategoryLabel || 'Selected aid' }}</span>
+            <strong>{{ selectedAid?.label || 'Note aid' }}</strong>
+            <p v-if="selectedAidGuidance">{{ selectedAidGuidance }}</p>
+            <p v-if="forceAutoSelect" class="na-field-hint">
+              Credential isn’t set — generation will use Code Decider until an admin records your license.
+            </p>
+          </div>
+          <button type="button" class="na-change-aid" @click="changeNoteAid">Change tool</button>
+        </div>
+
         <section class="na-config">
           <div class="na-step">
             <div class="na-step-num">1</div>
-            <div class="na-step-body">
-              <label class="na-label">Output category</label>
-              <select v-model="selectedNoteCategory" class="na-input" :disabled="forceAutoSelect">
-                <option value="" disabled>Select a category</option>
-                <option
-                  v-for="cat in noteAidCategories"
-                  :key="cat.id"
-                  :value="cat.id"
-                >{{ cat.label }}</option>
-              </select>
-              <label class="na-label" style="margin-top: 10px;">Aid</label>
-              <select
-                v-model="selectedAidId"
-                class="na-input"
-                :disabled="!selectedNoteCategory || forceAutoSelect"
-              >
-                <option value="" disabled>Select an aid</option>
-                <option
-                  v-for="aid in aidsForSelectedCategory"
-                  :key="aid.id"
-                  :value="aid.id"
-                >{{ aid.label }}</option>
-              </select>
-              <p v-if="selectedAidGuidance" class="na-field-hint" style="margin-top: 8px;">
-                {{ selectedAidGuidance }}
-              </p>
-              <label
-                v-if="showBillingCodePicker"
-                class="na-label"
-                style="margin-top: 10px;"
-              >Billing code (optional override)</label>
-              <select
-                v-if="showBillingCodePicker"
-                v-model="selectedServiceCode"
-                class="na-input"
-                :disabled="autoSelectCode || forceAutoSelect"
-              >
-                <option value="">Use aid default</option>
-                <option
-                  v-for="opt in noteTypeOptions"
-                  :key="opt.value"
-                  :value="opt.value"
-                >{{ opt.label }}</option>
-                <option v-if="canUseOtherCode" value="__other__">Other (enter code)</option>
-              </select>
-              <input
-                v-if="selectedServiceCode === '__other__'"
-                v-model="otherServiceCode"
-                class="na-input"
-                style="margin-top: 8px;"
-                placeholder="e.g., 90834"
-              />
-              <label
-                v-if="showAutoSelectCodeOption"
-                class="na-check"
-                style="margin-top: 8px;"
-              >
-                <input v-model="autoSelectCode" type="checkbox" :disabled="forceAutoSelect || selectedAidForcesAutoSelect" />
-                <span>Let AI choose the best code</span>
-              </label>
-            </div>
-          </div>
-
-          <div class="na-step">
-            <div class="na-step-num">2</div>
             <div class="na-step-body">
               <label class="na-label">Date of Service</label>
               <input v-model="dateOfService" type="date" class="na-input" />
@@ -229,7 +184,7 @@
           </div>
 
           <div class="na-step">
-            <div class="na-step-num">3</div>
+            <div class="na-step-num">2</div>
             <div class="na-step-body">
               <label class="na-label">Client Initials</label>
               <input v-model="initials" type="text" class="na-input" maxlength="16" placeholder="e.g., A.M." />
@@ -237,15 +192,47 @@
           </div>
 
           <div class="na-step">
-            <div class="na-step-num">4</div>
+            <div class="na-step-num">3</div>
             <div class="na-step-body">
               <label class="na-label">Options</label>
-              <label class="na-toggle-row">
+              <label v-if="showInteractiveComplexityOption" class="na-toggle-row">
                 <span>Include Interactive Complexity</span>
                 <span class="na-switch" :class="{ on: includeInteractiveComplexity }">
                   <input v-model="includeInteractiveComplexity" type="checkbox" />
                   <span class="na-switch-thumb" />
                 </span>
+              </label>
+              <p v-else class="na-field-hint">Interactive Complexity is only available on progress notes.</p>
+              <div v-if="showBillingCodePicker" style="margin-top: 10px;">
+                <span class="na-field-hint">Billing code (optional override)</span>
+                <select
+                  v-model="selectedServiceCode"
+                  class="na-input"
+                  :disabled="autoSelectCode || forceAutoSelect"
+                >
+                  <option value="">Use aid default</option>
+                  <option
+                    v-for="opt in noteTypeOptions"
+                    :key="opt.value"
+                    :value="opt.value"
+                  >{{ opt.label }}</option>
+                  <option v-if="canUseOtherCode" value="__other__">Other (enter code)</option>
+                </select>
+                <input
+                  v-if="selectedServiceCode === '__other__'"
+                  v-model="otherServiceCode"
+                  class="na-input"
+                  style="margin-top: 8px;"
+                  placeholder="e.g., 90834"
+                />
+              </div>
+              <label
+                v-if="showAutoSelectCodeOption"
+                class="na-check"
+                style="margin-top: 8px;"
+              >
+                <input v-model="autoSelectCode" type="checkbox" :disabled="forceAutoSelect || selectedAidForcesAutoSelect" />
+                <span>Let AI choose the best code</span>
               </label>
               <div v-if="showProgramDropdown" style="margin-top: 10px;">
                 <span class="na-field-hint">Program (H2014 only)</span>
@@ -413,7 +400,7 @@
           </div>
           <div class="na-tags">
             <span class="na-tag">{{ noteTypeDisplayLabel }}</span>
-            <span v-if="includeInteractiveComplexity" class="na-tag na-tag--accent">Interactive Complexity</span>
+            <span v-if="includeInteractiveComplexity && showInteractiveComplexityOption" class="na-tag na-tag--accent">Interactive Complexity</span>
           </div>
 
           <div class="na-soap-list">
@@ -521,6 +508,7 @@
           :clientId="Number(retentionClientId || 0)"
           :officeEventId="Number(retentionOfficeEventId || 0)"
         />
+        </template>
       </main>
     </div>
 
@@ -556,6 +544,7 @@ import { useAuthStore } from '../../store/auth';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import ClinicalArtifactRetentionPanel from '../../components/clinical/ClinicalArtifactRetentionPanel.vue';
+import NoteAidLibraryPanel from '../../components/clinical/NoteAidLibraryPanel.vue';
 import {
   buildDisplaySections,
   extractSections,
@@ -569,9 +558,11 @@ import {
   HIDDEN_NOTE_AID_CODES,
   NOTE_AID_CATEGORIES,
   NOTE_TYPE_CODE_GROUPS,
+  aidAllowsInteractiveComplexity,
   findNoteAidById,
   findNoteAidByToolOrCode
 } from '../../config/noteAidWorkspace.js';
+import { rememberRecentAid } from '../../utils/noteAidLibraryPrefs.js';
 import { isClinicalChartEnabled, parseAgencyFeatureFlags } from '../../config/medicalBillingAccess.js';
 
 const agencyStore = useAgencyStore();
@@ -907,25 +898,25 @@ const noteTypeOptions = computed(() => {
   return options;
 });
 
+function aidIsEligible(aid) {
+  const available = new Set(rawEligibleServiceCodes.value);
+  const code = String(aid.serviceCode || '').toUpperCase();
+  if (!code) return true;
+  if (HIDDEN_ADDON_CODES.has(code)) return false;
+  if (!Array.isArray(eligibleServiceCodes.value)) return true;
+  if (!available.size) return true;
+  if (available.has(code)) return true;
+  if (aid.codeGroupId) {
+    const g = NOTE_TYPE_GROUPS.find((x) => x.id === aid.codeGroupId);
+    return !!(g && g.codes.some((c) => available.has(c)));
+  }
+  return true;
+}
+
 const aidsForSelectedCategory = computed(() => {
   const cat = noteAidCategories.find((c) => c.id === selectedNoteCategory.value);
   if (!cat) return [];
-  const available = new Set(rawEligibleServiceCodes.value);
-  return (cat.aids || []).filter((aid) => {
-    const code = String(aid.serviceCode || '').toUpperCase();
-    if (!code) return true;
-    if (HIDDEN_ADDON_CODES.has(code)) return false;
-    // If agency catalog is known and non-empty, only show aids whose code is eligible
-    // (or whose code-group has any eligible member).
-    if (!Array.isArray(eligibleServiceCodes.value)) return true;
-    if (!available.size) return true;
-    if (available.has(code)) return true;
-    if (aid.codeGroupId) {
-      const g = NOTE_TYPE_GROUPS.find((x) => x.id === aid.codeGroupId);
-      return !!(g && g.codes.some((c) => available.has(c)));
-    }
-    return true;
-  });
+  return (cat.aids || []).filter((aid) => aidIsEligible(aid));
 });
 
 const selectedAid = computed(() => {
@@ -935,6 +926,19 @@ const selectedAid = computed(() => {
 
 const selectedAidGuidance = computed(() => String(selectedAid.value?.guidance || '').trim());
 const selectedAidForcesAutoSelect = computed(() => !!selectedAid.value?.autoSelect);
+const selectedCategoryLabel = computed(() => {
+  const cat = noteAidCategories.find((c) => c.id === selectedNoteCategory.value);
+  return cat?.label || '';
+});
+const showLibraryPanel = computed(() => !String(selectedAidId.value || '').trim());
+const libraryUserId = computed(() => authStore.user?.id || null);
+const showInteractiveComplexityOption = computed(() => aidAllowsInteractiveComplexity(selectedAid.value));
+const libraryCategories = computed(() => (
+  (noteAidCategories || []).map((cat) => ({
+    ...cat,
+    aids: (cat.aids || []).filter((aid) => aidIsEligible(aid))
+  })).filter((cat) => cat.aids.length)
+));
 /** Explicit gem/tool from the Aid picker — this is how we reuse the working Gemini Gem prompts in-app. */
 const selectedToolId = computed(() => {
   if (forceAutoSelect.value || selectedAidForcesAutoSelect.value || autoSelectCode.value) {
@@ -978,13 +982,26 @@ const noteTypePrimaryCode = (selection) => {
   return v.toUpperCase();
 };
 
-watch(selectedNoteCategory, (catId, prev) => {
-  if (catId === prev) return;
+watch(selectedNoteCategory, () => {
   const aids = aidsForSelectedCategory.value;
-  if (!aids.some((a) => a.id === selectedAidId.value)) {
-    selectedAidId.value = aids[0]?.id || '';
+  if (selectedAidId.value && !aids.some((a) => a.id === selectedAidId.value)) {
+    selectedAidId.value = '';
   }
 });
+
+watch(showInteractiveComplexityOption, (allowed) => {
+  if (!allowed) includeInteractiveComplexity.value = false;
+});
+
+function onLibrarySelect({ aid, categoryId }) {
+  selectedNoteCategory.value = categoryId || findNoteAidById(aid?.id)?.category?.id || '';
+  selectedAidId.value = aid?.id || '';
+}
+
+function changeNoteAid() {
+  selectedAidId.value = '';
+  selectedNoteCategory.value = '';
+}
 
 watch(selectedAidId, (aidId) => {
   const aid = findNoteAidById(aidId)?.aid;
@@ -1490,7 +1507,8 @@ watch(outputObj, () => {
   Object.keys(sectionEditing).forEach((k) => delete sectionEditing[k]);
   Object.keys(collapsedPanels).forEach((k) => delete collapsedPanels[k]);
   if (outputObj.value?.meta?.includeInteractiveComplexity != null) {
-    includeInteractiveComplexity.value = !!outputObj.value.meta.includeInteractiveComplexity;
+    includeInteractiveComplexity.value =
+      !!outputObj.value.meta.includeInteractiveComplexity && aidAllowsInteractiveComplexity(selectedAid.value);
   }
 });
 
@@ -2036,7 +2054,11 @@ const generateNote = async () => {
     if (dateOfService.value) fd.append('dateOfService', String(dateOfService.value));
     fd.append('dateWritten', String(effectiveCreatedDate.value));
     if (initials.value) fd.append('initials', String(initials.value));
-    fd.append('includeInteractiveComplexity', String(!!includeInteractiveComplexity.value));
+    if (selectedAidId.value) rememberRecentAid(libraryUserId.value, selectedAidId.value);
+    fd.append(
+      'includeInteractiveComplexity',
+      String(!!includeInteractiveComplexity.value && showInteractiveComplexityOption.value)
+    );
     fd.append('inputText', String(inputText.value || ''));
     if (String(revisionInstruction.value || '').trim()) {
       fd.append('revisionInstruction', String(revisionInstruction.value || '').trim());
@@ -2373,15 +2395,16 @@ const loadDraftIntoWorkspace = (d) => {
   } catch {
     outputObj.value = null;
   }
-  if (outputObj.value?.meta?.includeInteractiveComplexity != null) {
-    includeInteractiveComplexity.value = !!outputObj.value.meta.includeInteractiveComplexity;
-  }
   const draftToolId = String(outputObj.value?.meta?.toolId || d.tool_id || '').trim();
   const aidHit = findNoteAidByToolOrCode({ toolId: draftToolId, serviceCode: draftCode });
   if (aidHit) {
     selectedNoteCategory.value = aidHit.category.id;
     selectedAidId.value = aidHit.aid.id;
     if (aidHit.aid.autoSelect) autoSelectCode.value = true;
+  }
+  if (outputObj.value?.meta?.includeInteractiveComplexity != null) {
+    includeInteractiveComplexity.value =
+      !!outputObj.value.meta.includeInteractiveComplexity && aidAllowsInteractiveComplexity(aidHit?.aid || selectedAid.value);
   }
   const dayKey = draftCreatedKey(d.created_at);
   openDateGroups.value = { ...openDateGroups.value, [dayKey]: true };
@@ -2424,7 +2447,7 @@ const copyFullNote = async () => {
     dateOfService: dateOfService.value,
     dateWritten: effectiveCreatedDate.value,
     noteTypeLabel: noteTypeDisplayLabel.value,
-    includeInteractiveComplexity: includeInteractiveComplexity.value
+    includeInteractiveComplexity: includeInteractiveComplexity.value && showInteractiveComplexityOption.value
   });
   await copyText(text);
 };
@@ -2946,6 +2969,10 @@ onBeforeUnmount(() => {
   max-width: none;
   min-width: 0;
 }
+.na-main--library {
+  display: flex;
+  flex-direction: column;
+}
 
 .na-privacy {
   background: #fff7ed;
@@ -2973,9 +3000,54 @@ onBeforeUnmount(() => {
   color: var(--na-muted);
 }
 
+.na-aid-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  background: #fff;
+  border: 1px solid var(--na-border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-top: 4px;
+}
+.na-aid-kicker {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--na-teal-dark, #0f766e);
+  margin-bottom: 2px;
+}
+.na-aid-bar-copy strong {
+  font-size: 1.02rem;
+  color: #0f172a;
+}
+.na-aid-bar-copy p {
+  margin: 6px 0 0;
+  font-size: 0.86rem;
+  color: var(--na-muted);
+  line-height: 1.4;
+}
+.na-change-aid {
+  flex-shrink: 0;
+  border: 1px solid var(--na-border);
+  background: #f8fafc;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+  color: #334155;
+}
+.na-change-aid:hover {
+  background: #eef2ff;
+}
+
 .na-config {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin: 14px 0;
 }
