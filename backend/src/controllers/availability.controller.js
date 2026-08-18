@@ -40,7 +40,8 @@ import {
 } from '../utils/schoolRequestNotes.util.js';
 import {
   applyProviderSchoolDayMove,
-  demoteUnassignedClientsAfterDayMove
+  demoteUnassignedClientsAfterDayMove,
+  vacateProviderSchoolDay
 } from '../services/providerSchoolDayMove.service.js';
 
 function parseIntSafe(v) {
@@ -3800,6 +3801,18 @@ export const approveScheduleAdjustmentFromRequest = async (req, res, next) => {
       }
       assignmentId = moved.assignmentId;
       unassignedClientIds = moved.unassignedClientIds || [];
+    } else if (wantSlotsChange && nextSlotsTotal === 0) {
+      const vacated = await vacateProviderSchoolDay(conn, {
+        schoolId: schoolOrganizationId,
+        providerUserId,
+        weekday: fromDay,
+        actorUserId: req.user?.id
+      });
+      if (!vacated.ok) {
+        await conn.rollback();
+        return res.status(400).json({ error: { message: vacated.message || 'Could not vacate school day' } });
+      }
+      unassignedClientIds = vacated.unassignedClientIds || [];
     } else {
       await conn.execute(
         `UPDATE provider_school_assignments
@@ -3837,7 +3850,7 @@ export const approveScheduleAdjustmentFromRequest = async (req, res, next) => {
 
     await conn.commit();
 
-    if (toDay && unassignedClientIds.length) {
+    if (unassignedClientIds.length) {
       await demoteUnassignedClientsAfterDayMove({
         clientIds: unassignedClientIds,
         actorUserId: req.user?.id
@@ -3853,11 +3866,13 @@ export const approveScheduleAdjustmentFromRequest = async (req, res, next) => {
     try {
       const moveMsg = toDay
         ? `Your school day was moved from ${fromDay} to ${toDay}. Clients on ${fromDay} were unassigned and need a day on ${toDay}.`
-        : `Your schedule adjustment for ${dayOfWeek} was approved.`;
+        : wantSlotsChange && nextSlotsTotal === 0
+          ? `Your schedule on ${fromDay} was removed. Clients on that day were unassigned and need a new day assignment.`
+          : `Your schedule adjustment for ${dayOfWeek} was approved.`;
       await Notification.create({
         type: 'school_availability_request_approved',
         severity: 'info',
-        title: toDay ? 'School day change approved' : 'Schedule adjustment approved',
+        title: toDay ? 'School day change approved' : wantSlotsChange && nextSlotsTotal === 0 ? 'School day removed' : 'Schedule adjustment approved',
         message: moveMsg,
         userId: providerUserId,
         agencyId,
@@ -3871,7 +3886,8 @@ export const approveScheduleAdjustmentFromRequest = async (req, res, next) => {
       ok: true,
       providerSchoolAssignmentId: assignmentId,
       dayMoved: !!toDay,
-      fromDay: toDay ? fromDay : null,
+      dayVacated: !toDay && wantSlotsChange && nextSlotsTotal === 0,
+      fromDay: toDay || (wantSlotsChange && nextSlotsTotal === 0 ? fromDay : null),
       toDay: toDay || null,
       unassignedClientCount: unassignedClientIds.length
     });

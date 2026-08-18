@@ -75,6 +75,23 @@ async function unassignClientsFromProviderDay(connection, {
   actorUserId
 }) {
   const clientIds = [];
+
+  try {
+    const [softClientRows] = await connection.execute(
+      `SELECT DISTINCT client_id
+       FROM soft_schedule_slots
+       WHERE school_organization_id = ? AND weekday = ? AND provider_user_id = ?
+         AND client_id IS NOT NULL`,
+      [schoolId, fromDay, providerUserId]
+    );
+    for (const row of softClientRows || []) {
+      const clientId = Number(row.client_id);
+      if (clientId) clientIds.push(clientId);
+    }
+  } catch {
+    // ignore if soft schedule table missing
+  }
+
   let rows = [];
   try {
     const [found] = await connection.execute(
@@ -93,14 +110,25 @@ async function unassignClientsFromProviderDay(connection, {
   }
 
   try {
-    await connection.execute(
-      `UPDATE soft_schedule_slots
-       SET client_id = NULL, updated_by_user_id = ?
-       WHERE school_organization_id = ? AND weekday = ? AND provider_user_id = ?`,
-      [actorUserId, schoolId, fromDay, providerUserId]
-    );
-  } catch {
-    // ignore if soft schedule table missing
+    const actor = parseInt(actorUserId, 10);
+    if (Number.isFinite(actor) && actor > 0) {
+      await connection.execute(
+        `UPDATE soft_schedule_slots
+         SET client_id = NULL, updated_by_user_id = ?
+         WHERE school_organization_id = ? AND weekday = ? AND provider_user_id = ?`,
+        [actor, schoolId, fromDay, providerUserId]
+      );
+    } else {
+      await connection.execute(
+        `UPDATE soft_schedule_slots
+         SET client_id = NULL
+         WHERE school_organization_id = ? AND weekday = ? AND provider_user_id = ?`,
+        [schoolId, fromDay, providerUserId]
+      );
+    }
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (!msg.includes("doesn't exist") && !msg.includes('ER_NO_SUCH_TABLE')) throw e;
   }
 
   for (const row of rows) {
@@ -247,6 +275,56 @@ export async function applyProviderSchoolDayMove(connection, {
   });
 
   return { ok: true, assignmentId, unassignedClientIds };
+}
+
+/**
+ * Provider is leaving a school weekday (slots → 0 or day removed). Unassign caseload and deactivate portal day.
+ */
+export async function vacateProviderSchoolDay(connection, {
+  schoolId,
+  providerUserId,
+  weekday,
+  actorUserId
+}) {
+  const day = WEEKDAYS.includes(String(weekday)) ? String(weekday) : null;
+  if (!day) return { ok: false, message: 'Invalid weekday' };
+
+  const [psaRows] = await connection.execute(
+    `SELECT id, slots_total, start_time, end_time
+     FROM provider_school_assignments
+     WHERE provider_user_id = ? AND school_organization_id = ? AND day_of_week = ?
+     LIMIT 1
+     FOR UPDATE`,
+    [providerUserId, schoolId, day]
+  );
+  const psa = psaRows?.[0] || null;
+  if (!psa) {
+    return { ok: false, message: `No school assignment found for ${day}` };
+  }
+
+  const unassignedClientIds = await unassignClientsFromProviderDay(connection, {
+    schoolId,
+    providerUserId,
+    fromDay: day,
+    actorUserId
+  });
+
+  await connection.execute(
+    `UPDATE provider_school_assignments
+     SET slots_total = 0, slots_available = 0, is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [psa.id]
+  );
+  await syncSchoolPortalDayProvider({
+    executor: connection,
+    schoolId,
+    providerUserId,
+    weekday: day,
+    isActive: false,
+    actorUserId
+  });
+
+  return { ok: true, unassignedClientIds };
 }
 
 export async function demoteUnassignedClientsAfterDayMove({ clientIds, actorUserId }) {
