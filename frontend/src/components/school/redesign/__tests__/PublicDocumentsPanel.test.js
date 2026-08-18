@@ -210,6 +210,7 @@ describe('PublicDocumentsPanel', () => {
     expect(wrapper.text()).toContain('Auto-generated from live school data');
     expect(wrapper.text()).toContain('Referral packet');
     const labels = wrapper.findAll('button').map((b) => b.text().trim());
+    expect(labels).toContain('Copy');
     expect(labels).toContain('View');
     expect(labels).toContain('Print');
     expect(labels).toContain('Download');

@@ -39,7 +39,7 @@ export const schoolPortalGuidedSteps = [
     popover: {
       title: 'Printable packets',
       description:
-        'This is where you access printable packets when a parent needs a paper copy. Print from here; do not email this link.',
+        'This is where you access printable packets when a parent needs a paper copy. Copy or scan the public PDF link (no login). Completed packets still need to be uploaded.',
       side: 'right',
       align: 'start'
     }
@@ -254,7 +254,7 @@ export const schoolPortalHoverTips = {
   },
   'school-printable-forms-panel': {
     title: 'Printable packets',
-    description: 'View, print, or download the English and Spanish paper packets.'
+    description: 'View, print, copy, or share the public English and Spanish paper packet PDFs.'
   },
   'school-nav-upload': {
     title: 'Upload paper packets',

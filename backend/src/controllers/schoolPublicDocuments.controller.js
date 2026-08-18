@@ -9,7 +9,8 @@ import { isSupervisorActor, supervisorHasSuperviseeInSchool } from '../utils/sup
 import {
   buildVirtualPrintablePacketDocument,
   isSchoolPrintablePacketEnabled,
-  isHogwartsPacketHubOrg
+  isHogwartsPacketHubOrg,
+  normalizePrintablePacketLocale
 } from '../constants/schoolPrintablePacket.js';
 import {
   buildSchoolPrintablePacketContext,
@@ -518,27 +519,35 @@ export const getSchoolPrintablePacketAvailabilityHandler = async (req, res, next
   }
 };
 
+export async function sendSchoolPrintablePacketPdf(res, organizationId, locale) {
+  const loc = normalizePrintablePacketLocale(locale);
+  const packetContext = await buildSchoolPrintablePacketContext({ organizationId, locale: loc });
+  const pdfBytes = await getOrCreateSchoolPrintablePacketPdf(organizationId, loc);
+  const schoolSlug = String(
+    packetContext?.organization?.slug || packetContext?.organization?.portal_url || 'school'
+  ).replace(/[^a-z0-9-]+/gi, '-');
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader(
+    'Content-Disposition',
+    `inline; filename="${schoolSlug}-referral-packet-v${packetContext.version}.pdf"`
+  );
+  return res.send(Buffer.from(pdfBytes));
+}
+
 export const renderSchoolPrintablePacket = async (req, res, next) => {
   try {
     const { organizationId } = req.params;
     await assertSchoolPortalAccess(req, organizationId);
     const format = String(req.query?.format || 'pdf').trim().toLowerCase();
     const locale = String(req.query?.locale || 'en').trim();
-    const packetContext = await buildSchoolPrintablePacketContext({ organizationId, locale });
 
     if (format === 'html') {
+      const packetContext = await buildSchoolPrintablePacketContext({ organizationId, locale });
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(buildSchoolPrintablePacketHtml(packetContext));
     }
 
-    const pdfBytes = await getOrCreateSchoolPrintablePacketPdf(organizationId, locale);
-    const schoolSlug = String(packetContext?.organization?.slug || 'school').replace(/[^a-z0-9-]+/gi, '-');
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `inline; filename="${schoolSlug}-referral-packet-v${packetContext.version}.pdf"`
-    );
-    return res.send(Buffer.from(pdfBytes));
+    return sendSchoolPrintablePacketPdf(res, organizationId, locale);
   } catch (e) {
     if (e?.statusCode) {
       return res.status(e.statusCode).json({ error: { message: e.message } });

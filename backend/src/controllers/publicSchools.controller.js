@@ -1,5 +1,10 @@
 import Agency from '../models/Agency.model.js';
 import { COLORADO_OUTREACH_SCHOOLS } from '../data/coloradoOutreachSchools.js';
+import {
+  canServePublicPrintablePacket,
+  normalizePrintablePacketLocale
+} from '../constants/schoolPrintablePacket.js';
+import { sendSchoolPrintablePacketPdf } from './schoolPublicDocuments.controller.js';
 
 function normalizeKey(input) {
   const s = String(input || '')
@@ -152,6 +157,36 @@ export const searchPublicSchools = async (req, res, next) => {
 
     res.json(out);
   } catch (e) {
+    next(e);
+  }
+};
+
+export async function resolvePublicSchoolForPrintablePacket(slugOrId) {
+  const raw = String(slugOrId || '').trim();
+  if (!raw) return null;
+  if (/^\d+$/.test(raw)) {
+    return Agency.findById(Number(raw));
+  }
+  return Agency.findByPortalUrl(raw.toLowerCase());
+}
+
+/**
+ * GET /api/public/schools/:slug/printable-packet?locale=en|es
+ * Public paper packet PDF — no login. Same generated packet as the school portal.
+ */
+export const renderPublicSchoolPrintablePacket = async (req, res, next) => {
+  try {
+    const org = await resolvePublicSchoolForPrintablePacket(req.params.slug);
+    if (!canServePublicPrintablePacket(org)) {
+      return res.status(404).json({ error: { message: 'Printable packet not found' } });
+    }
+    const locale = normalizePrintablePacketLocale(req.query?.locale);
+    res.setHeader('Cache-Control', 'public, max-age=120');
+    return sendSchoolPrintablePacketPdf(res, org.id, locale);
+  } catch (e) {
+    if (e?.statusCode) {
+      return res.status(e.statusCode).json({ error: { message: e.message } });
+    }
     next(e);
   }
 };

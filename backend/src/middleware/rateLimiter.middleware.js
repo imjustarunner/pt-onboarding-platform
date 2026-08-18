@@ -156,6 +156,20 @@ export const publicMarketingPageMetricsLimiter = rateLimit({
   }
 });
 
+/** Public school printable packet PDFs (read-only, cached). */
+export const publicSchoolPrintablePacketLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isDevelopment ? 120 : 40,
+  message: { error: { message: 'Too many packet requests, please try again later' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const slug = String(req.params?.slug || '').trim().toLowerCase();
+    const ip = getClientIpAddress(req) || req.ip || 'unknown';
+    return slug ? `school-printable-packet:${slug}:${ip}` : `school-printable-packet:${ip}`;
+  }
+});
+
 /** Public school referral finder directory (read-only). */
 export const publicSchoolReferralDirectoryLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

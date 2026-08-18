@@ -11,6 +11,21 @@ export function resolveOrganizationSlug(org = {}) {
   return String(org?.portal_url || org?.slug || '').trim().toLowerCase();
 }
 
+export function normalizePrintablePacketLocale(locale) {
+  return String(locale || 'en').trim().toLowerCase().startsWith('es') ? 'es' : 'en';
+}
+
+export function isArchivedOrganization(org = {}) {
+  return org?.is_archived === true || Number(org?.is_archived) === 1;
+}
+
+/** Paper packets are public share/print PDFs for school/program/learning orgs. */
+export function canServePublicPrintablePacket(org = {}) {
+  if (!org) return false;
+  if (isArchivedOrganization(org)) return false;
+  return isSchoolPrintablePacketEnabled(org);
+}
+
 /** Fantasy/demo identities excluded from live roster tables (not from portal access). */
 export function isHogwartsDemoSchoolOrg(org = {}) {
   const slug = resolveOrganizationSlug(org);

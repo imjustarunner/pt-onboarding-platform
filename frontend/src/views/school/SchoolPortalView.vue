@@ -1504,7 +1504,10 @@
               v-if="isSchoolStaff"
               :organization-id="organizationId"
             />
-            <PublicDocumentsPanel :school-organization-id="organizationId" />
+            <PublicDocumentsPanel
+              :school-organization-id="organizationId"
+              :organization-slug="organizationSlug"
+            />
           </div>
         </div>
           </div>
@@ -2310,7 +2313,8 @@
         <div class="modal-body">
           <div class="printable-modal-notice">
             🖨️ <strong>For printing only.</strong>
-            Do not share this link digitally. Completed forms must be submitted via
+            This public link opens the paper packet PDF (no login). Do not use it as a digital form.
+            Completed packets must be submitted via
             <button
               class="printable-hub-inline-btn"
               type="button"
@@ -2577,6 +2581,7 @@ import { useAuthStore } from '../../store/auth';
 import TestAccountSwitcher from '../../components/TestAccountSwitcher.vue';
 import api from '../../services/api';
 import { messageFromBlobError } from '../../utils/apiBlobError';
+import { buildPublicSchoolPrintablePacketUrl } from '../../utils/publicSchoolPrintablePacketUrl';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { isSupervisor } from '../../utils/helpers';
@@ -5192,10 +5197,12 @@ const printablePacketLoading = reactive({ en: false, es: false });
 const printablePacketError = ref('');
 
 function printablePacketApiUrl(locale) {
-  const base = String(api.defaults.baseURL || '/api').replace(/\/$/, '');
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const fullBase = base.startsWith('http') ? base : `${origin}${base}`;
-  return `${fullBase}/school-portal/${organizationId.value}/printable-packet?locale=${locale}`;
+  const slug = String(organizationSlug.value || '').trim();
+  const key = slug || organizationId.value;
+  return buildPublicSchoolPrintablePacketUrl(key, locale, {
+    origin: typeof window !== 'undefined' ? window.location.origin : '',
+    apiBase: api.defaults?.baseURL || '/api'
+  });
 }
 
 function currentPrintableQr(locale) {
@@ -5328,19 +5335,13 @@ async function fetchPrintablePacketBlob(locale) {
 }
 
 async function openPrintablePacket(locale) {
-  if (printablePacketLoading[locale]) return;
-  printablePacketLoading[locale] = true;
-  printablePacketError.value = '';
-  try {
-    const blob = await fetchPrintablePacketBlob(locale);
-    const blobUrl = URL.createObjectURL(blob);
-    window.open(blobUrl, '_blank', 'noopener');
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
-  } catch (e) {
-    printablePacketError.value = await messageFromBlobError(e, 'Failed to open packet.');
-  } finally {
-    printablePacketLoading[locale] = false;
+  const url = printablePacketApiUrl(locale);
+  if (!url) {
+    printablePacketError.value = 'Printable packet link is not available for this school.';
+    return;
   }
+  printablePacketError.value = '';
+  window.open(url, '_blank', 'noopener');
 }
 
 async function printPrintablePacket(locale) {

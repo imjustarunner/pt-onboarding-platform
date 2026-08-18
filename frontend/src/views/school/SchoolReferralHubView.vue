@@ -77,22 +77,12 @@
             <div v-for="lane in linkLanes" :key="lane.key" class="srh-link-tile">
               <div class="srh-link-title">{{ lane.title }}</div>
               <div class="muted srh-link-desc">{{ lane.desc }}</div>
-              <div v-if="lane.kind === 'printable'" class="srh-link-row">
-                <button
-                  class="btn btn-primary btn-sm"
-                  type="button"
-                  :disabled="printableLoadingLang === lane.lang"
-                  @click="openPrintable(lane.lang)"
-                >
-                  {{ printableLoadingLang === lane.lang ? 'Generating…' : `View ${lane.short} PDF` }}
-                </button>
-              </div>
-              <div v-else-if="lane.url" class="srh-link-row">
+              <div v-if="lane.url" class="srh-link-row">
                 <input class="srh-link-input" :value="lane.url" readonly />
                 <button class="btn btn-secondary btn-sm" type="button" @click="copyText(lane.url)">Copy</button>
                 <a class="btn btn-primary btn-sm" :href="lane.url" target="_blank" rel="noreferrer">Open</a>
               </div>
-              <div v-else class="srh-link-missing">
+              <div v-else-if="lane.kind === 'digital'" class="srh-link-missing">
                 <span class="muted">No {{ lane.short }} digital form yet.</span>
                 <button
                   class="btn btn-primary btn-sm"
@@ -137,9 +127,9 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import QRCode from 'qrcode';
 import api from '../../services/api';
-import { messageFromBlobError } from '../../utils/apiBlobError';
 import { useAgencyStore } from '../../store/agency';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+import { buildPublicSchoolPrintablePacketUrl } from '../../utils/publicSchoolPrintablePacketUrl';
 import SchoolPacketTemplateEditor from '../../components/school/redesign/SchoolPacketTemplateEditor.vue';
 
 const route = useRoute();
@@ -156,7 +146,6 @@ const loadingLinks = ref(false);
 const linksError = ref('');
 const intakeLinks = ref([]);
 const creatingLang = ref('');
-const printableLoadingLang = ref('');
 
 const masterLoading = ref(false);
 const masterError = ref('');
@@ -226,6 +215,21 @@ const selectedSchoolName = computed(() => {
   return schools.value.find((s) => Number(s.id) === id)?.name || 'this school';
 });
 
+const selectedSchoolSlug = computed(() => {
+  const id = Number(selectedSchoolId.value || 0);
+  const row = schools.value.find((s) => Number(s.id) === id);
+  return String(row?.slug || row?.id || '').trim();
+});
+
+const publicPacketUrl = (lang) => buildPublicSchoolPrintablePacketUrl(
+  selectedSchoolSlug.value,
+  lang,
+  {
+    origin: typeof window !== 'undefined' ? window.location.origin : '',
+    apiBase: api.defaults?.baseURL || '/api'
+  }
+);
+
 const activeDigitalByLang = computed(() => {
   const out = { en: null, es: null };
   for (const link of intakeLinks.value || []) {
@@ -271,9 +275,9 @@ const linkLanes = computed(() => {
       short: 'English',
       lang: 'en',
       kind: 'printable',
-      desc: 'Smart printable PDF (EN) — opens a generated PDF',
-      url: 'printable:en',
-      openExternal: false
+      desc: 'Public printable PDF (EN) — no login required',
+      url: publicPacketUrl('en'),
+      openExternal: true
     },
     {
       key: 'print-es',
@@ -281,9 +285,9 @@ const linkLanes = computed(() => {
       short: 'Spanish',
       lang: 'es',
       kind: 'printable',
-      desc: 'Smart printable PDF (ES) — opens a generated PDF',
-      url: 'printable:es',
-      openExternal: false
+      desc: 'Public printable PDF (ES) — no login required',
+      url: publicPacketUrl('es'),
+      openExternal: true
     }
   ];
 });
@@ -321,7 +325,8 @@ async function loadSchools() {
     schools.value = rows
       .map((s) => ({
         id: Number(s.school_organization_id ?? s.id ?? 0),
-        name: String(s.school_name || s.name || '').trim() || `School #${s.school_organization_id || s.id}`
+        name: String(s.school_name || s.name || '').trim() || `School #${s.school_organization_id || s.id}`,
+        slug: String(s.school_slug || s.slug || s.portal_url || s.portalUrl || '').trim()
       }))
       .filter((s) => s.id)
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -373,28 +378,6 @@ async function copyText(text) {
     await navigator.clipboard.writeText(String(text || ''));
   } catch {
     /* ignore */
-  }
-}
-
-async function openPrintable(lang) {
-  const id = Number(selectedSchoolId.value || 0);
-  if (!id) return;
-  printableLoadingLang.value = lang;
-  linksError.value = '';
-  try {
-    const res = await api.get(`/school-portal/${id}/printable-packet`, {
-      params: { locale: lang, _ts: Date.now() },
-      responseType: 'blob',
-      timeout: 180000
-    });
-    const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
-    window.open(url, '_blank', 'noopener');
-    window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
-  } catch (e) {
-    linksError.value = await messageFromBlobError(e, 'Failed to open printable packet');
-  } finally {
-    printableLoadingLang.value = '';
   }
 }
 

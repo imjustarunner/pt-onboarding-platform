@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isSchoolPrintablePacketEnabled,
+  canServePublicPrintablePacket,
   buildVirtualPrintablePacketDocument,
   SCHOOL_PRINTABLE_PACKET_VERSION
 } from '../../constants/schoolPrintablePacket.js';
@@ -36,6 +37,13 @@ test('enables school/program/learning orgs including Hogwarts demo', () => {
     name: 'Hogwarts'
   }), true);
   assert.equal(isSchoolPrintablePacketEnabled({ organization_type: 'agency', name: 'ITSCO' }), false);
+});
+
+test('public printable packets are school orgs only and skip archived', () => {
+  assert.equal(canServePublicPrintablePacket({ organization_type: 'school', name: 'Carver' }), true);
+  assert.equal(canServePublicPrintablePacket({ organization_type: 'agency', name: 'ITSCO' }), false);
+  assert.equal(canServePublicPrintablePacket({ organization_type: 'school', is_archived: 1 }), false);
+  assert.equal(canServePublicPrintablePacket(null), false);
 });
 
 test('builds virtual library document metadata with template version', () => {

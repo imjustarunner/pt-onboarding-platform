@@ -119,8 +119,19 @@
               <div class="muted" style="font-size: 12px; margin-top: 2px;">
                 Auto-generated from live school data
               </div>
+              <div v-if="publicPrintablePacketUrl(row.locale)" class="muted" style="font-size: 12px; margin-top: 2px; word-break: break-all;">
+                {{ publicPrintablePacketUrl(row.locale) }}
+              </div>
             </div>
             <div class="digital-form-row-actions">
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="copyPrintablePacketLocale(row.locale)"
+                :disabled="!publicPrintablePacketUrl(row.locale)"
+              >
+                Copy
+              </button>
               <button
                 class="btn btn-secondary btn-sm"
                 type="button"
@@ -593,6 +604,7 @@ import { ref, computed, onMounted } from 'vue';
 import api from '../../../services/api';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
 import { buildPublicIntakeUrl } from '../../../utils/publicIntakeUrl';
+import { buildPublicSchoolPrintablePacketUrl } from '../../../utils/publicSchoolPrintablePacketUrl';
 import QRCode from 'qrcode';
 import { useAuthStore } from '../../../store/auth';
 import SchoolPacketTemplateEditor from './SchoolPacketTemplateEditor.vue';
@@ -604,7 +616,8 @@ import {
 } from '../../../utils/schoolYear.js';
 
 const props = defineProps({
-  schoolOrganizationId: { type: [Number, String], required: true }
+  schoolOrganizationId: { type: [Number, String], required: true },
+  organizationSlug: { type: String, default: '' }
 });
 
 const authStore = useAuthStore();
@@ -678,6 +691,29 @@ const printablePacketRows = [
   { locale: 'es', title: 'Paper Packet — Spanish' }
 ];
 const printablePacketLoading = ref({ en: false, es: false });
+
+const publicPacketKey = computed(() =>
+  String(props.organizationSlug || '').trim() || String(props.schoolOrganizationId || '').trim()
+);
+
+const publicPrintablePacketUrl = (locale) => buildPublicSchoolPrintablePacketUrl(
+  publicPacketKey.value,
+  locale,
+  {
+    origin: typeof window !== 'undefined' ? window.location.origin : '',
+    apiBase: api.defaults?.baseURL || '/api'
+  }
+);
+
+const copyPrintablePacketLocale = async (locale) => {
+  const url = publicPrintablePacketUrl(locale);
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    /* ignore */
+  }
+};
 
 const langCodeOf = (link) => {
   const raw = String(link?.language_code || 'en').trim().toLowerCase();
@@ -822,25 +858,13 @@ const fetchSmartPacketBlob = async (locale = 'en') => {
 };
 
 const viewPrintablePacketLocale = async (locale) => {
-  const popup = openPopupWithLoading('Generating your school referral packet…');
-  if (!popup) {
-    error.value = 'Pop-up blocked. Allow pop-ups for this site, then try View again.';
+  const url = publicPrintablePacketUrl(locale);
+  if (!url) {
+    error.value = 'Printable packet link is not available for this school.';
     return;
   }
-  try {
-    printablePacketLoading.value = { ...printablePacketLoading.value, [locale]: true };
-    error.value = '';
-    const blob = await fetchSmartPacketBlob(locale);
-    const url = URL.createObjectURL(blob);
-    popup.location.replace(url);
-    window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
-  } catch (e) {
-    const message = e?.message || e?.response?.data?.error?.message || 'Failed to open printable packet';
-    showPopupError(popup, message);
-    error.value = message;
-  } finally {
-    printablePacketLoading.value = { ...printablePacketLoading.value, [locale]: false };
-  }
+  error.value = '';
+  window.open(url, '_blank', 'noopener');
 };
 
 const printPrintablePacketLocale = async (locale) => {
