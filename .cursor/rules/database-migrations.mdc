@@ -36,6 +36,10 @@ ALTER TABLE some_table
 
 `ADD COLUMN IF NOT EXISTS` is **not supported** — omit it. The migration runner tracks runs via a log table, so each file only executes once; the guard is unnecessary.
 
+## Collation
+
+Always specify `CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci` on VARCHAR/TEXT/ENUM `ADD COLUMN` and especially `MODIFY COLUMN`. MySQL 8 defaults `MODIFY COLUMN` to `utf8mb4_0900_ai_ci`, which throws `Illegal mix of collations` when compared with existing `utf8mb4_unicode_ci` columns (School ROI, public links, etc.).
+
 ## ❌ Never do this
 
 ```js

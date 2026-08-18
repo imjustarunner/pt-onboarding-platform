@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { sqlUnicodeParam } from '../utils/mysqlCollation.js';
 
 class ClientSchoolRoiSigningLink {
   static normalize(row) {
@@ -49,7 +50,7 @@ class ClientSchoolRoiSigningLink {
       `SELECT csrsl.*, il.title AS intake_link_title, il.language_code AS intake_link_language_code
        FROM client_school_roi_signing_links csrsl
        LEFT JOIN intake_links il ON il.id = csrsl.intake_link_id
-       WHERE csrsl.public_key = ?
+       WHERE ${sqlUnicodeParam('csrsl.public_key')}
        LIMIT 1`,
       [key]
     );

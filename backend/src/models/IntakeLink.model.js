@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { sqlUnicodeParam } from '../utils/mysqlCollation.js';
 
 class IntakeLink {
   static async create(data) {
@@ -107,7 +108,7 @@ class IntakeLink {
 
   static async findByPublicKey(publicKey) {
     const [rows] = await pool.execute(
-      'SELECT * FROM intake_links WHERE public_key = ? LIMIT 1',
+      `SELECT * FROM intake_links WHERE ${sqlUnicodeParam('public_key')} LIMIT 1`,
       [publicKey]
     );
     return this.normalize(rows[0] || null);
@@ -156,7 +157,7 @@ class IntakeLink {
 
   static async findByScope({ scopeType, organizationId = null, programId = null, learningClassId = null }) {
     const ids = await this.findOrderedIds({
-      whereSql: `WHERE scope_type = ?
+      whereSql: `WHERE ${sqlUnicodeParam('scope_type')}
          AND (organization_id = ? OR (organization_id IS NULL AND ? IS NULL))
          AND (program_id = ? OR (program_id IS NULL AND ? IS NULL))
          AND (learning_class_id = ? OR (learning_class_id IS NULL AND ? IS NULL))`,

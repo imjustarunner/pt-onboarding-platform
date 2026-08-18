@@ -1,5 +1,11 @@
 import pool from '../config/database.js';
 import { paperPacketRoiExpiresAtYmd } from '../utils/paperPacketRoiExpiry.js';
+import {
+  sqlNonEmpty,
+  sqlUnicodeEq,
+  sqlUnicodeLiteral,
+  sqlUnicodeNe
+} from '../utils/mysqlCollation.js';
 
 function normalizeAccessLevel(level) {
   const normalized = String(level || '').trim().toLowerCase();
@@ -13,22 +19,47 @@ function toBool(value) {
   return value === true || value === 1 || value === '1';
 }
 
+const ROLE_IS_SCHOOL_STAFF = sqlUnicodeLiteral("LOWER(COALESCE(u.role, ''))", 'school_staff');
+const STATUS_NOT_ARCHIVED = sqlUnicodeNe("UPPER(COALESCE(u.status, ''))", "'ARCHIVED'");
+const EMAIL_MATCH = sqlUnicodeEq(
+  "LOWER(TRIM(COALESCE(sc.email, '')))",
+  "LOWER(TRIM(COALESCE(u.email, '')))"
+);
+const WORK_EMAIL_MATCH = sqlUnicodeEq(
+  "LOWER(TRIM(COALESCE(sc.email, '')))",
+  "LOWER(TRIM(COALESCE(u.work_email, '')))"
+);
+const FULL_NAME_MATCH = sqlUnicodeEq(
+  "LOWER(TRIM(COALESCE(sc.full_name, '')))",
+  "LOWER(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))))"
+);
+
 const SCHOOL_CONTACT_ROLE_TITLE_SUBQUERY = `(
   SELECT sc.role_title
   FROM school_contacts sc
   WHERE sc.school_organization_id = ua.agency_id
     AND (
-      (COALESCE(u.email, '') <> '' AND LOWER(TRIM(COALESCE(sc.email, ''))) = LOWER(TRIM(COALESCE(u.email, ''))))
-      OR (COALESCE(u.work_email, '') <> '' AND LOWER(TRIM(COALESCE(sc.email, ''))) = LOWER(TRIM(COALESCE(u.work_email, ''))))
+      (${sqlNonEmpty('u.email')} AND ${EMAIL_MATCH})
+      OR (${sqlNonEmpty('u.work_email')} AND ${WORK_EMAIL_MATCH})
       OR (
-        TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) <> ''
-        AND LOWER(TRIM(COALESCE(sc.full_name, ''))) = LOWER(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))))
+        ${sqlNonEmpty("CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))")}
+        AND ${FULL_NAME_MATCH}
       )
     )
-    AND COALESCE(sc.role_title, '') <> ''
+    AND ${sqlNonEmpty('sc.role_title')}
   ORDER BY sc.id DESC
   LIMIT 1
 ) AS contact_role_title`;
+
+const SCHEDULER_CONTACT_EXISTS = `
+             SELECT 1
+             FROM school_contacts sc
+             WHERE sc.school_organization_id = ua.agency_id
+               AND (
+                 (${sqlNonEmpty('u.email')} AND ${EMAIL_MATCH})
+                 OR (${sqlNonEmpty('u.work_email')} AND ${WORK_EMAIL_MATCH})
+               )
+               AND COALESCE(sc.is_scheduler, 0) = 1`;
 
 function isSchoolContactsSchedulerFilterError(error) {
   const code = String(error?.code || '').trim();
@@ -115,9 +146,9 @@ class ClientSchoolStaffRoiAccess {
        JOIN users u ON u.id = ua.user_id
        WHERE ua.user_id = ?
          AND ua.agency_id = ?
-         AND LOWER(COALESCE(u.role, '')) = 'school_staff'
+         AND ${ROLE_IS_SCHOOL_STAFF}
          AND COALESCE(u.is_active, TRUE) = TRUE
-         AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+         AND ${STATUS_NOT_ARCHIVED}
        LIMIT 1`,
       [uid, sid]
     );
@@ -147,18 +178,11 @@ class ClientSchoolStaffRoiAccess {
          JOIN users u
            ON u.id = ua.user_id
          WHERE ua.agency_id = ?
-           AND LOWER(COALESCE(u.role, '')) = 'school_staff'
+           AND ${ROLE_IS_SCHOOL_STAFF}
            AND COALESCE(u.is_active, TRUE) = TRUE
-           AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+           AND ${STATUS_NOT_ARCHIVED}
            AND NOT EXISTS (
-             SELECT 1
-             FROM school_contacts sc
-             WHERE sc.school_organization_id = ua.agency_id
-               AND (
-                 (COALESCE(u.email, '') <> '' AND LOWER(COALESCE(sc.email, '')) = LOWER(u.email))
-                 OR (COALESCE(u.work_email, '') <> '' AND LOWER(COALESCE(sc.email, '')) = LOWER(u.work_email))
-               )
-               AND COALESCE(sc.is_scheduler, 0) = 1
+             ${SCHEDULER_CONTACT_EXISTS}
            )
          ORDER BY u.last_name ASC, u.first_name ASC, u.email ASC`,
         [sid]
@@ -183,9 +207,9 @@ class ClientSchoolStaffRoiAccess {
          JOIN users u
            ON u.id = ua.user_id
          WHERE ua.agency_id = ?
-           AND LOWER(COALESCE(u.role, '')) = 'school_staff'
+           AND ${ROLE_IS_SCHOOL_STAFF}
            AND COALESCE(u.is_active, TRUE) = TRUE
-           AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+           AND ${STATUS_NOT_ARCHIVED}
          ORDER BY u.last_name ASC, u.first_name ASC, u.email ASC`,
         [sid]
       );
@@ -253,15 +277,11 @@ class ClientSchoolStaffRoiAccess {
          LEFT JOIN users rb ON rb.id = a.revoked_by_user_id
          LEFT JOIN users pu ON pu.id = a.last_packet_uploaded_by_user_id
          WHERE ua.agency_id = ?
-           AND LOWER(COALESCE(u.role, '')) = 'school_staff'
+           AND ${ROLE_IS_SCHOOL_STAFF}
            AND COALESCE(u.is_active, TRUE) = TRUE
-           AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+           AND ${STATUS_NOT_ARCHIVED}
            AND NOT EXISTS (
-             SELECT 1
-             FROM school_contacts sc
-             WHERE sc.school_organization_id = ua.agency_id
-               AND LOWER(COALESCE(sc.email, '')) = LOWER(COALESCE(u.email, ''))
-               AND COALESCE(sc.is_scheduler, 0) = 1
+             ${SCHEDULER_CONTACT_EXISTS}
            )
          ORDER BY u.last_name ASC, u.first_name ASC, u.email ASC`,
         [cid, sid]
@@ -281,7 +301,7 @@ class ClientSchoolStaffRoiAccess {
            u.title,
            u.role AS role_key,
            u.status,
-           ${SCHOOL_CONTACT_ROLE_TITLE_SUBQUERY},
+           NULL AS contact_role_title,
            a.id AS access_record_id,
            a.access_level,
            a.is_active,
@@ -311,9 +331,9 @@ class ClientSchoolStaffRoiAccess {
          LEFT JOIN users rb ON rb.id = a.revoked_by_user_id
          LEFT JOIN users pu ON pu.id = a.last_packet_uploaded_by_user_id
          WHERE ua.agency_id = ?
-           AND LOWER(COALESCE(u.role, '')) = 'school_staff'
+           AND ${ROLE_IS_SCHOOL_STAFF}
            AND COALESCE(u.is_active, TRUE) = TRUE
-           AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+           AND ${STATUS_NOT_ARCHIVED}
          ORDER BY u.last_name ASC, u.first_name ASC, u.email ASC`,
         [cid, sid]
       );

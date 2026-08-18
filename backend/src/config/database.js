@@ -36,7 +36,11 @@ const poolConfig = {
   connectTimeout: 60000, // 60 seconds connection timeout
   timezone: '+00:00', // Force UTC timezone for all connections
   enableKeepAlive: true, // Keep connections alive
-  keepAliveInitialDelay: 0 // Start keep-alive immediately
+  keepAliveInitialDelay: 0, // Start keep-alive immediately
+  // Handshake + session collation must match table collation (utf8mb4_unicode_ci).
+  // MySQL 8 otherwise uses utf8mb4_0900_ai_ci for bound params and literals,
+  // which throws "Illegal mix of collations" on public ROI / intake lookups.
+  charset: 'utf8mb4_unicode_ci'
 };
 
 // Use socketPath for Unix socket connections (Cloud SQL), host/port for TCP
@@ -67,6 +71,26 @@ console.log('  - Max prepared statements/conn:', poolConfig.maxPreparedStatement
 console.log('  - Connection timeout:', poolConfig.connectTimeout, 'ms');
 
 const pool = mysql.createPool(poolConfig);
+
+// mysql2 handshake collation can be overwritten by Cloud SQL init_connect
+// (`SET NAMES utf8mb4` → utf8mb4_0900_ai_ci on MySQL 8). Pin unicode_ci
+// before the connection is used so bound params match schema tables.
+const corePool = pool.pool;
+const originalGetConnection = corePool.getConnection.bind(corePool);
+corePool.getConnection = function getConnectionWithUnicodeCollation(cb) {
+  originalGetConnection((err, connection) => {
+    if (err || !connection) return cb(err, connection);
+    if (connection.__pthqUnicodeNames) return cb(null, connection);
+    connection.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci', (setErr) => {
+      if (setErr) {
+        try { connection.destroy(); } catch { /* ignore */ }
+        return cb(setErr);
+      }
+      connection.__pthqUnicodeNames = true;
+      return cb(null, connection);
+    });
+  });
+};
 
 /**
  * Memoize information_schema lookups.
