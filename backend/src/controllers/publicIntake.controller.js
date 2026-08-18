@@ -37,7 +37,9 @@ import EmailService from '../services/email.service.js';
 import EmailTemplate from '../models/EmailTemplate.model.js';
 import Agency from '../models/Agency.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
-import AgencySchoolIntakeMaster from '../models/AgencySchoolIntakeMaster.model.js';
+import AgencySchoolIntakeMaster, {
+  shouldKeepLegacyPacketDocument
+} from '../models/AgencySchoolIntakeMaster.model.js';
 import AgencyOfficeIntakeMaster from '../models/AgencyOfficeIntakeMaster.model.js';
 import AgencyChannelIntakeMaster from '../models/AgencyChannelIntakeMaster.model.js';
 import ClientSignedSchoolPacket from '../models/ClientSignedSchoolPacket.model.js';
@@ -4875,8 +4877,11 @@ const filterPacketDocumentTemplates = (link, allAllowedTemplates, intakeData) =>
     const tid = Number(step.templateId);
     if (!Number.isFinite(tid) || tid <= 0 || !byId.has(tid)) continue;
     if (seen.has(tid)) continue;
+    const template = byId.get(tid);
+    const title = step?.title || step?.label || step?.name || template?.name || '';
+    if (!shouldKeepLegacyPacketDocument({ title, link, intakeData })) continue;
     seen.add(tid);
-    ordered.push(byId.get(tid));
+    ordered.push(template);
   }
   return ordered;
 };
@@ -5004,10 +5009,11 @@ export const getPublicIntakeLink = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
     }
 
-    const [templates, orgContext] = await Promise.all([
+    const [loadedTemplates, orgContext] = await Promise.all([
       loadAllowedTemplates(link, { includeHtml: false }),
       resolveIntakeOrgContext(link, { issuedRoiLink, boundClient })
     ]);
+    let templates = loadedTemplates;
     let { organization, agency } = orgContext;
     let jobDescription = null;
     if (String(link?.form_type || '').trim().toLowerCase() === 'job_application' && Number(link?.job_description_id || 0) > 0) {
@@ -5060,6 +5066,17 @@ export const getPublicIntakeLink = async (req, res, next) => {
           agencyId: agency?.id || null,
           languageCode: masterLang
         });
+        const remainingDocIds = new Set(
+          (Array.isArray(link.intake_steps) ? link.intake_steps : [])
+            .filter((s) => String(s?.type || '').toLowerCase() === 'document')
+            .map((s) => Number(s.templateId || s.template_id || 0))
+            .filter((id) => Number.isFinite(id) && id > 0)
+        );
+        if (hasProgrammedPacketSectionStep(link) || hasProgrammedDisclosureStep(link)) {
+          templates = remainingDocIds.size
+            ? templates.filter((t) => remainingDocIds.has(Number(t.id)))
+            : [];
+        }
       } catch (inheritErr) {
         console.warn('[publicIntake] school master inherit failed', inheritErr?.message || inheritErr);
       }
@@ -6515,7 +6532,7 @@ export const finalizePublicIntake = async (req, res, next) => {
     }
     try {
       if (String(link.scope_type || '').toLowerCase() === 'school' && String(link.form_type || 'intake').toLowerCase() === 'intake') {
-        const agencyIdForMaster = await AgencySchool.getActiveAgencyIdForSchool(link.organization_id);
+        const agencyIdForMaster = await AgencySchoolIntakeMaster.resolveParentAgencyIdForSchool(link.organization_id);
         if (agencyIdForMaster) {
           const masterLang = resolveRequestedMasterLanguage(
             req.body?.intakeData || req.body,
@@ -10651,7 +10668,7 @@ export const submitPublicIntake = async (req, res, next) => {
       ) {
         const locale = String(link.language_code || 'en').trim() || 'en';
         let agencyIdForPacket = link.organization_id
-          ? await AgencySchool.getActiveAgencyIdForSchool(link.organization_id)
+          ? await AgencySchoolIntakeMaster.resolveParentAgencyIdForSchool(link.organization_id)
           : null;
         let packetVersion = null;
         let masterFormVersion = Number(link.master_form_version || 0) || null;

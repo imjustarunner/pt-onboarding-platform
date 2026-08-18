@@ -24,7 +24,7 @@ function parseJson(value, fallback = null) {
   }
 }
 
-function documentStepLooksLikeReplacedPacketDoc(title) {
+export function documentStepLooksLikeReplacedPacketDoc(title) {
   const t = String(title || '').toLowerCase();
   if (!t) return false;
   if (
@@ -47,6 +47,64 @@ function documentStepLooksLikeReplacedPacketDoc(title) {
   return false;
 }
 
+function parseSteps(linkOrSteps) {
+  if (Array.isArray(linkOrSteps)) return linkOrSteps;
+  const raw = linkOrSteps?.intake_steps;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function hasStepType(steps, type) {
+  const want = String(type || '').toLowerCase();
+  return (Array.isArray(steps) ? steps : []).some((s) => String(s?.type || '').toLowerCase() === want);
+}
+
+function packetSectionPresent(intakeData, sectionKey, flatKey) {
+  const nested = intakeData?.packetSections && typeof intakeData.packetSections === 'object'
+    ? intakeData.packetSections[sectionKey]
+    : null;
+  const flat = intakeData?.[flatKey];
+  return !!(nested || flat);
+}
+
+/**
+ * Live packet / smart-disclosure coverage from programmed steps or already-captured
+ * signatures. Used so submit does not still demand the retired "(School)" PDFs.
+ */
+export function livePacketCoverage(link, intakeData = null) {
+  const steps = parseSteps(link);
+  return {
+    informed: hasStepType(steps, 'packet_informed_group_consent')
+      || packetSectionPresent(intakeData, 'informed_group_consent', 'packetInformedGroupConsent'),
+    policy: hasStepType(steps, 'packet_policy_services')
+      || packetSectionPresent(intakeData, 'policy_services', 'packetPolicyServices'),
+    hipaa: hasStepType(steps, 'packet_hipaa_notice')
+      || packetSectionPresent(intakeData, 'hipaa_notice', 'packetHipaaNotice'),
+    disclosure: hasStepType(steps, 'smart_disclosure')
+      || hasStepType(steps, 'disclosure')
+      || !!(intakeData?.smartDisclosure)
+  };
+}
+
+export function shouldKeepLegacyPacketDocument({ title, link, intakeData } = {}) {
+  const kind = documentStepLooksLikeReplacedPacketDoc(title);
+  if (!kind) return true;
+  const coverage = livePacketCoverage(link, intakeData);
+  if (kind === 'informed') return !coverage.informed;
+  if (kind === 'policy') return !coverage.policy;
+  if (kind === 'hipaa') return !coverage.hipaa;
+  if (kind === 'disclosure') return !coverage.disclosure;
+  return true;
+}
+
 /**
  * Strip legacy uploaded packet PDFs (HIPAA / informed / policy / disclosure)
  * now covered by live packet or smart_disclosure steps, and ensure packet_* steps exist.
@@ -54,7 +112,6 @@ function documentStepLooksLikeReplacedPacketDoc(title) {
 export function sanitizeSchoolMasterSteps(steps, templateNameById = null, languageCode = 'en') {
   let list = Array.isArray(steps) ? [...steps] : [];
   const lang = String(languageCode || 'en').toLowerCase();
-  const hasSmartDisclosure = list.some((s) => ['smart_disclosure', 'disclosure'].includes(String(s?.type || '').toLowerCase()));
   list = list.filter((s) => {
     const t = String(s?.type || '').toLowerCase();
     if (t !== 'document') return true;
@@ -66,10 +123,7 @@ export function sanitizeSchoolMasterSteps(steps, templateNameById = null, langua
       || (templateNameById && tid ? templateNameById.get(tid) : '')
       || '';
     const kind = documentStepLooksLikeReplacedPacketDoc(title);
-    if (kind === 'hipaa' || kind === 'informed' || kind === 'policy') return false;
-    if (kind === 'disclosure' && hasSmartDisclosure) return false;
-    // Always drop HIPAA docs even without smart_disclosure (replaced by packet_hipaa_notice).
-    if (kind === 'hipaa') return false;
+    if (kind === 'hipaa' || kind === 'informed' || kind === 'policy' || kind === 'disclosure') return false;
     return true;
   });
 
@@ -409,6 +463,30 @@ class AgencySchoolIntakeMaster {
   }
 
   /**
+   * Parent agency for a school org. Prefer organization_affiliations (current),
+   * then the legacy agency_schools join. Many live schools are only in affiliations.
+   */
+  static async resolveParentAgencyIdForSchool(schoolOrganizationId) {
+    const orgId = Number(schoolOrganizationId || 0);
+    if (!orgId) return null;
+    try {
+      const { default: OrganizationAffiliation } = await import('./OrganizationAffiliation.model.js');
+      const fromAff = await OrganizationAffiliation.getActiveAgencyIdForOrganization(orgId);
+      if (fromAff) return Number(fromAff) || null;
+    } catch {
+      /* ignore */
+    }
+    try {
+      const { default: AgencySchool } = await import('./AgencySchool.model.js');
+      const fromLegacy = await AgencySchool.getActiveAgencyIdForSchool(orgId);
+      if (fromLegacy) return Number(fromLegacy) || null;
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
+
+  /**
    * Flip school-scoped intake shells for this agency to live-inherit the master.
    */
   static async markAgencySchoolLinksInheriting(agencyId) {
@@ -417,15 +495,25 @@ class AgencySchoolIntakeMaster {
     try {
       await pool.execute(
         `UPDATE intake_links il
-         INNER JOIN agency_schools asx
-           ON asx.school_organization_id = il.organization_id
-          AND asx.agency_id = ?
-          AND asx.is_active = 1
          SET il.inherits_school_master = 1
          WHERE il.scope_type = 'school'
            AND il.form_type = 'intake'
-           AND COALESCE(il.is_school_master, 0) = 0`,
-        [aid]
+           AND COALESCE(il.is_school_master, 0) = 0
+           AND (
+             EXISTS (
+               SELECT 1 FROM organization_affiliations oa
+               WHERE oa.organization_id = il.organization_id
+                 AND oa.agency_id = ?
+                 AND oa.is_active = 1
+             )
+             OR EXISTS (
+               SELECT 1 FROM agency_schools asx
+               WHERE asx.school_organization_id = il.organization_id
+                 AND asx.agency_id = ?
+                 AND asx.is_active = 1
+             )
+           )`,
+        [aid, aid]
       );
     } catch (e) {
       console.warn('[AgencySchoolIntakeMaster] markAgencySchoolLinksInheriting failed', e?.message || e);
@@ -446,12 +534,7 @@ class AgencySchoolIntakeMaster {
     if (!inherits && !isSchoolIntakeShell) return link;
     let aid = Number(agencyId || 0);
     if (!aid) {
-      try {
-        const { default: AgencySchool } = await import('./AgencySchool.model.js');
-        aid = await AgencySchool.getActiveAgencyIdForSchool(link.organization_id);
-      } catch {
-        aid = 0;
-      }
+      aid = await this.resolveParentAgencyIdForSchool(link.organization_id);
     }
     if (!aid) return link;
     const lang = resolveRequestedMasterLanguage(languageCode, link.language_code || 'en');
