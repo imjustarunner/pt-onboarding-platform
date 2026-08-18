@@ -128,18 +128,29 @@ describe('deriveLifecycleAction', () => {
     assert.equal(action?.label, 'Provider disclosure check');
   });
 
+  it('returns assign-day for provider and agency when provider is assigned without a weekday', () => {
+    const client = {
+      client_status_key: 'needs_day_assignment',
+      has_provider: true,
+      has_weekday: false
+    };
+    const providerAction = deriveLifecycleAction({ client, viewerRole: 'provider' });
+    assert.equal(providerAction?.actionKey, 'assign_day');
+    const agencyAction = deriveLifecycleAction({ client, viewerRole: 'admin' });
+    assert.equal(agencyAction?.actionKey, 'assign_day');
+  });
+
   it('returns new client action for ready_to_schedule even without a weekday', () => {
     const action = deriveLifecycleAction({
-      client: { client_status_key: 'ready_to_schedule' },
+      client: { client_status_key: 'ready_to_schedule', has_provider: true, has_weekday: false },
       viewerRole: 'provider'
     });
-    assert.equal(action?.actionKey, 'provider_intake');
-    assert.match(action.label, /New Client/i);
+    assert.equal(action?.actionKey, 'assign_day');
   });
 
   it('keeps new scheduled clients on the new-client checklist, not Being Seen', () => {
     const action = deriveLifecycleAction({
-      client: { client_status_key: 'scheduled', client_type: 'school' },
+      client: { client_status_key: 'scheduled', client_type: 'school', has_weekday: true, service_day: 'Monday' },
       viewerRole: 'provider'
     });
     assert.equal(action?.actionKey, 'provider_intake');
@@ -153,7 +164,9 @@ describe('deriveLifecycleAction', () => {
         staff_onboarding_completed_at: '2026-04-01',
         first_service_at: '2026-02-10',
         services_started_at: '2026-02-10',
-        school_year: '2026-2027'
+        school_year: '2026-2027',
+        has_weekday: true,
+        service_day: 'Monday'
       },
       viewerRole: 'provider',
       now: new Date('2026-08-20T12:00:00')
@@ -169,7 +182,9 @@ describe('deriveLifecycleAction', () => {
         client_status_key: 'scheduled',
         staff_onboarding_completed_at: '2026-04-01',
         services_started_at: '2026-08-18',
-        first_service_at: '2026-02-10'
+        first_service_at: '2026-02-10',
+        has_weekday: true,
+        service_day: 'Monday'
       },
       viewerRole: 'provider',
       now: new Date('2026-08-20T12:00:00')
@@ -246,11 +261,11 @@ describe('deriveLifecycleAction', () => {
 
   it('does not ask providers for fall confirmation after it is already completed', () => {
     const action = deriveLifecycleAction({
-      client: { client_status_key: 'current', client_type: 'school' },
+      client: { client_status_key: 'current', client_type: 'school', has_provider: true, has_weekday: false },
       viewerRole: 'provider',
       disposition: { fall_completed_at: '2026-08-01T00:00:00.000Z' }
     });
-    assert.equal(action, null);
+    assert.equal(action?.actionKey, 'assign_day');
   });
 
   it('hides flashy fall confirmation after a non-returning submission and offers a quiet Update', () => {

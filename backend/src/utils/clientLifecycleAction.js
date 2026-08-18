@@ -31,6 +31,7 @@ const NO_AGENCY_CLEARANCE = new Set([
   'unable_to_reach',
   'not_returning',
   'confirmation_pending', // waiting on provider fall confirmation / reassignment — not agency clearance
+  'needs_day_assignment',
   'continuation_unknown',
   'returning',
   'spring_update_pending',
@@ -55,6 +56,42 @@ function clientHasWeekday(client) {
   if (day && /(Monday|Tuesday|Wednesday|Thursday|Friday)/i.test(day)) return true;
   const pairs = String(client?.provider_day_pairs || '');
   return /:(Monday|Tuesday|Wednesday|Thursday|Friday)/i.test(pairs);
+}
+
+function needsSharedDayAssignmentAction(client) {
+  if (clientHasWeekday(client)) return false;
+  const hasExplicitProvider =
+    truthy(client?.has_provider)
+    || Number(client?.provider_id) > 0
+    || String(client?.provider_ids || '')
+      .split(',')
+      .map((s) => parseInt(s, 10))
+      .some((n) => Number.isFinite(n) && n > 0);
+  if (!hasExplicitProvider) return false;
+  const statusKey = String(client?.client_status_key || '').toLowerCase();
+  if (
+    [
+      'terminated',
+      'waitlist',
+      'spring_update_pending',
+      'confirmation_pending',
+      'continuation_unknown',
+      'unable_to_reach',
+      'other_transfer',
+      'not_returning',
+      'recommend_termination',
+      'received',
+      'packet',
+      'pending_corrections'
+    ].includes(statusKey)
+  ) {
+    return false;
+  }
+  return (
+    statusKey === 'needs_day_assignment'
+    || ['ready_to_schedule', 'scheduled', 'being_seen', 'current', 'confirmed_returning', 'onboarded', 'in_process', 'pending'].includes(statusKey)
+    || !statusKey
+  );
 }
 
 function clientHasAssignedProvider(client) {
@@ -96,6 +133,9 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
   }
 
   if (isAgency) {
+    if (needsSharedDayAssignmentAction(client)) {
+      return { role: 'agency', actionKey: 'assign_day', label: 'Assign day – Action Needed' };
+    }
     if (['received', 'packet', 'pending_corrections', 'in_process'].includes(statusKey)) {
       return { role: 'agency', actionKey: 'agency_intake', label: 'Complete agency intake' };
     }
@@ -190,6 +230,9 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
     if (!fallDone && returning && statusKey === 'ready_to_schedule') {
       if (!hasProvider || hasWeekday) return null;
       return { role: 'provider', actionKey: 'fall_confirmation', label: 'Fall confirmation – Action Needed' };
+    }
+    if (needsSharedDayAssignmentAction(client)) {
+      return { role: 'provider', actionKey: 'assign_day', label: 'Assign day – Action Needed' };
     }
     // Returners: after Scheduled, one action to mark Being Seen (last year's first_service_at does not count).
     if (returning && (statusKey === 'scheduled' || leftoverBeingSeen) && !beingSeenConfirmed) {

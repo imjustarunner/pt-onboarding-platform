@@ -26,6 +26,14 @@ describe('schoolRequestNotes', () => {
     expect(scheduleAdjustmentHasChanges(parsed)).toBe(false);
   });
 
+  it('treats a requested school-day move as a real change', () => {
+    const parsed = parseSchoolRequestNotes(
+      'School: Rudy | Day: Wednesday | Requested day: Tuesday | Change type: day_move | Current slots: 7 total | Requested slots total: 7 (delta +0) | Current hours: 8:00 AM to 3:00 PM | Requested hours: 8:00 AM – 3:00 PM'
+    );
+    expect(parsed.requestedDay).toBe('Tuesday');
+    expect(scheduleAdjustmentHasChanges(parsed)).toBe(true);
+  });
+
   it('detects real slot and hour changes', () => {
     const parsed = parseSchoolRequestNotes(
       'Current slots: 7 total | Requested slots total: 8 (delta +1) | Current hours: 8:00 AM – 3:00 PM | Requested hours: 8:00 AM – 3:00 PM'

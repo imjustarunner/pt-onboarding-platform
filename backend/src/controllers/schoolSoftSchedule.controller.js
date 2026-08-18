@@ -361,8 +361,12 @@ async function promoteClientForAssignedDay({ clientId, actorUserId }) {
     console.warn('[softSchedule] ensure school year membership failed', e?.message || e);
   }
 
-  const { markClientScheduledFromPlacement } = await import('../services/clientLifecycleStatus.service.js');
-  const lifecycle = await markClientScheduledFromPlacement({ clientId: client.id, actorUserId });
+  const { markClientReadyToSchedule } = await import('../services/clientLifecycleStatus.service.js');
+  const lifecycle = await markClientReadyToSchedule({
+    clientId: client.id,
+    actorUserId,
+    note: 'Assigned day — Ready to Schedule'
+  });
 
   return {
     school_year: patch.school_year || client.school_year || null,
@@ -376,13 +380,13 @@ async function promoteClientForAssignedDay({ clientId, actorUserId }) {
 
 /**
  * Un-assign-day write-path: when a client's last weekday is removed, demote
- * Scheduled/Being Seen → Ready to Schedule.
+ * Scheduled/Being Seen/Ready to Schedule → Needs Day Assignment.
  */
 async function demoteClientToPendingIfNoActiveDay({ clientId, actorUserId }) {
   const { demoteClientWhenUnscheduled } = await import('../services/clientLifecycleStatus.service.js');
   const result = await demoteClientWhenUnscheduled({ clientId, actorUserId });
   if (!result) return null;
-  return { client_status_key: result.statusKey || 'ready_to_schedule' };
+  return { client_status_key: result.statusKey || 'needs_day_assignment' };
 }
 
 /**
@@ -1577,6 +1581,14 @@ export const placeClientInOpenSoftSlot = async (req, res, next) => {
     let clientStatusUpdate = null;
     try {
       clientStatusUpdate = await promoteClientForAssignedDay({ clientId, actorUserId: req.user?.id });
+      const { markClientScheduledFromPlacement } = await import('../services/clientLifecycleStatus.service.js');
+      const scheduled = await markClientScheduledFromPlacement({ clientId, actorUserId: req.user?.id });
+      if (scheduled?.statusKey) {
+        clientStatusUpdate = {
+          ...(clientStatusUpdate || {}),
+          client_status_key: scheduled.statusKey
+        };
+      }
     } catch {
       // Best-effort — never block the slot placement on the school-year/compliance rollup.
     }

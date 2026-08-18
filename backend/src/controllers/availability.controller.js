@@ -34,9 +34,14 @@ import {
   scheduleAdjustmentHasChanges,
   hoursChanged,
   slotsChanged,
+  dayMoved,
   extractSlotTotal,
   parseHoursRangeToTimes
 } from '../utils/schoolRequestNotes.util.js';
+import {
+  applyProviderSchoolDayMove,
+  demoteUnassignedClientsAfterDayMove
+} from '../services/providerSchoolDayMove.service.js';
 
 function parseIntSafe(v) {
   const n = parseInt(v, 10);
@@ -3675,9 +3680,14 @@ export const approveScheduleAdjustmentFromRequest = async (req, res, next) => {
       [requestId]
     );
     const block = blockRows?.[0] || null;
-    const dayOfWeek = normalizeAnyDay(parsedNotes.day || block?.day_of_week);
-    if (!dayOfWeek) {
+    const fromDay = normalizeAnyDay(parsedNotes.day || block?.day_of_week);
+    const toDay = dayMoved(parsedNotes) ? normalizeAnyDay(parsedNotes.requestedDay) : null;
+    const dayOfWeek = toDay || fromDay;
+    if (!fromDay) {
       return res.status(400).json({ error: { message: 'Could not determine day of week for this adjustment' } });
+    }
+    if (toDay && !dayOfWeek) {
+      return res.status(400).json({ error: { message: 'Could not determine the requested school day' } });
     }
 
     let schoolOrganizationId = null;
@@ -3716,17 +3726,18 @@ export const approveScheduleAdjustmentFromRequest = async (req, res, next) => {
     }
 
     const providerUserId = Number(reqRow.provider_id);
+    const lookupDay = fromDay;
     const [existing] = await pool.execute(
       `SELECT id, slots_total, slots_available, start_time, end_time
        FROM provider_school_assignments
        WHERE provider_user_id = ? AND school_organization_id = ? AND day_of_week = ?
        LIMIT 1`,
-      [providerUserId, schoolOrganizationId, dayOfWeek]
+      [providerUserId, schoolOrganizationId, lookupDay]
     );
     if (!existing?.[0]) {
       return res.status(400).json({
         error: {
-          message: `No existing school assignment found for ${dayOfWeek}. Create the assignment in Provider Management first.`
+          message: `No existing school assignment found for ${lookupDay}. Create the assignment in Provider Management first.`
         }
       });
     }
@@ -3766,26 +3777,47 @@ export const approveScheduleAdjustmentFromRequest = async (req, res, next) => {
     const oldAvail = parseInt(existing[0].slots_available ?? 0, 10);
     const used = Math.max(0, oldTotal - oldAvail);
     const nextSlotsAvailable = Math.max(0, nextSlotsTotal - used);
-    const assignmentId = existing[0].id;
+    let assignmentId = existing[0].id;
+    let unassignedClientIds = [];
 
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
-    await conn.execute(
-      `UPDATE provider_school_assignments
-       SET slots_total = ?, slots_available = ?, start_time = ?, end_time = ?, is_active = TRUE
-       WHERE id = ?`,
-      [nextSlotsTotal, nextSlotsAvailable, nextStart, nextEnd, assignmentId]
-    );
+    if (toDay) {
+      const moved = await applyProviderSchoolDayMove(conn, {
+        schoolId: schoolOrganizationId,
+        providerUserId,
+        fromDay,
+        toDay,
+        slotsTotal: nextSlotsTotal,
+        startTime: nextStart,
+        endTime: nextEnd,
+        actorUserId: req.user?.id
+      });
+      if (!moved.ok) {
+        await conn.rollback();
+        return res.status(400).json({ error: { message: moved.message || 'Could not move school day' } });
+      }
+      assignmentId = moved.assignmentId;
+      unassignedClientIds = moved.unassignedClientIds || [];
+    } else {
+      await conn.execute(
+        `UPDATE provider_school_assignments
+         SET slots_total = ?, slots_available = ?, start_time = ?, end_time = ?, is_active = TRUE
+         WHERE id = ?`,
+        [nextSlotsTotal, nextSlotsAvailable, nextStart, nextEnd, assignmentId]
+      );
 
-    await syncSchoolPortalDayProvider({
-      executor: conn,
-      schoolId: schoolOrganizationId,
-      providerUserId,
-      weekday: dayOfWeek,
-      isActive: true,
-      actorUserId: req.user?.id
-    });
+      await syncSchoolPortalDayProvider({
+        executor: conn,
+        schoolId: schoolOrganizationId,
+        providerUserId,
+        weekday: dayOfWeek,
+        isActive: true,
+        actorUserId: req.user?.id
+      });
+    }
+
     enqueueD11ComplianceEnsure(providerUserId, {
       schoolOrganizationId,
       actorUserId: req.user?.id,
@@ -3805,6 +3837,13 @@ export const approveScheduleAdjustmentFromRequest = async (req, res, next) => {
 
     await conn.commit();
 
+    if (toDay && unassignedClientIds.length) {
+      await demoteUnassignedClientsAfterDayMove({
+        clientIds: unassignedClientIds,
+        actorUserId: req.user?.id
+      });
+    }
+
     try {
       await Notification.markAllAsResolvedForFilter(agencyId, {
         relatedEntityType: 'provider_school_availability_request',
@@ -3812,11 +3851,14 @@ export const approveScheduleAdjustmentFromRequest = async (req, res, next) => {
       });
     } catch { /* non-blocking */ }
     try {
+      const moveMsg = toDay
+        ? `Your school day was moved from ${fromDay} to ${toDay}. Clients on ${fromDay} were unassigned and need a day on ${toDay}.`
+        : `Your schedule adjustment for ${dayOfWeek} was approved.`;
       await Notification.create({
         type: 'school_availability_request_approved',
         severity: 'info',
-        title: 'Schedule adjustment approved',
-        message: `Your schedule adjustment for ${dayOfWeek} was approved.`,
+        title: toDay ? 'School day change approved' : 'Schedule adjustment approved',
+        message: moveMsg,
         userId: providerUserId,
         agencyId,
         relatedEntityType: 'provider_school_availability_request',
@@ -3825,7 +3867,14 @@ export const approveScheduleAdjustmentFromRequest = async (req, res, next) => {
       });
     } catch { /* non-blocking */ }
 
-    res.json({ ok: true, providerSchoolAssignmentId: assignmentId });
+    res.json({
+      ok: true,
+      providerSchoolAssignmentId: assignmentId,
+      dayMoved: !!toDay,
+      fromDay: toDay ? fromDay : null,
+      toDay: toDay || null,
+      unassignedClientCount: unassignedClientIds.length
+    });
   } catch (e) {
     if (conn) {
       try { await conn.rollback(); } catch { /* ignore */ }

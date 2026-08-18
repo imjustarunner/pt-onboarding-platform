@@ -2176,6 +2176,19 @@
               </div>
             </div>
             <div class="form-group">
+              <label>Move this day to (optional)</label>
+              <select v-model="availabilityMoveToDay">
+                <option value="">Keep {{ availabilitySelectedDay || 'this day' }} — change hours or slots only</option>
+                <option v-for="d in availabilityMoveToDayOptions" :key="`move-to-${d.value}`" :value="d.value">
+                  {{ d.label }}
+                </option>
+              </select>
+              <div v-if="availabilityMoveToDay" class="error" style="margin-top: 6px; font-size: 12px;">
+                If approved, you will be removed from {{ availabilitySelectedDay }} and added to {{ availabilityMoveToDay }}.
+                Clients on {{ availabilitySelectedDay }} will be unassigned and need a day on {{ availabilityMoveToDay }}.
+              </div>
+            </div>
+            <div class="form-group">
               <label>Change slots by (can be negative)</label>
               <input v-model.number="availabilityDeltaSlots" type="number" />
               <div class="muted" style="font-size: 12px; margin-top: 4px;">
@@ -2211,6 +2224,9 @@
               <div class="muted">
                 Hours: <strong>{{ availabilityFromToSummary.hours }}</strong>
               </div>
+              <div class="muted">
+                Day: <strong>{{ availabilityFromToSummary.day }}</strong>
+              </div>
             </div>
           </div>
 
@@ -2224,7 +2240,7 @@
               {{ availabilitySubmitting ? 'Sending…' : 'Send request' }}
             </button>
             <div v-if="!availabilityHasScheduleChanges" class="muted" style="font-size: 13px;">
-              Change hours or slot count to send a request. If your schedule is correct, use Confirm current availability.
+              Change hours, slot count, or the school day to send a request. If your schedule is correct, use Confirm current availability.
             </div>
             <a class="btn btn-secondary btn-sm" :href="additionalAvailabilityHref">
               Submit for additional availability
@@ -3030,6 +3046,7 @@ const availabilityContextError = ref('');
 const availabilityDeltaSlots = ref(0);
 const availabilityNewStart = ref('');
 const availabilityNewEnd = ref('');
+const availabilityMoveToDay = ref('');
 const availabilityNote = ref('');
 const availabilitySubmitting = ref(false);
 const availabilityError = ref('');
@@ -4382,9 +4399,19 @@ const resetAvailabilityDraftFromSelectedDay = () => {
   availabilityDeltaSlots.value = 0;
   availabilityNote.value = '';
   availabilityError.value = '';
+  availabilityMoveToDay.value = '';
   availabilityNewStart.value = String(day?.start_time || '').slice(0, 5) || '';
   availabilityNewEnd.value = String(day?.end_time || '').slice(0, 5) || '';
 };
+
+const availabilityMoveToDayOptions = computed(() => {
+  const current = String(availabilitySelectedDay.value || '');
+  const existing = new Set((availabilityDayOptions.value || []).map((d) => String(d.day_of_week)));
+  return DAY_ORDER.filter((d) => d !== current).map((d) => ({
+    value: d,
+    label: existing.has(d) ? `${d} (already at this school)` : d
+  }));
+});
 
 const ensureAvailabilityContext = async ({ force = false } = {}) => {
   if (!organizationId.value || !isProviderRoleForAvailability.value) return;
@@ -4539,6 +4566,7 @@ const closeAvailabilityRequest = () => {
   availabilityDeltaSlots.value = 0;
   availabilityNewStart.value = '';
   availabilityNewEnd.value = '';
+  availabilityMoveToDay.value = '';
   availabilityNote.value = '';
   availabilityError.value = '';
   availabilityContextError.value = '';
@@ -4573,6 +4601,8 @@ const availabilityOverAssignedWarning = computed(() => {
 });
 
 const availabilityHasScheduleChanges = computed(() => {
+  const moveTo = String(availabilityMoveToDay.value || '').trim();
+  if (moveTo && moveTo !== String(availabilitySelectedDay.value || '')) return true;
   const d = selectedAvailabilityAssignment.value || {};
   const delta = Number(availabilityDeltaSlots.value || 0);
   if (delta !== 0) return true;
@@ -4620,7 +4650,10 @@ const availabilityFromToSummary = computed(() => {
   const toEnd = String(availabilityNewEnd.value || '').slice(0, 5) || fromEnd;
   return {
     slots: `${fromSlots} -> ${toSlots}`,
-    hours: `${formatSchoolPortalTimeRange(fromStart, fromEnd)} -> ${formatSchoolPortalTimeRange(toStart, toEnd)}`
+    hours: `${formatSchoolPortalTimeRange(fromStart, fromEnd)} -> ${formatSchoolPortalTimeRange(toStart, toEnd)}`,
+    day: availabilityMoveToDay.value
+      ? `${availabilitySelectedDay.value} -> ${availabilityMoveToDay.value}`
+      : String(availabilitySelectedDay.value || '—')
   };
 });
 
@@ -4632,7 +4665,7 @@ const submitAvailabilityRequest = async () => {
   if (!providerUserId || !availabilitySelectedDay.value) return;
   if (!availabilityHasScheduleChanges.value) {
     availabilityError.value =
-      'No schedule changes to submit. Update hours or slot count, or use Confirm current availability if your schedule is already correct.';
+      'No schedule changes to submit. Update hours, slot count, or the school day, or use Confirm current availability if your schedule is already correct.';
     return;
   }
   try {
@@ -4651,10 +4684,13 @@ const submitAvailabilityRequest = async () => {
         ? formatSchoolPortalTimeRange(availabilityNewStart.value || '—', availabilityNewEnd.value || '—')
         : '—';
 
+    const moveTo = String(availabilityMoveToDay.value || '').trim();
     const requestNotes = [
       `School: ${organizationDisplayName.value || organizationName.value || ''}`.trim(),
       `Provider: ${providerName} (user_id=${providerUserId})`,
       weekday ? `Day: ${weekday}` : null,
+      moveTo && moveTo !== weekday ? `Requested day: ${moveTo}` : null,
+      moveTo && moveTo !== weekday ? 'Change type: day_move' : null,
       `Current slots: ${currentUsed != null && currentSlots != null ? `${Number(currentUsed || 0)} assigned / ${Number(currentSlots)} total` : (currentSlots != null ? `${Number(currentSlots)} total` : '—')}`,
       `Requested slots total: ${requestedSlots} (delta ${delta >= 0 ? '+' : ''}${delta})`,
       `Current hours: ${currentHours}`,
@@ -4665,6 +4701,7 @@ const submitAvailabilityRequest = async () => {
     await api.post('/availability/school-requests', {
       agencyId: affiliatedAgencyId.value || undefined,
       requestKind: 'schedule_adjustment',
+      preferredSchoolOrgIds: organizationId.value ? [Number(organizationId.value)] : undefined,
       notes: requestNotes,
       blocks: [
         {

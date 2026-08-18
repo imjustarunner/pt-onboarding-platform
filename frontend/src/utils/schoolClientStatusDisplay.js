@@ -19,6 +19,7 @@ const KEEP_KEY_LABELS = {
   packet: 'Packet',
   pending_corrections: 'Pending Corrections',
   in_process: 'In Process',
+  needs_day_assignment: 'Needs Day Assignment',
   screener: 'Screener',
   spring_update_pending: 'Spring Update – Pending',
   not_returning: 'Not Returning'

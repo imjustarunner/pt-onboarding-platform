@@ -136,7 +136,10 @@
             </div>
             <div>
               <dt>Day</dt>
-              <dd>{{ parsed.day || primaryBlock(selected)?.dayOfWeek || '—' }}</dd>
+              <dd>
+                <template v-if="dayMove">{{ parsed.day }} → {{ parsed.requestedDay }}</template>
+                <template v-else>{{ parsed.day || primaryBlock(selected)?.dayOfWeek || '—' }}</template>
+              </dd>
             </div>
           </dl>
         </div>
@@ -215,9 +218,18 @@
                 <span>Slots</span>
                 <strong>{{ formatSlotsTotalDisplay(parsed.currentSlots) }}</strong>
               </div>
+              <div class="sa-compare-row" :class="{ highlight: dayMove }">
+                <span>Day</span>
+                <strong>{{ parsed.day || '—' }}</strong>
+              </div>
             </article>
             <article class="sa-compare-col requested" :class="{ changed: hasChanges }">
               <header>Requested</header>
+              <div class="sa-compare-row" :class="{ highlight: dayMove }">
+                <span>Day</span>
+                <strong>{{ parsed.requestedDay || parsed.day || '—' }}</strong>
+                <em v-if="dayMove">changed</em>
+              </div>
               <div class="sa-compare-row" :class="{ highlight: hoursDiff }">
                 <span>Hours</span>
                 <strong>{{ parsed.requestedHours || blockHours(selected) || '—' }}</strong>
@@ -246,7 +258,11 @@
             {{ parsed.note || selected.notes }}
           </p>
 
-          <p v-if="tab === 'adjustments'" class="sa-hint">
+          <p v-if="tab === 'adjustments' && dayMove" class="sa-hint">
+            Approving this day change removes the provider from {{ parsed.day }} and adds them to {{ parsed.requestedDay }}.
+            All clients assigned to {{ parsed.day }} will be unassigned (provider stays on the caseload) and need a new day.
+          </p>
+          <p v-else-if="tab === 'adjustments'" class="sa-hint">
             Approve applies the requested hours and slots to this provider's existing school assignment.
           </p>
         </div>
@@ -293,6 +309,7 @@ import { useAgencyStore } from '../../store/agency';
 import {
   formatSlotsTotalDisplay,
   hoursChanged,
+  dayMoved,
   parseSchoolRequestNotes,
   scheduleAdjustmentHasChanges,
   slotsChanged
@@ -344,7 +361,8 @@ const selected = computed(() => filteredList.value.find((r) => r.id === selected
 const parsed = computed(() => parseSchoolRequestNotes(selected.value?.notes));
 const hoursDiff = computed(() => hoursChanged(parsed.value));
 const slotsDiff = computed(() => slotsChanged(parsed.value));
-const hasChanges = computed(() => hoursDiff.value || slotsDiff.value);
+const dayMove = computed(() => dayMoved(parsed.value));
+const hasChanges = computed(() => hoursDiff.value || slotsDiff.value || dayMove.value);
 
 const adjustmentDay = computed(() => {
   if (!selected.value) return '';
@@ -436,8 +454,10 @@ function weekdayOrder(day) {
 }
 
 function isAdjustmentDayRow(row) {
-  const day = adjustmentDay.value;
-  if (!day || String(row.dayOfWeek) !== day) return false;
+  const days = new Set(
+    [adjustmentDay.value, parsed.value?.requestedDay].map((d) => String(d || '')).filter(Boolean)
+  );
+  if (!days.has(String(row.dayOfWeek || ''))) return false;
   const school = adjustmentSchool.value;
   if (!school) return true;
   return String(row.schoolName || '').toLowerCase() === school.toLowerCase();
@@ -494,7 +514,9 @@ function blockHours(r) {
 function summaryLine(r) {
   const p = parseSchoolRequestNotes(r.notes);
   if (tab.value === 'adjustments') {
-    const day = p.day || primaryBlock(r)?.dayOfWeek || 'Day';
+    const day = dayMoved(p)
+      ? `${p.day} → ${p.requestedDay}`
+      : (p.day || primaryBlock(r)?.dayOfWeek || 'Day');
     const school = p.school || 'School';
     return `${school} · ${day}`;
   }

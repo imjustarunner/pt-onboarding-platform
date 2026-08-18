@@ -671,6 +671,19 @@
               <label class="field"><span>Requested end</span>
                 <input v-model="adjustForm.endTime" type="time" />
               </label>
+              <label class="field"><span>Move this day to (optional)</span>
+                <select v-model="adjustForm.moveToDay">
+                  <option value="">Keep {{ adjustTarget.day.dayOfWeek }}</option>
+                  <option
+                    v-for="d in ['Monday','Tuesday','Wednesday','Thursday','Friday'].filter((x) => x !== adjustTarget.day.dayOfWeek)"
+                    :key="`pyu-move-${d}`"
+                    :value="d"
+                  >{{ d }}</option>
+                </select>
+              </label>
+              <p v-if="adjustForm.moveToDay" class="muted tiny">
+                If approved, you leave {{ adjustTarget.day.dayOfWeek }} and clients on that day are unassigned until they are placed on {{ adjustForm.moveToDay }}.
+              </p>
               <label class="field"><span>Requested client spots</span>
                 <input
                   v-model.number="adjustForm.slotsTotal"
@@ -976,7 +989,7 @@ const selectedEventSessions = reactive({});
 const reminderItems = ref([]);
 const unknownBts = reactive({});
 const adjustTarget = ref(null);
-const adjustForm = reactive({ startTime: '', endTime: '', slotsTotal: null, notes: '' });
+const adjustForm = reactive({ startTime: '', endTime: '', slotsTotal: null, notes: '', moveToDay: '' });
 
 const resolvedAgencyId = computed(() => {
   return (
@@ -1985,12 +1998,14 @@ function openScheduleAdjust(school, day, existing = null) {
     adjustForm.slotsTotal =
       existing.requestedSlots == null ? (day.slotsTotal == null ? null : Number(day.slotsTotal)) : Number(existing.requestedSlots);
     adjustForm.notes = existing.notes || '';
+    adjustForm.moveToDay = '';
     return;
   }
   adjustForm.startTime = String(day.startTime || '').slice(0, 5);
   adjustForm.endTime = String(day.endTime || '').slice(0, 5);
   adjustForm.slotsTotal = day.slotsTotal == null ? null : Number(day.slotsTotal);
   adjustForm.notes = '';
+  adjustForm.moveToDay = '';
 }
 
 async function withdrawScheduleAdjustment(adj) {
@@ -2038,8 +2053,9 @@ async function submitScheduleAdjust() {
   const hoursChanged =
     String(adjustForm.startTime || '').slice(0, 5) !== String(day.startTime || '').slice(0, 5) ||
     String(adjustForm.endTime || '').slice(0, 5) !== String(day.endTime || '').slice(0, 5);
-  if (!slotsChanged && !hoursChanged) {
-    actionError.value = 'Update hours or slot count before submitting a schedule adjustment.';
+  const dayChanged = String(adjustForm.moveToDay || '') && String(adjustForm.moveToDay) !== String(day.dayOfWeek);
+  if (!slotsChanged && !hoursChanged && !dayChanged) {
+    actionError.value = 'Update hours, slot count, or move to another school day before submitting.';
     return;
   }
   saving.value = true;
@@ -2048,6 +2064,8 @@ async function submitScheduleAdjust() {
     const note = [
       `Schedule adjustment request for ${school.schoolName}`,
       `Day: ${day.dayOfWeek}`,
+      dayChanged ? `Requested day: ${adjustForm.moveToDay}` : null,
+      dayChanged ? 'Change type: day_move' : null,
       `Current slots: ${
         currentUsed != null && currentSlots != null
           ? `${Number(currentUsed || 0)} assigned / ${Number(currentSlots)} total`

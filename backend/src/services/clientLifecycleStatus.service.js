@@ -19,6 +19,7 @@ export const LIFECYCLE_STATUS_KEYS = {
   IN_PROCESS: 'in_process',
   WAITLIST: 'waitlist',
   READY_TO_SCHEDULE: 'ready_to_schedule',
+  NEEDS_DAY_ASSIGNMENT: 'needs_day_assignment',
   SCHEDULED: 'scheduled',
   BEING_SEEN: 'being_seen',
   TERMINATED: 'terminated',
@@ -121,7 +122,7 @@ export async function setClientLifecycleStatus({
 
   const patch = { client_status_id: statusId, ...extraPatch };
   // Workflow enum sync for common states
-  if (['being_seen', 'scheduled', 'ready_to_schedule', 'current'].includes(key)) {
+  if (['being_seen', 'scheduled', 'ready_to_schedule', 'needs_day_assignment', 'current'].includes(key)) {
     patch.status = 'ACTIVE';
   } else if (key === 'waitlist') {
     patch.status = 'ON_HOLD';
@@ -251,11 +252,19 @@ export async function reconcileSchoolClientStatus({ clientId, actorUserId = null
       });
     }
     if (disp.fall_outcome === 'confirmed_returning' && disp.agency_cleared_at && hasProvider) {
+      if (hasWeekday) {
+        return setClientLifecycleStatus({
+          clientId: cid,
+          statusKey: LIFECYCLE_STATUS_KEYS.READY_TO_SCHEDULE,
+          actorUserId,
+          note: note || 'Reconcile: fall confirmed + agency cleared'
+        });
+      }
       return setClientLifecycleStatus({
         clientId: cid,
-        statusKey: LIFECYCLE_STATUS_KEYS.READY_TO_SCHEDULE,
+        statusKey: LIFECYCLE_STATUS_KEYS.NEEDS_DAY_ASSIGNMENT,
         actorUserId,
-        note: note || 'Reconcile: fall confirmed + agency cleared'
+        note: note || 'Reconcile: provider assigned, day needed'
       });
     }
     if (disp.fall_outcome === 'confirmed_returning') {
@@ -319,22 +328,38 @@ export async function reconcileSchoolClientStatus({ clientId, actorUserId = null
   }
 
   if (hasProvider && agencyIntake.agencyIntakeComplete === true) {
+    if (hasWeekday) {
+      return setClientLifecycleStatus({
+        clientId: cid,
+        statusKey: LIFECYCLE_STATUS_KEYS.READY_TO_SCHEDULE,
+        actorUserId,
+        note: note || 'Reconcile: agency intake complete + provider assigned'
+      });
+    }
     return setClientLifecycleStatus({
       clientId: cid,
-      statusKey: LIFECYCLE_STATUS_KEYS.READY_TO_SCHEDULE,
+      statusKey: LIFECYCLE_STATUS_KEYS.NEEDS_DAY_ASSIGNMENT,
       actorUserId,
-      note: note || 'Reconcile: agency intake complete + provider assigned'
+      note: note || 'Reconcile: provider assigned, day needed'
     });
   }
 
   // Staff onboarded (legacy) or agency in process
   if (client.staff_onboarding_completed_at || agencyIntake.inProcess === true || hasProvider) {
     if (hasProvider && (agencyIntake.agencyIntakeComplete === true || client.staff_onboarding_completed_at)) {
+      if (hasWeekday) {
+        return setClientLifecycleStatus({
+          clientId: cid,
+          statusKey: LIFECYCLE_STATUS_KEYS.READY_TO_SCHEDULE,
+          actorUserId,
+          note: note || 'Reconcile: ready to schedule'
+        });
+      }
       return setClientLifecycleStatus({
         clientId: cid,
-        statusKey: LIFECYCLE_STATUS_KEYS.READY_TO_SCHEDULE,
+        statusKey: LIFECYCLE_STATUS_KEYS.NEEDS_DAY_ASSIGNMENT,
         actorUserId,
-        note: note || 'Reconcile: ready to schedule'
+        note: note || 'Reconcile: provider assigned, day needed'
       });
     }
     return setClientLifecycleStatus({
@@ -397,6 +422,7 @@ export async function markClientScheduledFromPlacement({ clientId, actorUserId =
     'packet',
     'received',
     'in_process',
+    'needs_day_assignment',
     'confirmation_pending',
     'returning',
     'continuation_unknown',
@@ -415,7 +441,7 @@ export async function markClientScheduledFromPlacement({ clientId, actorUserId =
   });
 }
 
-/** Remove last weekday → demote Scheduled/Being Seen to Ready to Schedule (or confirmation pending). */
+/** Remove last weekday → Needs Day Assignment (prior to Ready to Schedule). */
 export async function demoteClientWhenUnscheduled({ clientId, actorUserId = null }) {
   const hasWeekday = await clientHasWeekdayAssignment(clientId);
   if (hasWeekday) return null;
@@ -432,13 +458,15 @@ export async function demoteClientWhenUnscheduled({ clientId, actorUserId = null
   const client = rows?.[0];
   if (!client) return null;
   const key = String(client.client_status_key || '').toLowerCase();
-  if (!['scheduled', 'being_seen', 'current'].includes(key)) return null;
+  if (!['scheduled', 'being_seen', 'current', 'ready_to_schedule', 'needs_day_assignment'].includes(key)) {
+    return null;
+  }
 
   return setClientLifecycleStatus({
     clientId,
-    statusKey: LIFECYCLE_STATUS_KEYS.READY_TO_SCHEDULE,
+    statusKey: LIFECYCLE_STATUS_KEYS.NEEDS_DAY_ASSIGNMENT,
     actorUserId,
-    note: 'Auto-set to Ready to Schedule — no Soft Schedule placement remaining'
+    note: 'Needs day assignment — provider remains assigned, no weekday remaining'
   });
 }
 

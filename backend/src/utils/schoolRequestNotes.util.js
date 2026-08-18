@@ -9,6 +9,8 @@ export function parseSchoolRequestNotes(notes) {
     school: '',
     provider: '',
     day: '',
+    requestedDay: '',
+    changeType: '',
     currentSlots: '',
     requestedSlots: '',
     slotsDelta: '',
@@ -32,6 +34,8 @@ export function parseSchoolRequestNotes(notes) {
     if (key === 'school') out.school = value;
     else if (key === 'provider') out.provider = value.replace(/\s*\(user_id=\d+\)\s*$/i, '').trim();
     else if (key === 'day') out.day = value;
+    else if (key === 'requested day' || key === 'move to' || key === 'new day') out.requestedDay = value;
+    else if (key === 'change type') out.changeType = value;
     else if (key === 'current slots') out.currentSlots = value;
     else if (key.startsWith('requested slots')) {
       out.requestedSlots = value.replace(/\s*\(delta[^)]*\)\s*$/i, '').trim();
@@ -87,8 +91,16 @@ export function slotsChanged(parsed) {
   return Number.isFinite(delta) && delta !== 0;
 }
 
+export function dayMoved(parsed) {
+  const from = String(parsed?.day || '').trim();
+  const to = String(parsed?.requestedDay || '').trim();
+  if (!from || !to) return false;
+  return from.toLowerCase() !== to.toLowerCase();
+}
+
 export function scheduleAdjustmentHasChanges(parsed) {
   if (!parsed) return false;
+  if (dayMoved(parsed)) return true;
   if (slotsChanged(parsed)) return true;
   if (hoursChanged(parsed)) return true;
   return false;

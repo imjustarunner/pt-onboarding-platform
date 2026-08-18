@@ -217,6 +217,7 @@ function buildRosterOnboardingMeta(client) {
     spring_update_pending: 'Spring Update – Pending',
     received: 'Received',
     in_process: 'In Process',
+    needs_day_assignment: 'Needs Day Assignment',
     pending_corrections: 'Pending Corrections'
   };
   if (lifecycleLabels[statusKey]) {

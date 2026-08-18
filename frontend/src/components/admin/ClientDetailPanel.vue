@@ -2250,6 +2250,7 @@
         v-if="showAssignDayModal && schoolOrganizationId && client?.id"
         :organization-id="schoolOrganizationId"
         :client="client"
+        :provider-user-id="assignDayProviderUserId"
         @close="showAssignDayModal = false"
         @updated="onSchoolAssignmentUpdated"
       />
@@ -2602,9 +2603,37 @@ const hasAgencyAccess = computed(() => {
 const isSchoolPortalContext = computed(() => Number(props.schoolOrganizationId || 0) > 0);
 const schoolOrganizationId = computed(() => Number(props.schoolOrganizationId || 0) || null);
 const schoolProfileDetailsOpen = computed(() => editingOverview.value || isSchoolPortalContext.value);
-const canManageSchoolAssignments = computed(
-  () => props.canManageSchoolAssignments && isSchoolPortalContext.value
+const isSelfProviderRole = computed(() =>
+  ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'].includes(roleNorm.value)
 );
+const viewerIsAssignedProvider = computed(() => {
+  const me = Number(authStore.user?.id || 0);
+  if (!me) return false;
+  if (props.client?.user_is_assigned_provider) return true;
+  if (Number(props.client?.provider_id) === me) return true;
+  const ids = String(props.client?.provider_ids || '')
+    .split(',')
+    .map((s) => parseInt(s, 10))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return ids.includes(me);
+});
+const assignDayProviderUserId = computed(() => {
+  const me = Number(authStore.user?.id || 0);
+  if (viewerIsAssignedProvider.value && me) return me;
+  const fromIds = String(props.client?.provider_ids || '')
+    .split(',')
+    .map((s) => parseInt(s, 10))
+    .find((n) => Number.isFinite(n) && n > 0);
+  if (fromIds) return fromIds;
+  const legacy = Number(props.client?.provider_id || 0);
+  return legacy > 0 ? legacy : null;
+});
+const canManageSchoolAssignments = computed(() => {
+  if (!isSchoolPortalContext.value) return false;
+  if (props.canManageSchoolAssignments) return true;
+  if (isBackofficeRole.value) return true;
+  return isSelfProviderRole.value && viewerIsAssignedProvider.value;
+});
 const showAssignDayModal = ref(false);
 const lifecycleHistoryModal = ref({ client: null, actionKey: '', label: '', schoolYear: '' });
 const lifecycleHistoryChecklistClient = ref(null);

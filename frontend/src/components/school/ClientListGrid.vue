@@ -924,7 +924,7 @@ const effectiveViewerRole = computed(() => {
 const isSchoolStaff = computed(() => effectiveViewerRole.value === 'school_staff');
 const isProviderUser = computed(() => {
   const r = effectiveViewerRole.value;
-  return r === 'provider' || r === 'provider_plus' || r === 'clinical_practice_assistant';
+  return r === 'provider' || r === 'provider_plus' || r === 'intern' || r === 'intern_plus' || r === 'clinical_practice_assistant';
 });
 const canClickLifecycleAction = computed(() => {
   if (!props.previewMode) return true;
@@ -968,7 +968,7 @@ const showLifecycleActionColumn = computed(() => {
 });
 const showProviderMilestonesReadonly = (client) => {
   const key = String(client?.client_status_key || '').toLowerCase();
-  return key === 'ready_to_schedule' || key === 'scheduled' || key === 'onboarded';
+  return key === 'ready_to_schedule' || key === 'scheduled' || key === 'onboarded' || key === 'needs_day_assignment';
 };
 const providerMilestonesLabel = (client) => {
   const m = client?.provider_milestones || {};
@@ -1388,7 +1388,7 @@ const canEditAssignedDay = (client) => {
   const role = String(authStore.user?.role || '').toLowerCase();
   if (['super_admin', 'admin', 'support', 'staff', 'school_staff'].includes(role)) return true;
   if (canEditClients.value) return true;
-  if (role === 'provider' || role === 'provider_plus' || role === 'clinical_practice_assistant') {
+  if (role === 'provider' || role === 'provider_plus' || role === 'intern' || role === 'intern_plus' || role === 'clinical_practice_assistant') {
     return (
       !!client.user_is_assigned_provider ||
       resolveProviderIdsForClient(client).includes(parseInt(authStore.user?.id, 10))
@@ -1531,6 +1531,10 @@ const openLifecycleView = (client) => {
 const openLifecycleAction = (client) => {
   const action = lifecycleActionFor(client);
   if (!action?.actionKey) return;
+  if (action.actionKey === 'assign_day') {
+    openAssignDay(client);
+    return;
+  }
   if (action.actionKey === 'provider_intake') {
     openQuickChecklist(client, false);
     return;
@@ -1553,7 +1557,8 @@ const PROVIDER_ACTION_LABELS = {
   fall_confirmation: 'Fall confirmation – Action Needed',
   spring_update: 'Spring Update – Action Needed',
   confirm_services_started: 'Mark Being Seen',
-  provider_intake: 'New Client – Action Needed'
+  provider_intake: 'New Client – Action Needed',
+  assign_day: 'Assign day – Action Needed'
 };
 
 const lifecycleActionFor = (client) => {
