@@ -294,6 +294,10 @@ function normalizeStaffDecisionValue(entry = {}) {
   return null;
 }
 
+function schoolStaffRoleTitle(staff) {
+  return String(staff?.role_title || staff?.contact_role_title || staff?.title || '').trim() || null;
+}
+
 function normalizeStaffDecisions(staffRoster = [], roi = {}) {
   const decisionMap = new Map(
     (Array.isArray(roi?.staffDecisions) ? roi.staffDecisions : [])
@@ -313,7 +317,7 @@ function normalizeStaffDecisions(staffRoster = [], roi = {}) {
       fullName: staff.full_name || staff.fullName || staff.display_name || [staff.first_name, staff.last_name].filter(Boolean).join(' ').trim() || staff.email || `User ${staff.school_staff_user_id || staff.schoolStaffUserId || ''}`,
       email: staff.email || null,
       phone: staff.phone || staff.phone_number || null,
-      role: staff.role || staff.role_key || 'School staff',
+      role: schoolStaffRoleTitle(staff) || staff.role || null,
       decision,
       allowed: decision === 'roi' || decision === 'roi_docs',
       packetAllowed: decision === 'roi_docs'
@@ -492,7 +496,8 @@ export async function buildSmartSchoolRoiContext({
       fullName: [staff.first_name, staff.last_name].filter(Boolean).join(' ').trim() || staff.email || `User ${staff.school_staff_user_id}`,
       email: staff.email || null,
       phone: staff.phone_number || null,
-      role: String(staff.role_key || 'school_staff').replace(/_/g, ' ')
+      role: schoolStaffRoleTitle(staff),
+      roleTitle: schoolStaffRoleTitle(staff)
     })),
     externalRelease: {
       mode: externalReleaseMode,

@@ -265,7 +265,7 @@
           </div>
         </label>
         <label class="ssp-field">
-          <span>Title (optional)</span>
+          <span>Role/Title (optional)</span>
           <div class="ssp-input-wrap">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M8 7v10M16 7v10M6 17h4M14 17h4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
             <input v-model="addRoleTitle" type="text" placeholder="e.g., Special Education Director" />
@@ -477,7 +477,7 @@
             <input v-model="editForm.email" class="ssp-plain-input" type="email" placeholder="Email" />
           </label>
           <label class="ssp-field">
-            <span>Title</span>
+            <span>Role/Title</span>
             <input v-model="editForm.roleTitle" class="ssp-plain-input" type="text" placeholder="e.g., Special Education Director" />
           </label>
           <div class="ssp-modal-actions">

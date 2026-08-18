@@ -435,7 +435,15 @@
           class="sp-nav-item sp-nav-item--exit"
         >
           <span class="sp-nav-icon" aria-hidden="true">⊞</span>
-          <span class="sp-nav-label">All schools</span>
+          <span class="sp-nav-label">School Overview</span>
+        </router-link>
+        <router-link
+          v-if="canBackToSchools"
+          :to="allSchoolPortalsPath"
+          class="sp-nav-item sp-nav-item--exit"
+        >
+          <span class="sp-nav-icon" aria-hidden="true">🏫</span>
+          <span class="sp-nav-label">All Schools</span>
         </router-link>
       </div>
 
@@ -696,17 +704,24 @@
                   </div>
                   <div class="switcher-footer">
                     <router-link :to="backToSchoolsPath" class="switcher-footer-link" @click="adminSchoolSwitcherOpen = false">
-                      View all schools overview
+                      School Overview
                     </router-link>
                   </div>
                 </div>
               </div>
               <router-link
-                v-else-if="canBackToSchools"
+                v-if="canManageSchoolPortalBackofficeNav"
                 :to="backToSchoolsPath"
                 class="btn btn-secondary btn-sm"
               >
-                All schools
+                School Overview
+              </router-link>
+              <router-link
+                v-if="canManageSchoolPortalBackofficeNav"
+                :to="allSchoolPortalsPath"
+                class="btn btn-secondary btn-sm"
+              >
+                All Schools
               </router-link>
               <button
                 v-if="authStore.user?.id && !isPreviewOrDemo"
@@ -3684,6 +3699,9 @@ const goToAdminSchool = (slug) => {
 };
 
 const canBackToSchools = computed(() => ['super_admin', 'admin', 'staff', 'support'].includes(roleNorm.value));
+const canManageSchoolPortalBackofficeNav = computed(() =>
+  ['super_admin', 'admin', 'support'].includes(roleNorm.value)
+);
 const backToSchoolsPath = computed(() => {
   const orgType = String(organizationStore.organizationContext?.organizationType || organizationStore.currentOrganization?.organization_type || 'school').toLowerCase();
   const orgTypeParam = ['school', 'program', 'learning'].includes(orgType) ? orgType : 'school';
@@ -3693,6 +3711,11 @@ const backToSchoolsPath = computed(() => {
     return `/${parentSlug.trim()}/admin/schools/overview?orgType=${orgTypeParam}`;
   }
   return `/admin/schools/overview?orgType=${orgTypeParam}`;
+});
+const allSchoolPortalsPath = computed(() => {
+  const slug = portalTenantSlug.value;
+  if (slug) return `/${slug}/admin/school-portals`;
+  return '/admin/school-portals';
 });
 
 /** Non-school-staff users lose global nav in the portal shell — offer explicit exit links. */

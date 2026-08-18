@@ -93,7 +93,7 @@ import {
   copyCompanyEventToTarget
 } from '../controllers/companyEvents.controller.js';
 import {
-  listSchoolStaffUsers, listAgencySchoolStaffAccounts, bulkSetAgencySchoolStaffTemporaryPasswords, previewSchoolStaffAccountAccessEmail, saveSchoolStaffAccountAccessEmailTemplate, testSchoolStaffAccountAccessEmail, queueSchoolStaffAccountAccessEmails, getSchoolStaffAccountAccessEmailSend, getPendingSchoolStaffAccessPasswordSync, syncSchoolStaffAccountAccessSendPasswords, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, activateSchoolStaffUser, revokeSchoolStaffAccess
+  listSchoolStaffUsers, listAgencySchoolStaffAccounts, updateAgencySchoolStaffRoleTitle, bulkSetAgencySchoolStaffTemporaryPasswords, previewSchoolStaffAccountAccessEmail, saveSchoolStaffAccountAccessEmailTemplate, testSchoolStaffAccountAccessEmail, queueSchoolStaffAccountAccessEmails, getSchoolStaffAccountAccessEmailSend, getPendingSchoolStaffAccessPasswordSync, syncSchoolStaffAccountAccessSendPasswords, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, activateSchoolStaffUser, revokeSchoolStaffAccess
 } from '../controllers/schoolStaffAdmin.controller.js';
 import {
   getAdminUpdateOptions,
@@ -576,6 +576,7 @@ router.get('/:id', authenticate, getAgencyById);
 
 // School Staff admin (school orgs only). Includes staff role support.
 router.get('/:id/school-staff/accounts', authenticate, listAgencySchoolStaffAccounts);
+router.put('/:id/school-staff/users/:userId/role-title', authenticate, updateAgencySchoolStaffRoleTitle);
 router.post('/:id/school-staff/accounts/bulk-temporary-password', authenticate, bulkSetAgencySchoolStaffTemporaryPasswords);
 router.post('/:id/school-staff/accounts/access-email/preview', authenticate, previewSchoolStaffAccountAccessEmail);
 router.post('/:id/school-staff/accounts/access-email/template', authenticate, saveSchoolStaffAccountAccessEmailTemplate);

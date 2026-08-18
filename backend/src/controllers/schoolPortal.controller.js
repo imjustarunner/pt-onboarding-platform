@@ -74,6 +74,9 @@ import {
   filterClientsByRosterSearch,
   parseTruthyQuery
 } from '../utils/rosterSearch.js';
+import {
+  syncSchoolStaffUserTitle
+} from '../services/schoolStaffContactRole.service.js';
 
 function rosterHasWeekday(client) {
   const day = String(client?.service_day || '').trim();
@@ -4576,6 +4579,9 @@ export const updateSchoolStaff = async (req, res, next) => {
           isScheduler: typeof nextIsScheduler === 'boolean' ? nextIsScheduler : currentFlags.isScheduler,
           roleTitle: hasRoleTitleUpdate ? roleTitle : undefined
         });
+        if (hasRoleTitleUpdate) {
+          await syncSchoolStaffUserTitle(targetUserId, roleTitle || null);
+        }
       } catch (e) {
         if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
       }

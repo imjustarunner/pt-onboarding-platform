@@ -267,7 +267,7 @@
       <p class="auto-advance-note">{{ tr('Selecting an option will move you to the next question.', 'Seleccionar una opcion lo llevara a la siguiente pregunta.') }}</p>
       <div class="staff-card">
         <div class="staff-name">{{ currentStaff?.fullName }}</div>
-        <div class="staff-meta">{{ currentStaff?.role || 'School staff' }}</div>
+        <div class="staff-meta">{{ currentStaff?.role || '—' }}</div>
         <div class="staff-email" v-if="currentStaff?.email">{{ currentStaff.email }}</div>
         <div class="staff-email" v-if="currentStaff?.phone">{{ currentStaff.phone }}</div>
       </div>

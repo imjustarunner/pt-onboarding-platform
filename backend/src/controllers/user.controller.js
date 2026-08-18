@@ -9969,11 +9969,14 @@ export const getAccountInfo = async (req, res, next) => {
       ssoRequired = false;
     }
     
+    const { resolveSchoolStaffRoleTitleForUser } = await import('../services/schoolStaffContactRole.service.js');
+    const resolvedRoleTitle = await resolveSchoolStaffRoleTitleForUser(user);
+
     const accountInfo = {
       loginEmail: user.email || user.work_email || 'Not provided',
       username: user.username || null,
       preferredName: user.preferred_name || null,
-      title: user.title ?? null,
+      title: resolvedRoleTitle ?? user.title ?? null,
       serviceFocus: user.service_focus ?? null,
       languagesSpoken: user.languages_spoken ?? null,
       psychologyTodayUrl: user.psychology_today_url ?? null,

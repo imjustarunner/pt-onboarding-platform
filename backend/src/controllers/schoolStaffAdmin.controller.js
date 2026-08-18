@@ -4,6 +4,7 @@ import User from '../models/User.model.js';
 import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
+import { setSchoolStaffRoleTitleForOrg, syncSchoolStaffUserTitle } from '../services/schoolStaffContactRole.service.js';
 
 const TEMP_PASSWORD_SET_ACTION_TYPES = [
   'school_staff_temporary_password_set',
@@ -222,12 +223,22 @@ async function fetchAgencySchoolStaffRows(agencyId) {
          u.temporary_password_expires_at,
          u.temporary_password_set_at,
          u.created_at,
+         u.title AS user_title,
          school.id AS school_id,
-         school.name AS school_name
+         school.name AS school_name,
+         sc.role_title AS contact_role_title
        FROM users u
        INNER JOIN user_agencies ua ON ua.user_id = u.id
        INNER JOIN agencies school ON school.id = ua.agency_id
-         AND LOWER(COALESCE(school.organization_type, '')) = 'school'`;
+         AND LOWER(COALESCE(school.organization_type, '')) = 'school'
+       LEFT JOIN school_contacts sc ON sc.school_organization_id = school.id
+         AND (
+           LOWER(TRIM(COALESCE(sc.email, ''))) = LOWER(TRIM(COALESCE(u.email, '')))
+           OR (
+             COALESCE(u.work_email, '') <> ''
+             AND LOWER(TRIM(COALESCE(sc.email, ''))) = LOWER(TRIM(COALESCE(u.work_email, '')))
+           )
+         )`;
 
   const whereClause = `WHERE LOWER(COALESCE(u.role, '')) = 'school_staff'
          AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
@@ -272,7 +283,11 @@ function aggregateSchoolStaffRows(rows) {
     const userId = Number(row.id);
     if (!userId) continue;
     const schoolEntry = row.school_id
-      ? { id: Number(row.school_id), name: row.school_name || `School #${row.school_id}` }
+      ? {
+        id: Number(row.school_id),
+        name: row.school_name || `School #${row.school_id}`,
+        role_title: String(row.contact_role_title || row.user_title || '').trim() || null
+      }
       : null;
 
     if (!byUser.has(userId)) {
@@ -335,6 +350,7 @@ async function buildStaffAccountRows(byUser) {
       is_active: user.is_active,
       schools: user.schools,
       school_names: user.schools.map((s) => s.name).join(', '),
+      primary_role_title: user.schools.find((s) => s.role_title)?.role_title || null,
       has_permanent_password: hasPermanentPassword,
       has_never_logged_in: hasNeverLoggedIn,
       created_at: user.created_at,
@@ -342,6 +358,42 @@ async function buildStaffAccountRows(byUser) {
     };
   });
 }
+
+export const updateAgencySchoolStaffRoleTitle = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(String(req.params.id || ''), 10);
+    const userId = parseInt(String(req.params.userId || ''), 10);
+    if (!Number.isFinite(agencyId) || agencyId <= 0 || !Number.isFinite(userId) || userId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid agency or user id' } });
+    }
+
+    await assertManageableAgency(req, agencyId);
+
+    const schoolOrganizationId = parseInt(String(req.body?.schoolOrganizationId || ''), 10);
+    if (!Number.isFinite(schoolOrganizationId) || schoolOrganizationId <= 0) {
+      return res.status(400).json({ error: { message: 'schoolOrganizationId is required' } });
+    }
+
+    const eligible = await getEligibleSchoolStaffUserIdsForAgency(agencyId, [userId]);
+    if (!eligible.has(userId)) {
+      return res.status(403).json({ error: { message: 'User is not school staff for this agency' } });
+    }
+
+    const roleTitle = req.body?.roleTitle !== undefined ? String(req.body.roleTitle || '').trim() : '';
+    const result = await setSchoolStaffRoleTitleForOrg({
+      schoolOrganizationId,
+      userId,
+      roleTitle
+    });
+
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json({ error: { message: error.message } });
+    }
+    next(error);
+  }
+};
 
 export const listAgencySchoolStaffAccounts = async (req, res, next) => {
   try {
@@ -880,6 +932,27 @@ export const updateSchoolContact = async (req, res, next) => {
       );
 
       await conn.commit();
+
+      if (roleTitle !== undefined && rows?.[0]) {
+        const contactEmail = normalizeEmail(rows[0].email);
+        if (contactEmail) {
+          try {
+            const [userRows] = await pool.execute(
+              `SELECT id FROM users
+               WHERE LOWER(TRIM(COALESCE(email, ''))) = ?
+                 AND LOWER(COALESCE(role, '')) = 'school_staff'
+               LIMIT 1`,
+              [contactEmail]
+            );
+            if (userRows?.[0]?.id) {
+              await syncSchoolStaffUserTitle(userRows[0].id, roleTitle || null);
+            }
+          } catch {
+            // best-effort
+          }
+        }
+      }
+
       return res.json(rows?.[0] || null);
     } catch (e) {
       try {

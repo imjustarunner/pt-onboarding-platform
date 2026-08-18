@@ -183,9 +183,9 @@
                 placeholder="e.g. Katie"
               />
             </div>
-            <!-- Title -->
+            <!-- Role/Title -->
             <div class="field-item">
-              <label>Title</label>
+              <label>{{ isSchoolStaffUser ? 'Role/Title' : 'Title' }}</label>
               <input
                 v-model="personalInfoForm.title"
                 type="text"
@@ -207,7 +207,7 @@
             <span>{{ accountInfo.preferredName || 'Not provided' }}</span>
           </div>
           <div class="info-item">
-            <label>Title:</label>
+            <label>{{ isSchoolStaffUser ? 'Role/Title:' : 'Title:' }}</label>
             <span>{{ accountInfo.title || 'Not provided' }}</span>
           </div>
           <div class="info-item">
@@ -1099,6 +1099,7 @@ const isClubContext = computed(() => {
 });
 const isSsc = useSummitStatsChallengeChrome();
 const userId = computed(() => authStore.user?.id);
+const isSchoolStaffUser = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
 
 const clubSummitContext = ref(null);
 const clubSummitLoading = ref(false);

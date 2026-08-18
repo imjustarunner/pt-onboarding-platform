@@ -13,6 +13,23 @@ function toBool(value) {
   return value === true || value === 1 || value === '1';
 }
 
+const SCHOOL_CONTACT_ROLE_TITLE_SUBQUERY = `(
+  SELECT sc.role_title
+  FROM school_contacts sc
+  WHERE sc.school_organization_id = ua.agency_id
+    AND (
+      (COALESCE(u.email, '') <> '' AND LOWER(TRIM(COALESCE(sc.email, ''))) = LOWER(TRIM(COALESCE(u.email, ''))))
+      OR (COALESCE(u.work_email, '') <> '' AND LOWER(TRIM(COALESCE(sc.email, ''))) = LOWER(TRIM(COALESCE(u.work_email, ''))))
+      OR (
+        TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) <> ''
+        AND LOWER(TRIM(COALESCE(sc.full_name, ''))) = LOWER(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))))
+      )
+    )
+    AND COALESCE(sc.role_title, '') <> ''
+  ORDER BY sc.id DESC
+  LIMIT 1
+) AS contact_role_title`;
+
 function isSchoolContactsSchedulerFilterError(error) {
   const code = String(error?.code || '').trim();
   if (code === 'ER_BAD_FIELD_ERROR' || code === 'ER_NO_SUCH_TABLE') return true;
@@ -125,22 +142,7 @@ class ClientSchoolStaffRoiAccess {
            u.title,
            u.role AS role_key,
            u.status,
-           (
-             SELECT sc.role_title
-             FROM school_contacts sc
-             WHERE sc.school_organization_id = ua.agency_id
-               AND (
-                 (COALESCE(u.email, '') <> '' AND LOWER(COALESCE(sc.email, '')) = LOWER(u.email))
-                 OR (COALESCE(u.work_email, '') <> '' AND LOWER(COALESCE(sc.email, '')) = LOWER(u.work_email))
-                 OR (
-                   TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) <> ''
-                   AND LOWER(TRIM(COALESCE(sc.full_name, ''))) = LOWER(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))))
-                 )
-               )
-               AND COALESCE(sc.role_title, '') <> ''
-             ORDER BY sc.id DESC
-             LIMIT 1
-           ) AS contact_role_title
+           ${SCHOOL_CONTACT_ROLE_TITLE_SUBQUERY}
          FROM user_agencies ua
          JOIN users u
            ON u.id = ua.user_id
@@ -216,8 +218,12 @@ class ClientSchoolStaffRoiAccess {
            u.last_name,
            u.email,
            u.phone_number,
+           u.work_phone,
+           u.personal_phone,
+           u.title,
            u.role AS role_key,
            u.status,
+           ${SCHOOL_CONTACT_ROLE_TITLE_SUBQUERY},
            a.id AS access_record_id,
            a.access_level,
            a.is_active,
@@ -270,8 +276,12 @@ class ClientSchoolStaffRoiAccess {
            u.last_name,
            u.email,
            u.phone_number,
+           u.work_phone,
+           u.personal_phone,
+           u.title,
            u.role AS role_key,
            u.status,
+           ${SCHOOL_CONTACT_ROLE_TITLE_SUBQUERY},
            a.id AS access_record_id,
            a.access_level,
            a.is_active,
@@ -317,8 +327,9 @@ class ClientSchoolStaffRoiAccess {
         first_name: row.first_name || null,
         last_name: row.last_name || null,
         email: row.email || null,
-        phone_number: row.phone_number || null,
+        phone_number: String(row.phone_number || row.work_phone || row.personal_phone || '').trim() || null,
         role_key: row.role_key || 'school_staff',
+        role_title: String(row.contact_role_title || row.title || '').trim() || null,
         status: row.status || null,
         access_record_id: row.access_record_id ? Number(row.access_record_id) : null,
         access_level: row.access_record_id && toBool(row.is_active)

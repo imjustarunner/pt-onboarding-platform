@@ -83,7 +83,7 @@
       </div>
 
       <p class="ssa-note muted">
-        Use <strong>Never logged in only</strong> to see staff who still need a password. You can set a temporary password yourself, or send a staggered Account Access email (recovery link or portal access) so you do not have to BCC them separately.
+        Use <strong>Never logged in only</strong> to see staff who still need a password. Filter by <strong>school</strong> to edit <strong>Role/Title</strong> inline (saved on blur). You can set a temporary password yourself, or send a staggered Account Access email (recovery link or portal access) so you do not have to BCC them separately.
         Portal access emails that include a line like <strong>Temp password: …</strong> must be synced to accounts — sending the email alone does not save the password on this page until you sync.
       </p>
 
@@ -130,6 +130,7 @@
               </th>
               <th>Name</th>
               <th>Email</th>
+              <th>Role/Title</th>
               <th>Schools</th>
               <th>Status</th>
               <th>Last login</th>
@@ -152,6 +153,19 @@
               </td>
               <td>{{ staffName(staff) }}</td>
               <td>{{ staff.email || '—' }}</td>
+              <td class="ssa-role-title-cell">
+                <input
+                  v-if="roleTitleSchoolIdForRow(staff)"
+                  v-model="roleTitleDrafts[staff.id]"
+                  type="text"
+                  class="ssa-role-title-input"
+                  placeholder="e.g. School Counselor"
+                  :disabled="roleTitleSaving.has(staff.id)"
+                  @blur="saveRoleTitle(staff)"
+                  @keydown.enter.prevent="$event.target.blur()"
+                />
+                <span v-else class="muted ssa-role-title-hint">Filter by school to edit</span>
+              </td>
               <td>{{ staff.school_names || '—' }}</td>
               <td>
                 <span :class="['badge', statusBadgeClass(staff.status)]">{{ statusLabel(staff.status) }}</span>
@@ -185,7 +199,7 @@
               </td>
             </tr>
             <tr v-if="filteredStaff.length === 0">
-              <td colspan="8" class="empty-row">No school staff accounts found.</td>
+              <td colspan="9" class="empty-row">No school staff accounts found.</td>
             </tr>
           </tbody>
         </table>
@@ -432,6 +446,8 @@ const authStore = useAuthStore();
 const loading = ref(false);
 const error = ref('');
 const staffRows = ref([]);
+const roleTitleDrafts = ref({});
+const roleTitleSaving = ref(new Set());
 const search = ref('');
 const schoolFilter = ref('');
 const neverLoggedInOnly = ref(false);
@@ -579,6 +595,58 @@ const staffName = (row) => {
   return full || row?.email || 'Unnamed staff';
 };
 
+const roleTitleForSchool = (row, schoolId) => {
+  const sid = Number(schoolId || 0);
+  if (!sid) return '';
+  const school = (row.schools || []).find((s) => Number(s.id) === sid);
+  return String(school?.role_title || row.primary_role_title || '').trim();
+};
+
+const roleTitleSchoolIdForRow = (row) => {
+  const filterId = Number(schoolFilter.value || 0);
+  if (filterId > 0 && (row.schools || []).some((s) => Number(s.id) === filterId)) {
+    return filterId;
+  }
+  const schools = row.schools || [];
+  if (schools.length === 1) return Number(schools[0]?.id || 0) || null;
+  return null;
+};
+
+const syncRoleTitleDrafts = () => {
+  const drafts = { ...roleTitleDrafts.value };
+  for (const row of staffRows.value) {
+    const schoolId = roleTitleSchoolIdForRow(row);
+    drafts[row.id] = schoolId ? roleTitleForSchool(row, schoolId) : '';
+  }
+  roleTitleDrafts.value = drafts;
+};
+
+const saveRoleTitle = async (staff) => {
+  const schoolId = roleTitleSchoolIdForRow(staff);
+  if (!schoolId || !agencyId.value) return;
+  const roleTitle = String(roleTitleDrafts.value[staff.id] || '').trim();
+  const previous = roleTitleForSchool(staff, schoolId);
+  if (roleTitle === previous) return;
+
+  const saving = new Set(roleTitleSaving.value);
+  saving.add(staff.id);
+  roleTitleSaving.value = saving;
+  try {
+    await api.put(`/agencies/${agencyId.value}/school-staff/users/${staff.id}/role-title`, {
+      schoolOrganizationId: schoolId,
+      roleTitle
+    });
+    await loadStaff();
+  } catch (err) {
+    error.value = err?.response?.data?.error?.message || 'Failed to save Role/Title';
+    roleTitleDrafts.value = { ...roleTitleDrafts.value, [staff.id]: previous };
+  } finally {
+    const next = new Set(roleTitleSaving.value);
+    next.delete(staff.id);
+    roleTitleSaving.value = next;
+  }
+};
+
 const statusLabel = (status) => getStatusLabel(status);
 const statusBadgeClass = (status) => getStatusBadgeClass(status, true);
 
@@ -628,6 +696,7 @@ const loadStaff = async () => {
     if (neverLoggedInOnly.value) params.neverLoggedIn = '1';
     const response = await api.get(`/agencies/${agencyId.value}/school-staff/accounts`, { params });
     staffRows.value = Array.isArray(response?.data) ? response.data : [];
+    syncRoleTitleDrafts();
     const validIds = new Set(staffRows.value.map((row) => row.id));
     selectedIds.value = new Set([...selectedIds.value].filter((id) => validIds.has(id)));
   } catch (err) {
@@ -914,6 +983,10 @@ watch(agencyId, (id) => {
   }
 });
 
+watch(schoolFilter, () => {
+  syncRoleTitleDrafts();
+});
+
 onMounted(async () => {
   try {
     if (String(authStore.user?.role || '').toLowerCase() !== 'super_admin') {
@@ -933,6 +1006,21 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.ssa-role-title-cell {
+  min-width: 180px;
+}
+
+.ssa-role-title-input {
+  width: 100%;
+  min-width: 160px;
+  padding: 6px 8px;
+  font-size: 0.9rem;
+}
+
+.ssa-role-title-hint {
+  font-size: 0.82rem;
+}
+
 .ssa-sync-banner {
   display: flex;
   flex-wrap: wrap;

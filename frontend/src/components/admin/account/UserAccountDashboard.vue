@@ -121,7 +121,7 @@
                 <div class="acct-field"><span class="acct-field-label">Preferred Name</span><span class="acct-field-value">{{ form.preferredName || '—' }}</span></div>
                 <div class="acct-field"><span class="acct-field-label">Login Email</span><span class="acct-field-value">{{ form.email || '—' }}</span></div>
                 <div class="acct-field"><span class="acct-field-label">Personal Email</span><span class="acct-field-value">{{ form.personalEmail || '—' }}</span></div>
-                <div class="acct-field"><span class="acct-field-label">Title</span><span class="acct-field-value">{{ form.title || '—' }}</span></div>
+                <div class="acct-field"><span class="acct-field-label">Role/Title</span><span class="acct-field-value">{{ form.title || '—' }}</span></div>
                 <div class="acct-field"><span class="acct-field-label">Service Focus</span><span class="acct-field-value">{{ form.serviceFocus || '—' }}</span></div>
                 <div v-if="form.psychologyTodayUrl" class="acct-field acct-field--full">
                   <span class="acct-field-label">Psychology Today</span>
@@ -133,7 +133,7 @@
                 <div class="acct-field"><span class="acct-field-label">Personal Phone</span><span class="acct-field-value">{{ form.personalPhone || '—' }}</span></div>
                 <div class="acct-field"><span class="acct-field-label">Work Phone</span><span class="acct-field-value">{{ form.workPhone || '—' }}</span></div>
                 <div class="acct-field"><span class="acct-field-label">Extension</span><span class="acct-field-value">{{ form.workPhoneExtension || '—' }}</span></div>
-                <div class="acct-field"><span class="acct-field-label">Role</span><span class="acct-field-value">{{ roleLabel }}</span></div>
+                <div class="acct-field"><span class="acct-field-label">System Role</span><span class="acct-field-value">{{ roleLabel }}</span></div>
                 <div v-if="isProviderRole" class="acct-field acct-field--full">
                   <span class="acct-field-label">Practice categories</span>
                   <span class="acct-field-value">{{ practiceCategoriesDisplay }}</span>
@@ -145,7 +145,7 @@
                 <div class="acct-field acct-field--edit"><label>Preferred Name</label><input v-model="form.preferredName" type="text" /></div>
                 <div class="acct-field acct-field--edit"><label>Login Email</label><input v-model="form.email" type="email" /></div>
                 <div class="acct-field acct-field--edit"><label>Personal Email</label><input v-model="form.personalEmail" type="email" /></div>
-                <div class="acct-field acct-field--edit"><label>Title</label><input v-model="form.title" type="text" /></div>
+                <div class="acct-field acct-field--edit"><label>Role/Title</label><input v-model="form.title" type="text" /></div>
                 <div class="acct-field acct-field--edit"><label>Service Focus</label><input v-model="form.serviceFocus" type="text" /></div>
                 <div class="acct-field acct-field--edit acct-field--full">
                   <label>Psychology Today profile URL</label>
@@ -156,7 +156,7 @@
                 <div class="acct-field acct-field--edit"><label>Work Phone</label><input v-model="form.workPhone" type="tel" /></div>
                 <div class="acct-field acct-field--edit"><label>Extension</label><input v-model="form.workPhoneExtension" type="text" /></div>
                 <div class="acct-field acct-field--edit acct-field--full">
-                  <label>Role</label>
+                  <label>System Role</label>
                   <select v-model="form.role" :disabled="!unwrap(ctx.canChangeRole)">
                     <option v-if="unwrap(ctx.canAssignSuperAdmin)" value="super_admin">Super Admin</option>
                     <option v-if="unwrap(ctx.canAssignAdmin)" value="admin">Admin</option>
