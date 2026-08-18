@@ -79,6 +79,21 @@ const DEFAULT_FEATURE_CATALOG = {
       featureFlagKey: 'noteAidEnabled'
     }
   ),
+  sessionRecording: createFeatureCatalogEntry(
+    'sessionRecording',
+    'Session Recording',
+    'Live session recording, transcription, Gemini Pro summaries, and structured note drafts from recordings.',
+    {
+      pricingModel: 'usage',
+      unitAmountCents: 1000,
+      userMonthlyCents: 1000,
+      unitLabel: 'activated user',
+      usageKey: 'sessionRecordingUsersUsed',
+      featureFlagKey: 'sessionRecordingEnabled',
+      defaultAvailable: false,
+      perUserBillable: true
+    }
+  ),
   officeSchedulingPublishing: createFeatureCatalogEntry(
     'officeSchedulingPublishing',
     'Shift Programs',

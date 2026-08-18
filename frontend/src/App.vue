@@ -2204,7 +2204,11 @@ import {
   workspaceNavContextFromStores
 } from './utils/workspaceNavAccess.js';
 import { buildFormUrl } from './utils/publicIntakeUrl.js';
-import { isMedicalBillingEnabled } from './config/medicalBillingAccess.js';
+import { isMedicalBillingEnabled, parseAgencyFeatureFlags } from './config/medicalBillingAccess.js';
+import {
+  canUseSessionRecordingRole,
+  isSessionRecordingEnabledForAgencyFlags
+} from './config/sessionRecordingAccess.js';
 import api from './services/api';
 import { navigateToJoinLink } from './utils/appJoinNavigation';
 import { listActivities } from './services/counselingApi.js';
@@ -3321,7 +3325,16 @@ const assessmentToolsForNav = computed(() => {
 const aiToolsForNav = computed(() => {
   const uid = authStore.user?.id || authStore.user?.userId || 'anon';
   const overrides = getToolOverrides(uid);
-  return getAiToolsForNav().map((t) => applyToolOverride(t, overrides[t.id]));
+  const flags = parseAgencyFeatureFlags(agencyStore.currentAgency?.feature_flags);
+  const agencyId = Number(agencyStore.currentAgency?.id || 0);
+  const role = String(user.value?.role || authStore.user?.role || '').toLowerCase();
+  return getAiToolsForNav()
+    .map((t) => applyToolOverride(t, overrides[t.id]))
+    .filter((t) => {
+      if (t.id !== 'session-recording') return true;
+      if (!isSessionRecordingEnabledForAgencyFlags(flags)) return false;
+      return canUseSessionRecordingRole({ role, agencyId });
+    });
 });
 
 const toolsAgencyId = computed(

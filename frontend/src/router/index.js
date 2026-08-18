@@ -121,7 +121,14 @@ const NOTE_AID_EMPLOYEE_ROLES = [
   'facilitator',
   'school_staff'
 ];
-const TOOLS_AIDS_ROUTE_SEGMENTS = ['/admin/tools-aids', '/admin/note-aid', '/admin/clinical-note-generator'];
+/** Broad employee gate; SessionRecordingView enforces ITSCO/NLU role + feature flag. */
+const SESSION_RECORDING_ROUTE_ROLES = NOTE_AID_EMPLOYEE_ROLES;
+const TOOLS_AIDS_ROUTE_SEGMENTS = [
+  '/admin/tools-aids',
+  '/admin/note-aid',
+  '/admin/clinical-note-generator',
+  '/admin/session-recording'
+];
 const isSscPortalSlug = isSummitPlatformRouteSlug;
 
 const isAllowedSscAuthenticatedPath = (path) => {
@@ -1467,6 +1474,16 @@ const routes = [
     meta: {
       requiresAuth: true,
       requiresRole: NOTE_AID_EMPLOYEE_ROLES,
+      organizationSlug: true
+    }
+  },
+  {
+    path: '/:organizationSlug/admin/session-recording',
+    name: 'OrganizationSessionRecording',
+    component: () => import('../views/admin/SessionRecordingView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: SESSION_RECORDING_ROUTE_ROLES,
       organizationSlug: true
     }
   },
@@ -3119,6 +3136,12 @@ const routes = [
     // Note Aid now runs the Clinical Director Agent note generator.
     component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
     meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES }
+  },
+  {
+    path: '/admin/session-recording',
+    name: 'SessionRecording',
+    component: () => import('../views/admin/SessionRecordingView.vue'),
+    meta: { requiresAuth: true, requiresRole: SESSION_RECORDING_ROUTE_ROLES }
   },
   {
     path: '/admin/compliance-corner',

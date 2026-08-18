@@ -238,13 +238,18 @@ import { useAuthStore } from '../../store/auth';
 import { getDashboardRoute } from '../../utils/router';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 
+const props = defineProps({
+  taskId: { type: [String, Number], default: null }
+});
+const emit = defineEmits(['signed']);
+
 const route = useRoute();
 const router = useRouter();
 const documentsStore = useDocumentsStore();
 const authStore = useAuthStore();
 const showDebugErrorDetails = !!import.meta.env.DEV;
 
-const taskId = route.params.taskId;
+const taskId = computed(() => props.taskId ?? route.params.taskId);
 const currentStep = ref(1);
 const loading = ref(false);
 const error = ref('');
@@ -276,7 +281,7 @@ const activeFieldId = ref(null);
 const activeMarkerId = ref(null);
 const activeFieldIndex = ref(0);
 const SIGNING_DRAFT_TTL_MS = 60 * 60 * 1000;
-const draftStorageKey = computed(() => `document-signing-draft:${taskId}`);
+const draftStorageKey = computed(() => `document-signing-draft:${taskId.value}`);
 
 const focusStepContext = computed(() => {
   let meta = task.value?.metadata;
@@ -543,9 +548,10 @@ const isWaiverTask = computed(() => {
   const waiverKey = String(metadata?.waiverKey || metadata?.waiver_key || '').toLowerCase();
   return title.includes('waiver') || waiverKey.includes('waiver');
 });
-const shouldAutoExitOnFinalize = computed(() => (
-  roleNorm.value === 'school_staff' || isWaiverTask.value || Boolean(returnToPath.value)
-));
+const shouldAutoExitOnFinalize = computed(() => {
+  if (props.taskId != null && props.taskId !== '') return false;
+  return roleNorm.value === 'school_staff' || isWaiverTask.value || Boolean(returnToPath.value);
+});
 
 const adminCountersigned = computed(() => {
   const trail = signedDocument.value?.audit_trail || {};
@@ -568,7 +574,7 @@ const getPdfUrl = (template) => {
 const loadDocumentTask = async () => {
   try {
     loading.value = true;
-    const response = await api.get(`/document-signing/${taskId}`);
+    const response = await api.get(`/document-signing/${taskId.value}`);
     task.value = response.data.task;
     template.value = response.data.template;
     userDocument.value = response.data.userDocument;
@@ -706,7 +712,7 @@ const giveConsent = async () => {
     loading.value = true;
     error.value = '';
     errorDetails.value = null;
-    const response = await api.post(`/document-signing/${taskId}/consent`);
+    const response = await api.post(`/document-signing/${taskId.value}/consent`);
     console.log('giveConsent: Success response:', response.data);
     currentStep.value = 2;
     await loadDocumentTask();
@@ -748,7 +754,7 @@ const recordIntent = async () => {
     loading.value = true;
     error.value = '';
     errorDetails.value = null;
-    await api.post(`/document-signing/${taskId}/intent`);
+    await api.post(`/document-signing/${taskId.value}/intent`);
     currentStep.value = 3;
     await loadDocumentTask();
   } catch (err) {
@@ -814,8 +820,11 @@ const completeAndExitAfterFinalize = async () => {
   clearSigningDraft();
   if (!shouldAutoExitOnFinalize.value) {
     currentStep.value = 4;
+    emit('signed', { taskId: taskId.value, signedDocument: signedDocument.value });
     return;
   }
+
+  emit('signed', { taskId: taskId.value, signedDocument: signedDocument.value });
 
   const target = returnToPath.value ? appendRefreshNonce(returnToPath.value) : '';
 
@@ -892,7 +901,7 @@ const finalizeSignature = async () => {
     loading.value = true;
     error.value = '';
     errorDetails.value = null;
-    await documentsStore.signDocument(taskId, signatureData.value, fieldValues.value);
+    await documentsStore.signDocument(taskId.value, signatureData.value, fieldValues.value);
     await completeAndExitAfterFinalize();
   } catch (err) {
     const errorData = err.response?.data?.error || {};
@@ -939,7 +948,7 @@ const downloadDocument = async ({ auto = false, retry = 0 } = {}) => {
     );
     const dateLabel = formatDateForFilename(signedDocument.value?.signed_at || workflow.value?.finalized_at);
     const filename = `${title} - ${assignee} - ${dateLabel}.pdf`;
-    await documentsStore.downloadSignedDocument(taskId, filename);
+    await documentsStore.downloadSignedDocument(taskId.value, filename);
   } catch (err) {
     const errorData = err.response?.data?.error || {};
     const isNotFinalized =
@@ -1014,7 +1023,7 @@ const finalizeAdminCountersign = async () => {
     loading.value = true;
     error.value = '';
     errorDetails.value = null;
-    await documentsStore.counterSignDocument(taskId, adminSignatureData.value);
+    await documentsStore.counterSignDocument(taskId.value, adminSignatureData.value);
     await loadDocumentTask();
   } catch (err) {
     const errorData = err.response?.data?.error || {};

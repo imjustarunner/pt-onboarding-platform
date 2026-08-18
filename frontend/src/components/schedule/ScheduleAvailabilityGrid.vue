@@ -19454,6 +19454,12 @@ const toProviderNoteAidPath = () => {
   return m?.[1] ? `/${m[1]}/admin/note-aid` : '/admin/note-aid';
 };
 
+const toProviderSessionRecordingPath = () => {
+  const path = typeof window !== 'undefined' ? String(window.location?.pathname || '') : '';
+  const m = path.match(/^\/([^/]+)\//);
+  return m?.[1] ? `/${m[1]}/admin/session-recording` : '/admin/session-recording';
+};
+
 const openTherapyNoteAid = (item) => {
   if (!item?.therapyNoteAid) return;
   const q = new URLSearchParams();
@@ -19474,10 +19480,22 @@ const openNoteAidFromContext = (launchIntent = 'note') => {
   const top = officeTopEvent(modalDay.value, modalHour.value, officeId, roomId) || null;
   const clientId = Number(top?.clientId || 0);
   if (!clientId) throw new Error('Booked slot needs a client before opening Note Aid.');
+  const intent = String(launchIntent || 'note');
+  if (intent === 'record_session' || intent === 'record') {
+    const query = new URLSearchParams({
+      officeEventId: String(officeEventId),
+      clientId: String(clientId),
+      launchIntent: 'record_session'
+    });
+    const serviceCode = String(top?.serviceCode || '').trim().toUpperCase();
+    if (serviceCode) query.set('serviceCode', serviceCode);
+    window.location.href = `${toProviderSessionRecordingPath()}?${query.toString()}`;
+    return;
+  }
   const query = new URLSearchParams({
     officeEventId: String(officeEventId),
     clientId: String(clientId),
-    launchIntent: String(launchIntent || 'note'),
+    launchIntent: intent,
     noteType: String(top?.appointmentType || 'PROGRESS_NOTE'),
     templateVersion: 'v1'
   });

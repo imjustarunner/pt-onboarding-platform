@@ -990,7 +990,9 @@ export const signDocument = async (req, res, next) => {
             signatureOnAuditPage: true,
             fieldDefinitions: normalizedFieldDefs,
             fieldValues: normalizedFieldValues,
-            branding: brandingContext
+            branding: brandingContext,
+            documentType: template?.document_type || null,
+            agencyId: task?.assigned_to_agency_id || template?.agency_id || null
           }
         ),
         SIGN_OP_TIMEOUT_MS.pdfGenerate,

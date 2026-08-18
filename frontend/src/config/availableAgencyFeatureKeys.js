@@ -16,6 +16,11 @@ export const AVAILABLE_AGENCY_FEATURE_KEYS = [
     defaultAvailable: false
   },
   { key: 'noteAidEnabled', label: 'Note Aid' },
+  {
+    key: 'sessionRecordingEnabled',
+    label: 'Session Recording',
+    defaultAvailable: false
+  },
   { key: 'trainingAiBuilderEnabled', label: 'Training AI Module Builder' },
   { key: 'clinicalNoteGeneratorEnabled', label: 'Clinical Note Generator' },
   {

@@ -203,6 +203,7 @@ import publicMarketingPagesRoutes from './routes/publicMarketingPages.routes.js'
 import publicMarketingPagesAdminRoutes from './routes/publicMarketingPagesAdmin.routes.js';
 import agentsRoutes from './routes/agents.routes.js';
 import clinicalNoteGeneratorRoutes from './routes/clinicalNoteGenerator.routes.js';
+import sessionRecordingRoutes from './routes/sessionRecording.routes.js';
 import complianceCornerRoutes from './routes/complianceCorner.routes.js';
 import learningBillingRoutes from './routes/learningBilling.routes.js';
 import guardianBillingRoutes from './routes/guardianBilling.routes.js';
@@ -882,6 +883,7 @@ app.use('/api/prehire-portal', prehirePortalRoutes);
 app.use('/api/overlays', agencyPageOverlaysRoutes);
 app.use('/api/agents', agentsRoutes);
 app.use('/api/clinical-notes', clinicalNoteGeneratorRoutes);
+app.use('/api/session-recordings', sessionRecordingRoutes);
 app.use('/api/compliance-corner', complianceCornerRoutes);
 app.use('/api', researchCandidateRoutes);
   app.use('/api/voice-video', voiceVideoRoutes);

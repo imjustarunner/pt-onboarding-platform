@@ -55,6 +55,7 @@
           <div class="pt-4 mt-4 border-t border-[#1e2a44]">
             <div class="uppercase text-xs tracking-widest text-gray-400 mb-3 px-3">AI TOOLS</div>
             <SidebarNavItem icon="🤖" label="AI Tutor" active />
+            <SidebarNavItem icon="🎙️" label="Session Recording" @click="openSessionRecording" />
             <SidebarNavItem icon="📊" label="Summary" />
             <SidebarNavItem icon="📈" label="Progress Insight" />
           </div>
@@ -650,6 +651,15 @@ const showProgressModal = ref(false);
 const sessionData = ref(null);
 const standardsContext = ref([]);
 const isDemoMode = ref(false);
+
+const openSessionRecording = () => {
+  const idNum = Number(sessionId.value);
+  const slug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
+  const path = slug ? `/${slug}/admin/session-recording` : '/admin/session-recording';
+  const query = { launchIntent: 'record_session', sessionKind: 'tutoring' };
+  if (Number.isFinite(idNum) && idNum > 0) query.learningClassSessionId = String(idNum);
+  router.push({ path, query }).catch(() => {});
+};
 
 const currentProblem = ref('2(x + 5) - 3x = 7');
 

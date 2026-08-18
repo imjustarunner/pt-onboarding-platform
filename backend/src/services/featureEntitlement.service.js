@@ -44,13 +44,22 @@ async function insertTenantEvent(conn, { agencyId, featureKey, eventType, actor,
   return res.insertId;
 }
 
-async function insertUserEvent(conn, { agencyId, userId, featureKey, eventType, actor, effectiveAt = null, notes = null }) {
+async function insertUserEvent(conn, {
+  agencyId,
+  userId,
+  featureKey,
+  eventType,
+  actor,
+  effectiveAt = null,
+  notes = null,
+  billingExempt = false
+}) {
   const { actorUserId, actorRole } = actorMeta(actor);
   const [res] = await conn.execute(
     `INSERT INTO user_feature_entitlement_events
-       (agency_id, user_id, feature_key, event_type, actor_user_id, actor_role, effective_at, notes)
-     VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, NOW()), ?)`,
-    [agencyId, userId, featureKey, eventType, actorUserId, actorRole, effectiveAt, notes]
+       (agency_id, user_id, feature_key, event_type, actor_user_id, actor_role, effective_at, notes, billing_exempt)
+     VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, NOW()), ?, ?)`,
+    [agencyId, userId, featureKey, eventType, actorUserId, actorRole, effectiveAt, notes, billingExempt ? 1 : 0]
   );
   return res.insertId;
 }
@@ -67,16 +76,17 @@ async function upsertTenantCurrent(conn, { agencyId, featureKey, enabled, lastEv
   );
 }
 
-async function upsertUserCurrent(conn, { userId, featureKey, agencyId, enabled, lastEventId }) {
+async function upsertUserCurrent(conn, { userId, featureKey, agencyId, enabled, lastEventId, billingExempt = false }) {
   await conn.execute(
-    `INSERT INTO user_feature_entitlements_current (user_id, feature_key, agency_id, enabled, last_event_id)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO user_feature_entitlements_current (user_id, feature_key, agency_id, enabled, billing_exempt, last_event_id)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        enabled = VALUES(enabled),
+       billing_exempt = VALUES(billing_exempt),
        agency_id = VALUES(agency_id),
        last_event_id = VALUES(last_event_id),
        updated_at = CURRENT_TIMESTAMP`,
-    [userId, featureKey, agencyId, enabled ? 1 : 0, lastEventId]
+    [userId, featureKey, agencyId, enabled ? 1 : 0, billingExempt ? 1 : 0, lastEventId]
   );
 }
 
@@ -111,7 +121,13 @@ async function setTenantState(agencyId, featureKey, enabled, { actor = null, eff
   }
 }
 
-async function setUserState(agencyId, userId, featureKey, enabled, { actor = null, effectiveAt = null, notes = null } = {}) {
+async function setUserState(
+  agencyId,
+  userId,
+  featureKey,
+  enabled,
+  { actor = null, effectiveAt = null, notes = null, billingExempt = false } = {}
+) {
   const aid = Number(agencyId);
   const uid = Number(userId);
   if (!aid || !uid) throw new Error('agencyId and userId are required');
@@ -126,17 +142,26 @@ async function setUserState(agencyId, userId, featureKey, enabled, { actor = nul
       eventType: enabled ? 'enabled' : 'disabled',
       actor,
       effectiveAt,
-      notes
+      notes,
+      billingExempt: enabled ? billingExempt : false
     });
     await upsertUserCurrent(conn, {
       userId: uid,
       featureKey: key,
       agencyId: aid,
       enabled,
+      billingExempt: enabled ? billingExempt : false,
       lastEventId: eventId
     });
     await conn.commit();
-    return { eventId, userId: uid, agencyId: aid, featureKey: key, enabled: !!enabled };
+    return {
+      eventId,
+      userId: uid,
+      agencyId: aid,
+      featureKey: key,
+      enabled: !!enabled,
+      billingExempt: !!(enabled && billingExempt)
+    };
   } catch (err) {
     try { await conn.rollback(); } catch { /* ignore */ }
     throw err;
@@ -290,17 +315,18 @@ export async function listEligibleTenantUsers(agencyId) {
 export async function getUserFeatureCurrent(userId, featureKey) {
   const key = normalizeFeatureKey(featureKey);
   const [rows] = await pool.execute(
-    `SELECT enabled, agency_id, last_event_id, updated_at
+    `SELECT enabled, billing_exempt, agency_id, last_event_id, updated_at
        FROM user_feature_entitlements_current
       WHERE user_id = ? AND feature_key = ?
       LIMIT 1`,
     [userId, key]
   );
-  if (rows.length === 0) return { enabled: false, present: false };
+  if (rows.length === 0) return { enabled: false, present: false, billingExempt: false };
   const row = rows[0];
   return {
     present: true,
     enabled: row.enabled === 1,
+    billingExempt: row.billing_exempt === 1,
     agencyId: row.agency_id,
     lastEventId: row.last_event_id,
     updatedAt: row.updated_at

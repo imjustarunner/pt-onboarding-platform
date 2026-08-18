@@ -216,6 +216,11 @@ import ToolCard from '../../components/tools/ToolCard.vue';
 import ToolsAssignModal from '../../components/tools/ToolsAssignModal.vue';
 import ToolsEditModal from '../../components/tools/ToolsEditModal.vue';
 import { ensureHourlySessionForNoteAid } from '../../utils/noteAidIndirectSession.js';
+import { parseAgencyFeatureFlags } from '../../config/medicalBillingAccess.js';
+import {
+  canUseSessionRecordingRole,
+  isSessionRecordingEnabledForAgencyFlags
+} from '../../config/sessionRecordingAccess.js';
 
 const props = defineProps({
   /** When embedded in My Dashboard, parent sets the hub tab (assessments | games | ai). */
@@ -404,7 +409,14 @@ const filteredGames = computed(() => {
 });
 
 const filteredAiTools = computed(() => {
+  const flags = parseAgencyFeatureFlags(agencyStore.currentAgency?.feature_flags);
+  const agencyId = Number(agencyStore.currentAgency?.id || 0);
+  const role = String(authStore.user?.role || '').toLowerCase();
   let list = aiCatalog.value.filter((t) => {
+    if (t.id === 'session-recording') {
+      if (!isSessionRecordingEnabledForAgencyFlags(flags)) return false;
+      if (!canUseSessionRecordingRole({ role, agencyId })) return false;
+    }
     return (
       matchesSearch(t.title) ||
       matchesSearch(t.littleName) ||

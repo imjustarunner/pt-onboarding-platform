@@ -18,6 +18,50 @@ function resolveAudioBucketName() {
   return fallback || '';
 }
 
+/** Map Google diarization tag (1-based) to human labels for dyadic sessions. */
+export function resolveSpeakerDisplayLabel(
+  speakerTag,
+  { providerLabel = 'Speaker 1', clientLabel = 'Speaker 2', extraSpeakerPrefix = 'Speaker' } = {}
+) {
+  const tag = Number(speakerTag);
+  if (!Number.isFinite(tag) || tag < 1) return extraSpeakerPrefix;
+  if (tag === 1) return providerLabel;
+  if (tag === 2) return clientLabel;
+  return `${extraSpeakerPrefix} ${tag}`;
+}
+
+/** Build a labeled transcript from Speech-to-Text word-level diarization. */
+export function formatDiarizedTranscriptFromWords(
+  words,
+  { providerLabel = 'Speaker 1', clientLabel = 'Speaker 2' } = {}
+) {
+  const labelOpts = { providerLabel, clientLabel };
+  const segments = [];
+  let currentSpeaker = null;
+  let buf = [];
+  for (const w of words || []) {
+    const tag = w.speakerTag != null ? Number(w.speakerTag) : 0;
+    const word = String(w.word || '').trim();
+    if (!word) continue;
+    if (currentSpeaker == null) currentSpeaker = tag;
+    if (tag !== currentSpeaker) {
+      if (buf.length) {
+        segments.push(
+          `[${resolveSpeakerDisplayLabel(currentSpeaker, labelOpts)}] ${buf.join(' ')}`
+        );
+      }
+      currentSpeaker = tag;
+      buf = [word];
+    } else {
+      buf.push(word);
+    }
+  }
+  if (buf.length) {
+    segments.push(`[${resolveSpeakerDisplayLabel(currentSpeaker, labelOpts)}] ${buf.join(' ')}`);
+  }
+  return segments.join('\n').trim();
+}
+
 function mimeToEncoding(mimeType) {
   const mt = String(mimeType || '').toLowerCase();
   if (mt.includes('webm')) return 'WEBM_OPUS';
@@ -54,7 +98,16 @@ async function uploadTempAudio({ buffer, mimeType, userId }) {
   return { bucketName, key };
 }
 
-export async function transcribeLongAudio({ buffer, mimeType, languageCode = 'en-US', userId }) {
+export async function transcribeLongAudio({
+  buffer,
+  mimeType,
+  languageCode = 'en-US',
+  userId,
+  enableSpeakerDiarization = false,
+  diarizationSpeakerCount = 2,
+  providerLabel = 'Speaker 1',
+  clientLabel = 'Speaker 2'
+} = {}) {
   if (!buffer || !(buffer instanceof Buffer) || buffer.length === 0) {
     const err = new Error('Audio buffer is empty');
     err.status = 400;
@@ -67,19 +120,37 @@ export async function transcribeLongAudio({ buffer, mimeType, languageCode = 'en
   try {
     const client = getSpeechClient();
     const encoding = mimeToEncoding(mimeType);
+    const speakerCount = Math.min(6, Math.max(2, Number(diarizationSpeakerCount) || 2));
     const request = {
       audio: { uri: gcsUri },
       config: {
         languageCode: String(languageCode || 'en-US'),
         enableAutomaticPunctuation: true,
         model: 'latest_long',
-        ...(encoding ? { encoding } : null)
+        ...(encoding ? { encoding } : null),
+        ...(enableSpeakerDiarization
+          ? {
+              diarizationConfig: {
+                enableSpeakerDiarization: true,
+                minSpeakerCount: 2,
+                maxSpeakerCount: speakerCount
+              }
+            }
+          : null)
       }
     };
 
     const [operation] = await client.longRunningRecognize(request);
     const [response] = await operation.promise();
     const results = response?.results || [];
+
+    if (enableSpeakerDiarization) {
+      const last = results[results.length - 1];
+      const words = last?.alternatives?.[0]?.words || [];
+      const diarized = formatDiarizedTranscriptFromWords(words, { providerLabel, clientLabel });
+      if (diarized) return diarized;
+    }
+
     const transcript = results
       .map((r) => r?.alternatives?.[0]?.transcript || '')
       .filter(Boolean)

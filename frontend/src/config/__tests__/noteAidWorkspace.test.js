@@ -1,11 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { aidAllowsInteractiveComplexity, aidKind, aidServiceCodeDisplay, findNoteAidById } from '../noteAidWorkspace.js';
+import {
+  SESSION_RECORDING_NOTE_AIDS,
+  resolveSessionRecordingNoteAid
+} from '../sessionRecordingAccess.js';
 
 describe('note aid kinds', () => {
+  it('keeps psychotherapy / H0004 note / H2014 progress aids in Note Aid', () => {
+    expect(findNoteAidById('psychotherapy')?.aid?.toolId).toBe('clinical_psychotherapy_note');
+    expect(findNoteAidById('h0004_note')?.aid?.toolId).toBe('clinical_h0004_note');
+    expect(findNoteAidById('h2014_group')?.aid?.toolId).toBe('clinical_h2014_group');
+    expect(findNoteAidById('h2014_individual')?.aid?.toolId).toBe('clinical_h2014_individual');
+  });
+
   it('treats psychotherapy progress notes as progress', () => {
     const aid = findNoteAidById('psychotherapy')?.aid;
     expect(aidKind(aid)).toBe('progress');
     expect(aidAllowsInteractiveComplexity(aid)).toBe(true);
+  });
+
+  it('keeps treatment plans in Note Aid', () => {
+    expect(findNoteAidById('h0004_plan')?.aid?.toolId).toBe('clinical_h0004_plan');
+    expect(findNoteAidById('psychotherapy_plan')?.aid?.toolId).toBe('clinical_psychotherapy_plan');
   });
 
   it('does not allow Interactive Complexity on plans or intakes', () => {
@@ -21,5 +37,21 @@ describe('note aid kinds', () => {
   it('shows psychotherapy code group as 90837/90834/90832 on library cards', () => {
     const aid = findNoteAidById('psychotherapy')?.aid;
     expect(aidServiceCodeDisplay(aid)).toBe('90837/90834/90832');
+  });
+});
+
+describe('session recording note aids', () => {
+  it('uses the same progress-note gems for live session capture', () => {
+    const ids = SESSION_RECORDING_NOTE_AIDS.map((a) => a.id);
+    expect(ids).toContain('psychotherapy');
+    expect(ids).toContain('h0004_note');
+    expect(ids).toContain('h2014_group');
+    expect(ids).toContain('h2014_individual');
+  });
+
+  it('resolves note aid from service code', () => {
+    expect(resolveSessionRecordingNoteAid({ serviceCode: '90837' })?.id).toBe('psychotherapy');
+    expect(resolveSessionRecordingNoteAid({ serviceCode: 'H0004' })?.id).toBe('h0004_note');
+    expect(resolveSessionRecordingNoteAid({ serviceCode: 'H2014' })?.id).toBe('h2014_individual');
   });
 });

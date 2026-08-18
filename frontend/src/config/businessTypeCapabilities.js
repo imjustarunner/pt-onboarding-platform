@@ -34,6 +34,7 @@ export const FEATURE_KEYS_BY_BUSINESS_TYPE = {
   mental_health: [
     'noteAidEnabled',
     'clinicalNoteGeneratorEnabled',
+    'sessionRecordingEnabled',
     'medicalBillingEnabled',
     'clinicalChartEnabled',
     'clinicalNoteSigningEnabled',
@@ -50,12 +51,14 @@ export const FEATURE_KEYS_BY_BUSINESS_TYPE = {
     'guardianWaiversEnabled',
     'schoolPortalsEnabled',
     'skillBuildersSchoolProgramEnabled',
-    'inSchoolSubmissionsEnabled'
+    'inSchoolSubmissionsEnabled',
+    'sessionRecordingEnabled'
   ],
   tutoring: [
     'standardsLearningEnabled',
     'groupClassSessionsEnabled',
-    'guardianWaiversEnabled'
+    'guardianWaiversEnabled',
+    'sessionRecordingEnabled'
   ],
   coaching: [
     'publicProviderFinderEnabled',

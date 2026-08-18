@@ -105,13 +105,27 @@ async function fetchTenantEvents(agencyId, periodEndMs) {
 
 async function fetchUserEvents(agencyId, periodEndMs) {
   const [rows] = await pool.execute(
-    `SELECT id, user_id, feature_key, event_type, effective_at
+    `SELECT id, user_id, feature_key, event_type, effective_at, billing_exempt
        FROM user_feature_entitlement_events
       WHERE agency_id = ? AND effective_at < ?
       ORDER BY effective_at ASC, id ASC`,
     [agencyId, new Date(periodEndMs)]
   );
   return rows;
+}
+
+async function fetchExemptUserFeaturePairs(agencyId) {
+  const [rows] = await pool.execute(
+    `SELECT user_id, feature_key
+       FROM user_feature_entitlements_current
+      WHERE agency_id = ? AND enabled = 1 AND billing_exempt = 1`,
+    [agencyId]
+  );
+  const set = new Set();
+  for (const r of rows || []) {
+    set.add(`${r.feature_key}::${r.user_id}`);
+  }
+  return set;
 }
 
 async function fetchUserNames(userIds) {
@@ -199,9 +213,10 @@ export async function computeFeatureBillingForPeriod(agencyId, periodStart, peri
 
   const featureCatalog = getFeatureCatalog(pricingConfig);
 
-  const [tenantEvents, userEvents] = await Promise.all([
+  const [tenantEvents, userEvents, exemptPairs] = await Promise.all([
     fetchTenantEvents(aid, periodEndMs),
-    fetchUserEvents(aid, periodEndMs)
+    fetchUserEvents(aid, periodEndMs),
+    fetchExemptUserFeaturePairs(aid)
   ]);
 
   const tenantByFeature = new Map();
@@ -277,7 +292,10 @@ export async function computeFeatureBillingForPeriod(agencyId, periodStart, peri
         const enabledDays = intervalsToEnabledDays(intervals);
         if (enabledDays === 0) continue;
         const billableDays = applyProrationFloor({ enabledDays, intervals, minProrationDays: minDays, daysInPeriod });
-        const chargeCents = chargeFromBillableDays({ unitMonthlyCents: userUnit, billableDays, daysInPeriod });
+        const isExempt = exemptPairs.has(k);
+        const chargeCents = isExempt
+          ? 0
+          : chargeFromBillableDays({ unitMonthlyCents: userUnit, billableDays, daysInPeriod });
         const lastMeta = await fetchLastUserEventMeta(aid, userId, featureKey);
         const userInfo = userNameMap.get(userId) || { id: userId, name: `User ${userId}`, email: null };
         userPortions.push({
@@ -291,6 +309,7 @@ export async function computeFeatureBillingForPeriod(agencyId, periodStart, peri
           daysInPeriod,
           unitMonthlyCents: userUnit,
           chargeCents,
+          billingExempt: isExempt,
           cycleCount: intervalsCount(intervals),
           lastEventId: lastMeta?.eventId || null,
           lastEventType: lastMeta?.eventType || null,

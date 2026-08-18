@@ -276,82 +276,9 @@
           />
 
           <div v-if="inputMode === 'speak'" class="na-speak-tools">
-            <div class="consent-box">
-              <label class="na-label" style="margin-bottom: 6px;">Recording purpose</label>
-              <div class="purpose-toggle" role="radiogroup" aria-label="Recording purpose">
-                <button
-                  type="button"
-                  class="purpose-btn"
-                  :class="{ active: !isSessionRecording }"
-                  @click="recordingPurpose = 'dictation'"
-                >
-                  Dictation only
-                </button>
-                <button
-                  type="button"
-                  class="purpose-btn"
-                  :class="{ active: isSessionRecording }"
-                  @click="recordingPurpose = 'session'"
-                >
-                  Session recording
-                </button>
-              </div>
-
-              <template v-if="isSessionRecording">
-                <label class="na-check" style="margin-top: 10px;">
-                  <input v-model="clientPresentInRecording" type="checkbox" />
-                  <span>Client will be present in this recording.</span>
-                </label>
-                <div v-if="clientPresentInRecording" class="consent-step">
-                  <label class="na-field-hint">Is client consent already on file?</label>
-                  <select v-model="clientConsentOnFile" class="na-input">
-                    <option value="">Select an option</option>
-                    <option value="yes">Yes</option>
-                    <option value="no">No — capture now</option>
-                  </select>
-                  <div v-if="clientConsentOnFile === 'no'" class="consent-followup">
-                    <div class="na-actions">
-                      <button
-                        class="btn btn-secondary btn-sm"
-                        type="button"
-                        :disabled="!canLaunchConsentSession || consentSessionLaunching"
-                        @click="launchConsentSigningSession('client')"
-                      >
-                        {{ consentSessionLaunching ? 'Launching…' : 'Open client consent signing' }}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <label class="na-check" style="margin-top: 10px;">
-                  <input v-model="additionalParticipantPresent" type="checkbox" />
-                  <span>Another person will be present in the recording.</span>
-                </label>
-                <div v-if="additionalParticipantPresent" class="consent-step">
-                  <label class="na-field-hint">Is additional-participant consent on file?</label>
-                  <select v-model="additionalParticipantConsentOnFile" class="na-input">
-                    <option value="">Select an option</option>
-                    <option value="yes">Yes</option>
-                    <option value="no">No — capture now</option>
-                  </select>
-                </div>
-                <div v-if="requiresConsentTemplateSelection" class="consent-step">
-                  <label class="na-field-hint">Consent/agreement template</label>
-                  <select v-model="selectedAudioAgreementTemplateId" class="na-input" :disabled="!audioAgreementTemplates.length">
-                    <option value="">Select an agreement template</option>
-                    <option v-for="t in audioAgreementTemplates" :key="t.id" :value="String(t.id)">{{ t.name }}</option>
-                  </select>
-                </div>
-              </template>
-              <small v-if="recordingConsentError" class="error">{{ recordingConsentError }}</small>
-              <small v-if="consentSessionError" class="error">{{ consentSessionError }}</small>
-            </div>
-
             <div class="na-actions">
-              <button class="btn btn-primary recording-now-btn" type="button" :disabled="recordingBusy" @click="openRecordSessionModal">
-                {{ recording ? 'Recording in progress' : 'Record Session modal' }}
-              </button>
               <button class="btn btn-secondary" type="button" :disabled="recordingBusy" @click="toggleRecording">
-                {{ recording ? 'Stop recording' : (isSessionRecording ? 'Record session audio' : 'Record dictation') }}
+                {{ recording ? 'Stop recording' : 'Record dictation' }}
               </button>
               <button class="btn btn-secondary" type="button" :disabled="!audioBlob || recording" @click="clearAudio">
                 Clear recording
@@ -360,6 +287,11 @@
                 {{ serverTranscribing ? 'Transcribing…' : 'Transcribe (server)' }}
               </button>
             </div>
+            <small class="hint">
+              Speak to draft a note after the session (dictation). To record
+              <em>during</em> a live session, use
+              <router-link :to="orgTo('/admin/session-recording')">Session Recording</router-link>.
+            </small>
             <small v-if="recording" class="hint">
               Recording… {{ transcribing ? 'Transcribing live.' : speechSupported ? 'Transcription starting…' : 'Transcription not supported in this browser.' }}
             </small>
@@ -512,28 +444,6 @@
       </main>
     </div>
 
-    <div v-if="recordSessionModalOpen" class="record-session-modal-overlay" @click="closeRecordSessionModal">
-      <div class="record-session-modal" @click.stop>
-        <h2 style="margin-top: 0;">Record Session</h2>
-        <p class="muted" style="margin-bottom: 10px;">
-          Use focused recording mode for this booked session. Complete consent selections first if required, then press Recording Now.
-        </p>
-        <button
-          class="btn btn-primary recording-now-btn recording-now-cta"
-          type="button"
-          :disabled="recordingBusy"
-          @click="startRecordingFromModal"
-        >
-          {{ recording ? 'Stop Recording Now' : 'Recording Now' }}
-        </button>
-        <small v-if="recordingConsentError" class="error" style="display: block;">{{ recordingConsentError }}</small>
-        <div class="na-actions" style="justify-content: flex-end; margin-top: 14px;">
-          <button class="btn btn-secondary" type="button" @click="closeRecordSessionModal">
-            Continue in Note Aid
-          </button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -704,7 +614,8 @@ const selectedAudioAgreementTemplateId = ref('');
 const recordingConsentError = ref('');
 const downloadingAudioAgreementTemplate = ref(false);
 const recordingPurpose = ref('dictation');
-const isSessionRecording = computed(() => recordingPurpose.value === 'session');
+/** Session capture lives in Session Recording tool; Note Aid speak mode is dictation-only. */
+const isSessionRecording = computed(() => false);
 const recordSessionModalOpen = ref(false);
 const recordSessionIntentHandled = ref(false);
 const consentSessionLaunching = ref(false);
@@ -2558,8 +2469,13 @@ watch(() => route.query, () => {
 
 watch([canUseTool, isRecordSessionIntent], ([enabled, recordIntent]) => {
   if (!enabled || !recordIntent || recordSessionIntentHandled.value) return;
-  openRecordSessionModal();
   recordSessionIntentHandled.value = true;
+  const q = { ...route.query };
+  delete q.launchIntent;
+  router.replace({
+    path: orgTo('/admin/session-recording'),
+    query: q
+  }).catch(() => {});
 });
 
 watch(currentAgencyId, async (next, prev) => {

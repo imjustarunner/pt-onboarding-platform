@@ -2248,7 +2248,7 @@ const openNoteAidFromModal = () => {
 };
 
 const openRecordSessionFromModal = () => {
-  openNoteAidForModalSlot('record_session');
+  openSessionRecordingForModalSlot();
 };
 
 const openNoteAidForModalSlot = (launchIntent = 'note') => {
@@ -2268,6 +2268,25 @@ const openNoteAidForModalSlot = (launchIntent = 'note') => {
     noteType,
     templateVersion,
     launchIntent: String(launchIntent || 'note')
+  };
+  if (serviceCode) query.serviceCode = serviceCode;
+  closeModal();
+  router.push({ path, query });
+};
+
+const openSessionRecordingForModalSlot = () => {
+  if (!canOpenNoteAidFromModal.value) {
+    error.value = 'Booked slot must be linked to both an event and a client before opening Session Recording.';
+    return;
+  }
+  const slot = modalSlot.value || {};
+  const serviceCode = resolveSlotServiceCode(slot);
+  const organizationSlug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
+  const path = organizationSlug ? `/${organizationSlug}/admin/session-recording` : '/admin/session-recording';
+  const query = {
+    officeEventId: String(slot.eventId),
+    clientId: String(slot.clientId),
+    launchIntent: 'record_session'
   };
   if (serviceCode) query.serviceCode = serviceCode;
   closeModal();

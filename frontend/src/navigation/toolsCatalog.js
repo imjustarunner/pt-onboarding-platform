@@ -274,6 +274,18 @@ export const AI_TOOLS = [
     tags: ['Documentation', 'AI']
   },
   {
+    id: 'session-recording',
+    title: 'Session Recording',
+    littleName: 'Live capture & summary',
+    description: 'Record sessions, transcribe with speaker labels, and generate Gemini Pro summaries and clinical notes.',
+    clinicalKind: 'clinical',
+    status: 'live',
+    routePath: '/admin/session-recording',
+    showInNavFlyout: true,
+    tags: ['Recording', 'Transcription', 'AI'],
+    featureFlagKey: 'sessionRecordingEnabled'
+  },
+  {
     id: 'clinical-coach',
     title: 'Clinical Coach',
     littleName: 'Guidance workflows',
