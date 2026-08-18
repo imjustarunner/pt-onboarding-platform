@@ -224,7 +224,7 @@
               <strong>${{ fmt(estimate.summary.grandTotal) }}</strong>
             </div>
             <p class="pay-calc__hint">
-              H-codes with an H rate include embedded auto-indirect in the package (e.g. 4 units of H0004 = 1 hr @ $32 → $28 direct + $4 indirect). Levels without an H-code rate pay direct for that time; staff enter indirect separately.
+              H-codes with an H rate pay the full H amount for face time, plus auto-indirect on top (e.g. 4 units of H0004 = 1 hr @ $32 + 10 min indirect @ $24 = $36). Levels without an H-code rate pay direct for that time; staff enter other indirect separately.
             </p>
           </div>
         </div>

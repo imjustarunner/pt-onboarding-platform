@@ -194,23 +194,19 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
       rate = hRate;
       rateLabel = reduced ? 'hcode_rate_probation' : 'hcode_rate';
       const gross = qty.hourEquivalent * rate;
-      // When an H-code $/hr (or per 4 units) is set, that rate is the full package
-      // and already includes embedded auto-indirect (default 10 min). Split for
-      // display/PTO — do NOT add on top.
-      // Example: $32/hr H + $24/hr indirect → $28 direct + $4 (10 min) = $32.
+      amount = round2(gross);
+      // H-code pay is the full H rate for face time; auto-indirect minutes are ADDED on top
+      // (default 10 min per hour at the indirect rate).
+      // Example: $32/hr H + $24/hr indirect → $32 + $4 (10 min) = $36 total.
       const minsPerHour = Number(rateProfile?.autoIndirectMinutesPerHour ?? 10) || 10;
       if (minsPerHour > 0 && qty.hourEquivalent > 1e-9) {
         autoIndirectHours = qty.hourEquivalent * (minsPerHour / 60);
         const indRate = Number(rateProfile?.indirectRate || 0) || 0;
         autoIndirectAmount = round2(autoIndirectHours * indRate);
-        if (autoIndirectAmount > gross) autoIndirectAmount = round2(gross);
-        amount = round2(gross - autoIndirectAmount);
-      } else {
-        amount = round2(gross);
       }
     } else {
       // No H-code rate on this level: pay FFS/direct for the entered time.
-      // Staff log their own indirect separately (no embedded auto-indirect).
+      // Staff log their own indirect separately (no auto-indirect add-on).
       hcodeFallbackToCredit = true;
       rate = Number(reduced
         ? (rateProfile?.creditRateProbation ?? rateProfile?.creditRate ?? 0)
@@ -237,13 +233,14 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
     amount: round2(amount),
     autoIndirectHours: round2(autoIndirectHours),
     autoIndirectAmount: round2(autoIndirectAmount),
-    /** Gross H-package before split (direct + embedded auto-indirect). */
+    /** H-code face-time pay before auto-indirect add-on. */
+    hcodeDirectAmount: payType === 'hcode' ? round2(amount) : round2(amount),
     hcodeGrossAmount: payType === 'hcode'
       ? round2(amount + autoIndirectAmount)
       : round2(amount),
     totalWithAutoIndirect: round2(amount + autoIndirectAmount),
     splitNote: autoIndirectAmount > 1e-9
-      ? `${round2(amount)} direct + ${round2(autoIndirectAmount)} auto-indirect (${round2(autoIndirectHours)} h @ indirect rate)`
+      ? `${round2(amount)} H-code + ${round2(autoIndirectAmount)} auto-indirect (${round2(autoIndirectHours)} h @ indirect rate) = ${round2(amount + autoIndirectAmount)}`
       : null,
     hcodeFallbackToCredit
   };
@@ -310,7 +307,7 @@ export function computeBonuses({
 }
 
 /**
- * Attach display fields used by the payroll calculator (direct vs embedded indirect).
+ * Attach display fields used by the payroll calculator (H-code pay + additive auto-indirect).
  */
 export function decorateEstimateLine(result, rateProfile, extras = {}) {
   const indRate = Number(rateProfile?.indirectRate || 0) || 0;
@@ -718,9 +715,9 @@ export function applyPaySystemToBreakdown({ breakdown, rateProfile, status, shif
         rateSource: 'pay_system_auto_indirect',
         payType: 'indirect',
         amount: round2(autoIndirectTotal),
-        label: 'Auto-indirect (embedded in H-code package)',
+        label: 'Auto-indirect (added with H-code)',
         note: autoIndirectLines.map((l) =>
-          `${l.sourceCode}: ${l.directAmount} direct + ${l.amount} indirect (${l.hours} h)`
+          `${l.sourceCode}: ${l.directAmount} H-code + ${l.amount} auto-indirect (${l.hours} h) = ${l.grossAmount}`
         ).join('; ')
       };
     }

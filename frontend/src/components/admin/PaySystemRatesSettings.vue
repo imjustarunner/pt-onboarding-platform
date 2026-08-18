@@ -5,8 +5,8 @@
         <h4 class="ps-title">Pay System Rates</h4>
         <p class="ps-sub">
           Category × level rates for the new pay system. FFS pays at the fee-for-service rate × credits
-          (0.75 / 1.0 / 1.5 for extended 90834 as 2 units). H-codes use the H rate; Cat 2/3 packages include
-          embedded auto-indirect (default 10 min) split from the H package — not added on top.
+          (0.75 / 1.0 / 1.5 for extended 90834 as 2 units). H-codes pay the full H rate for face time;
+          Cat 2/3 also add auto-indirect minutes (default 10 min/hr at the indirect rate) on top of the H pay.
           <strong>MWR / Probationary</strong> rates apply during the 90-day window or when below minimum workload (waivable).
         </p>
       </div>
@@ -104,14 +104,14 @@
                   <th class="col-level">Level</th>
                   <th class="col-rate" title="Fee-for-service rate per 1 credit (all FFS codes)">FFS $/credit</th>
                   <th class="col-rate" title="Minimum workload / 90-day probationary FFS rate">FFS Min / Probation</th>
-                  <th class="col-rate" title="H-code package rate (per hour or per 4 units depending on code)">H-code $/hr</th>
+                  <th class="col-rate" title="H-code rate (per hour or per 4 units depending on code)">H-code $/hr</th>
                   <th class="col-rate" title="Minimum workload / probationary H-code rate">H Min / Probation</th>
                   <th class="col-rate">Indirect $/hr</th>
                   <th class="col-rate">Support activity $/hr</th>
                   <th class="col-bonus" title="Tier performance bonus per productive credit/hour-eq (typically L3–L5)">Tier bonus $/cr</th>
                   <th class="col-bonus" title="Spanish-speaking bonus at T2/T3 when eligible">Spanish T2/T3</th>
                   <th class="col-bonus" title="Location (e.g. Denver) bonus when eligible — set T2/T3 amounts">Location / Denver</th>
-                  <th class="col-auto" title="Minutes of embedded auto-indirect per H-code hour (Cat 2/3; split from H package)">Auto-ind min</th>
+                  <th class="col-auto" title="Extra auto-indirect minutes added per H-code hour (Cat 2/3; paid at indirect rate on top of H pay)">Auto-ind min</th>
                 </tr>
               </thead>
               <tbody>
@@ -172,7 +172,7 @@
                     </div>
                   </td>
                   <td class="col-auto">
-                    <input v-model.number="draft[cat.id][lvl].autoIndirectMinutesPerHour" type="number" min="0" max="60" step="1" class="ps-input ps-input--tiny" title="Minutes of auto-indirect per hour of H-code (cat 2/3)" />
+                    <input v-model.number="draft[cat.id][lvl].autoIndirectMinutesPerHour" type="number" min="0" max="60" step="1" class="ps-input ps-input--tiny" title="Extra auto-indirect minutes per hour of H-code (added on top of H pay)" />
                   </td>
                 </tr>
               </tbody>
@@ -283,8 +283,8 @@ const props = defineProps({
 
 const CATEGORIES = [
   { id: 1, label: 'Unlicensed', description: 'Unlicensed — Bachelors, Interns, QBHA, Peer & Unlicensed Masters' },
-  { id: 2, label: 'Pre-licensed', description: 'Pre-licensed Masters Level — H package includes 10 min auto-indirect' },
-  { id: 3, label: 'Licensed', description: 'Licensed Professionals — H package includes 10 min auto-indirect' }
+  { id: 2, label: 'Pre-licensed', description: 'Pre-licensed Masters Level — H pay plus 10 min auto-indirect per H hour' },
+  { id: 3, label: 'Licensed', description: 'Licensed Professionals — H pay plus 10 min auto-indirect per H hour' }
 ];
 
 const loading = ref(false);
