@@ -44,96 +44,18 @@
     </div>
 
     <div v-else class="na-shell">
-      <aside class="na-sidebar">
-        <button type="button" class="na-new-note" @click="startNewNote">
-          <span aria-hidden="true">+</span> New Note
-        </button>
-
-        <div class="na-side-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="sidebarTab === 'active'"
-            :class="{ active: sidebarTab === 'active' }"
-            @click="setSidebarTab('active')"
-          >
-            Active
-          </button>
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="sidebarTab === 'archived'"
-            :class="{ active: sidebarTab === 'archived' }"
-            @click="setSidebarTab('archived')"
-          >
-            Archived
-          </button>
-        </div>
-
-        <div class="na-search-row">
-          <input
-            v-model="draftSearch"
-            type="search"
-            class="na-search"
-            placeholder="Search notes…"
-            aria-label="Search notes"
-          />
-        </div>
-
-        <div class="na-draft-list" aria-label="Note drafts">
-          <div v-if="recentLoading" class="na-side-muted">Loading…</div>
-          <div v-else-if="recentError" class="na-side-error">{{ recentError }}</div>
-          <div v-else-if="!sidebarDateGroups.length" class="na-side-muted">
-            {{ sidebarTab === 'archived' ? 'No archived notes yet.' : 'No active notes yet.' }}
-          </div>
-          <div v-for="group in sidebarDateGroups" :key="group.key" class="na-date-group">
-            <button
-              type="button"
-              class="na-date-group-header"
-              :class="{ open: isDateGroupOpen(group.key) }"
-              :aria-expanded="isDateGroupOpen(group.key)"
-              @click="toggleDateGroup(group.key)"
-            >
-              <div class="na-draft-date">
-                <span class="na-draft-month">{{ group.month }}</span>
-                <span class="na-draft-day">{{ group.day }}</span>
-              </div>
-              <div class="na-date-group-meta">
-                <strong>{{ group.label }}</strong>
-                <span>{{ group.drafts.length }} note{{ group.drafts.length === 1 ? '' : 's' }}</span>
-              </div>
-              <span class="na-draft-chevron" :class="{ open: isDateGroupOpen(group.key) }" aria-hidden="true">›</span>
-            </button>
-            <div v-show="isDateGroupOpen(group.key)" class="na-date-group-notes">
-              <button
-                v-for="d in group.drafts"
-                :key="d.id"
-                type="button"
-                class="na-draft-row"
-                :class="{ selected: String(draftId) === String(d.id) }"
-                @click="loadDraftIntoWorkspace(d)"
-              >
-                <div class="na-draft-meta">
-                  <div class="na-draft-top">
-                    <strong>{{ d.initials || '—' }}</strong>
-                    <span>{{ draftTimeLabel(d.created_at) }}</span>
-                  </div>
-                  <div class="na-draft-type">{{ draftNoteTypeLabel(d) }}</div>
-                  <div class="na-draft-dos">
-                    DOS: {{ d.date_of_service ? String(d.date_of_service).slice(0, 10) : '—' }}
-                  </div>
-                </div>
-                <span class="na-draft-chevron" aria-hidden="true">›</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div class="na-side-footer">
-          <span>{{ filteredSidebarDrafts.length }} note{{ filteredSidebarDrafts.length === 1 ? '' : 's' }}</span>
-          <span class="na-ttl-hint">Deletes after 7 days</span>
-        </div>
-      </aside>
+      <ClinicalNoteLibrarySidebar
+        title="Clinical Note Library"
+        :drafts="recentDrafts"
+        :loading="recentLoading"
+        :error="recentError"
+        :selected-id="draftId"
+        v-model:tab="sidebarTab"
+        v-model:search="draftSearch"
+        :type-label="draftNoteTypeLabel"
+        @new="startNewNote"
+        @select="loadDraftIntoWorkspace"
+      />
 
       <main class="na-main" :class="{ 'na-main--library': showLibraryPanel }">
         <div class="na-privacy">
@@ -165,7 +87,7 @@
         <div class="na-aid-bar">
           <div class="na-aid-bar-copy">
             <span class="na-aid-kicker">{{ selectedCategoryLabel || 'Selected aid' }}</span>
-            <strong>{{ selectedAid?.label || 'Note aid' }}</strong>
+            <strong>{{ selectedAid?.label || (outputObj?.meta?.source === 'session_recording' ? 'Session Recording' : 'Note aid') }}</strong>
             <p v-if="selectedAidGuidance">{{ selectedAidGuidance }}</p>
             <p v-if="forceAutoSelect" class="na-field-hint">
               Credential isn’t set — generation will use Code Decider until an admin records your license.
@@ -455,6 +377,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import ClinicalArtifactRetentionPanel from '../../components/clinical/ClinicalArtifactRetentionPanel.vue';
 import NoteAidLibraryPanel from '../../components/clinical/NoteAidLibraryPanel.vue';
+import ClinicalNoteLibrarySidebar from '../../components/clinical/ClinicalNoteLibrarySidebar.vue';
 import {
   buildDisplaySections,
   extractSections,
@@ -470,7 +393,8 @@ import {
   NOTE_TYPE_CODE_GROUPS,
   aidAllowsInteractiveComplexity,
   findNoteAidById,
-  findNoteAidByToolOrCode
+  findNoteAidByToolOrCode,
+  orderNoteAidCategoriesForHcbs
 } from '../../config/noteAidWorkspace.js';
 import { rememberRecentAid } from '../../utils/noteAidLibraryPrefs.js';
 import { isClinicalChartEnabled, parseAgencyFeatureFlags } from '../../config/medicalBillingAccess.js';
@@ -561,6 +485,7 @@ const loadingContext = ref(false);
 const contextError = ref('');
 const providerCredentialText = ref('');
 const derivedTier = ref('unknown');
+const hcbsCategory = ref(null);
 const eligibleServiceCodes = ref(null); // array|null
 const audioAgreementTemplates = ref([]);
 
@@ -841,15 +766,16 @@ const selectedCategoryLabel = computed(() => {
   const cat = noteAidCategories.find((c) => c.id === selectedNoteCategory.value);
   return cat?.label || '';
 });
-const showLibraryPanel = computed(() => !String(selectedAidId.value || '').trim());
+const showLibraryPanel = computed(() => !String(selectedAidId.value || '').trim() && !draftId.value);
 const libraryUserId = computed(() => authStore.user?.id || null);
 const showInteractiveComplexityOption = computed(() => aidAllowsInteractiveComplexity(selectedAid.value));
-const libraryCategories = computed(() => (
-  (noteAidCategories || []).map((cat) => ({
+const libraryCategories = computed(() => {
+  const filtered = (noteAidCategories || []).map((cat) => ({
     ...cat,
     aids: (cat.aids || []).filter((aid) => aidIsEligible(aid))
-  })).filter((cat) => cat.aids.length)
-));
+  })).filter((cat) => cat.aids.length);
+  return orderNoteAidCategoriesForHcbs(filtered, hcbsCategory.value);
+});
 /** Explicit gem/tool from the Aid picker — this is how we reuse the working Gemini Gem prompts in-app. */
 const selectedToolId = computed(() => {
   if (forceAutoSelect.value || selectedAidForcesAutoSelect.value || autoSelectCode.value) {
@@ -1406,6 +1332,16 @@ const toggleDateGroup = (key) => {
 const draftDateParts = (raw) => formatDraftListDate(raw);
 const draftTimeLabel = (raw) => formatDraftListTime(raw);
 const draftNoteTypeLabel = (d) => {
+  const parsed = (() => {
+    try {
+      const raw = d?.output_json;
+      if (!raw) return null;
+      return typeof raw === 'object' ? raw : JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  })();
+  if (String(parsed?.meta?.source || '') === 'session_recording') return 'Session Recording';
   const code = String(d?.service_code || '').trim().toUpperCase();
   if (!code) return 'Progress Note';
   const group = NOTE_TYPE_GROUPS.find((g) => g.codes.includes(code));
@@ -1517,12 +1453,14 @@ const loadContext = async () => {
     });
     providerCredentialText.value = String(res?.data?.providerCredentialText || '');
     derivedTier.value = String(res?.data?.derivedTier || 'unknown');
+    hcbsCategory.value = res?.data?.hcbsCategory ?? null;
     eligibleServiceCodes.value = res?.data?.eligibleServiceCodes ?? null;
     audioAgreementTemplates.value = Array.isArray(res?.data?.audioAgreementTemplates) ? res.data.audioAgreementTemplates : [];
   } catch (e) {
     contextError.value = e.response?.data?.error?.message || 'Failed to load user context';
     providerCredentialText.value = '';
     derivedTier.value = 'unknown';
+    hcbsCategory.value = null;
     eligibleServiceCodes.value = null;
     audioAgreementTemplates.value = [];
   } finally {
@@ -2183,6 +2121,7 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
   if (resetForm) {
     providerCredentialText.value = '';
     derivedTier.value = 'unknown';
+    hcbsCategory.value = null;
     eligibleServiceCodes.value = null;
     audioAgreementTemplates.value = [];
     programs.value = [];
@@ -2445,6 +2384,11 @@ onMounted(async () => {
 
   if (canUseTool.value) {
     await bootstrapWorkspace();
+    const qDraft = String(route.query?.draftId || route.query?.draft_id || '').trim();
+    if (qDraft && recentDrafts.value.length) {
+      const hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
+      if (hit) loadDraftIntoWorkspace(hit);
+    }
   }
 
   autosaveTimer = window.setInterval(() => {
@@ -2465,6 +2409,11 @@ watch(() => route.query, () => {
   if (!canUseTool.value) return;
   applyBookingContextPrefill();
   applyTherapyContextPrefill();
+  const qDraft = String(route.query?.draftId || route.query?.draft_id || '').trim();
+  if (qDraft) {
+    const hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
+    if (hit) loadDraftIntoWorkspace(hit);
+  }
 }, { deep: true });
 
 watch([canUseTool, isRecordSessionIntent], ([enabled, recordIntent]) => {
@@ -2524,7 +2473,7 @@ onBeforeUnmount(() => {
   width: 100%;
   max-width: none;
   min-height: calc(100vh - 64px);
-  margin: -20px 0 0;
+  margin: 0;
   background: linear-gradient(180deg, #eef7f5 0%, var(--na-canvas) 28%, #f8fafc 100%);
   color: var(--na-text);
   display: flex;
@@ -2540,9 +2489,8 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.92);
   border-bottom: 1px solid var(--na-border);
   backdrop-filter: blur(8px);
-  position: sticky;
-  top: 0;
-  z-index: 5;
+  position: relative;
+  z-index: 2;
 }
 
 .na-indirect-banner {

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { aidAllowsInteractiveComplexity, aidKind, aidServiceCodeDisplay, findNoteAidById } from '../noteAidWorkspace.js';
+import { aidAllowsInteractiveComplexity, aidKind, aidServiceCodeDisplay, findNoteAidById, orderNoteAidCategoriesForHcbs } from '../noteAidWorkspace.js';
 import {
   SESSION_RECORDING_NOTE_AIDS,
+  defaultProgressNoteAidIdFromHcbsCategory,
   resolveSessionRecordingNoteAid
 } from '../sessionRecordingAccess.js';
 
@@ -53,5 +54,25 @@ describe('session recording note aids', () => {
     expect(resolveSessionRecordingNoteAid({ serviceCode: '90837' })?.id).toBe('psychotherapy');
     expect(resolveSessionRecordingNoteAid({ serviceCode: 'H0004' })?.id).toBe('h0004_note');
     expect(resolveSessionRecordingNoteAid({ serviceCode: 'H2014' })?.id).toBe('h2014_individual');
+  });
+
+  it('defaults progress note template from HCBS category', () => {
+    expect(defaultProgressNoteAidIdFromHcbsCategory(1)).toBe('h0004_note');
+    expect(defaultProgressNoteAidIdFromHcbsCategory(2)).toBe('psychotherapy');
+    expect(defaultProgressNoteAidIdFromHcbsCategory(3)).toBe('psychotherapy');
+    expect(defaultProgressNoteAidIdFromHcbsCategory(null)).toBe('psychotherapy');
+  });
+});
+
+describe('note aid library order', () => {
+  it('shows H0004 first for HCBS cat 1 and psychotherapy first for cat 2/3', () => {
+    const cats = [
+      { id: 'universal', aids: [{ id: 'h0023' }, { id: 'h0004_note' }] },
+      { id: 'psychotherapy', aids: [{ id: 'psychotherapy' }] }
+    ];
+    expect(orderNoteAidCategoriesForHcbs(cats, 1)[0].id).toBe('universal');
+    expect(orderNoteAidCategoriesForHcbs(cats, 1)[0].aids[0].id).toBe('h0004_note');
+    expect(orderNoteAidCategoriesForHcbs(cats, 2)[0].id).toBe('psychotherapy');
+    expect(orderNoteAidCategoriesForHcbs(cats, 3)[0].id).toBe('psychotherapy');
   });
 });

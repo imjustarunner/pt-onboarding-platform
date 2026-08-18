@@ -3,6 +3,11 @@
  * toolId values must match CLINICAL_NOTE_AGENT_TOOLS in
  * backend/src/config/clinicalNoteAgentTools.js (AGENT_PROMPTS = gem instructions).
  */
+import {
+  defaultProgressNoteAidIdFromHcbsCategory,
+  preferredNoteAidCategoryIdFromHcbsCategory,
+  withPreferredFirst
+} from './sessionRecordingAccess.js';
 
 /** Billing add-ons / unused codes — never shown as Note Type choices. */
 export const HIDDEN_NOTE_AID_CODES = new Set([
@@ -404,6 +409,17 @@ export function aidServiceCodeDisplay(aid) {
 /** Interactive Complexity (90785) is a progress-note add-on only. */
 export function aidAllowsInteractiveComplexity(aid) {
   return aidKind(aid) === 'progress';
+}
+
+/** Put the clinician’s usual progress-note family first in the gem library. */
+export function orderNoteAidCategoriesForHcbs(categories, hcbsCategory) {
+  const preferredAid = defaultProgressNoteAidIdFromHcbsCategory(hcbsCategory);
+  const preferredCat = preferredNoteAidCategoryIdFromHcbsCategory(hcbsCategory);
+  const mapped = (Array.isArray(categories) ? categories : []).map((cat) => ({
+    ...cat,
+    aids: withPreferredFirst(cat.aids || [], preferredAid)
+  }));
+  return withPreferredFirst(mapped, preferredCat);
 }
 
 export function flattenNoteAids(categories = NOTE_AID_CATEGORIES) {

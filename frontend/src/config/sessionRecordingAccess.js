@@ -89,6 +89,28 @@ export const SESSION_RECORDING_NOTE_AIDS = [
   }
 ];
 
+/**
+ * HCBS Cat 1 (bachelors / unlicensed masters) → H0004 progress note.
+ * Cat 2–3 (prelicensed including interns, fully licensed) → psychotherapy.
+ * Unknown falls back to psychotherapy so setup is never empty “summary only”.
+ */
+export function defaultProgressNoteAidIdFromHcbsCategory(hcbsCategory) {
+  return Number(hcbsCategory) === 1 ? 'h0004_note' : 'psychotherapy';
+}
+
+export function preferredNoteAidCategoryIdFromHcbsCategory(hcbsCategory) {
+  return Number(hcbsCategory) === 1 ? 'universal' : 'psychotherapy';
+}
+
+export function withPreferredFirst(list, preferredId, idKey = 'id') {
+  const items = Array.isArray(list) ? [...list] : [];
+  if (!preferredId) return items;
+  const idx = items.findIndex((item) => String(item?.[idKey] || '') === String(preferredId));
+  if (idx <= 0) return items;
+  const [hit] = items.splice(idx, 1);
+  return [hit, ...items];
+}
+
 export function resolveSessionRecordingNoteAid({ serviceCode, noteAidId } = {}) {
   if (noteAidId) {
     const byId = SESSION_RECORDING_NOTE_AIDS.find((a) => a.id === noteAidId);

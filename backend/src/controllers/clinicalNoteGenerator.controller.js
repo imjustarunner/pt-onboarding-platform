@@ -3,6 +3,7 @@ import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
 import { deriveCredentialTier, eligibleServiceCodesForTier, assertServiceCodeAllowed } from '../utils/clinicalServiceCodeEligibility.js';
+import { classifyHcbsCategory } from '../utils/credentialNormalization.js';
 import { getNoteAidToolById } from '../config/noteAidTools.js';
 import { getKnowledgeBaseContext } from '../services/clinicalKnowledgeBase.service.js';
 import { listEligiblePolicyServiceCodes, resolvePolicyRuleForServiceCode } from '../services/billingPolicy.service.js';
@@ -549,6 +550,10 @@ export const getClinicalNotesContext = async (req, res, next) => {
       userRole: req.user?.role,
       providerCredentialText
     });
+    const hcbs = classifyHcbsCategory({
+      credential: providerCredentialText,
+      role: req.user?.role
+    });
     const policyEligibleCodes = await listEligiblePolicyServiceCodes({ agencyId, credentialTier: tier });
     const serviceCodeCatalog = await getAgencyServiceCodeCatalog({ agencyId });
     // Prefer policy-derived eligibility when present; otherwise fallback to catalog/tier rules.
@@ -559,6 +564,7 @@ export const getClinicalNotesContext = async (req, res, next) => {
     res.json({
       providerCredentialText: providerCredentialText || '',
       derivedTier: tier,
+      hcbsCategory: hcbs.category || null,
       eligibleServiceCodes,
       audioAgreementTemplates
     });

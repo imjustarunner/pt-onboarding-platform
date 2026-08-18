@@ -15,8 +15,9 @@ import { maybeEncryptNotePayload, maybeDecryptNotePayload } from '../services/cl
 import { transcribeLongAudio } from '../services/speechTranscription.service.js';
 import {
   summarizeSessionRecording,
-  generateStructuredNoteFromSummary
+  sessionSummaryToNoteOutput
 } from '../services/sessionRecordingSummary.service.js';
+import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
 import { getUserFeatureCurrent } from '../services/featureEntitlement.service.js';
 import { attachSignedPdfToClient } from '../services/phiDocumentAttachment.service.js';
 import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
@@ -26,10 +27,14 @@ import {
   SESSION_RECORDING_FEATURE_KEY,
   SESSION_RECORDING_NOTE_AIDS,
   canUseSessionRecordingRole,
+  defaultProgressNoteAidIdFromHcbsCategory,
   isTruthyFeatureFlag,
   resolveSessionRecordingNoteAid,
+  withPreferredFirst,
   NLU_AGENCY_ID
 } from '../config/sessionRecordingAccess.js';
+import pool from '../config/database.js';
+import { classifyHcbsCategory } from '../utils/credentialNormalization.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -47,6 +52,24 @@ function initialsFromFullName(fullName) {
     .join('')
     .toUpperCase()
     .slice(0, 8);
+}
+
+async function hcbsCategoryForUser(req) {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT credential, title, role FROM users WHERE id = ? LIMIT 1`,
+      [req.user?.id]
+    );
+    const user = rows?.[0] || {};
+    const hcbs = classifyHcbsCategory({
+      credential: user.credential,
+      title: user.title,
+      role: user.role || req.user?.role
+    });
+    return hcbs.category || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -279,10 +302,14 @@ export const getSessionRecordingContext = async (req, res, next) => {
     const audioAgreementTemplates = (Array.isArray(templates) ? templates : []).filter(
       (t) => String(t.document_type || '').toLowerCase() === 'audio_recording_consent' && t.is_active
     );
+    const hcbsCategory = await hcbsCategoryForUser(req);
+    const defaultNoteAidId = defaultProgressNoteAidIdFromHcbsCategory(hcbsCategory);
 
     res.json({
       agencyId,
-      noteAids: SESSION_RECORDING_NOTE_AIDS,
+      hcbsCategory,
+      defaultNoteAidId,
+      noteAids: withPreferredFirst(SESSION_RECORDING_NOTE_AIDS, defaultNoteAidId),
       audioAgreementTemplates: audioAgreementTemplates.map((t) => ({
         id: t.id,
         name: t.name
@@ -602,29 +629,34 @@ export const endAndSummarizeRecording = async (req, res, next) => {
     });
 
     let note = null;
-    if (existing.generate_structured_note && existing.tool_id) {
-      const generated = await generateStructuredNoteFromSummary({
-        toolId: existing.tool_id,
-        summaryNarrative: summary.narrative,
-        transcriptText: transcript,
-        topics: summary.topics,
-        techniques: summary.techniques
-      });
-      const outputPayload = JSON.stringify({
-        text: generated.noteText,
-        modelName: generated.modelName,
-        topics: summary.topics,
-        techniques: summary.techniques
-      });
-      note = await SessionRecordingNote.create({
-        sessionRecordingId: id,
+    const clientRow = existing.client_id
+      ? await Client.findById(existing.client_id, { includeSensitive: true }).catch(() => null)
+      : null;
+    const initials = String(clientRow?.initials || '').trim() || null;
+    const outputObj = sessionSummaryToNoteOutput({
+      summary,
+      existing,
+      initials
+    });
+    try {
+      const draft = await ClinicalNoteDraft.create({
+        userId: req.user.id,
         agencyId,
-        createdByUserId: req.user.id,
+        serviceCode: existing.service_code || null,
+        dateOfService: existing.date_of_service || null,
+        initials,
+        inputText: null,
+        outputJson: maybeEncryptNotePayload(JSON.stringify(outputObj))
+      });
+      note = {
+        id: draft?.id,
         toolId: existing.tool_id,
         serviceCode: existing.service_code,
-        noteAidId: existing.note_aid_id,
-        outputJson: maybeEncryptNotePayload(outputPayload)
-      });
+        output: outputObj,
+        clinicalDraftId: draft?.id
+      };
+    } catch (e) {
+      console.warn('[sessionRecording] failed to save clinical note draft', e?.message);
     }
 
     // Tutoring: persist summary onto learning class session when linked
@@ -652,13 +684,16 @@ export const endAndSummarizeRecording = async (req, res, next) => {
       recording: sanitizeRecording(updated),
       transcriptSource,
       summary: {
-        narrative: summary.narrative,
+        narrative: summary.summary || summary.narrative,
+        summary: summary.summary || summary.narrative,
         topics: summary.topics,
         techniques: summary.techniques,
-        keyMoments: summary.keyMoments,
-        speakerNotes: summary.speakerNotes || null
+        keyMoments: [],
+        speakerNotes: summary.speakerNotes || null,
+        sections: outputObj.sections
       },
-      note: note ? sanitizeNote(note) : null
+      note,
+      clinicalDraftId: note?.clinicalDraftId || null
     });
   } catch (e) {
     next(e);

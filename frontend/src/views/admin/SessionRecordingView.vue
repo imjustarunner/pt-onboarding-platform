@@ -1,12 +1,26 @@
 <template>
-  <div class="sr-page">
+  <div class="sr-app">
+    <ClinicalNoteLibrarySidebar
+      title="Clinical Note Library"
+      new-label="New recording"
+      :drafts="libraryDrafts"
+      :loading="libraryLoading"
+      :error="libraryError"
+      :selected-id="clinicalDraftId"
+      v-model:tab="libraryTab"
+      v-model:search="librarySearch"
+      :type-label="draftTypeLabel"
+      @new="resetToSetup"
+      @select="openLibraryNote"
+    />
+    <div class="sr-page">
     <header class="sr-header">
       <div>
         <h1>{{ phase === 'live' ? 'Live Session Recording' : 'Session Recording Setup' }}</h1>
         <p class="sr-sub">
           {{
             phase === 'live'
-              ? 'Capture the session, monitor transcription, and generate structured documentation in real time.'
+              ? 'Capture the session. A short summary and copyable sections appear when you end recording.'
               : 'Review details and confirm settings before you begin recording.'
           }}
         </p>
@@ -206,7 +220,7 @@
         <section class="sr-card recording-status">
           <h2>Recording in progress</h2>
           <p class="hint">
-            Focus on the session. Audio is being captured; a speaker-labeled transcript and summary are generated automatically when you end recording.
+            Focus on the session. A short summary and copyable note sections are generated when you end recording.
           </p>
         </section>
 
@@ -233,95 +247,44 @@
           </div>
           <div class="footer-status">
             <span>{{ recording ? 'Capturing audio' : 'Paused' }}</span>
-            <span>{{ form.generateStructuredNote ? 'Summary + note on end' : 'Summary on end' }}</span>
+            <span>Summary + copyable sections on end</span>
           </div>
         </section>
       </div>
 
       <aside class="sr-live-side sr-card">
-        <h2>Structured Note Draft</h2>
-        <p class="hint">{{ isTutoringTenant ? 'Summary updates when recording ends.' : 'Draft updates when recording ends (and periodically if auto-draft is on).' }}</p>
-        <p v-if="selectedNoteAid" class="meta">{{ selectedNoteAid.label }}</p>
-        <div v-if="summaryResult" class="draft-body">
-          <h3>Summary</h3>
-          <p>{{ summaryResult.narrative }}</p>
-          <h3 v-if="summaryResult.topics?.length">Topics</h3>
-          <ul>
-            <li v-for="t in summaryResult.topics || []" :key="t">{{ t }}</li>
-          </ul>
-          <h3 v-if="summaryResult.techniques?.length">Techniques</h3>
-          <ul>
-            <li v-for="t in summaryResult.techniques || []" :key="t">{{ t }}</li>
-          </ul>
-          <p v-if="summaryResult.speakerNotes" class="hint speaker-notes">
-            <strong>Speaker notes:</strong> {{ summaryResult.speakerNotes }}
-          </p>
-          <div v-if="noteResult?.output?.text" class="note-out">
-            <h3>Structured note</h3>
-            <pre>{{ noteResult.output.text }}</pre>
-          </div>
-        </div>
-        <p v-else class="hint">End recording to generate the Gemini Pro summary{{ form.generateStructuredNote ? ' and note' : '' }}.</p>
+        <h2>Note draft</h2>
+        <p class="hint">A short summary and copyable sections appear here after you end recording.</p>
       </aside>
     </div>
 
-    <!-- Results / shelf after complete -->
     <section v-if="phase === 'done'" class="sr-card done-card">
       <h2>Session complete</h2>
-      <p class="hint">Audio was discarded. Encrypted summary is saved on your recording shelf.</p>
-      <div v-if="summaryResult" class="draft-body">
-        <h3>Summary</h3>
-        <p>{{ summaryResult.narrative }}</p>
-        <h3 v-if="summaryResult.topics?.length">Topics</h3>
-        <div class="topics">
-          <span v-for="t in summaryResult.topics" :key="t" class="pill">{{ t }}</span>
+      <p class="hint">Audio was discarded. This note is saved in Clinical Note Library (deletes after 7 days — copy into your EHR).</p>
+
+      <div v-if="summaryText" class="summary-box">
+        <div class="summary-box-head">
+          <strong>Summary</strong>
+          <button type="button" class="btn-sm" @click="copySummary">
+            {{ copiedSectionId === 'summary' ? 'Copied' : 'Copy' }}
+          </button>
         </div>
-        <h3 v-if="summaryResult.techniques?.length">Techniques</h3>
-        <div class="topics">
-          <span v-for="t in summaryResult.techniques" :key="t" class="pill">{{ t }}</span>
-        </div>
-        <p v-if="summaryResult.speakerNotes" class="hint speaker-notes">
-          <strong>Speaker notes:</strong> {{ summaryResult.speakerNotes }}
-        </p>
-        <div v-if="noteResult?.output?.text">
-          <h3>Structured note</h3>
-          <pre>{{ noteResult.output.text }}</pre>
-        </div>
-        <div v-if="finalTranscriptLines.length" class="final-transcript">
-          <h3>Speaker-labeled transcript</h3>
-          <p class="hint">Voices were separated automatically from the session audio.</p>
-          <div class="transcript-body compact">
-            <div
-              v-for="(line, idx) in finalTranscriptLines"
-              :key="`final-${idx}`"
-              class="t-line"
-              :class="line.role"
-            >
-              <span class="t-speaker">{{ line.speaker }}</span>
-              <span class="t-text">{{ line.text }}</span>
-            </div>
+        <p>{{ summaryText }}</p>
+      </div>
+
+      <div v-if="copyPanels.length" class="sr-soap-list">
+        <div v-for="panel in copyPanels" :key="panel.id" class="sr-soap-card">
+          <div class="sr-soap-header">
+            <strong>{{ panel.title }}</strong>
+            <button type="button" class="btn-sm" :disabled="!panel.text" @click="copyPanel(panel)">
+              {{ copiedSectionId === panel.id ? 'Copied' : 'Copy' }}
+            </button>
           </div>
+          <pre>{{ panel.text }}</pre>
         </div>
       </div>
-      <div class="row-actions">
-        <button type="button" class="btn-secondary" @click="resetToSetup">New recording</button>
-        <button type="button" class="btn-primary" @click="loadShelf">Refresh shelf</button>
-      </div>
     </section>
-
-    <section v-if="shelfNotes.length || shelfRecordings.length" class="sr-card shelf">
-      <h2>Recording shelf</h2>
-      <ul>
-        <li v-for="r in shelfRecordings" :key="`r-${r.id}`">
-          #{{ r.id }} · {{ r.sessionKind }} · {{ r.status }} · {{ r.dateOfService || r.createdAt }}
-          <span v-if="r.summaryText" class="hint"> — has summary</span>
-        </li>
-        <li v-for="n in shelfNotes" :key="`n-${n.id}`">
-          Note #{{ n.id }} · {{ n.toolId }} · {{ n.serviceCode || '—' }}
-        </li>
-      </ul>
-    </section>
-
+    </div>
   </div>
 </template>
 
@@ -332,12 +295,18 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import DocumentSigningWorkflow from '../../components/documents/DocumentSigningWorkflow.vue';
+import ClinicalNoteLibrarySidebar from '../../components/clinical/ClinicalNoteLibrarySidebar.vue';
 import { parseAgencyFeatureFlags } from '../../config/medicalBillingAccess.js';
 import {
   SESSION_RECORDING_NOTE_AIDS,
   canUseSessionRecordingRole,
-  isSessionRecordingEnabledForAgencyFlags
+  defaultProgressNoteAidIdFromHcbsCategory,
+  isSessionRecordingEnabledForAgencyFlags,
+  resolveSessionRecordingNoteAid,
+  withPreferredFirst
 } from '../../config/sessionRecordingAccess.js';
+import { buildDisplaySections, extractSections } from '../../utils/noteAidUiHelpers.js';
+import { defaultDraftTypeLabel } from '../../utils/clinicalNoteLibrary.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -374,6 +343,9 @@ const form = reactive({
   generateStructuredNote: true,
   highlightInterventions: true
 });
+
+const hcbsCategory = ref(null);
+const defaultNoteAidId = ref('psychotherapy');
 
 const isSuperAdmin = computed(() => role.value === 'super_admin');
 
@@ -440,51 +412,38 @@ let audioContext = null;
 let analyser = null;
 let levelRaf = null;
 
+const orgTo = (path) => {
+  const slug = route.params.organizationSlug;
+  if (typeof slug === 'string' && slug) return `/${slug}${path}`;
+  return path;
+};
+
 const markers = ref([]);
 const summaryResult = ref(null);
 const noteResult = ref(null);
-const shelfRecordings = ref([]);
-const shelfNotes = ref([]);
-const finalTranscriptLines = ref([]);
-const transcriptSource = ref('');
+const clinicalDraftId = ref(null);
+const copiedSectionId = ref('');
+const libraryDrafts = ref([]);
+const libraryLoading = ref(false);
+const libraryError = ref('');
+const libraryTab = ref('active');
+const librarySearch = ref('');
 
-function speakerRoleFromLabel(label) {
-  const normalized = String(label || '').trim().toLowerCase();
-  if (['therapist', 'tutor', 'provider', 'clinician', 'counselor'].includes(normalized)) {
-    return 'provider';
-  }
-  if (['client', 'student', 'patient', 'participant'].includes(normalized)) {
-    return 'client';
-  }
-  return 'unknown';
-}
+const summaryText = computed(() =>
+  String(summaryResult.value?.summary || summaryResult.value?.narrative || summaryResult.value?.sections?.Summary || '').trim()
+);
 
-function parseLabeledTranscript(text) {
-  const lines = [];
-  const raw = String(text || '').trim();
-  if (!raw) return lines;
-  for (const chunk of raw.split('\n')) {
-    const line = chunk.trim();
-    if (!line) continue;
-    const match = line.match(/^\[([^\]]+)\]\s*(.*)$/);
-    if (match) {
-      const speaker = match[1].trim();
-      lines.push({
-        time: '',
-        speaker,
-        role: speakerRoleFromLabel(speaker),
-        text: match[2].trim()
-      });
-    } else {
-      lines.push({ time: '', speaker: 'Transcript', role: 'unknown', text: line });
-    }
-  }
-  return lines;
-}
+const copyPanels = computed(() => {
+  const sections = summaryResult.value?.sections
+    || extractSections(noteResult.value?.output)
+    || {};
+  const withoutSummary = { ...sections };
+  delete withoutSummary.Summary;
+  return buildDisplaySections(withoutSummary).filter((p) => String(p.text || '').trim());
+});
 
-function applyFinalTranscript(text, source = '') {
-  transcriptSource.value = source || '';
-  finalTranscriptLines.value = parseLabeledTranscript(text);
+function draftTypeLabel(d) {
+  return defaultDraftTypeLabel(d);
 }
 
 const canStart = computed(() => {
@@ -518,7 +477,32 @@ async function loadContext() {
     form.generateStructuredNote = false;
   }
   audioAgreementTemplates.value = res.data?.audioAgreementTemplates || [];
-  if (res.data?.noteAids?.length) noteAids.value = res.data.noteAids;
+  hcbsCategory.value = res.data?.hcbsCategory ?? null;
+  defaultNoteAidId.value =
+    res.data?.defaultNoteAidId || defaultProgressNoteAidIdFromHcbsCategory(hcbsCategory.value);
+  const aids = res.data?.noteAids?.length ? res.data.noteAids : [...SESSION_RECORDING_NOTE_AIDS];
+  noteAids.value = withPreferredFirst(aids, defaultNoteAidId.value);
+  applyDefaultNoteAid({ force: true });
+}
+
+function applyDefaultNoteAid({ force = false } = {}) {
+  if (isTutoringTenant.value) {
+    form.noteAidId = '';
+    form.generateStructuredNote = false;
+    return;
+  }
+  const queryAid = String(route.query.noteAidId || route.query.note_aid_id || '').trim();
+  const queryCode = String(route.query.serviceCode || route.query.service_code || '').trim();
+  let next = '';
+  if (queryAid && noteAids.value.some((a) => a.id === queryAid)) {
+    next = queryAid;
+  } else if (queryCode) {
+    next = resolveSessionRecordingNoteAid({ serviceCode: queryCode })?.id || '';
+  }
+  if (!next) next = defaultNoteAidId.value || defaultProgressNoteAidIdFromHcbsCategory(hcbsCategory.value);
+  if (force || !form.noteAidId) {
+    form.noteAidId = next;
+  }
 }
 
 async function loadClients() {
@@ -822,18 +806,9 @@ async function endSession() {
     });
     summaryResult.value = res.data?.summary || null;
     noteResult.value = res.data?.note || null;
-    applyFinalTranscript(
-      res.data?.recording?.transcriptText || '',
-      res.data?.transcriptSource || ''
-    );
-    if (summaryResult.value?.keyMoments?.length) {
-      markers.value = summaryResult.value.keyMoments.map((m) => ({
-        time: '—',
-        label: m.label || m.detail || 'Moment'
-      }));
-    }
+    clinicalDraftId.value = res.data?.clinicalDraftId || res.data?.note?.clinicalDraftId || null;
     phase.value = 'done';
-    await loadShelf();
+    await loadLibrary();
   } catch (e) {
     busyError.value = e.response?.data?.error?.message || e.message || 'Failed to end recording';
     phase.value = 'live';
@@ -842,15 +817,45 @@ async function endSession() {
   }
 }
 
-async function loadShelf() {
+async function loadLibrary() {
   if (!agencyId.value) return;
   try {
-    const res = await api.get('/session-recordings', { params: { agencyId: agencyId.value } });
-    shelfRecordings.value = res.data?.recordings || [];
-    shelfNotes.value = res.data?.notes || [];
-  } catch {
-    /* ignore */
+    libraryLoading.value = true;
+    libraryError.value = '';
+    const res = await api.get('/clinical-notes/recent', {
+      params: { agencyId: agencyId.value, days: 7, archiveStatus: 'all' },
+      skipGlobalLoading: true
+    });
+    libraryDrafts.value = Array.isArray(res.data?.drafts) ? res.data.drafts : [];
+  } catch (e) {
+    libraryError.value = e.response?.data?.error?.message || 'Could not load notes';
+    libraryDrafts.value = [];
+  } finally {
+    libraryLoading.value = false;
   }
+}
+
+function openLibraryNote(d) {
+  if (!d?.id) return;
+  router.push({ path: orgTo('/admin/note-aid'), query: { draftId: String(d.id) } }).catch(() => {});
+}
+
+async function copyPanel(panel) {
+  const text = String(panel?.text || '').trim();
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    return;
+  }
+  copiedSectionId.value = panel.id;
+  window.setTimeout(() => {
+    if (copiedSectionId.value === panel.id) copiedSectionId.value = '';
+  }, 1500);
+}
+
+async function copySummary() {
+  await copyPanel({ id: 'summary', text: summaryText.value });
 }
 
 function resetToSetup() {
@@ -858,11 +863,11 @@ function resetToSetup() {
   recordingId.value = null;
   summaryResult.value = null;
   noteResult.value = null;
+  clinicalDraftId.value = null;
   markers.value = [];
-  finalTranscriptLines.value = [];
-  transcriptSource.value = '';
   phase.value = 'setup';
   timerSeconds.value = 0;
+  applyDefaultNoteAid({ force: true });
 }
 
 function cancelSetup() {
@@ -890,7 +895,7 @@ onMounted(async () => {
     await enumerateMics();
     await testMic();
     await checkConsent();
-    await loadShelf();
+    await loadLibrary();
   } catch (e) {
     busyError.value = e.response?.data?.error?.message || e.message || 'Failed to load Session Recording';
   }
@@ -902,10 +907,18 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.sr-app {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  min-height: calc(100vh - 64px);
+  width: 100%;
+  background: #f8fafc;
+}
 .sr-page {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
+  max-width: none;
+  margin: 0;
+  padding: 20px 24px 40px;
+  min-width: 0;
 }
 .sr-header {
   display: flex;
@@ -1219,7 +1232,56 @@ textarea {
   max-height: 480px;
   overflow: auto;
 }
+.summary-box {
+  margin: 14px 0 18px;
+  padding: 14px 16px;
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+  border-radius: 12px;
+  color: #134e4a;
+  line-height: 1.5;
+}
+.summary-box-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.summary-box p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.sr-soap-list {
+  display: grid;
+  gap: 10px;
+}
+.sr-soap-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+.sr-soap-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+.sr-soap-card pre {
+  margin: 0;
+  padding: 12px;
+  white-space: pre-wrap;
+  font: inherit;
+  color: #0f172a;
+}
 @media (max-width: 900px) {
+  .sr-app {
+    grid-template-columns: 1fr;
+  }
   .sr-grid,
   .sr-live {
     grid-template-columns: 1fr;

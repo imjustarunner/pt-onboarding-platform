@@ -76,6 +76,22 @@ export const SESSION_RECORDING_NOTE_AIDS = [
   }
 ];
 
+/**
+ * HCBS Cat 1 → H0004; Cat 2–3 (and unknown) → psychotherapy.
+ */
+export function defaultProgressNoteAidIdFromHcbsCategory(hcbsCategory) {
+  return Number(hcbsCategory) === 1 ? 'h0004_note' : 'psychotherapy';
+}
+
+export function withPreferredFirst(list, preferredId, idKey = 'id') {
+  const items = Array.isArray(list) ? [...list] : [];
+  if (!preferredId) return items;
+  const idx = items.findIndex((item) => String(item?.[idKey] || '') === String(preferredId));
+  if (idx <= 0) return items;
+  const [hit] = items.splice(idx, 1);
+  return [hit, ...items];
+}
+
 export function resolveSessionRecordingNoteAid({ serviceCode, noteAidId } = {}) {
   if (noteAidId) {
     const byId = SESSION_RECORDING_NOTE_AIDS.find((a) => a.id === noteAidId);
