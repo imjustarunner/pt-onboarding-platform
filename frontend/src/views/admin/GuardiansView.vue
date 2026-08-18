@@ -19,6 +19,16 @@
         >
           {{ rosterEditorMode ? 'List view' : 'Roster editor' }}
         </button>
+        <button
+          class="btn btn-secondary"
+          type="button"
+          @click="identityReviewMode = 'duplicates'"
+        >Show Duplicates</button>
+        <button
+          class="btn btn-secondary"
+          type="button"
+          @click="identityReviewMode = 'tests'"
+        >Show Tests</button>
         <button class="btn btn-primary" type="button" @click="openCreateModal">Add Guardian</button>
       </div>
     </div>
@@ -84,6 +94,7 @@
             <th>Agencies</th>
             <th>Linked Clients</th>
             <th>Created</th>
+            <th>Demo</th>
           </tr>
         </thead>
         <tbody>
@@ -108,9 +119,19 @@
             <td @click="openGuardianProfile(g.id)">{{ g.agencies || '—' }}</td>
             <td @click="openGuardianProfile(g.id)">{{ Number(g.linked_clients_count || 0) }}</td>
             <td @click="openGuardianProfile(g.id)">{{ formatDate(g.created_at) }}</td>
+            <td @click.stop>
+              <label class="g-demo-check">
+                <input
+                  type="checkbox"
+                  :checked="!!Number(g.is_demo)"
+                  @change="toggleGuardianDemo(g, $event.target.checked)"
+                />
+                Demo
+              </label>
+            </td>
           </tr>
           <tr v-if="filteredGuardians.length === 0">
-            <td colspan="7" class="empty-row">No guardians found.</td>
+            <td colspan="8" class="empty-row">No guardians found.</td>
           </tr>
         </tbody>
       </table>
@@ -217,6 +238,15 @@
         </div>
       </div>
     </div>
+
+    <IdentityReviewDrawer
+      v-if="identityReviewMode"
+      persona="guardians"
+      :mode="identityReviewMode"
+      :agency-id="agencyFilter"
+      @close="identityReviewMode = null"
+      @changed="fetchGuardians"
+    />
   </div>
 </template>
 
@@ -227,12 +257,14 @@ import api from '../../services/api';
 import { getStatusBadgeClass, getStatusLabel } from '../../utils/statusUtils.js';
 import { useAuthStore } from '../../store/auth';
 import UserSmartGrid from '../../components/admin/UserSmartGrid.vue';
+import IdentityReviewDrawer from '../../components/admin/IdentityReviewDrawer.vue';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 const rosterEditorMode = ref(false);
+const identityReviewMode = ref(null);
 const guardianProfileBase = computed(() => {
   const orgSlug = String(route.params.organizationSlug || '').trim();
   return orgSlug ? `/${orgSlug}/admin/users` : '/admin/users';
@@ -387,6 +419,15 @@ const schoolAffiliatedOnly = computed(() => {
     || route.query.schoolAffiliated === '1'
     || route.query.schoolAffiliated === 'true';
 });
+
+async function toggleGuardianDemo(row, on) {
+  try {
+    await api.patch(`/users/${row.id}/demo`, { isDemo: on });
+    row.is_demo = on ? 1 : 0;
+  } catch (err) {
+    console.error(err);
+  }
+}
 
 const fetchGuardians = async () => {
   loading.value = true;

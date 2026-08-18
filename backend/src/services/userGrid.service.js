@@ -33,6 +33,7 @@ const USER_COL_BY_KEY = {
   department: 'department',
   termination_date: 'termination_date',
   created_at: 'created_at',
+  is_demo: 'is_demo',
   has_hiring_access: 'has_hiring_access',
   has_outreach_access: 'has_outreach_access',
   has_games_access: 'has_games_access',

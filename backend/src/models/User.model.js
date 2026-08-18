@@ -385,7 +385,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_outreach_access', 'has_platform_support', 'has_medical_records_release_access', 'has_games_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'psychology_today_url', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'company_car_submit_access', 'company_car_manage_access', 'profile_photo_path', 'password_changed_at', 'title', 'department', 'work_location', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'group_supervision_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'hourly_dual_rate_enabled', 'employee_id', 'sso_password_override', 'provider_start_date', 'work_role', 'employment_type', 'benefits_notes', 'benefits_eligibility_overrides_json', 'benefits_enrollment_json')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'has_outreach_access', 'has_platform_support', 'has_medical_records_release_access', 'has_games_access', 'provider_accepting_new_clients', 'provider_school_info_blurb', 'psychology_today_url', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'company_car_submit_access', 'company_car_manage_access', 'profile_photo_path', 'password_changed_at', 'title', 'department', 'work_location', 'service_focus', 'languages_spoken', 'credential', 'skill_builder_eligible', 'group_supervision_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker', 'hourly_dual_rate_enabled', 'employee_id', 'sso_password_override', 'provider_start_date', 'work_role', 'employment_type', 'benefits_notes', 'benefits_eligibility_overrides_json', 'benefits_enrollment_json', 'is_demo')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -444,6 +444,7 @@ class User {
       if (existingColumns.includes('benefits_notes')) query += ', benefits_notes';
       if (existingColumns.includes('benefits_eligibility_overrides_json')) query += ', benefits_eligibility_overrides_json';
       if (existingColumns.includes('benefits_enrollment_json')) query += ', benefits_enrollment_json';
+      if (existingColumns.includes('is_demo')) query += ', is_demo';
     } catch (err) {
       // If we can't check columns, just use the base query
       console.warn('Could not check for pending columns:', err.message);
@@ -560,9 +561,10 @@ class User {
     let hasSupervisorPrivilegesField = '';
     let hasProviderAccessField = '';
     let hasStaffAccessField = '';
+    let hasIsDemoField = '';
     try {
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('has_supervisor_privileges', 'has_provider_access', 'has_staff_access')"
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'is_demo')"
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
       if (existingColumns.includes('has_supervisor_privileges')) {
@@ -573,6 +575,9 @@ class User {
       }
       if (existingColumns.includes('has_staff_access')) {
         hasStaffAccessField = ', u.has_staff_access';
+      }
+      if (existingColumns.includes('is_demo')) {
+        hasIsDemoField = ', u.is_demo';
       }
     } catch (err) {
       // Column doesn't exist yet, skip it
@@ -593,7 +598,7 @@ class User {
         u.title,
         u.credential,
         u.service_focus,
-        u.created_at${hasSupervisorPrivilegesField},
+        u.created_at${hasSupervisorPrivilegesField}${hasIsDemoField},
         GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') as agencies,
         GROUP_CONCAT(DISTINCT a.id ORDER BY a.id SEPARATOR ',') as agency_ids
       FROM users u
@@ -612,6 +617,9 @@ class User {
     }
     if (hasStaffAccessField) {
       groupByFields += ', u.has_staff_access';
+    }
+    if (hasIsDemoField) {
+      groupByFields += ', u.is_demo';
     }
     query += ` GROUP BY ${groupByFields}`;
     query += ' ORDER BY u.created_at DESC';
@@ -808,7 +816,8 @@ class User {
       employmentType,
       benefitsNotes,
       benefitsEligibilityOverrides,
-      benefitsEnrollment
+      benefitsEnrollment,
+      isDemo
     } = userData;
     
     // Get current user to check if it's superadmin
@@ -855,6 +864,19 @@ class User {
     if (firstName !== undefined) {
       updates.push('first_name = ?');
       values.push(firstName);
+    }
+    if (isDemo !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'is_demo'"
+        );
+        if (columns.length > 0) {
+          updates.push('is_demo = ?');
+          values.push(isDemo ? 1 : 0);
+        }
+      } catch {
+        // ignore
+      }
     }
     if (lastName !== undefined) {
       updates.push('last_name = ?');

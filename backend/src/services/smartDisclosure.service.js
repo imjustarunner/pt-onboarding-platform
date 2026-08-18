@@ -288,7 +288,7 @@ function isHogwartsDemoIdentity(row = {}) {
 
 /** Exported for packet roster filtering. */
 export function isDemoPacketIdentity(row = {}) {
-  return isHogwartsDemoIdentity(row);
+  return Number(row.is_demo) === 1 || isHogwartsDemoIdentity(row);
 }
 
 export function formatSupervisorTypeLabel(type) {
@@ -488,7 +488,7 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
   if (schoolId) {
     try {
       const [rows] = await pool.execute(
-        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.credential, u.email, u.role, u.title, u.status
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.credential, u.email, u.role, u.title, u.status, u.is_demo
          FROM provider_school_assignments psa
          JOIN users u ON u.id = psa.provider_user_id
          WHERE psa.school_organization_id = ?
@@ -507,7 +507,7 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
   try {
     const [rows] = await pool.execute(
       `SELECT DISTINCT
-          u.id, u.first_name, u.last_name, u.credential, u.email, u.role, u.title, u.status,
+          u.id, u.first_name, u.last_name, u.credential, u.email, u.role, u.title, u.status, u.is_demo,
           u.has_supervisor_privileges,
           ua.agency_role, ua.agency_position, ua.include_on_disclosure
        FROM user_agencies ua
@@ -561,7 +561,7 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
     const id = Number(row.id);
     if (!id || seen.has(id)) continue;
     if (!isDisclosureEligibleUserStatus(row.status)) continue;
-    if (isHogwartsDemoIdentity(row)) continue;
+    if (isHogwartsDemoIdentity(row) || Number(row.is_demo) === 1) continue;
     const membership = membershipByUserId.get(id) || row;
     const fromSchool = schoolProviders.some((s) => Number(s.id) === id);
     const effectiveRole = String(membership.agency_role || row.role || '').trim() || row.role;

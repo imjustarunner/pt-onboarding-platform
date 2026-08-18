@@ -1,5 +1,13 @@
 import express from 'express';
 import { getCurrentUser, getAllUsers, getGuardianUsers, getGuardianLinkedClients, getGuardianEvents, bulkDeleteGuardians, aiQueryUsers, getUserById, getUserStravaConnection, updateUser, updateUserStatus, requireSkillBuilderConfirmNextLogin, getUserAgencies, getSuperviseePortalSlugs, getProvidersForSupport, getAffiliatedPortals, assignUserToAgency, removeUserFromAgency, setUserAgencyPayrollAccess, setUserAgencyBillingAccess, setUserAgencyDepartmentAccess, getUserDepartmentAccess, setUserAgencyH0032Mode, setUserAgencyMembershipRole, setUserAgencySupervisionPrelicensed, getSupervisionPrelicensedClassification, generateInvitationToken, generateTemporaryPassword, setCustomTemporaryPassword, resetPasswordlessToken, sendInitialSetupLink, resendSetupLink, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, getProfileOverview, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, setStaffInactive, restoreUser, deleteUser, deleteMe, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee, getUserLoginEmailAliases, addUserLoginEmailAlias, removeUserLoginEmailAlias, getUserScheduleSummary, listUserMeetingCandidates, createUserMeetingInviteGroup, updateUserMeetingInviteGroupMembers, listUserVirtualSessionClients, createUserScheduleEvent, getUserScheduleEventNotificationPlan, updateUserScheduleEvent, deleteUserScheduleEvent, getUserGoogleEvent, patchUserGoogleEvent, deleteUserGoogleEvent, getUserExternalCalendars, createUserExternalCalendar, addUserExternalCalendarFeed, patchUserExternalCalendar, patchUserExternalCalendarFeed, setSsoPasswordOverride } from '../controllers/user.controller.js';
+import {
+  getPeopleDuplicates,
+  getPeopleTests,
+  previewPeopleMerge,
+  applyPeopleMerge,
+  patchUserDemo,
+  bulkPatchDemo
+} from '../controllers/identityHygiene.controller.js';
 import { getUserOfficeAssignments, upsertUserOfficeAssignments } from '../controllers/userOfficeAssignments.controller.js';
 import { upload as uploadProfilePhoto, uploadUserProfilePhoto } from '../controllers/userProfilePhoto.controller.js';
 import {
@@ -69,6 +77,11 @@ router.post('/grid/:userId/file', authenticate, requireBackofficeAdmin, gridUplo
 router.get('/guardians', authenticate, requireBackofficeAdmin, getGuardianUsers);
 router.delete('/guardians/bulk', authenticate, requireBackofficeAdmin, bulkDeleteGuardians);
 router.get('/ai-query', authenticate, requireBackofficeAdmin, aiQueryUsers);
+router.get('/duplicates', authenticate, requireBackofficeAdmin, getPeopleDuplicates);
+router.get('/tests', authenticate, requireBackofficeAdmin, getPeopleTests);
+router.post('/merge/preview', authenticate, requireBackofficeAdmin, previewPeopleMerge);
+router.post('/merge', authenticate, requireBackofficeAdmin, applyPeopleMerge);
+router.post('/demo/bulk', authenticate, requireBackofficeAdmin, bulkPatchDemo);
 router.get('/archived', authenticate, requireBackofficeAdmin, getArchivedUsers); // Must come before /:id
 router.get('/:id/agencies', authenticate, getUserAgencies);
 router.get('/:id/login-email-aliases', authenticate, requireBackofficeAdmin, getUserLoginEmailAliases);
@@ -106,6 +119,7 @@ router.get('/:id/guardian-clients', authenticate, requireBackofficeAdmin, getGua
 router.get('/:id/guardian-events', authenticate, requireBackofficeAdmin, getGuardianEvents);
 router.get('/:id/strava-connection', authenticate, getUserStravaConnection);
 router.get('/:id', authenticate, getUserById);
+router.patch('/:id/demo', authenticate, requireBackofficeAdmin, patchUserDemo);
 router.put('/:id', authenticate, updateUser);
 router.put('/:id/status', authenticate, requireBackofficeAdmin, updateUserStatus);
 router.post('/:id/skill-builder/require-confirm-next-login', authenticate, requireSkillBuilderConfirmNextLogin);

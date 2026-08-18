@@ -27,6 +27,18 @@
         <button v-if="isSscSstcTenant" @click="openTempMergeModal" class="btn btn-secondary">Merge Members</button>
         <button v-if="isSscSstcTenant" @click="toggleAssistantManagersView" class="btn btn-secondary">{{ assistantManagersOnly ? 'All Members' : 'Assistant Managers' }}</button>
         <button v-else-if="user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support'" @click="showSupervisorsModal = true" class="btn btn-secondary">Supervisors</button>
+        <button
+          v-if="!isSscSstcTenant && (user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support')"
+          type="button"
+          class="btn btn-secondary"
+          @click="identityReviewMode = 'duplicates'"
+        >Show Duplicates</button>
+        <button
+          v-if="!isSscSstcTenant && (user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support')"
+          type="button"
+          class="btn btn-secondary"
+          @click="identityReviewMode = 'tests'"
+        >Show Tests</button>
       </div>
     </div>
     
@@ -366,6 +378,7 @@
                   <th class="sortable col-status" @click="toggleTableSort('status')">
                     Status <span class="sort-indicator">{{ sortIndicator('status') }}</span>
                   </th>
+                  <th v-if="!isSscSstcTenant" class="col-demo">Demo</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -538,6 +551,16 @@
                 <span class="um-status-dot" :class="statusDotClass(user.status, user.is_active)"></span>
                 {{ getStatusLabelWrapper(user.status, user.is_active) }}
               </template>
+            </td>
+            <td v-if="!isSscSstcTenant" class="col-demo" @click.stop>
+              <label class="um-demo-check" title="Demo/test accounts stay off official documents">
+                <input
+                  type="checkbox"
+                  :checked="!!Number(user.is_demo)"
+                  @change="toggleUserDemo(user, $event.target.checked)"
+                />
+                Demo
+              </label>
             </td>
             <td class="actions-cell" @click.stop>
               <div class="action-buttons um-actions">
@@ -1764,6 +1787,15 @@
       </div>
     </transition>
 
+    <IdentityReviewDrawer
+      v-if="identityReviewMode"
+      :persona="directoryPersona"
+      :mode="identityReviewMode"
+      :agency-id="agencySort"
+      @close="identityReviewMode = null"
+      @changed="fetchUsers"
+    />
+
   </div>
 </template>
 
@@ -1779,6 +1811,7 @@ import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 import BulkDocumentAssignmentDialog from '../../components/documents/BulkDocumentAssignmentDialog.vue';
 import AskAssistantPanel from '../../components/assistant/AskAssistantPanel.vue';
 import UserSmartGrid from '../../components/admin/UserSmartGrid.vue';
+import IdentityReviewDrawer from '../../components/admin/IdentityReviewDrawer.vue';
 import { canSeeClientExchangeNav, clientExchangePath } from '../../utils/clientExchangeNav.js';
 
 const router = useRouter();
@@ -1927,6 +1960,7 @@ const saving = ref(false);
 /** Directory personas: employees (default) | school_staff | guardians */
 const DIRECTORY_PERSONAS = ['employees', 'school_staff', 'guardians'];
 const directoryPersona = ref('employees');
+const identityReviewMode = ref(null);
 const rosterEditorMode = ref(false);
 const rosterProfileBase = computed(() => {
   const slug = String(route.params.organizationSlug || '').trim();
@@ -2587,6 +2621,15 @@ const buildUserScopeParams = () => {
   else if (roleSort.value) params.role = String(roleSort.value);
   return params;
 };
+
+async function toggleUserDemo(row, on) {
+  try {
+    await api.patch(`/users/${row.id}/demo`, { isDemo: on });
+    row.is_demo = on ? 1 : 0;
+  } catch (e) {
+    console.error(e);
+  }
+}
 
 const fetchUsers = async () => {
   try {

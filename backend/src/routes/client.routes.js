@@ -94,6 +94,14 @@ import {
   postConfirmServicesStarted
 } from '../controllers/clientLifecycle.controller.js';
 import { authenticate, requireBackofficeAdmin, requireGuardianListAccess } from '../middleware/auth.middleware.js';
+import {
+  getPeopleDuplicates as getClientDuplicates,
+  getPeopleTests as getClientTests,
+  previewPeopleMerge as previewClientMerge,
+  applyPeopleMerge as applyClientMerge,
+  patchClientDemo,
+  bulkPatchDemo as bulkPatchClientDemo
+} from '../controllers/identityHygiene.controller.js';
 
 const router = express.Router();
 
@@ -105,6 +113,11 @@ router.get('/', getClients);
 router.get('/for-user/:userId', getClientsForUser);
 router.get('/archived', getArchivedClients);
 router.get('/name-duplicates', getClientNameDuplicates);
+router.get('/duplicates', getClientDuplicates);
+router.get('/tests', getClientTests);
+router.post('/merge/preview', requireBackofficeAdmin, previewClientMerge);
+router.post('/merge', requireBackofficeAdmin, applyClientMerge);
+router.post('/demo/bulk', requireBackofficeAdmin, bulkPatchClientDemo);
 
 // New Client Onboarding queue (must be before /:id)
 router.get('/onboarding-queue', getOnboardingQueue);
@@ -120,6 +133,7 @@ router.post('/bulk/rollover-school-year', rolloverSchoolYear);
 
 // Get client detail
 router.get('/:id', getClientById);
+router.patch('/:id/demo', requireBackofficeAdmin, patchClientDemo);
 
 // Create client
 router.post('/', createClient);

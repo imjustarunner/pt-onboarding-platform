@@ -903,6 +903,7 @@ export const getGuardianUsers = async (req, res, next) => {
           u.first_name,
           u.last_name,
           u.created_at,
+          u.is_demo,
           GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') AS agencies,
           GROUP_CONCAT(DISTINCT a.id ORDER BY a.id SEPARATOR ',') AS agency_ids,
           GROUP_CONCAT(DISTINCT org_client.name ORDER BY org_client.name SEPARATOR ', ') AS school_names,
@@ -932,7 +933,7 @@ export const getGuardianUsers = async (req, res, next) => {
         ${schoolSql}
         GROUP BY
           u.id, u.email, u.role, u.status, u.completed_at, u.terminated_at, u.status_expires_at,
-          u.is_active, u.first_name, u.last_name, u.created_at
+          u.is_active, u.first_name, u.last_name, u.created_at, u.is_demo
         ORDER BY u.created_at DESC
       `,
       params

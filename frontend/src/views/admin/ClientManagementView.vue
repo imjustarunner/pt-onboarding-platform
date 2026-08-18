@@ -34,6 +34,18 @@
         >
           Tenant visibility
         </button>
+        <button
+          v-if="canBackofficeEdit"
+          type="button"
+          class="cm-hbtn cm-hbtn--ghost"
+          @click="identityReviewMode = 'duplicates'"
+        >Show Duplicates</button>
+        <button
+          v-if="canBackofficeEdit"
+          type="button"
+          class="cm-hbtn cm-hbtn--ghost"
+          @click="identityReviewMode = 'tests'"
+        >Show Tests</button>
         <button @click="openCreateClientModal" class="cm-hbtn cm-hbtn--primary">+ New client</button>
       </div>
     </div>
@@ -407,6 +419,7 @@
             <th v-if="columnPrefs.paperwork">Document Status</th>
             <th v-if="columnPrefs.insurance">Insurance</th>
             <th v-if="columnPrefs.lastActivity">Last Activity</th>
+            <th v-if="canBackofficeEdit">Demo</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -484,6 +497,16 @@
             </td>
             <td v-if="columnPrefs.insurance">{{ client.insurance_type_label || '-' }}</td>
             <td v-if="columnPrefs.lastActivity">{{ formatDate(client.last_activity_at) || '-' }}</td>
+            <td v-if="canBackofficeEdit" class="select-cell" @click.stop>
+              <label class="cm-demo-check" title="Demo/test clients stay off official documents">
+                <input
+                  type="checkbox"
+                  :checked="!!Number(client.is_demo)"
+                  @change="toggleClientDemo(client, $event.target.checked)"
+                />
+                Demo
+              </label>
+            </td>
             <td class="actions-cell" @click.stop @mouseenter="quickViewClient = null; clearTimeout(_hoverOpenTimer)">
               <button @click.stop="openQuickView(client)" class="btn btn-primary btn-sm cm-view-btn" title="Quick preview">
                 Preview
@@ -1127,6 +1150,15 @@
         </div>
     </transition>
 
+    <IdentityReviewDrawer
+      v-if="identityReviewMode"
+      persona="clients"
+      :mode="identityReviewMode"
+      :agency-id="effectiveAgencyScopeId"
+      @close="identityReviewMode = null"
+      @changed="fetchClients"
+    />
+
   </div>
 </template>
 
@@ -1140,6 +1172,7 @@ import BulkClientImporter from '../../components/admin/BulkClientImporter.vue';
 import OfficeIntakeQueuePanel from '../../components/admin/OfficeIntakeQueuePanel.vue';
 import ClientExchangePanel from '../../components/clientExchange/ClientExchangePanel.vue';
 import ClientNameDuplicatesPanel from '../../components/admin/ClientNameDuplicatesPanel.vue';
+import IdentityReviewDrawer from '../../components/admin/IdentityReviewDrawer.vue';
 import ClientDisplayModeToggle from '../../components/admin/ClientDisplayModeToggle.vue';
 import { useClientDisplayMode } from '../../composables/useClientDisplayMode.js';
 import { STANDARD_GRADE_SELECT_OPTIONS, normalizeGradeForSave } from '../../utils/clientGrade.js';
@@ -1169,6 +1202,7 @@ const searchHints = SEARCH_HINTS;
 
 // View-mode switcher: 'clients' | 'intakes' | 'exchange' | 'duplicates'
 const cmViewMode = ref('clients');
+const identityReviewMode = ref(null);
 const pendingIntakeCount = ref(0);
 const exchangeListingCount = ref(0);
 const nameDuplicateGroupCount = ref(0);
@@ -2042,6 +2076,15 @@ const selectedProviderDayAssignment = computed(() => {
     ) || null
   );
 });
+
+async function toggleClientDemo(client, on) {
+  try {
+    await api.patch(`/clients/${client.id}/demo`, { isDemo: on });
+    client.is_demo = on ? 1 : 0;
+  } catch (e) {
+    console.error(e);
+  }
+}
 
 const fetchClients = async () => {
   try {

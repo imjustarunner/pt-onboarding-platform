@@ -39,7 +39,7 @@ export const USER_GRID_MEDCANCEL_OPTIONS = [
 
 /** @type {UserGridField[]} */
 export const USER_GRID_FIELDS = [
-  { key: 'email', label: 'Login email', group: 'Account', type: 'text', source: 'user', userField: 'email', editable: true, sortable: true },
+  { key: 'is_demo', label: 'Demo / test', group: 'Account', type: 'boolean', source: 'user', userField: 'isDemo', editable: true, sortable: true },
   { key: 'preferred_name', label: 'Preferred name', group: 'Account', type: 'text', source: 'user', userField: 'preferredName', editable: true, sortable: true },
   { key: 'title', label: 'Title', group: 'Account', type: 'text', source: 'user', userField: 'title', editable: true, sortable: true },
   { key: 'credential', label: 'Credential', group: 'Account', type: 'text', source: 'user', userField: 'credential', editable: true, sortable: true },
@@ -120,7 +120,7 @@ export function parseUserGridFieldKeys(raw, { max = USER_GRID_MAX_COLUMNS } = {}
 
 export function defaultUserGridFieldKeys(persona) {
   const p = String(persona || 'employees');
-  if (p === 'school_staff') return ['email', 'personal_phone', 'last_login', 'schools', 'districts'];
-  if (p === 'guardians') return ['email', 'personal_phone', 'last_login', 'status', 'schools'];
-  return ['credential', 'psychology_today_url', 'date_of_birth', 'provider_start_date', 'comp_level'];
+  if (p === 'school_staff') return ['email', 'personal_phone', 'last_login', 'schools', 'is_demo'];
+  if (p === 'guardians') return ['email', 'personal_phone', 'last_login', 'status', 'is_demo'];
+  return ['credential', 'is_demo', 'date_of_birth', 'provider_start_date', 'comp_level'];
 }

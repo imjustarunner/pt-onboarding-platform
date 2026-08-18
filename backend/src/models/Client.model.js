@@ -535,7 +535,8 @@ class Client {
       'waitlist_started_at',
       'parents_contacted_at',
       'parents_contacted_successful',
-      'intake_at'
+      'intake_at',
+      'is_demo'
     ];
 
     for (const field of allowedFields) {
@@ -548,7 +549,8 @@ class Client {
           field === 'skill_builders_intake_complete' ||
           field === 'skill_builders_treatment_plan_complete' ||
           field === 'paper_packet_staff_roi_pending' ||
-          field === 'disclosure_required'
+          field === 'disclosure_required' ||
+          field === 'is_demo'
         ) {
           values.push(clientData[field] ? 1 : 0);
         } else if (field === 'grade') {
