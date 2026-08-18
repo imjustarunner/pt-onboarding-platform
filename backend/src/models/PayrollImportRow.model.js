@@ -208,6 +208,31 @@ class PayrollImportRow {
     return rows;
   }
 
+  static async listPayableUnitsByUserCodeDate(payrollPeriodId) {
+    const latestImportId = await this._latestImportIdForPeriod(payrollPeriodId);
+    if (!latestImportId) return [];
+    const [rows] = await pool.execute(
+      `SELECT
+         pir.user_id,
+         UPPER(TRIM(pir.service_code)) AS service_code,
+         DATE_FORMAT(pir.service_date, '%Y-%m-%d') AS service_date,
+         SUM(
+           CASE
+             WHEN pir.note_status = 'FINALIZED' OR (pir.note_status = 'DRAFT' AND pir.draft_payable = 1)
+               THEN COALESCE(pir.unit_count, 0)
+             ELSE 0
+           END
+         ) AS payable_units
+       FROM payroll_import_rows pir
+       WHERE pir.payroll_period_id = ?
+         AND pir.payroll_import_id = ?
+         AND pir.user_id IS NOT NULL
+       GROUP BY pir.user_id, UPPER(TRIM(pir.service_code)), DATE_FORMAT(pir.service_date, '%Y-%m-%d')`,
+      [payrollPeriodId, latestImportId]
+    );
+    return rows || [];
+  }
+
   static async listAggregatedSessionsUnitsForPeriod({ payrollPeriodId, providerIds = null, groupBy = 'provider' }) {
     const latestImportId = await this._latestImportIdForPeriod(payrollPeriodId);
     if (!latestImportId) return [];

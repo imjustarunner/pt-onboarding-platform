@@ -2554,6 +2554,16 @@ const currentTierBanner = computed(() => {
       detail: 'You are in a grace period — last pay period’s higher tier still applies for benefits.'
     };
   }
+  if (info.statusKind === 'probation' || info.paySystem?.inProbation) {
+    const until = info.paySystem?.probationEnd;
+    return {
+      kind: 'ooc',
+      label: 'Probation',
+      detail: until
+        ? `Probation rates apply through the day before ${until}. Services on that date and later use current rates, including the 10-minute auto-indirect add-on.`
+        : 'Probation rates apply until 90 days after your start date.'
+    };
+  }
   if (info.statusKind === 'ooc' || (!level && label)) {
     return {
       kind: 'ooc',

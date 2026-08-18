@@ -27,10 +27,44 @@ function parseDateOnly(v) {
   return new Date(y, m - 1, d);
 }
 
+function addCalendarDays(date, days) {
+  if (!date) return null;
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  d.setDate(d.getDate() + Number(days || 0));
+  return d;
+}
+
+function toYmd(date) {
+  if (!date) return null;
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function daysBetween(start, end) {
   if (!start || !end) return null;
   const ms = end.getTime() - start.getTime();
   return Math.floor(ms / (24 * 60 * 60 * 1000));
+}
+
+function applyAutoIndirect({ rateProfile, hourEquivalent }) {
+  const minsPerHour = Number(rateProfile?.autoIndirectMinutesPerHour ?? 10) || 10;
+  if (!(minsPerHour > 0) || !(hourEquivalent > 1e-9)) {
+    return { autoIndirectHours: 0, autoIndirectAmount: 0 };
+  }
+  const autoIndirectHours = hourEquivalent * (minsPerHour / 60);
+  const indRate = Number(rateProfile?.indirectRate || 0) || 0;
+  return {
+    autoIndirectHours,
+    autoIndirectAmount: round2(autoIndirectHours * indRate)
+  };
+}
+
+export function eraLabelForStatus(status) {
+  if (status?.inProbation) return 'Probation services';
+  if (status?.isMinimumWorkload) return 'Minimum workload services';
+  return 'current services';
 }
 
 /**
@@ -122,6 +156,7 @@ export function resolveUserPaySystemStatus({
   assignment,
   providerStartDate,
   periodEnd,
+  asOfDate = null,
   benefitTierLevel = 0,
   graceActive = false,
   displayTierLevel = null
@@ -133,21 +168,41 @@ export function resolveUserPaySystemStatus({
 
   const overrideStart = parseDateOnly(assignment?.probation_start_override || assignment?.probationStartOverride);
   const start = overrideStart || parseDateOnly(providerStartDate);
-  const end = parseDateOnly(periodEnd) || new Date();
-  const tenureDays = start ? daysBetween(start, end) : null;
-  const inProbationWindow = !waiveProbation && tenureDays != null && tenureDays < PROBATION_DAYS;
+  const asOf = parseDateOnly(asOfDate) || parseDateOnly(periodEnd) || new Date();
+  const tenureDays = start ? daysBetween(start, asOf) : null;
+  const autoProbationEnd = start ? addCalendarDays(start, PROBATION_DAYS) : null;
+  const manualEndedOn = parseDateOnly(assignment?.probation_ended_on || assignment?.probationEndedOn);
+  const grandfatheredNoProbation = waiveProbation && !manualEndedOn;
+  // First calendar day at full (non-probation) rates.
+  const probationEnd = grandfatheredNoProbation
+    ? null
+    : (manualEndedOn || autoProbationEnd);
+  const inProbationWindow = !grandfatheredNoProbation
+    && tenureDays != null
+    && tenureDays < PROBATION_DAYS
+    && (!manualEndedOn || asOf < manualEndedOn);
+
+  const goLive = parseDateOnly(
+    assignment?.pay_system_effective_start || assignment?.paySystemEffectiveStart
+  );
+  const hiredBeforeGoLive = !!(goLive && start && start < goLive);
+  const initiationProtectionEnd = (hiredBeforeGoLive && goLive)
+    ? addCalendarDays(goLive, PROBATION_DAYS)
+    : null;
+  const inInitiationProtection = !!(
+    initiationProtectionEnd && asOf < initiationProtectionEnd
+  );
 
   const tierLevel = Number(benefitTierLevel || 0);
   const currentTier = displayTierLevel != null ? Number(displayTierLevel) : tierLevel;
   // MWR: below Tier 1 after grace (benefitTierLevel is already grace-adjusted).
-  // If grace is active, benefitTierLevel stays at prior tier — so MWR only when
-  // post-grace tier is 0 (Out of Compliance).
-  const isMinimumWorkload = !waiveMwr && tierLevel < 1;
+  // Current staff hired before Go get 90 days from Go before MWR/probation rates can apply.
+  const isMinimumWorkload = !waiveMwr && !inInitiationProtection && tierLevel < 1;
 
-  const useReducedRates = inProbationWindow || isMinimumWorkload;
+  const useReducedRates = (!inInitiationProtection && inProbationWindow) || isMinimumWorkload;
 
   return {
-    inProbation: inProbationWindow,
+    inProbation: !inInitiationProtection && inProbationWindow,
     isMinimumWorkload,
     useReducedRates,
     waiveProbation,
@@ -159,7 +214,16 @@ export function resolveUserPaySystemStatus({
     graceActive: !!graceActive,
     tenureDays,
     probationDays: PROBATION_DAYS,
-    probationStart: start ? start.toISOString().slice(0, 10) : null
+    probationStart: start ? toYmd(start) : null,
+    probationEnd: probationEnd ? toYmd(probationEnd) : null,
+    hiredBeforeGoLive,
+    inInitiationProtection,
+    initiationProtectionEnd: initiationProtectionEnd ? toYmd(initiationProtectionEnd) : null,
+    asOfDate: toYmd(asOf),
+    eraLabel: eraLabelForStatus({
+      inProbation: !inInitiationProtection && inProbationWindow,
+      isMinimumWorkload
+    })
   };
 }
 
@@ -198,21 +262,23 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
       // H-code pay is the full H rate for face time; auto-indirect minutes are ADDED on top
       // (default 10 min per hour at the indirect rate).
       // Example: $32/hr H + $24/hr indirect → $32 + $4 (10 min) = $36 total.
-      const minsPerHour = Number(rateProfile?.autoIndirectMinutesPerHour ?? 10) || 10;
-      if (minsPerHour > 0 && qty.hourEquivalent > 1e-9) {
-        autoIndirectHours = qty.hourEquivalent * (minsPerHour / 60);
-        const indRate = Number(rateProfile?.indirectRate || 0) || 0;
-        autoIndirectAmount = round2(autoIndirectHours * indRate);
-      }
+      const auto = applyAutoIndirect({ rateProfile, hourEquivalent: qty.hourEquivalent });
+      autoIndirectHours = auto.autoIndirectHours;
+      autoIndirectAmount = auto.autoIndirectAmount;
     } else {
       // No H-code rate on this level: pay FFS/direct for the entered time.
-      // Staff log their own indirect separately (no auto-indirect add-on).
       hcodeFallbackToCredit = true;
       rate = Number(reduced
         ? (rateProfile?.creditRateProbation ?? rateProfile?.creditRate ?? 0)
         : (rateProfile?.creditRate ?? 0)) || 0;
       rateLabel = reduced ? 'credit_rate_probation_hcode_fallback' : 'credit_rate_hcode_fallback';
       amount = qty.hourEquivalent * rate;
+      // Probation / MWR still get the 10-min auto-indirect add-on on that reduced rate.
+      if (reduced) {
+        const auto = applyAutoIndirect({ rateProfile, hourEquivalent: qty.hourEquivalent });
+        autoIndirectHours = auto.autoIndirectHours;
+        autoIndirectAmount = auto.autoIndirectAmount;
+      }
     }
   } else if (payType === 'indirect') {
     rate = Number(rateProfile?.indirectRate || 0) || 0;
@@ -501,7 +567,15 @@ export function estimatePay({ rateProfile, status, lines = [], rulesByCode = new
 /**
  * Load everything needed to pay a user under the new system.
  */
-export async function loadUserPaySystemContext({ agencyId, userId, periodEnd, benefitTierLevel = 0, graceActive = false, displayTierLevel = null }) {
+export async function loadUserPaySystemContext({
+  agencyId,
+  userId,
+  periodStart = null,
+  periodEnd,
+  benefitTierLevel = 0,
+  graceActive = false,
+  displayTierLevel = null
+}) {
   const agencyEnabled = await PayrollPaySystemRate.isAgencyEnabled(agencyId);
   if (!agencyEnabled) {
     return { enabled: false, agencyEnabled: false, userEnabled: false };
@@ -557,14 +631,19 @@ export async function loadUserPaySystemContext({ agencyId, userId, periodEnd, be
     // ignore
   }
 
-  const status = resolveUserPaySystemStatus({
+  const statusArgs = {
     assignment,
     providerStartDate,
     periodEnd,
     benefitTierLevel,
     graceActive,
     displayTierLevel
-  });
+  };
+  const status = resolveUserPaySystemStatus({ ...statusArgs, asOfDate: periodEnd });
+  const split = resolveMidPeriodRateSplit({ ...statusArgs, periodStart, periodEnd });
+  status.rateChangeDate = split.cutoff;
+  status.preCutoffStatus = split.preStatus;
+  status.postCutoffStatus = split.postStatus;
 
   return {
     enabled: true,
@@ -573,15 +652,157 @@ export async function loadUserPaySystemContext({ agencyId, userId, periodEnd, be
     assignment,
     rateProfile,
     status,
-    providerStartDate
+    providerStartDate,
+    split
   };
+}
+
+/**
+ * If probation or Go-live protection ends inside this pay period AND the
+ * reduced-rate flag actually flips, return the first day of the new rates.
+ */
+export function resolveMidPeriodRateSplit({
+  assignment,
+  providerStartDate,
+  periodStart,
+  periodEnd,
+  benefitTierLevel = 0,
+  graceActive = false,
+  displayTierLevel = null
+}) {
+  const baseArgs = {
+    assignment,
+    providerStartDate,
+    periodEnd,
+    benefitTierLevel,
+    graceActive,
+    displayTierLevel
+  };
+  const periodStartDate = parseDateOnly(periodStart);
+  const periodEndDate = parseDateOnly(periodEnd);
+  const atEnd = resolveUserPaySystemStatus({ ...baseArgs, asOfDate: periodEnd });
+  const candidates = [];
+  if (atEnd.probationEnd) candidates.push(atEnd.probationEnd);
+  if (atEnd.initiationProtectionEnd) candidates.push(atEnd.initiationProtectionEnd);
+
+  for (const ymd of candidates) {
+    const cutoff = parseDateOnly(ymd);
+    if (!cutoff || !periodStartDate || !periodEndDate) continue;
+    if (cutoff <= periodStartDate || cutoff > periodEndDate) continue;
+    const preStatus = resolveUserPaySystemStatus({
+      ...baseArgs,
+      asOfDate: addCalendarDays(cutoff, -1)
+    });
+    const postStatus = resolveUserPaySystemStatus({ ...baseArgs, asOfDate: cutoff });
+    if (!!preStatus.useReducedRates !== !!postStatus.useReducedRates) {
+      return { cutoff: toYmd(cutoff), preStatus, postStatus };
+    }
+  }
+  return { cutoff: null, preStatus: atEnd, postStatus: atEnd };
+}
+
+function canonicalServiceCode(code, row = null) {
+  if (row?.displayServiceCode) return String(row.displayServiceCode).trim().toUpperCase();
+  const raw = String(code || '').trim().toUpperCase();
+  return raw.replace(/__(PRE|POST|CURRENT|MWR|PROBATION)$/i, '');
+}
+
+function scaleBreakdownRow(row, units, extras = {}) {
+  const prev = Number(row.finalizedUnits ?? row.units ?? 0) || 0;
+  const scale = prev > 1e-9 ? (Number(units) || 0) / prev : 1;
+  const scaled = (n) => round2((Number(n) || 0) * scale);
+  return {
+    ...row,
+    units: Number(units) || 0,
+    finalizedUnits: Number(units) || 0,
+    hours: scaled(row.hours),
+    creditsHours: scaled(row.creditsHours),
+    payHours: scaled(row.payHours),
+    hourEquivalent: scaled(row.hourEquivalent),
+    noNoteUnits: scaled(row.noNoteUnits),
+    draftUnits: scaled(row.draftUnits),
+    oldDoneNotesUnits: scaled(row.oldDoneNotesUnits),
+    ...extras
+  };
+}
+
+function splitBreakdownByCutoff(breakdown, { cutoff, preStatus, postStatus, datedUnitsByCode }) {
+  if (!cutoff || !datedUnitsByCode) return;
+  const codes = Object.keys(breakdown || {}).filter((code) => {
+    if (!code || String(code).startsWith('__')) return false;
+    if (String(code).toUpperCase() === 'AUTO INDIRECT') return false;
+    const row = breakdown[code];
+    return row && typeof row === 'object';
+  });
+
+  for (const code of codes) {
+    const row = breakdown[code];
+    const totalUnits = Number(row.finalizedUnits ?? row.units ?? 0) || 0;
+    if (totalUnits <= 1e-9) continue;
+    const dated = datedUnitsByCode.get(String(code).toUpperCase()) || [];
+    let preUnits = 0;
+    let postUnits = 0;
+    for (const item of dated) {
+      const d = String(item.serviceDate || item.service_date || '').slice(0, 10);
+      const u = Number(item.units || item.payable_units || 0) || 0;
+      if (!d || u <= 0) continue;
+      if (d < cutoff) preUnits += u;
+      else postUnits += u;
+    }
+    const datedTotal = preUnits + postUnits;
+    if (datedTotal > 1e-9 && Math.abs(datedTotal - totalUnits) > 1e-6) {
+      const factor = totalUnits / datedTotal;
+      preUnits *= factor;
+      postUnits *= factor;
+    }
+    if (datedTotal <= 1e-9) {
+      // Carryover / overrides with no dates: use period-end status.
+      row.rateEraStatus = postStatus;
+      continue;
+    }
+    if (preUnits <= 1e-9) {
+      row.rateEraStatus = postStatus;
+      continue;
+    }
+    if (postUnits <= 1e-9) {
+      row.rateEraStatus = preStatus;
+      continue;
+    }
+
+    const postKey = `${code}__post`;
+    const original = { ...row };
+    breakdown[code] = scaleBreakdownRow(original, round2(preUnits), {
+      displayServiceCode: code,
+      rateEraStatus: preStatus
+    });
+    breakdown[postKey] = scaleBreakdownRow(original, round2(postUnits), {
+      displayServiceCode: code,
+      rateEraStatus: postStatus
+    });
+  }
 }
 
 /**
  * Re-rate a payroll breakdown's service-code lines under the new pay system.
  * Mutates breakdown in place and returns totals + __paySystem metadata.
  */
-export function applyPaySystemToBreakdown({ breakdown, rateProfile, status, shiftDirectHours = 0, shiftIndirectHours = 0 }) {
+export function applyPaySystemToBreakdown({
+  breakdown,
+  rateProfile,
+  status,
+  shiftDirectHours = 0,
+  shiftIndirectHours = 0,
+  datedUnitsByCode = null
+}) {
+  if (status?.rateChangeDate && datedUnitsByCode && status.preCutoffStatus && status.postCutoffStatus) {
+    splitBreakdownByCutoff(breakdown, {
+      cutoff: status.rateChangeDate,
+      preStatus: status.preCutoffStatus,
+      postStatus: status.postCutoffStatus,
+      datedUnitsByCode
+    });
+  }
+
   let servicePay = 0;
   let autoIndirectTotal = 0;
   let productiveHours = 0;
@@ -593,9 +814,12 @@ export function applyPaySystemToBreakdown({ breakdown, rateProfile, status, shif
   for (const [code, row] of Object.entries(breakdown || {})) {
     if (!row || typeof row !== 'object') continue;
     if (String(code).startsWith('__')) continue;
+    if (String(code).toUpperCase() === 'AUTO INDIRECT') continue;
     const units = Number(row.finalizedUnits ?? row.units ?? 0) || 0;
     if (units <= 1e-9) continue;
 
+    const lineStatus = row.rateEraStatus || status;
+    const serviceCode = canonicalServiceCode(code, row);
     const rule = {
       category: row.category,
       pay_divisor: row.payDivisor,
@@ -604,12 +828,19 @@ export function applyPaySystemToBreakdown({ breakdown, rateProfile, status, shif
     };
     const result = computeLineAmount({
       rateProfile,
-      status,
-      serviceCode: code,
+      status: lineStatus,
+      serviceCode,
       quantity: units,
       rule
     });
     if (result.payType === 'skip') continue;
+
+    const showEra = !!row.rateEraStatus || !!lineStatus.useReducedRates;
+    if (showEra) {
+      row.label = `${serviceCode} (${eraLabelForStatus(lineStatus)})`;
+    }
+    row.displayServiceCode = serviceCode;
+    row.paySystemEra = eraLabelForStatus(lineStatus);
 
     row.amount = result.amount;
     row.rateAmount = result.rate;
@@ -635,7 +866,7 @@ export function applyPaySystemToBreakdown({ breakdown, rateProfile, status, shif
     if (result.autoIndirectAmount > 1e-9) {
       autoIndirectTotal += result.autoIndirectAmount;
       autoIndirectLines.push({
-        sourceCode: code,
+        sourceCode: row.label || serviceCode,
         hours: result.autoIndirectHours,
         amount: result.autoIndirectAmount,
         rate: Number(rateProfile.indirectRate || 0) || 0,
@@ -745,5 +976,7 @@ export default {
   estimatePay,
   loadUserPaySystemContext,
   applyPaySystemToBreakdown,
+  resolveMidPeriodRateSplit,
+  eraLabelForStatus,
   PROBATION_DAYS
 };

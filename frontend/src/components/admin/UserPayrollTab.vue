@@ -241,8 +241,9 @@
                 Enrolled in new pay system
               </label>
               <label class="pay-sys-flag">
-                <input type="checkbox" v-model="paySysFlags.waiveProbation" :disabled="paySysFlagsSaving" />
-                Waive 90-day probation
+                <input type="checkbox" v-model="inProbationaryPeriod" :disabled="paySysFlagsSaving" />
+                In 90-day probationary period
+                <span class="pay-sys-flag-hint">New hires stay on probation rates until 90 days after start, or until you uncheck this. Unchecking ends probation as of today — later services pay current rates.</span>
               </label>
               <label class="pay-sys-flag">
                 <input type="checkbox" v-model="paySysFlags.waiveMinimumWorkload" :disabled="paySysFlagsSaving" />
@@ -267,6 +268,7 @@
                 <span class="pay-sys-flag-hint">(rates apply to periods ending on/after this date)</span>
               </label>
             </div>
+            <div v-if="paySysTimelineHint" class="pay-sys-flag-hint" style="margin-top:8px;">{{ paySysTimelineHint }}</div>
             <div class="pay-sys-flags-actions">
               <button
                 type="button"
@@ -1039,11 +1041,46 @@ const paySysFlags = ref({
   spanishBonusEligible: false,
   locationBonusEligible: false,
   probationStartOverride: '',
+  probationEndedOn: '',
   paySystemEffectiveStart: ''
 });
 const paySysFlagsSaving = ref(false);
 const paySysFlagsError = ref('');
 const paySysFlagsSuccess = ref(false);
+
+const inProbationaryPeriod = computed({
+  get: () => !paySysFlags.value.waiveProbation,
+  set: (v) => { paySysFlags.value.waiveProbation = !v; }
+});
+
+const addDaysYmd = (ymd, days) => {
+  const s = String(ymd || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+  const [y, m, d] = s.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + Number(days || 0));
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${dt.getFullYear()}-${mm}-${dd}`;
+};
+
+const paySysTimelineHint = computed(() => {
+  const parts = [];
+  const go = String(paySysFlags.value.paySystemEffectiveStart || '').slice(0, 10);
+  if (go) {
+    const until = addDaysYmd(go, 90);
+    if (until) {
+      parts.push(`Current staff hired before Go are protected from dropping into probation / minimum-workload rates until ${until} (90 days from ${go}).`);
+    }
+  }
+  const ended = String(paySysFlags.value.probationEndedOn || currentCompLevel.value?.probation_ended_on || '').slice(0, 10);
+  if (ended) {
+    parts.push(`Probation ended ${ended}. Services that date and later use current rates; earlier services in the same period stay on probation rates.`);
+  } else if (!paySysFlags.value.waiveProbation) {
+    parts.push('Probation ends automatically 90 days after hire (or the start override). Same CPT codes before/after that date show as separate stub lines.');
+  }
+  return parts.join(' ');
+});
 
 const syncPaySysFlagsFromAssignment = (assignment) => {
   paySysFlags.value = {
@@ -1054,6 +1091,9 @@ const syncPaySysFlagsFromAssignment = (assignment) => {
     locationBonusEligible: !!Number(assignment?.location_bonus_eligible || 0),
     probationStartOverride: assignment?.probation_start_override
       ? String(assignment.probation_start_override).slice(0, 10)
+      : '',
+    probationEndedOn: assignment?.probation_ended_on
+      ? String(assignment.probation_ended_on).slice(0, 10)
       : '',
     paySystemEffectiveStart: assignment?.pay_system_effective_start
       ? String(assignment.pay_system_effective_start).slice(0, 10)
@@ -1094,7 +1134,10 @@ const savePaySysFlags = async () => {
       spanishBonusEligible: !!paySysFlags.value.spanishBonusEligible,
       locationBonusEligible: !!paySysFlags.value.locationBonusEligible,
       probationStartOverride: paySysFlags.value.probationStartOverride || null,
-      paySystemEffectiveStart: paySysFlags.value.paySystemEffectiveStart || null
+      paySystemEffectiveStart: paySysFlags.value.paySystemEffectiveStart || null,
+      probationEndedOn: paySysFlags.value.waiveProbation
+        ? (paySysFlags.value.probationEndedOn || undefined)
+        : null
     });
     currentCompLevel.value = res.data?.assignment || currentCompLevel.value;
     syncPaySysFlagsFromAssignment(currentCompLevel.value);

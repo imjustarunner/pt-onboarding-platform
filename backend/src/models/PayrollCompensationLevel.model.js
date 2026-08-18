@@ -169,6 +169,10 @@ const PayrollCompensationLevel = {
       sets.push('pay_system_effective_start = ?');
       params.push(flags.paySystemEffectiveStart || null);
     }
+    if (flags.probationEndedOn !== undefined) {
+      sets.push('probation_ended_on = ?');
+      params.push(flags.probationEndedOn || null);
+    }
     if (!sets.length) return;
     sets.push('updated_at = CURRENT_TIMESTAMP');
     params.push(agencyId, userId);

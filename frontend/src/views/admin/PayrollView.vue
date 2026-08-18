@@ -3687,10 +3687,31 @@
                             />
                             <span>
                               <strong>{{ r.label }}</strong>
-                              <span class="hint"> ${{ Number(r.amount).toFixed(2) }} per hour</span>
+                              <span class="hint"> ${{ Number(r.amount).toFixed(2) }} per {{ r.unit === 'unit' ? 'unit' : 'hour' }}</span>
                             </span>
                           </label>
                           <div v-if="!(c.payEstimate?.availableRates || []).length" class="hint">No rate-card rates found for this person.</div>
+                          <div class="time-rate-custom">
+                            <div class="hint" style="font-weight: 700;">Or enter a rate</div>
+                            <div class="time-rate-custom-row">
+                              <input
+                                v-model="approvedTimeEditByClaimId[c.id].customRateDraft"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                placeholder="$ / hour"
+                                :disabled="isPeriodPosted || savingApprovedTimeClaimId === c.id"
+                              />
+                              <button
+                                class="btn btn-secondary btn-sm"
+                                type="button"
+                                :disabled="isPeriodPosted || savingApprovedTimeClaimId === c.id"
+                                @click="applyCustomApprovedTimeRate(c.id)"
+                              >
+                                Use
+                              </button>
+                            </div>
+                          </div>
                           <div class="hint" style="margin-top: 8px;">Changing the rate updates the amount before payroll is processed.</div>
                         </div>
                       </td>
@@ -9041,6 +9062,7 @@ const hydrateApprovedTimeEdits = (claims) => {
       rateKey: selected?.key || '',
       rateAmount: selected?.amount ?? '',
       rateLabel: selected?.label || c?.payEstimate?.rateLabel || 'Rate',
+      customRateDraft: '',
       serviceTypeId: Number(c?.payload?.allocations?.[0]?.serviceTypeId || 0) || 0,
       amountManual: false,
       dirty: false
@@ -9062,7 +9084,7 @@ const approvedTimeExpectedPayout = computed(() =>
 const ensureApprovedTimeEdit = (id) => {
   if (!approvedTimeEditByClaimId.value[id]) {
     approvedTimeEditByClaimId.value[id] = {
-      bucket: 'indirect', hours: '', amount: '', rateKey: '', rateAmount: '', rateLabel: 'Rate', serviceTypeId: 0, amountManual: false, dirty: false
+      bucket: 'indirect', hours: '', amount: '', rateKey: '', rateAmount: '', rateLabel: 'Rate', customRateDraft: '', serviceTypeId: 0, amountManual: false, dirty: false
     };
   }
   return approvedTimeEditByClaimId.value[id];
@@ -9114,6 +9136,18 @@ const selectApprovedTimeRate = (id, rate) => {
   row.dirty = true;
   recalcApprovedTimeAmount(id);
   timeRatePickerClaimId.value = null;
+};
+
+const applyCustomApprovedTimeRate = (id) => {
+  const row = ensureApprovedTimeEdit(id);
+  const n = Number(row.customRateDraft);
+  if (!Number.isFinite(n) || n < 0) return;
+  selectApprovedTimeRate(id, {
+    key: 'custom',
+    label: 'Custom rate',
+    amount: Math.round(n * 100) / 100,
+    bucket: row.bucket || 'indirect'
+  });
 };
 
 const saveApprovedTimeClaim = async (c) => {
@@ -17109,13 +17143,19 @@ tr.pto-row-rejected td { background: #fff5f5; opacity: 0.8; }
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
 }
-.time-rate-option {
+.time-rate-custom {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e5e7eb;
+}
+.time-rate-custom-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
-  padding: 6px 0;
-  cursor: pointer;
-  font-size: 13px;
+  margin-top: 4px;
+}
+.time-rate-custom-row input {
+  width: 110px;
 }
 </style>
 

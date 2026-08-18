@@ -63,7 +63,7 @@ export function serviceLines(breakdown) {
   return Object.entries(breakdown)
     .filter(([key]) => !key.startsWith('__'))
     .map(([code, val]) => ({
-      code,
+      code: val?.label || code,
       noNoteUnits: val?.noNoteUnits ?? 0,
       draftUnits: val?.draftUnits ?? 0,
       finalizedUnits: val?.finalizedUnits ?? val?.units ?? 0,

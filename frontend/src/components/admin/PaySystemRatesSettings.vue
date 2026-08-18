@@ -68,7 +68,7 @@
           </label>
           <label class="ps-go-check">
             <input v-model="goWaiveProbation" type="checkbox" :disabled="going" />
-            Waive 90-day probation for enrolled staff
+            Current staff: skip probation rates (they still get 90 days from this start date before minimum-workload rates can apply)
           </label>
           <button
             type="button"
@@ -575,7 +575,9 @@ const runGo = async () => {
     `• ${pendingCount.value} staged level change(s) will be applied\n` +
     '• Staff with a compensation level will be enrolled\n' +
     '• New rates override compensation tables for pay periods ending on/after this date\n' +
-    (goWaiveProbation.value ? '• 90-day probation will be waived for enrolled staff\n' : '')
+    (goWaiveProbation.value
+      ? '• Current enrolled staff skip probation rates and have 90 days from this date before they can drop into minimum-workload rates\n'
+      : '• Enrolled staff will use probation rates until 90 days after their hire date\n')
   )) return;
 
   going.value = true;

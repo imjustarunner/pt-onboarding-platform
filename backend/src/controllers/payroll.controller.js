@@ -5843,6 +5843,24 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
   // Count unpaid notes (rows) from the latest import for this pay period.
   // This is informational only (used for provider-facing notices), and does not affect pay math.
   const unpaidNotesCountsByUserId = new Map(); // userId -> { noNoteNotes, draftNotes, totalNotes }
+  const datedUnitsByUserCode = new Map(); // `${userId}:${CODE}` -> [{ serviceDate, units }]
+  try {
+    const datedRows = await PayrollImportRow.listPayableUnitsByUserCodeDate(payrollPeriodId);
+    for (const r of datedRows || []) {
+      const uid = Number(r.user_id || 0);
+      const code = String(r.service_code || '').trim().toUpperCase();
+      if (!uid || !code) continue;
+      const key = `${uid}:${code}`;
+      const list = datedUnitsByUserCode.get(key) || [];
+      list.push({
+        serviceDate: String(r.service_date || '').slice(0, 10),
+        units: Number(r.payable_units || 0) || 0
+      });
+      datedUnitsByUserCode.set(key, list);
+    }
+  } catch {
+    datedUnitsByUserCode.clear();
+  }
   try {
     const payrollImportId = await latestImportIdForPeriod(payrollPeriodId);
     if (payrollImportId) {
@@ -6946,6 +6964,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       const payCtx = await loadUserPaySystemContext({
         agencyId,
         userId,
+        periodStart,
         periodEnd,
         benefitTierLevel,
         graceActive: !!graceActive,
@@ -6954,12 +6973,19 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       if (payCtx?.enabled && payCtx.rateProfile) {
         const shiftDirect = Number(shiftHours?.directHours || 0) || 0;
         const shiftIndirect = Number(shiftHours?.indirectHours || 0) || 0;
+        const datedForUser = new Map();
+        for (const [key, list] of datedUnitsByUserCode.entries()) {
+          const prefix = `${Number(userId)}:`;
+          if (!String(key).startsWith(prefix)) continue;
+          datedForUser.set(String(key).slice(prefix.length), list);
+        }
         const meta = applyPaySystemToBreakdown({
           breakdown,
           rateProfile: payCtx.rateProfile,
           status: payCtx.status,
           shiftDirectHours: shiftDirect,
-          shiftIndirectHours: shiftIndirect
+          shiftIndirectHours: shiftIndirect,
+          datedUnitsByCode: datedForUser
         });
 
         // Rebuild service subtotal from re-rated lines (exclude meta keys and AUTO INDIRECT).
@@ -18436,17 +18462,18 @@ export const updateMyTimeClaim = async (req, res, next) => {
   }
 };
 
-function buildTimeClaimAvailableRates({ rateCard, titles = {}, payload = {} }) {
+function buildTimeClaimAvailableRates({ rateCard, titles = {}, payload = {}, extraRates = [] }) {
   const rates = [];
-  const push = (key, label, bucket, amount) => {
+  const push = (key, label, bucket, amount, extra = {}) => {
     const n = Number(amount || 0);
     if (!(n > 0)) return;
+    if (rates.some((r) => r.key === key)) return;
     rates.push({
       key,
       label,
       bucket,
       amount: Math.round(n * 100) / 100,
-      unit: 'hour'
+      unit: extra.unit || 'hour'
     });
   };
   push('direct', 'Therapy Rate', 'direct', rateCard?.direct_rate);
@@ -18456,6 +18483,9 @@ function buildTimeClaimAvailableRates({ rateCard, titles = {}, payload = {} }) {
   push('other_2', titles.title2 || 'Other 2', b2 === 'direct' ? 'direct' : (b2 === 'other' ? 'other_1' : 'indirect'), rateCard?.other_rate_2);
   const b3 = String(rateCard?.other_rate_3_bucket || 'other').toLowerCase();
   push('other_3', titles.title3 || 'Other 3', b3 === 'direct' ? 'direct' : (b3 === 'other' ? 'other_1' : 'indirect'), rateCard?.other_rate_3);
+  for (const extra of extraRates || []) {
+    push(extra.key, extra.label, extra.bucket || 'indirect', extra.amount, { unit: extra.unit });
+  }
   const storedKey = String(payload?.payRateKey || '').trim();
   if (storedKey && !rates.some((r) => r.key === storedKey) && Number(payload?.payRateAmount) > 0) {
     rates.unshift({
@@ -18545,10 +18575,49 @@ export const listTimeClaims = async (req, res, next) => {
         } else if (bucketHint === 'other_1') {
           rateLabel = `${otherTitles.title1} rate`;
         }
+        const extraRates = [];
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const perCodeRates = await PayrollRate.listForUser(agencyId, Number(row.user_id));
+          const seenCodes = new Set();
+          for (const rr of perCodeRates || []) {
+            const sc = String(rr.service_code || '').trim().toUpperCase();
+            if (!sc || seenCodes.has(sc)) continue;
+            seenCodes.add(sc);
+            const unitRaw = String(rr.rate_unit || 'per_unit').trim().toLowerCase();
+            const unitLabel = unitRaw === 'per_hour' ? 'hour' : 'unit';
+            extraRates.push({
+              key: `comp_${sc}`,
+              label: `${sc} (compensation table)`,
+              bucket: 'direct',
+              amount: Number(rr.rate_amount || 0),
+              unit: unitLabel
+            });
+          }
+        } catch { /* ignore */ }
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const payCtx = await loadUserPaySystemContext({
+            agencyId,
+            userId: Number(row.user_id),
+            periodEnd: new Date()
+          });
+          const rp = payCtx?.rateProfile;
+          const reduced = !!payCtx?.status?.useReducedRates;
+          if (payCtx?.enabled && rp) {
+            extraRates.push(
+              { key: 'ps_credit', label: reduced ? 'Pay system credit (probation/MWR)' : 'Pay system credit', bucket: 'direct', amount: reduced ? (rp.creditRateProbation ?? rp.creditRate) : rp.creditRate },
+              { key: 'ps_hcode', label: reduced ? 'Pay system H-code (probation/MWR)' : 'Pay system H-code', bucket: 'direct', amount: reduced ? (rp.hcodeRateProbation ?? rp.hcodeRate) : rp.hcodeRate },
+              { key: 'ps_indirect', label: 'Pay system indirect', bucket: 'indirect', amount: rp.indirectRate },
+              { key: 'ps_support', label: 'Pay system support activity', bucket: 'indirect', amount: rp.supportActivityRate }
+            );
+          }
+        } catch { /* ignore */ }
         const availableRates = buildTimeClaimAvailableRates({
           rateCard: rateCardForPay,
           titles: otherTitles,
-          payload
+          payload,
+          extraRates
         });
         const typeId = Number(payload?.allocations?.[0]?.serviceTypeId || 0);
         if (typeId > 0 && row.user_id) {
@@ -21444,7 +21513,26 @@ export const getMyCurrentTier = async (req, res, next) => {
     const tier = latest?.breakdown?.__tier || null;
     const graceActive = Number(latest?.grace_active || 0) ? true : false;
     const tierLevel = Number(tier?.tierLevel || 0);
-    const statusKind = graceActive ? 'grace' : (tierLevel >= 1 ? 'current' : (tier ? 'ooc' : null));
+    let statusKind = graceActive ? 'grace' : (tierLevel >= 1 ? 'current' : (tier ? 'ooc' : null));
+    let paySystem = null;
+    try {
+      const payCtx = await loadUserPaySystemContext({
+        agencyId,
+        userId,
+        periodEnd: latest?.period_end || new Date()
+      });
+      if (payCtx?.enabled && payCtx.status) {
+        paySystem = {
+          inProbation: !!payCtx.status.inProbation,
+          isMinimumWorkload: !!payCtx.status.isMinimumWorkload,
+          probationEnd: payCtx.status.probationEnd || null,
+          inInitiationProtection: !!payCtx.status.inInitiationProtection,
+          initiationProtectionEnd: payCtx.status.initiationProtectionEnd || null
+        };
+        if (payCtx.status.inProbation && statusKind !== 'grace') statusKind = 'probation';
+        else if (payCtx.status.isMinimumWorkload && statusKind !== 'grace') statusKind = 'ooc';
+      }
+    } catch { /* optional overlay */ }
     res.json({
       ok: true,
       agencyId,
@@ -21454,8 +21542,11 @@ export const getMyCurrentTier = async (req, res, next) => {
       graceActive,
       statusKind,
       tierLevel,
-      label: tierLevel ? `Tier ${tierLevel}` : (tier ? 'Out of Compliance' : ''),
-      tier
+      label: paySystem?.inProbation
+        ? 'Probation'
+        : (tierLevel ? `Tier ${tierLevel}` : (tier ? 'Out of Compliance' : '')),
+      tier,
+      paySystem
     });
   } catch (e) {
     next(e);

@@ -322,6 +322,15 @@ export const updateUserPaySystemFlags = async (req, res, next) => {
       probationStartOverride: body.probationStartOverride !== undefined
         ? (body.probationStartOverride || null)
         : undefined,
+      probationEndedOn: body.probationEndedOn !== undefined
+        ? (body.probationEndedOn || null)
+        : (body.waiveProbation === true
+          ? (existing.probation_ended_on
+            ? String(existing.probation_ended_on).slice(0, 10)
+            : (Number(existing.waive_probation) === 1
+              ? undefined
+              : new Date().toISOString().slice(0, 10)))
+          : (body.waiveProbation === false ? null : undefined)),
       spanishBonusEligible: body.spanishBonusEligible !== undefined ? !!body.spanishBonusEligible : undefined,
       locationBonusEligible: body.locationBonusEligible !== undefined ? !!body.locationBonusEligible : undefined,
       paySystemEffectiveStart: body.paySystemEffectiveStart !== undefined
