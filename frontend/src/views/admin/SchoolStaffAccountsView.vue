@@ -83,7 +83,8 @@
       </div>
 
       <p class="ssa-note muted">
-        Use <strong>Never logged in only</strong> to see staff who still need a password. Filter by <strong>school</strong> to edit <strong>Role/Title</strong> inline (saved on blur). You can set a temporary password yourself, or send a staggered Account Access email (recovery link or portal access) so you do not have to BCC them separately.
+        Use <strong>Never logged in only</strong> to see staff who still need a password. Filter by <strong>school</strong> to edit <strong>Role/Title</strong> inline (saved on blur). You can set a temporary password yourself, or send a staggered Account Access email so you do not have to BCC them separately.
+        For people who have never logged in, use <strong>Set password / first login</strong> (portal access) — not Recovery.
         Portal access emails that include a line like <strong>Temp password: …</strong> must be synced to accounts — sending the email alone does not save the password on this page until you sync.
       </p>
 
@@ -219,12 +220,12 @@
         <template v-if="accessPreview">
           <div class="ssa-access-type">
             <label class="ssa-radio">
-              <input v-model="accessEmailType" type="radio" value="recovery" @change="onAccessTypeChange" />
-              Recovery email (set-password link)
+              <input v-model="accessEmailType" type="radio" value="portal_access" @change="onAccessTypeChange" />
+              Set password / first login (Access your {{ agencyName }} portal)
             </label>
             <label class="ssa-radio">
-              <input v-model="accessEmailType" type="radio" value="portal_access" @change="onAccessTypeChange" />
-              Access your {{ agencyName }} portal
+              <input v-model="accessEmailType" type="radio" value="recovery" @change="onAccessTypeChange" />
+              Recovery (already logged in before)
             </label>
           </div>
 
@@ -464,7 +465,7 @@ const accessSavingTemplate = ref(false);
 const accessTesting = ref(false);
 const accessError = ref('');
 const accessTestMsg = ref('');
-const accessEmailType = ref('recovery');
+const accessEmailType = ref('portal_access');
 const accessPreview = ref(null);
 const accessSubject = ref('');
 const accessBody = ref('');

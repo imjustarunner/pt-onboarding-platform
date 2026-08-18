@@ -15,7 +15,15 @@ export function sqlUnicodeNe(leftSql, rightSql) {
   return `${sqlCollate(leftSql)} <> ${sqlCollate(rightSql)}`;
 }
 
-/** `column = ?` that cannot mix connection 0900 with a unicode_ci column. */
+/** `column IN (?,?,…)` that cannot mix connection 0900 with a unicode_ci column. */
+export function sqlUnicodeIn(columnSql, count) {
+  const n = Math.max(0, Number(count) || 0);
+  const placeholders = Array.from(
+    { length: n },
+    () => `CONVERT(? USING utf8mb4) COLLATE ${MYSQL_UNICODE_COLLATION}`
+  ).join(', ');
+  return `${sqlCollate(columnSql)} IN (${placeholders})`;
+}
 export function sqlUnicodeParam(columnSql) {
   return `${sqlCollate(columnSql)} = CONVERT(? USING utf8mb4) COLLATE ${MYSQL_UNICODE_COLLATION}`;
 }

@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import { sqlNonEmpty, sqlUnicodeIn } from '../utils/mysqlCollation.js';
 
 export function normalizeSchoolStaffContactEmail(value) {
   const out = String(value || '').trim().toLowerCase();
@@ -183,14 +184,13 @@ export async function resolveSchoolStaffRoleTitleForUser(user) {
   }
   if (!emails.size) return null;
 
-  const placeholders = [...emails].map(() => '?').join(',');
   try {
     const [rows] = await pool.execute(
       `SELECT sc.role_title
        FROM school_contacts sc
        INNER JOIN user_agencies ua ON ua.agency_id = sc.school_organization_id AND ua.user_id = ?
-       WHERE LOWER(TRIM(COALESCE(sc.email, ''))) IN (${placeholders})
-         AND COALESCE(sc.role_title, '') <> ''
+       WHERE ${sqlUnicodeIn("LOWER(TRIM(COALESCE(sc.email, '')))", emails.size)}
+         AND ${sqlNonEmpty('sc.role_title')}
        ORDER BY sc.updated_at DESC, sc.id DESC
        LIMIT 1`,
       [userId, ...emails]
@@ -198,6 +198,7 @@ export async function resolveSchoolStaffRoleTitleForUser(user) {
     return String(rows?.[0]?.role_title || '').trim() || null;
   } catch (err) {
     if (err?.code === 'ER_NO_SUCH_TABLE' || err?.code === 'ER_BAD_FIELD_ERROR') return null;
+    if (String(err?.message || '').toLowerCase().includes('collation')) return null;
     throw err;
   }
 }

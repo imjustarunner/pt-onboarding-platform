@@ -4,6 +4,7 @@ import {
   MYSQL_SET_NAMES_SQL,
   sqlNonEmpty,
   sqlUnicodeEq,
+  sqlUnicodeIn,
   sqlUnicodeLiteral,
   sqlUnicodeNe,
   sqlUnicodeParam
@@ -25,6 +26,13 @@ describe('mysqlCollation helpers', () => {
     assert.equal(
       sqlUnicodeParam('public_key'),
       'public_key COLLATE utf8mb4_unicode_ci = CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci'
+    );
+  });
+
+  it('binds IN lists through CONVERT so connection 0900 cannot mix', () => {
+    assert.equal(
+      sqlUnicodeIn('LOWER(sc.email)', 2),
+      'LOWER(sc.email) COLLATE utf8mb4_unicode_ci IN (CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci, CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci)'
     );
   });
 

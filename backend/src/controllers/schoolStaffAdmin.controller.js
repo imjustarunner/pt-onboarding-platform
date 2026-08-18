@@ -5,6 +5,13 @@ import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.mod
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import { setSchoolStaffRoleTitleForOrg, syncSchoolStaffUserTitle } from '../services/schoolStaffContactRole.service.js';
+import {
+  sqlNonEmpty,
+  sqlUnicodeEq,
+  sqlUnicodeIn,
+  sqlUnicodeLiteral,
+  sqlUnicodeNe
+} from '../utils/mysqlCollation.js';
 
 const TEMP_PASSWORD_SET_ACTION_TYPES = [
   'school_staff_temporary_password_set',
@@ -50,7 +57,6 @@ async function fetchLatestTemporaryPasswordSetEvents(userIds) {
   if (!ids.length) return new Map();
 
   const placeholders = ids.map(() => '?').join(',');
-  const actionPlaceholders = TEMP_PASSWORD_SET_ACTION_TYPES.map(() => '?').join(', ');
 
   try {
     const [rows] = await pool.execute(
@@ -60,7 +66,7 @@ async function fetchLatestTemporaryPasswordSetEvents(userIds) {
          SELECT user_id, MAX(id) AS max_id
          FROM user_activity_log
          WHERE user_id IN (${placeholders})
-           AND action_type IN (${actionPlaceholders})
+           AND ${sqlUnicodeIn('action_type', TEMP_PASSWORD_SET_ACTION_TYPES.length)}
          GROUP BY user_id
        ) latest ON latest.max_id = ual.id`,
       [...ids, ...TEMP_PASSWORD_SET_ACTION_TYPES]
@@ -210,7 +216,19 @@ const assertManageableAgency = async (req, agencyId) => {
 };
 
 async function fetchAgencySchoolStaffRows(agencyId) {
-  const baseSelect = `SELECT
+  const emailMatch = sqlUnicodeEq(
+    "LOWER(TRIM(COALESCE(sc.email, '')))",
+    "LOWER(TRIM(COALESCE(u.email, '')))"
+  );
+  const workEmailMatch = sqlUnicodeEq(
+    "LOWER(TRIM(COALESCE(sc.email, '')))",
+    "LOWER(TRIM(COALESCE(u.work_email, '')))"
+  );
+  const schoolTypeIsSchool = sqlUnicodeLiteral("LOWER(COALESCE(school.organization_type, ''))", 'school');
+  const roleIsSchoolStaff = sqlUnicodeLiteral("LOWER(COALESCE(u.role, ''))", 'school_staff');
+  const statusNotArchived = sqlUnicodeNe("UPPER(COALESCE(u.status, ''))", "'ARCHIVED'");
+
+  const selectCore = `SELECT
          u.id,
          u.email,
          u.work_email,
@@ -225,45 +243,62 @@ async function fetchAgencySchoolStaffRows(agencyId) {
          u.created_at,
          u.title AS user_title,
          school.id AS school_id,
-         school.name AS school_name,
-         sc.role_title AS contact_role_title
-       FROM users u
-       INNER JOIN user_agencies ua ON ua.user_id = u.id
-       INNER JOIN agencies school ON school.id = ua.agency_id
-         AND LOWER(COALESCE(school.organization_type, '')) = 'school'
-       LEFT JOIN school_contacts sc ON sc.school_organization_id = school.id
+         school.name AS school_name`;
+  const contactJoin = `LEFT JOIN school_contacts sc ON sc.school_organization_id = school.id
          AND (
-           LOWER(TRIM(COALESCE(sc.email, ''))) = LOWER(TRIM(COALESCE(u.email, '')))
+           ${emailMatch}
            OR (
-             COALESCE(u.work_email, '') <> ''
-             AND LOWER(TRIM(COALESCE(sc.email, ''))) = LOWER(TRIM(COALESCE(u.work_email, '')))
+             ${sqlNonEmpty('u.work_email')}
+             AND ${workEmailMatch}
            )
          )`;
-
-  const whereClause = `WHERE LOWER(COALESCE(u.role, '')) = 'school_staff'
-         AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+  const fromCore = `FROM users u
+       INNER JOIN user_agencies ua ON ua.user_id = u.id
+       INNER JOIN agencies school ON school.id = ua.agency_id
+         AND ${schoolTypeIsSchool}`;
+  const whereClause = `WHERE ${roleIsSchoolStaff}
+         AND ${statusNotArchived}
          AND (u.is_archived = FALSE OR u.is_archived IS NULL)`;
-
   const affiliationJoin = `INNER JOIN organization_affiliations oa ON oa.organization_id = school.id
          AND oa.agency_id = ?
          AND oa.is_active = 1`;
   const legacyJoin = `INNER JOIN agency_schools ash ON ash.school_id = school.id AND ash.agency_id = ?`;
+  const orderClause = 'ORDER BY u.last_name ASC, u.first_name ASC, school.name ASC';
+
+  const withContacts = (joinSql) =>
+    `${selectCore}, sc.role_title AS contact_role_title ${fromCore} ${joinSql} ${contactJoin} ${whereClause} ${orderClause}`;
+  const withoutContacts = (joinSql) =>
+    `${selectCore}, NULL AS contact_role_title ${fromCore} ${joinSql} ${whereClause} ${orderClause}`;
+
+  const isRetryableListError = (e) => {
+    const code = String(e?.code || '').trim();
+    if (code === 'ER_NO_SUCH_TABLE' || code === 'ER_BAD_FIELD_ERROR') return true;
+    const msg = String(e?.message || '').toLowerCase();
+    return msg.includes('collation') || msg.includes('school_contacts');
+  };
 
   try {
-    const [rows] = await pool.execute(
-      `${baseSelect} ${affiliationJoin} ${whereClause}
-       ORDER BY u.last_name ASC, u.first_name ASC, school.name ASC`,
-      [agencyId]
-    );
+    const [rows] = await pool.execute(withContacts(affiliationJoin), [agencyId]);
     return rows || [];
   } catch (e) {
-    if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-    const [rows] = await pool.execute(
-      `${baseSelect} ${legacyJoin} ${whereClause}
-       ORDER BY u.last_name ASC, u.first_name ASC, school.name ASC`,
-      [agencyId]
-    );
-    return rows || [];
+    if (!isRetryableListError(e) && e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') {
+      try {
+        const [rows] = await pool.execute(withContacts(legacyJoin), [agencyId]);
+        return rows || [];
+      } catch (legacyErr) {
+        if (!isRetryableListError(legacyErr)) throw legacyErr;
+      }
+    }
+    try {
+      const [rows] = await pool.execute(withoutContacts(affiliationJoin), [agencyId]);
+      return rows || [];
+    } catch (affErr) {
+      if (!isRetryableListError(affErr) && affErr?.code !== 'ER_NO_SUCH_TABLE' && affErr?.code !== 'ER_BAD_FIELD_ERROR') {
+        throw affErr;
+      }
+      const [rows] = await pool.execute(withoutContacts(legacyJoin), [agencyId]);
+      return rows || [];
+    }
   }
 }
 
