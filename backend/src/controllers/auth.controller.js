@@ -2740,7 +2740,7 @@ const resolveRecoverySenderIdentity = async (agencyId) => {
   return await resolveSenderIdentityForSend({
     agencyId: agencyId ? Number(agencyId) : null,
     templateType: 'password_reset',
-    preferredKeys: ['login_recovery', 'notifications']
+    preferredKeys: ['technology', 'login_recovery', 'notifications']
   });
 };
 

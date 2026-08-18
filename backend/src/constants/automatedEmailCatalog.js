@@ -12,10 +12,10 @@ export const FALLBACK_SENDER_FLAG = {
 };
 
 export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
-  password_reset: ['login_recovery', 'notifications'],
-  admin_initiated_password_reset: ['login_recovery', 'notifications'],
-  school_staff_account_recovery: ['login_recovery', 'notifications'],
-  school_staff_portal_access: ['login_recovery', 'notifications'],
+  password_reset: ['technology', 'login_recovery', 'notifications'],
+  admin_initiated_password_reset: ['technology', 'login_recovery', 'notifications'],
+  school_staff_account_recovery: ['technology', 'login_recovery', 'notifications'],
+  school_staff_portal_access: ['technology', 'login_recovery', 'notifications'],
   school_roi_signing: ['school_intake', 'intake'],
   school_roi_signer_completion: ['school_intake', 'intake'],
   school_roi_release: ['school_intake', 'intake'],
@@ -24,7 +24,7 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   intake_summary_pdf_copy: ['school_intake', 'intake', 'notifications'],
   co_guardian_invite: ['school_intake', 'intake', 'notifications'],
   adaptive_full_intake_invite: ['intake', 'notifications'],
-  guardian_portal_login_info: ['login_recovery', 'notifications'],
+  guardian_portal_login_info: ['technology', 'login_recovery', 'notifications'],
   manual: ['notifications'],
   job_applications: ['job_applications', 'notifications'],
   hiring_references: ['hiring_references', 'notifications'],

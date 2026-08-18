@@ -78,7 +78,7 @@
         </div>
         <div class="hint">
           Key helper coverage currently includes:
-          <code>schoolreply</code>, <code>school_intake</code>, <code>intake</code>, <code>login_recovery</code>, <code>notifications</code>,
+          <code>schoolreply</code>, <code>school_intake</code>, <code>intake</code>, <code>login_recovery</code>, <code>technology</code>, <code>notifications</code>,
           <code>hiring_references</code>, <code>job_applications</code>, <code>system</code>, <code>default</code>.
         </div>
 
@@ -560,6 +560,7 @@ const SYSTEM_IDENTITY_KEYS = [
   { value: 'school_intake', label: 'School Intake (school packet + ROI sends)' },
   { value: 'intake', label: 'Intake (general intake sends)' },
   { value: 'login_recovery', label: 'Login Recovery (passwordless/reset help)' },
+  { value: 'technology', label: 'Technology Team (ITSCO password reset + tech notices)' },
   { value: 'notifications', label: 'Notifications (general system notifications)' },
   { value: 'hiring_references', label: 'Hiring references (reference forms + reminders)' },
   { value: 'job_applications', label: 'Job applications (applicant confirmation email)' },
@@ -582,6 +583,10 @@ const IDENTITY_KEY_USAGE = {
   login_recovery: {
     usage: 'Primary sender for reset/passwordless login help emails.',
     refs: 'Used in auth, user admin, and school portal password reset flows.'
+  },
+  technology: {
+    usage: 'ITSCO Technology Team mailbox for forgot-password and staff-sent reset links.',
+    refs: 'Sends from Technology@itsco.health. Edit the signature image on this identity to change what every Technology Team email includes.'
   },
   notifications: {
     usage: 'General fallback sender for automated notices when a more specific key is not found.',

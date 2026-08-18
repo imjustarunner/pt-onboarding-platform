@@ -9592,7 +9592,7 @@ export const sendResetPasswordLink = async (req, res, next) => {
           const resolved = await resolveSenderIdentityForSend({
             agencyId,
             templateType: 'admin_initiated_password_reset',
-            preferredKeys: ['login_recovery', 'notifications']
+            preferredKeys: ['technology', 'login_recovery', 'notifications']
           });
           const sendResult = resolved?.identity?.id
             ? await sendEmailFromIdentity({

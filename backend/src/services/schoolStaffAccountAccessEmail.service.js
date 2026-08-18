@@ -186,7 +186,7 @@ export async function resolveAccessEmailSender(agencyId, emailType, senderIdenti
   return await resolveSenderIdentityForSend({
     agencyId,
     templateType: emailType,
-    preferredKeys: ['login_recovery', 'notifications']
+    preferredKeys: ['technology', 'login_recovery', 'notifications']
   });
 }
 

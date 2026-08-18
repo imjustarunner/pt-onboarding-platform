@@ -42,6 +42,8 @@ import {
   supervisorCanAccessClientInOrg
 } from '../utils/supervisorSchoolAccess.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import { resolveSchoolStaffTemporaryPassword } from '../utils/schoolStaffTempPassword.js';
 import { flaggedClientIdsFromGroups, groupClientsByFirstLastName } from '../utils/clientNameDuplicate.js';
 import {
   resolveSchoolStaffWaiverStatus,
@@ -3917,32 +3919,6 @@ export const removeSchoolStaff = async (req, res, next) => {
 };
 
 /**
- * Generate a temporary password for a school staff member (school portal).
-const CUSTOM_SCHOOL_STAFF_TEMP_PASSWORD_ROLES = new Set(['admin', 'super_admin', 'support']);
-
-function actorCanSetCustomSchoolStaffTempPassword(actorRole) {
-  return CUSTOM_SCHOOL_STAFF_TEMP_PASSWORD_ROLES.has(String(actorRole || '').toLowerCase());
-}
-
-function resolveSchoolStaffTemporaryPassword({ actorRole, requestedPassword, minLength = 8 }) {
-  const requested = String(requestedPassword || '').trim();
-  if (!requested) return { ok: true, password: null };
-  if (!actorCanSetCustomSchoolStaffTempPassword(actorRole)) {
-    return { ok: true, password: null };
-  }
-  if (requested.length < minLength) {
-    return { ok: false, error: `Temporary password must be at least ${minLength} characters` };
-  }
-  if (requested.length > 128) {
-    return { ok: false, error: 'Temporary password must be no more than 128 characters' };
-  }
-  if (!/[a-zA-Z]/.test(requested)) {
-    return { ok: false, error: 'Temporary password must contain at least one letter' };
-  }
-  return { ok: true, password: requested };
-}
-
-/**
  * POST /api/school-portal/:organizationId/school-staff/:userId/send-reset-password
  * School Admins and agency backoffice roles (admin, super_admin, support, etc.) can reset
  * passwords for school staff from the school portal.
@@ -4096,6 +4072,233 @@ export const sendSchoolStaffResetPassword = async (req, res, next) => {
         'On first login they will be prompted to choose a new permanent password.',
         `The temporary password expires in ${expiresInHours} hours.`
       ]
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/school-portal/:organizationId/school-staff/:userId/issue-reset-link
+ * Copy or email a password-reset link (does not replace their current password).
+ * Body: { sendEmail?: boolean }
+ */
+export const issueSchoolStaffResetLink = async (req, res, next) => {
+  try {
+    const { organizationId, userId: targetUserIdParam } = req.params;
+    const orgId = parseInt(organizationId, 10);
+    const targetUserId = parseInt(targetUserIdParam, 10);
+    if (!orgId || !targetUserId) {
+      return res.status(400).json({ error: { message: 'Invalid organizationId or userId' } });
+    }
+
+    const actorId = req.user?.id;
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    const actorEmail = req.user?.email || req.user?.username || null;
+    const sendEmail = req.body?.sendEmail === true;
+
+    const isAgencyAdmin =
+      actorRole === 'super_admin' ||
+      actorRole === 'admin' ||
+      actorRole === 'staff' ||
+      actorRole === 'support' ||
+      actorRole === 'clinical_practice_assistant' ||
+      actorRole === 'provider_plus';
+    const actorFlags = actorRole === 'school_staff'
+      ? await getActorSchoolRoleFlags({ actorUserId: actorId, actorEmail, orgId })
+      : { isSchoolAdmin: false };
+    const isSchoolAdmin = actorRole === 'school_staff' && actorFlags.isSchoolAdmin === true;
+
+    if (!isAgencyAdmin && !isSchoolAdmin) {
+      return res.status(403).json({
+        error: { message: 'Only a School Admin or agency admin/staff can issue school staff reset links' }
+      });
+    }
+
+    if (!isAgencyAdmin) {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({
+        userId: actorId,
+        role: actorRole,
+        user: req.user,
+        schoolOrganizationId: orgId
+      });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    if (targetUserId === actorId) {
+      return res.status(400).json({ error: { message: 'You cannot reset your own password from this screen. Use your account settings instead.' } });
+    }
+
+    const user = await User.findById(targetUserId);
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+    if (String(user.role || '').toLowerCase() !== 'school_staff') {
+      return res.status(400).json({ error: { message: 'Only school_staff users can receive reset links via this endpoint' } });
+    }
+
+    const membership = await User.getAgencyMembership(targetUserId, orgId);
+    if (!membership) {
+      return res.status(400).json({ error: { message: 'User is not assigned to this school' } });
+    }
+
+    const statusLower = String(user.status || '').toLowerCase();
+    if (statusLower === 'archived') {
+      return res.status(400).json({ error: { message: 'Cannot reset password for an archived user' } });
+    }
+    if (statusLower === 'pending' || statusLower === 'pending_setup') {
+      return res.status(400).json({
+        error: { message: 'Use Activate for pending staff. Password reset links are for accounts that already exist.' }
+      });
+    }
+
+    const expiresInHours = 48;
+    const purpose = String(user.passwordless_token_purpose || '').toLowerCase();
+    const expiresAt = user.passwordless_token_expires_at ? new Date(user.passwordless_token_expires_at) : null;
+    const now = new Date();
+    const hasValidExistingReset =
+      user.passwordless_token &&
+      purpose === 'reset' &&
+      expiresAt &&
+      expiresAt.getTime() > now.getTime();
+
+    let tokenResult;
+    let reused = false;
+    if (hasValidExistingReset) {
+      tokenResult = {
+        token: user.passwordless_token,
+        expiresAt: user.passwordless_token_expires_at,
+        expiresInHours: Math.max(1, Math.round((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60)))
+      };
+      reused = true;
+    } else {
+      tokenResult = await User.generatePasswordlessToken(targetUserId, expiresInHours, 'reset');
+      tokenResult.expiresInHours = expiresInHours;
+    }
+
+    const userAgencies = await User.getAgencies(targetUserId);
+    const resetLink = buildPublicAppUrl(userAgencies?.[0], `reset-password/${tokenResult.token}`);
+
+    const ActivityLogService = (await import('../services/activityLog.service.js')).default;
+    ActivityLogService.logActivity(
+      {
+        actionType: 'password_reset_link_sent',
+        userId: targetUserId,
+        metadata: {
+          performedByUserId: actorId,
+          performedByEmail: actorEmail,
+          source: isAgencyAdmin ? 'school_portal_agency_admin' : 'school_portal_school_admin',
+          sendEmail,
+          expiresAt: tokenResult.expiresAt,
+          expiresInHours: tokenResult.expiresInHours
+        }
+      },
+      req
+    );
+
+    let emailSent = false;
+    let emailError = null;
+    if (sendEmail) {
+      const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
+      const CommunicationLoggingService = (await import('../services/communicationLogging.service.js')).default;
+      const { sendEmailFromIdentity } = await import('../services/unifiedEmail/unifiedEmailSender.service.js');
+      const { resolveSenderIdentityForSend } = await import('../services/emailSenderIdentityResolver.service.js');
+      const EmailService = (await import('../services/email.service.js')).default;
+
+      const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+      const agencyId = activeAgencyId || userAgencies?.[0]?.id || null;
+      const agency = agencyId ? await Agency.findById(agencyId) : null;
+      const to = [user.email, user.username, user.work_email, user.personal_email]
+        .filter(Boolean)
+        .map((e) => String(e).trim().toLowerCase())
+        .find((e) => e.includes('@'));
+      if (!to) {
+        return res.status(400).json({ error: { message: 'This staff member does not have an email address to send to.' } });
+      }
+      let subject = 'Reset your password';
+      const junkNotice = 'Important: this message often lands in Junk or Spam. Please check Junk, move it to Inbox if you find it there, and mark the sender as safe so you do not miss future messages from us.';
+      let body = `Reset your password using this link (expires in ${tokenResult.expiresInHours} hours):\n${resetLink}\n\n${junkNotice}\n\nIf you did not request this, you can ignore this email.`;
+      try {
+        const template =
+          (await EmailTemplateService.getTemplateForAgency(agencyId, 'admin_initiated_password_reset')) ||
+          (await EmailTemplateService.getTemplateForAgency(agencyId, 'password_reset'));
+        if (template?.body) {
+          const params = await EmailTemplateService.collectParameters(user, agency, {
+            passwordlessToken: tokenResult.token,
+            senderName: req.user.first_name || req.user.email || 'Admin'
+          });
+          const rendered = EmailTemplateService.renderTemplate(template, params);
+          subject = rendered.subject || subject;
+          body = rendered.body || body;
+          if (!String(body).includes('Junk')) {
+            body = `${body}\n\n${junkNotice}`;
+          }
+        }
+      } catch {
+        // keep default subject/body
+      }
+      try {
+        const comm = await CommunicationLoggingService.logGeneratedCommunication({
+          userId: user.id,
+          agencyId,
+          templateType: 'admin_initiated_password_reset',
+          templateId: null,
+          subject,
+          body,
+          generatedByUserId: actorId,
+          channel: 'email',
+          recipientAddress: to
+        }).catch(() => null);
+        const resolved = await resolveSenderIdentityForSend({
+          agencyId,
+          templateType: 'admin_initiated_password_reset',
+          preferredKeys: ['technology', 'login_recovery', 'notifications']
+        });
+        const sendResult = resolved?.identity?.id
+          ? await sendEmailFromIdentity({
+              senderIdentityId: resolved.identity.id,
+              to,
+              subject,
+              text: body,
+              html: null,
+              source: 'manual',
+              templateType: 'admin_initiated_password_reset',
+              usedFallbackSender: false
+            })
+          : await EmailService.sendEmail({
+              to,
+              subject,
+              text: body,
+              html: null,
+              fromName: 'ITSCO Technology Team',
+              fromAddress: 'Technology@itsco.health',
+              replyTo: 'Technology@itsco.health',
+              source: 'manual',
+              agencyId: agencyId || null,
+              templateType: 'admin_initiated_password_reset',
+              usedFallbackSender: true
+            });
+        if (comm?.id && sendResult?.id) {
+          await CommunicationLoggingService.markAsSent(comm.id, sendResult.id, {
+            fromEmail: resolved?.identity?.from_email || 'Technology@itsco.health'
+          }).catch(() => {});
+        }
+        emailSent = true;
+      } catch (err) {
+        emailError = err?.message || 'Failed to send reset email';
+        console.error('[issueSchoolStaffResetLink] Failed to send email:', err);
+      }
+    }
+
+    res.json({
+      ok: true,
+      tokenLink: resetLink,
+      expiresAt: tokenResult.expiresAt,
+      expiresInHours: tokenResult.expiresInHours,
+      reused,
+      emailSent,
+      emailError,
+      message: sendEmail
+        ? (emailSent ? 'Password reset link emailed to the staff member.' : (emailError || 'Reset link created but the email did not send.'))
+        : (reused ? 'Existing reset link is still valid.' : 'Password reset link created.')
     });
   } catch (e) {
     next(e);

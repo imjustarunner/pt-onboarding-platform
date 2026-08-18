@@ -8,6 +8,7 @@ import {
   listSchoolStaff,
   removeSchoolStaff,
   sendSchoolStaffResetPassword,
+  issueSchoolStaffResetLink,
   activateSchoolStaff,
   addSchoolStaff,
   updateSchoolStaff,
@@ -180,6 +181,7 @@ router.get('/:organizationId/school-staff', authenticate, listSchoolStaff);
 router.delete('/:organizationId/school-staff/:userId', authenticate, removeSchoolStaff);
 router.put('/:organizationId/school-staff/:userId', authenticate, updateSchoolStaff);
 router.post('/:organizationId/school-staff/:userId/send-reset-password', authenticate, sendSchoolStaffResetPassword);
+router.post('/:organizationId/school-staff/:userId/issue-reset-link', authenticate, issueSchoolStaffResetLink);
 router.post('/:organizationId/school-staff/:userId/activate', authenticate, activateSchoolStaff);
 router.post('/:organizationId/school-staff/:userId/set-primary', authenticate, setPrimarySchoolStaff);
 router.patch('/:organizationId/school-staff/:userId/roles', authenticate, updateSchoolStaffRoleFlags);

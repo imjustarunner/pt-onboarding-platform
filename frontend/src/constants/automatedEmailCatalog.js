@@ -15,8 +15,8 @@ export const AUTOMATED_EMAIL_CATALOG = [
     sourceLinks: [
       { label: 'Login page', path: '/login' }
     ],
-    preferredKeys: ['login_recovery', 'notifications'],
-    recommendedFromHint: 'For ITSCO this should be notifications@itsco.health.',
+    preferredKeys: ['technology', 'login_recovery', 'notifications'],
+    recommendedFromHint: 'For ITSCO this should be Technology@itsco.health (ITSCO Technology Team).',
     junkMailNote: true
   },
   {
@@ -31,8 +31,8 @@ export const AUTOMATED_EMAIL_CATALOG = [
       { label: 'Users', path: '/admin/users' },
       { label: 'School Staff Accounts', path: '/admin/school-staff-accounts' }
     ],
-    preferredKeys: ['login_recovery', 'notifications'],
-    recommendedFromHint: 'Same From as Forgot Password — notifications@ for ITSCO.'
+    preferredKeys: ['technology', 'login_recovery', 'notifications'],
+    recommendedFromHint: 'Same From as Forgot Password — Technology@itsco.health for ITSCO.'
   },
   {
     key: 'school_staff_account_recovery',
@@ -45,8 +45,8 @@ export const AUTOMATED_EMAIL_CATALOG = [
     sourceLinks: [
       { label: 'School Staff Accounts', path: '/admin/school-staff-accounts' }
     ],
-    preferredKeys: ['login_recovery', 'notifications'],
-    recommendedFromHint: 'notifications@itsco.health for ITSCO.',
+    preferredKeys: ['technology', 'login_recovery', 'notifications'],
+    recommendedFromHint: 'Technology@itsco.health for ITSCO.',
     junkMailNote: true
   },
   {
@@ -60,8 +60,8 @@ export const AUTOMATED_EMAIL_CATALOG = [
     sourceLinks: [
       { label: 'School Staff Accounts', path: '/admin/school-staff-accounts' }
     ],
-    preferredKeys: ['login_recovery', 'notifications'],
-    recommendedFromHint: 'notifications@itsco.health for ITSCO.',
+    preferredKeys: ['technology', 'login_recovery', 'notifications'],
+    recommendedFromHint: 'Technology@itsco.health for ITSCO.',
     junkMailNote: true
   },
   {

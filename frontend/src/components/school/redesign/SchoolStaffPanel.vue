@@ -431,6 +431,19 @@
                 placeholder="At least 8 characters, include a letter"
               />
             </label>
+            <div class="ssp-reset-link-actions">
+              <p class="ssp-reset-lead">Or send a <strong>reset link</strong> instead — their current password stays in place until they use the link.</p>
+              <div class="ssp-modal-actions ssp-modal-actions-wrap">
+                <button class="ssp-btn ssp-btn-outline" type="button" :disabled="issuingResetLink" @click="copyResetLink">
+                  {{ issuingResetLink === 'copy' ? 'Copying…' : 'Copy reset link' }}
+                </button>
+                <button class="ssp-btn ssp-btn-outline" type="button" :disabled="issuingResetLink || !resetTarget?.email" @click="emailResetLink">
+                  {{ issuingResetLink === 'email' ? 'Sending…' : 'Email reset link' }}
+                </button>
+              </div>
+              <p v-if="resetLinkCopied" class="ssp-role-help">Reset link copied. It expires in 48 hours.</p>
+              <p v-if="resetLinkEmailed" class="ssp-role-help">Reset link emailed from ITSCO Technology Team.</p>
+            </div>
             <div class="ssp-modal-actions">
               <button class="ssp-btn ssp-btn-outline" type="button" @click="closeResetPasswordModal">Cancel</button>
               <button class="ssp-btn ssp-btn-primary" type="button" :disabled="sendingResetId === resetTarget?.id" @click="confirmResetPassword">
@@ -604,6 +617,9 @@ const loading = ref(false);
 const error = ref('');
 const removingId = ref(null);
 const sendingResetId = ref(null);
+const issuingResetLink = ref('');
+const resetLinkCopied = ref(false);
+const resetLinkEmailed = ref(false);
 
 const submitting = ref(false);
 const requestName = ref('');
@@ -805,6 +821,9 @@ const resolveCustomTempPasswordPayload = () => {
 const openResetPasswordModal = (u) => {
   resetTarget.value = u;
   resetResult.value = null;
+  issuingResetLink.value = '';
+  resetLinkCopied.value = false;
+  resetLinkEmailed.value = false;
   resetCustomTempPasswordFields();
   showResetModal.value = true;
 };
@@ -813,7 +832,58 @@ const closeResetPasswordModal = () => {
   showResetModal.value = false;
   resetTarget.value = null;
   resetResult.value = null;
+  issuingResetLink.value = '';
+  resetLinkCopied.value = false;
+  resetLinkEmailed.value = false;
   resetCustomTempPasswordFields();
+};
+
+const issueResetLink = async ({ sendEmail = false } = {}) => {
+  const u = resetTarget.value;
+  const id = Number(u?.id);
+  if (!id) return null;
+  issuingResetLink.value = sendEmail ? 'email' : 'copy';
+  error.value = '';
+  resetLinkCopied.value = false;
+  resetLinkEmailed.value = false;
+  try {
+    const r = await api.post(
+      `/school-portal/${props.schoolOrganizationId}/school-staff/${id}/issue-reset-link`,
+      { sendEmail }
+    );
+    return r.data || null;
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to create reset link';
+    return null;
+  } finally {
+    issuingResetLink.value = '';
+  }
+};
+
+const copyResetLink = async () => {
+  const data = await issueResetLink({ sendEmail: false });
+  const link = String(data?.tokenLink || '').trim();
+  if (!link) return;
+  try {
+    await navigator.clipboard.writeText(link);
+    resetLinkCopied.value = true;
+    success.value = 'Password reset link copied.';
+    setTimeout(() => { success.value = ''; }, 5000);
+  } catch {
+    error.value = 'Reset link created, but copying failed. Try again.';
+  }
+};
+
+const emailResetLink = async () => {
+  const data = await issueResetLink({ sendEmail: true });
+  if (!data) return;
+  if (data.emailSent) {
+    resetLinkEmailed.value = true;
+    success.value = data.message || 'Password reset link emailed.';
+    setTimeout(() => { success.value = ''; }, 5000);
+    return;
+  }
+  error.value = data.emailError || data.message || 'Reset link created but the email did not send.';
 };
 
 const openActivate = (u) => {
@@ -2015,6 +2085,18 @@ export default {
   display: flex;
   justify-content: flex-end;
   margin-top: 8px;
+}
+
+.ssp-modal-actions-wrap {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.ssp-reset-link-actions {
+  margin: 16px 0 8px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
 }
 
 .ssp-perm-row {
