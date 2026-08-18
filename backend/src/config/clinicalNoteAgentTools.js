@@ -1,4 +1,5 @@
 // Clinical Note Agent tools sourced from Clinical_Note_Agent.md (full gem instructions).
+import { TREATMENT_PLAN_OUTPUT_INSTRUCTIONS, PROGRESS_NOTE_OUTPUT_INSTRUCTIONS } from './clinicalNotePlanOutput.js';
 // These are defined here to integrate with Note Aid without relying on SDKs.
 
 const AGENT_PROMPTS = {
@@ -175,11 +176,12 @@ export const CLINICAL_NOTE_AGENT_TOOLS = [
     description: '90791 intake note followed by treatment plan.',
     category: baseCategory,
     systemPrompt: AGENT_PROMPTS['90791_INTAKE'],
-    outputInstructions: 'Return intake sections then treatment plan.',
+    outputInstructions: ['Return intake sections first with their titled headers, then the treatment plan.', TREATMENT_PLAN_OUTPUT_INSTRUCTIONS].join('\n'),
     includeKnowledgeBase: true,
     kbFolders: ['shared', '90791_intake_plan'],
     temperature: 0.2,
-    maxOutputTokens: 2200
+    maxOutputTokens: 4000,
+    model: 'gemini-2.5-pro'
   },
   {
     id: 'clinical_nlu_docs',
@@ -259,11 +261,12 @@ export const CLINICAL_NOTE_AGENT_TOOLS = [
     description: 'Skill Builders treatment plan with SMART objectives.',
     category: baseCategory,
     systemPrompt: AGENT_PROMPTS.SKILL_BUILDERS_PLAN,
-    outputInstructions: 'Follow the Note Aid template exactly.',
+    outputInstructions: TREATMENT_PLAN_OUTPUT_INSTRUCTIONS,
     includeKnowledgeBase: true,
     kbFolders: ['shared', 'skill_builders_plan'],
     temperature: 0.2,
-    maxOutputTokens: 2000
+    maxOutputTokens: 4000,
+    model: 'gemini-2.5-pro'
   },
   {
     id: 'clinical_tpt_plan',
@@ -271,11 +274,12 @@ export const CLINICAL_NOTE_AGENT_TOOLS = [
     description: 'TPT treatment plan with SMART objectives.',
     category: baseCategory,
     systemPrompt: AGENT_PROMPTS.TPT_PLAN,
-    outputInstructions: 'Follow the Note Aid template exactly.',
+    outputInstructions: TREATMENT_PLAN_OUTPUT_INSTRUCTIONS,
     includeKnowledgeBase: true,
     kbFolders: ['shared', 'TPT'],
     temperature: 0.2,
-    maxOutputTokens: 2000
+    maxOutputTokens: 4000,
+    model: 'gemini-2.5-pro'
   },
   {
     id: 'clinical_h0032_consult',
@@ -307,14 +311,12 @@ export const CLINICAL_NOTE_AGENT_TOOLS = [
     description: '90837/90834/90832 psychotherapy note.',
     category: baseCategory,
     systemPrompt: AGENT_PROMPTS.PSYCHOTHERAPY_NOTE,
-    outputInstructions: [
-      'Return the note sections only with headers Subjective:, Objective:, Interventions:, Plan:.',
-      'Interventions must be a single comma-separated list of interventions likely utilized from the session content (no narrative paragraphs).'
-    ].join('\n'),
+    outputInstructions: PROGRESS_NOTE_OUTPUT_INSTRUCTIONS,
     includeKnowledgeBase: true,
     kbFolders: ['shared', 'psychotherapy'],
     temperature: 0.2,
-    maxOutputTokens: 1800
+    maxOutputTokens: 4000,
+    model: 'gemini-2.5-pro'
   },
   {
     id: 'clinical_family_note',
@@ -334,11 +336,12 @@ export const CLINICAL_NOTE_AGENT_TOOLS = [
     description: 'Bachelors-level individual treatment plan.',
     category: baseCategory,
     systemPrompt: AGENT_PROMPTS.H0004_PLAN,
-    outputInstructions: 'Return the plan sections only.',
+    outputInstructions: TREATMENT_PLAN_OUTPUT_INSTRUCTIONS,
     includeKnowledgeBase: true,
     kbFolders: ['shared', 'H0004_plan'],
     temperature: 0.2,
-    maxOutputTokens: 1600
+    maxOutputTokens: 4000,
+    model: 'gemini-2.5-pro'
   },
   {
     id: 'clinical_individual_plan',
@@ -346,11 +349,12 @@ export const CLINICAL_NOTE_AGENT_TOOLS = [
     description: 'Individual treatment plan for skill development.',
     category: baseCategory,
     systemPrompt: AGENT_PROMPTS.INDIVIDUAL_PLAN,
-    outputInstructions: 'Return the plan sections only.',
+    outputInstructions: TREATMENT_PLAN_OUTPUT_INSTRUCTIONS,
     includeKnowledgeBase: true,
     kbFolders: ['shared', 'H2014_individual'],
     temperature: 0.2,
-    maxOutputTokens: 1600
+    maxOutputTokens: 4000,
+    model: 'gemini-2.5-pro'
   },
   {
     id: 'clinical_h0023_full_packet',
@@ -370,14 +374,11 @@ export const CLINICAL_NOTE_AGENT_TOOLS = [
     description: 'Write or update a psychotherapy treatment plan with three goals, objectives, and discharge plan.',
     category: baseCategory,
     systemPrompt: AGENT_PROMPTS.PSYCHOTHERAPY_PLAN,
-    outputInstructions: [
-      'Return the treatment plan only—no preamble or closing commentary.',
-      'Follow the gem output structure: Goals/Objectives with projected time, then Discharge Plan.',
-      'When updating an existing plan, include Diagnosis and Diagnostic Justification sections as specified.'
-    ].join('\n'),
+    outputInstructions: TREATMENT_PLAN_OUTPUT_INSTRUCTIONS,
     includeKnowledgeBase: true,
     kbFolders: ['shared', 'psychotherapy_plan'],
     temperature: 0.2,
-    maxOutputTokens: 2200
+    maxOutputTokens: 4000,
+    model: 'gemini-2.5-pro'
   }
 ];

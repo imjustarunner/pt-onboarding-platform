@@ -149,6 +149,7 @@ export const AUDIT_ACTION_REGISTRY = {
   audit_center_viewed: { label: 'Audit Center viewed', category: 'Page Views' },
   admin_dashboard_view: { label: 'Admin dashboard viewed', category: 'Page Views' },
   admin_page_view: { label: 'Admin page viewed', category: 'Page Views' },
+  clocked_in_page_view: { label: 'Page viewed while clocked in', category: 'Timekeeping' },
 
   // Back-filled labels for action types that were previously rejected by the
   // user_activity_log ENUM (see migration 738). These all flow through
@@ -198,6 +199,7 @@ export const AUDIT_CATEGORIES = [
   'AI & Tools',
   'Tasks',
   'Page Views',
+  'Timekeeping',
   'Other'
 ];
 

@@ -149,7 +149,7 @@ import {
   formatCountdownClock
 } from '../utils/sessionTimeoutBranding.js';
 import { getCurrentPortalSlugFromHostCache, getCurrentPortalSlugFromPath } from '../utils/loginRedirect.js';
-import { getDashboardRoute } from '../utils/router.js';
+import { goToLogTime as goToLogTimePage } from '../utils/indirectTimeNav.js';
 
 defineProps({
   /** When true, hide stay/logout buttons (privileged StatusPromptModal owns actions). */
@@ -231,13 +231,7 @@ function stayLoggedIn() {
 }
 
 function goToLogTime() {
-  const base = getDashboardRoute() || '/dashboard';
-  const path = typeof base === 'string' ? base : (base?.path || '/dashboard');
-  const cur = String(route.path || '').replace(/\/$/, '') || '/';
-  const want = String(path || '').replace(/\/$/, '') || '/';
-  const query = { ...(route.query || {}), tab: 'log_time' };
-  if (cur === want) router.replace({ path: want, query }).catch(() => {});
-  else router.push({ path: want, query }).catch(() => {});
+  goToLogTimePage(router, route);
 }
 
 async function clockOutAndContinue() {

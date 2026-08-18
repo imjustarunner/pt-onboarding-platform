@@ -97,11 +97,28 @@ export const useIndirectTimeSessionStore = defineStore('indirectTimeSession', ()
     return '';
   });
 
+  let fetchSeq = 0;
+  let localBreakStartedAt = null;
+
+  function mergeServerSession(next) {
+    if (!next) return next;
+    if (localBreakStartedAt && String(next.status || '') === 'on_break' && next.breakStartedAt) {
+      const local = Date.parse(localBreakStartedAt);
+      const server = Date.parse(next.breakStartedAt);
+      if (Number.isFinite(local) && Number.isFinite(server) && server < local - 1500) {
+        return { ...next, breakStartedAt: new Date(local).toISOString() };
+      }
+    }
+    return next;
+  }
+
   function setSession(next) {
-    const st = String(next?.status || '');
+    const merged = mergeServerSession(next);
+    const st = String(merged?.status || '');
+    if (st !== 'on_break') localBreakStartedAt = null;
     // Keep open/on_break in the global chip; clear after clock-out.
     if (isOpenStatus(st)) {
-      session.value = next;
+      session.value = merged;
       clearClockOutAdjust();
       try {
         applyClockedInTimeoutOverride();
@@ -217,6 +234,7 @@ export const useIndirectTimeSessionStore = defineStore('indirectTimeSession', ()
       /* ignore */
     }
     const resp = await api.post('/payroll/me/indirect-time-session/clock-in', { agencyId: aid });
+    fetchSeq += 1;
     setSession(resp.data?.session || null);
     return session.value;
   }
@@ -224,6 +242,7 @@ export const useIndirectTimeSessionStore = defineStore('indirectTimeSession', ()
   async function clockOutFromTimedown() {
     const aid = agencyId.value;
     if (!aid) throw new Error('agencyId is required');
+    fetchSeq += 1;
     const resp = await api.post('/payroll/me/indirect-time-session/clock-out', { agencyId: aid });
     const closed = resp.data?.session || null;
     // Closed session is not kept in the nav chip; hand off to Log Time for adjust/submit.
@@ -279,6 +298,7 @@ export const useIndirectTimeSessionStore = defineStore('indirectTimeSession', ()
       return null;
     }
     if (!force && loading.value) return session.value;
+    const seqAtStart = fetchSeq;
     loading.value = true;
     lastAgencyId.value = aid;
     try {
@@ -287,6 +307,7 @@ export const useIndirectTimeSessionStore = defineStore('indirectTimeSession', ()
         skipGlobalLoading: true,
         skipAuthRedirect: true
       });
+      if (seqAtStart !== fetchSeq) return session.value;
       setSession(resp.data?.session || null);
       return session.value;
     } catch (e) {
@@ -297,6 +318,31 @@ export const useIndirectTimeSessionStore = defineStore('indirectTimeSession', ()
     } finally {
       loading.value = false;
     }
+  }
+
+  async function toggleBreak() {
+    const aid = agencyId.value;
+    if (!aid) throw new Error('agencyId is required');
+    fetchSeq += 1;
+    const starting = !isOnBreak.value;
+    if (starting) {
+      localBreakStartedAt = new Date().toISOString();
+      if (session.value) {
+        session.value = {
+          ...session.value,
+          status: 'on_break',
+          breakStartedAt: localBreakStartedAt
+        };
+      }
+    } else {
+      localBreakStartedAt = null;
+    }
+    const resp = await api.post('/payroll/me/indirect-time-session/break', {
+      agencyId: aid,
+      action: starting ? 'start' : 'end'
+    });
+    setSession(resp.data?.session || null);
+    return session.value;
   }
 
   function startPolling() {
@@ -344,6 +390,7 @@ export const useIndirectTimeSessionStore = defineStore('indirectTimeSession', ()
     clockIn,
     clockOutFromTimedown,
     forceClockOutOnLogout,
+    toggleBreak,
     refresh,
     startPolling,
     stopPolling

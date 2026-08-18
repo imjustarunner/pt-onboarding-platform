@@ -6691,7 +6691,7 @@ h1 {
 }
 
 .card-content.card-content--documents {
-  background: #f3f4f6;
+  background: var(--bg-alt, #f3f4f6);
   padding: 20px 24px 28px;
   border: none;
   box-shadow: none;
@@ -6702,7 +6702,7 @@ h1 {
 .my-panel.my-panel--submit-hub,
 .my-panel.my-panel--account-hub,
 .card-content.card-content--account-hub {
-  background: #f3f4f6;
+  background: var(--bg-alt, #f3f4f6);
   padding: 20px 24px 28px;
   border: none;
   box-shadow: none;
@@ -6713,7 +6713,7 @@ h1 {
 .my-panel.my-panel--overview,
 .card-content.card-content--log-time,
 .my-panel.my-panel--log-time {
-  background: #f3f4f6;
+  background: var(--bg-alt, #f3f4f6);
   padding: 16px 18px 24px;
   border: none;
   box-shadow: none;

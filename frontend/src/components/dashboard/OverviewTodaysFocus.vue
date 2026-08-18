@@ -331,4 +331,44 @@ watch(() => props.agencyId, fetch);
   .todays-focus { grid-template-columns: 1fr; }
   .todays-focus__ring { justify-content: flex-start; }
 }
+
+:global([data-theme="dark"]) .todays-focus {
+  background: linear-gradient(135deg, #3f3a1a 0%, #2a2614 50%, #1f1c12 100%);
+  border-color: rgba(253, 230, 138, 0.22);
+}
+:global([data-theme="dark"]) .todays-focus__chevron,
+:global([data-theme="dark"]) .todays-focus__icon-btn {
+  color: #fde68a;
+}
+:global([data-theme="dark"]) .todays-focus__icon-btn {
+  background: rgba(0, 0, 0, 0.28);
+}
+:global([data-theme="dark"]) .todays-focus__icon-btn:hover {
+  background: rgba(0, 0, 0, 0.45);
+  color: #fef9c3;
+}
+:global([data-theme="dark"]) .todays-focus__title,
+:global([data-theme="dark"]) .todays-focus__label {
+  color: #fef9c3;
+}
+:global([data-theme="dark"]) .todays-focus__count,
+:global([data-theme="dark"]) .todays-focus__sub,
+:global([data-theme="dark"]) .todays-focus__loading,
+:global([data-theme="dark"]) .todays-focus__empty {
+  color: rgba(254, 243, 199, 0.65);
+}
+:global([data-theme="dark"]) .todays-focus__item {
+  background: rgba(0, 0, 0, 0.28);
+}
+:global([data-theme="dark"]) .tag {
+  background: rgba(0, 0, 0, 0.35);
+  color: #fde68a;
+}
+:global([data-theme="dark"]) .link-btn {
+  color: #86efac;
+}
+:global([data-theme="dark"]) .ring-bg { stroke: rgba(253, 230, 138, 0.2); }
+:global([data-theme="dark"]) .ring-fg { stroke: #86efac; }
+:global([data-theme="dark"]) .ring-label strong { color: #86efac; }
+:global([data-theme="dark"]) .ring-label span { color: #fde68a; }
 </style>

@@ -584,6 +584,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useUserPreferencesStore } from '../../store/userPreferences';
 import { useIndirectTimeSessionStore } from '../../store/indirectTimeSession';
+import { noteAidPath } from '../../utils/indirectTimeNav';
 import IndirectTimeAllocationPanel from './IndirectTimeAllocationPanel.vue';
 import {
   detectLocalTimezone,
@@ -1474,18 +1475,15 @@ function restoreSelectedTypes() {
 
 function openDoMyNotes() {
   if (!canUseNoteAid.value || !isClockedIn.value) return;
-  // Soft link only: clock keeps running; open via Tools & Aids → AI Tools → Note Aid.
   indirectSessionStore.markNoteAidOpened();
   ensureWritingNotesSelected();
   persistSelectedTypes();
-  success.value = 'Opening Note Aid (Tools & Aids → AI Tools) — your Log Time clock keeps running.';
+  success.value = 'Opening Note Aid — your Log Time clock keeps running.';
   router.push({
+    path: noteAidPath(route),
     query: {
-      ...(route.query || {}),
-      tab: 'tools_aids',
-      toolsTab: 'ai',
-      openAiTool: 'note-aid',
-      fromIndirectSession: '1'
+      fromIndirectSession: '1',
+      launchIntent: 'note'
     }
   }).catch(() => {});
 }
@@ -1591,11 +1589,8 @@ async function toggleBreak() {
   sessionBusy.value = true;
   error.value = '';
   try {
-    const resp = await api.post('/payroll/me/indirect-time-session/break', {
-      agencyId: agencyId.value,
-      action: isOnBreak.value ? 'end' : 'start'
-    });
-    publishSession(resp.data?.session || null);
+    const next = await indirectSessionStore.toggleBreak();
+    publishSession(next || indirectSessionStore.session);
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to update break';
   } finally {
@@ -1939,6 +1934,17 @@ watch(
   }
 );
 
+watch(
+  () => [indirectSessionStore.session?.status, indirectSessionStore.session?.breakStartedAt, props.enabled],
+  () => {
+    if (!props.enabled) return;
+    const s = indirectSessionStore.session;
+    if (s && (s.status === 'open' || s.status === 'on_break')) {
+      session.value = s;
+    }
+  }
+);
+
 onMounted(() => {
   if (props.enabled) bootstrap();
 });
@@ -1958,6 +1964,12 @@ onUnmounted(() => stopTick());
   border-radius: 12px;
   overflow: hidden;
   min-height: 100%;
+}
+:global([data-theme="dark"]) .itl {
+  --itl-bg: var(--bg-alt, #25282c);
+  --itl-border: #475569;
+  --itl-muted: #94a3b8;
+  --itl-green-soft: #14532d;
 }
 .itl-top {
   display: flex;

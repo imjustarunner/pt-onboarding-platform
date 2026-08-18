@@ -7,6 +7,7 @@ import { getNoteAidToolById } from '../config/noteAidTools.js';
 import { getKnowledgeBaseContext } from '../services/clinicalKnowledgeBase.service.js';
 import { listEligiblePolicyServiceCodes, resolvePolicyRuleForServiceCode } from '../services/billingPolicy.service.js';
 import { callGeminiText } from '../services/geminiText.service.js';
+import { isTreatmentPlanToolId, shouldUseGeminiPro, TRANSCRIPT_FIDELITY_INSTRUCTIONS } from '../config/clinicalNotePlanOutput.js';
 import { transcribeLongAudio } from '../services/speechTranscription.service.js';
 import { decryptChatText, encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
 import { validationResult } from 'express-validator';
@@ -71,7 +72,10 @@ function buildPromptForTool({ tool, inputText }) {
     '',
     tool?.outputInstructions ? `Output instructions:\n${tool.outputInstructions}` : '',
     '',
-    'User input:',
+    'Transcript fidelity:',
+    TRANSCRIPT_FIDELITY_INSTRUCTIONS,
+    '',
+    'User input (clinician transcript — retain this content in the note):',
     String(inputText || '')
   ]
     .filter(Boolean)
@@ -1034,7 +1038,7 @@ export const generateClinicalNote = async (req, res, next) => {
         '',
         INTERVENTIONS_CSV_INSTRUCTION
       ].join('\n');
-    } else if (!effectiveAutoSelect) {
+    } else if (!effectiveAutoSelect && !isTreatmentPlanToolId(toolId)) {
       prompt = [
         prompt,
         '',
@@ -1093,7 +1097,7 @@ export const generateClinicalNote = async (req, res, next) => {
             'Knowledge Base Context (read-only):',
             kbContext,
             '',
-            'Use the context only if relevant and do not invent facts.'
+            'Use the knowledge base only for tone and required section style. Do not invent facts and do not replace or shrink the clinician transcript.',
           ].join('\n');
         }
       } catch {
@@ -1104,7 +1108,11 @@ export const generateClinicalNote = async (req, res, next) => {
     const { text, modelName, latencyMs } = await callGeminiText({
       prompt,
       temperature: Number.isFinite(tool.temperature) ? tool.temperature : 0.2,
-      maxOutputTokens: Number.isFinite(tool.maxOutputTokens) ? tool.maxOutputTokens : 1600
+      maxOutputTokens: Math.max(
+        Number.isFinite(tool.maxOutputTokens) ? tool.maxOutputTokens : 1600,
+        shouldUseGeminiPro(toolId) ? 4000 : 0
+      ),
+      model: tool.model || (shouldUseGeminiPro(toolId) ? 'gemini-2.5-pro' : null)
     });
 
     const parsedSections = parseNoteSections(text);

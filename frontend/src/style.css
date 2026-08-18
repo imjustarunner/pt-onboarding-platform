@@ -24,8 +24,14 @@
   /* Base colors */
   --bg: #ffffff;
   --bg-alt: #F3F6FA; /* Soft Cloud */
+  --bg-primary: var(--bg);
+  --bg-secondary: var(--bg-alt);
+  --bg-card: #ffffff;
+  --bg-muted: #eef2f7;
+  --surface-primary: #ffffff;
   --text-primary: #1D2633; /* Deep Ink */
   --text-secondary: #64748b;
+  --text-muted: #64748b;
   --success: #2F8F83; /* Calm Teal */
   --warning: #E6A700; /* Warning Amber */
   --error: #CC3D3D; /* Error Red */
@@ -60,8 +66,14 @@
   color-scheme: dark;
   --bg: #1a1d21;
   --bg-alt: #25282c;
+  --bg-primary: #1a1d21;
+  --bg-secondary: #25282c;
+  --bg-card: #25282c;
+  --bg-muted: #2e3236;
+  --surface-primary: #25282c;
   --text-primary: #cbd5e1;
   --text-secondary: #94a3b8;
+  --text-muted: #94a3b8;
   --border: #475569;
   --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
@@ -71,6 +83,102 @@
 [data-theme="dark"] body {
   background-color: var(--bg-alt);
   color: var(--text-primary);
+}
+
+[data-theme="dark"] #app:not(.is-platform-hq) {
+  background: var(--bg) !important;
+  color: var(--text-primary);
+}
+
+/* Page shells that hardcode light greys/whites — keep the canvas dark. */
+[data-theme="dark"] .card-content:not(.card-content-schedule):not(.card-content--schedule-hub),
+[data-theme="dark"] .my-panel:not(.my-panel--schedule-hub),
+[data-theme="dark"] .dashboard-detail,
+[data-theme="dark"] .tenant-admin-dashboard,
+[data-theme="dark"] .agencies-overview {
+  background-color: var(--bg-alt) !important;
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .wo-hub {
+  --hub-ink: #e2e8f0;
+  --hub-muted: #94a3b8;
+  --hub-line: #334155;
+  --hub-panel: #25282c;
+  --hub-bg: #1a1d21;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(15, 118, 110, 0.12), transparent 40%),
+    radial-gradient(circle at 80% 20%, rgba(30, 58, 138, 0.1), transparent 35%),
+    var(--hub-bg) !important;
+  color: var(--hub-ink);
+}
+
+[data-theme="dark"] .wo-hub .hub-switcher {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+}
+[data-theme="dark"] .wo-hub .hub-switcher-btn {
+  color: #94a3b8;
+}
+[data-theme="dark"] .wo-hub .hub-switcher-btn:hover,
+[data-theme="dark"] .wo-hub .hub-switcher-btn.is-active {
+  background: #334155 !important;
+  color: #e2e8f0 !important;
+  box-shadow: none;
+}
+[data-theme="dark"] .wo-hub .hub-icon {
+  background: color-mix(in srgb, var(--primary, #1f6b4a) 22%, #1a1d21) !important;
+}
+[data-theme="dark"] .wo-hub .hub-center,
+[data-theme="dark"] .wo-hub .hub-satellite,
+[data-theme="dark"] .wo-hub .hub-sidebar-panel,
+[data-theme="dark"] .wo-hub .hub-stage-tip,
+[data-theme="dark"] .wo-hub .hub-preview,
+[data-theme="dark"] .wo-hub .hub-mobile-card {
+  background: var(--hub-panel) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35) !important;
+}
+[data-theme="dark"] .wo-hub .hub-center-icon,
+[data-theme="dark"] .wo-hub .hub-satellite-icon,
+[data-theme="dark"] .wo-hub .hub-mobile-icon,
+[data-theme="dark"] .wo-hub .hub-satellite-pill {
+  background: #1e293b !important;
+  color: #cbd5e1 !important;
+}
+[data-theme="dark"] .wo-hub .hub-satellite-badge,
+[data-theme="dark"] .wo-hub .hub-center {
+  border-color: #334155 !important;
+}
+
+/*
+  Systemic dark surfaces: common page/widget class names, not one-off screens.
+  Brand-colored chrome (navbar, sidebar, .btn) is left alone.
+*/
+[data-theme="dark"] .main-content,
+[data-theme="dark"] .page-header,
+[data-theme="dark"] .top-bar,
+[data-theme="dark"] .ops-glance,
+[data-theme="dark"] .ops-metric,
+[data-theme="dark"] .qa-wrap.panel,
+[data-theme="dark"] .momentum-panel,
+[data-theme="dark"] .itl,
+[data-theme="dark"] .dashboard-content,
+[data-theme="dark"] .dashboard-header,
+[data-theme="dark"] .search-bar {
+  background-color: var(--bg-card) !important;
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+[data-theme="dark"] .tenant-admin-dashboard {
+  background-color: var(--bg) !important;
+  background-image: none !important;
+  color: var(--text-primary);
+}
+[data-theme="dark"] .page-header h1,
+[data-theme="dark"] .ops-glance-header h2,
+[data-theme="dark"] .ops-metric-value,
+[data-theme="dark"] .hub-mini-label {
+  color: var(--text-primary) !important;
 }
 
 /*

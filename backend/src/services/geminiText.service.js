@@ -151,14 +151,14 @@ async function performApiKeyCall({ modelName, apiKey, prompt, temperature, maxOu
  * Attempt the public Generative Language API (GEMINI_API_KEY) path, trying the
  * configured model then known-good fallbacks. Returns a result or throws.
  */
-async function callViaApiKey({ prompt, temperature, maxOutputTokens }) {
+async function callViaApiKey({ prompt, temperature, maxOutputTokens, model = null }) {
   const apiKey = process.env.GEMINI_API_KEY || '';
   if (!apiKey) {
     const err = new Error('GEMINI_API_KEY is not configured');
     err.status = 503;
     throw err;
   }
-  const configuredModel = String(process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim() || 'gemini-2.5-flash';
+  const configuredModel = String(model || process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim() || 'gemini-2.5-flash';
   const candidates = buildCandidateModels(configuredModel);
   let lastErr = null;
   for (const modelName of candidates) {
@@ -173,15 +173,16 @@ async function callViaApiKey({ prompt, temperature, maxOutputTokens }) {
   throw lastErr || new Error('Gemini request failed for all candidate models');
 }
 
-export async function callGeminiText({ prompt, temperature = 0.2, maxOutputTokens = 800 }) {
+export async function callGeminiText({ prompt, temperature = 0.2, maxOutputTokens = 800, model = null }) {
   const useVertex = shouldUseVertex();
   const hasApiKey = !!(process.env.GEMINI_API_KEY || '').trim();
+  const configuredModel =
+    String(model || process.env.GEMINI_MODEL || process.env.VERTEX_AI_MODEL || 'gemini-2.5-flash').trim()
+    || 'gemini-2.5-flash';
 
   if (useVertex) {
     const projectId = getProjectId();
     const location = String(process.env.VERTEX_AI_LOCATION || 'us-central1').trim() || 'us-central1';
-    const configuredModel =
-      String(process.env.GEMINI_MODEL || process.env.VERTEX_AI_MODEL || 'gemini-2.5-flash').trim() || 'gemini-2.5-flash';
 
     // Vertex can be unusable for a project even when GCP creds exist: the project
     // may lack Gemini model access (403/404) or token minting can fail. In those
@@ -210,11 +211,11 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
         console.warn(
           `[Vertex] unavailable (${vertexErr?.status || 'error'}: ${vertexErr?.message}); falling back to GEMINI_API_KEY path`
         );
-        return callViaApiKey({ prompt, temperature, maxOutputTokens });
+        return callViaApiKey({ prompt, temperature, maxOutputTokens, model: configuredModel });
       }
       throw vertexErr;
     }
   }
 
-  return callViaApiKey({ prompt, temperature, maxOutputTokens });
+  return callViaApiKey({ prompt, temperature, maxOutputTokens, model: configuredModel });
 }

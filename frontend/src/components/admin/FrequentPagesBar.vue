@@ -84,4 +84,20 @@ function resolvePath(path) {
   border-color: #4ade80;
   color: #15803d;
 }
+:global([data-theme="dark"]) .fpb-chip {
+  background: #25282c;
+  border-color: #475569;
+  color: #cbd5e1;
+}
+:global([data-theme="dark"]) .fpb-chip:hover {
+  background: #1e3a2f;
+  border-color: #4ade80;
+  color: #bbf7d0;
+}
+:global([data-theme="dark"]) .fpb-chip.router-link-active,
+:global([data-theme="dark"]) .fpb-chip.router-link-exact-active {
+  background: #14532d;
+  border-color: #22c55e;
+  color: #bbf7d0;
+}
 </style>

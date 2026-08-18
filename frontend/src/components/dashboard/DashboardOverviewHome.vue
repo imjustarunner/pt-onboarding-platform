@@ -540,25 +540,26 @@ const onQuickAction = (action) => {
   padding: 0 4px;
 }
 
-[data-theme="dark"] .ov-hello { color: var(--text-primary, #cbd5e1); }
-[data-theme="dark"] .ov-sub { color: var(--text-secondary, #94a3b8); }
-[data-theme="dark"] .ov-icon-btn {
+:global([data-theme="dark"]) .ov-home { color: var(--text-primary, #cbd5e1); }
+:global([data-theme="dark"]) .ov-hello { color: var(--text-primary, #cbd5e1); }
+:global([data-theme="dark"]) .ov-sub { color: var(--text-secondary, #94a3b8); }
+:global([data-theme="dark"]) .ov-icon-btn {
   background: #25282c;
   border-color: #475569;
   color: #cbd5e1;
 }
-[data-theme="dark"] .ov-icon-btn:hover { background: #2e3236; }
-[data-theme="dark"] .ov-error {
+:global([data-theme="dark"]) .ov-icon-btn:hover { background: #2e3236; }
+:global([data-theme="dark"]) .ov-error {
   background: #3b1c1c;
   color: #fca5a5;
   border-color: #7f1d1d;
 }
-[data-theme="dark"] .ov-tip {
+:global([data-theme="dark"]) .ov-tip {
   background: #1e1a2e;
   border-color: #4c1d95;
   color: #c4b5fd;
 }
-[data-theme="dark"] .ov-tip-dismiss { color: #94a3b8; }
+:global([data-theme="dark"]) .ov-tip-dismiss { color: #94a3b8; }
 @media (max-width: 1100px) {
   .ov-mid,
   .ov-bottom {

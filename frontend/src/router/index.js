@@ -6,6 +6,7 @@ import { useAgencyStore } from '../store/agency';
 import { useOrganizationStore } from '../store/organization';
 import { getDashboardRoute } from '../utils/router';
 import { extractAdminPageFromPath } from '../utils/normalizeAdminPageKey.js';
+import { useIndirectTimeSessionStore } from '../store/indirectTimeSession';
 import { getLoginUrl, getCurrentPortalSlugFromHostCache } from '../utils/loginRedirect';
 import { buildOrgLoginPath } from '../utils/orgLoginPath';
 import { guessPortalSlugFromHostname } from '../utils/orgScopedPath';
@@ -5296,6 +5297,30 @@ router.afterEach((to) => {
   const authStore = useAuthStore();
   if (!authStore.isAuthenticated) return;
   const path = String(to?.path || '');
+  const query = to?.query || {};
+  const queryKeys = Object.keys(query).filter((k) => query[k] != null && query[k] !== '');
+  const queryString = queryKeys.length
+    ? `?${new URLSearchParams(queryKeys.sort().map((k) => [k, String(query[k])])).toString()}`
+    : '';
+  const fullPath = `${path}${queryString}`;
+  const page = extractAdminPageFromPath(path);
+
+  let clockedIn = false;
+  let clockedInSessionId = null;
+  try {
+    const it = useIndirectTimeSessionStore();
+    clockedIn = !!it.isClockedIn;
+    clockedInSessionId = it.session?.id || null;
+  } catch {
+    /* store may not be ready */
+  }
+  if (clockedIn) {
+    api.post('/auth/activity-log', {
+      actionType: 'clocked_in_page_view',
+      metadata: { path: fullPath, page, clockedInSessionId, tab: query.tab || null }
+    }, { skipGlobalLoading: true }).catch(() => {});
+  }
+
   const trackable =
     path.includes('/admin')
     || path.includes('/club_manager_dashboard')
@@ -5304,16 +5329,9 @@ router.afterEach((to) => {
     || /\/buildings(\/|$)/i.test(path);
   if (!trackable) return;
 
-  const query = to?.query || {};
-  const queryKeys = Object.keys(query).filter((k) => query[k] != null && query[k] !== '');
-  const queryString = queryKeys.length
-    ? `?${new URLSearchParams(queryKeys.sort().map((k) => [k, String(query[k])])).toString()}`
-    : '';
-  const fullPath = `${path}${queryString}`;
-  const page = extractAdminPageFromPath(path);
   api.post('/auth/activity-log', {
     actionType: 'admin_page_view',
-    metadata: { path: fullPath, page }
+    metadata: { path: fullPath, page, ...(clockedIn ? { clockedIn: true, clockedInSessionId } : {}) }
   }, { skipGlobalLoading: true }).catch(() => {});
 });
 

@@ -1087,17 +1087,7 @@
         v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && indirectTimeSessionStore.isClockedIn"
         class="itc-hang-wrap"
       >
-        <button
-          type="button"
-          class="itc-hang"
-          :class="{ break: indirectTimeSessionStore.isOnBreak }"
-          @click="goToIndirectLogTime"
-        >
-          <span class="itc-hang-dot" aria-hidden="true" />
-          <span class="itc-hang-status">{{ indirectTimeSessionStore.statusLabel }}</span>
-          <span class="itc-hang-timer">{{ indirectTimeSessionStore.formattedElapsed }}</span>
-          <span class="itc-hang-cta">Log Time →</span>
-        </button>
+        <IndirectTimeClockChip variant="hang" />
       </div>
       <div v-if="sstcClubBannerImageUrl" class="sstc-club-banner-strip" aria-hidden="true">
         <img :src="sstcClubBannerImageUrl" alt="" class="sstc-club-banner-img" />
@@ -1116,16 +1106,12 @@
             <p v-if="isSummitStatsChallengeChrome" class="mobile-brand-label">{{ summitTeamBrandLabel }}</p>
             <button class="mobile-close" @click="mobileMenuOpen = false" aria-label="Close menu">×</button>
           </div>
-          <button
+          <IndirectTimeClockChip
             v-if="indirectTimeSessionStore.isClockedIn"
-            type="button"
-            class="mobile-itc-banner"
-            @click="goToIndirectLogTime(); closeMobileMenu();"
-          >
-            <span>{{ indirectTimeSessionStore.statusLabel }}</span>
-            <strong>{{ indirectTimeSessionStore.formattedElapsed }}</strong>
-            <span>Log Time →</span>
-          </button>
+            variant="banner"
+            class="mobile-itc-banner-host"
+            @navigated="closeMobileMenu"
+          />
           <button
             v-if="showFocusMusicNav"
             type="button"
@@ -2295,6 +2281,7 @@ import {
 import { isSummitPlatformRouteSlug } from './utils/summitPlatformSlugs.js';
 import { isStandalonePwa } from './utils/pwa';
 import { getDashboardRoute } from './utils/router';
+import { goToLogTime } from './utils/indirectTimeNav';
 import {
   resolveSummitStatsSlug,
   isDualHomedSummitUser,
@@ -2418,13 +2405,7 @@ const userPreferencesStore = useUserPreferencesStore();
 const router = useRouter();
 const route = useRoute();
 const goToIndirectLogTime = () => {
-  const base = getDashboardRoute() || '/dashboard';
-  const path = typeof base === 'string' ? base : (base?.path || '/dashboard');
-  const cur = String(route.path || '').replace(/\/$/, '') || '/';
-  const want = String(path || '').replace(/\/$/, '') || '/';
-  const query = { ...(route.query || {}), tab: 'log_time' };
-  if (cur === want) router.replace({ path: want, query }).catch(() => {});
-  else router.push({ path: want, query }).catch(() => {});
+  goToLogTime(router, route);
 };
 
 function syncIndirectTimeSessionPolling() {
@@ -9128,7 +9109,7 @@ main.main-no-global-chrome {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: var(--bg-primary, var(--bg, #ffffff));
+  background: var(--bg, var(--bg-primary, #ffffff));
   color: var(--text-primary, inherit);
 }
 

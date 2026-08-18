@@ -2917,4 +2917,41 @@ const logout = () => {
   font-weight: 800;
   color: var(--ops-primary, #1f6b4a);
 }
+
+:global([data-theme="dark"]) .tenant-admin-dashboard {
+  --ops-ink: #e2e8f0;
+  --ops-muted: #94a3b8;
+  background:
+    radial-gradient(1200px 500px at 10% -10%, color-mix(in srgb, var(--ops-primary, #1f6b4a) 18%, transparent), transparent),
+    var(--bg, #1a1d21);
+  color: var(--ops-ink);
+}
+:global([data-theme="dark"]) .top-bar {
+  background: rgba(26, 29, 33, 0.92);
+  border-bottom-color: #334155;
+}
+:global([data-theme="dark"]) .search-bar,
+:global([data-theme="dark"]) .notifications-bell,
+:global([data-theme="dark"]) .notifications-panel,
+:global([data-theme="dark"]) .qa-wrap.panel,
+:global([data-theme="dark"]) .momentum-panel,
+:global([data-theme="dark"]) .modal {
+  background: var(--bg-card, #25282c);
+  border-color: #334155;
+  color: var(--text-primary, #cbd5e1);
+}
+:global([data-theme="dark"]) .page-header h1 {
+  color: var(--text-primary, #e2e8f0);
+}
+:global([data-theme="dark"]) .subtitle,
+:global([data-theme="dark"]) .datetime,
+:global([data-theme="dark"]) .user-info .role {
+  color: #94a3b8;
+}
+:global([data-theme="dark"]) .btn-secondary,
+:global([data-theme="dark"]) .reorder-btn {
+  background: #25282c;
+  border-color: #475569;
+  color: #e2e8f0;
+}
 </style>

@@ -125,6 +125,7 @@ const AUDIT_ACTION_REGISTRY = {
   audit_center_viewed: { label: 'Audit Center viewed', category: 'Page Views' },
   admin_dashboard_view: { label: 'Admin dashboard viewed', category: 'Page Views' },
   admin_page_view: { label: 'Admin page viewed', category: 'Page Views' },
+  clocked_in_page_view: { label: 'Page viewed while clocked in', category: 'Timekeeping' },
   demo_switch_view: { label: 'Demo view switched', category: 'Authentication' },
   conference_call_started: { label: 'Conference call started', category: 'Communications' },
   call_transferred: { label: 'Call transferred', category: 'Communications' },

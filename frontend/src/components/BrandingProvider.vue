@@ -241,11 +241,24 @@ const brandingStyles = computed(() => {
     '--font-body': 'var(--agency-font-family, var(--font-body))',
     '--font-header': 'var(--agency-font-family, var(--font-header))'
   };
-  // When dark mode is on, do NOT override bg/text/border — let [data-theme="dark"] CSS rule apply
-  if (!dark) {
+  // Dark mode: pin surface tokens on this wrapper so agency light palettes cannot leak through.
+  if (dark) {
+    styles['--bg'] = '#1a1d21';
+    styles['--bg-primary'] = '#1a1d21';
+    styles['--bg-alt'] = '#25282c';
+    styles['--bg-secondary'] = '#25282c';
+    styles['--bg-card'] = '#25282c';
+    styles['--bg-muted'] = '#2e3236';
+    styles['--surface-primary'] = '#25282c';
+    styles['--text-primary'] = '#cbd5e1';
+    styles['--text-secondary'] = '#94a3b8';
+    styles['--text-muted'] = '#94a3b8';
+    styles['--border'] = '#475569';
+  } else {
     styles['--bg-primary'] = brandingStore.backgroundColor;
     styles['--bg-alt'] = brandingStore.backgroundColor;
     styles['--bg-secondary'] = brandingStore.secondaryBackground;
+    styles['--bg-card'] = brandingStore.secondaryBackground || '#ffffff';
     styles['--divider'] = brandingStore.dividerColor;
     styles['--text-primary'] = brandingStore.textPrimaryColor;
     styles['--text-secondary'] = brandingStore.textSecondaryColor;
