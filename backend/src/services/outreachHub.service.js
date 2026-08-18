@@ -589,7 +589,7 @@ export async function getOutreachSchool(agencyId, schoolId) {
     const [actRows] = await pool.execute(
       `SELECT
          a.id, a.contact_type, a.activity_at, a.summary, a.notes, a.created_at,
-         a.created_by_user_id, a.trip_id, a.trip_stop_id,
+         a.created_by_user_id, a.trip_id, a.trip_stop_id, a.source,
          t.title AS trip_title,
          ts.stop_color, ts.stop_order,
          TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS created_by_name
@@ -623,7 +623,7 @@ export async function getOutreachSchool(agencyId, schoolId) {
     try {
       const [noteRows] = await pool.execute(
         `SELECT
-           n.id, n.body, n.created_at, n.created_by_user_id,
+           n.id, n.body, n.created_at, n.created_by_user_id, n.source,
            n.note_kind, n.trip_id, n.trip_stop_id, n.contact_id,
            n.spoken_with_name, n.follow_up_at,
            t.title AS trip_title,
@@ -650,7 +650,7 @@ export async function getOutreachSchool(agencyId, schoolId) {
          ORDER BY n.created_at DESC, n.id DESC`,
         [schoolId]
       );
-      notes = (noteRows || []).map((n) => ({ ...n, note_kind: 'general' }));
+      notes = (noteRows || []).map((n) => ({ ...n, note_kind: 'general', source: n.source || null }));
     }
     const [contactRows] = await pool.execute(
       `SELECT * FROM outreach_school_contacts
@@ -693,12 +693,14 @@ function buildSchoolActivityFeed({ activities = [], notes = [], tasks = [] } = {
   for (const a of activities || []) {
     items.push({
       id: `act-${a.id}`,
+      activity_id: Number(a.id),
       entry_type: 'contact',
       contact_type: a.contact_type,
       title: a.summary || a.contact_type,
       body: a.notes || null,
       occurred_at: a.activity_at || a.created_at,
       created_by_name: a.created_by_name || null,
+      source: a.source || null,
       trip_id: a.trip_id != null ? Number(a.trip_id) : null,
       trip_title: a.trip_title || null,
       trip_stop_id: a.trip_stop_id != null ? Number(a.trip_stop_id) : null,
@@ -859,6 +861,10 @@ export async function updateOutreachSchool(agencyId, schoolId, patch = {}) {
     if (!isValidOutreachStage(stage)) throw new Error('Invalid outreach stage');
     fields.push('outreach_stage = ?');
     params.push(stage);
+    if (stage === 'partnered' && patch.next_follow_up_at === undefined) {
+      fields.push('next_follow_up_at = ?');
+      params.push(null);
+    }
   }
   if (patch.next_follow_up_at !== undefined) {
     fields.push('next_follow_up_at = ?');
@@ -977,6 +983,58 @@ export async function logOutreachActivity(agencyId, schoolId, payload, userId) {
     activityId: result.insertId,
     school
   }));
+}
+
+export async function updateOutreachActivity(agencyId, schoolId, activityId, patch = {}) {
+  const aid = Number(agencyId || 0);
+  const sid = Number(schoolId || 0);
+  const actId = Number(activityId || 0);
+  if (!aid || !sid || !actId) throw new Error('School or activity not found');
+
+  const [rows] = await pool.execute(
+    `SELECT id, contact_type, activity_at
+     FROM outreach_activities
+     WHERE id = ? AND outreach_school_id = ? AND agency_id = ?
+     LIMIT 1`,
+    [actId, sid, aid]
+  );
+  if (!rows?.[0]) throw new Error('Activity not found');
+
+  const fields = [];
+  const params = [];
+  if (patch.activity_at != null) {
+    const activityAt = new Date(patch.activity_at);
+    if (Number.isNaN(activityAt.getTime())) throw new Error('Invalid activity date');
+    fields.push('activity_at = ?');
+    params.push(activityAt.toISOString().slice(0, 19).replace('T', ' '));
+  }
+  if (patch.summary !== undefined) {
+    fields.push('summary = ?');
+    params.push(patch.summary ? String(patch.summary).slice(0, 500) : null);
+  }
+  if (patch.notes !== undefined) {
+    fields.push('notes = ?');
+    params.push(patch.notes ? String(patch.notes) : null);
+  }
+  if (!fields.length) return getOutreachSchool(aid, sid);
+
+  params.push(actId, sid, aid);
+  await pool.execute(
+    `UPDATE outreach_activities SET ${fields.join(', ')}
+     WHERE id = ? AND outreach_school_id = ? AND agency_id = ?`,
+    params
+  );
+
+  const [maxRow] = await pool.execute(
+    `SELECT MAX(activity_at) AS mx FROM outreach_activities WHERE outreach_school_id = ?`,
+    [sid]
+  );
+  await pool.execute(
+    `UPDATE outreach_schools SET last_contact_at = ? WHERE id = ? AND agency_id = ?`,
+    [maxRow?.[0]?.mx || null, sid, aid]
+  );
+
+  return getOutreachSchool(aid, sid);
 }
 
 export async function markFollowUpNeededIfNotPartnered(agencyId, schoolId) {

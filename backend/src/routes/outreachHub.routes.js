@@ -8,6 +8,7 @@ import {
   getSchool,
   patchSchool,
   createActivity,
+  patchActivity,
   getTimeline,
   getTaskList,
   getAssignableUsers,
@@ -61,5 +62,6 @@ router.post('/schools/:id/contacts', addSchoolContact);
 router.get('/schools/:id', getSchool);
 router.patch('/schools/:id', patchSchool);
 router.post('/schools/:id/activities', createActivity);
+router.patch('/schools/:id/activities/:activityId', patchActivity);
 
 export default router;

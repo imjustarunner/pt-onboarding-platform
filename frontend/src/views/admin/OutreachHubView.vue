@@ -567,7 +567,7 @@
               <h3>Next steps</h3>
               <label class="ohub-field">
                 <span>Stage</span>
-                <select :value="selected.outreach_stage" @change="saveStage($event.target.value)">
+                <select :value="selected.outreach_stage" :disabled="stageSaving" @change="saveStage($event.target.value)">
                   <option v-for="st in stageOptions" :key="st.id" :value="st.id">{{ st.label }}</option>
                 </select>
               </label>
@@ -590,6 +590,7 @@
 
             <section class="ohub-card ohub-card--notes">
               <h3>Notes</h3>
+              <p class="ohub-muted ohub-notes-hint">Saved notes and details imported from the spreadsheet appear here.</p>
               <form class="ohub-log" @submit.prevent="submitNote">
                 <label class="ohub-field">
                   <span>Add a note</span>
@@ -598,22 +599,31 @@
                 <button type="submit" class="btn btn-secondary" :disabled="noteSaving">{{ noteSaving ? 'Saving…' : 'Save note' }}</button>
               </form>
               <ol class="ohub-timeline">
-                <li v-for="n in selected.notes || []" :key="`note-${n.id}`">
+                <li v-for="n in schoolNotesFeed" :key="n.id">
                   <div>
+                    <div v-if="n.sourceLabel || n.activityLabel" class="ohub-note-tags">
+                      <span v-if="n.sourceLabel" class="ohub-import-badge">{{ n.sourceLabel }}</span>
+                      <span v-if="n.activityLabel" class="ohub-import-badge muted">{{ n.activityLabel }}</span>
+                    </div>
                     <strong>{{ n.body }}</strong>
                     <div class="ohub-muted">{{ formatDateTime(n.created_at) }}{{ n.created_by_name ? ` · ${n.created_by_name}` : '' }}</div>
                   </div>
                 </li>
-                <li v-if="!(selected.notes || []).length" class="ohub-muted">No notes yet.</li>
+                <li v-if="!schoolNotesFeed.length" class="ohub-muted">No notes yet.</li>
               </ol>
             </section>
 
             <section class="ohub-card ohub-card--log">
-              <h3>Log contact</h3>
+              <h3>{{ editingActivityId ? 'Edit contact' : 'Log contact' }}</h3>
+              <p v-if="editingActivityId" class="ohub-muted">Updating an existing entry — save to apply changes instead of creating a duplicate.</p>
               <form class="ohub-log" @submit.prevent="submitLog">
                 <div class="ohub-types">
-                  <label v-for="t in contactTypes" :key="t.id" :class="{ on: logForm.contact_type === t.id, visit: t.id === 'visit' }">
-                    <input v-model="logForm.contact_type" type="radio" :value="t.id" />
+                  <label
+                    v-for="t in contactTypes"
+                    :key="t.id"
+                    :class="{ on: logForm.contact_type === t.id, visit: t.id === 'visit', disabled: !!editingActivityId }"
+                  >
+                    <input v-model="logForm.contact_type" type="radio" :value="t.id" :disabled="!!editingActivityId" />
                     {{ t.label }}
                   </label>
                 </div>
@@ -629,7 +639,14 @@
                   <span>Notes</span>
                   <textarea v-model="logForm.notes" rows="3" placeholder="Optional details" />
                 </label>
-                <button type="submit" class="btn btn-primary" :disabled="saving">{{ saving ? 'Saving…' : 'Log activity' }}</button>
+                <div class="ohub-log-actions">
+                  <button v-if="editingActivityId" type="button" class="btn btn-secondary" :disabled="saving" @click="cancelEditActivity">
+                    Cancel edit
+                  </button>
+                  <button type="submit" class="btn btn-primary" :disabled="saving">
+                    {{ saving ? 'Saving…' : (editingActivityId ? 'Save changes' : 'Log activity') }}
+                  </button>
+                </div>
               </form>
             </section>
 
@@ -643,7 +660,15 @@
                     :style="item.stop_color ? { borderColor: item.stop_color } : undefined"
                   >{{ feedEntryLabel(item) }}</span>
                   <div>
-                    <strong>{{ item.title }}</strong>
+                    <div class="ohub-feed-head">
+                      <strong>{{ item.title }}</strong>
+                      <button
+                        v-if="item.activity_id"
+                        type="button"
+                        class="btn-link"
+                        @click="startEditActivity(item)"
+                      >Edit</button>
+                    </div>
                     <p v-if="item.body">{{ item.body }}</p>
                     <div class="ohub-muted">
                       {{ formatDateTime(item.occurred_at) }}{{ item.created_by_name ? ` · ${item.created_by_name}` : '' }}
@@ -776,7 +801,15 @@
                     :class="item.entry_type === 'contact' ? item.contact_type : item.entry_type"
                   >{{ feedEntryLabel(item) }}</span>
                   <div>
-                    <strong>{{ item.title }}</strong>
+                    <div class="ohub-feed-head">
+                      <strong>{{ item.title }}</strong>
+                      <button
+                        v-if="item.activity_id"
+                        type="button"
+                        class="btn-link"
+                        @click="startEditActivity(item)"
+                      >Edit</button>
+                    </div>
                     <p v-if="item.body">{{ item.body }}</p>
                     <div class="ohub-muted">
                       {{ formatDateTime(item.occurred_at) }}{{ item.created_by_name ? ` · ${item.created_by_name}` : '' }}
@@ -1100,6 +1133,7 @@ const WINDCHIME_COORDS = { lat: 38.9246, lng: -104.8452 };
 const loading = ref(false);
 const listLoading = ref(false);
 const saving = ref(false);
+const stageSaving = ref(false);
 const addressLookupSaving = ref(false);
 const editingSchoolDetails = ref(false);
 const schoolDetailsSaving = ref(false);
@@ -1199,6 +1233,7 @@ const logForm = reactive({
   summary: '',
   notes: ''
 });
+const editingActivityId = ref(null);
 const showImport = ref(false);
 const importRows = ref([]);
 const importPreview = ref(null);
@@ -1283,6 +1318,34 @@ const activityGroups = computed(() => {
     g.items.push(item);
   }
   return [...map.values()];
+});
+
+const schoolNotesFeed = computed(() => {
+  const notes = (selected.value?.notes || []).map((n) => ({
+    id: `note-${n.id}`,
+    body: n.body,
+    created_at: n.created_at,
+    created_by_name: n.created_by_name,
+    sourceLabel: n.source === 'historical_import' ? 'From spreadsheet' : null,
+    activityLabel: null
+  }));
+  const noteBodies = new Set(notes.map((n) => String(n.body || '').trim()).filter(Boolean));
+  const fromActivities = (selected.value?.activities || [])
+    .filter((a) => String(a.notes || '').trim())
+    .filter((a) => !noteBodies.has(String(a.notes).trim()))
+    .map((a) => ({
+      id: `act-note-${a.id}`,
+      body: a.notes,
+      created_at: a.activity_at || a.created_at,
+      created_by_name: a.created_by_name,
+      sourceLabel: a.source === 'historical_import' ? 'From spreadsheet' : null,
+      activityLabel: `${a.contact_type || 'contact'}${a.summary ? ` · ${a.summary}` : ''}`
+    }));
+  return [...notes, ...fromActivities].sort((a, b) => {
+    const ta = new Date(a.created_at || 0).getTime();
+    const tb = new Date(b.created_at || 0).getTime();
+    return tb - ta;
+  });
 });
 
 const activeTripStopContext = computed(() => {
@@ -1431,6 +1494,13 @@ const formatDateTime = (v) => {
   return d.toLocaleString();
 };
 const dateInput = (v) => (v ? String(v).slice(0, 10) : '');
+const activityDateTimeInput = (v) => {
+  if (!v) return '';
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return '';
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+};
 const localDateTimeValue = () => {
   const d = new Date();
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
@@ -1454,10 +1524,21 @@ const clearFilters = () => {
 };
 
 const resetLogForm = () => {
+  editingActivityId.value = null;
   logForm.contact_type = 'visit';
   logForm.activity_at = localDateTimeValue();
   logForm.summary = '';
   logForm.notes = '';
+};
+
+const syncSchoolListRow = (school) => {
+  if (!school?.id) return;
+  const row = schools.value.find((s) => Number(s.id) === Number(school.id));
+  if (!row) return;
+  row.outreach_stage = school.outreach_stage;
+  row.next_follow_up_at = school.next_follow_up_at;
+  row.last_contact_at = school.last_contact_at;
+  row.visit_count = school.visit_count;
 };
 
 const refreshAll = async () => {
@@ -1553,6 +1634,7 @@ const cancelEditSchoolDetails = () => {
 const applySelectedSchoolPatch = (school) => {
   if (!school || !selectedId.value) return;
   selected.value = school;
+  syncSchoolListRow(school);
   const row = schools.value.find((s) => s.id === selectedId.value);
   if (row) {
     row.name = school.name;
@@ -1704,28 +1786,55 @@ const saveStage = async (stage) => {
   if (!selectedId.value) return;
   const prevStage = selected.value?.outreach_stage
     || schools.value.find((s) => s.id === selectedId.value)?.outreach_stage;
-  const res = await api.patch(
-    `/outreach/schools/${selectedId.value}`,
-    { outreach_stage: stage },
-    { skipGlobalLoading: true }
-  );
-  selected.value = res.data?.school || selected.value;
-  const row = schools.value.find((s) => s.id === selectedId.value);
-  if (row) row.outreach_stage = stage;
-  if (summary.value?.by_stage && prevStage && prevStage !== stage) {
-    summary.value.by_stage[prevStage] = Math.max(0, Number(summary.value.by_stage[prevStage] || 0) - 1);
-    summary.value.by_stage[stage] = Number(summary.value.by_stage[stage] || 0) + 1;
-    summary.value.partnered = Number(summary.value.by_stage.partnered || 0);
-    summary.value.active_outreach = Number(summary.value.total_schools || 0)
-      - Number(summary.value.by_stage.not_started || 0)
-      - Number(summary.value.by_stage.on_hold || 0);
+  stageSaving.value = true;
+  error.value = '';
+  try {
+    const res = await api.patch(
+      `/outreach/schools/${selectedId.value}`,
+      { outreach_stage: stage },
+      { skipGlobalLoading: true }
+    );
+    selected.value = res.data?.school || selected.value;
+    syncSchoolListRow(selected.value);
+    if (summary.value?.by_stage && prevStage && prevStage !== stage) {
+      summary.value.by_stage[prevStage] = Math.max(0, Number(summary.value.by_stage[prevStage] || 0) - 1);
+      summary.value.by_stage[stage] = Number(summary.value.by_stage[stage] || 0) + 1;
+      summary.value.partnered = Number(summary.value.by_stage.partnered || 0);
+      summary.value.active_outreach = Number(summary.value.total_schools || 0)
+        - Number(summary.value.by_stage.not_started || 0)
+        - Number(summary.value.by_stage.on_hold || 0);
+    }
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not save stage.';
+  } finally {
+    stageSaving.value = false;
   }
 };
 
 const saveFollowUp = async (value) => {
   if (!selectedId.value) return;
-  const res = await api.patch(`/outreach/schools/${selectedId.value}`, { next_follow_up_at: value || null });
-  selected.value = res.data?.school || selected.value;
+  try {
+    const res = await api.patch(`/outreach/schools/${selectedId.value}`, { next_follow_up_at: value || null });
+    selected.value = res.data?.school || selected.value;
+    syncSchoolListRow(selected.value);
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not save follow-up date.';
+  }
+};
+
+const startEditActivity = (item) => {
+  const act = (selected.value?.activities || []).find((a) => Number(a.id) === Number(item.activity_id));
+  if (!act) return;
+  editingActivityId.value = act.id;
+  logForm.contact_type = act.contact_type || 'visit';
+  logForm.activity_at = activityDateTimeInput(act.activity_at);
+  logForm.summary = act.summary || '';
+  logForm.notes = act.notes || '';
+  panelTab.value = 'overview';
+};
+
+const cancelEditActivity = () => {
+  resetLogForm();
 };
 
 const submitLog = async () => {
@@ -1733,10 +1842,23 @@ const submitLog = async () => {
   saving.value = true;
   error.value = '';
   try {
-    const res = await api.post(`/outreach/schools/${selectedId.value}/activities`, { ...logForm });
-    selected.value = res.data?.school || selected.value;
-    resetLogForm();
-    await reload();
+    let res;
+    if (editingActivityId.value) {
+      res = await api.patch(`/outreach/schools/${selectedId.value}/activities/${editingActivityId.value}`, {
+        activity_at: logForm.activity_at,
+        summary: logForm.summary || null,
+        notes: logForm.notes || null
+      });
+      selected.value = res.data?.school || selected.value;
+      syncSchoolListRow(selected.value);
+      resetLogForm();
+    } else {
+      res = await api.post(`/outreach/schools/${selectedId.value}/activities`, { ...logForm });
+      selected.value = res.data?.school || selected.value;
+      syncSchoolListRow(selected.value);
+      resetLogForm();
+      await reload();
+    }
   } catch (err) {
     error.value = err.response?.data?.error?.message || err.message || 'Could not save activity.';
   } finally {
@@ -2988,6 +3110,7 @@ onMounted(async () => {
 }
 .ohub-types label.on { background: #14532d; color: #fff; border-color: #14532d; }
 .ohub-types label.visit.on { background: #6d28d9; border-color: #6d28d9; }
+.ohub-types label.disabled { opacity: 0.55; cursor: default; }
 .ohub-types input { display: none; }
 .ohub-timeline, .ohub-report { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
 .ohub-timeline li, .ohub-report li { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; }
@@ -2998,6 +3121,12 @@ onMounted(async () => {
 .ohub-type-pill.email { background: #e0f2fe; color: #0369a1; }
 .ohub-type-pill.phone { background: #dcfce7; color: #166534; }
 .ohub-type-pill.letter { background: #ffedd5; color: #c2410c; }
+.ohub-feed-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ohub-log-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ohub-notes-hint { margin: 0 0 8px; font-size: 13px; }
+.ohub-note-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.ohub-import-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #fef3c7; color: #92400e; }
+.ohub-import-badge.muted { background: #f1f5f9; color: #475569; }
 .btn-link { background: none; border: 0; color: #14532d; font-weight: 700; cursor: pointer; }
 @media (max-width: 980px) {
   .ohub-body { grid-template-columns: 1fr; }

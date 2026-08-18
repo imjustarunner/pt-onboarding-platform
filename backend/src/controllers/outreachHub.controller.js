@@ -3,6 +3,7 @@ import {
   getOutreachSchool,
   updateOutreachSchool,
   logOutreachActivity,
+  updateOutreachActivity,
   getOutreachSummary,
   listOutreachTimeline,
   listOutreachSchoolOnboarding,
@@ -136,6 +137,22 @@ export const createActivity = async (req, res, next) => {
     if (!agencyId || !schoolId) return res.status(400).json({ error: { message: 'agencyId and school id are required' } });
     const result = await logOutreachActivity(agencyId, schoolId, req.body || {}, req.user?.id);
     res.status(201).json(result);
+  } catch (err) {
+    handleServiceError(res, err);
+  }
+};
+
+export const patchActivity = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFrom(req);
+    const schoolId = Number(req.params.id || 0);
+    const activityId = Number(req.params.activityId || 0);
+    if (!agencyId || !schoolId || !activityId) {
+      return res.status(400).json({ error: { message: 'agencyId, school id, and activity id are required' } });
+    }
+    const school = await updateOutreachActivity(agencyId, schoolId, activityId, req.body || {}, req.user?.id);
+    if (!school) return res.status(404).json({ error: { message: 'School not found' } });
+    res.json({ school, activityId });
   } catch (err) {
     handleServiceError(res, err);
   }
