@@ -9,4 +9,13 @@ describe('lookupStructuredIntakeTranslation', () => {
     expect(lookupStructuredIntakeTranslation('Communication preferences'))
       .toBe('Preferencias de comunicación');
   });
+
+  it('translates identity verification insurance step copy', () => {
+    expect(lookupStructuredIntakeTranslation('Identity verification'))
+      .toBe('Verificación de identidad');
+    expect(lookupStructuredIntakeTranslation('Thank you for your submission.'))
+      .toBe('Gracias por su envío.');
+    expect(lookupStructuredIntakeTranslation('Skip identity verification for now'))
+      .toBe('Omitir la verificación de identidad por ahora');
+  });
 });

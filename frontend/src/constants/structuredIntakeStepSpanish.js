@@ -284,6 +284,15 @@ export const STRUCTURED_INTAKE_STEP_ES = {
   'Name: Parent/Guardian': 'Nombre: Padre/madre o tutor',
   'Contact info: captured earlier in intake and used for billing/consent communications.':
     'Información de contacto: capturada antes en la admisión y usada para facturación/comunicaciones de consentimiento.',
+  'Identity verification': 'Verificación de identidad',
+  'To help prevent insurance fraud and protect you, our organization, and our providers, we ask that you verify you are who you say you are. You can skip for now and may be asked later in the portal to provide or upload ID.':
+    'Para ayudar a prevenir el fraude de seguros y protegerlo a usted, nuestra organización y nuestros proveedores, le pedimos que verifique que usted es quien dice ser. Puede omitirlo por ahora y se le puede solicitar más adelante en el portal que proporcione o suba su identificación.',
+  'Driver’s license or government ID (optional)':
+    'Licencia de conducir o identificación oficial (opcional)',
+  'Skip identity verification for now': 'Omitir la verificación de identidad por ahora',
+  'Thank you for your submission.': 'Gracias por su envío.',
+  'Checking…': 'Verificando…',
+  'Thank you, you’ve been verified.': 'Gracias, su identidad ha sido verificada.',
   'Please note: Not all insurances are accepted by all providers. If this program or class is not covered by your insurance, we may still submit a claim to your insurer in the event coverage has changed. All payments collected via our web application will be listed as collected outside of our EHR platform and applied to billing claims as necessary. Medicaid (Health First Colorado) clients are enrolled at no cost to the family for eligible programs.':
     'Tenga en cuenta: No todos los seguros son aceptados por todos los proveedores. Si este programa o clase no está cubierto por su seguro, aún podemos enviar un reclamo a su aseguradora si la cobertura ha cambiado. Todos los pagos recopilados en nuestra aplicación web se registrarán como cobrados fuera de nuestra plataforma EHR y se aplicarán a reclamos de facturación según sea necesario. Los clientes de Medicaid (Health First Colorado) se inscriben sin costo para la familia en programas elegibles.',
   'Insurance Authorization & Assignment of Benefits': 'Autorización de seguro y cesión de beneficios',

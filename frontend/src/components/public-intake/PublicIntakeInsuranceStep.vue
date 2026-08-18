@@ -346,7 +346,7 @@
         </div>
       </div>
       <p v-if="identityStatusMessage" class="pi-ins-identity-status" :class="{ ok: identityVerified === true }">
-        {{ identityStatusMessage }}
+        {{ tx(identityStatusMessage) }}
       </p>
       <label class="pi-ins-selfpay-row" style="margin-top: 8px;">
         <input v-model="identitySkipped" type="checkbox" @change="onIdentitySkip" />

@@ -2267,7 +2267,7 @@
             <div class="intake-success-logo-name">{{ screen.displayName }}</div>
           </div>
         </div>
-        <h3>{{ jobApplicationSubmitted ? 'Application Submitted' : (formTypeKey === 'smart_registration' ? "You're Registered!" : 'Successfully Submitted') }}</h3>
+        <h3>{{ jobApplicationSubmitted ? t('applicationSubmittedTitle') : (formTypeKey === 'smart_registration' ? t('youreRegistered') : t('successfullySubmitted')) }}</h3>
         <p v-if="jobApplicationSubmitted">
           Thank you for your application. We have received your materials and will review them shortly.
         </p>
@@ -2383,13 +2383,12 @@
           -->
           <div v-if="formTypeKey !== 'smart_registration'" class="intake-thankyou-banner">
             <div class="intake-thankyou-title">
-              🎉 Thank you{{ intakeThankYouName ? ', ' + intakeThankYouName : '' }}!
+              {{ intakeThankYouName ? t('intakeThankYouWithName').replace('{name}', intakeThankYouName) : t('intakeThankYouNoName') }}
             </div>
             <p class="intake-thankyou-lead">
-              We're so glad you chose
+              {{ t('intakeThankYouGlad') }}
               <strong>{{ intakeThankYouTenantName }}</strong>.
-              Your submission is in — we'll follow up as soon as possible to welcome you
-              and confirm the next steps.
+              {{ t('intakeThankYouLead') }}
             </p>
             <div v-if="returnToPath" class="intake-thankyou-return" style="margin: 14px 0;">
               <p class="muted" style="margin-bottom: 8px;">
@@ -2408,7 +2407,7 @@
             >
               <li v-for="name in intakeRegisteredNames" :key="name">
                 <span class="intake-thankyou-check">✓</span>
-                Submitted for: <strong>{{ name }}</strong>
+                {{ t('submittedFor') }} <strong>{{ name }}</strong>
               </li>
             </ul>
             <!--
@@ -3158,7 +3157,19 @@ const INTAKE_TRANSLATIONS = {
     questionsInMeantime: 'Questions in the meantime?',
     contactSupport: 'Contact Support',
     officeCompleteSubmitted: 'Your packet was submitted successfully. We appreciate you taking the time to share this with us.',
-    officeSummaryComing: 'Your care team has your packet. You can download a branded PDF summary below.'
+    officeSummaryComing: 'Your care team has your packet. You can download a branded PDF summary below.',
+    successfullySubmitted: 'Successfully Submitted',
+    applicationSubmittedTitle: 'Application Submitted',
+    youreRegistered: "You're Registered!",
+    intakeThankYouWithName: '🎉 Thank you, {name}!',
+    intakeThankYouNoName: '🎉 Thank you!',
+    intakeThankYouGlad: "We're so glad you chose",
+    intakeThankYouLead: "Your submission is in — we'll follow up as soon as possible to welcome you and confirm the next steps.",
+    submittedFor: 'Submitted for:',
+    intakeConfirmationEmailedTo: 'A confirmation with your completed documents has been emailed to {email}.',
+    intakeConfirmationEmailed: 'A confirmation with your completed documents has been emailed to you.',
+    intakeEmailFailedTo: 'Email failed to send to {email}. You can still view or download your packet below.',
+    intakeEmailFailed: 'Email failed to send. You can still view or download your packet below.'
   },
   es: {
     loadingLink: 'Cargando enlace de admisión...',
@@ -3493,7 +3504,19 @@ const INTAKE_TRANSLATIONS = {
     questionsInMeantime: '¿Preguntas mientras tanto?',
     contactSupport: 'Contactar a soporte',
     officeCompleteSubmitted: 'Su paquete se envió correctamente. Gracias por tomarse el tiempo de compartirlo con nosotros.',
-    officeSummaryComing: 'Su equipo de atención ya tiene su paquete. Puede descargar un PDF con la marca de la organización abajo.'
+    officeSummaryComing: 'Su equipo de atención ya tiene su paquete. Puede descargar un PDF con la marca de la organización abajo.',
+    successfullySubmitted: 'Enviado correctamente',
+    applicationSubmittedTitle: 'Solicitud enviada',
+    youreRegistered: '¡Está registrado/a!',
+    intakeThankYouWithName: '🎉 ¡Gracias, {name}!',
+    intakeThankYouNoName: '🎉 ¡Gracias!',
+    intakeThankYouGlad: 'Nos alegra mucho que haya elegido',
+    intakeThankYouLead: 'Su envío está en camino — nos comunicaremos lo antes posible para darle la bienvenida y confirmar los siguientes pasos.',
+    submittedFor: 'Enviado para:',
+    intakeConfirmationEmailedTo: 'Se envió una confirmación con sus documentos completados a {email}.',
+    intakeConfirmationEmailed: 'Se envió una confirmación con sus documentos completados a su correo.',
+    intakeEmailFailedTo: 'No se pudo enviar el correo a {email}. Aún puede ver o descargar su paquete abajo.',
+    intakeEmailFailed: 'No se pudo enviar el correo. Aún puede ver o descargar su paquete abajo.'
   }
 };
 
@@ -5968,12 +5991,12 @@ const intakeSuccessEmailMessage = computed(() => {
   if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false) {
     const to = String(emailDeliveryStatus.value?.to || guardianEmail.value || '').trim();
     return to
-      ? `Email failed to send to ${to}. You can still view or download your packet below.`
-      : 'Email failed to send. You can still view or download your packet below.';
+      ? t('intakeEmailFailedTo').replace('{email}', to)
+      : t('intakeEmailFailed');
   }
   const email = String(guardianEmail.value || '').trim();
-  if (email) return `A confirmation with your completed documents has been emailed to ${email}.`;
-  return 'A confirmation with your completed documents has been emailed to you.';
+  if (email) return t('intakeConfirmationEmailedTo').replace('{email}', email);
+  return t('intakeConfirmationEmailed');
 });
 
 const loginHelpSending = ref(false);
