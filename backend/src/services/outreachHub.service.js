@@ -696,6 +696,12 @@ export async function updateOutreachSchool(agencyId, schoolId, patch = {}) {
     fields.push('next_follow_up_at = ?');
     params.push(patch.next_follow_up_at || null);
   }
+  if (patch.name !== undefined) {
+    const name = String(patch.name || '').trim();
+    if (!name) throw new Error('School name is required');
+    fields.push('name = ?');
+    params.push(name.slice(0, 255));
+  }
   if (patch.notes !== undefined) {
     fields.push('notes = ?');
     params.push(patch.notes == null ? null : String(patch.notes));

@@ -364,7 +364,17 @@
               <h2>{{ selected.name }}</h2>
               <span class="ohub-stage" :class="selected.outreach_stage">{{ stageLabel(selected.outreach_stage) }}</span>
             </div>
-            <button type="button" class="btn-link" @click="closeSchoolPanel">Close</button>
+            <div class="ohub-detail-head-actions">
+              <button
+                v-if="!editingSchoolDetails"
+                type="button"
+                class="btn-link"
+                @click="startEditSchoolDetails"
+              >
+                Edit name &amp; address
+              </button>
+              <button type="button" class="btn-link" @click="closeSchoolPanel">Close</button>
+            </div>
           </div>
           <div class="ohub-panel-tabs" role="tablist">
             <button type="button" :class="{ active: panelTab === 'overview' }" @click="panelTab = 'overview'">Overview</button>
@@ -375,8 +385,38 @@
           </div>
 
           <template v-if="panelTab === 'overview'">
+          <form
+            v-if="editingSchoolDetails"
+            class="ohub-school-edit"
+            @submit.prevent="saveSchoolDetails"
+          >
+            <label class="ohub-field">
+              <span>School name</span>
+              <input v-model="schoolDetailsForm.name" type="text" required maxlength="255" />
+            </label>
+            <label class="ohub-field">
+              <span>Address</span>
+              <input
+                v-model="schoolDetailsForm.address"
+                type="text"
+                maxlength="255"
+                placeholder="Street, city, state, ZIP"
+              />
+            </label>
+            <p class="ohub-muted ohub-school-edit-hint">
+              Use a full street address when you plan visits. You can still run Gemini lookup after saving.
+            </p>
+            <div class="ohub-school-edit-actions">
+              <button type="button" class="btn btn-secondary btn-sm" :disabled="schoolDetailsSaving" @click="cancelEditSchoolDetails">
+                Cancel
+              </button>
+              <button type="submit" class="btn btn-primary btn-sm" :disabled="schoolDetailsSaving">
+                {{ schoolDetailsSaving ? 'Saving…' : 'Save' }}
+              </button>
+            </div>
+          </form>
           <dl class="ohub-meta">
-            <div><dt>Address</dt>
+            <div v-if="!editingSchoolDetails"><dt>Address</dt>
               <dd>
                 <template v-if="selected.needs_address">
                   <span class="ohub-missing-addr">Needs address — do not visit until confirmed</span>
@@ -798,6 +838,9 @@ const WINDCHIME_COORDS = { lat: 38.9246, lng: -104.8452 };
 const loading = ref(false);
 const saving = ref(false);
 const addressLookupSaving = ref(false);
+const editingSchoolDetails = ref(false);
+const schoolDetailsSaving = ref(false);
+const schoolDetailsForm = reactive({ name: '', address: '' });
 const error = ref('');
 const viewMode = ref('tracker');
 const schools = ref([]);
@@ -1051,11 +1094,13 @@ const reload = async () => {
 };
 
 const closeSchoolPanel = () => {
+  editingSchoolDetails.value = false;
   selectedId.value = null;
   selected.value = null;
 };
 
 const selectSchool = async (id) => {
+  editingSchoolDetails.value = false;
   selectedId.value = id;
   panelTab.value = panelTab.value || 'overview';
   try {
@@ -1068,6 +1113,52 @@ const selectSchool = async (id) => {
     await loadSchoolExtras(id);
   } catch (err) {
     error.value = err.response?.data?.error?.message || err.message || 'Could not load school.';
+  }
+};
+
+const startEditSchoolDetails = () => {
+  if (!selected.value) return;
+  schoolDetailsForm.name = String(selected.value.name || '').trim();
+  schoolDetailsForm.address = String(selected.value.address || '').trim();
+  editingSchoolDetails.value = true;
+};
+
+const cancelEditSchoolDetails = () => {
+  editingSchoolDetails.value = false;
+};
+
+const applySelectedSchoolPatch = (school) => {
+  if (!school || !selectedId.value) return;
+  selected.value = school;
+  const row = schools.value.find((s) => s.id === selectedId.value);
+  if (row) {
+    row.name = school.name;
+    row.address = school.address;
+    row.needs_address = school.needs_address;
+  }
+};
+
+const saveSchoolDetails = async () => {
+  if (!selectedId.value) return;
+  const name = String(schoolDetailsForm.name || '').trim();
+  if (!name) {
+    error.value = 'School name is required.';
+    return;
+  }
+  schoolDetailsSaving.value = true;
+  error.value = '';
+  try {
+    const res = await api.patch(`/outreach/schools/${selectedId.value}`, {
+      name,
+      address: String(schoolDetailsForm.address || '').trim() || null
+    });
+    applySelectedSchoolPatch(res.data?.school);
+    editingSchoolDetails.value = false;
+    await reload();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not save school details.';
+  } finally {
+    schoolDetailsSaving.value = false;
   }
 };
 
@@ -1978,6 +2069,18 @@ onMounted(async () => {
 .ohub-invite-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .ohub-invite-actions { display: flex; gap: 10px; margin-top: 4px; }
 .ohub-detail-head { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+.ohub-detail-head-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-end; }
+.ohub-school-edit {
+  margin: 12px 0 4px;
+  padding: 12px;
+  border: 1px solid #d1fae5;
+  background: #f0fdf4;
+  border-radius: 10px;
+  display: grid;
+  gap: 10px;
+}
+.ohub-school-edit-hint { margin: 0; font-size: 12px; }
+.ohub-school-edit-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .ohub-detail h2 { margin: 0 0 6px; font-size: 18px; }
 .ohub-detail h3 { margin: 18px 0 8px; font-size: 14px; }
 .ohub-meta { display: grid; gap: 6px; margin: 12px 0; }
