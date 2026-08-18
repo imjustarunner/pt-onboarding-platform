@@ -507,7 +507,17 @@
             </template>
 
             <template #agency-assignments>
-              <AccountDashboardCard section-id="agency-assignments" title="Agency Assignments" :can-edit="canEditUser">
+              <AccountDashboardCard
+                section-id="agency-assignments"
+                title="Agency Assignments"
+                subtitle="Click Edit to change membership settings or remove a tenant. Removing a tenant also unassigns schools, days/slots, and clients that belong only to that tenant."
+                :can-edit="canEditUser"
+                :editing="editingAgencyAssignments"
+                save-label="Done"
+                @edit="editingAgencyAssignments = true"
+                @save="editingAgencyAssignments = false"
+                @cancel="editingAgencyAssignments = false"
+              >
               <div class="agency-assignments-section">
                 <div class="agency-assignments">
                   <div v-if="affiliatedAgencies.length === 0" class="no-agencies">
@@ -572,7 +582,7 @@
                                         Days &amp; slots
                                       </button>
                                       <button
-                                        v-if="canEditUser"
+                                        v-if="canEditUser && editingAgencyAssignments"
                                         class="btn btn-danger btn-sm"
                                         type="button"
                                         @click="removeAgency(org.id)"
@@ -600,7 +610,7 @@
                             class="agency-select"
                             style="min-width: 240px;"
                             :value="aliasForAgency(agency.id)"
-                            :disabled="savingAgencyAliasId === agency.id"
+                            :disabled="!editingAgencyAssignments || savingAgencyAliasId === agency.id"
                             placeholder="alias@domain.com"
                             @change="saveAliasForAgency(agency.id, $event.target.value)"
                           />
@@ -616,7 +626,7 @@
                             class="agency-select"
                             style="min-width: 170px;"
                             :value="agencyRoleFor(agency)"
-                            :disabled="savingAgencyMembershipId === agency.id"
+                            :disabled="!editingAgencyAssignments || savingAgencyMembershipId === agency.id"
                             @change="saveAgencyMembership(agency.id, { agencyRole: $event.target.value })"
                           >
                             <option
@@ -632,7 +642,7 @@
                             class="agency-select"
                             style="min-width: 180px;"
                             :value="agency.agency_position || ''"
-                            :disabled="savingAgencyMembershipId === agency.id"
+                            :disabled="!editingAgencyAssignments || savingAgencyMembershipId === agency.id"
                             placeholder="Title at this agency"
                             @change="saveAgencyMembership(agency.id, { agencyPosition: $event.target.value })"
                           />
@@ -647,7 +657,7 @@
                             class="agency-select"
                             style="min-width: 220px;"
                             :value="disclosureIncludeFromMembership(agency)"
-                            :disabled="savingAgencyMembershipId === agency.id"
+                            :disabled="!editingAgencyAssignments || savingAgencyMembershipId === agency.id"
                             @change="saveAgencyMembership(agency.id, { includeOnDisclosure: $event.target.value })"
                           >
                             <option
@@ -670,7 +680,7 @@
                             :value="h0032ModeForAgency(agency)"
                             class="agency-select"
                             style="min-width: 170px;"
-                            :disabled="updatingH0032AgencyId === agency.id"
+                            :disabled="!editingAgencyAssignments || updatingH0032AgencyId === agency.id"
                             @change="setH0032Mode(agency.id, $event.target.value)"
                           >
                             <option value="cat1_hour">Cat1 Hour (manual minutes)</option>
@@ -871,7 +881,13 @@
                         </div>
                       </div>
 
-                      <button v-if="canEditUser" @click="removeAgency(agency.id)" class="btn btn-danger btn-sm">Remove</button>
+                      <button
+                        v-if="canEditUser && editingAgencyAssignments"
+                        @click="removeAgency(agency.id)"
+                        class="btn btn-danger btn-sm"
+                      >
+                        Remove
+                      </button>
                     </div>
                   </div>
 
@@ -911,7 +927,7 @@
                               Days &amp; slots
                             </button>
                             <button
-                              v-if="canEditUser"
+                              v-if="canEditUser && editingAgencyAssignments"
                               class="btn btn-danger btn-sm"
                               type="button"
                               @click="removeAgency(org.id)"
@@ -5219,6 +5235,7 @@ const availabilityByDay = computed(() => {
 const newAgencyLoginEmail = ref('');
 const loginEmailAliasesDetailed = ref([]);
 const savingAgencyAliasId = ref(null);
+const editingAgencyAssignments = ref(false);
 
 const selectedAgencyOption = computed(() => {
   const id = Number(selectedAgencyId.value || 0);
@@ -6344,12 +6361,27 @@ const selectAffiliationSection = (sectionId) => {
 };
 
 const removeAgency = async (agencyId) => {
-  if (!confirm('Remove this agency assignment?')) return;
-  
+  const id = Number(agencyId);
+  const org = (userAgencies.value || []).find((a) => Number(a.id) === id);
+  const isParentTenant = org ? isAgencyOrg(org) : false;
+  const childOrgs = isParentTenant
+    ? (affiliatedOrgsByAgencyId.value[String(id)] || [])
+    : [];
+  const childNames = childOrgs.map((o) => o.name).filter(Boolean);
+  let msg = isParentTenant
+    ? 'Remove this tenant assignment?\n\nThis also unassigns school memberships, days/slots, and clients at schools that belong only to this tenant.'
+    : 'Remove this school/program assignment?\n\nThis also unassigns days/slots and clients at this organization.';
+  if (childNames.length) {
+    const shown = childNames.slice(0, 12);
+    msg += `\n\nAlso removing affiliations for:\n- ${shown.join('\n- ')}`;
+    if (childNames.length > 12) msg += `\n- …and ${childNames.length - 12} more`;
+  }
+  if (!confirm(msg)) return;
+
   try {
     await api.post('/users/remove/agency', {
       userId: userId.value,
-      agencyId: agencyId
+      agencyId: id
     });
     await refreshUserOrgAssignments();
   } catch (err) {

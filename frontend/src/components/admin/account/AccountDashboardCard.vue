@@ -23,7 +23,7 @@
               :disabled="saving"
               @click="$emit('save')"
             >
-              {{ saving ? 'Saving…' : 'Save' }}
+              {{ saving ? 'Saving…' : saveLabel }}
             </button>
             <button
               type="button"
@@ -50,7 +50,8 @@ defineProps({
   sectionId: { type: String, default: '' },
   canEdit: { type: Boolean, default: false },
   editing: { type: Boolean, default: false },
-  saving: { type: Boolean, default: false }
+  saving: { type: Boolean, default: false },
+  saveLabel: { type: String, default: 'Save' }
 });
 
 defineEmits(['edit', 'save', 'cancel']);
