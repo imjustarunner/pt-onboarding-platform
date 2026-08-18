@@ -187,6 +187,7 @@ const NAVIGATION_ROUTE_WHITELIST = {
   ClientManagement: { path: '/admin/clients', roles: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] },
   ReferralDirectory: { path: '/admin/referral-directory', roles: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] },
   UserManager: { path: '/admin/users', roles: ['admin', 'super_admin', 'support', 'staff'] },
+  AnnouncementsHub: { path: '/admin/announcements', roles: ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant'] },
   SchoolPortalsHub: { path: '/admin/school-portals-hub', roles: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'] },
   OutreachHub: { path: '/admin/outreach-hub', roles: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'provider', 'clinical_practice_assistant'] },
   SkillBuildersProgramsEvents: { path: '/admin/program-events', roles: ['admin', 'staff', 'support', 'super_admin', 'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'] },

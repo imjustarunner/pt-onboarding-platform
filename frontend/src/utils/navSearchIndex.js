@@ -106,6 +106,13 @@ export const NAV_SEARCH_INDEX = [
     desc: 'All user accounts and staff members.'
   },
   {
+    title: 'Announcements',
+    section: 'Workforce Ops › Staff & Scheduling',
+    path: '/admin/announcements',
+    keywords: ['announcements', 'splash', 'splashes', 'banner', 'birthday', 'anniversary', 'quick announcement'],
+    desc: 'Agency splashes, banners, engagement, and auto birthday / anniversary queue.'
+  },
+  {
     title: 'Provider Fall Update',
     section: 'Workforce Ops › Staff & Scheduling',
     path: '/admin/provider-year-update',

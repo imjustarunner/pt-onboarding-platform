@@ -2,7 +2,16 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { canUserManageClub } from '../utils/sscClubAccess.js';
 import { getOrCreateClubThread } from './chat.controller.js';
-import { getTodayCelebrationBannerItems } from '../services/agencyAnnouncementAutomation.service.js';
+import { getTodayCelebrationBannerItems, getAnnouncementAutomationQueue } from '../services/agencyAnnouncementAutomation.service.js';
+import {
+  deriveLifecycleStatus,
+  getAnnouncementEngagementOverview,
+  getAnnouncementHubCounts,
+  listScheduledAnnouncementsWithEngagement,
+  parsePriority,
+  parsePublishStatus,
+  recordAnnouncementEvent
+} from '../services/agencyAnnouncementHub.service.js';
 
 const DEFAULT_BIRTHDAY_TEMPLATE = 'Happy Birthday, {fullName}';
 const DEFAULT_ANNIVERSARY_TEMPLATE = 'Happy {years}-year anniversary, {fullName}';
@@ -321,6 +330,7 @@ export const listAgencyBannerAnnouncements = async (req, res, next) => {
       `SELECT id, title, message, splash_image_url, starts_at, ends_at, created_at, display_type, recipient_user_ids, audience
        FROM agency_scheduled_announcements
        WHERE agency_id = ?
+         AND COALESCE(publish_status, 'published') = 'published'
          AND NOW() >= starts_at
          AND NOW() <= ends_at
        ORDER BY starts_at ASC, id DESC
@@ -353,6 +363,45 @@ export const listAgencyBannerAnnouncements = async (req, res, next) => {
   }
 };
 
+const mapScheduledAnnouncementRow = (r) => {
+  const publishStatus = parsePublishStatus(r.publish_status);
+  const impressions = Number(r.impressions || 0);
+  const opens = Number(r.opens || 0);
+  const acknowledgements = Number(r.acknowledgements || 0);
+  const viewedDenom = impressions || opens;
+  const viewedRate = viewedDenom > 0
+    ? Math.round((Math.max(opens, acknowledgements) / viewedDenom) * 100)
+    : 0;
+  return {
+    id: r.id,
+    title: r.title || null,
+    message: r.message || '',
+    splash_image_url: normalizeSplashImageUrl(r.splash_image_url),
+    display_type: parseAnnouncementDisplayType(r.display_type),
+    recipient_user_ids: parseRecipientUserIds(r.recipient_user_ids),
+    audience: r.audience || 'everyone',
+    starts_at: r.starts_at,
+    ends_at: r.ends_at,
+    created_at: r.created_at,
+    created_by_user_id: r.created_by_user_id || null,
+    created_by_name: r.created_by_name?.trim() || null,
+    publish_status: publishStatus,
+    priority: parsePriority(r.priority),
+    status: deriveLifecycleStatus({
+      publishStatus,
+      startsAt: r.starts_at,
+      endsAt: r.ends_at
+    }),
+    engagement: {
+      impressions,
+      opens,
+      dismissals: Number(r.dismissals || 0),
+      acknowledgements,
+      viewedRate
+    }
+  };
+};
+
 /**
  * List scheduled announcements for management UI.
  * GET /api/agencies/:id/announcements/list
@@ -366,41 +415,8 @@ export const listAgencyScheduledAnnouncements = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
     }
 
-    const [rows] = await pool.execute(
-      `SELECT
-        asa.id,
-        asa.title,
-        asa.message,
-        asa.splash_image_url,
-        asa.display_type,
-        asa.recipient_user_ids,
-        asa.audience,
-        asa.starts_at,
-        asa.ends_at,
-        asa.created_at,
-        asa.created_by_user_id,
-        CONCAT(TRIM(u.first_name), ' ', TRIM(u.last_name)) AS created_by_name
-       FROM agency_scheduled_announcements asa
-       LEFT JOIN users u ON u.id = asa.created_by_user_id
-       WHERE asa.agency_id = ?
-       ORDER BY asa.starts_at DESC, asa.id DESC
-       LIMIT 200`,
-      [agencyId]
-    );
-    res.json((rows || []).map((r) => ({
-      id: r.id,
-      title: r.title || null,
-      message: r.message || '',
-      splash_image_url: normalizeSplashImageUrl(r.splash_image_url),
-      display_type: parseAnnouncementDisplayType(r.display_type),
-      recipient_user_ids: parseRecipientUserIds(r.recipient_user_ids),
-      audience: r.audience || 'everyone',
-      starts_at: r.starts_at,
-      ends_at: r.ends_at,
-      created_at: r.created_at,
-      created_by_user_id: r.created_by_user_id || null,
-      created_by_name: r.created_by_name?.trim() || null
-    })));
+    const rows = await listScheduledAnnouncementsWithEngagement(agencyId);
+    res.json((rows || []).map(mapScheduledAnnouncementRow));
   } catch (e) {
     next(e);
   }
@@ -429,6 +445,8 @@ export const createAgencyScheduledAnnouncement = async (req, res, next) => {
     const displayType = parseAnnouncementDisplayType(req.body?.displayType || req.body?.display_type);
     const recipientUserIds = parseRecipientUserIds(req.body?.recipientUserIds || req.body?.recipient_user_ids);
     const audience = parseAudience(req.body?.audience);
+    const publishStatus = parsePublishStatus(req.body?.publishStatus || req.body?.publish_status);
+    const priority = parsePriority(req.body?.priority);
     const splashImageUrl = normalizeSplashImageUrl(req.body?.splashImageUrl ?? req.body?.splash_image_url);
     if (req.body?.splashImageUrl != null || req.body?.splash_image_url != null) {
       const raw = req.body?.splashImageUrl ?? req.body?.splash_image_url;
@@ -464,9 +482,9 @@ export const createAgencyScheduledAnnouncement = async (req, res, next) => {
 
     const [result] = await pool.execute(
       `INSERT INTO agency_scheduled_announcements
-       (agency_id, created_by_user_id, title, message, display_type, recipient_user_ids, audience, starts_at, ends_at, splash_image_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [agencyId, userId, title, message, displayType, JSON.stringify(recipientUserIds), audience, startsAt, endsAt, splashImageUrl]
+       (agency_id, created_by_user_id, title, message, display_type, recipient_user_ids, audience, starts_at, ends_at, splash_image_url, publish_status, priority)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [agencyId, userId, title, message, displayType, JSON.stringify(recipientUserIds), audience, startsAt, endsAt, splashImageUrl, publishStatus, priority]
     );
 
     const id = result?.insertId ? Number(result.insertId) : null;
@@ -482,7 +500,9 @@ export const createAgencyScheduledAnnouncement = async (req, res, next) => {
         audience,
         starts_at: startsAt,
         ends_at: endsAt,
-        created_by_user_id: userId
+        created_by_user_id: userId,
+        publish_status: publishStatus,
+        priority
       }
     });
   } catch (e) {
@@ -662,6 +682,8 @@ export const updateAgencyScheduledAnnouncement = async (req, res, next) => {
     const displayType = parseAnnouncementDisplayType(req.body?.displayType || req.body?.display_type);
     const recipientUserIds = parseRecipientUserIds(req.body?.recipientUserIds || req.body?.recipient_user_ids);
     const audience = parseAudience(req.body?.audience);
+    const publishStatus = parsePublishStatus(req.body?.publishStatus || req.body?.publish_status);
+    const priority = parsePriority(req.body?.priority);
     let splashImageUrl;
     if (req.body && ('splashImageUrl' in req.body || 'splash_image_url' in req.body)) {
       splashImageUrl = normalizeSplashImageUrl(req.body?.splashImageUrl ?? req.body?.splash_image_url);
@@ -715,7 +737,9 @@ export const updateAgencyScheduledAnnouncement = async (req, res, next) => {
          audience = ?,
          starts_at = ?,
          ends_at = ?,
-         splash_image_url = ?
+         splash_image_url = ?,
+         publish_status = ?,
+         priority = ?
        WHERE id = ? AND agency_id = ?`,
       [
         title,
@@ -726,6 +750,8 @@ export const updateAgencyScheduledAnnouncement = async (req, res, next) => {
         startsAt,
         endsAt,
         splashImageUrl,
+        publishStatus,
+        priority,
         announcementId,
         agencyId
       ]
@@ -745,7 +771,9 @@ export const updateAgencyScheduledAnnouncement = async (req, res, next) => {
         recipient_user_ids: recipientUserIds,
         audience,
         starts_at: startsAt,
-        ends_at: endsAt
+        ends_at: endsAt,
+        publish_status: publishStatus,
+        priority
       }
     });
   } catch (e) {
@@ -855,6 +883,66 @@ export const listAnnouncementAudienceGroups = async (req, res, next) => {
       service_focuses: serviceFocusMap,
       departments
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getAgencyAnnouncementHub = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req.params.id);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
+    const days = Number(req.query?.days || 30);
+    const [counts, engagement, queue] = await Promise.all([
+      getAnnouncementHubCounts(agencyId),
+      getAnnouncementEngagementOverview(agencyId, { days }),
+      getAnnouncementAutomationQueue(agencyId, { daysAhead: days })
+    ]);
+    res.json({ counts, engagement, queue });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getAgencyAnnouncementAutomationQueue = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req.params.id);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
+    const daysAhead = Number(req.query?.days || 30);
+    const queue = await getAnnouncementAutomationQueue(agencyId, { daysAhead });
+    res.json(queue);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const recordAgencyAnnouncementEvent = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req.params.id);
+    const announcementId = parseAgencyId(req.params.announcementId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
+    if (!announcementId) return res.status(400).json({ error: { message: 'Invalid announcement id' } });
+    if (!(await userHasAgencyAccess(req, agencyId))) {
+      return res.status(403).json({ error: { message: 'Not authorized for this agency' } });
+    }
+    const userId = parseAgencyId(req.user?.id);
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    const result = await recordAnnouncementEvent({
+      agencyId,
+      announcementId,
+      userId,
+      eventType: req.body?.eventType || req.body?.event_type
+    });
+    if (result?.reason === 'not_found') {
+      return res.status(404).json({ error: { message: 'Announcement not found' } });
+    }
+    res.json({ ok: true, ...result });
   } catch (e) {
     next(e);
   }

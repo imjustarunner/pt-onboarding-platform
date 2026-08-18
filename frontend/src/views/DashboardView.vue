@@ -1950,6 +1950,28 @@ const ROI_REMINDER_SPLASH_DISMISS_PREFIX = 'dashboardRoiReminderDismissed.v1';
 const roiReminderDismissVersion = ref(0);
 const roiReminderNotifications = ref([]);
 
+const recordAnnouncementEvent = (announcementId, eventType) => {
+  const aid = Number(announcementAgencyId.value || 0);
+  const id = Number(announcementId || 0);
+  if (!aid || !id || props.previewMode) return;
+  api.post(
+    `/agencies/${aid}/announcements/${id}/events`,
+    { eventType },
+    { skipGlobalLoading: true }
+  ).catch(() => {});
+};
+
+const recordAnnouncementImpressions = (rows) => {
+  for (const row of rows || []) {
+    const id = Number(row?.id || 0);
+    if (!id) continue;
+    recordAnnouncementEvent(id, 'impression');
+    if (String(row?.display_type || '').toLowerCase() === 'splash') {
+      recordAnnouncementEvent(id, 'open');
+    }
+  }
+};
+
 const splashAnnouncements = computed(() => {
   const scheduled = Array.isArray(scheduledBannerItems.value) ? scheduledBannerItems.value : [];
   return scheduled
@@ -2007,6 +2029,8 @@ const formatSplashEndsAt = (dateLike) => {
 const dismissCurrentSplash = () => {
   const item = currentSplashAnnouncement.value;
   if (!item) return;
+  recordAnnouncementEvent(item.id, 'acknowledge');
+  recordAnnouncementEvent(item.id, 'dismiss');
   const key = splashDismissKey(item);
   if (!key) return;
   const endTs = new Date(item?.ends_at || 0).getTime();
@@ -5145,6 +5169,7 @@ const loadAgencyDashboardBanner = async () => {
 
     if (scheduledResp.status === 'fulfilled') {
       scheduledBannerItems.value = Array.isArray(scheduledResp.value?.data) ? scheduledResp.value.data : [];
+      recordAnnouncementImpressions(scheduledBannerItems.value);
     } else {
       scheduledBannerItems.value = [];
     }

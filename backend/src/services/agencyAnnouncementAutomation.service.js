@@ -342,6 +342,216 @@ const processAnniversaryForAgency = async ({ agencyId, template }) => {
   }
 };
 
+const PROVIDER_ROLE_CLAUSE = `LOWER(u.role) IN ('provider', 'provider_plus', 'intern', 'intern_plus')`;
+
+const nextOccurrenceSql = (alias = 'next_on') => `
+  CASE
+    WHEN SUBSTRING(uiv.value, 6, 5) = '02-29'
+      AND MOD(YEAR(CURDATE()), 4) <> 0
+    THEN
+      CASE
+        WHEN DATE_FORMAT(CURDATE(), '%m-%d') <= '02-28'
+        THEN STR_TO_DATE(CONCAT(YEAR(CURDATE()), '-02-28'), '%Y-%m-%d')
+        ELSE STR_TO_DATE(CONCAT(YEAR(CURDATE()) + 1, '-02-28'), '%Y-%m-%d')
+      END
+    WHEN DATE_FORMAT(CURDATE(), '%m-%d') <= SUBSTRING(uiv.value, 6, 5)
+    THEN STR_TO_DATE(CONCAT(YEAR(CURDATE()), '-', SUBSTRING(uiv.value, 6, 5)), '%Y-%m-%d')
+    ELSE STR_TO_DATE(CONCAT(YEAR(CURDATE()) + 1, '-', SUBSTRING(uiv.value, 6, 5)), '%Y-%m-%d')
+  END AS ${alias}
+`;
+
+function mapUpcomingPerson(row, extra = {}) {
+  const person = personFromRow(row, extra);
+  if (!person) return null;
+  const nextOn = row?.next_on ? String(row.next_on).slice(0, 10) : null;
+  const years = Number(row?.service_years);
+  return {
+    ...person,
+    role: String(row?.role || ''),
+    dateValue: row?.date_value ? String(row.date_value).slice(0, 10) : null,
+    nextOn,
+    years: Number.isFinite(years) ? years : extra.years || null
+  };
+}
+
+export async function listUpcomingBirthdays(agencyId, { daysAhead = 30 } = {}) {
+  const days = Math.min(90, Math.max(1, Number(daysAhead) || 30));
+  const [rows] = await pool.execute(
+    `
+    SELECT * FROM (
+      SELECT
+        u.id,
+        u.first_name,
+        u.last_name,
+        u.role,
+        u.profile_photo_path,
+        uiv.value AS date_value,
+        CASE
+          WHEN uifd.field_key = 'date_of_birth' THEN 2
+          WHEN uifd.field_key = 'provider_birthdate' THEN 1
+          ELSE 0
+        END AS field_priority,
+        ${nextOccurrenceSql('next_on')}
+      FROM users u
+      INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+      INNER JOIN user_info_values uiv ON uiv.user_id = u.id
+      INNER JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+      WHERE
+        u.is_active = 1
+        AND ${ACTIVE_EMPLOYEE_CLAUSE}
+        AND ${PROVIDER_ROLE_CLAUSE}
+        AND uifd.field_key IN ('date_of_birth', 'provider_birthdate')
+        AND (uifd.agency_id IS NULL OR uifd.agency_id = ?)
+        AND uiv.value IS NOT NULL AND uiv.value <> ''
+        AND uiv.value REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    ) upcoming
+    WHERE DATEDIFF(upcoming.next_on, CURDATE()) BETWEEN 0 AND ?
+    ORDER BY upcoming.next_on ASC, upcoming.field_priority DESC, upcoming.last_name ASC
+    `,
+    [agencyId, agencyId, days]
+  );
+  const seen = new Set();
+  const people = [];
+  for (const row of rows || []) {
+    const id = Number(row?.id);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const person = mapUpcomingPerson(row);
+    if (person) people.push(person);
+  }
+  return people;
+}
+
+export async function listUpcomingAnniversaries(agencyId, { daysAhead = 30 } = {}) {
+  const days = Math.min(90, Math.max(1, Number(daysAhead) || 30));
+  const [rows] = await pool.execute(
+    `
+    SELECT * FROM (
+      SELECT
+        u.id,
+        u.first_name,
+        u.last_name,
+        u.role,
+        u.profile_photo_path,
+        uiv.value AS date_value,
+        TIMESTAMPDIFF(
+          YEAR,
+          STR_TO_DATE(uiv.value, '%Y-%m-%d'),
+          CASE
+            WHEN DATE_FORMAT(CURDATE(), '%m-%d') <= SUBSTRING(uiv.value, 6, 5)
+            THEN STR_TO_DATE(CONCAT(YEAR(CURDATE()), '-', SUBSTRING(uiv.value, 6, 5)), '%Y-%m-%d')
+            ELSE STR_TO_DATE(CONCAT(YEAR(CURDATE()) + 1, '-', SUBSTRING(uiv.value, 6, 5)), '%Y-%m-%d')
+          END
+        ) AS service_years,
+        ${nextOccurrenceSql('next_on')}
+      FROM users u
+      INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+      INNER JOIN user_info_values uiv ON uiv.user_id = u.id
+      INNER JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+      WHERE
+        u.is_active = 1
+        AND ${ACTIVE_EMPLOYEE_CLAUSE}
+        AND ${PROVIDER_ROLE_CLAUSE}
+        AND uifd.field_key = 'first_client_date'
+        AND (uifd.agency_id IS NULL OR uifd.agency_id = ?)
+        AND uiv.value IS NOT NULL AND uiv.value <> ''
+        AND uiv.value REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    ) upcoming
+    WHERE DATEDIFF(upcoming.next_on, CURDATE()) BETWEEN 0 AND ?
+      AND upcoming.service_years >= 1
+    ORDER BY upcoming.next_on ASC, upcoming.last_name ASC
+    `,
+    [agencyId, agencyId, days]
+  );
+  const seen = new Set();
+  const people = [];
+  for (const row of rows || []) {
+    const id = Number(row?.id);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const person = mapUpcomingPerson(row);
+    if (person) people.push(person);
+  }
+  return people;
+}
+
+export async function listProvidersMissingCelebrationDates(agencyId) {
+  const [rows] = await pool.execute(
+    `
+    SELECT
+      u.id,
+      u.first_name,
+      u.last_name,
+      u.role,
+      u.profile_photo_path,
+      MAX(CASE WHEN uifd.field_key IN ('date_of_birth', 'provider_birthdate')
+        AND uiv.value REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN 1 ELSE 0 END) AS has_birthday,
+      MAX(CASE WHEN uifd.field_key = 'first_client_date'
+        AND uiv.value REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN 1 ELSE 0 END) AS has_anniversary
+    FROM users u
+    INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+    LEFT JOIN user_info_values uiv ON uiv.user_id = u.id
+    LEFT JOIN user_info_field_definitions uifd
+      ON uifd.id = uiv.field_definition_id
+     AND (uifd.agency_id IS NULL OR uifd.agency_id = ?)
+     AND uifd.field_key IN ('date_of_birth', 'provider_birthdate', 'first_client_date')
+    WHERE
+      u.is_active = 1
+      AND ${ACTIVE_EMPLOYEE_CLAUSE}
+      AND ${PROVIDER_ROLE_CLAUSE}
+    GROUP BY u.id, u.first_name, u.last_name, u.role, u.profile_photo_path
+    HAVING has_birthday = 0 OR has_anniversary = 0
+    ORDER BY u.last_name ASC, u.first_name ASC
+    `,
+    [agencyId, agencyId]
+  );
+  return (rows || []).map((row) => {
+    const person = personFromRow(row);
+    if (!person) return null;
+    return {
+      ...person,
+      role: String(row?.role || ''),
+      missingBirthday: Number(row?.has_birthday) !== 1,
+      missingAnniversary: Number(row?.has_anniversary) !== 1
+    };
+  }).filter(Boolean);
+}
+
+export async function getAnnouncementAutomationQueue(agencyId, { daysAhead = 30 } = {}) {
+  const aid = Number(agencyId);
+  if (!aid) {
+    return { birthdays: [], anniversaries: [], missing: [], today: [] };
+  }
+  const [cfgRows] = await pool.execute(
+    `SELECT birthday_enabled, anniversary_enabled, birthday_template, anniversary_template
+     FROM agency_announcements WHERE agency_id = ? LIMIT 1`,
+    [aid]
+  );
+  const cfg = cfgRows?.[0] || {};
+  const birthdayEnabled = Boolean(cfg.birthday_enabled);
+  const anniversaryEnabled = Boolean(cfg.anniversary_enabled);
+  const [birthdays, anniversaries, missing, today] = await Promise.all([
+    birthdayEnabled ? listUpcomingBirthdays(aid, { daysAhead }) : Promise.resolve([]),
+    anniversaryEnabled ? listUpcomingAnniversaries(aid, { daysAhead }) : Promise.resolve([]),
+    listProvidersMissingCelebrationDates(aid),
+    getTodayCelebrationBannerItems(aid, {
+      birthdayEnabled,
+      birthdayTemplate: cfg.birthday_template || DEFAULT_BIRTHDAY_TEMPLATE,
+      anniversaryEnabled,
+      anniversaryTemplate: cfg.anniversary_template || DEFAULT_ANNIVERSARY_TEMPLATE
+    })
+  ]);
+  return {
+    birthdayEnabled,
+    anniversaryEnabled,
+    daysAhead,
+    today,
+    birthdays,
+    anniversaries,
+    missing
+  };
+}
+
 class AgencyAnnouncementAutomationService {
   static async runDailyTick() {
     const rows = await getEnabledAgencyRows();

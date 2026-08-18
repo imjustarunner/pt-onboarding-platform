@@ -55,6 +55,7 @@
         <div class="um-quick-announce-head">
           <h3 class="um-quick-announce-title">Quick Announcement / Splash</h3>
           <div class="um-quick-announce-actions">
+            <router-link :to="announcementsHubTo" class="btn btn-secondary btn-sm">Open hub</router-link>
             <button type="button" class="btn btn-secondary btn-sm" @click="quickAnnouncementCollapsed = !quickAnnouncementCollapsed">
               {{ quickAnnouncementCollapsed ? 'Expand' : 'Collapse' }}
             </button>
@@ -2077,6 +2078,10 @@ const agencyOptions = computed(() => {
 const canUseQuickAnnouncements = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff';
+});
+const announcementsHubTo = computed(() => {
+  const slug = String(route.params?.organizationSlug || '').trim();
+  return slug ? `/${slug}/admin/announcements` : '/admin/announcements';
 });
 
 const toLocalInput = (d) => {

@@ -643,6 +643,19 @@ const allSections = computed(() => [
         count: 0
       },
       {
+        id: 'announcements',
+        title: 'Announcements',
+        shortDesc: 'Splashes, banners, and auto celebrations.',
+        desc: 'Post agency announcements and splashes, review engagement, and see who is in the birthday and work-anniversary queue.',
+        cta: 'Open →',
+        to: orgTo('/admin/announcements'),
+        tone: 'teal',
+        icon: icon.docs,
+        tour: null,
+        show: canSeeUsersHub.value,
+        count: 0
+      },
+      {
         id: 'school-staff',
         title: 'School Staff',
         shortDesc: 'School portal staff accounts and roles.',

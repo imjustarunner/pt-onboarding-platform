@@ -1852,6 +1852,16 @@ const routes = [
     }
   },
   {
+    path: '/:organizationSlug/admin/announcements',
+    name: 'OrganizationAnnouncementsHub',
+    component: () => import('../views/admin/AnnouncementsHubView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'staff', 'club_manager', 'clinical_practice_assistant'],
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/admin/guardians',
     name: 'OrganizationGuardiansManagement',
     component: () => import('../views/admin/GuardiansView.vue'),
@@ -3104,6 +3114,15 @@ const routes = [
     meta: {
       requiresAuth: true,
       requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant']
+    }
+  },
+  {
+    path: '/admin/announcements',
+    name: 'AnnouncementsHub',
+    component: () => import('../views/admin/AnnouncementsHubView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant']
     }
   },
   {

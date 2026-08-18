@@ -38,7 +38,10 @@ import {
   updateAgencyScheduledAnnouncement,
   deleteAgencyScheduledAnnouncement,
   listAnnouncementAudienceGroups,
-  postClubAnnouncementWithThread
+  postClubAnnouncementWithThread,
+  getAgencyAnnouncementHub,
+  getAgencyAnnouncementAutomationQueue,
+  recordAgencyAnnouncementEvent
 } from '../controllers/agencyAnnouncements.controller.js';
 import {
   getManagementTeam,
@@ -616,9 +619,12 @@ router.get('/:id/announcements', authenticate, requireBackofficeAdmin, getAgency
 router.put('/:id/announcements', authenticate, requireBackofficeAdmin, updateAgencyAnnouncements);
 router.get('/:id/announcements/banner', authenticate, listAgencyBannerAnnouncements);
 router.get('/:id/announcements/list', authenticate, requireBackofficeAdminOrClubManagerForAgency, listAgencyScheduledAnnouncements);
+router.get('/:id/announcements/hub', authenticate, requireBackofficeAdminOrClubManagerForAgency, getAgencyAnnouncementHub);
+router.get('/:id/announcements/automation-queue', authenticate, requireBackofficeAdminOrClubManagerForAgency, getAgencyAnnouncementAutomationQueue);
 router.get('/:id/announcements/audience-groups', authenticate, requireBackofficeAdminOrClubManagerForAgency, listAnnouncementAudienceGroups);
 router.post('/:id/announcements', authenticate, requireBackofficeAdminOrClubManagerForAgency, createAgencyScheduledAnnouncement);
 router.post('/:id/announcements/with-thread', authenticate, requireBackofficeAdminOrClubManagerForAgency, postClubAnnouncementWithThread);
+router.post('/:id/announcements/:announcementId/events', authenticate, recordAgencyAnnouncementEvent);
 router.put('/:id/announcements/:announcementId', authenticate, requireBackofficeAdminOrClubManagerForAgency, updateAgencyScheduledAnnouncement);
 router.delete('/:id/announcements/:announcementId', authenticate, requireBackofficeAdminOrClubManagerForAgency, deleteAgencyScheduledAnnouncement);
 router.get('/:id/dashboard-banner', authenticate, getAgencyDashboardBanner);

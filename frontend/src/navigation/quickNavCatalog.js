@@ -503,6 +503,17 @@ function buildAppEntries() {
       rolesAny: ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant']
     },
     {
+      id: 'admin-announcements',
+      routeName: 'AnnouncementsHub',
+      label: 'Announcements',
+      description: 'Splashes, banners, engagement, and birthday / anniversary queue.',
+      group: 'admin',
+      keywords: ['announcements', 'splash', 'splashes', 'banner', 'birthday', 'anniversary', 'quick announcement'],
+      kind: 'path',
+      path: '/admin/announcements',
+      rolesAny: ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant']
+    },
+    {
       id: 'admin-referrals',
       routeName: 'ReferralDirectory',
       label: 'Referral Directory',
