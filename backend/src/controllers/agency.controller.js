@@ -985,6 +985,7 @@ export const updateAgency = async (req, res, next) => {
         const primaryContactEmail = sp.primaryContactEmail !== undefined ? String(sp.primaryContactEmail || '').trim() : '';
         const primaryContactRole = sp.primaryContactRole !== undefined ? String(sp.primaryContactRole || '').trim() : '';
         const secondaryContactText = sp.secondaryContactText !== undefined ? String(sp.secondaryContactText || '').trim() : '';
+        const schoolAddress = sp.schoolAddress !== undefined ? String(sp.schoolAddress || '').trim() : '';
         const hasBellScheduleStartTime = sp.bellScheduleStartTime !== undefined;
         const hasBellScheduleEndTime = sp.bellScheduleEndTime !== undefined;
         const bellScheduleStartTime = hasBellScheduleStartTime ? normalizeTime(sp.bellScheduleStartTime) : undefined;
@@ -1055,6 +1056,16 @@ export const updateAgency = async (req, res, next) => {
               secondaryContactText || null
             ]
           );
+        }
+        if (sp.schoolAddress !== undefined) {
+          try {
+            await pool.execute(
+              `UPDATE school_profiles SET school_address = ? WHERE school_organization_id = ?`,
+              [schoolAddress || null, parseInt(id, 10)]
+            );
+          } catch (addrErr) {
+            if (addrErr?.code !== 'ER_BAD_FIELD_ERROR') throw addrErr;
+          }
         }
       }
     } catch (e) {

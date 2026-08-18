@@ -36,7 +36,7 @@
           <div class="filters-row">
             <div class="filters-group">
               <label class="filters-label">Search</label>
-              <input v-model="searchQuery" class="filters-input" type="text" placeholder="Search by name or slug…" />
+              <input v-model="searchQuery" class="filters-input" type="search" placeholder="Search organizations…" />
             </div>
 
             <div class="filters-group">
@@ -100,7 +100,6 @@
     </div>
     
     <div v-if="loading" class="loading">Loading agencies...</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
         <div v-else class="org-list">
           <div v-if="loadingAffiliates && selectedAgencyFilterId" class="loading">Loading affiliated organizations…</div>
           <div v-else-if="organizationsToRender.length === 0" class="empty-state-inline">
@@ -211,6 +210,25 @@
             </div>
 
             <div class="detail-summary-actions">
+                <label class="org-jump">
+                  <span class="sr-only">Find organization</span>
+                  <input
+                    v-model="orgJumpQuery"
+                    type="search"
+                    class="org-jump-input"
+                    placeholder="Find another organization…"
+                    list="org-jump-options"
+                    @change="jumpToOrganization"
+                    @keydown.enter.prevent="jumpToOrganization"
+                  />
+                  <datalist id="org-jump-options">
+                    <option
+                      v-for="o in orgJumpOptions"
+                      :key="`jump-${o.id}`"
+                      :value="o.name"
+                    >{{ orgTypeDisplay(o.organization_type) }}</option>
+                  </datalist>
+                </label>
                 <button 
                 v-if="editingAgency.portal_url"
                 type="button"
@@ -231,124 +249,22 @@
         
         <!-- Tab Navigation -->
         <div class="modal-tabs">
-          <button type="button" :class="['tab-button', { active: activeTab === 'general' }]" @click="activeTab = 'general'">
-            General <span class="tab-owner-badge" :class="`owner-${tabOwnerType('general')}`">{{ tabOwnerLabel('general') }}</span>
-          </button>
           <button
-            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() !== 'office'"
+            v-for="t in visibleEditorTabs"
+            :key="`tab-${t.id}`"
             type="button"
-            :class="['tab-button', { active: activeTab === 'branding' }]"
-            @click="activeTab = 'branding'"
+            :class="['tab-button', { active: activeTab === t.id }]"
+            @click="goToAgencyTab(t.id)"
           >
-            Branding <span class="tab-owner-badge" :class="`owner-${tabOwnerType('branding')}`">{{ tabOwnerLabel('branding') }}</span>
-          </button>
-          <button
-            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'agency'"
-            type="button"
-            :class="['tab-button', { active: activeTab === 'features' }]"
-            @click="activeTab = 'features'"
-          >
-            Features <span class="tab-owner-badge" :class="`owner-${tabOwnerType('features')}`">{{ tabOwnerLabel('features') }}</span>
-          </button>
-          <button
-            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() !== 'office' && String(agencyForm.organizationType || 'agency').toLowerCase() !== 'school'"
-            type="button"
-            :class="['tab-button', { active: activeTab === 'contact' }]"
-            @click="activeTab = 'contact'"
-          >
-            Contact <span class="tab-owner-badge" :class="`owner-${tabOwnerType('contact')}`">{{ tabOwnerLabel('contact') }}</span>
-          </button>
-          <button
-            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() !== 'office'"
-            type="button"
-            :class="['tab-button', { active: activeTab === 'address' }]"
-            @click="activeTab = 'address'"
-          >
-            Address <span class="tab-owner-badge" :class="`owner-${tabOwnerType('address')}`">{{ tabOwnerLabel('address') }}</span>
-          </button>
-          <button
-            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'school'"
-            type="button"
-            :class="['tab-button', { active: activeTab === 'school_providers' }]"
-            @click="activeTab = 'school_providers'"
-          >
-            Providers <span class="tab-owner-badge" :class="`owner-${tabOwnerType('school_providers')}`">{{ tabOwnerLabel('school_providers') }}</span>
-          </button>
-          <button
-            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'school'"
-            type="button"
-            :class="['tab-button', { active: activeTab === 'school_staff' }]"
-            @click="activeTab = 'school_staff'"
-          >
-            School Staff <span class="tab-owner-badge" :class="`owner-${tabOwnerType('school_staff')}`">{{ tabOwnerLabel('school_staff') }}</span>
-          </button>
-          <button
-            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
-            type="button"
-            :class="['tab-button', { active: activeTab === 'sites' }]"
-            @click="activeTab = 'sites'"
-          >
-            Sites <span class="tab-owner-badge" :class="`owner-${tabOwnerType('sites')}`">{{ tabOwnerLabel('sites') }}</span>
-          </button>
-          <button
-            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
-            type="button"
-            :class="['tab-button', { active: activeTab === 'notifications' }]"
-            @click="activeTab = 'notifications'"
-          >
-            Notifications <span class="tab-owner-badge" :class="`owner-${tabOwnerType('notifications')}`">{{ tabOwnerLabel('notifications') }}</span>
-          </button>
-          <button
-            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
-            type="button"
-            :class="['tab-button', { active: activeTab === 'announcements' }]"
-            @click="activeTab = 'announcements'"
-          >
-            Announcements <span class="tab-owner-badge" :class="`owner-${tabOwnerType('announcements')}`">{{ tabOwnerLabel('announcements') }}</span>
-          </button>
-          <button
-            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
-            type="button"
-            :class="['tab-button', { active: activeTab === 'company_events' }]"
-            @click="activeTab = 'company_events'"
-          >
-            Company Events <span class="tab-owner-badge" :class="`owner-${tabOwnerType('company_events')}`">{{ tabOwnerLabel('company_events') }}</span>
-          </button>
-          <button
-            v-if="userRole === 'super_admin' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
-            type="button"
-            :class="['tab-button', { active: activeTab === 'social_feeds' }]"
-            @click="activeTab = 'social_feeds'"
-          >
-            Social feeds <span class="tab-owner-badge" :class="`owner-${tabOwnerType('social_feeds')}`">{{ tabOwnerLabel('social_feeds') }}</span>
-          </button>
-          <button type="button" :class="['tab-button', { active: activeTab === 'theme' }]" @click="activeTab = 'theme'">
-            Theme <span class="tab-owner-badge" :class="`owner-${tabOwnerType('theme')}`">{{ tabOwnerLabel('theme') }}</span>
-          </button>
-          <button type="button" :class="['tab-button', { active: activeTab === 'terminology' }]" @click="activeTab = 'terminology'">
-            Terminology <span class="tab-owner-badge" :class="`owner-${tabOwnerType('terminology')}`">{{ tabOwnerLabel('terminology') }}</span>
-          </button>
-          <button type="button" :class="['tab-button', { active: activeTab === 'icons' }]" @click="activeTab = 'icons'">
-            Icons <span class="tab-owner-badge" :class="`owner-${tabOwnerType('icons')}`">{{ tabOwnerLabel('icons') }}</span>
-          </button>
-          <button
-            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
-            type="button"
-            :class="['tab-button', { active: activeTab === 'kudos' }]"
-            @click="activeTab = 'kudos'"
-          >
-            Kudos <span class="tab-owner-badge" :class="`owner-${tabOwnerType('kudos')}`">{{ tabOwnerLabel('kudos') }}</span>
-          </button>
-          <button
-            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
-            type="button"
-            :class="['tab-button', { active: activeTab === 'payroll' }]"
-            @click="openPayrollTab"
-          >
-            Payroll <span class="tab-owner-badge" :class="`owner-${tabOwnerType('payroll')}`">{{ tabOwnerLabel('payroll') }}</span>
+            {{ t.label }}
+            <span v-if="!isChildOrgEditor" class="tab-owner-badge" :class="`owner-${tabOwnerType(t.id)}`">{{ tabOwnerLabel(t.id) }}</span>
           </button>
         </div>
-        <div v-if="editingAgency" class="controls-map">
+        <p v-if="isChildOrgEditor" class="child-org-hint">
+          Schools and other sub-organizations inherit tenant branding, features, and platform settings.
+          Edit name, address, and school staff here.
+        </p>
+        <div v-if="editingAgency && !isChildOrgEditor" class="controls-map">
           <div class="controls-map-col">
             <div class="controls-map-title">Platform / Superadmin controls</div>
             <div class="controls-map-sub">Tenant setup and platform-governed controls.</div>
@@ -513,6 +429,7 @@
               <small v-else>Platform-controlled. Contact support to change.</small>
             </div>
 
+            <template v-if="!isChildOrgEditor">
             <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 12px; padding-top: 18px; border-top: 1px solid var(--border);">
               <h4 style="margin: 0; font-size: 16px;">Intake Data Retention</h4>
               <p class="section-description" style="margin-top: 6px;">
@@ -556,6 +473,7 @@
                 <small>Legacy PIN lock preference cap only. Leave blank to use platform max.</small>
               </div>
             </div>
+            </template>
 
             <div
               v-if="String(agencyForm.organizationType || '').toLowerCase() === 'agency'"
@@ -4609,12 +4527,40 @@ const currentTabOrgType = computed(() =>
   String(editingAgency.value?.organization_type || agencyForm.value?.organizationType || 'agency').toLowerCase()
 );
 
+const isChildOrgEditor = computed(() =>
+  ['school', 'program', 'learning', 'clinical', 'affiliation'].includes(currentTabOrgType.value)
+);
+
+const EDITOR_TAB_DEFS = [
+  { id: 'general', label: 'General' },
+  { id: 'branding', label: 'Branding' },
+  { id: 'features', label: 'Features' },
+  { id: 'contact', label: 'Contact' },
+  { id: 'address', label: 'Address' },
+  { id: 'school_providers', label: 'Providers' },
+  { id: 'school_staff', label: 'School Staff' },
+  { id: 'sites', label: 'Sites' },
+  { id: 'notifications', label: 'Notifications' },
+  { id: 'announcements', label: 'Announcements' },
+  { id: 'company_events', label: 'Company Events' },
+  { id: 'social_feeds', label: 'Social feeds' },
+  { id: 'theme', label: 'Theme' },
+  { id: 'terminology', label: 'Terminology' },
+  { id: 'icons', label: 'Icons' },
+  { id: 'kudos', label: 'Kudos' },
+  { id: 'payroll', label: 'Payroll' }
+];
+
 const tabAvailable = (tabId) => {
   const t = String(tabId || '').trim().toLowerCase();
   const orgType = currentTabOrgType.value;
   const isAgency = orgType === 'agency';
   const isSchool = orgType === 'school';
-  if (t === 'general' || t === 'theme' || t === 'terminology' || t === 'icons') return true;
+  const isChild = ['school', 'program', 'learning', 'clinical', 'affiliation'].includes(orgType);
+  if (t === 'general') return true;
+  // Sub-orgs inherit tenant platform settings; don't expose unused tenant chrome.
+  if (isChild && ['theme', 'terminology', 'icons', 'branding', 'features', 'social_feeds'].includes(t)) return false;
+  if (t === 'theme' || t === 'terminology' || t === 'icons') return true;
   if (t === 'branding') return orgType !== 'office';
   if (t === 'features') return isAgency;
   if (t === 'contact') return orgType !== 'office' && orgType !== 'school';
@@ -4626,6 +4572,8 @@ const tabAvailable = (tabId) => {
   }
   return false;
 };
+
+const visibleEditorTabs = computed(() => EDITOR_TAB_DEFS.filter((x) => tabAvailable(x.id)));
 
 const superadminQuickTabs = computed(() => {
   const base = [
@@ -7252,7 +7200,7 @@ const applyFilters = (list) => {
   const q = normalizeText(searchQuery.value);
   return (list || []).filter((o) => {
     if (!q) return true;
-    const hay = `${normalizeText(o?.name)} ${normalizeText(o?.slug)} ${normalizeText(o?.portal_url)}`;
+    const hay = `${normalizeText(o?.name)} ${normalizeText(o?.official_name)} ${normalizeText(o?.slug)} ${normalizeText(o?.portal_url)} ${normalizeText(o?.city)} ${normalizeText(o?.street_address)}`;
     return hay.includes(q);
   });
 };
@@ -7958,6 +7906,7 @@ const editAgency = async (agency) => {
   }
 
   showCreateModal.value = false;
+  error.value = '';
   // For school orgs, always fetch full details (cache-busted) so school_profile + school_contacts
   // are available and up-to-date.
   try {
@@ -8051,11 +8000,13 @@ const editAgency = async (agency) => {
       return { tier1MinWeekly: 6, tier2MinWeekly: 13, tier3MinWeekly: 25 };
     }
   })();
+
+  const parsedSchoolAddress = splitSchoolAddressLine(agency?.school_profile?.school_address);
   
   agencyForm.value = {
     organizationType: normalizeOrganizationType(agency.organization_type || agency.organizationType, 'agency'),
     affiliatedAgencyId: '',
-    name: agency.name,
+    name: agency.name || agency.official_name || '',
     officialName: agency.official_name || '',
     slug: agency.slug,
     officeTimezone: 'America/New_York',
@@ -8152,10 +8103,10 @@ const editAgency = async (agency) => {
       secondaryContactText: agency?.school_profile?.secondary_contact_text || ''
     },
     companyCarDefaultReason: agency.company_car_default_reason ?? agency.companyCarDefaultReason ?? '',
-    streetAddress: agency.street_address || '',
-    city: agency.city || '',
-    state: agency.state || '',
-    postalCode: agency.postal_code || '',
+    streetAddress: agency.street_address || parsedSchoolAddress.streetAddress,
+    city: agency.city || parsedSchoolAddress.city,
+    state: agency.state || parsedSchoolAddress.state,
+    postalCode: agency.postal_code || parsedSchoolAddress.postalCode,
     portalUrl: agency.portal_url || '',
     tierSystemEnabled: (agency.tier_system_enabled === 1 || agency.tier_system_enabled === true || String(agency.tier_system_enabled || '').toLowerCase() === 'true'),
     tierThresholds,
@@ -8321,6 +8272,10 @@ const editAgency = async (agency) => {
   if (String(activeTab.value || '') === 'sites' && String(agency?.organization_type || 'agency').toLowerCase() === 'agency') {
     loadOfficeLocations();
     loadMileageRates();
+  }
+
+  if (!tabAvailable(activeTab.value)) {
+    activeTab.value = tabAvailable('address') ? 'address' : 'general';
   }
 
   // Helpful on smaller screens where the detail pane stacks below the list:
@@ -8645,6 +8600,64 @@ const isChildOrgRow = (org) => {
   return ['school', 'program', 'learning', 'affiliation', 'clinical'].includes(t);
 };
 
+const orgJumpQuery = ref('');
+const orgJumpSource = computed(() => {
+  const seen = new Set();
+  const out = [];
+  for (const o of [...(organizationsToRender.value || []), ...(affiliatedOrganizations.value || []), ...(agencies.value || [])]) {
+    const id = Number(o?.id || 0);
+    if (!id || seen.has(id) || o?.__kind === 'building') continue;
+    seen.add(id);
+    out.push(o);
+  }
+  return out;
+});
+const orgJumpOptions = computed(() => {
+  const q = normalizeText(orgJumpQuery.value);
+  const list = orgJumpSource.value;
+  if (!q) return list.slice(0, 12);
+  return list
+    .filter((o) => `${normalizeText(o?.name)} ${normalizeText(o?.official_name)} ${normalizeText(o?.slug)}`.includes(q))
+    .slice(0, 12);
+});
+const jumpToOrganization = () => {
+  const q = normalizeText(orgJumpQuery.value);
+  if (!q) return;
+  const match = orgJumpSource.value.find((o) => {
+    const name = normalizeText(o?.name);
+    const official = normalizeText(o?.official_name);
+    return name === q || official === q || name.includes(q) || official.includes(q);
+  });
+  if (match) {
+    orgJumpQuery.value = '';
+    editAgency(match);
+  }
+};
+
+const splitSchoolAddressLine = (raw) => {
+  const s = String(raw || '').trim();
+  if (!s) return { streetAddress: '', city: '', state: '', postalCode: '' };
+  const m = s.match(/^(.*?),\s*([^,]+),\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)\s*$/);
+  if (m) {
+    return {
+      streetAddress: m[1].trim(),
+      city: m[2].trim(),
+      state: m[3].toUpperCase(),
+      postalCode: m[4]
+    };
+  }
+  return { streetAddress: s, city: '', state: '', postalCode: '' };
+};
+
+const composeSchoolAddressLine = ({ streetAddress, city, state, postalCode } = {}) => {
+  const street = String(streetAddress || '').trim();
+  const cityPart = String(city || '').trim();
+  const st = String(state || '').trim();
+  const zip = String(postalCode || '').trim();
+  const tail = [cityPart, [st, zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  return [street, tail].filter(Boolean).join(', ');
+};
+
 const openDuplicateModal = (org) => {
   duplicatingOrganization.value = org;
   duplicateError.value = '';
@@ -8655,13 +8668,6 @@ const openDuplicateModal = (org) => {
     slug: `${baseSlug}-copy`,
     portalUrl: ''
   };
-
-  originalAgencyFormSnapshot.value = JSON.stringify(agencyForm.value);
-  try {
-    router.replace({ query: { ...route.query, orgId: String(agency.id) } });
-  } catch {
-    // ignore
-  }
 };
 
 const closeDuplicateModal = () => {
@@ -8816,18 +8822,22 @@ const saveAgency = async () => {
       }
     }
     
-    // Validate required fields
-    if (!agencyForm.value.name || !agencyForm.value.name.trim()) {
-      error.value = 'Agency name is required';
+    // Validate required fields (existing orgs keep their stored name/slug if the form field is empty)
+    const resolvedName = String(agencyForm.value.name || editingAgency.value?.name || editingAgency.value?.official_name || '').trim();
+    const resolvedSlug = String(agencyForm.value.slug || editingAgency.value?.slug || '').trim();
+    if (!resolvedName) {
+      error.value = 'Organization name is required';
       saving.value = false;
       return;
     }
+    agencyForm.value.name = resolvedName;
     
-    if (!agencyForm.value.slug || !agencyForm.value.slug.trim()) {
+    if (!resolvedSlug) {
       error.value = 'Slug is required';
       saving.value = false;
       return;
     }
+    agencyForm.value.slug = resolvedSlug;
     
     // Validate and format slug
     let slug = agencyForm.value.slug.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
@@ -9174,7 +9184,13 @@ const saveAgency = async () => {
               primaryContactName: agencyForm.value.schoolProfile?.primaryContactName?.trim() || null,
               primaryContactEmail: agencyForm.value.schoolProfile?.primaryContactEmail?.trim() || null,
               primaryContactRole: agencyForm.value.schoolProfile?.primaryContactRole?.trim() || null,
-              secondaryContactText: agencyForm.value.schoolProfile?.secondaryContactText?.trim() || null
+              secondaryContactText: agencyForm.value.schoolProfile?.secondaryContactText?.trim() || null,
+              schoolAddress: composeSchoolAddressLine({
+                streetAddress: agencyForm.value.streetAddress,
+                city: agencyForm.value.city,
+                state: agencyForm.value.state,
+                postalCode: agencyForm.value.postalCode
+              }) || null
             }
           : null
     };
@@ -9877,6 +9893,36 @@ watch(
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+.org-jump {
+  display: flex;
+  min-width: 220px;
+}
+.org-jump-input {
+  width: 100%;
+  min-width: 220px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.child-org-hint {
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .detail-empty {
