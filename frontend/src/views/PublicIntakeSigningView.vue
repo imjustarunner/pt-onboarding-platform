@@ -14913,6 +14913,11 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(18, 60, 109, 0.2);
 }
 
+.public-intake {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 .intake-start-card {
   position: relative;
   z-index: 1;
@@ -14922,6 +14927,8 @@ onBeforeUnmount(() => {
   padding: clamp(1.35rem, 3vw, 2.15rem);
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
   width: min(1080px, 100%);
+  max-width: 100%;
+  box-sizing: border-box;
   margin: 0 auto;
   text-align: left;
 }
@@ -15694,6 +15701,32 @@ onBeforeUnmount(() => {
   }
   .clinical-instrument-head {
     flex-direction: column;
+  }
+  .public-intake :deep(.df-shell) {
+    min-width: 0;
+  }
+  .intake-start-card {
+    width: 100% !important;
+    max-width: 100%;
+    transform: none !important;
+    padding: 1.15rem 1rem calc(1.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  .intake-start-page .ai-page-title {
+    font-size: clamp(1.4rem, 7vw, 1.85rem);
+    overflow-wrap: anywhere;
+  }
+  .intake-start-page .ai-page-lead {
+    max-width: 100%;
+    font-size: 0.95rem;
+  }
+  .intake-start-grid {
+    grid-template-columns: 1fr;
+  }
+  .public-intake :deep(input),
+  .public-intake :deep(select),
+  .public-intake :deep(textarea) {
+    font-size: 16px;
+    max-width: 100%;
   }
 }
 </style>

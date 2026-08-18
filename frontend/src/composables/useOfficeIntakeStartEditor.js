@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import {
@@ -115,6 +115,12 @@ export function useOfficeIntakeStartEditor({
   const selectedStartSizeMin = computed(() => selectedStartSizeControl.value?.min ?? 0);
   const selectedStartSizeMax = computed(() => selectedStartSizeControl.value?.max ?? 1);
   const selectedStartSizeStep = computed(() => selectedStartSizeControl.value?.step ?? 0.05);
+  const viewportWidth = ref(typeof window === 'undefined' ? 1200 : window.innerWidth);
+  const skipDesktopLayout = computed(() => !editingStartLayout.value && viewportWidth.value <= 860);
+
+  function syncViewportWidth() {
+    viewportWidth.value = window.innerWidth;
+  }
 
   function isStartHidden(key) {
     return activeStartLayout.value.hidden?.[key] === true;
@@ -132,6 +138,12 @@ export function useOfficeIntakeStartEditor({
   }
 
   function officeStartBlockStyle(key) {
+    if (skipDesktopLayout.value) {
+      if (key === 'card') return { width: '100%', maxWidth: '100%' };
+      if (key === 'help') return { width: '100%', maxWidth: '100%' };
+      if (key === 'logo') return { width: 'min(150px, 42vw)', maxWidth: '100%' };
+      return {};
+    }
     const layout = activeStartLayout.value;
     const pos = key === 'card' ? { x: layout.x, y: layout.y } : (layout[key] || { x: 0, y: 0 });
     const sizes = layout.sizes || {};
@@ -158,15 +170,21 @@ export function useOfficeIntakeStartEditor({
     return style;
   }
 
-  const officeStartLogoStyle = computed(() => ({
-    width: `${Number(activeStartLayout.value.sizes?.logoWidth) || 150}px`,
-    maxWidth: '100%',
-    height: 'auto'
-  }));
+  const officeStartLogoStyle = computed(() => (
+    skipDesktopLayout.value
+      ? { width: 'min(150px, 42vw)', maxWidth: '100%', height: 'auto' }
+      : {
+          width: `${Number(activeStartLayout.value.sizes?.logoWidth) || 150}px`,
+          maxWidth: '100%',
+          height: 'auto'
+        }
+  ));
 
-  const officeStartScriptStyle = computed(() => ({
-    fontSize: `${Number(activeStartLayout.value.sizes?.script) || 1.9}rem`
-  }));
+  const officeStartScriptStyle = computed(() => (
+    skipDesktopLayout.value
+      ? { fontSize: '1.55rem' }
+      : { fontSize: `${Number(activeStartLayout.value.sizes?.script) || 1.9}rem` }
+  ));
 
   function hydrate(copy) {
     const next = mergeIntakeStartLayout(copy?.intakeStartLayout);
@@ -357,9 +375,15 @@ export function useOfficeIntakeStartEditor({
     }
   }
 
+  onMounted(() => {
+    syncViewportWidth();
+    window.addEventListener('resize', syncViewportWidth);
+  });
+
   onBeforeUnmount(() => {
     stopOfficeStartDrag();
     stopOfficeStartResize();
+    if (typeof window !== 'undefined') window.removeEventListener('resize', syncViewportWidth);
     if (startLayoutOkTimer) clearTimeout(startLayoutOkTimer);
   });
 

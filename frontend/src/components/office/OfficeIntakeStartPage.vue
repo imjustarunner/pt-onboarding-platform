@@ -820,4 +820,56 @@ if (!ctx) {
     transform: none !important;
   }
 }
+
+@media (max-width: 860px) {
+  .intake-start-rail {
+    height: auto;
+    gap: 0.75rem;
+  }
+  .intake-start-block,
+  .intake-start-block--help,
+  .intake-start-welcome-block,
+  .intake-start-glad-block {
+    width: 100%;
+    max-width: 100%;
+  }
+  .intake-start-block--help {
+    margin-top: 0.65rem;
+    position: relative;
+    z-index: 2;
+  }
+  .intake-start-help {
+    width: 100%;
+    background: #fff;
+  }
+  .intake-start-help p,
+  .intake-start-help-line {
+    position: relative;
+    z-index: 1;
+    line-height: 1.4;
+  }
+  .intake-start-script {
+    font-size: 1.55rem;
+  }
+  .intake-start-card {
+    width: 100% !important;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 1.15rem 1rem calc(1.5rem + env(safe-area-inset-bottom, 0px));
+    border-radius: 16px;
+  }
+  .intake-start-page .ai-page-title {
+    font-size: clamp(1.4rem, 7vw, 1.85rem);
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+  .intake-start-page .ai-page-lead {
+    font-size: 0.95rem;
+    max-width: 100%;
+    padding: 0 0.15rem;
+  }
+  .intake-start-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

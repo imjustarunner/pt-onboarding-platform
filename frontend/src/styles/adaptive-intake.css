@@ -428,6 +428,47 @@
   }
 }
 
+@media (max-width: 860px) {
+  .ai-shell-host.df-page {
+    padding-left: 0;
+    padding-right: 0;
+    overflow-x: hidden;
+    max-width: 100%;
+  }
+
+  .df-shell--intake-stepper,
+  .df-page--scenic-side .df-shell--intake-stepper {
+    --df-sidebar-w: 100%;
+  }
+
+  .df-shell--intake-stepper .df-sidebar,
+  .df-page--scenic-side .df-shell--intake-stepper .df-sidebar {
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    max-height: none;
+    border-right: 0;
+    border-bottom: 1px solid rgba(27, 61, 47, 0.12);
+    padding: 0.9rem 1rem 1rem;
+  }
+
+  .df-shell.df-shell--intake-stepper .df-main-body {
+    padding: 0.75rem 1rem calc(1.25rem + env(safe-area-inset-bottom, 0px));
+    min-width: 0;
+  }
+
+  .ai-page-title,
+  .ai-pathway-title {
+    font-size: clamp(1.4rem, 7vw, 1.85rem);
+    overflow-wrap: anywhere;
+  }
+
+  .ai-page-lead {
+    max-width: 100%;
+    font-size: 0.95rem;
+  }
+}
+
 @media (max-width: 720px) {
   .df-shell--intake-stepper .df-sidebar-intake-stack,
   .df-shell--intake-stepper .df-sidebar-intake-steps,

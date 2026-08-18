@@ -375,7 +375,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref, toRaw } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, toRaw } from 'vue';
 import api from '../../services/api';
 import PublicLinkImageEditor from '../public/PublicLinkImageEditor.vue';
 import {
@@ -430,6 +430,8 @@ const saveError = ref('');
 const saveOk = ref('');
 const holdEditClosed = ref(false);
 const selectedBlock = ref('');
+const viewportWidth = ref(typeof window === 'undefined' ? 1200 : window.innerWidth);
+const skipDesktopLayout = computed(() => !editing.value && viewportWidth.value <= 860);
 const draft = reactive(blankDraft());
 let dragState = null;
 let resizeState = null;
@@ -498,6 +500,9 @@ const selectedBlockLabel = computed(() =>
 );
 
 const logoStyle = computed(() => {
+  if (skipDesktopLayout.value) {
+    return { width: 'min(140px, 46vw)', maxWidth: '100%', height: 'auto' };
+  }
   const width = Number(activeLayout.value.sizes?.logoWidth) || 150;
   return { width: `${width}px`, maxWidth: '100%', height: 'auto' };
 });
@@ -597,6 +602,12 @@ function setBlockAlign(key, align) {
 }
 
 function blockStyle(key) {
+  if (skipDesktopLayout.value) {
+    const style = { maxWidth: '100%' };
+    if (key === 'cards' || key === 'help') style.width = '100%';
+    if (key === 'logo') style.width = 'min(140px, 46vw)';
+    return style;
+  }
   const pos = activeLayout.value.positions?.[key] || { x: 0, y: 0 };
   const sizes = activeLayout.value.sizes || {};
   const style = {
@@ -838,9 +849,19 @@ function stopResize() {
   window.removeEventListener('mouseup', stopResize);
 }
 
+function syncViewportWidth() {
+  viewportWidth.value = window.innerWidth;
+}
+
+onMounted(() => {
+  syncViewportWidth();
+  window.addEventListener('resize', syncViewportWidth);
+});
+
 onBeforeUnmount(() => {
   stopDrag();
   stopResize();
+  if (typeof window !== 'undefined') window.removeEventListener('resize', syncViewportWidth);
   if (saveOkTimer) clearTimeout(saveOkTimer);
   if (holdEditTimer) clearTimeout(holdEditTimer);
 });
@@ -1511,45 +1532,78 @@ async function saveEdit() {
 }
 
 @media (max-width: 960px) {
+  .ajl {
+    overflow-x: hidden;
+    overflow-y: auto;
+    min-height: 100dvh;
+  }
   .ajl:not(.ajl--editing) .ajl-block {
     transform: none !important;
+    width: auto;
+    max-width: 100%;
   }
 }
 
 @media (max-width: 860px) {
   .ajl {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
   }
   .ajl:not(.ajl--editing) {
-    overflow: auto;
-    grid-template-rows: auto auto auto;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
   .ajl-rail {
     grid-column: 1;
     grid-row: 2;
     max-width: none;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    gap: 0.75rem 1rem;
-    padding-bottom: 0.5rem;
+    width: 100%;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 0.85rem;
+    padding: 1rem 1rem 1.25rem;
   }
   .ajl-brand-stack {
-    flex: 1 1 220px;
+    flex: none;
+    width: 100%;
   }
-  .ajl-values {
-    flex: 1 1 180px;
+  .ajl-block--help,
+  .ajl-help {
+    flex: none;
+    width: 100% !important;
+    max-width: 100%;
+    margin-top: 0;
+    position: relative;
+    z-index: 2;
   }
   .ajl-help {
-    flex: 1 1 220px;
-    margin-top: 0;
+    background: #fff;
+  }
+  .ajl-help p,
+  .ajl-help-line {
+    position: relative;
+    z-index: 1;
+    line-height: 1.35;
+  }
+  .ajl-block--script {
+    font-size: 1.55rem !important;
+  }
+  .ajl-welcome {
+    font-size: clamp(1.85rem, 9vw, 2.6rem);
   }
   .ajl-main {
     grid-column: 1;
     grid-row: 1;
+    min-width: 0;
+    padding: 1rem 1rem 0.5rem;
   }
   .ajl:not(.ajl--editing) .ajl-cards {
     grid-template-columns: 1fr;
+    width: 100% !important;
+  }
+  .ajl-card {
+    min-width: 0;
   }
 }
 </style>
