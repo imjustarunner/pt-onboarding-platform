@@ -20,7 +20,8 @@ Rules:
 
 function buildSummarySystem(providerLabel, clientLabel) {
   return `${SUMMARY_SYSTEM}
-- Expected speaker labels for this session: ${providerLabel} and ${clientLabel} (or Speaker N if more than two voices).`;
+- Transcript lines may use [Speaker 1], [Speaker 2], etc. from automatic voice separation on a shared microphone.
+- Infer which numbered speaker is the ${providerLabel} vs the ${clientLabel} from conversational context (who asks clinical/tutoring questions, who responds, who leads the session). State that mapping clearly in speakerNotes and attribute quotes and interventions to the correct role in the narrative.`;
 }
 
 export async function summarizeSessionRecording({

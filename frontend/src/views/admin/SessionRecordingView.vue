@@ -86,14 +86,8 @@
           <div class="level-fill" :style="{ width: `${Math.round(inputLevel * 100)}%` }" />
         </div>
         <div class="toggles">
-          <label class="toggle"><input v-model="form.autoTranscribe" type="checkbox" /> Auto-transcribe session</label>
-          <label class="toggle">
-            <input v-model="form.speakerIdentification" type="checkbox" />
-            Speaker identification (same-room / shared mic)
-          </label>
-          <p v-if="form.speakerIdentification" class="hint setup-hint">
-            With one laptop or microphone, voices are separated automatically when the session ends.
-            During recording, tap {{ providerSpeakerLabel }} / {{ clientSpeakerLabel }} for a live preview.
+          <p class="hint setup-hint">
+            Voices are separated automatically from the session audio when you end recording. No live transcript or manual speaker tagging is needed.
           </p>
           <label v-if="!isTutoringTenant" class="toggle">
             <input v-model="form.generateStructuredNote" type="checkbox" /> Generate structured note draft
@@ -203,44 +197,11 @@
           <span class="live-tag"><span class="dot" /> Live {{ timerLabel }}</span>
         </section>
 
-        <section class="sr-card transcript">
-          <div class="sr-card-head">
-            <h2>Live Transcript</h2>
-            <div class="row-actions">
-              <label class="inline-check"><input v-model="autoScroll" type="checkbox" /> Auto-scroll</label>
-              <div v-if="form.autoTranscribe" class="speaker-toggle" role="group" aria-label="Speaker">
-                <button
-                  type="button"
-                  :class="{ active: activeSpeaker === 'provider' }"
-                  @click="activeSpeaker = 'provider'"
-                >
-                  {{ providerSpeakerLabel }}
-                </button>
-                <button
-                  type="button"
-                  :class="{ active: activeSpeaker === 'client' }"
-                  @click="activeSpeaker = 'client'"
-                >
-                  {{ clientSpeakerLabel }}
-                </button>
-              </div>
-            </div>
-          </div>
-          <p v-if="form.speakerIdentification && form.autoTranscribe" class="hint live-speaker-hint">
-            Live lines follow your speaker toggle. The final transcript uses automatic voice separation from the session audio.
+        <section class="sr-card recording-status">
+          <h2>Recording in progress</h2>
+          <p class="hint">
+            Focus on the session. Audio is being captured; a speaker-labeled transcript and summary are generated automatically when you end recording.
           </p>
-          <div ref="transcriptEl" class="transcript-body">
-            <div v-for="(line, idx) in transcriptLines" :key="idx" class="t-line" :class="line.role">
-              <span class="t-time">{{ line.time }}</span>
-              <span class="t-speaker">{{ line.speaker }}</span>
-              <span class="t-text">{{ line.text }}</span>
-            </div>
-            <p v-if="!transcriptLines.length" class="hint">Listening… speak to build the transcript.</p>
-          </div>
-          <div class="topics">
-            <span v-for="t in liveTopics" :key="t" class="pill">{{ t }}</span>
-            <span v-if="!liveTopics.length" class="hint">Topics appear after the session is summarized.</span>
-          </div>
         </section>
 
         <section class="sr-card">
@@ -296,12 +257,16 @@
         <div class="topics">
           <span v-for="t in summaryResult.techniques" :key="t" class="pill">{{ t }}</span>
         </div>
+        <p v-if="summaryResult.speakerNotes" class="hint speaker-notes">
+          <strong>Speaker notes:</strong> {{ summaryResult.speakerNotes }}
+        </p>
         <div v-if="noteResult?.output?.text">
           <h3>Structured note</h3>
           <pre>{{ noteResult.output.text }}</pre>
         </div>
         <div v-if="finalTranscriptLines.length" class="final-transcript">
           <h3>Speaker-labeled transcript</h3>
+          <p class="hint">Voices were separated automatically from the session audio.</p>
           <div class="transcript-body compact">
             <div
               v-for="(line, idx) in finalTranscriptLines"
@@ -352,15 +317,15 @@
         {{ ending ? 'Processing…' : 'End Recording' }}
       </button>
       <div class="footer-status">
-        <span>{{ transcriptSaved ? 'Transcript saved' : 'Capturing…' }}</span>
-        <span>{{ form.generateStructuredNote ? 'Auto-draft enabled' : 'Summary only' }}</span>
+        <span>{{ recording ? 'Capturing audio' : 'Paused' }}</span>
+        <span>{{ form.generateStructuredNote ? 'Summary + note on end' : 'Summary on end' }}</span>
       </div>
     </footer>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
@@ -389,8 +354,6 @@ const busy = ref(false);
 const phase = ref('setup');
 const editingOverview = ref(true);
 const isTutoringTenant = ref(false);
-const providerSpeakerLabel = computed(() => (isTutoringTenant.value ? 'Tutor' : 'Therapist'));
-const clientSpeakerLabel = computed(() => (isTutoringTenant.value ? 'Student' : 'Client'));
 const noteAids = ref([...SESSION_RECORDING_NOTE_AIDS]);
 const audioAgreementTemplates = ref([]);
 const clients = ref([]);
@@ -410,8 +373,6 @@ const form = reactive({
   dateOfService: new Date().toISOString().slice(0, 10),
   noteAidId: '',
   sessionFocus: '',
-  autoTranscribe: true,
-  speakerIdentification: true,
   generateStructuredNote: true,
   highlightInterventions: true
 });
@@ -478,15 +439,8 @@ let audioChunks = [];
 let audioContext = null;
 let analyser = null;
 let levelRaf = null;
-let recognition = null;
 
-const transcriptLines = ref([]);
-const transcriptEl = ref(null);
-const autoScroll = ref(true);
-const activeSpeaker = ref('provider');
 const markers = ref([]);
-const liveTopics = ref([]);
-const transcriptSaved = ref(false);
 const summaryResult = ref(null);
 const noteResult = ref(null);
 const shelfRecordings = ref([]);
@@ -531,9 +485,6 @@ function parseLabeledTranscript(text) {
 function applyFinalTranscript(text, source = '') {
   transcriptSource.value = source || '';
   finalTranscriptLines.value = parseLabeledTranscript(text);
-  if (finalTranscriptLines.value.length) {
-    transcriptLines.value = finalTranscriptLines.value.map((line) => ({ ...line }));
-  }
 }
 
 const canStart = computed(() => {
@@ -740,72 +691,6 @@ async function testMic() {
   }
 }
 
-function startSpeechRecognition() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR || !form.autoTranscribe) return;
-  recognition = new SR();
-  recognition.continuous = true;
-  recognition.interimResults = true;
-  recognition.lang = 'en-US';
-  recognition.onresult = (event) => {
-    let finalText = '';
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      if (event.results[i].isFinal) finalText += event.results[i][0].transcript;
-    }
-    finalText = finalText.trim();
-    if (!finalText) return;
-    const speaker =
-      activeSpeaker.value === 'client' ? clientSpeakerLabel.value : providerSpeakerLabel.value;
-    const now = new Date();
-    const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    transcriptLines.value.push({
-      time,
-      speaker,
-      role: activeSpeaker.value,
-      text: finalText
-    });
-    flushTranscriptChunk(speaker, finalText);
-    if (autoScroll.value) {
-      nextTick(() => {
-        if (transcriptEl.value) transcriptEl.value.scrollTop = transcriptEl.value.scrollHeight;
-      });
-    }
-  };
-  recognition.onerror = () => {
-    /* keep going */
-  };
-  try {
-    recognition.start();
-  } catch {
-    /* ignore */
-  }
-}
-
-function stopSpeechRecognition() {
-  if (!recognition) return;
-  try {
-    recognition.onresult = null;
-    recognition.stop();
-  } catch {
-    /* ignore */
-  }
-  recognition = null;
-}
-
-async function flushTranscriptChunk(speakerLabel, chunk) {
-  if (!recordingId.value || !agencyId.value) return;
-  try {
-    await api.post(`/session-recordings/${recordingId.value}/transcript`, {
-      agencyId: agencyId.value,
-      speakerLabel,
-      chunk
-    });
-    transcriptSaved.value = true;
-  } catch {
-    transcriptSaved.value = false;
-  }
-}
-
 async function saveSetup() {
   if (!assertAccess()) return;
   busy.value = true;
@@ -823,8 +708,8 @@ async function saveSetup() {
       modalityLabel: form.modalityLabel,
       dateOfService: form.dateOfService,
       sessionFocus: form.sessionFocus,
-      autoTranscribe: form.autoTranscribe,
-      speakerIdentification: form.speakerIdentification,
+      autoTranscribe: false,
+      speakerIdentification: true,
       generateStructuredNote: isTutoringTenant.value ? false : form.generateStructuredNote,
       highlightInterventions: form.highlightInterventions,
       consentId: consentId.value
@@ -861,7 +746,6 @@ async function startSession() {
     timerHandle = setInterval(() => {
       timerSeconds.value += 1;
     }, 1000);
-    startSpeechRecognition();
   } catch (e) {
     busyError.value = e.response?.data?.error?.message || e.message || 'Failed to start recording';
   }
@@ -875,7 +759,6 @@ function togglePause() {
     } catch {
       /* ignore */
     }
-    stopSpeechRecognition();
     recording.value = false;
     if (timerHandle) clearInterval(timerHandle);
   } else {
@@ -884,7 +767,6 @@ function togglePause() {
     } catch {
       /* ignore */
     }
-    startSpeechRecognition();
     recording.value = true;
     timerHandle = setInterval(() => {
       timerSeconds.value += 1;
@@ -913,7 +795,6 @@ function discardAudio() {
     mediaStream.getTracks().forEach((t) => t.stop());
     mediaStream = null;
   }
-  stopSpeechRecognition();
   stopLevelMeter();
   if (timerHandle) clearInterval(timerHandle);
   recording.value = false;
@@ -929,14 +810,16 @@ async function endSession() {
         : null;
     discardAudio();
 
+    if (!blob || blob.size === 0) {
+      busyError.value = 'No session audio was captured. Record for at least a few seconds before ending.';
+      phase.value = 'live';
+      return;
+    }
+
     const fd = new FormData();
     fd.append('agencyId', String(agencyId.value));
     fd.append('durationSeconds', String(timerSeconds.value));
-    const localTranscript = transcriptLines.value
-      .map((l) => `[${l.speaker}] ${l.text}`)
-      .join('\n');
-    if (localTranscript) fd.append('transcriptText', localTranscript);
-    if (blob && blob.size > 0) fd.append('audio', blob, 'session.webm');
+    fd.append('audio', blob, 'session.webm');
 
     const res = await api.post(`/session-recordings/${recordingId.value}/end`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' }
@@ -947,7 +830,6 @@ async function endSession() {
       res.data?.recording?.transcriptText || '',
       res.data?.transcriptSource || ''
     );
-    liveTopics.value = summaryResult.value?.topics || [];
     if (summaryResult.value?.keyMoments?.length) {
       markers.value = summaryResult.value.keyMoments.map((m) => ({
         time: '—',
@@ -978,11 +860,9 @@ async function loadShelf() {
 function resetToSetup() {
   discardAudio();
   recordingId.value = null;
-  transcriptLines.value = [];
   summaryResult.value = null;
   noteResult.value = null;
   markers.value = [];
-  liveTopics.value = [];
   finalTranscriptLines.value = [];
   transcriptSource.value = '';
   phase.value = 'setup';

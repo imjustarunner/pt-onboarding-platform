@@ -39,7 +39,7 @@ class SessionRecording {
         clampText(row.sessionTypeLabel, 160),
         clampText(row.modalityLabel, 120),
         row.dateOfService ? String(row.dateOfService).slice(0, 10) : null,
-        row.autoTranscribe === false ? 0 : 1,
+        row.autoTranscribe === true ? 1 : 0,
         row.speakerIdentification === false ? 0 : 1,
         row.generateStructuredNote ? 1 : 0,
         row.highlightInterventions === false ? 0 : 1,

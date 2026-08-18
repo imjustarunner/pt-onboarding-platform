@@ -354,8 +354,8 @@ export const createRecording = async (req, res, next) => {
       sessionTypeLabel: req.body?.sessionTypeLabel || null,
       modalityLabel: req.body?.modalityLabel || null,
       dateOfService: req.body?.dateOfService || null,
-      autoTranscribe: req.body?.autoTranscribe !== false,
-      speakerIdentification: req.body?.speakerIdentification !== false,
+      autoTranscribe: false,
+      speakerIdentification: true,
       generateStructuredNote,
       highlightInterventions: req.body?.highlightInterventions !== false,
       consentId: safeInt(req.body?.consentId),
@@ -506,16 +506,13 @@ export const transcribeRecordingAudio = async (req, res, next) => {
     if (!existing) return res.status(404).json({ error: { message: 'Recording not found' } });
     if (!req.file?.buffer) return res.status(400).json({ error: { message: 'audio file is required' } });
 
-    const labels = sessionSpeakerLabels(existing.session_kind);
     const transcript = await transcribeLongAudio({
       buffer: req.file.buffer,
       mimeType: req.file.mimetype,
       languageCode: 'en-US',
       userId: req.user.id,
-      enableSpeakerDiarization: !!existing.speaker_identification,
-      diarizationSpeakerCount: 2,
-      providerLabel: labels.providerLabel,
-      clientLabel: labels.clientLabel
+      enableSpeakerDiarization: true,
+      diarizationSpeakerCount: 2
     });
 
     const prior = maybeDecryptNotePayload(existing.transcript_text) || '';
@@ -548,52 +545,32 @@ export const endAndSummarizeRecording = async (req, res, next) => {
     await SessionRecording.update(id, { status: 'processing' });
 
     const labels = sessionSpeakerLabels(existing.session_kind);
-    const liveTranscript = req.body?.transcriptText
-      ? String(req.body.transcriptText).slice(0, 200000)
-      : '';
-    let transcript = maybeDecryptNotePayload(existing.transcript_text) || liveTranscript || '';
-    let transcriptSource = 'live';
-
-    if (req.file?.buffer) {
-      try {
-        const stt = await transcribeLongAudio({
-          buffer: req.file.buffer,
-          mimeType: req.file.mimetype,
-          languageCode: 'en-US',
-          userId: req.user.id,
-          enableSpeakerDiarization: !!existing.speaker_identification,
-          diarizationSpeakerCount: 2,
-          providerLabel: labels.providerLabel,
-          clientLabel: labels.clientLabel
-        });
-        if (stt) {
-          if (existing.speaker_identification) {
-            // Same-room shared mic: server diarization is the canonical speaker-labeled transcript.
-            transcript = String(stt);
-            transcriptSource = 'diarized';
-          } else {
-            transcript = transcript
-              ? `${transcript}\n\n--- Server transcription ---\n${stt}`
-              : String(stt);
-            transcriptSource = transcript && liveTranscript ? 'mixed' : 'server';
-          }
-        }
-      } catch (e) {
-        // Keep live transcript if STT fails
-        if (!transcript) {
-          await SessionRecording.update(id, {
-            status: 'recording',
-            errorMessage: e?.message || 'Transcription failed'
-          });
-          return res.status(502).json({ error: { message: 'Audio transcription failed', details: e?.message } });
-        }
-      }
-    } else if (liveTranscript) {
-      transcript = liveTranscript;
-      transcriptSource = 'live';
+    if (!req.file?.buffer) {
+      await SessionRecording.update(id, { status: 'recording', errorMessage: 'No audio uploaded' });
+      return res.status(400).json({ error: { message: 'Session audio is required to transcribe and summarize' } });
     }
 
-    if (!String(transcript || '').trim()) {
+    let transcript = '';
+    let transcriptSource = 'diarized';
+    try {
+      const stt = await transcribeLongAudio({
+        buffer: req.file.buffer,
+        mimeType: req.file.mimetype,
+        languageCode: 'en-US',
+        userId: req.user.id,
+        enableSpeakerDiarization: true,
+        diarizationSpeakerCount: 2
+      });
+      transcript = String(stt || '').trim();
+    } catch (e) {
+      await SessionRecording.update(id, {
+        status: 'recording',
+        errorMessage: e?.message || 'Transcription failed'
+      });
+      return res.status(502).json({ error: { message: 'Audio transcription failed', details: e?.message } });
+    }
+
+    if (!transcript) {
       await SessionRecording.update(id, { status: 'recording', errorMessage: 'No transcript available' });
       return res.status(400).json({ error: { message: 'No transcript available to summarize' } });
     }
