@@ -35,7 +35,11 @@
     </template>
 
     <template #after-filters>
-      <PayCalculatorCard :agency-id="agencyId" />
+      <div v-if="currentTierBanner" class="pay-tier-banner" :class="`pay-tier-banner--${currentTierBanner.kind}`">
+        <strong>{{ currentTierBanner.label }}</strong>
+        <span>{{ currentTierBanner.detail }}</span>
+      </div>
+      <PayCalculatorCard :agency-id="agencyId" :allow-what-if="true" />
     </template>
 
     <div v-if="submitSuccess" class="success" style="margin: 0 0 14px;">
@@ -2534,6 +2538,35 @@ const isOfficeStaff = computed(() => {
 const periods = ref([]);
 const loading = ref(false);
 const error = ref('');
+const currentTierInfo = ref(null);
+
+const currentTierBanner = computed(() => {
+  const info = currentTierInfo.value;
+  if (!info) return null;
+  const level = Number(info.tierLevel || info.tier?.tierLevel || 0);
+  const grace = info.graceActive === true || info.statusKind === 'grace';
+  const label = info.label || (level ? `Tier ${level}` : '');
+  if (!label && !grace) return null;
+  if (grace) {
+    return {
+      kind: 'grace',
+      label: label || `Tier ${level}`,
+      detail: 'You are in a grace period — last pay period’s higher tier still applies for benefits.'
+    };
+  }
+  if (info.statusKind === 'ooc' || (!level && label)) {
+    return {
+      kind: 'ooc',
+      label: label || 'Out of Compliance',
+      detail: 'Current tier is below Tier 1 for the latest posted pay period.'
+    };
+  }
+  return {
+    kind: 'current',
+    label,
+    detail: 'This is your current tier from the latest posted pay period.'
+  };
+});
 
 const payrollHubStats = computed(() =>
   computePayrollHubStats({
@@ -2570,6 +2603,7 @@ const payrollActionItems = computed(() =>
 
 const refreshPayrollHub = async () => {
   await load();
+  await loadCurrentTier();
   await loadMileageClaims();
   await loadMileageSchools();
   await loadMileageAssignedOffices();
@@ -5371,6 +5405,19 @@ const load = async () => {
   }
 };
 
+const loadCurrentTier = async () => {
+  if (!agencyId.value) return;
+  try {
+    const resp = await api.get('/payroll/me/current-tier', {
+      params: { agencyId: agencyId.value },
+      skipGlobalLoading: true
+    });
+    currentTierInfo.value = resp.data || null;
+  } catch {
+    currentTierInfo.value = null;
+  }
+};
+
 const breakdownEl = ref(null);
 const setBreakdownEl = (el) => {
   breakdownEl.value = el || null;
@@ -5390,6 +5437,7 @@ const toggle = async (id) => {
 watch(agencyId, async () => {
   expandedId.value = null;
   await load();
+  await loadCurrentTier();
   await loadMileageClaims();
   await loadMileageSchools();
   await loadMileageOffices();
@@ -5489,6 +5537,7 @@ watch(
 onMounted(async () => {
   await loadMyHomeAddress();
   await load();
+  await loadCurrentTier();
   await loadMileageSchools();
   await loadMileageClaims();
   await loadMileageAssignedOffices();
@@ -5617,6 +5666,30 @@ watch(
 .my-payroll .header .subtitle {
   margin: 6px 0 0;
   color: var(--text-secondary);
+}
+.pay-tier-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 14px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  font-size: 13px;
+  color: #166534;
+}
+.pay-tier-banner strong { font-size: 14px; }
+.pay-tier-banner--grace {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+.pay-tier-banner--ooc {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
 }
 .table-wrap {
   overflow: auto;

@@ -73,14 +73,14 @@ export function resolveQuantities({ serviceCode, quantity, rule = null }) {
   const code = String(serviceCode || '').trim().toUpperCase();
   const defaults = payrollDefaultsForCode(code) || {};
   const payDivisor = Number(
-    (rule?.pay_divisor === null || rule?.pay_divisor === undefined)
+    (rule?.pay_divisor ?? rule?.payDivisor) == null
       ? (defaults.payDivisor ?? 1)
-      : rule.pay_divisor
+      : (rule.pay_divisor ?? rule.payDivisor)
   );
   const creditValue = Number(
-    (rule?.credit_value === null || rule?.credit_value === undefined)
+    (rule?.credit_value ?? rule?.creditValue) == null
       ? (defaults.creditValue ?? 0)
-      : rule.credit_value
+      : (rule.credit_value ?? rule.creditValue)
   );
   const units = Number(quantity) || 0;
   const safeDivisor = (!Number.isFinite(payDivisor) || payDivisor <= 0) ? 1 : payDivisor;
@@ -171,13 +171,13 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
   const payType = classifyPayType(code, rule || payrollDefaultsForCode(code));
   const qty = resolveQuantities({ serviceCode: code, quantity, rule });
   const reduced = !!status?.useReducedRates;
-  const category = Number(rateProfile?.category || 0);
 
   let rate = 0;
   let rateLabel = '';
   let amount = 0;
   let autoIndirectHours = 0;
   let autoIndirectAmount = 0;
+  let hcodeFallbackToCredit = false;
 
   if (payType === 'credit') {
     rate = Number(reduced
@@ -186,24 +186,37 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
     rateLabel = reduced ? 'credit_rate_probation' : 'credit_rate';
     amount = qty.hourEquivalent * rate;
   } else if (payType === 'hcode') {
-    rate = Number(reduced
+    const hRate = Number(reduced
       ? (rateProfile?.hcodeRateProbation ?? rateProfile?.hcodeRate ?? 0)
       : (rateProfile?.hcodeRate ?? 0)) || 0;
-    rateLabel = reduced ? 'hcode_rate_probation' : 'hcode_rate';
-    const gross = qty.hourEquivalent * rate;
 
-    // Cat 2/3: H-code rate is the total package for the hour and already includes
-    // embedded auto-indirect (default 10 min). Split for display/PTO — do NOT add on top.
-    // Example: $32/hr H + $24/hr indirect → $28 direct + $4 (10 min) indirect = $32 total.
-    if (category >= 2 && qty.hourEquivalent > 1e-9) {
+    if (hRate > 0) {
+      rate = hRate;
+      rateLabel = reduced ? 'hcode_rate_probation' : 'hcode_rate';
+      const gross = qty.hourEquivalent * rate;
+      // When an H-code $/hr (or per 4 units) is set, that rate is the full package
+      // and already includes embedded auto-indirect (default 10 min). Split for
+      // display/PTO — do NOT add on top.
+      // Example: $32/hr H + $24/hr indirect → $28 direct + $4 (10 min) = $32.
       const minsPerHour = Number(rateProfile?.autoIndirectMinutesPerHour ?? 10) || 10;
-      autoIndirectHours = qty.hourEquivalent * (minsPerHour / 60);
-      const indRate = Number(rateProfile?.indirectRate || 0) || 0;
-      autoIndirectAmount = round2(autoIndirectHours * indRate);
-      if (autoIndirectAmount > gross) autoIndirectAmount = round2(gross);
-      amount = round2(gross - autoIndirectAmount);
+      if (minsPerHour > 0 && qty.hourEquivalent > 1e-9) {
+        autoIndirectHours = qty.hourEquivalent * (minsPerHour / 60);
+        const indRate = Number(rateProfile?.indirectRate || 0) || 0;
+        autoIndirectAmount = round2(autoIndirectHours * indRate);
+        if (autoIndirectAmount > gross) autoIndirectAmount = round2(gross);
+        amount = round2(gross - autoIndirectAmount);
+      } else {
+        amount = round2(gross);
+      }
     } else {
-      amount = round2(gross);
+      // No H-code rate on this level: pay FFS/direct for the entered time.
+      // Staff log their own indirect separately (no embedded auto-indirect).
+      hcodeFallbackToCredit = true;
+      rate = Number(reduced
+        ? (rateProfile?.creditRateProbation ?? rateProfile?.creditRate ?? 0)
+        : (rateProfile?.creditRate ?? 0)) || 0;
+      rateLabel = reduced ? 'credit_rate_probation_hcode_fallback' : 'credit_rate_hcode_fallback';
+      amount = qty.hourEquivalent * rate;
     }
   } else if (payType === 'indirect') {
     rate = Number(rateProfile?.indirectRate || 0) || 0;
@@ -231,7 +244,8 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
     totalWithAutoIndirect: round2(amount + autoIndirectAmount),
     splitNote: autoIndirectAmount > 1e-9
       ? `${round2(amount)} direct + ${round2(autoIndirectAmount)} auto-indirect (${round2(autoIndirectHours)} h @ indirect rate)`
-      : null
+      : null,
+    hcodeFallbackToCredit
   };
 }
 
@@ -296,7 +310,109 @@ export function computeBonuses({
 }
 
 /**
+ * Attach display fields used by the payroll calculator (direct vs embedded indirect).
+ */
+export function decorateEstimateLine(result, rateProfile, extras = {}) {
+  const indRate = Number(rateProfile?.indirectRate || 0) || 0;
+  const hasSplit = Number(result?.autoIndirectAmount || 0) > 1e-9;
+  const hours = Number(result?.hourEquivalent || 0);
+  const payType = String(result?.payType || '');
+  const kind = extras.kind || result?.kind || 'service';
+  const eventBucket = String(extras.payBucket || result?.payBucket || '').toLowerCase();
+  const isEvent = kind === 'event';
+  const isIndirectStyle = payType === 'indirect' || payType === 'support_activity'
+    || (isEvent && eventBucket !== 'direct');
+
+  if (isIndirectStyle) {
+    const isDirectEvent = isEvent && eventBucket === 'direct';
+    const bucketLabel = isDirectEvent
+      ? 'Direct'
+      : (payType === 'support_activity' || eventBucket === 'support' || eventBucket === 'support_activity'
+        ? 'Support'
+        : (eventBucket === 'supervision_note' ? 'Supervision' : 'Indirect'));
+    return {
+      ...result,
+      ...extras,
+      kind,
+      timeHours: hours,
+      bucketLabel,
+      directHours: isDirectEvent ? hours : 0,
+      directRate: isDirectEvent ? (Number(result.rate) || 0) : 0,
+      directAmount: isDirectEvent ? round2(result.amount) : 0,
+      indirectHours: isDirectEvent ? 0 : hours,
+      indirectRate: isDirectEvent ? 0 : (Number(result.rate) || 0),
+      indirectAmount: isDirectEvent ? 0 : round2(result.amount),
+      lineTotal: round2(result.amount)
+    };
+  }
+
+  const directRate = hasSplit && hours > 1e-9
+    ? round2(result.amount / hours)
+    : (Number(result.rate) || 0);
+  return {
+    ...result,
+    ...extras,
+    kind,
+    timeHours: hours,
+    bucketLabel: payType === 'hcode' && !result.hcodeFallbackToCredit ? 'H-code' : 'Direct',
+    directHours: hours,
+    directRate,
+    directAmount: round2(result.amount),
+    indirectHours: Number(result.autoIndirectHours || 0) || 0,
+    indirectRate: hasSplit ? indRate : 0,
+    indirectAmount: round2(result.autoIndirectAmount || 0),
+    lineTotal: round2(result.totalWithAutoIndirect ?? result.amount)
+  };
+}
+
+function computeEventLine({ rateProfile, status, line }) {
+  const hours = Number(line.hours ?? line.quantity ?? line.units ?? 0) || 0;
+  const bucketRaw = String(line.payBucket || line.bucket || 'indirect').toLowerCase();
+  const reduced = !!status?.useReducedRates;
+  let rate = 0;
+  let payType = 'indirect';
+  if (bucketRaw === 'direct') {
+    payType = 'credit';
+    rate = Number(reduced
+      ? (rateProfile?.creditRateProbation ?? rateProfile?.creditRate ?? 0)
+      : (rateProfile?.creditRate ?? 0)) || 0;
+  } else if (bucketRaw === 'support' || bucketRaw === 'support_activity') {
+    payType = 'support_activity';
+    rate = Number(rateProfile?.supportActivityRate || 0) || 0;
+  } else {
+    payType = 'indirect';
+    rate = Number(rateProfile?.indirectRate || 0) || 0;
+  }
+  const amount = round2(hours * rate);
+  const label = String(line.label || line.eventLabel || 'Event').trim() || 'Event';
+  const displayCode = String(line.displayCode || line.activityCode || '').trim();
+  return decorateEstimateLine({
+    kind: 'event',
+    serviceCode: displayCode || label,
+    payType,
+    quantity: hours,
+    hourEquivalent: hours,
+    rate,
+    rateLabel: payType === 'credit' ? 'credit_rate' : (payType === 'support_activity' ? 'support_activity_rate' : 'indirect_rate'),
+    amount,
+    autoIndirectHours: 0,
+    autoIndirectAmount: 0,
+    hcodeGrossAmount: amount,
+    totalWithAutoIndirect: amount,
+    splitNote: null,
+    hcodeFallbackToCredit: false
+  }, rateProfile, {
+    kind: 'event',
+    eventTypeId: Number(line.eventTypeId || line.serviceTypeId || 0) || null,
+    label,
+    displayCode: displayCode || null,
+    payBucket: bucketRaw === 'direct' ? 'direct' : (bucketRaw === 'support' || bucketRaw === 'support_activity' ? 'support' : 'indirect')
+  });
+}
+
+/**
  * Estimate pay for a set of calculator lines.
+ * Service-code lines are totaled by code; event lines stay individual.
  */
 export function estimatePay({ rateProfile, status, lines = [], rulesByCode = new Map() }) {
   const computedLines = [];
@@ -306,29 +422,49 @@ export function estimatePay({ rateProfile, status, lines = [], rulesByCode = new
   let ffsHours = 0;
   let hcodeHours = 0;
   let totalHourEquivalent = 0;
+  let directHoursTotal = 0;
+  let directPayTotal = 0;
+  let indirectHoursTotal = 0;
+  let indirectPayTotal = 0;
 
   for (const line of lines) {
-    const code = String(line.serviceCode || line.code || '').trim().toUpperCase();
-    if (!code) continue;
-    const rule = rulesByCode.get(code) || null;
-    const result = computeLineAmount({
-      rateProfile,
-      status,
-      serviceCode: code,
-      quantity: line.quantity ?? line.units ?? 0,
-      rule
-    });
-    if (result.payType === 'skip') continue;
-    computedLines.push(result);
-    baseAmount += result.amount;
-    autoIndirectTotal += result.autoIndirectAmount;
-    totalHourEquivalent += result.hourEquivalent;
-    if (result.payType === 'credit') {
-      productiveHours += result.hourEquivalent;
-      ffsHours += result.hourEquivalent;
-    } else if (result.payType === 'hcode') {
-      productiveHours += result.hourEquivalent;
-      hcodeHours += result.hourEquivalent;
+    const kind = String(line?.kind || '').toLowerCase();
+    const hasServiceCode = !!String(line?.serviceCode || line?.code || '').trim();
+    let decorated;
+    if (kind === 'event' || (!hasServiceCode && (line?.eventTypeId || line?.serviceTypeId))) {
+      const hours = Number(line.hours ?? line.quantity ?? 0) || 0;
+      if (hours <= 1e-9) continue;
+      decorated = computeEventLine({ rateProfile, status, line });
+    } else {
+      const code = String(line.serviceCode || line.code || '').trim().toUpperCase();
+      if (!code) continue;
+      const rule = rulesByCode.get(code) || null;
+      const result = computeLineAmount({
+        rateProfile,
+        status,
+        serviceCode: code,
+        quantity: line.quantity ?? line.units ?? 0,
+        rule
+      });
+      if (result.payType === 'skip') continue;
+      decorated = decorateEstimateLine(result, rateProfile, { kind: 'service' });
+    }
+
+    computedLines.push(decorated);
+    baseAmount += Number(decorated.directAmount || 0);
+    autoIndirectTotal += Number(decorated.indirectAmount || 0);
+    totalHourEquivalent += Number(decorated.timeHours || 0);
+    directHoursTotal += Number(decorated.directHours || 0);
+    directPayTotal += Number(decorated.directAmount || 0);
+    indirectHoursTotal += Number(decorated.indirectHours || 0);
+    indirectPayTotal += Number(decorated.indirectAmount || 0);
+
+    if (decorated.payType === 'credit' || decorated.hcodeFallbackToCredit) {
+      productiveHours += Number(decorated.hourEquivalent || 0);
+      ffsHours += Number(decorated.hourEquivalent || 0);
+    } else if (decorated.payType === 'hcode') {
+      productiveHours += Number(decorated.hourEquivalent || 0);
+      hcodeHours += Number(decorated.hourEquivalent || 0);
     }
   }
 
@@ -340,13 +476,18 @@ export function estimatePay({ rateProfile, status, lines = [], rulesByCode = new
     hcodeHourEquivalent: hcodeHours
   });
 
-  const grandTotal = round2(baseAmount + autoIndirectTotal + bonuses.totalBonusAmount);
+  const grandTotal = round2(directPayTotal + indirectPayTotal + bonuses.totalBonusAmount);
 
   return {
     lines: computedLines,
     summary: {
-      baseAmount: round2(baseAmount),
-      autoIndirectAmount: round2(autoIndirectTotal),
+      baseAmount: round2(directPayTotal),
+      autoIndirectAmount: round2(indirectPayTotal),
+      directHours: round2(directHoursTotal),
+      directPay: round2(directPayTotal),
+      indirectHours: round2(indirectHoursTotal),
+      indirectPay: round2(indirectPayTotal),
+      credits: round2(ffsHours + hcodeHours),
       tierBonusAmount: bonuses.tierBonusAmount,
       spanishBonusAmount: bonuses.spanishBonusAmount,
       locationBonusAmount: bonuses.locationBonusAmount,
@@ -487,7 +628,7 @@ export function applyPaySystemToBreakdown({ breakdown, rateProfile, status, shif
     }
     servicePay += result.amount;
 
-    if (result.payType === 'credit') {
+    if (result.payType === 'credit' || result.hcodeFallbackToCredit) {
       productiveHours += result.hourEquivalent;
       ffsHours += result.hourEquivalent;
     } else if (result.payType === 'hcode') {

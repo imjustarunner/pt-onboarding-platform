@@ -2904,6 +2904,7 @@
                         <select v-model="timeBucketByClaimId[c.id]" :disabled="approvingTimeClaimId === c.id">
                           <option value="indirect">Indirect</option>
                           <option value="direct">Direct</option>
+                          <option value="other_1">Other 1</option>
                         </select>
                       </td>
                       <td class="right">
@@ -3586,7 +3587,7 @@
 
             <div class="card" style="margin-top: 12px;">
               <h3 class="card-title" style="margin: 0 0 6px 0;">Approved Time Claims (This pay period)</h3>
-              <div class="hint">Approved time claims contribute to payroll adjustments for this pay period.</div>
+              <div class="hint">Approved time claims contribute to payroll adjustments for this pay period. You can change the event type, bucket, rate, hours, and amount here. Hours still count toward PTO (and direct hours toward tier).</div>
               <div v-if="approvedTimeListError" class="warn-box" style="margin-top: 8px;">{{ approvedTimeListError }}</div>
               <div v-if="approvedTimeListLoading" class="muted" style="margin-top: 8px;">Loading approved time claims…</div>
               <div v-else-if="!approvedTimeClaims.length" class="muted" style="margin-top: 8px;">No approved time claims for this pay period.</div>
@@ -3597,8 +3598,9 @@
                       <th>Provider</th>
                       <th>Date</th>
                       <th>Type</th>
-                      <th class="right">Bucket</th>
+                      <th>Bucket</th>
                       <th class="right">Hours/Credits</th>
+                      <th>Selected Rate</th>
                       <th class="right">Amount</th>
                       <th class="right">Move to</th>
                       <th class="right">Actions</th>
@@ -3609,12 +3611,101 @@
                       <td>{{ nameForUserId(c.user_id) }}</td>
                       <td>{{ fmtClaimDate(c.claim_date) }}</td>
                       <td>
-                        <div>{{ timeTypeLabel(c) }}</div>
+                        <select
+                          v-if="String(c.claim_type || '').toLowerCase() === 'indirect_time' && logTimeEventTypes.length"
+                          v-model.number="approvedTimeEditByClaimId[c.id].serviceTypeId"
+                          :disabled="isPeriodPosted || savingApprovedTimeClaimId === c.id"
+                          style="max-width: 220px;"
+                          @change="markApprovedTimeDirty(c.id)"
+                        >
+                          <option :value="0">{{ timeTypeLabel(c) }}</option>
+                          <option v-for="t in logTimeEventTypes" :key="t.id" :value="t.id">
+                            {{ t.displayCode ? `${t.displayCode} ` : '' }}{{ t.label }}
+                          </option>
+                        </select>
+                        <div v-else>{{ timeTypeLabel(c) }}</div>
                         <div v-if="logTimeSummary(c)" class="hint" style="margin-top: 4px; max-width: 280px;">{{ logTimeSummary(c) }}</div>
                       </td>
-                      <td class="right">{{ String(c.bucket || 'indirect').toLowerCase() === 'direct' ? 'Direct' : 'Indirect' }}</td>
-                      <td class="right">{{ fmtNum(timeClaimHours(c)) }}</td>
-                      <td class="right">{{ fmtMoney(Number(c.applied_amount || 0)) }}</td>
+                      <td>
+                        <select
+                          v-model="approvedTimeEditByClaimId[c.id].bucket"
+                          :disabled="isPeriodPosted || savingApprovedTimeClaimId === c.id"
+                          @change="onApprovedTimeBucketChange(c.id)"
+                        >
+                          <option value="indirect">Indirect</option>
+                          <option value="direct">Direct</option>
+                          <option value="other_1">Other 1</option>
+                        </select>
+                      </td>
+                      <td class="right">
+                        <input
+                          v-model="approvedTimeEditByClaimId[c.id].hours"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          style="width: 90px;"
+                          :disabled="isPeriodPosted || savingApprovedTimeClaimId === c.id"
+                          @input="onApprovedTimeHoursChange(c.id)"
+                        />
+                      </td>
+                      <td style="position: relative; min-width: 160px;">
+                        <div>
+                          <strong>{{ approvedTimeEditByClaimId[c.id]?.rateLabel || c.payEstimate?.rateLabel || 'Rate' }}</strong>
+                          <div class="hint">
+                            {{
+                              approvedTimeEditByClaimId[c.id]?.rateAmount
+                                ? `$${Number(approvedTimeEditByClaimId[c.id].rateAmount).toFixed(2)} per hour`
+                                : '—'
+                            }}
+                          </div>
+                          <button
+                            class="btn btn-secondary btn-sm"
+                            type="button"
+                            style="margin-top: 4px;"
+                            :disabled="isPeriodPosted || savingApprovedTimeClaimId === c.id"
+                            @click="timeRatePickerClaimId = timeRatePickerClaimId === c.id ? null : c.id"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                        <div
+                          v-if="timeRatePickerClaimId === c.id"
+                          class="time-rate-popover"
+                        >
+                          <div class="hint" style="font-weight: 700; margin-bottom: 6px;">Select Rate</div>
+                          <label
+                            v-for="r in (c.payEstimate?.availableRates || [])"
+                            :key="r.key"
+                            class="time-rate-option"
+                          >
+                            <input
+                              type="radio"
+                              :name="`rate-${c.id}`"
+                              :value="r.key"
+                              :checked="approvedTimeEditByClaimId[c.id]?.rateKey === r.key"
+                              @change="selectApprovedTimeRate(c.id, r)"
+                            />
+                            <span>
+                              <strong>{{ r.label }}</strong>
+                              <span class="hint"> ${{ Number(r.amount).toFixed(2) }} per hour</span>
+                            </span>
+                          </label>
+                          <div v-if="!(c.payEstimate?.availableRates || []).length" class="hint">No rate-card rates found for this person.</div>
+                          <div class="hint" style="margin-top: 8px;">Changing the rate updates the amount before payroll is processed.</div>
+                        </div>
+                      </td>
+                      <td class="right">
+                        <input
+                          v-model="approvedTimeEditByClaimId[c.id].amount"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          style="width: 100px;"
+                          :disabled="isPeriodPosted || savingApprovedTimeClaimId === c.id"
+                          @input="onApprovedTimeAmountInput(c.id)"
+                        />
+                        <div class="hint">{{ approvedTimeEditByClaimId[c.id]?.amountManual ? 'Override' : 'Auto-calculated' }}</div>
+                      </td>
                       <td class="right">
                         <div class="actions" style="justify-content: flex-end; margin: 0;">
                           <select v-model="approvedTimeMoveTargetByClaimId[c.id]" :disabled="movingTimeClaimId === c.id">
@@ -3637,6 +3728,14 @@
                       <td class="right">
                         <div class="actions" style="justify-content: flex-end; margin: 0;">
                           <button
+                            class="btn btn-primary btn-sm"
+                            type="button"
+                            :disabled="isPeriodPosted || savingApprovedTimeClaimId === c.id || !approvedTimeEditByClaimId[c.id]?.dirty"
+                            @click="saveApprovedTimeClaim(c)"
+                          >
+                            {{ savingApprovedTimeClaimId === c.id ? 'Saving…' : 'Save' }}
+                          </button>
+                          <button
                             class="btn btn-secondary btn-sm"
                             type="button"
                             @click="openTimeClaimReview(c)"
@@ -3656,6 +3755,10 @@
                     </tr>
                   </tbody>
                 </table>
+              </div>
+              <div v-if="approvedTimeClaims.length" class="hint" style="margin-top: 8px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                <span>Expected payout for these claims: <strong>{{ fmtMoney(approvedTimeExpectedPayout) }}</strong></span>
+                <span v-if="isPeriodPosted">This period is posted — unpost to edit claims.</span>
               </div>
               <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
                 <button class="btn btn-secondary" @click="loadApprovedTimeClaimsList" :disabled="approvedTimeListLoading || !selectedPeriodId">
@@ -7485,6 +7588,10 @@ const approvedTimeListError = ref('');
 const approvedTimeClaims = ref([]);
 const approvedTimeMoveTargetByClaimId = ref({});
 const movingTimeClaimId = ref(null);
+const approvedTimeEditByClaimId = ref({});
+const timeRatePickerClaimId = ref(null);
+const savingApprovedTimeClaimId = ref(null);
+const logTimeEventTypes = ref([]);
 const timeBucketByClaimId = ref({});
 const timeCreditsHoursByClaimId = ref({});
 const timeAppliedAmountOverrideByClaimId = ref({});
@@ -8886,11 +8993,161 @@ const loadApprovedTimeClaimsList = async () => {
       next[c.id] = next[c.id] || c.target_payroll_period_id || selectedPeriodId.value;
     }
     approvedTimeMoveTargetByClaimId.value = next;
+    hydrateApprovedTimeEdits(approvedTimeClaims.value);
+    loadLogTimeEventTypes();
   } catch (e) {
     approvedTimeListError.value = e.response?.data?.error?.message || e.message || 'Failed to load approved time claims';
     approvedTimeClaims.value = [];
   } finally {
     approvedTimeListLoading.value = false;
+  }
+};
+
+const loadLogTimeEventTypes = async () => {
+  if (!agencyId.value) return;
+  if (logTimeEventTypes.value.length) return;
+  try {
+    const resp = await api.get('/payroll/indirect-service-types', {
+      params: { agencyId: agencyId.value },
+      skipGlobalLoading: true
+    });
+    logTimeEventTypes.value = Array.isArray(resp.data) ? resp.data : (resp.data?.types || []);
+  } catch {
+    logTimeEventTypes.value = [];
+  }
+};
+
+const hydrateApprovedTimeEdits = (claims) => {
+  const next = { ...(approvedTimeEditByClaimId.value || {}) };
+  for (const c of claims || []) {
+    if (!c?.id) continue;
+    const hours = timeClaimHours(c);
+    const rates = c?.payEstimate?.availableRates || [];
+    const storedKey = String(c?.payload?.payRateKey || c?.payEstimate?.selectedRateKey || '').trim();
+    let selected = rates.find((r) => r.key === storedKey) || null;
+    if (!selected && Number(c.applied_amount) > 0 && hours > 0) {
+      const per = Math.round((Number(c.applied_amount) / hours) * 100) / 100;
+      selected = rates.find((r) => Math.abs(Number(r.amount) - per) < 0.03) || null;
+    }
+    if (!selected) {
+      const b = String(c.bucket || 'indirect').toLowerCase();
+      selected = rates.find((r) => r.key === b) || rates.find((r) => r.bucket === b) || rates[0] || null;
+    }
+    const bucketRaw = String(c.bucket || 'indirect').toLowerCase();
+    next[c.id] = {
+      bucket: bucketRaw === 'direct' ? 'direct' : (bucketRaw === 'other_1' ? 'other_1' : 'indirect'),
+      hours: hours > 0 ? String(hours) : '',
+      amount: c.applied_amount != null && c.applied_amount !== '' ? String(Number(c.applied_amount).toFixed(2)) : '',
+      rateKey: selected?.key || '',
+      rateAmount: selected?.amount ?? '',
+      rateLabel: selected?.label || c?.payEstimate?.rateLabel || 'Rate',
+      serviceTypeId: Number(c?.payload?.allocations?.[0]?.serviceTypeId || 0) || 0,
+      amountManual: false,
+      dirty: false
+    };
+  }
+  approvedTimeEditByClaimId.value = next;
+};
+
+const approvedTimeExpectedPayout = computed(() =>
+  (approvedTimeClaims.value || []).reduce((sum, c) => {
+    const draft = approvedTimeEditByClaimId.value?.[c.id];
+    const amt = draft?.amount !== undefined && draft?.amount !== ''
+      ? Number(draft.amount)
+      : Number(c.applied_amount || 0);
+    return sum + (Number.isFinite(amt) ? amt : 0);
+  }, 0)
+);
+
+const ensureApprovedTimeEdit = (id) => {
+  if (!approvedTimeEditByClaimId.value[id]) {
+    approvedTimeEditByClaimId.value[id] = {
+      bucket: 'indirect', hours: '', amount: '', rateKey: '', rateAmount: '', rateLabel: 'Rate', serviceTypeId: 0, amountManual: false, dirty: false
+    };
+  }
+  return approvedTimeEditByClaimId.value[id];
+};
+
+const markApprovedTimeDirty = (id) => {
+  const row = ensureApprovedTimeEdit(id);
+  row.dirty = true;
+};
+
+const recalcApprovedTimeAmount = (id) => {
+  const row = ensureApprovedTimeEdit(id);
+  if (row.amountManual) return;
+  const hrs = Number(row.hours);
+  const rate = Number(row.rateAmount);
+  if (Number.isFinite(hrs) && hrs >= 0 && Number.isFinite(rate) && rate >= 0) {
+    row.amount = (Math.round(hrs * rate * 100) / 100).toFixed(2);
+  }
+};
+
+const onApprovedTimeHoursChange = (id) => {
+  markApprovedTimeDirty(id);
+  recalcApprovedTimeAmount(id);
+};
+
+const onApprovedTimeAmountInput = (id) => {
+  const row = ensureApprovedTimeEdit(id);
+  row.amountManual = true;
+  row.dirty = true;
+};
+
+const onApprovedTimeBucketChange = (id) => {
+  const row = ensureApprovedTimeEdit(id);
+  row.dirty = true;
+  const c = (approvedTimeClaims.value || []).find((x) => x.id === id);
+  const rates = c?.payEstimate?.availableRates || [];
+  const match = rates.find((r) => r.bucket === row.bucket && r.key === row.bucket)
+    || rates.find((r) => r.bucket === row.bucket);
+  if (match) selectApprovedTimeRate(id, match);
+};
+
+const selectApprovedTimeRate = (id, rate) => {
+  const row = ensureApprovedTimeEdit(id);
+  row.rateKey = rate.key;
+  row.rateAmount = rate.amount;
+  row.rateLabel = rate.label;
+  if (rate.bucket) row.bucket = rate.bucket;
+  row.amountManual = false;
+  row.dirty = true;
+  recalcApprovedTimeAmount(id);
+  timeRatePickerClaimId.value = null;
+};
+
+const saveApprovedTimeClaim = async (c) => {
+  if (!c?.id || isPeriodPosted.value) return;
+  const row = ensureApprovedTimeEdit(c.id);
+  const hours = row.hours === '' || row.hours == null ? null : Number(row.hours);
+  const amount = row.amount === '' || row.amount == null ? null : Number(row.amount);
+  if (hours !== null && (!Number.isFinite(hours) || hours < 0)) {
+    approvedTimeListError.value = 'Hours/Credits must be a non-negative number.';
+    return;
+  }
+  if (amount !== null && (!Number.isFinite(amount) || amount < 0)) {
+    approvedTimeListError.value = 'Amount must be a non-negative number.';
+    return;
+  }
+  try {
+    savingApprovedTimeClaimId.value = c.id;
+    approvedTimeListError.value = '';
+    await api.patch(`/payroll/time-claims/${c.id}`, {
+      action: 'update',
+      bucket: row.bucket,
+      creditsHours: hours,
+      appliedAmount: amount,
+      amountExplicit: !!row.amountManual,
+      rateKey: row.rateKey || undefined,
+      rateAmount: row.rateAmount === '' ? undefined : Number(row.rateAmount),
+      rateLabel: row.rateLabel || undefined,
+      serviceTypeId: row.serviceTypeId || undefined
+    });
+    await loadApprovedTimeClaimsList();
+  } catch (e) {
+    approvedTimeListError.value = e.response?.data?.error?.message || e.message || 'Failed to update time claim';
+  } finally {
+    savingApprovedTimeClaimId.value = null;
   }
 };
 
@@ -9535,7 +9792,8 @@ const approveTimeClaim = async (c) => {
   if (!c?.id) return;
   const targetPayrollPeriodId = Number(timeTargetPeriodByClaimId.value?.[c.id] || 0);
   if (!Number.isFinite(targetPayrollPeriodId) || targetPayrollPeriodId <= 0) return;
-  const bucket = String(timeBucketByClaimId.value?.[c.id] || 'indirect').trim().toLowerCase() === 'direct' ? 'direct' : 'indirect';
+  const bucketRaw = String(timeBucketByClaimId.value?.[c.id] || 'indirect').trim().toLowerCase();
+  const bucket = bucketRaw === 'direct' ? 'direct' : (bucketRaw === 'other_1' ? 'other_1' : 'indirect');
   const creditsRaw = timeCreditsHoursByClaimId.value?.[c.id];
   const creditsHours = (creditsRaw === null || creditsRaw === undefined || String(creditsRaw).trim() === '') ? null : Number(creditsRaw);
   if (creditsHours !== null && (!Number.isFinite(creditsHours) || creditsHours < 0)) {
@@ -14508,6 +14766,8 @@ watch(agencyId, async (newId, oldId) => {
   summaries.value = [];
   selectedUserId.value = null;
   selectedSummary.value = null;
+  logTimeEventTypes.value = [];
+  approvedTimeEditByClaimId.value = {};
   await loadAgencyUsers();
   await loadPeriods();
   await restoreSelectionFromStorage();
@@ -16835,5 +17095,27 @@ textarea {
 
 tr.pto-row-approved td { background: #f0fdf4; }
 tr.pto-row-rejected td { background: #fff5f5; opacity: 0.8; }
+
+.time-rate-popover {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  min-width: 240px;
+  margin-top: 6px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+.time-rate-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  cursor: pointer;
+  font-size: 13px;
+}
 </style>
 

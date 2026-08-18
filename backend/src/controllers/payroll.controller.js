@@ -18436,6 +18436,39 @@ export const updateMyTimeClaim = async (req, res, next) => {
   }
 };
 
+function buildTimeClaimAvailableRates({ rateCard, titles = {}, payload = {} }) {
+  const rates = [];
+  const push = (key, label, bucket, amount) => {
+    const n = Number(amount || 0);
+    if (!(n > 0)) return;
+    rates.push({
+      key,
+      label,
+      bucket,
+      amount: Math.round(n * 100) / 100,
+      unit: 'hour'
+    });
+  };
+  push('direct', 'Therapy Rate', 'direct', rateCard?.direct_rate);
+  push('indirect', 'Indirect Rate', 'indirect', rateCard?.indirect_rate);
+  push('other_1', titles.title1 || 'Other 1', 'other_1', rateCard?.other_rate_1);
+  const b2 = String(rateCard?.other_rate_2_bucket || 'other').toLowerCase();
+  push('other_2', titles.title2 || 'Other 2', b2 === 'direct' ? 'direct' : (b2 === 'other' ? 'other_1' : 'indirect'), rateCard?.other_rate_2);
+  const b3 = String(rateCard?.other_rate_3_bucket || 'other').toLowerCase();
+  push('other_3', titles.title3 || 'Other 3', b3 === 'direct' ? 'direct' : (b3 === 'other' ? 'other_1' : 'indirect'), rateCard?.other_rate_3);
+  const storedKey = String(payload?.payRateKey || '').trim();
+  if (storedKey && !rates.some((r) => r.key === storedKey) && Number(payload?.payRateAmount) > 0) {
+    rates.unshift({
+      key: storedKey,
+      label: String(payload.payRateLabel || 'Selected Rate').trim() || 'Selected Rate',
+      bucket: normalizeTimeClaimBucket(payload.bucket),
+      amount: Math.round(Number(payload.payRateAmount) * 100) / 100,
+      unit: 'hour'
+    });
+  }
+  return rates;
+}
+
 export const listTimeClaims = async (req, res, next) => {
   try {
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
@@ -18460,24 +18493,41 @@ export const listTimeClaims = async (req, res, next) => {
       (r) => String(r?.claim_type || '').toLowerCase() !== 'skill_builder_event'
     );
 
-    // Attach pay estimate (rate source + $) for pending review UIs.
+    let otherTitles = { title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' };
+    try {
+      const [titleRows] = await pool.execute(
+        `SELECT title_1, title_2, title_3 FROM payroll_other_rate_titles WHERE agency_id = ? LIMIT 1`,
+        [agencyId]
+      );
+      const tr = titleRows?.[0];
+      otherTitles = {
+        title1: String(tr?.title_1 || '').trim() || 'Other 1',
+        title2: String(tr?.title_2 || '').trim() || 'Other 2',
+        title3: String(tr?.title_3 || '').trim() || 'Other 3'
+      };
+    } catch { /* keep defaults */ }
+
     const withEstimates = [];
     for (const row of filtered) {
-      const st = String(row?.status || '').toLowerCase();
-      if (st !== 'submitted' && st !== 'deferred') {
-        withEstimates.push(row);
-        continue;
-      }
       try {
         // eslint-disable-next-line no-await-in-loop
         const rateCard = await PayrollRateCard.findForUser(agencyId, row.user_id);
+        // eslint-disable-next-line no-await-in-loop
+        const legacyIndirectRate = await resolveLegacyIndirectHourlyRate({
+          agencyId,
+          userId: Number(row.user_id),
+          rateCard
+        });
+        const rateCardForPay = rateCard
+          ? { ...rateCard, indirect_rate: legacyIndirectRate }
+          : { indirect_rate: legacyIndirectRate };
         const bucketHint = String(row?.payload?.bucket || row?.bucket || 'indirect').toLowerCase();
         // eslint-disable-next-line no-await-in-loop
         const amount = await computeDefaultAppliedAmountForTimeClaim({
           claim: row,
-          rateCard,
+          rateCard: rateCardForPay,
           approveBucket: bucketHint,
-          approveCreditsHours: null
+          approveCreditsHours: row?.credits_hours ?? null
         });
         const payload = row?.payload || {};
         let rateLabel = 'Indirect rate';
@@ -18493,18 +18543,50 @@ export const listTimeClaims = async (req, res, next) => {
         } else if (bucketHint === 'direct') {
           rateLabel = 'Direct rate';
         } else if (bucketHint === 'other_1') {
-          rateLabel = 'Other 1 rate';
+          rateLabel = `${otherTitles.title1} rate`;
+        }
+        const availableRates = buildTimeClaimAvailableRates({
+          rateCard: rateCardForPay,
+          titles: otherTitles,
+          payload
+        });
+        const typeId = Number(payload?.allocations?.[0]?.serviceTypeId || 0);
+        if (typeId > 0 && row.user_id) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            const override = await PayrollUserIndirectServiceAssignment.findRateOverride({
+              agencyId,
+              userId: Number(row.user_id),
+              serviceTypeId: typeId
+            });
+            if (Number.isFinite(override) && override > 0) {
+              const typeLabel = String(payload?.allocations?.[0]?.serviceTypeLabel || payload?.categoryLabel || 'Outreach').trim()
+                || 'Outreach';
+              availableRates.unshift({
+                key: `type_${typeId}`,
+                label: `${typeLabel} Rate`,
+                bucket: normalizeTimeClaimBucket(payload?.allocations?.[0]?.payBucket || bucketHint),
+                amount: override,
+                unit: 'hour',
+                serviceTypeId: typeId
+              });
+            }
+          } catch { /* ignore */ }
         }
         withEstimates.push({
           ...row,
           payEstimate: {
-            amount: Number.isFinite(amount) ? amount : null,
-            rateLabel,
+            amount: Number.isFinite(amount) ? amount : (row.applied_amount != null ? Number(row.applied_amount) : null),
+            rateLabel: payload.payRateLabel || rateLabel,
             serviceCode: code || null,
-            // Rates for live Pending Submissions preview when admin changes bucket/hours.
+            selectedRateKey: payload.payRateKey || null,
+            selectedRateAmount: payload.payRateAmount != null ? Number(payload.payRateAmount) : null,
             directRate: Number(rateCard?.direct_rate || 0) || 0,
-            indirectRate: Number(rateCard?.indirect_rate || 0) || 0,
-            other1Rate: Number(rateCard?.other_rate_1 || 0) || 0
+            indirectRate: legacyIndirectRate,
+            other1Rate: Number(rateCard?.other_rate_1 || 0) || 0,
+            other2Rate: Number(rateCard?.other_rate_2 || 0) || 0,
+            other3Rate: Number(rateCard?.other_rate_3 || 0) || 0,
+            availableRates
           }
         });
       } catch {
@@ -18629,11 +18711,32 @@ export const patchHolidayBonusClaim = async (req, res, next) => {
   }
 };
 
+async function resolveLegacyIndirectHourlyRate({ agencyId, userId, rateCard }) {
+  const cardRate = Number(rateCard?.indirect_rate || 0) || 0;
+  try {
+    const PayrollCompensationLevel = (await import('../models/PayrollCompensationLevel.model.js')).default;
+    const PayrollPaySystemRate = (await import('../models/PayrollPaySystemRate.model.js')).default;
+    const assignment = await PayrollCompensationLevel.getForUser(agencyId, userId);
+    const agencyPaySystemOn = await PayrollPaySystemRate.isAgencyEnabled(agencyId);
+    const userOnPaySystem = assignment && Number(assignment.pay_system_enabled || 0) === 1;
+    // Legacy stack: compensation-table indirect until agency + user are on the new pay system.
+    if (!agencyPaySystemOn || !userOnPaySystem) {
+      const compRate = Number(assignment?.indirect_rate || 0) || 0;
+      if (compRate > 0) return compRate;
+    }
+  } catch { /* fall through */ }
+  return cardRate;
+}
+
 async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approveBucket = null, approveCreditsHours = null }) {
   const type = String(claim?.claim_type || '').toLowerCase();
   const payload = claim?.payload || {};
   const directRate = Number(rateCard?.direct_rate || 0);
-  const indirectRate = Number(rateCard?.indirect_rate || 0);
+  const indirectRate = await resolveLegacyIndirectHourlyRate({
+    agencyId: Number(claim?.agency_id || 0),
+    userId: Number(claim?.user_id || 0),
+    rateCard
+  });
 
   if (type === 'skill_builder_event') {
     // Event-time is paid per bucket: hours × the matching rate-card rate.
@@ -18699,6 +18802,11 @@ async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approv
     // Prefer per-code rate (MEETING, Admin Time, Individual Meeting, etc.).
     // Infer MEETING for Town Hall / Admin Meeting / Huddle when serviceCode is missing.
     let serviceCode = String(payload?.serviceCode || '').trim();
+    if (!serviceCode && type === 'indirect_time') {
+      const catGroup = String(payload?.categoryGroup || '').trim().toLowerCase();
+      if (catGroup === 'support_activity') serviceCode = 'MEETING';
+      else if (catGroup === 'supervision_note') serviceCode = 'Admin Time';
+    }
     if (!serviceCode && (type === 'meeting_training' || type === 'mentor_cpa_meeting')) {
       const mt = String(payload?.meetingType || '').trim().toLowerCase();
       if (mt === 'town hall' || mt === 'admin meeting' || mt === 'huddle' || mt.includes('town hall')) {
@@ -19041,6 +19149,121 @@ export const patchTimeClaim = async (req, res, next) => {
             periodStart: toPeriod.period_start,
             periodEnd: toPeriod.period_end
           });
+        }
+      } catch { /* best-effort */ }
+
+      return res.json({ claim: updated });
+    }
+
+    if (action === 'update' || action === 'updateapproved') {
+      const st = String(claim.status || '').toLowerCase();
+      if (st !== 'approved') {
+        return res.status(409).json({ error: { message: 'Only approved claims can be updated in place. Unapprove first to send it back.' } });
+      }
+      const targetPayrollPeriodId = Number(claim.target_payroll_period_id || 0);
+      if (targetPayrollPeriodId) {
+        const period = await PayrollPeriod.findById(targetPayrollPeriodId);
+        const pst = String(period?.status || '').toLowerCase();
+        if (pst === 'posted' || pst === 'finalized') {
+          return res.status(409).json({ error: { message: 'Cannot edit a claim in a posted/finalized pay period' } });
+        }
+      }
+
+      const bucket = normalizeTimeClaimBucket(body.bucket || body.category || claim.bucket || claim?.payload?.bucket || 'indirect');
+      let creditsHoursRaw =
+        body.creditsHours === null || body.creditsHours === undefined || body.creditsHours === ''
+          ? (body.credits_hours === null || body.credits_hours === undefined || body.credits_hours === ''
+            ? claim.credits_hours
+            : Number(body.credits_hours))
+          : Number(body.creditsHours);
+      if (creditsHoursRaw !== null && creditsHoursRaw !== undefined && creditsHoursRaw !== '' && (!Number.isFinite(Number(creditsHoursRaw)) || Number(creditsHoursRaw) < 0)) {
+        return res.status(400).json({ error: { message: 'creditsHours must be a non-negative number' } });
+      }
+      creditsHoursRaw = creditsHoursRaw === null || creditsHoursRaw === undefined || creditsHoursRaw === ''
+        ? null
+        : Number(creditsHoursRaw);
+
+      let appliedAmount =
+        body.appliedAmount === null || body.appliedAmount === undefined || body.appliedAmount === ''
+          ? (body.applied_amount === null || body.applied_amount === undefined || body.applied_amount === ''
+            ? claim.applied_amount
+            : Number(body.applied_amount))
+          : Number(body.appliedAmount);
+      if (appliedAmount !== null && appliedAmount !== undefined && appliedAmount !== '' && (!Number.isFinite(Number(appliedAmount)) || Number(appliedAmount) < 0)) {
+        return res.status(400).json({ error: { message: 'appliedAmount must be a non-negative number' } });
+      }
+
+      const rateKey = body.rateKey != null ? String(body.rateKey).trim() : '';
+      const rateAmountRaw = body.rateAmount === null || body.rateAmount === undefined || body.rateAmount === ''
+        ? null
+        : Number(body.rateAmount);
+      const amountExplicit = body.amountExplicit === true || body.appliedAmountOverride === true;
+      if (!amountExplicit && Number.isFinite(rateAmountRaw) && rateAmountRaw >= 0 && Number.isFinite(creditsHoursRaw) && creditsHoursRaw >= 0) {
+        appliedAmount = Math.round(creditsHoursRaw * rateAmountRaw * 100) / 100;
+      }
+
+      const prevPayload = (claim.payload && typeof claim.payload === 'object') ? claim.payload : {};
+      const nextPayload = { ...prevPayload, bucket };
+      if (Number.isFinite(creditsHoursRaw) && creditsHoursRaw >= 0) {
+        nextPayload.totalMinutes = Math.round(creditsHoursRaw * 60);
+        nextPayload.creditsHours = creditsHoursRaw;
+        if (Array.isArray(nextPayload.allocations) && nextPayload.allocations[0]) {
+          nextPayload.allocations = nextPayload.allocations.map((a, idx) => (
+            idx === 0 ? { ...a, minutes: Math.round(creditsHoursRaw * 60), payBucket: bucket } : a
+          ));
+        }
+      }
+      if (rateKey) {
+        nextPayload.payRateKey = rateKey;
+        if (Number.isFinite(rateAmountRaw) && rateAmountRaw >= 0) nextPayload.payRateAmount = rateAmountRaw;
+        if (body.rateLabel) nextPayload.payRateLabel = String(body.rateLabel).trim().slice(0, 80);
+      }
+
+      const serviceTypeId = Number(body.serviceTypeId || 0);
+      if (serviceTypeId > 0 && String(claim.claim_type || '').toLowerCase() === 'indirect_time') {
+        try {
+          const typeRow = await PayrollIndirectServiceType.findById(serviceTypeId);
+          if (typeRow && Number(typeRow.agencyId) === Number(claim.agency_id)) {
+            const alloc0 = (Array.isArray(nextPayload.allocations) && nextPayload.allocations[0])
+              ? { ...nextPayload.allocations[0] }
+              : {};
+            alloc0.serviceTypeId = typeRow.id;
+            alloc0.serviceTypeKey = typeRow.typeKey;
+            alloc0.serviceTypeLabel = typeRow.label;
+            alloc0.activityCode = typeRow.displayCode;
+            alloc0.payBucket = typeRow.payBucket === 'other_1' ? 'other_1' : (typeRow.payBucket === 'direct' ? 'direct' : 'indirect');
+            if (Number.isFinite(creditsHoursRaw) && creditsHoursRaw >= 0) {
+              alloc0.minutes = Math.round(creditsHoursRaw * 60);
+            }
+            nextPayload.allocations = [alloc0, ...((nextPayload.allocations || []).slice(1))];
+            nextPayload.activityCode = typeRow.displayCode;
+            nextPayload.categoryLabel = typeRow.label;
+          }
+        } catch { /* keep previous type */ }
+      }
+
+      const updated = await PayrollTimeClaim.updateApproved({
+        id,
+        bucket,
+        creditsHours: creditsHoursRaw,
+        appliedAmount: appliedAmount === null || appliedAmount === undefined || appliedAmount === ''
+          ? claim.applied_amount
+          : Number(appliedAmount),
+        payload: nextPayload
+      });
+
+      try {
+        if (targetPayrollPeriodId) {
+          const period = await PayrollPeriod.findById(targetPayrollPeriodId);
+          const pst = String(period?.status || '').toLowerCase();
+          if (period && pst === 'ran') {
+            await recomputeSummariesFromStaging({
+              payrollPeriodId: targetPayrollPeriodId,
+              agencyId: period.agency_id,
+              periodStart: period.period_start,
+              periodEnd: period.period_end
+            });
+          }
         }
       } catch { /* best-effort */ }
 
@@ -21219,12 +21442,19 @@ export const getMyCurrentTier = async (req, res, next) => {
     }) || null;
 
     const tier = latest?.breakdown?.__tier || null;
+    const graceActive = Number(latest?.grace_active || 0) ? true : false;
+    const tierLevel = Number(tier?.tierLevel || 0);
+    const statusKind = graceActive ? 'grace' : (tierLevel >= 1 ? 'current' : (tier ? 'ooc' : null));
     res.json({
       ok: true,
       agencyId,
       payrollPeriodId: latest?.payroll_period_id || null,
       periodStart: latest?.period_start || null,
       periodEnd: latest?.period_end || null,
+      graceActive,
+      statusKind,
+      tierLevel,
+      label: tierLevel ? `Tier ${tierLevel}` : (tier ? 'Out of Compliance' : ''),
       tier
     });
   } catch (e) {

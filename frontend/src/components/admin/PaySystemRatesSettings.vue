@@ -258,6 +258,16 @@
           </table>
         </div>
       </div>
+
+      <PayCalculatorCard
+        :agency-id="agencyId"
+        mode="scenario"
+        :collapsible="false"
+        :start-expanded="true"
+        :allow-what-if="false"
+        heading="Payroll calculator"
+        :draft-rates="draft"
+      />
     </template>
   </div>
 </template>
@@ -265,6 +275,7 @@
 <script setup>
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
+import PayCalculatorCard from '../dashboard/PayCalculatorCard.vue';
 
 const props = defineProps({
   agencyId: { type: Number, default: null }

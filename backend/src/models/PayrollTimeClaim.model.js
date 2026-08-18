@@ -153,6 +153,27 @@ class PayrollTimeClaim {
     return PayrollTimeClaim.findById(id);
   }
 
+  static async updateApproved({ id, bucket, creditsHours, appliedAmount, payload = null }) {
+    const raw = String(bucket || 'indirect').trim().toLowerCase();
+    const b = raw === 'direct' ? 'direct' : (raw === 'other_1' ? 'other_1' : 'indirect');
+    const hrsRaw = creditsHours === null || creditsHours === undefined || creditsHours === '' ? null : Number(creditsHours);
+    const safeHrs = Number.isFinite(hrsRaw) ? Math.round(hrsRaw * 100) / 100 : null;
+    const amtRaw = appliedAmount === null || appliedAmount === undefined || appliedAmount === '' ? null : Number(appliedAmount);
+    const safeAmt = Number.isFinite(amtRaw) ? Math.round(amtRaw * 100) / 100 : null;
+    const sets = ['bucket = ?', 'credits_hours = ?', 'applied_amount = ?'];
+    const params = [b, safeHrs, safeAmt];
+    if (payload != null) {
+      sets.push('payload_json = ?');
+      params.push(JSON.stringify(payload || {}));
+    }
+    params.push(id);
+    await pool.execute(
+      `UPDATE payroll_time_claims SET ${sets.join(', ')} WHERE id = ? LIMIT 1`,
+      params
+    );
+    return PayrollTimeClaim.findById(id);
+  }
+
   static async reject({ id, rejectorUserId, rejectionReason }) {
     await pool.execute(
       `UPDATE payroll_time_claims

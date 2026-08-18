@@ -6,6 +6,7 @@ import PayrollCompensationLevel, {
   LEVEL_IDS
 } from '../models/PayrollCompensationLevel.model.js';
 import PayrollServiceCodeRule from '../models/PayrollServiceCodeRule.model.js';
+import PayrollIndirectServiceType from '../models/PayrollIndirectServiceType.model.js';
 import {
   classifyPayType,
   estimatePay,
@@ -28,6 +29,72 @@ function enrichRuleWithPayType(rule) {
   const defaults = payrollDefaultsForCode(code);
   const payType = classifyPayType(code, rule || defaults);
   return { ...rule, payType };
+}
+
+function mapServiceCodeForCalculator(r) {
+  return {
+    serviceCode: String(r.service_code || r.serviceCode || '').trim().toUpperCase(),
+    category: r.category,
+    payType: r.payType,
+    payDivisor: r.pay_divisor ?? r.payDivisor,
+    creditValue: r.credit_value ?? r.creditValue,
+    durationMinutes: r.duration_minutes ?? r.durationMinutes,
+    payRateUnit: r.pay_rate_unit ?? r.payRateUnit,
+    showInRateSheet: r.show_in_rate_sheet ?? r.showInRateSheet
+  };
+}
+
+function mapEventTypeForCalculator(t) {
+  return {
+    id: Number(t.id),
+    typeKey: t.typeKey,
+    label: t.label,
+    displayCode: t.displayCode || '',
+    payBucket: t.payBucket || 'indirect',
+    description: t.description || ''
+  };
+}
+
+async function loadCalculatorCatalog(agencyId) {
+  const [rules, eventTypes, rates] = await Promise.all([
+    PayrollServiceCodeRule.listForAgency(agencyId),
+    PayrollIndirectServiceType.listForAgency({ agencyId, activeOnly: true }),
+    PayrollPaySystemRate.listForAgency(agencyId)
+  ]);
+  const enriched = (rules || []).map((r) => enrichRuleWithPayType(r));
+  const serviceCodes = enriched
+    .filter((r) => r.payType && r.payType !== 'skip')
+    .map(mapServiceCodeForCalculator);
+  return {
+    serviceCodes,
+    eventTypes: (eventTypes || []).map(mapEventTypeForCalculator),
+    rates: rates || []
+  };
+}
+
+function normalizeEstimateLines(rawLines, eventTypes = []) {
+  const byId = new Map((eventTypes || []).map((t) => [Number(t.id), t]));
+  return (Array.isArray(rawLines) ? rawLines : []).map((l) => {
+    const kind = String(l?.kind || '').toLowerCase();
+    if (kind === 'event' || l?.eventTypeId || l?.serviceTypeId) {
+      const id = Number(l.eventTypeId || l.serviceTypeId || 0);
+      const ev = byId.get(id) || null;
+      return {
+        kind: 'event',
+        eventTypeId: id || null,
+        hours: Number(l.hours ?? l.quantity ?? l.units ?? 0) || 0,
+        quantity: Number(l.hours ?? l.quantity ?? l.units ?? 0) || 0,
+        label: l.label || ev?.label,
+        displayCode: l.displayCode || ev?.displayCode,
+        payBucket: l.payBucket || ev?.payBucket || 'indirect'
+      };
+    }
+    return {
+      kind: 'service',
+      serviceCode: String(l.serviceCode || l.code || '').trim().toUpperCase(),
+      quantity: l.quantity ?? l.units ?? 0
+    };
+  });
 }
 
 /** GET /payroll/pay-system/rates?agencyId= */
@@ -316,19 +383,26 @@ export const getMyPaySystemRates = async (req, res, next) => {
       tier3Min: thresholds.tier3MinWeekly * 2
     };
 
-    // Calculator is available whenever the user has a category/level with configured rates,
-    // even before the agency fully transitions (so staff can plan). Live paycheck math still
-    // requires agencyEnabled + pay_system_enabled.
+    // Calculator is available whenever agency rates exist, even before enrollment.
+    // Staff without a category/level can still use the what-if calculator.
+    const catalog = await loadCalculatorCatalog(agencyId);
+    const hasAnyRates = (catalog.rates || []).some((r) =>
+      Number(r.creditRate || 0) > 0 || Number(r.hcodeRate || 0) > 0 || Number(r.indirectRate || 0) > 0
+    );
+
     if (!assignment?.category || !assignment?.level) {
       return res.json({
         enabled: false,
         agencyEnabled,
         userEnabled: Number(assignment?.pay_system_enabled || 0) === 1,
         assignment: assignment || null,
+        rateProfile: null,
         thresholds,
         biweeklyThresholds,
         categories: COMPENSATION_CATEGORIES,
-        reason: 'no_assignment'
+        calculatorAvailable: hasAnyRates,
+        reason: 'no_assignment',
+        ...catalog
       });
     }
 
@@ -358,25 +432,9 @@ export const getMyPaySystemRates = async (req, res, next) => {
       graceActive: false
     });
 
-    // Service codes with payType for the calculator picker
-    const rules = await PayrollServiceCodeRule.listForAgency(agencyId);
-    const serviceCodes = (rules || [])
-      .map((r) => enrichRuleWithPayType(r))
-      .filter((r) => r.payType && r.payType !== 'skip')
-      .map((r) => ({
-        serviceCode: String(r.service_code || '').trim().toUpperCase(),
-        category: r.category,
-        payType: r.payType,
-        payDivisor: r.pay_divisor,
-        creditValue: r.credit_value,
-        durationMinutes: r.duration_minutes,
-        payRateUnit: r.pay_rate_unit,
-        showInRateSheet: r.show_in_rate_sheet
-      }));
-
     res.json({
       // UI calculator available when rates exist; live pay still gated by enrollment flags.
-      calculatorAvailable: !!rateProfile,
+      calculatorAvailable: !!rateProfile || hasAnyRates,
       enabled: agencyEnabled && Number(assignment.pay_system_enabled || 0) === 1 && !!rateProfile,
       agencyEnabled,
       userEnabled: Number(assignment.pay_system_enabled || 0) === 1,
@@ -385,8 +443,8 @@ export const getMyPaySystemRates = async (req, res, next) => {
       status,
       thresholds,
       biweeklyThresholds,
-      serviceCodes,
-      categories: COMPENSATION_CATEGORIES
+      categories: COMPENSATION_CATEGORIES,
+      ...catalog
     });
   } catch (e) { next(e); }
 };
@@ -436,7 +494,7 @@ export const estimatePaySystem = async (req, res, next) => {
     }
     if (!rateProfile) {
       return res.status(400).json({
-        error: { message: 'No pay-system rates found for your category/level. Ask an admin to configure Pay System Rates.' }
+        error: { message: 'No pay-system rates found for your category/level. Use the full calculator to pick a category and level.' }
       });
     }
 
@@ -457,28 +515,33 @@ export const estimatePaySystem = async (req, res, next) => {
     // Recompute useReducedRates with proposed tier
     status.useReducedRates = !!(status.inProbation || status.isMinimumWorkload);
 
-    if (req.body?.assumeSpanish === true) {
+    if (req.body?.assumeSpanish === true || req.body?.spanishBonusEligible === true) {
       status.spanishBonusEligible = true;
+    } else if (req.body?.assumeSpanish === false || req.body?.spanishBonusEligible === false) {
+      status.spanishBonusEligible = false;
+    }
+    if (req.body?.assumeDenver === true || req.body?.locationBonusEligible === true) {
+      status.locationBonusEligible = true;
+    } else if (req.body?.assumeDenver === false || req.body?.locationBonusEligible === false) {
+      status.locationBonusEligible = false;
     }
 
-    const rules = await PayrollServiceCodeRule.listForAgency(agencyId);
+    const catalog = await loadCalculatorCatalog(agencyId);
     const rulesByCode = new Map(
-      (rules || []).map((r) => [String(r.service_code || '').trim().toUpperCase(), r])
+      (catalog.serviceCodes || []).map((r) => [String(r.serviceCode || '').trim().toUpperCase(), r])
     );
 
     const result = estimatePay({
       rateProfile,
       status,
-      lines: lines.map((l) => ({
-        serviceCode: l.serviceCode || l.code,
-        quantity: l.quantity ?? l.units ?? 0
-      })),
+      lines: normalizeEstimateLines(lines, catalog.eventTypes),
       rulesByCode
     });
 
     res.json({
       ok: true,
       proposedTier,
+      mode: 'personal',
       rateProfile: {
         category: rateProfile.category,
         level: rateProfile.level,
@@ -490,7 +553,104 @@ export const estimatePaySystem = async (req, res, next) => {
         supportActivityRate: rateProfile.supportActivityRate,
         autoIndirectMinutesPerHour: rateProfile.autoIndirectMinutesPerHour,
         tierBonus: rateProfile.tierBonus,
-        spanishBonus: rateProfile.spanishBonus
+        spanishBonus: rateProfile.spanishBonus,
+        locationBonus: rateProfile.locationBonus
+      },
+      ...result
+    });
+  } catch (e) { next(e); }
+};
+
+/**
+ * POST /payroll/pay-system/estimate-scenario
+ * What-if calculator: pick category, level, tier, Denver, Spanish.
+ * Staff and admins can use published rates. Optional rateProfile overlay is for admins
+ * previewing unsaved Pay System Rates edits.
+ */
+export const estimatePaySystemScenario = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
+
+    const agencyId = parseInt(req.body?.agencyId || req.query.agencyId || '', 10) || null;
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+
+    const category = parseInt(req.body?.category, 10);
+    const level = parseInt(req.body?.level, 10);
+    if (!CATEGORY_IDS.includes(category) || !LEVEL_IDS.includes(level)) {
+      return res.status(400).json({ error: { message: 'category and level are required' } });
+    }
+
+    const proposedTier = Math.max(0, Math.min(3, parseInt(req.body?.tier, 10) || 0));
+    const catalog = await loadCalculatorCatalog(agencyId);
+    let rateProfile = (catalog.rates || []).find((r) => Number(r.category) === category && Number(r.level) === level)
+      || await PayrollPaySystemRate.get(agencyId, category, level);
+
+    const overlay = req.body?.rateProfile;
+    if (overlay && typeof overlay === 'object') {
+      rateProfile = {
+        ...(rateProfile || {}),
+        category,
+        level,
+        creditRate: overlay.creditRate ?? rateProfile?.creditRate,
+        creditRateProbation: overlay.creditRateProbation ?? rateProfile?.creditRateProbation,
+        hcodeRate: overlay.hcodeRate ?? rateProfile?.hcodeRate,
+        hcodeRateProbation: overlay.hcodeRateProbation ?? rateProfile?.hcodeRateProbation,
+        indirectRate: overlay.indirectRate ?? rateProfile?.indirectRate,
+        supportActivityRate: overlay.supportActivityRate ?? rateProfile?.supportActivityRate,
+        autoIndirectMinutesPerHour: overlay.autoIndirectMinutesPerHour ?? rateProfile?.autoIndirectMinutesPerHour ?? 10,
+        tierBonus: overlay.tierBonus || rateProfile?.tierBonus,
+        spanishBonus: overlay.spanishBonus || rateProfile?.spanishBonus,
+        locationBonus: overlay.locationBonus || rateProfile?.locationBonus
+      };
+    }
+
+    if (!rateProfile) {
+      return res.status(400).json({ error: { message: 'No pay-system rates found for that category/level.' } });
+    }
+
+    const status = {
+      tierLevel: proposedTier,
+      currentTierLevel: proposedTier,
+      inProbation: false,
+      isMinimumWorkload: proposedTier < 1 && req.body?.waiveMinimumWorkload !== true,
+      useReducedRates: proposedTier < 1 && req.body?.waiveMinimumWorkload !== true,
+      spanishBonusEligible: req.body?.spanishBonusEligible === true || req.body?.assumeSpanish === true,
+      locationBonusEligible: req.body?.locationBonusEligible === true || req.body?.assumeDenver === true
+    };
+    status.useReducedRates = !!(status.inProbation || status.isMinimumWorkload);
+
+    const rulesByCode = new Map(
+      (catalog.serviceCodes || []).map((r) => [String(r.serviceCode || '').trim().toUpperCase(), r])
+    );
+    const result = estimatePay({
+      rateProfile,
+      status,
+      lines: normalizeEstimateLines(req.body?.lines, catalog.eventTypes),
+      rulesByCode
+    });
+
+    res.json({
+      ok: true,
+      proposedTier,
+      mode: 'scenario',
+      category,
+      level,
+      rateProfile: {
+        category: rateProfile.category,
+        level: rateProfile.level,
+        creditRate: rateProfile.creditRate,
+        creditRateProbation: rateProfile.creditRateProbation,
+        hcodeRate: rateProfile.hcodeRate,
+        hcodeRateProbation: rateProfile.hcodeRateProbation,
+        indirectRate: rateProfile.indirectRate,
+        supportActivityRate: rateProfile.supportActivityRate,
+        autoIndirectMinutesPerHour: rateProfile.autoIndirectMinutesPerHour,
+        tierBonus: rateProfile.tierBonus,
+        spanishBonus: rateProfile.spanishBonus,
+        locationBonus: rateProfile.locationBonus
       },
       ...result
     });

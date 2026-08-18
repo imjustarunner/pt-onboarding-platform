@@ -4912,17 +4912,15 @@ const loadCurrentTier = async () => {
     const api = (await import('../services/api')).default;
     const resp = await api.get('/payroll/me/current-tier', { params: { agencyId: currentAgencyId.value }, skipGlobalLoading: true });
     const t = resp.data?.tier || null;
-    const label = String(t?.label || '').trim();
-    const status = String(t?.status || '').trim().toLowerCase();
+    const grace = resp.data?.graceActive === true || resp.data?.statusKind === 'grace';
+    const label = String(resp.data?.label || t?.label || '').trim();
     tierBadgeText.value = label || '';
     if (!tierBadgeText.value) {
       tierBadgeKind.value = '';
       return;
     }
-    tierBadgeKind.value =
-      status === 'grace' ? 'tier-grace'
-        : status === 'current' ? 'tier-current'
-          : 'tier-ooc';
+    const level = Number(resp.data?.tierLevel || t?.tierLevel || 0);
+    tierBadgeKind.value = grace ? 'tier-grace' : (level >= 1 ? 'tier-current' : 'tier-ooc');
   } catch {
     tierBadgeText.value = '';
     tierBadgeKind.value = '';

@@ -15,6 +15,7 @@ import {
   updateUserPaySystemFlags,
   getMyPaySystemRates,
   estimatePaySystem,
+  estimatePaySystemScenario,
   listPaySystemAssignments,
   savePaySystemPending,
   clearPaySystemPending,
@@ -478,6 +479,7 @@ router.delete('/pay-system/pending', clearPaySystemPending);
 router.post('/pay-system/go', goPaySystem);
 router.get('/pay-system/my-rates', getMyPaySystemRates);
 router.post('/pay-system/estimate', estimatePaySystem);
+router.post('/pay-system/estimate-scenario', estimatePaySystemScenario);
 router.patch('/users/:userId/pay-system-flags', updateUserPaySystemFlags);
 
 // User payroll history
