@@ -13,6 +13,8 @@ import {
   listOutreachTrips,
   getOutreachTrip,
   createOutreachTrip,
+  updateOutreachTrip,
+  deleteOutreachTrip,
   completeOutreachTrip,
   updateOutreachTripStopAttendance,
   backfillOutreachSchoolGeocodes,
@@ -34,6 +36,9 @@ function agencyIdFrom(req) {
 function handleServiceError(res, err) {
   const msg = String(err?.message || 'Request failed');
   if (/invalid|must be/i.test(msg)) {
+    return res.status(400).json({ error: { message: msg } });
+  }
+  if (/cannot be (edited|deleted)/i.test(msg)) {
     return res.status(400).json({ error: { message: msg } });
   }
   if (/not found/i.test(msg)) {
@@ -326,6 +331,30 @@ export const createTrip = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     const trip = await createOutreachTrip(agencyId, req.body || {}, req.user?.id);
     res.status(201).json({ trip });
+  } catch (err) {
+    handleServiceError(res, err);
+  }
+};
+
+export const updateTrip = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFrom(req);
+    const tripId = Number(req.params.tripId || 0);
+    if (!agencyId || !tripId) return res.status(400).json({ error: { message: 'agencyId and trip id are required' } });
+    const trip = await updateOutreachTrip(agencyId, tripId, req.body || {}, req.user?.id);
+    res.json({ trip });
+  } catch (err) {
+    handleServiceError(res, err);
+  }
+};
+
+export const deleteTrip = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFrom(req);
+    const tripId = Number(req.params.tripId || 0);
+    if (!agencyId || !tripId) return res.status(400).json({ error: { message: 'agencyId and trip id are required' } });
+    const result = await deleteOutreachTrip(agencyId, tripId, req.user?.id);
+    res.json(result);
   } catch (err) {
     handleServiceError(res, err);
   }

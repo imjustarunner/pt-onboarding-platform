@@ -143,6 +143,7 @@
                     <template v-if="savedTripRoundTripMiles(t) != null"> · {{ savedTripRoundTripMiles(t) }} mi round trip</template>
                     · {{ (t.stops || []).map((s) => s.school_name).join(' → ') || 'No stops' }}
                   </div>
+                  <div class="ohub-muted ohub-trip-provenance">{{ tripProvenanceLine(t) }}</div>
                   <div v-if="(t.participants || []).length" class="ohub-muted">
                     {{ t.participants.map((p) => p.display_name).join(', ') }}
                   </div>
@@ -200,16 +201,23 @@
         </div>
 
         <section v-else class="ohub-trip-plan">
-          <template v-if="openedTrip">
+          <template v-if="openedTrip && !tripRouteEditing">
             <div class="ohub-trip-plan-head">
               <button type="button" class="btn-link" @click="closeOpenedTrip">← All trips</button>
               <h2>{{ openedTrip.title }}</h2>
-              <span class="ohub-stage" :class="openedTrip.status">{{ openedTrip.status }}</span>
+              <span class="ohub-stage" :class="openedTrip.status">{{ tripStatusLabel(openedTrip.status) }}</span>
+              <button
+                v-if="openedTrip.status !== 'completed'"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="startTripRouteEdit"
+              >Edit trip</button>
             </div>
             <p class="ohub-muted">
-              {{ openedTrip.planned_date ? formatDate(openedTrip.planned_date) : formatDate(openedTrip.created_at) }}
+              {{ openedTrip.planned_date ? formatDate(openedTrip.planned_date) : 'Date TBD' }}
               · Click a school to open notes and contacts
             </p>
+            <p class="ohub-muted ohub-trip-provenance">{{ tripProvenanceLine(openedTrip) }}</p>
             <div v-if="openedTrip.round_trip_miles != null" class="ohub-trip-stats">
               <span><strong>{{ openedTrip.round_trip_miles }}</strong> mi round trip</span>
               <span>Outbound <strong>{{ openedTrip.outbound_miles ?? '—' }}</strong> mi</span>
@@ -266,8 +274,15 @@
             </ol>
           </template>
           <template v-else>
-          <h2>Plan a trip</h2>
-          <p class="ohub-muted">Starts at Windchime (437 Windchime Place, Colorado Springs). Click a school to add it; remaining schools sort by distance from that stop.</p>
+          <div class="ohub-trip-plan-head">
+            <button v-if="openedTrip" type="button" class="btn-link" @click="cancelTripRouteEdit">← Cancel edit</button>
+            <h2>{{ openedTrip ? `Edit · ${openedTrip.title}` : 'Plan a trip' }}</h2>
+          </div>
+          <p class="ohub-muted">
+            <template v-if="openedTrip">Reorder stops, add schools in the middle, or remove stops. Changes save when you click Save trip.</template>
+            <template v-else>Starts at Windchime (437 Windchime Place, Colorado Springs). Click a school to add it; remaining schools sort by distance from that stop.</template>
+          </p>
+          <p v-if="openedTrip" class="ohub-muted ohub-trip-provenance">{{ tripProvenanceLine(openedTrip) }}</p>
           <div v-if="tripStops.length" class="ohub-trip-stats">
             <span><strong>{{ tripRoundTripTotal ?? '—' }}</strong> mi round trip</span>
             <span>Outbound <strong>{{ tripRouteTotalMiles ?? '—' }}</strong> mi</span>
@@ -299,7 +314,11 @@
                 <template v-if="stop.distance_approx"> (approx.)</template>
               </div>
               <div class="ohub-muted ohub-route-stop-addr">{{ stop.address || stop.city }}</div>
-              <button type="button" class="btn-link" @click="removeTripStop(idx)">Remove</button>
+              <div class="ohub-route-stop-actions">
+                <button type="button" class="btn-link" :disabled="idx === 0" @click="moveTripStop(idx, -1)">Move up</button>
+                <button type="button" class="btn-link" :disabled="idx >= tripStops.length - 1" @click="moveTripStop(idx, 1)">Move down</button>
+                <button type="button" class="btn-link" @click="removeTripStop(idx)">Remove</button>
+              </div>
             </li>
             <li v-if="tripStops.length" class="ohub-route-origin">
               <strong>Return · Windchime (office)</strong>
@@ -411,7 +430,7 @@
           :stop-color="activeTripStopContext.stopColor"
           :attendance-status="activeTripStopContext.attendanceStatus"
           :attendance-options="attendanceOptions"
-          :show-attendance="!!openedTrip"
+          :show-attendance="!!openedTrip && !tripRouteEditing"
           :assignable-users="assignableUsers"
           :stage-label="stageLabel"
           :short-district="shortDistrict"
@@ -803,7 +822,7 @@
         </aside>
 
         <section v-else-if="viewMode === 'trips'" class="ohub-trip-meta">
-          <template v-if="openedTrip">
+          <template v-if="openedTrip && !tripRouteEditing">
             <h2>Who’s going</h2>
             <ul class="ohub-plain-list">
               <li v-for="(p, i) in openedTrip.participants || []" :key="`${p.display_name}-${i}`">
@@ -817,13 +836,88 @@
             </ul>
             <p v-if="openedTrip.notes" class="ohub-muted">{{ openedTrip.notes }}</p>
             <p class="ohub-muted">Tap a stop on the left to log conversations, follow-ups, and tasks for that school.</p>
-            <button
-              v-if="openedTrip.status !== 'completed'"
-              type="button"
-              class="btn btn-primary"
-              :disabled="tripSaving"
-              @click="completeTrip(openedTrip)"
-            >{{ tripSaving ? 'Saving…' : 'Mark trip complete' }}</button>
+            <div class="ohub-trip-meta-actions">
+              <button
+                v-if="openedTrip.status !== 'completed'"
+                type="button"
+                class="btn btn-secondary"
+                @click="startTripRouteEdit"
+              >Edit trip</button>
+              <button
+                v-if="openedTrip.status !== 'completed'"
+                type="button"
+                class="btn btn-danger"
+                :disabled="tripSaving"
+                @click="deleteOpenedTrip"
+              >Delete trip</button>
+              <button
+                v-if="openedTrip.status !== 'completed'"
+                type="button"
+                class="btn btn-primary"
+                :disabled="tripSaving"
+                @click="completeTrip(openedTrip)"
+              >{{ tripSaving ? 'Saving…' : 'Mark trip complete' }}</button>
+            </div>
+          </template>
+          <template v-else-if="openedTrip && tripRouteEditing">
+            <h2>Edit trip details</h2>
+            <label class="ohub-field">
+              <span>Trip title</span>
+              <input v-model="tripTitle" type="text" placeholder="Outreach trip" />
+            </label>
+            <form class="ohub-log" @submit.prevent="addParticipant">
+              <label class="ohub-field">
+                <span>Staff</span>
+                <select v-model="participantForm.userId">
+                  <option value="">Guest / type a name below</option>
+                  <option
+                    v-for="u in assignableUsersWithMe"
+                    :key="`ep-${u.id}`"
+                    :value="String(u.id)"
+                  >{{ u.first_name }} {{ u.last_name }}</option>
+                </select>
+              </label>
+              <label class="ohub-field">
+                <span>Display name</span>
+                <input v-model="participantForm.name" :required="!participantForm.userId" placeholder="Staff name" />
+              </label>
+              <label class="ohub-field">
+                <span>Start</span>
+                <input v-model="participantForm.start_time" type="datetime-local" />
+              </label>
+              <label class="ohub-field">
+                <span>End</span>
+                <input v-model="participantForm.end_time" type="datetime-local" />
+              </label>
+              <button type="submit" class="btn btn-secondary">Add person</button>
+            </form>
+            <ul class="ohub-plain-list">
+              <li v-for="(p, i) in tripParticipants" :key="`${p.display_name}-edit-${i}`" class="ohub-participant-row">
+                <div>
+                  <strong>{{ p.display_name }}</strong>
+                  <div class="ohub-muted">
+                    {{ p.start_time ? formatDateTime(p.start_time) : 'Start TBD' }}
+                    → {{ p.end_time ? formatDateTime(p.end_time) : 'End TBD' }}
+                  </div>
+                </div>
+                <button type="button" class="btn-link" @click="tripParticipants.splice(i, 1)">Remove</button>
+              </li>
+            </ul>
+            <label class="ohub-field">
+              <span>Trip date</span>
+              <input v-model="tripDate" type="date" />
+            </label>
+            <label class="ohub-field">
+              <span>Notes</span>
+              <textarea v-model="tripNotes" rows="2" />
+            </label>
+            <div class="ohub-trip-meta-actions">
+              <button type="button" class="btn btn-primary" :disabled="!tripStops.length || tripSaving" @click="saveTripEdits">
+                {{ tripSaving ? 'Saving…' : 'Save trip' }}
+              </button>
+              <button type="button" class="btn btn-secondary" :disabled="tripSaving" @click="cancelTripRouteEdit">Cancel</button>
+              <button type="button" class="btn btn-danger" :disabled="tripSaving" @click="deleteOpenedTrip">Delete trip</button>
+            </div>
           </template>
           <template v-else>
             <h2>Who’s going</h2>
@@ -1050,8 +1144,10 @@ const tripCharterOnly = ref(false);
 const tripClosestToBoth = ref(false);
 const tripSort = ref('closest');
 const tripDate = ref('');
+const tripTitle = ref('');
 const tripNotes = ref('');
 const tripSaving = ref(false);
+const tripRouteEditing = ref(false);
 const tripEditorSaving = ref(false);
 const tripPreviewLoading = ref(false);
 const tripGeocodeRemaining = ref(null);
@@ -1141,7 +1237,22 @@ const activityGroups = computed(() => {
 const activeTripStopContext = computed(() => {
   if (viewMode.value !== 'trips' || !selected.value) return null;
   if (openedTrip.value) {
-    const stops = openedTrip.value.stops || [];
+    const stops = tripRouteEditing.value ? tripStops.value : (openedTrip.value.stops || []);
+    if (tripRouteEditing.value) {
+      const stop = stops.find((s) => Number(s.id) === Number(selectedId.value));
+      if (!stop) return null;
+      const idx = stops.findIndex((s) => Number(s.id) === Number(selectedId.value));
+      return {
+        tripId: openedTrip.value.id,
+        tripStopId: stop.stop_id || null,
+        tripTitle: tripTitle.value || openedTrip.value.title,
+        stopOrder: idx >= 0 ? idx + 1 : null,
+        stopTotal: stops.length,
+        stopColor: stopColorAt(idx >= 0 ? idx : 0, stop),
+        attendanceStatus: 'pending',
+        stop: null
+      };
+    }
     const stop = stops.find((s) => Number(s.outreach_school_id) === Number(selectedId.value))
       || stops.find((s) => Number(s.id) === Number(selectedTripStopId.value));
     if (!stop) {
@@ -1915,13 +2026,29 @@ const attendanceLabel = (status) => ({
   pending: 'Not marked'
 }[String(status || 'pending')] || String(status));
 
+const tripProvenanceLine = (trip) => {
+  if (!trip) return '';
+  const creator = trip.created_by_name || (trip.created_by_user_id ? `User #${trip.created_by_user_id}` : 'Unknown');
+  const created = formatDateTime(trip.created_at);
+  let line = `Created by ${creator} on ${created}`;
+  if (trip.was_edited) {
+    const editor = trip.updated_by_name || (trip.updated_by_user_id ? `User #${trip.updated_by_user_id}` : 'someone');
+    line += ` · Last edited by ${editor} on ${formatDateTime(trip.updated_at)}`;
+  }
+  return line;
+};
+
 const openSavedTrip = (t) => {
+  tripRouteEditing.value = false;
   openedTripId.value = t?.id || null;
   selectedId.value = null;
   selected.value = null;
 };
 
 const closeOpenedTrip = () => {
+  tripRouteEditing.value = false;
+  tripStops.value = [];
+  tripTitle.value = '';
   openedTripId.value = null;
   selectedId.value = null;
   selected.value = null;
@@ -1970,6 +2097,110 @@ const removeTripStop = async (idx) => {
   tripStops.value = tripStops.value.filter((_, i) => i !== idx);
   if (tripStops.value.length < 2) tripClosestToBoth.value = false;
   await loadTripPreview();
+};
+
+const moveTripStop = async (idx, direction) => {
+  const next = idx + direction;
+  if (next < 0 || next >= tripStops.value.length) return;
+  const copy = [...tripStops.value];
+  [copy[idx], copy[next]] = [copy[next], copy[idx]];
+  tripStops.value = copy;
+  tripClosestToBoth.value = false;
+  await loadTripPreview();
+};
+
+const stopToTripSchool = (stop) => ({
+  id: Number(stop.outreach_school_id),
+  name: stop.school_name,
+  city: stop.city,
+  district_name: stop.district_name,
+  address: stop.address,
+  school_level: stop.school_level,
+  outreach_stage: stop.outreach_stage,
+  lat: stop.lat,
+  lng: stop.lng,
+  miles_from_prev: stop.miles_from_prev,
+  stop_id: stop.id
+});
+
+const startTripRouteEdit = async () => {
+  const t = openedTrip.value;
+  if (!t || t.status === 'completed') return;
+  tripRouteEditing.value = true;
+  tripTitle.value = t.title || '';
+  tripDate.value = t.planned_date ? String(t.planned_date).slice(0, 10) : '';
+  tripNotes.value = t.notes || '';
+  tripParticipants.value = (t.participants || []).map((p) => ({
+    display_name: p.display_name,
+    user_id: p.user_id || null,
+    start_time: p.start_time || null,
+    end_time: p.end_time || null
+  }));
+  tripStops.value = (t.stops || []).map(stopToTripSchool);
+  tripClosestToBoth.value = false;
+  selectedId.value = null;
+  selected.value = null;
+  try {
+    await loadTripPreview();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not load nearby schools.';
+  }
+};
+
+const cancelTripRouteEdit = () => {
+  tripRouteEditing.value = false;
+  tripStops.value = [];
+  tripTitle.value = '';
+  tripNotes.value = '';
+  tripParticipants.value = [];
+  tripClosestToBoth.value = false;
+};
+
+const saveTripEdits = async () => {
+  if (!openedTripId.value || !tripStops.value.length) return;
+  tripSaving.value = true;
+  error.value = '';
+  try {
+    const res = await api.patch(`/outreach/trips/${openedTripId.value}`, {
+      title: tripTitle.value || openedTrip.value?.title,
+      schoolIds: tripStops.value.map((s) => s.id),
+      plannedDate: tripDate.value || null,
+      notes: tripNotes.value || null,
+      participants: tripParticipants.value
+    }, { skipGlobalLoading: true });
+    const updated = res.data?.trip;
+    if (updated) {
+      trips.value = trips.value.map((t) => (Number(t.id) === Number(updated.id) ? updated : t));
+    } else {
+      await loadTrips();
+    }
+    tripRouteEditing.value = false;
+    tripStops.value = [];
+    tripTitle.value = '';
+    tripNotes.value = '';
+    tripParticipants.value = [];
+    await loadTripPreview();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not save trip.';
+  } finally {
+    tripSaving.value = false;
+  }
+};
+
+const deleteOpenedTrip = async () => {
+  if (!openedTripId.value || openedTrip.value?.status === 'completed') return;
+  if (!window.confirm('Delete this trip? Stops and notes stay on each school, but the trip route will be removed.')) return;
+  tripSaving.value = true;
+  error.value = '';
+  try {
+    await api.delete(`/outreach/trips/${openedTripId.value}`, { skipGlobalLoading: true });
+    closeOpenedTrip();
+    await loadTrips();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not delete trip.';
+  } finally {
+    tripSaving.value = false;
+  }
 };
 
 const loadTrips = async () => {
@@ -2304,7 +2535,11 @@ onMounted(async () => {
 .ohub-attend-status { margin: 4px 0 0; }
 .ohub-saved-trip-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .ohub-route-stop-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ohub-route-stop-meta, .ohub-route-stop-addr { margin-top: 2px; }
+.ohub-route-stop-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.ohub-trip-provenance { margin-top: 2px; }
+.ohub-trip-meta-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.ohub-trip-meta-actions .btn-danger { background: #b91c1c; border-color: #b91c1c; color: #fff; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
 .ohub-nearby { list-style: none; padding: 0; margin: 0; max-height: 420px; overflow: auto; }
 .ohub-nearby-btn {
   width: 100%;

@@ -1785,6 +1785,13 @@ export async function previewTripStops(agencyId, {
   return { ...ranked, schools, geocode_remaining: geo.remaining };
 }
 
+function tripWasEdited(row) {
+  if (row?.updated_by_user_id) return true;
+  const created = row?.created_at ? new Date(row.created_at).getTime() : 0;
+  const updated = row?.updated_at ? new Date(row.updated_at).getTime() : 0;
+  return updated > created + 2000;
+}
+
 function mapTripRow(row, stops = [], participants = []) {
   const mappedStops = (stops || []).map((s) => ({
     ...s,
@@ -1810,8 +1817,13 @@ function mapTripRow(row, stops = [], participants = []) {
     planned_date: row.planned_date,
     completed_at: row.completed_at,
     notes: row.notes,
-    created_by_user_id: row.created_by_user_id,
+    created_by_user_id: row.created_by_user_id != null ? Number(row.created_by_user_id) : null,
+    created_by_name: row.created_by_name || null,
     created_at: row.created_at,
+    updated_at: row.updated_at || null,
+    updated_by_user_id: row.updated_by_user_id != null ? Number(row.updated_by_user_id) : null,
+    updated_by_name: row.updated_by_name || null,
+    was_edited: tripWasEdited(row),
     outbound_miles: tripOutboundMiles(mappedStops),
     return_miles: tripReturnMiles(mappedStops),
     round_trip_miles: tripRoundTripMiles(mappedStops),
@@ -1834,7 +1846,14 @@ export async function listOutreachTrips(agencyId) {
 
 export async function getOutreachTrip(agencyId, tripId) {
   const [rows] = await pool.execute(
-    `SELECT * FROM outreach_trips WHERE agency_id = ? AND id = ? LIMIT 1`,
+    `SELECT t.*,
+            TRIM(CONCAT_WS(' ', cu.first_name, cu.last_name)) AS created_by_name,
+            TRIM(CONCAT_WS(' ', uu.first_name, uu.last_name)) AS updated_by_name
+     FROM outreach_trips t
+     LEFT JOIN users cu ON cu.id = t.created_by_user_id
+     LEFT JOIN users uu ON uu.id = t.updated_by_user_id
+     WHERE t.agency_id = ? AND t.id = ?
+     LIMIT 1`,
     [agencyId, tripId]
   );
   const row = rows?.[0];
@@ -1919,6 +1938,160 @@ export async function createOutreachTrip(agencyId, payload, userId) {
   const trip = await getOutreachTrip(agencyId, tripId);
   await syncOutreachTripCalendarEvents(agencyId, trip, userId);
   return trip;
+}
+
+async function replaceOutreachTripStops(agencyId, tripId, schoolIds) {
+  const trip = await getOutreachTrip(agencyId, tripId);
+  if (!trip) throw new Error('Trip not found');
+  if (trip.status === 'completed') throw new Error('Completed trips cannot be edited');
+
+  const ids = (Array.isArray(schoolIds) ? schoolIds : []).map((id) => Number(id)).filter(Boolean);
+  if (!ids.length) throw new Error('Add at least one school to the trip');
+
+  const existingBySchool = new Map((trip.stops || []).map((s) => [Number(s.outreach_school_id), s]));
+  const keepSchoolIds = new Set(ids);
+  for (const stop of trip.stops || []) {
+    if (!keepSchoolIds.has(Number(stop.outreach_school_id))) {
+      await pool.execute(`DELETE FROM outreach_trip_stops WHERE id = ? AND trip_id = ?`, [stop.id, tripId]);
+    }
+  }
+
+  const allSchools = await listOutreachSchools(agencyId, {});
+  const byId = new Map(allSchools.map((s) => [Number(s.id), s]));
+  let prev = WINDCHIME_ORIGIN;
+  let order = 1;
+  for (const sid of ids) {
+    const school = byId.get(sid);
+    if (!school) throw new Error('One or more schools were not found');
+    const pt = schoolMapPoint(school);
+    const miles = prev && pt ? haversineMiles(prev, pt) : null;
+    const color = stopColorForOrder(order - 1);
+    const existing = existingBySchool.get(sid);
+    if (existing) {
+      try {
+        await pool.execute(
+          `UPDATE outreach_trip_stops
+           SET stop_order = ?, miles_from_prev = ?, stop_color = ?
+           WHERE id = ? AND trip_id = ?`,
+          [order, miles, color, existing.id, tripId]
+        );
+      } catch (e) {
+        if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+        await pool.execute(
+          `UPDATE outreach_trip_stops
+           SET stop_order = ?, miles_from_prev = ?
+           WHERE id = ? AND trip_id = ?`,
+          [order, miles, existing.id, tripId]
+        );
+      }
+    } else {
+      try {
+        await pool.execute(
+          `INSERT INTO outreach_trip_stops (trip_id, outreach_school_id, stop_order, miles_from_prev, stop_color)
+           VALUES (?, ?, ?, ?, ?)`,
+          [tripId, sid, order, miles, color]
+        );
+      } catch (e) {
+        if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+        await pool.execute(
+          `INSERT INTO outreach_trip_stops (trip_id, outreach_school_id, stop_order, miles_from_prev)
+           VALUES (?, ?, ?, ?)`,
+          [tripId, sid, order, miles]
+        );
+      }
+    }
+    prev = pt || prev;
+    order += 1;
+  }
+}
+
+async function touchOutreachTripEdited(tripId, userId) {
+  try {
+    await pool.execute(
+      `UPDATE outreach_trips SET updated_by_user_id = ? WHERE id = ?`,
+      [userId || null, tripId]
+    );
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+  }
+}
+
+export async function updateOutreachTrip(agencyId, tripId, payload, userId) {
+  const trip = await getOutreachTrip(agencyId, tripId);
+  if (!trip) throw new Error('Trip not found');
+  if (trip.status === 'completed') throw new Error('Completed trips cannot be edited');
+
+  const sets = [];
+  const vals = [];
+  if (payload?.title !== undefined) {
+    const title = String(payload.title || '').trim();
+    if (title) {
+      sets.push('title = ?');
+      vals.push(title.slice(0, 255));
+    }
+  }
+  if (payload?.planned_date !== undefined || payload?.plannedDate !== undefined) {
+    sets.push('planned_date = ?');
+    vals.push(payload.planned_date || payload.plannedDate || null);
+  }
+  if (payload?.notes !== undefined) {
+    sets.push('notes = ?');
+    vals.push(payload.notes ? String(payload.notes) : null);
+  }
+  if (sets.length) {
+    sets.push('updated_by_user_id = ?');
+    vals.push(userId || null);
+    vals.push(tripId);
+    try {
+      await pool.execute(`UPDATE outreach_trips SET ${sets.join(', ')} WHERE id = ?`, vals);
+    } catch (e) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const fallbackSets = sets.filter((s) => !s.startsWith('updated_by_user_id'));
+      const fallbackVals = vals.slice(0, -2).concat([tripId]);
+      if (fallbackSets.length) {
+        await pool.execute(`UPDATE outreach_trips SET ${fallbackSets.join(', ')} WHERE id = ?`, fallbackVals);
+      }
+    }
+  }
+
+  if (Array.isArray(payload?.schoolIds)) {
+    await replaceOutreachTripStops(agencyId, tripId, payload.schoolIds);
+    await touchOutreachTripEdited(tripId, userId);
+  }
+
+  if (Array.isArray(payload?.participants)) {
+    await pool.execute(`DELETE FROM outreach_trip_participants WHERE trip_id = ?`, [tripId]);
+    for (const p of payload.participants) {
+      const name = String(p.display_name || p.displayName || p.name || '').trim();
+      if (!name) continue;
+      await pool.execute(
+        `INSERT INTO outreach_trip_participants (trip_id, user_id, display_name, start_time, end_time)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          tripId,
+          p.user_id || p.userId || null,
+          name.slice(0, 255),
+          mysqlDateTime(p.start_time || p.startTime),
+          mysqlDateTime(p.end_time || p.endTime)
+        ]
+      );
+    }
+    await touchOutreachTripEdited(tripId, userId);
+  }
+
+  const updated = await getOutreachTrip(agencyId, tripId);
+  await syncOutreachTripCalendarEvents(agencyId, updated, userId);
+  return updated;
+}
+
+export async function deleteOutreachTrip(agencyId, tripId, userId) {
+  const trip = await getOutreachTrip(agencyId, tripId);
+  if (!trip) throw new Error('Trip not found');
+  if (trip.status === 'completed') throw new Error('Completed trips cannot be deleted');
+
+  await syncOutreachTripCalendarEvents(agencyId, { ...trip, status: 'cancelled' }, userId);
+  await pool.execute(`DELETE FROM outreach_trips WHERE id = ? AND agency_id = ?`, [tripId, agencyId]);
+  return { deleted: true, id: tripId };
 }
 
 /**

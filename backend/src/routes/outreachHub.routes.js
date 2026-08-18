@@ -20,6 +20,8 @@ import {
   listTrips,
   getTrip,
   createTrip,
+  updateTrip,
+  deleteTrip,
   completeTrip,
   patchTripStop,
   previewHistoricalImport,
@@ -41,6 +43,8 @@ router.get('/trips', listTrips);
 router.post('/trips/preview', previewTrip);
 router.post('/trips', createTrip);
 router.get('/trips/:tripId', getTrip);
+router.patch('/trips/:tripId', updateTrip);
+router.delete('/trips/:tripId', deleteTrip);
 router.post('/trips/:tripId/complete', completeTrip);
 router.patch('/trips/:tripId/stops/:stopId', patchTripStop);
 router.post('/import/preview', previewHistoricalImport);
