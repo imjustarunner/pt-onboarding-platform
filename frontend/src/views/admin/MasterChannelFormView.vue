@@ -4,10 +4,11 @@
       <div>
         <h1>{{ channelMeta?.label || 'Master Digital Form' }}</h1>
         <p class="muted msf-sub">
-          Framed master for the {{ channelMeta?.shortLabel || channel }} vertical. Structure is ready —
-          questionnaire content and Join Full pathway wiring come online when this channel is activated.
+          {{ channel === 'tutoring'
+            ? 'Tutoring intake, assessment, and evaluation master. For now it uses the same questions as Master Counseling; you can diverge later. Join tutoring uses the published tutoring shells.'
+            : `Framed master for the ${channelMeta?.shortLabel || channel} vertical. Structure is ready — questionnaire content and Join Full pathway wiring come online when this channel is activated.` }}
         </p>
-        <span class="framed-pill">{{ statusLabel }}</span>
+        <span class="framed-pill" :class="{ live: statusLabel === 'Active' }">{{ statusLabel }}</span>
       </div>
       <div class="msf-header-actions">
         <router-link class="btn btn-secondary btn-sm" :to="backTo">Back to Clients &amp; Guardians</router-link>
@@ -53,13 +54,13 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import IntakeLinksView from './IntakeLinksView.vue';
-import { FRAMED_MASTER_CHANNELS, getMasterFormChannel } from '../../constants/masterFormChannels.js';
+import { CHANNEL_MASTER_KEYS, getMasterFormChannel } from '../../constants/masterFormChannels.js';
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
 
 const channel = computed(() => String(route.params?.channel || '').trim().toLowerCase());
-const validChannel = computed(() => FRAMED_MASTER_CHANNELS.includes(channel.value));
+const validChannel = computed(() => CHANNEL_MASTER_KEYS.includes(channel.value));
 const channelMeta = computed(() => getMasterFormChannel(channel.value));
 const locale = ref('en');
 const loading = ref(true);
@@ -69,7 +70,7 @@ const editorLinkId = ref(null);
 const masterMeta = ref(null);
 const statusLabel = computed(() => {
   const s = String(masterMeta.value?.status || channelMeta.value?.status || 'framed');
-  return s === 'active' ? 'Active' : 'Framed — coming online';
+  return s === 'active' || s === 'live' ? 'Active' : 'Framed — coming online';
 });
 
 const orgSlug = computed(() =>
@@ -135,6 +136,7 @@ onMounted(loadMaster);
 .msf-header h1 { margin: 0; }
 .msf-sub { max-width: 48rem; margin: 6px 0 0; line-height: 1.45; }
 .framed-pill { display: inline-flex; margin-top: 10px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; }
+.framed-pill.live { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
 .msf-header-actions { display: flex; gap: 8px; }
 .msf-toolbar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
 .msf-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

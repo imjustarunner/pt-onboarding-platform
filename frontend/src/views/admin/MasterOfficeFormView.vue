@@ -2,14 +2,14 @@
   <div class="msf-page">
     <header class="msf-header">
       <div>
-        <h1>Master Office Digital Form</h1>
+        <h1>Master Counseling Digital Form</h1>
         <p class="muted msf-sub">
-          Agency in-office intake used by Join → In-Depth Intake Packet. Separate from school referral masters —
-          no school ROI step. Edit EN/ES here; the published shell updates live for Join.
+          Counseling in-office intake used by Join → In-Depth Intake Packet. Separate from school referral masters
+          and from Master Tutoring — no school ROI step. Edit EN/ES here; the published shell updates live for Join.
         </p>
       </div>
       <div class="msf-header-actions">
-        <router-link class="btn btn-secondary btn-sm" :to="paperTo">Master Office Paper</router-link>
+        <router-link class="btn btn-secondary btn-sm" :to="paperTo">Master Counseling Paper</router-link>
         <router-link class="btn btn-secondary btn-sm" :to="backTo">Back to Clients &amp; Guardians</router-link>
       </div>
     </header>

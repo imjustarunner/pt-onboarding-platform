@@ -25,6 +25,7 @@ import {
 import { DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML } from '../content/schoolPacketTemplateDefault.en.js';
 import { injectIntakeLegalIntoPacketHtml, resolveIntakeLegalFromTheme } from '../content/intakeLegalCopy.js';
 import { resolvePacketBrandChrome } from './packetBrandChrome.service.js';
+import { drawFullBleedCoverImage } from '../utils/fullBleedCover.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -599,18 +600,21 @@ function buildPacketStyleBlock(brand = null) {
       }
       .packet-cover {
         width: 100%;
-        min-height: 10in;
-        height: 10in;
+        min-height: ${PAGE_SIZE.heightIn}in;
+        height: ${PAGE_SIZE.heightIn}in;
         margin: 0;
-        padding: 0.25in 0;
+        padding: 0;
         page-break-after: always;
         position: relative;
         overflow: hidden;
         background: #fff;
+      }
+      .packet-cover-fallback {
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
+        padding: 0.5in;
       }
       .cover-page-title {
         margin: 0.3in 0 0;
@@ -622,20 +626,26 @@ function buildPacketStyleBlock(brand = null) {
       }
       .cover-photo {
         display: block;
+        position: absolute;
+        inset: 0;
         width: 100%;
-        max-height: 9.2in;
-        height: auto;
-        object-fit: contain;
+        height: 100%;
+        object-fit: cover;
         object-position: center center;
       }
       .cover-school-caption {
-        margin: 0.12in 0 0;
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0.35in;
+        margin: 0;
         text-align: center;
         font-family: ${bodyFont};
         font-weight: 700;
         font-size: 16px;
         letter-spacing: 0.04em;
-        color: #1b3d2f;
+        color: #fff;
+        text-shadow: 0 1px 4px rgba(0,0,0,0.55);
       }
       .cover-title {
         margin: 1in auto;
@@ -922,10 +932,12 @@ function buildPacketStyleBlock(brand = null) {
           min-height: ${PAGE_SIZE.heightIn}in;
           margin: 16px auto;
           box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+        }
+        .packet-body-wrap {
           padding: 0.5in;
         }
         .packet-cover {
-          padding: 0.5in;
+          padding: 0;
         }
         .packet-watermark { display: none; }
       }
@@ -1083,26 +1095,14 @@ async function renderSchoolPacketCoverPdf(packetContext = {}) {
   const cover = coverUrl ? await embedImageFromDataUrl(pdfDoc, coverUrl) : null;
 
   if (cover) {
-    const titleBlock = 44;
-    const maxH = pageH - 48 - titleBlock;
-    const scale = Math.min(pageW / cover.width, maxH / cover.height);
-    const w = cover.width * scale;
-    const h = cover.height * scale;
-    const groupH = h + 18 + titleSize;
-    const top = Math.max(24, (pageH - groupH) / 2);
-    page.drawImage(cover, {
-      x: (pageW - w) / 2,
-      y: pageH - top - h,
-      width: w,
-      height: h
-    });
+    drawFullBleedCoverImage(page, cover, pageW, pageH);
     const tw = font.widthOfTextAtSize(title, titleSize);
     page.drawText(title, {
       x: Math.max(24, (pageW - tw) / 2),
-      y: pageH - top - h - 18 - titleSize,
+      y: 28,
       size: titleSize,
       font,
-      color: rgb(0.07, 0.07, 0.07)
+      color: rgb(1, 1, 1)
     });
   } else {
     const tw = font.widthOfTextAtSize(title, titleSize);

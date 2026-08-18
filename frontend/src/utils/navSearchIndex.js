@@ -646,25 +646,25 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Bulk school staff account management — filter never-logged-in users and set temporary passwords.'
   },
   {
-    title: 'Master Office Digital Form',
+    title: 'Master Counseling Digital Form',
     section: 'Clients & Guardians',
     path: '/admin/master-office-form',
-    keywords: ['master office form', 'office intake', 'in-depth intake', 'join packet', 'documents and forms'],
-    desc: 'Agency office digital intake master used by Join In-Depth Intake Packet.'
+    keywords: ['master counseling form', 'master office form', 'office intake', 'in-depth intake', 'join packet', 'documents and forms'],
+    desc: 'Counseling digital intake master used by Join In-Depth Intake Packet.'
   },
   {
-    title: 'Master Office Paper',
+    title: 'Master Counseling Paper',
     section: 'Clients & Guardians',
     path: '/admin/master-office-paper',
-    keywords: ['master office paper', 'printable office packet', 'in-depth intake packet', 'documents and forms'],
-    desc: 'Editable branded printable office intake packet for staff downloads.'
+    keywords: ['master counseling paper', 'master office paper', 'printable office packet', 'in-depth intake packet', 'documents and forms'],
+    desc: 'Editable branded printable counseling intake packet for staff downloads.'
   },
   {
-    title: 'Master Digital Tutoring',
+    title: 'Master Tutoring',
     section: 'Clients & Guardians',
     path: '/admin/master-channel-form/tutoring',
-    keywords: ['master digital tutoring', 'tutoring intake', 'framed master'],
-    desc: 'Framed master digital form channel for tutoring (coming online).'
+    keywords: ['master tutoring', 'tutoring intake', 'assessment', 'evaluation', 'nlu'],
+    desc: 'Tutoring intake, assessment, and evaluation master (currently same questions as counseling).'
   },
   {
     title: 'Master Digital Consulting',

@@ -24,7 +24,7 @@ import {
 import { defaultOfficePacketHtml, applyNluOfficeLegalIfNeeded, tokenizeOfficeDisclosureEntity } from '../content/officePacketTemplateDefault.js';
 import { isItscoPacketChromeAgency, isNluPacketChromeAgency, resolvePacketBrandChrome } from './packetBrandChrome.service.js';
 
-const COVER_PDF_MARGIN = { top: '0.5in', right: '0.5in', bottom: '0.5in', left: '0.5in' };
+const COVER_PDF_MARGIN = { top: '0', right: '0', bottom: '0', left: '0' };
 const BODY_PDF_MARGIN = { top: '0.75in', right: '0.5in', bottom: '0.5in', left: '0.5in' };
 
 function escapeHtml(value) {

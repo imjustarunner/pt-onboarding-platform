@@ -1,7 +1,8 @@
 import pool from '../config/database.js';
 import crypto from 'crypto';
 import IntakeLink from './IntakeLink.model.js';
-import { FRAMED_MASTER_CHANNELS } from '../constants/masterFormChannels.js';
+import { CHANNEL_MASTER_KEYS, TUTORING_MASTER_FORM_TYPES } from '../constants/masterFormChannels.js';
+import AgencyOfficeIntakeMaster from './AgencyOfficeIntakeMaster.model.js';
 
 function normalizeLang(languageCode) {
   const raw = String(languageCode || 'en').trim().toLowerCase();
@@ -18,9 +19,38 @@ function parseJson(value, fallback = null) {
   }
 }
 
+function looksLikeEmptyChannelMaster(steps) {
+  const list = Array.isArray(steps) ? steps : [];
+  if (!list.length) return true;
+  if (list.length === 1) {
+    const only = list[0] || {};
+    const fields = Array.isArray(only.fields) ? only.fields : [];
+    return String(only.type || '') === 'questions' && fields.length === 0;
+  }
+  return false;
+}
+
+function parsePublishedLinkIds(value) {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function tutoringShellTitle(formType, lang) {
+  const loc = lang === 'es' ? 'ES' : 'EN';
+  if (formType === 'assessment') return `Tutoring Assessment (${loc})`;
+  if (formType === 'evaluation') return `Tutoring Evaluation (${loc})`;
+  return `Tutoring Intake (${loc})`;
+}
+
 function normalizeChannel(channel) {
   const key = String(channel || '').trim().toLowerCase();
-  if (!FRAMED_MASTER_CHANNELS.includes(key)) {
+  if (!CHANNEL_MASTER_KEYS.includes(key)) {
     const err = new Error(`Invalid channel: ${channel}`);
     err.status = 400;
     throw err;
@@ -55,6 +85,7 @@ class AgencyChannelIntakeMaster {
       language_code: normalizeLang(row.language_code),
       intake_steps: parseJson(row.intake_steps, []),
       intake_fields: parseJson(row.intake_fields, null),
+      published_link_ids: parsePublishedLinkIds(row.published_link_ids),
       version: Number(row.version || 1),
       status: String(row.status || 'framed')
     };
@@ -236,12 +267,113 @@ class AgencyChannelIntakeMaster {
     return this.findByAgencyChannelLanguage(aid, ch, lang);
   }
 
+  static async persistPublishedShells(masterId, publishedIntakeLinkId, publishedLinkIds) {
+    await pool.execute(
+      `UPDATE agency_channel_intake_masters
+       SET published_intake_link_id = ?, published_link_ids = ?
+       WHERE id = ?`,
+      [publishedIntakeLinkId || null, JSON.stringify(publishedLinkIds || {}), masterId]
+    );
+  }
+
+  static async publishedColumnsReady() {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'agency_channel_intake_masters'
+           AND COLUMN_NAME = 'published_intake_link_id'`
+      );
+      return Number(rows?.length || 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  static async ensureTutoringPublishedShells(master, actorUserId = null) {
+    if (!master?.id || String(master.channel || '') !== 'tutoring') return master;
+    if (!(await this.publishedColumnsReady())) return master;
+    const aid = Number(master.agency_id);
+    const lang = normalizeLang(master.language_code);
+    const existingIds = parsePublishedLinkIds(master.published_link_ids);
+    const nextIds = { ...existingIds };
+    for (const formType of TUTORING_MASTER_FORM_TYPES) {
+      const existingId = Number(nextIds[formType] || (formType === 'intake' ? master.published_intake_link_id : 0) || 0);
+      let link = existingId ? await IntakeLink.findById(existingId) : null;
+      if (link) {
+        await pool.execute(
+          `UPDATE intake_links
+           SET title = ?,
+               language_code = ?,
+               form_type = ?,
+               master_channel = 'tutoring',
+               inherits_office_master = 0,
+               is_office_master = 0,
+               scope_type = 'agency',
+               organization_id = ?,
+               is_active = 1,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [tutoringShellTitle(formType, lang), lang, formType, aid, link.id]
+        );
+        nextIds[formType] = link.id;
+        continue;
+      }
+      const publicKey = `tutoring-${formType}-${aid}-${lang}-${crypto.randomBytes(6).toString('hex')}`;
+      link = await IntakeLink.create({
+        publicKey,
+        title: tutoringShellTitle(formType, lang),
+        description: null,
+        languageCode: lang,
+        scopeType: 'agency',
+        formType,
+        organizationId: aid,
+        isActive: true,
+        createClient: true,
+        createGuardian: true,
+        requiresAssignment: true,
+        createdByUserId: actorUserId,
+        masterChannel: 'tutoring'
+      });
+      nextIds[formType] = link?.id || null;
+    }
+    await this.persistPublishedShells(master.id, nextIds.intake || null, nextIds);
+    return this.findByAgencyChannelLanguage(aid, 'tutoring', lang);
+  }
+
+  static async seedTutoringFromCounseling(agencyId, languageCode) {
+    const office = await AgencyOfficeIntakeMaster.findByAgencyLanguage(agencyId, languageCode)
+      || await AgencyOfficeIntakeMaster.getOrCreateForAgency(agencyId, { languageCode });
+    return {
+      steps: Array.isArray(office?.intake_steps) ? office.intake_steps : [],
+      fields: office?.intake_fields || null
+    };
+  }
+
   static async getOrCreateForAgency(agencyId, { channel, languageCode = 'en', actorUserId = null } = {}) {
     const aid = Number(agencyId || 0);
     if (!aid) return null;
     const ch = normalizeChannel(channel);
     const lang = normalizeLang(languageCode);
-    const existing = await this.findByAgencyChannelLanguage(aid, ch, lang);
+    let existing = await this.findByAgencyChannelLanguage(aid, ch, lang);
+
+    if (ch === 'tutoring') {
+      const needsSeed = !existing || looksLikeEmptyChannelMaster(existing.intake_steps);
+      const seed = needsSeed ? await this.seedTutoringFromCounseling(aid, lang) : null;
+      existing = await this.upsertContent({
+        agencyId: aid,
+        channel: ch,
+        languageCode: lang,
+        title: existing?.title || `Master Tutoring (${lang === 'es' ? 'ES' : 'EN'})`,
+        intakeSteps: seed ? seed.steps : (existing.intake_steps || []),
+        intakeFields: seed ? seed.fields : existing.intake_fields,
+        status: 'active',
+        actorUserId,
+        bumpVersion: false
+      });
+      return this.ensureTutoringPublishedShells(existing, actorUserId);
+    }
+
     if (existing) {
       if (!existing.editor_intake_link_id) {
         return this.upsertContent({
@@ -272,6 +404,37 @@ class AgencyChannelIntakeMaster {
       actorUserId,
       bumpVersion: false
     });
+  }
+
+  static async applyMasterToLink(link, { agencyId = null } = {}) {
+    if (!link) return link;
+    const channel = String(link.master_channel || '').toLowerCase();
+    if (channel !== 'tutoring') return link;
+    const aid = Number(agencyId || link.organization_id || 0);
+    if (!aid) return link;
+    const { flattenIntakeFields } = await import('../data/counselingIntakeSelfEn.js');
+    const { mergeCounselingOfficeEnIntoSteps } = await import('../data/counselingIntakeDependentEn.js');
+    const master = await this.getOrCreateForAgency(aid, { channel: 'tutoring', languageCode: link.language_code || 'en' });
+    if (!master) return link;
+    const lang = normalizeLang(link.language_code || 'en');
+    const intakeSteps = lang === 'en'
+      ? mergeCounselingOfficeEnIntoSteps(master.intake_steps || [])
+      : (master.intake_steps || []);
+    const intakeFields = lang === 'en' ? flattenIntakeFields(intakeSteps) : master.intake_fields;
+    return {
+      ...link,
+      intake_steps: intakeSteps,
+      intake_fields: intakeFields,
+      master_form_version: master.version,
+      master_form_id: master.id,
+      title: link.title || master.title
+    };
+  }
+
+  static publishedPublicKeyFor(master, formType = 'intake') {
+    const type = TUTORING_MASTER_FORM_TYPES.includes(formType) ? formType : 'intake';
+    const ids = parsePublishedLinkIds(master?.published_link_ids);
+    return Number(ids[type] || (type === 'intake' ? master?.published_intake_link_id : 0) || ids.intake || 0);
   }
 }
 

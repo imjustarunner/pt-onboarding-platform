@@ -180,10 +180,34 @@ function verticalFromOrgType(organizationType) {
   return 'clinical';
 }
 
-export async function findFullIntakePublicKey(agencyId) {
+export async function findFullIntakePublicKey(agencyId, { serviceType = '' } = {}) {
   try {
     const AgencyOfficeIntakeMaster = (await import('../models/AgencyOfficeIntakeMaster.model.js')).default;
+    const AgencyChannelIntakeMaster = (await import('../models/AgencyChannelIntakeMaster.model.js')).default;
     const IntakeLink = (await import('../models/IntakeLink.model.js')).default;
+    const { isTutoringMasterServiceType } = await import('../constants/masterFormChannels.js');
+
+    if (isTutoringMasterServiceType(serviceType)) {
+      const tutoringMaster = await AgencyChannelIntakeMaster.getOrCreateForAgency(agencyId, {
+        channel: 'tutoring',
+        languageCode: 'en'
+      });
+      const wanted = ['assessment', 'evaluation'].includes(String(serviceType).toLowerCase())
+        ? String(serviceType).toLowerCase()
+        : 'intake';
+      const shellId = AgencyChannelIntakeMaster.publishedPublicKeyFor(tutoringMaster, wanted);
+      if (shellId) {
+        const shell = await IntakeLink.findById(shellId);
+        if (shell?.is_active && shell.public_key) {
+          return {
+            publicKey: shell.public_key,
+            title: shell.title,
+            formType: shell.form_type || wanted
+          };
+        }
+      }
+    }
+
     // Prefer (and lazily create) the Master Office published shell for Join In-Depth.
     let officeMaster = null;
     try {
@@ -274,7 +298,7 @@ export async function getAdaptiveIntakeConfig(agencySlugOrId, req, options = {})
     : verticalFromOrgType(agencyRow.organization_type);
   const [practitionerTemplate, fullIntake, providers] = await Promise.all([
     vertical === 'clinical' ? null : loadPathwayTemplate(vertical),
-    findFullIntakePublicKey(agencyRow.id),
+    findFullIntakePublicKey(agencyRow.id, { serviceType: requestedServiceType || activeService?.serviceType }),
     listProviderPreview(agencyRow.id)
   ]);
 

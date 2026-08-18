@@ -168,6 +168,7 @@ test('merges live tokens into agency template HTML with cover and fonts', () => 
 
   assert.match(html, /packet-cover/);
   assert.match(html, /cover-photo|cover-title/);
+  assert.match(html, /object-fit:\s*cover/);
   assert.match(html, /Springfield High School Packet/);
   assert.doesNotMatch(html, /BLANK SCHOOL PACKET/);
   assert.match(html, /Comfortaa/);

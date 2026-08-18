@@ -10,6 +10,7 @@ import { OFFICE_PRINTABLE_PACKET_VERSION } from '../constants/officePrintablePac
 import { buildCompletedIntakeRecord } from './completedIntakeRecord.service.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import DocumentSigningService from './documentSigning.service.js';
+import { drawFullBleedCoverImage } from '../utils/fullBleedCover.js';
 
 const SUMMARY_EXTRA_CSS = `
       .intake-summary-kicker {
@@ -293,19 +294,7 @@ async function renderCoverOnlyPdf(spec = {}) {
   const cover = await embedPngFromDataUrl(pdfDoc, coverUrl);
   if (!cover) return null;
   const page = pdfDoc.addPage([612, 792]);
-  if (!spec.brand || spec.brand.useItscoChrome) {
-    page.drawImage(cover, { x: 0, y: 0, width: 612, height: 792 });
-  } else {
-    const scale = Math.min(612 / cover.width, 792 / cover.height);
-    const w = cover.width * scale;
-    const h = cover.height * scale;
-    page.drawImage(cover, {
-      x: (612 - w) / 2,
-      y: (792 - h) / 2,
-      width: w,
-      height: h
-    });
-  }
+  drawFullBleedCoverImage(page, cover, 612, 792);
   return Buffer.from(await pdfDoc.save());
 }
 
@@ -362,7 +351,7 @@ async function renderCompletedIntakePdf(spec = {}) {
   );
   if (cover) {
     const coverPage = pdfDoc.addPage([pageW, pageH]);
-    coverPage.drawImage(cover, { x: 0, y: 0, width: pageW, height: pageH });
+    drawFullBleedCoverImage(coverPage, cover, pageW, pageH);
   }
   let page = pdfDoc.addPage([pageW, pageH]);
   let y = pageH - contentTop;

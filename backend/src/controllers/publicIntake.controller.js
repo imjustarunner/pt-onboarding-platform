@@ -39,6 +39,7 @@ import Agency from '../models/Agency.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import AgencySchoolIntakeMaster from '../models/AgencySchoolIntakeMaster.model.js';
 import AgencyOfficeIntakeMaster from '../models/AgencyOfficeIntakeMaster.model.js';
+import AgencyChannelIntakeMaster from '../models/AgencyChannelIntakeMaster.model.js';
 import ClientSignedSchoolPacket from '../models/ClientSignedSchoolPacket.model.js';
 import SchoolPacketTemplate from '../models/SchoolPacketTemplate.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -4813,6 +4814,25 @@ const applyOfficeMasterReadOnly = async (link, agency) => {
   };
 };
 
+const applyChannelMasterReadOnly = async (link, agency) => {
+  const channel = String(link?.master_channel || '').toLowerCase();
+  const formType = String(link?.form_type || 'intake').toLowerCase();
+  const tutoringByTerm = formType === 'assessment' || formType === 'evaluation';
+  if (channel !== 'tutoring' && !tutoringByTerm) return link;
+  if (String(link?.scope_type || '').toLowerCase() !== 'agency') return link;
+  const agencyId = Number(link.organization_id || agency?.id || 0);
+  if (!agencyId) return link;
+  return AgencyChannelIntakeMaster.applyMasterToLink(
+    { ...link, master_channel: 'tutoring' },
+    { agencyId }
+  );
+};
+
+const applyAgencyMastersReadOnly = async (link, agency) => {
+  const withOffice = await applyOfficeMasterReadOnly(link, agency);
+  return applyChannelMasterReadOnly(withOffice, agency);
+};
+
 const INTAKE_STEP_VISIBILITY = new Set(['always', 'new_client_only', 'existing_client_only']);
 
 const extractRegistrationClientMatchFromIntakeData = (intakeData) => {
@@ -5045,7 +5065,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
       }
     }
     try {
-      link = await applyOfficeMasterReadOnly(link, agency);
+      link = await applyAgencyMastersReadOnly(link, agency);
     } catch (inheritErr) {
       console.warn('[publicIntake] office master inherit failed', inheritErr?.message || inheritErr);
     }
@@ -5420,7 +5440,7 @@ export const getPublicIntakeDisclosureContext = async (req, res, next) => {
     }
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     try {
-      link = await applyOfficeMasterReadOnly(link, agency);
+      link = await applyAgencyMastersReadOnly(link, agency);
     } catch (inheritErr) {
       console.warn('[publicIntake] office master inherit failed', inheritErr?.message || inheritErr);
     }
@@ -5450,7 +5470,7 @@ export const viewPublicDisclosureHtml = async (req, res, next) => {
     }
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     try {
-      link = await applyOfficeMasterReadOnly(link, agency);
+      link = await applyAgencyMastersReadOnly(link, agency);
     } catch (inheritErr) {
       console.warn('[publicIntake] office master inherit failed', inheritErr?.message || inheritErr);
     }
@@ -6526,6 +6546,9 @@ export const finalizePublicIntake = async (req, res, next) => {
           if (refreshedOffice) link = refreshedOffice;
           link = await AgencyOfficeIntakeMaster.applyMasterToLink(link, { agencyId: agencyIdForOffice });
         }
+      }
+      if (String(link.scope_type || '').toLowerCase() === 'agency') {
+        link = await applyChannelMasterReadOnly(link, { id: Number(link.organization_id || 0) });
       }
     } catch (inheritErr) {
       console.warn('[publicIntake] finalize master inherit failed', inheritErr?.message || inheritErr);

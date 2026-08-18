@@ -384,6 +384,8 @@
               <label>Form Type</label>
               <select v-model="form.formType">
                 <option value="intake">Intake (person-tied)</option>
+                <option value="assessment">Assessment</option>
+                <option value="evaluation">Evaluation</option>
                 <option value="public_form">Public Form (standalone)</option>
                 <option value="smart_school_roi">Smart School ROI</option>
                 <option value="smart_registration">Smart Registration</option>
@@ -412,6 +414,12 @@
                 Default school/agency intake with client creation and documents. Add a <strong>Registration</strong> step to enroll
                 into one company event at the same time — same event binding and returning-client shortcuts as Smart Registration,
                 with your full questions and packet.
+              </small>
+              <small v-if="form.formType === 'assessment'" class="form-help">
+                Tutoring/learning assessment. Uses the Master Tutoring questions (same as counseling until that master diverges).
+              </small>
+              <small v-if="form.formType === 'evaluation'" class="form-help">
+                Tutoring/learning evaluation. Uses the Master Tutoring questions (same as counseling until that master diverges).
               </small>
               <small v-if="form.formType === 'internal_preferences'" class="form-help">
                 Shareable link for staff to update their own notification and communication preferences (including Campaign 4 workforce SMS opt-in) without logging in. Scoped to an agency.
@@ -3565,6 +3573,8 @@ const guardianWaiverSectionOptions = [
 const getFormTypeLabel = (t) => {
   const m = {
     intake: 'Intake',
+    assessment: 'Assessment',
+    evaluation: 'Evaluation',
     public_form: 'Public Form',
     smart_school_roi: 'Smart School ROI',
     smart_registration: 'Smart Registration',

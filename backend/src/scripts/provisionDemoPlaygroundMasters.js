@@ -14,7 +14,7 @@ import AgencyChannelIntakeMaster from '../models/AgencyChannelIntakeMaster.model
 import SchoolPacketTemplate from '../models/SchoolPacketTemplate.model.js';
 import OfficePacketTemplate from '../models/OfficePacketTemplate.model.js';
 import { ensureDigitalIntakeFormsForSchool } from '../services/schoolOnboardingIntakeBootstrap.service.js';
-import { FRAMED_MASTER_CHANNELS } from '../constants/masterFormChannels.js';
+import { CHANNEL_MASTER_KEYS } from '../constants/masterFormChannels.js';
 
 async function resolveDemoAgency() {
   const [rows] = await pool.execute(
@@ -192,7 +192,7 @@ async function ensurePacketTemplates({ demoAgencyId, sourceAgencyId, dryRun }) {
 
 async function ensureChannelMasters({ demoAgencyId, dryRun }) {
   const results = [];
-  for (const channel of FRAMED_MASTER_CHANNELS) {
+  for (const channel of CHANNEL_MASTER_KEYS) {
     for (const languageCode of ['en', 'es']) {
       if (dryRun) {
         results.push({ channel, languageCode, action: 'would_ensure' });

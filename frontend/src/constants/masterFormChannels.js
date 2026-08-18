@@ -12,8 +12,8 @@ export const MASTER_FORM_CHANNELS = {
   },
   office: {
     key: 'office',
-    label: 'Master Office Digital Form',
-    shortLabel: 'Office',
+    label: 'Master Counseling Digital Form',
+    shortLabel: 'Counseling',
     hasPrintable: true,
     status: 'live',
     adminPath: '/admin/master-office-form',
@@ -21,10 +21,10 @@ export const MASTER_FORM_CHANNELS = {
   },
   tutoring: {
     key: 'tutoring',
-    label: 'Master Digital Tutoring',
+    label: 'Master Tutoring',
     shortLabel: 'Tutoring',
     hasPrintable: false,
-    status: 'framed',
+    status: 'live',
     adminPath: '/admin/master-channel-form/tutoring',
     paperAdminPath: null
   },
@@ -48,7 +48,8 @@ export const MASTER_FORM_CHANNELS = {
   }
 };
 
-export const FRAMED_MASTER_CHANNELS = ['tutoring', 'consulting', 'coaching'];
+export const FRAMED_MASTER_CHANNELS = ['consulting', 'coaching'];
+export const CHANNEL_MASTER_KEYS = ['tutoring', 'consulting', 'coaching'];
 
 export function getMasterFormChannel(key) {
   return MASTER_FORM_CHANNELS[String(key || '').trim().toLowerCase()] || null;

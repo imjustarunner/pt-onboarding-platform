@@ -2,14 +2,14 @@
   <div class="mop-page">
     <header class="mop-header">
       <div>
-        <h1>Master Office Paper</h1>
+        <h1>Master Counseling Paper</h1>
         <p class="muted mop-sub">
-          Two independent printable office packets. Edits to the adult client packet stay there;
+          Two independent printable counseling packets. Edits to the adult client packet stay there;
           edits to the parent/guardian packet stay there. School packets are unchanged.
         </p>
       </div>
       <div class="mop-actions">
-        <router-link class="btn btn-secondary btn-sm" :to="digitalTo">Master Office Digital</router-link>
+        <router-link class="btn btn-secondary btn-sm" :to="digitalTo">Master Counseling Digital</router-link>
         <router-link class="btn btn-secondary btn-sm" :to="backTo">Back to Clients &amp; Guardians</router-link>
       </div>
     </header>

@@ -239,7 +239,7 @@ const surfaceGroups = computed(() => {
         { id: 'join', label: 'Join / In-Depth Intake', pathSuffix: 'join' },
         { id: 'join_counseling', label: 'Join counseling', pathSuffix: 'join/counseling' },
         { id: 'careers', label: 'Careers', pathSuffix: 'careers' },
-        { id: 'office_form', label: 'Master Office Digital', pathSuffix: 'admin/master-office-form' },
+        { id: 'office_form', label: 'Master Counseling Digital', pathSuffix: 'admin/master-office-form' },
         { id: 'office_paper', label: 'Master Office Paper', pathSuffix: 'admin/master-office-paper' },
         { id: 'school_master', label: 'Master School Form', pathSuffix: 'admin/master-school-form' }
       ]
