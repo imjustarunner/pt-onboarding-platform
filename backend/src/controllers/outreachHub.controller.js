@@ -21,7 +21,8 @@ import {
   lookupOutreachSchoolAddress,
   previewHistoricalOutreachImport,
   importHistoricalOutreachRows,
-  syncExistingSchoolStaffToOutreachContacts
+  syncExistingSchoolStaffToOutreachContacts,
+  listOutreachAssignableUsers
 } from '../services/outreachHub.service.js';
 import {
   ensureOutreachTaskList,
@@ -163,6 +164,17 @@ export const getTaskList = async (req, res, next) => {
     res.json({ list });
   } catch (err) {
     handleServiceError(res, err);
+  }
+};
+
+export const getAssignableUsers = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFrom(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const users = await listOutreachAssignableUsers(agencyId);
+    res.json({ users });
+  } catch (err) {
+    next(err);
   }
 };
 

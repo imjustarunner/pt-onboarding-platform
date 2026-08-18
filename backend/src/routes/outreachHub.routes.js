@@ -10,6 +10,7 @@ import {
   createActivity,
   getTimeline,
   getTaskList,
+  getAssignableUsers,
   listSchoolTasks,
   createSchoolTask,
   listSchoolOnboarding,
@@ -34,6 +35,7 @@ const router = express.Router();
 router.use(authenticate, requireCapability('canAccessOutreach'));
 
 router.get('/task-list', getTaskList);
+router.get('/assignable-users', getAssignableUsers);
 router.get('/schools', listSchools);
 router.post('/schools/geocode', geocodeSchoolAddresses);
 router.post('/schools/:id/lookup-address', lookupSchoolAddress);

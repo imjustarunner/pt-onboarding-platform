@@ -139,11 +139,15 @@
           <input v-model="taskForm.title" type="text" required placeholder="Follow up after visit…" />
         </label>
         <label class="ohub-field">
+          <span>Description / notes</span>
+          <textarea v-model="taskForm.description" rows="2" placeholder="What needs to happen, context for assignee…" />
+        </label>
+        <label class="ohub-field">
           <span>Assignee</span>
           <select v-model="taskForm.assignedToUserId">
             <option value="">Me</option>
             <option v-for="u in assignableUsers" :key="u.id" :value="String(u.id)">
-              {{ u.first_name }} {{ u.last_name }}
+              {{ userLabel(u) }}
             </option>
           </select>
         </label>
@@ -226,7 +230,7 @@ const emit = defineEmits([
 const contactForm = reactive({ full_name: '', title: '', phone: '', email: '' });
 const convForm = reactive({ spoken_with_name: '', summary: '', details: '' });
 const followForm = reactive({ needed: true, follow_up_at: '', body: '' });
-const taskForm = reactive({ title: '', dueDate: '', assignedToUserId: '' });
+const taskForm = reactive({ title: '', description: '', dueDate: '', assignedToUserId: '' });
 const noteForm = reactive({ body: '' });
 
 watch(
@@ -243,6 +247,7 @@ watch(
     followForm.follow_up_at = '';
     followForm.body = '';
     taskForm.title = '';
+    taskForm.description = '';
     taskForm.dueDate = '';
     taskForm.assignedToUserId = '';
     noteForm.body = '';
@@ -317,16 +322,23 @@ const submitFollowUp = () => {
   followForm.follow_up_at = '';
 };
 
+const userLabel = (u) => {
+  const name = `${u?.first_name || u?.firstName || ''} ${u?.last_name || u?.lastName || ''}`.trim();
+  return name || u?.email || `User #${u?.id}`;
+};
+
 const submitTask = () => {
   const title = String(taskForm.title || '').trim();
   if (!title) return;
   emit('create-task', {
     title,
+    description: taskForm.description || null,
     dueDate: taskForm.dueDate || null,
     assignedToUserId: taskForm.assignedToUserId || '',
     tripId: props.tripId ? Number(props.tripId) : null
   });
   taskForm.title = '';
+  taskForm.description = '';
   taskForm.dueDate = '';
   taskForm.assignedToUserId = '';
 };

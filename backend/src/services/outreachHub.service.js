@@ -1069,8 +1069,70 @@ export async function getOutreachSummary(agencyId) {
     missing_addresses: missingAddresses,
     by_stage: byStage,
     by_district: (districtRows || []).map((r) => ({ district: r.district_name, count: Number(r.n || 0) })),
-    by_contact_type: byType
+    by_contact_type: byType,
+    ...(await outreachHubRollupCounts(agencyId))
   };
+}
+
+async function outreachHubRollupCounts(agencyId) {
+  let planned_trips = 0;
+  let completed_trips = 0;
+  let open_outreach_tasks = 0;
+  try {
+    const [tripRows] = await pool.execute(
+      `SELECT status, COUNT(*) AS n
+       FROM outreach_trips
+       WHERE agency_id = ?
+       GROUP BY status`,
+      [agencyId]
+    );
+    for (const r of tripRows || []) {
+      const n = Number(r.n || 0);
+      if (r.status === 'completed') completed_trips += n;
+      else if (['planned', 'in_progress'].includes(String(r.status || ''))) planned_trips += n;
+    }
+  } catch {
+    planned_trips = 0;
+    completed_trips = 0;
+  }
+  try {
+    const [taskRows] = await pool.execute(
+      `SELECT COUNT(*) AS n
+       FROM tasks t
+       INNER JOIN task_lists tl ON tl.id = t.task_list_id
+       WHERE tl.agency_id = ?
+         AND LOWER(TRIM(tl.name)) = 'outreach'
+         AND COALESCE(t.status, '') NOT IN ('completed', 'cancelled', 'archived')`,
+      [agencyId]
+    );
+    open_outreach_tasks = Number(taskRows?.[0]?.n || 0);
+  } catch {
+    open_outreach_tasks = 0;
+  }
+  return { planned_trips, completed_trips, open_outreach_tasks };
+}
+
+export async function listOutreachAssignableUsers(agencyId) {
+  const aid = Number(agencyId || 0);
+  if (!aid) return [];
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email
+     FROM users u
+     INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+     WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+       AND (
+         LOWER(COALESCE(u.role, '')) IN ('admin', 'super_admin', 'support')
+         OR COALESCE(u.has_outreach_access, 0) = 1
+       )
+     ORDER BY u.last_name, u.first_name, u.id`,
+    [aid]
+  );
+  return (rows || []).map((r) => ({
+    id: Number(r.id),
+    first_name: r.first_name || '',
+    last_name: r.last_name || '',
+    email: r.email || null
+  }));
 }
 
 export async function listOutreachTimeline(agencyId, filters = {}) {

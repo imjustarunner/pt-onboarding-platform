@@ -10,7 +10,7 @@
           type="button"
           class="ohub-tab"
           :class="{ active: viewMode === 'tracker' }"
-          @click="viewMode = 'tracker'"
+          @click="switchToTracker"
         >Tracker</button>
         <button
           type="button"
@@ -24,7 +24,7 @@
           :class="{ active: viewMode === 'timeline' }"
           @click="openTimeline"
         >Activity</button>
-        <button type="button" class="btn btn-secondary" :disabled="loading" @click="reload">
+        <button type="button" class="btn btn-secondary" :disabled="loading" @click="refreshAll">
           {{ loading ? 'Refreshing…' : 'Refresh' }}
         </button>
       </div>
@@ -38,6 +38,26 @@
         <strong>{{ summary.total_schools || 0 }}</strong>
         <em>{{ districtCount }} districts</em>
       </div>
+      <button type="button" class="ohub-kpi ohub-kpi-btn" @click="openTrips">
+        <span>Planned trips</span>
+        <strong>{{ summary.planned_trips || plannedTrips.length || 0 }}</strong>
+        <em>Open trips planner</em>
+      </button>
+      <router-link v-if="outreachListId" class="ohub-kpi ohub-kpi-btn" :to="outreachListHref">
+        <span>Open tasks</span>
+        <strong>{{ summary.open_outreach_tasks || 0 }}</strong>
+        <em>Outreach task list</em>
+      </router-link>
+      <button v-else type="button" class="ohub-kpi ohub-kpi-btn" @click="openOutreachTasks">
+        <span>Open tasks</span>
+        <strong>{{ summary.open_outreach_tasks || 0 }}</strong>
+        <em>Outreach task list</em>
+      </button>
+      <button type="button" class="ohub-kpi ohub-kpi-btn warn" @click="openFollowUpSchools">
+        <span>Follow-ups due</span>
+        <strong>{{ summary.follow_ups_due || 0 }}</strong>
+        <em>Next 7 days</em>
+      </button>
       <div class="ohub-kpi">
         <span>Partnered</span>
         <strong>{{ summary.partnered || 0 }}</strong>
@@ -48,16 +68,11 @@
         <strong>{{ summary.active_outreach || 0 }}</strong>
         <em>Contacted or in progress</em>
       </div>
-      <div class="ohub-kpi warn">
-        <span>Follow-ups due</span>
-        <strong>{{ summary.follow_ups_due || 0 }}</strong>
-        <em>Next 7 days</em>
-      </div>
-      <div class="ohub-kpi warn">
+      <button type="button" class="ohub-kpi ohub-kpi-btn warn" @click="openMissingAddressSchools">
         <span>Need address</span>
         <strong>{{ summary.missing_addresses || 0 }}</strong>
-        <em>Flagged for manual / Gemini lookup</em>
-      </div>
+        <em>Flagged for lookup</em>
+      </button>
       <div class="ohub-kpi visit">
         <span>Visits logged</span>
         <strong>{{ summary.by_contact_type?.visit || 0 }}</strong>
@@ -127,6 +142,24 @@
       <template v-if="viewMode === 'trips' && !openedTrip">
         <section class="ohub-trips-overview">
           <h2 class="ohub-trips-overview-title">Your trips</h2>
+          <div class="ohub-trips-quick-stats">
+            <button type="button" class="ohub-quick-stat" @click="openTrips">
+              <strong>{{ summary.planned_trips || plannedTrips.length || 0 }}</strong>
+              <span>Planned</span>
+            </button>
+            <button type="button" class="ohub-quick-stat" @click="openPastTrips">
+              <strong>{{ summary.completed_trips || pastTrips.length || 0 }}</strong>
+              <span>Completed</span>
+            </button>
+            <router-link v-if="outreachListId" class="ohub-quick-stat" :to="outreachListHref">
+              <strong>{{ summary.open_outreach_tasks || 0 }}</strong>
+              <span>Open tasks</span>
+            </router-link>
+            <button v-else type="button" class="ohub-quick-stat" @click="openOutreachTasks">
+              <strong>{{ summary.open_outreach_tasks || 0 }}</strong>
+              <span>Open tasks</span>
+            </button>
+          </div>
           <div
             v-for="section in tripListSections"
             :key="section.id"
@@ -193,7 +226,10 @@
                 <td>{{ formatDate(row.last_contact_at) }}</td>
                 <td>{{ row.visit_count || 0 }}</td>
               </tr>
-              <tr v-if="!loading && !schools.length">
+              <tr v-if="listLoading">
+                <td colspan="6" class="ohub-muted ohub-empty">Updating list…</td>
+              </tr>
+              <tr v-else-if="!schools.length">
                 <td colspan="6" class="ohub-empty">No schools match these filters.</td>
               </tr>
             </tbody>
@@ -445,7 +481,7 @@
           @create-task="onTripEditorCreateTask"
         />
 
-        <aside v-else-if="selected" class="ohub-detail" :class="{ 'ohub-detail--expand': true }">
+        <aside v-else-if="viewMode === 'tracker' && selected" class="ohub-detail" :class="{ 'ohub-detail--expand': true }">
           <div class="ohub-detail-head">
             <div>
               <h2>{{ selected.name }}</h2>
@@ -651,13 +687,13 @@
                 <select v-model="taskForm.assignedToUserId">
                   <option value="">Me</option>
                   <option v-for="u in assignableUsers" :key="u.id" :value="String(u.id)">
-                    {{ u.first_name }} {{ u.last_name }}
+                    {{ userDisplayName(u) }}
                   </option>
                 </select>
               </label>
               <label class="ohub-field">
-                <span>Notes</span>
-                <textarea v-model="taskForm.description" rows="2" placeholder="Optional" />
+                <span>Description / notes</span>
+                <textarea v-model="taskForm.description" rows="2" placeholder="What needs to happen, context for assignee…" />
               </label>
               <p v-if="taskError" class="ohub-inline-err">{{ taskError }}</p>
               <button type="submit" class="btn btn-primary" :disabled="taskSaving">
@@ -874,7 +910,7 @@
                     v-for="u in assignableUsersWithMe"
                     :key="`ep-${u.id}`"
                     :value="String(u.id)"
-                  >{{ u.first_name }} {{ u.last_name }}</option>
+                  >{{ userDisplayName(u) }}</option>
                 </select>
               </label>
               <label class="ohub-field">
@@ -930,7 +966,7 @@
                     v-for="u in assignableUsersWithMe"
                     :key="`p-${u.id}`"
                     :value="String(u.id)"
-                  >{{ u.first_name }} {{ u.last_name }}</option>
+                  >{{ userDisplayName(u) }}</option>
                 </select>
               </label>
               <label class="ohub-field">
@@ -1013,13 +1049,14 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api.js';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import OutreachTripStopEditor from '../../components/admin/OutreachTripStopEditor.vue';
 
 const route = useRoute();
+const router = useRouter();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 
@@ -1061,6 +1098,7 @@ const contactTypes = [
 const WINDCHIME_COORDS = { lat: 38.9246, lng: -104.8452 };
 
 const loading = ref(false);
+const listLoading = ref(false);
 const saving = ref(false);
 const addressLookupSaving = ref(false);
 const editingSchoolDetails = ref(false);
@@ -1189,15 +1227,28 @@ const openedTrip = computed(() =>
   trips.value.find((t) => Number(t.id) === Number(openedTripId.value)) || null
 );
 
+const userDisplayName = (u) => {
+  const name = `${u?.first_name || u?.firstName || ''} ${u?.last_name || u?.lastName || ''}`.trim();
+  return name || u?.email || `User #${u?.id}`;
+};
+
+const normalizeAgencyUser = (u) => ({
+  id: Number(u.id),
+  first_name: String(u.first_name || u.firstName || '').trim(),
+  last_name: String(u.last_name || u.lastName || '').trim(),
+  email: u.email || null
+});
+
 const assignableUsersWithMe = computed(() => {
   const me = authStore.user;
-  const list = [...(assignableUsers.value || [])];
+  const list = (assignableUsers.value || []).map(normalizeAgencyUser);
   if (me?.id && !list.some((u) => Number(u.id) === Number(me.id))) {
-    list.unshift({
+    list.unshift(normalizeAgencyUser({
       id: me.id,
       first_name: me.first_name || me.firstName || 'Me',
-      last_name: me.last_name || me.lastName || ''
-    });
+      last_name: me.last_name || me.lastName || '',
+      email: me.email || null
+    }));
   }
   return list;
 });
@@ -1316,9 +1367,11 @@ const loadAssignableUsers = async () => {
   const aid = Number(agencyStore.currentAgency?.id || 0);
   if (!aid) return;
   try {
-    const { data } = await api.get(`/agencies/${aid}/users`, { skipGlobalLoading: true });
-    const list = Array.isArray(data?.users) ? data.users : Array.isArray(data) ? data : [];
-    assignableUsers.value = list.filter((u) => Number(u.id) !== Number(authStore.user?.id));
+    const { data } = await api.get('/outreach/assignable-users', { skipGlobalLoading: true });
+    const list = Array.isArray(data?.users) ? data.users : [];
+    assignableUsers.value = list
+      .map(normalizeAgencyUser)
+      .filter((u) => Number(u.id) !== Number(authStore.user?.id));
   } catch {
     assignableUsers.value = [];
   }
@@ -1407,8 +1460,23 @@ const resetLogForm = () => {
   logForm.notes = '';
 };
 
-const reload = async () => {
+const refreshAll = async () => {
   loading.value = true;
+  error.value = '';
+  try {
+    await Promise.all([
+      reload(),
+      loadAssignableUsers(),
+      loadOutreachList(),
+      loadTrips()
+    ]);
+  } finally {
+    loading.value = false;
+  }
+};
+
+const reload = async () => {
+  listLoading.value = true;
   error.value = '';
   try {
     const params = {};
@@ -1421,8 +1489,8 @@ const reload = async () => {
     if (sortKey.value) params.sort = sortKey.value;
     if (sortDir.value) params.sortDir = sortDir.value;
     const [sumRes, listRes] = await Promise.all([
-      api.get('/outreach/summary'),
-      api.get('/outreach/schools', { params })
+      api.get('/outreach/summary', { skipGlobalLoading: true }),
+      api.get('/outreach/schools', { params, skipGlobalLoading: true })
     ]);
     summary.value = sumRes.data || {};
     schools.value = listRes.data?.schools || [];
@@ -1433,7 +1501,7 @@ const reload = async () => {
   } catch (err) {
     error.value = err.response?.data?.error?.message || err.message || 'Could not load outreach.';
   } finally {
-    loading.value = false;
+    listLoading.value = false;
   }
 };
 
@@ -1459,7 +1527,7 @@ const selectSchool = async (id) => {
   selectedId.value = id;
   panelTab.value = panelTab.value || 'overview';
   try {
-    const res = await api.get(`/outreach/schools/${id}`);
+    const res = await api.get(`/outreach/schools/${id}`, { skipGlobalLoading: true });
     selected.value = res.data?.school || null;
     resetLogForm();
     resetTaskForm();
@@ -1550,9 +1618,9 @@ const submitTask = async () => {
       dueDate: taskForm.dueDate || null,
       urgency: taskForm.urgency,
       assignedToUserId: taskForm.assignedToUserId ? Number(taskForm.assignedToUserId) : undefined
-    });
+    }, { skipGlobalLoading: true });
     resetTaskForm();
-    await loadSchoolExtras(selectedId.value);
+    await Promise.all([loadSchoolExtras(selectedId.value), reloadSummary()]);
   } catch (err) {
     taskError.value = err.response?.data?.error?.message || err.message || 'Could not add task.';
   } finally {
@@ -1930,7 +1998,7 @@ const addParticipant = () => {
   let userId = participantForm.userId ? Number(participantForm.userId) : null;
   if (userId) {
     const u = assignableUsersWithMe.value.find((x) => Number(x.id) === userId);
-    if (u && !name) name = `${u.first_name || ''} ${u.last_name || ''}`.trim();
+    if (u && !name) name = userDisplayName(u);
   }
   if (!name) return;
   tripParticipants.value.push({
@@ -1950,7 +2018,7 @@ watch(
   (id) => {
     if (!id) return;
     const u = assignableUsersWithMe.value.find((x) => String(x.id) === String(id));
-    if (u) participantForm.name = `${u.first_name || ''} ${u.last_name || ''}`.trim();
+    if (u) participantForm.name = userDisplayName(u);
   }
 );
 
@@ -1989,6 +2057,7 @@ const onTripEditorCreateTask = async (payload) => {
   try {
     await api.post(`/outreach/schools/${selectedId.value}/tasks`, {
       title: payload.title,
+      description: payload.description || null,
       dueDate: payload.dueDate || null,
       assignedToUserId: payload.assignedToUserId || null,
       tripId: payload.tripId || null
@@ -2209,12 +2278,64 @@ const loadTrips = async () => {
 };
 
 const openTrips = async () => {
+  closeSchoolPanel();
+  tripRouteEditing.value = false;
   viewMode.value = 'trips';
   try {
-    await Promise.all([loadTripPreview(), loadTrips()]);
+    await Promise.all([loadTripPreview(), loadTrips(), reloadSummary()]);
   } catch (err) {
     error.value = err.response?.data?.error?.message || err.message || 'Could not load trips.';
   }
+};
+
+const switchToTracker = () => {
+  viewMode.value = 'tracker';
+  tripRouteEditing.value = false;
+  openedTripId.value = null;
+};
+
+const reloadSummary = async () => {
+  try {
+    const res = await api.get('/outreach/summary', { skipGlobalLoading: true });
+    summary.value = res.data || summary.value;
+  } catch {
+    /* keep existing summary */
+  }
+};
+
+const openOutreachTasks = async () => {
+  await loadOutreachList();
+  if (outreachListId.value) {
+    await router.push(`${orgPrefix.value}/tasks/lists/${outreachListId.value}`);
+  }
+};
+
+const openFollowUpSchools = () => {
+  switchToTracker();
+  filters.stage = 'follow_up_needed';
+  filters.q = '';
+  filters.district = '';
+  filters.level = '';
+  filters.needsAddress = '';
+  filters.charterOnly = false;
+  void reload();
+};
+
+const openMissingAddressSchools = () => {
+  switchToTracker();
+  filters.needsAddress = 'true';
+  filters.q = '';
+  filters.district = '';
+  filters.level = '';
+  filters.stage = '';
+  filters.charterOnly = false;
+  void reload();
+};
+
+const openPastTrips = () => {
+  void openTrips();
+  const el = document.querySelector('.ohub-trips-section:last-child');
+  el?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
 };
 
 const saveTrip = async () => {
@@ -2226,11 +2347,11 @@ const saveTrip = async () => {
       plannedDate: tripDate.value || null,
       notes: tripNotes.value || null,
       participants: tripParticipants.value
-    });
+    }, { skipGlobalLoading: true });
     tripStops.value = [];
     tripNotes.value = '';
     tripParticipants.value = [];
-    await Promise.all([loadTrips(), loadTripPreview()]);
+    await Promise.all([loadTrips(), loadTripPreview(), reloadSummary()]);
   } catch (err) {
     error.value = err.response?.data?.error?.message || err.message || 'Could not save trip.';
   } finally {
@@ -2244,12 +2365,13 @@ const completeTrip = async (t) => {
     const res = await api.post(`/outreach/trips/${t.id}/complete`, {
       participants: t.participants || tripParticipants.value,
       notes: t.notes
-    });
+    }, { skipGlobalLoading: true });
     const updated = res.data?.trip;
     if (updated) {
       trips.value = trips.value.map((row) => (Number(row.id) === Number(updated.id) ? updated : row));
     }
     await Promise.all([loadTrips(), reload()]);
+    await reloadSummary();
   } catch (err) {
     error.value = err.response?.data?.error?.message || err.message || 'Could not complete trip.';
   } finally {
@@ -2424,6 +2546,37 @@ onMounted(async () => {
   border-radius: 14px;
   padding: 12px 14px;
 }
+.ohub-kpi-btn {
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.ohub-kpi-btn:hover {
+  border-color: #86efac;
+  box-shadow: 0 2px 8px rgba(20, 83, 45, 0.08);
+}
+.ohub-trips-quick-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.ohub-quick-stat {
+  display: grid;
+  gap: 2px;
+  min-width: 96px;
+  padding: 10px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.ohub-quick-stat strong { font-size: 22px; color: #14532d; }
+.ohub-quick-stat span { font-size: 11px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.ohub-quick-stat:hover { border-color: #86efac; background: #f0fdf4; }
 .ohub-kpi span { display: block; font-size: 12px; color: #64748b; font-weight: 600; }
 .ohub-kpi strong { display: block; font-size: 26px; color: #14532d; }
 .ohub-kpi em { font-style: normal; font-size: 12px; color: #94a3b8; }
