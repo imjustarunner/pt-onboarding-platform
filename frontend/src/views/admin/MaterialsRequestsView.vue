@@ -50,6 +50,10 @@
         <strong>{{ summary.shirtRequests || 0 }}</strong>
         <span>Shirts / polos</span>
       </div>
+      <div class="mr-metric">
+        <strong>{{ summary.businessCardRequests || 0 }}</strong>
+        <span>Business cards</span>
+      </div>
     </section>
 
     <div class="mr-filters">
@@ -75,30 +79,31 @@
       </select>
     </div>
 
-    <p class="mr-count">Showing {{ filteredGroups.length }} of {{ groups.length }}</p>
+    <p class="mr-count">Showing {{ sortedFilteredGroups.length }} of {{ groups.length }}</p>
 
     <div class="mr-layout" :class="{ 'mr-layout--open': selected }">
       <div class="mr-table-wrap">
         <table class="mr-table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Source</th>
-              <th>Paper packets</th>
-              <th>Trifolds</th>
-              <th>Delivery</th>
-              <th>Inventory</th>
-              <th>Notes</th>
-              <th>Updated</th>
-              <th>Follow-up</th>
+              <th class="mr-th-sort" :class="{ 'mr-th-sort--active': sortBy === 'name' }" @click="setSort('name')">Name <span class="mr-sort-arrow">{{ sortIndicator('name') }}</span></th>
+              <th class="mr-th-sort" :class="{ 'mr-th-sort--active': sortBy === 'source' }" @click="setSort('source')">Source <span class="mr-sort-arrow">{{ sortIndicator('source') }}</span></th>
+              <th class="mr-th-sort" :class="{ 'mr-th-sort--active': sortBy === 'paper_packets' }" @click="setSort('paper_packets')">Paper packets <span class="mr-sort-arrow">{{ sortIndicator('paper_packets') }}</span></th>
+              <th class="mr-th-sort" :class="{ 'mr-th-sort--active': sortBy === 'trifolds' }" @click="setSort('trifolds')">Trifolds <span class="mr-sort-arrow">{{ sortIndicator('trifolds') }}</span></th>
+              <th class="mr-th-sort" :class="{ 'mr-th-sort--active': sortBy === 'business_cards' }" @click="setSort('business_cards')">Business cards <span class="mr-sort-arrow">{{ sortIndicator('business_cards') }}</span></th>
+              <th class="mr-th-sort" :class="{ 'mr-th-sort--active': sortBy === 'delivery' }" @click="setSort('delivery')">Delivery <span class="mr-sort-arrow">{{ sortIndicator('delivery') }}</span></th>
+              <th class="mr-th-sort" :class="{ 'mr-th-sort--active': sortBy === 'inventory' }" @click="setSort('inventory')">Inventory <span class="mr-sort-arrow">{{ sortIndicator('inventory') }}</span></th>
+              <th class="mr-th-sort" :class="{ 'mr-th-sort--active': sortBy === 'notes' }" @click="setSort('notes')">Notes <span class="mr-sort-arrow">{{ sortIndicator('notes') }}</span></th>
+              <th class="mr-th-sort" :class="{ 'mr-th-sort--active': sortBy === 'updated' }" @click="setSort('updated')">Updated <span class="mr-sort-arrow">{{ sortIndicator('updated') }}</span></th>
+              <th class="mr-th-sort" :class="{ 'mr-th-sort--active': sortBy === 'followUp' }" @click="setSort('followUp')">Follow-up <span class="mr-sort-arrow">{{ sortIndicator('followUp') }}</span></th>
             </tr>
           </thead>
           <tbody>
-            <tr v-if="!filteredGroups.length">
-              <td colspan="9" class="mr-empty">No materials requests match these filters.</td>
+            <tr v-if="!sortedFilteredGroups.length">
+              <td colspan="10" class="mr-empty">No materials requests match these filters.</td>
             </tr>
             <tr
-              v-for="g in filteredGroups"
+              v-for="g in sortedFilteredGroups"
               :key="g.key"
               class="mr-row"
               :class="{ 'is-active': selected?.key === g.key }"
@@ -113,6 +118,7 @@
               </td>
               <td><span v-if="g.needPaperPackets" class="mr-yes">Yes</span><span v-else class="mr-dash">—</span></td>
               <td><span v-if="g.needTrifolds" class="mr-yes">Yes</span><span v-else class="mr-dash">—</span></td>
+              <td><span v-if="g.needBusinessCards" class="mr-yes">Yes</span><span v-else class="mr-dash">—</span></td>
               <td><span v-if="g.deliveryNeeded" class="mr-yes">Yes</span><span v-else class="mr-dash">—</span></td>
               <td>
                 <span v-if="inventoryPending(g)" class="mr-inv">{{ inventoryPending(g) }}</span>
@@ -142,20 +148,39 @@
 
         <div class="mr-drawer-section">
           <h3>Requested items</h3>
-          <div v-for="item in selected.items" :key="item.itemKey + item.sourceId" class="mr-item">
-            <label class="mr-item-check">
-              <input
-                type="checkbox"
-                :checked="item.fulfillment.status === 'fulfilled'"
-                :disabled="busyKey === itemKey(item)"
-                @change="toggleFulfill(item, $event.target.checked)"
-              />
-              <span>
-                <strong>{{ item.itemLabel }}</strong>
-                <span class="mr-chip">{{ item.sourceLabel }}</span>
-                <span v-if="item.inventoryBacked" class="mr-chip mr-chip--inv">Inventory</span>
+          <div
+            v-for="item in selected.items"
+            :key="item.itemKey + item.sourceId"
+            class="mr-item"
+            :class="{
+              'mr-item--fulfilled': item.fulfillment.status === 'fulfilled',
+              'mr-item--busy': busyKey === itemKey(item),
+            }"
+          >
+            <button
+              type="button"
+              class="mr-check-btn"
+              :class="{ 'mr-check-btn--done': item.fulfillment.status === 'fulfilled' }"
+              :disabled="busyKey === itemKey(item)"
+              :aria-pressed="item.fulfillment.status === 'fulfilled'"
+              :aria-label="item.fulfillment.status === 'fulfilled' ? `${item.itemLabel} — handled` : `Mark ${item.itemLabel} as handled`"
+              @click="toggleFulfill(item, item.fulfillment.status !== 'fulfilled')"
+            >
+              <span class="mr-check-btn__box" aria-hidden="true">
+                <svg v-if="item.fulfillment.status === 'fulfilled'" class="mr-check-btn__icon" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                </svg>
               </span>
-            </label>
+              <span class="mr-check-btn__body">
+                <span class="mr-check-btn__label">
+                  <strong>{{ item.itemLabel }}</strong>
+                  <span class="mr-chip">{{ item.sourceLabel }}</span>
+                  <span v-if="item.inventoryBacked" class="mr-chip mr-chip--inv">Inventory</span>
+                </span>
+                <span v-if="item.fulfillment.status === 'fulfilled'" class="mr-handled-badge">Handled</span>
+                <span v-else class="mr-check-btn__hint">Tap to mark handled</span>
+              </span>
+            </button>
             <p v-if="item.detail" class="mr-muted mr-item-detail">{{ item.detail }}</p>
             <div class="mr-item-actions">
               <select
@@ -276,6 +301,8 @@ const search = ref('');
 const sourceFilter = ref('all');
 const statusFilter = ref('all');
 const kindFilter = ref('all');
+const sortBy = ref('name');
+const sortDir = ref('asc');
 const selected = ref(null);
 const busyKey = ref('');
 const issueModal = ref(null);
@@ -316,6 +343,30 @@ function followLabel(v) {
   if (v === 'in_progress') return 'In progress';
   return 'Open';
 }
+const FOLLOW_UP_RANK = { none: 0, in_progress: 1, pending: 2, complete: 3 };
+
+function groupSources(g) {
+  return (g.sources || []).join(', ');
+}
+
+function setSort(field) {
+  if (sortBy.value === field) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortBy.value = field;
+    sortDir.value = (field === 'updated') ? 'desc' : 'asc';
+  }
+}
+
+function sortIndicator(field) {
+  if (sortBy.value !== field) return '↕';
+  return sortDir.value === 'asc' ? '↑' : '↓';
+}
+
+function boolSort(a, b) {
+  return Number(Boolean(a)) - Number(Boolean(b));
+}
+
 function formatDate(raw) {
   if (!raw) return '—';
   try {
@@ -336,10 +387,44 @@ const filteredGroups = computed(() => {
     if (statusFilter.value === 'delivery' && !g.deliveryNeeded) return false;
     if (statusFilter.value === 'inventory' && !inventoryPending(g)) return false;
     if (q) {
-      const hay = `${g.subjectName} ${g.contactName || ''} ${g.contactEmail || ''} ${g.notes || ''}`.toLowerCase();
+      const itemHay = (g.items || []).map((i) => `${i.itemLabel} ${i.sourceLabel} ${i.detail || ''}`).join(' ');
+      const hay = `${g.subjectName} ${g.contactName || ''} ${g.contactEmail || ''} ${g.notes || ''} ${groupSources(g)} ${itemHay}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
+  });
+});
+
+const sortedFilteredGroups = computed(() => {
+  const d = sortDir.value === 'asc' ? 1 : -1;
+  return [...filteredGroups.value].sort((a, b) => {
+    switch (sortBy.value) {
+      case 'name':
+        return d * String(a.subjectName || '').localeCompare(String(b.subjectName || ''));
+      case 'source':
+        return d * groupSources(a).localeCompare(groupSources(b));
+      case 'paper_packets':
+        return d * boolSort(a.needPaperPackets, b.needPaperPackets);
+      case 'trifolds':
+        return d * boolSort(a.needTrifolds, b.needTrifolds);
+      case 'business_cards':
+        return d * boolSort(a.needBusinessCards, b.needBusinessCards);
+      case 'delivery':
+        return d * boolSort(a.deliveryNeeded, b.deliveryNeeded);
+      case 'inventory':
+        return d * String(inventoryPending(a) || '').localeCompare(String(inventoryPending(b) || ''));
+      case 'notes':
+        return d * String(a.notes || '').localeCompare(String(b.notes || ''));
+      case 'updated': {
+        const da = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const db = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        return d * (da - db);
+      }
+      case 'followUp':
+        return d * ((FOLLOW_UP_RANK[a.followUp] ?? 0) - (FOLLOW_UP_RANK[b.followUp] ?? 0));
+      default:
+        return 0;
+    }
   });
 });
 
@@ -542,6 +627,11 @@ onMounted(async () => {
 .mr-table-wrap { overflow-x: auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; }
 .mr-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
 .mr-table th { text-align: left; padding: 0.65rem 0.75rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; border-bottom: 1px solid #e2e8f0; }
+.mr-th-sort { cursor: pointer; user-select: none; white-space: nowrap; }
+.mr-th-sort:hover { color: #334155; background: #f8fafc; }
+.mr-th-sort--active { color: #15803d; }
+.mr-sort-arrow { font-size: 0.65rem; margin-left: 0.15rem; opacity: 0.7; }
+.mr-th-sort--active .mr-sort-arrow { opacity: 1; }
 .mr-table td { padding: 0.7rem 0.75rem; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
 .mr-row { cursor: pointer; }
 .mr-row:hover, .mr-row.is-active { background: #f8fafc; }
@@ -564,11 +654,22 @@ onMounted(async () => {
 .mr-drawer-head { display: flex; justify-content: space-between; gap: 0.75rem; margin-bottom: 1rem; }
 .mr-drawer-head h2 { margin: 0; font-size: 1.1rem; }
 .mr-drawer-section h3 { margin: 0 0 0.75rem; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; }
-.mr-item { border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.7rem 0.8rem; margin-bottom: 0.55rem; }
-.mr-item-check { display: flex; gap: 0.55rem; align-items: flex-start; cursor: pointer; }
-.mr-item-check input { margin-top: 0.2rem; }
-.mr-item-detail { margin: 0.35rem 0 0 1.4rem; }
-.mr-item-actions { display: flex; gap: 0.5rem; align-items: center; margin: 0.5rem 0 0 1.4rem; }
+.mr-item { border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.7rem 0.8rem; margin-bottom: 0.55rem; transition: border-color 0.15s, background 0.15s; }
+.mr-item--fulfilled { border-color: #86efac; background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%); }
+.mr-item--busy { opacity: 0.7; pointer-events: none; }
+.mr-check-btn { display: flex; gap: 0.75rem; align-items: flex-start; width: 100%; padding: 0; border: none; background: transparent; text-align: left; cursor: pointer; }
+.mr-check-btn:disabled { cursor: not-allowed; }
+.mr-check-btn__box { flex-shrink: 0; width: 2rem; height: 2rem; border: 2.5px solid #94a3b8; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: #fff; transition: all 0.15s; margin-top: 0.05rem; }
+.mr-check-btn:hover .mr-check-btn__box { border-color: #15803d; box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.15); }
+.mr-check-btn--done .mr-check-btn__box { background: #15803d; border-color: #15803d; box-shadow: 0 2px 8px rgba(21, 128, 61, 0.35); }
+.mr-check-btn__icon { width: 1.25rem; height: 1.25rem; color: #fff; }
+.mr-check-btn__body { flex: 1; min-width: 0; }
+.mr-check-btn__label { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
+.mr-check-btn--done .mr-check-btn__label strong { text-decoration: line-through; color: #166534; }
+.mr-check-btn__hint { display: block; font-size: 0.72rem; color: #94a3b8; margin-top: 0.2rem; }
+.mr-handled-badge { display: inline-block; margin-top: 0.3rem; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #fff; background: #15803d; border-radius: 999px; padding: 0.2rem 0.55rem; }
+.mr-item-detail { margin: 0.35rem 0 0 2.75rem; }
+.mr-item-actions { display: flex; gap: 0.5rem; align-items: center; margin: 0.5rem 0 0 2.75rem; }
 .mr-btn { border: 1px solid transparent; border-radius: 8px; padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.85rem; }
 .mr-btn--primary { background: #15803d; color: #fff; }
 .mr-btn--ghost { background: #fff; border-color: #cbd5e1; color: #334155; }

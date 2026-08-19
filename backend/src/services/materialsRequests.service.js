@@ -337,6 +337,7 @@ export async function listMaterialsRequestBoard(agencyId, { schoolYear } = {}) {
     const delivery = itemList.some((i) => i.itemKey === 'delivery' && i.fulfillment.status !== 'fulfilled');
     const paper = itemList.some((i) => i.itemKey === 'paper_packets');
     const trifolds = itemList.some((i) => i.itemKey === 'trifolds');
+    const businessCards = itemList.some((i) => i.itemKey === 'business_cards');
     const followUp = itemList.some((i) => i.fulfillment.status === 'assigned')
       ? 'pending'
       : pending === 0
@@ -360,6 +361,7 @@ export async function listMaterialsRequestBoard(agencyId, { schoolYear } = {}) {
       itemCount: itemList.length,
       needPaperPackets: paper,
       needTrifolds: trifolds,
+      needBusinessCards: businessCards,
       deliveryNeeded: delivery,
       followUp,
       notes: itemList.map((i) => i.detail).filter(Boolean)[0] || itemList[0]?.notes || null,
@@ -379,6 +381,7 @@ export async function listMaterialsRequestBoard(agencyId, { schoolYear } = {}) {
     cartRequests: allItems.filter((i) => i.itemKey === 'school_cart' && i.fulfillment.status !== 'fulfilled').length,
     shirtRequests: allItems.filter((i) => i.itemKey === 'shirt' && i.fulfillment.status !== 'fulfilled').length,
     bagRequests: allItems.filter((i) => i.itemKey === 'canvas_bag' && i.fulfillment.status !== 'fulfilled').length,
+    businessCardRequests: allItems.filter((i) => i.itemKey === 'business_cards' && i.fulfillment.status !== 'fulfilled').length,
   };
 
   return { agencyId: aid, schoolYear: year, summary, groups };
