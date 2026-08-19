@@ -101,23 +101,49 @@ export function eventTypePayrollLabel(eventType) {
   return t.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+export function parseMoneyFromRateTitle(raw) {
+  const text = String(raw || '').trim().replace(/,/g, '');
+  const m = text.match(/^\$?(\d+(?:\.\d+)?)$/);
+  if (!m) return 0;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 export function rateSlotLabel(slot, titles = {}) {
   const s = normalizeEventPayrollRateSlot(slot);
   if (s === 'direct') return 'Direct';
   if (s === 'indirect') return 'Indirect';
-  if (s === 'other_1') return String(titles.title1 || '').trim() || 'Other 1';
-  if (s === 'other_2') return String(titles.title2 || '').trim() || 'Other 2';
-  if (s === 'other_3') return String(titles.title3 || '').trim() || 'Other 3';
+  const raw = s === 'other_1'
+    ? String(titles.title1 || '').trim()
+    : s === 'other_2'
+      ? String(titles.title2 || '').trim()
+      : s === 'other_3'
+        ? String(titles.title3 || '').trim()
+        : '';
+  const numeric = parseMoneyFromRateTitle(raw);
+  if (numeric > 0) {
+    const shown = Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(2);
+    return `$${shown}/hr`;
+  }
+  if (s === 'other_1') return raw || 'Other 1';
+  if (s === 'other_2') return raw || 'Other 2';
+  if (s === 'other_3') return raw || 'Other 3';
   return 'Indirect';
 }
 
-export function rateAmountForSlot(rateCard, slot) {
+export function rateAmountForSlot(rateCard, slot, titles = {}) {
   const s = normalizeEventPayrollRateSlot(slot);
-  if (s === 'direct') return Number(rateCard?.direct_rate || 0) || 0;
-  if (s === 'other_1') return Number(rateCard?.other_rate_1 || 0) || 0;
-  if (s === 'other_2') return Number(rateCard?.other_rate_2 || 0) || 0;
-  if (s === 'other_3') return Number(rateCard?.other_rate_3 || 0) || 0;
-  return Number(rateCard?.indirect_rate || 0) || 0;
+  let amount = 0;
+  if (s === 'direct') amount = Number(rateCard?.direct_rate || 0) || 0;
+  else if (s === 'other_1') amount = Number(rateCard?.other_rate_1 || 0) || 0;
+  else if (s === 'other_2') amount = Number(rateCard?.other_rate_2 || 0) || 0;
+  else if (s === 'other_3') amount = Number(rateCard?.other_rate_3 || 0) || 0;
+  else amount = Number(rateCard?.indirect_rate || 0) || 0;
+  if (amount > 0) return amount;
+  if (s === 'other_1') return parseMoneyFromRateTitle(titles.title1);
+  if (s === 'other_2') return parseMoneyFromRateTitle(titles.title2);
+  if (s === 'other_3') return parseMoneyFromRateTitle(titles.title3);
+  return 0;
 }
 
 export async function resolveEventPayrollTreatment({ agencyId, eventType, titles = {} }) {

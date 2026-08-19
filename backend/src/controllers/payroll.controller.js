@@ -85,6 +85,7 @@ import {
   resolveEventPayrollTreatment,
   rateAmountForSlot,
   rateSlotLabel,
+  parseMoneyFromRateTitle,
   formatEventPayrollDateLabel,
   listEventPayrollRateMapsForAgency,
   KNOWN_EVENT_PAYROLL_TYPES,
@@ -1199,7 +1200,7 @@ async function resolveKioskEventClaimPay({ claim, payload = {}, storedBucket, ag
     eventTitle,
     slot,
     slotLabel,
-    rate: rateAmountForSlot(rateCard, slot),
+    rate: rateAmountForSlot(rateCard, slot, titles),
     split
   };
 }
@@ -6629,9 +6630,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     const otherRate1Hours = Number(adj?.other_rate_1_hours || 0);
     const otherRate2Hours = Number(adj?.other_rate_2_hours || 0);
     const otherRate3Hours = Number(adj?.other_rate_3_hours || 0);
-    const otherRate1 = Number(rateCard?.other_rate_1 || 0);
-    const otherRate2 = Number(rateCard?.other_rate_2 || 0);
-    const otherRate3 = Number(rateCard?.other_rate_3 || 0);
+    const otherRate1 = rateAmountForSlot(rateCard, 'other_1', otherTitles);
+    const otherRate2 = rateAmountForSlot(rateCard, 'other_2', otherTitles);
+    const otherRate3 = rateAmountForSlot(rateCard, 'other_3', otherTitles);
     const otherRate1Bucket = String(rateCard?.other_rate_1_bucket || 'other').trim().toLowerCase();
     const otherRate2Bucket = String(rateCard?.other_rate_2_bucket || 'other').trim().toLowerCase();
     const otherRate3Bucket = String(rateCard?.other_rate_3_bucket || 'other').trim().toLowerCase();
@@ -15879,6 +15880,33 @@ export const putPayrollOtherRateTitlesForUser = async (req, res, next) => {
       [aId, userId, t1, t2, t3, req.user.id]
     );
 
+    // If payroll typed a dollar amount into the Other N title (e.g. "33"), and the
+    // matching rate-card slot is still empty, persist it as the actual hourly rate.
+    try {
+      const existing = await PayrollRateCard.findForUser(aId, userId);
+      const n1 = parseMoneyFromRateTitle(t1);
+      const n2 = parseMoneyFromRateTitle(t2);
+      const n3 = parseMoneyFromRateTitle(t3);
+      const needs1 = n1 > 0 && !(Number(existing?.other_rate_1) > 0);
+      const needs2 = n2 > 0 && !(Number(existing?.other_rate_2) > 0);
+      const needs3 = n3 > 0 && !(Number(existing?.other_rate_3) > 0);
+      if (needs1 || needs2 || needs3) {
+        await PayrollRateCard.upsert({
+          agencyId: aId,
+          userId,
+          directRate: Number(existing?.direct_rate || 0) || 0,
+          indirectRate: Number(existing?.indirect_rate || 0) || 0,
+          otherRate1: needs1 ? n1 : (Number(existing?.other_rate_1 || 0) || 0),
+          otherRate2: needs2 ? n2 : (Number(existing?.other_rate_2 || 0) || 0),
+          otherRate3: needs3 ? n3 : (Number(existing?.other_rate_3 || 0) || 0),
+          otherRate1Bucket: existing?.other_rate_1_bucket,
+          otherRate2Bucket: existing?.other_rate_2_bucket,
+          otherRate3Bucket: existing?.other_rate_3_bucket,
+          updatedByUserId: req.user.id
+        });
+      }
+    } catch { /* best-effort */ }
+
     res.json({ ok: true, agencyId: aId, userId, title1: t1, title2: t2, title3: t3 });
   } catch (e) {
     res.status(400).json({ error: { message: e.message || 'Failed to save user other rate title overrides' } });
@@ -18809,7 +18837,7 @@ function buildTimeClaimAvailableRates({ rateCard, titles = {}, payload = {}, ext
   };
   push('direct', 'Therapy Rate', 'direct', rateCard?.direct_rate);
   push('indirect', 'Indirect Rate', 'indirect', rateCard?.indirect_rate);
-  push('other_1', titles.title1 || 'Other 1', 'other_1', rateCard?.other_rate_1);
+  push('other_1', titles.title1 || 'Other 1', 'other_1', rateAmountForSlot(rateCard, 'other_1', titles));
   const b2 = String(rateCard?.other_rate_2_bucket || 'other').toLowerCase();
   push('other_2', titles.title2 || 'Other 2', b2 === 'direct' ? 'direct' : (b2 === 'other' ? 'other_1' : 'indirect'), rateCard?.other_rate_2);
   const b3 = String(rateCard?.other_rate_3_bucket || 'other').toLowerCase();
