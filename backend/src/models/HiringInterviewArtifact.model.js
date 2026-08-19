@@ -43,6 +43,7 @@ class HiringInterviewArtifact {
       scorecard_json: parseJsonMaybe(row.scorecard_json, null),
       private_notes_json: parseJsonMaybe(row.private_notes_json, null),
       team_chat_json: parseJsonMaybe(row.team_chat_json, null),
+      action_items_json: parseJsonMaybe(row.action_items_json, []),
       average_score: row.average_score != null ? Number(row.average_score) : null
     };
   }
@@ -69,8 +70,8 @@ class HiringInterviewArtifact {
       const [result] = await pool.execute(
         `INSERT INTO hiring_interview_artifacts (
           hiring_interview_id, flow_state_json, scorecard_json, private_notes_json,
-          team_chat_json, transcript_summary, average_score, finalized_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          team_chat_json, transcript_summary, action_items_json, average_score, finalized_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           parseIntParam(hiringInterviewId),
           toJsonParam(patch.flowStateJson ?? null),
@@ -78,6 +79,7 @@ class HiringInterviewArtifact {
           toJsonParam(patch.privateNotesJson ?? null),
           toJsonParam(patch.teamChatJson ?? null),
           patch.transcriptSummary != null ? String(patch.transcriptSummary) : null,
+          toJsonParam(patch.actionItemsJson ?? null),
           patch.averageScore != null ? Number(patch.averageScore) : null,
           toSqlDatetime(patch.finalizedAt)
         ]
@@ -107,6 +109,10 @@ class HiringInterviewArtifact {
     if (patch.transcriptSummary !== undefined) {
       updates.push('transcript_summary = ?');
       params.push(patch.transcriptSummary != null ? String(patch.transcriptSummary) : null);
+    }
+    if (patch.actionItemsJson !== undefined) {
+      updates.push('action_items_json = ?');
+      params.push(toJsonParam(patch.actionItemsJson));
     }
     if (patch.averageScore !== undefined) {
       updates.push('average_score = ?');

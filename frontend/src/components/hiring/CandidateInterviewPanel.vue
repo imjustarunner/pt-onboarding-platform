@@ -124,6 +124,22 @@
           <h5>Notes</h5>
           <pre class="pre">{{ notesPreview }}</pre>
         </div>
+        <div v-if="interviewActionItems.length" class="notes-block">
+          <h5>Action items</h5>
+          <ul class="cip-action-list">
+            <li v-for="(item, idx) in interviewActionItems" :key="item.id || idx">
+              {{ item.text }}<span v-if="item.assigneeName" class="muted"> — {{ item.assigneeName }}</span>
+            </li>
+          </ul>
+        </div>
+        <div v-if="meetingTranscript || artifact.transcript_summary" class="notes-block">
+          <h5>Interview summary & quoted artifacts</h5>
+          <pre class="pre transcript-pre">{{ artifact.transcript_summary || meetingSummaryFromNotes }}</pre>
+        </div>
+        <div v-if="rawMeetingTranscript" class="notes-block">
+          <h5>Full transcript</h5>
+          <pre class="pre transcript-pre">{{ rawMeetingTranscript }}</pre>
+        </div>
         <div v-if="artifact.finalized_at" class="muted small">Finalized {{ formatWhen(artifact.finalized_at) }}</div>
       </template>
 
@@ -210,6 +226,8 @@ const loading = ref(false);
 const selectedId = ref(null);
 const artifact = ref(null);
 const artifactLoading = ref(false);
+const meetingSummaryFromNotes = ref('');
+const rawMeetingTranscript = ref('');
 const showSchedule = ref(true);
 const emit = defineEmits(['interviews-updated']);
 const scheduling = ref(false);
@@ -265,6 +283,11 @@ const notesPreview = computed(() => {
     return `User ${uid}:\n${text}`;
   }).filter(Boolean);
   return parts.join('\n\n');
+});
+
+const interviewActionItems = computed(() => {
+  const raw = artifact.value?.action_items_json || artifact.value?.actionItemsJson || [];
+  return Array.isArray(raw) ? raw.filter((item) => item?.text) : [];
 });
 
 onMounted(async () => {
@@ -354,11 +377,24 @@ async function selectInterview(iv) {
   selectedId.value = iv.id;
   artifactLoading.value = true;
   artifact.value = null;
+  meetingSummaryFromNotes.value = '';
+  rawMeetingTranscript.value = '';
   try {
     const r = await api.get(`/hiring/interview-hub/interviews/${iv.id}/artifacts`, {
       params: { agencyId: props.agencyId }
     });
     artifact.value = r.data?.data || r.data || null;
+    const eventId = iv.provider_schedule_event_id || iv.providerScheduleEventId;
+    if (eventId) {
+      try {
+        const notesR = await api.get(`/team-meetings/${eventId}/notes`);
+        rawMeetingTranscript.value = String(notesR.data?.transcript || '').trim();
+        meetingSummaryFromNotes.value = String(notesR.data?.summary || '').trim();
+      } catch {
+        rawMeetingTranscript.value = '';
+        meetingSummaryFromNotes.value = '';
+      }
+    }
   } catch {
     artifact.value = null;
   } finally {
@@ -604,6 +640,8 @@ async function openCapsule(c) {
 .small { font-size: 13px; }
 .score-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
 .pre { white-space: pre-wrap; font-size: 12px; background: #f9fafb; padding: 8px; border-radius: 8px; }
+.transcript-pre { max-height: 360px; overflow: auto; }
+.cip-action-list { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.5; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .legacy-divider { margin-top: 12px; }
 .cip-capsule {

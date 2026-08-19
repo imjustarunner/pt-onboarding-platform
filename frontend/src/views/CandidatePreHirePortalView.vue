@@ -284,7 +284,80 @@
                 <!-- Document / review step -->
                 <div v-else-if="panelStep === 'review'" class="review-block">
                   <div v-if="activeTaskDetail?.document?.htmlContent" class="doc-preview" v-html="sanitizedHtml"></div>
-                  <div v-else class="doc-placeholder">
+                  <div v-if="fillableFields.length" class="doc-form-fields">
+                    <div v-if="!activeTaskDetail?.document?.htmlContent" class="doc-form-intro">
+                      <div class="doc-form-title">{{ activeTask.title }}</div>
+                      <p v-if="activeTask.description" class="doc-form-desc">{{ activeTask.description }}</p>
+                      <p class="doc-form-hint">Complete the fields below, then proceed to sign.</p>
+                    </div>
+                    <div
+                      v-for="field in fillableFields"
+                      :key="field.id"
+                      class="doc-field"
+                      :data-field-id="field.id"
+                    >
+                      <label class="doc-field-label">
+                        {{ formatFieldLabel(field) }}
+                        <span v-if="field.required" class="doc-field-req">*</span>
+                      </label>
+                      <input
+                        v-if="field.type !== 'date' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'textarea'"
+                        v-model="fieldValues[field.id]"
+                        :type="field.type === 'ssn' ? 'password' : 'text'"
+                        :placeholder="field.type === 'ssn' ? 'Enter SSN' : ''"
+                        class="doc-field-input"
+                      />
+                      <textarea
+                        v-else-if="field.type === 'textarea'"
+                        v-model="fieldValues[field.id]"
+                        class="doc-field-input doc-field-textarea"
+                        rows="3"
+                      />
+                      <label v-else-if="field.type === 'checkbox'" class="doc-field-check">
+                        <input v-model="fieldValues[field.id]" type="checkbox" />
+                        <span>{{ formatFieldLabel(field) }}</span>
+                      </label>
+                      <select
+                        v-else-if="field.type === 'select'"
+                        v-model="fieldValues[field.id]"
+                        class="doc-field-input"
+                      >
+                        <option value="">Select an option</option>
+                        <option
+                          v-for="opt in field.options || []"
+                          :key="opt.value || opt.label"
+                          :value="opt.value || opt.label"
+                        >
+                          {{ opt.label || opt.value }}
+                        </option>
+                      </select>
+                      <div v-else-if="field.type === 'radio'" class="doc-field-radio-group">
+                        <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="doc-field-radio">
+                          <input
+                            type="radio"
+                            :name="`field_${field.id}`"
+                            :value="opt.value || opt.label"
+                            v-model="fieldValues[field.id]"
+                          />
+                          <span>{{ opt.label || opt.value }}</span>
+                        </label>
+                      </div>
+                      <input
+                        v-else-if="field.autoToday"
+                        v-model="fieldValues[field.id]"
+                        type="text"
+                        disabled
+                        class="doc-field-input"
+                      />
+                      <input
+                        v-else
+                        v-model="fieldValues[field.id]"
+                        type="date"
+                        class="doc-field-input"
+                      />
+                    </div>
+                  </div>
+                  <div v-else-if="!activeTaskDetail?.document?.htmlContent" class="doc-placeholder">
                     <div class="doc-placeholder-icon">📄</div>
                     <div>{{ activeTask.title }}</div>
                     <div class="doc-placeholder-sub">{{ activeTask.description }}</div>
@@ -298,9 +371,10 @@
                       </button>
                     </div>
                     <div v-else>
-                      <button class="btn-primary" @click="panelStep = 'sign'">
+                      <button class="btn-primary" @click="goToSignStep">
                         Proceed to sign →
                       </button>
+                      <div v-if="fieldValidationError" class="panel-error">{{ fieldValidationError }}</div>
                     </div>
                   </div>
                 </div>
@@ -361,6 +435,7 @@ import DOMPurify from 'dompurify';
 import axios from 'axios';
 import PreHirePortalChat from '../components/prehire/PreHirePortalChat.vue';
 import { buildFormUrl } from '../utils/publicIntakeUrl.js';
+import { learnerFillableFields } from '../utils/documentFieldLayout.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -547,11 +622,59 @@ const panelStep = ref('consent');
 const panelLoading = ref(false);
 const panelError = ref('');
 const consentChecked = ref(false);
+const fieldValues = ref({});
+const fieldValidationError = ref('');
 
 const sanitizedHtml = computed(() => {
   const html = activeTaskDetail.value?.document?.htmlContent || '';
   return DOMPurify.sanitize(html);
 });
+
+const isFieldVisible = (def, values) => {
+  const showIf = def?.showIf;
+  if (!showIf || !showIf.fieldId) return true;
+  const actual = values[showIf.fieldId];
+  const expected = showIf.equals;
+  if (Array.isArray(expected)) return expected.map(String).includes(String(actual));
+  if (expected === '' || expected === null || expected === undefined) return !!actual;
+  return String(actual) === String(expected);
+};
+
+const fillableFields = computed(() => {
+  const defs = activeTaskDetail.value?.document?.fieldDefinitions;
+  if (!Array.isArray(defs) || !defs.length) return [];
+  return learnerFillableFields(defs).filter((def) => isFieldVisible(def, fieldValues.value));
+});
+
+const formatFieldLabel = (field) => field?.label || field?.type || 'Field';
+
+const canProceedToSign = computed(() => {
+  if (!fillableFields.value.length) return true;
+  return fillableFields.value.every((field) => {
+    if (!field.required) return true;
+    const val = fieldValues.value[field.id];
+    if (field.type === 'checkbox') return !!val;
+    return String(val || '').trim().length > 0;
+  });
+});
+
+function initFieldValues(taskDetail) {
+  const defs = taskDetail?.document?.fieldDefinitions;
+  const next = {};
+  if (Array.isArray(defs)) {
+    defs.forEach((field) => {
+      if (field?.type === 'checkbox') {
+        next[field.id] = !!field.defaultChecked;
+      } else if (field?.autoToday) {
+        next[field.id] = new Date().toLocaleDateString('en-US');
+      } else {
+        next[field.id] = field?.defaultValue || '';
+      }
+    });
+  }
+  fieldValues.value = next;
+  fieldValidationError.value = '';
+}
 
 const pillClass = (t) => {
   if (t.status === 'completed') return 'pill-done';
@@ -573,9 +696,12 @@ const selectTask = async (task) => {
   panelError.value = '';
   consentChecked.value = false;
   activeTaskDetail.value = null;
+  fieldValues.value = {};
+  fieldValidationError.value = '';
   try {
     const res = await portalApi.get(`/prehire-portal/${token.value}/tasks/${task.id}`);
     activeTaskDetail.value = res.data;
+    initFieldValues(activeTaskDetail.value);
     if (activeTaskDetail.value?.auditTrail?.portalConsent?.given) {
       panelStep.value = 'review';
     }
@@ -605,6 +731,15 @@ const submitConsent = async () => {
 };
 
 // ─── Acknowledge (review-only) ────────────────────────────────────────────────
+const goToSignStep = () => {
+  if (!canProceedToSign.value) {
+    fieldValidationError.value = 'Please complete all required fields before signing.';
+    return;
+  }
+  fieldValidationError.value = '';
+  panelStep.value = 'sign';
+};
+
 const submitAcknowledge = async () => {
   panelLoading.value = true;
   panelError.value = '';
@@ -676,12 +811,18 @@ const clearCanvas = () => {
 
 const submitSign = async () => {
   if (!sigCanvas.value) return;
+  if (!canProceedToSign.value) {
+    fieldValidationError.value = 'Please complete all required fields before signing.';
+    panelStep.value = 'review';
+    return;
+  }
   const dataUrl = sigCanvas.value.toDataURL('image/png');
   panelLoading.value = true;
   panelError.value = '';
   try {
     await portalApi.post(`/prehire-portal/${token.value}/tasks/${activeTask.value.id}/sign`, {
-      signatureData: dataUrl
+      signatureData: dataUrl,
+      fieldValues: fieldValues.value
     });
     await reloadPortal();
     closePanel();
@@ -1317,6 +1458,18 @@ onMounted(async () => {
 
 .review-block { display: flex; flex-direction: column; gap: 16px; }
 .doc-preview { font-size: 14px; color: #0f172a; line-height: 1.7; max-height: 55vh; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; background: #fafafa; }
+.doc-form-fields { display: flex; flex-direction: column; gap: 14px; margin-top: 4px; }
+.doc-form-intro { margin-bottom: 4px; }
+.doc-form-title { font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 4px; }
+.doc-form-desc { font-size: 13px; color: #64748b; margin: 0 0 6px; line-height: 1.5; }
+.doc-form-hint { font-size: 12px; color: #94a3b8; margin: 0; }
+.doc-field { display: flex; flex-direction: column; gap: 6px; }
+.doc-field-label { font-size: 13px; font-weight: 600; color: #334155; }
+.doc-field-req { color: #dc2626; margin-left: 2px; }
+.doc-field-input { border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 12px; font-size: 14px; color: #0f172a; background: #fff; }
+.doc-field-textarea { resize: vertical; min-height: 72px; }
+.doc-field-check, .doc-field-radio { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; color: #334155; }
+.doc-field-radio-group { display: flex; flex-direction: column; gap: 8px; }
 .doc-placeholder { text-align: center; padding: 40px 20px; }
 .doc-placeholder-icon { font-size: 40px; margin-bottom: 12px; }
 .doc-placeholder-sub { font-size: 13px; color: #94a3b8; margin-top: 6px; }

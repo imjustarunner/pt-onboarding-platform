@@ -139,6 +139,36 @@
         <div class="ilw-avg">Average: {{ averageDisplay }}</div>
       </div>
 
+      <!-- Transcript & intelligence -->
+      <div v-show="activeTab === 'transcript'" class="ilw-panel">
+        <div class="ilw-section-head">
+          <h4>Transcript & summary</h4>
+          <button type="button" class="ilw-link" :disabled="transcriptLoading" @click="loadMeetingNotes">
+            {{ transcriptLoading ? 'Loading…' : 'Refresh' }}
+          </button>
+        </div>
+        <p class="muted small" style="margin-bottom:8px;">
+          Live speech is captured from the video room. Summary, action items, and quoted pay/schedule statements are generated when transcription stops or the scorecard is finalized.
+        </p>
+        <div v-if="meetingSummary" class="ilw-intel-block">
+          <div class="ilw-brief-title">Interview summary & artifacts</div>
+          <pre class="ilw-transcript-pre">{{ meetingSummary }}</pre>
+        </div>
+        <div v-if="meetingActionItems.length" class="ilw-intel-block">
+          <div class="ilw-brief-title">Action items</div>
+          <ul class="ilw-resume-list">
+            <li v-for="(item, idx) in meetingActionItems" :key="item.id || idx">
+              {{ item.text }}<span v-if="item.assigneeName"> — {{ item.assigneeName }}</span>
+            </li>
+          </ul>
+        </div>
+        <div class="ilw-intel-block">
+          <div class="ilw-brief-title">Live transcript</div>
+          <pre v-if="meetingTranscript" class="ilw-transcript-pre">{{ meetingTranscript }}</pre>
+          <p v-else class="muted small">No transcript yet — join the video room to start capturing speech.</p>
+        </div>
+      </div>
+
       <!-- Team chat -->
       <div v-show="activeTab === 'chat'" class="ilw-panel ilw-chat">
         <div class="ilw-section-head">
@@ -197,6 +227,7 @@ const tabs = [
   { id: 'flow', label: 'Flow' },
   { id: 'notes', label: 'Notes' },
   { id: 'scorecard', label: 'Scorecard' },
+  { id: 'transcript', label: 'Transcript' },
   { id: 'chat', label: 'Team chat' }
 ];
 const activeTab = ref('flow');
@@ -222,6 +253,10 @@ const researchBrief = ref([]);
 const strengthItems = ref([]);
 const weaknessItems = ref([]);
 const briefPage = ref(0);
+const meetingTranscript = ref('');
+const meetingSummary = ref('');
+const meetingActionItems = ref([]);
+const transcriptLoading = ref(false);
 let autosaveTimer = null;
 
 const averageDisplay = computed(() => {
@@ -277,6 +312,7 @@ async function load() {
     teamChat.value = Array.isArray(data.artifact?.team_chat_json) ? data.artifact.team_chat_json : [];
     guestAccessEnded.value = !!(data?.interview?.guest_access_ended_at);
     await loadResumeSummary();
+    await loadMeetingNotes();
     emit('loaded', data);
   } catch (e) {
     error.value = e.response?.data?.error?.message
@@ -284,6 +320,32 @@ async function load() {
       || 'Interview workspace unavailable for this meeting.';
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadMeetingNotes() {
+  if (!props.eventId) return;
+  transcriptLoading.value = true;
+  try {
+    const notesR = await api.get(`/team-meetings/${props.eventId}/notes`, { skipGlobalLoading: true });
+    meetingTranscript.value = String(notesR.data?.transcript || '').trim();
+    meetingSummary.value = String(notesR.data?.summary || '').trim();
+    if (interviewId.value) {
+      const artR = await api.get(`/hiring/interview-hub/interviews/${interviewId.value}/artifacts`, {
+        params: agencyParam.value,
+        skipGlobalLoading: true
+      });
+      const art = artR.data?.data || artR.data || {};
+      if (art.transcript_summary && !meetingSummary.value) {
+        meetingSummary.value = String(art.transcript_summary).trim();
+      }
+      const items = art.action_items_json || art.actionItemsJson || [];
+      meetingActionItems.value = Array.isArray(items) ? items : [];
+    }
+  } catch {
+    meetingTranscript.value = meetingTranscript.value || '';
+  } finally {
+    transcriptLoading.value = false;
   }
 }
 
@@ -457,6 +519,7 @@ async function sendChat() {
 
 watch(activeTab, (t) => {
   if (t === 'chat') unreadChat.value = 0;
+  if (t === 'transcript') loadMeetingNotes();
 });
 
 async function finalize() {
@@ -467,6 +530,7 @@ async function finalize() {
     await api.post(`/hiring/interview-hub/interviews/${interviewId.value}/finalize`, {
       agencyId: props.agencyId
     }, { params: agencyParam.value });
+    await loadMeetingNotes();
     emit('finalized');
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.response?.data?.message || 'Failed to finalize';
@@ -693,6 +757,20 @@ function formatWhen(v) {
 }
 .ilw-strengths li { color: #86efac; }
 .ilw-weaknesses li { color: #fdba74; }
+.ilw-intel-block { margin-bottom: 12px; }
+.ilw-transcript-pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.35);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
 .ilw-btn {
   border: 1px solid rgba(148, 163, 184, 0.4);
   background: transparent;

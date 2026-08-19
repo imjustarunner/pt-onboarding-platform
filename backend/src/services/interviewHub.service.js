@@ -200,14 +200,47 @@ export async function finalizeInterview(interviewId, { transcriptSummary = undef
   if (!interview) return null;
 
   const artifact = await HiringInterviewArtifact.findByInterviewId(interviewId);
+  let intelligenceResult = null;
+
+  // Generate structured summary, action items, and quoted pay/schedule artifacts from transcript.
+  if (transcriptSummary === undefined) {
+    try {
+      const { syncInterviewIntelligenceFromInterviewId } = await import('./interviewTranscriptIntelligence.service.js');
+      intelligenceResult = await syncInterviewIntelligenceFromInterviewId(interviewId);
+    } catch (err) {
+      console.warn('[finalizeInterview] intelligence generation failed:', err?.message || err);
+    }
+  }
+
   const averageScore = computeAverageScore(artifact?.scorecard_json);
   const now = new Date();
 
-  const updatedArtifact = await HiringInterviewArtifact.upsertByInterviewId(interviewId, {
-    ...(transcriptSummary !== undefined ? { transcriptSummary } : {}),
+  const patch = {
     averageScore,
     finalizedAt: now
-  });
+  };
+
+  if (transcriptSummary !== undefined) {
+    patch.transcriptSummary = transcriptSummary;
+  } else if (intelligenceResult?.summaryMarkdown) {
+    patch.transcriptSummary = intelligenceResult.summaryMarkdown;
+    patch.actionItemsJson = intelligenceResult.actionItems || [];
+  } else if (interview.provider_schedule_event_id) {
+    // Fallback: raw transcript if AI unavailable
+    try {
+      const pool = (await import('../config/database.js')).default;
+      const [rows] = await pool.execute(
+        `SELECT transcript_text FROM provider_schedule_event_artifacts WHERE event_id = ? LIMIT 1`,
+        [interview.provider_schedule_event_id]
+      );
+      const transcriptText = String(rows?.[0]?.transcript_text || '').trim();
+      if (transcriptText) patch.transcriptSummary = transcriptText.slice(0, 120000);
+    } catch (err) {
+      console.warn('[finalizeInterview] meeting transcript pull failed:', err?.message || err);
+    }
+  }
+
+  const updatedArtifact = await HiringInterviewArtifact.upsertByInterviewId(interviewId, patch);
 
   const updatedInterview = await HiringInterview.updateById(interviewId, {
     status: 'completed'

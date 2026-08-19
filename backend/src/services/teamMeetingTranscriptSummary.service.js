@@ -1,10 +1,20 @@
 /**
  * Auto-generate team meeting summary from transcript.
- * Called after video room recording is transcribed or client posts transcript.
+ * Interview meetings use interviewTranscriptIntelligence.service.js instead.
  */
 
 import { callGeminiText } from './geminiText.service.js';
 import ProviderScheduleEventArtifact from '../models/ProviderScheduleEventArtifact.model.js';
+import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
+
+async function isInterviewEvent(eventId) {
+  try {
+    const event = await ProviderScheduleEvent.findById(eventId);
+    return String(event?.meeting_subtype || '').toLowerCase() === 'interview';
+  } catch {
+    return false;
+  }
+}
 
 function buildTeamMeetingSummaryPrompt(transcriptText) {
   const cleaned = String(transcriptText || '').trim().slice(0, 15000);
@@ -44,6 +54,16 @@ function mysqlNowDateTime() {
 export async function triggerTeamMeetingSummaryFromTranscript(eventId) {
   const eid = Number(eventId || 0);
   if (!eid) return { ok: false };
+
+  if (await isInterviewEvent(eid)) {
+    try {
+      const { syncInterviewIntelligenceFromEventId } = await import('./interviewTranscriptIntelligence.service.js');
+      return await syncInterviewIntelligenceFromEventId(eid);
+    } catch (err) {
+      console.warn('[triggerTeamMeetingSummaryFromTranscript] interview intelligence failed:', err?.message);
+      return { ok: false, error: err?.message };
+    }
+  }
 
   const artifact = await ProviderScheduleEventArtifact.findByEventId(eid);
   const transcriptText = artifact?.transcript_text || null;

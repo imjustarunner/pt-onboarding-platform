@@ -313,6 +313,24 @@
                 @tracking-status="onAttendanceTrackingStatus"
               />
             </section>
+            <section v-if="showNotesTab" class="join-stack-section">
+              <MeetingNotesPanel
+                :event-id="resolvedEventId"
+                :live-capturing="transcriptCapturing"
+                :live-hint="transcriptHint"
+                :live-preview="transcriptLivePreview"
+                :auto-refresh="true"
+                :can-control-transcript="isAdminMeeting || isHost"
+                :can-stop-transcript="isHost"
+                :paused="transcriptPaused"
+                :room-stopped="transcriptRoomStopped"
+                :stop-meta="transcriptStopMeta"
+                @pause="onTranscriptPause"
+                @resume="onTranscriptResume"
+                @stop="onTranscriptStop"
+                @control="onTranscriptControlApi"
+              />
+            </section>
           </div>
 
           <div v-else class="join-workspace__body join-workspace__body--stack">

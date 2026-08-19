@@ -26,8 +26,10 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   adaptive_full_intake_invite: ['intake', 'notifications'],
   guardian_portal_login_info: ['technology', 'login_recovery', 'notifications'],
   manual: ['notifications'],
-  job_applications: ['job_applications', 'notifications'],
+  job_applications: ['job_applications', 'people_operations', 'notifications'],
   hiring_references: ['hiring_references', 'notifications'],
+  pre_hire_admin_review_access: ['people_operations', 'job_applications', 'notifications'],
+  prehire_new_tasks: ['people_operations', 'job_applications', 'notifications'],
   admin_update: ['notifications'],
   compliance_digest: ['compliance'],
   psychotherapy_threshold: ['compliance', 'notifications']

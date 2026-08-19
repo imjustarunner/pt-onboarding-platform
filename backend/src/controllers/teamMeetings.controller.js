@@ -2009,6 +2009,17 @@ export const postTeamMeetingTranscriptControl = async (req, res, next) => {
         : null,
       transcriptStoppedByName: artifact?.transcript_stopped_by_name || null
     });
+
+    if (action === 'stop' && String(event.meeting_subtype || '').toLowerCase() === 'interview') {
+      setImmediate(async () => {
+        try {
+          const { syncInterviewIntelligenceFromEventId } = await import('../services/interviewTranscriptIntelligence.service.js');
+          await syncInterviewIntelligenceFromEventId(eventId);
+        } catch (err) {
+          console.warn('[TeamMeeting] interview intelligence on transcript stop failed:', err?.message);
+        }
+      });
+    }
   } catch (e) {
     if (e?.code === 'ER_BAD_FIELD_ERROR') {
       return res.status(503).json({

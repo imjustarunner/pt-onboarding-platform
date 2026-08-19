@@ -189,10 +189,10 @@ async function sendBatchedEmail(row) {
     source: 'auto',
   };
 
-  // Prefer agency sender identity (matches branding of other pre-hire emails)
+  // Prefer People Operations sender identity (matches pre-hire invite branding)
   try {
     const { resolveJobApplicationSenderIdentity } = await import('./hiringReferenceIdentity.service.js');
-    const { sendEmailFromIdentity }               = await import('./unifiedEmail/unifiedEmailSender.service.js');
+    const { sendEmailFromIdentity } = await import('./unifiedEmail/unifiedEmailSender.service.js');
     const identity = await resolveJobApplicationSenderIdentity(row.agency_id);
     if (identity?.id) {
       await sendEmailFromIdentity({ senderIdentityId: identity.id, ...emailOpts });
