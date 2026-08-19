@@ -227,7 +227,7 @@ async function persistPacketSectionFromIntakeData({
   ) || null;
   const agencyId = Number(boundClient.agency_id || agency?.id || 0) || null;
   const orgType = String(organization?.organization_type || '').toLowerCase();
-  const officePacket = String(link?.scope_type || '').toLowerCase() === 'agency'
+  const officePacket = linkLooksLikeOfficeIntake(link)
     && !['school', 'program', 'learning'].includes(orgType);
   if (!agencyId) return;
   if (!officePacket && !schoolOrgId) return;
@@ -5332,7 +5332,7 @@ export const getPublicIntakePacketSection = async (req, res, next) => {
       || 0
     );
     const orgType = String(organization?.organization_type || '').toLowerCase();
-    const officePacket = String(link.scope_type || '').toLowerCase() === 'agency'
+    const officePacket = linkLooksLikeOfficeIntake(link)
       && !['school', 'program', 'learning'].includes(orgType);
     const ctx = await buildPacketSectionContext({
       organizationId: officePacket ? 0 : schoolOrgId,
@@ -5389,7 +5389,7 @@ export const viewPublicPacketSectionHtml = async (req, res, next) => {
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     const schoolOrgId = Number(organization?.id || link.organization_id || boundClient?.organization_id || 0);
     const orgType = String(organization?.organization_type || '').toLowerCase();
-    const officePacket = String(link.scope_type || '').toLowerCase() === 'agency'
+    const officePacket = linkLooksLikeOfficeIntake(link)
       && !['school', 'program', 'learning'].includes(orgType);
     const ctx = await buildPacketSectionContext({
       organizationId: officePacket ? 0 : schoolOrgId,

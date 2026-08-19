@@ -3,6 +3,7 @@
  *
  * Job applications, medical-records requests, etc. are also scope_type=agency.
  * Never infer "office counseling intake" from agency scope alone — use form_type.
+ * Keep in sync with backend/src/utils/officeIntakeLink.js.
  */
 
 export const NON_CLIENT_INTAKE_FORM_TYPES = new Set([
@@ -33,11 +34,7 @@ export function linkLooksLikeOfficeIntake(link) {
     || scope === 'agency';
 }
 
-export function looksLikeOfficeIntake({ link = null, publicKey = '' } = {}) {
+export function looksLikeOfficeIntakeFromRoute({ link = null, publicKey = '' } = {}) {
   if (link) return linkLooksLikeOfficeIntake(link);
   return String(publicKey || '').toLowerCase().includes('office-intake');
-}
-
-export function isOfficeEarlyAccountProvisionLink(link) {
-  return linkLooksLikeOfficeIntake(link);
 }

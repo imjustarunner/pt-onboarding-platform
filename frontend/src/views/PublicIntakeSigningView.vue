@@ -2715,6 +2715,10 @@ import {
 } from '../utils/intakeFieldSpanish.js';
 import { groupIntakeFieldsForAdaptiveShell } from '../utils/adaptiveIntakeFieldAdapter.js';
 import {
+  linkLooksLikeOfficeIntake,
+  looksLikeOfficeIntakeFromRoute
+} from '../utils/officeIntakeLink.js';
+import {
   isContactOrDemographicField,
   isSexField,
   normalizeIntakeSexFields,
@@ -3683,26 +3687,9 @@ const linkedLanguageSwitching = ref(false);
 
 const spanishQuestionLabelsEnabled = computed(() => spanishQuestionLabelsEnabledFromLink(link.value));
 
-function isNonClientAgencyFormType(formType) {
-  const ft = String(formType || '').toLowerCase();
-  return ft === 'job_application' || ft === 'medical_records_request';
-}
-
-function linkLooksLikeOfficeIntake(l) {
-  if (!l) return false;
-  if (isNonClientAgencyFormType(l.form_type)) return false;
-  if (Number(l.inherits_school_master || 0) === 1) return false;
-  const scope = String(l.scope_type || '').toLowerCase();
-  if (scope === 'school') return false;
-  return Number(l.inherits_office_master || 0) === 1 || scope === 'agency';
-}
-
-const looksLikeOfficeIntake = computed(() => {
-  // Once the link is loaded, never treat job applications (or other non-client
-  // agency forms) as office in-depth — they share scope_type=agency.
-  if (link.value) return linkLooksLikeOfficeIntake(link.value);
-  return String(publicKey || '').toLowerCase().includes('office-intake');
-});
+const looksLikeOfficeIntake = computed(() =>
+  looksLikeOfficeIntakeFromRoute({ link: link.value, publicKey })
+);
 
 const canBypassIntakeRequired = computed(() => {
   if (!authStore.isAuthenticated) return false;
@@ -4866,10 +4853,8 @@ const splashContactEmail = computed(() => {
 });
 
 const skipBrandingIntro = computed(() => {
-  if (isJobApplication.value) return false;
   if (isSchoolScopedIntake.value) return false;
-  return Number(link.value?.inherits_office_master || 0) === 1
-    || String(link.value?.scope_type || '').toLowerCase() === 'agency';
+  return linkLooksLikeOfficeIntake(link.value);
 });
 
 function goToSchoolReferralFinder() {
@@ -8309,9 +8294,8 @@ const loadLink = async () => {
       const hasMap = map != null && typeof map === 'object' && Object.keys(map).length > 0;
       const hasQuestionLabelsEs = spanishQuestionLabelsEnabledFromLink(link.value);
       const isSmartRoiForm = String(link.value?.form_type || '').toLowerCase() === 'smart_school_roi';
-      const officeLike = Number(link.value?.inherits_office_master || 0) === 1
-        || (String(link.value?.scope_type || '').toLowerCase() === 'agency'
-          && String(resp.data?.organization?.organization_type || '').toLowerCase() !== 'school');
+      const officeLike = linkLooksLikeOfficeIntake(link.value)
+        && String(resp.data?.organization?.organization_type || '').toLowerCase() !== 'school';
       if (officeLike) {
         inPageLocale.value = inPageLocale.value === 'es' && userChoseLocale.value ? 'es' : 'en';
       } else if (usesSchoolMaster.value) {
