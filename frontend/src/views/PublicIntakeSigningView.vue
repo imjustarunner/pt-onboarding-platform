@@ -13,7 +13,7 @@
     :cover-mode="shellCoverMode"
     :scenic-sidebar-url="officeScenicSidebarUrl"
     :logo-url-override="officeLogoFallback"
-    :hide-sidebar="isJobApplication && step === -1"
+    :hide-sidebar="(isJobApplication && step === -1) || (loading && !looksLikeOfficeIntake)"
     :wide="(isJobApplication && step === -1) || (isOfficeInDepthIntake && step >= 0.5) || (!isOfficeInDepthIntake && step === 2)"
     :show-language-toggle="hasLinkedLanguageToggle && !loading && !fatalError"
     :language="currentFormLanguage"
@@ -3683,19 +3683,26 @@ const linkedLanguageSwitching = ref(false);
 
 const spanishQuestionLabelsEnabled = computed(() => spanishQuestionLabelsEnabledFromLink(link.value));
 
+function isNonClientAgencyFormType(formType) {
+  const ft = String(formType || '').toLowerCase();
+  return ft === 'job_application' || ft === 'medical_records_request';
+}
+
 function linkLooksLikeOfficeIntake(l) {
   if (!l) return false;
+  if (isNonClientAgencyFormType(l.form_type)) return false;
   if (Number(l.inherits_school_master || 0) === 1) return false;
   const scope = String(l.scope_type || '').toLowerCase();
   if (scope === 'school') return false;
   return Number(l.inherits_office_master || 0) === 1 || scope === 'agency';
 }
 
-const looksLikeOfficeIntake = computed(() =>
-  isOfficeInDepthIntake.value
-  || linkLooksLikeOfficeIntake(link.value)
-  || String(publicKey || '').toLowerCase().includes('office-intake')
-);
+const looksLikeOfficeIntake = computed(() => {
+  // Once the link is loaded, never treat job applications (or other non-client
+  // agency forms) as office in-depth — they share scope_type=agency.
+  if (link.value) return linkLooksLikeOfficeIntake(link.value);
+  return String(publicKey || '').toLowerCase().includes('office-intake');
+});
 
 const canBypassIntakeRequired = computed(() => {
   if (!authStore.isAuthenticated) return false;
@@ -3708,7 +3715,6 @@ const showFullPageLoading = computed(() =>
   loading.value
   && !looksLikeOfficeIntake.value
   && !fatalError.value
-  && Number(step.value) >= 1
 );
 
 const storesPhiInBrowser = computed(() => false);
@@ -4719,9 +4725,7 @@ const isSchoolScopedIntake = computed(() => {
 
 const isOfficeInDepthIntake = computed(() => {
   if (isSchoolScopedIntake.value) return false;
-  if (Number(link.value?.inherits_school_master || 0) === 1) return false;
-  return Number(link.value?.inherits_office_master || 0) === 1
-    || String(link.value?.scope_type || '').toLowerCase() === 'agency';
+  return linkLooksLikeOfficeIntake(link.value);
 });
 
 const joinThemeUrl = ref(JOIN_BOOT_THEME_URL);
@@ -11982,6 +11986,11 @@ onMounted(async () => {
   await loadLink();
   const restoredDraft = await restoreServerProgress();
   if (!sessionToken.value) {
+    if (isJobApplication.value || isMedicalRecordsRequest.value) {
+      step.value = -1;
+      await maybeInitRecaptchaForCover();
+      return;
+    }
     if (skipBrandingIntro.value) {
       if (!requiresCaptchaAtStart.value) {
         await beginIntakeSession();
