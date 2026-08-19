@@ -518,6 +518,14 @@ export async function getLifecycleData(userId) {
         // Read-only: set when status becomes ACTIVE_EMPLOYEE
         completedAt: toYmd(user.completed_at),
       },
+      credentials: await (async () => {
+        try {
+          const { getLifecycleCredentials } = await import('./onboardingCredentialPacket.service.js');
+          return await getLifecycleCredentials(userId);
+        } catch {
+          return null;
+        }
+      })(),
       groups: onboardingGroupList,
     },
     // Audit: why items were scoped (visibility no longer gated by this — see definitionIsVisible)

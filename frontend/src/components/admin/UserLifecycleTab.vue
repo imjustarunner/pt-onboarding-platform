@@ -225,6 +225,97 @@
             <p v-if="datesError" class="lc-save-error">{{ datesError }}</p>
           </div>
 
+          <!-- Accounts & Access credentials (replaces Google Doc checklist fields) -->
+          <div class="lc-dates-block">
+            <h4 class="lc-block-title">Accounts &amp; Access Credentials</h4>
+            <p class="lc-hint">Staff source of truth for the employee onboarding packet. Temp passwords appear once in the employee portal — never print them on a PDF.</p>
+            <div class="lc-dates-grid">
+              <div class="lc-date-field">
+                <label class="lc-date-label">Workspace email</label>
+                <input type="text" class="lc-date-input" :value="credentialsForm.workspaceEmail" disabled />
+              </div>
+              <div class="lc-date-field">
+                <label class="lc-date-label">Workspace temp password</label>
+                <input
+                  type="text"
+                  class="lc-date-input"
+                  :value="credentialsForm.workspaceTempPassword"
+                  :disabled="viewOnly"
+                  @change="credentialsForm.workspaceTempPassword = $event.target.value"
+                  @blur="saveCredentials"
+                />
+              </div>
+              <div class="lc-date-field">
+                <label class="lc-date-label">Grasshopper login</label>
+                <input
+                  type="text"
+                  class="lc-date-input"
+                  :value="credentialsForm.grasshopperLogin"
+                  :disabled="viewOnly"
+                  @change="credentialsForm.grasshopperLogin = $event.target.value"
+                  @blur="saveCredentials"
+                />
+              </div>
+              <div class="lc-date-field">
+                <label class="lc-date-label">Grasshopper extension</label>
+                <input
+                  type="text"
+                  class="lc-date-input"
+                  :value="credentialsForm.grasshopperExtension"
+                  :disabled="viewOnly"
+                  @change="credentialsForm.grasshopperExtension = $event.target.value"
+                  @blur="saveCredentials"
+                />
+              </div>
+              <div class="lc-date-field">
+                <label class="lc-date-label">Grasshopper PIN</label>
+                <input
+                  type="text"
+                  class="lc-date-input"
+                  :value="credentialsForm.grasshopperPin"
+                  :disabled="viewOnly"
+                  @change="credentialsForm.grasshopperPin = $event.target.value"
+                  @blur="saveCredentials"
+                />
+              </div>
+              <div class="lc-date-field">
+                <label class="lc-date-label">TherapyNotes username</label>
+                <input
+                  type="text"
+                  class="lc-date-input"
+                  :value="credentialsForm.therapynotesLogin"
+                  :disabled="viewOnly"
+                  @change="credentialsForm.therapynotesLogin = $event.target.value"
+                  @blur="saveCredentials"
+                />
+              </div>
+              <div class="lc-date-field">
+                <label class="lc-date-label">TherapyNotes temp password</label>
+                <input
+                  type="text"
+                  class="lc-date-input"
+                  :value="credentialsForm.therapynotesTempPassword"
+                  :disabled="viewOnly"
+                  @change="credentialsForm.therapynotesTempPassword = $event.target.value"
+                  @blur="saveCredentials"
+                />
+              </div>
+              <div class="lc-date-field">
+                <label class="lc-date-label">NPI number</label>
+                <input
+                  type="text"
+                  class="lc-date-input"
+                  :value="credentialsForm.npiNumber"
+                  :disabled="viewOnly"
+                  @change="credentialsForm.npiNumber = $event.target.value"
+                  @blur="saveCredentials"
+                />
+              </div>
+            </div>
+            <p v-if="credentialsSaved" class="lc-save-confirm">Saved.</p>
+            <p v-if="credentialsError" class="lc-save-error">{{ credentialsError }}</p>
+          </div>
+
           <!-- First supervision session (read-only, from Supervision tab) -->
           <div v-if="data.onboarding.firstSupervisionDate" class="lc-readonly-dates lc-supervision-note">
             <div class="lc-readonly-date-row">
@@ -726,6 +817,8 @@ const error = ref('');
 const data = ref(null);
 const datesSaved = ref(false);
 const datesError = ref('');
+const credentialsSaved = ref(false);
+const credentialsError = ref('');
 const sepSaved = ref(false);
 const sepError = ref('');
 const missingItemsExpanded = ref(false);
@@ -748,6 +841,17 @@ const datesForm = ref({
   first_client_date: null,
   first_payroll_submission_date: null,
   probation_end_date: null,
+});
+
+const credentialsForm = ref({
+  workspaceEmail: '',
+  workspaceTempPassword: '',
+  grasshopperLogin: '',
+  grasshopperExtension: '',
+  grasshopperPin: '',
+  therapynotesLogin: '',
+  therapynotesTempPassword: '',
+  npiNumber: '',
 });
 
 const separationForm = ref({
@@ -830,6 +934,17 @@ function populateForms() {
     first_payroll_submission_date: toYmd(ed.firstPayrollSubmissionDate),
     probation_end_date: toYmd(ed.probationEndDate),
   };
+  const cred = d.onboarding.credentials || {};
+  credentialsForm.value = {
+    workspaceEmail: cred.workspaceEmail || '',
+    workspaceTempPassword: cred.workspaceTempPassword || '',
+    grasshopperLogin: cred.grasshopperLogin || '',
+    grasshopperExtension: cred.grasshopperExtension || '',
+    grasshopperPin: cred.grasshopperPin || '',
+    therapynotesLogin: cred.therapynotesLogin || '',
+    therapynotesTempPassword: cred.therapynotesTempPassword || '',
+    npiNumber: cred.npiNumber || '',
+  };
   const sep = d.offboarding.separation;
   separationForm.value = {
     terminationDate: toYmd(d.offboarding.terminationDate),
@@ -872,6 +987,28 @@ async function saveDates() {
     await fetchLifecycle();
   } catch (e) {
     datesError.value = e?.response?.data?.error?.message || 'Failed to save dates';
+  }
+}
+
+async function saveCredentials() {
+  if (props.viewOnly) return;
+  credentialsSaved.value = false;
+  credentialsError.value = '';
+  try {
+    await api.patch(`/users/${props.userId}/lifecycle/credentials`, {
+      grasshopperLogin: credentialsForm.value.grasshopperLogin,
+      grasshopperExtension: credentialsForm.value.grasshopperExtension,
+      grasshopperPin: credentialsForm.value.grasshopperPin,
+      therapynotesLogin: credentialsForm.value.therapynotesLogin,
+      therapynotesTempPassword: credentialsForm.value.therapynotesTempPassword,
+      workspaceTempPassword: credentialsForm.value.workspaceTempPassword,
+      npiNumber: credentialsForm.value.npiNumber
+    });
+    credentialsSaved.value = true;
+    setTimeout(() => { credentialsSaved.value = false; }, 2500);
+    await fetchLifecycle();
+  } catch (e) {
+    credentialsError.value = e?.response?.data?.error?.message || 'Failed to save credentials';
   }
 }
 

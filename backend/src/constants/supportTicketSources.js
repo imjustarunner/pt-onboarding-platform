@@ -7,7 +7,8 @@ export const SUPPORT_TICKET_SOURCE_KEYS = Object.freeze({
   PUBLIC_SCHOOL_INTAKE_SPLASH: 'public_school_intake_splash',
   GUARDIAN_TEMP_PASSWORD: 'guardian_temp_password',
   GUARDIAN_ACCESS_TOKEN: 'guardian_access_token',
-  PUBLIC_AGENCY_SUPPORT: 'public_agency_support'
+  PUBLIC_AGENCY_SUPPORT: 'public_agency_support',
+  PREHIRE_PORTAL_CHAT: 'prehire_portal_chat'
 });
 
 export function normalizeSupportTicketSourceKey(value) {
@@ -27,7 +28,8 @@ export function supportTicketSourceLabel(value) {
     [SUPPORT_TICKET_SOURCE_KEYS.PUBLIC_SCHOOL_INTAKE_SPLASH]: 'Public School Intake Splash',
     [SUPPORT_TICKET_SOURCE_KEYS.GUARDIAN_TEMP_PASSWORD]: 'Guardian temporary password',
     [SUPPORT_TICKET_SOURCE_KEYS.GUARDIAN_ACCESS_TOKEN]: 'Guardian access token',
-    [SUPPORT_TICKET_SOURCE_KEYS.PUBLIC_AGENCY_SUPPORT]: 'Public agency support'
+    [SUPPORT_TICKET_SOURCE_KEYS.PUBLIC_AGENCY_SUPPORT]: 'Public agency support',
+    [SUPPORT_TICKET_SOURCE_KEYS.PREHIRE_PORTAL_CHAT]: 'Pre-hire portal chat'
   };
   return labels[key] || key;
 }

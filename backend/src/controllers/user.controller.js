@@ -10514,18 +10514,40 @@ export const promoteToOnboarding = async (req, res, next) => {
 
         // Send credentials based on sendMethod
         if (sendMethod === 'token') {
-          // Generate a passwordless token for initial onboarding login
+          // Keep one portal token: extend / regenerate and email /pre-hire/:token
+          // (same URL as pre-hire), not a separate passwordless-login link.
           try {
-            const tokenResult = await User.generatePasswordlessToken(parseInt(id), 7 * 24);
+            let portalToken = user.passwordless_token || null;
+            let expiresAt = user.passwordless_token_expires_at
+              ? new Date(user.passwordless_token_expires_at)
+              : null;
+            const needsNew =
+              !portalToken ||
+              !expiresAt ||
+              expiresAt.getTime() < Date.now() + 24 * 60 * 60 * 1000;
+            if (needsNew) {
+              const tokenResult = await User.generatePasswordlessToken(parseInt(id, 10), 14 * 24, 'prehire_portal');
+              portalToken = tokenResult.token;
+              expiresAt = tokenResult.expiresAt;
+            } else {
+              const bump = new Date();
+              bump.setDate(bump.getDate() + 14);
+              await pool.execute(
+                `UPDATE users SET passwordless_token_expires_at = ? WHERE id = ? AND passwordless_token IS NOT NULL`,
+                [bump, id]
+              );
+              expiresAt = bump;
+            }
             const Agency = (await import('../models/Agency.model.js')).default;
             const agency = agencyId ? await Agency.findById(agencyId) : null;
-            const tokenLink = buildPublicAppUrl(agency, `passwordless-login/${tokenResult.token}`);
-            if (user.personal_email) {
+            const tokenLink = buildPublicAppUrl(agency, `pre-hire/${portalToken}`);
+            const to = user.personal_email || user.email;
+            if (to) {
               const EmailService = (await import('../services/email.service.js')).default;
               await EmailService.sendEmail({
-                to: user.personal_email,
-                subject: 'Your onboarding access is ready',
-                text: `Hi ${user.first_name || 'there'},\n\nYou've been promoted to onboarding! Use the link below to access your onboarding checklist:\n\n${tokenLink}\n\nThis link is valid for 7 days.`
+                to,
+                subject: 'Your onboarding portal is ready',
+                text: `Hi ${user.first_name || 'there'},\n\nYou've been promoted to onboarding! Continue with the same personal portal link (bookmark it):\n\n${tokenLink}\n\nThis link is valid until ${expiresAt ? new Date(expiresAt).toLocaleString() : 'further notice'}.\n\nOnce your Google Workspace login works, you can also sign in with your work email.`
               }).catch(() => {});
             }
           } catch (te) { console.warn('[promoteToOnboarding] Token send failed:', te?.message); }

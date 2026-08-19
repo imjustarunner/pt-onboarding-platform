@@ -47,6 +47,7 @@ import {
 import {
   getUserLifecycle,
   updateLifecycleDates,
+  updateLifecycleCredentials,
   updateSeparationInfo,
   toggleLifecycleChecklistItem,
   setLifecycleChecklistNotApplicable,
@@ -183,6 +184,7 @@ router.get('/:id/onboarding-document', authenticate, getOnboardingDocument);
 // Lifecycle: backoffice admins + clinical practice assistants
 router.get('/:id/lifecycle', authenticate, requireBackofficeAdminOrCpa, getUserLifecycle);
 router.patch('/:id/lifecycle/dates', authenticate, requireBackofficeAdminOrCpa, updateLifecycleDates);
+router.patch('/:id/lifecycle/credentials', authenticate, requireBackofficeAdminOrCpa, updateLifecycleCredentials);
 router.patch('/:id/lifecycle/separation', authenticate, requireBackofficeAdminOrCpa, updateSeparationInfo);
 router.get('/:id/lifecycle/federal-background-expiration-years', authenticate, requireBackofficeAdminOrCpa, getFederalBackgroundExpirationYears);
 router.patch('/:id/lifecycle/federal-background-expiration-years', authenticate, requireBackofficeAdminOrCpa, updateFederalBackgroundExpirationYears);

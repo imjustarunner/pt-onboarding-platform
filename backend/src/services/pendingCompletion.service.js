@@ -287,19 +287,31 @@ class PendingCompletionService {
       console.warn('Phone auto-provisioning failed:', phoneError?.message || phoneError);
     }
     
-    // Update user status and lock access
-    // Do NOT generate temporary password or new passwordless token
-    // Status changes to PREHIRE_REVIEW, admin will promote to ONBOARDING
+    // Update user status — keep the same passwordless portal token so the candidate
+    // can continue on /pre-hire/:token through review and (later) onboarding.
+    // Extend expiry to 14 days from now so the link stays usable after submission.
     await User.updateStatus(userId, 'PREHIRE_REVIEW', userId);
+    const tokenExpiresAt = new Date();
+    tokenExpiresAt.setDate(tokenExpiresAt.getDate() + 14);
     await pool.execute(
       `UPDATE users 
        SET pending_completed_at = ?,
            pending_access_locked = TRUE,
-           passwordless_token = NULL,
-           passwordless_token_expires_at = NULL
+           passwordless_token_expires_at = COALESCE(passwordless_token_expires_at, ?)
        WHERE id = ?`,
-      [now, userId]
+      [now, tokenExpiresAt, userId]
     );
+    // Always bump expiry forward if token still exists
+    try {
+      await pool.execute(
+        `UPDATE users
+         SET passwordless_token_expires_at = ?
+         WHERE id = ? AND passwordless_token IS NOT NULL`,
+        [tokenExpiresAt, userId]
+      );
+    } catch {
+      /* ignore */
+    }
     
     // Notify admins/support
     await this.notifyPendingCompletion(userId, isAutoComplete);

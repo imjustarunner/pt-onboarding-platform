@@ -178,6 +178,14 @@ export const getPortal = async (req, res, next) => {
     const portalPath = token ? `/pre-hire/${token}` : null;
     const portalLink = portalPath ? `${resolveBaseUrl(req)}${portalPath}` : null;
 
+    let credentialPacket = null;
+    try {
+      const { getCredentialPacketForPortal } = await import('../services/onboardingCredentialPacket.service.js');
+      credentialPacket = await getCredentialPacketForPortal(userId);
+    } catch {
+      credentialPacket = null;
+    }
+
     res.json({
       candidate: {
         id: user.id,
@@ -193,6 +201,7 @@ export const getPortal = async (req, res, next) => {
       portalLink,
       portalPath,
       tokenExpiresAt: user.passwordless_token_expires_at || null,
+      credentialPacket,
       progress: {
         total: totalTasks,
         completed: completedTasks,
@@ -637,6 +646,20 @@ export const sendPortalMessage = async (req, res, next) => {
       isPortalMessage: true
     });
 
+    setImmediate(async () => {
+      try {
+        const { syncCandidatePortalMessageToTicket } = await import('../services/prehirePortalChatTicket.service.js');
+        const name = `${req.portalUser.first_name || ''} ${req.portalUser.last_name || ''}`.trim();
+        await syncCandidatePortalMessageToTicket({
+          candidateUserId: userId,
+          candidateName: name,
+          message
+        });
+      } catch (err) {
+        console.warn('[sendPortalMessage] ticket sync failed:', err?.message);
+      }
+    });
+
     res.status(201).json({
       id: note.id,
       message: note.message,
@@ -804,6 +827,55 @@ export const completePortalModule = async (req, res, next) => {
       portalLink: portalPath ? `${resolveBaseUrl(req)}${portalPath}` : null,
       message: 'Form completed. You can return to your portal anytime with your personal link.'
     });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+// ─── Credential packet (onboarding accounts & access) ─────────────────────────
+
+export const getPortalCredentialPacket = async (req, res, next) => {
+  try {
+    const { getCredentialPacketForPortal } = await import('../services/onboardingCredentialPacket.service.js');
+    const packet = await getCredentialPacketForPortal(req.portalUser.id);
+    res.json({ credentialPacket: packet });
+  } catch (e) { next(e); }
+};
+
+export const confirmPortalCredentialIdentity = async (req, res, next) => {
+  try {
+    const { confirmPortalIdentity } = await import('../services/onboardingCredentialPacket.service.js');
+    const packet = await confirmPortalIdentity(req.portalUser.id, {
+      legalFirstName: req.body?.legalFirstName ?? req.body?.firstName,
+      legalLastName: req.body?.legalLastName ?? req.body?.lastName,
+      personalPhone: req.body?.personalPhone ?? req.body?.phone
+    });
+    res.json({ ok: true, credentialPacket: packet });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const acknowledgePortalCredentialSystem = async (req, res, next) => {
+  try {
+    const { acknowledgePortalSystem } = await import('../services/onboardingCredentialPacket.service.js');
+    const systemKey = req.params.systemKey || req.body?.systemKey;
+    const packet = await acknowledgePortalSystem(req.portalUser.id, systemKey);
+    res.json({ ok: true, credentialPacket: packet });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const revealPortalCredentialTempPassword = async (req, res, next) => {
+  try {
+    const { revealPortalTempPassword } = await import('../services/onboardingCredentialPacket.service.js');
+    const systemKey = req.params.systemKey || req.body?.systemKey;
+    const result = await revealPortalTempPassword(req.portalUser.id, systemKey);
+    res.json(result);
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);

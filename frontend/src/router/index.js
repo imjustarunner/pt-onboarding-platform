@@ -2395,6 +2395,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canSignDocuments', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/contracts',
+    name: 'OrganizationContractGenerator',
+    component: () => import('../views/admin/ContractGeneratorView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canManageHiring', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/unassigned-documents',
     name: 'OrganizationUnassignedDocuments',
     component: () => import('../views/admin/UnassignedDocumentsView.vue'),
@@ -3829,6 +3835,12 @@ const routes = [
     name: 'DocumentsLibrary',
     component: () => import('../views/admin/DocumentsLibraryView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canSignDocuments' }
+  },
+  {
+    path: '/admin/contracts',
+    name: 'ContractGenerator',
+    component: () => import('../views/admin/ContractGeneratorView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canManageHiring' }
   },
   {
     path: '/admin/unassigned-documents',

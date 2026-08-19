@@ -18,9 +18,9 @@
       <div v-if="agency?.logoUrl" class="splash-logo"><img :src="agency.logoUrl" :alt="agency.name" /></div>
       <div class="done-icon">✓</div>
       <h2>You're all set!</h2>
-      <p>Your pre-hire documents have been submitted. Your hiring team will be in touch with next steps.</p>
+      <p>Your portal access has moved to your organization login. Sign in with Google SSO or your workspace email when ready.</p>
       <p class="contact-line">
-        Keep this page bookmarked if you still have the link — once your account is activated, you'll receive login details separately.
+        If you still need help, contact People Operations — your hiring team can re-send a temporary portal link if SSO is not live yet.
       </p>
       <p v-if="agency?.phoneNumber" class="contact-line">Questions? Call us at <strong>{{ agency.phoneNumber }}</strong></p>
     </div>
@@ -93,10 +93,90 @@
               <p v-if="tokenExpiresLabel" class="portal-link-expiry">Link valid until {{ tokenExpiresLabel }}</p>
             </section>
 
+            <!-- Onboarding credential packet (accounts & access) -->
+            <section
+              v-if="showCredentialPacket"
+              class="portal-credential-packet"
+              aria-label="Accounts and access"
+            >
+              <div class="portal-tasks-head">
+                <div>
+                  <h2>Accounts &amp; Access</h2>
+                  <p>Confirm your identity and acknowledge system logins. Temporary passwords are shown once.</p>
+                </div>
+              </div>
+
+              <div class="cred-card">
+                <h3>Identity &amp; contact</h3>
+                <div class="cred-grid">
+                  <label>
+                    <span>Legal first name</span>
+                    <input v-model="identityForm.firstName" type="text" />
+                  </label>
+                  <label>
+                    <span>Legal last name</span>
+                    <input v-model="identityForm.lastName" type="text" />
+                  </label>
+                  <label>
+                    <span>Personal phone</span>
+                    <input v-model="identityForm.phone" type="tel" />
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  class="btn-primary"
+                  :disabled="confirmingIdentity"
+                  @click="confirmIdentity"
+                >
+                  {{ credentialPacket?.identity?.confirmed ? 'Update &amp; confirm' : 'Confirm identity' }}
+                </button>
+                <p v-if="credentialPacket?.identity?.confirmed" class="cred-ok">Identity confirmed</p>
+              </div>
+
+              <div
+                v-for="sys in (credentialPacket?.systems || [])"
+                :key="sys.key"
+                class="cred-card"
+              >
+                <h3>{{ sys.label }}</h3>
+                <p v-if="sys.username" class="cred-meta"><strong>Username:</strong> {{ sys.username }}</p>
+                <p v-if="sys.extension" class="cred-meta"><strong>Extension:</strong> {{ sys.extension }}</p>
+                <p v-if="sys.pin" class="cred-meta"><strong>PIN:</strong> {{ sys.pin }}</p>
+                <p v-if="!sys.username && sys.key !== 'email'" class="cred-meta cred-muted">
+                  People Operations has not published this login yet.
+                </p>
+                <div class="cred-actions">
+                  <button
+                    v-if="sys.tempPasswordAvailable"
+                    type="button"
+                    class="btn-secondary-sm"
+                    @click="revealTempPassword(sys.key)"
+                  >
+                    Reveal temporary password (once)
+                  </button>
+                  <span v-else-if="sys.tempPasswordConsumed" class="cred-muted">Temp password already revealed</span>
+                  <button
+                    v-if="!sys.acknowledged"
+                    type="button"
+                    class="btn-primary"
+                    :disabled="ackingSystem === sys.key"
+                    @click="ackSystem(sys.key)"
+                  >
+                    I've logged in
+                  </button>
+                  <span v-else class="cred-ok">Acknowledged</span>
+                </div>
+                <p v-if="revealedPasswords[sys.key]" class="cred-secret">
+                  Temporary password: <code>{{ revealedPasswords[sys.key] }}</code>
+                  <span class="cred-muted"> — copy it now; it won't be shown again.</span>
+                </p>
+              </div>
+            </section>
+
             <section class="portal-tasks-section">
               <div class="portal-tasks-head">
                 <div>
-                  <h2>Your {{ isPrehire ? 'Pre-Hire' : 'Onboarding' }} Tasks</h2>
+                  <h2>Your {{ phaseLabel }} Tasks</h2>
                   <p>{{ completedCount }} of {{ totalCount }} completed</p>
                 </div>
                 <div class="portal-tasks-progress-wrap">
@@ -484,6 +564,81 @@ const copyPortalLink = async () => {
 const supportTeam = computed(() => portalData.value?.supportTeam || { label: 'People Operations', members: [] });
 const tasks = computed(() => portalData.value?.tasks || []);
 const progress = computed(() => portalData.value?.progress || { total: 0, completed: 0, allDone: false });
+const credentialPacket = computed(() => portalData.value?.credentialPacket || null);
+const showCredentialPacket = computed(() => {
+  const status = candidate.value.status;
+  return status === 'ONBOARDING' || status === 'PREHIRE_REVIEW' || !!credentialPacket.value;
+});
+const identityForm = ref({ firstName: '', lastName: '', phone: '' });
+const confirmingIdentity = ref(false);
+const ackingSystem = ref('');
+const revealedPasswords = ref({});
+
+watch(credentialPacket, (pkt) => {
+  if (!pkt?.identity) return;
+  identityForm.value = {
+    firstName: pkt.identity.legalFirstName || '',
+    lastName: pkt.identity.legalLastName || '',
+    phone: pkt.identity.personalPhone || ''
+  };
+}, { immediate: true });
+
+const confirmIdentity = async () => {
+  confirmingIdentity.value = true;
+  try {
+    const { data } = await portalApi.post(`/prehire-portal/${token.value}/credential-packet/confirm-identity`, {
+      legalFirstName: identityForm.value.firstName,
+      legalLastName: identityForm.value.lastName,
+      personalPhone: identityForm.value.phone
+    });
+    if (portalData.value && data?.credentialPacket) {
+      portalData.value.credentialPacket = data.credentialPacket;
+    }
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Could not confirm identity');
+  } finally {
+    confirmingIdentity.value = false;
+  }
+};
+
+const ackSystem = async (systemKey) => {
+  ackingSystem.value = systemKey;
+  try {
+    const { data } = await portalApi.post(
+      `/prehire-portal/${token.value}/credential-packet/systems/${systemKey}/acknowledge`
+    );
+    if (portalData.value && data?.credentialPacket) {
+      portalData.value.credentialPacket = data.credentialPacket;
+    }
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Could not save acknowledgement');
+  } finally {
+    ackingSystem.value = '';
+  }
+};
+
+const revealTempPassword = async (systemKey) => {
+  try {
+    const { data } = await portalApi.post(
+      `/prehire-portal/${token.value}/credential-packet/systems/${systemKey}/reveal-temp-password`
+    );
+    if (data?.revealed && data.password) {
+      revealedPasswords.value = { ...revealedPasswords.value, [systemKey]: data.password };
+      // Refresh packet so "available" flips to consumed
+      const refresh = await portalApi.get(`/prehire-portal/${token.value}/credential-packet`);
+      if (portalData.value && refresh.data?.credentialPacket) {
+        portalData.value.credentialPacket = refresh.data.credentialPacket;
+      }
+    } else {
+      alert(data?.reason === 'already_revealed'
+        ? 'That temporary password was already revealed and cannot be shown again. Contact People Operations if you need a reset.'
+        : 'No temporary password is available yet.');
+    }
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Could not reveal password');
+  }
+};
+
 const chatRef = ref(null);
 const currentYear = new Date().getFullYear();
 
@@ -578,9 +733,10 @@ const completedCount = computed(() => progress.value.requiredCompleted ?? progre
 const allDone = computed(() => progress.value.allDone);
 const progressPct = computed(() => totalCount.value > 0 ? Math.round((completedCount.value / totalCount.value) * 100) : 0);
 
-const isPrehire = computed(() => ['PENDING_SETUP', 'PREHIRE_OPEN'].includes(candidate.value.status));
-const phaseLabel = computed(() => isPrehire.value ? 'Pre-Hire' : 'Onboarding');
-const sectionLabel = computed(() => isPrehire.value ? 'PRE-HIRE ITEMS' : 'ONBOARDING CHECKLIST');
+const isPrehire = computed(() => ['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW'].includes(candidate.value.status));
+const isOnboardingPortal = computed(() => candidate.value.status === 'ONBOARDING');
+const phaseLabel = computed(() => isOnboardingPortal.value ? 'Onboarding' : 'Pre-Hire');
+const sectionLabel = computed(() => isOnboardingPortal.value ? 'ONBOARDING CHECKLIST' : 'PRE-HIRE ITEMS');
 const statusLabel = computed(() => {
   const map = {
     PENDING_SETUP: 'Awaiting setup',
@@ -1139,6 +1295,62 @@ onMounted(async () => {
 
 .portal-link-copy:hover {
   background: rgba(37, 99, 235, 0.08);
+}
+
+.portal-credential-packet {
+  margin: 20px 0 8px;
+}
+.cred-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 12px;
+}
+.cred-card h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+.cred-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.cred-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #64748b;
+}
+.cred-grid input {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  color: #0f172a;
+}
+.cred-meta { margin: 4px 0; font-size: 13px; color: #334155; }
+.cred-muted { color: #94a3b8; font-size: 12px; }
+.cred-ok { color: #16a34a; font-size: 13px; font-weight: 600; margin-top: 8px; }
+.cred-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+.cred-secret {
+  margin-top: 10px;
+  padding: 10px;
+  background: #fef3c7;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.cred-secret code {
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .portal-tasks-section {

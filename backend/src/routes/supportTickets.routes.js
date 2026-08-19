@@ -32,6 +32,9 @@ import {
   suggestSupportTicketActions,
   approveSupportTicketAction,
   rejectSupportTicketAction,
+  getSupportTicketResponsePlan,
+  buildSupportTicketResponsePlan,
+  dismissSupportTicketResponsePlan,
   listSupportTicketAttachments,
   downloadSupportTicketAttachment
 } from '../controllers/supportTickets.controller.js';
@@ -100,6 +103,9 @@ router.get('/:id/actions', requireAgencyAccess, listSupportTicketActions);
 router.post('/:id/suggest-actions', requireAgencyAccess, suggestSupportTicketActions);
 router.post('/:id/actions/:actionId/approve', requireAgencyAccess, approveSupportTicketAction);
 router.post('/:id/actions/:actionId/reject', requireAgencyAccess, rejectSupportTicketAction);
+router.get('/:id/response-plan', requireAgencyAccess, getSupportTicketResponsePlan);
+router.post('/:id/response-plan/build', requireAgencyAccess, buildSupportTicketResponsePlan);
+router.post('/:id/response-plan/dismiss', requireAgencyAccess, dismissSupportTicketResponsePlan);
 router.get('/:id/attachments', requireAgencyAccess, listSupportTicketAttachments);
 router.get('/:id/attachments/:attachmentId/download', requireAgencyAccess, downloadSupportTicketAttachment);
 

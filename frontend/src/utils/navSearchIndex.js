@@ -505,6 +505,13 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Agency documents — view, sign, and manage.'
   },
   {
+    title: 'Contract Generator',
+    section: 'People Ops › Hiring',
+    path: '/admin/contracts',
+    keywords: ['contract', 'employment agreement', 'clauses', 'pay table', 'offer letter', 'contract generator'],
+    desc: 'Build and assign employment contracts from editable clauses and pay levels.'
+  },
+  {
     title: 'Hiring Dashboard',
     section: 'People Ops › Hiring',
     path: '/admin/hiring',

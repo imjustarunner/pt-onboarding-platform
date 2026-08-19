@@ -4,7 +4,8 @@ export const TICKET_TOPICS = [
   { id: 'general', label: 'General support', short: 'General' },
   { id: 'billing', label: 'Billing', short: 'Billing' },
   { id: 'credentialing', label: 'Credentialing', short: 'Credentialing' },
-  { id: 'payroll', label: 'Payroll', short: 'Payroll' }
+  { id: 'payroll', label: 'Payroll', short: 'Payroll' },
+  { id: 'people_operations', label: 'People Operations', short: 'People Ops' }
 ];
 
 /** Guardians: general + billing only */
@@ -17,9 +18,9 @@ export const PROVIDER_TICKET_TOPICS = TICKET_TOPICS.filter((t) =>
   ['general', 'credentialing', 'billing'].includes(t.id)
 );
 
-/** Staff / CPA: general + payroll (+ billing) */
+/** Staff / CPA: general + payroll + people ops (+ billing) */
 export const STAFF_TICKET_TOPICS = TICKET_TOPICS.filter((t) =>
-  ['general', 'payroll', 'billing'].includes(t.id)
+  ['general', 'payroll', 'billing', 'people_operations'].includes(t.id)
 );
 
 export function normalizeTicketTopic(raw, { allowedIds = null } = {}) {

@@ -164,6 +164,18 @@ export const updateLifecycleDates = async (req, res, next) => {
   }
 };
 
+export const updateLifecycleCredentials = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+    const { saveLifecycleCredentials } = await import('../services/onboardingCredentialPacket.service.js');
+    const credentials = await saveLifecycleCredentials(userId, req.body || {});
+    res.json({ ok: true, credentials });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const updateSeparationInfo = async (req, res, next) => {
   try {
     const userId = parseInt(req.params.id, 10);

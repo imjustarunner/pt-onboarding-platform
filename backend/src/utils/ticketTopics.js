@@ -1,4 +1,4 @@
-export const TICKET_TOPICS = ['general', 'billing', 'credentialing', 'payroll'];
+export const TICKET_TOPICS = ['general', 'billing', 'credentialing', 'payroll', 'people_operations'];
 
 export function normalizeTicketTopic(raw, { allowed = null } = {}) {
   const t = String(raw || 'general').trim().toLowerCase();
@@ -11,7 +11,7 @@ export function allowedTopicsForCreatorRole(role) {
   const r = String(role || '').toLowerCase();
   if (r === 'client_guardian') return ['general', 'billing'];
   if (r === 'provider' || r === 'provider_plus') return ['general', 'credentialing', 'billing'];
-  if (r === 'staff' || r === 'clinical_practice_assistant') return ['general', 'payroll', 'billing'];
+  if (r === 'staff' || r === 'clinical_practice_assistant') return ['general', 'payroll', 'billing', 'people_operations'];
   if (r === 'admin' || r === 'support' || r === 'super_admin') return [...TICKET_TOPICS];
   if (r === 'school_staff') return ['general', 'billing'];
   return ['general'];

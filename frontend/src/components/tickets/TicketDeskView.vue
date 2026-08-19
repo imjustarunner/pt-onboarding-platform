@@ -363,6 +363,84 @@
               </div>
 
               <div
+                v-if="canAnswer && isEmailTicket && visibleResponsePlan && !responsePlanDismissed"
+                class="response-plan-banner"
+                :class="{ collapsed: responsePlanCollapsed }"
+              >
+                <div class="response-plan-head">
+                  <strong>{{ visibleResponsePlan.title || 'Response plan' }}</strong>
+                  <span class="muted"> · {{ responsePlanStatusLabel(visibleResponsePlan.status) }}</span>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-xs"
+                    :disabled="responsePlanLoading"
+                    @click="refreshResponsePlan"
+                  >
+                    {{ responsePlanLoading ? 'Refreshing…' : 'Refresh' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-xs"
+                    @click="responsePlanCollapsed = !responsePlanCollapsed"
+                  >
+                    {{ responsePlanCollapsed ? 'Show' : 'Hide' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    title="Dismiss"
+                    @click="dismissResponsePlan"
+                  >
+                    ×
+                  </button>
+                </div>
+                <template v-if="!responsePlanCollapsed">
+                  <ol class="response-plan-steps">
+                    <li
+                      v-for="step in visibleResponsePlan.steps"
+                      :key="`plan-step-${step.step}-${step.type}-${step.actionItemId || ''}`"
+                      class="response-plan-step"
+                      :class="`step-${step.status}`"
+                    >
+                      <div class="response-plan-step-main">
+                        <span class="response-plan-step-num">{{ step.step }}</span>
+                        <div>
+                          <div class="response-plan-step-title">
+                            {{ responsePlanStepTypeLabel(step.type) }}: {{ step.title }}
+                          </div>
+                          <div v-if="step.detail" class="response-plan-step-detail muted">{{ step.detail }}</div>
+                        </div>
+                        <span class="response-plan-step-status">{{ responsePlanStepStatusLabel(step.status) }}</span>
+                      </div>
+                      <div v-if="step.type === 'draft_reply' && step.status === 'ready'" class="response-plan-step-actions">
+                        <button
+                          v-if="selected.ai_draft_response"
+                          type="button"
+                          class="btn btn-secondary btn-xs"
+                          @click="useAiDraft"
+                        >
+                          Use AI draft
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-xs"
+                          :disabled="generatingDraft"
+                          @click="generateDraft"
+                        >
+                          {{ generatingDraft ? 'Generating…' : 'Generate draft' }}
+                        </button>
+                      </div>
+                      <div v-else-if="step.type === 'notify' && step.status === 'ready'" class="response-plan-step-actions">
+                        <button type="button" class="btn btn-primary btn-xs" @click="focusComposerForReply">
+                          Review & send reply
+                        </button>
+                      </div>
+                    </li>
+                  </ol>
+                </template>
+              </div>
+
+              <div
                 v-if="canAnswer && !suggestedActionsDismissed && (ticketActions.length || ticketActionsLoading)"
                 class="suggested-actions-banner"
                 :class="{ collapsed: suggestedActionsCollapsed }"
@@ -454,17 +532,27 @@
                 </template>
               </div>
 
-              <div v-if="selected.ai_draft_response && canAnswer" class="ai-draft-banner">
+              <div v-if="showAutoDraftBanner" class="ai-draft-banner">
                 <div class="ai-draft-head">
-                  <strong>AI draft</strong>
+                  <strong>{{ generatingDraft ? 'Preparing AI draft…' : 'AI draft ready' }}</strong>
+                  <span v-if="!generatingDraft" class="muted"> · review, edit if needed, then send as Official answer</span>
                   <span v-if="selected.ai_draft_review_state" class="muted">
                     · {{ selected.ai_draft_review_state }}
                   </span>
                   <span v-if="selected.sent_at" class="muted"> · sent {{ formatDateTime(selected.sent_at) }}</span>
                 </div>
-                <div class="ai-draft-body">{{ selected.ai_draft_response }}</div>
-                <div class="ai-draft-actions">
-                  <button type="button" class="btn btn-secondary btn-xs" @click="useAiDraft">Use draft</button>
+                <div v-if="visibleDraftSources.length && !generatingDraft" class="draft-sources">
+                  <div class="draft-sources-label">Draft based on:</div>
+                  <ul class="draft-sources-list">
+                    <li v-for="(src, idx) in visibleDraftSources" :key="`${src.type}-${src.id || idx}`">
+                      <span class="draft-source-type">{{ draftSourceTypeLabel(src.type) }}</span>
+                      {{ src.label }}
+                      <span v-if="src.detail" class="muted"> — {{ src.detail }}</span>
+                    </li>
+                  </ul>
+                </div>
+                <div v-if="!generatingDraft" class="ai-draft-body">{{ prominentDraftText }}</div>
+                <div v-if="!generatingDraft && selected.ai_draft_response" class="ai-draft-actions">
                   <button type="button" class="btn btn-secondary btn-xs" @click="copyAiDraft">Copy</button>
                   <button
                     type="button"
@@ -485,6 +573,14 @@
                   <button
                     type="button"
                     class="btn btn-secondary btn-xs"
+                    :disabled="reviewingDraft"
+                    @click="rejectAiDraft"
+                  >
+                    Reject
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-xs"
                     :disabled="markingSent"
                     @click="markDraftSent"
                   >
@@ -493,7 +589,7 @@
                 </div>
               </div>
 
-              <div class="composer">
+              <div ref="composerEl" class="composer">
                 <div v-if="canInternal || canAnswer" class="composer-tabs">
                   <button
                     type="button"
@@ -527,6 +623,26 @@
                   rows="3"
                   :placeholder="composerPlaceholder"
                 />
+                <div v-if="visibleDraftSources.length && composerMode !== 'internal'" class="draft-sources composer-draft-sources">
+                  <div class="draft-sources-label">Draft based on:</div>
+                  <ul class="draft-sources-list">
+                    <li v-for="(src, idx) in visibleDraftSources" :key="`composer-${src.type}-${src.id || idx}`">
+                      <span class="draft-source-type">{{ draftSourceTypeLabel(src.type) }}</span>
+                      {{ src.label }}
+                    </li>
+                  </ul>
+                </div>
+                <label v-if="composerMode === 'answer' && canAnswer" class="promote-library-check">
+                  <input v-model="promoteToLibrary" type="checkbox" />
+                  Save this answer to the reply library
+                </label>
+                <input
+                  v-if="composerMode === 'answer' && canAnswer && promoteToLibrary"
+                  v-model="promoteLibraryTitle"
+                  type="text"
+                  class="promote-library-title"
+                  placeholder="Library template title (optional)"
+                />
                 <div v-if="actionError" class="error">{{ actionError }}</div>
                 <div class="composer-actions">
                   <button
@@ -537,6 +653,16 @@
                     @click="generateDraft"
                   >
                     {{ generatingDraft ? 'Generating…' : 'AI draft' }}
+                  </button>
+                  <button
+                    v-if="canAnswer"
+                    type="button"
+                    class="btn btn-secondary"
+                    :disabled="!replyLibraryAgencyId"
+                    @click="showReplyLibrary = true"
+                  >
+                    Reply library
+                    <span v-if="pendingProposalCount" class="reply-lib-badge">{{ pendingProposalCount }}</span>
                   </button>
                   <button
                     v-if="composerMode === 'answer'"
@@ -677,6 +803,16 @@
       </section>
     </div>
   </div>
+
+  <SchoolSupportReplyLibraryModal
+    :open="showReplyLibrary"
+    :agency-id="replyLibraryAgencyId"
+    :ticket-id="selected?.id"
+    :school-organization-id="selected?.school_organization_id"
+    @close="showReplyLibrary = false"
+    @insert="insertReplyLibraryText"
+    @proposals-updated="pendingProposalCount = $event"
+  />
 </template>
 
 <script setup>
@@ -686,6 +822,7 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import TenantContextSwitcher from '../TenantContextSwitcher.vue';
+import SchoolSupportReplyLibraryModal from './SchoolSupportReplyLibraryModal.vue';
 import {
   TICKET_TOPICS,
   ticketTopicLabel,
@@ -814,10 +951,97 @@ const assigneesForSelectedTopic = computed(() => {
   });
 });
 const generatingDraft = ref(false);
+const autoDraftPreparedIds = ref(new Set());
 const reviewingDraft = ref(false);
 const markingSent = ref(false);
+const showReplyLibrary = ref(false);
+const promoteToLibrary = ref(false);
+const promoteLibraryTitle = ref('');
+const draftSources = ref([]);
+const pendingProposalCount = ref(0);
+const visibleDraftSources = computed(() => {
+  if (draftSources.value.length) return draftSources.value;
+  return Array.isArray(selected.value?.draft_sources) ? selected.value.draft_sources : [];
+});
+
+function draftSourceTypeLabel(type) {
+  const map = {
+    ticket: 'Ticket',
+    school: 'School',
+    client: 'Client',
+    checklist: 'Checklist',
+    checklist_item: 'Checklist',
+    provider_assignment: 'Provider',
+    ticket_message: 'Message',
+    client_note: 'Note',
+    prior_ticket: 'Prior ticket',
+    reply_library: 'Library',
+    ticket_answer: 'Past reply',
+    past_reply: 'Past reply',
+    prompt_guardrail: 'Guardrail',
+    attachment: 'Attachment',
+    intent: 'Intent'
+  };
+  return map[String(type || '').toLowerCase()] || 'Source';
+}
+
+const visibleResponsePlan = computed(() => {
+  const plan = responsePlan.value;
+  if (!plan || plan.status === 'dismissed') return null;
+  return plan;
+});
+
+function responsePlanStatusLabel(status) {
+  const map = {
+    proposed: 'Proposed',
+    in_progress: 'In progress',
+    completed: 'Completed',
+    dismissed: 'Dismissed'
+  };
+  return map[String(status || '').toLowerCase()] || 'Proposed';
+}
+
+function responsePlanStepTypeLabel(type) {
+  const map = {
+    match_client: 'Match',
+    pull_status: 'Status',
+    draft_reply: 'Draft',
+    action_item: 'Action',
+    notify: 'Send'
+  };
+  return map[String(type || '').toLowerCase()] || 'Step';
+}
+
+function responsePlanStepStatusLabel(status) {
+  const map = {
+    done: 'Done',
+    ready: 'Ready',
+    blocked: 'Blocked',
+    skipped: 'Skipped',
+    needs_approval: 'Needs approval',
+    failed: 'Failed'
+  };
+  return map[String(status || '').toLowerCase()] || status || '';
+}
+
+function focusComposerForReply() {
+  composerMode.value = 'answer';
+  if (selected.value?.ai_draft_response && !draft.value.trim()) {
+    useAiDraft();
+  }
+  composerEl.value?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+}
+
+const replyLibraryAgencyId = computed(() =>
+  Number(selected.value?.agency_id || agencyIdInput.value || agencyStore.currentAgency?.id || 0) || null
+);
 const ticketActions = ref([]);
 const ticketActionsLoading = ref(false);
+const responsePlan = ref(null);
+const responsePlanLoading = ref(false);
+const responsePlanCollapsed = ref(false);
+const responsePlanDismissed = ref(false);
+const composerEl = ref(null);
 const suggestingActions = ref(false);
 const actionBusyId = ref(null);
 const ticketAttachments = ref([]);
@@ -924,6 +1148,26 @@ const canActOnSelected = computed(() => {
   if (!claimed) return true;
   return claimed === Number(myUserId.value || 0);
 });
+
+function ticketIsAwaitingAnswer(t = selected.value) {
+  if (!t) return false;
+  const status = String(t?.status || '').toLowerCase();
+  return !['answered', 'closed'].includes(status) && !t?.sent_at;
+}
+
+const prominentDraftText = computed(() => {
+  const fromTicket = String(selected.value?.ai_draft_response || '').trim();
+  if (fromTicket) return fromTicket;
+  if (composerMode.value === 'answer') return String(draft.value || '').trim();
+  return '';
+});
+
+const showAutoDraftBanner = computed(() =>
+  canAnswer.value
+  && isEmailTicket.value
+  && ticketIsAwaitingAnswer(selected.value)
+  && (generatingDraft.value || !!prominentDraftText.value)
+);
 
 const composerPlaceholder = computed(() => {
   if (composerMode.value === 'internal') return 'Internal note (agency only)…';
@@ -1204,6 +1448,7 @@ function selectTicket(t) {
   detailTab.value = 'conversation';
   composerMode.value = 'reply';
   draft.value = '';
+  draftSources.value = [];
   actionError.value = '';
   assignToId.value = '';
   showForward.value = false;
@@ -1211,6 +1456,9 @@ function selectTicket(t) {
   forwardSelectedIds.value = [];
   forwardNote.value = '';
   ticketActions.value = [];
+  responsePlan.value = null;
+  responsePlanDismissed.value = false;
+  responsePlanCollapsed.value = false;
   ticketAttachments.value = [];
   suggestedActionsDismissed.value = false;
   suggestedActionsCollapsed.value = false;
@@ -1221,6 +1469,31 @@ function selectTicket(t) {
   loadMessages(t.id);
   if (canAssignOthers.value) loadAssignees(t);
   if (canAnswer.value) loadTicketActions(t.id);
+  if (canAnswer.value && isEmailTicket.value) loadResponsePlan(t.id);
+  nextTick(() => {
+    maybeAutoPrepareDraftOnOpen(t);
+  });
+}
+
+async function maybeAutoPrepareDraftOnOpen(t) {
+  const ticket = t || selected.value;
+  if (!ticket?.id || !canAnswer.value) return;
+  if (String(ticket.source_channel || '').toLowerCase() !== 'email') return;
+  if (!ticketIsAwaitingAnswer(ticket)) return;
+  if (autoDraftPreparedIds.value.has(ticket.id)) return;
+  if (!canActOnSelected.value) return;
+
+  autoDraftPreparedIds.value = new Set([...autoDraftPreparedIds.value, ticket.id]);
+
+  const existing = String(ticket.ai_draft_response || '').trim();
+  if (existing) {
+    composerMode.value = 'answer';
+    draft.value = existing;
+    return;
+  }
+
+  if (generatingDraft.value) return;
+  await generateDraft();
 }
 
 function clearSelection() {
@@ -1228,6 +1501,9 @@ function clearSelection() {
   selected.value = null;
   messages.value = [];
   ticketActions.value = [];
+  responsePlan.value = null;
+  responsePlanDismissed.value = false;
+  responsePlanCollapsed.value = false;
   ticketAttachments.value = [];
   suggestedActionsDismissed.value = false;
   oneTimePasswords.value = {};
@@ -1267,6 +1543,56 @@ async function openTicketAttachment(att) {
   }
 }
 
+async function loadResponsePlan(ticketId) {
+  const id = Number(ticketId || selected.value?.id || 0);
+  if (!id || !canAnswer.value) {
+    responsePlan.value = null;
+    return;
+  }
+  responsePlanLoading.value = true;
+  try {
+    const r = await api.get(`/support-tickets/${id}/response-plan`, { skipGlobalLoading: true });
+    responsePlan.value = r.data?.responsePlan || null;
+  } catch (e) {
+    responsePlan.value = null;
+    if (e?.response?.status !== 404 && e?.response?.status !== 409) {
+      console.warn('Failed to load response plan', e?.message || e);
+    }
+  } finally {
+    responsePlanLoading.value = false;
+  }
+}
+
+async function refreshResponsePlan() {
+  if (!selected.value?.id) return;
+  responsePlanLoading.value = true;
+  actionError.value = '';
+  try {
+    const r = await api.post(`/support-tickets/${selected.value.id}/response-plan/build`, {}, { skipGlobalLoading: true });
+    responsePlan.value = r.data?.responsePlan || null;
+    responsePlanDismissed.value = false;
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to refresh response plan';
+  } finally {
+    responsePlanLoading.value = false;
+  }
+}
+
+async function dismissResponsePlan() {
+  if (!selected.value?.id) {
+    responsePlanDismissed.value = true;
+    return;
+  }
+  try {
+    const r = await api.post(`/support-tickets/${selected.value.id}/response-plan/dismiss`, {}, { skipGlobalLoading: true });
+    responsePlan.value = r.data?.responsePlan || null;
+  } catch {
+    // ignore
+  } finally {
+    responsePlanDismissed.value = true;
+  }
+}
+
 async function loadTicketActions(ticketId) {
   const id = Number(ticketId || selected.value?.id || 0);
   if (!id || !canAnswer.value) {
@@ -1295,6 +1621,7 @@ async function rerunSuggestActions() {
   try {
     const r = await api.post(`/support-tickets/${selected.value.id}/suggest-actions`, { force: true });
     ticketActions.value = Array.isArray(r.data?.actions) ? r.data.actions : [];
+    responsePlan.value = r.data?.responsePlan || responsePlan.value;
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to suggest actions';
   } finally {
@@ -1327,6 +1654,7 @@ async function approveTicketAction(action) {
     if (temp) {
       oneTimePasswords.value = { ...oneTimePasswords.value, [action.id]: temp };
     }
+    if (r.data?.responsePlan) responsePlan.value = r.data.responsePlan;
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to approve action';
     await loadTicketActions(selected.value.id);
@@ -1351,6 +1679,7 @@ async function rejectTicketAction(action) {
     } else {
       await loadTicketActions(selected.value.id);
     }
+    if (r.data?.responsePlan) responsePlan.value = r.data.responsePlan;
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to reject action';
   } finally {
@@ -1520,6 +1849,14 @@ async function assignTicket() {
   }
 }
 
+function insertReplyLibraryText(text) {
+  const chunk = String(text || '').trim();
+  if (!chunk) return;
+  const existing = draft.value.trim();
+  draft.value = existing ? `${existing}\n\n${chunk}` : chunk;
+  composerMode.value = 'answer';
+}
+
 async function generateDraft() {
   if (!selected.value?.id) return;
   if (!canActOnSelected.value) {
@@ -1534,6 +1871,7 @@ async function generateDraft() {
     }
     const r = await api.post(`/support-tickets/${selected.value.id}/generate-response`);
     const text = String(r.data?.suggestedAnswer || '').trim();
+    draftSources.value = Array.isArray(r.data?.draftSources) ? r.data.draftSources : [];
     if (!text) {
       actionError.value = 'No draft was generated.';
       return;
@@ -1541,9 +1879,9 @@ async function generateDraft() {
     const existing = draft.value.trim();
     draft.value = existing ? `${existing}\n\n---\n\n${text}` : text;
     composerMode.value = 'answer';
-    await loadTickets();
     const found = tickets.value.find((x) => x.id === selected.value.id);
     if (found) selected.value = { ...selected.value, ...found };
+    await loadResponsePlan(selected.value.id);
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to generate draft';
   } finally {
@@ -1568,12 +1906,12 @@ async function copyAiDraft() {
   }
 }
 
-async function markDraftReview(state) {
+async function markDraftReview(state, note = '') {
   if (!selected.value?.id) return;
   reviewingDraft.value = true;
   actionError.value = '';
   try {
-    await api.post(`/support-tickets/${selected.value.id}/review-draft`, { state });
+    await api.post(`/support-tickets/${selected.value.id}/review-draft`, { state, note: note || undefined });
     await loadTickets();
     const found = tickets.value.find((x) => x.id === selected.value.id);
     if (found) selected.value = { ...selected.value, ...found };
@@ -1581,6 +1919,29 @@ async function markDraftReview(state) {
     actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to update draft review';
   } finally {
     reviewingDraft.value = false;
+  }
+}
+
+function rejectAiDraft() {
+  const note = window.prompt('Why is this draft being rejected? (helps future AI drafts)');
+  if (note === null) return;
+  markDraftReview('rejected', String(note).trim());
+}
+
+async function loadPendingProposalCount() {
+  const agencyId = replyLibraryAgencyId.value;
+  if (!agencyId) {
+    pendingProposalCount.value = 0;
+    return;
+  }
+  try {
+    const r = await api.get('/school-support-reply-library/proposals/count', {
+      params: { agencyId },
+      skipGlobalLoading: true
+    });
+    pendingProposalCount.value = Number(r.data?.count || 0);
+  } catch {
+    pendingProposalCount.value = 0;
   }
 }
 
@@ -1616,12 +1977,22 @@ async function submitOfficialAnswer() {
     await api.post(`/support-tickets/${selected.value.id}/answer`, {
       answer: answerFinal,
       status: 'answered',
-      aiDraftDecision
+      aiDraftDecision,
+      promoteToLibrary: promoteToLibrary.value
+        ? {
+            title: promoteLibraryTitle.value.trim() || undefined
+          }
+        : undefined
     });
     draft.value = '';
+    promoteToLibrary.value = false;
+    promoteLibraryTitle.value = '';
+    draftSources.value = [];
+    await loadPendingProposalCount();
     composerMode.value = 'reply';
     await loadAll();
     await loadMessages(selected.value.id);
+    await loadResponsePlan(selected.value.id);
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to submit answer';
   } finally {
@@ -1741,6 +2112,7 @@ onMounted(async () => {
     agencyIdInput.value = 'platform';
   }
   await loadAll();
+  await loadPendingProposalCount();
   const qid = parseInt(String(route.query?.ticketId || ''), 10);
   if (Number.isFinite(qid) && qid > 0) {
     const found = tickets.value.find((t) => t.id === qid);
@@ -2198,6 +2570,147 @@ defineExpose({ loadAll, clearSelection });
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
+}
+.library-sources {
+  font-size: 12px;
+  margin-top: 6px;
+}
+.draft-sources {
+  font-size: 12px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--surface-muted, #f8fafc);
+  border-radius: 8px;
+  border: 1px solid var(--border, #e2e8f0);
+}
+.composer-draft-sources {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+.draft-sources-label {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.draft-sources-list {
+  margin: 0;
+  padding-left: 18px;
+}
+.draft-sources-list li {
+  margin: 2px 0;
+}
+.draft-source-type {
+  display: inline-block;
+  min-width: 72px;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+}
+.response-plan-banner {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+}
+.response-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.response-plan-steps {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.response-plan-step {
+  padding: 8px 0;
+  border-top: 1px solid var(--border, #e2e8f0);
+}
+.response-plan-step:first-child {
+  border-top: none;
+}
+.response-plan-step-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.response-plan-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.response-plan-step-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.response-plan-step-detail {
+  font-size: 12px;
+  margin-top: 2px;
+}
+.response-plan-step-status {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted, #64748b);
+}
+.response-plan-step.step-done .response-plan-step-num {
+  background: #dcfce7;
+  color: #166534;
+}
+.response-plan-step.step-ready .response-plan-step-num {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.response-plan-step.step-blocked .response-plan-step-num,
+.response-plan-step.step-failed .response-plan-step-num {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.response-plan-step.step-needs_approval .response-plan-step-num {
+  background: #fef3c7;
+  color: #b45309;
+}
+.response-plan-step-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  margin-left: 32px;
+}
+.promote-library-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-top: 8px;
+}
+.promote-library-title {
+  width: 100%;
+  margin-top: 6px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+}
+.reply-lib-badge {
+  display: inline-flex;
+  min-width: 18px;
+  justify-content: center;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #f97316;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
 }
 .ai-draft-banner {
   margin: 0 12px;

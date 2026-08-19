@@ -3,8 +3,8 @@
  *
  * Validates the `token` route param (or `x-prehire-token` header) against
  * `users.passwordless_token`. Unlike the login flow this does NOT clear the
- * token on use — the candidate keeps the same token for the entire portal session
- * until they are promoted out of PENDING_SETUP / PREHIRE_OPEN.
+ * token on use — the candidate keeps the same token from pre-hire through
+ * onboarding until Google SSO (or another login) takes over.
  *
  * Attaches `req.portalUser` with the minimal user record needed for portal ops.
  * Attach point is separate from `req.user` to avoid interfering with any staff
@@ -12,9 +12,8 @@
  */
 import User from '../models/User.model.js';
 
-// PREHIRE_REVIEW is also valid — candidate has finished all tasks and is awaiting staff review,
-// but should still be able to view their completed portal.
-const VALID_STATUSES = new Set(['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW']);
+// ONBOARDING keeps the same /pre-hire/:token URL after promote; UI swaps task set.
+const VALID_STATUSES = new Set(['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW', 'ONBOARDING']);
 
 export async function authenticatePrehireToken(req, res, next) {
   const token = req.params.token || req.headers['x-prehire-token'] || req.query.prehireToken;
@@ -31,11 +30,11 @@ export async function authenticatePrehireToken(req, res, next) {
     }
 
     if (!VALID_STATUSES.has(user.status)) {
-      // Token still exists but the user has already advanced past pre-hire
+      // Token still exists but the user has already advanced past the portal phases
       return res.status(403).json({
         error: {
           code: 'STATUS_ADVANCED',
-          message: 'Your pre-hire process has already been completed. Please log in with your organisation credentials.',
+          message: 'Your account is active. Please log in with your organization credentials (Google SSO or workspace email).',
           status: user.status
         }
       });

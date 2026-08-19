@@ -182,7 +182,8 @@
                     <button class="phr-action-btn" @click.stop="toggleMenu(c.id)">⋮</button>
                     <div v-if="openMenu === c.id" class="phr-action-menu" @mouseleave="openMenu = null">
                       <button class="phr-action-item" @click="selectUser(c.id); openMenu = null">View details</button>
-                      <button class="phr-action-item" @click="resendLink(c); openMenu = null">Resend setup link</button>
+                      <button class="phr-action-item" @click="emailPortalLink(c); openMenu = null">Email portal link</button>
+                      <button class="phr-action-item" @click="resendLink(c); openMenu = null">Generate new portal link</button>
                       <button v-if="c.status === 'PREHIRE_REVIEW'" class="phr-action-item phr-action-item-green" @click="openPromoteModal(c); openMenu = null">Move to Onboarding…</button>
                       <button class="phr-action-item phr-action-item-danger" @click="markNotHired(c); openMenu = null">Mark as Not hired</button>
                     </div>
@@ -254,7 +255,8 @@
             <button class="phr-btn phr-btn-ghost phr-btn-sm" @click="selectedId = null">← Back to list</button>
             <button class="phr-action-btn" @click="toggleMenu('detail')">⋮</button>
             <div v-if="openMenu === 'detail'" class="phr-action-menu phr-action-menu-right" @mouseleave="openMenu = null">
-              <button class="phr-action-item" @click="resendLink(selectedUser); openMenu = null">Resend setup link</button>
+              <button class="phr-action-item" @click="emailPortalLink(selectedUser); openMenu = null">Email portal link</button>
+              <button class="phr-action-item" @click="resendLink(selectedUser); openMenu = null">Generate new portal link</button>
               <button v-if="selectedUser.status === 'PREHIRE_REVIEW'" class="phr-action-item phr-action-item-green" @click="openPromoteModal(selectedUser); openMenu = null">Move to Onboarding…</button>
               <button class="phr-action-item phr-action-item-danger" @click="markNotHired(selectedUser); openMenu = null">Mark as Not hired</button>
             </div>
@@ -344,6 +346,14 @@
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
                   {{ actionLoading ? 'Generating…' : 'Generate New Portal Link' }}
                 </button>
+                <button
+                  class="phr-email-btn"
+                  @click="emailPortalLink(selectedUser)"
+                  :disabled="actionLoading || emailingLink"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                  {{ emailingLink ? 'Emailing…' : 'Email portal link' }}
+                </button>
                 <span v-if="selectedUser.prehire_token_expires_at" class="phr-token-expiry">
                   Expires {{ fmtDateTime(selectedUser.prehire_token_expires_at) }}
                 </span>
@@ -432,6 +442,12 @@
               <!-- Assign document -->
               <div class="phr-assign-doc-bar">
                 <button v-if="!showAssignDoc" class="phr-btn phr-btn-ghost phr-btn-sm" @click="openAssignDoc">+ Assign Document</button>
+                <router-link
+                  class="phr-btn phr-btn-ghost phr-btn-sm"
+                  :to="contractGeneratorRoute"
+                >
+                  Generate contract
+                </router-link>
                 <div v-else class="phr-assign-doc-form">
                   <select v-model="assignDocTemplateId" class="phr-select">
                     <option value="">— select a template —</option>
@@ -584,6 +600,10 @@ const effectiveSlug = computed(() => {
 
 const applicantsRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/hiring/applicants` : '/admin/hiring/applicants');
 const onboardingRoute = computed(() => effectiveSlug.value ? `/${effectiveSlug.value}/admin/onboarding` : '/admin/onboarding');
+const contractGeneratorRoute = computed(() => {
+  const base = effectiveSlug.value ? `/${effectiveSlug.value}/admin/contracts` : '/admin/contracts';
+  return selectedId.value ? { path: base, query: { candidateUserId: selectedId.value } } : base;
+});
 const settingsRoute = computed(() => {
   const query = 'category=workflow&item=hiring-prehire';
   return effectiveSlug.value ? `/${effectiveSlug.value}/admin/settings?${query}` : `/admin/settings?${query}`;
@@ -604,6 +624,7 @@ const activeTab = ref('Overview');
 const actionLoading = ref(false);
 const actionMsg = ref('');
 const markingNotHired = ref(false);
+const emailingLink = ref(false);
 const copyLabel = ref('Copy');
 const tasks = ref([]);
 const adminDocs = ref([]);
@@ -854,12 +875,33 @@ const resendLink = async (c) => {
   try {
     const params = selectedAgencyId.value ? { agencyId: selectedAgencyId.value } : {};
     await api.post(`/hiring/candidates/${c.id}/promote`, {}, { params });
-    actionMsg.value = 'New portal link generated. Copy it from the token box above.';
+    actionMsg.value = 'New portal link generated. Copy it from the token box above — or use Email portal link to send it.';
     // Reload so the new token is reflected in the token box
     await load();
   } catch (e) {
-    actionMsg.value = e.response?.data?.error?.message || 'Failed to resend link.';
+    actionMsg.value = e.response?.data?.error?.message || 'Failed to generate link.';
   } finally { actionLoading.value = false; }
+};
+
+const emailPortalLink = async (c) => {
+  if (!c?.id || emailingLink.value) return;
+  emailingLink.value = true;
+  actionMsg.value = '';
+  try {
+    const params = selectedAgencyId.value ? { agencyId: selectedAgencyId.value } : {};
+    const r = await api.post(`/hiring/candidates/${c.id}/email-prehire-link`, {}, { params });
+    const to = r.data?.recipientEmail || c.personal_email || c.email || 'candidate';
+    if (r.data?.email?.skipped) {
+      actionMsg.value = `Link refreshed, but email was not sent (${r.data.email.reason || 'skipped'}). Copy the link above.`;
+    } else {
+      actionMsg.value = `Portal link emailed to ${to}.`;
+    }
+    await load();
+  } catch (e) {
+    actionMsg.value = e.response?.data?.error?.message || 'Failed to email portal link.';
+  } finally {
+    emailingLink.value = false;
+  }
 };
 
 const markNotHired = async (c) => {
@@ -1196,6 +1238,14 @@ onMounted(load);
 }
 .phr-regen-btn:hover:not(:disabled) { background: #f0fdf4; border-color: #86efac; }
 .phr-regen-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.phr-email-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: #1a5c38; border: 1px solid #1a5c38; color: #fff;
+  border-radius: 6px; padding: 5px 11px; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all 0.15s;
+}
+.phr-email-btn:hover:not(:disabled) { background: #164e30; }
+.phr-email-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* Countersigns */
 .phr-countersign-section { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 12px 14px; }

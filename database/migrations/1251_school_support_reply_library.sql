@@ -1,0 +1,26 @@
+-- Migration 1251: school support reply library (Phase 1)
+CREATE TABLE school_support_reply_library (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  agency_id INT NOT NULL,
+  school_organization_id INT NULL DEFAULT NULL COMMENT 'NULL = agency-wide template',
+  intent_key VARCHAR(64) NOT NULL DEFAULT 'general' COMMENT 'school_status_request, school_reinit_update, new_staff_contact, packet_received, scheduling, general',
+  title VARCHAR(255) NOT NULL,
+  subject_template VARCHAR(500) NULL DEFAULT NULL,
+  body_template TEXT NOT NULL,
+  tags_json JSON NULL DEFAULT NULL,
+  keywords_json JSON NULL DEFAULT NULL COMMENT 'Optional extra match terms',
+  source_ticket_id INT NULL DEFAULT NULL COMMENT 'Ticket this entry was promoted from',
+  usage_count INT UNSIGNED NOT NULL DEFAULT 0,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_by_user_id INT NULL DEFAULT NULL,
+  updated_by_user_id INT NULL DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_ssrl_agency_intent (agency_id, intent_key, is_active),
+  KEY idx_ssrl_school (school_organization_id),
+  KEY idx_ssrl_source_ticket (source_ticket_id),
+  CONSTRAINT fk_ssrl_agency FOREIGN KEY (agency_id) REFERENCES agencies(id) ON DELETE CASCADE,
+  CONSTRAINT fk_ssrl_school FOREIGN KEY (school_organization_id) REFERENCES agencies(id) ON DELETE SET NULL,
+  CONSTRAINT fk_ssrl_source_ticket FOREIGN KEY (source_ticket_id) REFERENCES support_tickets(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

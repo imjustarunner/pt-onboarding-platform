@@ -39,6 +39,27 @@ import {
   getTicketAttachmentRow,
   readTicketAttachmentBuffer
 } from '../services/unifiedEmail/ticketInboundAttachments.service.js';
+import {
+  buildReplyLibraryPromptBlock,
+  inferIntentFromTicket,
+  matchReplyLibraryForTicket,
+  promoteTicketAnswerToLibrary,
+  recordReplyLibraryUsage,
+  summarizeLibrarySources
+} from '../services/schoolSupportReplyLibrary.service.js';
+import {
+  buildAgencyPromptGuardrailsBlock,
+  createProposalFromEditedAnswer,
+  createPromptNoteFromRejection,
+  listActivePromptNotes
+} from '../services/schoolSupportReplyLearning.service.js';
+import { buildManualDraftSources, parseDraftSourcesFromTicket } from '../utils/schoolSupportDraftSources.shared.js';
+import { persistTicketDraftSources } from '../services/schoolSupportDraftSources.service.js';
+import {
+  buildAndPersistResponsePlanForTicket,
+  dismissResponsePlanForTicket,
+  getResponsePlanForTicket
+} from '../services/schoolSupportResponsePlan.service.js';
 
 async function hasSupportTicketMessagesTable() {
   try {
@@ -230,7 +251,7 @@ async function actorCanAccessTicketTopic(req, ticket) {
     const ids = await User.listBillingAgencyIds(uid);
     return (ids || []).map(Number).includes(aid);
   }
-  if (topic === 'payroll') {
+  if (topic === 'payroll' || topic === 'people_operations') {
     const ids = await User.listPayrollAgencyIds(uid);
     return (ids || []).map(Number).includes(aid);
   }
@@ -280,7 +301,8 @@ function enrichTicketForClient(ticket) {
   return {
     ...decrypted,
     display_status: ticketDisplayStatus(decrypted),
-    priority: decrypted.priority || 'medium'
+    priority: decrypted.priority || 'medium',
+    draft_sources: parseDraftSourcesFromTicket(decrypted)
   };
 }
 
@@ -489,7 +511,7 @@ async function listAgencySupportRecipients({ agencyId, topic = 'general' }) {
   // Always include admins. For specialized topics, also include flagged responsibility holders.
   let flagSql = '';
   if (t === 'billing') flagSql = ' OR COALESCE(ua.has_billing_access, 0) = 1';
-  else if (t === 'payroll') flagSql = ' OR COALESCE(ua.has_payroll_access, 0) = 1';
+  else if (t === 'payroll' || t === 'people_operations') flagSql = ' OR COALESCE(ua.has_payroll_access, 0) = 1';
   else if (t === 'credentialing') flagSql = ' OR COALESCE(ua.can_manage_credentialing, 0) = 1';
 
   const [rows] = await pool.execute(
@@ -2339,6 +2361,22 @@ export const createSupportTicketMessage = async (req, res, next) => {
       isInternal: wantInternal && (isAgencyAdminUser(req) || role === 'super_admin' || role === 'staff' || role === 'clinical_practice_assistant')
     });
 
+    // Mirror People Ops ticket replies into the candidate's pre-hire portal chat.
+    if (!wantInternal) {
+      setImmediate(async () => {
+        try {
+          const { syncTicketReplyToPortalChat } = await import('../services/prehirePortalChatTicket.service.js');
+          await syncTicketReplyToPortalChat({
+            ticket,
+            authorUserId: req.user.id,
+            body
+          });
+        } catch (err) {
+          console.warn('[createSupportTicketMessage] prehire portal sync failed:', err?.message);
+        }
+      });
+    }
+
     // If a school staff member responds on a closed ticket, reopen it.
     if (role === 'school_staff' && String(ticket.status || '').toLowerCase() === 'closed') {
       try {
@@ -2606,13 +2644,48 @@ export const generateSupportTicketResponse = async (req, res, next) => {
       }
     }
 
+    const intentKey = inferIntentFromTicket(ticket);
+    let libraryMatches = [];
+    let promptNotes = [];
+    if (ticket.agency_id) {
+      try {
+        libraryMatches = await matchReplyLibraryForTicket({
+          agencyId: ticket.agency_id,
+          schoolOrganizationId: ticket.school_organization_id,
+          subject: ticket.subject || ticket.source_email_subject,
+          question: ticket.question,
+          intentKey
+        });
+      } catch {
+        libraryMatches = [];
+      }
+      try {
+        promptNotes = await listActivePromptNotes(ticket.agency_id);
+      } catch {
+        promptNotes = [];
+      }
+    }
+
+    const draftSources = buildManualDraftSources({
+      ticket: ticketContext,
+      client,
+      messages,
+      notes,
+      recentTickets,
+      libraryMatches,
+      promptNotes,
+      intentKey
+    });
+
     const prompt = buildSupportTicketResponsePrompt({
       ticket: ticketContext,
       client,
       messages,
       notes,
       recentTickets
-    });
+    })
+      + buildReplyLibraryPromptBlock(libraryMatches)
+      + await buildAgencyPromptGuardrailsBlock(ticket.agency_id);
 
     const { text, modelName, provider, latencyMs } = await callGeminiText({
       prompt,
@@ -2620,11 +2693,24 @@ export const generateSupportTicketResponse = async (req, res, next) => {
       maxOutputTokens: 800
     });
 
+    if (libraryMatches.length) {
+      recordReplyLibraryUsage(libraryMatches.map((m) => m.id)).catch(() => {});
+    }
+
+    try {
+      await persistTicketDraftSources(ticketId, draftSources, { lastDraftOrigin: 'generate_response' });
+    } catch {
+      // best-effort
+    }
+
     res.json({
       suggestedAnswer: String(text || '').trim(),
       modelName,
       provider,
-      latencyMs
+      latencyMs,
+      intentKey,
+      librarySources: summarizeLibrarySources(libraryMatches),
+      draftSources
     });
   } catch (e) {
     next(e);
@@ -2666,6 +2752,14 @@ export const reviewSupportTicketDraft = async (req, res, next) => {
        WHERE id = ?`,
       [state, note || null, req.user.id, state, req.user.id, ticketId]
     );
+
+    if (state === 'rejected' && note) {
+      createPromptNoteFromRejection({
+        ticket,
+        note,
+        createdByUserId: req.user.id
+      }).catch(() => {});
+    }
 
     const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
     res.json(out?.[0] || null);
@@ -2811,11 +2905,12 @@ export const answerSupportTicket = async (req, res, next) => {
     }
 
     // Record AI draft review state when this ticket has a draft.
+    let finalDecision = null;
     if (ticket?.ai_draft_response) {
       const normalizedDraft = String(ticket.ai_draft_response || '').trim();
       const normalizedAnswer = String(answer || '').trim();
       const inferredDecision = normalizedDraft && normalizedDraft === normalizedAnswer ? 'accepted' : 'edited';
-      const finalDecision = aiDraftDecision || inferredDecision;
+      finalDecision = aiDraftDecision || inferredDecision;
       await pool.execute(
         `UPDATE support_tickets
          SET ai_draft_review_state = ?,
@@ -2829,6 +2924,29 @@ export const answerSupportTicket = async (req, res, next) => {
          WHERE id = ?`,
         [finalDecision, aiDraftReviewNote || null, req.user.id, finalDecision, req.user.id, ticketId]
       );
+    }
+
+    const didPromoteToLibrary = !!(req.body?.promoteToLibrary && (
+      req.body.promoteToLibrary === true
+      || req.body.promoteToLibrary === 1
+      || req.body.promoteToLibrary === '1'
+      || typeof req.body.promoteToLibrary === 'object'
+    ));
+    if (ticket?.ai_draft_response && finalDecision === 'edited') {
+      createProposalFromEditedAnswer({
+        ticket,
+        originalDraft: ticket.ai_draft_response,
+        finalAnswer: answer,
+        createdByUserId: req.user.id,
+        skipIfPromoted: didPromoteToLibrary
+      }).catch(() => {});
+    }
+    if (finalDecision === 'rejected' && aiDraftReviewNote) {
+      createPromptNoteFromRejection({
+        ticket,
+        note: aiDraftReviewNote,
+        createdByUserId: req.user.id
+      }).catch(() => {});
     }
 
     // Best-effort: store an AI summary when closing.
@@ -2918,7 +3036,35 @@ export const answerSupportTicket = async (req, res, next) => {
 
     const [rows2] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
     const enriched = enrichTicketForClient(rows2?.[0] || null);
-    res.json(enriched ? { ...enriched, emailReply } : { emailReply });
+
+    let promotedLibraryEntry = null;
+    const promoteRaw = req.body?.promoteToLibrary;
+    if (promoteRaw && (promoteRaw === true || promoteRaw === 1 || promoteRaw === '1' || typeof promoteRaw === 'object')) {
+      try {
+        const promoteOpts = typeof promoteRaw === 'object' ? promoteRaw : {};
+        promotedLibraryEntry = await promoteTicketAnswerToLibrary({
+          ticket: rows2?.[0] || ticket,
+          answer,
+          title: promoteOpts.title,
+          intentKey: promoteOpts.intentKey,
+          schoolOrganizationId: promoteOpts.schoolOrganizationId,
+          createdByUserId: req.user.id
+        });
+      } catch {
+        promotedLibraryEntry = null;
+      }
+    }
+
+    if (String(rows2?.[0]?.source_channel || ticket?.source_channel || '').toLowerCase() === 'email') {
+      try {
+        const { queueTicketAnswerEmbeddingIndex } = await import('../services/schoolSupportReplyRetrieval.service.js');
+        queueTicketAnswerEmbeddingIndex(rows2?.[0] || ticket, { answer });
+      } catch {
+        // best-effort
+      }
+    }
+
+    res.json(enriched ? { ...enriched, emailReply, promotedLibraryEntry } : { emailReply, promotedLibraryEntry });
   } catch (e) {
     next(e);
   }
@@ -3532,7 +3678,8 @@ export const suggestSupportTicketActions = async (req, res, next) => {
       force
     });
     const actions = await listTicketActionItems(ticketId);
-    res.json({ ...result, actions });
+    const planResult = await buildAndPersistResponsePlanForTicket(ticketId).catch(() => ({ plan: null }));
+    res.json({ ...result, actions, responsePlan: planResult?.plan || null });
   } catch (e) {
     next(e);
   }
@@ -3562,10 +3709,13 @@ export const approveSupportTicketAction = async (req, res, next) => {
       payloadOverrides
     });
 
+    const responsePlan = (await buildAndPersistResponsePlanForTicket(ticketId).catch(() => null))?.plan || null;
+
     res.json({
       ok: true,
       action: result.action,
-      temporaryPassword: result.temporaryPassword || undefined
+      temporaryPassword: result.temporaryPassword || undefined,
+      responsePlan
     });
   } catch (e) {
     if (e?.statusCode) {
@@ -3597,11 +3747,71 @@ export const rejectSupportTicketAction = async (req, res, next) => {
       reason
     });
 
-    res.json({ ok: true, action: result.action });
+    const responsePlan = (await buildAndPersistResponsePlanForTicket(ticketId).catch(() => null))?.plan || null;
+
+    res.json({ ok: true, action: result.action, responsePlan });
   } catch (e) {
     if (e?.statusCode) {
       return res.status(e.statusCode).json({ error: { message: e.message } });
     }
+    next(e);
+  }
+};
+
+export const getSupportTicketResponsePlan = async (req, res, next) => {
+  try {
+    if (!isAgencyAdminUser(req) && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only admin/support can view response plans' } });
+    }
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+
+    const loaded = await loadTicketForActionAccess(req, ticketId);
+    if (!loaded.ok) return res.status(loaded.status).json({ error: { message: loaded.message } });
+
+    let plan = await getResponsePlanForTicket(ticketId);
+    if (!plan) {
+      const built = await buildAndPersistResponsePlanForTicket(ticketId).catch(() => null);
+      plan = built?.plan || null;
+    }
+    res.json({ responsePlan: plan });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const buildSupportTicketResponsePlan = async (req, res, next) => {
+  try {
+    if (!isAgencyAdminUser(req) && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only admin/support can build response plans' } });
+    }
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+
+    const loaded = await loadTicketForActionAccess(req, ticketId);
+    if (!loaded.ok) return res.status(loaded.status).json({ error: { message: loaded.message } });
+
+    const result = await buildAndPersistResponsePlanForTicket(ticketId);
+    res.json({ responsePlan: result?.plan || null });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const dismissSupportTicketResponsePlan = async (req, res, next) => {
+  try {
+    if (!isAgencyAdminUser(req) && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only admin/support can dismiss response plans' } });
+    }
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+
+    const loaded = await loadTicketForActionAccess(req, ticketId);
+    if (!loaded.ok) return res.status(loaded.status).json({ error: { message: loaded.message } });
+
+    const plan = await dismissResponsePlanForTicket(ticketId);
+    res.json({ responsePlan: plan });
+  } catch (e) {
     next(e);
   }
 };

@@ -20,6 +20,15 @@ import {
 } from './schoolReinitEmailIntake.service.js';
 import { suggestActionsForTicket } from './ticketActionSuggestion.service.js';
 import { persistGmailAttachmentsForTicket } from './ticketInboundAttachments.service.js';
+import {
+  buildReplyLibraryPromptBlock,
+  matchReplyLibraryForTicket,
+  recordReplyLibraryUsage
+} from '../schoolSupportReplyLibrary.service.js';
+import { buildAgencyPromptGuardrailsBlock, listActivePromptNotes } from '../schoolSupportReplyLearning.service.js';
+import {
+  buildInboundStatusDraftSources
+} from '../../utils/schoolSupportDraftSources.shared.js';
 
 function headerMap(headers = []) {
   const m = new Map();
@@ -486,6 +495,8 @@ function buildClientChecklistSummary(client) {
 }
 
 async function generateStatusDraft({
+  agencyId,
+  schoolOrganizationId,
   schoolName,
   subject,
   bodyText,
@@ -497,6 +508,38 @@ async function generateStatusDraft({
   const checklistSummary = buildClientChecklistSummary(client);
   const neededItems = (checklistItems || []).filter((x) => x.isNeeded).slice(0, 6).map((x) => x.label);
   const receivedItems = (checklistItems || []).filter((x) => !x.isNeeded).slice(0, 4).map((x) => x.label);
+
+  let libraryMatches = [];
+  let promptNotes = [];
+  if (agencyId) {
+    try {
+      libraryMatches = await matchReplyLibraryForTicket({
+        agencyId,
+        schoolOrganizationId,
+        subject,
+        question: bodyText,
+        intentKey: 'school_status_request'
+      });
+    } catch {
+      libraryMatches = [];
+    }
+    try {
+      promptNotes = await listActivePromptNotes(agencyId);
+    } catch {
+      promptNotes = [];
+    }
+  }
+
+  const draftSources = buildInboundStatusDraftSources({
+    schoolName,
+    schoolOrganizationId,
+    client,
+    checklistItems,
+    libraryMatches,
+    promptNotes,
+    intentKey: 'school_status_request'
+  });
+
   const prompt = [
     'Write a concise school-facing email reply.',
     'Use plain language and do not include PHI beyond what is provided.',
@@ -519,11 +562,19 @@ async function generateStatusDraft({
     `- Checklist: ${checklistSummary}`,
     `- Needed checklist items: ${neededItems.length ? neededItems.join(', ') : 'None listed'}`,
     `- Recently received checklist items: ${receivedItems.length ? receivedItems.join(', ') : 'None listed'}`,
+    buildReplyLibraryPromptBlock(libraryMatches),
+    agencyId ? await buildAgencyPromptGuardrailsBlock(agencyId) : '',
     '',
     'Return only the reply body text.'
   ].join('\n');
   const { text } = await callGeminiText({ prompt, temperature: 0.2, maxOutputTokens: 420 });
-  return String(text || '').trim();
+  if (libraryMatches.length) {
+    recordReplyLibraryUsage(libraryMatches.map((m) => m.id)).catch(() => {});
+  }
+  return {
+    text: String(text || '').trim(),
+    draftSources
+  };
 }
 
 function truncate(value, max = 1000) {
@@ -958,6 +1009,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         : { match: null, confidence: 0, reason: 'not_status_intent', candidates: [] };
 
       let draftResponse = null;
+      let draftSources = [];
       let draftStatus = 'needs_review';
       let escalationReason = statusAllowed
         ? (intent.isStatusIntent ? 'no_client_match' : 'not_status_intent')
@@ -979,7 +1031,9 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           agencyId: match.match.agency_id || agencyId
         });
         if (escalationReason !== 'low_confidence_client_match') {
-          draftResponse = await generateStatusDraft({
+          const draftResult = await generateStatusDraft({
+            agencyId: match.match.agency_id || agencyId,
+            schoolOrganizationId: schoolContext.schoolOrganizationId,
             schoolName: schoolContext.schoolName,
             subject,
             bodyText,
@@ -988,6 +1042,8 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
             client: match.match,
             checklistItems
           }).catch(() => null);
+          draftResponse = draftResult?.text || null;
+          draftSources = draftResult?.draftSources || [];
           if (draftResponse) {
             draftStatus = 'safe_to_send';
             escalationReason = null;
@@ -1074,7 +1130,9 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
                 patches: reinitResult.patches || {},
                 summary: reinitIntent.summary || null
               }
-            : null
+            : null,
+          draftSources,
+          lastDraftOrigin: 'inbound_status_email'
         }
       }).catch(() => {});
 

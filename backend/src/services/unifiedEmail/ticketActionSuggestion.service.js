@@ -17,6 +17,7 @@ import ReferralPacketDraft from '../../models/ReferralPacketDraft.model.js';
 import ClientPhiDocument from '../../models/ClientPhiDocument.model.js';
 import DocumentEncryptionService from '../documentEncryption.service.js';
 import StorageService from '../storage.service.js';
+import { buildAndPersistResponsePlanForTicket } from '../schoolSupportResponsePlan.service.js';
 
 export const TICKET_ACTION_TYPES = {
   CREATE_SCHOOL_CONTACT: 'create_school_contact',
@@ -623,6 +624,12 @@ export async function suggestActionsForTicket({
     ticket
   });
   created += packetLater.created;
+
+  try {
+    await buildAndPersistResponsePlanForTicket(tid);
+  } catch {
+    // best-effort
+  }
 
   return { created, people: peopleOut, skipped: null };
 }

@@ -1529,6 +1529,21 @@ export const createCandidateNote = async (req, res, next) => {
       isPortalMessage: req.body?.isPortalMessage === true || req.body?.is_portal_message === true
     });
 
+    if (note?.is_portal_message || req.body?.isPortalMessage === true || req.body?.is_portal_message === true) {
+      setImmediate(async () => {
+        try {
+          const { syncStaffPortalReplyToTicket } = await import('../services/prehirePortalChatTicket.service.js');
+          await syncStaffPortalReplyToTicket({
+            candidateUserId,
+            staffUserId: req.user.id,
+            message
+          });
+        } catch (err) {
+          console.warn('[createCandidateNote] ticket sync failed:', err?.message);
+        }
+      });
+    }
+
     res.status(201).json(note);
   } catch (e) {
     next(e);
@@ -1743,6 +1758,56 @@ export const generateCandidatePreScreenReport = async (req, res, next) => {
     if (candidateUserId && req.user?.id) {
       await createFailedAiReport({ candidateUserId, createdByUserId: req.user.id, error: e });
     }
+    next(e);
+  }
+};
+
+/**
+ * Regenerate the pre-hire portal token and email the link (no document re-assignment).
+ * POST /api/hiring/candidates/:userId/email-prehire-link
+ */
+export const emailPrehirePortalLink = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const user = await User.findById(candidateUserId);
+    if (!user) return res.status(404).json({ error: { message: 'Candidate not found' } });
+
+    const recipientEmail = String(user.personal_email || user.email || '').trim();
+    if (!recipientEmail) {
+      return res.status(400).json({
+        error: { message: 'Candidate has no personal or login email on file.' }
+      });
+    }
+
+    const tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24);
+    const tokenLink = `${config.frontendUrl}/pre-hire/${tokenResult.token}`;
+
+    const { sendPrehirePortalInviteEmail } = await import('../services/prehireInviteEmail.service.js');
+    const emailResult = await sendPrehirePortalInviteEmail({
+      agencyId,
+      candidateUserId,
+      portalLink: tokenLink,
+      customSubject: req.body?.msgSubject || null,
+      customBody: req.body?.msgBody || null,
+      generatedByUserId: req.user?.id || null
+    });
+
+    res.json({
+      ok: true,
+      prehirePortalLink: tokenLink,
+      passwordlessTokenLink: tokenLink,
+      email: emailResult,
+      recipientEmail
+    });
+  } catch (e) {
     next(e);
   }
 };

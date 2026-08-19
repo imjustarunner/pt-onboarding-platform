@@ -18,7 +18,11 @@ import {
   submitPortalModuleForm,
   uploadPortalModuleFormFile,
   completePortalModule,
-  startPortalModule
+  startPortalModule,
+  getPortalCredentialPacket,
+  confirmPortalCredentialIdentity,
+  acknowledgePortalCredentialSystem,
+  revealPortalCredentialTempPassword
 } from '../controllers/prehirePortal.controller.js';
 
 const router = express.Router();
@@ -44,6 +48,11 @@ router.post(
 );
 router.post('/:token/tasks/:taskId/acknowledge', portalAcknowledge);
 router.post('/:token/tasks/:taskId/complete-form', completeIntakeFormTask);
+
+router.get('/:token/credential-packet', getPortalCredentialPacket);
+router.post('/:token/credential-packet/confirm-identity', confirmPortalCredentialIdentity);
+router.post('/:token/credential-packet/systems/:systemKey/acknowledge', acknowledgePortalCredentialSystem);
+router.post('/:token/credential-packet/systems/:systemKey/reveal-temp-password', revealPortalCredentialTempPassword);
 
 // Token-scoped module / employee-info form (no login required)
 router.get('/:token/modules/:moduleId', getPortalModule);
