@@ -2013,6 +2013,12 @@ const routes = [
     meta: { requiresGuest: false, hideNav: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/materials-requests',
+    name: 'OrganizationMaterialsRequests',
+    component: () => import('../views/admin/MaterialsRequestsView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/caseload-hub/schools-staff',
     name: 'OrganizationCaseloadHubSchoolsStaff',
     component: () => import('../views/admin/caseload-hub/CaseloadHubSchoolsStaffView.vue'),
@@ -3366,6 +3372,12 @@ const routes = [
     name: 'OrganizationAdaptiveJoinService',
     component: () => import('../views/public/AdaptiveJoinView.vue'),
     meta: { requiresGuest: false, hideNav: true, organizationSlug: true }
+  },
+  {
+    path: '/admin/materials-requests',
+    name: 'MaterialsRequests',
+    component: () => import('../views/admin/MaterialsRequestsView.vue'),
+    meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
   },
   {
     path: '/admin/caseload-hub/schools-staff',

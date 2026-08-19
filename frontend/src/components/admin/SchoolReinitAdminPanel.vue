@@ -9,6 +9,7 @@
         <button type="button" class="btn btn-secondary btn-sm" :disabled="!filteredRows.length" @click="exportCsv">
           Export Report
         </button>
+        <router-link class="btn btn-secondary btn-sm" :to="materialsRequestsTo">Materials requests</router-link>
         <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="load">
           {{ loading ? 'Loading…' : 'Refresh' }}
         </button>
@@ -691,6 +692,11 @@ const props = defineProps({
 
 const router = useRouter();
 const route = useRoute();
+
+const materialsRequestsTo = computed(() => {
+  const slug = route.params.organizationSlug;
+  return slug ? `/${slug}/admin/materials-requests` : '/admin/materials-requests';
+});
 
 const loading = ref(false);
 const savingQ = ref(false);

@@ -9,6 +9,7 @@
         <button type="button" class="btn btn-secondary btn-sm" :disabled="!filteredRows.length" @click="exportCsv">
           Export Report
         </button>
+        <router-link class="btn btn-secondary btn-sm" :to="materialsRequestsTo">Materials requests</router-link>
         <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="load">
           {{ loading ? 'Loading…' : 'Refresh' }}
         </button>
@@ -486,6 +487,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import {
   SECTION_META,
@@ -501,6 +503,12 @@ const props = defineProps({
   schoolYear: { type: String, default: '' },
   organizationSlug: { type: String, default: '' },
   highlightCycleId: { type: Number, default: null },
+});
+
+const route = useRoute();
+const materialsRequestsTo = computed(() => {
+  const slug = props.organizationSlug || route.params.organizationSlug;
+  return slug ? `/${slug}/admin/materials-requests` : '/admin/materials-requests';
 });
 
 const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];

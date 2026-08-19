@@ -84,6 +84,7 @@ import schoolPortalRoutes from './routes/schoolPortal.routes.js';
 import schoolReinitRoutes from './routes/schoolReinit.routes.js';
 import publicSchoolReinitRoutes from './routes/publicSchoolReinit.routes.js';
 import schoolOnboardingRoutes from './routes/schoolOnboarding.routes.js';
+import materialsRequestsRoutes from './routes/materialsRequests.routes.js';
 import publicSchoolOnboardingRoutes from './routes/publicSchoolOnboarding.routes.js';
 import providerYearUpdateRoutes from './routes/providerYearUpdate.routes.js';
 import providerActionRoutes from './routes/providerAction.routes.js';
@@ -837,6 +838,7 @@ app.use('/api/unassigned-documents', unassignedDocumentsRoutes);
 app.use('/api/school-portal', schoolPortalRoutes); // School portal routes (restricted client views)
 app.use('/api/school-reinit', schoolReinitRoutes);
 app.use('/api/school-onboarding', schoolOnboardingRoutes);
+app.use('/api/materials-requests', materialsRequestsRoutes);
 app.use('/api/provider-year-update', providerYearUpdateRoutes);
 app.use('/api/provider-action', providerActionRoutes);
 app.use('/api/client-exchange', clientExchangeRoutes);

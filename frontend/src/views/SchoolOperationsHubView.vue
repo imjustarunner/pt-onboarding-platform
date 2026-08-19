@@ -498,6 +498,19 @@ const allSections = computed(() => [
         count: 0
       },
       {
+        id: 'materials-requests',
+        title: 'Materials Requests',
+        shortDesc: 'Packets, carts, shirts, and delivery.',
+        desc: 'See onboarding, collaborative update, and provider fall-update materials in one place. Assign, check off, and issue carts/shirts/bags from inventory.',
+        cta: 'Open →',
+        to: orgTo('/admin/materials-requests'),
+        tone: 'cyan',
+        icon: icon.docs,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: 0
+      },
+      {
         id: 'approve-school-requests',
         title: 'Approve School Requests',
         shortDesc: 'Schedule adjustments and extra hours.',

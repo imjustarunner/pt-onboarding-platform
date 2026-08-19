@@ -80,6 +80,10 @@
       />
     </div>
 
+    <div v-else-if="tab === 'materials-requests'" class="full-panel">
+      <MaterialsRequestsView v-if="agencyId" :agency-id="agencyId" />
+    </div>
+
     <div v-else-if="loading && !schools.length && !providers.length" class="loading">Loading coverage…</div>
 
     <!-- By School -->
@@ -954,6 +958,7 @@ import PostSchoolEventModal from '../../../components/school/PostSchoolEventModa
 import AvailabilityIntakeManagement from '../../../components/admin/AvailabilityIntakeManagement.vue';
 import ProviderYearUpdateAdminPanel from '../../../components/admin/ProviderYearUpdateAdminPanel.vue';
 import SchoolReinitAdminPanel from '../../../components/admin/SchoolReinitAdminPanel.vue';
+import MaterialsRequestsView from '../MaterialsRequestsView.vue';
 import { resolveScopedAgencyId } from '../../../utils/resolveScopedAgencyId.js';
 import { fireTabEvent } from '../../../utils/tabEventBeacon.js';
 
@@ -968,7 +973,8 @@ const baseTabs = [
   { id: 'events', label: 'Events' },
   { id: 'coverage-needs', label: 'Coverage Needs' },
   { id: 'school-availability', label: 'Additional School Hours' },
-  { id: 'open-spots', label: 'Open School Spots' }
+  { id: 'open-spots', label: 'Open School Spots' },
+  { id: 'materials-requests', label: 'Materials Requests' }
 ];
 
 const pyuCampaignEnabled = ref(false);
