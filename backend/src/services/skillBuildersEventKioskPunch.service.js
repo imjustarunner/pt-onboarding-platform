@@ -349,7 +349,9 @@ export async function recordSkillBuilderEventClockIn(poolConn, params) {
     sessionId,
     clientId,
     officeLocationId,
-    source = 'portal'
+    source = 'portal',
+    allowUnassigned = false,
+    punchedAt = null
   } = params;
   const aid = parsePositiveInt(agencyId);
   const eid = parsePositiveInt(eventId);
@@ -378,7 +380,7 @@ export async function recordSkillBuilderEventClockIn(poolConn, params) {
   }
 
   const onRoster = await providerOnEventStaffRoster(uid, eid, aid);
-  if (!onRoster) {
+  if (!onRoster && !allowUnassigned) {
     return { error: { status: 400, message: 'User is not on this event provider roster' } };
   }
 
@@ -395,13 +397,17 @@ export async function recordSkillBuilderEventClockIn(poolConn, params) {
   }
 
   const oid = parsePositiveInt(officeLocationId);
+  const punchTime = punchedAt instanceof Date && Number.isFinite(punchedAt.getTime())
+    ? punchedAt
+    : (punchedAt ? new Date(punchedAt) : null);
+  const useTime = punchTime && Number.isFinite(punchTime.getTime()) ? punchTime : new Date();
   const [ins] = await poolConn.execute(
     `INSERT INTO skill_builders_event_kiosk_punches
      (company_event_id, session_id, user_id, client_id, punch_type, punched_at, office_location_id)
-     VALUES (?, ?, ?, ?, 'clock_in', NOW(), ?)`,
-    [eid, sid || null, uid, cid || null, oid || null]
+     VALUES (?, ?, ?, ?, 'clock_in', ?, ?)`,
+    [eid, sid || null, uid, cid || null, useTime, oid || null]
   );
-  return { ok: true, punchId: ins.insertId };
+  return { ok: true, punchId: ins.insertId, unassignedClockIn: !onRoster && !!allowUnassigned };
 }
 
 /**
@@ -415,7 +421,9 @@ export async function recordEventEmployeeClockIn(poolConn, params) {
     sessionId,
     kioskDateYmd,
     officeLocationId,
-    source = 'event_station'
+    source = 'event_station',
+    allowUnassigned = false,
+    punchedAt = null
   } = params;
 
   let sid = parsePositiveInt(sessionId);
@@ -429,7 +437,9 @@ export async function recordEventEmployeeClockIn(poolConn, params) {
     userId,
     sessionId: sid,
     officeLocationId,
-    source
+    source,
+    allowUnassigned,
+    punchedAt
   });
 }
 
@@ -449,11 +459,6 @@ export async function recordSkillBuilderEventClockOut(poolConn, params) {
   const clockOutAt =
     clockOutAtRaw && Number.isFinite(clockOutAtRaw.getTime()) ? clockOutAtRaw : null;
 
-  const onRoster = await providerOnEventStaffRoster(userId, eventId, agencyId);
-  if (!onRoster) {
-    return { error: { status: 400, message: 'User is not on this event provider roster' } };
-  }
-
   const [inRows] = await poolConn.execute(
     `SELECT id, punched_at, client_id, session_id FROM skill_builders_event_kiosk_punches
      WHERE company_event_id = ? AND user_id = ? AND punch_type = 'clock_in'
@@ -462,6 +467,12 @@ export async function recordSkillBuilderEventClockOut(poolConn, params) {
   );
   const lastIn = inRows?.[0];
   if (!lastIn) return { error: { status: 400, message: 'No clock-in found' } };
+
+  const onRoster = await providerOnEventStaffRoster(userId, eventId, agencyId);
+  const allowUnassigned = params.allowUnassigned === true;
+  if (!onRoster && !allowUnassigned) {
+    // Self clock-in without assignment still needs a matching open punch (handled above).
+  }
 
   const [outCheck] = await poolConn.execute(
     `SELECT id FROM skill_builders_event_kiosk_punches

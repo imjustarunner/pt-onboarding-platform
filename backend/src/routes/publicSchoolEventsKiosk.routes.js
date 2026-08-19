@@ -4,6 +4,7 @@ import {
   unlockSchoolEventsKiosk,
   listSchoolEventsKioskEvents,
   listSchoolEventsKioskStaff,
+  searchSchoolEventsKioskStaff,
   schoolEventsKioskEmployeeCheckin,
   schoolEventsKioskEmployeeCheckinByPin,
   schoolEventsKioskEmployeeCheckout,
@@ -16,6 +17,7 @@ const router = express.Router();
 router.post('/agency/:slug/kiosk/unlock', unlockSchoolEventsKiosk);
 router.get('/agency/:slug/kiosk/events', authenticateOptional, listSchoolEventsKioskEvents);
 router.get('/agency/:slug/kiosk/events/:eventId/staff', listSchoolEventsKioskStaff);
+router.get('/agency/:slug/kiosk/events/:eventId/staff-search', searchSchoolEventsKioskStaff);
 router.get('/agency/:slug/kiosk/events/:eventId/staff/:userId/photo-status', schoolEventsKioskPhotoStatus);
 router.post('/agency/:slug/kiosk/events/:eventId/photo', schoolEventsKioskUploadPhoto);
 router.post('/agency/:slug/kiosk/events/:eventId/checkin/employee', schoolEventsKioskEmployeeCheckin);

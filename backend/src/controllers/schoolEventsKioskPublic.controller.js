@@ -27,6 +27,21 @@ const KIND = 'school_events';
 const KIOSK_STAFF_ACTIVE_USER_SQL =
   `(u.status = 'ACTIVE_EMPLOYEE' OR LOWER(COALESCE(u.status, '')) = 'active')`;
 
+const KIOSK_ELIGIBLE_AGENCY_STAFF_SQL = `
+  (u.is_archived = FALSE OR u.is_archived IS NULL)
+  AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED', 'INACTIVE_EMPLOYEE', 'PROSPECTIVE')
+  AND (
+    u.status IN ('ACTIVE_EMPLOYEE', 'ONBOARDING', 'PREHIRE_REVIEW', 'PREHIRE_OPEN')
+    OR LOWER(COALESCE(u.status, '')) = 'active'
+    OR LOWER(COALESCE(u.role, '')) IN ('provider', 'staff', 'provider_plus')
+    OR COALESCE(ua.has_outreach_access, 0) = 1
+    OR COALESCE(ua.has_provider_access, 0) = 1
+    OR COALESCE(ua.has_staff_access, 0) = 1
+  )`;
+
+const KIOSK_ROSTER_USER_SQL =
+  `(u.is_archived = FALSE OR u.is_archived IS NULL) AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'`;
+
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
   return Number.isFinite(value) && value > 0 ? value : null;
@@ -259,9 +274,17 @@ async function loadOpenClockInsByUserId(eventId, userIds = []) {
   return out;
 }
 
-async function loadEventStaff(eventId) {
+async function loadEventStaff(eventId, agencyId = null) {
   const eid = parsePositiveInt(eventId);
   if (!eid) return [];
+  const aid = parsePositiveInt(agencyId);
+  const skillsGroupUnion = aid
+    ? `UNION
+      SELECT sgp.provider_user_id AS uid
+      FROM skills_groups sg
+      INNER JOIN skills_group_providers sgp ON sgp.skills_group_id = sg.id
+      WHERE sg.company_event_id = ? AND sg.agency_id = ?`
+    : '';
   const sql = `
     SELECT DISTINCT u.id, u.first_name, u.last_name, u.profile_photo_path
     FROM (
@@ -272,12 +295,14 @@ async function loadEventStaff(eventId) {
       SELECT cesp.provider_user_id AS uid
       FROM company_event_session_providers cesp
       WHERE cesp.company_event_id = ?
+      ${skillsGroupUnion}
     ) roster
     INNER JOIN users u ON u.id = roster.uid
-    WHERE ${KIOSK_STAFF_ACTIVE_USER_SQL}
+    WHERE ${KIOSK_ROSTER_USER_SQL}
     ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`;
+  const params = aid ? [eid, eid, eid, aid] : [eid, eid];
   try {
-    const [rows] = await pool.execute(sql, [eid, eid]);
+    const [rows] = await pool.execute(sql, params);
     return rows || [];
   } catch (err) {
     if (err?.code === 'ER_NO_SUCH_TABLE') return [];
@@ -285,13 +310,46 @@ async function loadEventStaff(eventId) {
   }
 }
 
-async function syncEmployeeCheckin({ agencyId, eventId, userId, kioskDate, ip }) {
+async function searchAgencyKioskStaff(agencyId, query, eventId) {
+  const aid = parsePositiveInt(agencyId);
+  if (!aid) return [];
+  const q = String(query || '').trim().toLowerCase();
+  if (q.length < 2) return [];
+  const eid = parsePositiveInt(eventId);
+  const like = `%${q.replace(/[%_]/g, '')}%`;
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT u.id, u.first_name, u.last_name, u.profile_photo_path
+     FROM users u
+     INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+     WHERE ${KIOSK_ELIGIBLE_AGENCY_STAFF_SQL}
+       AND (
+         LOWER(u.first_name) LIKE ?
+         OR LOWER(u.last_name) LIKE ?
+         OR LOWER(CONCAT(u.first_name, ' ', u.last_name)) LIKE ?
+         OR LOWER(COALESCE(u.email, '')) LIKE ?
+       )
+     ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC
+     LIMIT 20`,
+    [aid, like, like, like, like]
+  );
+  if (!eid || !rows?.length) return rows || [];
+
+  const rosterChecks = await Promise.all(
+    rows.map(async (u) => ({
+      ...u,
+      isAssigned: await providerOnEventStaffRoster(u.id, eid, aid)
+    }))
+  );
+  return rosterChecks;
+}
+
+async function syncEmployeeCheckin({ agencyId, eventId, userId, kioskDate, ip, allowUnassigned = false, punchedAt = null }) {
   try {
     await pool.execute(
       `INSERT INTO event_day_kiosk_checkins
          (company_event_id, agency_id, user_id, person_type, action, checked_in_at, kiosk_date, ip_address)
-       VALUES (?, ?, ?, 'employee', 'check_in', NOW(), ?, ?)`,
-      [eventId, agencyId, userId, kioskDate, ip]
+       VALUES (?, ?, ?, 'employee', 'check_in', ?, ?, ?)`,
+      [eventId, agencyId, userId, punchedAt || new Date(), kioskDate, ip]
     );
   } catch (err) {
     if (err?.code === 'ER_NO_SUCH_TABLE') {
@@ -306,7 +364,9 @@ async function syncEmployeeCheckin({ agencyId, eventId, userId, kioskDate, ip })
     eventId,
     userId,
     kioskDateYmd: kioskDate,
-    source: 'school_events_kiosk'
+    source: 'school_events_kiosk',
+    allowUnassigned,
+    punchedAt
   });
   if (punch.error && punch.error.status !== 409) {
     return { ok: false, error: punch.error };
@@ -325,7 +385,8 @@ async function syncEmployeeCheckin({ agencyId, eventId, userId, kioskDate, ip })
     ok: true,
     punchId: punch.punchId || null,
     alreadyClockedIn: false,
-    clockedInAt: new Date().toISOString()
+    clockedInAt: punchedAt ? new Date(punchedAt).toISOString() : new Date().toISOString(),
+    unassignedClockIn: !!punch.unassignedClockIn
   };
 }
 
@@ -445,7 +506,7 @@ export const listSchoolEventsKioskStaff = async (req, res, next) => {
     const ev = await loadSchoolEventForAgency(m.agencyId, req.params.eventId);
     if (!ev) return res.status(404).json({ error: { message: 'School event not found' } });
 
-    const staffRows = await loadEventStaff(ev.id);
+    const staffRows = await loadEventStaff(ev.id, m.agencyId);
     const openClockIns = await loadOpenClockInsByUserId(
       ev.id,
       staffRows.map((u) => u.id)
@@ -485,6 +546,54 @@ export const listSchoolEventsKioskStaff = async (req, res, next) => {
   }
 };
 
+async function staffCanUseEventKiosk(userId, eventId, agencyId) {
+  if (await providerOnEventStaffRoster(userId, eventId, agencyId)) return true;
+  const open = await loadOpenClockInsByUserId(eventId, [userId]);
+  return open.has(Number(userId));
+}
+
+/** GET …/events/:eventId/staff-search?q= */
+export const searchSchoolEventsKioskStaff = async (req, res, next) => {
+  try {
+    const ctx = verifySchoolEventsKioskBearer(req);
+    if (ctx.error) return res.status(ctx.error.status).json({ error: { message: ctx.error.message } });
+    const m = await assertTokenMatchesSlug(ctx, req.params.slug);
+    if (m.error) return res.status(m.error.status).json({ error: { message: m.error.message } });
+
+    const ev = await loadSchoolEventForAgency(m.agencyId, req.params.eventId);
+    if (!ev) return res.status(404).json({ error: { message: 'School event not found' } });
+
+    const q = String(req.query?.q || '').trim();
+    if (q.length < 2) {
+      return res.status(400).json({ error: { message: 'Enter at least 2 characters to search' } });
+    }
+
+    const rows = await searchAgencyKioskStaff(m.agencyId, q, ev.id);
+    const openClockIns = await loadOpenClockInsByUserId(
+      ev.id,
+      (rows || []).map((u) => u.id)
+    );
+    const staff = (rows || []).map((u) => {
+      const uid = Number(u.id);
+      const open = openClockIns.get(uid);
+      return {
+        id: uid,
+        firstName: u.first_name || '',
+        lastName: u.last_name || '',
+        displayName: `${u.first_name || ''} ${u.last_name || ''}`.trim(),
+        profilePhotoUrl: publicUploadsUrlFromStoredPath(u.profile_photo_path || null),
+        isAssigned: !!u.isAssigned,
+        isClockedIn: !!open,
+        clockedInAt: open?.clockedInAt || null
+      };
+    });
+
+    res.json({ ok: true, staff });
+  } catch (e) {
+    next(e);
+  }
+};
+
 /** POST …/events/:eventId/checkin/employee */
 export const schoolEventsKioskEmployeeCheckin = async (req, res, next) => {
   try {
@@ -504,8 +613,20 @@ export const schoolEventsKioskEmployeeCheckin = async (req, res, next) => {
 
     const userId = parsePositiveInt(req.body?.userId);
     if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
-    if (!(await providerOnEventStaffRoster(userId, ev.id, m.agencyId))) {
-      return res.status(403).json({ error: { message: 'Employee is not assigned to this event' } });
+
+    const onRoster = await providerOnEventStaffRoster(userId, ev.id, m.agencyId);
+    const acknowledgeUnassigned =
+      req.body?.acknowledgeUnassigned === true
+      || req.body?.acknowledgeUnassigned === 1
+      || req.body?.acknowledgeUnassigned === '1';
+    if (!onRoster && !acknowledgeUnassigned) {
+      return res.status(403).json({
+        error: {
+          message: 'You are not assigned to this event. Confirm to clock in anyway — your manager may follow up.',
+          code: 'NOT_ASSIGNED',
+          requiresAcknowledgement: true
+        }
+      });
     }
 
     const result = await syncEmployeeCheckin({
@@ -513,7 +634,8 @@ export const schoolEventsKioskEmployeeCheckin = async (req, res, next) => {
       eventId: Number(ev.id),
       userId,
       kioskDate: day.todayYmd,
-      ip: kioskIp(req)
+      ip: kioskIp(req),
+      allowUnassigned: !onRoster && acknowledgeUnassigned
     });
     if (result.tableMissing) {
       return res.status(503).json({ error: { message: 'Run migration 615 for event-day check-ins' } });
@@ -527,7 +649,8 @@ export const schoolEventsKioskEmployeeCheckin = async (req, res, next) => {
       userId,
       checkedInAt: result.clockedInAt || new Date().toISOString(),
       punchId: result.punchId,
-      alreadyClockedIn: !!result.alreadyClockedIn
+      alreadyClockedIn: !!result.alreadyClockedIn,
+      unassignedClockIn: !!result.unassignedClockIn
     });
   } catch (e) {
     next(e);
@@ -661,7 +784,7 @@ export const schoolEventsKioskUploadPhoto = async (req, res, next) => {
 
     const userId = parsePositiveInt(req.body?.userId);
     if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
-    if (!(await providerOnEventStaffRoster(userId, ev.id, m.agencyId))) {
+    if (!(await staffCanUseEventKiosk(userId, ev.id, m.agencyId))) {
       return res.status(403).json({ error: { message: 'Employee is not assigned to this event' } });
     }
 

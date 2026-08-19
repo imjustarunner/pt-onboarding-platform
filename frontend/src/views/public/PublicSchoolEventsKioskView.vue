@@ -131,6 +131,41 @@
         Tap your name to clock in{{ clockedInStaff.length ? ', or tap your name again to clock out.' : '.' }}
       </p>
 
+      <div v-if="!staff.length" class="empty">
+        No one is assigned to this event yet. Search your name below to clock in.
+      </div>
+
+      <div class="staff-search-block">
+        <label class="lbl" for="staff-search-input">Find your name</label>
+        <input
+          id="staff-search-input"
+          v-model="staffSearchQuery"
+          class="staff-search-input"
+          type="search"
+          placeholder="Start typing your name…"
+          autocomplete="off"
+          @input="onStaffSearchInput"
+        />
+        <div v-if="staffSearchLoading" class="muted small">Searching…</div>
+        <div v-else-if="staffSearchQuery.trim().length >= 2 && !staffSearchResults.length" class="muted small">
+          No matching staff found.
+        </div>
+        <div v-if="staffSearchResults.length" class="staff-grid staff-grid--search">
+          <button
+            v-for="s in staffSearchResults"
+            :key="'search-' + s.id"
+            type="button"
+            class="staff-chip"
+            :class="{ 'is-clocked-in': s.isClockedIn, 'is-unassigned': !s.isAssigned }"
+            @click="selectStaffMember(s)"
+          >
+            <span class="name">{{ s.displayName }}</span>
+            <span v-if="!s.isAssigned" class="unassigned-badge">Not assigned</span>
+            <span v-if="s.isClockedIn" class="clocked-badge">Clocked in</span>
+          </button>
+        </div>
+      </div>
+
       <div class="staff-grid">
         <button
           v-for="s in staff"
@@ -240,6 +275,25 @@
         </div>
       </div>
       </template>
+
+      <div v-if="showUnassignedConfirm" class="confirm-overlay" @click.self="cancelUnassignedConfirm">
+        <div class="confirm-modal">
+          <h3>Not assigned to this event</h3>
+          <p>
+            <strong>{{ pendingUnassignedStaff?.displayName }}</strong> is not on the assigned staff list for
+            {{ selectedMeta?.eventTitle || 'this event' }}.
+          </p>
+          <p>
+            You can still clock in, but People Operations may follow up to confirm you were at the right school.
+          </p>
+          <div class="confirm-actions">
+            <button type="button" class="btn-secondary-sm" @click="cancelUnassignedConfirm">Cancel</button>
+            <button type="button" class="btn-primary" :disabled="busy" @click="confirmUnassignedClockIn">
+              {{ busy ? 'Clocking in…' : 'Clock in anyway' }}
+            </button>
+          </div>
+        </div>
+      </div>
     </section>
   </div>
 </template>
@@ -293,6 +347,12 @@ const photoPreview = ref('');
 const photoStream = ref(null);
 const photoVideo = ref(null);
 const bypassAcknowledged = ref(false);
+const staffSearchQuery = ref('');
+const staffSearchResults = ref([]);
+const staffSearchLoading = ref(false);
+const showUnassignedConfirm = ref(false);
+const pendingUnassignedStaff = ref(null);
+let staffSearchTimer = null;
 
 const storageKey = computed(() => `schoolEventsKiosk.${slug.value || 'x'}`);
 
@@ -439,6 +499,10 @@ function backToEvents() {
   staff.value = [];
   activeUser.value = null;
   hasPhoto.value = false;
+  staffSearchQuery.value = '';
+  staffSearchResults.value = [];
+  showUnassignedConfirm.value = false;
+  pendingUnassignedStaff.value = null;
   resetPhotoUi();
 }
 
@@ -573,10 +637,53 @@ async function selectStaffMember(s) {
     await refreshPhotoStatus(s.id);
     return;
   }
+  if (s.isAssigned === false) {
+    pendingUnassignedStaff.value = s;
+    showUnassignedConfirm.value = true;
+    return;
+  }
   await clockInUser(s);
 }
 
-async function clockInUser(s) {
+function cancelUnassignedConfirm() {
+  showUnassignedConfirm.value = false;
+  pendingUnassignedStaff.value = null;
+}
+
+async function confirmUnassignedClockIn() {
+  const s = pendingUnassignedStaff.value;
+  if (!s) return;
+  showUnassignedConfirm.value = false;
+  pendingUnassignedStaff.value = null;
+  await clockInUser(s, { acknowledgeUnassigned: true });
+}
+
+async function onStaffSearchInput() {
+  const q = staffSearchQuery.value.trim();
+  if (staffSearchTimer) clearTimeout(staffSearchTimer);
+  if (q.length < 2) {
+    staffSearchResults.value = [];
+    staffSearchLoading.value = false;
+    return;
+  }
+  staffSearchTimer = setTimeout(async () => {
+    try {
+      staffSearchLoading.value = true;
+      const res = await api.get(
+        `/public/school-events/agency/${encodeURIComponent(slug.value)}/kiosk/events/${selectedEventId.value}/staff-search`,
+        { params: { q }, headers: authHeaders(), skipAuthRedirect: true, skipGlobalLoading: true }
+      );
+      staffSearchResults.value = Array.isArray(res.data?.staff) ? res.data.staff : [];
+    } catch (e) {
+      error.value = e?.response?.data?.error?.message || 'Search failed';
+      staffSearchResults.value = [];
+    } finally {
+      staffSearchLoading.value = false;
+    }
+  }, 250);
+}
+
+async function clockInUser(s, { acknowledgeUnassigned = false } = {}) {
   try {
     busy.value = true;
     error.value = '';
@@ -584,21 +691,34 @@ async function clockInUser(s) {
     resetPhotoUi();
     const res = await api.post(
       `/public/school-events/agency/${encodeURIComponent(slug.value)}/kiosk/events/${selectedEventId.value}/checkin/employee`,
-      { userId: s.id },
+      { userId: s.id, acknowledgeUnassigned: acknowledgeUnassigned ? true : undefined },
       { headers: authHeaders(), skipAuthRedirect: true, skipGlobalLoading: true }
     );
     const clockedInAt = res.data?.checkedInAt || new Date().toISOString();
     const updated = applyStaffClockState(s, {
       isClockedIn: true,
-      clockedInAt
+      clockedInAt,
+      isAssigned: s.isAssigned !== false
     });
+    if (!staff.value.some((row) => Number(row.id) === Number(s.id))) {
+      staff.value = [...staff.value, updated];
+    }
     setActiveStaffMember(updated);
+    const unassignedNote = res.data?.unassignedClockIn
+      ? ' You were not assigned to this event — People Operations may follow up.'
+      : '';
     notice.value = res.data?.alreadyClockedIn
-      ? `${s.displayName} was already clocked in at ${formatClockedInAt(clockedInAt)}.`
-      : `${s.displayName} clocked in at ${formatClockedInAt(clockedInAt)}.`;
+      ? `${s.displayName} was already clocked in at ${formatClockedInAt(clockedInAt)}.${unassignedNote}`
+      : `${s.displayName} clocked in at ${formatClockedInAt(clockedInAt)}.${unassignedNote}`;
     await refreshPhotoStatus(s.id);
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Clock-in failed';
+    const data = e?.response?.data?.error;
+    if (data?.code === 'NOT_ASSIGNED' && data?.requiresAcknowledgement) {
+      pendingUnassignedStaff.value = s;
+      showUnassignedConfirm.value = true;
+      return;
+    }
+    error.value = data?.message || 'Clock-in failed';
   } finally {
     busy.value = false;
   }
@@ -1142,6 +1262,62 @@ h2, h3 {
 .empty {
   color: #64748b;
   padding: 1rem 0;
+}
+.staff-search-block {
+  margin-bottom: 1rem;
+}
+.staff-search-input {
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  font-size: 1rem;
+}
+.staff-grid--search {
+  margin-top: 0.65rem;
+}
+.staff-chip.is-unassigned {
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+.unassigned-badge {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #b45309;
+}
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.45);
+}
+.confirm-modal {
+  width: min(100%, 420px);
+  padding: 1.1rem 1.15rem;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+}
+.confirm-modal h3 {
+  margin: 0 0 0.65rem;
+}
+.confirm-modal p {
+  margin: 0 0 0.65rem;
+  color: #334155;
+  line-height: 1.45;
+}
+.confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
 }
 .agenda-note {
   margin: 0 0 0.85rem;
