@@ -1,6 +1,6 @@
 /**
- * One-off: assign Elizabeth Lantz to Russell back-to-school event and backdate clock-in.
- * Safe to re-run (upserts assignment; skips punch if already clocked in).
+ * One-off: assign Elizabeth Lantz to Russell back-to-school event and clock in at event start.
+ * Safe to re-run (upserts assignment; updates open punch time to event start).
  *
  * Usage: node backend/scripts/fix-russell-elizabeth-clockin.mjs
  */
@@ -10,8 +10,21 @@ import { recordEventEmployeeClockIn } from '../src/services/skillBuildersEventKi
 const EVENT_TITLE_MATCH = '%back to school%russell%';
 const STAFF_LAST = 'lantz';
 const STAFF_FIRST = 'elizabeth';
-const BACKDATE_MINUTES = 15;
 const ASSIGNED_BY_USER_ID = 501;
+
+function kioskDateYmdFromDate(date, timeZone) {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timeZone || 'America/Denver',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(date instanceof Date ? date : new Date(date));
+  } catch {
+    const d = date instanceof Date ? date : new Date(date);
+    return Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : '';
+  }
+}
 
 async function main() {
   const [users] = await pool.execute(
@@ -65,8 +78,12 @@ async function main() {
     [ev.id, ev.agency_id, sessionDateId, user.id, ASSIGNED_BY_USER_ID, ASSIGNED_BY_USER_ID]
   );
 
-  const punchedAt = new Date(Date.now() - BACKDATE_MINUTES * 60 * 1000);
-  const kioskDate = punchedAt.toISOString().slice(0, 10);
+  const timeZone = ev.timezone || 'America/Denver';
+  const punchedAt = new Date(ev.starts_at);
+  if (!Number.isFinite(punchedAt.getTime())) {
+    throw new Error(`Invalid event starts_at for event ${ev.id}`);
+  }
+  const kioskDate = kioskDateYmdFromDate(punchedAt, timeZone);
 
   const [openPunch] = await pool.execute(
     `SELECT id, punched_at FROM skill_builders_event_kiosk_punches
@@ -79,8 +96,19 @@ async function main() {
     [ev.id, user.id, ev.id, user.id]
   );
 
-  let punchResult = { ok: true, alreadyClockedIn: true, punchId: openPunch?.[0]?.id || null };
-  if (!openPunch?.[0]) {
+  let punchResult;
+  if (openPunch?.[0]) {
+    await pool.execute(
+      `UPDATE skill_builders_event_kiosk_punches SET punched_at = ? WHERE id = ?`,
+      [punchedAt, openPunch[0].id]
+    );
+    punchResult = {
+      ok: true,
+      alreadyClockedIn: true,
+      punchId: openPunch[0].id,
+      updatedPunchTime: true
+    };
+  } else {
     punchResult = await recordEventEmployeeClockIn(pool, {
       agencyId: ev.agency_id,
       eventId: ev.id,
@@ -92,12 +120,20 @@ async function main() {
   }
 
   try {
-    await pool.execute(
-      `INSERT INTO event_day_kiosk_checkins
-         (company_event_id, agency_id, user_id, person_type, action, checked_in_at, kiosk_date, ip_address)
-       VALUES (?, ?, ?, 'employee', 'check_in', ?, ?, NULL)`,
-      [ev.id, ev.agency_id, user.id, punchedAt, kioskDate]
+    const [checkinUpdate] = await pool.execute(
+      `UPDATE event_day_kiosk_checkins
+       SET checked_in_at = ?, kiosk_date = ?
+       WHERE company_event_id = ? AND user_id = ? AND person_type = 'employee' AND action = 'check_in'`,
+      [punchedAt, kioskDate, ev.id, user.id]
     );
+    if (!checkinUpdate?.affectedRows) {
+      await pool.execute(
+        `INSERT INTO event_day_kiosk_checkins
+           (company_event_id, agency_id, user_id, person_type, action, checked_in_at, kiosk_date, ip_address)
+         VALUES (?, ?, ?, 'employee', 'check_in', ?, ?, NULL)`,
+        [ev.id, ev.agency_id, user.id, punchedAt, kioskDate]
+      );
+    }
   } catch (err) {
     if (err?.code !== 'ER_DUP_ENTRY' && err?.code !== 'ER_NO_SUCH_TABLE') throw err;
   }
@@ -105,9 +141,10 @@ async function main() {
   console.log(JSON.stringify({
     ok: true,
     user: { id: user.id, name: `${user.first_name} ${user.last_name}`, status: user.status },
-    event: { id: ev.id, title: ev.title, agencyId: ev.agency_id },
+    event: { id: ev.id, title: ev.title, agencyId: ev.agency_id, startsAt: ev.starts_at, timezone: timeZone },
     sessionDateId,
     punchedAt: punchedAt.toISOString(),
+    punchedAtLocal: punchedAt.toLocaleString('en-US', { timeZone, timeZoneName: 'short' }),
     punch: punchResult
   }, null, 2));
 }
