@@ -146,6 +146,21 @@ export function rateAmountForSlot(rateCard, slot, titles = {}) {
   return 0;
 }
 
+/** Direct/Indirect/ADP hour columns. Other-slot event time counts as Indirect unless the rate card says Direct. */
+export function reportingBucketForRateSlot(slot, rateCard = null) {
+  const s = normalizeEventPayrollRateSlot(slot);
+  if (s === 'direct') return 'direct';
+  if (s === 'indirect') return 'indirect';
+  const raw = s === 'other_1'
+    ? rateCard?.other_rate_1_bucket
+    : s === 'other_2'
+      ? rateCard?.other_rate_2_bucket
+      : s === 'other_3'
+        ? rateCard?.other_rate_3_bucket
+        : '';
+  return String(raw || '').trim().toLowerCase() === 'direct' ? 'direct' : 'indirect';
+}
+
 export async function resolveEventPayrollTreatment({ agencyId, eventType, titles = {} }) {
   const defaults = defaultTreatmentForEventType(eventType);
   let mapped = null;

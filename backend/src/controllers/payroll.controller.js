@@ -86,6 +86,7 @@ import {
   rateAmountForSlot,
   rateSlotLabel,
   parseMoneyFromRateTitle,
+  reportingBucketForRateSlot,
   formatEventPayrollDateLabel,
   listEventPayrollRateMapsForAgency,
   KNOWN_EVENT_PAYROLL_TYPES,
@@ -4778,6 +4779,7 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
         let bucket = String(line.bucket || '').trim().toLowerCase();
         if (!(bucket === 'direct' || bucket === 'indirect')) {
           if (lineType === 'manual_pay_line') bucket = 'direct';
+          else if (HOURLY_ADJ_TYPES.has(lineType)) bucket = 'indirect';
           else continue;
         }
         const lineAmount = safeNum(line.amount || 0);
@@ -6779,9 +6781,10 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
             titles: otherTitles
           })
           : null;
-        const payBucket = payInfo?.slot || b;
+        const payBucket = payInfo
+          ? reportingBucketForRateSlot(payInfo.slot, rateCard)
+          : (b === 'direct' ? 'direct' : 'indirect');
         if (payBucket === 'direct') { directHours += hrs; totalHours += hrs; }
-        else if (payBucket === 'other_1' || payBucket === 'other_2' || payBucket === 'other_3') { otherHours += hrs; totalHours += hrs; }
         else { indirectHours += hrs; totalHours += hrs; }
         if (tierSettings.enabled && payBucket === 'direct') {
           tierCreditsCurrent += hrs;
@@ -6816,7 +6819,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
             label: lineLabel,
             taxable: true,
             amount: effectiveAmt,
-            bucket: payInfo.slot === 'direct' ? 'direct' : (payInfo.slot === 'indirect' ? 'indirect' : 'other'),
+            bucket: reportingBucketForRateSlot(payInfo.slot, rateCard),
             meta: {
               creditsHours: (Number.isFinite(hrs) ? hrs : null),
               hours: hrs,
