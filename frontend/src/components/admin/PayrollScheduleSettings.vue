@@ -26,7 +26,7 @@
         <button type="button" class="tab" :class="{ active: payrollTab === 'service_codes' }" @click="payrollTab = 'service_codes'; loadServiceCodes()">
           Service Codes
         </button>
-        <button type="button" class="tab" :class="{ active: payrollTab === 'rate_titles' }" @click="payrollTab = 'rate_titles'; loadRateTitles()">
+        <button type="button" class="tab" :class="{ active: payrollTab === 'rate_titles' }" @click="payrollTab = 'rate_titles'; loadRateTitles(); loadEventTypeMaps()">
           Rate Titles
         </button>
         <button type="button" class="tab" :class="{ active: payrollTab === 'percent_pay' }" @click="payrollTab = 'percent_pay'; loadPercentPay()">
@@ -829,6 +829,50 @@
         </div>
         <div class="actions" style="margin-top:14px; justify-content:flex-start;">
           <button class="btn btn-primary" type="button" @click="saveRateTitles" :disabled="rtSaving">{{ rtSaving ? 'Saving…' : 'Save titles' }}</button>
+        </div>
+
+        <div class="settings-section-divider" style="margin-top:28px;"><h4>Kiosk / event payroll rates</h4></div>
+        <p class="hint" style="margin:0 0 14px 0;">
+          Each event type maps to a rate-card slot. Skill Builders keeps its direct/leftover split.
+          School / Outreach events use the mapped slot (usually Other 1 if that title is Outreach).
+          Add a new event type later without changing payroll code — just map it here.
+        </p>
+        <div v-if="etmError" class="warn">{{ etmError }}</div>
+        <div v-if="etmLoading" class="muted">Loading event type maps…</div>
+        <div v-else class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Event type</th>
+                <th>Payroll rate</th>
+                <th>Skill Builders split</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in etmDraft" :key="row.eventType">
+                <td>
+                  <strong>{{ row.label }}</strong>
+                  <div class="hint">{{ row.eventType }}</div>
+                </td>
+                <td>
+                  <select v-model="row.rateSlot" :disabled="etmSaving">
+                    <option v-for="s in etmSlots" :key="s.slot" :value="s.slot">{{ s.label }}</option>
+                  </select>
+                </td>
+                <td>
+                  <label class="hint" style="display:flex; align-items:center; gap:6px;">
+                    <input type="checkbox" v-model="row.useDirectIndirectSplit" :disabled="etmSaving" />
+                    Direct cap, remainder to rate above
+                  </label>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="actions" style="margin-top:14px; justify-content:flex-start;">
+          <button class="btn btn-primary" type="button" @click="saveEventTypeMaps" :disabled="etmSaving || etmLoading">
+            {{ etmSaving ? 'Saving…' : 'Save event type maps' }}
+          </button>
         </div>
       </template>
     </div>
@@ -2008,9 +2052,62 @@ const saveRateTitles = async () => {
   try {
     rtSaving.value = true; rtError.value = '';
     await api.put('/payroll/other-rate-titles', { agencyId: agencyId.value, title1: rtDraft.value.title1, title2: rtDraft.value.title2, title3: rtDraft.value.title3 });
+    await loadEventTypeMaps();
   } catch (e) {
     rtError.value = e.response?.data?.error?.message || e.message || 'Failed to save rate titles';
   } finally { rtSaving.value = false; }
+};
+
+const etmLoading = ref(false);
+const etmSaving = ref(false);
+const etmError = ref('');
+const etmDraft = ref([]);
+const etmSlots = ref([
+  { slot: 'direct', label: 'Direct' },
+  { slot: 'indirect', label: 'Indirect' },
+  { slot: 'other_1', label: 'Other 1' },
+  { slot: 'other_2', label: 'Other 2' },
+  { slot: 'other_3', label: 'Other 3' }
+]);
+const loadEventTypeMaps = async () => {
+  if (!agencyId.value) return;
+  try {
+    etmLoading.value = true;
+    etmError.value = '';
+    const resp = await api.get('/payroll/event-type-rate-maps', { params: { agencyId: agencyId.value } });
+    etmSlots.value = Array.isArray(resp.data?.slots) && resp.data.slots.length ? resp.data.slots : etmSlots.value;
+    etmDraft.value = (resp.data?.maps || []).map((row) => ({
+      eventType: row.eventType,
+      label: row.label,
+      rateSlot: row.rateSlot || 'indirect',
+      useDirectIndirectSplit: !!row.useDirectIndirectSplit
+    }));
+  } catch (e) {
+    etmError.value = e.response?.data?.error?.message || e.message || 'Failed to load event type maps';
+  } finally {
+    etmLoading.value = false;
+  }
+};
+const saveEventTypeMaps = async () => {
+  if (!agencyId.value) return;
+  try {
+    etmSaving.value = true;
+    etmError.value = '';
+    const resp = await api.put('/payroll/event-type-rate-maps', {
+      agencyId: agencyId.value,
+      maps: etmDraft.value
+    });
+    etmDraft.value = (resp.data?.maps || etmDraft.value).map((row) => ({
+      eventType: row.eventType,
+      label: row.label,
+      rateSlot: row.rateSlot || 'indirect',
+      useDirectIndirectSplit: !!row.useDirectIndirectSplit
+    }));
+  } catch (e) {
+    etmError.value = e.response?.data?.error?.message || e.message || 'Failed to save event type maps';
+  } finally {
+    etmSaving.value = false;
+  }
 };
 
 watch(agencyId, async () => {
@@ -2024,7 +2121,10 @@ watch(agencyId, async () => {
   if (payrollTab.value === 'supervision') await loadSupervision();
   if (payrollTab.value === 'holidays') await loadHolidays();
   if (payrollTab.value === 'service_codes') await loadServiceCodes();
-  if (payrollTab.value === 'rate_titles') await loadRateTitles();
+  if (payrollTab.value === 'rate_titles') {
+    await loadRateTitles();
+    await loadEventTypeMaps();
+  }
 }, { immediate: true });
 
 watch(payrollTab, async (t) => {
@@ -2036,7 +2136,10 @@ watch(payrollTab, async (t) => {
   if (t === 'supervision') await loadSupervision();
   if (t === 'holidays') await loadHolidays();
   if (t === 'service_codes') await loadServiceCodes();
-  if (t === 'rate_titles') await loadRateTitles();
+  if (t === 'rate_titles') {
+    await loadRateTitles();
+    await loadEventTypeMaps();
+  }
 });
 </script>
 

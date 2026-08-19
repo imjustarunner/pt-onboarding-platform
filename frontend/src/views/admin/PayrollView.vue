@@ -2979,7 +2979,8 @@
             <div class="card" style="margin-top: 12px;">
               <h3 class="card-title" style="margin: 0 0 6px 0;">Event time (Pending)</h3>
               <div class="hint">
-                Skill Builders / program event kiosk check-in/out with direct and indirect hour split. Includes submitted and deferred rows (same queue as Payroll Stage), including auto clock-outs that need verify. Each session appears as two rows (direct + indirect). Events with direct time disabled show only the indirect row. Approving posts to the selected pay period.
+                Kiosk check-in/out for Skill Builders, Outreach/school events, and other program events.
+                Skill Builders still split direct vs leftover time. Other event types use the payroll rate mapped to that event type (for example Outreach → the Outreach rate-card slot). Auto clock-outs still need verify. Approving posts to the selected pay period.
               </div>
               <div v-if="eventTimeError" class="warn-box" style="margin-top: 8px;">{{ eventTimeError }}</div>
               <div v-if="eventTimeLoading" class="muted" style="margin-top: 8px;">Loading event time submissions…</div>
@@ -8730,6 +8731,9 @@ const eventTimeBucketRows = computed(() => {
       s.eventEmployeeReportTime,
       s.eventTimezone
     );
+    const remainderBucket = s.remainderBucket || 'indirect';
+    const remainderLabel = s.payrollRateLabel
+      || (remainderBucket === 'other_1' ? 'Other 1' : remainderBucket === 'other_2' ? 'Other 2' : remainderBucket === 'other_3' ? 'Other 3' : 'Indirect');
     // Skip the direct row when direct time is disabled for this event:
     // no actual claim was created and the hours are 0, so the row is noise.
     const directDisabled = Number(s.directHours || 0) === 0 && !s.directClaim;
@@ -8749,14 +8753,15 @@ const eventTimeBucketRows = computed(() => {
     }
     rows.push({
       submission: s,
-      rowKey: `${s.punchInId}-indirect`,
-      bucket: 'indirect',
-      bucketLabel: 'Indirect',
-      bucketHours: s.indirectHours,
+      rowKey: `${s.punchInId}-${remainderBucket}`,
+      bucket: remainderBucket,
+      bucketLabel: remainderLabel,
+      bucketHours: remainderBucket === 'indirect'
+        ? s.indirectHours
+        : (s.remainderHours || s.indirectHours || s.workedHours),
       claim: s.indirectClaim,
       canApprove: canApproveBucket(s.indirectClaim),
-      // Indirect row is the "lead" (carries Edit / Send-back / Reject) when the
-      // direct row was omitted because direct time is disabled.
+      // Indirect/Outreach row is the "lead" when the direct row was omitted.
       isLeadRow: directDisabled,
       lateMinutes
     });
@@ -9450,7 +9455,7 @@ const approveEventTimeSubmission = async (submission, bucket) => {
       action: 'approve',
       targetPayrollPeriodId: targetPeriodId,
       bucket,
-      creditsHours: bucket === 'direct' ? submission.directHours : submission.indirectHours
+      creditsHours: bucket === 'direct' ? submission.directHours : (submission.remainderHours || submission.indirectHours)
     });
     await loadEventTimeSubmissions();
     await reloadPendingTimeClaims();

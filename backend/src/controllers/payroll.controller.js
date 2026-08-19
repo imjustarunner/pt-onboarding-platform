@@ -81,6 +81,17 @@ import { syncHolidayBonusClaimsForPeriod } from '../services/payrollHolidayBonus
 import TrainingFocusPayrollService from '../services/trainingFocusPayroll.service.js';
 import { loadUserPaySystemContext, applyPaySystemToBreakdown, classifyPayType } from '../services/paySystem.service.js';
 import {
+  loadEventPayrollContext,
+  resolveEventPayrollTreatment,
+  rateAmountForSlot,
+  rateSlotLabel,
+  formatEventPayrollDateLabel,
+  listEventPayrollRateMapsForAgency,
+  KNOWN_EVENT_PAYROLL_TYPES,
+  EVENT_PAYROLL_RATE_SLOTS
+} from '../services/eventPayrollRate.service.js';
+import PayrollEventTypeRateMap from '../models/PayrollEventTypeRateMap.model.js';
+import {
   listAgencyHolidays as listAgencyHolidaysSvc,
   createAgencyHoliday as createAgencyHolidaySvc,
   findAgencyHolidayById as findAgencyHolidayByIdSvc,
@@ -1152,12 +1163,45 @@ function resolveTimeClaimHours(c) {
   let hrs = Number.isFinite(hrsFromCol) ? hrsFromCol : hrsFromPayload;
   const claimType = String(c?.claim_type || '').trim().toLowerCase();
   if ((!Number.isFinite(hrs) || hrs <= 1e-9) && claimType === 'skill_builder_event') {
-    const bucketHrs = bucket === 'direct'
-      ? Number(payload?.directHours || 0)
-      : Number(payload?.indirectHours || 0);
+    let bucketHrs = 0;
+    if (bucket === 'direct') bucketHrs = Number(payload?.directHours || 0);
+    else if (bucket === 'other_1') bucketHrs = Number(payload?.other1Hours || payload?.indirectHours || 0);
+    else if (bucket === 'other_2') bucketHrs = Number(payload?.other2Hours || payload?.indirectHours || 0);
+    else if (bucket === 'other_3') bucketHrs = Number(payload?.other3Hours || payload?.indirectHours || 0);
+    else bucketHrs = Number(payload?.indirectHours || 0);
     if (Number.isFinite(bucketHrs) && bucketHrs > 1e-9) hrs = bucketHrs;
   }
   return { hrs, bucket, claimType, payload };
+}
+
+async function resolveKioskEventClaimPay({ claim, payload = {}, storedBucket, agencyId, rateCard, titles = {} }) {
+  const eventId = Number(payload?.companyEventId || 0);
+  const ctx = eventId
+    ? await loadEventPayrollContext({ agencyId, eventId, titles })
+    : null;
+  const treatment = ctx || await resolveEventPayrollTreatment({
+    agencyId,
+    eventType: payload?.eventType,
+    titles
+  });
+  const stored = normalizeTimeClaimBucket(storedBucket || payload?.bucketRole || payload?.bucket || 'indirect');
+  const split = !!treatment.useDirectIndirectSplit;
+  const slot = split
+    ? (stored === 'direct' ? 'direct' : (treatment.rateSlot || 'indirect'))
+    : (treatment.rateSlot || stored || 'indirect');
+  const eventTitle = String(payload?.eventTitle || ctx?.eventTitle || '').trim()
+    || String(treatment.eventTypeLabel || ctx?.eventTypeLabel || '').trim()
+    || (split ? 'Skill Builders event' : 'Event');
+  const slotLabel = rateSlotLabel(slot, titles)
+    || String(payload?.payrollRateLabel || '').trim();
+  return {
+    ...treatment,
+    eventTitle,
+    slot,
+    slotLabel,
+    rate: rateAmountForSlot(rateCard, slot),
+    split
+  };
 }
 
 function stagingServiceCodeKey(userId, serviceCode) {
@@ -2405,6 +2449,7 @@ function parsePayrollRows(records, opts = {}) {
       unitCount,
       clientPaidAmount,
       noteStatus,
+      apptType: apptTypeStr ? String(apptTypeStr).trim() : '',
       // IMPORTANT: Do not persist the raw billing report row or non-essential fields.
       // We only keep a small fingerprintFields object for hashing during import.
       fingerprintFields: {
@@ -6471,27 +6516,45 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       agencyId,
       userId
     });
-    // Effective dollar amount for a time claim. Skill Builders event time is paid at the
-    // provider's direct/indirect rate-card rate (hours x rate) when no explicit dollar
-    // amount is stored; an explicit non-zero applied_amount (admin override) still wins.
-    const effectiveTimeClaimAmount = (c) => {
+    const otherTitles = await getEffectiveOtherRateTitles({ agencyId, userId });
+    // Effective dollar amount for a time claim. Kiosk event time is paid at the
+    // mapped event-type rate-card slot (Skill Builders keep direct/indirect split).
+    // Stored applied_amount only wins when payroll explicitly overrode the rate.
+    const effectiveTimeClaimAmount = async (c) => {
       const stored = Number(c?.applied_amount || 0);
       const claimType = String(c?.claim_type || '').trim().toLowerCase();
-      if (claimType === 'skill_builder_event' && Math.abs(stored) <= 1e-9) {
-        const b = String(c?.bucket || 'indirect').trim().toLowerCase() === 'direct' ? 'direct' : 'indirect';
-        const payload = c?.payload || {};
+      const payload = c?.payload || {};
+      const amountExplicit = payload.amountExplicit === true || payload.payRateAmountOverride === true;
+      if (claimType === 'skill_builder_event') {
+        if (amountExplicit && stored > 1e-9) return stored;
+        const b = String(c?.bucket || payload?.bucketRole || 'indirect').trim().toLowerCase();
         const hrsCol = (c?.credits_hours === null || c?.credits_hours === undefined || c?.credits_hours === '') ? null : Number(c.credits_hours);
-        const hrs = Number.isFinite(hrsCol)
-          ? hrsCol
-          : (b === 'direct' ? Number(payload?.directHours || 0) : Number(payload?.indirectHours || 0));
-        if (Number.isFinite(hrs) && hrs > 1e-9) {
-          const evRate = b === 'direct' ? (Number(rateCard?.direct_rate || 0) || 0) : (Number(rateCard?.indirect_rate || 0) || 0);
-          return Math.round(hrs * evRate * 100) / 100;
+        let hrs = Number.isFinite(hrsCol) ? hrsCol : 0;
+        if (!(hrs > 1e-9)) {
+          hrs = b === 'direct'
+            ? Number(payload?.directHours || 0)
+            : Number(payload?.other1Hours || payload?.other2Hours || payload?.other3Hours || payload?.indirectHours || 0);
         }
+        if (Number.isFinite(hrs) && hrs > 1e-9) {
+          const pay = await resolveKioskEventClaimPay({
+            claim: c,
+            payload,
+            storedBucket: b,
+            agencyId,
+            rateCard,
+            titles: otherTitles
+          });
+          const evRate = Number(pay.rate || 0) || 0;
+          if (evRate > 0) return Math.round(hrs * evRate * 100) / 100;
+        }
+        return stored;
       }
       return stored;
     };
-    const timeClaimsAmount = (approvedTimeClaims || []).reduce((a, c) => a + effectiveTimeClaimAmount(c), 0);
+    let timeClaimsAmount = 0;
+    for (const c of approvedTimeClaims || []) {
+      timeClaimsAmount += await effectiveTimeClaimAmount(c);
+    }
     const otherTaxableAmount = Number(adj?.other_taxable_amount || 0);
     const imatterAmount = Number(adj?.imatter_amount || 0);
     const missedAppointmentsAmount = Number(adj?.missed_appointments_amount || 0);
@@ -6563,7 +6626,6 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     const ptoPay = ptoHours * ptoRate;
 
     // Hour-based add-ons for multi-rate "other" slots (paid at the provider's rate card).
-    const otherTitles = await getEffectiveOtherRateTitles({ agencyId, userId });
     const otherRate1Hours = Number(adj?.other_rate_1_hours || 0);
     const otherRate2Hours = Number(adj?.other_rate_2_hours || 0);
     const otherRate3Hours = Number(adj?.other_rate_3_hours || 0);
@@ -6706,23 +6768,65 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       }
 
       if (Number.isFinite(hrs) && hrs > 1e-9) {
-        if (b === 'direct') { directHours += hrs; totalHours += hrs; }
-        else if (b === 'other_1') { otherHours += hrs; totalHours += hrs; }
+        const payInfo = (claimType === 'skill_builder_event')
+          ? await resolveKioskEventClaimPay({
+            claim: c,
+            payload,
+            storedBucket: b,
+            agencyId,
+            rateCard,
+            titles: otherTitles
+          })
+          : null;
+        const payBucket = payInfo?.slot || b;
+        if (payBucket === 'direct') { directHours += hrs; totalHours += hrs; }
+        else if (payBucket === 'other_1' || payBucket === 'other_2' || payBucket === 'other_3') { otherHours += hrs; totalHours += hrs; }
         else { indirectHours += hrs; totalHours += hrs; }
-        if (tierSettings.enabled && b === 'direct') {
+        if (tierSettings.enabled && payBucket === 'direct') {
           tierCreditsCurrent += hrs;
         }
       }
-      // Skill Builders event time is paid at the provider's direct/indirect rate-card rate
-      // (see effectiveTimeClaimAmount). This keeps the displayed line in sync with the total.
-      const effectiveAmt = effectiveTimeClaimAmount(c);
+      // Kiosk event time uses the mapped event-type rate (Outreach, Skill Builders, etc.).
+      const effectiveAmt = await effectiveTimeClaimAmount(c);
       if (Math.abs(effectiveAmt) > 1e-9) {
         let lineLabel;
         if (claimType === 'skill_builder_event') {
-          const evTitle = String(payload?.eventTitle || '').trim() || 'Skill Builders event';
-          const dateStr = String(c?.claim_date || payload?.clockInAt || '').slice(0, 10);
-          const bucketLabel = b === 'direct' ? 'Direct' : (b === 'other_1' ? 'Other 1' : 'Indirect');
-          lineLabel = `${evTitle}${dateStr ? ` (${dateStr})` : ''} — ${bucketLabel}`;
+          const payInfo = await resolveKioskEventClaimPay({
+            claim: c,
+            payload,
+            storedBucket: b,
+            agencyId,
+            rateCard,
+            titles: otherTitles
+          });
+          const dateStr = formatEventPayrollDateLabel(
+            c?.claim_date,
+            payload?.clockInAt,
+            payload?.eventTimezone || payInfo.timezone
+          );
+          const typeLabel = payInfo.split
+            ? payInfo.slotLabel
+            : (payInfo.slotLabel || payInfo.eventTypeLabel);
+          lineLabel = `${payInfo.eventTitle}${dateStr ? ` (${dateStr})` : ''} — ${typeLabel}`;
+          pushLine({
+            type: payInfo.slot === 'other_1' ? 'other_rate_1'
+              : (payInfo.slot === 'other_2' ? 'other_rate_2'
+                : (payInfo.slot === 'other_3' ? 'other_rate_3' : 'time_claim')),
+            label: lineLabel,
+            taxable: true,
+            amount: effectiveAmt,
+            bucket: payInfo.slot === 'direct' ? 'direct' : (payInfo.slot === 'indirect' ? 'indirect' : 'other'),
+            meta: {
+              creditsHours: (Number.isFinite(hrs) ? hrs : null),
+              hours: hrs,
+              rate: payInfo.rate,
+              eventType: payInfo.eventType,
+              eventTitle: payInfo.eventTitle,
+              rateSlot: payInfo.slot,
+              slot: payInfo.slot === 'other_1' ? 1 : (payInfo.slot === 'other_2' ? 2 : (payInfo.slot === 'other_3' ? 3 : null))
+            }
+          });
+          continue;
         } else if (claimType === 'indirect_time') {
           const code = String(payload?.activityCode || '').trim();
           const catLabel = String(payload?.categoryLabel || '').trim();
@@ -7214,6 +7318,7 @@ export const importPayrollCsv = [
           agencyId,
           clinicianName: r.providerName,
           patientFirstName: r.patientFirstName,
+          apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
           serviceCode: r.serviceCode,
           serviceDate: r.serviceDate,
           location
@@ -7225,6 +7330,7 @@ export const importPayrollCsv = [
           userId,
           providerName: r.providerName,
           patientFirstName: r.patientFirstName,
+          apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
           serviceCode: r.serviceCode,
           location,
           serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
@@ -7433,6 +7539,7 @@ export const importPayrollAuto = [
           agencyId: resolvedAgencyId,
           clinicianName: r.providerName,
           patientFirstName: r.patientFirstName,
+          apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
           serviceCode: r.serviceCode,
           serviceDate: r.serviceDate,
           location
@@ -7444,6 +7551,7 @@ export const importPayrollAuto = [
           userId,
           providerName: r.providerName,
           patientFirstName: r.patientFirstName,
+          apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
           serviceCode: r.serviceCode,
           location,
           serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
@@ -7665,6 +7773,7 @@ export const batchCatchUp = [
                 userId,
                 providerName: r.providerName,
                 patientFirstName: r.patientFirstName,
+                apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
                 serviceCode: r.serviceCode,
                 location,
                 serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
@@ -7778,6 +7887,7 @@ export const batchCatchUp = [
               userId,
               providerName: r.providerName,
               patientFirstName: r.patientFirstName,
+              apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
               serviceCode: r.serviceCode,
               location,
               serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
@@ -8158,6 +8268,7 @@ export const batchCatchUp = [
             userId,
             providerName: r.providerName,
             patientFirstName: r.patientFirstName,
+            apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
             serviceCode: r.serviceCode,
             location,
             serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
@@ -9943,6 +10054,186 @@ export const putPayrollWizardProgress = async (req, res, next) => {
   }
 };
 
+// ==========================
+// Payroll Compliance (late notes + session limits)
+// ==========================
+
+export const getPayrollComplianceDigest = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const {
+      buildComplianceDigest
+    } = await import('../services/payrollCompliance.service.js');
+    const digest = await buildComplianceDigest({
+      agencyId: period.agency_id,
+      payrollPeriodId
+    });
+    res.json(digest);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const postPayrollCompliancePreview = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const userId = parseInt(req.body?.userId, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
+
+    const { previewComplianceEmail } = await import('../services/payrollCompliance.service.js');
+    const preview = await previewComplianceEmail({
+      agencyId: period.agency_id,
+      payrollPeriodId,
+      userId,
+      excludedRowIds: req.body?.excludedRowIds || [],
+      excludedClientKeys: req.body?.excludedClientKeys || [],
+      includeLateNotes: req.body?.includeLateNotes !== false,
+      includeSessionLimits: req.body?.includeSessionLimits !== false
+    });
+    res.json(preview);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const postPayrollComplianceSend = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const userId = parseInt(req.body?.userId, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
+
+    const { sendComplianceEmail } = await import('../services/payrollCompliance.service.js');
+    const result = await sendComplianceEmail({
+      agencyId: period.agency_id,
+      payrollPeriodId,
+      userId,
+      excludedRowIds: req.body?.excludedRowIds || [],
+      excludedClientKeys: req.body?.excludedClientKeys || [],
+      includeLateNotes: req.body?.includeLateNotes !== false,
+      includeSessionLimits: req.body?.includeSessionLimits !== false,
+      generatedByUserId: req.user?.id || null
+    });
+    res.json(result);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const postPayrollComplianceSendAll = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const {
+      buildComplianceDigest,
+      sendComplianceEmail
+    } = await import('../services/payrollCompliance.service.js');
+    const digest = await buildComplianceDigest({
+      agencyId: period.agency_id,
+      payrollPeriodId
+    });
+    if (!digest.unlocked) {
+      return res.status(403).json({ error: { message: 'Compliance is not unlocked for this agency yet' } });
+    }
+
+    const exclusionsByUser = req.body?.exclusionsByUser || {};
+    const includeLateNotes = req.body?.includeLateNotes !== false;
+    const includeSessionLimits = req.body?.includeSessionLimits !== false;
+    const results = [];
+    for (const provider of digest.providers || []) {
+      const excl = exclusionsByUser[String(provider.userId)] || exclusionsByUser[provider.userId] || {};
+      try {
+        const r = await sendComplianceEmail({
+          agencyId: period.agency_id,
+          payrollPeriodId,
+          userId: provider.userId,
+          excludedRowIds: excl.excludedRowIds || [],
+          excludedClientKeys: excl.excludedClientKeys || [],
+          includeLateNotes,
+          includeSessionLimits,
+          generatedByUserId: req.user?.id || null
+        });
+        results.push({ userId: provider.userId, ok: true, ...r });
+      } catch (e) {
+        if (String(e?.message || '').includes('Nothing selected')) {
+          results.push({ userId: provider.userId, ok: false, skipped: true, reason: e.message });
+        } else {
+          results.push({ userId: provider.userId, ok: false, error: e.message });
+        }
+      }
+    }
+    res.json({ ok: true, results });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const putPayrollComplianceSessionMute = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.body?.agencyId || req.query?.agencyId, 10);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const providerUserId = parseInt(req.body?.providerUserId, 10);
+    const clientId = parseInt(req.body?.clientId, 10);
+    const muted = !!req.body?.muted;
+    if (!providerUserId || !clientId) {
+      return res.status(400).json({ error: { message: 'providerUserId and clientId are required' } });
+    }
+
+    const { setSessionLimitMute } = await import('../services/payrollCompliance.service.js');
+    const result = await setSessionLimitMute({
+      agencyId,
+      providerUserId,
+      clientId,
+      muted,
+      mutedByUserId: req.user?.id || null
+    });
+    res.json(result);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const postPayrollComplianceUnlockCheck = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const {
+      maybeUnlockPayrollCompliance,
+      isPayrollComplianceUnlocked
+    } = await import('../services/payrollCompliance.service.js');
+    const result = await maybeUnlockPayrollCompliance({
+      agencyId: period.agency_id,
+      period
+    });
+    const unlocked = result.unlocked || (await isPayrollComplianceUnlocked(period.agency_id));
+    res.json({ unlocked, justUnlocked: !!result.justUnlocked });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const createPayrollManualPayLine = async (req, res, next) => {
   try {
     const payrollPeriodId = parseInt(req.params.id, 10);
@@ -11192,6 +11483,7 @@ export const replacePayrollImport = [
           agencyId,
           clinicianName: r.providerName,
           patientFirstName: r.patientFirstName,
+          apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
           serviceCode: r.serviceCode,
           serviceDate: r.serviceDate,
           location
@@ -11203,6 +11495,7 @@ export const replacePayrollImport = [
           userId,
           providerName: r.providerName,
           patientFirstName: r.patientFirstName,
+          apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
           serviceCode: r.serviceCode,
           location,
           serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
@@ -15592,6 +15885,44 @@ export const putPayrollOtherRateTitlesForUser = async (req, res, next) => {
   }
 };
 
+export const getPayrollEventTypeRateMaps = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const titles = await getEffectiveOtherRateTitles({ agencyId, userId: null });
+    const maps = await listEventPayrollRateMapsForAgency(agencyId);
+    res.json({
+      agencyId,
+      slots: EVENT_PAYROLL_RATE_SLOTS.map((slot) => ({ slot, label: rateSlotLabel(slot, titles) })),
+      knownTypes: KNOWN_EVENT_PAYROLL_TYPES,
+      maps
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const putPayrollEventTypeRateMaps = async (req, res, next) => {
+  try {
+    const agencyId = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const rows = Array.isArray(req.body?.maps) ? req.body.maps : [];
+    await PayrollEventTypeRateMap.replaceAll(agencyId, rows);
+    const titles = await getEffectiveOtherRateTitles({ agencyId, userId: null });
+    const maps = await listEventPayrollRateMapsForAgency(agencyId);
+    res.json({
+      ok: true,
+      agencyId,
+      slots: EVENT_PAYROLL_RATE_SLOTS.map((slot) => ({ slot, label: rateSlotLabel(slot, titles) })),
+      maps
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const createOfficeLocationForPayroll = async (req, res, next) => {
   try {
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
@@ -18808,12 +19139,31 @@ async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approv
   });
 
   if (type === 'skill_builder_event') {
-    // Event-time is paid per bucket: hours × the matching rate-card rate.
     const bucket = String(approveBucket || claim?.bucket || payload?.bucketRole || '').toLowerCase();
     let hrs = Number(approveCreditsHours);
     if (!Number.isFinite(hrs) || hrs < 0) hrs = Number(claim?.credits_hours);
     if (!Number.isFinite(hrs) || hrs < 0) {
-      hrs = bucket === 'direct' ? Number(payload?.directHours || 0) : Number(payload?.indirectHours || 0);
+      hrs = bucket === 'direct'
+        ? Number(payload?.directHours || 0)
+        : Number(payload?.other1Hours || payload?.other2Hours || payload?.other3Hours || payload?.indirectHours || 0);
+    }
+    if (Number.isFinite(hrs) && hrs > 0) {
+      try {
+        const titles = await getEffectiveOtherRateTitles({
+          agencyId: Number(claim?.agency_id || 0),
+          userId: Number(claim?.user_id || 0)
+        });
+        const pay = await resolveKioskEventClaimPay({
+          claim,
+          payload,
+          storedBucket: bucket,
+          agencyId: Number(claim?.agency_id || 0),
+          rateCard,
+          titles
+        });
+        const rate = Number(pay.rate || 0) || 0;
+        if (rate > 0) return Math.round(hrs * rate * 100) / 100;
+      } catch { /* fall through to legacy direct/indirect */ }
     }
     const rate = bucket === 'direct' ? directRate : indirectRate;
     if (Number.isFinite(hrs) && hrs > 0 && rate > 0) {
@@ -18998,6 +19348,25 @@ export const patchTimeClaim = async (req, res, next) => {
       ) {
         bucket = 'other_1';
       }
+      if (claimTypeKeyForBucket === 'skill_builder_event' && bucket !== 'direct') {
+        try {
+          const titles = await getEffectiveOtherRateTitles({
+            agencyId: Number(claim.agency_id),
+            userId: Number(claim.user_id)
+          });
+          const pay = await resolveKioskEventClaimPay({
+            claim,
+            payload: claim.payload || {},
+            storedBucket: bucket,
+            agencyId: Number(claim.agency_id),
+            rateCard: await PayrollRateCard.findForUser(claim.agency_id, claim.user_id),
+            titles
+          });
+          if (!pay.split && pay.slot && pay.slot !== 'direct') {
+            bucket = normalizeTimeClaimBucket(pay.slot);
+          }
+        } catch { /* keep requested bucket */ }
+      }
       let creditsHoursRaw =
         body.creditsHours === null || body.creditsHours === undefined || body.creditsHours === ''
           ? (body.credits_hours === null || body.credits_hours === undefined || body.credits_hours === '' ? null : Number(body.credits_hours))
@@ -19062,6 +19431,10 @@ export const patchTimeClaim = async (req, res, next) => {
         if (Number.isFinite(creditsHoursRaw) && creditsHoursRaw >= 0) {
           nextPayload.totalMinutes = Math.round(creditsHoursRaw * 60);
           nextPayload.creditsHours = creditsHoursRaw;
+        }
+        if (Number.isFinite(override)) {
+          nextPayload.amountExplicit = true;
+          nextPayload.payRateAmountOverride = true;
         }
         // Infer/persist MEETING serviceCode for Town Hall / Admin Meeting when missing.
         if (!String(nextPayload.serviceCode || '').trim()) {

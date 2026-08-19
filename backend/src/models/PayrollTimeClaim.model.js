@@ -131,7 +131,9 @@ class PayrollTimeClaim {
 
   static async approve({ id, approverUserId, targetPayrollPeriodId, appliedAmount, bucket = 'indirect', creditsHours = null }) {
     const raw = String(bucket || 'indirect').trim().toLowerCase();
-    const b = raw === 'direct' ? 'direct' : (raw === 'other_1' ? 'other_1' : 'indirect');
+    const b = raw === 'direct'
+      ? 'direct'
+      : (raw === 'other_1' || raw === 'other_2' || raw === 'other_3' ? raw : 'indirect');
     const hrsRaw = creditsHours === null || creditsHours === undefined || creditsHours === '' ? null : Number(creditsHours);
     const safeHrs = Number.isFinite(hrsRaw) ? Math.round(hrsRaw * 100) / 100 : null;
     await pool.execute(
@@ -155,7 +157,9 @@ class PayrollTimeClaim {
 
   static async updateApproved({ id, bucket, creditsHours, appliedAmount, payload = null }) {
     const raw = String(bucket || 'indirect').trim().toLowerCase();
-    const b = raw === 'direct' ? 'direct' : (raw === 'other_1' ? 'other_1' : 'indirect');
+    const b = raw === 'direct'
+      ? 'direct'
+      : (raw === 'other_1' || raw === 'other_2' || raw === 'other_3' ? raw : 'indirect');
     const hrsRaw = creditsHours === null || creditsHours === undefined || creditsHours === '' ? null : Number(creditsHours);
     const safeHrs = Number.isFinite(hrsRaw) ? Math.round(hrsRaw * 100) / 100 : null;
     const amtRaw = appliedAmount === null || appliedAmount === undefined || appliedAmount === '' ? null : Number(appliedAmount);

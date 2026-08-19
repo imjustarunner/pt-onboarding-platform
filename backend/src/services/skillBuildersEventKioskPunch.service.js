@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
 import { computeEventDirectIndirectHours, roundEventPayrollHours as round2 } from '../utils/eventPayrollHours.util.js';
 import { toUtcIso, utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
+import { loadEventPayrollContext } from './eventPayrollRate.service.js';
 
 const parsePositiveInt = (raw) => {
   const value = Number.parseInt(String(raw || ''), 10);
@@ -176,19 +177,11 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
   source,
   deferAsAdminAdded = false,
   deferredByUserId = null,
-  deferralNote = null
+  deferralNote = null,
+  remainderSlot = 'indirect',
+  eventPayroll = null
 }) {
-  let eventTimezone = 'America/Denver';
-  try {
-    const [tzRows] = await poolConn.execute(
-      `SELECT timezone FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1`,
-      [eventId, agencyId]
-    );
-    const tz = String(tzRows?.[0]?.timezone || '').trim();
-    if (tz) eventTimezone = tz;
-  } catch {
-    // keep default
-  }
+  const eventTimezone = String(eventPayroll?.timezone || '').trim() || 'America/Denver';
 
   // Claim calendar day in the event timezone (not UTC midnight from toISOString).
   const claimDate = utcDateToZonedYmd(tOut, eventTimezone) || tOut.toISOString().slice(0, 10);
@@ -206,6 +199,14 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
   const adminDeferralNote = String(deferralNote || ADMIN_MANUAL_DEFERRAL_NOTE).trim().slice(0, 255);
   const clockInIso = toUtcIso(lastIn.punched_at) || toUtcIso(tIn);
   const clockOutIso = toUtcIso(tOut);
+  const remainderHours = round2(indirectHours);
+  const slotHours = {
+    direct: round2(directHours),
+    indirect: remainderSlot === 'indirect' ? remainderHours : 0,
+    other_1: remainderSlot === 'other_1' ? remainderHours : 0,
+    other_2: remainderSlot === 'other_2' ? remainderHours : 0,
+    other_3: remainderSlot === 'other_3' ? remainderHours : 0
+  };
   const basePayload = {
     companyEventId: eventId,
     companyEventSessionId: outSessionId,
@@ -213,9 +214,18 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
     clockInAt: clockInIso,
     clockOutAt: clockOutIso,
     eventTimezone,
+    eventTitle: eventPayroll?.eventTitle || null,
+    eventType: eventPayroll?.eventType || null,
+    eventTypeLabel: eventPayroll?.eventTypeLabel || null,
+    payrollRateSlot: remainderSlot,
+    payrollRateLabel: eventPayroll?.rateSlotLabel || null,
     workedHours: round2(workedHours),
     directHours: round2(directHours),
-    indirectHours: round2(indirectHours),
+    // Event Time UI still reads remainder hours from indirectHours.
+    indirectHours: remainderHours,
+    other1Hours: slotHours.other_1,
+    other2Hours: slotHours.other_2,
+    other3Hours: slotHours.other_3,
     directHoursCap: round2(directHoursCap),
     kioskPunchInId: lastIn.id,
     kioskPunchOutId: punchOutId,
@@ -262,7 +272,7 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
       claimType: 'skill_builder_event',
       claimDate,
       suggestedPayrollPeriodId,
-      payload: { ...basePayload, bucketRole: 'direct' }
+      payload: { ...basePayload, bucketRole: 'direct', payrollRateSlot: 'direct' }
     });
     await poolConn.execute(
       `UPDATE payroll_time_claims SET bucket = 'direct', credits_hours = ? WHERE id = ?`,
@@ -272,8 +282,11 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
     await stampDeferredRejection(directClaimId);
   }
 
-  if (indirectHours > 0) {
-    const indirectClaim = await PayrollTimeClaim.create({
+  const remainderBucket = ['other_1', 'other_2', 'other_3', 'direct'].includes(remainderSlot)
+    ? remainderSlot
+    : 'indirect';
+  if (remainderHours > 0 && remainderBucket !== 'direct') {
+    const remainderClaim = await PayrollTimeClaim.create({
       agencyId,
       userId,
       submittedByUserId: userId,
@@ -281,20 +294,20 @@ async function createSkillBuilderEventPayrollClaims(poolConn, {
       claimType: 'skill_builder_event',
       claimDate,
       suggestedPayrollPeriodId,
-      payload: { ...basePayload, bucketRole: 'indirect', siblingClaimId: directClaimId }
+      payload: { ...basePayload, bucketRole: remainderBucket, siblingClaimId: directClaimId }
     });
     await poolConn.execute(
-      `UPDATE payroll_time_claims SET bucket = 'indirect', credits_hours = ? WHERE id = ?`,
-      [round2(indirectHours), indirectClaim.id]
+      `UPDATE payroll_time_claims SET bucket = ?, credits_hours = ? WHERE id = ?`,
+      [remainderBucket, remainderHours, remainderClaim.id]
     );
-    indirectClaimId = indirectClaim.id;
+    indirectClaimId = remainderClaim.id;
     await stampDeferredRejection(indirectClaimId);
   }
 
   if (directClaimId && indirectClaimId) {
     await PayrollTimeClaim.updatePayload({
       id: directClaimId,
-      payload: { ...basePayload, bucketRole: 'direct', siblingClaimId: indirectClaimId }
+      payload: { ...basePayload, bucketRole: 'direct', payrollRateSlot: 'direct', siblingClaimId: indirectClaimId }
     });
   }
 
@@ -464,13 +477,15 @@ export async function recordSkillBuilderEventClockOut(poolConn, params) {
     `SELECT skill_builder_direct_hours, event_type FROM company_events WHERE id = ? AND agency_id = ? LIMIT 1`,
     [eventId, agencyId]
   );
-  const eventType = String(evRows?.[0]?.event_type || '').toLowerCase();
+  const eventPayroll = await loadEventPayrollContext({ agencyId, eventId }).catch(() => null);
+  const eventType = String(eventPayroll?.eventType || evRows?.[0]?.event_type || '').toLowerCase();
   const schoolPortalEvent = eventType.startsWith('school_') || source === 'school_events_kiosk';
+  const useSplit = eventPayroll ? !!eventPayroll.useDirectIndirectSplit : !schoolPortalEvent;
+  const remainderSlot = eventPayroll?.rateSlot || (schoolPortalEvent ? 'other_1' : 'indirect');
   const directConfigured = Number(evRows?.[0]?.skill_builder_direct_hours);
-  // School events are always indirect (no direct-pay split).
-  const directHoursCap = schoolPortalEvent
-    ? 0
-    : (Number.isFinite(directConfigured) && directConfigured > 0 ? directConfigured : 0);
+  const directHoursCap = useSplit && Number.isFinite(directConfigured) && directConfigured > 0
+    ? directConfigured
+    : 0;
 
   const tIn = new Date(lastIn.punched_at);
   const tOut = clockOutAt || new Date();
@@ -502,7 +517,9 @@ export async function recordSkillBuilderEventClockOut(poolConn, params) {
     directHoursCap,
     outClientId,
     outSessionId,
-    source
+    source,
+    remainderSlot,
+    eventPayroll
   });
 
   return {
@@ -655,11 +672,14 @@ export async function recordAdminManualEmployeeEventTime(poolConn, params) {
     return { error: { status: 409, message: 'Employee has an open clock-in. Close it before adding manual times.' } };
   }
 
+  const eventPayroll = await loadEventPayrollContext({ agencyId, eventId }).catch(() => null);
   const schoolPortalEvent = eventType.startsWith('school_');
+  const useSplit = eventPayroll ? !!eventPayroll.useDirectIndirectSplit : !schoolPortalEvent;
+  const remainderSlot = eventPayroll?.rateSlot || (schoolPortalEvent ? 'other_1' : 'indirect');
   const directConfigured = Number(evRows?.[0]?.skill_builder_direct_hours);
-  const directHoursCap = schoolPortalEvent
-    ? 0
-    : (Number.isFinite(directConfigured) && directConfigured > 0 ? directConfigured : 0);
+  const directHoursCap = useSplit && Number.isFinite(directConfigured) && directConfigured > 0
+    ? directConfigured
+    : 0;
 
   const sid = parsePositiveInt(params.sessionId) || await resolveSessionIdForKioskDate(poolConn, eventId, kioskDateYmd);
 
@@ -703,7 +723,9 @@ export async function recordAdminManualEmployeeEventTime(poolConn, params) {
     outSessionId: sid || null,
     source: 'admin_attendance_manual',
     deferAsAdminAdded: true,
-    deferredByUserId: addedByUserId
+    deferredByUserId: addedByUserId,
+    remainderSlot,
+    eventPayroll
   });
 
   await syncAdminManualEmployeeKioskCheckin(poolConn, {

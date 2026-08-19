@@ -158,6 +158,8 @@ import {
   ,getPayrollOtherRateTitles
   ,putPayrollOtherRateTitlesForAgency
   ,putPayrollOtherRateTitlesForUser
+  ,getPayrollEventTypeRateMaps
+  ,putPayrollEventTypeRateMaps
   ,getUserTimeCategories
   ,upsertUserTimeCategory
   ,deleteUserTimeCategory
@@ -195,6 +197,12 @@ import {
   ,deletePayrollPeriodTodo
   ,getPayrollWizardProgress
   ,putPayrollWizardProgress
+  ,getPayrollComplianceDigest
+  ,postPayrollCompliancePreview
+  ,postPayrollComplianceSend
+  ,postPayrollComplianceSendAll
+  ,putPayrollComplianceSessionMute
+  ,postPayrollComplianceUnlockCheck
   ,getAgencyPayrollScheduleSettings
   ,putAgencyPayrollScheduleSettings
   ,cleanupFuturePayrollPeriods
@@ -367,6 +375,8 @@ router.get('/users/:userId/assigned-schools', listUserAssignedSchoolsForPayroll)
 router.get('/other-rate-titles', getPayrollOtherRateTitles);
 router.put('/other-rate-titles', putPayrollOtherRateTitlesForAgency);
 router.put('/other-rate-titles/users/:userId', putPayrollOtherRateTitlesForUser);
+router.get('/event-type-rate-maps', getPayrollEventTypeRateMaps);
+router.put('/event-type-rate-maps', putPayrollEventTypeRateMaps);
 router.get('/periods/:id/manual-pay-lines', listPayrollManualPayLines);
 router.post('/periods/:id/manual-pay-lines', createPayrollManualPayLine);
 router.post('/periods/:id/manual-bulk', createPayrollManualBulk);
@@ -384,6 +394,12 @@ router.patch('/periods/:id/todos/:todoId', patchPayrollPeriodTodo);
 router.delete('/periods/:id/todos/:todoId', deletePayrollPeriodTodo);
 router.get('/periods/:id/wizard-progress', getPayrollWizardProgress);
 router.put('/periods/:id/wizard-progress', putPayrollWizardProgress);
+router.get('/periods/:id/compliance-digest', getPayrollComplianceDigest);
+router.post('/periods/:id/compliance-preview', postPayrollCompliancePreview);
+router.post('/periods/:id/compliance-send', postPayrollComplianceSend);
+router.post('/periods/:id/compliance-send-all', postPayrollComplianceSendAll);
+router.post('/periods/:id/compliance-unlock-check', postPayrollComplianceUnlockCheck);
+router.put('/compliance/session-mute', putPayrollComplianceSessionMute);
 router.get('/schedule-settings', getAgencyPayrollScheduleSettings);
 router.put('/schedule-settings', putAgencyPayrollScheduleSettings);
 router.post('/periods/cleanup-future', cleanupFuturePayrollPeriods);

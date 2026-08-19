@@ -1070,8 +1070,11 @@ const eventTimeBucketRows = computed(() => {
     // Skill Builders / events with a Direct cap still show Direct when present.
     const directDisabled = shouldHideDirectRow(s);
     const actionableDirect = canApproveBucket(s.directClaim) && !directDisabled;
-    const actionableIndirect = canApproveBucket(s.indirectClaim);
-    const sessionHasPendingClaim = actionableDirect || actionableIndirect;
+    const remainderBucket = s.remainderBucket || 'indirect';
+    const remainderLabel = s.payrollRateLabel
+      || (remainderBucket === 'other_1' ? 'Other 1' : remainderBucket === 'other_2' ? 'Other 2' : remainderBucket === 'other_3' ? 'Other 3' : 'Indirect');
+    const actionableRemainder = canApproveBucket(s.indirectClaim);
+    const sessionHasPendingClaim = actionableDirect || actionableRemainder;
 
     if (!directDisabled) {
       rows.push({
@@ -1090,14 +1093,15 @@ const eventTimeBucketRows = computed(() => {
     }
     rows.push({
       submission: s,
-      rowKey: `${s.punchInId}-indirect`,
-      bucket: 'indirect',
-      bucketLabel: 'Indirect',
-      bucketHours: s.indirectHours,
+      rowKey: `${s.punchInId}-${remainderBucket}`,
+      bucket: remainderBucket,
+      bucketLabel: remainderLabel,
+      bucketHours: remainderBucket === 'indirect'
+        ? s.indirectHours
+        : (s.remainderHours || s.indirectHours || s.workedHours),
       claim: s.indirectClaim,
       canApprove: canApproveBucket(s.indirectClaim),
       sessionHasPendingClaim,
-      // When Direct is omitted (school events), Indirect carries Edit / Send-back / Reject.
       isFirstRow: directDisabled,
       lateMinutes,
       eventTzAbbrev
@@ -1979,11 +1983,11 @@ const approveEventTimeSubmission = (submission, bucket) => {
         action: 'approve',
         targetPayrollPeriodId,
         bucket,
-        creditsHours: bucket === 'direct' ? submission.directHours : submission.indirectHours,
+        creditsHours: bucket === 'direct' ? submission.directHours : (submission.remainderHours || submission.indirectHours),
         ...override
       });
       // Approving Indirect on Indirect-only events: clear mistaken 0h Direct claim if any.
-      if (bucket === 'indirect' && isIndirectOnlyEvent(submission)) {
+      if (bucket !== 'direct' && isIndirectOnlyEvent(submission)) {
         await dismissEmptyDirectClaim(submission).catch(() => null);
       }
     },

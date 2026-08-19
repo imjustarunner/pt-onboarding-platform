@@ -63,6 +63,6 @@ export function normalizeTimeClaimBucket(raw) {
   const b = String(raw || 'indirect').trim().toLowerCase();
   if (b === 'direct') return 'direct';
   // Legacy Other 1 claims retain other_1; new Support Activity uses indirect for PTO.
-  if (b === 'other_1') return 'other_1';
+  if (b === 'other_1' || b === 'other_2' || b === 'other_3') return b;
   return 'indirect';
 }

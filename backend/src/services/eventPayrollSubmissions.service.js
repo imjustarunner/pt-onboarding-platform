@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
 import { listPairedEventProviderAttendance } from './skillBuildersEventKioskPunch.service.js';
 import { computeEventDirectIndirectHours } from '../utils/eventPayrollHours.util.js';
+import { applyEventPayrollMapToSubmissions } from './eventPayrollRate.service.js';
 
 function parsePositiveInt(raw) {
   const n = Number.parseInt(String(raw || ''), 10);
@@ -20,7 +21,7 @@ function parseClaimPayload(raw) {
   return typeof raw === 'object' ? raw : {};
 }
 
-function groupClaimsIntoSubmissions(claimRows, eventTitlesById, eventStartById = new Map()) {
+function groupClaimsIntoSubmissions(claimRows, eventTitlesById, eventStartById = new Map(), eventTypesById = new Map()) {
   const byPunchIn = new Map();
 
   for (const row of claimRows || []) {
@@ -39,6 +40,10 @@ function groupClaimsIntoSubmissions(claimRows, eventTitlesById, eventStartById =
         providerName: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
         companyEventId: eventId,
         eventTitle: eventId ? (eventTitlesById.get(eventId) || `Event #${eventId}`) : '',
+        eventType: payload.eventType || eventTypesById.get(eventId) || null,
+        eventTypeLabel: payload.eventTypeLabel || null,
+        payrollRateSlot: payload.payrollRateSlot || null,
+        payrollRateLabel: payload.payrollRateLabel || null,
         eventStartsAt: evStart.startsAt || null,
         eventEmployeeReportTime: evStart.employeeReportTime || null,
         eventTimezone: payload.eventTimezone || evStart.timezone || 'America/Denver',
@@ -64,6 +69,8 @@ function groupClaimsIntoSubmissions(claimRows, eventTitlesById, eventStartById =
         lastEditedAt: payload.lastEditedAt || null,
         originalValues: payload.originalValues || null,
         editedFields: Array.isArray(payload.editedFields) ? payload.editedFields : null,
+        remainderBucket: 'indirect',
+        remainderHours: Number(payload.other1Hours || payload.other2Hours || payload.other3Hours || payload.indirectHours || 0) || null,
         directClaim: null,
         indirectClaim: null
       });
@@ -83,8 +90,17 @@ function groupClaimsIntoSubmissions(claimRows, eventTitlesById, eventStartById =
 
     if (bucket === 'direct' || (!entry.directClaim && payload.bucketRole === 'direct')) {
       entry.directClaim = claimSummary;
-    } else if (bucket === 'indirect' || payload.bucketRole === 'indirect') {
+    } else if (
+      bucket === 'indirect'
+      || payload.bucketRole === 'indirect'
+      || bucket === 'other_1'
+      || bucket === 'other_2'
+      || bucket === 'other_3'
+    ) {
       entry.indirectClaim = claimSummary;
+      if (bucket === 'other_1' || bucket === 'other_2' || bucket === 'other_3') {
+        entry.remainderBucket = bucket;
+      }
     } else if (!entry.directClaim) {
       entry.directClaim = claimSummary;
     } else if (!entry.indirectClaim) {
@@ -156,14 +172,16 @@ export async function listEventTimeSubmissionsForAgency({
 
   const eventTitlesById = new Map();
   const eventStartById = new Map();
+  const eventTypesById = new Map();
   if (eventIds.size) {
     const ph = [...eventIds].map(() => '?').join(',');
     const [evRows] = await pool.execute(
-      `SELECT id, title, starts_at, employee_report_time, timezone FROM company_events WHERE id IN (${ph})`,
+      `SELECT id, title, event_type, starts_at, employee_report_time, timezone FROM company_events WHERE id IN (${ph})`,
       [...eventIds]
     );
     for (const ev of evRows || []) {
       eventTitlesById.set(Number(ev.id), ev.title || '');
+      eventTypesById.set(Number(ev.id), String(ev.event_type || '').trim().toLowerCase());
       // Prefer employee_report_time (the time staff are expected to arrive) over
       // starts_at for late-arrival calculations, fall back to starts_at.
       const reportTime = ev.employee_report_time ? String(ev.employee_report_time).slice(0, 8) : null;
@@ -175,7 +193,8 @@ export async function listEventTimeSubmissionsForAgency({
     }
   }
 
-  return groupClaimsIntoSubmissions(rows, eventTitlesById, eventStartById);
+  const grouped = groupClaimsIntoSubmissions(rows, eventTitlesById, eventStartById, eventTypesById);
+  return applyEventPayrollMapToSubmissions(aid, grouped);
 }
 
 export async function listMyEventTimeSessions({ agencyId, userId, limit = 50 }) {
@@ -279,6 +298,20 @@ export async function updateEventTimeSubmission({
   }
 
   const basePayload = pending[0].payload || {};
+  const remainderClaim = pending.find((c) => {
+    const b = String(c.payload?.bucketRole || c.bucket || '').toLowerCase();
+    return b && b !== 'direct';
+  });
+  const remainderSlotRaw = String(
+    remainderClaim?.payload?.payrollRateSlot
+    || remainderClaim?.payload?.bucketRole
+    || remainderClaim?.bucket
+    || basePayload.payrollRateSlot
+    || 'indirect'
+  ).toLowerCase();
+  const remainderSlot = ['other_1', 'other_2', 'other_3', 'indirect'].includes(remainderSlotRaw)
+    ? remainderSlotRaw
+    : 'indirect';
   const cap = directHoursCap != null
     ? Number(directHoursCap)
     : Number(basePayload.directHoursCap || 0);
@@ -320,6 +353,10 @@ export async function updateEventTimeSubmission({
     workedHours: split.workedHours,
     directHours: split.directHours,
     indirectHours: split.indirectHours,
+    other1Hours: remainderSlot === 'other_1' ? split.indirectHours : 0,
+    other2Hours: remainderSlot === 'other_2' ? split.indirectHours : 0,
+    other3Hours: remainderSlot === 'other_3' ? split.indirectHours : 0,
+    payrollRateSlot: remainderSlot,
     directHoursCap: split.directHoursCap,
     originalValues: original,
     wasEdited: true,
@@ -350,13 +387,15 @@ export async function updateEventTimeSubmission({
 
   for (const claim of pending) {
     const bucketRole = claim.payload?.bucketRole
-      || (String(claim.bucket || '').toLowerCase() === 'direct' ? 'direct' : 'indirect');
-    const hours = bucketRole === 'direct' ? split.directHours : split.indirectHours;
+      || (String(claim.bucket || '').toLowerCase() === 'direct' ? 'direct' : remainderSlot);
+    const isDirect = bucketRole === 'direct' || String(claim.bucket || '').toLowerCase() === 'direct';
+    const hours = isDirect ? split.directHours : split.indirectHours;
     await PayrollTimeClaim.updatePayload({
       id: claim.id,
       payload: {
         ...nextPayloadBase,
-        bucketRole,
+        bucketRole: isDirect ? 'direct' : remainderSlot,
+        payrollRateSlot: isDirect ? 'direct' : remainderSlot,
         siblingClaimId: claim.payload?.siblingClaimId || null
       }
     });
@@ -380,10 +419,10 @@ export async function updateEventTimeSubmission({
     String(c.payload?.bucketRole || c.bucket || '').toLowerCase() === 'direct'
     || String(c.bucket || '').toLowerCase() === 'direct'
   );
-  const pendingIndirect = pending.find((c) =>
-    String(c.payload?.bucketRole || c.bucket || '').toLowerCase() === 'indirect'
-    || String(c.bucket || '').toLowerCase() === 'indirect'
-  );
+  const pendingIndirect = pending.find((c) => {
+    const b = String(c.payload?.bucketRole || c.bucket || '').toLowerCase();
+    return b !== 'direct';
+  });
   const templateClaim = pending[0];
   let directClaimId = pendingDirect?.id || null;
   let indirectClaimId = pendingIndirect?.id || null;
@@ -415,11 +454,11 @@ export async function updateEventTimeSubmission({
       claimType: 'skill_builder_event',
       claimDate: String(nextPayloadBase.clockOutAt || '').slice(0, 10) || templateClaim.claim_date,
       suggestedPayrollPeriodId: templateClaim.suggested_payroll_period_id || templateClaim.suggestedPayrollPeriodId || null,
-      payload: { ...nextPayloadBase, bucketRole: 'indirect', siblingClaimId: directClaimId }
+      payload: { ...nextPayloadBase, bucketRole: remainderSlot, siblingClaimId: directClaimId }
     });
     await pool.execute(
-      `UPDATE payroll_time_claims SET bucket = 'indirect', credits_hours = ? WHERE id = ?`,
-      [split.indirectHours, created.id]
+      `UPDATE payroll_time_claims SET bucket = ?, credits_hours = ? WHERE id = ?`,
+      [remainderSlot, split.indirectHours, created.id]
     );
     indirectClaimId = created.id;
   }
