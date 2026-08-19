@@ -211,3 +211,35 @@ test('interpolates child name, skips organization id leftovers, and exposes clic
   assert.equal(terms.href, 'https://app.itsco.health/terms');
   assert.equal(terms.value, 'https://app.itsco.health/terms');
 });
+
+test('job application completed record uses application copy instead of intake/client labels', () => {
+  const spec = buildCompletedIntakeRecord({
+    agency: { official_name: 'ITSCO' },
+    link: {
+      title: 'Apply: School Counselor',
+      form_type: 'job_application',
+      intake_fields: [
+        { key: 'resume_text', label: 'Resume Text', type: 'textarea', scope: 'submission' }
+      ]
+    },
+    submission: {
+      id: 831,
+      submitted_at: '2026-08-19T23:24:00.000Z',
+      signer_name: 'Haley Inyart',
+      signer_email: 'haleyinyart@gmail.com',
+      intake_data: {
+        responses: {
+          guardian: { firstName: 'Haley', lastName: 'Inyart', email: 'haleyinyart@gmail.com' },
+          submission: { resume_text: 'Sample resume' }
+        }
+      }
+    },
+    clients: [{ fullName: 'Haley Inyart' }]
+  });
+
+  assert.match(spec.title, /Completed job application/i);
+  assert.ok(!/intake packet/i.test(spec.title));
+  const labels = spec.sections.flatMap((section) => section.rows.map((row) => row.label));
+  assert.ok(labels.includes('Applicant'));
+  assert.ok(!labels.includes('Client'));
+});

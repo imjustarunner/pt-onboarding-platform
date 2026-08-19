@@ -2724,7 +2724,7 @@ const normalizeIntakeDataShape = (intakeData) => {
 export const buildAnswersPdfBuffer = async ({ link, intakeData, clientIndex = null }) => {
   if (!intakeData) return null;
   const normalizedIntakeData = normalizeIntakeDataShape(intakeData);
-  const pdfStrings = getIntakePdfStrings(link?.language_code);
+  const pdfStrings = getIntakePdfStrings(link?.language_code, { formType: link?.form_type });
   const clients = Array.isArray(normalizedIntakeData?.clients) ? normalizedIntakeData.clients : [];
   const totalClients = clients.length || 1;
   // When clientIndex is a non-negative integer, render only that one child's section — this is the
@@ -2741,7 +2741,7 @@ export const buildAnswersPdfBuffer = async ({ link, intakeData, clientIndex = nu
       || `${String(client?.firstName || '').trim()} ${String(client?.lastName || '').trim()}`.trim();
     const heading = clientName
       ? `${pdfStrings.intakeResponses} - ${clientName}`
-      : `${pdfStrings.intakeResponses} - Client ${i + 1}`;
+      : `${pdfStrings.intakeResponses}${String(link?.form_type || '').toLowerCase() === 'job_application' ? '' : ` - Client ${i + 1}`}`;
     const lines = decodeHtmlEntities(rawText).split('\n');
     sections.push({ heading, lines });
   }
@@ -3344,6 +3344,60 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
     'guardian_first', 'guardianFirst', 'guardian_last', 'guardianLast',
     'first_name', 'firstName', 'last_name', 'lastName'
   ]);
+
+  if (String(link?.form_type || '').toLowerCase() === 'job_application') {
+    const applicantFirst =
+      guardianPayload.firstName
+      || clientPayload?.firstName
+      || guardianResponses.guardian_legal_first
+      || clientResponses.client_first
+      || clientResponses.child_legal_first;
+    const applicantLast =
+      guardianPayload.lastName
+      || clientPayload?.lastName
+      || guardianResponses.guardian_legal_last
+      || clientResponses.client_last
+      || clientResponses.child_legal_last;
+    const applicantName =
+      String(guardianPayload?.fullName || clientPayload?.fullName || '').trim()
+      || `${String(applicantFirst || '').trim()} ${String(applicantLast || '').trim()}`.trim();
+    pushHeader(`Applicant Information${applicantName ? ` - ${applicantName}` : ''}`);
+    pushLine('First name', applicantFirst);
+    pushLine('Last name', applicantLast);
+    pushLine('Email', guardianPayload.email || guardianResponses.guardian_email);
+    pushLine('Phone', guardianPayload.phone || guardianResponses.guardian_phone);
+
+    const leftoverSelf = buildAnswerLinesForScope({
+      fields: getOrderedFieldsByScope(fields, 'self').filter((f) => !builtInNameKeys.has(f.key)),
+      responses: submissionResponses,
+      link,
+      locale: formLocale
+    });
+    const leftoverGuardian = buildAnswerLinesForScope({
+      fields: getOrderedFieldsByScope(fields, 'guardian').filter((f) => !builtInNameKeys.has(f.key)),
+      responses: { ...guardianResponses, ...guardianPayload },
+      link,
+      locale: formLocale
+    });
+    const leftoverSubmission = buildAnswerLinesForScope({
+      fields: getOrderedFieldsByScope(fields, 'submission').filter((f) => !builtInNameKeys.has(f.key)),
+      responses: submissionResponses,
+      link,
+      locale: formLocale
+    });
+    const leftoverClient = buildAnswerLinesForScope({
+      fields: getOrderedFieldsByScope(fields, 'client').filter((f) => !builtInNameKeys.has(f.key)),
+      responses: { ...clientResponses, ...(clientPayload || {}) },
+      link,
+      locale: formLocale
+    });
+    const extra = [...leftoverSelf, ...leftoverGuardian, ...leftoverSubmission, ...leftoverClient];
+    if (extra.length) {
+      pushHeader('Application answers');
+      extra.forEach((line) => output.push(`${line.label}: ${line.value}`));
+    }
+    return output.join('\n').trim();
+  }
 
   if (intakeForSelf) {
     // Self-intake: the person IS the client, no separate guardian.

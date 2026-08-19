@@ -75,7 +75,7 @@ class PayrollImportRow {
         String(r.location || '').trim() || null,
         r.serviceDate || null,
         r.noteStatus || null,
-        null, // appt_type (do not store)
+        String(r.apptType || '').trim() || null,
         null, // amount_collected (do not store)
         ...(hasClientPaid ? [clientPaid] : []),
         null, // paid_status (do not store)
@@ -141,6 +141,7 @@ class PayrollImportRow {
          pir.location,
          pir.service_date,
          pir.note_status,
+         pir.appt_type,
          pir.draft_payable,
          pir.unit_count,
          pir.client_paid_amount,

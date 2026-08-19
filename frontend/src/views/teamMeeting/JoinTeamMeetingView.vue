@@ -561,6 +561,8 @@ function toggleMeetingDarkMode() {
 
 const eventId = computed(() => route.params.eventId);
 const organizationSlug = computed(() => route.params.organizationSlug);
+/** Opaque join token from the URL (interview guests must keep using this, not the numeric event id). */
+const meetingJoinRef = computed(() => String(eventId.value || '').trim());
 /** Dedicated portal hosts (app.itsco.health) strip /{slug} from the path in the router. */
 const hostPortalSlug = computed(() => resolveHostImpliedPortalSlug());
 
@@ -1016,7 +1018,7 @@ function stopCompletionPolling() {
 }
 
 async function pollMeetingCompletion() {
-  const eid = resolvedEventId.value || eventId.value;
+  const eid = meetingJoinRef.value || resolvedEventId.value || eventId.value;
   if (!eid || intentionalLeave.value || meetingCompletedAt.value) return;
   try {
     const resp = await api.get(`/team-meetings/${encodeURIComponent(eid)}/admission-status`, {
@@ -1066,7 +1068,7 @@ function startPresenceHeartbeat() {
 }
 
 async function pollAdmission() {
-  const eid = resolvedEventId.value || eventId.value;
+  const eid = meetingJoinRef.value || eventId.value;
   if (!eid || !isInLobby.value) return;
   try {
     const resp = await api.get(`/team-meetings/${encodeURIComponent(eid)}/admission-status`, {
@@ -1172,8 +1174,8 @@ async function resolveAndRedirect() {
   }
 }
 
-async function fetchTokenAndJoin() {
-  const eid = eventId.value;
+async function fetchTokenAndJoin({ afterLogin = false } = {}) {
+  const eid = meetingJoinRef.value || eventId.value;
   if (!eid) {
     error.value = 'Invalid event';
     return;
@@ -1215,6 +1217,11 @@ async function fetchTokenAndJoin() {
   } catch (e) {
     const status = Number(e?.response?.status || 0);
     if (status === 401) {
+      if (!afterLogin) {
+        const ok = await ensureAuthenticatedSession();
+        if (!ok) return;
+        return fetchTokenAndJoin({ afterLogin: true });
+      }
       // Not authenticated — send to login once. Do not clear an existing session here;
       // a 403/access error must not look like a logout loop.
       joinAttemptedForPath.value = '';
@@ -1721,12 +1728,8 @@ async function runJoinFlowForCurrentRoute() {
     const resolved = await resolveAndRedirect();
     if (resolved !== 'continue') return;
   }
-  const ok = await ensureAuthenticatedSession();
-  if (!ok) {
-    // Auth redirected — allow retry when user returns to this path.
-    joinAttemptedForPath.value = '';
-    return;
-  }
+  // Interview candidate links mint a guest video token without an account.
+  // Staff meetings still 401, then we hydrate/login as before.
   await fetchTokenAndJoin();
 }
 
@@ -1772,7 +1775,9 @@ watch(
         return Number(p?.userId || p?.user_id || p?.id || 0) > 0;
       }).length;
     } catch {
-      meetingSubtype.value = 'general';
+      if (String(meetingSubtype.value || '').toLowerCase() !== 'interview') {
+        meetingSubtype.value = 'general';
+      }
     }
     try {
       const { data: att } = await api.get(`/team-meetings/${eid}/attendance`, {

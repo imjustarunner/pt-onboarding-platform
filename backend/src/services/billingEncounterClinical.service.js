@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
+import ClinicalNote from '../models/clinical/ClinicalNote.model.js';
 import ClinicalEligibilityService from './clinicalEligibility.service.js';
 
 function parseIcdTokens(text) {
@@ -162,6 +163,106 @@ export async function enrichEncountersWithNoteSummary(encounters = []) {
       note_title: note?.title || null
     };
   });
+}
+
+/**
+ * Note-only billing row (no CPT): create a clinical session + empty note stub
+ * without a billing claim / encounter link. PDF content can fill note_payload later.
+ */
+export async function ensureNoteOnlyClinicalRecord({
+  agencyId,
+  clientId,
+  providerUserId = null,
+  serviceDate = null,
+  title = 'Clinical note',
+  actingUserId = null
+}) {
+  const aid = Number(agencyId);
+  const cid = Number(clientId);
+  if (!aid || !cid) return null;
+
+  try {
+    await ClinicalEligibilityService.assertAgencyHasClinicalOrg(aid);
+  } catch {
+    return null;
+  }
+
+  const dos = serviceDate ? String(serviceDate).slice(0, 10) : null;
+  const scheduledStart = dos ? `${dos} 12:00:00` : null;
+  const fingerprint = `note_only|${aid}|${cid}|${dos || 'nodate'}|${providerUserId || 0}|${String(title || '').slice(0, 80)}`;
+
+  let sessionId = null;
+  try {
+    const [existing] = await clinicalPool.execute(
+      `SELECT id FROM clinical_sessions
+       WHERE agency_id = ? AND client_id = ?
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.noteOnlyFingerprint')) = ?
+       LIMIT 1`,
+      [aid, cid, fingerprint]
+    );
+    sessionId = Number(existing?.[0]?.id || 0);
+  } catch {
+    sessionId = 0;
+  }
+
+  if (!sessionId) {
+    try {
+      const [result] = await clinicalPool.execute(
+        `INSERT INTO clinical_sessions
+           (agency_id, client_id, office_event_id, billing_encounter_id, provider_user_id,
+            place_of_service, service_code, encounter_status, rendering_provider_user_id,
+            scheduled_start_at, scheduled_end_at, metadata_json, created_by_user_id)
+         VALUES (?, ?, NULL, NULL, ?, NULL, NULL, 'completed', ?, ?, ?, ?, ?)`,
+        [
+          aid,
+          cid,
+          providerUserId || null,
+          providerUserId || null,
+          scheduledStart,
+          scheduledStart,
+          JSON.stringify({
+            source: 'billing_import_note_only',
+            noteOnlyFingerprint: fingerprint,
+            missingCalendarAttachment: true
+          }),
+          actingUserId || null
+        ]
+      );
+      sessionId = Number(result.insertId || 0);
+    } catch (e) {
+      console.warn('[billingEncounterClinical] note-only session create failed', e?.message || e);
+      return null;
+    }
+  }
+
+  if (!sessionId) return null;
+
+  try {
+    const [notes] = await clinicalPool.execute(
+      `SELECT id FROM clinical_notes
+       WHERE clinical_session_id = ? AND is_deleted = 0
+       LIMIT 1`,
+      [sessionId]
+    );
+    if (!notes?.[0]?.id && (actingUserId || providerUserId)) {
+      await ClinicalNote.create({
+        clinicalSessionId: sessionId,
+        agencyId: aid,
+        clientId: cid,
+        title: String(title || 'Clinical note').slice(0, 255),
+        notePayload: null,
+        metadataJson: {
+          source: 'billing_import_note_only',
+          awaitingPdfContent: true
+        },
+        createdByUserId: actingUserId || providerUserId
+      });
+    }
+  } catch (e) {
+    console.warn('[billingEncounterClinical] note stub create failed', e?.message || e);
+  }
+
+  return { clinicalSessionId: sessionId };
 }
 
 export function stripEncounterFinancials(row) {

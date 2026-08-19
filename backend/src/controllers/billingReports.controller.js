@@ -141,9 +141,9 @@ export const getBillingSessionTotals = async (req, res, next) => {
     if (!fiscalYearStart) {
       fiscalYearStart = computeFiscalYearStartAugYmd(new Date());
     }
-    // Accept legacy Jul 1 FY starts and coerce to Aug 1 of same year label
-    if (/^\d{4}-07-01$/.test(fiscalYearStart)) {
-      fiscalYearStart = `${fiscalYearStart.slice(0, 4)}-08-01`;
+    // Accept legacy Aug 1 FY starts and coerce to July 1 (psychotherapy compliance aligned)
+    if (/^\d{4}-08-01$/.test(fiscalYearStart)) {
+      fiscalYearStart = `${fiscalYearStart.slice(0, 4)}-07-01`;
     }
 
     const byClientId = await getSessionTotalsByClient({
@@ -154,7 +154,7 @@ export const getBillingSessionTotals = async (req, res, next) => {
 
     res.json({
       fiscalYearStart,
-      fiscalYearEnd: `${Number(fiscalYearStart.slice(0, 4)) + 1}-07-31`,
+      fiscalYearEnd: `${Number(fiscalYearStart.slice(0, 4)) + 1}-06-30`,
       byClientId
     });
   } catch (e) {

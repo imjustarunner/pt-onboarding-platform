@@ -386,9 +386,7 @@ async function scheduleInterview() {
   scheduling.value = true;
   scheduleError.value = '';
   try {
-    const startsAt = startsLocal.value
-      ? new Date(startsLocal.value).toISOString()
-      : '';
+    const startsAt = String(startsLocal.value || '').trim();
     if (!startsAt || Number.isNaN(new Date(startsAt).getTime())) {
       scheduleError.value = 'Pick a valid start date and time.';
       return;

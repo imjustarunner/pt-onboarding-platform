@@ -31,15 +31,16 @@ const router = express.Router();
 router.get('/join-info/:eventId', getTeamMeetingJoinInfo);
 // Presence heartbeat (guest-safe; auth optional so we can normalize user-{id})
 router.post('/:eventId/join-presence', authenticateOptional, postTeamMeetingJoinPresence);
+// Interview candidate join links work without an account (opaque participant token only).
+router.get('/:eventId/video-token', authenticateOptional, getTeamMeetingVideoToken);
+router.get('/:eventId/admission-status', authenticateOptional, getTeamMeetingAdmissionStatus);
 
 router.use(authenticate);
 
 // Static paths before /:eventId
 router.get('/admin-log', listAdminMeetingsLog);
 
-router.get('/:eventId/video-token', getTeamMeetingVideoToken);
 router.get('/:eventId/lobby-participants', getTeamMeetingLobbyParticipants);
-router.get('/:eventId/admission-status', getTeamMeetingAdmissionStatus);
 router.post('/:eventId/admit/:userId', admitTeamMeetingParticipant);
 router.post('/:eventId/attendees', addTeamMeetingAttendee);
 router.post('/:eventId/waiting-room', setTeamMeetingWaitingRoomLive);

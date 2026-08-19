@@ -562,6 +562,12 @@ const SYSTEM_IDENTITY_KEYS = [
   { value: 'login_recovery', label: 'Login Recovery (passwordless/reset help)' },
   { value: 'technology', label: 'Technology Team (ITSCO password reset + tech notices)' },
   { value: 'notifications', label: 'Notifications (general system notifications)' },
+  { value: 'compliance', label: 'Compliance Team (late notes + psychotherapy session limits)' },
+  { value: 'payroll', label: 'Payroll Team (payroll notices)' },
+  { value: 'forms', label: 'Forms Team (form and packet notices)' },
+  { value: 'support', label: 'Support Team (support notices)' },
+  { value: 'schools', label: 'Schools Team (school partnership notices)' },
+  { value: 'people_operations', label: 'People Operations (HR / culture notices)' },
   { value: 'hiring_references', label: 'Hiring references (reference forms + reminders)' },
   { value: 'job_applications', label: 'Job applications (applicant confirmation email)' },
   { value: 'system', label: 'System (fallback sender)' },
@@ -589,8 +595,32 @@ const IDENTITY_KEY_USAGE = {
     refs: 'Sends from Technology@itsco.health. Edit the signature image on this identity to change what every Technology Team email includes.'
   },
   notifications: {
-    usage: 'General fallback sender for automated notices when a more specific key is not found.',
-    refs: 'Referenced in intake, ROI, and login-recovery fallback chains.'
+    usage: 'General system notices and fallback when a more specific key is not found.',
+    refs: 'Sends from Notifications@ITSCO.health. Referenced in intake, ROI, and login-recovery fallback chains.'
+  },
+  compliance: {
+    usage: 'Late note compliance digests and psychotherapy session-limit notices from the payroll wizard.',
+    refs: 'Sends from Compliance@ITSCO.health. Used by compliance_digest and psychotherapy_threshold templates.'
+  },
+  payroll: {
+    usage: 'Payroll team notices tied to payroll processing.',
+    refs: 'Sends from Payroll@ITSCO.health.'
+  },
+  forms: {
+    usage: 'Forms team notices for form and packet workflows.',
+    refs: 'Sends from Forms@ITSCO.health.'
+  },
+  support: {
+    usage: 'Support team mailbox for support-facing notices.',
+    refs: 'Sends from Support@ITSCO.health.'
+  },
+  schools: {
+    usage: 'Schools team partnership and school-facing notices.',
+    refs: 'Sends from Schools@ITSCO.health.'
+  },
+  people_operations: {
+    usage: 'People Operations / HR culture and staff support notices.',
+    refs: 'Sends from PO@ITSCO.health. Also preferred for some hiring reference flows.'
   },
   system: {
     usage: 'Last-resort global fallback sender for automated/system emails.',

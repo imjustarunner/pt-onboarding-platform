@@ -679,14 +679,14 @@ function setSection(id) {
   }
 }
 
-/** Fiscal year Aug 1 – Jul 31 */
+/** Fiscal year Jul 1 – Jun 30 (psychotherapy compliance aligned) */
 const computeFiscalYearStartYmd = (d) => {
   const dt = d instanceof Date ? d : new Date(d);
   if (Number.isNaN(dt.getTime())) return '';
   const y = dt.getFullYear();
   const m = dt.getMonth() + 1;
-  const startYear = m >= 8 ? y : y - 1;
-  return `${startYear}-08-01`;
+  const startYear = m >= 7 ? y : y - 1;
+  return `${startYear}-07-01`;
 };
 
 const fiscalYearOptions = computed(() => {
@@ -695,8 +695,8 @@ const fiscalYearOptions = computed(() => {
   const startYear = Number(currentStart.slice(0, 4));
   const years = [startYear, startYear - 1, startYear - 2];
   return years.map((y) => ({
-    startYmd: `${y}-08-01`,
-    label: `Aug ${y} – Jul ${y + 1}`,
+    startYmd: `${y}-07-01`,
+    label: `Jul ${y} – Jun ${y + 1}`,
   }));
 });
 

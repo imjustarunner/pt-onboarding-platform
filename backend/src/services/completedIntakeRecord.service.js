@@ -629,10 +629,14 @@ export function buildCompletedIntakeRecord({
   pushRow(contactRows, 'Phone', contactPhone);
   const whoFor = String(submissionBag.whoFor || submissionBag.this_is_for || intakeData.whoFor || '').trim();
   if (whoFor) pushRow(contactRows, 'This is for', humanizeKey(whoFor));
+  const isJobApplication = String(link?.form_type || '').toLowerCase() === 'job_application';
   listedClients.forEach((client, index) => {
-    const name = String(client?.fullName || `${client?.firstName || ''} ${client?.lastName || ''}`.trim() || `Client ${index + 1}`).trim();
+    const fallback = isJobApplication
+      ? (listedClients.length > 1 ? `Applicant ${index + 1}` : 'Applicant')
+      : (listedClients.length > 1 ? `Client ${index + 1}` : 'Client');
+    const name = String(client?.fullName || `${client?.firstName || ''} ${client?.lastName || ''}`.trim() || fallback).trim();
     const dob = String(client?.dateOfBirth || client?.date_of_birth || '').trim();
-    pushRow(contactRows, listedClients.length > 1 ? `Client ${index + 1}` : 'Client', dob ? `${name} · Date of birth ${dob}` : name);
+    pushRow(contactRows, fallback, dob ? `${name} · Date of birth ${dob}` : name);
   });
 
   const clinicalBag = (submissionBag.clinicalResponses && typeof submissionBag.clinicalResponses === 'object')
@@ -684,7 +688,7 @@ export function buildCompletedIntakeRecord({
 
   const sections = [
     contactRows.length ? { title: 'Who this packet is for', rows: contactRows } : null,
-    leftoverGuardian.length ? { title: 'Parent / guardian', rows: leftoverGuardian } : null,
+    leftoverGuardian.length ? { title: isJobApplication ? 'Applicant details' : 'Parent / guardian', rows: leftoverGuardian } : null,
     commsBlock,
     reminderBlock,
     providersBlock,
@@ -715,7 +719,7 @@ export function buildCompletedIntakeRecord({
   ].filter(Boolean);
 
   return {
-    title: 'Completed intake packet',
+    title: isJobApplication ? 'Completed job application' : 'Completed intake packet',
     kicker: 'For your records',
     agencyName: agencyDisplayName(agency) || String(link?.title || 'Intake').trim(),
     brandLogoUrl: String(brandLogoUrl || '').trim(),

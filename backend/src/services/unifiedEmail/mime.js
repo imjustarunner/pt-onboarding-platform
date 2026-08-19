@@ -71,15 +71,20 @@ function buildMimeMessage({
   html = null,
   from,
   replyTo = null,
+  cc = null,
   inReplyTo = null,
   references = null,
   attachments = null
 }) {
   const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+  const ccHeader = Array.isArray(cc)
+    ? cc.map((x) => normalizeHeaderValue(x)).filter(Boolean).join(', ')
+    : normalizeHeaderValue(cc);
   const headers = [
     `To: ${normalizeHeaderValue(to)}`,
     `Subject: ${encodeRfc2047Subject(subject)}`,
     `From: ${normalizeHeaderValue(from)}`,
+    ...(ccHeader ? [`Cc: ${ccHeader}`] : []),
     ...(replyTo ? [`Reply-To: ${normalizeHeaderValue(replyTo)}`] : []),
     ...(inReplyTo ? [`In-Reply-To: ${normalizeHeaderValue(inReplyTo)}`] : []),
     ...(references ? [`References: ${normalizeHeaderValue(references)}`] : []),

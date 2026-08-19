@@ -63,18 +63,20 @@ const ITSCO_SMS = {
 };
 
 const NLU_SMS = {
-  careers: sms('NLU', '01_Careers.png'),
-  join: sms('NLU', '02_Join_Us.png'),
-  school_referral: sms('NLU', '03_School_Referral.png'),
-  support: sms('NLU', '04_Support.png'),
-  events: sms('NLU', '05_Events.png'),
-  providers: sms('NLU', '06_Providers.png'),
-  terms: sms('NLU', '07_Terms.png'),
-  privacy: sms('NLU', '08_Policy_and_Services.png'),
-  login: sms('NLU', '09_Login.png'),
-  tutors: sms('NLU', '10_Tutors.png'),
-  counseling: sms('NLU', '11_Counseling.png'),
-  tutoring: sms('NLU', '12_Tutoring.png')
+  careers: sms('NLU', 'NLUCareers.png'),
+  join: sms('NLU', 'NLUPortal.png'),
+  school_referral: sms('NLU', 'NLUSchoolReferral.png'),
+  support: sms('NLU', 'NLUSupport.png'),
+  events: sms('NLU', 'NLUEvents.png'),
+  providers: sms('NLU', 'NLUProviders.png'),
+  terms: sms('NLU', 'NLUTerms.png'),
+  privacy: sms('NLU', 'NLUPolicyandServices.png'),
+  login: sms('NLU', 'NLULogin.png'),
+  tutors: sms('NLU', 'NLUTutors.png'),
+  counseling: sms('NLU', 'NLUCounseling.png'),
+  tutoring: sms('NLU', 'NLUTutoring.png'),
+  portal: sms('NLU', 'NLUPortal.png'),
+  therapy_plus_tutoring: sms('NLU', 'NLUTherapyPlusTutoring.png')
 };
 
 const INNER_SMS = {
@@ -323,6 +325,8 @@ export function pathToSharePageKey(pathname = '', serviceType = '') {
   if (p.includes('/open-events') || p.endsWith('/events') || p.includes('/events')) return 'events';
   if (p.includes('/find-tutor') || p.includes('/tutors')) return 'tutors';
   if (p.includes('/find-coach')) return 'coaching';
+  if (p.includes('/portal')) return 'portal';
+  if (p.includes('/therapy-plus-tutoring') || p.includes('/therapyplustutoring')) return 'therapy_plus_tutoring';
   if (joinService === 'tutoring') return 'tutoring';
   if (joinService === 'coaching') return 'coaching';
   if (joinService === 'counseling' || joinService === 'consulting') return 'counseling';

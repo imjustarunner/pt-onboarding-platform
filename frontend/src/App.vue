@@ -1883,7 +1883,7 @@
       <TourManager v-if="isAuthenticated && !isSummitStatsChallengeChrome && !hideGlobalNavForSchoolStaff" />
       <!-- School staff get DM-only Messages (no global nav); other hidden-chrome verticals stay without it. -->
       <PlatformChatDrawer
-        v-if="isAuthenticated && !isImmersiveJoinRoute && !isSscSstcTenant && (String(user?.role || '').toLowerCase() === 'school_staff' || !hideGlobalNavForSchoolStaff)"
+        v-if="isAuthenticated && !isImmersiveJoinRoute && !isPublicIntakeRoute && !isSscSstcTenant && (String(user?.role || '').toLowerCase() === 'school_staff' || !hideGlobalNavForSchoolStaff)"
       />
       <SessionLockScreen
         v-if="isAuthenticated"
@@ -1914,7 +1914,7 @@
         v-if="isAuthenticated"
         :login-trigger="privilegedLoginBriefingTrigger"
       />
-      <PoweredByFooter v-if="isAuthenticated && !isImmersiveJoinRoute" />
+      <PoweredByFooter v-if="isAuthenticated && !isImmersiveJoinRoute && !isPublicIntakeRoute" />
       <Teleport to="body">
         <div
           v-if="showLoginNotificationsModal && !isOnNotificationsRoute"
@@ -2524,8 +2524,9 @@ const loadNavActiveSeason = async () => {
 function routeLooksLikePublicIntake(r) {
   const name = String(r?.name || '');
   if (name === 'PublicIntakeSigning' || name === 'PublicIntakeSigningShort') return true;
+  if (name === 'PublicSchoolReferralFinder' || r?.meta?.publicSchoolReferral) return true;
   const path = String(r?.path || '');
-  return /^\/intake\//.test(path) || /^\/i\//.test(path);
+  return /^\/intake\//.test(path) || /^\/i\//.test(path) || /\/school-referral(?:\/|$)/.test(path);
 }
 
 // Global loading overlay (tracks API calls + navigation + icon preloads).
@@ -3919,6 +3920,7 @@ const hideGlobalNavForSchoolStaff = computed(() => {
     /^\/public\/hiring\/reference\/[^/]+/.test(path) ||
     /^\/office-intake\/[^/]+/.test(path) ||
     /\/office-intake$/.test(path) ||
+    /\/school-referral(?:\/|$)/.test(path) ||
     /^\/join\//.test(path) ||
     /\/join\/(?:counseling|tutoring|coaching|consulting)(?:\/|$)/.test(path) ||
     /^\/careers(\/|$)/.test(path)

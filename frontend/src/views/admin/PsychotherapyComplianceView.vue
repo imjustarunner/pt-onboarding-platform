@@ -4,7 +4,8 @@
       <div>
         <h1 style="margin: 0;">Psychotherapy Compliance</h1>
         <div class="subhead">
-          Upload billing reports to track psychotherapy CPT totals (FY Jul 1–Jun 30) and flag clients over 24 services.
+          Upload billing reports to track psychotherapy CPT totals (FY Jul 1–Jun 30) and notify at 20 / 24 / 30 / 40 services.
+          Billing report imports also feed these totals automatically.
         </div>
       </div>
     </div>
@@ -95,8 +96,8 @@
               <td class="codes">{{ formatCodes(r.per_code) }}</td>
               <td><strong>{{ r.total }}</strong></td>
               <td>
-                <span class="status" :class="{ alert: r.surpassed_24 }">
-                  {{ r.surpassed_24 ? 'Over 24' : 'OK' }}
+                <span class="status" :class="{ alert: r.surpassed_24 || (r.threshold && r.threshold >= 20) }">
+                  {{ r.threshold ? `At ${r.threshold}+` : (r.surpassed_24 ? 'Over 24' : 'OK') }}
                 </span>
               </td>
             </tr>
@@ -131,8 +132,8 @@
               <td class="codes">{{ formatCodes(r.per_code) }}</td>
               <td><strong>{{ r.total }}</strong></td>
               <td>
-                <span class="status" :class="{ alert: r.surpassed_24 }">
-                  {{ r.surpassed_24 ? 'Over 24' : 'OK' }}
+                <span class="status" :class="{ alert: r.surpassed_24 || (r.threshold && r.threshold >= 20) }">
+                  {{ r.threshold ? `At ${r.threshold}+` : (r.surpassed_24 ? 'Over 24' : 'OK') }}
                 </span>
               </td>
               <td class="match-cell">

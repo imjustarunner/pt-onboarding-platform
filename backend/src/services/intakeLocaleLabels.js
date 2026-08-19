@@ -27,7 +27,14 @@ export function resolveIntakePdfLocale(languageCode) {
   return 'en';
 }
 
-export function getIntakePdfStrings(languageCode) {
+export function getIntakePdfStrings(languageCode, { formType } = {}) {
   const loc = resolveIntakePdfLocale(languageCode);
-  return STRINGS[loc] || STRINGS.en;
+  const base = STRINGS[loc] || STRINGS.en;
+  if (String(formType || '').toLowerCase() === 'job_application') {
+    return {
+      ...base,
+      intakeResponses: loc === 'es' ? 'Solicitud de empleo' : 'Job Application'
+    };
+  }
+  return base;
 }

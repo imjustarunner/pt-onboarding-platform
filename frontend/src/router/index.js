@@ -107,6 +107,18 @@ const CLIENT_EXCHANGE_ROLES = [
   'clinical_practice_assistant',
   'supervisor'
 ];
+/** Full client record / client list — assigned providers, CPAs, and backoffice. */
+const CLIENT_RECORD_ROLES = [
+  'admin',
+  'support',
+  'staff',
+  'provider',
+  'provider_plus',
+  'intern',
+  'intern_plus',
+  'clinical_practice_assistant',
+  'super_admin'
+];
 const NOTE_AID_EMPLOYEE_ROLES = [
   'admin',
   'support',
@@ -1879,13 +1891,13 @@ const routes = [
     path: '/:organizationSlug/admin/clients/:clientId(\\d+)',
     name: 'OrganizationClientProfile',
     component: () => import('../views/admin/ClientProfileView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: CLIENT_RECORD_ROLES, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/clients',
     name: 'OrganizationClientManagement',
     component: () => import('../views/admin/ClientManagementView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: CLIENT_RECORD_ROLES, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/referral-directory',
@@ -3149,13 +3161,13 @@ const routes = [
     path: '/admin/clients/:clientId(\\d+)',
     name: 'ClientProfile',
     component: () => import('../views/admin/ClientProfileView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] }
+    meta: { requiresAuth: true, requiresRole: CLIENT_RECORD_ROLES }
   },
   {
     path: '/admin/clients',
     name: 'ClientManagement',
     component: () => import('../views/admin/ClientManagementView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'provider_plus', 'super_admin'] }
+    meta: { requiresAuth: true, requiresRole: CLIENT_RECORD_ROLES }
   },
   {
     path: '/admin/referral-directory',
@@ -4836,12 +4848,16 @@ router.beforeEach(async (to, from, next) => {
 
   // School staff are locked to a single school-portal experience.
   // They should not access platform admin sections or other org routes.
+  // Public/guest pages (parent intake, school referral, careers, etc.) stay
+  // reachable so staff can check the same link a parent would — without a
+  // redirect back into the portal.
   if (
     authStore.isAuthenticated &&
     String(authStore.user?.role || '').toLowerCase() === 'school_staff' &&
     !authStore.user?.__schoolOnboardingDemoUser &&
     !isSchoolOnboardingDemoActive() &&
-    !isSchoolOnboardingDemoRoute(to)
+    !isSchoolOnboardingDemoRoute(to) &&
+    to.meta.requiresAuth
   ) {
     const allowedSlugs = getSchoolStaffPortalSlugs(agencyStore, authStore);
     const targetSlug = allowedSlugs[0] || getDefaultOrganizationSlug();

@@ -41,7 +41,7 @@
     <template v-else>
       <!-- Phase + sub-step navigation -->
       <div class="pw-nav card">
-        <div class="pw-phases">
+        <div class="pw-phases" :style="{ '--pw-phase-count': phases.length }">
           <button
             v-for="(phase, i) in phases"
             :key="phase.key"
@@ -106,7 +106,7 @@
           class="pw-step-grid"
           :class="{
             'pw-step-grid--wide': currentStep?.key === 'upload_reports',
-            'pw-step-grid--full': showInlinePanel
+            'pw-step-grid--full': showInlinePanel || currentStep?.key === 'compliance'
           }"
         >
           <div class="pw-step-primary">
@@ -420,6 +420,18 @@
                 </div>
               </template>
 
+              <!-- Compliance: late notes + session limits -->
+              <template v-else-if="currentStep?.key === 'compliance'">
+                <PayrollCompliancePanel
+                  :key="`compliance-${selectedPeriodId}`"
+                  :agency-id="agencyId"
+                  :period-id="selectedPeriodId"
+                  :exclusions-by-user="complianceExclusions"
+                  @update:exclusions-by-user="onComplianceExclusions"
+                  @unlocked="onComplianceUnlocked"
+                />
+              </template>
+
               <!-- Inline Preview Post (provider view + notifications) -->
               <template v-else-if="showPreviewPanel">
                 <div class="pw-inline-panel">
@@ -627,6 +639,7 @@ import PayrollStagePanel from '../../components/payroll/PayrollStagePanel.vue';
 import PayrollTodosPanel from '../../components/payroll/PayrollTodosPanel.vue';
 import PayrollProcessChangesPanel from '../../components/payroll/PayrollProcessChangesPanel.vue';
 import PayrollPreviewPostPanel from '../../components/payroll/PayrollPreviewPostPanel.vue';
+import PayrollCompliancePanel from '../../components/payroll/PayrollCompliancePanel.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -643,6 +656,8 @@ const saving = ref(false);
 const pageError = ref('');
 const actionMessage = ref('');
 const actionError = ref(false);
+const complianceUnlocked = ref(false);
+const complianceExclusions = ref({});
 
 const periods = ref([]);
 const selectedPeriodId = ref(null);
@@ -949,17 +964,19 @@ const iconCalendar = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none
 const iconReview = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 15l2 2 4-4"/></svg>`;
 const iconAdjust = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><circle cx="19" cy="11" r="2"/><path d="M19 8v1M19 13v1M17.2 9.2l.7.7M20.1 12.1l.7.7M16.5 11H17.5M20.5 11H21.5M17.2 12.8l.7-.7M20.1 9.9l.7-.7"/></svg>`;
 const iconPreview = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`;
+const iconCompliance = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>`;
 const iconSubmit = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>`;
 
-const phases = [
+const phasesAll = [
   { key: 'uploads', title: 'Upload Reports', subtitle: 'Current + prior catch-up files', icon: iconCalendar, stepKeys: ['upload_reports'] },
   { key: 'prior', title: 'Prior Catch-up', subtitle: 'Draft audit Run 2 & 3', icon: iconReview, stepKeys: ['draft_audit_prior', 'batch_catchup'] },
   { key: 'review', title: 'Review Data', subtitle: 'Drafts, missed appts & codes', icon: iconAdjust, stepKeys: ['drafts', 'missed_appts', 'h0031', 'h0032', 'h2014', '90853', 'h2032'] },
   { key: 'stage', title: 'Adjustments', subtitle: 'Claims, stage & to-dos', icon: iconPreview, stepKeys: ['claims', 'stage'] },
+  { key: 'compliance', title: 'Compliance', subtitle: 'Late notes & session limits', icon: iconCompliance, stepKeys: ['compliance'] },
   { key: 'submit', title: 'Run & Post', subtitle: 'Calculate and publish', icon: iconSubmit, stepKeys: ['run', 'preview', 'post'] }
 ];
 
-const steps = [
+const stepsAll = [
   {
     key: 'upload_reports',
     title: 'Upload Reports',
@@ -1125,6 +1142,18 @@ const steps = [
     skippable: false
   },
   {
+    key: 'compliance',
+    title: 'Compliance',
+    description: 'Review outstanding late notes by provider and pay period, plus psychotherapy session-limit alerts. Preview and send Compliance Team emails manually.',
+    tip: 'Deselect any service or client notification you do not want included. Supervisors are always CC’d when the provider is supervised.',
+    checklist: [
+      'Review late notes grouped by provider and pay period',
+      'Review session-limit alerts (20 / 24 / 30 / 40)',
+      'Preview and send emails as needed'
+    ],
+    skippable: true
+  },
+  {
     key: 'run',
     title: 'Run Payroll',
     description: 'Calculate provider totals for this pay period. Blocked if To-Dos are still open. Pending claims can be left for the next period.',
@@ -1166,23 +1195,35 @@ const steps = [
   }
 ];
 
-const currentStep = computed(() => steps[stepIdx.value] || steps[0]);
+const phases = computed(() =>
+  complianceUnlocked.value
+    ? phasesAll
+    : phasesAll.filter((p) => p.key !== 'compliance')
+);
+
+const steps = computed(() =>
+  complianceUnlocked.value
+    ? stepsAll
+    : stepsAll.filter((s) => s.key !== 'compliance')
+);
+
+const currentStep = computed(() => steps.value[stepIdx.value] || steps.value[0]);
 
 const currentPhaseIdx = computed(() => {
   const key = currentStep.value?.key;
-  const idx = phases.findIndex((p) => (p.stepKeys || []).includes(key));
+  const idx = phases.value.findIndex((p) => (p.stepKeys || []).includes(key));
   return idx >= 0 ? idx : 0;
 });
 
-const currentPhase = computed(() => phases[currentPhaseIdx.value] || phases[0]);
+const currentPhase = computed(() => phases.value[currentPhaseIdx.value] || phases.value[0]);
 
 const phaseSteps = computed(() => {
   const keys = currentPhase.value?.stepKeys || [];
   return keys.map((key) => {
-    const globalIdx = steps.findIndex((s) => s.key === key);
+    const globalIdx = steps.value.findIndex((s) => s.key === key);
     return {
       key,
-      title: steps[globalIdx]?.title || key,
+      title: steps.value[globalIdx]?.title || key,
       globalIdx: globalIdx >= 0 ? globalIdx : 0
     };
   });
@@ -1201,7 +1242,7 @@ const phaseStepPosition = computed(() => {
 });
 
 const goToStep = async (idx) => {
-  if (!Number.isFinite(idx) || idx < 0 || idx >= steps.length) return;
+  if (!Number.isFinite(idx) || idx < 0 || idx >= steps.value.length) return;
   if (idx === stepIdx.value) return;
   showRawPanel.value = false;
   rawPanelCatchUp.value = null;
@@ -1216,10 +1257,10 @@ const goToStep = async (idx) => {
 };
 
 const goToPhase = async (phaseIdx) => {
-  const phase = phases[phaseIdx];
+  const phase = phases.value[phaseIdx];
   if (!phase?.stepKeys?.length) return;
   const firstKey = phase.stepKeys[0];
-  const globalIdx = steps.findIndex((s) => s.key === firstKey);
+  const globalIdx = steps.value.findIndex((s) => s.key === firstKey);
   if (globalIdx >= 0) await goToStep(globalIdx);
 };
 
@@ -1627,7 +1668,7 @@ const restagePeriodInWizard = async () => {
     await loadPeriods();
     await loadPeriodDetails();
     actionMessage.value = 'Pay period restaged. Make your changes, then Run Payroll again.';
-    const stageIdx = steps.findIndex((s) => s.key === 'stage');
+    const stageIdx = steps.value.findIndex((s) => s.key === 'stage');
     if (stageIdx >= 0) stepIdx.value = stageIdx;
     await saveProgress();
   } catch (e) {
@@ -1885,6 +1926,7 @@ const saveProgress = async () => {
       stepKey: currentStep.value?.key || null,
       priorPeriodId: priorPeriod.value?.id || wizardState.value?.priorPeriodId || null,
       twoAgoPeriodId: twoAgoPeriod.value?.id || wizardState.value?.twoAgoPeriodId || null,
+      complianceExclusions: complianceExclusions.value || {},
       updatedAt: new Date().toISOString()
     };
     const resp = await api.put(`/payroll/periods/${selectedPeriodId.value}/wizard-progress`, { state });
@@ -1896,12 +1938,34 @@ const saveProgress = async () => {
   }
 };
 
+const onComplianceExclusions = (next) => {
+  complianceExclusions.value = next && typeof next === 'object' ? next : {};
+  saveProgress();
+};
+
+const onComplianceUnlocked = (val) => {
+  complianceUnlocked.value = !!val;
+};
+
+const refreshComplianceUnlock = async () => {
+  if (!selectedPeriodId.value) {
+    complianceUnlocked.value = false;
+    return;
+  }
+  try {
+    const resp = await api.post(`/payroll/periods/${selectedPeriodId.value}/compliance-unlock-check`);
+    complianceUnlocked.value = !!resp.data?.unlocked;
+  } catch {
+    complianceUnlocked.value = false;
+  }
+};
+
 /** Furthest step that makes sense given period status / run results (avoids stuck "Post" with empty payroll). */
 const maxReasonableStepIdx = () => {
   const st = String(selectedPeriod.value?.status || '').toLowerCase();
   const hasRunResults = (summaries.value || []).length > 0 || ['ran', 'posted', 'finalized'].includes(st);
-  const runIdx = steps.findIndex((s) => s.key === 'run');
-  if (hasRunResults) return steps.length - 1;
+  const runIdx = steps.value.findIndex((s) => s.key === 'run');
+  if (hasRunResults) return steps.value.length - 1;
   // Draft / untouched — stale "step 14" progress should not win over a real fresh start.
   if (!st || st === 'draft') return 0;
   // Imported/staged but not run — allow through Review/Adjustments up to Run, not Preview/Post.
@@ -1952,25 +2016,33 @@ const loadProgress = async () => {
     const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}/wizard-progress`);
     const state = resp.data?.state || null;
     wizardState.value = state && typeof state === 'object' ? state : null;
+    complianceExclusions.value =
+      wizardState.value?.complianceExclusions && typeof wizardState.value.complianceExclusions === 'object'
+        ? wizardState.value.complianceExclusions
+        : {};
     let idx = Number(wizardState.value?.stepIdx || 0);
     let key = String(wizardState.value?.stepKey || '').trim();
     // Migrate old step keys from previous wizard versions
     if (key === 'select_period' || key === 'upload_prior_run1' || key === 'upload_current') {
       key = 'upload_reports';
     }
+    if (key === 'compliance' && !complianceUnlocked.value) {
+      key = 'stage';
+    }
     if (key) {
-      const byKey = steps.findIndex((s) => s.key === key);
+      const byKey = steps.value.findIndex((s) => s.key === key);
       if (byKey >= 0) idx = byKey;
     }
     const returnStep = readWizardReturnStep();
     if (returnStep) {
-      const byReturn = steps.findIndex((s) => s.key === returnStep);
+      const byReturn = steps.value.findIndex((s) => s.key === returnStep);
       if (byReturn >= 0) idx = byReturn;
     }
-    stepIdx.value = Number.isFinite(idx) && idx >= 0 ? Math.min(idx, steps.length - 1) : 0;
+    stepIdx.value = Number.isFinite(idx) && idx >= 0 ? Math.min(idx, steps.value.length - 1) : 0;
     clampStepToPeriodReality();
   } catch (e) {
     wizardState.value = null;
+    complianceExclusions.value = {};
     stepIdx.value = 0;
   }
 };
@@ -2038,6 +2110,7 @@ const onPeriodChange = async () => {
   uploadResetKey.value += 1;
   existingImports.value = { current: null, prior: null, twoAgo: null };
   await loadPeriodDetails();
+  await refreshComplianceUnlock();
   await loadProgress();
   await loadExistingImports();
   // Keep prior ids in sync for deep-links even before upload
@@ -2063,7 +2136,7 @@ const goNext = async () => {
   showProcessPanel.value = false;
   showPreviewPanel.value = false;
   await saveProgress();
-  if (stepIdx.value >= steps.length - 1) {
+  if (stepIdx.value >= steps.value.length - 1) {
     await goBackToPayroll();
     return;
   }
@@ -2121,6 +2194,7 @@ const bootstrap = async () => {
     selectedPeriodId.value = pickBootstrapPeriodId(fromRoute, fromStorage);
     if (selectedPeriodId.value) {
       await loadPeriodDetails();
+      await refreshComplianceUnlock();
       await loadProgress();
       // If this period is already posted, don't park on the last step — start clean for review/next run.
       if (isPeriodClosed(selectedPeriod.value) && stepIdx.value > 0) {
@@ -2171,10 +2245,10 @@ onMounted(bootstrap);
   --pw-mint-border: #C8E6C9;
   --pw-radius: 12px;
   --pw-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
-  max-width: min(1480px, 100%);
+  max-width: none;
   width: 100%;
-  margin: 0 auto;
-  padding: 8px 16px 40px;
+  margin: 0;
+  padding: 8px 20px 40px;
   background: transparent;
   box-sizing: border-box;
 }
@@ -2280,7 +2354,7 @@ onMounted(bootstrap);
 }
 .pw-phases {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--pw-phase-count, 5), minmax(0, 1fr));
   gap: 8px;
   align-items: stretch;
 }
@@ -2444,7 +2518,7 @@ onMounted(bootstrap);
   margin: 0 0 18px;
   color: var(--text-secondary);
   font-size: 0.95rem;
-  max-width: 640px;
+  max-width: min(960px, 100%);
 }
 
 .pw-step-grid {

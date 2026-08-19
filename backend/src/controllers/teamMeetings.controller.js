@@ -4,6 +4,7 @@
  */
 
 import pool from '../config/database.js';
+import { createHash } from 'crypto';
 import User from '../models/User.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import ProviderScheduleEventAttendee from '../models/ProviderScheduleEventAttendee.model.js';
@@ -57,6 +58,32 @@ async function interviewGuestAccessBlock(event, { actorUserId = null, tokenRole 
       ...payload
     }
   };
+}
+
+function isInterviewParticipantGuestJoin(row, ref) {
+  const subtype = String(row?.meeting_subtype || row?.meetingSubtype || '').toLowerCase();
+  if (subtype !== 'interview') return false;
+  const tokenRole = ProviderScheduleEvent.classifyJoinTokenRole(row, ref);
+  if (tokenRole !== 'participant') return false;
+  if (/^\d+$/.test(String(ref || '').trim())) return false;
+  return true;
+}
+
+function interviewGuestIdentityFromRow(row) {
+  const token = String(row?.participant_join_token || row?.join_token || '').trim();
+  if (!token) return null;
+  return `guest-iv-${createHash('sha256').update(token).digest('hex').slice(0, 16)}`;
+}
+
+async function interviewGuestDisplayName(row) {
+  try {
+    const interview = await HiringInterview.findByScheduleEventId(row.id);
+    const candidateId = Number(interview?.candidate_user_id || 0);
+    if (!candidateId) return 'Candidate';
+    return displayNameFromUser(await User.findById(candidateId)) || 'Candidate';
+  } catch {
+    return 'Candidate';
+  }
 }
 
 const JOIN_PRESENCE_STALE_SECONDS = 45;
@@ -611,6 +638,8 @@ export const getTeamMeetingJoinInfo = async (req, res, next) => {
       hostJoinUrl: hostKey ? joinUrlForTeamMeeting(frontendUrl, hostKey) : null,
       waitingRoomEnabled: isWaitingRoomEnabled(event),
       joinTokenRole: tokenRole,
+      meetingSubtype: String(event.meeting_subtype || 'general').trim().toLowerCase(),
+      guestJoinAllowed: isInterviewParticipantGuestJoin(event, ref),
       meetingCompleted: !!meetingCompletedAt,
       meetingCompletedAt
     });
@@ -640,11 +669,14 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Event is not a team meeting or huddle' } });
     }
 
-    const ok = await canAccessTeamMeeting(req, row);
-    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
-
     const actorUserId = Number(req.user?.id || 0);
-    if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    const guestJoin = !actorUserId && isInterviewParticipantGuestJoin(row, ref);
+    if (actorUserId) {
+      const ok = await canAccessTeamMeeting(req, row);
+      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    } else if (!guestJoin) {
+      return res.status(401).json({ error: { message: 'Not authenticated' } });
+    }
 
     if (row.meeting_completed_at) {
       const closure = await meetingClosureDetails(row);
@@ -684,7 +716,10 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
     }
 
     const waitingRoomOn = isWaitingRoomEnabled(row);
-    const identity = `user-${actorUserId}`;
+    const guestIdentity = guestJoin ? interviewGuestIdentityFromRow(row) : null;
+    const identity = guestJoin
+      ? (guestIdentity || `guest-iv-${eventId}`)
+      : `user-${actorUserId}`;
     // Host always bypasses the waiting room; mark them admitted so they never appear in the lobby list.
     if (isHost) {
       await admitJoinIdentity({ eventId, userId: actorUserId, joinIdentity: identity });
@@ -710,10 +745,18 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
     const admitted = isHost || await isUserAdmitted({ eventId, userId: actorUserId, joinIdentity: identity });
     const useLobby = !isHost && waitingRoomOn && !admitted;
 
-    const actor = await User.findById(actorUserId);
-    const displayName = displayNameFromUser(actor) || `User ${actorUserId}`;
-    const roleLabel = isHost ? 'Host' : 'Participant';
-    const profilePhotoUrl = await profilePhotoUrlForUserId(actorUserId);
+    let displayName;
+    let roleLabel;
+    let profilePhotoUrl = null;
+    if (guestJoin) {
+      displayName = await interviewGuestDisplayName(row);
+      roleLabel = 'Candidate';
+    } else {
+      const actor = await User.findById(actorUserId);
+      displayName = displayNameFromUser(actor) || `User ${actorUserId}`;
+      roleLabel = isHost ? 'Host' : 'Participant';
+      profilePhotoUrl = await profilePhotoUrlForUserId(actorUserId);
+    }
 
     let roomName;
     let vonageSessionId = null;
@@ -760,12 +803,12 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       eventId,
       joinIdentity: identity,
       displayName,
-      isGuest: false
+      isGuest: guestJoin || identity.startsWith('guest-')
     });
 
     // Start / refresh payable attendance as soon as they receive a main-room token
     // (lobby heartbeats alone were leaving attendees at 0m until a later rebuild).
-    if (!useLobby) {
+    if (!useLobby && actorUserId) {
       try {
         const {
           openAttendanceSegment,
@@ -797,6 +840,7 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       roleLabel,
       profilePhotoUrl,
       isHost,
+      isGuest: guestJoin || String(identity).startsWith('guest-'),
       eventId,
       joinToken: row.participant_join_token || row.join_token || null,
       hostJoinUrl: row.host_join_token
@@ -1130,13 +1174,20 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
     const row = await ProviderScheduleEvent.resolveByJoinRef(ref);
     if (!row?.id) return res.status(404).json({ error: { message: 'Event not found' } });
 
-    const ok = await canAccessTeamMeeting(req, row);
-    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
-
     const actorUserId = Number(req.user?.id || 0);
-    const identity = `user-${actorUserId}`;
+    const guestJoin = !actorUserId && isInterviewParticipantGuestJoin(row, ref);
+    if (actorUserId) {
+      const ok = await canAccessTeamMeeting(req, row);
+      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    } else if (!guestJoin) {
+      return res.status(401).json({ error: { message: 'Not authenticated' } });
+    }
+
+    const identity = guestJoin
+      ? (interviewGuestIdentityFromRow(row) || `guest-iv-${row.id}`)
+      : `user-${actorUserId}`;
     const waitingRoomOn = isWaitingRoomEnabled(row);
-    const isHost = actorUserId === Number(row.provider_id);
+    const isHost = actorUserId > 0 && actorUserId === Number(row.provider_id);
     const meetingCompletedAt = row.meeting_completed_at || null;
 
     if (meetingCompletedAt) {
@@ -1174,7 +1225,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
     if (!waitingRoomOn && !admitted) {
       await admitJoinIdentity({
         eventId: row.id,
-        userId: actorUserId,
+        userId: actorUserId || null,
         joinIdentity: identity
       });
       admitted = true;
@@ -1220,9 +1271,11 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
       return res.status(500).json({ error: { message: 'Failed to create or get video room' } });
     }
 
-    const actor = await User.findById(actorUserId);
-    const displayName = displayNameFromUser(actor) || `User ${actorUserId}`;
-    const profilePhotoUrl = await profilePhotoUrlForUserId(actorUserId);
+    const actor = actorUserId ? await User.findById(actorUserId) : null;
+    const displayName = guestJoin
+      ? await interviewGuestDisplayName(row)
+      : (displayNameFromUser(actor) || `User ${actorUserId}`);
+    const profilePhotoUrl = actorUserId ? await profilePhotoUrlForUserId(actorUserId) : null;
     const token = await createAccessTokenAsync({
       roomSid: vonageSessionId,
       identity,
@@ -1238,22 +1291,24 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
       return res.status(500).json({ error: { message: 'Failed to generate access token' } });
     }
 
-    try {
-      const {
-        openAttendanceSegment,
-        rebuildAttendanceRollupsFromSegments
-      } = await import('../services/meetingAttendanceSegments.service.js');
-      const opened = await openAttendanceSegment({
-        eventId: row.id,
-        userId: actorUserId,
-        joinIdentity: identity,
-        source: 'platform'
-      });
-      if (opened?.created || opened?.alreadyOpen) {
-        await rebuildAttendanceRollupsFromSegments(row.id, { syncClaims: false });
+    if (actorUserId) {
+      try {
+        const {
+          openAttendanceSegment,
+          rebuildAttendanceRollupsFromSegments
+        } = await import('../services/meetingAttendanceSegments.service.js');
+        const opened = await openAttendanceSegment({
+          eventId: row.id,
+          userId: actorUserId,
+          joinIdentity: identity,
+          source: 'platform'
+        });
+        if (opened?.created || opened?.alreadyOpen) {
+          await rebuildAttendanceRollupsFromSegments(row.id, { syncClaims: false });
+        }
+      } catch (e) {
+        console.warn('[teamMeeting] open attendance on admit-status failed', e?.message || e);
       }
-    } catch (e) {
-      console.warn('[teamMeeting] open attendance on admit-status failed', e?.message || e);
     }
 
     res.json({

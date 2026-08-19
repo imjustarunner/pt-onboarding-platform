@@ -375,46 +375,67 @@ async function notifyThresholdsForAgencyFiscalYears({ agencyId, fiscalYearStarts
       .map(([code, count]) => ({ code, count }));
 
   for (const rec of byKey.values()) {
-    if (rec.total < 25) continue; // surpassed 24
-    attempted += 1;
+    for (const threshold of [20, 24, 30, 40]) {
+      if (rec.total < threshold) continue;
+      attempted += 1;
 
-    // Dedupe per provider + client + fiscal year.
-    const triggerKey = `psychotherapy_threshold_exceeded|fy:${rec.fiscalYearStart}|client:${rec.clientKeyHash}`;
-    const ok = await NotificationEvent.tryCreate({
-      agencyId: Number(agencyId),
-      triggerKey,
-      providerUserId: rec.providerUserId,
-      recipientUserId: rec.providerUserId
-    });
-    if (!ok) continue;
-
-    const parts = [];
-    for (const { code, count } of sortedCodes(rec.perCode)) {
-      if (!PSYCHOTHERAPY_CODES.has(String(code))) continue;
-      parts.push(`${code} (${count})`);
-    }
-    const breakdown = parts.join(' ');
-    const msg =
-      `${rec.clientAbbrev} ${breakdown} total (${rec.total})\n\n` +
-      'This client has surpassed 24 psychotherapy services which must identify medical necessity via as defined in Colorado Code of Regulations (CCR) ' +
-      '10 CCR 2505-10 8.076.1.8 and 10 CCR 2505-10 8.280.4.E. (for children) due to senate bill 22-156.';
-
-    await createNotificationAndDispatch(
-      {
-        type: 'psychotherapy_threshold_exceeded',
-        severity: 'warning',
-        title: 'Psychotherapy threshold exceeded',
-        message: msg,
-        userId: rec.providerUserId,
+      // Dedupe per provider + client + fiscal year + threshold.
+      const triggerKey =
+        `psychotherapy_threshold_${threshold}|fy:${rec.fiscalYearStart}|client:${rec.clientKeyHash}`;
+      const ok = await NotificationEvent.tryCreate({
         agencyId: Number(agencyId),
-        relatedEntityType: 'client',
-        relatedEntityId: null,
-        actorSource: 'System'
-      },
-      { context: { isUrgent: false } }
-    );
+        triggerKey,
+        providerUserId: rec.providerUserId,
+        recipientUserId: rec.providerUserId
+      });
+      if (!ok) continue;
 
-    created += 1;
+      const parts = [];
+      for (const { code, count } of sortedCodes(rec.perCode)) {
+        if (!PSYCHOTHERAPY_CODES.has(String(code))) continue;
+        parts.push(`${code} (${count})`);
+      }
+      const breakdown = parts.join(' ');
+      let msg =
+        `${rec.clientAbbrev} ${breakdown} total (${rec.total})\n\n`;
+      if (threshold === 20) {
+        msg +=
+          'This client is 4 psychotherapy services away from 24. Please plan to re-evaluate medical necessity for ongoing treatment as defined in Colorado Code of Regulations (CCR) ' +
+          '10 CCR 2505-10 8.076.1.8 and 10 CCR 2505-10 8.280.4.E. (for children) due to senate bill 22-156.';
+      } else if (threshold === 24) {
+        msg +=
+          'This client has reached 24 psychotherapy services. Please ensure you re-evaluate or have re-evaluated medical necessity for treatment for ongoing services as defined in Colorado Code of Regulations (CCR) ' +
+          '10 CCR 2505-10 8.076.1.8 and 10 CCR 2505-10 8.280.4.E. (for children) due to senate bill 22-156.';
+      } else if (threshold === 30) {
+        msg +=
+          'URGENT: This client has reached 30 psychotherapy services. Ongoing services without documented clinical medical necessity require immediate attention under Colorado Code of Regulations (CCR) ' +
+          '10 CCR 2505-10 8.076.1.8 and 10 CCR 2505-10 8.280.4.E. (for children) due to senate bill 22-156.';
+      } else {
+        msg +=
+          'CRITICAL: This client has reached 40 psychotherapy services. Clinical medical necessity for ongoing treatment must be addressed immediately under Colorado Code of Regulations (CCR) ' +
+          '10 CCR 2505-10 8.076.1.8 and 10 CCR 2505-10 8.280.4.E. (for children) due to senate bill 22-156.';
+      }
+
+      await createNotificationAndDispatch(
+        {
+          type: 'psychotherapy_threshold_exceeded',
+          severity: threshold >= 40 ? 'critical' : threshold >= 30 ? 'error' : threshold >= 24 ? 'warning' : 'info',
+          title:
+            threshold === 20
+              ? 'Approaching psychotherapy session limit'
+              : `Psychotherapy threshold ${threshold}`,
+          message: msg,
+          userId: rec.providerUserId,
+          agencyId: Number(agencyId),
+          relatedEntityType: 'client',
+          relatedEntityId: null,
+          actorSource: 'System'
+        },
+        { context: { isUrgent: threshold >= 30 } }
+      );
+
+      created += 1;
+    }
   }
 
   return { attempted, created };
@@ -800,7 +821,12 @@ export const getPsychotherapyComplianceSummary = async (req, res, next) => {
     const matched = [];
     const unmatched = [];
     for (const rec of grouped.values()) {
-      rec.surpassed_24 = rec.total >= 25;
+      let threshold = null;
+      for (const t of [20, 24, 30, 40]) {
+        if (rec.total >= t) threshold = t;
+      }
+      rec.threshold = threshold;
+      rec.surpassed_24 = rec.total >= 24;
       if (rec.client_id) matched.push(rec);
       else unmatched.push(rec);
     }

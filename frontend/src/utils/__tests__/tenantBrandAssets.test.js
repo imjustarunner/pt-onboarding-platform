@@ -12,9 +12,13 @@ describe('tenantBrandAssets', () => {
   it('maps SMS pages per tenant', () => {
     expect(tenantSmsImage('itsco', 'support')).toContain('/SMSAssets/ITSCO/ITSCOSupport.png');
     expect(tenantSmsImage('itsco', 'counseling')).toContain('/SMSAssets/ITSCO/ITSCOJoinUs.png');
-    expect(tenantSmsImage('nlu', 'counseling')).toContain('/SMSAssets/NLU/11_Counseling.png');
-    expect(tenantSmsImage('nlu', 'tutoring')).toContain('/SMSAssets/NLU/12_Tutoring.png');
-    expect(tenantSmsImage('nlu', 'tutors')).toContain('/SMSAssets/NLU/10_Tutors.png');
+    expect(tenantSmsImage('nlu', 'counseling')).toContain('/SMSAssets/NLU/NLUCounseling.png');
+    expect(tenantSmsImage('nlu', 'tutoring')).toContain('/SMSAssets/NLU/NLUTutoring.png');
+    expect(tenantSmsImage('nlu', 'tutors')).toContain('/SMSAssets/NLU/NLUTutors.png');
+    expect(tenantSmsImage('nlu', 'portal')).toContain('/SMSAssets/NLU/NLUPortal.png');
+    expect(tenantSmsImage('nlu', 'providers')).toContain('/SMSAssets/NLU/NLUProviders.png');
+    expect(tenantSmsImage('nlu', 'join')).toContain('/SMSAssets/NLU/NLUPortal.png');
+    expect(tenantSmsImage('nlu', 'therapy_plus_tutoring')).toContain('/SMSAssets/NLU/NLUTherapyPlusTutoring.png');
     expect(tenantSmsImage('innerstrength', 'coaching')).toContain('/SMSAssets/InnerStrength/11_Coaching.png');
     expect(tenantSmsImage('risereviveco', 'join')).toContain('JoinUsRiseRevive.png');
   });
@@ -52,5 +56,7 @@ describe('tenantBrandAssets', () => {
     expect(pathToSharePageKey('/nlu/tutors')).toBe('tutors');
     expect(pathToSharePageKey('/nlu/find-tutor')).toBe('tutors');
     expect(pathToSharePageKey('/innerstrength/find-coach')).toBe('coaching');
+    expect(pathToSharePageKey('/nlu/portal')).toBe('portal');
+    expect(pathToSharePageKey('/nlu/therapy-plus-tutoring')).toBe('therapy_plus_tutoring');
   });
 });

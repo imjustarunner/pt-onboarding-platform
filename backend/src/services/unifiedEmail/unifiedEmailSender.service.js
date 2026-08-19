@@ -556,6 +556,7 @@ export async function sendEmailFromIdentity({
   text = null,
   html = null,
   attachments = null,
+  cc = null,
   inReplyTo = null,
   references = null,
   threadId = null,
@@ -718,6 +719,7 @@ export async function sendEmailFromIdentity({
     html: htmlWithPixel,
     from,
     replyTo,
+    cc,
     inReplyTo,
     references,
     attachments
@@ -737,7 +739,8 @@ export async function sendEmailFromIdentity({
       impersonatedUser: getImpersonatedUser(),
       senderIdentityId: identity.id,
       fromEmail: identity.from_email,
-      replyTo: identity.reply_to || null
+      replyTo: identity.reply_to || null,
+      ...(cc ? { cc } : {})
     }).catch(() => {});
   }
 
@@ -749,7 +752,7 @@ export async function sendEmailFromIdentity({
       recipient: to,
       body: html || text || '',
       externalRefId: messageId,
-      metadata: { subject, threadId: finalThreadId }
+      metadata: { subject, threadId: finalThreadId, ...(cc ? { cc } : {}) }
     }).catch(() => {});
   }
 

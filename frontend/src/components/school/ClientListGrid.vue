@@ -513,7 +513,7 @@
             <td v-if="showPsychotherapyColumn" class="psy-cell">
               <span
                 class="psy-pill"
-                :class="{ 'psy-pill-alert': (psychotherapyCell(client).total || 0) >= 25 }"
+                :class="{ 'psy-pill-alert': (psychotherapyCell(client).total || 0) >= 20 }"
                 :title="psychotherapyCell(client).title"
               >
                 {{ psychotherapyCell(client).total ?? '—' }}

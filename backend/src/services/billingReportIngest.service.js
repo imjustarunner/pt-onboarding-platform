@@ -75,15 +75,25 @@ export function formatYmd(d) {
   return `${y}-${m}-${day}`;
 }
 
-/** Fiscal year Aug 1 – Jul 31. Returns YYYY-08-01 for the FY containing the date. */
-export function computeFiscalYearStartAugYmd(d) {
+/** Fiscal year Jul 1 – Jun 30. Returns YYYY-07-01 for the FY containing the date. */
+export function computeFiscalYearStartJulYmd(d) {
   const dt = d instanceof Date ? d : new Date(d);
   if (Number.isNaN(dt.getTime())) return '';
   const y = dt.getUTCFullYear();
   const month = dt.getUTCMonth() + 1;
-  const startYear = month >= 8 ? y : y - 1;
-  return `${startYear}-08-01`;
+  const startYear = month >= 7 ? y : y - 1;
+  return `${startYear}-07-01`;
 }
+
+/** @deprecated Prefer computeFiscalYearStartJulYmd — kept for callers that still expect Aug FY. */
+export function computeFiscalYearStartAugYmd(d) {
+  return computeFiscalYearStartJulYmd(d);
+}
+
+export const PSYCHOTHERAPY_CPT_CODES = new Set([
+  '90832', '90833', '90834', '90836', '90837', '90838',
+  '90839', '90840', '90846', '90847', '90849', '90853'
+]);
 
 export function normalizeNameKey(name) {
   return String(name || '')
@@ -980,6 +990,17 @@ async function upsertEncounter({ agencyId, clientId, providerUserId, lineId, row
        WHERE id = ?`,
       [clientId, encounterId, providerUserId || null, lineId]
     );
+    try {
+      const { ensureClinicalSessionForBillingEncounter } = await import('./billingEncounterClinical.service.js');
+      await ensureClinicalSessionForBillingEncounter({
+        agencyId,
+        billingEncounterId: encounterId,
+        actingUserId: null
+      });
+    } catch (e) {
+      // Clinical plane may be unavailable for some tenants — billing ingest must still succeed.
+      console.warn('[billingReportIngest] clinical session sync skipped', e?.message || e);
+    }
   }
   return encounterId;
 }
@@ -1131,13 +1152,29 @@ export async function autoTerminateInactiveBillingClients({ agencyId, actingUser
 }
 
 export async function getSessionTotalsByClient({ agencyId, fiscalYearStart, providerUserId = null }) {
-  const fyStart = String(fiscalYearStart || '').slice(0, 10);
+  let fyStart = String(fiscalYearStart || '').slice(0, 10);
   if (!fyStart) return {};
+  // Coerce legacy Aug 1 FY starts to July 1 so caseload pills match psychotherapy compliance.
+  if (/^\d{4}-08-01$/.test(fyStart)) {
+    fyStart = `${fyStart.slice(0, 4)}-07-01`;
+  }
+  if (!/^\d{4}-07-01$/.test(fyStart)) {
+    fyStart = computeFiscalYearStartJulYmd(fyStart);
+  }
   const startYear = Number(fyStart.slice(0, 4));
-  const fyEnd = `${startYear + 1}-07-31`;
+  const fyEnd = `${startYear + 1}-06-30`;
+  const effectiveStart = fyStart < '2025-07-01' ? '2025-07-01' : fyStart;
 
-  const where = ['be.agency_id = ?', 'be.service_date >= ?', 'be.service_date <= ?'];
-  const params = [Number(agencyId), fyStart, fyEnd];
+  const codeList = [...PSYCHOTHERAPY_CPT_CODES];
+  const ph = codeList.map(() => '?').join(',');
+
+  const where = [
+    'be.agency_id = ?',
+    'be.service_date >= ?',
+    'be.service_date <= ?',
+    `UPPER(TRIM(be.service_code)) IN (${ph})`
+  ];
+  const params = [Number(agencyId), effectiveStart, fyEnd, ...codeList];
   if (providerUserId) {
     where.push('be.provider_user_id = ?');
     params.push(Number(providerUserId));
@@ -1594,14 +1631,32 @@ export async function ingestBillingReport({
         if (updated) linesUpdated += 1;
 
         if (clientId && lineId) {
-          const encId = await upsertEncounter({
-            agencyId: aid,
-            clientId,
-            providerUserId,
-            lineId,
-            row: mapped
-          });
-          if (encId) encountersCreated += 1;
+          const hasServiceCode = !!String(mapped.serviceCode || '').trim();
+          if (hasServiceCode) {
+            const encId = await upsertEncounter({
+              agencyId: aid,
+              clientId,
+              providerUserId,
+              lineId,
+              row: mapped
+            });
+            if (encId) encountersCreated += 1;
+          } else {
+            // Non-service / note-only row: chart note stub without a billing claim/encounter.
+            try {
+              const { ensureNoteOnlyClinicalRecord } = await import('./billingEncounterClinical.service.js');
+              await ensureNoteOnlyClinicalRecord({
+                agencyId: aid,
+                clientId,
+                providerUserId,
+                serviceDate: mapped.serviceDate,
+                title: mapped.rowType || 'Clinical note',
+                actingUserId: uploadedByUserId
+              });
+            } catch (e) {
+              console.warn('[billingReportIngest] note-only clinical stub skipped', e?.message || e);
+            }
+          }
         }
       }
     }
@@ -1621,6 +1676,14 @@ export async function ingestBillingReport({
       days: 60
     }).catch(() => ({ terminated: 0 }));
 
+    let psychotherapyNotify = { attempted: 0, created: 0 };
+    try {
+      const { notifyPsychotherapyThresholdsFromEncounters } = await import('./payrollCompliance.service.js');
+      psychotherapyNotify = await notifyPsychotherapyThresholdsFromEncounters({ agencyId: aid });
+    } catch (e) {
+      console.warn('[billingReportIngest] psychotherapy threshold notify skipped', e?.message || e);
+    }
+
     const summary = {
       rowsParsed: normalizedRows.length,
       linesInserted,
@@ -1632,6 +1695,7 @@ export async function ingestBillingReport({
       unmatchedProviders: Array.from(unmatchedProviders).slice(0, 100),
       receivablesProjected,
       autoTerminated: Number(termResult?.terminated || 0),
+      psychotherapyNotify,
       minServiceDate: minService,
       maxServiceDate: maxService
     };

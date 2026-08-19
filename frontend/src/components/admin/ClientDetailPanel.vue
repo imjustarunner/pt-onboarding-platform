@@ -2457,12 +2457,12 @@ const intakeGuardianAlreadyLinked = computed(() => {
 });
 const canViewAdminNote = computed(() => ['super_admin', 'admin', 'support'].includes(roleNorm.value));
 const canManageClientCode = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
-// Providers terminate via "Mark as Terminated" in roster only; support staff use this panel
+// Support staff and CPAs terminate from this panel; assigned providers also use roster Terminate.
 const canTerminate = computed(() => {
   if (!hasAgencyAccess.value) return false;
   if (isClientTerminated.value) return false;
   const r = roleNorm.value;
-  return ['super_admin', 'admin', 'support', 'staff'].includes(r);
+  return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(r);
 });
 const learningBillingEnabledForClient = computed(() => {
   const orgType = String(props.client?.organization_type || '').toLowerCase();

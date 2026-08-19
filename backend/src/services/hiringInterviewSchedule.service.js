@@ -10,6 +10,11 @@ import GoogleCalendarService from './googleCalendar.service.js';
 import EmailService from './email.service.js';
 import { joinUrlForTeamMeeting } from '../utils/joinToken.js';
 import {
+  isValidTimeZone,
+  utcDateToZonedParts,
+  zonedWallTimeToUtc
+} from '../utils/zonedWallTime.util.js';
+import {
   ensureDefaultTemplate,
   buildInterviewFlow
 } from './interviewHub.service.js';
@@ -21,26 +26,53 @@ import { buildHiringInterviewTitle } from '../utils/hiringInterviewTitle.js';
 /** Google Calendar event color: 3 = grape/purple (distinct from general meetings). */
 export const INTERVIEW_GOOGLE_COLOR_ID = '3';
 
-function toSqlDatetimeUtc(value) {
-  if (!value) return null;
-  const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+function pad2(n) {
+  return String(n).padStart(2, '0');
 }
 
-function parseLocalWallClock(startsAt, timezone) {
-  // Accept ISO or "YYYY-MM-DDTHH:mm" — treat as wall clock in timezone when no Z/offset.
+function formatWallFromParts(parts) {
+  if (!parts) return null;
+  return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}T${pad2(parts.hour)}:${pad2(parts.minute)}:${pad2(parts.second || 0)}`;
+}
+
+/**
+ * Interpret startsAt as wall-clock in `timezone` unless it already has a Z/offset.
+ * Instant values are converted to wall-clock in that timezone so Google Calendar
+ * does not double-apply the offset (1pm local → ISO Z → 6pm wall).
+ */
+export function parseInterviewStart(startsAt, timezone) {
+  const tz = isValidTimeZone(timezone) ? String(timezone).trim() : 'America/Denver';
   const raw = String(startsAt || '').trim();
   if (!raw) return null;
   if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)) {
     const d = new Date(raw);
-    return Number.isNaN(d.getTime()) ? null : d;
+    if (Number.isNaN(d.getTime())) return null;
+    const wallStart = formatWallFromParts(utcDateToZonedParts(d, tz));
+    if (!wallStart) return null;
+    return { startDate: d, wallStart, timeZone: tz };
   }
-  // Approximate: parse as local Date then store ISO; Google insert uses wall + timeZone.
-  const normalized = raw.length === 16 ? `${raw}:00` : raw;
-  const d = new Date(normalized);
-  return Number.isNaN(d.getTime()) ? null : d;
+  const normalized = raw.length === 16 ? `${raw}:00` : raw.replace(' ', 'T').slice(0, 19);
+  const m = normalized.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return null;
+  const startDate = zonedWallTimeToUtc({
+    year: Number(m[1]),
+    month: Number(m[2]),
+    day: Number(m[3]),
+    hour: Number(m[4]),
+    minute: Number(m[5]),
+    second: Number(m[6] || 0),
+    timeZone: tz
+  });
+  if (!startDate || Number.isNaN(startDate.getTime())) return null;
+  const wallStart = `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${pad2(m[6] || 0)}`;
+  return { startDate, wallStart, timeZone: tz };
+}
+
+function toSqlDatetimeUtc(value) {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
 }
 
 /**
@@ -134,14 +166,17 @@ export async function scheduleHiringInterview({
   }
 
   const tz = String(timezone || 'America/Denver').trim() || 'America/Denver';
-  const startDate = parseLocalWallClock(startsAt, tz);
-  if (!startDate) {
+  const parsed = parseInterviewStart(startsAt, tz);
+  if (!parsed?.startDate) {
     const err = new Error('Invalid startsAt');
     err.status = 400;
     throw err;
   }
+  const startDate = parsed.startDate;
   const mins = Math.min(Math.max(parseInt(durationMinutes, 10) || 60, 15), 240);
   const endDate = new Date(startDate.getTime() + mins * 60 * 1000);
+  const wallStart = parsed.wallStart;
+  const wallEnd = formatWallFromParts(utcDateToZonedParts(endDate, parsed.timeZone)) || wallStart;
 
   const interviewerIds = Array.from(new Set(
     (Array.isArray(interviewerUserIds) ? interviewerUserIds : [])
@@ -164,25 +199,6 @@ export async function scheduleHiringInterview({
       candidateName,
       jobTitle
     });
-
-  const wallStart = String(startsAt).trim().length === 16
-    ? `${String(startsAt).trim()}:00`
-    : String(startsAt).trim().replace(/[zZ]|[+-]\d{2}:?\d{2}$/, '').slice(0, 19);
-  const wallEndDate = new Date(startDate.getTime() + mins * 60 * 1000);
-  const pad = (n) => String(n).padStart(2, '0');
-  // Prefer wall-clock strings derived from the input when possible
-  let wallEnd = wallStart;
-  try {
-    const base = new Date(wallStart.includes('T') ? wallStart : wallStart.replace(' ', 'T'));
-    if (!Number.isNaN(base.getTime())) {
-      const e = new Date(base.getTime() + mins * 60 * 1000);
-      wallEnd = `${e.getFullYear()}-${pad(e.getMonth() + 1)}-${pad(e.getDate())}T${pad(e.getHours())}:${pad(e.getMinutes())}:${pad(e.getSeconds())}`;
-    } else {
-      wallEnd = wallEndDate.toISOString().slice(0, 19);
-    }
-  } catch {
-    wallEnd = wallEndDate.toISOString().slice(0, 19);
-  }
 
   // Resolve attendee emails (interviewers + candidate)
   const allUserIds = Array.from(new Set([...interviewerIds, candidateId]));

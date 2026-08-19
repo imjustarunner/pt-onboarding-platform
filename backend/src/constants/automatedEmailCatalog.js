@@ -28,7 +28,9 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   manual: ['notifications'],
   job_applications: ['job_applications', 'notifications'],
   hiring_references: ['hiring_references', 'notifications'],
-  admin_update: ['notifications']
+  admin_update: ['notifications'],
+  compliance_digest: ['compliance'],
+  psychotherapy_threshold: ['compliance', 'notifications']
 };
 
 export function preferredIdentityKeysForTemplateType(templateType) {

@@ -657,7 +657,7 @@
                             class="agency-select"
                             style="min-width: 220px;"
                             :value="disclosureIncludeFromMembership(agency)"
-                            :disabled="!editingAgencyAssignments || savingAgencyMembershipId === agency.id"
+                            :disabled="savingAgencyMembershipId === agency.id"
                             @change="saveAgencyMembership(agency.id, { includeOnDisclosure: $event.target.value })"
                           >
                             <option
@@ -1937,6 +1937,35 @@
 
         <div v-if="activeTab === 'affiliations'" class="tab-panel">
           <h2>Affiliations</h2>
+          <div v-if="canEditUser && affiliatedAgencies.length" class="card affiliation-disclosure-card">
+            <h3 class="affiliation-manage-title">Disclosure listing</h3>
+            <p class="hint affiliation-manage-hint">
+              Choose whether this person appears on each tenant’s disclosure statement. “Never include” keeps them off paper and virtual disclosures.
+            </p>
+            <div
+              v-for="agency in affiliatedAgencies"
+              :key="`disclosure-${agency.id}`"
+              class="agency-item-row"
+              style="margin-top: 8px; flex-wrap: wrap; gap: 8px;"
+            >
+              <span class="agency-name" style="min-width: 140px;">{{ agency.name }}</span>
+              <select
+                class="agency-select"
+                style="min-width: 220px;"
+                :value="disclosureIncludeFromMembership(agency)"
+                :disabled="savingAgencyMembershipId === agency.id"
+                @change="saveAgencyMembership(agency.id, { includeOnDisclosure: $event.target.value })"
+              >
+                <option
+                  v-for="opt in DISCLOSURE_INCLUDE_OPTIONS"
+                  :key="opt.value"
+                  :value="opt.value"
+                >
+                  {{ opt.label }}
+                </option>
+              </select>
+            </div>
+          </div>
           <div class="affiliation-subtabs">
             <button
               v-for="sec in AFFILIATION_SECTION_IDS"
@@ -8145,6 +8174,10 @@ onUnmounted(() => {
 .affiliation-manage-hint {
   margin: 4px 0 0;
   font-size: 12px;
+}
+.affiliation-disclosure-card {
+  margin: 12px 0 16px;
+  padding: 14px 16px;
 }
 .affiliation-manage-list {
   display: flex;
