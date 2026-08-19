@@ -177,8 +177,9 @@
             type="button"
             class="btn btn-secondary btn-sm join-mini-btn"
             title="Collapse to mini view — stay in meeting while you use the app"
+            :disabled="miniHandoffBusy"
             @click="activateMiniMode"
-          >⊡ Mini</button>
+          >{{ miniHandoffBusy ? 'Switching…' : '⊡ Mini' }}</button>
           <button type="button" class="btn btn-danger btn-sm" @click="requestLeave">
             {{ isHost ? 'Leave / End meeting' : 'Leave meeting' }}
           </button>
@@ -546,10 +547,12 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
 const { setMiniMode } = useActiveMeeting();
+const miniHandoffBusy = ref(false);
 
-function activateMiniMode() {
-  if (!token.value || !vonageSessionId.value) return;
-  setMiniMode({
+async function activateMiniMode() {
+  if (!token.value || !vonageSessionId.value || miniHandoffBusy.value) return;
+  miniHandoffBusy.value = true;
+  const params = {
     token: token.value,
     vonageSessionId: vonageSessionId.value,
     applicationId: applicationId.value,
@@ -557,9 +560,18 @@ function activateMiniMode() {
     eventId: resolvedEventId.value,
     meetingPath: route.fullPath,
     meetingTitle: displayMeetingTitle.value || 'Meeting',
-  });
+  };
+  const slug = organizationSlug.value || hostPortalSlug.value || authStore.user?.organization?.slug;
+  const dashboardPath = slug ? `/${slug}/dashboard` : '/dashboard';
+  // Hang up this page's publisher first. Starting Mini while the live room is
+  // still connected reuses the same Vonage token and kicks everyone (including us) out.
   intentionalLeave.value = true;
-  router.push('/dashboard');
+  try {
+    videoRoomRef.value?.disconnect?.(false);
+  } catch { /* already tearing down */ }
+  await new Promise((r) => setTimeout(r, 450));
+  setMiniMode(params);
+  router.push(dashboardPath).catch(() => router.push('/dashboard'));
 }
 
 // Dark theme toggle — persisted per user, defaults to their stored pref.

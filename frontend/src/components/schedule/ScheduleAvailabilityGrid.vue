@@ -168,6 +168,16 @@
           </div>
         </div>
 
+        <p
+          v-if="!hideOfficeAndCalendarIntegration && viewMode === 'office_layout'"
+          class="sched-office-view-hint"
+          role="note"
+        >
+          This board shows office rooms, not your appointments. Switch to
+          <button type="button" class="sched-office-view-hint__link" @click="viewMode = 'open_finder'">My Schedule</button>
+          to see meetings, sessions, and Check-Ins.
+        </p>
+
         <div v-if="officeReminderToast && !hideOfficeAndCalendarIntegration" class="sched-office-reminder-toast">
           {{ officeReminderToast }}
         </div>
@@ -26053,6 +26063,27 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 }
 
 /* Office reminder toast (3s) */
+.sched-office-view-hint {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+.sched-office-view-hint__link {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: #b45309;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
 .sched-office-reminder-toast {
   position: fixed;
   bottom: 24px;

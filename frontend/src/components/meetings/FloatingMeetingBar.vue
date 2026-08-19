@@ -85,6 +85,7 @@ const connectError = ref('');
 const audioMuted = ref(false);
 const publisherHostEl = ref(null);
 let localPublisher = null;
+let connectInFlight = false;
 
 // Track remote tile DOM elements (used to inject subscriber video)
 function setTileEl(streamId, el) {
@@ -115,7 +116,8 @@ function reparentSubscriberMedia(streamId, targetEl) {
 const subscribers = new Map();
 
 async function connect() {
-  if (!meeting.vonageSessionId || !meeting.token) return;
+  if (!meeting.vonageSessionId || !meeting.token || session || connectInFlight) return;
+  connectInFlight = true;
   connectError.value = '';
   try {
     const { default: OT } = await import('@vonage/client-sdk-video');
@@ -128,6 +130,9 @@ async function connect() {
       const stream = event.stream;
       const streamId = String(stream.streamId || '');
       if (!streamId) return;
+      const ownId = session?.connection?.connectionId;
+      const streamConn = stream?.connection?.connectionId;
+      if (ownId && streamConn && ownId === streamConn) return;
 
       // Add to reactive list
       const name = (() => {
@@ -162,7 +167,7 @@ async function connect() {
           height: '100%',
           fitMode: 'contain',
           subscribeToAudio: true,
-          subscribeToVideo: true,
+          subscribeToVideo: false,
           style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
         },
         (err) => {
@@ -230,6 +235,8 @@ async function connect() {
   } catch (e) {
     connectError.value = 'Could not connect to meeting audio/video.';
     console.warn('[FloatingMeetingBar] connect error', e?.message || e);
+  } finally {
+    connectInFlight = false;
   }
 }
 

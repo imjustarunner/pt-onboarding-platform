@@ -21,15 +21,11 @@ export function isConstrainedVideoDevice(nav = globalThis?.navigator) {
 }
 
 export function shouldUseVonageAdvancedNoiseSuppression(OTApi, nav = globalThis?.navigator) {
-  if (isConstrainedVideoDevice(nav)) return false;
-  try {
-    if (typeof OTApi?.hasMediaProcessorSupport !== 'function') return false;
-    const flagged = OTApi.hasMediaProcessorSupport('audio');
-    if (typeof flagged === 'boolean') return flagged;
-    return false;
-  } catch {
-    return false;
-  }
+  // Never auto-enable. The TfLite WASM filter (DtlnTransformer) still crashes
+  // Chrome (Aw Snap) and Safari on real meetings, even on desktop.
+  void OTApi;
+  void nav;
+  return false;
 }
 
 export function isPublishTimeoutError(err) {

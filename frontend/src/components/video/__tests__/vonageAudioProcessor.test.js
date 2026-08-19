@@ -58,14 +58,14 @@ describe('shouldUseVonageAdvancedNoiseSuppression', () => {
     })).toBe(false);
   });
 
-  it('is on for desktop Chrome when the SDK reports audio support', () => {
+  it('stays off even on desktop Chrome — WASM filter is opt-in only', () => {
     expect(shouldUseVonageAdvancedNoiseSuppression({
       hasMediaProcessorSupport: (kind) => kind === 'audio'
     }, {
       userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36',
       platform: 'MacIntel',
       maxTouchPoints: 0
-    })).toBe(true);
+    })).toBe(false);
   });
 });
 

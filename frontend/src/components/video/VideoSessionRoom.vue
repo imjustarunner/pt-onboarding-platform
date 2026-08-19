@@ -1115,7 +1115,7 @@ async function refreshRemoteVideo(streamId, hasVideo) {
   if (!id) return;
   const sub = subscribers.get(id);
   if (!hasVideo) return;
-  for (const delay of [0, 50, 160, 320, 600]) {
+  for (const delay of [0, 200]) {
     // eslint-disable-next-line no-await-in-loop
     if (delay) await new Promise((r) => setTimeout(r, delay));
     // eslint-disable-next-line no-await-in-loop
@@ -1135,11 +1135,8 @@ async function refreshRemoteVideo(streamId, hasVideo) {
       }
     } catch { /* ignore */ }
   }
-  // Explicitly nudge the SDK to resume video delivery — the publisher may have
-  // re-enabled the track after toggling off, and some SDK builds require this call.
-  if (sub && typeof sub.subscribeToVideo === 'function') {
-    try { sub.subscribeToVideo(true); } catch { /* ignore */ }
-  }
+  // Do not call subscribeToVideo() here — each call logs Vonage ClientEvent
+  // XHRs and can oscillate with videoEnabled/videoDisabled.
 }
 
 const camOffDebounceTimers = new Map();
@@ -1442,8 +1439,12 @@ function setSpeaking(key, speaking) {
 function attachSubscriberAudioLevel(sub, streamId) {
   const id = String(streamId || '').trim();
   if (!id || !sub?.on) return;
+  let lastSpeakAt = 0;
   try {
     sub.on('audioLevelUpdated', (event) => {
+      const now = Date.now();
+      if (now - lastSpeakAt < 120) return;
+      lastSpeakAt = now;
       const remote = remotes.value.find((r) => r.streamId === id);
       if (remote && !remote.hasAudio) {
         setSpeaking(id, false);
@@ -1463,8 +1464,12 @@ function micBarScale(barIndex) {
 }
 
 function attachPublisherAudioLevel() {
+  let lastAt = 0;
   try {
     publisher?.on?.('audioLevelUpdated', (event) => {
+      const now = Date.now();
+      if (now - lastAt < 80) return;
+      lastAt = now;
       const level = Math.max(0, Math.min(1, Number(event?.audioLevel ?? 0)));
       if (!publishAudio.value) {
         setSpeaking('local', false);
