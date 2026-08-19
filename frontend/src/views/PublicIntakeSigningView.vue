@@ -4197,7 +4197,7 @@ const publicPacketBadge = computed(() => {
 const boundClient = ref(null);
 const asksWhoFor = computed(() => {
   if (Number(link.value?.inherits_school_master || 0) === 1) return false;
-  if (linkLooksLikeOfficeIntake(link.value)) return !boundClient.value?.id;
+  if (looksLikeOfficeIntake.value || linkLooksLikeOfficeIntake(link.value)) return !boundClient.value?.id;
   if (usesSchoolMaster.value) return false;
   const scope = String(link.value?.scope_type || '').toLowerCase();
   if (scope === 'school') return false;
@@ -4211,8 +4211,11 @@ const WHO_FOR_STEP = 0.5;
 function goToFirstFormStep() {
   step.value = asksWhoFor.value ? WHO_FOR_STEP : 1;
   // Office in-depth start must stay unselected so Who is this for stays on screen
-  // until the person chooses. School packets default to dependents.
-  if (intakeForSelf.value === null && !isOfficeInDepthIntake.value && !isJobApplication.value && !isMedicalRecordsRequest.value) {
+  // until the person chooses. Use looksLikeOfficeIntake (public key) too — the
+  // link JSON is not loaded yet when onMounted first calls this, and treating
+  // that as a school packet would default to dependent and hide the picker.
+  const officeStart = isOfficeInDepthIntake.value || looksLikeOfficeIntake.value;
+  if (intakeForSelf.value === null && !officeStart && !isJobApplication.value && !isMedicalRecordsRequest.value) {
     intakeForSelf.value = false;
   }
 }
@@ -8369,6 +8372,7 @@ const loadLink = async () => {
     } else if (
       intakeForSelf.value === null
       && !isOfficeInDepthIntake.value
+      && !looksLikeOfficeIntake.value
       && String(link.value?.form_type || '').toLowerCase() !== 'medical_records_request'
     ) {
       intakeForSelf.value = false;

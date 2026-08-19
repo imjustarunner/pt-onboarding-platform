@@ -442,14 +442,32 @@
   }
 
   .df-shell--intake-stepper .df-sidebar,
-  .df-page--scenic-side .df-shell--intake-stepper .df-sidebar {
+  .df-page--scenic-side .df-shell--intake-stepper .df-sidebar,
+  .ai-shell-host--join-flow.df-page--scenic-side .df-sidebar {
     width: 100%;
     min-width: 0;
+    min-height: 0;
     height: auto;
     max-height: none;
     border-right: 0;
     border-bottom: 1px solid rgba(27, 61, 47, 0.12);
-    padding: 0.9rem 1rem 1rem;
+    padding: 0.55rem 1rem;
+  }
+
+  .df-shell--intake-stepper .df-sidebar-inner,
+  .df-shell--intake-stepper .df-sidebar-inner--intake {
+    height: auto;
+    min-height: 0;
+  }
+
+  .df-sidebar-intake-header {
+    margin-bottom: 0;
+  }
+
+  .df-sidebar-spacer {
+    display: none;
+    flex: 0;
+    min-height: 0;
   }
 
   .df-shell.df-shell--intake-stepper .df-main-body {

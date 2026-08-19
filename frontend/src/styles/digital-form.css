@@ -1448,6 +1448,20 @@ main .df-page--full-bleed .df-shell {
     padding: 1.25rem 1.25rem 1.5rem;
   }
 
+  .df-shell--form-mode .df-sidebar,
+  .df-shell--intake-stepper .df-sidebar,
+  .df-page--scenic-side .df-sidebar {
+    min-height: 0;
+    height: auto;
+    padding: 0.6rem 1rem;
+  }
+
+  .df-shell--intake-stepper .df-sidebar-inner,
+  .df-shell--intake-stepper .df-sidebar-inner--intake {
+    height: auto;
+    min-height: 0;
+  }
+
   .df-shell--form-mode .df-sidebar {
     min-height: auto;
   }

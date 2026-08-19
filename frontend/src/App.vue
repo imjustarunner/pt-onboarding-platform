@@ -3920,7 +3920,8 @@ const hideGlobalNavForSchoolStaff = computed(() => {
     /^\/office-intake\/[^/]+/.test(path) ||
     /\/office-intake$/.test(path) ||
     /^\/join\//.test(path) ||
-    /\/join\/(?:counseling|tutoring|coaching|consulting)(?:\/|$)/.test(path)
+    /\/join\/(?:counseling|tutoring|coaching|consulting)(?:\/|$)/.test(path) ||
+    /^\/careers(\/|$)/.test(path)
   ) {
     return true;
   }

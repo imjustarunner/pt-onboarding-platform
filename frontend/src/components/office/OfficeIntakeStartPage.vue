@@ -824,7 +824,13 @@ if (!ctx) {
 @media (max-width: 860px) {
   .intake-start-rail {
     height: auto;
-    gap: 0.75rem;
+    gap: 0.35rem;
+  }
+  .intake-start-rail:not(.intake-start-rail--editing) .intake-start-block--tagline,
+  .intake-start-rail:not(.intake-start-rail--editing) .intake-start-block--script,
+  .intake-start-rail:not(.intake-start-rail--editing) .intake-start-block--values,
+  .intake-start-rail:not(.intake-start-rail--editing) .intake-start-block--help {
+    display: none;
   }
   .intake-start-block,
   .intake-start-block--help,

@@ -746,6 +746,7 @@ import PublicAgencySupportForm from '../../components/public/PublicAgencySupport
 import PublicLinkImageEditor from '../../components/public/PublicLinkImageEditor.vue';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { ensurePortalSlugResolved, resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath';
 import {
   blankTextStyle,
   CAREERS_FONT_OPTIONS,
@@ -771,7 +772,23 @@ const route = useRoute();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 
-const slug = computed(() => String(route.params?.agencySlug || '').trim());
+const hostResolvedSlug = ref('');
+
+function careersPathSlug(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  // /careers used to redirect to /careers/login, which this route then treated
+  // as agency slug "login". Ignore leftover reserved segments.
+  const lower = s.toLowerCase();
+  if (lower === 'login' || lower === 'careers' || lower === 'admin') return '';
+  return s;
+}
+
+const slug = computed(() =>
+  careersPathSlug(route.params?.agencySlug)
+    || hostResolvedSlug.value
+    || resolveHostImpliedPortalSlug(brandingStore)
+);
 const loading = ref(false);
 const error = ref('');
 const jobs = ref([]);
@@ -849,6 +866,11 @@ onMounted(async () => {
     const ids = raw ? JSON.parse(raw) : [];
     if (Array.isArray(ids)) savedJobs.value = new Set(ids.map(Number).filter(Boolean));
   } catch { /* ignore */ }
+  if (!slug.value) {
+    try {
+      hostResolvedSlug.value = await ensurePortalSlugResolved({}, brandingStore);
+    } catch { /* host guess already ran in the computed */ }
+  }
   if (authStore.isAuthenticated) {
     try { await authStore.refreshUser(); } catch { /* best effort */ }
   }
@@ -1367,7 +1389,7 @@ watch(slug, () => loadCareers(), { immediate: true });
 }
 .cr-open-roles-jump:hover { background: var(--accent); color: #fff; }
 .cr-eyebrow { display: inline-block; background: var(--accent-light); color: var(--accent); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 12px; border-radius: 99px; margin-bottom: 14px; }
-.cr-hero-h1 { margin: 0 0 16px; line-height: 1.05; display: flex; flex-direction: column; gap: 4px; }
+.cr-hero-h1 { margin: 0 0 16px; line-height: 1.12; display: flex; flex-direction: column; gap: 4px; overflow: visible; }
 .cr-hero-headline { font-size: clamp(2rem, 4.4vw, 3.15rem); font-weight: 800; color: var(--dark); letter-spacing: -0.03em; font-family: var(--cr-heading-font, inherit); }
 .cr-hero-subheadline { font-size: clamp(2rem, 4.4vw, 3.15rem); font-weight: 800; color: var(--accent); letter-spacing: -0.03em; font-family: var(--cr-heading-font, inherit); }
 .cr-hero-lead { margin: 0 0 28px; font-size: 1.05rem; line-height: 1.65; color: var(--muted); max-width: 540px; }

@@ -639,6 +639,14 @@ const routes = [
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
+    // Dedicated tenant hosts flatten /itsco/careers → /careers. Register the
+    // flat path before /:organizationSlug so "careers" is not treated as an org slug.
+    path: '/careers',
+    name: 'PublicCareersHost',
+    component: () => import('../views/public/PublicCareersView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
     path: '/careers/:agencySlug',
     name: 'PublicCareers',
     component: () => import('../views/public/PublicCareersView.vue'),
