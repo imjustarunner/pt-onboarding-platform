@@ -576,7 +576,7 @@ export async function assembleClientChartArtifacts({ clientId, client }) {
   );
   // Paper-packet clients had the disclosure embedded in the signed physical packet —
   // no separate digital Smart Disclosure acknowledgment was ever created for them.
-  const disclosureInPaperPacket = packetRows.length > 0 && !realDisclosureSigned;
+  const disclosureInPaperPacket = (packets || []).length > 0 && !realDisclosureSigned;
 
   // Attach signed paper packet version info so the Authorizations panel can surface
   // which version the family signed and render version-specific document sections.
