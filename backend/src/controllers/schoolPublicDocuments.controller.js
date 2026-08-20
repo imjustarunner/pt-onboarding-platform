@@ -696,6 +696,11 @@ export const getSchoolPacketVersionPdf = async (req, res, next) => {
 };
 
 
+/**
+ * GET /school-portal/:organizationId/printable-packet/org-version-history
+ * Lists the per-school version history (admin/super_admin only).
+ */
+export const listSchoolPacketOrgVersionHistory = async (req, res, next) => {
   try {
     const { organizationId } = req.params;
     await assertSchoolPortalAccess(req, organizationId);

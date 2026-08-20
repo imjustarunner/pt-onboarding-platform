@@ -4,7 +4,7 @@ class ProviderScheduleEventInviteGroup {
   static async replaceForEvent(eventId, groupIds = []) {
     const eid = Number(eventId || 0);
     if (!eid) return;
-    const ids = Array.from(new Set((groupIds || []).map((n) => Number(n)).filter((n) => n > 0));
+    const ids = Array.from(new Set((groupIds || []).map((n) => Number(n)).filter((n) => n > 0)));
     await pool.execute(`DELETE FROM provider_schedule_event_invite_groups WHERE event_id = ?`, [eid]);
     for (const gid of ids) {
       // eslint-disable-next-line no-await-in-loop
@@ -16,7 +16,7 @@ class ProviderScheduleEventInviteGroup {
   }
 
   static async listGroupIdsByEventIds(eventIds = []) {
-    const ids = Array.from(new Set((eventIds || []).map((n) => Number(n)).filter((n) => n > 0));
+    const ids = Array.from(new Set((eventIds || []).map((n) => Number(n)).filter((n) => n > 0)));
     const out = new Map();
     if (!ids.length) return out;
     const placeholders = ids.map(() => '?').join(',');
