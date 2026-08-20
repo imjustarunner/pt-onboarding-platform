@@ -181,13 +181,27 @@ export const listHubEvents = async (req, res, next) => {
     const schoolId = safeInt(req.query.schoolId);
     const archived = String(req.query.archived || '').toLowerCase() === 'true';
 
+    let schoolDistrictName = null;
+    if (schoolId) {
+      try {
+        const [dRows] = await pool.execute(
+          `SELECT district_name FROM school_profiles WHERE school_organization_id = ? LIMIT 1`,
+          [schoolId]
+        );
+        schoolDistrictName = String(dRows?.[0]?.district_name || '').trim() || null;
+      } catch {
+        schoolDistrictName = null;
+      }
+    }
+
     let sql = `
       SELECT ce.id, ce.title, ce.description, ce.event_type, ce.starts_at, ce.ends_at,
              ce.timezone, ce.is_active, ce.organization_id, ce.outreach_table_invited,
              ce.staffing_config_json, ce.school_event_status,
              ce.employee_report_time, ce.skill_builder_direct_hours,
              ce.district_broadcast_id, ce.flier_file_url, ce.event_image_url, ce.details_url,
-             a.name AS school_name, sp.district_name
+             a.name AS school_name,
+             COALESCE(NULLIF(TRIM(ce.district_name), ''), sp.district_name) AS district_name
       FROM company_events ce
       LEFT JOIN agencies a ON a.id = ce.organization_id
       LEFT JOIN school_profiles sp ON sp.school_organization_id = ce.organization_id
@@ -196,15 +210,28 @@ export const listHubEvents = async (req, res, next) => {
           ce.event_type IN (
             'school_back_to_school', 'school_spring_event', 'school_fall_check_in',
             'school_first_day', 'school_open_house',
-            'school_resource_fair', 'school_family_night', 'school_orientation', 'school_other'
+            'school_resource_fair', 'school_family_night', 'school_orientation', 'school_other',
+            'school_outreach'
           )
           OR ce.event_type LIKE 'school\\_%'
         )
     `;
     const params = [agencyId];
     if (schoolId) {
-      sql += ' AND ce.organization_id = ?';
-      params.push(schoolId);
+      if (schoolDistrictName) {
+        sql += ` AND (
+          ce.organization_id = ?
+          OR (
+            ce.organization_id IS NULL
+            AND ce.event_type = 'school_outreach'
+            AND LOWER(TRIM(ce.district_name)) = LOWER(?)
+          )
+        )`;
+        params.push(schoolId, schoolDistrictName);
+      } else {
+        sql += ' AND ce.organization_id = ?';
+        params.push(schoolId);
+      }
     }
     if (archived) {
       sql += ' AND ce.is_active = 0';
@@ -223,7 +250,7 @@ export const listHubEvents = async (req, res, next) => {
       const missingStatus = msg.includes('school_event_status') || e?.code === 'ER_BAD_FIELD_ERROR';
       if (!missingProfiles && !missingStatus) throw e;
 
-      // Retry without school_profiles and/or school_event_status for older schemas
+      // Retry without school_profiles and/or school_event_status / ce.district_name for older schemas
       let fallbackSql = `
         SELECT ce.id, ce.title, ce.description, ce.event_type, ce.starts_at, ce.ends_at,
                ce.timezone, ce.is_active, ce.organization_id, ce.outreach_table_invited,
@@ -361,6 +388,9 @@ export const listHubEvents = async (req, res, next) => {
         schoolId: r.organization_id != null ? Number(r.organization_id) : null,
         schoolName: r.school_name || null,
         districtName: r.district_name || null,
+        isDistrictOutreach:
+          String(r.event_type || '').toLowerCase() === 'school_outreach' &&
+          (r.organization_id == null || r.organization_id === ''),
         outreachTableInvited: !!r.outreach_table_invited,
         staffingEnabled,
         providerSignupEnabled,

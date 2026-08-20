@@ -11,6 +11,9 @@ import {
   SCHOOL_EVENT_CATEGORIES,
   categoryToEventType,
   createDistrictSchoolEvents,
+  createDistrictOutreachEvent,
+  updateDistrictOutreachEvent,
+  deleteDistrictOutreachEvent,
   createPostToken,
   createSchoolPortalEvent,
   currentSchoolYearLabel,
@@ -18,6 +21,7 @@ import {
   getSchoolEventOverviewForAgency,
   getSchoolYearCoverageForAgency,
   listDistrictsForAgency,
+  listSchoolIdsForDistrict,
   listSchoolEventsForOrg,
   markPostTokenUsed,
   parseSchoolEventWallTime,
@@ -553,6 +557,46 @@ export const uploadSchoolEventFlier = [
   }
 ];
 
+/** POST /api/school-portal/school-events/district-outreach/upload-flier */
+export const uploadDistrictOutreachFlier = [
+  upload.single('file'),
+  async (req, res, next) => {
+    try {
+      const agencyId = await assertAgencyAdminAccess(req, req.body?.agencyId ?? req.query?.agencyId);
+      const districtName = String(req.body?.districtName || req.body?.district_name || '').trim();
+      if (!districtName) {
+        return res.status(400).json({ error: { message: 'districtName is required' } });
+      }
+      if (!req.file) return res.status(400).json({ error: { message: 'No file uploaded' } });
+
+      const schoolIds = await listSchoolIdsForDistrict(agencyId, districtName);
+      const orgId = schoolIds[0];
+      if (!orgId) {
+        return res.status(404).json({ error: { message: `No schools found for district "${districtName}"` } });
+      }
+
+      const saved = await StorageService.saveSchoolPublicDocument({
+        schoolOrganizationId: orgId,
+        uploadedByUserId: req.user?.id || null,
+        fileBuffer: req.file.buffer,
+        filename: req.file.originalname || `district-outreach-flier-${Date.now()}`,
+        contentType: req.file.mimetype
+      });
+
+      const isImage = String(req.file.mimetype || '').startsWith('image/');
+      res.status(201).json({
+        url: saved?.path || null,
+        flierFileUrl: saved?.path || null,
+        eventImageUrl: isImage ? (saved?.path || null) : null,
+        mimeType: req.file.mimetype
+      });
+    } catch (e) {
+      if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+      next(e);
+    }
+  }
+];
+
 export const getSchoolEventsOverview = async (req, res, next) => {
   try {
     const agencyId = await assertAgencyAdminAccess(req, req.query?.agencyId);
@@ -695,6 +739,96 @@ export const createDistrictSchoolEventHandler = async (req, res, next) => {
     if (e.status) {
       return res.status(e.status).json({ error: { message: e.message, details: e.details } });
     }
+    next(e);
+  }
+};
+
+/** POST /api/school-portal/school-events/district-outreach — one district event, no school */
+export const createDistrictOutreachEventHandler = async (req, res, next) => {
+  try {
+    const agencyId = await assertAgencyAdminAccess(req, req.body?.agencyId ?? req.query?.agencyId);
+    const districtName = String(req.body?.districtName || req.body?.district_name || '').trim();
+    if (!districtName) {
+      return res.status(400).json({ error: { message: 'districtName is required' } });
+    }
+    const parsed = parseSchoolEventBody(req.body || {});
+    if (!parsed.title) return res.status(400).json({ error: { message: 'title is required' } });
+    if (!parsed.startsAt || !parsed.endsAt) {
+      return res.status(400).json({ error: { message: 'startsAt and endsAt are required' } });
+    }
+
+    const event = await createDistrictOutreachEvent({
+      agencyId,
+      userId: req.user?.id,
+      districtName,
+      title: parsed.title,
+      description: parsed.description,
+      startsAt: parsed.startsAt,
+      endsAt: parsed.endsAt,
+      timezone: parsed.timezone,
+      eventImageUrl: parsed.eventImageUrl,
+      flierFileUrl: parsed.flierFileUrl,
+      detailsUrl: parsed.detailsUrl ?? null,
+      schoolEventStatus: parsed.schoolEventStatus || 'scheduled',
+      employeeReportTime: parsed.employeeReportTime,
+      minProvidersPerSession: parsed.minProvidersPerSession ?? 2
+    });
+    res.status(201).json(event);
+  } catch (e) {
+    if (e.status) {
+      return res.status(e.status).json({ error: { message: e.message, details: e.details } });
+    }
+    next(e);
+  }
+};
+
+/** PUT /api/school-portal/school-events/district-outreach/:eventId */
+export const updateDistrictOutreachEventHandler = async (req, res, next) => {
+  try {
+    const agencyId = await assertAgencyAdminAccess(req, req.body?.agencyId ?? req.query?.agencyId);
+    const eventId = parseInt(String(req.params.eventId || ''), 10);
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid eventId' } });
+    const parsed = parseSchoolEventBody(req.body || {});
+
+    const event = await updateDistrictOutreachEvent({
+      eventId,
+      agencyId,
+      userId: req.user?.id,
+      title: parsed.title || undefined,
+      description: parsed.description,
+      startsAt: parsed.startsAt || undefined,
+      endsAt: parsed.endsAt || undefined,
+      timezone: parsed.timezone,
+      outreachTableInvited: req.body?.outreachTableInvited ?? req.body?.outreach_table_invited,
+      eventImageUrl: parsed.eventImageUrl,
+      flierFileUrl: parsed.flierFileUrl,
+      clearFlier: req.body?.clearFlier === true || req.body?.clear_flier === true,
+      detailsUrl: parsed.detailsUrl,
+      schoolEventStatus: parsed.schoolEventStatus,
+      employeeReportTime: parsed.employeeReportTime,
+      minProvidersPerSession: parsed.minProvidersPerSession
+    });
+    res.json(event);
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+/** DELETE /api/school-portal/school-events/district-outreach/:eventId */
+export const deleteDistrictOutreachEventHandler = async (req, res, next) => {
+  try {
+    const agencyId = await assertAgencyAdminAccess(req, req.body?.agencyId ?? req.query?.agencyId);
+    const eventId = parseInt(String(req.params.eventId || ''), 10);
+    if (!eventId) return res.status(400).json({ error: { message: 'Invalid eventId' } });
+    const result = await deleteDistrictOutreachEvent({
+      eventId,
+      agencyId,
+      userId: req.user?.id
+    });
+    res.json(result);
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 };

@@ -74,7 +74,13 @@
               <div>
                 <strong>{{ e.title }}</strong>
                 <div class="muted">
-                  {{ formatFull(e.startsAt, e.endsAt, e.timezone) }} · {{ e.schoolName || '—' }} ·
+                  {{ formatFull(e.startsAt, e.endsAt, e.timezone) }} ·
+                  {{
+                    e.isDistrictOutreach || (!e.schoolName && e.districtName)
+                      ? `District: ${e.districtName}`
+                      : (e.schoolName || '—')
+                  }}
+                  ·
                   <template v-if="e.staffingEnabled">{{ e.providersAssigned }}/{{ e.providersRequested }} staffed</template>
                   <template v-else>not open</template>
                 </div>
@@ -103,10 +109,11 @@
                 type="button"
                 class="evt"
                 :class="typeColor(e)"
-                :title="`${e.schoolName ? e.schoolName + ' — ' : ''}${e.title}`"
+                :title="`${e.isDistrictOutreach || (!e.schoolName && e.districtName) ? 'District: ' + e.districtName + ' — ' : (e.schoolName ? e.schoolName + ' — ' : '')}${e.title}`"
                 @click.stop="openEvent(e)"
               >
-                <span v-if="e.schoolName" class="evt-school">{{ shortSchool(e.schoolName) }}</span>
+                <span v-if="e.isDistrictOutreach || (!e.schoolName && e.districtName)" class="evt-school">{{ shortSchool(e.districtName) }}</span>
+                <span v-else-if="e.schoolName" class="evt-school">{{ shortSchool(e.schoolName) }}</span>
                 {{ e.title }}
               </button>
             </div>
@@ -116,6 +123,7 @@
             <span><i class="lg bts" /> Back to School</span>
             <span><i class="lg fair" /> Resource Fair / School Event</span>
             <span><i class="lg open" /> Open House / Orientation</span>
+            <span><i class="lg outreach" /> District Outreach</span>
             <span><i class="lg family" /> Family Night</span>
             <span><i class="lg spring" /> Spring / Other</span>
             <span><i class="lg holiday" /> Holiday / Day off</span>
@@ -184,6 +192,14 @@
           >
             Entire district
           </button>
+          <button
+            type="button"
+            class="chip"
+            :class="{ active: addScope === 'outreach' }"
+            @click="addScope = 'outreach'; loadDistricts()"
+          >
+            District outreach
+          </button>
         </div>
         <template v-if="addScope === 'school'">
           <p class="muted">Choose the school this event belongs to.</p>
@@ -192,11 +208,21 @@
             <option v-for="s in schoolOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
         </template>
-        <template v-else>
+        <template v-else-if="addScope === 'district'">
           <p class="muted">Creates the same event for every school in the district.</p>
           <select v-model="addDistrictName" class="agency-select full">
             <option value="">Select a district…</option>
             <option v-for="d in districtOptions" :key="d.districtName" :value="d.districtName">
+              {{ d.districtName }} ({{ d.schoolCount }} schools)
+            </option>
+          </select>
+          <p v-if="districtsError" class="error-inline">{{ districtsError }}</p>
+        </template>
+        <template v-else>
+          <p class="muted">One district outreach event — not tied to a school. Providers can request shifts.</p>
+          <select v-model="addDistrictName" class="agency-select full">
+            <option value="">Select a district…</option>
+            <option v-for="d in districtOptions" :key="'o-' + d.districtName" :value="d.districtName">
               {{ d.districtName }} ({{ d.schoolCount }} schools)
             </option>
           </select>
@@ -222,8 +248,9 @@
       :school-name="addSchoolName"
       :agency-id="agencyId"
       :district-name="addDistrictName || ''"
+      :district-outreach="addScope === 'outreach'"
       :initial-date="addInitialDate"
-      :initial-category="addDistrictName ? 'holiday' : 'back_to_school'"
+      :initial-category="addScope === 'outreach' ? 'outreach' : (addDistrictName ? 'holiday' : 'back_to_school')"
       @close="closePostModal"
       @saved="onEventSaved"
     />
@@ -272,7 +299,8 @@ const enabledTypes = ref([
   'school_orientation',
   'school_holiday',
   'school_day_off',
-  'school_other'
+  'school_other',
+  'school_outreach'
 ]);
 const showAddSchoolPicker = ref(false);
 const showPostModal = ref(false);
@@ -304,7 +332,8 @@ const typeChecklist = [
   { value: 'school_first_day', label: 'First Day of School', color: 'holiday' },
   { value: 'school_holiday', label: 'Holiday', color: 'holiday' },
   { value: 'school_day_off', label: 'Day off', color: 'holiday' },
-  { value: 'school_other', label: 'Other school event', color: 'fair' }
+  { value: 'school_other', label: 'Other school event', color: 'fair' },
+  { value: 'school_outreach', label: 'District Outreach', color: 'outreach' }
 ];
 
 function orgTo(path) {
@@ -473,6 +502,7 @@ function typeColor(e) {
   if (t === 'school_open_house' || t === 'school_orientation') return 'open';
   if (t === 'school_family_night') return 'family';
   if (t === 'school_first_day' || t === 'school_holiday' || t === 'school_day_off') return 'holiday';
+  if (t === 'school_outreach') return 'outreach';
   return 'fair';
 }
 
@@ -576,7 +606,7 @@ function onDayClick(cell) {
 }
 
 function confirmAddSchool() {
-  if (addScope.value === 'district') {
+  if (addScope.value === 'district' || addScope.value === 'outreach') {
     if (!addDistrictName.value) return;
     addSchoolId.value = null;
   } else if (!addSchoolId.value) {
@@ -592,6 +622,7 @@ function closePostModal() {
   showPostModal.value = false;
   addDistrictName.value = '';
   addInitialDate.value = '';
+  addScope.value = 'school';
 }
 
 async function onEventSaved() {
@@ -899,6 +930,10 @@ onUnmounted(() => {
 .evt.holiday,
 .lg.holiday {
   background: #b45309;
+}
+.evt.outreach,
+.lg.outreach {
+  background: #15803d;
 }
 .scope-toggle {
   display: flex;

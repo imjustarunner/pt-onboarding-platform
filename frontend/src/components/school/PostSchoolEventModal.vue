@@ -6,21 +6,28 @@
           <div>
             <h2>
               {{ editEvent
-                ? 'Edit school event'
-                : isDistrictCreate
-                  ? 'Add district event'
-                  : 'Post school event' }}
+                ? (isDistrictOutreachEvent ? 'Edit district outreach' : 'Edit school event')
+                : isDistrictOutreachCreate
+                  ? 'Add district outreach'
+                  : isDistrictCreate
+                    ? 'Add district event'
+                    : 'Post school event' }}
             </h2>
             <p class="pse-sub">
               {{ editEvent
                 ? 'Update details, status, or timing. Rescheduling replaces the previous date/time.'
-                : isDistrictCreate
-                  ? `Creates this event for every school in ${districtName}.`
-                  : "Share your school's parent event. It will appear on the portal banner the week of the event." }}
+                : isDistrictOutreachCreate
+                  ? `One outreach event for ${districtName} — not tied to a school. Providers can request shifts.`
+                  : isDistrictCreate
+                    ? `Creates this event for every school in ${districtName}.`
+                    : "Share your school's parent event. It will appear on the portal banner the week of the event." }}
             </p>
-            <p v-if="displaySchoolName && !isDistrictCreate" class="pse-school">
+            <p v-if="displaySchoolName && !isDistrictCreate && !isDistrictOutreachCreate" class="pse-school">
               {{ editEvent ? 'School' : 'Adding for' }}:
               <strong>{{ displaySchoolName }}</strong>
+            </p>
+            <p v-else-if="(isDistrictOutreachCreate || isDistrictOutreachEvent) && districtName" class="pse-school">
+              District: <strong>{{ districtName }}</strong>
             </p>
           </div>
           <button class="pse-close" type="button" aria-label="Close" @click="$emit('close')">×</button>
@@ -29,7 +36,10 @@
         <div class="pse-body">
           <label class="field">
             <span class="lbl">Event type</span>
-            <select v-model="form.category" class="input" :disabled="!!lockedCategory">
+            <select v-model="form.category" class="input" :disabled="!!lockedCategory || isDistrictOutreachCreate || isDistrictOutreachEvent">
+              <option v-if="isDistrictOutreachCreate || isDistrictOutreachEvent || form.category === 'outreach'" value="outreach">
+                District Outreach (attendable / staffed)
+              </option>
               <option value="back_to_school">Back to School (attendable event)</option>
               <option value="open_house">Open House</option>
               <option value="resource_fair">Resource Fair</option>
@@ -42,7 +52,10 @@
               <option value="holiday">Holiday (calendar only)</option>
               <option value="day_off">Day off (calendar only)</option>
             </select>
-            <span v-if="isCalendarOnlyCategory" class="hint">
+            <span v-if="isDistrictOutreachCreate || isDistrictOutreachEvent || form.category === 'outreach'" class="hint">
+              District outreach is one event for the whole district (not copied per school). Provider staffing is on.
+            </span>
+            <span v-else-if="isCalendarOnlyCategory" class="hint">
               Calendar date only — not an attendable event and not open for provider staffing.
             </span>
             <span v-else-if="form.category === 'back_to_school'" class="hint">
@@ -126,7 +139,7 @@
             <span class="hint">If the school has a public flier or webpage for this event, paste the link.</span>
           </label>
 
-          <label v-if="!isDistrictCreate" class="field">
+          <label v-if="!isDistrictCreate || isDistrictOutreachCreate || isDistrictOutreachEvent" class="field">
             <span class="lbl">Flier file (optional)</span>
             <input type="file" accept=".pdf,image/jpeg,image/png,image/jpg" @change="onFileChange" />
             <div v-if="uploading" class="hint">Uploading…</div>
@@ -136,10 +149,13 @@
           </label>
           <p v-else class="hint">Flier files can be attached per school after the district event is created.</p>
 
-          <label v-if="!isCalendarOnlyCategory" class="checkbox-row">
+          <label v-if="!isCalendarOnlyCategory && !isDistrictOutreachCreate && !isDistrictOutreachEvent" class="checkbox-row">
             <input v-model="form.outreachTableInvited" type="checkbox" />
             <span>{{ partnerLabel }} is invited to attend via an outreach table</span>
           </label>
+          <p v-else-if="isDistrictOutreachCreate || isDistrictOutreachEvent" class="hint">
+            Provider staffing and outreach-table signup are enabled for district outreach events.
+          </p>
 
           <div v-if="canAssignOnCreate" class="assign-now">
             <div class="lbl">Assign providers now (optional)</div>
@@ -227,6 +243,8 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null },
   /** When set, create fans out to every school in this district (agency admin). */
   districtName: { type: String, default: '' },
+  /** One district outreach event (not school-tied, not fan-out). Requires districtName. */
+  districtOutreach: { type: Boolean, default: false },
   initialCategory: { type: String, default: 'back_to_school' },
   /** Prefill date (YYYY-MM-DD) when creating from a calendar day click. */
   initialDate: { type: String, default: '' },
@@ -270,12 +288,39 @@ const success = ref('');
 
 const canDeleteEvent = computed(() => {
   if (!props.editEvent?.id || props.reinitToken) return false;
-  if (!props.schoolOrganizationId) return false;
   const role = String(authStore.user?.role || '').toLowerCase();
-  return ['super_admin', 'admin', 'support'].includes(role);
+  if (!['super_admin', 'admin', 'support'].includes(role)) return false;
+  if (isDistrictOutreachEvent.value) return !!props.agencyId;
+  if (!props.schoolOrganizationId) return false;
+  return true;
 });
 
-const isDistrictCreate = computed(() => !!String(props.districtName || '').trim() && !props.editEvent);
+/** Fan-out create (one copy per school) — not district outreach. */
+const isDistrictCreate = computed(
+  () =>
+    !!String(props.districtName || '').trim() &&
+    !props.editEvent &&
+    !props.districtOutreach
+);
+
+const isDistrictOutreachCreate = computed(
+  () =>
+    !!props.districtOutreach &&
+    !!String(props.districtName || '').trim() &&
+    !props.editEvent
+);
+
+const isDistrictOutreachEvent = computed(
+  () =>
+    !!props.editEvent &&
+    (!!props.editEvent.isDistrictOutreach ||
+      String(props.editEvent.eventType || props.editEvent.category || '').toLowerCase() === 'school_outreach' ||
+      String(props.editEvent.category || '').toLowerCase() === 'outreach')
+);
+
+const districtName = computed(() =>
+  String(props.editEvent?.districtName || props.districtName || '').trim()
+);
 
 const districtBroadcastId = computed(() =>
   String(props.editEvent?.districtBroadcastId || props.editEvent?.district_broadcast_id || '').trim()
@@ -367,7 +412,7 @@ const canAssignOnCreate = computed(
     !isDistrictCreate.value &&
     !isCalendarOnlyCategory.value &&
     !!props.agencyId &&
-    !!props.schoolOrganizationId
+    (!!props.schoolOrganizationId || isDistrictOutreachCreate.value)
 );
 
 const assignProviderOptions = ref([]);
@@ -524,6 +569,22 @@ const onFileChange = async (event) => {
   try {
     uploading.value = true;
     error.value = '';
+    if (isDistrictOutreachCreate.value || isDistrictOutreachEvent.value) {
+      if (!props.agencyId || !districtName.value) {
+        error.value = 'District and agency are required to upload a flier.';
+        return;
+      }
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('agencyId', String(props.agencyId));
+      fd.append('districtName', districtName.value);
+      const res = await api.post('/school-portal/school-events/district-outreach/upload-flier', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      form.flierFileUrl = res.data?.flierFileUrl || res.data?.url || '';
+      if (res.data?.eventImageUrl) form.eventImageUrl = res.data.eventImageUrl;
+      return;
+    }
     if (!props.schoolOrganizationId && !props.reinitToken) {
       error.value = 'Flier upload requires a single school. Create the district event first, then edit one school.';
       return;
@@ -557,7 +618,7 @@ const submit = async () => {
       return;
     }
     const payload = withReinitIdentity({
-      category: form.category,
+      category: isDistrictOutreachCreate.value || isDistrictOutreachEvent.value ? 'outreach' : form.category,
       title: form.title.trim(),
       description: form.description.trim(),
       startsAt: range.startsAt,
@@ -567,7 +628,12 @@ const submit = async () => {
       employeeReportTime: isCalendarOnlyCategory.value
         ? null
         : (form.reportTime ? `${form.reportTime}:00` : null),
-      outreachTableInvited: isCalendarOnlyCategory.value ? false : form.outreachTableInvited,
+      outreachTableInvited:
+        isDistrictOutreachCreate.value || isDistrictOutreachEvent.value
+          ? true
+          : isCalendarOnlyCategory.value
+            ? false
+            : form.outreachTableInvited,
       flierFileUrl: form.flierFileUrl || null,
       eventImageUrl: form.eventImageUrl || null,
       detailsUrl: String(form.detailsUrl || '').trim() || null,
@@ -582,12 +648,31 @@ const submit = async () => {
         ...payload,
         agencyId: Number(props.agencyId)
       });
+    } else if (props.editEvent?.id && isDistrictOutreachEvent.value) {
+      if (!props.agencyId) {
+        error.value = 'Agency is required';
+        return;
+      }
+      res = await api.put(`/school-portal/school-events/district-outreach/${props.editEvent.id}`, {
+        ...payload,
+        agencyId: Number(props.agencyId)
+      });
     } else if (props.editEvent?.id) {
       if (!props.schoolOrganizationId && !props.reinitToken) {
         error.value = 'School is required';
         return;
       }
       res = await api.put(schoolEventUpdateUrl(props.editEvent.id), payload);
+    } else if (isDistrictOutreachCreate.value) {
+      if (!props.agencyId) {
+        error.value = 'Agency is required for district outreach';
+        return;
+      }
+      res = await api.post('/school-portal/school-events/district-outreach', {
+        ...payload,
+        agencyId: Number(props.agencyId),
+        districtName: districtName.value
+      });
     } else if (isDistrictCreate.value) {
       if (!props.agencyId) {
         error.value = 'Agency is required for district events';
@@ -607,7 +692,10 @@ const submit = async () => {
     }
 
     let assignNote = '';
-    const createdEventId = !props.editEvent && !isDistrictCreate.value ? Number(res.data?.id || 0) : 0;
+    const createdEventId =
+      !props.editEvent && (isDistrictOutreachCreate.value || !isDistrictCreate.value)
+        ? Number(res.data?.id || 0)
+        : 0;
     if (createdEventId && canAssignOnCreate.value && selectedAssignIds.value.length) {
       const assignResult = await assignProvidersAfterCreate(createdEventId);
       if (assignResult.assigned) {
@@ -626,9 +714,11 @@ const submit = async () => {
           : form.schoolEventStatus === 'rescheduled'
             ? 'Event rescheduled. New date/time is live and the portal banner will update.'
             : 'Event updated.'
-      : isDistrictCreate.value
-        ? `Created for ${res.data?.createdCount || 0} school(s) in the district.`
-        : `Event posted.${assignNote || ' It will appear on the portal banner the week of the event.'}`;
+      : isDistrictOutreachCreate.value
+        ? `District outreach event created.${assignNote}`
+        : isDistrictCreate.value
+          ? `Created for ${res.data?.createdCount || 0} school(s) in the district.`
+          : `Event posted.${assignNote || ' It will appear on the portal banner the week of the event.'}`;
     emit('saved', res.data);
     setTimeout(() => emit('close'), assignNote ? 1600 : 1100);
   } catch (e) {
@@ -642,14 +732,22 @@ const deleteEvent = async () => {
   if (!canDeleteEvent.value || !props.editEvent?.id) return;
   const title = String(props.editEvent.title || 'this event').trim();
   const ok = window.confirm(
-    `Delete "${title}"? It will be removed from the school portal, calendar, and kiosk.`
+    isDistrictOutreachEvent.value
+      ? `Delete "${title}"? It will be removed from All Events and the provider calendar.`
+      : `Delete "${title}"? It will be removed from the school portal, calendar, and kiosk.`
   );
   if (!ok) return;
   deleting.value = true;
   error.value = '';
   success.value = '';
   try {
-    await api.delete(schoolEventDeleteUrl(props.editEvent.id));
+    if (isDistrictOutreachEvent.value) {
+      await api.delete(`/school-portal/school-events/district-outreach/${props.editEvent.id}`, {
+        params: { agencyId: Number(props.agencyId) }
+      });
+    } else {
+      await api.delete(schoolEventDeleteUrl(props.editEvent.id));
+    }
     success.value = 'Event deleted.';
     emit('deleted', { id: props.editEvent.id });
     setTimeout(() => emit('close'), 700);
@@ -690,7 +788,12 @@ const hydrateFromEdit = () => {
 };
 
 onMounted(() => {
-  form.category = props.initialCategory || 'back_to_school';
+  form.category = props.districtOutreach
+    ? 'outreach'
+    : (props.initialCategory || 'back_to_school');
+  if (props.districtOutreach) {
+    form.outreachTableInvited = true;
+  }
   // Default to the school's timezone (Mountain Time for most ITSCO schools) so that
   // wall times entered in the form are always interpreted correctly regardless of the
   // browser/user timezone.

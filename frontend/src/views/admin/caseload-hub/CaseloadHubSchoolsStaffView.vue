@@ -587,7 +587,7 @@
         </aside>
       </div>
 
-      <!-- Add event: one school or entire district -->
+      <!-- Add event: one school, entire district, or district outreach -->
       <div v-if="eventsShowSchoolPicker" class="caseload-modal-backdrop" @click.self="closeEventsAddPicker">
         <div class="caseload-modal">
           <header class="caseload-modal-header">
@@ -611,6 +611,14 @@
             >
               Entire district
             </button>
+            <button
+              type="button"
+              class="events-scope-chip"
+              :class="{ active: eventsAddScope === 'outreach' }"
+              @click="eventsAddScope = 'outreach'; loadEventsDistricts()"
+            >
+              District outreach
+            </button>
           </div>
           <template v-if="eventsAddScope === 'school'">
             <p class="muted">Choose the school this event belongs to.</p>
@@ -619,11 +627,21 @@
               <option v-for="s in eventSchoolOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
             </select>
           </template>
-          <template v-else>
+          <template v-else-if="eventsAddScope === 'district'">
             <p class="muted">Creates the same event for every school in the selected district.</p>
             <select v-model="eventsPostDistrictName" class="search" style="width:100%;margin-top:0.5rem;">
               <option value="">Select a district…</option>
               <option v-for="d in eventsDistrictOptions" :key="d.districtName" :value="d.districtName">
+                {{ d.districtName }} ({{ d.schoolCount }} schools)
+              </option>
+            </select>
+            <p v-if="eventsDistrictsError" class="error-inline">{{ eventsDistrictsError }}</p>
+          </template>
+          <template v-else>
+            <p class="muted">One district outreach event — not tied to a school. Providers can request shifts.</p>
+            <select v-model="eventsPostDistrictName" class="search" style="width:100%;margin-top:0.5rem;">
+              <option value="">Select a district…</option>
+              <option v-for="d in eventsDistrictOptions" :key="'o-' + d.districtName" :value="d.districtName">
                 {{ d.districtName }} ({{ d.schoolCount }} schools)
               </option>
             </select>
@@ -648,8 +666,9 @@
         :school-name="eventsPostSchoolName"
         :agency-id="agencyId"
         :district-name="eventsPostDistrictName || ''"
+        :district-outreach="eventsAddScope === 'outreach'"
         :initial-date="eventsPostInitialDate"
-        :initial-category="eventsPostDistrictName ? 'holiday' : 'back_to_school'"
+        :initial-category="eventsAddScope === 'outreach' ? 'outreach' : (eventsPostDistrictName ? 'holiday' : 'back_to_school')"
         @close="closeEventsPostModal"
         @saved="onEventsEventSaved"
       />
@@ -1025,7 +1044,7 @@ const showEventsPostModal = ref(false);
 const eventsPostSchoolId = ref(null);
 const eventsPostInitialDate = ref('');
 const eventsShowSchoolPicker = ref(false);
-const eventsAddScope = ref('school'); // school | district
+const eventsAddScope = ref('school'); // school | district | outreach
 const eventsPostDistrictName = ref('');
 const eventsDistrictOptions = ref([]);
 const eventsDistrictsError = ref('');
@@ -1342,7 +1361,7 @@ function openEventsAddEvent(dateYmd = '') {
 }
 
 function confirmEventsAddPicker() {
-  if (eventsAddScope.value === 'district') {
+  if (eventsAddScope.value === 'district' || eventsAddScope.value === 'outreach') {
     if (!eventsPostDistrictName.value) return;
     eventsPostSchoolId.value = null;
   } else if (!eventsPostSchoolId.value) {

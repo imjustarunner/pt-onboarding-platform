@@ -3604,6 +3604,10 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
         schoolName: row.school_name ? String(row.school_name).trim() : null,
         schoolSlug: String(row.school_portal_url || row.school_slug || '').trim() || null,
         schoolLogoUrl: row.school_logo_url ? String(row.school_logo_url).trim() : null,
+        districtName: row.district_name ? String(row.district_name).trim() : null,
+        isDistrictOutreach:
+          eventType === 'school_outreach' &&
+          (row.organization_id == null || row.organization_id === ''),
         sessions,
         canRequestOutreachShift:
           (isSchoolEvent &&

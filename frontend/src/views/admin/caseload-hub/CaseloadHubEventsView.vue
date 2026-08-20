@@ -132,6 +132,7 @@
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_spring_event' }" @click="typeFilter = 'school_spring_event'">Spring Check-in</button>
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_holiday' }" @click="typeFilter = 'school_holiday'">Holiday</button>
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_day_off' }" @click="typeFilter = 'school_day_off'">Day off</button>
+      <button type="button" class="chip" :class="{ active: typeFilter === 'school_outreach' }" @click="typeFilter = 'school_outreach'">Outreach</button>
       <button type="button" class="chip" :class="{ active: staffingFilter === 'needs_providers' }" @click="toggleStaffingFilter('needs_providers')">Needs providers</button>
     </div>
 
@@ -186,8 +187,15 @@
                   <div class="muted clamp">{{ e.description || '—' }}</div>
                 </td>
                 <td>
-                  <div class="primary">{{ e.schoolName || '—' }}</div>
-                  <div class="muted">{{ e.districtName || '' }}</div>
+                  <div class="primary">
+                    {{
+                      e.isDistrictOutreach || (!e.schoolName && e.districtName)
+                        ? `District: ${e.districtName}`
+                        : (e.schoolName || '—')
+                    }}
+                  </div>
+                  <div v-if="e.schoolName && e.districtName" class="muted">{{ e.districtName }}</div>
+                  <div v-else-if="e.isDistrictOutreach" class="muted">Outreach · not school-tied</div>
                 </td>
                 <td><span class="type-pill" :class="typeClass(e.eventType)">{{ labelType(e.eventType) }}</span></td>
                 <td>
@@ -241,7 +249,7 @@
       <!-- provider-requests / archived reuse same split above via displayList -->
     </template>
 
-    <!-- Add event: one school or entire district -->
+    <!-- Add event: one school, entire district, or district outreach -->
     <div v-if="showAddSchoolPicker" class="modal-backdrop" @click.self="showAddSchoolPicker = false">
       <div class="modal-card">
         <h2>Add school event</h2>
@@ -262,6 +270,14 @@
           >
             Entire district
           </button>
+          <button
+            type="button"
+            class="chip"
+            :class="{ active: addScope === 'outreach' }"
+            @click="addScope = 'outreach'; loadDistricts()"
+          >
+            District outreach
+          </button>
         </div>
         <template v-if="addScope === 'school'">
           <p class="muted">Choose the school this event belongs to.</p>
@@ -270,11 +286,21 @@
             <option v-for="s in schoolOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
         </template>
-        <template v-else>
+        <template v-else-if="addScope === 'district'">
           <p class="muted">Creates the same event for every school in the district.</p>
           <select v-model="addDistrictName" class="agency-select full">
             <option value="">Select a district…</option>
             <option v-for="d in districtOptions" :key="d.districtName" :value="d.districtName">
+              {{ d.districtName }} ({{ d.schoolCount }} schools)
+            </option>
+          </select>
+          <p v-if="districtsError" class="error-inline">{{ districtsError }}</p>
+        </template>
+        <template v-else>
+          <p class="muted">One district outreach event — not tied to a school. Providers can request shifts.</p>
+          <select v-model="addDistrictName" class="agency-select full">
+            <option value="">Select a district…</option>
+            <option v-for="d in districtOptions" :key="'o-' + d.districtName" :value="d.districtName">
               {{ d.districtName }} ({{ d.schoolCount }} schools)
             </option>
           </select>
@@ -300,8 +326,9 @@
       :school-name="addSchoolName"
       :agency-id="agencyId"
       :district-name="addDistrictName || ''"
-      :initial-category="addDistrictName ? 'holiday' : 'back_to_school'"
-      @close="showPostModal = false; addDistrictName = ''"
+      :district-outreach="addScope === 'outreach'"
+      :initial-category="addScope === 'outreach' ? 'outreach' : (addDistrictName ? 'holiday' : 'back_to_school')"
+      @close="showPostModal = false; addDistrictName = ''; addScope = 'school'"
       @saved="onEventSaved"
     />
   </div>
@@ -399,7 +426,8 @@ function labelType(t) {
     school_orientation: 'Orientation',
     school_holiday: 'Holiday',
     school_day_off: 'Day off',
-    school_other: 'School Event'
+    school_other: 'School Event',
+    school_outreach: 'Outreach'
   };
   return map[t] || t || 'Event';
 }
@@ -413,6 +441,7 @@ function typeClass(t) {
   if (t === 'school_family_night') return 'family';
   if (t === 'school_spring_event') return 'spring';
   if (t === 'school_holiday' || t === 'school_day_off') return 'holiday';
+  if (t === 'school_outreach') return 'outreach';
   return 'other';
 }
 
@@ -543,10 +572,29 @@ const filtered = computed(() => {
       (e) =>
         String(e.title || '').toLowerCase().includes(q) ||
         String(e.schoolName || '').toLowerCase().includes(q) ||
+        String(e.districtName || '').toLowerCase().includes(q) ||
         String(e.description || '').toLowerCase().includes(q)
     );
   }
-  if (schoolFilter.value) list = list.filter((e) => String(e.schoolId) === schoolFilter.value);
+  if (schoolFilter.value) {
+    const sid = String(schoolFilter.value);
+    const schoolDistrict = String(
+      schoolOptions.value.find((s) => String(s.id) === sid)?.districtName || ''
+    )
+      .trim()
+      .toLowerCase();
+    list = list.filter((e) => {
+      if (String(e.schoolId) === sid) return true;
+      if (
+        (e.isDistrictOutreach || (!e.schoolId && e.districtName)) &&
+        schoolDistrict &&
+        String(e.districtName || '').trim().toLowerCase() === schoolDistrict
+      ) {
+        return true;
+      }
+      return false;
+    });
+  }
   if (typeFilter.value) list = list.filter((e) => e.eventType === typeFilter.value);
   if (lifecycleFilter.value) list = list.filter((e) => e.lifecycleStatus === lifecycleFilter.value);
   if (staffingFilter.value) {
@@ -631,7 +679,7 @@ function openAddEvent() {
 }
 
 function confirmAddSchool() {
-  if (addScope.value === 'district') {
+  if (addScope.value === 'district' || addScope.value === 'outreach') {
     if (!addDistrictName.value) return;
     addSchoolId.value = null;
   } else if (!addSchoolId.value) {
@@ -646,6 +694,7 @@ function confirmAddSchool() {
 async function onEventSaved() {
   showPostModal.value = false;
   addDistrictName.value = '';
+  addScope.value = 'school';
   await reload();
 }
 
@@ -691,7 +740,8 @@ async function reload({ silent = false } = {}) {
     schoolOptions.value = (schools.schools || [])
       .map((s) => ({
         id: Number(s.schoolId ?? s.id),
-        name: String(s.schoolName || s.name || '').trim() || `School ${s.schoolId ?? s.id}`
+        name: String(s.schoolName || s.name || '').trim() || `School ${s.schoolId ?? s.id}`,
+        districtName: String(s.districtName || s.district_name || '').trim() || ''
       }))
       .filter((s) => Number.isFinite(s.id) && s.id > 0)
       .sort((a, b) => String(a.name).localeCompare(String(b.name)));
@@ -1070,6 +1120,10 @@ watch(
 .type-pill.holiday {
   background: #fef3c7;
   color: #92400e;
+}
+.type-pill.outreach {
+  background: #e8f5e9;
+  color: #2e7d32;
 }
 .scope-toggle {
   display: flex;

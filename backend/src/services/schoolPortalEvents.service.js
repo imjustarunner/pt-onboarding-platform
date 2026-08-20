@@ -16,7 +16,8 @@ export const SCHOOL_PORTAL_EVENT_TYPES = new Set([
   'school_orientation',
   'school_holiday',
   'school_day_off',
-  'school_other'
+  'school_other',
+  'school_outreach'
 ]);
 
 /**
@@ -41,7 +42,8 @@ export const SCHOOL_EVENT_CATEGORIES = [
   'orientation',
   'holiday',
   'day_off',
-  'other'
+  'other',
+  'outreach'
 ];
 
 /** Lifecycle for school portal events (shown in UI + drives banner copy). */
@@ -67,6 +69,7 @@ export function categoryToEventType(category) {
   if (c === 'holiday') return 'school_holiday';
   if (c === 'day_off') return 'school_day_off';
   if (c === 'other') return 'school_other';
+  if (c === 'outreach') return 'school_outreach';
   return null;
 }
 
@@ -83,6 +86,7 @@ export function eventTypeToCategory(eventType) {
   if (t === 'school_holiday') return 'holiday';
   if (t === 'school_day_off') return 'day_off';
   if (t === 'school_other') return 'other';
+  if (t === 'school_outreach') return 'outreach';
   return null;
 }
 
@@ -99,7 +103,8 @@ export function schoolEventCategoryLabel(category) {
     orientation: 'Orientation',
     holiday: 'Holiday',
     day_off: 'Day Off',
-    other: 'School Event'
+    other: 'School Event',
+    outreach: 'Outreach'
   };
   return map[String(category || '').trim().toLowerCase()] || 'School Event';
 }
@@ -348,7 +353,13 @@ export function mapSchoolEventRow(row, schoolMeta = {}) {
     updatedAt: row.updated_at,
     schoolName: schoolMeta.name || null,
     schoolSlug: schoolMeta.slug || null,
-    districtName: schoolMeta.districtName || null
+    districtName:
+      (row.district_name ? String(row.district_name).trim() : null) ||
+      schoolMeta.districtName ||
+      null,
+    isDistrictOutreach:
+      String(eventType || '').toLowerCase() === 'school_outreach' &&
+      (row.organization_id == null || row.organization_id === '')
   };
 }
 
@@ -1822,6 +1833,353 @@ export async function createDistrictSchoolEvents({
     events,
     errors
   };
+}
+
+/**
+ * One district Outreach event — not tied to a school (organization_id NULL).
+ * Visible in Caseload Hub + provider company-events calendar; not on school portals.
+ */
+export async function createDistrictOutreachEvent({
+  agencyId,
+  userId,
+  districtName,
+  title,
+  description,
+  startsAt,
+  endsAt,
+  timezone,
+  eventImageUrl = null,
+  flierFileUrl = null,
+  detailsUrl = null,
+  schoolEventStatus = 'scheduled',
+  employeeReportTime = null,
+  minProvidersPerSession = 2
+}) {
+  const aid = Number(agencyId);
+  const district = String(districtName || '').trim();
+  if (!aid || !district) {
+    throw Object.assign(new Error('agencyId and districtName are required'), { status: 400 });
+  }
+  if (!String(title || '').trim()) {
+    throw Object.assign(new Error('title is required'), { status: 400 });
+  }
+
+  const schoolIds = await listSchoolIdsForDistrict(aid, district);
+  if (!schoolIds.length) {
+    throw Object.assign(
+      new Error(`No schools found for district "${district}"`),
+      { status: 404 }
+    );
+  }
+
+  const start = startsAt instanceof Date ? startsAt : new Date(startsAt);
+  const end = endsAt instanceof Date ? endsAt : new Date(endsAt);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+    throw Object.assign(new Error('Invalid start or end date'), { status: 400 });
+  }
+  if (end <= start) throw Object.assign(new Error('End time must be after start time'), { status: 400 });
+
+  let tz = String(timezone || '').trim();
+  if (!tz) {
+    try {
+      const [rows] = await pool.execute(`SELECT timezone FROM agencies WHERE id = ? LIMIT 1`, [aid]);
+      const agTz = String(rows?.[0]?.timezone || '').trim();
+      if (agTz && agTz !== 'UTC') tz = agTz;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!tz) {
+    try {
+      tz = await ProviderAvailabilityService.resolveAgencyTimeZone({ agencyId: aid });
+    } catch {
+      tz = 'America/Denver';
+    }
+  }
+  if (tz === 'America/New_York') tz = 'America/Denver';
+
+  const status = normalizeSchoolEventStatus(schoolEventStatus, { fallback: 'scheduled' });
+  const staffingConfig = buildSchoolEventStaffingConfig({
+    minProvidersPerSession,
+    enabled: true
+  });
+  const reportTime = parseSchoolEventWallTime(employeeReportTime);
+  const nextDetailsUrl = normalizeDetailsUrl(detailsUrl) ?? null;
+  const eventType = 'school_outreach';
+
+  let insertResult;
+  try {
+    [insertResult] = await pool.execute(
+      `INSERT INTO company_events
+        (agency_id, organization_id, created_by_user_id, updated_by_user_id,
+         title, description, event_type, starts_at, ends_at, timezone,
+         recurrence_json, is_active, rsvp_mode, outreach_table_invited,
+         event_image_url, flier_file_url, details_url, staffing_config_json, school_event_status,
+         employee_report_time, skill_builder_direct_hours, district_name)
+       VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', 1, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      [
+        aid,
+        userId,
+        userId,
+        String(title || '').trim(),
+        String(description || '').trim() || null,
+        eventType,
+        start,
+        end,
+        tz,
+        JSON.stringify({ frequency: 'none' }),
+        eventImageUrl || null,
+        flierFileUrl || null,
+        nextDetailsUrl,
+        JSON.stringify(staffingConfig),
+        status,
+        reportTime,
+        district
+      ]
+    );
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    // Fallback when district_name column not migrated yet — still create without school tie.
+    [insertResult] = await pool.execute(
+      `INSERT INTO company_events
+        (agency_id, organization_id, created_by_user_id, updated_by_user_id,
+         title, description, event_type, starts_at, ends_at, timezone,
+         recurrence_json, is_active, rsvp_mode, outreach_table_invited,
+         event_image_url, flier_file_url, details_url, staffing_config_json, school_event_status,
+         employee_report_time, skill_builder_direct_hours)
+       VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'none', 1, ?, ?, ?, ?, ?, ?, 0)`,
+      [
+        aid,
+        userId,
+        userId,
+        String(title || '').trim(),
+        String(description || '').trim() || null,
+        eventType,
+        start,
+        end,
+        tz,
+        JSON.stringify({ frequency: 'none' }),
+        eventImageUrl || null,
+        flierFileUrl || null,
+        nextDetailsUrl,
+        JSON.stringify(staffingConfig),
+        status,
+        reportTime
+      ]
+    );
+  }
+
+  const eventId = Number(insertResult.insertId);
+  await materializeSessionsForEvent(pool, { companyEventId: eventId });
+
+  const [rows] = await pool.execute('SELECT * FROM company_events WHERE id = ? LIMIT 1', [eventId]);
+  return mapSchoolEventRow(rows?.[0], { districtName: district, name: null, slug: null });
+}
+
+export async function updateDistrictOutreachEvent({
+  eventId,
+  agencyId,
+  userId,
+  title,
+  description,
+  startsAt,
+  endsAt,
+  timezone,
+  outreachTableInvited,
+  eventImageUrl,
+  flierFileUrl,
+  clearFlier = false,
+  detailsUrl,
+  schoolEventStatus,
+  employeeReportTime,
+  minProvidersPerSession
+}) {
+  const eid = Number(eventId);
+  const aid = Number(agencyId);
+  if (!eid || !aid) {
+    throw Object.assign(new Error('eventId and agencyId are required'), { status: 400 });
+  }
+
+  const [existingRows] = await pool.execute(
+    `SELECT * FROM company_events
+     WHERE id = ? AND agency_id = ? AND organization_id IS NULL AND event_type = 'school_outreach'
+     LIMIT 1`,
+    [eid, aid]
+  );
+  const existing = existingRows?.[0];
+  if (!existing) {
+    throw Object.assign(new Error('District outreach event not found'), { status: 404 });
+  }
+
+  const nextTitle = title !== undefined ? String(title || '').trim() : existing.title;
+  if (!nextTitle) throw Object.assign(new Error('title is required'), { status: 400 });
+
+  let start = existing.starts_at;
+  let end = existing.ends_at;
+  if (startsAt !== undefined) {
+    start = startsAt instanceof Date ? startsAt : new Date(startsAt);
+    if (!Number.isFinite(start.getTime())) {
+      throw Object.assign(new Error('Invalid start date'), { status: 400 });
+    }
+  }
+  if (endsAt !== undefined) {
+    end = endsAt instanceof Date ? endsAt : new Date(endsAt);
+    if (!Number.isFinite(end.getTime())) {
+      throw Object.assign(new Error('Invalid end date'), { status: 400 });
+    }
+  }
+  if (new Date(end) <= new Date(start)) {
+    throw Object.assign(new Error('End time must be after start time'), { status: 400 });
+  }
+
+  const tz = timezone !== undefined ? String(timezone || '').trim() || existing.timezone : existing.timezone;
+  const status =
+    schoolEventStatus !== undefined
+      ? normalizeSchoolEventStatus(schoolEventStatus, { fallback: 'scheduled' })
+      : normalizeSchoolEventStatus(existing.school_event_status, { fallback: 'scheduled' });
+  const invited =
+    outreachTableInvited !== undefined
+      ? outreachTableInvited
+        ? 1
+        : 0
+      : existing.outreach_table_invited
+        ? 1
+        : 0;
+  const nextImage =
+    eventImageUrl !== undefined ? eventImageUrl || null : existing.event_image_url || null;
+  let nextFlier = existing.flier_file_url || null;
+  if (clearFlier) nextFlier = null;
+  else if (flierFileUrl !== undefined) nextFlier = flierFileUrl || null;
+  const nextDetails =
+    detailsUrl !== undefined ? normalizeDetailsUrl(detailsUrl) ?? null : existing.details_url || null;
+  const reportTime =
+    employeeReportTime !== undefined
+      ? parseSchoolEventWallTime(employeeReportTime)
+      : existing.employee_report_time || null;
+
+  let staffingConfig;
+  try {
+    staffingConfig =
+      typeof existing.staffing_config_json === 'string'
+        ? JSON.parse(existing.staffing_config_json)
+        : existing.staffing_config_json || buildSchoolEventStaffingConfig({ minProvidersPerSession: 2 });
+  } catch {
+    staffingConfig = buildSchoolEventStaffingConfig({ minProvidersPerSession: 2 });
+  }
+  if (minProvidersPerSession !== undefined) {
+    staffingConfig = buildSchoolEventStaffingConfig({
+      minProvidersPerSession,
+      enabled: true
+    });
+  } else {
+    staffingConfig = {
+      ...staffingConfig,
+      enabled: true,
+      providerSignup: { ...(staffingConfig.providerSignup || {}), enabled: true }
+    };
+  }
+
+  try {
+    await pool.execute(
+      `UPDATE company_events
+       SET updated_by_user_id = ?, title = ?, description = ?, starts_at = ?, ends_at = ?,
+           timezone = ?, outreach_table_invited = ?, event_image_url = ?, flier_file_url = ?,
+           details_url = ?, staffing_config_json = ?, school_event_status = ?,
+           employee_report_time = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND agency_id = ? AND organization_id IS NULL`,
+      [
+        userId || null,
+        nextTitle,
+        description !== undefined ? String(description || '').trim() || null : existing.description,
+        start,
+        end,
+        tz,
+        invited,
+        nextImage,
+        nextFlier,
+        nextDetails,
+        JSON.stringify(staffingConfig),
+        status,
+        reportTime,
+        status === 'canceled' ? 0 : 1,
+        eid,
+        aid
+      ]
+    );
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    await pool.execute(
+      `UPDATE company_events
+       SET updated_by_user_id = ?, title = ?, description = ?, starts_at = ?, ends_at = ?,
+           timezone = ?, outreach_table_invited = ?, event_image_url = ?, flier_file_url = ?,
+           staffing_config_json = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND agency_id = ? AND organization_id IS NULL`,
+      [
+        userId || null,
+        nextTitle,
+        description !== undefined ? String(description || '').trim() || null : existing.description,
+        start,
+        end,
+        tz,
+        invited,
+        nextImage,
+        nextFlier,
+        JSON.stringify(staffingConfig),
+        status === 'canceled' ? 0 : 1,
+        eid,
+        aid
+      ]
+    );
+  }
+
+  await materializeSessionsForEvent(pool, { companyEventId: eid });
+  const [rows] = await pool.execute('SELECT * FROM company_events WHERE id = ? LIMIT 1', [eid]);
+  const district =
+    (rows?.[0]?.district_name ? String(rows[0].district_name).trim() : null) ||
+    (existing.district_name ? String(existing.district_name).trim() : null);
+  return mapSchoolEventRow(rows?.[0], { districtName: district, name: null, slug: null });
+}
+
+export async function deleteDistrictOutreachEvent({ eventId, agencyId, userId = null }) {
+  const eid = Number(eventId);
+  const aid = Number(agencyId);
+  if (!eid || !aid) {
+    throw Object.assign(new Error('eventId and agencyId are required'), { status: 400 });
+  }
+
+  const [existingRows] = await pool.execute(
+    `SELECT id FROM company_events
+     WHERE id = ? AND agency_id = ? AND organization_id IS NULL AND event_type = 'school_outreach'
+     LIMIT 1`,
+    [eid, aid]
+  );
+  if (!existingRows?.[0]) {
+    throw Object.assign(new Error('District outreach event not found'), { status: 404 });
+  }
+
+  try {
+    await pool.execute(
+      `UPDATE company_events
+       SET is_active = 0,
+           school_event_status = 'canceled',
+           updated_by_user_id = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND agency_id = ? AND organization_id IS NULL`,
+      [userId || null, eid, aid]
+    );
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    await pool.execute(
+      `UPDATE company_events
+       SET is_active = 0,
+           updated_by_user_id = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND agency_id = ? AND organization_id IS NULL`,
+      [userId || null, eid, aid]
+    );
+  }
+
+  return { ok: true, id: eid, deleted: true };
 }
 
 /**

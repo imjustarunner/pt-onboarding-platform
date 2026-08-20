@@ -124,6 +124,10 @@ import {
   listSchoolEventDistricts,
   createDistrictSchoolEventHandler,
   updateDistrictSchoolEventHandler,
+  createDistrictOutreachEventHandler,
+  updateDistrictOutreachEventHandler,
+  deleteDistrictOutreachEventHandler,
+  uploadDistrictOutreachFlier,
   validateSchoolEventPostToken,
   requestSchoolEventSubmissions,
   getSchoolEventsKioskSettings,
@@ -142,6 +146,10 @@ router.get('/school-events/school-year-coverage', authenticate, getSchoolYearCov
 router.get('/school-events/districts', authenticate, listSchoolEventDistricts);
 router.post('/school-events/district', authenticate, createDistrictSchoolEventHandler);
 router.put('/school-events/district/:broadcastId', authenticate, updateDistrictSchoolEventHandler);
+router.post('/school-events/district-outreach', authenticate, createDistrictOutreachEventHandler);
+router.put('/school-events/district-outreach/:eventId', authenticate, updateDistrictOutreachEventHandler);
+router.delete('/school-events/district-outreach/:eventId', authenticate, deleteDistrictOutreachEventHandler);
+router.post('/school-events/district-outreach/upload-flier', authenticate, uploadDistrictOutreachFlier);
 router.get('/school-events/kiosk-settings', authenticate, getSchoolEventsKioskSettings);
 router.post('/school-events/kiosk-settings/rotate-pin', authenticate, rotateSchoolEventsKioskPin);
 router.post('/school-events/request-submissions', authenticate, requestSchoolEventSubmissions);
