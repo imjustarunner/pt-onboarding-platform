@@ -93,6 +93,10 @@
           >
             Events
           </button>
+          <DistrictScheduleLinkButton
+            v-if="selectedAgencyId && orgType === 'school'"
+            :agency-id="selectedAgencyId"
+          />
           <button
             class="btn btn-secondary btn-sm btn-icon-only"
             type="button"
@@ -872,6 +876,7 @@ import { resolveSchoolPortalSlug, schoolPortalDashboardPath } from '../../utils/
 import { canAccessSkillBuildersSchoolProgramSurfaces } from '../../utils/skillBuildersSchoolProgramAccess.js';
 import AddSchoolScopedModal from '../../components/admin/AddSchoolScopedModal.vue';
 import SchoolReinitAdminPanel from '../../components/admin/SchoolReinitAdminPanel.vue';
+import DistrictScheduleLinkButton from '../../components/school/DistrictScheduleLinkButton.vue';
 import SchoolOnboardingAdminPanel from '../../components/admin/SchoolOnboardingAdminPanel.vue';
 
 const authStore = useAuthStore();

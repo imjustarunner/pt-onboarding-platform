@@ -366,7 +366,7 @@
   color: var(--text-secondary, #64748b);
 }
 
-.modal-overlay {
+.cdp-chart-overlay {
   position: fixed;
   inset: 0;
   background: rgba(15, 23, 42, 0.55);
@@ -414,31 +414,37 @@
   border-radius: 0;
 }
 
+.cdp-page-body.client-chart .cc-surface {
+  background: var(--cc-card);
+  border: 1px solid var(--cc-border);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.18);
+}
+
 .cdp-page-body.client-chart .modal-header.cdp-header,
 .cdp-page-body.client-chart .cc-tab-rail,
 .cdp-page-body.client-chart .cc-alert-bar,
 .cdp-page-body.client-chart .tab-content {
-  background: var(--cc-card);
+  background: transparent;
 }
 
 .cdp-page-body.client-chart .modal-header.cdp-header {
-  border-radius: 16px 16px 0 0;
-  border: 1px solid var(--cc-border);
+  border-radius: 0;
+  border: none;
   border-bottom: 1px solid var(--cc-border);
-  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
+  box-shadow: none;
 }
 
 .cdp-page-body.client-chart .cc-tab-rail {
-  border-left: 1px solid var(--cc-border);
-  border-right: 1px solid var(--cc-border);
+  border: none;
   border-bottom: 1px solid var(--cc-border);
 }
 
 .cdp-page-body.client-chart .tab-content {
-  border: 1px solid var(--cc-border);
-  border-top: none;
-  border-radius: 0 0 16px 16px;
-  box-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.18);
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 @media (max-width: 980px) {

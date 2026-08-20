@@ -625,7 +625,6 @@
                         <th>Client</th>
                         <th>Assigned to</th>
                         <th>Workflow</th>
-                        <th>Docs</th>
                         <th>Attendance</th>
                       </tr>
                     </thead>
@@ -670,9 +669,6 @@
                           >
                             TP {{ c.treatmentPlanComplete ? '✓' : '•' }}
                           </span>
-                        </td>
-                        <td class="sbep-roster-docs">
-                          {{ c.paperworkStatusLabel || c.documentStatus || '—' }}
                         </td>
                         <td class="sbep-roster-att muted small">
                           <template v-if="attendanceRowsForClient(c.id).length">

@@ -65,6 +65,72 @@ test('completed record includes nested answers, skips secrets, and keeps ESIGN +
   assert.match(spec.esign.statement, /ESIGN Act/);
 });
 
+test('school packet prints answered PSC-17 questions and omits unanswered ROI-only overlays', () => {
+  const answered = buildCompletedIntakeRecord({
+    agency: { name: 'ITSCO' },
+    link: {
+      intake_steps: [
+        {
+          type: 'questions',
+          label: 'Life & Safety',
+          fields: [
+            { key: 'gain', label: 'What do you hope to gain from counseling?', type: 'textarea' },
+            { key: 'psc_1', label: 'Fidgety, unable to sit still', type: 'radio', instrument: 'psc17' },
+            { key: 'psc_17', label: 'Refuses to share', type: 'radio', instrument: 'psc17' }
+          ]
+        }
+      ]
+    },
+    submission: {
+      id: 842,
+      signer_name: 'Fake Fake',
+      intake_data: {
+        clients: [{ firstName: 'Fake2', lastName: 'Fake2' }],
+        responses: {
+          clients: [{
+            firstName: 'Fake2',
+            lastName: 'Fake2',
+            gain: 'Nothing',
+            psc_1: 'Sometimes',
+            psc_17: 'Often'
+          }]
+        }
+      }
+    },
+    clients: [{ firstName: 'Fake2', lastName: 'Fake2' }]
+  });
+  const life = answered.sections.find((section) => /Life & Safety/i.test(section.title));
+  assert.ok(life);
+  assert.ok(life.rows.some((row) => /hope to gain/i.test(row.label) && /Nothing/i.test(row.value)));
+  assert.ok(life.rows.some((row) => /Fidgety/i.test(row.label) && /Sometimes/i.test(row.value)));
+  assert.ok(!life.rows.some((row) => /Not answered/i.test(row.value)));
+
+  const roiOnly = buildCompletedIntakeRecord({
+    agency: { name: 'ITSCO' },
+    includeUnansweredQuestions: false,
+    link: {
+      form_type: 'smart_school_roi',
+      intake_steps: [
+        {
+          type: 'questions',
+          label: 'Clinical questionnaire',
+          fields: [
+            { key: 'psc_1', label: 'Fidgety, unable to sit still', type: 'radio', instrument: 'psc17' }
+          ]
+        }
+      ]
+    },
+    submission: {
+      id: 840,
+      signer_name: 'Carla Archuleta',
+      intake_data: { guardian: { firstName: 'Carla' }, clients: [{ fullName: 'ChaMar' }] }
+    },
+    clients: [{ fullName: 'ChaMar' }]
+  });
+  const fabricated = roiOnly.sections.find((section) => /Clinical questionnaire/i.test(section.title));
+  assert.equal(fabricated, undefined);
+});
+
 test('packet sections become per-document signature cards and skipped questionnaires are omitted', () => {
   const spec = buildCompletedIntakeRecord({
     agency: { name: 'ITSCO' },

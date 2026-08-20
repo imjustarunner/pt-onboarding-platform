@@ -393,6 +393,23 @@ async function canViewTaskDetails(task, userId, role) {
   return false;
 }
 
+export const revealTaskPhi = async (req, res, next) => {
+  try {
+    const taskId = parseInt(req.params.id, 10);
+    const task = await Task.findById(taskId, { revealPhi: true });
+    if (!(await canViewTaskDetails(task, req.user.id, req.user.role))) {
+      return res.status(403).json({ error: { message: 'Forbidden' } });
+    }
+    res.json({
+      id: task.id,
+      description: task.description || '',
+      has_encrypted_description: !!task.has_encrypted_description
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const getTaskAssignees = async (req, res, next) => {
   try {
     const task = await Task.findById(parseInt(req.params.id, 10));

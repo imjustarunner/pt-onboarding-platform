@@ -1938,7 +1938,7 @@ const sortedClients = computed(() => {
   const list = Array.isArray(filteredClients.value) ? filteredClients.value.slice() : [];
   const key = sortKey.value;
   const dir = sortDir.value === 'asc' ? 1 : -1;
-  const useBuckets = !columnSortActive.value;
+  const useBuckets = !columnSortActive.value && key !== 'submission_date';
   return list.sort((a, b) => {
     if (useBuckets) {
       const bucketCmp = lifecycleSortBucket(a) - lifecycleSortBucket(b);

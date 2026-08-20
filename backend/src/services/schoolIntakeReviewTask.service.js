@@ -17,7 +17,6 @@ import { notifyTaskAddedToList } from './taskNotifications.service.js';
 const ITSCO_AGENCY_ID = Number(process.env.SCHOOL_INTAKE_REVIEW_AGENCY_ID || 2);
 const TASK_LIST_NAME = 'School Intake Review';
 const SOURCE_REF_TYPE = 'school_intake_review';
-const MIN_PSC_ANSWERS = Number(process.env.SCHOOL_INTAKE_REVIEW_MIN_PSC_ANSWERS || 10);
 
 const MEDICAID_KEYWORDS = [
   'medicaid',
@@ -53,21 +52,47 @@ function defaultAssigneeUserId() {
 
 function countPscAnswers(intakeData, clientIndex = 0) {
   const responses = intakeData?.responses || intakeData || {};
-  const clientResponses = Array.isArray(responses?.clients)
-    ? (responses.clients[clientIndex] || {})
-    : {};
+  const bags = [
+    Array.isArray(responses?.clients) ? (responses.clients[clientIndex] || {}) : {},
+    responses?.submission || {},
+    responses?.guardian || {},
+    responses?.submission?.clinicalResponses || {}
+  ];
+  const seen = new Set();
   let answered = 0;
-  for (let i = 1; i <= 17; i += 1) {
-    const raw = clientResponses[`psc_${i}`];
-    if (raw === undefined || raw === null) continue;
-    if (String(raw).trim() === '') continue;
-    answered += 1;
+  for (const bag of bags) {
+    if (!bag || typeof bag !== 'object') continue;
+    for (let i = 1; i <= 17; i += 1) {
+      if (seen.has(i)) continue;
+      const raw = bag[`psc_${i}`];
+      if (raw === undefined || raw === null) continue;
+      if (String(raw).trim() === '') continue;
+      seen.add(i);
+      answered += 1;
+    }
   }
   return answered;
 }
 
+function hasClinicalIntakeSignal(intakeData, clientIndex = 0, clinicalSummaryText = '') {
+  if (countPscAnswers(intakeData, clientIndex) > 0) return true;
+  const responses = intakeData?.responses || {};
+  const clinicalBag = responses?.submission?.clinicalResponses;
+  if (clinicalBag && typeof clinicalBag === 'object' && Object.keys(clinicalBag).length) return true;
+  const summary = String(clinicalSummaryText || '').trim();
+  if (summary && !/no clinical responses captured/i.test(summary) && summary.length > 80) return true;
+  return false;
+}
+
+export function h0002ClientCode(firstName = '', lastName = '') {
+  const letters = (value) => String(value || '').replace(/[^A-Za-z]/g, '');
+  const first = `${letters(firstName)}XXX`.slice(0, 3);
+  const last = `${letters(lastName)}XXX`.slice(0, 3);
+  return `${first}${last}`.toUpperCase();
+}
+
 function isExcludedDemoSchool(org) {
-  if (!org) return true;
+  if (!org) return false;
   if (isHogwartsDemoSchoolOrg(org)) return true;
   const slug = resolveOrganizationSlug(org);
   const demoSlugs = new Set(['demo-school', 'demo', 'demo-itsco-legacy', 'demo-program', 'demo-k8-school']);
@@ -81,6 +106,21 @@ function isMedicaidInsurerName(name = '') {
   const lower = String(name || '').trim().toLowerCase();
   if (!lower) return false;
   return MEDICAID_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+function isFakeOrDemoClient(client = {}, schoolOrg = null) {
+  if (Number(client?.is_demo) === 1) return true;
+  const hay = [
+    client.full_name,
+    client.first_name,
+    client.last_name,
+    client.email,
+    client.identifier_code,
+    schoolOrg?.name,
+    schoolOrg?.slug
+  ].map((v) => String(v || '').toLowerCase()).join(' ');
+  if (/\bhogwarts\b|\bdurmstrang\b|\bdemo\b/.test(hay)) return true;
+  return false;
 }
 
 function normalizeIntakeSubmissionBag(intakeData) {
@@ -151,8 +191,12 @@ export async function ensureSchoolIntakeReviewTaskList({ actorUserId = 501 } = {
   }
 
   const [rows] = await pool.execute(
-    `SELECT id FROM task_lists WHERE agency_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`,
-    [ITSCO_AGENCY_ID, TASK_LIST_NAME]
+    `SELECT id FROM task_lists
+     WHERE agency_id = ?
+       AND LOWER(TRIM(name)) IN (LOWER(TRIM(?)), LOWER(TRIM(?)))
+     ORDER BY CASE WHEN LOWER(TRIM(name)) = LOWER(TRIM(?)) THEN 0 ELSE 1 END
+     LIMIT 1`,
+    [ITSCO_AGENCY_ID, 'School Intake Review', 'H0002 Submissions', TASK_LIST_NAME]
   );
   let list = rows?.[0]?.id ? await TaskList.findById(rows[0].id) : null;
   if (!list) {
@@ -211,13 +255,8 @@ export async function maybeCreateSchoolIntakeReviewTask({
 
   const scope = String(link?.scope_type || '').toLowerCase();
   const formType = String(link?.form_type || 'intake').toLowerCase();
-  if (scope !== 'school' || formType !== 'intake') {
-    return { created: false, taskId: null, reason: 'not_school_intake' };
-  }
-
-  const pscCount = countPscAnswers(intakeData, clientIndex);
-  if (pscCount < MIN_PSC_ANSWERS) {
-    return { created: false, taskId: null, reason: `insufficient_psc_${pscCount}` };
+  if (!['school', 'agency'].includes(scope) || formType !== 'intake') {
+    return { created: false, taskId: null, reason: 'not_intake' };
   }
 
   const client = await Client.findById(cid, { includeSensitive: true });
@@ -235,27 +274,37 @@ export async function maybeCreateSchoolIntakeReviewTask({
 
   const schoolOrgId = Number(client.organization_id || link?.organization_id || 0);
   let schoolOrg = null;
-  if (schoolOrgId) {
+  if (schoolOrgId && schoolOrgId !== ITSCO_AGENCY_ID) {
     const [schoolRows] = await pool.execute(
       `SELECT id, name, slug, portal_url, organization_type FROM agencies WHERE id = ? LIMIT 1`,
       [schoolOrgId]
     );
     schoolOrg = schoolRows?.[0] || null;
   }
-  if (isExcludedDemoSchool(schoolOrg)) {
-    return { created: false, taskId: null, reason: 'demo_school' };
+  if (isExcludedDemoSchool(schoolOrg) || isFakeOrDemoClient(client, schoolOrg)) {
+    return { created: false, taskId: null, reason: 'demo_or_fake' };
+  }
+
+  const { buildClinicalSummaryText } = await import('../controllers/publicIntake.controller.js');
+  const clinicalSummaryText = buildClinicalSummaryText({ link, intakeData, clientIndex });
+  const pscCount = countPscAnswers(intakeData, clientIndex);
+  if (!hasClinicalIntakeSignal(intakeData, clientIndex, clinicalSummaryText)) {
+    return { created: false, taskId: null, reason: 'no_clinical_signal' };
   }
 
   const existingTaskId = await findTaskBySource(sid, cid);
   if (existingTaskId) return { created: false, taskId: existingTaskId, reason: 'already_exists' };
 
-  const { buildClinicalSummaryText } = await import('../controllers/publicIntake.controller.js');
-  const clinicalSummaryText = buildClinicalSummaryText({ link, intakeData, clientIndex });
   const clientName =
     String(client.full_name || '').trim() ||
     `${String(client.first_name || '').trim()} ${String(client.last_name || '').trim()}`.trim() ||
     `Client #${cid}`;
-  const schoolName = String(schoolOrg?.name || client.organization_name || 'School').trim();
+  const nameParts = clientName.split(/\s+/).filter(Boolean);
+  const code = h0002ClientCode(
+    client.first_name || nameParts[0] || '',
+    client.last_name || nameParts.slice(-1)[0] || ''
+  );
+  const schoolName = String(schoolOrg?.name || client.organization_name || (scope === 'school' ? 'School' : 'Office')).trim();
   const submittedLabel = submittedAt
     ? new Date(submittedAt).toISOString()
     : new Date().toISOString();
@@ -263,20 +312,18 @@ export async function maybeCreateSchoolIntakeReviewTask({
 
   const list = await ensureSchoolIntakeReviewTaskList({ actorUserId: actorUserId || 501 });
   const assigneeId = defaultAssigneeUserId();
-  const title = `New school intake: ${clientName} (${schoolName})`;
+  const title = `New H0002 submission for ${code}`;
   const description = [
-    'A school digital packet intake with PSC-17 was submitted.',
+    'Confirm you are authorized to view this PHI, then complete H0002 documentation from the clinical summary below.',
     '',
     `Client: ${clientName}`,
     `DOB: ${formatDob(client.date_of_birth)}`,
-    `School: ${schoolName}`,
+    `Affiliation: ${schoolName}`,
     `Insurance: ${insuranceLabel}`,
     `Submitted: ${submittedLabel}`,
-    `Submission ID: ${sid}`,
-    `Client ID: ${cid}`,
     `PSC-17 items answered: ${pscCount} / 17`,
     '',
-    '--- Clinical summary (for note + claim) ---',
+    '--- Clinical summary ---',
     clinicalSummaryText || '(Clinical summary text unavailable.)'
   ].join('\n');
 
@@ -285,13 +332,13 @@ export async function maybeCreateSchoolIntakeReviewTask({
     title,
     description,
     encryptDescription: true,
-    isPrivate: true,
+    isPrivate: false,
     assignedToUserId: assigneeId,
     assignedToAgencyId: ITSCO_AGENCY_ID,
     assignedByUserId: actorUserId || assigneeId,
     taskListId: list.id,
     urgency: 'high',
-    categories: ['schools'],
+    categories: ['billing'],
     sourceRefType: SOURCE_REF_TYPE,
     sourceRefId: `${sid}:${cid}`,
     metadata: {
@@ -301,7 +348,9 @@ export async function maybeCreateSchoolIntakeReviewTask({
       schoolName,
       pscAnswerCount: pscCount,
       insuranceCategory,
-      submittedAt: submittedLabel
+      submittedAt: submittedLabel,
+      requiresPhiConfirm: true,
+      h0002Code: code
     }
   });
 
@@ -341,7 +390,7 @@ export async function listSchoolIntakeReviewBackfillCandidates({ since = null } 
         it.insurance_key AS insurance_type_key,
         it.label AS insurance_type_label
      FROM clients c
-     JOIN agencies sch ON sch.id = c.organization_id
+     LEFT JOIN agencies sch ON sch.id = c.organization_id
      JOIN intake_submissions s ON (
        s.client_id = c.id
        OR s.id IN (
@@ -351,14 +400,13 @@ export async function listSchoolIntakeReviewBackfillCandidates({ since = null } 
      JOIN intake_links il ON il.id = s.intake_link_id
      LEFT JOIN insurance_types it ON it.id = c.insurance_type_id
      WHERE c.agency_id = ?
-       AND LOWER(COALESCE(c.client_type, '')) = 'school'
+       AND COALESCE(c.is_demo, 0) = 0
        AND UPPER(COALESCE(c.source, '')) = 'PUBLIC_INTAKE_LINK'
-       AND LOWER(COALESCE(il.scope_type, '')) = 'school'
        AND LOWER(COALESCE(il.form_type, 'intake')) = 'intake'
+       AND LOWER(COALESCE(il.scope_type, '')) IN ('school', 'agency')
        AND LOWER(COALESCE(s.status, '')) = 'submitted'
        AND s.submitted_at IS NOT NULL
        AND s.submitted_at >= ?
-       AND LOWER(COALESCE(sch.organization_type, '')) = 'school'
      ORDER BY s.submitted_at ASC, c.id ASC`,
     [ITSCO_AGENCY_ID, sinceIso]
   );

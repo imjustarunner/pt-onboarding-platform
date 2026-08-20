@@ -249,18 +249,23 @@
           <input type="checkbox" v-model="skillsOnly" @change="applyFilters" />
           <span>Skills clients only</span>
         </label>
-        <select v-model="sortBy" @change="applyFilters" class="filter-select">
+        <select v-model="sortBy" @change="applyFilters" class="filter-select" aria-label="Sort clients">
           <option value="submission_date-desc">Sort: Submission Date (Newest)</option>
           <option value="submission_date-asc">Sort: Submission Date (Oldest)</option>
           <option value="initials-asc">Sort: Initials / Name (A-Z)</option>
           <option value="initials-desc">Sort: Initials / Name (Z-A)</option>
-          <option value="organization_name-asc">Sort: Organization (A-Z)</option>
-          <option value="organization_name-desc">Sort: Organization (Z-A)</option>
-          <option value="district_name-asc">Sort: District (A-Z)</option>
-          <option value="district_name-desc">Sort: District (Z-A)</option>
+          <option value="agency_name-asc">Sort: Tenant (A-Z)</option>
+          <option value="agency_name-desc">Sort: Tenant (Z-A)</option>
+          <option value="organization_name-asc">Sort: Affiliation (A-Z)</option>
+          <option value="organization_name-desc">Sort: Affiliation (Z-A)</option>
+          <option value="client_status_label-asc">Sort: Client Status (A-Z)</option>
+          <option value="client_status_label-desc">Sort: Client Status (Z-A)</option>
           <option value="provider_name-asc">Sort: Provider (A-Z)</option>
           <option value="provider_name-desc">Sort: Provider (Z-A)</option>
-          <option value="client_status_label-asc">Sort: Client Status (A-Z)</option>
+          <option value="insurance_type_label-asc">Sort: Insurance (A-Z)</option>
+          <option value="insurance_type_label-desc">Sort: Insurance (Z-A)</option>
+          <option value="last_activity_at-desc">Sort: Last Activity (Newest)</option>
+          <option value="last_activity_at-asc">Sort: Last Activity (Oldest)</option>
         </select>
 
         <div class="columns-control">
@@ -410,15 +415,74 @@
             <th style="width: 34px;">
               <input type="checkbox" :checked="allPageSelected" @change.stop="toggleSelectAllPage($event)" />
             </th>
-            <th>{{ clientDisplayLabel }}</th>
-            <th v-if="usingServerPagination && columnPrefs.affiliation">Tenant</th>
-            <th v-if="columnPrefs.affiliation">Affiliation</th>
-            <th v-if="columnPrefs.clientStatus">Client Status</th>
-            <th v-if="columnPrefs.provider">Provider / Referred</th>
-            <th v-if="columnPrefs.submissionDate">Submitted</th>
+            <th class="cm-sortable" :aria-sort="ariaSortFor('initials')" @click="toggleColumnSort('initials')">
+              {{ clientDisplayLabel }}
+              <span class="cm-sort-indicator" aria-hidden="true">{{ sortIndicatorFor('initials') }}</span>
+            </th>
+            <th
+              v-if="usingServerPagination && columnPrefs.affiliation"
+              class="cm-sortable"
+              :aria-sort="ariaSortFor('agency_name')"
+              @click="toggleColumnSort('agency_name')"
+            >
+              Tenant
+              <span class="cm-sort-indicator" aria-hidden="true">{{ sortIndicatorFor('agency_name') }}</span>
+            </th>
+            <th
+              v-if="columnPrefs.affiliation"
+              class="cm-sortable"
+              :aria-sort="ariaSortFor('organization_name')"
+              @click="toggleColumnSort('organization_name')"
+            >
+              Affiliation
+              <span class="cm-sort-indicator" aria-hidden="true">{{ sortIndicatorFor('organization_name') }}</span>
+            </th>
+            <th
+              v-if="columnPrefs.clientStatus"
+              class="cm-sortable"
+              :aria-sort="ariaSortFor('client_status_label')"
+              @click="toggleColumnSort('client_status_label')"
+            >
+              Client Status
+              <span class="cm-sort-indicator" aria-hidden="true">{{ sortIndicatorFor('client_status_label') }}</span>
+            </th>
+            <th
+              v-if="columnPrefs.provider"
+              class="cm-sortable"
+              :aria-sort="ariaSortFor('provider_name')"
+              @click="toggleColumnSort('provider_name')"
+            >
+              Provider / Referred
+              <span class="cm-sort-indicator" aria-hidden="true">{{ sortIndicatorFor('provider_name') }}</span>
+            </th>
+            <th
+              v-if="columnPrefs.submissionDate"
+              class="cm-sortable"
+              :aria-sort="ariaSortFor('submission_date')"
+              @click="toggleColumnSort('submission_date')"
+            >
+              Submitted
+              <span class="cm-sort-indicator" aria-hidden="true">{{ sortIndicatorFor('submission_date') }}</span>
+            </th>
             <th v-if="columnPrefs.paperwork">Document Status</th>
-            <th v-if="columnPrefs.insurance">Insurance</th>
-            <th v-if="columnPrefs.lastActivity">Last Activity</th>
+            <th
+              v-if="columnPrefs.insurance"
+              class="cm-sortable"
+              :aria-sort="ariaSortFor('insurance_type_label')"
+              @click="toggleColumnSort('insurance_type_label')"
+            >
+              Insurance
+              <span class="cm-sort-indicator" aria-hidden="true">{{ sortIndicatorFor('insurance_type_label') }}</span>
+            </th>
+            <th
+              v-if="columnPrefs.lastActivity"
+              class="cm-sortable"
+              :aria-sort="ariaSortFor('last_activity_at')"
+              @click="toggleColumnSort('last_activity_at')"
+            >
+              Last Activity
+              <span class="cm-sort-indicator" aria-hidden="true">{{ sortIndicatorFor('last_activity_at') }}</span>
+            </th>
             <th v-if="canBackofficeEdit">Demo</th>
             <th>Actions</th>
           </tr>
@@ -715,7 +779,7 @@
             <label>Submission Date *</label>
             <input v-model="newClient.submission_date" type="date" required />
           </div>
-          <div class="form-group">
+          <div v-if="false" class="form-group">
             <label>Document Status</label>
             <div class="hint" style="margin-bottom: 6px;">
               Select which items are <strong>Needed</strong>. When none are needed, status is <strong>Completed</strong>.
@@ -1387,7 +1451,7 @@ const columnPrefs = ref({
   clientStatus: true,
   provider: true,
   submissionDate: true,
-  paperwork: true,
+  paperwork: false,
   insurance: true,
   lastActivity: true
 });
@@ -1427,6 +1491,36 @@ const organizationFilter = ref('');
 const providerFilter = ref('');
 const skillsOnly = ref(false);
 const sortBy = ref('submission_date-desc');
+
+const DATE_SORT_FIELDS = new Set(['submission_date', 'last_activity_at', 'referral_date']);
+const DEFAULT_DESC_FIELDS = new Set(['submission_date', 'last_activity_at']);
+
+function sortParts() {
+  const [field, order] = String(sortBy.value || 'submission_date-desc').split('-');
+  return { field: field || 'submission_date', order: order === 'asc' ? 'asc' : 'desc' };
+}
+
+function ariaSortFor(field) {
+  const parts = sortParts();
+  if (parts.field !== field) return 'none';
+  return parts.order === 'asc' ? 'ascending' : 'descending';
+}
+
+function sortIndicatorFor(field) {
+  const parts = sortParts();
+  if (parts.field !== field) return '↕';
+  return parts.order === 'asc' ? '▲' : '▼';
+}
+
+function toggleColumnSort(field) {
+  const parts = sortParts();
+  if (parts.field === field) {
+    sortBy.value = `${field}-${parts.order === 'asc' ? 'desc' : 'asc'}`;
+  } else {
+    sortBy.value = `${field}-${DEFAULT_DESC_FIELDS.has(field) ? 'desc' : 'asc'}`;
+  }
+  applyFilters();
+}
 
 const {
   displayMode,
@@ -2114,6 +2208,9 @@ const fetchClients = async () => {
       params.append('paginate', 'true');
       params.append('page', String(currentPage.value));
       params.append('per_page', String(pageSize.value));
+      const parts = sortParts();
+      params.append('sort', parts.field);
+      params.append('order', parts.order);
       // When in full platform mode (no tenant filter chosen), exclude hidden tenants.
       // If a specific tenant is selected, show it regardless of hidden status.
       if (!scopedAgencyId && hiddenTenantIds.value.size > 0) {
@@ -2235,7 +2332,6 @@ const fetchDeliveryMethodsForSchool = async () => {
 const filteredClients = computed(() => {
   let filtered = [...clients.value];
 
-  // Group visually: platform = tenant then status; single tenant = provider then status.
   const statusRank = (client) => {
     const tone = clientStatusTone(client);
     if (tone === 'attention') return 0;
@@ -2244,22 +2340,9 @@ const filteredClients = computed(() => {
     return 3;
   };
 
-  // Apply sort
-  const [sortField, sortOrder] = sortBy.value.split('-');
-  filtered.sort((a, b) => {
-    if (usingServerPagination.value) {
-      const tenantCmp = String(a.agency_name || '').localeCompare(String(b.agency_name || ''));
-      if (tenantCmp !== 0) return tenantCmp;
-      const statusCmp = statusRank(a) - statusRank(b);
-      if (statusCmp !== 0) return statusCmp;
-    } else {
-      const providerCmp = String(a.provider_name || 'zzz').localeCompare(String(b.provider_name || 'zzz'));
-      if (providerCmp !== 0) return providerCmp;
-      const statusCmp = statusRank(a) - statusRank(b);
-      if (statusCmp !== 0) return statusCmp;
-    }
-
-    let aVal, bVal;
+  const compareSortField = (a, b, sortField, sortOrder) => {
+    let aVal;
+    let bVal;
     if (sortField === 'initials') {
       aVal = getClientDisplay(a);
       bVal = getClientDisplay(b);
@@ -2280,6 +2363,25 @@ const filteredClients = computed(() => {
       return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
     }
     return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+  };
+
+  const compareGrouping = (a, b) => {
+    if (usingServerPagination.value) {
+      const tenantCmp = String(a.agency_name || '').localeCompare(String(b.agency_name || ''));
+      if (tenantCmp !== 0) return tenantCmp;
+    } else {
+      const providerCmp = String(a.provider_name || 'zzz').localeCompare(String(b.provider_name || 'zzz'));
+      if (providerCmp !== 0) return providerCmp;
+    }
+    return statusRank(a) - statusRank(b);
+  };
+
+  // User-selected sort is primary; provider/tenant/status grouping is tie-breaker only.
+  const [sortField, sortOrder] = sortBy.value.split('-');
+  filtered.sort((a, b) => {
+    const primary = compareSortField(a, b, sortField, sortOrder);
+    if (primary !== 0) return primary;
+    return compareGrouping(a, b);
   });
 
   return filtered;
@@ -2698,6 +2800,7 @@ function roiExpiryClass(client) {
 const openClientDetail = (client) => {
   const id = Number(client?.id || 0);
   if (!id) return;
+  closeClientPanel();
   const orgSlug = String(route.params?.organizationSlug || '').trim();
   const path = orgSlug ? `/${orgSlug}/admin/clients/${id}` : `/admin/clients/${id}`;
   router.push({ path });
@@ -3009,9 +3112,9 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   --cm-green: #12b76a;
   --cm-amber: #f79009;
   --cm-red: #f04438;
-  --cm-surface: #ffffff;
-  --cm-border: #e4e7ec;
-  --cm-muted: #667085;
+  --cm-surface: var(--bg-card, var(--bg));
+  --cm-border: var(--border);
+  --cm-muted: var(--text-secondary);
   padding-top: 24px;
   padding-bottom: 48px;
 }
@@ -3162,13 +3265,15 @@ watch(() => currentPage.value, (newPage, oldPage) => {
 /* Quick-view / pinned side panel */
 .cm-drawer {
   position: fixed;
-  top: 0;
+  top: var(--app-nav-height, 72px);
   right: 0;
   bottom: 0;
   width: min(420px, 92vw);
+  height: calc(100vh - var(--app-nav-height, 72px));
+  height: calc(100dvh - var(--app-nav-height, 72px));
   background: #fff;
   box-shadow: -4px 0 28px rgba(0, 0, 0, 0.13);
-  z-index: 500;
+  z-index: 10200;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -3543,7 +3648,7 @@ watch(() => currentPage.value, (newPage, oldPage) => {
 }
 
 .cm-clients-table thead {
-  background: #f9fafb;
+  background: var(--bg-alt);
 }
 
 .cm-clients-table th {
@@ -3552,6 +3657,22 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   text-transform: uppercase;
   color: #667085;
   padding: 12px 14px;
+  user-select: none;
+}
+
+.cm-sortable {
+  cursor: pointer;
+}
+
+.cm-sortable:hover {
+  color: #0f766e;
+}
+
+.cm-sort-indicator {
+  display: inline-block;
+  margin-left: 0.25rem;
+  font-size: 0.65rem;
+  opacity: 0.7;
 }
 
 .cm-clients-table td {
@@ -3565,7 +3686,7 @@ watch(() => currentPage.value, (newPage, oldPage) => {
 }
 
 .cm-client-row:hover {
-  background: linear-gradient(90deg, var(--cm-row-accent-soft, #f9fafb) 0%, #f9fafb 28%);
+  background: linear-gradient(90deg, var(--cm-row-accent-soft, var(--bg-alt)) 0%, var(--bg-alt) 28%);
 }
 
 .cm-initials-badge {
@@ -3711,7 +3832,7 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   top: calc(100% + 8px);
   right: 0;
   z-index: 30;
-  background: #fff;
+  background: var(--bg-card, var(--bg));
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: var(--shadow);
@@ -3791,7 +3912,7 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   left: 0;
   right: 0;
   z-index: 20;
-  background: #fff;
+  background: var(--bg-card, var(--bg));
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: var(--shadow);
@@ -3921,7 +4042,7 @@ watch(() => currentPage.value, (newPage, oldPage) => {
 
 .clients-table-container {
   overflow-x: auto;
-  background: white;
+  background: var(--bg-card, var(--bg));
   border-radius: 8px;
   border: 1px solid var(--border);
 }
@@ -3983,7 +4104,7 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   border: 2px solid var(--primary);
   border-radius: 4px;
   font-size: 13px;
-  background: white;
+  background: var(--bg-card, var(--bg));
 }
 
 .editable-field {

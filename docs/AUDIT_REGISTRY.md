@@ -222,6 +222,11 @@ When asking for updates, you can say:
 | note_aid_execute | Note Aid used |
 | agent_assist | Focus Assistant used |
 | agent_tool_execute | Focus Assistant tool executed |
+| client_intake_note_generated | Client intake note AI draft generated |
+| client_intake_note_diagnosis_remain | Client intake diagnosis kept as-is |
+| client_intake_note_diagnosis_confirmed | Client intake diagnosis confirmed |
+| client_intake_note_diagnosis_updated | Client intake diagnosis updated by provider |
+| client_intake_note_finalized | Client intake note finalized |
 
 ### Tasks
 | action_type | label |

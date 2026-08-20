@@ -1,0 +1,223 @@
+/**
+ * Client chart hub surfaces (Overview / Account / Records).
+ * Token-first so dark mode follows --bg / --text / --border / --primary.
+ */
+
+.cc-hub {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 22px;
+  align-items: start;
+}
+
+.cc-hub--flush {
+  grid-template-columns: 1fr;
+}
+
+.cc-hub__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.cc-hub__aside {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cc-hub-pagehead h3,
+.cc-hub-pagehead .cc-hub-title {
+  margin: 0;
+  font-family: var(--font-display, var(--font-header));
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+
+.cc-hub-pagehead p {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.cc-ribbon {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px 16px;
+  padding: 14px 16px;
+  background: var(--bg-card, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.cc-ribbon__item {
+  min-width: 0;
+}
+
+.cc-ribbon__k {
+  display: block;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.cc-ribbon__v {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.cc-tile-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.cc-tile {
+  text-align: left;
+  background: var(--bg-card, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.cc-tile:disabled {
+  cursor: default;
+}
+
+.cc-tile__k {
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.cc-tile__v {
+  margin-top: 6px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.cc-tile__m {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.cc-hub-section__title {
+  margin: 0 0 10px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.cc-attention {
+  background: color-mix(in srgb, var(--error, #b91c1c) 8%, var(--bg-card, var(--bg)));
+  border: 1px solid color-mix(in srgb, var(--error, #b91c1c) 28%, var(--border));
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.cc-attention__list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.cc-attention__list button {
+  display: flex;
+  width: 100%;
+  text-align: left;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.cc-docs-snap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cc-docs-snap__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg-card, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.cc-account-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.cc-side-card {
+  background: var(--bg-card, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.cc-side-card h4 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.cc-side-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cc-side-actions .cdp-btn-primary,
+.cc-side-actions .cdp-btn-soft {
+  width: 100%;
+}
+
+.cc-hub-footer {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 1100px) {
+  .cc-hub {
+    grid-template-columns: 1fr;
+  }
+  .cc-hub__aside {
+    position: static;
+  }
+  .cc-account-grid {
+    grid-template-columns: 1fr;
+  }
+}

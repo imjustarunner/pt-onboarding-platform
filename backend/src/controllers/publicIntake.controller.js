@@ -24,6 +24,9 @@ import { enrollClientsInCompanyEvent } from '../services/skillBuildersIntakeEnro
 import applyClientRoiCompletion from '../services/clientRoiCompletion.service.js';
 import applyClientIntakeCompletion from '../services/clientIntakeCompletion.service.js';
 import { maybeCreateSchoolIntakeReviewTask } from '../services/schoolIntakeReviewTask.service.js';
+import { generateIntakeSummaryPdf } from '../services/intakeSummaryPdf.service.js';
+import { brandedIntakeSummarySpec } from '../services/packetBrandChrome.service.js';
+import { buildCompletedIntakeRecord } from '../services/completedIntakeRecord.service.js';
 import { getClientIpAddress } from '../utils/ipAddress.util.js';
 import { resolveRequestedMasterLanguage } from '../utils/schoolIntakeMasterLanguage.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
@@ -119,6 +122,10 @@ import {
   normalizeSmartSchoolRoiResponse,
   validateSmartSchoolRoiResponse
 } from '../services/smartSchoolRoi.service.js';
+import {
+  buildSchoolRoiAnswersText,
+  buildSchoolRoiClinicalText
+} from '../services/schoolRoiChartText.service.js';
 import {
   buildSmartDisclosureContext,
   buildSmartDisclosureHtml,
@@ -225,7 +232,14 @@ async function persistPacketSectionFromIntakeData({
     || link?.organization_id
     || 0
   ) || null;
-  const agencyId = Number(boundClient.agency_id || agency?.id || 0) || null;
+  let agencyId = Number(boundClient.agency_id || agency?.id || 0) || null;
+  if (!agencyId && schoolOrgId) {
+    try {
+      agencyId = await AgencySchoolIntakeMaster.resolveParentAgencyIdForSchool(schoolOrgId);
+    } catch {
+      agencyId = null;
+    }
+  }
   const orgType = String(organization?.organization_type || '').toLowerCase();
   const officePacket = linkLooksLikeOfficeIntake(link)
     && !['school', 'program', 'learning'].includes(orgType);
@@ -236,7 +250,7 @@ async function persistPacketSectionFromIntakeData({
   for (const { sectionKey, response } of candidates) {
     if (!response || seen.has(sectionKey)) continue;
     seen.add(sectionKey);
-    if (!response.acknowledged || !response.signatureData) continue;
+    if (!response.acknowledged && !response.signatureData) continue;
 
     const sectionContext = await buildPacketSectionContext({
       organizationId: officePacket ? 0 : schoolOrgId,
@@ -280,23 +294,27 @@ async function persistPacketSectionFromIntakeData({
 
     const phiDocAttach = await attachSignedPdfToClient({
       clientId: boundClient.id,
-      agencyId,
+      link,
+      clientRow: boundClient,
+      agencyIdOverride: agencyId,
+      schoolOrganizationIdOverride: schoolOrgId,
       storagePath: signedResult.storagePath,
-      originalFilename: `${sectionKey}-${boundClient.id}.pdf`,
-      title: `${sectionContext.title} (Signed)`,
+      originalName: `${sectionContext.title} (Signed)`,
+      documentTitle: `${sectionContext.title} (Signed)`,
       documentType: sectionKey,
       mimeType: 'application/pdf',
-      uploadedByUserId: null,
       intakeSubmissionId: submissionId,
-      source: `packet_section_${sectionKey}`
-    }).catch(() => null);
+      auditMetadata: { packetSection: true, sectionKey, submissionId },
+      callerLabel: `packet_section_${sectionKey}`
+    });
+    const phiDoc = phiDocAttach?.phiDoc || null;
 
     await persistPacketSectionAcknowledgement({
       clientId: boundClient.id,
       agencyId,
       schoolOrganizationId: schoolOrgId,
       intakeSubmissionId: submissionId,
-      clientPhiDocumentId: phiDocAttach?.document?.id || phiDocAttach?.id || null,
+      clientPhiDocumentId: phiDoc?.id || null,
       sectionKey,
       languageCode: response.locale || link.language_code || 'en',
       signedAt: now,
@@ -2721,8 +2739,72 @@ const normalizeIntakeDataShape = (intakeData) => {
   };
 };
 
-export const buildAnswersPdfBuffer = async ({ link, intakeData, clientIndex = null }) => {
+async function tryBuildBrandedAnswersPdf({
+  link,
+  intakeData,
+  clientIndex = null,
+  submissionId = null,
+  submission = null
+}) {
+  try {
+    const agencyId = Number(link?.agency_id || link?.organization_id || 0);
+    if (!agencyId) return null;
+    const agency = await Agency.findById(agencyId);
+    if (!agency) return null;
+    const sid = Number(submissionId || submission?.id || 0) || null;
+    let signedDocuments = [];
+    if (sid) {
+      try {
+        signedDocuments = await IntakeSubmissionDocument.listSignedForRecord(sid);
+      } catch {
+        signedDocuments = await IntakeSubmissionDocument.listBySubmissionId(sid);
+      }
+    }
+    const normalized = normalizeIntakeDataShape(intakeData);
+    let clients = Array.isArray(normalized?.clients) ? normalized.clients : [];
+    if (Number.isInteger(clientIndex) && clientIndex >= 0) {
+      clients = clients[clientIndex] ? [clients[clientIndex]] : clients;
+    }
+    const packetKind = String(link?.scope_type || '').toLowerCase() === 'school' ? 'school' : 'office';
+    const spec = await brandedIntakeSummarySpec(
+      buildCompletedIntakeRecord({
+        agency,
+        link,
+        submission: { ...(submission || {}), id: sid, intake_data: normalized },
+        signedDocuments,
+        guardian: normalized?.guardian || normalized?.responses?.guardian || {},
+        clients,
+        publicKey: link?.public_key || '',
+        brandLogoUrl: String(agency?.logo_url || '').trim()
+      }),
+      agency,
+      { packetKind }
+    );
+    const pdf = await generateIntakeSummaryPdf(spec);
+    if (!pdf) return null;
+    return Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf);
+  } catch (err) {
+    console.warn('[publicIntake] branded answers PDF failed; using plain text fallback', err?.message || err);
+    return null;
+  }
+}
+
+export const buildAnswersPdfBuffer = async ({
+  link,
+  intakeData,
+  clientIndex = null,
+  submissionId = null,
+  submission = null
+}) => {
   if (!intakeData) return null;
+  const branded = await tryBuildBrandedAnswersPdf({
+    link,
+    intakeData,
+    clientIndex,
+    submissionId,
+    submission
+  });
+  if (branded) return branded;
   const normalizedIntakeData = normalizeIntakeDataShape(intakeData);
   const pdfStrings = getIntakePdfStrings(link?.language_code, { formType: link?.form_type });
   const clients = Array.isArray(normalizedIntakeData?.clients) ? normalizedIntakeData.clients : [];
@@ -3738,6 +3820,12 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
     }
   }
 
+  const roiAnswers = buildSchoolRoiAnswersText(normalized);
+  if (roiAnswers) {
+    if (output.length) output.push('');
+    output.push(roiAnswers);
+  }
+
   return output.join('\n').trim();
 };
 
@@ -3768,6 +3856,12 @@ export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) 
   // submission/guardian/clients promoted under `responses` or this whole summary stays empty.
   const normalized = normalizeIntakeDataShape(intakeData);
   const { fields, byKey } = buildIntakeFieldIndex(link);
+  for (const stepDef of parseLinkIntakeSteps(link)) {
+    const stepFields = Array.isArray(stepDef?.fields) ? stepDef.fields : [];
+    for (const field of stepFields) {
+      if (field?.key && !byKey.has(field.key)) byKey.set(field.key, field);
+    }
+  }
   const formLocale = resolveIntakeFormLocale(link, normalized);
   const responses = normalized?.responses || {};
   const guardianResponses = responses?.guardian || {};
@@ -3798,14 +3892,27 @@ export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) 
   }
 
   const pscItems = [];
-  for (let i = 1; i <= 17; i += 1) {
-    const key = `psc_${i}`;
-    const raw = clientResponses?.[key];
-    if (!hasValue(raw)) continue;
-    const score = parsePscScore(raw);
-    const field = byKey.get(key);
-    const label = String(field?.label || key).trim() || key;
-    pscItems.push({ index: i, key, label, value: normalizeAnswerValue(raw), score });
+  const seenPscIndices = new Set();
+  const considerPscFromBag = (bag) => {
+    if (!bag || typeof bag !== 'object') return;
+    for (let i = 1; i <= 17; i += 1) {
+      if (seenPscIndices.has(i)) continue;
+      const key = `psc_${i}`;
+      const raw = bag[key];
+      if (!hasValue(raw)) continue;
+      seenPscIndices.add(i);
+      const score = parsePscScore(raw);
+      const field = byKey.get(key);
+      const label = String(field?.label || key).trim() || key;
+      pscItems.push({ index: i, key, label, value: normalizeAnswerValue(raw), score });
+    }
+  };
+  considerPscFromBag(clientResponses);
+  considerPscFromBag(submissionResponses);
+  considerPscFromBag(guardianResponses);
+  const clinicalResponsesBag = submissionResponses?.clinicalResponses;
+  if (clinicalResponsesBag && typeof clinicalResponsesBag === 'object') {
+    considerPscFromBag(clinicalResponsesBag);
   }
 
   const formatElevated = (score, cutoff) => (score >= cutoff ? 'Elevated' : 'Not Elevated');
@@ -4026,6 +4133,90 @@ export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) 
     return label.includes('hope') && label.includes('gain');
   });
 
+  const isTraumaLine = (line) => {
+    const labelLower = String(line?.label || '').toLowerCase();
+    return traumaQuestionPatterns.some((p) => p.test(labelLower));
+  };
+  const isGoalLine = (line) => {
+    const label = String(line?.label || '').toLowerCase();
+    return label.includes('hope') && label.includes('gain');
+  };
+
+  const generalClinicalLines = [];
+  const seenGeneralClinicalKeys = new Set();
+  const pushGeneralClinicalLine = (line) => {
+    if (!line?.key || seenGeneralClinicalKeys.has(line.key)) return;
+    if (/^psc_\d+$/i.test(line.key)) return;
+    if (shouldExcludeSummaryLine(line)) return;
+    if (isTraumaLine(line)) return;
+    if (isGoalLine(line)) return;
+    seenGeneralClinicalKeys.add(line.key);
+    generalClinicalLines.push(line);
+  };
+
+  for (const line of orderedClient) pushGeneralClinicalLine(line);
+
+  const interviewValues = mergeShowIfValues(
+    submissionResponses,
+    guardianResponses,
+    clientResponses,
+    childAgeFlags(clientResponses?.child_dob || clientPayload?.dob, clientResponses)
+  );
+  if (clinicalResponsesBag && typeof clinicalResponsesBag === 'object') {
+    Object.assign(interviewValues, clinicalResponsesBag);
+    for (const [key, raw] of Object.entries(clinicalResponsesBag)) {
+      if (!hasValue(raw)) continue;
+      const field = byKey.get(key);
+      const label = String(
+        field?.label || resolveIntakeFieldLabel(field, formLocale, link) || key
+      ).trim();
+      pushGeneralClinicalLine({ key, label, value: normalizeAnswerValue(raw) });
+    }
+  }
+
+  const steps = parseLinkIntakeSteps(link);
+  const childName = String(
+    clientResponses?.child_preferred_name || clientPayload?.firstName || clientName || 'this client'
+  ).trim() || 'this client';
+  const interpolate = (text) => String(text || '')
+    .replaceAll('{childName}', childName)
+    .replaceAll('[Child Name]', childName);
+  for (const stepDef of steps) {
+    if (!['questions', 'clinical_questions'].includes(String(stepDef?.type || ''))) continue;
+    const stepFields = Array.isArray(stepDef?.fields) ? stepDef.fields : [];
+    for (const field of stepFields) {
+      if (!field?.key || field.type === 'info') continue;
+      if (!matchesShowIf(field.showIf, interviewValues)) continue;
+      const raw = interviewValues[field.key];
+      if (!hasValue(raw)) continue;
+      const label = interpolate(
+        resolveIntakeFieldLabel(field, formLocale, link) ||
+        String(field.label || field.key || '').trim()
+      );
+      pushGeneralClinicalLine({
+        key: field.key,
+        label,
+        value: formatAnswerForField(field, raw)
+      });
+    }
+  }
+
+  for (const [key, raw] of Object.entries(interviewValues)) {
+    if (!key || key.startsWith('_')) continue;
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) continue;
+    const field = byKey.get(key);
+    if (!field || field.type === 'info') continue;
+    const label = interpolate(
+      resolveIntakeFieldLabel(field, formLocale, link) ||
+      String(field.label || field.key || '').trim()
+    );
+    pushGeneralClinicalLine({
+      key,
+      label,
+      value: formatAnswerForField(field, raw)
+    });
+  }
+
   if (traumaLabels.length) {
     output.push('Clinical History');
     output.push('----------------');
@@ -4044,8 +4235,26 @@ export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) 
     output.push('------------');
     goalLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
     output.push('');
-  } else if (!pscItems.length) {
-    output.push('No clinical responses captured.');
+  }
+
+  if (generalClinicalLines.length) {
+    output.push('Clinical Questionnaire');
+    output.push('----------------------');
+    pushClinicalLines(generalClinicalLines);
+    output.push('');
+  }
+
+  const hasClinicalContent = pscItems.length
+    || traumaLabels.length
+    || goalLines.length
+    || generalClinicalLines.length;
+  if (!hasClinicalContent) {
+    const roiClinical = buildSchoolRoiClinicalText(normalized);
+    if (roiClinical) {
+      output.push(roiClinical);
+    } else {
+      output.push('No clinical responses captured.');
+    }
   }
 
   if (pscItems.length) {
@@ -4189,7 +4398,13 @@ const createIntakePiecePdfDocuments = async ({
   //    child so nothing from a sibling bleeds into the file.
   let answersPdf = null;
   try {
-    answersPdf = await buildAnswersPdfBuffer({ link, intakeData, clientIndex });
+    answersPdf = await buildAnswersPdfBuffer({
+      link,
+      intakeData,
+      clientIndex,
+      submissionId,
+      submission: null
+    });
   } catch (err) {
     console.error('[publicIntake] piece: answers PDF build failed', {
       clientId,
@@ -5039,9 +5254,15 @@ const resolveSmartSchoolRoiTemplate = async ({ roiContext, templates }) => {
       .map((template) => {
         const type = String(template?.document_type || '').trim().toLowerCase();
         const orgId = Number(template?.organization_id || 0) || null;
+        const name = String(template?.name || '').toLowerCase();
         const scopeScore = orgId && schoolOrgId && orgId === schoolOrgId ? 0 : (orgId ? 2 : 1);
         const typeScore = Number.isFinite(priorityByType[type]) ? priorityByType[type] : 99;
-        return { template, score: scopeScore * 100 + typeScore };
+        const disclosurePenalty = (
+          name.includes('disclosure')
+          && type === 'school'
+          && !name.includes('release of information')
+        ) ? 50 : 0;
+        return { template, score: scopeScore * 100 + typeScore + disclosurePenalty };
       })
       .sort((a, b) => a.score - b.score);
     selectedTemplate = scored[0]?.template || null;
@@ -7528,17 +7749,20 @@ export const finalizePublicIntake = async (req, res, next) => {
       if (boundClient?.id) {
         const phiDocAttach = await attachSignedPdfToClient({
           clientId: boundClient.id,
-          agencyId: boundClient.agency_id || agency?.id || null,
+          link,
+          clientRow: boundClient,
+          agencyIdOverride: boundClient.agency_id || agency?.id || null,
+          schoolOrganizationIdOverride: boundClient.organization_id || organization?.id || null,
           storagePath: signedResult.storagePath,
-          originalFilename: `disclosure-${boundClient.id}.pdf`,
-          title: 'Disclosure Statement (Signed)',
+          originalName: 'Disclosure Statement (Signed)',
+          documentTitle: 'Disclosure Statement (Signed)',
           documentType: 'disclosure',
           mimeType: 'application/pdf',
-          uploadedByUserId: null,
           intakeSubmissionId: submissionId,
-          source: 'smart_disclosure'
-        }).catch(() => null);
-        phiDoc = phiDocAttach?.document || phiDocAttach || null;
+          auditMetadata: { submissionId, kind: 'smart_disclosure' },
+          callerLabel: 'public_intake_smart_disclosure'
+        });
+        phiDoc = phiDocAttach?.phiDoc || null;
         await persistDisclosureAcknowledgement({
           clientId: boundClient.id,
           agencyId: boundClient.agency_id || agency?.id,
@@ -7620,22 +7844,25 @@ export const finalizePublicIntake = async (req, res, next) => {
               });
               const phiDocAttach = await attachSignedPdfToClient({
                 clientId: boundClient.id,
-                agencyId: boundClient.agency_id || agency?.id || null,
+                link,
+                clientRow: boundClient,
+                agencyIdOverride: boundClient.agency_id || agency?.id || null,
+                schoolOrganizationIdOverride: boundClient.organization_id || organization?.id || null,
                 storagePath: signedResult.storagePath,
-                originalFilename: `disclosure-${boundClient.id}.pdf`,
-                title: 'Disclosure Statement (Signed)',
+                originalName: 'Disclosure Statement (Signed)',
+                documentTitle: 'Disclosure Statement (Signed)',
                 documentType: 'disclosure',
                 mimeType: 'application/pdf',
-                uploadedByUserId: null,
                 intakeSubmissionId: submissionId,
-                source: 'smart_disclosure'
-              }).catch(() => null);
+                auditMetadata: { submissionId, kind: 'smart_disclosure', embeddedStep: true },
+                callerLabel: 'public_intake_embedded_disclosure'
+              });
               await persistDisclosureAcknowledgement({
                 clientId: boundClient.id,
                 agencyId: boundClient.agency_id || agency?.id,
                 schoolOrganizationId: boundClient.organization_id || organization?.id || null,
                 intakeSubmissionId: submissionId,
-                clientPhiDocumentId: phiDocAttach?.document?.id || phiDocAttach?.id || null,
+                clientPhiDocumentId: phiDocAttach?.phiDoc?.id || null,
                 languageCode: disclosureResponse.locale,
                 signedAt: now,
                 signerName: disclosureResponse.signerName || updatedSubmission.signer_name || null,
@@ -8203,7 +8430,12 @@ export const finalizePublicIntake = async (req, res, next) => {
 
     let answersPdf = null;
     try {
-      answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
+      answersPdf = await buildAnswersPdfBuffer({
+        link,
+        intakeData,
+        submissionId,
+        submission: updatedSubmission
+      });
     } catch (answersErr) {
       console.error('[publicIntake] answers PDF generation failed (continuing without answers PDF)', {
         submissionId,
@@ -8647,7 +8879,13 @@ export const finalizePublicIntake = async (req, res, next) => {
           // sibling's PHI ever leaks into this file.
           let perChildAnswersPdf = null;
           try {
-            perChildAnswersPdf = await buildAnswersPdfBuffer({ link, intakeData, clientIndex: i });
+            perChildAnswersPdf = await buildAnswersPdfBuffer({
+              link,
+              intakeData,
+              clientIndex: i,
+              submissionId,
+              submission: updatedSubmission
+            });
           } catch (perChildAnswersErr) {
             console.error('[publicIntake] per-child answers PDF generation failed (school-roi flow) — continuing without it', {
               submissionId,
@@ -9869,7 +10107,13 @@ export const submitPublicIntake = async (req, res, next) => {
           // a sibling bleeds in), then this child's per-template signed docs.
           let perChildAnswersPdf = null;
           try {
-            perChildAnswersPdf = await buildAnswersPdfBuffer({ link, intakeData, clientIndex: i });
+            perChildAnswersPdf = await buildAnswersPdfBuffer({
+              link,
+              intakeData,
+              clientIndex: i,
+              submissionId,
+              submission: updatedSubmission
+            });
           } catch (perChildAnswersErr) {
             console.error('[publicIntake] per-child answers PDF generation failed (registration flow) — continuing without it', {
               submissionId,
@@ -9996,7 +10240,12 @@ export const submitPublicIntake = async (req, res, next) => {
     });
 
     const answersPdfStart = Date.now();
-    const answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
+    const answersPdf = await buildAnswersPdfBuffer({
+      link,
+      intakeData,
+      submissionId,
+      submission: updatedSubmission
+    });
     markSubmitStep('answersPdfBuild', Date.now() - answersPdfStart);
 
     let downloadUrl = null;

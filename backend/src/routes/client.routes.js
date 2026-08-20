@@ -83,6 +83,13 @@ import {
   requireClientDisclosure
 } from '../controllers/clientDisclosure.controller.js';
 import {
+  getClientIntakeNote,
+  generateClientIntakeNote,
+  confirmClientIntakeDiagnosis,
+  finalizeClientIntakeNote,
+  getClientRecordsCopyBlocks
+} from '../controllers/clientIntakeNote.controller.js';
+import {
   getClientAgencyIntake,
   putClientAgencyIntake,
   getClientYearDisposition,
@@ -194,6 +201,9 @@ router.get('/:id/insurance-card', getClientInsuranceCard);
 // Demographics from profile + latest intake (backfills legacy data)
 router.get('/:id/demographics', getClientDemographics);
 
+// Copy-ready chart blocks (demographics + scrubbed clinical text)
+router.get('/:id/records-copy-blocks', getClientRecordsCopyBlocks);
+
 // Single admin note (internal-only; shown on Overview)
 router.get('/:id/admin-note', getClientAdminNote);
 router.put('/:id/admin-note', upsertClientAdminNote);
@@ -236,6 +246,12 @@ router.post('/:id/onboarding/mark-packet-signature', postMarkPacketSignature);
 router.post('/:id/onboarding/acknowledge-roi-staff', postAcknowledgeRoiStaff);
 router.put('/:id/onboarding/roi-expiration', putOnboardingRoiExpiration);
 router.post('/:id/onboarding/complete-staff', postCompleteStaffOnboarding);
+
+// Intake note pipeline (90791 / H0031 AI-assisted drafting)
+router.get('/:id/intake-note', getClientIntakeNote);
+router.post('/:id/intake-note/generate', generateClientIntakeNote);
+router.post('/:id/intake-note/:draftId/diagnosis', confirmClientIntakeDiagnosis);
+router.post('/:id/intake-note/:draftId/finalize', finalizeClientIntakeNote);
 
 // Smart Disclosure status / require re-sign
 router.get('/:id/disclosure', getClientDisclosure);

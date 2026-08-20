@@ -2,14 +2,22 @@
   <section class="cc-docs-panel client-disclosure-panel">
     <div class="cdp-header">
       <div>
-        <h4 class="cc-docs-panel__title">Disclosure</h4>
+        <h4 class="cc-docs-panel__title">Smart Disclosure</h4>
         <p class="cc-docs-panel__hint">
-          Signed provider disclosure status, parties on the last acknowledgment, and tenant terminology.
+          Living care-team disclosure for this school — providers assigned from the agency, with license, education, and supervisor details. This is not the Release of Information.
         </p>
       </div>
       <div class="cdp-actions">
         <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="refresh">
           {{ loading ? 'Refreshing…' : 'Refresh' }}
+        </button>
+        <button
+          v-if="disclosureViewKey"
+          type="button"
+          class="btn btn-primary btn-sm"
+          @click="emit('view-artifact', disclosureViewKey)"
+        >
+          View disclosure
         </button>
         <button
           v-if="canManage"
@@ -51,9 +59,9 @@
       </div>
 
       <div class="cdp-parties">
-        <h5>Parties on last signed acknowledgment</h5>
+        <h5>Care-team providers on this disclosure</h5>
         <div v-if="!parties.length" class="cc-docs-empty">
-          No signed disclosure on file yet.
+          No agency or school providers are currently listed for Smart Disclosure.
         </div>
         <ul v-else class="cdp-party-list">
           <li v-for="party in parties" :key="partyKey(party)">
@@ -79,7 +87,7 @@
         </a>
       </div>
 
-      <div v-if="canEditRegulatoryBoards" class="cdp-terminology">
+      <div v-if="canEditRegulatoryBoards && showTenantSettings" class="cdp-terminology">
         <button type="button" class="cdp-terminology-toggle" @click="toggleRegulatoryBoards">
           <span>{{ regulatoryBoardsOpen ? '▾' : '▸' }}</span>
           Regulatory boards by license type (tenant)
@@ -137,7 +145,7 @@
         </div>
       </div>
 
-      <div v-if="canEditTerminology" class="cdp-terminology">
+      <div v-if="canEditTerminology && showTenantSettings" class="cdp-terminology">
         <button type="button" class="cdp-terminology-toggle" @click="terminologyOpen = !terminologyOpen">
           <span>{{ terminologyOpen ? '▾' : '▸' }}</span>
           Edit terminology (tenant)
@@ -177,6 +185,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../../services/api';
 import { useAuthStore } from '../../../store/auth';
+import { useAgencyStore } from '../../../store/agency';
 import {
   buildRegulatoryBoardDraft,
   regulatoryBoardsFromDraft
@@ -184,10 +193,13 @@ import {
 
 const props = defineProps({
   clientId: { type: [Number, String], required: true },
-  client: { type: Object, default: null }
+  client: { type: Object, default: null },
+  showTenantSettings: { type: Boolean, default: false }
 });
+const emit = defineEmits(['view-artifact']);
 
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 
 const loading = ref(false);
 const requiring = ref(false);
@@ -230,9 +242,18 @@ const canEditTerminology = computed(() => canManage.value);
 const canEditRegulatoryBoards = computed(() => ['super_admin', 'admin'].includes(roleNorm.value));
 
 const agencyId = computed(() => {
-  const fromClient = Number(props.client?.agency_id || props.client?.agencyId || 0);
-  if (fromClient) return fromClient;
-  return Number(disclosure.value?.agencyId || disclosure.value?.agency_id || 0) || null;
+  const candidates = [
+    props.client?.agency_id,
+    props.client?.agencyId,
+    disclosure.value?.agencyId,
+    disclosure.value?.agency_id,
+    agencyStore.currentAgency?.id
+  ];
+  for (const value of candidates) {
+    const n = Number(value);
+    if (Number.isInteger(n) && n > 0) return n;
+  }
+  return null;
 });
 
 const statusKey = computed(() => {
@@ -264,6 +285,8 @@ const lastAck = computed(() =>
   || null
 );
 
+const disclosureViewKey = computed(() => 'disclosure-html');
+
 const lastSignedLabel = computed(() => {
   const at = lastAck.value?.signedAt || lastAck.value?.signed_at || null;
   if (!at) return '—';
@@ -290,8 +313,17 @@ const previewNote = computed(() =>
 );
 
 const parties = computed(() => {
+  // Living chart always prefers the current agency roster; signed snapshot stays on lastAck for history.
+  const live = disclosure.value?.currentProviders
+    || disclosure.value?.current_providers
+    || [];
+  if (Array.isArray(live) && live.length) return live;
   const ack = lastAck.value || {};
-  const list = ack.parties || ack.providers || ack.providers_json || disclosure.value?.parties || [];
+  const list = ack.parties
+    || ack.providers
+    || ack.providers_json
+    || disclosure.value?.parties
+    || [];
   return Array.isArray(list) ? list : [];
 });
 
@@ -365,7 +397,8 @@ async function loadDisclosure() {
 }
 
 async function loadSettings() {
-  if (!agencyId.value || !canEditTerminology.value) return;
+  const aid = Number(agencyId.value || 0);
+  if (!aid || !canEditTerminology.value) return;
   settingsLoading.value = true;
   try {
     const resp = await api.get(`/agencies/${agencyId.value}/disclosure-settings`, {

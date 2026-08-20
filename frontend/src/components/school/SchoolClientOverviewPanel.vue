@@ -124,7 +124,7 @@
         <div class="sco-k">Submitted</div>
         <div class="sco-v">{{ formatDate(client.submission_date) }}</div>
       </div>
-      <div class="sco-card">
+      <div v-if="false" class="sco-card">
         <div class="sco-k">Paperwork</div>
         <div class="sco-v">
           {{ client.paperwork_status_label || client.document_status || '—' }}

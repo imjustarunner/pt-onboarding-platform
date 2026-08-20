@@ -11,7 +11,7 @@
       </p>
     </div>
 
-    <div v-if="!ownOnly && signedSchoolPackets.length" class="signed-packet-section">
+    <div v-if="!ownOnly && !embedded && signedSchoolPackets.length" class="signed-packet-section">
       <h4 class="embedded-section-title">School referral packets (signed)</h4>
       <p class="hint">Versioned bundles from digital school referral intake — click to see what was signed.</p>
       <div class="signed-packet-list">
@@ -637,7 +637,10 @@ const openDoc = async (doc) => {
   try {
     opening.value = true;
     error.value = '';
-    const resp = await api.get(`/phi-documents/${doc.id}/view`, { responseType: 'blob' });
+    const resp = await api.get(`/phi-documents/${doc.id}/view`, {
+      responseType: 'blob',
+      params: { theme: document.documentElement.getAttribute('data-theme') || '' }
+    });
     const contentType = String(resp.headers?.['content-type'] || '').toLowerCase();
 
     if (contentType.includes('application/json')) {
@@ -1152,7 +1155,8 @@ tr.doc-highlight {
   font-size: 12px;
   max-height: 260px;
   overflow: auto;
-  background: white;
+  background: var(--bg);
+  color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px;

@@ -20,8 +20,17 @@ import {
   FALLBACK_ITSCO_BUSINESS_ENTITY,
   resolveDisclosureBusinessEntity
 } from '../utils/disclosureBusinessEntity.js';
+import { decryptIntakeSubmissionRows } from './intakeResponsesEncryption.service.js';
+import AgencySchoolIntakeMaster from '../models/AgencySchoolIntakeMaster.model.js';
 
 const DEMO_SCHOOL_SLUGS = new Set(['hogwarts']);
+
+/** Living chart prefers currentProviders; signed snapshot is historical fallback only. */
+export function pickLivingDisclosureParties(currentProviders = [], signedProviders = []) {
+  const live = Array.isArray(currentProviders) ? currentProviders : [];
+  const signed = Array.isArray(signedProviders) ? signedProviders : [];
+  return live.length ? live : signed;
+}
 
 const DEFAULT_COPY_EN = {
   title: 'DISCLOSURE STATEMENT',
@@ -738,9 +747,9 @@ export async function buildSmartDisclosureContext({
 
 export function normalizeSmartDisclosureResponse({ disclosureContext = {}, intakeData = {}, signedAt = new Date() } = {}) {
   const payload = intakeData?.smartDisclosure || {};
-  const providers = Array.isArray(payload.providers)
-    ? payload.providers
-    : (disclosureContext.providers || []);
+  const fromPayload = Array.isArray(payload.providers) ? payload.providers : [];
+  const fromContext = Array.isArray(disclosureContext.providers) ? disclosureContext.providers : [];
+  const providers = fromPayload.length ? fromPayload : fromContext;
   return {
     locale: normalizeLocale(payload.locale || disclosureContext.locale || 'en'),
     signedAt: signedAt instanceof Date ? signedAt.toISOString() : String(signedAt || ''),
@@ -749,12 +758,16 @@ export function normalizeSmartDisclosureResponse({ disclosureContext = {}, intak
     signerEmail: String(payload.signerEmail || payload.signer?.email || '').trim() || null,
     contentHash: payload.contentHash || disclosureContext.contentHash || null,
     providers: providers.map((p) => ({
+      ...p,
       id: Number(p.id || p.userId || 0) || null,
       fullName: p.fullName || null,
+      title: p.title || null,
       category: p.category || null,
       licenseNumber: p.licenseNumber || null,
       credential: p.credential || null,
       education: p.education || null,
+      serviceProvider: p.serviceProvider || null,
+      supervisors: Array.isArray(p.supervisors) ? p.supervisors : [],
       regulatoryBoard: p.regulatoryBoard || null,
       credentialFingerprint: p.credentialFingerprint || fingerprintProvider(p)
     })),
@@ -774,17 +787,18 @@ export function buildSmartDisclosureHtml({ disclosureContext = {}, response = {}
   const copy = disclosureContext.copy || defaultCopy(disclosureContext.locale);
   const entity = disclosureContext.businessEntity || FALLBACK_ITSCO_BUSINESS_ENTITY;
   const providers = response.providers || disclosureContext.providers || [];
-  const groups = [
-    { key: 'FULLY_LICENSED', label: copy.fullyLicensedHeading, items: [] },
-    { key: 'PRE_LICENSED', label: copy.preLicensedHeading, items: [] },
-    { key: 'UNLICENSED', label: copy.unlicensedHeading, items: [] }
-  ];
-  for (const p of providers) {
-    const g = groups.find((x) => x.key === p.category) || groups[2];
-    g.items.push(p);
-  }
-  const providerHtml = groups.map((g) => `
-    <h2>${escapeHtml(g.label)}</h2>
+  const renderGroups = (list) => {
+    const groups = [
+      { key: 'FULLY_LICENSED', label: copy.fullyLicensedHeading, items: [] },
+      { key: 'PRE_LICENSED', label: copy.preLicensedHeading, items: [] },
+      { key: 'UNLICENSED', label: copy.unlicensedHeading, items: [] }
+    ];
+    for (const p of list) {
+      const g = groups.find((x) => x.key === p.category) || groups[2];
+      g.items.push(p);
+    }
+    return groups.map((g) => `
+    <h3>${escapeHtml(g.label)}</h3>
     ${g.items.map((p) => `
       <div class="prov">
         <p><strong>Name:</strong> ${escapeHtml(p.fullName || '')}${p.title ? `, <em>${escapeHtml(p.title)}</em>` : ''}</p>
@@ -796,16 +810,34 @@ export function buildSmartDisclosureHtml({ disclosureContext = {}, response = {}
       </div>
     `).join('') || '<p><em>None listed.</em></p>'}
   `).join('');
+  };
+  const schoolTeam = providers.filter((p) => p.schoolAssigned);
+  const rest = providers.filter((p) => !p.schoolAssigned);
+  const providerHtml = schoolTeam.length
+    ? `<h2>Assigned to this school</h2>${renderGroups(schoolTeam)}<h2>All current providers</h2>${renderGroups(rest)}`
+    : renderGroups(providers);
 
-  const when = signedAt instanceof Date ? signedAt.toLocaleString() : String(signedAt || '');
+  const when = signedAt
+    ? (signedAt instanceof Date ? signedAt.toLocaleString() : String(signedAt || ''))
+    : '';
+  const sig = String(response.signatureData || '').trim();
+  const sigImg = sig.startsWith('data:image/')
+    ? sig
+    : (sig.length > 80 ? `data:image/png;base64,${sig}` : '');
+  const signedBlock = (response.acknowledged || sigImg || response.signerName)
+    ? `${sigImg ? `<div class="sig"><img src="${escapeHtml(sigImg)}" alt="Signature" /></div>` : ''}
+    <p><strong>Signed:</strong> ${escapeHtml(response.signerName || '')}${when ? ` · ${escapeHtml(when)}` : ''}</p>`
+    : `<p><em>Current care-team Smart Disclosure — not yet acknowledged for this client. This is not the Release of Information.</em></p>`;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${escapeHtml(copy.title)}</title>
   <style>
     body{font-family:Georgia,serif;color:#111;max-width:800px;margin:24px auto;padding:0 16px;line-height:1.45}
     h1{text-align:center;font-size:22px;letter-spacing:.04em}
     h2{margin-top:28px;font-size:15px;letter-spacing:.04em}
+    h3{margin-top:18px;font-size:13px;letter-spacing:.04em}
     .entity{text-align:center;margin:18px 0}
     .prov{margin:12px 0 18px}
     .ack{margin-top:28px;padding-top:12px;border-top:1px solid #ccc}
+    .sig img{max-height:64px;max-width:280px}
   </style></head><body>
   <h1>${escapeHtml(copy.title)}</h1>
   ${copy.introHtml || ''}
@@ -819,7 +851,7 @@ export function buildSmartDisclosureHtml({ disclosureContext = {}, response = {}
   ${copy.levelsOfRegulationHtml || ''}
   <div class="ack">
     <p>${escapeHtml(copy.acknowledgmentText || '')}</p>
-    <p><strong>Signed:</strong> ${escapeHtml(response.signerName || '')} · ${escapeHtml(when)}</p>
+    ${signedBlock}
   </div>
   </body></html>`;
 }
@@ -928,28 +960,186 @@ export async function getClientDisclosureStatus(clientId) {
   );
   const client = clients?.[0];
   if (!client) return null;
-  const latest = await getLatestDisclosureAcknowledgement(cid);
+
+  let agencyId = null;
+  if (client.organization_id) {
+    try {
+      agencyId = await AgencySchoolIntakeMaster.resolveParentAgencyIdForSchool(client.organization_id);
+    } catch {
+      agencyId = null;
+    }
+  }
+  if (!agencyId) agencyId = Number(client.agency_id) || null;
+
+  let latest = await getLatestDisclosureAcknowledgement(cid);
+  if (!latest) {
+    try {
+      const [phiRows] = await pool.execute(
+        `SELECT id, uploaded_at, document_title, original_name, document_type
+         FROM client_phi_documents
+         WHERE client_id = ? AND removed_at IS NULL
+           AND (
+             LOWER(COALESCE(document_type, '')) LIKE '%disclosure%'
+             OR LOWER(COALESCE(document_title, '')) LIKE '%disclosure%'
+             OR LOWER(COALESCE(original_name, '')) LIKE '%disclosure%'
+           )
+           AND LOWER(CONCAT(
+             COALESCE(document_type, ''), ' ',
+             COALESCE(document_title, ''), ' ',
+             COALESCE(original_name, '')
+           )) NOT LIKE '%release of information%'
+           AND LOWER(CONCAT(
+             COALESCE(document_type, ''), ' ',
+             COALESCE(document_title, ''), ' ',
+             COALESCE(original_name, '')
+           )) NOT LIKE '%school_roi%'
+         ORDER BY id DESC
+         LIMIT 1`,
+        [cid]
+      );
+      const phi = phiRows?.[0];
+      const phiBlob = `${phi?.document_type || ''} ${phi?.document_title || ''} ${phi?.original_name || ''}`.toLowerCase();
+      if (phi && (phiBlob.includes('disclosure statement') || String(phi.document_type || '').toLowerCase() === 'disclosure')) {
+        latest = {
+          id: null,
+          signed_at: phi.uploaded_at,
+          language_code: null,
+          signer_name: null,
+          content_hash: null,
+          providers: [],
+          client_phi_document_id: phi.id
+        };
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (!latest) {
+    try {
+      const [isdRows] = await pool.execute(
+        `SELECT isd.id, isd.signed_at, isd.audit_trail, dt.name AS document_template_name
+         FROM intake_submission_documents isd
+         LEFT JOIN document_templates dt ON dt.id = isd.document_template_id
+         WHERE isd.signed_pdf_path IS NOT NULL
+           AND (
+             isd.client_id = ?
+             OR EXISTS (
+               SELECT 1 FROM intake_submissions s
+               WHERE s.id = isd.intake_submission_id AND s.client_id = ?
+             )
+             OR EXISTS (
+               SELECT 1 FROM intake_submission_clients isc
+               WHERE isc.intake_submission_id = isd.intake_submission_id AND isc.client_id = ?
+             )
+           )
+         ORDER BY COALESCE(isd.signed_at, isd.id) DESC
+         LIMIT 40`,
+        [cid, cid, cid]
+      );
+      const disclosureRow = (isdRows || []).find((row) => {
+        let trail = row.audit_trail;
+        if (typeof trail === 'string') {
+          try { trail = JSON.parse(trail); } catch { trail = {}; }
+        }
+        if (trail?.smartSchoolRoi || trail?.roiResponse) return false;
+        if (trail?.smartDisclosure === true || trail?.disclosure) return true;
+        const blob = `${row.document_template_name || ''} ${trail?.documentName || ''}`.toLowerCase();
+        if (blob.includes('release of information')) return false;
+        if (blob.includes('disclosure agreement') && !blob.includes('disclosure statement')) return false;
+        return blob.includes('disclosure statement');
+      });
+      if (disclosureRow) {
+        let trail = disclosureRow.audit_trail;
+        if (typeof trail === 'string') {
+          try { trail = JSON.parse(trail); } catch { trail = {}; }
+        }
+        latest = {
+          id: disclosureRow.id,
+          signed_at: disclosureRow.signed_at,
+          language_code: null,
+          signer_name: trail?.signerName || null,
+          content_hash: trail?.documentReference || null,
+          providers: [],
+          client_phi_document_id: null
+        };
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (!latest) {
+    try {
+      const [subs] = await pool.execute(
+        `SELECT s.id, s.submitted_at, s.intake_data,
+                s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id
+         FROM intake_submissions s
+         LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
+         WHERE (s.client_id = ? OR isc.client_id = ?)
+         GROUP BY s.id, s.submitted_at, s.intake_data,
+                  s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id
+         ORDER BY COALESCE(s.submitted_at, s.id) DESC
+         LIMIT 5`,
+        [cid, cid]
+      );
+      decryptIntakeSubmissionRows(subs || []);
+      for (const row of subs || []) {
+        const data = parseJsonMaybe(row.intake_data) || {};
+        const disc = data.smartDisclosure || data.disclosure;
+        if (disc && (disc.acknowledged || disc.signatureData)) {
+          latest = {
+            id: null,
+            signed_at: disc.signedAt || disc.acknowledgedAt || row.submitted_at,
+            language_code: disc.locale || null,
+            signer_name: disc.signerName || null,
+            content_hash: disc.contentHash || null,
+            providers: Array.isArray(disc.providers) ? disc.providers : [],
+            client_phi_document_id: null
+          };
+          break;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   const required = client.disclosure_required === 1 || client.disclosure_required === true;
+  let currentProviders = [];
+  if (agencyId) {
+    try {
+      currentProviders = await listDisclosureProviders({
+        agencyId,
+        schoolOrganizationId: Number(client.organization_id) || 0
+      });
+    } catch {
+      currentProviders = [];
+    }
+  }
+  const signedProviders = Array.isArray(latest?.providers) ? latest.providers : [];
+  // Living chart roster is always currentProviders; signed snapshot remains historical evidence.
+  const parties = pickLivingDisclosureParties(currentProviders, signedProviders);
   return {
-    agencyId: Number(client.agency_id) || null,
-    agency_id: Number(client.agency_id) || null,
+    agencyId,
+    agency_id: agencyId,
     schoolOrganizationId: Number(client.organization_id) || null,
     disclosureRequired: required,
     status: required ? 're_sign_needed' : (latest ? 'current' : 'missing'),
+    currentProviders,
+    parties,
     lastAcknowledgement: latest ? {
       id: latest.id,
       signedAt: latest.signed_at,
       languageCode: latest.language_code,
       signerName: latest.signer_name,
       contentHash: latest.content_hash,
-      providers: latest.providers,
-      parties: latest.providers,
+      providers: signedProviders,
+      parties: signedProviders,
       clientPhiDocumentId: latest.client_phi_document_id
     } : null,
     previewNote: required
       ? 'A newly assigned provider is not on the last signed disclosure. A new acknowledgment is required.'
       : (latest
-        ? 'Disclosure is current for providers listed on the last signed acknowledgment.'
-        : 'No signed Smart Disclosure on file yet.')
+        ? 'Showing the current school-first agency care team. The last signed acknowledgment is kept as historical evidence.'
+        : 'No signed Smart Disclosure on file yet. The document below is the current school and agency care-team disclosure — it is not the Release of Information.')
   };
 }

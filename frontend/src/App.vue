@@ -2525,8 +2525,9 @@ function routeLooksLikePublicIntake(r) {
   const name = String(r?.name || '');
   if (name === 'PublicIntakeSigning' || name === 'PublicIntakeSigningShort') return true;
   if (name === 'PublicSchoolReferralFinder' || r?.meta?.publicSchoolReferral) return true;
+  if (name === 'PublicDistrictSchedule' || name === 'FlatPublicDistrictSchedule' || r?.meta?.publicDistrictSchedule) return true;
   const path = String(r?.path || '');
-  return /^\/intake\//.test(path) || /^\/i\//.test(path) || /\/school-referral(?:\/|$)/.test(path);
+  return /^\/intake\//.test(path) || /^\/i\//.test(path) || /\/school-referral(?:\/|$)/.test(path) || /\/district-schedule(?:\/|$)/.test(path);
 }
 
 // Global loading overlay (tracks API calls + navigation + icon preloads).

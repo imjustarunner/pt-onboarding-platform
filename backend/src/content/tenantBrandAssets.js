@@ -59,7 +59,8 @@ const ITSCO_SMS = {
   providers: sms('ITSCO', 'ITSCOProviders.png'),
   terms: sms('ITSCO', 'ITSCOTermsandConditions.png'),
   privacy: sms('ITSCO', 'ITSCOPrivacyPolicy.png'),
-  login: sms('ITSCO', 'ITSCOLogin.png')
+  login: sms('ITSCO', 'ITSCOLogin.png'),
+  district_schedule: sms('ITSCO', 'District11.png')
 };
 
 const NLU_SMS = {
@@ -322,6 +323,7 @@ export function pathToSharePageKey(pathname = '', serviceType = '') {
   if (p === '/terms' || p.endsWith('/terms')) return 'terms';
   if (p.includes('/login')) return 'login';
   if (p.includes('/find-provider') || /\/providers(\/|$)/.test(p)) return 'providers';
+  if (p.includes('/district-schedule')) return 'district_schedule';
   if (p.includes('/open-events') || p.endsWith('/events') || p.includes('/events')) return 'events';
   if (p.includes('/find-tutor') || p.includes('/tutors')) return 'tutors';
   if (p.includes('/find-coach')) return 'coaching';

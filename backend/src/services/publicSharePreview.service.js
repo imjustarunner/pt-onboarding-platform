@@ -33,6 +33,7 @@ const PAGE_KEYS = new Set([
   'terms',
   'privacy',
   'school_referral',
+  'district_schedule',
   'counseling',
   'coaching',
   'tutoring',

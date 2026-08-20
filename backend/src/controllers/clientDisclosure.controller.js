@@ -5,6 +5,7 @@ import {
   upsertAgencyDisclosureSettings,
   loadAgencyDisclosureSettings
 } from '../services/smartDisclosure.service.js';
+import AgencySchoolIntakeMaster from '../models/AgencySchoolIntakeMaster.model.js';
 import pool from '../config/database.js';
 
 async function getSettings(agencyId, locale) {
@@ -36,6 +37,20 @@ async function ensureAgencyAccess(req, agencyId) {
   return (orgs || []).some((o) => Number(o.id) === Number(agencyId));
 }
 
+async function ensureClientDisclosureAccess(req, client) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'super_admin') return true;
+  if (await ensureAgencyAccess(req, client.agency_id)) return true;
+  if (await ensureAgencyAccess(req, client.organization_id)) return true;
+  try {
+    const parent = await AgencySchoolIntakeMaster.resolveParentAgencyIdForSchool(client.organization_id);
+    if (parent && await ensureAgencyAccess(req, parent)) return true;
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
 export const getClientDisclosure = async (req, res, next) => {
   try {
     const clientId = parseInt(req.params.id, 10);
@@ -44,7 +59,7 @@ export const getClientDisclosure = async (req, res, next) => {
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
     const role = String(req.user?.role || '').toLowerCase();
     if (role !== 'super_admin') {
-      const ok = await ensureAgencyAccess(req, client.agency_id);
+      const ok = await ensureClientDisclosureAccess(req, client);
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     }
     const status = await getClientDisclosureStatus(clientId);
@@ -65,7 +80,7 @@ export const requireClientDisclosure = async (req, res, next) => {
     const client = await Client.findById(clientId);
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
     if (role !== 'super_admin') {
-      const ok = await ensureAgencyAccess(req, client.agency_id);
+      const ok = await ensureClientDisclosureAccess(req, client);
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     }
     await pool.execute(`UPDATE clients SET disclosure_required = 1 WHERE id = ?`, [clientId]);

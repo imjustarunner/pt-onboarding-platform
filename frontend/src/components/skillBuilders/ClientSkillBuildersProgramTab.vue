@@ -64,10 +64,10 @@
               <li v-if="builderClientSummary?.grade">Grade: {{ formatGradeDisplay(builderClientSummary.grade) }}</li>
               <li v-if="builderClientSummary?.ageYears != null">Age: {{ builderClientSummary.ageYears }}</li>
               <li v-else-if="builderClientSummary?.dateOfBirth">Date of birth: {{ builderClientSummary.dateOfBirth }}</li>
-              <li>
-                Documents / paperwork:
-                {{ builderClientSummary?.paperworkStatusLabel || builderClientSummary?.documentStatus || '—' }}
-              </li>
+                <li v-if="false">
+                  Documents / paperwork:
+                  {{ builderClientSummary?.paperworkStatusLabel || builderClientSummary?.documentStatus || '—' }}
+                </li>
               <li v-if="builderClientSummary?.clientStatusLabel">Status: {{ builderClientSummary.clientStatusLabel }}</li>
             </ul>
           </section>

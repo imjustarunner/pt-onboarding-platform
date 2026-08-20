@@ -1,5 +1,5 @@
 import Agency from '../models/Agency.model.js';
-import AgencyOfficeIntakeMaster from '../models/AgencyOfficeIntakeMaster.model.js';
+import AgencySchoolIntakeMaster from '../models/AgencySchoolIntakeMaster.model.js';
 import IntakeLink from '../models/IntakeLink.model.js';
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
 import IntakeSubmissionDocument from '../models/IntakeSubmissionDocument.model.js';
@@ -88,6 +88,14 @@ async function resolveOfficeRecord(req) {
     link = await AgencyOfficeIntakeMaster.applyMasterToLink(link, { agencyId: agency?.id || link.organization_id });
   } catch (inheritErr) {
     console.warn('[intakeSummaryPdf] office master overlay failed', inheritErr?.message || inheritErr);
+  }
+  try {
+    link = await AgencySchoolIntakeMaster.applyMasterToLink(link, {
+      agencyId: agency?.id || link.organization_id,
+      languageCode: link.language_code || submission.language_code || 'en'
+    });
+  } catch (inheritErr) {
+    console.warn('[intakeSummaryPdf] school master overlay failed', inheritErr?.message || inheritErr);
   }
   const signedDocuments = await IntakeSubmissionDocument.listSignedForRecord(submission.id);
   const spec = await brandedIntakeSummarySpec(buildCompletedIntakeRecord({

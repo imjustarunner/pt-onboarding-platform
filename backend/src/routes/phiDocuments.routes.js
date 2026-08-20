@@ -3,6 +3,8 @@ import { authenticate } from '../middleware/auth.middleware.js';
 import {
   listClientPhiDocuments,
   listClientIntakeResponses,
+  listClientChartArtifacts,
+  viewClientChartArtifact,
   listClientPhiDocumentAudit,
   markPhiDocumentExported,
   removePhiDocument,
@@ -20,6 +22,8 @@ const router = express.Router();
 router.get('/clients/:clientId', authenticate, listClientPhiDocuments);
 router.get('/clients/:clientId/audit', authenticate, listClientPhiDocumentAudit);
 router.get('/clients/:clientId/intake-responses', authenticate, listClientIntakeResponses);
+router.get('/clients/:clientId/chart-artifacts', authenticate, listClientChartArtifacts);
+router.get('/clients/:clientId/chart-artifacts/:viewKey/view', authenticate, viewClientChartArtifact);
 router.get('/clients/:clientId/signed-school-packets', authenticate, listClientSignedSchoolPackets);
 router.get('/signed-school-packets/:packetId', authenticate, getClientSignedSchoolPacket);
 

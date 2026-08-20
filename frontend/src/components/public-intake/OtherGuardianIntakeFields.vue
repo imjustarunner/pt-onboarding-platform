@@ -1,10 +1,10 @@
 <template>
-  <div id="other-guardian-fields" class="ogi">
+  <div id="other-guardian-fields" class="ogi" :class="{ 'ogi--error': !!localError }">
     <strong class="ogi-title">{{ copy.title }}</strong>
 
     <label class="ogi-rights">
       {{ copy.rightsLabel }}
-      <select v-model="model.hasLegalRights">
+      <select v-model="model.hasLegalRights" :class="{ 'input-error': !!localError }">
         <option value="">{{ copy.selectOption }}</option>
         <option value="yes">{{ copy.yes }}</option>
         <option value="no">{{ copy.no }}</option>
@@ -194,6 +194,18 @@ async function save() {
 
 <style scoped>
 .ogi { display: grid; gap: 0.4rem; }
+.ogi--error {
+  border: 1px solid rgba(220, 53, 69, 0.55);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(220, 53, 69, 0.04);
+  box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.2), 0 0 14px rgba(220, 53, 69, 0.22);
+}
+.ogi .input-error,
+.ogi select.input-error {
+  border-color: #dc3545;
+  box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.55);
+}
 .ogi-title { font-size: 0.95rem; color: var(--df-primary, #1b3d2f); }
 .ogi p, .ogi-note { margin: 0; font-size: 0.8rem; line-height: 1.35; color: #334155; }
 .ogi-rights,

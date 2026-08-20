@@ -11,6 +11,7 @@ import {
 describe('tenantBrandAssets', () => {
   it('maps SMS pages per tenant', () => {
     expect(tenantSmsImage('itsco', 'support')).toContain('/SMSAssets/ITSCO/ITSCOSupport.png');
+    expect(tenantSmsImage('itsco', 'district_schedule')).toContain('/SMSAssets/ITSCO/District11.png');
     expect(tenantSmsImage('itsco', 'counseling')).toContain('/SMSAssets/ITSCO/ITSCOJoinUs.png');
     expect(tenantSmsImage('nlu', 'counseling')).toContain('/SMSAssets/NLU/NLUCounseling.png');
     expect(tenantSmsImage('nlu', 'tutoring')).toContain('/SMSAssets/NLU/NLUTutoring.png');
@@ -53,6 +54,7 @@ describe('tenantBrandAssets', () => {
     expect(pathToSharePageKey('/join/innerstrength/coaching')).toBe('coaching');
     expect(pathToSharePageKey('/join/itsco')).toBe('join');
     expect(pathToSharePageKey('/nlu/school-referral')).toBe('school_referral');
+    expect(pathToSharePageKey('/itsco/district-schedule/colorado-springs-school-district-11')).toBe('district_schedule');
     expect(pathToSharePageKey('/nlu/tutors')).toBe('tutors');
     expect(pathToSharePageKey('/nlu/find-tutor')).toBe('tutors');
     expect(pathToSharePageKey('/innerstrength/find-coach')).toBe('coaching');

@@ -505,6 +505,10 @@
           <p class="sp-topbar-subtitle">Schedule + roster</p>
         </div>
         <div class="sp-topbar-right">
+          <DistrictScheduleLinkButton
+            v-if="affiliatedAgencyId && canManageSchoolPortalBackofficeNav"
+            :agency-id="affiliatedAgencyId"
+          />
           <div v-if="showSchoolSelector" class="school-selector-wrap">
             <label for="school-selector" class="school-selector-label">School:</label>
             <select
@@ -2577,6 +2581,7 @@ import {
   priorSchoolYearsFromAvailable
 } from '../../utils/schoolYear.js';
 import SchoolHelpDeskModal from '../../components/school/SchoolHelpDeskModal.vue';
+import DistrictScheduleLinkButton from '../../components/school/DistrictScheduleLinkButton.vue';
 import PostSchoolEventModal from '../../components/school/PostSchoolEventModal.vue';
 import SchoolPortalCalendarPanel from '../../components/school/SchoolPortalCalendarPanel.vue';
 import SchoolEventStaffingPanel from '../../components/caseload-hub/SchoolEventStaffingPanel.vue';

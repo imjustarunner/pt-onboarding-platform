@@ -7,10 +7,18 @@ import {
 } from '../services/taskDescriptionEncryption.service.js';
 
 class Task {
-  static hydrateSensitiveDescription(row) {
+  static hydrateSensitiveDescription(row, { revealPhi = false } = {}) {
     if (!row) return row;
+    const hasCipher = !!(row.description_ciphertext && row.description_iv && row.description_auth_tag);
+    if (hasCipher && !revealPhi) {
+      return {
+        ...row,
+        description: ENCRYPTED_TASK_DESCRIPTION_PLACEHOLDER,
+        has_encrypted_description: true
+      };
+    }
     const description = resolveTaskDescriptionPlaintext(row);
-    return { ...row, description };
+    return { ...row, description, has_encrypted_description: hasCipher };
   }
 
   static hydrateSensitiveDescriptions(rows) {
@@ -247,7 +255,7 @@ class Task {
     return createdTask;
   }
 
-  static async findById(id) {
+  static async findById(id, { revealPhi = false } = {}) {
     if (!id) {
       console.error('Task.findById called with null/undefined id');
       return null;
@@ -259,7 +267,7 @@ class Task {
     if (rows.length === 0) {
       console.warn(`Task.findById: No task found with id ${id}`);
     }
-    return this.hydrateSensitiveDescription(rows[0] || null);
+    return this.hydrateSensitiveDescription(rows[0] || null, { revealPhi });
   }
 
   static _appendHubFilters(query, params, filters = {}) {

@@ -356,3 +356,42 @@ export async function persistPacketSectionAcknowledgement({
   );
   return { id: result.insertId };
 }
+
+export async function listPacketSectionAcknowledgementsForClient(clientId) {
+  const cid = Number(clientId || 0);
+  if (!cid) return [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM client_packet_section_acknowledgements
+       WHERE client_id = ?
+       ORDER BY signed_at DESC, id DESC`,
+      [cid]
+    );
+    return rows || [];
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (e?.code === 'ER_NO_SUCH_TABLE' || msg.includes("doesn't exist")) return [];
+    throw e;
+  }
+}
+
+export async function findPacketSectionAcknowledgementById(id, clientId) {
+  const ackId = Number(id || 0);
+  const cid = Number(clientId || 0);
+  if (!ackId || !cid) return null;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM client_packet_section_acknowledgements
+       WHERE id = ? AND client_id = ?
+       LIMIT 1`,
+      [ackId, cid]
+    );
+    return rows?.[0] || null;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (e?.code === 'ER_NO_SUCH_TABLE' || msg.includes("doesn't exist")) return null;
+    throw e;
+  }
+}

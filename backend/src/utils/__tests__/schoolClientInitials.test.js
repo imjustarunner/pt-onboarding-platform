@@ -1,16 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import test from 'node:test';
+import assert from 'node:assert/strict';
 import { deriveSchoolClientInitials, isValidSchoolClientInitials } from '../schoolClientInitials.js';
 
-describe('schoolClientInitials', () => {
-  it('derives first 3 + last 3 letters in uppercase', () => {
-    expect(deriveSchoolClientInitials('Harry Potter')).toBe('HARPOT');
-    expect(deriveSchoolClientInitials('Hermione Granger')).toBe('HERGRA');
-    expect(deriveSchoolClientInitials('Justin Finch-Fletchley')).toBe('JUSFIN');
-  });
+test('deriveSchoolClientInitials uses first 3 + last 3 letters uppercase', () => {
+  assert.equal(deriveSchoolClientInitials('Harry Potter'), 'HARPOT');
+  assert.equal(deriveSchoolClientInitials('Hermione Granger'), 'HERGRA');
+  assert.equal(deriveSchoolClientInitials('Justin Finch-Fletchley'), 'JUSFIN');
+  assert.equal(deriveSchoolClientInitials('Fake2 Fakerson'), 'FAKFAK');
+});
 
-  it('validates six uppercase letters', () => {
-    expect(isValidSchoolClientInitials('HARPOT')).toBe(true);
-    expect(isValidSchoolClientInitials('HP')).toBe(false);
-    expect(isValidSchoolClientInitials('JohDoe')).toBe(false);
-  });
+test('isValidSchoolClientInitials requires six letters (case-insensitive)', () => {
+  assert.equal(isValidSchoolClientInitials('HARPOT'), true);
+  assert.equal(isValidSchoolClientInitials('FakFak'), true);
+  assert.equal(isValidSchoolClientInitials('HP'), false);
+  assert.equal(isValidSchoolClientInitials('JohDo'), false);
+  assert.equal(isValidSchoolClientInitials('ABCDEFG'), false);
 });

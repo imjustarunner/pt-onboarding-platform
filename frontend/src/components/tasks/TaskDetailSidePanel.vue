@@ -142,9 +142,24 @@
           <span v-if="collaboratorError" class="error">{{ collaboratorError }}</span>
         </label>
 
-        <label class="field field--stack">
+        <div v-if="needsPhiConfirm && !phiRevealed" class="phi-confirm">
+          <p>
+            This task contains protected health information. Confirm you are authorized to view it
+            for H0002 billing work.
+          </p>
+          <button type="button" class="btn btn-primary" :disabled="revealingPhi" @click="confirmPhiView">
+            {{ revealingPhi ? 'Opening…' : 'I confirm — show client details' }}
+          </button>
+          <span v-if="phiError" class="error">{{ phiError }}</span>
+        </div>
+        <label v-else class="field field--stack">
           <span>Description / Notes</span>
-          <textarea v-model="draft.description" class="form-control" rows="3" @change="saveCore" />
+          <textarea
+            v-model="draft.description"
+            class="form-control"
+            :rows="needsPhiConfirm ? 16 : 3"
+            @change="saveCore"
+          />
         </label>
 
         <div class="assoc-box">
@@ -349,6 +364,14 @@ function pinToDock() {
 
 const tab = ref('details');
 const loading = ref(false);
+const phiRevealed = ref(false);
+const revealingPhi = ref(false);
+const phiError = ref('');
+const needsPhiConfirm = computed(() =>
+  !!props.item?.has_encrypted_description
+  || Number(props.item?.metadata?.requiresPhiConfirm) === 1
+  || String(props.item?.source_ref_type || '') === 'school_intake_review'
+);
 const attachments = ref([]);
 const comments = ref([]);
 const links = ref([]);
@@ -802,13 +825,30 @@ function removeSubtask(i) {
   persistSubtasks();
 }
 
+async function confirmPhiView() {
+  if (!props.item?.id) return;
+  revealingPhi.value = true;
+  phiError.value = '';
+  try {
+    const { data } = await api.post(`/me/tasks/${props.item.id}/reveal-phi`, {}, { skipGlobalLoading: true });
+    draft.description = data?.description || '';
+    phiRevealed.value = true;
+  } catch (e) {
+    phiError.value = e?.response?.data?.error?.message || e?.message || 'Could not open PHI';
+  } finally {
+    revealingPhi.value = false;
+  }
+}
+
 watch(
-  () => props.item,
+  () => props.item?.id,
   () => {
+    phiRevealed.value = false;
+    phiError.value = '';
     syncDraft();
     loadExtras();
   },
-  { immediate: true, deep: true }
+  { immediate: true }
 );
 </script>
 
@@ -827,6 +867,16 @@ watch(
   box-shadow: -4px 0 24px rgba(15, 23, 42, 0.06);
   font-size: 13px;
 }
+.phi-confirm {
+  margin: 8px 0 12px;
+  padding: 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--bg-alt, #f8fafc);
+  display: grid;
+  gap: 10px;
+}
+.phi-confirm p { margin: 0; color: var(--text-secondary); line-height: 1.4; }
 .side-panel__head {
   display: flex;
   align-items: center;

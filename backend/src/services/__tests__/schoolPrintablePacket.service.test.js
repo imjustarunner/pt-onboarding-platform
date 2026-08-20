@@ -11,6 +11,7 @@ import {
   buildSchoolStaffTableHtml,
   buildDisclosureCareTeamHtml,
   groupDisclosureProvidersByCareTeam,
+  expandYourCareTeamProviders,
   schoolPrintablePacketContentHash
 } from '../schoolPrintablePacket.service.js';
 import {
@@ -61,15 +62,17 @@ test('builds virtual library document metadata with template version', () => {
   assert.equal(doc.is_virtual, true);
 });
 
-test('groups disclosure providers into your care team vs potential care team', () => {
+test('groups disclosure providers into one school-first care team roster', () => {
   const grouped = groupDisclosureProvidersByCareTeam([
     { fullName: 'Assigned A', schoolAssigned: true, category: 'FULLY_LICENSED' },
-    { fullName: 'Potential B', schoolAssigned: false, category: 'PRE_LICENSED' },
+    { fullName: 'Agency B', schoolAssigned: false, category: 'PRE_LICENSED' },
     { fullName: 'Assigned C', schoolAssigned: true, category: 'UNLICENSED' }
   ]);
-  assert.equal(grouped.yourCareTeam.length, 2);
-  assert.equal(grouped.potentialCareTeam.length, 1);
-  assert.equal(grouped.potentialCareTeam[0].fullName, 'Potential B');
+  assert.equal(grouped.yourCareTeam.length, 3);
+  assert.equal(grouped.potentialCareTeam.length, 0);
+  assert.equal(grouped.yourCareTeam[0].fullName, 'Assigned A');
+  assert.equal(grouped.yourCareTeam[1].fullName, 'Assigned C');
+  assert.equal(grouped.yourCareTeam[2].fullName, 'Agency B');
 });
 
 test('formats supervisor type with leading capital', () => {
@@ -117,7 +120,7 @@ test('builds four empty fill-in rows when no school staff are attached', () => {
   assert.equal((html.match(/form-blank/g) || []).length, 16); // 4 blank rows × 4 cells
 });
 
-test('builds disclosure care team HTML with bold names and centered section titles', () => {
+test('builds disclosure care team HTML with school-first full agency roster', () => {
   const html = buildDisclosureCareTeamHtml([
     {
       fullName: 'School Assigned',
@@ -136,10 +139,24 @@ test('builds disclosure care team HTML with bold names and centered section titl
     }
   ]);
   assert.match(html, /Your Care Team/);
-  assert.match(html, /Potential Care Team Members/);
+  assert.doesNotMatch(html, /Potential Care Team Members/);
   assert.match(html, /packet-provider-name">School Assigned/);
   assert.match(html, /Pat Supervisor, Clinical/);
   assert.match(html, /Agency Only/);
+  // School-assigned appears before agency-only in the combined roster.
+  assert.ok(html.indexOf('School Assigned') < html.indexOf('Agency Only'));
+});
+
+test('expandYourCareTeamProviders keeps full agency roster school-first', async () => {
+  const out = await expandYourCareTeamProviders([
+    { id: 2, fullName: 'Agency Two', schoolAssigned: false },
+    { id: 1, fullName: 'School One', schoolAssigned: true },
+    { id: 3, fullName: 'Agency Three', schoolAssigned: false }
+  ], { agencyId: 99 });
+  assert.equal(out.length, 3);
+  assert.equal(out[0].fullName, 'School One');
+  assert.equal(out[1].fullName, 'Agency Two');
+  assert.equal(out[2].fullName, 'Agency Three');
 });
 
 test('merges live tokens into agency template HTML with cover and fonts', () => {

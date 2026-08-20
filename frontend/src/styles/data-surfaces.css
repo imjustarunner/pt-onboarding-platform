@@ -1,0 +1,74 @@
+/**
+ * Shared data-surface primitives (tables, list rows, dropdown panels).
+ * Components should prefer these tokens over hardcoded #fff so dark mode works
+ * without per-feature [data-theme="dark"] patches.
+ */
+
+.clients-table-container,
+.client-list-grid {
+  background: var(--bg-card, var(--bg));
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+.clients-table thead,
+.cm-clients-table thead {
+  background: var(--bg-alt);
+}
+
+.clients-table th,
+.clients-table td,
+.cm-clients-table th,
+.cm-clients-table td {
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.clients-table tbody tr,
+.client-row,
+.cm-client-row {
+  background: var(--bg);
+}
+
+.clients-table tbody tr:hover,
+.client-row:hover,
+.cm-client-row:hover {
+  background: var(--bg-alt);
+}
+
+.columns-menu,
+.school-search-menu,
+.modal-content,
+.modal-panel {
+  background: var(--bg-card, var(--bg));
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .client-chart {
+  --cc-bg: var(--bg-alt);
+  --cc-card: var(--bg-card, var(--bg));
+  --cc-primary-tint: color-mix(in srgb, var(--primary) 18%, var(--bg));
+  --cc-primary-tint-strong: color-mix(in srgb, var(--primary) 28%, var(--bg));
+}
+
+.intake-json,
+pre.intake-json {
+  background: var(--bg) !important;
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .client-mgmt-page {
+  --cm-surface: var(--bg-card, var(--bg));
+  --cm-border: var(--border);
+  --cm-muted: var(--text-secondary);
+}
+
+[data-theme="dark"] .cm-clients-table thead {
+  background: var(--bg-alt);
+}
+
+[data-theme="dark"] .cm-client-row:hover {
+  background: var(--bg-alt);
+}

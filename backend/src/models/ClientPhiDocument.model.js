@@ -87,6 +87,10 @@ class ClientPhiDocument {
     return rows;
   }
 
+  static async listByClientId(clientId) {
+    return this.findByClientId(clientId);
+  }
+
   static async listByIntakeSubmissionId(intakeSubmissionId) {
     const [rows] = await pool.execute(
       `SELECT * FROM client_phi_documents

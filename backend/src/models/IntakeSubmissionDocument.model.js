@@ -106,6 +106,39 @@ class IntakeSubmissionDocument {
     return this.findById(id);
   }
 
+  static async listSignedForClient(clientId) {
+    const cid = Number(clientId || 0);
+    if (!cid) return [];
+    const [rows] = await pool.execute(
+      `SELECT isd.id,
+              isd.intake_submission_id,
+              isd.client_id,
+              isd.document_template_id,
+              isd.signed_pdf_path,
+              isd.pdf_hash,
+              isd.signed_at,
+              isd.audit_trail,
+              dt.name AS document_template_name
+       FROM intake_submission_documents isd
+       LEFT JOIN document_templates dt ON dt.id = isd.document_template_id
+       WHERE isd.signed_pdf_path IS NOT NULL
+         AND (
+           isd.client_id = ?
+           OR EXISTS (
+             SELECT 1 FROM intake_submissions s
+             WHERE s.id = isd.intake_submission_id AND s.client_id = ?
+           )
+           OR EXISTS (
+             SELECT 1 FROM intake_submission_clients isc
+             WHERE isc.intake_submission_id = isd.intake_submission_id AND isc.client_id = ?
+           )
+         )
+       ORDER BY COALESCE(isd.signed_at, isd.id) DESC, isd.id DESC`,
+      [cid, cid, cid]
+    );
+    return rows || [];
+  }
+
   /**
    * Signed intake PDFs for a client where the submission is tied to this guardian.
    */

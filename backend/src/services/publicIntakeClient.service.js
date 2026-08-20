@@ -10,7 +10,7 @@ import User from '../models/User.model.js';
 import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
 import { resolvePaperworkStatusId, seedClientAffiliations, seedClientPaperworkItems } from '../utils/clientProvisioning.js';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
-import { deriveSchoolClientInitials } from '../utils/schoolClientInitials.js';
+import { deriveSchoolClientInitials, isValidSchoolClientInitials } from '../utils/schoolClientInitials.js';
 
 /**
  * Guardian accounts created through public intake were being inserted into
@@ -219,7 +219,21 @@ const provisionSingleIntakeClient = async ({
   const firstName = String(clientPayload?.firstName || '').trim();
   const lastName = String(clientPayload?.lastName || '').trim();
   const fullName = String(clientPayload?.fullName || `${firstName} ${lastName}` || '').trim();
-  const initials = String(clientPayload?.initials || deriveInitials(fullName)).trim() || 'TBD';
+  const requestedInitials = String(clientPayload?.initials || '').trim().toUpperCase();
+  const derived = deriveInitials(fullName);
+  const clientType =
+    scopeType === 'school' || orgType === 'school'
+      ? 'school'
+      : orgType === 'learning'
+        ? 'learning'
+        : (orgType === 'program' || orgType === 'clinical')
+          ? 'clinical'
+          : 'basic_nonclinical';
+  // School clients always use first-3 + last-3. Reject 2-letter PDF-style initials from digital forms.
+  const initials = (clientType === 'school'
+    ? (isValidSchoolClientInitials(requestedInitials) ? requestedInitials : derived)
+    : (requestedInitials || derived)
+  ) || 'TBD';
   const contactPhone = String(clientPayload?.contactPhone || '').trim() || null;
 
   const identifierCode = await generateUniqueSixDigitClientCode({ agencyId });
@@ -231,14 +245,6 @@ const provisionSingleIntakeClient = async ({
   }
   const wfStatus = String(workflowStatus || 'PACKET').trim().toUpperCase() || 'PACKET';
   const clientSource = String(source || 'PUBLIC_INTAKE_LINK').trim() || 'PUBLIC_INTAKE_LINK';
-  const clientType =
-    scopeType === 'school' || orgType === 'school'
-      ? 'school'
-      : orgType === 'learning'
-        ? 'learning'
-        : (orgType === 'program' || orgType === 'clinical')
-          ? 'clinical'
-          : 'basic_nonclinical';
 
   const dateOfBirth = String(clientPayload?.dateOfBirth || clientPayload?.date_of_birth || '').trim() || undefined;
 

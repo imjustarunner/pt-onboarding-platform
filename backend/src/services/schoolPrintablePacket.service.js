@@ -17,7 +17,6 @@ import {
   formatSupervisorTypeLabel,
   isDemoPacketIdentity
 } from './smartDisclosure.service.js';
-import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import {
   SCHOOL_PRINTABLE_PACKET_VERSION,
   isSchoolPrintablePacketEnabled
@@ -170,23 +169,29 @@ export function groupDisclosureProvidersByCareTeam(providers = []) {
   const yourCareTeam = [];
   const potentialCareTeam = [];
   const seen = new Set();
-  for (const p of list) {
+  // School-assigned first, then remaining agency roster — all under Your Care Team.
+  const ordered = [
+    ...list.filter((p) => p?.schoolAssigned || p?.careTeamExpanded),
+    ...list.filter((p) => !(p?.schoolAssigned || p?.careTeamExpanded))
+  ];
+  for (const p of ordered) {
     const id = Number(p?.id || p?.userId || 0);
     const key = id || String(p?.fullName || '').toLowerCase();
     if (!key || seen.has(key)) continue;
     if (isDemoPacketIdentity(p)) continue;
     seen.add(key);
-    if (p?.schoolAssigned || p?.careTeamExpanded) yourCareTeam.push(p);
-    else potentialCareTeam.push(p);
+    yourCareTeam.push(p);
   }
   return { yourCareTeam, potentialCareTeam };
 }
 
 /**
- * Your care team = school-assigned providers, plus their supervisors and
- * supervisees from the agency roster (deduped; demo identities excluded).
+ * Full agency disclosure roster for the printable packet.
+ * School-assigned providers stay first; remaining eligible agency providers follow.
+ * No separate "potential care team" subset.
  */
 export async function expandYourCareTeamProviders(providers = [], { agencyId } = {}) {
+  void agencyId;
   const list = (Array.isArray(providers) ? providers : [])
     .filter((p) => p && !isDemoPacketIdentity(p));
   const byId = new Map();
@@ -196,69 +201,17 @@ export async function expandYourCareTeamProviders(providers = [], { agencyId } =
     byId.set(id, { ...p, supervisors: [...(p.supervisors || [])] });
   }
 
-  const seedIds = new Set(
-    [...byId.values()].filter((p) => p.schoolAssigned).map((p) => Number(p.id))
-  );
-
-  // No school-assigned providers → treat the full agency roster as the care team
-  // ("everyone"), still excluding demo identities.
-  if (seedIds.size === 0) {
-    return [...byId.values()].map((p) => ({
-      ...p,
-      schoolAssigned: true,
-      careTeamExpanded: false,
-      supervisors: (p.supervisors || []).map((s) => ({
-        ...s,
-        type: formatSupervisorTypeLabel(s.type || 'clinical')
-      }))
-    }));
-  }
-
-  const expandedIds = new Set(seedIds);
-
-  for (const id of seedIds) {
-    const provider = byId.get(id);
-    if (!provider) continue;
-
-    for (const s of provider.supervisors || []) {
-      const match = [...byId.values()].find(
-        (x) => String(x.fullName || '').trim().toLowerCase() === String(s.fullName || '').trim().toLowerCase()
-      );
-      if (match && !isDemoPacketIdentity(match)) expandedIds.add(Number(match.id));
-    }
-
-    if (agencyId) {
-      try {
-        const supervisees = await SupervisorAssignment.findBySupervisor(id, agencyId);
-        for (const row of supervisees || []) {
-          const sid = Number(row.supervisee_id || 0);
-          const person = byId.get(sid);
-          if (person && !isDemoPacketIdentity(person)) expandedIds.add(sid);
-        }
-      } catch {
-        // ignore
-      }
-    }
-  }
-
-  const out = [];
-  const seen = new Set();
-  for (const p of byId.values()) {
-    const id = Number(p.id);
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const inCareTeam = expandedIds.has(id);
-    out.push({
-      ...p,
-      schoolAssigned: inCareTeam ? true : !!p.schoolAssigned,
-      careTeamExpanded: inCareTeam && !p.schoolAssigned,
-      supervisors: (p.supervisors || []).map((s) => ({
-        ...s,
-        type: formatSupervisorTypeLabel(s.type || 'clinical')
-      }))
-    });
-  }
-  return out;
+  const schoolFirst = [...byId.values()].filter((p) => p.schoolAssigned);
+  const rest = [...byId.values()].filter((p) => !p.schoolAssigned);
+  return [...schoolFirst, ...rest].map((p) => ({
+    ...p,
+    schoolAssigned: !!p.schoolAssigned,
+    careTeamExpanded: !p.schoolAssigned,
+    supervisors: (p.supervisors || []).map((s) => ({
+      ...s,
+      type: formatSupervisorTypeLabel(s.type || 'clinical')
+    }))
+  }));
 }
 
 /**

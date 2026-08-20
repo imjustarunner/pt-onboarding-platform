@@ -12,6 +12,7 @@ import {
   resolveOptionLabel
 } from '../utils/intakeFieldLabels.js';
 import { matchesShowIf, childAgeFlags } from '../utils/intakeShowIf.js';
+import { schoolRoiRecordSections } from './schoolRoiChartText.service.js';
 
 const SECRET_KEY = /password|preview|card_number|cvc|cvv|ssn|secret|signaturedata|dataurl|token/i;
 const PHOTO_KEY = /photo|image|front|back|preview/i;
@@ -79,6 +80,28 @@ export function parseMaybeJson(value, fallback = {}) {
   }
 }
 
+function mergeAnswerObject(base, extra) {
+  const out = { ...(base && typeof base === 'object' && !Array.isArray(base) ? base : {}) };
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return out;
+  for (const [key, value] of Object.entries(extra)) {
+    if (value && typeof value === 'object' && !Array.isArray(value)
+      && out[key] && typeof out[key] === 'object' && !Array.isArray(out[key])) {
+      out[key] = mergeAnswerObject(out[key], value);
+      continue;
+    }
+    if (value === undefined || value === null || value === '') continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+function mergeClientAnswerLists(left = [], right = []) {
+  const a = Array.isArray(left) ? left : [];
+  const b = Array.isArray(right) ? right : [];
+  const len = Math.max(a.length, b.length);
+  return Array.from({ length: len }, (_, i) => mergeAnswerObject(a[i], b[i]));
+}
+
 export function normalizeIntakeDataShape(intakeData) {
   if (!intakeData || typeof intakeData !== 'object') return intakeData || {};
   const flatSubmission = (intakeData.submission && typeof intakeData.submission === 'object' && !Array.isArray(intakeData.submission))
@@ -96,19 +119,17 @@ export function normalizeIntakeDataShape(intakeData) {
   const mergedGuardianResponses = (existingResponses?.guardian && typeof existingResponses.guardian === 'object')
     ? { ...(flatGuardianResp || {}), ...existingResponses.guardian }
     : (flatGuardianResp || {});
-  let mergedClientResponses = null;
-  if (Array.isArray(existingResponses?.clients) && existingResponses.clients.length) {
-    mergedClientResponses = existingResponses.clients;
-  } else if (Array.isArray(intakeData.clients)) {
-    mergedClientResponses = intakeData.clients.map((c) => (c && typeof c === 'object' ? c : {}));
-  }
+  const topClients = Array.isArray(intakeData.clients)
+    ? intakeData.clients.map((c) => (c && typeof c === 'object' ? c : {}))
+    : [];
+  const responseClients = Array.isArray(existingResponses?.clients) ? existingResponses.clients : [];
   return {
     ...intakeData,
     responses: {
       ...(existingResponses || {}),
       submission: mergedSubmission,
       guardian: mergedGuardianResponses,
-      clients: mergedClientResponses || existingResponses?.clients || []
+      clients: mergeClientAnswerLists(topClients, responseClients)
     }
   };
 }
@@ -345,11 +366,11 @@ function walkBag(bag, { byKey, locale, link, prefix = '', skipKeys = new Set(), 
   }
 }
 
-function rowsFromInterview(link, values, locale, printed, childName = '') {
+function rowsFromInterview(link, values, locale, printed, childName = '', { includeUnanswered = false } = {}) {
   const sections = [];
   const steps = Array.isArray(link?.intake_steps) ? link.intake_steps : [];
   for (const step of steps) {
-    const type = String(step?.type || '').toLowerCase();
+    const type = String(step?.type || '').trim().toLowerCase();
     if (type !== 'questions' && type !== 'clinical_questions' && type !== 'reminder_contacts') continue;
     const fields = Array.isArray(step.fields) ? step.fields : [];
     const byInstrument = new Map();
@@ -360,13 +381,27 @@ function rowsFromInterview(link, values, locale, printed, childName = '') {
       byInstrument.get(inst).push(field);
     }
     const skippedInstruments = new Set();
-    for (const [inst, instFields] of byInstrument.entries()) {
-      const skipKey = INSTRUMENT_SKIP_KEYS[inst];
-      if ((skipKey && isSkipped(values, skipKey)) || !instrumentWasCompleted(instFields, values)) {
-        skippedInstruments.add(inst);
-        instFields.forEach((field) => {
-          if (field?.key) printed.add(field.key);
-        });
+    if (!includeUnanswered) {
+      for (const [inst, instFields] of byInstrument.entries()) {
+        const skipKey = INSTRUMENT_SKIP_KEYS[inst];
+        // School master PSC-17 is asked as regular packet questions (Never /
+        // Sometimes / Often). Do not treat it as a skippable office instrument
+        // until that transition is explicit (`skip_psc17`).
+        if (inst === 'psc17') {
+          if (skipKey && isSkipped(values, skipKey)) {
+            skippedInstruments.add(inst);
+            instFields.forEach((field) => {
+              if (field?.key) printed.add(field.key);
+            });
+          }
+          continue;
+        }
+        if ((skipKey && isSkipped(values, skipKey)) || !instrumentWasCompleted(instFields, values)) {
+          skippedInstruments.add(inst);
+          instFields.forEach((field) => {
+            if (field?.key) printed.add(field.key);
+          });
+        }
       }
     }
     const rows = [];
@@ -380,12 +415,15 @@ function rowsFromInterview(link, values, locale, printed, childName = '') {
       if (inst && skippedInstruments.has(inst)) continue;
       if (!matchesShowIf(field.showIf, values)) continue;
       const value = values[field.key];
-      if (value !== false && value !== 0 && !hasValue(value)) continue;
+      const empty = value !== false && value !== 0 && !hasValue(value);
+      if (empty && !includeUnanswered) continue;
       if (looksLikeHtml(value)) continue;
-      const rendered = formatFieldValue(field, value, locale, link);
+      const rendered = empty
+        ? 'Not answered'
+        : formatFieldValue(field, value, locale, link);
       if (!rendered) continue;
       const label = resolveIntakeFieldLabel(field, locale, link) || humanizeKey(field.key);
-      pushRow(rows, label, rendered);
+      pushRow(rows, interpolateChildName(label, childName), rendered);
       printed.add(field.key);
     }
     if (rows.length) {
@@ -505,15 +543,26 @@ function collectNamedAgreement(intakeData, paths, title, publicUrl, signerName) 
   return null;
 }
 
+function signedDocumentDisplayName(doc, trail) {
+  if (trail?.smartSchoolRoi || trail?.roiResponse) return 'School Release of Information';
+  if (trail?.smartDisclosure || trail?.disclosure) return 'Disclosure Statement';
+  const name = String(doc?.document_template_name || trail?.documentName || '').trim();
+  if (/disclosure agreement/i.test(name) && (trail?.smartSchoolRoi || trail?.roiResponse)) {
+    return 'School Release of Information';
+  }
+  return name;
+}
+
 function buildSignatures({ signedDocuments = [], intakeData = {}, publicKey = '', signerName = '', publicOrigin = '' } = {}) {
   const fromDb = (signedDocuments || []).map((doc, index) => {
     const trail = parseMaybeJson(doc?.audit_trail, {});
     const templateId = doc?.document_template_id;
+    const displayName = signedDocumentDisplayName(doc, trail) || `Signed document ${index + 1}`;
     return agreementCard({
-      documentName: String(doc?.document_template_name || trail?.documentName || `Signed document ${index + 1}`).trim(),
+      documentName: displayName,
       signedAt: formatDateTime(doc?.signed_at || trail?.submittedAt || trail?.signedAt),
       hash: String(doc?.pdf_hash || trail?.documentReference || '').trim(),
-      imageDataUrl: signatureImage(trail),
+      imageDataUrl: signatureImage(trail) || signatureImage(trail?.roiResponse) || signatureImage(intakeData?.smartSchoolRoi),
       publicUrl: publicDocUrl(publicKey, 'document', templateId, publicOrigin),
       versionLabel: doc?.version ? `Version ${doc.version}` : '',
       signerName: trail?.signerName || signerName
@@ -538,10 +587,37 @@ function buildSignatures({ signedDocuments = [], intakeData = {}, publicKey = ''
     )
   ].filter(Boolean);
 
+  const fromDbNames = new Set(fromDb.map((row) => row.documentName));
+  const packetPresentedDisclosure = (signedDocuments || []).some((doc) => {
+    const trail = parseMaybeJson(doc?.audit_trail, {});
+    const name = `${doc?.document_template_name || ''} ${trail.documentName || ''}`.toLowerCase();
+    return trail.smartDisclosure === true || trail.disclosure || name.includes('disclosure');
+  }) || Boolean(intakeData?.smartDisclosure || intakeData?.disclosure || intakeData?.responses?.submission?.smartDisclosure);
+  const sessionSig = signatureImage(intakeData?.smartDisclosure)
+    || signatureImage(intakeData?.smartSchoolRoi)
+    || fromDb.map((row) => row.imageDataUrl).find(Boolean)
+    || '';
+  if (
+    packetPresentedDisclosure
+    && sessionSig
+    && !fromDbNames.has('Disclosure Statement')
+    && !extra.some((row) => /disclosure/i.test(row.documentName || ''))
+  ) {
+    extra.unshift(agreementCard({
+      documentName: 'Disclosure Statement',
+      signedAt: extra[0]?.signedAt || fromDb[0]?.signedAt || '',
+      hash: '',
+      imageDataUrl: sessionSig,
+      publicUrl: publicDocUrl(publicKey, 'disclosure', null, publicOrigin),
+      versionLabel: '',
+      signerName
+    }));
+  }
+
   const merged = [];
   const seen = new Set();
-  for (const row of [...fromSections, ...extra, ...fromDb]) {
-    const key = `${row.documentName}|${row.hash || row.publicUrl || row.signedAt}`;
+  for (const row of [...fromSections, ...extra.filter((row) => !fromDbNames.has(row.documentName)), ...fromDb]) {
+    const key = `${row.documentName}|${row.hash || row.imageDataUrl?.slice(0, 24) || row.publicUrl || row.signedAt}`;
     if (seen.has(key)) continue;
     seen.add(key);
     merged.push(row);
@@ -605,7 +681,8 @@ export function buildCompletedIntakeRecord({
   clients = [],
   publicKey = '',
   brandLogoUrl = '',
-  publicOrigin = ''
+  publicOrigin = '',
+  includeUnansweredQuestions = false
 } = {}) {
   const intakeData = normalizeIntakeDataShape(parseMaybeJson(submission?.intake_data, {}));
   const locale = resolveIntakeFormLocale(link, intakeData);
@@ -642,11 +719,15 @@ export function buildCompletedIntakeRecord({
   const clinicalBag = (submissionBag.clinicalResponses && typeof submissionBag.clinicalResponses === 'object')
     ? submissionBag.clinicalResponses
     : {};
+  const topClientBag = Array.isArray(intakeData.clients) && intakeData.clients[0] && typeof intakeData.clients[0] === 'object'
+    ? intakeData.clients[0]
+    : {};
   const firstDob = String(listedClients[0]?.dateOfBirth || listedClients[0]?.date_of_birth || clientBags[0]?.child_dob || '').trim();
   const interviewValues = {
     ...submissionBag,
     ...guardianBag,
     ...clinicalBag,
+    ...topClientBag,
     ...(clientBags[0] || {}),
     ...childAgeFlags(firstDob, clientBags[0] || {})
   };
@@ -657,7 +738,14 @@ export function buildCompletedIntakeRecord({
     || clientBags[0]?.child_legal_first
     || 'this child'
   ).trim() || 'this child';
-  const interviewSections = rowsFromInterview(link, interviewValues, locale, printed, childName);
+  const interviewSections = rowsFromInterview(
+    link,
+    interviewValues,
+    locale,
+    printed,
+    childName,
+    { includeUnanswered: includeUnansweredQuestions }
+  );
 
   const leftoverGuardian = [];
   walkBag(guardianBag, { byKey, locale, link, skipKeys: new Set([...IDENTITY_KEYS, ...SKIP_BAG_KEYS]), values: interviewValues }, leftoverGuardian, printed);
@@ -694,8 +782,9 @@ export function buildCompletedIntakeRecord({
     providersBlock,
     ...interviewSections,
     leftoverSubmission.length ? { title: 'Additional answers', rows: leftoverSubmission } : null,
-    ...clientSections
-  ].filter((section) => section && section.rows?.length);
+    ...clientSections,
+    ...schoolRoiRecordSections(intakeData)
+  ].filter((section) => section && (section.rows?.length || section.html));
 
   const signatures = buildSignatures({
     signedDocuments,

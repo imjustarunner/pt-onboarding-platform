@@ -153,10 +153,15 @@ export function buildIntakeSummaryDocumentHtml({
 } = {}) {
   const watermark = watermarkUrl || brand?.watermarkDataUrl || (!brand || brand.useItscoChrome ? watermarkDataUrl() : null);
   const sectionHtml = (sections || [])
-    .filter((section) => section?.title && Array.isArray(section.rows) && section.rows.length)
+    .filter((section) => section?.title && (
+      (Array.isArray(section.rows) && section.rows.length)
+      || String(section.html || '').trim()
+    ))
     .map((section) => `
       <h3 class="packet-section-title">${escapeHtml(section.title)}</h3>
-      <dl class="intake-summary-dl">${renderRows(section.rows)}</dl>
+      ${section.html
+        ? `<div class="packet-section-html">${section.html}</div>`
+        : `<dl class="intake-summary-dl">${renderRows(section.rows)}</dl>`}
     `)
     .join('');
   const ackHtml = (acknowledgments || []).length

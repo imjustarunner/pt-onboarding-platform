@@ -3,7 +3,14 @@ import SchoolPacketTemplate from '../models/SchoolPacketTemplate.model.js';
 import ClientSignedSchoolPacket from '../models/ClientSignedSchoolPacket.model.js';
 import Agency from '../models/Agency.model.js';
 import Client from '../models/Client.model.js';
+import User from '../models/User.model.js';
 import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
+import pool from '../config/database.js';
+
+function roleCanViewPackets(role) {
+  const r = String(role || '').toLowerCase();
+  return ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider', 'provider_plus', 'supervisor'].includes(r);
+}
 
 function roleCanEdit(role) {
   const r = String(role || '').toLowerCase();
@@ -20,6 +27,33 @@ async function schoolStaffCanViewSignedPackets(req, clientId) {
     schoolStaffUserId: req.user.id
   });
   return String(state || '').toLowerCase() === 'roi_docs';
+}
+
+async function userCanViewClientPackets(req, clientId) {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'super_admin') return true;
+  if (await schoolStaffCanViewSignedPackets(req, clientId)) return true;
+  if (!roleCanViewPackets(role)) return false;
+  const client = await Client.findById(clientId);
+  if (!client) return false;
+  if (role === 'provider' || role === 'provider_plus') {
+    try {
+      const [rows] = await pool.execute(
+        `SELECT 1
+         FROM client_provider_assignments
+         WHERE client_id = ? AND provider_user_id = ? AND is_active = TRUE
+         LIMIT 1`,
+        [clientId, req.user.id]
+      );
+      if (rows?.[0]) return true;
+    } catch {
+      // table may not exist yet
+    }
+    return Number(client.provider_id || 0) === Number(req.user.id);
+  }
+  const orgs = await User.getAgencies(req.user.id);
+  const ids = new Set((orgs || []).map((o) => Number(o.id)));
+  return ids.has(Number(client.agency_id || 0)) || ids.has(Number(client.organization_id || 0));
 }
 
 async function assertAgencyAccess(req, agencyId) {
@@ -118,7 +152,7 @@ export const listClientSignedSchoolPackets = async (req, res, next) => {
   try {
     const clientId = Number(req.params.clientId || 0);
     if (!clientId) return res.status(400).json({ error: { message: 'Invalid clientId' } });
-    if (!roleCanEdit(req.user?.role) && !(await schoolStaffCanViewSignedPackets(req, clientId))) {
+    if (!(await userCanViewClientPackets(req, clientId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     const packets = await ClientSignedSchoolPacket.listByClientId(clientId);
@@ -134,7 +168,7 @@ export const getClientSignedSchoolPacket = async (req, res, next) => {
     if (!id) return res.status(400).json({ error: { message: 'Invalid packetId' } });
     const packet = await ClientSignedSchoolPacket.findById(id);
     if (!packet) return res.status(404).json({ error: { message: 'Signed packet not found' } });
-    if (!roleCanEdit(req.user?.role) && !(await schoolStaffCanViewSignedPackets(req, packet.client_id))) {
+    if (!(await userCanViewClientPackets(req, packet.client_id))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     res.json({ packet });

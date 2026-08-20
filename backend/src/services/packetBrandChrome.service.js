@@ -267,8 +267,10 @@ export function applyPacketBrandToSpec(spec = {}, brand = null) {
   };
 }
 
-export async function brandedIntakeSummarySpec(spec, agency) {
-  const brand = await resolvePacketBrandChrome(agency || {}, { packetKind: 'intake' });
+export async function brandedIntakeSummarySpec(spec, agency, options = {}) {
+  const kind = String(options.packetKind || 'intake').trim().toLowerCase();
+  const packetKind = kind === 'school' ? 'school' : (kind === 'office' || kind === 'intake' ? 'office' : kind);
+  const brand = await resolvePacketBrandChrome(agency || {}, { packetKind });
   return applyPacketBrandToSpec(spec, brand);
 }
 

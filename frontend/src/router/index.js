@@ -316,6 +316,12 @@ const routes = [
     component: () => import('../views/school/PublicSchoolReferralFinderView.vue'),
     meta: { requiresGuest: false, organizationSlug: true, publicSchoolReferral: true }
   },
+  {
+    path: '/:organizationSlug/district-schedule/:districtSlug?',
+    name: 'PublicDistrictSchedule',
+    component: () => import('../views/school/PublicDistrictScheduleView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true, publicDistrictSchedule: true }
+  },
   // Public marketing hub — optional markdown subpages (must be before single-segment /p/:hubSlug).
   {
     path: '/p/:hubSlug/:subPageSlug',
@@ -1074,6 +1080,12 @@ const routes = [
     name: 'FlatPublicSchoolReferralFinder',
     component: () => import('../views/school/PublicSchoolReferralFinderView.vue'),
     meta: { requiresGuest: false, flatSchoolReferral: true, publicSchoolReferral: true }
+  },
+  {
+    path: '/district-schedule/:districtSlug?',
+    name: 'FlatPublicDistrictSchedule',
+    component: () => import('../views/school/PublicDistrictScheduleView.vue'),
+    meta: { requiresGuest: false, flatDistrictSchedule: true, publicDistrictSchedule: true }
   },
   // Organization-specific routes (supports Agency, School, Program, Learning)
   // Root org path redirects directly to the branded login page — splash was removed.

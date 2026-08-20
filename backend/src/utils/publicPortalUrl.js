@@ -113,3 +113,9 @@ export function buildPublicResetPasswordUrl(agency, token, opts = {}) {
 export function buildPublicPasswordlessLoginUrl(agency, token, opts = {}) {
   return buildPublicAppUrl(agency, `passwordless-login/${token}`, opts);
 }
+
+export function buildPublicDistrictScheduleUrl(agency, districtSlug, opts = {}) {
+  const slug = String(districtSlug || '').trim().toLowerCase();
+  if (!slug) return buildPublicAppUrl(agency, 'district-schedule', opts);
+  return buildPublicAppUrl(agency, `district-schedule/${encodeURIComponent(slug)}`, opts);
+}

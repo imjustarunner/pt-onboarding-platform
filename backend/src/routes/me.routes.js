@@ -7,6 +7,7 @@ import {
   updateCustomTask,
   deleteCustomTask,
   claimTask,
+  revealTaskPhi,
   getTaskAssignees,
   setTaskAssignees,
   getTaskCollaborators,
@@ -47,6 +48,7 @@ router.post('/tasks', authenticate, createCustomTask);
 router.put('/tasks/:id', authenticate, updateCustomTask);
 router.post('/tasks/:id/claim', authenticate, claimTask);
 router.delete('/tasks/:id', authenticate, deleteCustomTask);
+router.post('/tasks/:id/reveal-phi', authenticate, revealTaskPhi);
 router.get('/tasks/:id/assignees', authenticate, getTaskAssignees);
 router.put('/tasks/:id/assignees', authenticate, setTaskAssignees);
 router.get('/tasks/:id/collaborators', authenticate, getTaskCollaborators);

@@ -15,6 +15,100 @@ import multer from 'multer';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
 import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
 import { decryptIntakeSubmissionRows } from '../services/intakeResponsesEncryption.service.js';
+import IntakeLink from '../models/IntakeLink.model.js';
+import {
+  assembleClientChartArtifacts,
+  renderChartArtifactView
+} from '../services/clientChartArtifacts.service.js';
+
+function parseJsonMaybe(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function isClinicalSummaryPhiDoc(doc) {
+  const title = String(doc?.document_title || '').toLowerCase();
+  const type = String(doc?.document_type || '').toLowerCase();
+  return title.includes('clinical') || type.includes('clinical');
+}
+
+function clinicalSummaryLooksEmpty(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return true;
+  return /no clinical responses captured/i.test(raw);
+}
+
+async function rebuildClinicalSummaryFromSubmission({ doc, intakeData = null, link = null }) {
+  const submissionId = Number(doc?.intake_submission_id || 0);
+  const clientId = Number(doc?.client_id || 0);
+  if (!submissionId) return null;
+
+  let submissionRow = null;
+  if (!intakeData || !link) {
+    const [rows] = await pool.execute(
+      `SELECT id, intake_link_id, intake_data, payload_encrypted, payload_iv_b64,
+              payload_auth_tag_b64, payload_key_id, client_id
+       FROM intake_submissions
+       WHERE id = ?
+       LIMIT 1`,
+      [submissionId]
+    );
+    decryptIntakeSubmissionRows(rows);
+    submissionRow = rows?.[0] || null;
+  }
+
+  const resolvedIntakeData = intakeData || parseJsonMaybe(submissionRow?.intake_data);
+  if (!resolvedIntakeData) return null;
+
+  let resolvedLink = link;
+  const linkId = Number(submissionRow?.intake_link_id || link?.id || 0);
+  if (!resolvedLink && linkId) {
+    resolvedLink = await IntakeLink.findById(linkId);
+  }
+  if (!resolvedLink) return null;
+
+  let clientIndex = 0;
+  if (clientId) {
+    try {
+      const [iscRows] = await pool.execute(
+        `SELECT client_id FROM intake_submission_clients WHERE intake_submission_id = ? ORDER BY id ASC`,
+        [submissionId]
+      );
+      const ids = (iscRows || []).map((row) => Number(row?.client_id || 0));
+      const idx = ids.indexOf(clientId);
+      if (idx >= 0) clientIndex = idx;
+    } catch {
+      // older DBs may not have the join table
+    }
+  }
+
+  const { buildClinicalSummaryText } = await import('./publicIntake.controller.js');
+  const rebuilt = buildClinicalSummaryText({
+    link: resolvedLink,
+    intakeData: resolvedIntakeData,
+    clientIndex
+  });
+  return String(rebuilt || '').trim() || null;
+}
+
+async function resolveClinicalSummaryText({ doc, storedText, intakeData = null, link = null }) {
+  if (!isClinicalSummaryPhiDoc(doc)) return storedText;
+  try {
+    const rebuilt = await rebuildClinicalSummaryFromSubmission({ doc, intakeData, link });
+    if (!rebuilt) return storedText;
+    if (clinicalSummaryLooksEmpty(storedText) || rebuilt.length > String(storedText || '').length) {
+      return rebuilt;
+    }
+  } catch (err) {
+    console.warn('[phiDocuments] clinical summary rebuild failed:', err?.message);
+  }
+  return storedText;
+}
 
 // Upload (authenticated): PDF/JPG/PNG up to 10MB
 const upload = multer({
@@ -300,6 +394,93 @@ export const listClientPhiDocuments = async (req, res, next) => {
   }
 };
 
+async function assertPhiClientAccess(req, clientId) {
+  const client = await Client.findById(clientId, { includeSensitive: true });
+  if (!client) {
+    const err = new Error('Client not found');
+    err.status = 404;
+    throw err;
+  }
+  const schoolStaffAccessState = await resolveSchoolStaffAccessStateForClient({
+    requestingUserId: req.user.id,
+    requestingUserRole: req.user.role,
+    client
+  });
+  const isSchoolStaff = String(req.user?.role || '').toLowerCase() === 'school_staff';
+  const allowed = isSchoolStaff
+    ? schoolStaffMayUsePhi(schoolStaffAccessState)
+    : await userCanAccessClient({
+      requestingUserId: req.user.id,
+      requestingUserRole: req.user.role,
+      client,
+      requireDocumentAccess: true
+    });
+  if (!allowed) {
+    const err = new Error('Access denied');
+    err.status = 403;
+    throw err;
+  }
+  return { client, isSchoolStaff, schoolStaffAccessState };
+}
+
+export const listClientChartArtifacts = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.clientId, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+    const { client } = await assertPhiClientAccess(req, clientId);
+    const payload = await assembleClientChartArtifacts({ clientId, client });
+    res.json(payload);
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const viewClientChartArtifact = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.clientId, 10);
+    const viewKey = decodeURIComponent(String(req.params.viewKey || '')).trim();
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+    if (!viewKey) return res.status(400).json({ error: { message: 'viewKey is required' } });
+    const { client } = await assertPhiClientAccess(req, clientId);
+    const result = await renderChartArtifactView({ client, viewKey });
+    if (result?.delegatePhiId) {
+      req.params.docId = String(result.delegatePhiId);
+      return viewPhiDocument(req, res, next);
+    }
+    if (result?.notFound) {
+      return res.status(404).json({ error: { message: 'Document not found' } });
+    }
+    try {
+      const ip = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.ip || null;
+      const userAgent = req.headers['user-agent'] || null;
+      await pool.execute(
+        `INSERT INTO phi_access_logs (user_id, client_id, document_id, action, ip_address, user_agent)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [req.user.id, clientId, null, 'view', ip, userAgent ? String(userAgent).slice(0, 512) : null]
+      );
+    } catch {
+      // best-effort
+    }
+    if (result?.html) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Disposition', 'inline');
+      res.setHeader('Cache-Control', 'no-store');
+      return res.send(result.html);
+    }
+    if (result?.url) {
+      return res.json({ url: result.url });
+    }
+    if (result?.packet) {
+      return res.json({ packet: result.packet });
+    }
+    return res.status(404).json({ error: { message: 'Document not found' } });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
 export const listClientIntakeResponses = async (req, res, next) => {
   try {
     const clientId = parseInt(req.params.clientId, 10);
@@ -460,7 +641,15 @@ export const listClientIntakeResponses = async (req, res, next) => {
       }) || null;
 
       const intakeResponsesText = intakeResponsesDoc ? await readDocText(intakeResponsesDoc) : null;
-      const clinicalSummaryText = clinicalSummaryDoc ? await readDocText(clinicalSummaryDoc) : null;
+      const storedClinicalSummaryText = clinicalSummaryDoc ? await readDocText(clinicalSummaryDoc) : null;
+      const clinicalSummaryText = await resolveClinicalSummaryText({
+        doc: clinicalSummaryDoc
+          ? { ...clinicalSummaryDoc, client_id: clientId }
+          : { intake_submission_id: submissionId, client_id: clientId, document_title: 'Clinical Intake Summary' },
+        storedText: storedClinicalSummaryText,
+        intakeData,
+        link: row.intake_link_id ? await IntakeLink.findById(row.intake_link_id) : null
+      });
 
       return {
         submissionId,
@@ -651,7 +840,8 @@ export const viewPhiDocument = async (req, res, next) => {
 
     if (isPlainText) {
       const buffer = await StorageService.readObject(doc.storage_path);
-      const text = buffer?.toString('utf8') || '';
+      const storedText = buffer?.toString('utf8') || '';
+      const text = await resolveClinicalSummaryText({ doc, storedText }) || storedText;
       const safeName = StorageService.sanitizeFilename(doc.original_name || `document-${doc.id}`);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Content-Disposition', `inline; filename="${safeName}.html"`);
@@ -670,6 +860,7 @@ export const viewPhiDocument = async (req, res, next) => {
         // best-effort logging
       }
       const isClinicalSummary = String(doc.document_type || doc.document_title || '').toLowerCase().includes('clinical');
+      const forceDark = String(req.query?.theme || '').toLowerCase() === 'dark';
       const lines = text.split('\n');
       const body = lines
         .map((line) => {
@@ -698,11 +889,13 @@ export const viewPhiDocument = async (req, res, next) => {
         ? '<button class="copy-all" type="button" data-copy-all>Copy All</button>'
         : '';
       const html = `
-        <html>
+            <html class="${forceDark ? 'dark' : ''}">
           <head>
             <meta charset="utf-8" />
+            <meta name="color-scheme" content="${forceDark ? 'dark' : 'light dark'}" />
             <title>${escapeHtml(doc.document_title || doc.original_name || 'Document')}</title>
             <style>
+              :root { color-scheme: light dark; }
               body { background: #fff; color: #111; font-family: Arial, sans-serif; margin: 24px; }
               h1 { margin-bottom: 16px; color: #1f3a60; }
               h2 { margin: 14px 0 6px; font-size: 14px; color: #1f3a60; }
@@ -729,6 +922,16 @@ export const viewPhiDocument = async (req, res, next) => {
                 margin-bottom: 12px;
               }
               .spacer { height: 8px; }
+              html.dark body { background: #121418; color: #e8eaed; }
+              html.dark h1, html.dark h2 { color: #c5d4ea; }
+              html.dark .copy-btn { background: #1e2430; border-color: #3a4354; color: #e8eaed; }
+              html.dark .copy-all { background: #3a4c6b; border-color: #3a4c6b; }
+              @media (prefers-color-scheme: dark) {
+                body { background: #121418; color: #e8eaed; }
+                h1, h2 { color: #c5d4ea; }
+                .copy-btn { background: #1e2430; border-color: #3a4354; color: #e8eaed; }
+                .copy-all { background: #3a4c6b; border-color: #3a4c6b; }
+              }
             </style>
           </head>
           <body>

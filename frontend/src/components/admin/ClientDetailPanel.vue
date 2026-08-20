@@ -2,10 +2,13 @@
   <ClientChartShell
     :full-page="props.fullPage"
     :tabs="tabs"
-    :active-tab="activeTab"
+    :active-tab="chartHub"
+    :subnav="chartSubnav"
+    :active-sub="effectiveHubSub"
     :alert-items="overviewAlertItems"
     @close="handleClose"
-    @update:active-tab="activeTab = $event"
+    @update:active-tab="onHubChange"
+    @update:active-sub="onHubSubChange"
     @alert-click="onOverviewAlertClick"
   >
     <template #header>
@@ -134,13 +137,65 @@
       </div>
     </template>
 
-        <!-- Overview Tab -->
-        <div v-if="activeTab === 'overview'" class="detail-section cdp-overview">
+        <div
+          v-if="chartHub === 'overview' && effectiveHubSub !== 'skill-builders'"
+          class="detail-section cdp-overview"
+        >
+          <ClientOverviewHub
+            :client-id="client.id"
+            :client="client"
+            :can-edit="canEditAccount"
+            :can-view-medical-record="canViewMedicalRecord"
+            :glance-items="overviewGlanceItems"
+            :status-label="isClientArchived ? 'Archived' : displayStatusLabel"
+            :program-label="clientTypeLabel"
+            :care-team-label="primaryProviderLabel"
+            :care-team-meta="careTeamGlanceMeta"
+            :session-count-label="sessionCountLabel"
+            :last-session-label="lastSessionLabel"
+            :alerts="overviewAlertItems"
+            :guardian-name="guardianIntakeName"
+            :guardian-meta="guardianIntakeEmail || guardianIntakePhone || ''"
+            :organization-name="client.organization_name || schoolGlanceLabel"
+            @edit="startEditOverview(true)"
+            @navigate="goChartSub"
+            @alert-click="onOverviewAlertClick"
+            @view-event="openLifecycleHistoryEvent"
+            @open-document="openChartDocument"
+          />
+        </div>
+
+        <div
+          v-if="showPanel('records')"
+          class="detail-section"
+        >
+          <ClientRecordsOverview
+            :can-view-clinical="isClinicalLikeClientType
+              && ['provider', 'provider_plus', 'admin', 'super_admin', 'support', 'staff'].includes(roleNorm)"
+            :can-view-medical-record="canViewMedicalRecord"
+            :can-view-billing="(canViewClientBillingImport || learningBillingEnabledForClient)
+              && !['provider', 'provider_plus'].includes(roleNorm)"
+            :can-manage-school-roi="canManageSchoolRoi"
+            :packages-enabled="practitionerPackagesEnabledForClient"
+            :phi-banner="['admin', 'super_admin', 'support', 'staff'].includes(roleNorm)"
+            @navigate="goChartSub"
+            @navigate-secondary="goChartSub"
+          />
+        </div>
+
+        <!-- Account profile (never stacked under Overview) -->
+        <div
+          v-if="chartHub === 'account' && (effectiveHubSub === 'profile' || !effectiveHubSub)"
+          class="detail-section cdp-overview"
+        >
           <div class="cdp-overview-layout">
             <div class="cdp-overview-main">
           <div class="cdp-overview-toolbar">
             <div>
-              <h3 class="cdp-section-title">At a glance</h3>
+              <h3 class="cdp-section-title">Account</h3>
+              <p class="hint" style="margin: 4px 0 0;">
+                Client profile, relationships, education, and account details in one place.
+              </p>
             </div>
             <div v-if="canEditAccount" class="form-actions" style="margin: 0;">
               <button v-if="!editingOverview" class="cdp-btn-soft" type="button" @click="startEditOverview(true)">
@@ -177,6 +232,22 @@
               <span class="cdp-school-profile-kicker">School year</span>
               <strong>{{ client.school_year || '—' }}</strong>
             </div>
+            <div class="cdp-school-profile-item">
+              <span class="cdp-school-profile-kicker">Primary clinician</span>
+              <strong>{{ primaryProviderLabel }}</strong>
+            </div>
+            <div class="cdp-school-profile-item">
+              <span class="cdp-school-profile-kicker">Program</span>
+              <strong>{{ clientTypeLabel }}</strong>
+            </div>
+            <div class="cdp-school-profile-item">
+              <span class="cdp-school-profile-kicker">Insurance</span>
+              <strong>{{ primaryInsuranceLabel || 'Not on file' }}</strong>
+            </div>
+            <div class="cdp-school-profile-item">
+              <span class="cdp-school-profile-kicker">Status</span>
+              <strong>{{ isClientArchived ? 'Archived' : displayStatusLabel }}</strong>
+            </div>
             <div
               v-if="canViewAdminNote"
               class="cdp-school-profile-item cdp-school-profile-item--note admin-note-row"
@@ -199,72 +270,6 @@
             </div>
           </div>
 
-          <div class="cdp-profile-rows">
-            <div v-if="showSchoolGlance" class="cdp-profile-row">
-              <span class="cdp-profile-dt">School</span>
-              <span class="cdp-profile-dd">{{ schoolGlanceLabel }}</span>
-            </div>
-            <div v-if="showSchoolGlance" class="cdp-profile-row">
-              <span class="cdp-profile-dt">Assigned day</span>
-              <span class="cdp-profile-dd">{{ assignedDayGlanceLabel }}</span>
-            </div>
-            <div class="cdp-profile-row">
-              <span class="cdp-profile-dt">Primary clinician</span>
-              <span class="cdp-profile-dd">
-                {{ primaryProviderLabel }}
-                <span v-if="client.organization_name" class="cdp-profile-meta">{{ client.organization_name }}</span>
-              </span>
-            </div>
-            <div class="cdp-profile-row">
-              <span class="cdp-profile-dt">Program</span>
-              <span class="cdp-profile-dd">{{ clientTypeLabel }}</span>
-            </div>
-            <div class="cdp-profile-row">
-              <span class="cdp-profile-dt">Primary diagnosis</span>
-              <span class="cdp-profile-dd">
-                <span class="mono">{{ primaryDiagnosisLabel }}</span>
-                <button v-if="canViewMedicalRecord" type="button" class="cdp-text-link" @click="activeTab = 'clinical'">View clinical →</button>
-              </span>
-            </div>
-            <div class="cdp-profile-row">
-              <span class="cdp-profile-dt">Since</span>
-              <span class="cdp-profile-dd">
-                {{ client.referral_date ? formatDate(client.referral_date) : (client.submission_date ? formatDate(client.submission_date) : '—') }}
-                <span v-if="client.source" class="cdp-profile-meta">{{ client.source }}</span>
-              </span>
-            </div>
-            <div class="cdp-profile-row">
-              <span class="cdp-profile-dt">Insurance</span>
-              <span class="cdp-profile-dd">
-                {{ primaryInsuranceLabel || 'Not on file' }}
-                <span v-if="client.insurance_type_label" class="cdp-profile-meta">{{ client.insurance_type_label }}</span>
-              </span>
-            </div>
-            <div class="cdp-profile-row">
-              <span class="cdp-profile-dt">Last session</span>
-              <span class="cdp-profile-dd">
-                {{ lastSessionLabel }}
-                <span v-if="lastSessionMeta" class="cdp-profile-meta">{{ lastSessionMeta }}</span>
-              </span>
-            </div>
-            <div class="cdp-profile-row">
-              <span class="cdp-profile-dt">Sessions on file</span>
-              <span class="cdp-profile-dd">
-                {{ sessionCountLabel }}
-                <button v-if="canViewMedicalRecord && sessionCount" type="button" class="cdp-text-link" @click="activeTab = 'medical-record'">View record →</button>
-              </span>
-            </div>
-            <div class="cdp-profile-row">
-              <span class="cdp-profile-dt">Care team</span>
-              <span class="cdp-profile-dd">
-                {{ careTeamGlanceSummary }}
-                <span v-if="careTeamGlanceMeta" class="cdp-profile-meta">{{ careTeamGlanceMeta }}</span>
-                <button v-if="canManageSchoolAssignments" type="button" class="cdp-text-link" @click="showAssignDayModal = true">Update →</button>
-                <button v-else-if="canEditAccount" type="button" class="cdp-text-link" @click="activeTab = 'assignments'">Manage →</button>
-              </span>
-            </div>
-          </div>
-
           <div class="cdp-care-section">
             <h3 class="cdp-section-title">Current care</h3>
             <div class="cdp-care-strip">
@@ -273,46 +278,31 @@
                 <span class="cdp-care-chip__body">{{ isClientArchived ? 'Archived' : displayStatusLabel }}</span>
                 <span class="cdp-care-chip__meta">{{ clientTypeLabel }}</span>
               </button>
-              <button v-if="canViewMedicalRecord" type="button" class="cdp-care-chip" @click="activeTab = 'clinical'">
+              <button v-if="canViewMedicalRecord" type="button" class="cdp-care-chip" @click="goChartSub('clinical')">
                 <span class="cdp-care-chip__title">Clinical</span>
                 <span class="cdp-care-chip__body">{{ primaryDiagnosisLabel !== '—' ? primaryDiagnosisLabel : 'No diagnosis' }}</span>
                 <span class="cdp-care-chip__meta">Open chart →</span>
               </button>
-              <button v-if="canViewMedicalRecord" type="button" class="cdp-care-chip" @click="activeTab = 'medical-record'">
+              <button v-if="canViewMedicalRecord" type="button" class="cdp-care-chip" @click="goChartSub('medical-record')">
                 <span class="cdp-care-chip__title">Medical record</span>
                 <span class="cdp-care-chip__body">{{ sessionCountLabel }} session{{ sessionCount !== 1 ? 's' : '' }}</span>
                 <span class="cdp-care-chip__meta">Open record →</span>
               </button>
-              <button type="button" class="cdp-care-chip" @click="activeTab = 'phi'">
+              <button type="button" class="cdp-care-chip" @click="goChartSub('phi')">
                 <span class="cdp-care-chip__title">Documents</span>
-                <span class="cdp-care-chip__body">{{ formatDocumentStatus(client.document_status) }}</span>
+                <span class="cdp-care-chip__body">Open chart documents</span>
                 <span class="cdp-care-chip__meta">View →</span>
               </button>
-              <button v-if="canViewClientBillingImport" type="button" class="cdp-care-chip" @click="activeTab = 'client-billing'">
+                  <button
+                    v-if="canViewClientBillingImport && !['provider', 'provider_plus'].includes(roleNorm)"
+                    type="button"
+                    class="cdp-care-chip"
+                    @click="goChartSub('client-billing')"
+                  >
                 <span class="cdp-care-chip__title">Billing</span>
                 <span class="cdp-care-chip__body">Imported balances</span>
                 <span class="cdp-care-chip__meta">Open →</span>
               </button>
-            </div>
-          </div>
-
-          <div
-            v-if="intakeSafetyStaffBanners.length"
-            class="phi-warning"
-            style="margin-bottom: 14px;"
-          >
-            <div
-              v-for="b in intakeSafetyStaffBanners"
-              :key="b.key"
-              style="margin-bottom: 12px;"
-            >
-              <div style="font-weight: 800;">{{ b.title }}</div>
-              <div v-if="b.notes" class="muted small" style="margin-top: 6px; white-space: pre-wrap;">
-                {{ b.notes }}
-              </div>
-            </div>
-            <div class="muted small" style="margin-top: 8px;">
-              Staff-only intake flags — do not share with guardians or schools unless policy allows.
             </div>
           </div>
 
@@ -337,24 +327,7 @@
             </div>
           </div>
 
-          <details
-            ref="profileDetailsEl"
-            class="cdp-profile-details"
-            :class="{
-              'is-flagged': editHighlightActive,
-              'cdp-profile-details--hint': profileDetailsPulseHint
-            }"
-            :open="schoolProfileDetailsOpen || undefined"
-            @toggle="onProfileDetailsToggle"
-          >
-            <summary>
-              <span class="cdp-profile-details__title">
-                Profile details
-                <span v-if="profileDetailsPulseHint" class="cdp-profile-details__badge">Click to expand</span>
-              </span>
-              <span class="cdp-profile-details__hint">Identity, demographics, status, education, languages</span>
-            </summary>
-          <div class="ov-sections">
+          <div v-if="showPanel('account')" class="ov-sections ov-sections--account">
 
             <!-- Identity & Profile -->
             <section class="ov-card">
@@ -647,7 +620,7 @@
                 <h3>Documents &amp; Insurance</h3>
               </header>
               <div class="ov-card-body">
-                <div class="ov-row">
+                <div v-if="false" class="ov-row">
                   <div class="ov-row-label">Ongoing paperwork</div>
                   <div class="ov-row-value">
                     <template v-if="editingOverview">
@@ -754,7 +727,7 @@
                     </label>
                   </div>
                 </div>
-                <div class="ov-row">
+                <div v-if="false" class="ov-row">
                   <div class="ov-row-label">Upload status (legacy)</div>
                   <div class="ov-row-value">
                     <span class="muted">{{ formatDocumentStatus(client.document_status) }}</span>
@@ -913,7 +886,7 @@
               </header>
               <div class="ov-card-body">
                 <div class="ov-cta-row">
-                  <button type="button" class="btn btn-secondary btn-sm" @click="activeTab = 'school-roi'">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="goChartSub('school-roi')">
                     Open School ROI Access
                   </button>
                   <span class="hint" style="margin: 0;">
@@ -956,7 +929,6 @@
               </template>
             </div>
           </div>
-          </details>
             </div>
 
             <aside class="cdp-overview-aside">
@@ -964,81 +936,19 @@
                 <h4>Quick actions</h4>
                 <div class="cdp-aside-actions">
                   <button
-                    v-if="!props.fullPage && props.client?.id"
+                    v-if="canEditAccount && !editingOverview"
                     type="button"
                     class="cdp-btn-primary"
-                    @click="openFullClientRecord"
+                    @click="startEditOverview(true)"
                   >
-                    Open full client record
+                    Edit client
                   </button>
-                  <button
-                    v-if="canViewMedicalRecord"
-                    type="button"
-                    class="cdp-btn-soft"
-                    @click="activeTab = 'medical-record'"
-                  >
-                    Start / view note
-                  </button>
-                  <button type="button" class="cdp-btn-soft" @click="activeTab = 'messages'">
+                  <button type="button" class="cdp-btn-soft" @click="goChartSub('messages')">
                     Send secure message
                   </button>
-                  <button type="button" class="cdp-btn-soft" @click="activeTab = 'phi'">
+                  <button type="button" class="cdp-btn-soft" @click="goChartSub('phi')">
                     Upload document
                   </button>
-                  <button
-                    v-if="canPostClientToExchange"
-                    type="button"
-                    class="cdp-btn-soft"
-                    @click="openPostToExchangeModal"
-                  >
-                    Post client to exchange
-                  </button>
-                  <button
-                    v-if="isClinicalLikeClientType"
-                    type="button"
-                    class="cdp-btn-soft"
-                    @click="activeTab = 'clinical'"
-                  >
-                    Clinical chart
-                  </button>
-                  <button
-                    v-if="canViewClientBillingImport"
-                    type="button"
-                    class="cdp-btn-soft"
-                    @click="activeTab = 'client-billing'"
-                  >
-                    Billing
-                  </button>
-                </div>
-              </section>
-
-              <section class="cdp-aside-card">
-                <h4>Today</h4>
-                <div class="cdp-aside-timeline">
-                  <div class="cdp-aside-timeline__item">
-                    <strong>Status</strong>
-                    <span>{{ isClientArchived ? 'Archived' : displayStatusLabel }}</span>
-                  </div>
-                  <div class="cdp-aside-timeline__item">
-                    <strong>Clinician</strong>
-                    <span>{{ primaryProviderLabel }}</span>
-                  </div>
-                </div>
-              </section>
-
-              <section class="cdp-aside-card">
-                <h4>Upcoming</h4>
-                <div class="cdp-aside-timeline">
-                  <button
-                    v-for="alert in overviewAlertItems.slice(0, 3)"
-                    :key="`side-${alert.id}`"
-                    type="button"
-                    class="cdp-aside-timeline__item cdp-aside-timeline__item--btn"
-                    @click="alert.tab ? (activeTab = alert.tab) : undefined"
-                  >
-                    <strong>{{ alert.label }}</strong>
-                  </button>
-                  <div v-if="!overviewAlertItems.length" class="cdp-glance-meta">No upcoming items flagged.</div>
                 </div>
               </section>
             </aside>
@@ -1046,11 +956,11 @@
         </div>
 
         <!-- Skill Builders program (skills clients — integrated groups/events; see docs/SKILL_BUILDERS_PROGRAM_AND_AFFILIATIONS.md) -->
-        <div v-if="activeTab === 'skill-builders'" class="detail-section">
+        <div v-if="showPanel('skill-builders')" class="detail-section">
           <ClientSkillBuildersProgramTab :client="client" @program-updated="emit('updated', { keepOpen: true })" />
         </div>
 
-        <div v-if="activeTab === 'school-years'" class="detail-section">
+        <div v-if="showPanel('school-years')" class="detail-section">
           <h3 style="margin-top: 0;">School years</h3>
           <ClientLifecycleHistoryPanel
             :client-id="client.id"
@@ -1059,7 +969,7 @@
         </div>
 
         <!-- Compliance Checklist Tab -->
-        <div v-if="activeTab === 'checklist'" class="detail-section">
+        <div v-if="showPanel('checklist')" class="detail-section">
           <h3 style="margin-top: 0;">Compliance Checklist</h3>
           <p class="hint" style="margin-top:-6px;">
             Operational tracking (non-clinical). Providers + admin/staff can update.
@@ -1206,7 +1116,7 @@
         </div>
 
         <!-- Status History Tab -->
-        <div v-if="activeTab === 'history'" class="detail-section">
+        <div v-if="showPanel('history')" class="detail-section">
           <div v-if="historyLoading" class="loading">Loading history...</div>
           <div v-else-if="historyError" class="error">{{ historyError }}</div>
           <div v-else-if="history.length === 0" class="empty-state">
@@ -1240,7 +1150,7 @@
         </div>
 
         <!-- Access Log Tab -->
-        <div v-if="activeTab === 'access'" class="detail-section">
+        <div v-if="showPanel('access') || (chartHub === 'records' && effectiveHubSub === 'audit')" class="detail-section">
           <div v-if="!canViewAccessLog" class="empty-state">
             <p>You don’t have permission to view access logs.</p>
           </div>
@@ -1280,7 +1190,7 @@
 
         <!-- Clinical Tab (provider/admin only) -->
         <ClientClinicalTab
-          v-if="activeTab === 'clinical'"
+          v-if="showPanel('clinical')"
           :client="client"
           :billing-diagnoses="billingDiagnoses"
           :billing-diagnoses-loading="billingDiagnosesLoading"
@@ -1294,7 +1204,7 @@
         />
 
         <!-- Billing import tab (financial — admin / support only) -->
-        <div v-if="activeTab === 'client-billing'" class="detail-section">
+        <div v-if="showPanel('client-billing') && canViewClientBillingImport && !['provider', 'provider_plus'].includes(roleNorm)" class="detail-section">
           <ClientBillingImportTab
             :agency-id="Number(props.client?.agency_id || 0) || null"
             :client-id="Number(props.client?.id || 0) || null"
@@ -1303,7 +1213,7 @@
         </div>
 
         <!-- Medical Record Tab (clinical notes on imported sessions) -->
-        <div v-if="activeTab === 'medical-record'" class="detail-section">
+        <div v-if="showPanel('medical-record')" class="detail-section">
           <ClientMedicalRecordsTab
             :agency-id="Number(props.client?.agency_id || 0) || null"
             :client-id="Number(props.client?.id || 0) || null"
@@ -1313,7 +1223,7 @@
         </div>
 
         <!-- Demographics Tab -->
-        <div v-if="activeTab === 'demographics'" class="detail-section">
+        <div v-if="showPanel('demographics')" class="detail-section">
           <div class="tab-meta-bar">
             <div class="muted" style="font-size: 13px;">
               Core demographics from the client record
@@ -1400,7 +1310,7 @@
         </div>
 
         <!-- Surveys Tab -->
-        <div v-if="activeTab === 'surveys'" class="detail-section">
+        <div v-if="showPanel('surveys')" class="detail-section">
           <div class="form-actions" style="margin-top: 0; justify-content: space-between;">
             <h3 style="margin:0;">Survey responses</h3>
             <button class="btn btn-secondary btn-sm" type="button" @click="printSurveyTrends">Print trend</button>
@@ -1447,7 +1357,7 @@
         </div>
 
         <!-- Learning Billing Tab -->
-        <div v-if="activeTab === 'billing'" class="detail-section">
+        <div v-if="showPanel('billing') && learningBillingEnabledForClient && !['provider', 'provider_plus'].includes(roleNorm)" class="detail-section">
           <GuardianBillingTab
             :agency-id="Number(props.client?.agency_id || 0) || null"
             :client-id="Number(props.client?.id || 0) || null"
@@ -1455,7 +1365,7 @@
         </div>
 
         <!-- Practitioner Packages & Payments Tab -->
-        <div v-if="activeTab === 'packages'" class="detail-section">
+        <div v-if="showPanel('packages')" class="detail-section">
           <PractitionerClientPackagesTab
             :agency-id="Number(props.client?.agency_id || 0)"
             :client-id="Number(props.client?.id || 0)"
@@ -1467,7 +1377,7 @@
           />
         </div>
 
-        <div v-if="activeTab === 'assessments' || activeTab === 'life-balance'" class="detail-section">
+        <div v-if="showPanel('assessments') || showPanel('life-balance')" class="detail-section">
           <ClientAssessmentsTab
             :agency-id="Number(props.client?.agency_id || 0)"
             :client-id="Number(props.client?.id || 0)"
@@ -1477,18 +1387,18 @@
 
         <!-- Messages/Notes Tab -->
         <ClientMessagesTab
-          v-if="activeTab === 'messages'"
+          v-if="showPanel('messages')"
           :client-id="Number(client.id)"
           :is-backoffice-role="isBackofficeRole"
         />
 
         <!-- Communications Tab -->
-        <div v-if="activeTab === 'communications'" class="detail-section">
+        <div v-if="showPanel('communications')" class="detail-section">
           <ClientCommunicationsTab :client-id="Number(props.client.id)" />
         </div>
 
         <!-- Guardians Tab -->
-        <div v-if="activeTab === 'guardians'" class="detail-section">
+        <div v-if="showPanel('guardians')" class="detail-section">
           <div class="phi-warning" style="margin-bottom: 12px;">
             <strong>Non-clinical portal access:</strong> Guardians can be given access to docs, links, and program materials.
           </div>
@@ -1748,7 +1658,7 @@
         </div>
 
         <!-- Assignments Tab (backoffice only) -->
-        <div v-if="activeTab === 'assignments'" class="detail-section">
+        <div v-if="showPanel('assignments')" class="detail-section">
           <div class="form-section-divider" style="margin-top: 0; margin-bottom: 10px;">
             <h3 style="margin:0;">Client assignments</h3>
             <div class="hint">Manage multi-agency affiliations, multi-org affiliations, and scoped provider assignments.</div>
@@ -2165,20 +2075,59 @@
         </div>
 
         <!-- School ROI Access Tab -->
-        <div v-if="activeTab === 'school-roi'" class="detail-section">
+        <div v-if="showPanel('school-roi')" class="detail-section">
           <ClientSchoolRoiAccessTab
             :client="props.client"
             @updated="refreshClient"
           />
         </div>
 
+        <div v-if="showPanel('lifecycle')" class="detail-section">
+          <ClientCareTimeline
+            :client-id="client.id"
+            :client="client"
+            title="Lifecycle"
+            hint="School fall/spring activity and office care milestones."
+            @view-event="openLifecycleHistoryEvent"
+          />
+        </div>
+
+        <div v-if="showPanel('intake-note')" class="detail-section">
+          <h3 style="margin-top: 0;">Clinical notes</h3>
+          <p class="hint">Intake note draft, session medical record, and clinical profile for this client.</p>
+          <ClientIntakeNotePanel
+            :client-id="client.id"
+            :assigned-provider="Boolean(primaryProviderLabel && primaryProviderLabel !== 'Not assigned' && primaryProviderLabel !== '—')"
+            :phi-banner="['admin', 'super_admin', 'support', 'staff'].includes(roleNorm)"
+          />
+        </div>
+
+        <div v-if="showPanel('treatment-plans')" class="detail-section">
+          <ClientTreatmentPlansPanel
+            :client-id="client.id"
+            :agency-id="client.agency_id || selectedAgencyId"
+            @navigate="goChartSub"
+          />
+        </div>
+
+        <div v-if="showPanel('authorizations')" class="detail-section">
+          <ClientAuthorizationsPanel
+            :client-id="Number(client.id)"
+            :client="client"
+            @open-document="openChartDocument"
+          />
+        </div>
+
         <!-- Documentation Tab -->
         <ClientDocumentsTab
-          v-if="activeTab === 'phi'"
+          v-if="showPanel('phi')"
+          ref="documentsTabRef"
           :client-id="Number(client.id)"
           :client="client"
           :can-edit-paperwork="canEditPaperwork"
           :highlight-document-id="initialDocumentId"
+          :pending-view-key="pendingChartViewKey"
+          @opened-view-key="pendingChartViewKey = ''"
         />
 
     <template v-if="!props.fullPage" #footer>
@@ -2196,7 +2145,7 @@
             v-if="canEditAccount && !isClientArchived"
             type="button"
             class="cdp-footer-link"
-            @click="activeTab = 'overview'; startEditOverview(true)"
+            @click="goChartSub('account'); startEditOverview(true)"
           >
             Edit profile
           </button>
@@ -2298,6 +2247,7 @@ import ClientAssessmentsTab from './ClientAssessmentsTab.vue';
 import ClientMedicalRecordsTab from './ClientMedicalRecordsTab.vue';
 import ClientBillingImportTab from './ClientBillingImportTab.vue';
 import ClientChartShell from './clientChart/ClientChartShell.vue';
+import ClientOverviewHub from './clientChart/ClientOverviewHub.vue';
 import ClientClinicalTab from './clientChart/ClientClinicalTab.vue';
 import ClientDocumentsTab from './clientChart/ClientDocumentsTab.vue';
 import ClientMessagesTab from './clientChart/ClientMessagesTab.vue';
@@ -2313,6 +2263,7 @@ import {
   normalizeGradeForSave,
   normalizeGradeToStandard
 } from '../../utils/clientGrade.js';
+import { displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
 import AssignDayModal from '../school/AssignDayModal.vue';
 import PostListingModal from '../clientExchange/PostListingModal.vue';
 import { canSeeClientExchangeNav } from '../../utils/clientExchangeNav.js';
@@ -2320,6 +2271,21 @@ import { useClientDisplayMode } from '../../composables/useClientDisplayMode.js'
 import ClientLifecycleHistoryPanel from '../admin/ClientLifecycleHistoryPanel.vue';
 import LifecycleActionModal from '../school/LifecycleActionModal.vue';
 import QuickChecklistModal from '../school/QuickChecklistModal.vue';
+import {
+  resolveChartTab,
+  accountSubnav,
+  lifecycleSubnav,
+  recordsSubnav,
+  panelVisible,
+  chartNavTarget,
+  LEGACY_TAB_ALIASES,
+  RECORDS_SECONDARY_SUBS
+} from '../../utils/clientChartHubs.js';
+import ClientCareTimeline from './clientChart/ClientCareTimeline.vue';
+import ClientIntakeNotePanel from './clientChart/ClientIntakeNotePanel.vue';
+import ClientRecordsOverview from './clientChart/ClientRecordsOverview.vue';
+import ClientTreatmentPlansPanel from './clientChart/ClientTreatmentPlansPanel.vue';
+import ClientAuthorizationsPanel from './clientChart/ClientAuthorizationsPanel.vue';
 
 const props = defineProps({
   client: {
@@ -2388,6 +2354,116 @@ const onPractitionerPayPerSession = () => {
 };
 
 const activeTab = ref('overview');
+const hubSub = ref('');
+const pendingChartViewKey = ref('');
+const documentsTabRef = ref(null);
+const chartHub = computed(() => resolveChartTab(activeTab.value).hub);
+const chartSubnav = computed(() => {
+  const hub = chartHub.value;
+  if (hub === 'account') {
+    return accountSubnav({
+      isSchool: isSchoolClientType.value,
+      canEditAccount: canEditAccount.value
+    });
+  }
+  if (hub === 'lifecycle') {
+    return lifecycleSubnav({ isSchool: isSchoolClientType.value });
+  }
+  if (hub === 'records') {
+    return recordsSubnav({
+      canViewClinical: isClinicalLikeClientType.value
+        && ['provider', 'provider_plus', 'admin', 'super_admin', 'support', 'staff'].includes(roleNorm.value),
+      canViewMedicalRecord: canViewMedicalRecord.value,
+      canViewBilling: (canViewClientBillingImport.value || learningBillingEnabledForClient.value)
+        && !['provider', 'provider_plus'].includes(roleNorm.value)
+    });
+  }
+  if (hub === 'messages') {
+    return [
+      { id: 'messages', label: 'Messages / Notes' },
+      { id: 'communications', label: 'Communications' }
+    ];
+  }
+  if (hub === 'overview' && isSchoolClientType.value && isSkillsClientFlag(props.client?.skills)) {
+    return [
+      { id: 'home', label: 'At a glance' },
+      { id: 'skill-builders', label: 'Events / groups' }
+    ];
+  }
+  return [];
+});
+const effectiveHubSub = computed(() => {
+  const hub = chartHub.value;
+  const navIds = new Set((chartSubnav.value || []).map((s) => s.id));
+  const sub = String(hubSub.value || '').trim();
+  // Overview must ignore leftover Account/Records subs so shells never stack.
+  if (hub === 'overview') {
+    if (sub === 'skill-builders' || sub === 'home') return sub;
+    return navIds.has('home') ? 'home' : '';
+  }
+  if (sub && (navIds.has(sub) || (hub === 'records' && RECORDS_SECONDARY_SUBS.includes(sub)))) {
+    return sub;
+  }
+  const fromTab = resolveChartTab(activeTab.value).sub;
+  if (fromTab && (navIds.has(fromTab) || (hub === 'records' && RECORDS_SECONDARY_SUBS.includes(fromTab)))) {
+    return fromTab;
+  }
+  if (hub === 'account') return 'profile';
+  if (hub === 'lifecycle') return 'timeline';
+  if (hub === 'records') return 'overview';
+  if (hub === 'messages') return 'messages';
+  return '';
+});
+function showPanel(legacyId) {
+  return panelVisible(legacyId, chartHub.value, effectiveHubSub.value);
+}
+function setChartNav(hubId, subId = '') {
+  const hub = String(hubId || 'overview');
+  let sub = String(subId || '').trim();
+  if (hub === 'overview' && !sub && isSchoolClientType.value && isSkillsClientFlag(props.client?.skills)) {
+    sub = 'home';
+  }
+  if (hub === 'records' && sub === 'billing' && canViewClientBillingImport.value) {
+    activeTab.value = 'client-billing';
+    hubSub.value = 'billing';
+    return;
+  }
+  const target = chartNavTarget(hub, sub);
+  activeTab.value = target.activeTab;
+  hubSub.value = target.hubSub;
+}
+function onHubChange(hubId) {
+  setChartNav(hubId, '');
+}
+function onHubSubChange(subId) {
+  setChartNav(chartHub.value, subId);
+}
+
+function goChartSub(subOrLegacy) {
+  const key = String(subOrLegacy || '');
+  if (LEGACY_TAB_ALIASES[key]) {
+    const resolved = resolveChartTab(key);
+    setChartNav(resolved.hub, resolved.sub || '');
+    // Preserve precise legacy tab when secondary surfaces share a hub sub.
+    if (RECORDS_SECONDARY_SUBS.includes(resolved.sub) || key === 'phi' || key === 'documents') {
+      activeTab.value = key === 'documents' ? 'phi' : key;
+      hubSub.value = resolved.sub || '';
+    }
+    return;
+  }
+  setChartNav(chartHub.value, key);
+}
+
+function openChartDocument(viewKey) {
+  const key = String(viewKey || '').trim();
+  pendingChartViewKey.value = key;
+  setChartNav('records', 'documents');
+  if (key) {
+    queueMicrotask(() => {
+      documentsTabRef.value?.openGalleryArtifact?.(key);
+    });
+  }
+}
 const medicalRecordEncounterId = ref(null);
 
 function onMedicalRecordEncounterChange(encounterId) {
@@ -2759,7 +2835,7 @@ const openFullClientRecord = () => {
     ? `/${orgSlug}/admin/clients/${props.client.id}`
     : `/admin/clients/${props.client.id}`;
   const query = tab && tab !== 'overview' ? { tab } : {};
-  // Navigate to the dedicated full-page profile; keep current tab in the query.
+  emit('close');
   router.push({ path, query }).catch(() => {
     window.location.assign(`${path}${query.tab ? `?tab=${encodeURIComponent(query.tab)}` : ''}`);
   });
@@ -3032,6 +3108,21 @@ const sessionCountLabel = computed(() => {
   return String(sessionCount.value || 0);
 });
 
+const overviewGlanceItems = computed(() => {
+  const items = [];
+  if (showSchoolGlance.value) {
+    items.push({ label: 'School', value: schoolGlanceLabel.value || '—' });
+    items.push({ label: 'Assigned day', value: assignedDayGlanceLabel.value || 'Not assigned' });
+    items.push({ label: 'Grade', value: formatGradeDisplay(props.client?.grade) || '—' });
+    if (props.client?.school_year) items.push({ label: 'School year', value: String(props.client.school_year) });
+  }
+  items.push({ label: 'Primary clinician', value: primaryProviderLabel.value });
+  items.push({ label: 'Program', value: clientTypeLabel.value });
+  items.push({ label: 'Insurance', value: primaryInsuranceLabel.value || 'Not on file' });
+  items.push({ label: 'Status', value: isClientArchived.value ? 'Archived' : displayStatusLabel.value });
+  return items;
+});
+
 const overviewAlertItems = computed(() => {
   const items = [];
   for (const b of intakeSafetyStaffBanners.value || []) {
@@ -3063,75 +3154,13 @@ const overviewAlertItems = computed(() => {
   return items.slice(0, 6);
 });
 
-const tabs = computed(() => {
-  const base = [{ id: 'overview', label: 'Overview' }];
-  if (isSchoolClientType.value && isSkillsClientFlag(props.client?.skills)) {
-    base.push({ id: 'skill-builders', label: 'Events / groups' });
-  }
-  if (isSchoolClientType.value) {
-    base.push({ id: 'checklist', label: 'Checklist' });
-    base.push({ id: 'school-years', label: 'School years' });
-  }
-  base.push(
-    { id: 'history', label: 'Status History' },
-    { id: 'access', label: 'Access Log' },
-    { id: 'messages', label: 'Messages / Notes' },
-    { id: 'communications', label: 'Communications' },
-    { id: 'guardians', label: 'Guardians' },
-    { id: 'phi', label: 'Documents' }
-  );
-  if (learningBillingEnabledForClient.value) {
-    const idx = base.findIndex((t) => t.id === 'messages');
-    base.splice(idx < 0 ? base.length : idx, 0, { id: 'billing', label: 'Billing' });
-  }
-  if (practitionerPackagesEnabledForClient.value) {
-    const idx = base.findIndex((t) => t.id === 'messages');
-    base.splice(idx < 0 ? base.length : idx, 0, { id: 'packages', label: 'Packages' });
-  }
-  if (canEditAccount.value) {
-    const idx = base.findIndex((t) => t.id === 'phi');
-    base.splice(idx < 0 ? base.length : idx, 0, { id: 'assignments', label: 'Assignments' });
-  }
-  if (canManageSchoolRoi.value) {
-    const roiIdx = base.findIndex((t) => t.id === 'phi');
-    base.splice(roiIdx < 0 ? base.length : roiIdx, 0, { id: 'school-roi', label: 'School ROI Access' });
-  }
-  // Clinical tab: intake / profile clinical fields
-  if (
-    isClinicalLikeClientType.value
-    && ['provider', 'provider_plus', 'admin', 'super_admin', 'support', 'staff'].includes(roleNorm.value)
-  ) {
-    const clinicalIdx = base.findIndex((t) => t.id === 'messages');
-    base.splice(clinicalIdx < 0 ? base.length : clinicalIdx, 0, { id: 'clinical', label: 'Clinical' });
-  }
-  if (canViewMedicalRecord.value) {
-    const anchor = base.findIndex((t) => t.id === 'clinical');
-    const insertAt = anchor >= 0 ? anchor + 1 : base.findIndex((t) => t.id === 'messages');
-    base.splice(insertAt < 0 ? base.length : insertAt, 0, { id: 'medical-record', label: 'Medical Record' });
-  }
-  if (canViewClientBillingImport.value) {
-    const anchor = base.findIndex((t) => t.id === 'medical-record');
-    const insertAt = anchor >= 0 ? anchor + 1 : base.findIndex((t) => t.id === 'clinical');
-    base.splice(insertAt < 0 ? base.length : insertAt, 0, {
-      id: 'client-billing',
-      label: learningBillingEnabledForClient.value ? 'Billing (import)' : 'Billing'
-    });
-  }
-  // Demographics tab: visible to admin/support roles and providers
-  if (['super_admin', 'admin', 'support', 'staff', 'provider', 'provider_plus'].includes(roleNorm.value)) {
-    const demoIdx = base.findIndex((t) => t.id === 'clinical');
-    base.splice(demoIdx < 0 ? base.length : demoIdx, 0, { id: 'demographics', label: 'Demographics' });
-  }
-  if (['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value)) {
-    const surveysIdx = base.findIndex((t) => t.id === 'messages');
-    base.splice(surveysIdx < 0 ? base.length : surveysIdx, 0, { id: 'surveys', label: 'Surveys' });
-  }
-  if (['super_admin', 'admin', 'support', 'staff', 'provider', 'provider_plus', 'supervisor'].includes(roleNorm.value)) {
-    const idx = base.findIndex((t) => t.id === 'messages');
-    base.splice(idx < 0 ? base.length : idx, 0, { id: 'assessments', label: 'Assessments' });
-  }
-  return base;
-});
+const tabs = computed(() => ([
+  { id: 'overview', label: 'Overview' },
+  { id: 'account', label: 'Account' },
+  { id: 'lifecycle', label: 'Lifecycle' },
+  { id: 'records', label: 'Records' },
+  { id: 'messages', label: 'Messages' }
+]));
 
 const affiliationsLoading = ref(false);
 const assignmentsError = ref('');
@@ -4013,6 +4042,9 @@ const onProfileDetailsToggle = (e) => {
 };
 
 const startEditOverview = async (scrollToFields = false) => {
+  if (chartHub.value !== 'account') {
+    setChartNav('account', 'profile');
+  }
   editingOverview.value = true;
   profileDetailsPulseHint.value = false;
   hydrateOverviewForm();
@@ -4035,7 +4067,7 @@ const cancelEditOverview = () => {
 };
 
 const jumpToEditDemographics = async () => {
-  activeTab.value = 'overview';
+  setChartNav('account', 'demographics');
   await startEditOverview(true);
 };
 
@@ -4878,7 +4910,7 @@ const handleClose = () => {
 };
 
 const onOverviewAlertClick = (alert) => {
-  if (alert?.tab) activeTab.value = alert.tab;
+  if (alert?.tab) goChartSub(alert.tab);
 };
 
 const requestNavigate = (direction) => {
@@ -4894,13 +4926,13 @@ const requestNavigate = (direction) => {
 
 watch(() => activeTab.value, (newTab) => {
   emit('tab-change', newTab);
-  if (newTab !== 'medical-record' && medicalRecordEncounterId.value) {
+  if (newTab !== 'medical-record' && newTab !== 'clinical-notes' && medicalRecordEncounterId.value) {
     medicalRecordEncounterId.value = null;
     emit('encounter-change', null);
   }
   if (newTab === 'history' && history.value.length === 0) {
     fetchHistory();
-  } else if (newTab === 'access' && accessLog.value.length === 0) {
+  } else if ((newTab === 'access' || newTab === 'audit') && accessLog.value.length === 0) {
     fetchAccessLog();
   } else if (newTab === 'checklist') {
     hydrateChecklist();
@@ -4915,12 +4947,22 @@ watch(() => activeTab.value, (newTab) => {
   } else if (newTab === 'phi') {
     fetchDocChecklist();
     loadPaperworkTabData();
-  } else if (newTab === 'clinical') {
+  } else if (newTab === 'clinical' || newTab === 'clinical-notes') {
     fetchBillingDiagnoses();
+  } else if (newTab === 'phi' || newTab === 'account' || newTab === 'demographics') {
+    fetchDemographics();
+    if (newTab === 'account' || newTab === 'phi') fetchGuardians();
   } else if (newTab === 'demographics') {
     fetchDemographics();
   } else if (newTab === 'surveys' && clientSurveyResponses.value.length === 0) {
     fetchClientSurveyResponses();
+  }
+});
+
+watch(chartHub, (hub) => {
+  if (hub === 'account') {
+    fetchDemographics();
+    fetchGuardians();
   }
 });
 
@@ -4953,8 +4995,12 @@ watch(effectiveClientType, async (nextType, prevType) => {
   if (activeTab.value === 'clinical' || ['clinical', 'learning'].includes(nextType)) {
     await fetchBillingDiagnoses();
   }
-  const allowed = new Set((tabs.value || []).map((t) => t.id));
-  if (!allowed.has(activeTab.value)) activeTab.value = 'overview';
+  const hub = resolveChartTab(activeTab.value).hub;
+  const allowedHubs = new Set((tabs.value || []).map((t) => t.id));
+  if (!allowedHubs.has(hub)) {
+    activeTab.value = 'overview';
+    hubSub.value = '';
+  }
 });
 
 const hydrateChecklist = async () => {
@@ -5370,8 +5416,8 @@ watch(
   (id) => {
     const n = Number(id || 0);
     if (n > 0) {
-      const allowed = new Set((tabs.value || []).map((x) => x.id));
-      if (allowed.has('phi')) activeTab.value = 'phi';
+      activeTab.value = 'phi';
+      hubSub.value = 'documents';
     }
   },
   { immediate: true }
@@ -5383,8 +5429,8 @@ watch(
     const n = Number(id || 0);
     medicalRecordEncounterId.value = n > 0 ? n : null;
     if (n > 0) {
-      const allowed = new Set((tabs.value || []).map((x) => x.id));
-      if (allowed.has('medical-record')) activeTab.value = 'medical-record';
+      activeTab.value = 'medical-record';
+      hubSub.value = 'medical-record';
     }
   },
   { immediate: true }
@@ -5396,8 +5442,22 @@ watch(
   (t) => {
     const desired = String(t || '').trim();
     if (!desired) return;
-    const allowed = new Set((tabs.value || []).map((x) => x.id));
-    if (allowed.has(desired)) activeTab.value = desired;
+    const resolved = resolveChartTab(desired);
+    const allowedHubs = new Set((tabs.value || []).map((x) => x.id));
+    if (!allowedHubs.has(resolved.hub) && desired !== 'skill-builders') return;
+    // Do not fight an in-progress hub click: URL catch-up should not reopen another hub.
+    if (chartHub.value === resolved.hub && effectiveHubSub.value === (resolved.sub || effectiveHubSub.value)) {
+      if (resolved.sub) hubSub.value = resolved.sub;
+      return;
+    }
+    setChartNav(resolved.hub, resolved.sub || '');
+    if (desired === 'phi' || desired === 'documents') {
+      activeTab.value = 'phi';
+      hubSub.value = 'documents';
+    } else if (RECORDS_SECONDARY_SUBS.includes(resolved.sub)) {
+      activeTab.value = desired;
+      hubSub.value = resolved.sub;
+    }
   },
   { immediate: true }
 );
@@ -5408,8 +5468,8 @@ watch(
   (on) => {
     const desired = String(props.initialTab || '').trim();
     if (desired !== 'skill-builders' || !on) return;
-    const allowed = new Set((tabs.value || []).map((x) => x.id));
-    if (allowed.has('skill-builders')) activeTab.value = 'skill-builders';
+    activeTab.value = 'skill-builders';
+    hubSub.value = 'skill-builders';
   },
   { immediate: true }
 );
@@ -5418,8 +5478,12 @@ watch(
 watch(
   () => (tabs.value || []).map((t) => t.id).join(','),
   () => {
-    const allowed = new Set((tabs.value || []).map((t) => t.id));
-    if (!allowed.has(activeTab.value)) activeTab.value = 'overview';
+    const hub = resolveChartTab(activeTab.value).hub;
+    const allowedHubs = new Set((tabs.value || []).map((t) => t.id));
+    if (!allowedHubs.has(hub)) {
+      activeTab.value = 'overview';
+      hubSub.value = '';
+    }
   }
 );
 
@@ -5469,7 +5533,7 @@ watch(
   left: 0;
   z-index: 40;
   width: min(520px, 70vw);
-  background: #fff;
+  background: var(--bg-card, var(--bg));
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: var(--shadow);
@@ -5481,7 +5545,7 @@ watch(
    and renders above sibling cards. */
 .admin-note-popover--floating {
   width: min(520px, 92vw);
-  background: #fff;
+  background: var(--bg-card, var(--bg));
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 12px 32px -10px rgba(15, 23, 42, 0.25), 0 4px 12px -4px rgba(15, 23, 42, 0.12);
@@ -5514,7 +5578,7 @@ watch(
 }
 
 .modal-content.large {
-  background: #fff;
+  background: var(--bg-card, var(--bg));
   border-radius: 18px;
   width: min(1280px, 97vw);
   max-width: min(1280px, 97vw);
@@ -7666,24 +7730,22 @@ watch(
 .cdp-page-body.client-chart .cc-tab-rail,
 .cdp-page-body.client-chart .cc-alert-bar,
 .cdp-page-body.client-chart .tab-content {
-  background: #ffffff;
+  background: transparent;
 }
 .cdp-page-body.client-chart .modal-header.cdp-header {
-  border-radius: 16px 16px 0 0;
-  border: 1px solid var(--border);
+  border-radius: 0;
+  border: none;
   border-bottom: 1px solid var(--border);
-  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
+  box-shadow: none;
 }
 .cdp-page-body.client-chart .cc-tab-rail {
-  border-left: 1px solid var(--border);
-  border-right: 1px solid var(--border);
+  border: none;
   border-bottom: 1px solid var(--border);
 }
 .cdp-page-body.client-chart .tab-content {
-  border: 1px solid var(--border);
-  border-top: none;
-  border-radius: 0 0 16px 16px;
-  box-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.18);
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 @media (max-width: 980px) {
   .cdp-page-body.client-chart { padding: 0 12px; }

@@ -36,7 +36,9 @@ export async function attachSignedPdfToClient({
   link = null,
   storagePath,
   originalName,
+  originalFilename = null,
   documentTitle = null,
+  title = null,
   documentType = null,
   mimeType = 'application/pdf',
   intakeSubmissionId = null,
@@ -57,6 +59,7 @@ export async function attachSignedPdfToClient({
   // Override fallbacks if the caller knows better than the client row (e.g.
   // an embedded ROI step running against the link's school org).
   agencyIdOverride = null,
+  agencyId: agencyIdParam = null,
   schoolOrganizationIdOverride = null,
   // Free-form audit metadata appended to the PhiDocumentAuditLog row.
   auditMetadata = {},
@@ -70,6 +73,13 @@ export async function attachSignedPdfToClient({
   if (!storagePath) {
     return { ok: false, reason: 'missing_storage_path' };
   }
+
+  // Some call sites still pass the older field names (title / originalFilename /
+  // agencyId). Accept them so HIPAA, disclosure, and packet PDFs are not stored
+  // with blank titles or a missing agency override.
+  originalName = originalName || originalFilename || null;
+  documentTitle = documentTitle || title || null;
+  agencyIdOverride = agencyIdOverride || agencyIdParam || null;
 
   // Resolve client row if the caller didn't pre-load it AND we actually need
   // it (i.e. at least one of agency/org wasn't overridden). The piece-doc

@@ -1552,6 +1552,18 @@
 }
 
 /* Broad dark mode overrides for scoped component styles */
+[data-theme="dark"] .clients-table-container,
+[data-theme="dark"] .clients-table tbody tr,
+[data-theme="dark"] .client-row,
+[data-theme="dark"] .cm-client-row,
+[data-theme="dark"] .client-list-grid .client-row {
+  background-color: var(--bg) !important;
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .clients-table-container {
+  background-color: var(--bg-card, var(--bg)) !important;
+}
 [data-theme="dark"] .card,
 [data-theme="dark"] .panel,
 [data-theme="dark"] .modal-content,

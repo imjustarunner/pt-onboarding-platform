@@ -690,6 +690,38 @@ export const getClients = async (req, res, next) => {
     }
 
     const shouldPaginate = userRole === 'super_admin' && paginateRequested;
+
+    const SORT_FIELD_MAP = {
+      initials: (c) => String(c.initials || c.full_name || '').toLowerCase(),
+      agency_name: (c) => String(c.agency_name || '').toLowerCase(),
+      organization_name: (c) => String(c.organization_name || '').toLowerCase(),
+      client_status_label: (c) => String(c.client_status_label || c.client_status_key || '').toLowerCase(),
+      provider_name: (c) => String(c.provider_name || '').toLowerCase(),
+      insurance_type_label: (c) => String(c.insurance_type_label || '').toLowerCase(),
+      submission_date: (c) => {
+        const d = c.submission_date ? new Date(c.submission_date) : null;
+        return d && !Number.isNaN(d.getTime()) ? d.getTime() : 0;
+      },
+      last_activity_at: (c) => {
+        const d = c.last_activity_at ? new Date(c.last_activity_at) : null;
+        return d && !Number.isNaN(d.getTime()) ? d.getTime() : 0;
+      },
+      district_name: (c) => String(c.district_name || '').toLowerCase()
+    };
+    const sortRaw = String(req.query.sort || req.query.sort_by || '').trim();
+    const orderRaw = String(req.query.order || req.query.sort_order || 'desc').trim().toLowerCase();
+    const sortFn = SORT_FIELD_MAP[sortRaw] || null;
+    const sortAsc = orderRaw === 'asc';
+    if (sortFn) {
+      out.sort((a, b) => {
+        const av = sortFn(a);
+        const bv = sortFn(b);
+        if (av === bv) return Number(b.id || 0) - Number(a.id || 0);
+        if (av > bv) return sortAsc ? 1 : -1;
+        return sortAsc ? -1 : 1;
+      });
+    }
+
     if (!shouldPaginate) {
       return res.json(out);
     }

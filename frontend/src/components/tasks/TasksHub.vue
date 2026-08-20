@@ -359,7 +359,8 @@
                   @click="openTask(task)"
                 >
                   <strong>{{ task.title }}</strong>
-                  <p>{{ task.description || 'No description' }}</p>
+                  <p v-if="!task.has_encrypted_description">{{ task.description || 'No description' }}</p>
+                  <p v-else class="muted">PHI locked — open to confirm and view</p>
                 </article>
               </div>
             </div>

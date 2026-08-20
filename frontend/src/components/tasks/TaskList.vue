@@ -51,7 +51,8 @@
             </span>
           </div>
         </div>
-        <p class="task-description">{{ task.description || 'No description' }}</p>
+        <p v-if="!task.has_encrypted_description" class="task-description">{{ task.description || 'No description' }}</p>
+        <p v-else class="task-description">PHI locked — open to confirm and view</p>
         <div
           v-if="getSubtasks(task).length > 0"
           class="task-subtasks"

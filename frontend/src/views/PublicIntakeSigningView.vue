@@ -547,6 +547,7 @@
                 :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''"
                 :locale="intakeLocale"
                 :error="whoForError && !otherGuardianContactOk() ? otherGuardianBlockReason() : ''"
+                :class="{ 'required-missing-glow': whoForError && !otherGuardianContactOk() }"
                 @saved="onIntakeLegalSaved"
               />
             </template>
@@ -748,7 +749,7 @@
         <OtherGuardianIntakeFields
           v-if="!isOfficeInDepthIntake && !isMedicalRecordsRequest && !isJobApplication && !isClientBound && intakeForSelf === false && !isCoGuardianInvitee"
           class="intake-start-custody"
-          :class="{ 'intake-start-custody--school': isSchoolScopedIntake }"
+          :class="{ 'intake-start-custody--school': isSchoolScopedIntake, 'required-missing-glow': stepError && !otherGuardianContactOk() }"
           :model="otherGuardian"
           :copy="otherGuardianCopy"
           :can-edit="canEditIntakeLegal"
@@ -8828,10 +8829,27 @@ const maybeInitRecaptchaForCover = async () => {
   }
 };
 
+function scrollIntakeViewportToTop() {
+  try {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    const mains = document.querySelectorAll('.df-main, .df-main-body, .df-shell, .public-intake');
+    mains.forEach((el) => {
+      if (el && typeof el.scrollTo === 'function') el.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      else if (el) el.scrollTop = 0;
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
 watch(step, async (val, prev) => {
   if (prev !== undefined && prev !== val) {
     recaptchaWidgetId.value = null;
     clearCaptchaState();
+    await nextTick();
+    scrollIntakeViewportToTop();
   }
   if (isOfficeInDepthIntake.value && Number(val) > WHO_FOR_STEP && !officeQuestionnaireBgUrl.value) {
     const slug = String(referralAgencySlug.value || agencyInfo.value?.portal_url || agencyInfo.value?.slug || '').trim();
@@ -8865,13 +8883,10 @@ const packetInitials = (firstName, middleName, lastName) =>
     .join('');
 
 const deriveClientInitials = (firstName, lastName) => {
-  const formatTri = (value) => {
-    const cleaned = String(value || '').replace(/[^a-zA-Z]/g, '').slice(0, 3);
-    if (!cleaned) return '';
-    const lower = cleaned.toLowerCase();
-    return lower.charAt(0).toUpperCase() + lower.slice(1);
-  };
-  return `${formatTri(firstName)}${formatTri(lastName)}`.trim();
+  const take3 = (value) => String(value || '').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase();
+  const first = take3(firstName);
+  const last = take3(lastName) || first;
+  return `${first}${last}`.trim();
 };
 
 const buildClientPayloads = () =>
@@ -8888,7 +8903,8 @@ const buildClientPayloads = () =>
       middleName,
       lastName,
       fullName,
-      initials: packetInitials(firstName, middleName, lastName) || deriveClientInitials(firstName, lastName),
+      // Persist first-3 + last-3 (e.g. FakFak). packetInitials stays for PDF filenames only.
+      initials: deriveClientInitials(firstName, lastName) || packetInitials(firstName, middleName, lastName),
       dateOfBirth: String(c?.dateOfBirth || starterDob.value || '').trim() || undefined,
       contactPhone: String(guardianPhone.value || '').trim() || undefined
     };
@@ -9277,9 +9293,18 @@ const submitConsent = async () => {
                 ? 'organizationId'
                 : (!otherGuardianContactOk() ? 'other-guardian-fields' : null);
     if (firstMissingId) {
+      scrollIntakeViewportToTop();
+      await nextTick();
+      const page = document.querySelector('.public-intake .step')
+        || document.querySelector('.intake-card')
+        || document.querySelector('.df-main-body');
+      if (page?.scrollIntoView) page.scrollIntoView({ behavior: 'smooth', block: 'start' });
       const el = document.getElementById(firstMissingId);
       if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      if (el?.focus) el.focus();
+      if (el?.querySelector) {
+        const focusable = el.querySelector('select, input, textarea, button');
+        if (focusable?.focus) focusable.focus();
+      } else if (el?.focus) el.focus();
     }
     return;
   }
@@ -11677,6 +11702,7 @@ watch(currentFlowStep, async (step) => {
     await nextTick();
     applyQuestionDefaults();
   }
+  scrollIntakeViewportToTop();
   if (isPacketSectionStepType(step?.type)) {
     const key = PACKET_SECTION_STEP_TO_KEY[String(step?.type || '').trim().toLowerCase()];
     await ensurePacketSectionContext(key);
