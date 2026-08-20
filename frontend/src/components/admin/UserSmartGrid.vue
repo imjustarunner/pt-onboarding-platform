@@ -148,6 +148,33 @@
                 :checked="!!cellValue(row, f)"
                 @change="onText(row, f, $event.target.checked)"
               />
+              <span v-else-if="f.type === 'derived' && f.key === 'pay_category'" class="cell-ro">
+                <span class="roster-cat-badge roster-cat-badge--pay" :title="categoryDetail(row, f)">
+                  {{ categoryDisplay(row, f) }}
+                </span>
+                <span v-if="categoryDetail(row, f)" class="roster-cat-sub">{{ categoryDetail(row, f) }}</span>
+              </span>
+              <span v-else-if="f.type === 'derived' && f.key === 'hcbs_category'" class="cell-ro">
+                <span class="roster-cat-badge roster-cat-badge--hcbs" :title="categoryDetail(row, f)">
+                  {{ categoryDisplay(row, f) }}
+                </span>
+                <span v-if="categoryDetail(row, f)" class="roster-cat-sub">{{ categoryDetail(row, f) }}</span>
+              </span>
+              <span v-else-if="f.type === 'derived' && f.key === 'classification_flag'" class="cell-ro">
+                <span
+                  v-if="flagCell(row, f)"
+                  class="roster-flag"
+                  :class="{
+                    'roster-flag--conflict': flagCell(row, f).kind === 'conflict',
+                    'roster-flag--unknown': flagCell(row, f).kind === 'unknown',
+                    'roster-flag--ok': flagCell(row, f).kind === 'ok',
+                  }"
+                  :title="flagCell(row, f).detail || ''"
+                >
+                  {{ flagCell(row, f).label }}
+                </span>
+                <span v-else class="muted">—</span>
+              </span>
               <span v-else class="cell-ro">{{ displayCell(row, f) }}</span>
             </td>
           </tr>
@@ -269,6 +296,10 @@ function cellValue(row, field) {
 
 function displayCell(row, field) {
   const v = cellValue(row, field);
+  if (field.type === 'derived') {
+    if (field.key === 'pay_category' || field.key === 'hcbs_category') return categoryDisplay(row, field);
+    if (field.key === 'classification_flag') return flagCell(row, field)?.label || '';
+  }
   if (field.type === 'file') return v?.name || '';
   if (field.type === 'boolean') return v ? 'Yes' : 'No';
   if (field.type === 'datetime' && v) {
@@ -283,6 +314,26 @@ function displayCell(row, field) {
     return opt?.label || v || '';
   }
   return v == null ? '' : String(v);
+}
+
+function categoryCell(row, field) {
+  const v = cellValue(row, field);
+  return v && typeof v === 'object' ? v : null;
+}
+
+function categoryDisplay(row, field) {
+  const v = categoryCell(row, field);
+  return v?.display || (v?.cat ? `Cat ${v.cat}` : 'Unknown');
+}
+
+function categoryDetail(row, field) {
+  const v = categoryCell(row, field);
+  return String(v?.label || '').trim();
+}
+
+function flagCell(row, field) {
+  const v = cellValue(row, field);
+  return v && typeof v === 'object' ? v : null;
 }
 
 function fileName(row, field) {
@@ -300,6 +351,16 @@ function sortValue(row, key) {
   const field = selectedFields.value.find((f) => f.key === key);
   if (!field) return '';
   const v = cellValue(row, field);
+  if (field?.type === 'derived') {
+    if (field.key === 'pay_category' || field.key === 'hcbs_category') {
+      const cell = categoryCell(row, field);
+      return cell?.cat == null ? 99 : Number(cell.cat);
+    }
+    if (field.key === 'classification_flag') {
+      const cell = flagCell(row, field);
+      return cell?.sort == null ? 99 : Number(cell.sort);
+    }
+  }
   if (field.type === 'boolean') return v ? 1 : 0;
   if (field.type === 'file') return String(v?.name || '').toLowerCase();
   return String(v || '').toLowerCase();
@@ -554,6 +615,51 @@ watch(
   background: var(--bg); color: var(--text-primary);
 }
 .cell-ro { color: var(--text-primary); }
+.roster-cat-badge {
+  display: inline-flex;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 800;
+  background: #e0f2fe;
+  color: #0369a1;
+  border: 1px solid #7dd3fc;
+}
+.roster-cat-badge--hcbs {
+  background: #ede9fe;
+  color: #5b21b6;
+  border-color: #c4b5fd;
+}
+.roster-cat-sub {
+  display: block;
+  max-width: 220px;
+  white-space: normal;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.roster-flag {
+  display: inline-flex;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.roster-flag--conflict {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+.roster-flag--unknown {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+}
+.roster-flag--ok {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+}
 .file-cell { display: flex; align-items: center; gap: 8px; }
 .file-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
 .file-btn { margin: 0; }

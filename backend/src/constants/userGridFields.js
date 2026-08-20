@@ -80,6 +80,9 @@ export const USER_GRID_FIELDS = [
   { key: 'is_hourly_worker', label: 'Hourly worker', group: 'Features', type: 'boolean', source: 'user', userField: 'isHourlyWorker', editable: true, sortable: true },
   { key: 'medcancel_rate_schedule', label: 'Med cancel schedule', group: 'Features', type: 'select', source: 'user', userField: 'medcancelRateSchedule', editable: true, sortable: true, options: USER_GRID_MEDCANCEL_OPTIONS },
 
+  { key: 'pay_category', label: 'Payroll Category', group: 'Payroll', type: 'derived', source: 'classification', editable: false, sortable: true, needsAgency: false },
+  { key: 'hcbs_category', label: 'HCBS Category', group: 'Payroll', type: 'derived', source: 'classification', editable: false, sortable: true, needsAgency: false },
+  { key: 'classification_flag', label: 'Classification flag', group: 'Payroll', type: 'derived', source: 'classification', editable: false, sortable: true, needsAgency: true },
   { key: 'comp_level', label: 'Pay level', group: 'Payroll', type: 'select', source: 'payroll', editable: true, sortable: true, needsAgency: true },
   { key: 'pay_system_enabled', label: 'Pay system', group: 'Payroll', type: 'boolean', source: 'payroll_flag', editable: true, sortable: true, needsAgency: true },
   { key: 'waive_probation', label: 'Waive probation', group: 'Payroll', type: 'boolean', source: 'payroll_flag', editable: true, sortable: true, needsAgency: true },

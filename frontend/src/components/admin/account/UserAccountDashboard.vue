@@ -336,6 +336,29 @@
             </div>
           </AccountDashboardCard>
 
+          <AccountDashboardCard
+            v-if="showAccountSection('payroll-hcbs-classification') && canShowClassification"
+            section-id="payroll-hcbs-classification"
+            title="Payroll &amp; HCBS Classification"
+            subtitle="Auto-derived from credential, title, role, and hourly-worker settings. Edit Prelicensed under Agency Assignments."
+            :can-edit="false"
+          >
+            <template #actions>
+              <button type="button" class="acct-btn acct-btn--ghost" @click="scrollToSection('agency-assignments')">
+                Agency Assignments
+              </button>
+              <button type="button" class="acct-btn acct-btn--ghost" :disabled="classificationLoading" @click="fetchClassification">
+                {{ classificationLoading ? 'Loading…' : 'Refresh' }}
+              </button>
+            </template>
+            <UserPayHcbsClassificationPanel
+              :results="classificationResults"
+              :agency-id="agencyId"
+              :loading="classificationLoading"
+              :show-agency-name="!agencyId"
+            />
+          </AccountDashboardCard>
+
           <!-- Compensation Level -->
           <AccountDashboardCard
             v-if="showAccountSection('compensation-level')"
@@ -566,6 +589,7 @@
 <script setup>
 import { computed, inject, onMounted, ref, watch } from 'vue';
 import AccountDashboardCard from './AccountDashboardCard.vue';
+import UserPayHcbsClassificationPanel from '../UserPayHcbsClassificationPanel.vue';
 import { USER_ACCOUNT_CONTEXT_KEY } from '../../../composables/userAccountContext.js';
 import { formatSnapshotValue, formatClinicalFieldValue, findFieldByKeys } from '../../../utils/clinicalFieldDisplay.js';
 import { supervisorTypeLabel } from '../../../constants/supervisorTypes.js';
@@ -904,6 +928,7 @@ const navItems = computed(() => {
     { id: 'professional-details', label: 'Professional Details' },
     { id: 'home-address', label: 'Home Address' },
     { id: 'licenses', label: 'Licenses & Certifications' },
+    { id: 'payroll-hcbs-classification', label: 'Payroll & HCBS' },
     { id: 'compensation-level', label: 'Compensation Level' },
     { id: 'service-availability', label: 'Service & Availability' },
     { id: 'supervisor-assignments', label: 'Supervisor Assignments' },
@@ -972,11 +997,49 @@ const loadClinicalFields = async () => {
 };
 
 onMounted(() => {
-  if (!isSchoolStaffProfile.value) loadClinicalFields();
+  if (!isSchoolStaffProfile.value) {
+    loadClinicalFields();
+    void fetchClassification();
+  }
 });
 watch(() => ctx.userId?.value ?? ctx.userId, () => {
-  if (!isSchoolStaffProfile.value) loadClinicalFields();
+  if (!isSchoolStaffProfile.value) {
+    loadClinicalFields();
+    void fetchClassification();
+  }
 });
+watch(
+  () => [userId.value, agencyId.value, form.value?.credential, form.value?.title, form.value?.role, form.value?.isHourlyWorker],
+  () => { void fetchClassification(); }
+);
+
+const classificationResults = ref([]);
+const classificationLoading = ref(false);
+
+const canShowClassification = computed(() => {
+  const r = String(user.value?.role || form.value?.role || '').toLowerCase();
+  return (
+    ['provider', 'provider_plus', 'admin', 'clinical_practice_assistant', 'intern'].includes(r)
+    || classificationResults.value.length > 0
+  );
+});
+
+async function fetchClassification() {
+  const uid = userId.value;
+  const client = api.value;
+  if (!uid || !client || isSchoolStaffProfile.value) return;
+  classificationLoading.value = true;
+  try {
+    const res = await client.get(`/users/${uid}/supervision-prelicensed-classification`, {
+      skipGlobalLoading: true,
+    });
+    classificationResults.value = Array.isArray(res.data?.results) ? res.data.results : [];
+  } catch {
+    classificationResults.value = [];
+  } finally {
+    classificationLoading.value = false;
+  }
+}
 watch(
   [userId, agencyId, isProviderRole, userAgencies],
   () => { loadPracticeCategories(); },

@@ -297,6 +297,7 @@
                   <div class="ov-field-row"><span class="ov-fl">Hire Date</span><span class="ov-fv">{{ fmtDate(user.hire_date) || '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Start Date</span><span class="ov-fv">{{ fmtDate(lifecycle?.summary?.startDate || user.start_date) || '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Employee ID</span><span class="ov-fv">{{ user.employee_id || (user.id ? `EMP-${String(user.id).padStart(4,'0')}` : '—') }}</span></div>
+                  <div class="ov-field-row"><span class="ov-fl">Credential</span><span class="ov-fv">{{ user.credential || '—' }}</span></div>
                 </div>
               </template>
 
@@ -320,6 +321,21 @@
                 </div>
               </template>
             </div>
+          </div>
+
+          <!-- Payroll & HCBS Classification -->
+          <div v-if="canShowClassification" class="ov-card">
+            <div class="ov-card-hdr">
+              <span class="ov-card-title">Payroll &amp; HCBS Classification</span>
+              <button class="ov-btn-viewall" type="button" @click="$emit('navigate', 'account')">Account</button>
+            </div>
+            <UserPayHcbsClassificationPanel
+              :results="classificationResults"
+              :agency-id="agencyId"
+              :loading="classificationLoading"
+              compact
+              :show-agency-name="!agencyId"
+            />
           </div>
 
           <!-- ── Row 3: Insurance accepted ─────────────────────────────── -->
@@ -644,6 +660,7 @@
 import { ref, computed, onMounted, inject, watch, nextTick } from 'vue';
 import api from '../../services/api';
 import AcceptedInsuranceBadges from './AcceptedInsuranceBadges.vue';
+import UserPayHcbsClassificationPanel from './UserPayHcbsClassificationPanel.vue';
 import { supervisorTypeLabel } from '../../constants/supervisorTypes.js';
 import { useAuthStore } from '../../store/auth';
 
@@ -683,6 +700,31 @@ const supervisors = ref([]);
 const recentActivity = ref([]);
 const notes = ref([]);
 const acceptedInsurances = ref([]);
+const classificationResults = ref([]);
+const classificationLoading = ref(false);
+
+const canShowClassification = computed(() => {
+  const r = String(props.user?.role || '').toLowerCase();
+  return (
+    ['provider', 'provider_plus', 'admin', 'clinical_practice_assistant', 'intern'].includes(r)
+    || classificationResults.value.length > 0
+  );
+});
+
+async function fetchClassification() {
+  if (!props.userId) return;
+  classificationLoading.value = true;
+  try {
+    const res = await api.get(`/users/${props.userId}/supervision-prelicensed-classification`, {
+      skipGlobalLoading: true,
+    });
+    classificationResults.value = Array.isArray(res.data?.results) ? res.data.results : [];
+  } catch {
+    classificationResults.value = [];
+  } finally {
+    classificationLoading.value = false;
+  }
+}
 
 const notesRef = ref(null);
 const showNoteComposer = ref(false);
@@ -1185,6 +1227,7 @@ const loadOverviewData = async () => {
       await Promise.all([
         fetchTasks().catch(() => {}),
         fetchAffiliations().catch(() => {}),
+        fetchClassification().catch(() => {}),
       ]);
       return;
     }
@@ -1197,6 +1240,7 @@ const loadOverviewData = async () => {
       props.canViewActivityLog ? fetchActivity() : Promise.resolve(),
       fetchNotes(),
       fetchAffiliations().catch(() => {}),
+      fetchClassification().catch(() => {}),
     ]);
   } catch (err) {
     loadError.value = 'Failed to load overview. Please refresh.';
@@ -1215,9 +1259,15 @@ watch(
       void Promise.all([
         fetchTasks().catch(() => {}),
         fetchAffiliations().catch(() => {}),
+        fetchClassification().catch(() => {}),
       ]);
     }
   }
+);
+
+watch(
+  () => [props.userId, props.user?.credential, props.user?.title, props.user?.role, props.user?.is_hourly_worker],
+  () => { void fetchClassification(); }
 );
 </script>
 

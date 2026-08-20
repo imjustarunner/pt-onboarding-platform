@@ -11,6 +11,10 @@ import {
   parseUserGridFieldKeys,
   defaultUserGridFieldKeys
 } from '../constants/userGridFields.js';
+import {
+  classifyPayAndHcbsCategories,
+  classifyPrelicensedStatus,
+} from '../utils/credentialNormalization.js';
 
 const BACKOFFICE = new Set(['admin', 'super_admin', 'support']);
 const MAX_BULK = 200;
@@ -187,6 +191,7 @@ async function enrichRows(rows, fields, { agencyId }) {
   const needSchools = fields.some((f) => f.key === 'schools' || f.key === 'districts');
   const needPayrollAccess = fields.some((f) => f.source === 'agency_flag');
   const needPayroll = fields.some((f) => f.source === 'payroll' || f.source === 'payroll_flag');
+  const needClassification = fields.some((f) => f.source === 'classification');
   const needContract = fields.some((f) => f.key === 'admin_doc_contract');
 
   const extraByUser = new Map();
@@ -340,6 +345,106 @@ async function enrichRows(rows, fields, { agencyId }) {
       bag.waive_probation = toBoolDisplay(r.waive_probation);
       bag.spanish_bonus_eligible = toBoolDisplay(r.spanish_bonus_eligible);
     }
+  }
+
+  if (needClassification) {
+    const needPayCat = fields.some((f) => f.key === 'pay_category');
+    const needHcbsCat = fields.some((f) => f.key === 'hcbs_category');
+    const needClassFlag = fields.some((f) => f.key === 'classification_flag');
+    const classAgencyId = parseInt(agencyId, 10);
+
+    await loadMapInChunks(ids, async (group) => {
+      const [users] = await pool.execute(
+        `SELECT id, credential, title, role, is_hourly_worker
+           FROM users
+          WHERE id IN (${group.map(() => '?').join(',')})`,
+        group
+      );
+
+      let prelicensedByUser = new Map();
+      if (needClassFlag && Number.isFinite(classAgencyId) && classAgencyId > 0) {
+        const [uaRows] = await pool.execute(
+          `SELECT user_id, supervision_is_prelicensed
+             FROM user_agencies
+            WHERE agency_id = ? AND user_id IN (${group.map(() => '?').join(',')})`,
+          [classAgencyId, ...group]
+        ).catch(() => [[]]);
+        prelicensedByUser = new Map(
+          (uaRows || []).map((r) => [
+            Number(r.user_id),
+            !!(r.supervision_is_prelicensed === 1 || r.supervision_is_prelicensed === true || r.supervision_is_prelicensed === '1'),
+          ])
+        );
+      }
+
+      for (const u of users || []) {
+        const uid = Number(u.id);
+        const bag = ensure(uid);
+        const isHourlyWorker = !!(
+          u.is_hourly_worker === 1 || u.is_hourly_worker === true || u.is_hourly_worker === '1'
+        );
+        const axes = classifyPayAndHcbsCategories({
+          credential: u.credential,
+          title: u.title,
+          jobTitle: null,
+          role: u.role,
+          isHourlyWorker,
+        });
+
+        if (needPayCat) {
+          bag.pay_category = {
+            cat: axes.payCategory,
+            label: axes.payCategoryLabel || '',
+            display: axes.payCategory ? `Cat ${axes.payCategory}` : 'Unknown',
+          };
+        }
+        if (needHcbsCat) {
+          bag.hcbs_category = {
+            cat: axes.hcbsCategory,
+            label: axes.hcbsCategoryLabel || '',
+            display: axes.hcbsCategory ? `Cat ${axes.hcbsCategory}` : 'Unknown',
+          };
+        }
+        if (needClassFlag) {
+          if (Number.isFinite(classAgencyId) && classAgencyId > 0) {
+            const manualIsPrelicensed = prelicensedByUser.has(uid)
+              ? prelicensedByUser.get(uid)
+              : null;
+            const cls = classifyPrelicensedStatus({
+              credential: u.credential,
+              title: u.title,
+              jobTitle: null,
+              role: u.role,
+              isHourlyWorker: u.is_hourly_worker,
+              manualIsPrelicensed,
+            });
+            const kind = cls.conflictReason
+              ? 'conflict'
+              : cls.classifiedAs === 'unknown'
+                ? 'unknown'
+                : 'ok';
+            bag.classification_flag = {
+              kind,
+              label:
+                kind === 'conflict'
+                  ? 'Conflict'
+                  : kind === 'unknown'
+                    ? 'Unclassified'
+                    : 'OK',
+              detail: cls.conflictReason || (kind === 'unknown' ? 'Could not auto-classify' : ''),
+              sort: kind === 'conflict' ? 0 : kind === 'unknown' ? 1 : 2,
+            };
+          } else {
+            bag.classification_flag = {
+              kind: 'na',
+              label: '—',
+              detail: 'Pick an agency to evaluate Prelicensed conflicts',
+              sort: 3,
+            };
+          }
+        }
+      }
+    });
   }
 
   if (needContract) {
