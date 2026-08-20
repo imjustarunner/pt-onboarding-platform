@@ -1080,13 +1080,15 @@ export function schoolPrintablePacketContentHash(packetContext = {}) {
     .map((row) => Number(row.id || row.user_id || 0))
     .filter((id) => id > 0)
     .sort((a, b) => a - b);
+  // NOTE: packetVersionLabel is intentionally excluded from the hash.
+  // The per-school version label is derived FROM the hash (via school_packet_org_versions),
+  // not the other way around, so including it would create a circular dependency.
   const payload = JSON.stringify({
     v: SCHOOL_PRINTABLE_PACKET_VERSION,
     locale: packetContext.locale || 'en',
     templateVersion: Number(packetContext.version || 1),
     school: String(packetContext.organization?.name || ''),
     address: String(packetContext.organization?.address || ''),
-    brand: String(packetContext.packetVersionLabel || packetContext.brand?.versionLabel || ''),
     staff,
     providers
   });

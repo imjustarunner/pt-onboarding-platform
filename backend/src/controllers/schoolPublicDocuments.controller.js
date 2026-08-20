@@ -650,3 +650,65 @@ export const getSchoolPrintablePacketTemplateVersion = async (req, res, next) =>
   }
 };
 
+/**
+ * GET /school-portal/:organizationId/printable-packet/org-version-history
+ * Returns per-school content-version rows (newest first).
+ * Each row includes the version_label, content_hash, change_reason, storage_path, created_at.
+ * Admin / super_admin only.
+ */
+/**
+ * GET /school-portal/:organizationId/printable-packet/version/:versionLabel/pdf
+ * Streams the stored PDF for a specific packet version (admin/super_admin only).
+ */
+export const getSchoolPacketVersionPdf = async (req, res, next) => {
+  try {
+    const { organizationId, versionLabel } = req.params;
+    await assertSchoolPortalAccess(req, organizationId);
+    assertPacketTemplateEditorRole(req);
+    const locale = String(req.query?.locale || 'en').trim();
+    const { findSchoolPacketVersionByLabel } = await import('../services/schoolPrintablePacketCache.service.js');
+    const version = await findSchoolPacketVersionByLabel(Number(organizationId), locale, versionLabel);
+    if (!version) {
+      return res.status(404).json({ error: { message: `Packet version ${versionLabel} not found.` } });
+    }
+    if (!version.storage_path) {
+      return res.status(404).json({ error: { message: `No stored PDF for version ${versionLabel}. Please regenerate the packet.` } });
+    }
+    // Proxy the GCS object to the client.
+    const { streamGcsObject } = await import('../utils/gcsStream.js').catch(() => null) || {};
+    if (streamGcsObject) {
+      return await streamGcsObject(res, version.storage_path, {
+        contentType: 'application/pdf',
+        filename: `school-packet-${versionLabel}.pdf`
+      });
+    }
+    // Fallback: redirect to the GCS public/signed URL if direct streaming isn't available.
+    const { getSignedDownloadUrl } = await import('../services/gcs.service.js');
+    const url = await getSignedDownloadUrl(version.storage_path);
+    if (!url) return res.status(404).json({ error: { message: 'Could not generate download URL for this version.' } });
+    res.json({ url, versionLabel, storagePath: version.storage_path });
+  } catch (e) {
+    if (e?.statusCode || e?.status) {
+      return res.status(e.statusCode || e.status).json({ error: { message: e.message } });
+    }
+    next(e);
+  }
+};
+
+
+  try {
+    const { organizationId } = req.params;
+    await assertSchoolPortalAccess(req, organizationId);
+    assertPacketTemplateEditorRole(req);
+    const locale = String(req.query?.locale || 'en').trim();
+    const { listSchoolPacketVersionHistory } = await import('../services/schoolPrintablePacketCache.service.js');
+    const versions = await listSchoolPacketVersionHistory(Number(organizationId), locale);
+    res.json({ organizationId: Number(organizationId), locale, versions });
+  } catch (e) {
+    if (e?.statusCode || e?.status) {
+      return res.status(e.statusCode || e.status).json({ error: { message: e.message } });
+    }
+    next(e);
+  }
+};
+

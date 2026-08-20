@@ -574,7 +574,23 @@ export async function assembleClientChartArtifacts({ clientId, client }) {
     || signals.hasDisclosure
     || session?.signatureData
   );
-  featured.disclosure = makeArtifact({
+  // Paper-packet clients had the disclosure embedded in the signed physical packet —
+  // no separate digital Smart Disclosure acknowledgment was ever created for them.
+  const disclosureInPaperPacket = packetRows.length > 0 && !realDisclosureSigned;
+
+  // Attach signed paper packet version info so the Authorizations panel can surface
+  // which version the family signed and render version-specific document sections.
+  let paperPacketDisclosureData = null;
+  if (disclosureInPaperPacket) {
+    try {
+      const { checkPaperPacketDisclosureStatus } = await import('./paperPacketDisclosure.service.js');
+      paperPacketDisclosureData = await checkPaperPacketDisclosureStatus(cid);
+    } catch {
+      paperPacketDisclosureData = null;
+    }
+  }
+
+  const disclosureArtifact = makeArtifact({
     kind: 'disclosure',
     title: 'Smart Disclosure',
     viewKey: 'disclosure-html',
@@ -585,6 +601,12 @@ export async function assembleClientChartArtifacts({ clientId, client }) {
     hasSignature: realDisclosureSigned,
     source: 'smart_disclosure_live'
   });
+  featured.disclosure = {
+    ...disclosureArtifact,
+    inPaperPacket: disclosureInPaperPacket,
+    paperPacketDisclosure: paperPacketDisclosureData || null,
+    packetVersionLabel: paperPacketDisclosureData?.versionLabel || null
+  };
 
   const packetRows = (packets || []).map((p) => ({
     ...p,

@@ -28,15 +28,31 @@
           {{ doc.label }}
         </li>
       </ul>
-      <button
-        v-if="canEdit && !packetSignature?.done"
-        type="button"
-        class="btn btn-primary btn-sm"
-        :disabled="savingSignature"
-        @click="markPacketSignature"
-      >
-        {{ savingSignature ? 'Saving…' : 'Mark signature packet received' }}
-      </button>
+      <template v-if="canEdit && !packetSignature?.done">
+        <div class="ob-version-row">
+          <label class="ob-version-label" for="ob-packet-version">
+            Version on packet
+            <span class="muted" style="font-weight:400; font-size:11px;">(see footer of printed form)</span>
+          </label>
+          <input
+            id="ob-packet-version"
+            v-model="pendingVersionLabel"
+            type="text"
+            class="ob-version-input"
+            placeholder="e.g. 1.02"
+            maxlength="16"
+            :disabled="savingSignature"
+          />
+        </div>
+        <button
+          type="button"
+          class="btn btn-primary btn-sm"
+          :disabled="savingSignature"
+          @click="markPacketSignature"
+        >
+          {{ savingSignature ? 'Saving…' : 'Mark signature packet received' }}
+        </button>
+      </template>
     </div>
 
     <div class="ob-separate-docs">
@@ -69,6 +85,32 @@
       <p v-if="showRoiExpiryEditor && !localRoiExpiresAt && canEdit" class="ob-roi-expiry-hint muted small">
         Choose the effective date and term (36 months is the paper-packet default), then save. ROI received status saves automatically once the expiration is set.
       </p>
+
+      <!-- ROI access-denial review: admin must review every person on the ROI and
+           explicitly deny portal/record access to anyone who should not have it. -->
+      <div v-if="showRoiExpiryEditor" class="ob-roi-access-review">
+        <div class="ob-roi-access-head">
+          <span class="ob-roi-access-badge">Action required</span>
+          <strong>Review ROI access</strong>
+        </div>
+        <p class="muted small">
+          Open the signed ROI, review each person listed, and for anyone who should <em>not</em>
+          have access to this client's records, locate them under
+          <strong>Client → Release of Information</strong> and set their access to <em>Denied</em>.
+          This step must be completed before services begin.
+        </p>
+        <div class="ob-roi-access-check">
+          <input
+            id="ob-roi-access-done"
+            v-model="roiAccessReviewed"
+            type="checkbox"
+            :disabled="!canEdit"
+          />
+          <label for="ob-roi-access-done">
+            I have reviewed all ROI persons and denied access where appropriate.
+          </label>
+        </div>
+      </div>
     </div>
 
     <p v-if="docError" class="error small">{{ docError }}</p>
@@ -91,6 +133,8 @@ const emit = defineEmits(['updated']);
 const localItems = ref([]);
 const localRoiExpiresAt = ref(null);
 const savingSignature = ref(false);
+const pendingVersionLabel = ref('');
+const roiAccessReviewed = ref(false);
 const savingKey = ref('');
 const docError = ref('');
 
@@ -106,6 +150,9 @@ function syncFromChecklist() {
     { items: (props.checklist?.document_items || []).map((d) => ({ key: d.key, status: d.status })) }
   );
   localRoiExpiresAt.value = props.checklist?.client?.roi_expires_at || null;
+  // Restore ROI access-review acknowledgment from localStorage (no dedicated server field yet).
+  const key = `roi_access_reviewed_${props.clientId}`;
+  roiAccessReviewed.value = localStorage.getItem(key) === '1';
 }
 
 function statusLabel(status) {
@@ -171,7 +218,11 @@ async function markPacketSignature() {
     d.group === 'packet_signature' ? { ...d, status: 'present', done: true } : d
   ));
   try {
-    const data = await api.post(`/clients/${id}/onboarding/mark-packet-signature`, {}, { skipGlobalLoading: true });
+    const data = await api.post(
+      `/clients/${id}/onboarding/mark-packet-signature`,
+      { packetVersionLabel: pendingVersionLabel.value.trim() || undefined },
+      { skipGlobalLoading: true }
+    );
     mergeChecklist(data);
     syncFromChecklist();
   } catch (e) {
@@ -214,6 +265,11 @@ async function onRoiStatus(status) {
 }
 
 watch(() => props.checklist?.document_items, syncFromChecklist, { immediate: true, deep: true });
+watch(roiAccessReviewed, (val) => {
+  const key = `roi_access_reviewed_${props.clientId}`;
+  if (val) localStorage.setItem(key, '1');
+  else localStorage.removeItem(key);
+});
 </script>
 
 <style scoped>
@@ -234,6 +290,25 @@ watch(() => props.checklist?.document_items, syncFromChecklist, { immediate: tru
 .ob-sig-card.done {
   border-color: #86efac;
   background: #f0fdf4;
+}
+.ob-version-row {
+  margin: 10px 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ob-version-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+}
+.ob-version-input {
+  border: 1px solid #c7d2fe;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 13px;
+  width: 120px;
+  background: #fff;
 }
 .ob-sig-head {
   display: flex;
@@ -310,4 +385,36 @@ watch(() => props.checklist?.document_items, syncFromChecklist, { immediate: tru
 .error { color: #b91c1c; }
 .muted { color: #64748b; }
 .small { font-size: 0.82rem; }
+
+.ob-roi-access-review {
+  margin-top: 12px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.ob-roi-access-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.ob-roi-access-badge {
+  background: #f59e0b;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: 6px;
+  padding: 2px 7px;
+}
+.ob-roi-access-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
 </style>

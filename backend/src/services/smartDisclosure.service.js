@@ -1118,14 +1118,41 @@ export async function getClientDisclosureStatus(clientId) {
   const signedProviders = Array.isArray(latest?.providers) ? latest.providers : [];
   // Living chart roster is always currentProviders; signed snapshot remains historical evidence.
   const parties = pickLivingDisclosureParties(currentProviders, signedProviders);
+
+  // For paper-packet clients (tracking started 2026-08-20), check whether the assigned
+  // provider was on the version of the packet the family physically signed.
+  let paperPacketDisclosure = null;
+  try {
+    const { checkPaperPacketDisclosureStatus } = await import('./paperPacketDisclosure.service.js');
+    paperPacketDisclosure = await checkPaperPacketDisclosureStatus(cid);
+  } catch {
+    paperPacketDisclosure = null;
+  }
+  const paperPacketMismatch = paperPacketDisclosure?.requiresNewPacket === true;
+
+  let resolvedStatus = required ? 're_sign_needed' : (latest ? 'current' : 'missing');
+  let resolvedNote;
+  if (paperPacketMismatch) {
+    resolvedStatus = 're_sign_needed';
+    const names = (paperPacketDisclosure.missingProviders || []).map((p) => p.fullName).join(', ');
+    resolvedNote = `Provider${paperPacketDisclosure.missingProviders.length > 1 ? 's' : ''} not on signed paper packet (v${paperPacketDisclosure.versionLabel}): ${names}. A new packet must be signed.`;
+  } else if (required) {
+    resolvedNote = 'A newly assigned provider is not on the last signed disclosure. A new acknowledgment is required.';
+  } else if (latest) {
+    resolvedNote = 'Showing the current school-first agency care team. The last signed acknowledgment is kept as historical evidence.';
+  } else {
+    resolvedNote = 'No signed Smart Disclosure on file yet. The document below is the current school and agency care-team disclosure — it is not the Release of Information.';
+  }
+
   return {
     agencyId,
     agency_id: agencyId,
     schoolOrganizationId: Number(client.organization_id) || null,
-    disclosureRequired: required,
-    status: required ? 're_sign_needed' : (latest ? 'current' : 'missing'),
+    disclosureRequired: required || paperPacketMismatch,
+    status: resolvedStatus,
     currentProviders,
     parties,
+    paperPacketDisclosure,
     lastAcknowledgement: latest ? {
       id: latest.id,
       signedAt: latest.signed_at,
@@ -1136,10 +1163,6 @@ export async function getClientDisclosureStatus(clientId) {
       parties: signedProviders,
       clientPhiDocumentId: latest.client_phi_document_id
     } : null,
-    previewNote: required
-      ? 'A newly assigned provider is not on the last signed disclosure. A new acknowledgment is required.'
-      : (latest
-        ? 'Showing the current school-first agency care team. The last signed acknowledgment is kept as historical evidence.'
-        : 'No signed Smart Disclosure on file yet. The document below is the current school and agency care-team disclosure — it is not the Release of Information.')
+    previewNote: resolvedNote
   };
 }

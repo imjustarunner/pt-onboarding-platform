@@ -170,6 +170,72 @@
       </div>
     </div>
 
+    <!-- ── Packet version history (admin / super_admin only) ────────────────── -->
+    <div v-if="canEditPacketTemplate" class="card packet-version-history" style="margin-top: 14px;">
+      <div
+        class="pvh-header"
+        @click="pvhOpen = !pvhOpen"
+        style="cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px;"
+      >
+        <div>
+          <h3 style="margin: 0; font-size: 14px;">Previous versions — Printable Packet</h3>
+          <div class="muted" style="font-size: 12px; margin-top: 2px;">
+            Each version reflects the exact provider &amp; staff roster printed on that packet at signing.
+          </div>
+        </div>
+        <span style="font-size: 18px; line-height: 1; color: var(--text-secondary); flex-shrink: 0;">
+          {{ pvhOpen ? '▲' : '▼' }}
+        </span>
+      </div>
+
+      <div v-if="pvhOpen" class="pvh-body">
+        <div v-if="pvhLoading" class="muted pvh-empty">Loading…</div>
+        <div v-else-if="pvhError" class="error pvh-empty">{{ pvhError }}</div>
+        <div v-else-if="!pvhVersions.length" class="muted pvh-empty">
+          No versions recorded yet. They are created automatically the first time each school's packet is rendered.
+        </div>
+        <table v-else class="table pvh-table">
+          <thead>
+            <tr>
+              <th>Version</th>
+              <th>Locale</th>
+              <th>Created</th>
+              <th>Change</th>
+              <th class="right"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="v in pvhVersions" :key="v.id">
+              <td><strong>{{ v.version_label }}</strong></td>
+              <td class="muted">{{ (v.locale || 'en').toUpperCase() }}</td>
+              <td class="muted">{{ formatDate(v.created_at) }}</td>
+              <td class="muted">{{ v.change_reason || '—' }}</td>
+              <td class="right">
+                <button
+                  v-if="v.storage_path"
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="downloadVersion(v)"
+                >
+                  Download
+                </button>
+                <span v-else class="muted" style="font-size: 12px;">PDF pending</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="pvh-footer">
+          <button class="btn btn-secondary btn-sm" type="button" :disabled="pvhLoading" @click="loadVersionHistory('en')">
+            Reload EN
+          </button>
+          <button class="btn btn-secondary btn-sm" type="button" :disabled="pvhLoading" @click="loadVersionHistory('es')">
+            Reload ES
+          </button>
+        </div>
+      </div>
+    </div>
+    <!-- ─────────────────────────────────────────────────────────────────────── -->
+
     <div v-if="canManageDocs" class="add-panels">
       <div class="card">
         <div class="card-header" style="display:flex; align-items:center; justify-content: space-between; gap: 10px;">
@@ -779,6 +845,72 @@ const onPacketTemplateSaved = ({ version } = {}) => {
     }
   }
 };
+
+// ─── Packet version history (admin / super_admin) ──────────────────────────
+const pvhOpen = ref(false);
+const pvhLoading = ref(false);
+const pvhError = ref('');
+const pvhVersions = ref([]);
+
+const loadVersionHistory = async (locale = 'en') => {
+  const sid = Number(props.schoolOrganizationId || 0);
+  if (!sid) return;
+  pvhLoading.value = true;
+  pvhError.value = '';
+  try {
+    const resp = await api.get(
+      `/school-portal/${sid}/printable-packet/org-version-history`,
+      { params: { locale }, skipGlobalLoading: true }
+    );
+    const incoming = Array.isArray(resp.data?.versions) ? resp.data.versions : [];
+    // Merge: replace same-locale entries with the fresh list
+    const keep = pvhVersions.value.filter((v) => v.locale !== locale);
+    pvhVersions.value = [
+      ...incoming,
+      ...keep
+    ].sort((a, b) => {
+      if (a.version_major !== b.version_major) return b.version_major - a.version_major;
+      return b.version_minor - a.version_minor;
+    });
+  } catch (e) {
+    pvhError.value = e?.response?.data?.error?.message || 'Unable to load version history.';
+  } finally {
+    pvhLoading.value = false;
+  }
+};
+
+watch(pvhOpen, (open) => {
+  if (open && !pvhVersions.value.length && !pvhLoading.value) {
+    void loadVersionHistory('en');
+    void loadVersionHistory('es');
+  }
+});
+
+const downloadVersion = async (versionRow) => {
+  const path = String(versionRow?.storage_path || '').trim();
+  if (!path) return;
+  try {
+    const resp = await api.get(
+      `/school-portal/${props.schoolOrganizationId}/printable-packet`,
+      {
+        params: { locale: versionRow.locale || 'en' },
+        responseType: 'blob',
+        skipGlobalLoading: true
+      }
+    );
+    const url = URL.createObjectURL(new Blob([resp.data], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `packet-v${versionRow.version_label}-${(versionRow.locale || 'en').toUpperCase()}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert(e?.message || 'Failed to download version.');
+  }
+};
+// ────────────────────────────────────────────────────────────────────────────
 
 const formatDate = (iso) => {
   const s = String(iso || '').trim();
@@ -1661,5 +1793,11 @@ onMounted(load);
   background: var(--bg-alt, #1f2937);
   border-color: var(--border, #334155);
 }
+.pvh-header:hover { background: var(--bg-hover, #f8fafc); border-radius: 8px; }
+.pvh-body { padding: 0 16px 14px; }
+.pvh-empty { padding: 12px 0; font-size: 13px; }
+.pvh-table { width: 100%; font-size: 13px; }
+.pvh-table th, .pvh-table td { padding: 7px 8px; }
+.pvh-footer { display: flex; gap: 8px; padding-top: 10px; }
 </style>
 

@@ -500,7 +500,7 @@ export async function updateOnboardingRoiExpiration({ clientId, roiExpiresAt, ac
 /**
  * Mark the multi-doc paper-packet signature as received (all checklist keys except ROI).
  */
-export async function markPaperPacketSignatureReceived({ clientId, actorUserId = null }) {
+export async function markPaperPacketSignatureReceived({ clientId, actorUserId = null, packetVersionLabel = null }) {
   const cid = Number(clientId || 0);
   if (!cid) throw new Error('clientId required');
   const client = await Client.findById(cid, { includeSensitive: true });
@@ -514,6 +514,24 @@ export async function markPaperPacketSignatureReceived({ clientId, actorUserId =
     return { key: d.key, status: 'present' };
   });
   await persistOnboardingDocItems(client, next, actorUserId);
+
+  // Record which version of the paper packet the family signed (2026-08-20+ tracking).
+  const label = String(packetVersionLabel || '').trim();
+  if (label && Number(client.organization_id) > 0) {
+    try {
+      const { recordPaperPacketDisclosure } = await import('./paperPacketDisclosure.service.js');
+      await recordPaperPacketDisclosure({
+        clientId: cid,
+        schoolOrganizationId: Number(client.organization_id),
+        packetVersionLabel: label,
+        locale: 'en',
+        confirmedByUserId: actorUserId
+      });
+    } catch (err) {
+      console.warn('[onboarding] paper packet disclosure record failed:', err?.message || err);
+    }
+  }
+
   return getClientOnboardingChecklist(cid);
 }
 

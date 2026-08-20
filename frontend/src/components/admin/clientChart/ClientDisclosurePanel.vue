@@ -58,6 +58,29 @@
         <p>{{ previewNote }}</p>
       </div>
 
+      <div v-if="paperPacketMismatch" class="cdp-pp-mismatch">
+        <div class="cdp-pp-mismatch-icon">⚠</div>
+        <div class="cdp-pp-mismatch-body">
+          <strong>New paper packet required</strong>
+          <p>
+            The signed paper packet is <strong>v{{ paperPacketMismatch.versionLabel }}</strong>.
+            The following provider{{ paperPacketMismatch.missingProviders.length > 1 ? 's are' : ' is' }}
+            currently assigned to this client but
+            {{ paperPacketMismatch.missingProviders.length > 1 ? 'were' : 'was' }}
+            not listed in that version:
+          </p>
+          <ul class="cdp-pp-mismatch-list">
+            <li v-for="prov in paperPacketMismatch.missingProviders" :key="prov.id || prov.fullName">
+              {{ prov.fullName }}
+              <span v-if="prov.credential" class="muted"> · {{ prov.credential }}</span>
+            </li>
+          </ul>
+          <p class="cdp-pp-mismatch-hint">
+            A new packet must be printed, signed by the family, and re-confirmed to resolve this flag.
+          </p>
+        </div>
+      </div>
+
       <div class="cdp-parties">
         <h5>Care-team providers on this disclosure</h5>
         <div v-if="!parties.length" class="cc-docs-empty">
@@ -311,6 +334,17 @@ const previewNote = computed(() =>
     || ''
   ).trim()
 );
+
+const paperPacketDisclosure = computed(() => disclosure.value?.paperPacketDisclosure || null);
+
+const paperPacketMismatch = computed(() => {
+  const ppd = paperPacketDisclosure.value;
+  if (!ppd || !ppd.requiresNewPacket) return null;
+  return {
+    versionLabel: ppd.versionLabel || '?',
+    missingProviders: Array.isArray(ppd.missingProviders) ? ppd.missingProviders : []
+  };
+});
 
 const parties = computed(() => {
   // Living chart always prefers the current agency roster; signed snapshot stays on lastAck for history.
@@ -675,4 +709,33 @@ onMounted(() => {
 .tiny { font-size: 12px; }
 .error { color: #b91c1c; margin-bottom: 8px; }
 .success { color: #166534; margin-bottom: 8px; }
+
+.cdp-pp-mismatch {
+  display: flex;
+  gap: 10px;
+  background: #fffbeb;
+  border: 1px solid #fbbf24;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.cdp-pp-mismatch-icon {
+  flex-shrink: 0;
+  font-size: 20px;
+  line-height: 1;
+  margin-top: 1px;
+}
+.cdp-pp-mismatch-body {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.cdp-pp-mismatch-body strong { color: #92400e; }
+.cdp-pp-mismatch-body p { margin: 4px 0; color: #78350f; }
+.cdp-pp-mismatch-list {
+  margin: 4px 0 6px 16px;
+  padding: 0;
+  color: #92400e;
+}
+.cdp-pp-mismatch-list li { margin: 2px 0; }
+.cdp-pp-mismatch-hint { font-style: italic; color: #92400e; }
 </style>

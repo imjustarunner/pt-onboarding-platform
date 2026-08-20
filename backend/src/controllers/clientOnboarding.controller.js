@@ -97,12 +97,13 @@ export const postMarkPacketSignature = async (req, res, next) => {
     try {
       const checklist = await markPaperPacketSignatureReceived({
         clientId,
-        actorUserId: req.user?.id || null
+        actorUserId: req.user?.id || null,
+        packetVersionLabel: String(req.body?.packetVersionLabel || req.body?.packet_version_label || '').trim() || null
       });
       await logAuditEvent(req, {
         actionType: 'client_paper_packet_signature_received',
         agencyId: access.client.agency_id || null,
-        metadata: { clientId, excludes: 'roi' }
+        metadata: { clientId, excludes: 'roi', packetVersionLabel: req.body?.packetVersionLabel || null }
       });
       res.json(checklist);
     } catch (err) {
