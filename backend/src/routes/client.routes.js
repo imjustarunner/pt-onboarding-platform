@@ -73,6 +73,7 @@ import {
   putOnboardingDocs,
   postMarkPacketSignature,
   postAcknowledgeRoiStaff,
+  postWaiveNewPacketFlag,
   putOnboardingRoiExpiration,
   postCompleteStaffOnboarding,
   getOnboardingQueue,
@@ -243,6 +244,7 @@ router.post('/:id/confirm-services-started', postConfirmServicesStarted);
 router.get('/:id/onboarding-checklist', getOnboardingChecklist);
 router.put('/:id/onboarding-docs', putOnboardingDocs);
 router.post('/:id/onboarding/mark-packet-signature', postMarkPacketSignature);
+router.post('/:id/onboarding/waive-new-packet', postWaiveNewPacketFlag);
 router.post('/:id/onboarding/acknowledge-roi-staff', postAcknowledgeRoiStaff);
 router.put('/:id/onboarding/roi-expiration', putOnboardingRoiExpiration);
 router.post('/:id/onboarding/complete-staff', postCompleteStaffOnboarding);

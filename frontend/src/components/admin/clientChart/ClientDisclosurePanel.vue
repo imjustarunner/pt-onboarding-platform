@@ -58,26 +58,69 @@
         <p>{{ previewNote }}</p>
       </div>
 
-      <div v-if="paperPacketMismatch" class="cdp-pp-mismatch">
-        <div class="cdp-pp-mismatch-icon">⚠</div>
-        <div class="cdp-pp-mismatch-body">
-          <strong>New paper packet required</strong>
-          <p>
-            The signed paper packet is <strong>v{{ paperPacketMismatch.versionLabel }}</strong>.
-            The following provider{{ paperPacketMismatch.missingProviders.length > 1 ? 's are' : ' is' }}
-            currently assigned to this client but
-            {{ paperPacketMismatch.missingProviders.length > 1 ? 'were' : 'was' }}
-            not listed in that version:
-          </p>
-          <ul class="cdp-pp-mismatch-list">
-            <li v-for="prov in paperPacketMismatch.missingProviders" :key="prov.id || prov.fullName">
-              {{ prov.fullName }}
-              <span v-if="prov.credential" class="muted"> · {{ prov.credential }}</span>
+      <!-- ── Three paper-packet compliance flags ─────────────────────────── -->
+
+      <!-- Flag 1: ROI expiration -->
+      <div v-if="ppRoiFlag" class="cdp-pp-flag" :class="`cdp-pp-flag--${ppRoiFlag.severity}`">
+        <div class="cdp-pp-flag-icon">{{ ppRoiFlag.severity === 'error' ? '⛔' : '⏰' }}</div>
+        <div class="cdp-pp-flag-body">
+          <strong>{{ ppRoiFlag.label }}</strong>
+          <p>{{ ppRoiFlag.detail }}</p>
+        </div>
+      </div>
+
+      <!-- Flag 2: Disclosure update (provider mismatch) -->
+      <div v-if="ppDisclosureFlag" class="cdp-pp-flag cdp-pp-flag--warn">
+        <div class="cdp-pp-flag-icon">⚠</div>
+        <div class="cdp-pp-flag-body">
+          <strong>{{ ppDisclosureFlag.label }}</strong>
+          <p>{{ ppDisclosureFlag.detail }}</p>
+          <ul v-if="ppDisclosureFlag.providers.length" class="cdp-pp-flag-list">
+            <li v-for="prov in ppDisclosureFlag.providers" :key="prov.id">
+              {{ prov.fullName }}<span v-if="prov.credential" class="muted"> · {{ prov.credential }}</span>
             </li>
           </ul>
-          <p class="cdp-pp-mismatch-hint">
-            A new packet must be printed, signed by the family, and re-confirmed to resolve this flag.
-          </p>
+        </div>
+      </div>
+
+      <!-- Flag 3: New full packet needed -->
+      <div v-if="ppNewPacketFlag" class="cdp-pp-flag" :class="`cdp-pp-flag--${ppNewPacketFlag.severity}`">
+        <div class="cdp-pp-flag-icon">{{ ppNewPacketFlag.waived ? '✓' : '📋' }}</div>
+        <div class="cdp-pp-flag-body">
+          <strong>{{ ppNewPacketFlag.label }}</strong>
+          <p>{{ ppNewPacketFlag.detail }}</p>
+          <template v-if="ppNewPacketFlag.waived">
+            <p class="cdp-pp-waived-note">
+              Waived {{ ppNewPacketFlag.waivedAt ? new Date(ppNewPacketFlag.waivedAt).toLocaleDateString() : '' }}
+              — <em>{{ ppNewPacketFlag.waivedReason }}</em>
+            </p>
+          </template>
+          <template v-else>
+            <button
+              v-if="!waiverOpen"
+              type="button"
+              class="cdp-pp-waive-btn"
+              @click="waiverOpen = true"
+            >
+              Waive this requirement
+            </button>
+            <div v-else class="cdp-pp-waiver-form">
+              <textarea
+                v-model="waiverReason"
+                class="cdp-pp-waiver-input"
+                placeholder="Reason for waiving (required) — e.g. 'Typo correction only, no clinical impact'"
+                rows="2"
+                :disabled="waiverSaving"
+              />
+              <div class="cdp-pp-waiver-actions">
+                <button type="button" class="btn btn-primary btn-sm" :disabled="waiverSaving" @click="submitWaiveNewPacket">
+                  {{ waiverSaving ? 'Saving…' : 'Confirm waiver' }}
+                </button>
+                <button type="button" class="cdp-btn-soft btn-sm" :disabled="waiverSaving" @click="waiverOpen = false">Cancel</button>
+              </div>
+              <p v-if="waiverError" class="error tiny">{{ waiverError }}</p>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -230,6 +273,33 @@ const settingsLoading = ref(false);
 const settingsSaving = ref(false);
 const error = ref('');
 const success = ref('');
+
+// Waiver UI state
+const waiverOpen = ref(false);
+const waiverReason = ref('');
+const waiverSaving = ref(false);
+const waiverError = ref('');
+
+async function submitWaiveNewPacket() {
+  const r = waiverReason.value.trim();
+  if (!r) { waiverError.value = 'Please enter a reason.'; return; }
+  waiverSaving.value = true;
+  waiverError.value = '';
+  try {
+    await api.post(
+      `/clients/${props.clientId}/onboarding/waive-new-packet`,
+      { reason: r },
+      { skipGlobalLoading: true }
+    );
+    waiverOpen.value = false;
+    waiverReason.value = '';
+    await load();
+  } catch (e) {
+    waiverError.value = e?.response?.data?.error?.message || 'Failed to save waiver.';
+  } finally {
+    waiverSaving.value = false;
+  }
+}
 const disclosure = ref(null);
 const terminologyOpen = ref(false);
 const regulatoryBoardsOpen = ref(false);
@@ -337,14 +407,42 @@ const previewNote = computed(() =>
 
 const paperPacketDisclosure = computed(() => disclosure.value?.paperPacketDisclosure || null);
 
-const paperPacketMismatch = computed(() => {
+const ppRoiFlag = computed(() => {
   const ppd = paperPacketDisclosure.value;
-  if (!ppd || !ppd.requiresNewPacket) return null;
+  if (!ppd?.tracked || !ppd.roiRenewalNeeded) return null;
+  if (ppd.roiExpiredDaysAgo != null) {
+    return { severity: 'error', label: 'ROI expired', detail: `The signed ROI expired ${ppd.roiExpiredDaysAgo} day${ppd.roiExpiredDaysAgo === 1 ? '' : 's'} ago. A new paper packet (with a fresh ROI) must be signed.` };
+  }
+  return { severity: 'warn', label: 'ROI expiring soon', detail: `The signed ROI expires in ${ppd.roiDaysUntilExpiry} day${ppd.roiDaysUntilExpiry === 1 ? '' : 's'}. Schedule a new packet before it lapses.` };
+});
+
+const ppDisclosureFlag = computed(() => {
+  const ppd = paperPacketDisclosure.value;
+  if (!ppd?.tracked || !ppd.disclosureUpdateNeeded) return null;
+  const names = (ppd.missingProviders || []).map((p) => p.fullName + (p.credential ? ` (${p.credential})` : '')).join(', ');
   return {
-    versionLabel: ppd.versionLabel || '?',
-    missingProviders: Array.isArray(ppd.missingProviders) ? ppd.missingProviders : []
+    severity: 'warn',
+    label: 'Disclosure update needed',
+    detail: `Provider${ppd.missingProviders.length > 1 ? 's' : ''} assigned but not on signed packet v${ppd.versionLabel}: ${names}. A new disclosure acknowledgment is required.`,
+    providers: ppd.missingProviders || []
   };
 });
+
+const ppNewPacketFlag = computed(() => {
+  const ppd = paperPacketDisclosure.value;
+  if (!ppd?.tracked || !ppd.newPacketNeeded) return null;
+  return {
+    severity: ppd.newPacketWaived ? 'waived' : 'error',
+    label: ppd.newPacketWaived ? 'New packet waived' : 'New packet required',
+    detail: ppd.newPacketReason || 'A major document section was updated. A new paper packet must be printed and signed.',
+    waived: ppd.newPacketWaived,
+    waivedAt: ppd.newPacketWaivedAt,
+    waivedReason: ppd.newPacketWaivedReason
+  };
+});
+
+
+
 
 const parties = computed(() => {
   // Living chart always prefers the current agency roster; signed snapshot stays on lastAck for history.
@@ -710,32 +808,49 @@ onMounted(() => {
 .error { color: #b91c1c; margin-bottom: 8px; }
 .success { color: #166534; margin-bottom: 8px; }
 
-.cdp-pp-mismatch {
+/* ── Paper-packet compliance flags ─────────────────────────────────────── */
+.cdp-pp-flag {
   display: flex;
   gap: 10px;
-  background: #fffbeb;
-  border: 1px solid #fbbf24;
   border-radius: 8px;
   padding: 12px 14px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
-.cdp-pp-mismatch-icon {
-  flex-shrink: 0;
-  font-size: 20px;
-  line-height: 1;
-  margin-top: 1px;
-}
-.cdp-pp-mismatch-body {
-  font-size: 13px;
-  line-height: 1.5;
-}
-.cdp-pp-mismatch-body strong { color: #92400e; }
-.cdp-pp-mismatch-body p { margin: 4px 0; color: #78350f; }
-.cdp-pp-mismatch-list {
-  margin: 4px 0 6px 16px;
-  padding: 0;
+.cdp-pp-flag--warn  { background: #fffbeb; border: 1px solid #fbbf24; }
+.cdp-pp-flag--error { background: #fef2f2; border: 1px solid #fca5a5; }
+.cdp-pp-flag--waived { background: #f0fdf4; border: 1px solid #86efac; }
+.cdp-pp-flag-icon { flex-shrink: 0; font-size: 18px; margin-top: 1px; }
+.cdp-pp-flag-body { font-size: 13px; line-height: 1.5; flex: 1; }
+.cdp-pp-flag--warn  .cdp-pp-flag-body strong { color: #92400e; }
+.cdp-pp-flag--warn  .cdp-pp-flag-body p { color: #78350f; margin: 3px 0; }
+.cdp-pp-flag--error .cdp-pp-flag-body strong { color: #991b1b; }
+.cdp-pp-flag--error .cdp-pp-flag-body p { color: #7f1d1d; margin: 3px 0; }
+.cdp-pp-flag--waived .cdp-pp-flag-body strong { color: #166534; }
+.cdp-pp-flag--waived .cdp-pp-flag-body p { color: #166534; margin: 3px 0; }
+.cdp-pp-flag-list { margin: 4px 0 6px 16px; padding: 0; }
+.cdp-pp-flag-list li { margin: 2px 0; }
+.cdp-pp-waived-note { font-style: italic; font-size: 12px; margin-top: 4px !important; }
+.cdp-pp-waive-btn {
+  margin-top: 8px;
+  background: none;
+  border: 1px solid #fbbf24;
+  border-radius: 6px;
   color: #92400e;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 10px;
 }
-.cdp-pp-mismatch-list li { margin: 2px 0; }
-.cdp-pp-mismatch-hint { font-style: italic; color: #92400e; }
+.cdp-pp-waive-btn:hover { background: #fef9c3; }
+.cdp-pp-waiver-form { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.cdp-pp-waiver-input {
+  border: 1px solid #fbbf24;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+  background: #fff;
+}
+.cdp-pp-waiver-actions { display: flex; gap: 8px; }
 </style>

@@ -1129,13 +1129,30 @@ export async function getClientDisclosureStatus(clientId) {
     paperPacketDisclosure = null;
   }
   const paperPacketMismatch = paperPacketDisclosure?.requiresNewPacket === true;
+  const ppAnyFlag = paperPacketDisclosure?.tracked && (
+    paperPacketDisclosure.roiRenewalNeeded
+    || paperPacketDisclosure.disclosureUpdateNeeded
+    || (paperPacketDisclosure.newPacketNeeded && !paperPacketDisclosure.newPacketWaived)
+  );
 
   let resolvedStatus = required ? 're_sign_needed' : (latest ? 'current' : 'missing');
   let resolvedNote;
   if (paperPacketMismatch) {
     resolvedStatus = 're_sign_needed';
-    const names = (paperPacketDisclosure.missingProviders || []).map((p) => p.fullName).join(', ');
-    resolvedNote = `Provider${paperPacketDisclosure.missingProviders.length > 1 ? 's' : ''} not on signed paper packet (v${paperPacketDisclosure.versionLabel}): ${names}. A new packet must be signed.`;
+    const notes = [];
+    if (paperPacketDisclosure.roiRenewalNeeded) {
+      notes.push('ROI is expired or expiring soon.');
+    }
+    if (paperPacketDisclosure.disclosureUpdateNeeded) {
+      const names = (paperPacketDisclosure.missingProviders || []).map((p) => p.fullName).join(', ');
+      notes.push(`Provider${paperPacketDisclosure.missingProviders.length > 1 ? 's' : ''} not on signed packet (v${paperPacketDisclosure.versionLabel}): ${names}.`);
+    }
+    if (paperPacketDisclosure.newPacketNeeded && !paperPacketDisclosure.newPacketWaived) {
+      notes.push('Major document content has changed since this version was signed.');
+    }
+    resolvedNote = notes.join(' ') + ' See flags below.';
+  } else if (ppAnyFlag && paperPacketDisclosure.roiRenewalNeeded) {
+    resolvedNote = 'The ROI on this paper packet is expiring or has expired. See the ROI flag below.';
   } else if (required) {
     resolvedNote = 'A newly assigned provider is not on the last signed disclosure. A new acknowledgment is required.';
   } else if (latest) {

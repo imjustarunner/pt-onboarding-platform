@@ -532,6 +532,18 @@ export async function markPaperPacketSignatureReceived({ clientId, actorUserId =
     }
   }
 
+  // Auto-set ROI expiry to confirmed_at + 36 months if not already set.
+  if (!client.roi_expires_at) {
+    try {
+      const exp = new Date();
+      exp.setMonth(exp.getMonth() + 36);
+      const ymd = exp.toISOString().slice(0, 10);
+      await Client.update(cid, { roi_expires_at: ymd }, actorUserId);
+    } catch (err) {
+      console.warn('[onboarding] auto-set roi_expires_at failed:', err?.message || err);
+    }
+  }
+
   return getClientOnboardingChecklist(cid);
 }
 

@@ -116,6 +116,43 @@ export const postMarkPacketSignature = async (req, res, next) => {
 };
 
 /**
+ * POST /api/clients/:id/onboarding/waive-new-packet
+ * Admin waives the "new packet needed" flag with a written reason.
+ */
+export const postWaiveNewPacketFlag = async (req, res, next) => {
+  try {
+    const clientId = Number(req.params.id || 0);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+    if (!isBackoffice(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Backoffice access required' } });
+    }
+    const access = await requireClientAccess(req, clientId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const reason = String(req.body?.reason || '').trim();
+    if (!reason) return res.status(400).json({ error: { message: 'A reason is required.' } });
+    try {
+      const { waivePaperPacketNewPacketFlag } = await import('../services/paperPacketDisclosure.service.js');
+      const result = await waivePaperPacketNewPacketFlag({
+        clientId,
+        reason,
+        actorUserId: req.user?.id || null
+      });
+      await logAuditEvent(req, {
+        actionType: 'paper_packet_new_packet_waived',
+        agencyId: access.client.agency_id || null,
+        metadata: { clientId, reason }
+      });
+      res.json(result);
+    } catch (err) {
+      if (err?.status) return res.status(err.status).json({ error: { message: err.message } });
+      throw err;
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
  * POST /api/clients/:id/onboarding/acknowledge-roi-staff
  * Staff confirms ROI permissions were reviewed against the signed form.
  */

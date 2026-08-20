@@ -94,7 +94,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
 import ClientDisclosurePanel from './ClientDisclosurePanel.vue';
-import { useAuthStore } from '../../../stores/auth';
+import { useAuthStore } from '../../../store/auth';
 
 const AUTH_KINDS = new Set([
   'smart_roi',
