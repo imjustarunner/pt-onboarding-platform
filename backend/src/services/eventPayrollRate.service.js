@@ -19,6 +19,7 @@ export const KNOWN_EVENT_PAYROLL_TYPES = [
   { eventType: 'school_family_night', label: 'Family Night', defaultSlot: 'other_1', defaultSplit: false },
   { eventType: 'school_orientation', label: 'Orientation', defaultSlot: 'other_1', defaultSplit: false },
   { eventType: 'school_other', label: 'School Event', defaultSlot: 'other_1', defaultSplit: false },
+  { eventType: 'school_outreach', label: 'District Outreach', defaultSlot: 'other_1', defaultSplit: false },
   { eventType: 'school_fall_check_in', label: 'Fall School Check-in', defaultSlot: 'other_1', defaultSplit: false },
   { eventType: 'school_spring_event', label: 'Spring School Check-in', defaultSlot: 'other_1', defaultSplit: false },
   { eventType: 'school_first_day', label: 'First Day of School', defaultSlot: 'other_1', defaultSplit: false },
@@ -303,8 +304,18 @@ export async function applyEventPayrollMapToSubmissions(agencyId, submissions) {
       const stored = String(s.remainderBucket || '').toLowerCase();
       if (!stored || stored === 'indirect') s.remainderBucket = treatment.rateSlot;
     }
-    s.payrollRateSlot = s.payrollRateSlot || treatment.rateSlot;
-    s.payrollRateLabel = s.payrollRateLabel || treatment.rateSlotLabel;
+    // Prefer punch-time slot when present; otherwise use the live event-type map.
+    s.payrollRateSlot = normalizeEventPayrollRateSlot(
+      s.payrollRateSlot || s.remainderBucket || treatment.rateSlot,
+      treatment.rateSlot
+    );
+    // Always refresh the display label from current agency Other Rate Titles so
+    // Pending Submissions picks up renames (e.g. Other 1 → Outreach Events).
+    const labelSlot = normalizeEventPayrollRateSlot(
+      s.remainderBucket || s.payrollRateSlot || treatment.rateSlot,
+      treatment.rateSlot
+    );
+    s.payrollRateLabel = rateSlotLabel(labelSlot, titles);
   }
   return list;
 }
