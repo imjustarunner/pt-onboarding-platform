@@ -442,12 +442,6 @@
               <!-- Assign document -->
               <div class="phr-assign-doc-bar">
                 <button v-if="!showAssignDoc" class="phr-btn phr-btn-ghost phr-btn-sm" @click="openAssignDoc">+ Assign Document</button>
-                <router-link
-                  class="phr-btn phr-btn-ghost phr-btn-sm"
-                  :to="contractGeneratorRoute"
-                >
-                  Generate contract
-                </router-link>
                 <div v-else class="phr-assign-doc-form">
                   <select v-model="assignDocTemplateId" class="phr-select">
                     <option value="">— select a template —</option>
@@ -458,6 +452,12 @@
                   </button>
                   <button class="phr-btn phr-btn-ghost phr-btn-sm" @click="showAssignDoc = false">Cancel</button>
                 </div>
+                <router-link
+                  class="phr-btn phr-btn-ghost phr-btn-sm"
+                  :to="contractGeneratorRoute"
+                >
+                  Generate contract
+                </router-link>
               </div>
             </template>
           </div>

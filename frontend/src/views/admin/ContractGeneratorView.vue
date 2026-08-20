@@ -137,7 +137,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
-import { useAuthStore } from '../../stores/auth';
+import { useAuthStore } from '../../store/auth';
 
 const auth = useAuthStore();
 const route = useRoute();
