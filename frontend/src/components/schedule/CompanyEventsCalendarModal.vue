@@ -23,10 +23,12 @@
             >
               <div class="card-title">{{ event.title }}</div>
               <div v-if="event.schoolName" class="card-meta">{{ event.schoolName }}</div>
+              <div v-else-if="event.isGeneralOutreach" class="card-meta">General outreach · agency-wide</div>
               <div v-else-if="event.districtName" class="card-meta">
                 District: {{ event.districtName }}
                 <span v-if="event.isDistrictOutreach || event.eventType === 'school_outreach'"> · Outreach</span>
               </div>
+              <div v-else-if="event.eventType === 'school_outreach'" class="card-meta">Outreach</div>
               <div class="card-meta">{{ formatRange(event.startsAt, event.endsAt) }}</div>
               <div v-if="event.description" class="card-desc">{{ event.description }}</div>
               <div class="card-actions">

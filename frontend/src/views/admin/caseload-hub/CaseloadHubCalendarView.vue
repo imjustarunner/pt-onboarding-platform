@@ -1,9 +1,16 @@
 <template>
-  <div class="hub-page" data-tour="caseload-hub-calendar">
+  <div class="hub-page" :class="{ 'hub-page--embedded': embedded }" data-tour="caseload-hub-calendar">
     <header class="hub-header">
       <div>
-        <h1>School Events Calendar</h1>
-        <p class="subtitle">View and manage school events, staffing, and special schedules.</p>
+        <h1>{{ embedded ? 'All Events Calendar' : 'School Events Calendar' }}</h1>
+        <p class="subtitle">
+          <template v-if="embedded">
+            Same calendar as Caseload Hub. Outreach events are labeled; they stay on the school events kiosk.
+          </template>
+          <template v-else>
+            View and manage school events, staffing, and special schedules.
+          </template>
+        </p>
         <p class="tz-note">
           Times shown in the school/tenant timezone
           <strong>{{ defaultTimezoneLabel }}</strong>
@@ -22,7 +29,7 @@
         <button type="button" class="btn btn-secondary" @click="shift(-1)">‹</button>
         <button type="button" class="btn btn-secondary" @click="goToday">Today</button>
         <button type="button" class="btn btn-secondary" @click="shift(1)">›</button>
-        <router-link class="btn btn-ghost" :to="orgTo('/admin/caseload-hub/events')">Event list</router-link>
+        <router-link v-if="!embedded" class="btn btn-ghost" :to="orgTo('/admin/caseload-hub/events')">Event list</router-link>
         <button type="button" class="btn btn-primary" @click="openAddEvent()">+ Add Event</button>
       </div>
     </header>
@@ -76,9 +83,11 @@
                 <div class="muted">
                   {{ formatFull(e.startsAt, e.endsAt, e.timezone) }} ·
                   {{
-                    e.isDistrictOutreach || (!e.schoolName && e.districtName)
-                      ? `District: ${e.districtName}`
-                      : (e.schoolName || '—')
+                    e.isGeneralOutreach
+                      ? 'General outreach'
+                      : e.isDistrictOutreach || (!e.schoolName && e.districtName)
+                        ? `District: ${e.districtName}`
+                        : (e.schoolName || '—')
                   }}
                   ·
                   <template v-if="e.staffingEnabled">{{ e.providersAssigned }}/{{ e.providersRequested }} staffed</template>
@@ -109,10 +118,11 @@
                 type="button"
                 class="evt"
                 :class="typeColor(e)"
-                :title="`${e.isDistrictOutreach || (!e.schoolName && e.districtName) ? 'District: ' + e.districtName + ' — ' : (e.schoolName ? e.schoolName + ' — ' : '')}${e.title}`"
+                :title="`${e.isGeneralOutreach ? 'General outreach — ' : e.isDistrictOutreach || (!e.schoolName && e.districtName) ? 'District: ' + e.districtName + ' — ' : (e.schoolName ? e.schoolName + ' — ' : '')}${e.title}`"
                 @click.stop="openEvent(e)"
               >
-                <span v-if="e.isDistrictOutreach || (!e.schoolName && e.districtName)" class="evt-school">{{ shortSchool(e.districtName) }}</span>
+                <span v-if="e.isGeneralOutreach" class="evt-school">Outreach</span>
+                <span v-else-if="e.isDistrictOutreach || (!e.schoolName && e.districtName)" class="evt-school">{{ shortSchool(e.districtName) }}</span>
                 <span v-else-if="e.schoolName" class="evt-school">{{ shortSchool(e.schoolName) }}</span>
                 {{ e.title }}
               </button>
@@ -200,6 +210,14 @@
           >
             District outreach
           </button>
+          <button
+            type="button"
+            class="chip"
+            :class="{ active: addScope === 'general' }"
+            @click="addScope = 'general'; addDistrictName = ''"
+          >
+            General outreach
+          </button>
         </div>
         <template v-if="addScope === 'school'">
           <p class="muted">Choose the school this event belongs to.</p>
@@ -218,7 +236,7 @@
           </select>
           <p v-if="districtsError" class="error-inline">{{ districtsError }}</p>
         </template>
-        <template v-else>
+        <template v-else-if="addScope === 'outreach'">
           <p class="muted">One district outreach event — not tied to a school. Providers can request shifts.</p>
           <select v-model="addDistrictName" class="agency-select full">
             <option value="">Select a district…</option>
@@ -228,12 +246,17 @@
           </select>
           <p v-if="districtsError" class="error-inline">{{ districtsError }}</p>
         </template>
+        <template v-else>
+          <p class="muted">
+            Agency-wide outreach — not tied to a school or district. Appears on providers’ All Events and the company calendar.
+          </p>
+        </template>
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" @click="showAddSchoolPicker = false">Cancel</button>
           <button
             type="button"
             class="btn btn-primary"
-            :disabled="addScope === 'school' ? !addSchoolId : !addDistrictName"
+            :disabled="addScope === 'school' ? !addSchoolId : addScope === 'general' ? false : !addDistrictName"
             @click="confirmAddSchool"
           >
             Continue
@@ -243,14 +266,14 @@
     </div>
 
     <PostSchoolEventModal
-      v-if="showPostModal && (addSchoolId || addDistrictName)"
+      v-if="showPostModal && (addSchoolId || addDistrictName || addScope === 'general')"
       :school-organization-id="addSchoolId ? Number(addSchoolId) : null"
       :school-name="addSchoolName"
       :agency-id="agencyId"
-      :district-name="addDistrictName || ''"
-      :district-outreach="addScope === 'outreach'"
+      :district-name="addScope === 'general' ? '' : (addDistrictName || '')"
+      :district-outreach="addScope === 'outreach' || addScope === 'general'"
       :initial-date="addInitialDate"
-      :initial-category="addScope === 'outreach' ? 'outreach' : (addDistrictName ? 'holiday' : 'back_to_school')"
+      :initial-category="(addScope === 'outreach' || addScope === 'general') ? 'outreach' : (addDistrictName ? 'holiday' : 'back_to_school')"
       @close="closePostModal"
       @saved="onEventSaved"
     />
@@ -272,10 +295,17 @@ import {
   SCHOOL_EVENT_FALLBACK_TIMEZONE
 } from '../../../utils/timezones';
 
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+  preferAddScope: { type: String, default: '' }
+});
+
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+
+const embedded = computed(() => !!props.embedded);
 
 const agencyId = ref(null);
 const agencies = computed(() => agencyStore.agencies || []);
@@ -333,7 +363,7 @@ const typeChecklist = [
   { value: 'school_holiday', label: 'Holiday', color: 'holiday' },
   { value: 'school_day_off', label: 'Day off', color: 'holiday' },
   { value: 'school_other', label: 'Other school event', color: 'fair' },
-  { value: 'school_outreach', label: 'District Outreach', color: 'outreach' }
+  { value: 'school_outreach', label: 'Outreach', color: 'outreach' }
 ];
 
 function orgTo(path) {
@@ -590,10 +620,12 @@ async function loadDistricts() {
 function openAddEvent(dateYmd = '') {
   const raw = typeof dateYmd === 'string' ? dateYmd : '';
   addInitialDate.value = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : '';
-  addScope.value = 'school';
+  const prefer = String(props.preferAddScope || '').trim();
+  addScope.value = ['school', 'district', 'outreach', 'general'].includes(prefer) ? prefer : 'school';
   addDistrictName.value = '';
   addSchoolId.value = schoolFilter.value ? Number(schoolFilter.value) : null;
-  if (addSchoolId.value) {
+  if (addScope.value === 'outreach' || addScope.value === 'district') loadDistricts();
+  if (addSchoolId.value && addScope.value === 'school') {
     showPostModal.value = true;
   } else {
     showAddSchoolPicker.value = true;
@@ -606,7 +638,10 @@ function onDayClick(cell) {
 }
 
 function confirmAddSchool() {
-  if (addScope.value === 'district' || addScope.value === 'outreach') {
+  if (addScope.value === 'general') {
+    addSchoolId.value = null;
+    addDistrictName.value = '';
+  } else if (addScope.value === 'district' || addScope.value === 'outreach') {
     if (!addDistrictName.value) return;
     addSchoolId.value = null;
   } else if (!addSchoolId.value) {

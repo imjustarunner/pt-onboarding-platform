@@ -619,6 +619,14 @@
             >
               District outreach
             </button>
+            <button
+              type="button"
+              class="events-scope-chip"
+              :class="{ active: eventsAddScope === 'general' }"
+              @click="eventsAddScope = 'general'; eventsPostDistrictName = ''"
+            >
+              General outreach
+            </button>
           </div>
           <template v-if="eventsAddScope === 'school'">
             <p class="muted">Choose the school this event belongs to.</p>
@@ -637,7 +645,7 @@
             </select>
             <p v-if="eventsDistrictsError" class="error-inline">{{ eventsDistrictsError }}</p>
           </template>
-          <template v-else>
+          <template v-else-if="eventsAddScope === 'outreach'">
             <p class="muted">One district outreach event — not tied to a school. Providers can request shifts.</p>
             <select v-model="eventsPostDistrictName" class="search" style="width:100%;margin-top:0.5rem;">
               <option value="">Select a district…</option>
@@ -647,12 +655,17 @@
             </select>
             <p v-if="eventsDistrictsError" class="error-inline">{{ eventsDistrictsError }}</p>
           </template>
+          <template v-else>
+            <p class="muted">
+              Agency-wide outreach — not tied to a school or district. Appears on providers’ All Events.
+            </p>
+          </template>
           <footer class="caseload-modal-actions" style="margin-top:1rem;">
             <button type="button" class="btn btn-secondary" @click="closeEventsAddPicker">Cancel</button>
             <button
               type="button"
               class="btn btn-primary"
-              :disabled="eventsAddScope === 'school' ? !eventsPostSchoolId : !eventsPostDistrictName"
+              :disabled="eventsAddScope === 'school' ? !eventsPostSchoolId : eventsAddScope === 'general' ? false : !eventsPostDistrictName"
               @click="confirmEventsAddPicker"
             >
               Continue
@@ -661,14 +674,14 @@
         </div>
       </div>
       <PostSchoolEventModal
-        v-if="showEventsPostModal && (eventsPostSchoolId || eventsPostDistrictName)"
+        v-if="showEventsPostModal && (eventsPostSchoolId || eventsPostDistrictName || eventsAddScope === 'general')"
         :school-organization-id="eventsPostSchoolId ? Number(eventsPostSchoolId) : null"
         :school-name="eventsPostSchoolName"
         :agency-id="agencyId"
-        :district-name="eventsPostDistrictName || ''"
-        :district-outreach="eventsAddScope === 'outreach'"
+        :district-name="eventsAddScope === 'general' ? '' : (eventsPostDistrictName || '')"
+        :district-outreach="eventsAddScope === 'outreach' || eventsAddScope === 'general'"
         :initial-date="eventsPostInitialDate"
-        :initial-category="eventsAddScope === 'outreach' ? 'outreach' : (eventsPostDistrictName ? 'holiday' : 'back_to_school')"
+        :initial-category="(eventsAddScope === 'outreach' || eventsAddScope === 'general') ? 'outreach' : (eventsPostDistrictName ? 'holiday' : 'back_to_school')"
         @close="closeEventsPostModal"
         @saved="onEventsEventSaved"
       />
@@ -1361,7 +1374,10 @@ function openEventsAddEvent(dateYmd = '') {
 }
 
 function confirmEventsAddPicker() {
-  if (eventsAddScope.value === 'district' || eventsAddScope.value === 'outreach') {
+  if (eventsAddScope.value === 'general') {
+    eventsPostSchoolId.value = null;
+    eventsPostDistrictName.value = '';
+  } else if (eventsAddScope.value === 'district' || eventsAddScope.value === 'outreach') {
     if (!eventsPostDistrictName.value) return;
     eventsPostSchoolId.value = null;
   } else if (!eventsPostSchoolId.value) {

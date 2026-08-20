@@ -21,6 +21,12 @@
         <button
           type="button"
           class="ohub-tab"
+          :class="{ active: viewMode === 'events' }"
+          @click="openEvents"
+        >Events</button>
+        <button
+          type="button"
+          class="ohub-tab"
           :class="{ active: viewMode === 'timeline' }"
           @click="openTimeline"
         >Activity</button>
@@ -1044,6 +1050,40 @@
       </div>
     </template>
 
+    <template v-else-if="viewMode === 'events'">
+      <div class="ohub-events-wrap">
+        <p class="ohub-events-note">
+          Same All Events experience as Caseload Hub — list, calendar, staffing, and kiosk.
+          <strong>Outreach</strong> events (district or general) are for provider staffing and show on All Events;
+          school/program events remain distinct but share this calendar and kiosk.
+        </p>
+        <div class="ohub-events-subtabs">
+          <button
+            type="button"
+            class="ohub-tab"
+            :class="{ active: eventsSubView === 'list' }"
+            @click="eventsSubView = 'list'"
+          >Event list</button>
+          <button
+            type="button"
+            class="ohub-tab"
+            :class="{ active: eventsSubView === 'calendar' }"
+            @click="eventsSubView = 'calendar'"
+          >Calendar</button>
+        </div>
+        <CaseloadHubEventsView
+          v-if="eventsSubView === 'list'"
+          embedded
+          prefer-add-scope="general"
+        />
+        <CaseloadHubCalendarView
+          v-else
+          embedded
+          prefer-add-scope="general"
+        />
+      </div>
+    </template>
+
     <template v-else>
       <div class="ohub-filters">
         <select v-model="timelineType" @change="loadTimeline">
@@ -1087,6 +1127,8 @@ import api from '../../services/api.js';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import OutreachTripStopEditor from '../../components/admin/OutreachTripStopEditor.vue';
+import CaseloadHubEventsView from './caseload-hub/CaseloadHubEventsView.vue';
+import CaseloadHubCalendarView from './caseload-hub/CaseloadHubCalendarView.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -1140,6 +1182,7 @@ const schoolDetailsSaving = ref(false);
 const schoolDetailsForm = reactive({ name: '', address: '' });
 const error = ref('');
 const viewMode = ref('tracker');
+const eventsSubView = ref('list');
 const schools = ref([]);
 const summary = ref({});
 const selectedId = ref(null);
@@ -1883,6 +1926,11 @@ const loadTimeline = async () => {
 const openTimeline = async () => {
   viewMode.value = 'timeline';
   await loadTimeline();
+};
+
+const openEvents = () => {
+  viewMode.value = 'events';
+  if (!eventsSubView.value) eventsSubView.value = 'list';
 };
 
 const setSort = (key) => {
@@ -3131,5 +3179,30 @@ onMounted(async () => {
 @media (max-width: 980px) {
   .ohub-body { grid-template-columns: 1fr; }
   .ohub-report li { grid-template-columns: 1fr; }
+}
+
+.ohub-events-wrap {
+  margin-top: 0.5rem;
+}
+.ohub-events-note {
+  margin: 0 0 0.75rem;
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #334155;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+.ohub-events-subtabs {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+.ohub-events-wrap :deep(.hub-page--embedded) {
+  padding: 0;
+}
+.ohub-events-wrap :deep(.hub-page--embedded .hub-header h1) {
+  font-size: 1.35rem;
 }
 </style>

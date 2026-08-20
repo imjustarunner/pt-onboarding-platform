@@ -359,7 +359,12 @@ export function mapSchoolEventRow(row, schoolMeta = {}) {
       null,
     isDistrictOutreach:
       String(eventType || '').toLowerCase() === 'school_outreach' &&
-      (row.organization_id == null || row.organization_id === '')
+      (row.organization_id == null || row.organization_id === '') &&
+      !!String(row.district_name || '').trim(),
+    isGeneralOutreach:
+      String(eventType || '').toLowerCase() === 'school_outreach' &&
+      (row.organization_id == null || row.organization_id === '') &&
+      !String(row.district_name || '').trim()
   };
 }
 
@@ -1836,13 +1841,14 @@ export async function createDistrictSchoolEvents({
 }
 
 /**
- * One district Outreach event — not tied to a school (organization_id NULL).
- * Visible in Caseload Hub + provider company-events calendar; not on school portals.
+ * Outreach event — not tied to a school (organization_id NULL).
+ * Optional districtName: district-scoped outreach; omit for agency-wide general outreach.
+ * Visible in Caseload Hub, Outreach Hub Events, and provider company-events calendar; not on school portals.
  */
 export async function createDistrictOutreachEvent({
   agencyId,
   userId,
-  districtName,
+  districtName = null,
   title,
   description,
   startsAt,
@@ -1856,20 +1862,22 @@ export async function createDistrictOutreachEvent({
   minProvidersPerSession = 2
 }) {
   const aid = Number(agencyId);
-  const district = String(districtName || '').trim();
-  if (!aid || !district) {
-    throw Object.assign(new Error('agencyId and districtName are required'), { status: 400 });
+  const district = String(districtName || '').trim() || null;
+  if (!aid) {
+    throw Object.assign(new Error('agencyId is required'), { status: 400 });
   }
   if (!String(title || '').trim()) {
     throw Object.assign(new Error('title is required'), { status: 400 });
   }
 
-  const schoolIds = await listSchoolIdsForDistrict(aid, district);
-  if (!schoolIds.length) {
-    throw Object.assign(
-      new Error(`No schools found for district "${district}"`),
-      { status: 404 }
-    );
+  if (district) {
+    const schoolIds = await listSchoolIdsForDistrict(aid, district);
+    if (!schoolIds.length) {
+      throw Object.assign(
+        new Error(`No schools found for district "${district}"`),
+        { status: 404 }
+      );
+    }
   }
 
   const start = startsAt instanceof Date ? startsAt : new Date(startsAt);

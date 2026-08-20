@@ -224,12 +224,23 @@ export const listHubEvents = async (req, res, next) => {
           OR (
             ce.organization_id IS NULL
             AND ce.event_type = 'school_outreach'
-            AND LOWER(TRIM(ce.district_name)) = LOWER(?)
+            AND (
+              ce.district_name IS NULL
+              OR TRIM(ce.district_name) = ''
+              OR LOWER(TRIM(ce.district_name)) = LOWER(?)
+            )
           )
         )`;
         params.push(schoolId, schoolDistrictName);
       } else {
-        sql += ' AND ce.organization_id = ?';
+        sql += ` AND (
+          ce.organization_id = ?
+          OR (
+            ce.organization_id IS NULL
+            AND ce.event_type = 'school_outreach'
+            AND (ce.district_name IS NULL OR TRIM(ce.district_name) = '')
+          )
+        )`;
         params.push(schoolId);
       }
     }
@@ -390,7 +401,12 @@ export const listHubEvents = async (req, res, next) => {
         districtName: r.district_name || null,
         isDistrictOutreach:
           String(r.event_type || '').toLowerCase() === 'school_outreach' &&
-          (r.organization_id == null || r.organization_id === ''),
+          (r.organization_id == null || r.organization_id === '') &&
+          !!String(r.district_name || '').trim(),
+        isGeneralOutreach:
+          String(r.event_type || '').toLowerCase() === 'school_outreach' &&
+          (r.organization_id == null || r.organization_id === '') &&
+          !String(r.district_name || '').trim(),
         outreachTableInvited: !!r.outreach_table_invited,
         staffingEnabled,
         providerSignupEnabled,

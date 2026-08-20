@@ -22,6 +22,7 @@ import {
   getSchoolYearCoverageForAgency,
   listDistrictsForAgency,
   listSchoolIdsForDistrict,
+  listAffiliatedSchoolsForAgency,
   listSchoolEventsForOrg,
   markPostTokenUsed,
   parseSchoolEventWallTime,
@@ -564,15 +565,23 @@ export const uploadDistrictOutreachFlier = [
     try {
       const agencyId = await assertAgencyAdminAccess(req, req.body?.agencyId ?? req.query?.agencyId);
       const districtName = String(req.body?.districtName || req.body?.district_name || '').trim();
-      if (!districtName) {
-        return res.status(400).json({ error: { message: 'districtName is required' } });
-      }
       if (!req.file) return res.status(400).json({ error: { message: 'No file uploaded' } });
 
-      const schoolIds = await listSchoolIdsForDistrict(agencyId, districtName);
-      const orgId = schoolIds[0];
-      if (!orgId) {
-        return res.status(404).json({ error: { message: `No schools found for district "${districtName}"` } });
+      let orgId = null;
+      if (districtName) {
+        const schoolIds = await listSchoolIdsForDistrict(agencyId, districtName);
+        orgId = schoolIds[0] || null;
+        if (!orgId) {
+          return res.status(404).json({ error: { message: `No schools found for district "${districtName}"` } });
+        }
+      } else {
+        const schools = await listAffiliatedSchoolsForAgency(agencyId).catch(() => []);
+        orgId = Number(schools?.[0]?.id) || null;
+        if (!orgId) {
+          return res.status(400).json({
+            error: { message: 'No affiliated school available to store the flier. Add a school or attach a district.' }
+          });
+        }
       }
 
       const saved = await StorageService.saveSchoolPublicDocument({
@@ -743,14 +752,11 @@ export const createDistrictSchoolEventHandler = async (req, res, next) => {
   }
 };
 
-/** POST /api/school-portal/school-events/district-outreach — one district event, no school */
+/** POST /api/school-portal/school-events/district-outreach — outreach event (optional district) */
 export const createDistrictOutreachEventHandler = async (req, res, next) => {
   try {
     const agencyId = await assertAgencyAdminAccess(req, req.body?.agencyId ?? req.query?.agencyId);
-    const districtName = String(req.body?.districtName || req.body?.district_name || '').trim();
-    if (!districtName) {
-      return res.status(400).json({ error: { message: 'districtName is required' } });
-    }
+    const districtName = String(req.body?.districtName || req.body?.district_name || '').trim() || null;
     const parsed = parseSchoolEventBody(req.body || {});
     if (!parsed.title) return res.status(400).json({ error: { message: 'title is required' } });
     if (!parsed.startsAt || !parsed.endsAt) {

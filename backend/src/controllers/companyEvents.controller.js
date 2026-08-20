@@ -3607,7 +3607,12 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
         districtName: row.district_name ? String(row.district_name).trim() : null,
         isDistrictOutreach:
           eventType === 'school_outreach' &&
-          (row.organization_id == null || row.organization_id === ''),
+          (row.organization_id == null || row.organization_id === '') &&
+          !!String(row.district_name || '').trim(),
+        isGeneralOutreach:
+          eventType === 'school_outreach' &&
+          (row.organization_id == null || row.organization_id === '') &&
+          !String(row.district_name || '').trim(),
         sessions,
         canRequestOutreachShift:
           (isSchoolEvent &&

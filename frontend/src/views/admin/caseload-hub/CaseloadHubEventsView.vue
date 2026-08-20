@@ -1,9 +1,16 @@
 <template>
-  <div class="hub-page" data-tour="caseload-hub-events">
+  <div class="hub-page" :class="{ 'hub-page--embedded': embedded }" data-tour="caseload-hub-events">
     <header class="hub-header">
       <div>
-        <h1>School Events</h1>
-        <p class="subtitle">View and manage school events, provider staffing, and back-to-school outreach.</p>
+        <h1>{{ embedded ? 'All Events' : 'School Events' }}</h1>
+        <p class="subtitle">
+          <template v-if="embedded">
+            Full events list and staffing — same as Caseload Hub. Outreach events (district or general) are labeled and appear on providers’ All Events; school program events stay distinct.
+          </template>
+          <template v-else>
+            View and manage school events, provider staffing, and back-to-school outreach.
+          </template>
+        </p>
         <p class="tz-note">
           All times shown in the school/tenant timezone
           <strong>{{ defaultTimezoneLabel }}</strong>
@@ -14,7 +21,7 @@
         <select v-if="agencies.length > 1" v-model="agencyId" class="agency-select" @change="reload()">
           <option v-for="a in agencies" :key="a.id" :value="Number(a.id)">{{ a.name }}</option>
         </select>
-        <router-link class="btn btn-ghost" :to="orgTo('/admin/caseload-hub/calendar')">Calendar</router-link>
+        <router-link v-if="!embedded" class="btn btn-ghost" :to="orgTo('/admin/caseload-hub/calendar')">Calendar</router-link>
         <button type="button" class="btn btn-secondary" :disabled="loading" @click="reload()">
           {{ loading ? 'Refreshing…' : 'Refresh' }}
         </button>
@@ -81,8 +88,16 @@
       </div>
     </div>
 
-    <nav class="hub-tabs">
+    <nav v-if="!embedded" class="hub-tabs">
       <router-link class="hub-tab" :to="orgTo('/admin/caseload-hub/calendar')">Calendar</router-link>
+      <button type="button" class="hub-tab" :class="{ active: tab === 'list' }" @click="setTab('list')">Event List</button>
+      <button type="button" class="hub-tab" :class="{ active: tab === 'provider-requests' }" @click="setTab('provider-requests')">
+        Provider Requests
+        <span v-if="pendingTotal" class="tab-badge">{{ pendingTotal }}</span>
+      </button>
+      <button type="button" class="hub-tab" :class="{ active: tab === 'archived' }" @click="setTab('archived')">Archived</button>
+    </nav>
+    <nav v-else class="hub-tabs">
       <button type="button" class="hub-tab" :class="{ active: tab === 'list' }" @click="setTab('list')">Event List</button>
       <button type="button" class="hub-tab" :class="{ active: tab === 'provider-requests' }" @click="setTab('provider-requests')">
         Provider Requests
@@ -189,12 +204,15 @@
                 <td>
                   <div class="primary">
                     {{
-                      e.isDistrictOutreach || (!e.schoolName && e.districtName)
-                        ? `District: ${e.districtName}`
-                        : (e.schoolName || '—')
+                      e.isGeneralOutreach
+                        ? 'General outreach'
+                        : e.isDistrictOutreach || (!e.schoolName && e.districtName)
+                          ? `District: ${e.districtName}`
+                          : (e.schoolName || '—')
                     }}
                   </div>
                   <div v-if="e.schoolName && e.districtName" class="muted">{{ e.districtName }}</div>
+                  <div v-else-if="e.isGeneralOutreach" class="muted">Outreach · agency-wide</div>
                   <div v-else-if="e.isDistrictOutreach" class="muted">Outreach · not school-tied</div>
                 </td>
                 <td><span class="type-pill" :class="typeClass(e.eventType)">{{ labelType(e.eventType) }}</span></td>
@@ -249,7 +267,7 @@
       <!-- provider-requests / archived reuse same split above via displayList -->
     </template>
 
-    <!-- Add event: one school, entire district, or district outreach -->
+    <!-- Add event: one school, entire district, district outreach, or general outreach -->
     <div v-if="showAddSchoolPicker" class="modal-backdrop" @click.self="showAddSchoolPicker = false">
       <div class="modal-card">
         <h2>Add school event</h2>
@@ -278,6 +296,14 @@
           >
             District outreach
           </button>
+          <button
+            type="button"
+            class="chip"
+            :class="{ active: addScope === 'general' }"
+            @click="addScope = 'general'; addDistrictName = ''"
+          >
+            General outreach
+          </button>
         </div>
         <template v-if="addScope === 'school'">
           <p class="muted">Choose the school this event belongs to.</p>
@@ -296,7 +322,7 @@
           </select>
           <p v-if="districtsError" class="error-inline">{{ districtsError }}</p>
         </template>
-        <template v-else>
+        <template v-else-if="addScope === 'outreach'">
           <p class="muted">One district outreach event — not tied to a school. Providers can request shifts.</p>
           <select v-model="addDistrictName" class="agency-select full">
             <option value="">Select a district…</option>
@@ -306,12 +332,17 @@
           </select>
           <p v-if="districtsError" class="error-inline">{{ districtsError }}</p>
         </template>
+        <template v-else>
+          <p class="muted">
+            Agency-wide outreach — not tied to a school or district. Appears on providers’ All Events and the company calendar.
+          </p>
+        </template>
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" @click="showAddSchoolPicker = false">Cancel</button>
           <button
             type="button"
             class="btn btn-primary"
-            :disabled="addScope === 'school' ? !addSchoolId : !addDistrictName"
+            :disabled="addScope === 'school' ? !addSchoolId : addScope === 'general' ? false : !addDistrictName"
             @click="confirmAddSchool"
           >
             Continue
@@ -321,13 +352,13 @@
     </div>
 
     <PostSchoolEventModal
-      v-if="showPostModal && (addSchoolId || addDistrictName)"
+      v-if="showPostModal && (addSchoolId || addDistrictName || addScope === 'general')"
       :school-organization-id="addSchoolId ? Number(addSchoolId) : null"
       :school-name="addSchoolName"
       :agency-id="agencyId"
-      :district-name="addDistrictName || ''"
-      :district-outreach="addScope === 'outreach'"
-      :initial-category="addScope === 'outreach' ? 'outreach' : (addDistrictName ? 'holiday' : 'back_to_school')"
+      :district-name="addScope === 'general' ? '' : (addDistrictName || '')"
+      :district-outreach="addScope === 'outreach' || addScope === 'general'"
+      :initial-category="(addScope === 'outreach' || addScope === 'general') ? 'outreach' : (addDistrictName ? 'holiday' : 'back_to_school')"
       @close="showPostModal = false; addDistrictName = ''; addScope = 'school'"
       @saved="onEventSaved"
     />
@@ -352,10 +383,19 @@ import { fetchHubEvents, fetchSchoolCoverageSummary } from '../../../services/sc
 import SchoolEventStaffingPanel from '../../../components/caseload-hub/SchoolEventStaffingPanel.vue';
 import PostSchoolEventModal from '../../../components/school/PostSchoolEventModal.vue';
 
+const props = defineProps({
+  /** When true, nest inside Outreach Hub (All Events). */
+  embedded: { type: Boolean, default: false },
+  /** Prefill Add Event scope when opening the picker (e.g. general). */
+  preferAddScope: { type: String, default: '' }
+});
+
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+
+const embedded = computed(() => !!props.embedded);
 
 const tab = ref(String(route.query.tab || 'list'));
 const agencyId = ref(null);
@@ -372,7 +412,7 @@ const loading = ref(false);
 const error = ref('');
 const search = ref('');
 const schoolFilter = ref('');
-const typeFilter = ref(String(route.query.type || 'school_back_to_school'));
+const typeFilter = ref(String(route.query.type || (props.embedded ? '' : 'school_back_to_school')));
 const lifecycleFilter = ref('');
 const staffingFilter = ref('');
 const dateFrom = ref('');
@@ -584,6 +624,7 @@ const filtered = computed(() => {
       .trim()
       .toLowerCase();
     list = list.filter((e) => {
+      if (e.isGeneralOutreach) return true;
       if (String(e.schoolId) === sid) return true;
       if (
         (e.isDistrictOutreach || (!e.schoolId && e.districtName)) &&
@@ -672,14 +713,19 @@ async function loadDistricts() {
 }
 
 function openAddEvent() {
-  addScope.value = 'school';
+  const prefer = String(props.preferAddScope || '').trim();
+  addScope.value = ['school', 'district', 'outreach', 'general'].includes(prefer) ? prefer : 'school';
   addDistrictName.value = '';
   addSchoolId.value = schoolFilter.value ? Number(schoolFilter.value) : null;
+  if (addScope.value === 'outreach' || addScope.value === 'district') loadDistricts();
   showAddSchoolPicker.value = true;
 }
 
 function confirmAddSchool() {
-  if (addScope.value === 'district' || addScope.value === 'outreach') {
+  if (addScope.value === 'general') {
+    addSchoolId.value = null;
+    addDistrictName.value = '';
+  } else if (addScope.value === 'district' || addScope.value === 'outreach') {
     if (!addDistrictName.value) return;
     addSchoolId.value = null;
   } else if (!addSchoolId.value) {

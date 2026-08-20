@@ -6,9 +6,9 @@
           <div>
             <h2>
               {{ editEvent
-                ? (isDistrictOutreachEvent ? 'Edit district outreach' : 'Edit school event')
-                : isDistrictOutreachCreate
-                  ? 'Add district outreach'
+                ? (isOutreachEvent ? (isGeneralOutreachEvent ? 'Edit general outreach' : 'Edit district outreach') : 'Edit school event')
+                : isOutreachCreate
+                  ? (isGeneralOutreachCreate ? 'Add general outreach' : 'Add district outreach')
                   : isDistrictCreate
                     ? 'Add district event'
                     : 'Post school event' }}
@@ -16,18 +16,23 @@
             <p class="pse-sub">
               {{ editEvent
                 ? 'Update details, status, or timing. Rescheduling replaces the previous date/time.'
-                : isDistrictOutreachCreate
+                : isGeneralOutreachCreate
+                  ? 'One agency-wide outreach event — not tied to a school or district. Shows on providers’ All Events.'
+                  : isDistrictOutreachCreate
                   ? `One outreach event for ${districtName} — not tied to a school. Providers can request shifts.`
                   : isDistrictCreate
                     ? `Creates this event for every school in ${districtName}.`
                     : "Share your school's parent event. It will appear on the portal banner the week of the event." }}
             </p>
-            <p v-if="displaySchoolName && !isDistrictCreate && !isDistrictOutreachCreate" class="pse-school">
+            <p v-if="displaySchoolName && !isDistrictCreate && !isOutreachCreate" class="pse-school">
               {{ editEvent ? 'School' : 'Adding for' }}:
               <strong>{{ displaySchoolName }}</strong>
             </p>
-            <p v-else-if="(isDistrictOutreachCreate || isDistrictOutreachEvent) && districtName" class="pse-school">
+            <p v-else-if="(isDistrictOutreachCreate || (isOutreachEvent && !isGeneralOutreachEvent)) && districtName" class="pse-school">
               District: <strong>{{ districtName }}</strong>
+            </p>
+            <p v-else-if="isGeneralOutreachCreate || isGeneralOutreachEvent" class="pse-school">
+              Scope: <strong>General outreach</strong> (all providers)
             </p>
           </div>
           <button class="pse-close" type="button" aria-label="Close" @click="$emit('close')">×</button>
@@ -36,9 +41,9 @@
         <div class="pse-body">
           <label class="field">
             <span class="lbl">Event type</span>
-            <select v-model="form.category" class="input" :disabled="!!lockedCategory || isDistrictOutreachCreate || isDistrictOutreachEvent">
-              <option v-if="isDistrictOutreachCreate || isDistrictOutreachEvent || form.category === 'outreach'" value="outreach">
-                District Outreach (attendable / staffed)
+            <select v-model="form.category" class="input" :disabled="!!lockedCategory || isOutreachCreate || isOutreachEvent">
+              <option v-if="isOutreachCreate || isOutreachEvent || form.category === 'outreach'" value="outreach">
+                {{ isGeneralOutreachCreate || isGeneralOutreachEvent ? 'General Outreach' : 'District Outreach' }} (attendable / staffed)
               </option>
               <option value="back_to_school">Back to School (attendable event)</option>
               <option value="open_house">Open House</option>
@@ -52,8 +57,13 @@
               <option value="holiday">Holiday (calendar only)</option>
               <option value="day_off">Day off (calendar only)</option>
             </select>
-            <span v-if="isDistrictOutreachCreate || isDistrictOutreachEvent || form.category === 'outreach'" class="hint">
-              District outreach is one event for the whole district (not copied per school). Provider staffing is on.
+            <span v-if="isOutreachCreate || isOutreachEvent || form.category === 'outreach'" class="hint">
+              <template v-if="isGeneralOutreachCreate || isGeneralOutreachEvent">
+                General outreach is one agency-wide event (not school- or district-tied). It appears on providers’ All Events. Staffing is on.
+              </template>
+              <template v-else>
+                District outreach is one event for the whole district (not copied per school). Provider staffing is on.
+              </template>
             </span>
             <span v-else-if="isCalendarOnlyCategory" class="hint">
               Calendar date only — not an attendable event and not open for provider staffing.
@@ -243,7 +253,7 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null },
   /** When set, create fans out to every school in this district (agency admin). */
   districtName: { type: String, default: '' },
-  /** One district outreach event (not school-tied, not fan-out). Requires districtName. */
+  /** One outreach event (not school-tied, not fan-out). Optional districtName; omit for general. */
   districtOutreach: { type: Boolean, default: false },
   initialCategory: { type: String, default: 'back_to_school' },
   /** Prefill date (YYYY-MM-DD) when creating from a calendar day click. */
@@ -290,12 +300,12 @@ const canDeleteEvent = computed(() => {
   if (!props.editEvent?.id || props.reinitToken) return false;
   const role = String(authStore.user?.role || '').toLowerCase();
   if (!['super_admin', 'admin', 'support'].includes(role)) return false;
-  if (isDistrictOutreachEvent.value) return !!props.agencyId;
+  if (isOutreachEvent.value) return !!props.agencyId;
   if (!props.schoolOrganizationId) return false;
   return true;
 });
 
-/** Fan-out create (one copy per school) — not district outreach. */
+/** Fan-out create (one copy per school) — not outreach. */
 const isDistrictCreate = computed(
   () =>
     !!String(props.districtName || '').trim() &&
@@ -303,20 +313,35 @@ const isDistrictCreate = computed(
     !props.districtOutreach
 );
 
+/** Any outreach create (district-scoped or general). */
+const isOutreachCreate = computed(() => !!props.districtOutreach && !props.editEvent);
+
 const isDistrictOutreachCreate = computed(
-  () =>
-    !!props.districtOutreach &&
-    !!String(props.districtName || '').trim() &&
-    !props.editEvent
+  () => isOutreachCreate.value && !!String(props.districtName || '').trim()
 );
 
-const isDistrictOutreachEvent = computed(
+const isGeneralOutreachCreate = computed(
+  () => isOutreachCreate.value && !String(props.districtName || '').trim()
+);
+
+const isOutreachEvent = computed(
   () =>
     !!props.editEvent &&
     (!!props.editEvent.isDistrictOutreach ||
+      !!props.editEvent.isGeneralOutreach ||
       String(props.editEvent.eventType || props.editEvent.category || '').toLowerCase() === 'school_outreach' ||
       String(props.editEvent.category || '').toLowerCase() === 'outreach')
 );
+
+const isGeneralOutreachEvent = computed(
+  () =>
+    isOutreachEvent.value &&
+    (!!props.editEvent?.isGeneralOutreach ||
+      (!props.editEvent?.isDistrictOutreach && !String(props.editEvent?.districtName || '').trim()))
+);
+
+/** @deprecated alias — prefer isOutreachEvent */
+const isDistrictOutreachEvent = isOutreachEvent;
 
 const districtName = computed(() =>
   String(props.editEvent?.districtName || props.districtName || '').trim()
@@ -412,7 +437,7 @@ const canAssignOnCreate = computed(
     !isDistrictCreate.value &&
     !isCalendarOnlyCategory.value &&
     !!props.agencyId &&
-    (!!props.schoolOrganizationId || isDistrictOutreachCreate.value)
+    (!!props.schoolOrganizationId || isOutreachCreate.value)
 );
 
 const assignProviderOptions = ref([]);
@@ -648,7 +673,7 @@ const submit = async () => {
         ...payload,
         agencyId: Number(props.agencyId)
       });
-    } else if (props.editEvent?.id && isDistrictOutreachEvent.value) {
+    } else if (props.editEvent?.id && isOutreachEvent.value) {
       if (!props.agencyId) {
         error.value = 'Agency is required';
         return;
@@ -663,15 +688,15 @@ const submit = async () => {
         return;
       }
       res = await api.put(schoolEventUpdateUrl(props.editEvent.id), payload);
-    } else if (isDistrictOutreachCreate.value) {
+    } else if (isOutreachCreate.value) {
       if (!props.agencyId) {
-        error.value = 'Agency is required for district outreach';
+        error.value = 'Agency is required for outreach events';
         return;
       }
       res = await api.post('/school-portal/school-events/district-outreach', {
         ...payload,
         agencyId: Number(props.agencyId),
-        districtName: districtName.value
+        ...(districtName.value ? { districtName: districtName.value } : {})
       });
     } else if (isDistrictCreate.value) {
       if (!props.agencyId) {
@@ -693,7 +718,7 @@ const submit = async () => {
 
     let assignNote = '';
     const createdEventId =
-      !props.editEvent && (isDistrictOutreachCreate.value || !isDistrictCreate.value)
+      !props.editEvent && (isOutreachCreate.value || !isDistrictCreate.value)
         ? Number(res.data?.id || 0)
         : 0;
     if (createdEventId && canAssignOnCreate.value && selectedAssignIds.value.length) {
@@ -714,7 +739,9 @@ const submit = async () => {
           : form.schoolEventStatus === 'rescheduled'
             ? 'Event rescheduled. New date/time is live and the portal banner will update.'
             : 'Event updated.'
-      : isDistrictOutreachCreate.value
+      : isGeneralOutreachCreate.value
+        ? `General outreach event created.${assignNote}`
+        : isDistrictOutreachCreate.value
         ? `District outreach event created.${assignNote}`
         : isDistrictCreate.value
           ? `Created for ${res.data?.createdCount || 0} school(s) in the district.`
@@ -732,7 +759,7 @@ const deleteEvent = async () => {
   if (!canDeleteEvent.value || !props.editEvent?.id) return;
   const title = String(props.editEvent.title || 'this event').trim();
   const ok = window.confirm(
-    isDistrictOutreachEvent.value
+    isOutreachEvent.value
       ? `Delete "${title}"? It will be removed from All Events and the provider calendar.`
       : `Delete "${title}"? It will be removed from the school portal, calendar, and kiosk.`
   );
@@ -741,7 +768,7 @@ const deleteEvent = async () => {
   error.value = '';
   success.value = '';
   try {
-    if (isDistrictOutreachEvent.value) {
+    if (isOutreachEvent.value) {
       await api.delete(`/school-portal/school-events/district-outreach/${props.editEvent.id}`, {
         params: { agencyId: Number(props.agencyId) }
       });
