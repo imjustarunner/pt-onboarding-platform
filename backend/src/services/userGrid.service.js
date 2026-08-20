@@ -351,6 +351,9 @@ async function enrichRows(rows, fields, { agencyId }) {
     const needPayCat = fields.some((f) => f.key === 'pay_category');
     const needHcbsCat = fields.some((f) => f.key === 'hcbs_category');
     const needClassFlag = fields.some((f) => f.key === 'classification_flag');
+    // Always resolve Prelicensed conflicts when any classification column is shown so
+    // Pay/HCBS badges can highlight problems even without the flag column.
+    const needFlagMeta = needPayCat || needHcbsCat || needClassFlag;
     const classAgencyId = parseInt(agencyId, 10);
 
     await loadMapInChunks(ids, async (group) => {
@@ -362,7 +365,7 @@ async function enrichRows(rows, fields, { agencyId }) {
       );
 
       let prelicensedByUser = new Map();
-      if (needClassFlag && Number.isFinite(classAgencyId) && classAgencyId > 0) {
+      if (needFlagMeta && Number.isFinite(classAgencyId) && classAgencyId > 0) {
         const [uaRows] = await pool.execute(
           `SELECT user_id, supervision_is_prelicensed
              FROM user_agencies
@@ -391,21 +394,8 @@ async function enrichRows(rows, fields, { agencyId }) {
           isHourlyWorker,
         });
 
-        if (needPayCat) {
-          bag.pay_category = {
-            cat: axes.payCategory,
-            label: axes.payCategoryLabel || '',
-            display: axes.payCategory ? `Cat ${axes.payCategory}` : 'Unknown',
-          };
-        }
-        if (needHcbsCat) {
-          bag.hcbs_category = {
-            cat: axes.hcbsCategory,
-            label: axes.hcbsCategoryLabel || '',
-            display: axes.hcbsCategory ? `Cat ${axes.hcbsCategory}` : 'Unknown',
-          };
-        }
-        if (needClassFlag) {
+        let flagMeta = null;
+        if (needFlagMeta) {
           if (Number.isFinite(classAgencyId) && classAgencyId > 0) {
             const manualIsPrelicensed = prelicensedByUser.has(uid)
               ? prelicensedByUser.get(uid)
@@ -423,7 +413,7 @@ async function enrichRows(rows, fields, { agencyId }) {
               : cls.classifiedAs === 'unknown'
                 ? 'unknown'
                 : 'ok';
-            bag.classification_flag = {
+            flagMeta = {
               kind,
               label:
                 kind === 'conflict'
@@ -431,17 +421,39 @@ async function enrichRows(rows, fields, { agencyId }) {
                   : kind === 'unknown'
                     ? 'Unclassified'
                     : 'OK',
-              detail: cls.conflictReason || (kind === 'unknown' ? 'Could not auto-classify' : ''),
+              detail: cls.conflictReason || (kind === 'unknown' ? 'Could not auto-classify from credential/role' : ''),
               sort: kind === 'conflict' ? 0 : kind === 'unknown' ? 1 : 2,
             };
           } else {
-            bag.classification_flag = {
+            flagMeta = {
               kind: 'na',
               label: '—',
               detail: 'Pick an agency to evaluate Prelicensed conflicts',
               sort: 3,
             };
           }
+        }
+
+        if (needPayCat) {
+          bag.pay_category = {
+            cat: axes.payCategory,
+            label: axes.payCategoryLabel || '',
+            display: axes.payCategory ? `Cat ${axes.payCategory}` : 'Unknown',
+            flagKind: flagMeta?.kind || null,
+            flagDetail: flagMeta?.detail || '',
+          };
+        }
+        if (needHcbsCat) {
+          bag.hcbs_category = {
+            cat: axes.hcbsCategory,
+            label: axes.hcbsCategoryLabel || '',
+            display: axes.hcbsCategory ? `Cat ${axes.hcbsCategory}` : 'Unknown',
+            flagKind: flagMeta?.kind || null,
+            flagDetail: flagMeta?.detail || '',
+          };
+        }
+        if (needClassFlag && flagMeta) {
+          bag.classification_flag = flagMeta;
         }
       }
     });

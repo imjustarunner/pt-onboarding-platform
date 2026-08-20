@@ -148,32 +148,36 @@
                 :checked="!!cellValue(row, f)"
                 @change="onText(row, f, $event.target.checked)"
               />
-              <span v-else-if="f.type === 'derived' && f.key === 'pay_category'" class="cell-ro">
-                <span class="roster-cat-badge roster-cat-badge--pay" :title="categoryDetail(row, f)">
-                  {{ categoryDisplay(row, f) }}
-                </span>
-                <span v-if="categoryDetail(row, f)" class="roster-cat-sub">{{ categoryDetail(row, f) }}</span>
-              </span>
-              <span v-else-if="f.type === 'derived' && f.key === 'hcbs_category'" class="cell-ro">
-                <span class="roster-cat-badge roster-cat-badge--hcbs" :title="categoryDetail(row, f)">
-                  {{ categoryDisplay(row, f) }}
-                </span>
-                <span v-if="categoryDetail(row, f)" class="roster-cat-sub">{{ categoryDetail(row, f) }}</span>
-              </span>
-              <span v-else-if="f.type === 'derived' && f.key === 'classification_flag'" class="cell-ro">
+              <span v-else-if="isDerivedKey(f, 'pay_category')" class="cell-ro">
                 <span
-                  v-if="flagCell(row, f)"
-                  class="roster-flag"
-                  :class="{
-                    'roster-flag--conflict': flagCell(row, f).kind === 'conflict',
-                    'roster-flag--unknown': flagCell(row, f).kind === 'unknown',
-                    'roster-flag--ok': flagCell(row, f).kind === 'ok',
-                  }"
-                  :title="flagCell(row, f).detail || ''"
+                  class="roster-cat-badge roster-cat-badge--pay"
+                  :class="categoryFlagClass(row, f)"
+                  :title="categoryHover(row, f)"
                 >
-                  {{ flagCell(row, f).label }}
+                  {{ categoryDisplay(row, f) }}
                 </span>
-                <span v-else class="muted">—</span>
+                <span v-if="categoryDetail(row, f)" class="roster-cat-sub">{{ categoryDetail(row, f) }}</span>
+              </span>
+              <span v-else-if="isDerivedKey(f, 'hcbs_category')" class="cell-ro">
+                <span
+                  class="roster-cat-badge roster-cat-badge--hcbs"
+                  :class="categoryFlagClass(row, f)"
+                  :title="categoryHover(row, f)"
+                >
+                  {{ categoryDisplay(row, f) }}
+                </span>
+                <span v-if="categoryDetail(row, f)" class="roster-cat-sub">{{ categoryDetail(row, f) }}</span>
+              </span>
+              <span v-else-if="isDerivedKey(f, 'classification_flag')" class="cell-ro">
+                <span
+                  v-if="flagLabel(row, f)"
+                  class="roster-flag"
+                  :class="flagClass(row, f)"
+                  :title="flagDetail(row, f)"
+                >
+                  {{ flagLabel(row, f) }}
+                </span>
+                <span v-else class="muted" :title="flagDetail(row, f) || ''">—</span>
               </span>
               <span v-else class="cell-ro">{{ displayCell(row, f) }}</span>
             </td>
@@ -294,11 +298,30 @@ function cellValue(row, field) {
   return row.values?.[field.key];
 }
 
+function isDerivedKey(field, key) {
+  return String(field?.key || '') === key;
+}
+
+function safeText(value) {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value === 'object') {
+    if (typeof value.label === 'string') return value.label;
+    if (typeof value.display === 'string') return value.display;
+    if (typeof value.detail === 'string') return value.detail;
+    return '';
+  }
+  return String(value);
+}
+
 function displayCell(row, field) {
   const v = cellValue(row, field);
-  if (field.type === 'derived') {
-    if (field.key === 'pay_category' || field.key === 'hcbs_category') return categoryDisplay(row, field);
-    if (field.key === 'classification_flag') return flagCell(row, field)?.label || '';
+  const key = String(field?.key || '');
+  if (key === 'pay_category' || key === 'hcbs_category') {
+    return categoryDisplay(row, field);
+  }
+  if (key === 'classification_flag') {
+    return flagLabel(row, field) || '';
   }
   if (field.type === 'file') return v?.name || '';
   if (field.type === 'boolean') return v ? 'Yes' : 'No';
@@ -306,14 +329,14 @@ function displayCell(row, field) {
     try {
       return new Date(v).toLocaleString();
     } catch {
-      return String(v);
+      return safeText(v);
     }
   }
   if (field.type === 'select') {
     const opt = optionsFor(field).find((o) => String(o.value) === String(v));
-    return opt?.label || v || '';
+    return opt?.label || safeText(v) || '';
   }
-  return v == null ? '' : String(v);
+  return safeText(v);
 }
 
 function categoryCell(row, field) {
@@ -323,17 +346,58 @@ function categoryCell(row, field) {
 
 function categoryDisplay(row, field) {
   const v = categoryCell(row, field);
-  return v?.display || (v?.cat ? `Cat ${v.cat}` : 'Unknown');
+  if (!v) return 'Unknown';
+  return safeText(v.display) || (v.cat ? `Cat ${v.cat}` : 'Unknown');
 }
 
 function categoryDetail(row, field) {
   const v = categoryCell(row, field);
-  return String(v?.label || '').trim();
+  return safeText(v?.label).trim();
+}
+
+function categoryHover(row, field) {
+  const v = categoryCell(row, field);
+  const flagDetail = safeText(v?.flagDetail).trim();
+  const label = categoryDetail(row, field);
+  if (flagDetail && (v?.flagKind === 'conflict' || v?.flagKind === 'unknown' || v?.flagKind === 'na')) {
+    return label ? `${label} — ${flagDetail}` : flagDetail;
+  }
+  return label || categoryDisplay(row, field);
+}
+
+function categoryFlagClass(row, field) {
+  const kind = String(categoryCell(row, field)?.flagKind || '');
+  if (kind === 'conflict') return 'roster-cat-badge--conflict';
+  if (kind === 'unknown') return 'roster-cat-badge--unknown';
+  return '';
 }
 
 function flagCell(row, field) {
   const v = cellValue(row, field);
   return v && typeof v === 'object' ? v : null;
+}
+
+function flagLabel(row, field) {
+  const cell = flagCell(row, field);
+  if (!cell) return '';
+  const kind = String(cell.kind || '');
+  // Only surface actionable flags; OK/na show as dash via template.
+  if (kind === 'ok' || kind === 'na') return '';
+  return safeText(cell.label).trim();
+}
+
+function flagDetail(row, field) {
+  const cell = flagCell(row, field);
+  if (!cell) return '';
+  return safeText(cell.detail).trim() || safeText(cell.label).trim();
+}
+
+function flagClass(row, field) {
+  const kind = String(flagCell(row, field)?.kind || '');
+  if (kind === 'conflict') return 'roster-flag--conflict';
+  if (kind === 'unknown') return 'roster-flag--unknown';
+  if (kind === 'ok') return 'roster-flag--ok';
+  return '';
 }
 
 function fileName(row, field) {
@@ -629,6 +693,18 @@ watch(
   background: #ede9fe;
   color: #5b21b6;
   border-color: #c4b5fd;
+}
+.roster-cat-badge--conflict {
+  background: #fef3c7 !important;
+  color: #92400e !important;
+  border-color: #fcd34d !important;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.35);
+}
+.roster-cat-badge--unknown {
+  background: #f1f5f9 !important;
+  color: #475569 !important;
+  border-color: #cbd5e1 !important;
+  border-style: dashed;
 }
 .roster-cat-sub {
   display: block;
