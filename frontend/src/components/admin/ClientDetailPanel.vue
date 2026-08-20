@@ -2267,7 +2267,7 @@ import {
   normalizeGradeForSave,
   normalizeGradeToStandard
 } from '../../utils/clientGrade.js';
-import { displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
+import { assignedDayDisplay, displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
 import AssignDayModal from '../school/AssignDayModal.vue';
 import PostListingModal from '../clientExchange/PostListingModal.vue';
 import { canSeeClientExchangeNav } from '../../utils/clientExchangeNav.js';
