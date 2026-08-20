@@ -490,6 +490,13 @@
                       title="Override completion date"
                     />
                     <span v-else>{{ fmtDate(item.completedAt) || (item.isCompleted ? '✓' : '—') }}</span>
+                    <span
+                      v-if="item.previousCompletedAt && !item.isExpirationRow"
+                      class="lc-prior-date"
+                      title="Prior completion date before the most recent change"
+                    >
+                      Prior: {{ fmtDate(item.previousCompletedAt) }}
+                    </span>
                     <label
                       v-if="item.itemKey === 'background_check_complete' && item.expirationStatus === 'expired' && !item.isExpirationRow"
                       class="lc-scheduled-field"
@@ -728,6 +735,13 @@
                       title="Override completion date"
                     />
                     <span v-else>{{ fmtDate(item.completedAt) || (item.isCompleted ? '✓' : '—') }}</span>
+                    <span
+                      v-if="item.previousCompletedAt"
+                      class="lc-prior-date"
+                      title="Prior completion date before the most recent change"
+                    >
+                      Prior: {{ fmtDate(item.previousCompletedAt) }}
+                    </span>
                   </span>
                   <span v-if="!viewOnly && data.offboarding.enabled" class="lc-item-action">
                     <button
@@ -1635,6 +1649,12 @@ watch(() => props.userId, () => {
   line-height: 1.2;
 }
 .lc-item-date { font-size: 0.78rem; color: #6b7280; }
+.lc-prior-date {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.72rem;
+  color: #9ca3af;
+}
 .lc-item-date-input {
   padding: 2px 4px;
   border: 1px solid transparent;

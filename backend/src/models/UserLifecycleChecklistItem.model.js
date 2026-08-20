@@ -1,5 +1,21 @@
 import pool from '../config/database.js';
 
+function toYmd(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(value.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const parsed = new Date(s);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return toYmd(parsed);
+}
+
 class UserLifecycleChecklistItem {
   static async findByUser(userId) {
     const [rows] = await pool.execute(
@@ -38,6 +54,25 @@ class UserLifecycleChecklistItem {
     );
   }
 
+  static async recordCompletedAtChange(userId, definitionId, previousAt, newAt, changedByUserId = null) {
+    const prevYmd = toYmd(previousAt);
+    const newYmd = toYmd(newAt);
+    if (!prevYmd || !newYmd || prevYmd === newYmd) return;
+
+    await pool.execute(
+      `INSERT INTO user_lifecycle_checklist_date_history
+         (user_id, definition_id, previous_completed_at, new_completed_at, changed_by_user_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      [userId, definitionId, prevYmd, newYmd, changedByUserId || null]
+    );
+    await pool.execute(
+      `UPDATE user_lifecycle_checklist_items
+       SET previous_completed_at = ?
+       WHERE user_id = ? AND definition_id = ?`,
+      [previousAt, userId, definitionId]
+    );
+  }
+
   /**
    * Toggle an item. HR can always manually check/uncheck.
    * Setting manually_overridden prevents auto-sync from re-checking.
@@ -52,7 +87,24 @@ class UserLifecycleChecklistItem {
         now = new Date();
       }
     }
-    
+
+    if (completed && now) {
+      const existing = await this.findByUserAndDefinition(userId, definitionId);
+      if (existing?.completed_at) {
+        try {
+          await this.recordCompletedAtChange(
+            userId,
+            definitionId,
+            existing.completed_at,
+            now,
+            completedByUserId
+          );
+        } catch (err) {
+          if (err?.code !== 'ER_NO_SUCH_TABLE') throw err;
+        }
+      }
+    }
+
     await pool.execute(
       `INSERT INTO user_lifecycle_checklist_items
          (user_id, definition_id, is_completed, completed_at, completed_by_user_id, completion_method, manually_overridden,

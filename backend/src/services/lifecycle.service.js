@@ -353,6 +353,7 @@ export async function getLifecycleData(userId) {
       isNotApplicable: !!state.is_not_applicable,
       notApplicableAt: state.not_applicable_at || null,
       completedAt: state.completed_at || null,
+      previousCompletedAt: state.previous_completed_at || null,
       expiresAt: def.item_key === FEDERAL_BG_ITEM_KEY && d11Applicable ? expiresAt : null,
       scheduledAt,
       expirationStatus: expMeta?.status || null,
