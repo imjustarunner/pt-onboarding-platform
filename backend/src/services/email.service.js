@@ -2,6 +2,11 @@ import GoogleWorkspaceEmailService from './googleWorkspaceEmail.service.js';
 import { getEmailSendingMode, isEmailNotificationsEnabled, emailRequiresAdminApproval } from './emailSettings.service.js';
 import { validateOutboundEmailQuality, formatQualityFlags } from './outboundEmailQuality.service.js';
 import { buildFallbackSenderMetadata } from '../constants/automatedEmailCatalog.js';
+import {
+  rewriteHogwartsOutboundRecipient,
+  buildTestInboxRedirectMetadata,
+  shouldRedirectHogwartsOutboundEmail
+} from '../utils/hogwartsTestEmail.js';
 
 /**
  * Look up a user_id by email address, best-effort. Used when callers don't
@@ -77,7 +82,10 @@ class EmailService {
     usedFallbackSender = null
   }) {
     const isManual = String(source || '').trim().toLowerCase() === 'manual';
-    const treatAsFallback = usedFallbackSender === true || (usedFallbackSender !== false && !isManual);
+    const willRedirectToTestInbox = await shouldRedirectHogwartsOutboundEmail(to).catch(() => false);
+    const treatAsFallback =
+      !willRedirectToTestInbox &&
+      (usedFallbackSender === true || (usedFallbackSender !== false && !isManual));
     const fallbackMeta = treatAsFallback
       ? buildFallbackSenderMetadata({
         reason: 'env_or_unconfigured_from',
@@ -94,18 +102,20 @@ class EmailService {
         const { default: CommunicationLoggingService } = await import('./communicationLogging.service.js');
         const resolvedUserId = userId || await resolveUserIdByEmail(to);
         const { default: pool } = await import('../config/database.js');
-        const comm = await CommunicationLoggingService.logGeneratedCommunication({
-          userId: resolvedUserId || null,
-          clientId: clientId ? Number(clientId) : null,
-          agencyId: agencyId ? Number(agencyId) : null,
-          templateType: templateType || 'transactional_email',
-          templateId: templateId || null,
-          subject: subject || null,
-          body: html || text || '',
-          generatedByUserId: generatedByUserId || null,
-          channel: 'email',
-          recipientAddress: to
-        });
+        const comm = existingCommunicationId
+          ? { id: Number(existingCommunicationId) }
+          : await CommunicationLoggingService.logGeneratedCommunication({
+              userId: resolvedUserId || null,
+              clientId: clientId ? Number(clientId) : null,
+              agencyId: agencyId ? Number(agencyId) : null,
+              templateType: templateType || 'transactional_email',
+              templateId: templateId || null,
+              subject: subject || null,
+              body: html || text || '',
+              generatedByUserId: generatedByUserId || null,
+              channel: 'email',
+              recipientAddress: to
+            });
         if (comm?.id) {
           await pool.execute(
             `UPDATE user_communications
@@ -176,9 +186,45 @@ class EmailService {
 
     // Pre-log as 'pending' so any failure during the actual send is still
     // visible on the Communications tab as a failed/pending row.
+    const redirectedPreview = await rewriteHogwartsOutboundRecipient({ to, subject });
+    const redirectMeta = redirectedPreview.redirected
+      ? buildTestInboxRedirectMetadata({
+          originalTo: redirectedPreview.originalTo,
+          deliveredTo: redirectedPreview.to
+        })
+      : {};
     let comm = null;
     if (existingCommunicationId) {
       comm = { id: Number(existingCommunicationId) };
+      if (redirectedPreview.redirected) {
+        try {
+          const { default: pool } = await import('../config/database.js');
+          const [existingRows] = await pool.execute(
+            'SELECT metadata FROM user_communications WHERE id = ? LIMIT 1',
+            [comm.id]
+          );
+          let prev = {};
+          try {
+            prev = existingRows?.[0]?.metadata
+              ? typeof existingRows[0].metadata === 'string'
+                ? JSON.parse(existingRows[0].metadata)
+                : existingRows[0].metadata
+              : {};
+          } catch {
+            prev = {};
+          }
+          await pool.execute(
+            `UPDATE user_communications SET metadata = ?, subject = COALESCE(?, subject) WHERE id = ?`,
+            [
+              JSON.stringify({ ...(prev || {}), ...redirectMeta }),
+              redirectedPreview.subject || subject,
+              comm.id
+            ]
+          );
+        } catch {
+          /* best effort */
+        }
+      }
     } else {
       try {
         const { default: CommunicationLoggingService } = await import('./communicationLogging.service.js');
@@ -189,7 +235,7 @@ class EmailService {
           agencyId: agencyId ? Number(agencyId) : null,
           templateType: templateType || 'transactional_email',
           templateId: templateId || null,
-          subject: subject || null,
+          subject: redirectedPreview.subject || subject || null,
           body: html || text || '',
           generatedByUserId: generatedByUserId || null,
           channel: 'email',
@@ -198,7 +244,8 @@ class EmailService {
             source,
             ...(fromAddress ? { fromEmail: fromAddress } : {}),
             ...(linkUrl ? { linkUrl } : {}),
-            ...fallbackMeta
+            ...fallbackMeta,
+            ...redirectMeta
           }
         });
       } catch (logErr) {
@@ -207,11 +254,16 @@ class EmailService {
     }
 
     const resolvedTemplateType = templateType || 'transactional_email';
-    if (!existingCommunicationId && comm?.id && await emailRequiresAdminApproval({
-      agencyId,
-      templateType: resolvedTemplateType,
-      usedFallbackSender: treatAsFallback
-    })) {
+    if (
+      !redirectedPreview.redirected &&
+      !existingCommunicationId &&
+      comm?.id &&
+      (await emailRequiresAdminApproval({
+        agencyId,
+        templateType: resolvedTemplateType,
+        usedFallbackSender: treatAsFallback
+      }))
+    ) {
       return {
         queued: true,
         pendingApproval: true,
@@ -254,14 +306,19 @@ class EmailService {
         await CommunicationLoggingService.markAsSent(
           comm.id,
           sendResult?.id || null,
-          { threadId: sendResult?.threadId || null, source }
+          { threadId: sendResult?.threadId || null, source, ...redirectMeta }
         );
       } catch (logErr) {
         console.warn('[EmailService] markAsSent failed', logErr?.message || logErr);
       }
     }
 
-    return { ...sendResult, communicationId: comm?.id || null };
+    return {
+      ...sendResult,
+      communicationId: comm?.id || null,
+      redirected: !!redirectedPreview.redirected,
+      originalTo: redirectedPreview.originalTo || null
+    };
   }
 }
 

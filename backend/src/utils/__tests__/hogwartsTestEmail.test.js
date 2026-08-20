@@ -5,7 +5,10 @@ import {
   extractEmailAddresses,
   isKeepRealHogwartsEmail,
   looksLikeHogwartsDemoAddress,
-  formatHogwartsTestSubject
+  looksLikeDemoFakeAddress,
+  looksLikeTestInboxRedirectAddress,
+  formatHogwartsTestSubject,
+  rewriteHogwartsOutboundRecipient
 } from '../hogwartsTestEmail.js';
 
 describe('hogwartsTestEmail', () => {
@@ -33,6 +36,13 @@ describe('hogwartsTestEmail', () => {
     assert.equal(HOGWARTS_TEST_INBOX, 'testing@itsco.health');
   });
 
+  it('recognizes playground fake provider domains', () => {
+    assert.equal(looksLikeDemoFakeAddress('provider.itsco-training@example.demo'), true);
+    assert.equal(looksLikeDemoFakeAddress('dp1@demtest.com'), true);
+    assert.equal(looksLikeTestInboxRedirectAddress('provider.itsco-training@example.demo'), true);
+    assert.equal(looksLikeDemoFakeAddress('real.person@gmail.com'), false);
+  });
+
   it('prefixes the original recipient on the subject', () => {
     assert.equal(
       formatHogwartsTestSubject('sirius.black@hogwarts.edu', 'Fall confirmation'),
@@ -42,5 +52,20 @@ describe('hogwartsTestEmail', () => {
       formatHogwartsTestSubject('a@hogwarts.edu', '[Hogwarts test → a@hogwarts.edu] Hi'),
       '[Hogwarts test → a@hogwarts.edu] Hi'
     );
+    assert.equal(
+      formatHogwartsTestSubject('provider.itsco-training@example.demo', 'Reset your password'),
+      '[Demo test → provider.itsco-training@example.demo] Reset your password'
+    );
+  });
+
+  it('rewrites demo fake addresses to the testing inbox', async () => {
+    const result = await rewriteHogwartsOutboundRecipient({
+      to: 'provider.itsco-training@example.demo',
+      subject: 'Reset your password'
+    });
+    assert.equal(result.redirected, true);
+    assert.equal(result.to, HOGWARTS_TEST_INBOX);
+    assert.equal(result.originalTo, 'provider.itsco-training@example.demo');
+    assert.match(result.subject, /Demo test → provider\.itsco-training@example\.demo/);
   });
 });

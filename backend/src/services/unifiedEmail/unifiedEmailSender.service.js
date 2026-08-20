@@ -15,7 +15,7 @@ import {
   scanStoredCommunicationQuality
 } from '../outboundEmailQuality.service.js';
 import { buildFallbackSenderMetadata } from '../../constants/automatedEmailCatalog.js';
-import { rewriteHogwartsOutboundRecipient } from '../../utils/hogwartsTestEmail.js';
+import { rewriteHogwartsOutboundRecipient, buildTestInboxRedirectMetadata } from '../../utils/hogwartsTestEmail.js';
 
 async function canSendEmail({ source, agencyId } = {}) {
   const mode = await getEmailSendingMode();
@@ -658,9 +658,43 @@ export async function sendEmailFromIdentity({
     })
     : {};
 
+  // Resolve demo/fake redirect before approval so testing@itsco.health mail actually sends.
+  const redirected = await rewriteHogwartsOutboundRecipient({ to, subject });
+  const redirectMeta = redirected.redirected
+    ? buildTestInboxRedirectMetadata({ originalTo: redirected.originalTo, deliveredTo: redirected.to })
+    : {};
+
   let comm = null;
   if (existingCommunicationId) {
     comm = { id: Number(existingCommunicationId) };
+    if (redirected.redirected) {
+      try {
+        const [existingRows] = await pool.execute(
+          'SELECT metadata FROM user_communications WHERE id = ? LIMIT 1',
+          [comm.id]
+        );
+        let prev = {};
+        try {
+          prev = existingRows?.[0]?.metadata
+            ? typeof existingRows[0].metadata === 'string'
+              ? JSON.parse(existingRows[0].metadata)
+              : existingRows[0].metadata
+            : {};
+        } catch {
+          prev = {};
+        }
+        await pool.execute(
+          `UPDATE user_communications SET metadata = ?, subject = COALESCE(?, subject) WHERE id = ?`,
+          [
+            JSON.stringify({ ...(prev || {}), ...redirectMeta }),
+            redirected.subject || subject,
+            comm.id
+          ]
+        );
+      } catch {
+        /* best effort */
+      }
+    }
   } else {
     try {
       comm = await CommunicationLoggingService.logGeneratedCommunication({
@@ -669,7 +703,7 @@ export async function sendEmailFromIdentity({
         agencyId: identity?.agency_id || null,
         templateType: templateType || 'identity_send',
         templateId: templateId || null,
-        subject,
+        subject: redirected.subject || subject,
         body: htmlWithPixel || signedContent.text || '',
         generatedByUserId: generatedByUserId || null,
         channel: 'email',
@@ -686,7 +720,8 @@ export async function sendEmailFromIdentity({
           ...(intakeLinkId ? { intakeLinkId: Number(intakeLinkId) } : {}),
           ...(jobDescriptionId ? { jobDescriptionId: Number(jobDescriptionId) } : {}),
           ...(hasAttachments ? { hadAttachments: true, attachmentCount: attachments.length } : {}),
-          ...fallbackMeta
+          ...fallbackMeta,
+          ...redirectMeta
         }
       });
     } catch (logErr) {
@@ -696,11 +731,16 @@ export async function sendEmailFromIdentity({
   }
 
   const resolvedTemplateType = templateType || 'identity_send';
-  const needsApproval = !existingCommunicationId && comm?.id && await emailRequiresAdminApproval({
-    agencyId: identity?.agency_id,
-    templateType: resolvedTemplateType,
-    usedFallbackSender
-  });
+  // Internal testing inbox redirects must not sit in the approval queue.
+  const needsApproval =
+    !redirected.redirected &&
+    !existingCommunicationId &&
+    comm?.id &&
+    (await emailRequiresAdminApproval({
+      agencyId: identity?.agency_id,
+      templateType: resolvedTemplateType,
+      usedFallbackSender
+    }));
   if (needsApproval) {
     return {
       queued: true,
@@ -711,7 +751,6 @@ export async function sendEmailFromIdentity({
   }
 
   const gmail = await getGmailClient();
-  const redirected = await rewriteHogwartsOutboundRecipient({ to, subject });
   const mime = buildMimeMessage({
     to: redirected.to,
     subject: redirected.subject,
@@ -740,7 +779,8 @@ export async function sendEmailFromIdentity({
       senderIdentityId: identity.id,
       fromEmail: identity.from_email,
       replyTo: identity.reply_to || null,
-      ...(cc ? { cc } : {})
+      ...(cc ? { cc } : {}),
+      ...redirectMeta
     }).catch(() => {});
   }
 
@@ -752,10 +792,16 @@ export async function sendEmailFromIdentity({
       recipient: to,
       body: html || text || '',
       externalRefId: messageId,
-      metadata: { subject, threadId: finalThreadId, ...(cc ? { cc } : {}) }
+      metadata: { subject, threadId: finalThreadId, ...(cc ? { cc } : {}), ...redirectMeta }
     }).catch(() => {});
   }
 
-  return { id: messageId, threadId: finalThreadId, communicationId: comm?.id || null };
+  return {
+    id: messageId,
+    threadId: finalThreadId,
+    communicationId: comm?.id || null,
+    redirected: !!redirected.redirected,
+    originalTo: redirected.originalTo || null
+  };
 }
 

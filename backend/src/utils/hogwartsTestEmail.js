@@ -1,6 +1,6 @@
 /**
- * Hogwarts demo people keep character emails on their accounts
- * (e.g. sirius.black@hogwarts.edu / order.sirius.black@itsco.health)
+ * Demo / fake people keep character or playground emails on their accounts
+ * (e.g. sirius.black@hogwarts.edu, provider.itsco-training@example.demo)
  * but outbound mail is delivered to the ITSCO testing inbox.
  *
  * Real Hogwarts-assigned people (Williams, Chuckie, Piper Finch, Loriana)
@@ -35,12 +35,27 @@ export function isKeepRealHogwartsEmail(email) {
   return KEEP_REAL_EMAILS.has(String(email || '').trim().toLowerCase());
 }
 
+/** Playground / seed fake domains that must never receive real outbound mail. */
+export function looksLikeDemoFakeAddress(email) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e || isKeepRealHogwartsEmail(e)) return false;
+  if (e.endsWith('@example.demo') || e.endsWith('@example.invalid') || e.endsWith('@example.de')) return true;
+  if (e.includes('@example.') && e.includes('itsco-training')) return true;
+  if (e.endsWith('@demtest.com')) return true;
+  return false;
+}
+
 export function looksLikeHogwartsDemoAddress(email) {
   const e = String(email || '').trim().toLowerCase();
   if (!e || isKeepRealHogwartsEmail(e)) return false;
   if (e.endsWith('@hogwarts.edu') || e.includes('@hogwarts.') || e.includes('@durmstrang.')) return true;
   if (e.startsWith('order.') && e.endsWith('@itsco.health')) return true;
   return false;
+}
+
+/** Sync pattern check — Hogwarts characters or demo playground fakes. */
+export function looksLikeTestInboxRedirectAddress(email) {
+  return looksLikeHogwartsDemoAddress(email) || looksLikeDemoFakeAddress(email);
 }
 
 async function loadHogwartsAffiliatedEmails() {
@@ -97,7 +112,7 @@ async function loadHogwartsAffiliatedEmails() {
 export async function shouldRedirectHogwartsOutboundEmail(email) {
   const e = String(email || '').trim().toLowerCase();
   if (!e || isKeepRealHogwartsEmail(e)) return false;
-  if (looksLikeHogwartsDemoAddress(e)) return true;
+  if (looksLikeTestInboxRedirectAddress(e)) return true;
   const affiliated = await loadHogwartsAffiliatedEmails();
   return affiliated.has(e);
 }
@@ -106,12 +121,30 @@ export function formatHogwartsTestSubject(originalTo, subject) {
   const orig = String(originalTo || '').trim();
   const sub = String(subject || '').trim();
   if (!orig) return sub;
-  if (sub.toLowerCase().includes('[hogwarts test')) return sub;
-  return `[Hogwarts test → ${orig}] ${sub}`.trim();
+  if (/\[(hogwarts|demo)?\s*test\s*(inbox)?\s*→/i.test(sub) || sub.toLowerCase().includes('[hogwarts test')) {
+    return sub;
+  }
+  const label = looksLikeDemoFakeAddress(orig) ? 'Demo test' : 'Hogwarts test';
+  return `[${label} → ${orig}] ${sub}`.trim();
+}
+
+export function buildTestInboxRedirectMetadata({ originalTo, deliveredTo = HOGWARTS_TEST_INBOX } = {}) {
+  const orig = String(originalTo || '').trim();
+  return {
+    testInboxRedirect: true,
+    originalTo: orig || null,
+    deliveredTo: deliveredTo || HOGWARTS_TEST_INBOX,
+    qualityFlags: [
+      {
+        code: 'test_inbox_redirect',
+        message: `Fake/demo recipient redirected to ${deliveredTo || HOGWARTS_TEST_INBOX}${orig ? ` (was ${orig})` : ''}.`
+      }
+    ]
+  };
 }
 
 /**
- * Rewrite outbound To/subject so Hogwarts demo mail lands in testing@itsco.health.
+ * Rewrite outbound To/subject so demo/Hogwarts mail lands in testing@itsco.health.
  * Real Williams / Chuckie / Piper / Loriana addresses are left unchanged.
  */
 export async function rewriteHogwartsOutboundRecipient({ to, subject } = {}) {

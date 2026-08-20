@@ -29,6 +29,10 @@ import {
   statusAfterExternalPortalPasswordSet,
   isPasswordResetTokenPurpose
 } from '../utils/schoolStaffPasswordRecovery.js';
+import {
+  looksLikeTestInboxRedirectAddress,
+  shouldRedirectHogwartsOutboundEmail
+} from '../utils/hogwartsTestEmail.js';
 
 const buildPayrollCaps = buildAgencyAccessCaps;
 
@@ -2850,7 +2854,9 @@ const sendRecoveryEmail = async ({
   subject,
   text,
   html = null,
-  source = 'auto'
+  source = 'auto',
+  userId = null,
+  existingCommunicationId = null
 }) => {
   const resolved = await resolveRecoverySenderIdentity(agencyId);
   if (resolved?.identity?.id) {
@@ -2862,12 +2868,15 @@ const sendRecoveryEmail = async ({
       html,
       source,
       agencyId,
+      userId,
+      existingCommunicationId,
       templateType: 'password_reset',
       usedFallbackSender: false
     });
   }
   // No tenant login_recovery / notifications identity — queue for approval instead of
-  // sending from a generic fallback mailbox (spam risk).
+  // sending from a generic fallback mailbox (spam risk). Demo/fake recipients that
+  // redirect to testing@itsco.health still send via EmailService (identity path preferred).
   return await EmailService.sendEmail({
     to,
     subject,
@@ -2878,8 +2887,11 @@ const sendRecoveryEmail = async ({
     replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
     source,
     agencyId: agencyId || null,
+    userId,
+    existingCommunicationId,
     templateType: 'password_reset',
-    usedFallbackSender: true
+    // Fake/demo inbox redirects are internal — do not force approval queue.
+    usedFallbackSender: !(await shouldRedirectHogwartsOutboundEmail(to))
   });
 };
 
@@ -2965,7 +2977,12 @@ export const requestPasswordReset = async (req, res, next) => {
     if (!user?.id) return safeGenericRecoveryResponse(res);
 
     const roleNorm = String(user?.role || '').trim().toLowerCase();
-    if (!NON_AGENCY_RECOVERY_ROLES.has(roleNorm)) {
+    // External portals + demo/fake provider emails (redirected to testing@itsco.health).
+    // Real agency providers still use Workspace SSO — silent no-op for those.
+    const isTestInboxRecipient =
+      looksLikeTestInboxRedirectAddress(requestedEmail) ||
+      (await shouldRedirectHogwartsOutboundEmail(requestedEmail).catch(() => false));
+    if (!NON_AGENCY_RECOVERY_ROLES.has(roleNorm) && !isTestInboxRecipient) {
       return safeGenericRecoveryResponse(res);
     }
 
@@ -2982,9 +2999,8 @@ export const requestPasswordReset = async (req, res, next) => {
     }
 
     // Soft block for Google Workspace SSO users: they should use Google Sign-In.
-    // External portal roles (school_staff, guardians) always keep password recovery —
-    // they are never Workspace employees even when the parent agency has SSO enabled.
-    if (!NON_AGENCY_RECOVERY_ROLES.has(roleNorm)) {
+    // External portal roles and demo/fake test accounts keep password recovery.
+    if (!NON_AGENCY_RECOVERY_ROLES.has(roleNorm) && !isTestInboxRecipient) {
       try {
         const agency = await resolvePrimaryAgencyForUser(user.id, orgSlug);
         const featureFlags = parseFeatureFlags(agency?.feature_flags ?? null);
@@ -3080,9 +3096,19 @@ export const requestPasswordReset = async (req, res, next) => {
         subject,
         text: body,
         html,
-        source: 'auto'
+        source: 'auto',
+        userId: user.id,
+        existingCommunicationId: comm?.id || null
       });
     } catch (e) {
+      if (comm?.id) {
+        await pool
+          .execute(
+            `UPDATE user_communications SET delivery_status = 'failed', error_message = ? WHERE id = ?`,
+            [String(e?.message || 'send failed').slice(0, 500), comm.id]
+          )
+          .catch(() => {});
+      }
       // In production: still keep response generic.
       if (process.env.NODE_ENV !== 'production') {
         return safeGenericRecoveryResponse(res, {
@@ -3096,7 +3122,22 @@ export const requestPasswordReset = async (req, res, next) => {
       return safeGenericRecoveryResponse(res);
     }
 
-    if (comm?.id && sendResult?.id) {
+    if (comm?.id && (sendResult?.skipped || sendResult?.blocked || sendResult?.queued)) {
+      const status = sendResult.skipped ? 'skipped' : sendResult.blocked ? 'failed' : 'pending';
+      const errMsg = String(
+        sendResult.reason ||
+          (Array.isArray(sendResult.qualityFlags)
+            ? sendResult.qualityFlags.map((f) => f.message || f.code).join('; ')
+            : '') ||
+          (sendResult.queued ? 'pending approval' : 'not sent')
+      ).slice(0, 500);
+      await pool
+        .execute(
+          `UPDATE user_communications SET delivery_status = ?, error_message = COALESCE(?, error_message) WHERE id = ?`,
+          [status, errMsg || null, comm.id]
+        )
+        .catch(() => {});
+    } else if (comm?.id && sendResult?.id) {
       await CommunicationLoggingService.markAsSent(comm.id, sendResult.id, {
         fromEmail: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || null
       }).catch(() => {});

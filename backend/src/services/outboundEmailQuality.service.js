@@ -137,6 +137,14 @@ export function scanStoredCommunicationQuality(row) {
       message: 'This email would send from a fallback From address. Assign a tenant sender identity in Email Settings, then approve.'
     });
   }
+  if (meta.testInboxRedirect) {
+    flags.push({
+      code: 'test_inbox_redirect',
+      message: `Fake/demo recipient redirected to ${meta.deliveredTo || 'testing@itsco.health'}${
+        meta.originalTo ? ` (was ${meta.originalTo})` : ''
+      }.`
+    });
+  }
   return flags;
 }
 
