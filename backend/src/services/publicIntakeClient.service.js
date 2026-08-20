@@ -11,6 +11,7 @@ import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
 import { resolvePaperworkStatusId, seedClientAffiliations, seedClientPaperworkItems } from '../utils/clientProvisioning.js';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { deriveSchoolClientInitials, isValidSchoolClientInitials } from '../utils/schoolClientInitials.js';
+import { applyDevFillAfterIntakeCreate } from './devFill.service.js';
 
 /**
  * Guardian accounts created through public intake were being inserted into
@@ -421,6 +422,16 @@ class PublicIntakeClientService {
           createdByUserId: null
         });
       }
+    }
+
+    if (options.devFillContext?.enabled) {
+      await applyDevFillAfterIntakeCreate({
+        devFillContext: options.devFillContext,
+        clients: createdClients,
+        guardianUser,
+        intakeSubmissionId: options.intakeSubmissionId || null,
+        source: source || 'PUBLIC_INTAKE_LINK'
+      });
     }
 
     return {

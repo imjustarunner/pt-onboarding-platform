@@ -11606,7 +11606,9 @@ const isScheduleEventAllDayUi = computed(() => {
 const quarterMinuteOptions = [0, 15, 30, 45];
 const isQuarterHourRequestType = computed(() => {
   const t = String(requestType.value || '');
-  return ['supervision', 'agency_meeting', 'huddle', 'personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services', 'school'].includes(t);
+  // office_request_only uses AppointmentHeaderFields type=time; without this, a watch
+  // in ensureModalEndTimeValid zeros minutes on blur (e.g. 6:30 PM → 6:00 PM).
+  return ['supervision', 'agency_meeting', 'huddle', 'personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services', 'school', 'office_request_only'].includes(t);
 });
 const canUseQuarterHourInput = computed(
   () => isQuarterHourRequestType.value && !isScheduleEventAllDayUi.value
@@ -15516,15 +15518,24 @@ const officeRequestSummary = computed(() => {
   const room = selectedRoomId > 0
     ? (String(roomOpt?.label || '').trim() || `Room ${selectedRoomId}`)
     : 'Any (per request policy)';
-  const startH = Number(modalHour.value || 0);
+  const startH = Number(effectiveModalStartHour.value || modalHour.value || 0);
   const endH = Number(modalEndHour.value || 0);
-  const safeEnd = endH > startH ? endH : (startH + 1);
-  const hours = Math.max(1, safeEnd - startH);
+  const startM = Number(modalStartMinute.value || 0);
+  const endM = Number(modalEndMinute.value || 0);
+  const startTotal = startH * 60 + startM;
+  const endTotal = endH * 60 + endM;
+  const safeEndTotal = endTotal > startTotal ? endTotal : (startTotal + 60);
+  const safeEndH = Math.floor(safeEndTotal / 60);
+  const safeEndM = safeEndTotal % 60;
+  const minutes = Math.max(15, safeEndTotal - startTotal);
+  const hoursLabel = minutes % 60 === 0
+    ? `${minutes / 60} hour${minutes / 60 === 1 ? '' : 's'}`
+    : `${Math.floor(minutes / 60) ? `${Math.floor(minutes / 60)}h ` : ''}${minutes % 60}m`.trim();
   return {
     building,
     room,
-    timeRange: `${hourLabel(startH)} - ${hourLabel(safeEnd)}`,
-    duration: `${hours} hour${hours === 1 ? '' : 's'}`
+    timeRange: `${hourMinuteLabel(startH, startM)} - ${hourMinuteLabel(safeEndH, safeEndM)}`,
+    duration: hoursLabel
   };
 });
 
@@ -20745,10 +20756,13 @@ const submitRequest = async () => {
       if (occurrenceCount) officeBookingOccurrenceCount.value = occurrenceCount;
       const baseRoomId = viewMode.value === 'office_layout' ? (Number(selectedOfficeRoomId.value || 0) || Number(modalContext.value?.roomId || 0) || 0) : 0;
       const baseDateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn));
-      const targets = Array.from({ length: Math.max(1, endH - h) }, (_, i) => ({
+      // Soft-hold slots are hour-granular; cover every hour the request window touches.
+      const coverStartHour = Math.floor(((h * 60) + startMinute) / 60);
+      const coverEndHour = Math.max(coverStartHour + 1, Math.ceil(((endH * 60) + endMinute) / 60));
+      const targets = Array.from({ length: Math.max(1, coverEndHour - coverStartHour) }, (_, i) => ({
         dateYmd: baseDateYmd,
         dayName: dn,
-        hour: h + i,
+        hour: coverStartHour + i,
         roomId: baseRoomId
       }));
       const roomIds = [...new Set(targets.map((t) => Number(t.roomId || 0)).filter((n) => n > 0))];
@@ -20794,10 +20808,15 @@ const submitRequest = async () => {
           });
         }
       }
+      const exactRange = `${hourMinuteLabel(h, startMinute)}–${hourMinuteLabel(endH, endMinute)}`;
+      const baseNotes = String(requestNotes.value || '').trim();
+      const notesWithTime = (startMinute || endMinute)
+        ? (baseNotes ? `${baseNotes}\nRequested time: ${exactRange}` : `Requested time: ${exactRange}`)
+        : baseNotes;
       await withdrawEditorPriorOfficeRequests();
       await api.post('/availability/office-requests', {
         agencyId: effectiveAgencyId.value,
-        notes: requestNotes.value || '',
+        notes: notesWithTime || '',
         officeLocationIds: Number(selectedOfficeLocationId.value || editorOfficeLocationId.value || 0)
           ? [Number(selectedOfficeLocationId.value || editorOfficeLocationId.value)]
           : [],

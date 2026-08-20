@@ -43,6 +43,14 @@ import { addClientToSchoolYear } from '../services/clientSchoolYear.service.js';
 import { stampClientTerminationSchoolYear } from '../services/clientTerminationSchoolYear.service.js';
 import { findNameDuplicateGroups } from '../services/clientNameDuplicate.service.js';
 import { nameMatchKey, parseFullName } from '../utils/clientNameDuplicate.js';
+import {
+  complianceArchiveClient,
+  complianceArchiveGuardian,
+  getBulkClientsDeletePreview,
+  getClientDeletePreview,
+  permanentDeleteDevFillClient
+} from '../services/devFill.service.js';
+import { supervisorCanAccessClientInOrg } from '../utils/supervisorSchoolAccess.js';
 
 const INSURANCE_CARD_SLOTS = new Set(['primary_front', 'primary_back', 'secondary_front', 'secondary_back']);
 
@@ -380,6 +388,51 @@ async function ensureAssignedProviderClientAccess({ userId, role, clientId, clie
   return { ok: true };
 }
 
+/** Roles that may edit the school compliance checklist (aligned with terminateClient + UI copy). */
+async function resolveComplianceChecklistEditorAccess({ userId, userRole, client }) {
+  const roleNorm = String(userRole || '').toLowerCase();
+  const normalizedRole = roleNorm === 'clinician' ? 'provider' : roleNorm;
+
+  if (normalizedRole === 'super_admin') {
+    return { allowed: true, isAssignedClinician: false, isSupervisor: false };
+  }
+
+  const isAgencyStaffRole = ['admin', 'support', 'staff', 'clinical_practice_assistant'].includes(normalizedRole);
+  if (isAgencyStaffRole) {
+    return { allowed: true, isAssignedClinician: false, isSupervisor: false };
+  }
+
+  const clinicianRoles = ['provider', 'provider_plus', 'intern', 'intern_plus'];
+  if (clinicianRoles.includes(normalizedRole)) {
+    const isAssignedClinician = await providerHasAssignedClientAccess({
+      userId,
+      clientId: client?.id,
+      client
+    });
+    if (isAssignedClinician) {
+      return { allowed: true, isAssignedClinician: true, isSupervisor: false };
+    }
+  }
+
+  if (normalizedRole === 'supervisor') {
+    const clientId = parseInt(client?.id, 10);
+    const orgId = parseInt(client?.organization_id, 10);
+    const agencyId = parseInt(client?.agency_id, 10);
+    let isSupervisor = false;
+    if (clientId && orgId) {
+      isSupervisor = await supervisorCanAccessClientInOrg({ supervisorUserId: userId, clientId, orgId });
+    }
+    if (!isSupervisor && clientId && agencyId) {
+      isSupervisor = await supervisorCanAccessClientInOrg({ supervisorUserId: userId, clientId, orgId: agencyId });
+    }
+    if (isSupervisor) {
+      return { allowed: true, isAssignedClinician: false, isSupervisor: true };
+    }
+  }
+
+  return { allowed: false, isAssignedClinician: false, isSupervisor: false };
+}
+
 async function getAgencyEnabledClientTypes(agencyId) {
   const parsedAgencyId = parseInt(agencyId, 10);
   const out = new Set();
@@ -475,6 +528,16 @@ export const getClients = async (req, res, next) => {
       String(req.query.skillBuildersOnly || req.query.skill_builders_only || '') === '1';
     const includeArchived =
       String(req.query.includeArchived || '').toLowerCase() === 'true' || String(req.query.includeArchived || '') === '1';
+    const includeComplianceArchived =
+      String(req.query.includeComplianceArchived || req.query.include_compliance_archived || '').toLowerCase() === 'true'
+      || String(req.query.includeComplianceArchived || req.query.include_compliance_archived || '') === '1';
+    const devFillFilterRaw = String(req.query.dev_fill || req.query.devFill || req.query.created_via_dev_fill || '').trim().toLowerCase();
+    const createdViaDevFill =
+      devFillFilterRaw === 'true' || devFillFilterRaw === '1' || devFillFilterRaw === 'only'
+        ? true
+        : devFillFilterRaw === 'false' || devFillFilterRaw === '0' || devFillFilterRaw === 'exclude'
+          ? false
+          : undefined;
     const userId = req.user.id;
     const userRole = req.user.role;
 
@@ -519,7 +582,9 @@ export const getClients = async (req, res, next) => {
       paperwork_status_id: paperwork_status_id ? parseInt(paperwork_status_id, 10) : undefined,
       insurance_type_id: insurance_type_id ? parseInt(insurance_type_id, 10) : undefined,
       skills: skills === undefined ? undefined : (String(skills).toLowerCase() === 'true' || String(skills) === '1'),
-      client_type: client_type || undefined
+      client_type: client_type || undefined,
+      created_via_dev_fill: createdViaDevFill,
+      exclude_compliance_archived: !includeComplianceArchived
     };
 
     // Get clients for all user's agencies
@@ -3191,42 +3256,27 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Compliance checklist is only available for school clients' } });
     }
 
-    // Permission: provider or provider_plus assigned to client, or agency staff/admin/support/super_admin.
-    const isSuper = userRole === 'super_admin';
-    const roleNorm = String(userRole || '').toLowerCase();
-    const isAgencyStaffRole = ['admin', 'support', 'staff'].includes(roleNorm);
-    let isAssignedProvider = false;
-    if (roleNorm === 'provider' || roleNorm === 'provider_plus') {
-      // Prefer new multi-provider assignment table; fall back to legacy clients.provider_id.
-      try {
-        const [rows] = await pool.execute(
-          `SELECT 1
-           FROM client_provider_assignments
-           WHERE client_id = ?
-             AND provider_user_id = ?
-             AND is_active = TRUE
-           LIMIT 1`,
-          [clientId, userId]
-        );
-        isAssignedProvider = !!rows?.[0];
-      } catch (e) {
-        const msg = String(e?.message || '');
-        const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
-        if (!missing) throw e;
-        isAssignedProvider = parseInt(currentClient.provider_id || 0, 10) === parseInt(userId, 10);
-      }
-    }
-    if (!isSuper && !isAgencyStaffRole && !isAssignedProvider) {
+    const checklistAccess = await resolveComplianceChecklistEditorAccess({
+      userId,
+      userRole,
+      client: currentClient
+    });
+    if (!checklistAccess.allowed) {
       return res.status(403).json({ error: { message: 'You do not have permission to update this checklist' } });
     }
 
     // Validate user has access to the agency/org (unless super admin).
-    if (!isSuper) {
+    if (userRole !== 'super_admin') {
       const userOrgs = await User.getAgencies(userId);
       const ids = (userOrgs || []).map((o) => o.id);
       const hasAgencyAccess = ids.includes(currentClient.agency_id);
       const hasOrgAccess = ids.includes(currentClient.organization_id);
-      if (!hasAgencyAccess && !hasOrgAccess && !isAssignedProvider) {
+      if (
+        !hasAgencyAccess &&
+        !hasOrgAccess &&
+        !checklistAccess.isAssignedClinician &&
+        !checklistAccess.isSupervisor
+      ) {
         return res.status(403).json({ error: { message: 'Access denied' } });
       }
     }
@@ -3835,7 +3885,137 @@ export const deleteBulkImportedClients = async (req, res, next) => {
 };
 
 /**
- * Permanently delete a client (archived-only safety).
+ * Preview affiliated records before deleting a client.
+ * GET /api/clients/:id/delete-preview
+ */
+export const getClientDeletePreviewHandler = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const access = await ensureAgencyAccessToClient({ userId: req.user?.id, role: req.user?.role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const preview = await getClientDeletePreview(clientId);
+    if (!preview) return res.status(404).json({ error: { message: 'Client not found' } });
+    res.json(preview);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Bulk delete preview for clients.
+ * POST /api/clients/bulk/delete-preview
+ */
+export const getBulkClientsDeletePreviewHandler = async (req, res, next) => {
+  try {
+    const rawIds = Array.isArray(req.body?.clientIds) ? req.body.clientIds : [];
+    const clientIds = rawIds.map((id) => parseInt(id, 10)).filter((id) => Number.isFinite(id) && id > 0);
+    if (!clientIds.length) {
+      return res.status(400).json({ error: { message: 'No valid client IDs provided' } });
+    }
+    const preview = await getBulkClientsDeletePreview(clientIds);
+    res.json(preview);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Permanently delete Dev Fill clients (bulk).
+ * POST /api/clients/bulk/delete-dev-fill
+ */
+export const bulkDeleteDevFillClients = async (req, res, next) => {
+  try {
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (roleNorm !== 'admin' && roleNorm !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    const rawIds = Array.isArray(req.body?.clientIds) ? req.body.clientIds : [];
+    const clientIds = rawIds.map((id) => parseInt(id, 10)).filter((id) => Number.isFinite(id) && id > 0);
+    if (!clientIds.length) {
+      return res.status(400).json({ error: { message: 'No valid client IDs provided' } });
+    }
+
+    const deleteRelated = req.body?.deleteRelated === true || req.body?.confirmCascade === true;
+    const preview = await getBulkClientsDeletePreview(clientIds);
+    if (preview.requiresConfirmation && !deleteRelated) {
+      return res.status(409).json({
+        error: {
+          message: 'Selected clients have affiliated guardians or related clients. Confirm to delete all related Dev Fill records.',
+          code: 'AFFILIATED_DELETE_CONFIRMATION_REQUIRED',
+          preview
+        }
+      });
+    }
+
+    const results = [];
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      for (const clientId of clientIds) {
+        try {
+          const access = await ensureAgencyAccessToClient({ userId: req.user?.id, role: req.user?.role, clientId });
+          if (!access.ok) {
+            results.push({ id: clientId, ok: false, error: access.message });
+            continue;
+          }
+          const [rows] = await conn.execute(
+            `SELECT id, created_via_dev_fill, compliance_archived_at FROM clients WHERE id = ? LIMIT 1`,
+            [clientId]
+          );
+          const row = rows?.[0];
+          if (!row) {
+            results.push({ id: clientId, ok: false, error: 'Not found' });
+            continue;
+          }
+          if (row.compliance_archived_at) {
+            results.push({ id: clientId, ok: false, error: 'Compliance-archived clients cannot be permanently deleted' });
+            continue;
+          }
+          if (Number(row.created_via_dev_fill) !== 1) {
+            results.push({ id: clientId, ok: false, error: 'Only Dev Fill clients can be permanently deleted via this action' });
+            continue;
+          }
+          if (deleteRelated) {
+            const guardians = await getClientDeletePreview(clientId);
+            for (const g of guardians?.guardians || []) {
+              if (g.createdViaDevFill) {
+                await conn.execute('DELETE FROM client_guardians WHERE guardian_user_id = ?', [g.id]);
+                await conn.execute('DELETE FROM user_agencies WHERE user_id = ?', [g.id]);
+                await conn.execute(
+                  `DELETE FROM users WHERE id = ? AND role = 'client_guardian' AND created_via_dev_fill = 1`,
+                  [g.id]
+                );
+              }
+            }
+          }
+          const deleted = await permanentDeleteDevFillClient(conn, clientId);
+          results.push({ id: clientId, ok: deleted, error: deleted ? null : 'Delete failed' });
+        } catch (err) {
+          results.push({ id: clientId, ok: false, error: err?.message || 'Unknown error' });
+        }
+      }
+      await conn.commit();
+    } catch (e) {
+      try { await conn.rollback(); } catch { /* ignore */ }
+      throw e;
+    } finally {
+      conn.release();
+    }
+
+    const allOk = results.every((r) => r.ok);
+    res.status(allOk ? 200 : 207).json({ ok: allOk, results });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Delete or permanently remove a client.
+ * Dev Fill clients may be permanently deleted; real clients are compliance-archived.
  * DELETE /api/clients/:id
  */
 export const deleteClient = async (req, res, next) => {
@@ -3850,67 +4030,78 @@ export const deleteClient = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
 
-    // Access check (agency-side only).
     const access = await ensureAgencyAccessToClient({ userId, role, clientId });
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    const conn = await pool.getConnection();
-    try {
-      await conn.beginTransaction();
+    const confirmCascade = req.query.confirmCascade === 'true' || req.body?.confirmCascade === true || req.body?.deleteRelated === true;
+    const preview = await getClientDeletePreview(clientId);
+    if (!preview) return res.status(404).json({ error: { message: 'Client not found' } });
 
-      const [rows] = await conn.execute(
-        `SELECT id, status
-         FROM clients
-         WHERE id = ?
-         LIMIT 1
-         FOR UPDATE`,
-        [clientId]
-      );
-      const c = rows?.[0] || null;
-      if (!c) {
-        await conn.rollback();
-        return res.status(404).json({ error: { message: 'Client not found' } });
-      }
-      if (String(c.status || '').toUpperCase() !== 'ARCHIVED') {
-        await conn.rollback();
-        return res.status(409).json({ error: { message: 'Client must be archived before it can be deleted.' } });
-      }
-
-      // Rely on ON DELETE CASCADE wherever available; the base clients row must be removed last.
-      // Best-effort deletes first for tables that may not be cascading in older DBs.
-      const bestEffortDelete = async (sql, params) => {
-        try {
-          await conn.execute(sql, params);
-        } catch (e) {
-          const msg = String(e?.message || '');
-          const missing = msg.includes('ER_NO_SUCH_TABLE') || msg.includes("doesn't exist");
-          if (!missing) throw e;
-        }
-      };
-
-      await bestEffortDelete(`DELETE FROM client_note_reads WHERE client_id = ?`, [clientId]);
-      await bestEffortDelete(`DELETE FROM client_notes WHERE client_id = ?`, [clientId]);
-      await bestEffortDelete(`DELETE FROM client_status_history WHERE client_id = ?`, [clientId]);
-      await bestEffortDelete(`DELETE FROM client_paperwork_history WHERE client_id = ?`, [clientId]);
-      await bestEffortDelete(`DELETE FROM client_paperwork_items WHERE client_id = ?`, [clientId]);
-      await bestEffortDelete(`DELETE FROM client_access_logs WHERE client_id = ?`, [clientId]);
-      await bestEffortDelete(`DELETE FROM client_phi_documents WHERE client_id = ?`, [clientId]);
-      await bestEffortDelete(`DELETE FROM client_guardians WHERE client_id = ?`, [clientId]);
-      await bestEffortDelete(`DELETE FROM client_provider_assignments WHERE client_id = ?`, [clientId]);
-      await bestEffortDelete(`DELETE FROM client_organization_assignments WHERE client_id = ?`, [clientId]);
-      await bestEffortDelete(`DELETE FROM soft_schedule_slots WHERE client_id = ?`, [clientId]);
-      await bestEffortDelete(`DELETE FROM school_provider_schedule_entries WHERE client_id = ?`, [clientId]);
-
-      const [del] = await conn.execute(`DELETE FROM clients WHERE id = ?`, [clientId]);
-      await conn.commit();
-
-      res.json({ ok: true, deleted: (del?.affectedRows || 0) > 0 });
-    } catch (e) {
-      try { await conn.rollback(); } catch { /* ignore */ }
-      throw e;
-    } finally {
-      conn.release();
+    if (preview.client.complianceArchived) {
+      return res.status(409).json({ error: { message: 'Compliance-archived clients cannot be permanently deleted.' } });
     }
+
+    if (preview.requiresConfirmation && !confirmCascade) {
+      return res.status(409).json({
+        error: {
+          message: 'This client has affiliated guardians or related clients. Confirm to delete or archive all related records.',
+          code: 'AFFILIATED_DELETE_CONFIRMATION_REQUIRED',
+          preview
+        }
+      });
+    }
+
+    if (preview.client.createdViaDevFill) {
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        if (confirmCascade) {
+          for (const g of preview.guardians || []) {
+            if (g.createdViaDevFill) {
+              await conn.execute('DELETE FROM client_guardians WHERE guardian_user_id = ?', [g.id]);
+              await conn.execute('DELETE FROM user_agencies WHERE user_id = ?', [g.id]);
+              await conn.execute(
+                `DELETE FROM users WHERE id = ? AND role = 'client_guardian' AND created_via_dev_fill = 1`,
+                [g.id]
+              );
+            }
+          }
+          for (const c of preview.relatedClients || []) {
+            if (c.createdViaDevFill && c.id !== clientId) {
+              await permanentDeleteDevFillClient(conn, c.id);
+            }
+          }
+        }
+        const deleted = await permanentDeleteDevFillClient(conn, clientId);
+        await conn.commit();
+        return res.json({ ok: true, deleted, mode: 'permanent_dev_fill' });
+      } catch (e) {
+        try { await conn.rollback(); } catch { /* ignore */ }
+        throw e;
+      } finally {
+        conn.release();
+      }
+    }
+
+    if (confirmCascade) {
+      for (const g of preview.guardians || []) {
+        if (!g.complianceArchived && !g.createdViaDevFill) {
+          await complianceArchiveGuardian({ guardianUserId: g.id, actorUserId: userId });
+        }
+      }
+      for (const c of preview.relatedClients || []) {
+        if (!c.complianceArchived && !c.createdViaDevFill && c.id !== clientId) {
+          await complianceArchiveClient({ clientId: c.id, actorUserId: userId });
+        }
+      }
+    }
+
+    await complianceArchiveClient({
+      clientId,
+      actorUserId: userId,
+      note: confirmCascade ? 'Compliance archive with affiliated records' : 'Compliance archive (deleted)'
+    });
+    res.json({ ok: true, deleted: false, mode: 'compliance_archive' });
   } catch (e) {
     next(e);
   }

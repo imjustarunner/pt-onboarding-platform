@@ -128,7 +128,7 @@
 
         <!-- Fall confirmation -->
         <div v-else-if="actionKey === 'fall_confirmation'" class="form-grid">
-          <div v-if="needsPriorYearAttest" class="form-group attest-box">
+          <div v-if="needsPriorYearAttest" ref="attestBoxRef" class="form-group attest-box">
             <p class="hint warn" style="margin-bottom: 8px;">
               This client has not been marked as confirmed from last year. Attest that you saw them last year
               to close out the prior year, then complete this fall update.
@@ -244,9 +244,11 @@
         </div>
 
         <div v-else class="muted">No action available.</div>
-
-        <div v-if="saveError" class="error" style="margin-top: 10px;">{{ saveError }}</div>
-        <div class="actions" style="margin-top: 14px;">
+      </fieldset>
+      </div>
+      <div ref="modalFooterRef" class="modal-footer">
+        <div v-if="saveError" class="error save-error">{{ saveError }}</div>
+        <div class="actions">
           <button v-if="!viewOnly" class="btn btn-primary" type="button" :disabled="saving || loading" @click="save">
             {{ saving ? 'Saving…' : (isFallUpdate ? 'Update' : 'Save') }}
           </button>
@@ -254,14 +256,13 @@
             {{ viewOnly ? 'Close' : 'Cancel' }}
           </button>
         </div>
-      </fieldset>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 
@@ -281,6 +282,8 @@ const loading = ref(false);
 const saving = ref(false);
 const error = ref('');
 const saveError = ref('');
+const modalFooterRef = ref(null);
+const attestBoxRef = ref(null);
 const workDays = ref([]);
 const loadingWorkDays = ref(false);
 const workDaysError = ref('');
@@ -568,6 +571,16 @@ watch(
   }
 );
 
+async function revealSaveError(message, { focusAttest = false } = {}) {
+  saveError.value = message;
+  await nextTick();
+  if (focusAttest && attestBoxRef.value) {
+    attestBoxRef.value.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return;
+  }
+  modalFooterRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
 async function save() {
   saveError.value = '';
   saving.value = true;
@@ -589,7 +602,7 @@ async function save() {
       });
     } else if (props.actionKey === 'agency_clearance') {
       if (!clearance.disclosureOk || !clearance.insuranceOk) {
-        saveError.value = 'Disclosure and insurance checks are required';
+        await revealSaveError('Disclosure and insurance checks are required');
         return;
       }
       await api.put(`/clients/${id}/agency-clearance`, {
@@ -600,7 +613,7 @@ async function save() {
       });
     } else if (props.actionKey === 'roi_followup') {
       if (!clearance.roiNoted) {
-        saveError.value = 'Mark ROI noted to dismiss this action item';
+        await revealSaveError('Mark ROI noted to dismiss this action item');
         return;
       }
       await api.put(`/clients/${id}/roi-followup`, {});
@@ -614,26 +627,35 @@ async function save() {
         }
       }, reqOpts());
     } else if (props.actionKey === 'fall_confirmation') {
-      if (needsPriorYearAttest.value && !fall.attestSawLastYear) {
-        saveError.value = 'Attest that you saw this client last year before completing the fall update';
+      if (!fall.fallOutcome) {
+        await revealSaveError('Select a fall confirmation outcome');
         return;
       }
-      if (!fall.fallOutcome) {
-        saveError.value = 'Select a fall confirmation outcome';
+      if (needsPriorYearAttest.value && !fall.attestSawLastYear) {
+        await revealSaveError(
+          'Check the box above to attest you saw this client last year, then save again.',
+          { focusAttest: true }
+        );
+        return;
+      }
+      if (fall.fallOutcome !== 'confirmed_returning' && !String(fall.privateComment || '').trim()) {
+        await revealSaveError('A private comment for admin/support is required');
         return;
       }
       if (fall.fallOutcome === 'confirmed_returning' && !(fall.serviceDays || []).length) {
-        saveError.value = selectableDays.value.length
-          ? 'Select at least one assigned day'
-          : 'No work days on your schedule at this school. Confirm your days in Provider Schedule first.';
+        await revealSaveError(
+          selectableDays.value.length
+            ? 'Select at least one assigned day'
+            : 'No work days on your schedule at this school. Confirm your days in Provider Schedule first.'
+        );
         return;
       }
       if (fall.fallOutcome === 'unable_to_reach' && !(Number(fall.contactAttempts) > 0)) {
-        saveError.value = 'Enter how many contact attempts were made';
+        await revealSaveError('Enter how many contact attempts were made');
         return;
       }
       if (fall.fallOutcome === 'other_transfer' && !fall.otherReasonKey) {
-        saveError.value = 'Select an other reason';
+        await revealSaveError('Select an other reason');
         return;
       }
       const recommendTerminate =
@@ -661,7 +683,7 @@ async function save() {
     emit('saved');
     emit('close');
   } catch (e) {
-    saveError.value = e.response?.data?.error?.message || e.message || 'Save failed';
+    await revealSaveError(e.response?.data?.error?.message || e.message || 'Save failed');
   } finally {
     saving.value = false;
   }
@@ -683,8 +705,10 @@ async function save() {
   background: #fff;
   border-radius: 12px;
   width: min(560px, 100%);
-  max-height: 90vh;
-  overflow: auto;
+  max-height: min(90vh, calc(100dvh - 32px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
 }
 .modal-header {
@@ -693,8 +717,25 @@ async function save() {
   justify-content: space-between;
   padding: 14px 16px;
   border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
 }
-.modal-body { padding: 16px; }
+.modal-body {
+  padding: 16px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.modal-footer {
+  flex-shrink: 0;
+  padding: 12px 16px 16px;
+  border-top: 1px solid #e5e7eb;
+  background: #fff;
+}
+.save-error {
+  margin: 0 0 10px;
+}
 .form-grid { display: grid; gap: 12px; }
 .form-group { display: grid; gap: 6px; }
 .input, .textarea {

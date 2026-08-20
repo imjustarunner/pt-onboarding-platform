@@ -161,7 +161,7 @@ watch(() => props.token, () => {
 
 onMounted(() => {
   loadMessages();
-  pollTimer = setInterval(loadMessages, 20000);
+  pollTimer = setInterval(loadMessages, 5000);
 });
 
 onUnmounted(() => {

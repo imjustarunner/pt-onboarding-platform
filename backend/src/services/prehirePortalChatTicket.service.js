@@ -41,9 +41,60 @@ async function insertTicketMessage({ ticketId, authorUserId, authorRole, body })
        VALUES (?, NULL, ?, ?, ?)`,
       [ticketId, authorUserId || null, authorRole || 'requester', String(body || '').slice(0, 20000)]
     );
+    return true;
   } catch (err) {
     console.warn('[prehirePortalChatTicket] message insert failed:', err?.message);
+    return false;
   }
+}
+
+function messageDedupeKey(authorUserId, body) {
+  return `${Number(authorUserId || 0)}::${String(body || '').trim()}`;
+}
+
+/**
+ * Mirror every portal hiring note onto the People Ops ticket thread.
+ */
+export async function syncPortalChatHistoryToTicket(ticketId, candidateUserId) {
+  const tid = Number(ticketId);
+  const uid = Number(candidateUserId);
+  if (!Number.isFinite(tid) || tid <= 0 || !Number.isFinite(uid) || uid <= 0) {
+    return { synced: 0 };
+  }
+
+  const [existing] = await pool.execute(
+    `SELECT author_user_id, body FROM support_ticket_messages WHERE ticket_id = ?`,
+    [tid]
+  );
+  const existingKeys = new Set(
+    (existing || []).map((row) => messageDedupeKey(row.author_user_id, row.body))
+  );
+
+  const HiringNote = (await import('../models/HiringNote.model.js')).default;
+  const notes = await HiringNote.listPortalMessages(uid);
+  let synced = 0;
+
+  for (const note of notes || []) {
+    const body = String(note.message || '').trim();
+    if (!body) continue;
+    const authorId = Number(note.author_user_id || 0);
+    const key = messageDedupeKey(authorId, body);
+    if (existingKeys.has(key)) continue;
+
+    const authorRole = authorId === uid ? 'requester' : 'agent';
+    const ok = await insertTicketMessage({
+      ticketId: tid,
+      authorUserId: authorId || null,
+      authorRole,
+      body
+    });
+    if (ok) {
+      existingKeys.add(key);
+      synced += 1;
+    }
+  }
+
+  return { synced };
 }
 
 async function notifyPeopleOps({ agencyId, ticketId, candidateName, preview }) {
@@ -83,7 +134,7 @@ async function notifyPeopleOps({ agencyId, ticketId, candidateName, preview }) {
 
 /**
  * Ensure an open People Ops ticket exists for this candidate portal thread,
- * then append the candidate message.
+ * then mirror the full portal chat history onto it.
  */
 export async function syncCandidatePortalMessageToTicket({
   candidateUserId,
@@ -117,12 +168,6 @@ export async function syncCandidatePortalMessageToTicket({
     ticketId = Number(result.insertId);
     created = true;
   } else {
-    await insertTicketMessage({
-      ticketId,
-      authorUserId: candidateUserId,
-      authorRole: 'requester',
-      body: message
-    });
     try {
       await pool.execute(
         `UPDATE support_tickets SET status = 'open', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -132,6 +177,8 @@ export async function syncCandidatePortalMessageToTicket({
       /* ignore */
     }
   }
+
+  await syncPortalChatHistoryToTicket(ticketId, candidateUserId);
 
   if (created) {
     await notifyPeopleOps({
@@ -167,12 +214,7 @@ export async function syncStaffPortalReplyToTicket({
   }
   if (!ticketId) return { ok: false, reason: 'no_ticket' };
 
-  await insertTicketMessage({
-    ticketId,
-    authorUserId: staffUserId,
-    authorRole: 'agent',
-    body: message
-  });
+  await syncPortalChatHistoryToTicket(ticketId, candidateUserId);
   return { ok: true, ticketId };
 }
 
@@ -186,16 +228,25 @@ export async function syncTicketReplyToPortalChat({ ticket, authorUserId, body }
   if (!candidateUserId || !body) return { ok: false, reason: 'missing_data' };
 
   const HiringNote = (await import('../models/HiringNote.model.js')).default;
+  const trimmed = String(body).trim();
+  const existing = await HiringNote.listPortalMessages(candidateUserId);
+  const alreadyMirrored = (existing || []).some((note) =>
+    Number(note.author_user_id) === Number(authorUserId)
+    && String(note.message || '').trim() === trimmed
+  );
+  if (alreadyMirrored) return { ok: true, skipped: true };
+
   await HiringNote.create({
     candidateUserId,
     authorUserId: authorUserId || null,
-    message: String(body).trim(),
+    message: trimmed,
     isPortalMessage: true
   });
   return { ok: true };
 }
 
 export default {
+  syncPortalChatHistoryToTicket,
   syncCandidatePortalMessageToTicket,
   syncStaffPortalReplyToTicket,
   syncTicketReplyToPortalChat

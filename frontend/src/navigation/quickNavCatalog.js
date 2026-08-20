@@ -351,9 +351,9 @@ function buildAppEntries() {
       id: 'learning-tasks-hub',
       routeName: null,
       label: 'Tasks',
-      description: 'Assigned tasks, shared lists, escalations, and meeting actions.',
+      description: 'Assigned tasks, shared lists, and meeting actions.',
       group: 'learning',
-      keywords: ['tasks', 'shared lists', 'escalation', 'action items', 'to do', 'todo'],
+      keywords: ['tasks', 'shared lists', 'action items', 'to do', 'todo'],
       kind: 'path',
       path: '/tasks',
       requires: ['showLearning']
@@ -690,6 +690,17 @@ function buildAppEntries() {
       kind: 'path',
       path: '/admin/audit-center',
       rolesAny: ['admin', 'support', 'super_admin']
+    },
+    {
+      id: 'admin-escalations',
+      routeName: 'EscalationsDesk',
+      label: 'Escalations',
+      description: 'Leadership escalations desk — triage, ownership, and resolution.',
+      group: 'admin',
+      keywords: ['escalations', 'escalation', 'escalations desk', 'leadership', 'issue workflow'],
+      kind: 'path',
+      path: '/admin/escalations',
+      rolesAny: ['admin', 'super_admin', 'support']
     },
     {
       id: 'admin-compliance',

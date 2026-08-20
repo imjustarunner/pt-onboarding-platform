@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { formatOnboardingSummary } from '../clientOnboardingSummary.js';
+import {
+  formatOnboardingSummary,
+  isContinuationServicesSeason,
+  isReturningSchoolClient
+} from '../clientOnboardingSummary.js';
 
 describe('formatOnboardingSummary fall pending', () => {
   it('uses API onboarding.summary_label when present', () => {
@@ -54,5 +58,33 @@ describe('formatOnboardingSummary fall pending', () => {
         }
       })
     ).toBe('Terminated');
+  });
+});
+
+describe('fall checklist season helpers', () => {
+  it('treats May–August as continuation season', () => {
+    expect(isContinuationServicesSeason(new Date(2026, 4, 1))).toBe(true);
+    expect(isContinuationServicesSeason(new Date(2026, 7, 20))).toBe(true);
+    expect(isContinuationServicesSeason(new Date(2026, 8, 1))).toBe(false);
+    expect(isContinuationServicesSeason(new Date(2026, 3, 30))).toBe(false);
+  });
+
+  it('detects returning school clients from prior onboarding', () => {
+    expect(
+      isReturningSchoolClient({
+        client_type: 'school',
+        client_status_key: 'onboarded',
+        submission_date: '2025-09-01',
+        organization_id: 10
+      })
+    ).toBe(true);
+    expect(
+      isReturningSchoolClient({
+        client_type: 'school',
+        client_status_key: 'received',
+        submission_date: '2026-08-01',
+        organization_id: 10
+      })
+    ).toBe(false);
   });
 });

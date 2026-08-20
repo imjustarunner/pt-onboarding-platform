@@ -2186,6 +2186,15 @@ export const listSupportTicketMessages = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'This ticket is routed to a different audience' } });
     }
 
+    if (String(ticket.created_by_source_key || '').toLowerCase() === 'prehire_portal_chat') {
+      try {
+        const { syncPortalChatHistoryToTicket } = await import('../services/prehirePortalChatTicket.service.js');
+        await syncPortalChatHistoryToTicket(ticketId, Number(ticket.created_by_user_id || 0));
+      } catch (err) {
+        console.warn('[listSupportTicketMessages] prehire portal sync failed:', err?.message);
+      }
+    }
+
     if (!(await hasSupportTicketMessagesTable())) {
       return res.json({ ticket: enrichTicketForClient(ticket), messages: [] });
     }

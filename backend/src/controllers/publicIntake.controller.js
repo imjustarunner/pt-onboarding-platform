@@ -107,6 +107,7 @@ import { notifyNewPacketUploaded, notifyCompanyEventRegistrationSubmitted, notif
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity, logSkippedOrFailedEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
+import { resolveDevFillContext } from '../services/devFill.service.js';
 import { buildJobDescriptionAttachmentForEmail } from '../services/hiringReferenceRequests.service.js';
 import { resolveJobApplicationSenderIdentity } from '../services/hiringReferenceIdentity.service.js';
 import {
@@ -145,6 +146,26 @@ import {
 } from '../services/schoolPacketSections.service.js';
 import { persistIntakeGuardianWaiversFromFinalize } from '../services/guardianWaivers.service.js';
 import { persistIntakeClinicianSummaries } from '../services/intakeClinicianSummary.service.js';
+
+async function resolveIntakeDevFillOptions(req, link, submissionId = null) {
+  let agencyId = Number(link?.agency_id || 0) || null;
+  if (!agencyId && link?.organization_id) {
+    agencyId =
+      (await OrganizationAffiliation.getActiveAgencyIdForOrganization(link.organization_id))
+      || (await AgencySchool.getActiveAgencyIdForSchool(link.organization_id))
+      || Number(link.organization_id)
+      || null;
+  }
+  const devFillContext = await resolveDevFillContext({
+    req,
+    agencyId,
+    payload: req.body || {}
+  });
+  return {
+    devFillContext,
+    intakeSubmissionId: submissionId ? Number(submissionId) : null
+  };
+}
 
 function buildPacketSectionSignedHtml({ sectionContext, response, signedAt }) {
   const title = sectionContext?.title || sectionTitle(sectionContext?.sectionKey, sectionContext?.locale);
@@ -6185,7 +6206,11 @@ export const createPublicConsent = async (req, res, next) => {
             guardian,
             intakeForSelf
           },
-          options: { forceGuardian: true, allowAgencyRoot: true }
+          options: {
+            forceGuardian: true,
+            allowAgencyRoot: true,
+            ...(await resolveIntakeDevFillOptions(req, link, submission?.id))
+          }
         });
         submission = await IntakeSubmission.updateById(submission.id, {
           client_id: createdClients?.[0]?.id || null,
@@ -7290,7 +7315,8 @@ export const finalizePublicIntake = async (req, res, next) => {
         if (firstClientName) {
           const { clients, guardianUser } = await PublicIntakeClientService.createClientAndGuardian({
             link,
-            payload: req.body
+            payload: req.body,
+            options: await resolveIntakeDevFillOptions(req, link, submissionId)
           });
           const createdClientId = Number(clients?.[0]?.id || 0) || null;
           if (createdClientId) {
@@ -8029,7 +8055,8 @@ export const finalizePublicIntake = async (req, res, next) => {
             newGuardianPasswordlessLoginUrl: ngMagic
           } = await PublicIntakeClientService.createClientAndGuardian({
             link,
-            payload: req.body
+            payload: req.body,
+            options: await resolveIntakeDevFillOptions(req, link, submissionId)
           });
           createdClients = clients || [];
           newGuardianCreated = !!ngCreated;
@@ -8049,7 +8076,8 @@ export const finalizePublicIntake = async (req, res, next) => {
           newGuardianPasswordlessLoginUrl: ngMagic
         } = await PublicIntakeClientService.createClientAndGuardian({
           link,
-          payload: req.body
+          payload: req.body,
+          options: await resolveIntakeDevFillOptions(req, link, submissionId)
         });
         createdClients = clients || [];
         newGuardianCreated = !!ngCreated;
@@ -9829,7 +9857,8 @@ export const submitPublicIntake = async (req, res, next) => {
             newGuardianPasswordlessLoginUrl: ngMagic
           } = await PublicIntakeClientService.createClientAndGuardian({
             link,
-            payload: req.body
+            payload: req.body,
+            options: await resolveIntakeDevFillOptions(req, link, submissionId)
           });
           createdClients = clients || [];
           newGuardianCreated = !!ngCreated;
@@ -9849,7 +9878,8 @@ export const submitPublicIntake = async (req, res, next) => {
           newGuardianPasswordlessLoginUrl: ngMagic
         } = await PublicIntakeClientService.createClientAndGuardian({
           link,
-          payload: req.body
+          payload: req.body,
+          options: await resolveIntakeDevFillOptions(req, link, submissionId)
         });
         createdClients = clients || [];
         newGuardianCreated = !!ngCreated;

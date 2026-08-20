@@ -24,6 +24,13 @@ import SupervisionSession from '../models/SupervisionSession.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import pool from '../config/database.js';
+import {
+  complianceArchiveClient,
+  complianceArchiveGuardian,
+  getBulkGuardiansDeletePreview,
+  permanentDeleteDevFillClient,
+  permanentDeleteDevFillGuardian
+} from '../services/devFill.service.js';
 import { canUserManageClub } from '../utils/sscClubAccess.js';
 import { detachUserFromOrganization, detachUserGlobalLinks } from '../services/userStaffDetach.service.js';
 import { runSummitStrictErasureForAccountDeletion } from '../services/summitStrictErasure.service.js';
@@ -832,6 +839,17 @@ export const getAllUsers = async (req, res, next) => {
 export const getGuardianUsers = async (req, res, next) => {
   try {
     const includeArchived = req.query.includeArchived === 'true';
+    const includeComplianceArchived =
+      req.query.includeComplianceArchived === 'true'
+      || req.query.include_compliance_archived === 'true';
+    const devFillFilterRaw = String(req.query.dev_fill || req.query.devFill || '').trim().toLowerCase();
+    const devFillSql =
+      devFillFilterRaw === 'true' || devFillFilterRaw === '1' || devFillFilterRaw === 'only'
+        ? ' AND u.created_via_dev_fill = 1'
+        : devFillFilterRaw === 'false' || devFillFilterRaw === '0' || devFillFilterRaw === 'exclude'
+          ? ' AND (u.created_via_dev_fill = 0 OR u.created_via_dev_fill IS NULL)'
+          : '';
+    const complianceArchiveSql = includeComplianceArchived ? '' : ' AND u.compliance_archived_at IS NULL';
     const schoolAffiliated =
       req.query.schoolAffiliated === 'true'
       || req.query.schoolAffiliated === '1'
@@ -904,6 +922,8 @@ export const getGuardianUsers = async (req, res, next) => {
           u.last_name,
           u.created_at,
           u.is_demo,
+          u.created_via_dev_fill,
+          u.compliance_archived_at,
           GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') AS agencies,
           GROUP_CONCAT(DISTINCT a.id ORDER BY a.id SEPARATOR ',') AS agency_ids,
           GROUP_CONCAT(DISTINCT org_client.name ORDER BY org_client.name SEPARATOR ', ') AS school_names,
@@ -929,11 +949,13 @@ export const getGuardianUsers = async (req, res, next) => {
           AND LOWER(COALESCE(org_client.organization_type, '')) = 'school'
         WHERE LOWER(COALESCE(u.role, '')) = 'client_guardian'
         ${archiveSql}
+        ${complianceArchiveSql}
+        ${devFillSql}
         ${scopeSql}
         ${schoolSql}
         GROUP BY
           u.id, u.email, u.role, u.status, u.completed_at, u.terminated_at, u.status_expires_at,
-          u.is_active, u.first_name, u.last_name, u.created_at, u.is_demo
+          u.is_active, u.first_name, u.last_name, u.created_at, u.is_demo, u.created_via_dev_fill, u.compliance_archived_at
         ORDER BY u.created_at DESC
       `,
       params
@@ -1854,6 +1876,20 @@ export const deleteUser = async (req, res, next) => {
   }
 };
 
+export const getGuardiansBulkDeletePreview = async (req, res, next) => {
+  try {
+    const rawIds = Array.isArray(req.body?.guardianIds) ? req.body.guardianIds : [];
+    const guardianIds = rawIds.map((id) => parseInt(id, 10)).filter((id) => Number.isFinite(id) && id > 0);
+    if (!guardianIds.length) {
+      return res.status(400).json({ error: { message: 'No valid guardian IDs provided' } });
+    }
+    const preview = await getBulkGuardiansDeletePreview(guardianIds);
+    res.json(preview);
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const bulkDeleteGuardians = async (req, res, next) => {
   try {
     if (!req.user?.id) return res.status(401).json({ error: { message: 'Unauthorized' } });
@@ -1870,7 +1906,20 @@ export const bulkDeleteGuardians = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Cannot bulk delete more than 100 guardians at a time' } });
     }
 
+    const deleteRelated = req.body?.deleteRelated === true || req.body?.confirmCascade === true;
+    const preview = await getBulkGuardiansDeletePreview(guardianIds);
+    if (preview.requiresConfirmation && !deleteRelated) {
+      return res.status(409).json({
+        error: {
+          message: 'Selected guardians have linked clients. Confirm to delete or archive all related records.',
+          code: 'AFFILIATED_DELETE_CONFIRMATION_REQUIRED',
+          preview
+        }
+      });
+    }
+
     const results = [];
+    const actorUserId = req.user.id;
 
     for (const guardianId of guardianIds) {
       try {
@@ -1880,14 +1929,46 @@ export const bulkDeleteGuardians = async (req, res, next) => {
           continue;
         }
 
-        // Collect linked client IDs for event de-enrollment
+        if (guardian.compliance_archived_at) {
+          results.push({ id: guardianId, ok: false, error: 'Compliance-archived guardians cannot be permanently deleted' });
+          continue;
+        }
+
+        const itemPreview = preview.previews.find((p) => p.guardian.id === guardianId);
+        const isDevFill = Number(guardian.created_via_dev_fill) === 1;
+
+        if (isDevFill) {
+          const deleted = await permanentDeleteDevFillGuardian(guardianId, {
+            deleteLinkedDevFillClients: deleteRelated
+          });
+          results.push({ id: guardianId, ok: deleted, mode: 'permanent_dev_fill' });
+          continue;
+        }
+
+        if (deleteRelated && itemPreview?.linkedClients?.length) {
+          for (const c of itemPreview.linkedClients) {
+            if (c.createdViaDevFill) {
+              const conn = await pool.getConnection();
+              try {
+                await conn.beginTransaction();
+                await permanentDeleteDevFillClient(conn, c.id);
+                await conn.commit();
+              } catch (e) {
+                try { await conn.rollback(); } catch { /* ignore */ }
+              } finally {
+                conn.release();
+              }
+            } else if (!c.complianceArchived) {
+              await complianceArchiveClient({ clientId: c.id, actorUserId });
+            }
+          }
+        }
+
         const [clientRows] = await pool.execute(
           'SELECT client_id FROM client_guardians WHERE guardian_user_id = ?',
           [guardianId]
         );
         const clientIds = (clientRows || []).map((r) => Number(r.client_id)).filter(Boolean);
-
-        // De-enroll linked clients from company events and skill-builder events
         if (clientIds.length > 0) {
           const ph = clientIds.map(() => '?').join(',');
           try {
@@ -1898,16 +1979,13 @@ export const bulkDeleteGuardians = async (req, res, next) => {
           } catch { /* table may not exist */ }
         }
 
-        // Detach from all linked client accounts
         await pool.execute('DELETE FROM client_guardians WHERE guardian_user_id = ?', [guardianId]);
-
-        // Remove from all tenant / sub-org memberships
-        await pool.execute('DELETE FROM user_agencies WHERE user_id = ?', [guardianId]);
-
-        // Hard-delete the guardian user (guardian accounts are portal-only, no archival required)
-        await pool.execute('DELETE FROM users WHERE id = ? AND role = ?', [guardianId, 'client_guardian']);
-
-        results.push({ id: guardianId, ok: true });
+        await complianceArchiveGuardian({
+          guardianUserId: guardianId,
+          actorUserId,
+          note: deleteRelated ? 'Compliance archive with linked clients' : 'Compliance archive (deleted)'
+        });
+        results.push({ id: guardianId, ok: true, mode: 'compliance_archive' });
       } catch (err) {
         results.push({ id: guardianId, ok: false, error: err?.message || 'Unknown error' });
       }

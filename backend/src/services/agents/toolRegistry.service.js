@@ -194,6 +194,7 @@ const NAVIGATION_ROUTE_WHITELIST = {
   ProviderDirectory: { path: '/admin/provider-directory', roles: ['admin', 'support', 'staff', 'super_admin'] },
   HiringCandidates: { path: '/admin/hiring-candidates', roles: ['admin', 'super_admin'] },
   AuditCenter: { path: '/admin/audit-center', roles: ['admin', 'support', 'super_admin'] },
+  EscalationsDesk: { path: '/admin/escalations', roles: ['admin', 'super_admin', 'support'] },
   AutomatedEmailSettings: { path: '/admin/email-settings', roles: ['admin', 'super_admin', 'support'] },
   NoteAid: { path: '/admin/note-aid', roles: ['admin', 'support', 'staff', 'provider', 'super_admin'] },
   ComplianceCorner: { path: '/admin/compliance-corner', roles: ['admin', 'super_admin'] },

@@ -49,7 +49,10 @@ import {
   switchClientEventRegistrationHandler,
   upsertClientProviderAssignment,
   removeClientProviderAssignment,
-  deleteClient
+  deleteClient,
+  getClientDeletePreviewHandler,
+  getBulkClientsDeletePreviewHandler,
+  bulkDeleteDevFillClients
 } from '../controllers/client.controller.js';
 import {
   listClientSchoolRoiAccess,
@@ -304,7 +307,11 @@ router.post(
 router.patch('/:id/guardians/:guardianUserId', requireBackofficeAdmin, updateClientGuardian);
 router.delete('/:id/guardians/:guardianUserId', requireBackofficeAdmin, removeClientGuardian);
 
-// Permanently delete a client (archived-only; admin only)
+router.post('/bulk/delete-preview', requireBackofficeAdmin, getBulkClientsDeletePreviewHandler);
+router.post('/bulk/delete-dev-fill', requireBackofficeAdmin, bulkDeleteDevFillClients);
+
+// Permanently delete or compliance-archive a client (admin only)
+router.get('/:id/delete-preview', requireBackofficeAdmin, getClientDeletePreviewHandler);
 router.delete('/:id', requireBackofficeAdmin, deleteClient);
 
 export default router;

@@ -666,7 +666,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../../services/api';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
 import { buildPublicIntakeUrl } from '../../../utils/publicIntakeUrl';

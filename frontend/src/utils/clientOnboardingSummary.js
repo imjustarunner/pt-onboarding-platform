@@ -43,7 +43,7 @@ function julyCutoffYmd(now = new Date()) {
   return `${startYear}-07-01`;
 }
 
-function isReturningSchoolClient(client, now = new Date()) {
+export function isReturningSchoolClient(client, now = new Date()) {
   const isSchool = String(client?.client_type || '').toLowerCase() === 'school'
     || !!client?.organization_id;
   if (!isSchool) return false;
@@ -56,6 +56,15 @@ function isReturningSchoolClient(client, now = new Date()) {
   const anchor = /^\d{4}-\d{2}-\d{2}$/.test(sub) ? sub : created;
   if (anchor && anchor < julyCutoffYmd(now)) return true;
   return false;
+}
+
+/** May 1 – Aug 31: Continuation of Services / fall confirmation season for school clients. */
+export function isContinuationServicesSeason(value = new Date()) {
+  const d = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+  if (!Number.isFinite(d.getTime())) return false;
+  const start = new Date(d.getFullYear(), 4, 1);
+  const end = new Date(d.getFullYear(), 8, 1);
+  return d.getTime() >= start.getTime() && d.getTime() < end.getTime();
 }
 
 function continuationDone(data) {

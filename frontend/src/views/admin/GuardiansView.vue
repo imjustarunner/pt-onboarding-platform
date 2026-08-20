@@ -60,6 +60,14 @@
           </option>
         </select>
       </div>
+      <div class="filter-group">
+        <label>Dev Fill</label>
+        <select v-model="devFillFilter">
+          <option value="">All records</option>
+          <option value="only">Dev Fill only</option>
+          <option value="exclude">Hide Dev Fill</option>
+        </select>
+      </div>
       <div class="filter-group filter-group-actions">
         <button class="btn btn-secondary btn-sm" type="button" @click="resetFilters">Reset filters</button>
       </div>
@@ -94,6 +102,7 @@
             <th>Agencies</th>
             <th>Linked Clients</th>
             <th>Created</th>
+            <th>Dev Fill</th>
             <th>Demo</th>
           </tr>
         </thead>
@@ -120,6 +129,10 @@
             <td @click="openGuardianProfile(g.id)">{{ Number(g.linked_clients_count || 0) }}</td>
             <td @click="openGuardianProfile(g.id)">{{ formatDate(g.created_at) }}</td>
             <td @click.stop>
+              <span v-if="Number(g.created_via_dev_fill)" class="g-dev-fill-badge">Dev Fill</span>
+              <span v-else class="muted">—</span>
+            </td>
+            <td @click.stop>
               <label class="g-demo-check">
                 <input
                   type="checkbox"
@@ -131,7 +144,7 @@
             </td>
           </tr>
           <tr v-if="filteredGuardians.length === 0">
-            <td colspan="8" class="empty-row">No guardians found.</td>
+            <td colspan="9" class="empty-row">No guardians found.</td>
           </tr>
         </tbody>
       </table>
@@ -146,14 +159,22 @@
         </div>
         <div class="modal-body">
           <div class="warning-box">
-            <strong>This action is permanent and cannot be undone.</strong>
-            <p style="margin-top: 8px;">For each selected guardian, this will:</p>
-            <ul style="margin: 6px 0 0 18px; padding: 0;">
-              <li>Detach them from all linked client (kid) accounts</li>
-              <li>De-enroll their clients from any associated events</li>
-              <li>Remove them from their tenant and sub-organization</li>
-              <li>Permanently delete the guardian account</li>
+            <strong>This action removes the selected guardian account(s).</strong>
+            <p style="margin-top: 8px;">Dev Fill guardians are permanently deleted. Real guardians are compliance-archived (audited, not permanently removable).</p>
+            <p v-if="bulkDeletePreview?.requiresConfirmation" style="margin-top: 8px;">
+              <strong>Linked clients found.</strong> Confirm below to delete or archive all related records together.
+            </p>
+            <ul v-if="bulkDeletePreview?.previews?.length" style="margin: 8px 0 0 18px;">
+              <li v-for="p in bulkDeletePreview.previews" :key="p.guardian.id">
+                {{ p.guardian.name }}
+                <span v-if="p.linkedClients?.length"> — {{ p.linkedClients.length }} linked client(s)</span>
+                <span v-if="p.guardian.createdViaDevFill"> (Dev Fill)</span>
+              </li>
             </ul>
+            <label v-if="bulkDeletePreview?.requiresConfirmation" style="display: flex; gap: 8px; margin-top: 10px; align-items: flex-start;">
+              <input v-model="bulkDeleteConfirmCascade" type="checkbox" />
+              <span>Delete or archive all related guardians and clients</span>
+            </label>
           </div>
           <div v-if="bulkDeleteError" class="error" style="margin-top: 10px;">{{ bulkDeleteError }}</div>
           <div v-if="bulkDeleteResults.length > 0" style="margin-top: 12px;">
@@ -169,7 +190,7 @@
         </div>
         <div class="modal-actions">
           <button class="btn btn-secondary" :disabled="bulkDeleting" @click="closeBulkDeleteModal">Cancel</button>
-          <button class="btn btn-danger" :disabled="bulkDeleting" @click="confirmBulkDelete">
+          <button class="btn btn-danger" :disabled="bulkDeleting || (bulkDeletePreview?.requiresConfirmation && !bulkDeleteConfirmCascade)" @click="confirmBulkDelete">
             {{ bulkDeleting ? 'Deleting...' : `Delete ${selectedIds.size} Guardian${selectedIds.size === 1 ? '' : 's'}` }}
           </button>
         </div>
@@ -278,6 +299,7 @@ const agencies = ref([]);
 const search = ref('');
 const statusFilter = ref('');
 const agencyFilter = ref('');
+const devFillFilter = ref('');
 
 // Bulk selection
 const selectedIds = ref(new Set());
@@ -287,6 +309,8 @@ const showBulkDeleteModal = ref(false);
 const bulkDeleting = ref(false);
 const bulkDeleteError = ref('');
 const bulkDeleteResults = ref([]);
+const bulkDeletePreview = ref(null);
+const bulkDeleteConfirmCascade = ref(false);
 
 // Create modal
 const showCreateModal = ref(false);
@@ -323,6 +347,8 @@ const filteredGuardians = computed(() => {
     if (q && !name.includes(q) && !email.includes(q)) return false;
     if (statusFilter.value && status !== String(statusFilter.value).toUpperCase()) return false;
     if (agencyFilter.value && !agencyIds.includes(String(agencyFilter.value))) return false;
+    if (devFillFilter.value === 'only' && !Number(g.created_via_dev_fill)) return false;
+    if (devFillFilter.value === 'exclude' && Number(g.created_via_dev_fill)) return false;
     return true;
   });
 });
@@ -356,9 +382,19 @@ const toggleSelectAll = () => {
   }
 };
 
-const openBulkDeleteModal = () => {
+const openBulkDeleteModal = async () => {
   bulkDeleteError.value = '';
   bulkDeleteResults.value = [];
+  bulkDeleteConfirmCascade.value = false;
+  bulkDeletePreview.value = null;
+  try {
+    const { data } = await api.post('/users/guardians/bulk/delete-preview', {
+      guardianIds: [...selectedIds.value]
+    });
+    bulkDeletePreview.value = data;
+  } catch (err) {
+    bulkDeleteError.value = err?.response?.data?.error?.message || 'Could not load delete preview';
+  }
   showBulkDeleteModal.value = true;
 };
 
@@ -375,7 +411,11 @@ const confirmBulkDelete = async () => {
   bulkDeleting.value = true;
   try {
     const response = await api.delete('/users/guardians/bulk', {
-      data: { guardianIds: [...selectedIds.value] }
+      data: {
+        guardianIds: [...selectedIds.value],
+        confirmCascade: bulkDeleteConfirmCascade.value,
+        deleteRelated: bulkDeleteConfirmCascade.value
+      }
     });
     bulkDeleteResults.value = Array.isArray(response?.data?.results) ? response.data.results : [];
     const allOk = bulkDeleteResults.value.every((r) => r.ok);
@@ -385,6 +425,10 @@ const confirmBulkDelete = async () => {
       closeBulkDeleteModal();
     }
   } catch (err) {
+    const code = err?.response?.data?.error?.code;
+    if (code === 'AFFILIATED_DELETE_CONFIRMATION_REQUIRED') {
+      bulkDeletePreview.value = err?.response?.data?.error?.preview || bulkDeletePreview.value;
+    }
     bulkDeleteError.value = err?.response?.data?.error?.message || 'Failed to delete guardians';
   } finally {
     bulkDeleting.value = false;
@@ -457,6 +501,7 @@ const resetFilters = () => {
   search.value = '';
   statusFilter.value = '';
   agencyFilter.value = '';
+  devFillFilter.value = '';
 };
 
 const resetCreateForm = () => {
@@ -680,5 +725,16 @@ onMounted(async () => {
   .filters-row {
     grid-template-columns: 1fr;
   }
+}
+
+.g-dev-fill-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
 }
 </style>

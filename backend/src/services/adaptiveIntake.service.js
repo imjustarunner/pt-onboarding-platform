@@ -15,6 +15,7 @@ import {
   SELF_QUICK_CONCERN_OPTIONS,
   DEPENDENT_QUICK_CONCERN_OPTIONS
 } from '../constants/adaptiveQuickConcerns.js';
+import { applyDevFillAfterIntakeCreate, resolveDevFillContext } from './devFill.service.js';
 
 function parseJson(value, fallback = null) {
   if (value == null) return fallback;
@@ -1012,6 +1013,21 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
         accessEnabled: true
       }).catch(() => null);
     }
+  }
+
+  const devFillContext = await resolveDevFillContext({
+    req,
+    agencyId: agencyRow.id,
+    payload
+  });
+  if (devFillContext.enabled) {
+    const guardianUser = temporaryAccess?.userId ? await User.findById(temporaryAccess.userId) : null;
+    await applyDevFillAfterIntakeCreate({
+      devFillContext,
+      clients: [client, ...extraCreated.map((extra) => extra.client)],
+      guardianUser,
+      source: 'ADAPTIVE_QUICK_PROSPECTIVE'
+    });
   }
 
   function packetClientRow(rowClient, firstName, middleName, lastName, dob) {

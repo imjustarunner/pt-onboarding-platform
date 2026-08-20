@@ -978,8 +978,12 @@
           <p class="hint" style="margin-top:-6px;">
             Operational tracking (non-clinical). Providers + admin/staff can update.
           </p>
+          <p v-if="showFallContinuationChecklist" class="checklist-fall-banner">
+            Returning client — this year's checklist is fall confirmation (continuation of services).
+            Last year's parent contact and first service dates stay on file.
+          </p>
 
-          <div class="info-grid">
+          <div v-if="showLegacyChecklistFields" class="info-grid">
             <div class="info-item">
               <label>Parents Contacted</label>
               <div class="info-value">
@@ -1007,8 +1011,8 @@
             </div>
           </div>
 
-          <div v-if="showContinuationServicesChecklist" class="continuation-checklist-section">
-            <label class="continuation-checklist-label">Continuation of Services</label>
+          <div v-if="showFallContinuationChecklist" class="continuation-checklist-section">
+            <label class="continuation-checklist-label">Fall confirmation — Continuation of Services</label>
             <select v-model="checklist.continuation.plan" class="inline-select">
               <option value="">—</option>
               <option value="continue_school">Continuing Services</option>
@@ -2268,6 +2272,7 @@ import {
   normalizeGradeToStandard
 } from '../../utils/clientGrade.js';
 import { assignedDayDisplay, displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
+import { isContinuationServicesSeason, isReturningSchoolClient } from '../../utils/clientOnboardingSummary.js';
 import AssignDayModal from '../school/AssignDayModal.vue';
 import PostListingModal from '../clientExchange/PostListingModal.vue';
 import { canSeeClientExchangeNav } from '../../utils/clientExchangeNav.js';
@@ -3389,14 +3394,12 @@ const onSchoolAssignmentUpdated = async ({ clientId, providers: providerList } =
 const savingChecklist = ref(false);
 const checklistAuditText = ref('');
 
-const isContinuationServicesSeason = (value = new Date()) => {
-  const d = value instanceof Date ? new Date(value.getTime()) : new Date(value);
-  if (!Number.isFinite(d.getTime())) return false;
-  const start = new Date(d.getFullYear(), 4, 1);
-  const end = new Date(d.getFullYear(), 8, 1);
-  return d.getTime() >= start.getTime() && d.getTime() < end.getTime();
-};
-const showContinuationServicesChecklist = computed(() => isContinuationServicesSeason());
+const checklistClientIsReturning = computed(() => isReturningSchoolClient(props.client));
+const showFallContinuationChecklist = computed(
+  () => isContinuationServicesSeason() && checklistClientIsReturning.value
+);
+const showLegacyChecklistFields = computed(() => !showFallContinuationChecklist.value);
+const showContinuationServicesChecklist = showFallContinuationChecklist;
 
 const emptyContSvc = () => ({
   plan: '',
@@ -5030,12 +5033,30 @@ const hydrateChecklist = async () => {
 const saveChecklist = async () => {
   try {
     savingChecklist.value = true;
-    const payload = {
-      parentsContactedAt: checklist.value.parentsContactedAt || null,
-      parentsContactedSuccessful: checklist.value.parentsContactedSuccessful === '' ? null : (checklist.value.parentsContactedSuccessful === 'true'),
-      firstServiceAt: checklist.value.firstServiceAt || null
-    };
-    if (showContinuationServicesChecklist.value) payload.continuationServices = contSvcPayload();
+    const payload = {};
+    if (showLegacyChecklistFields.value) {
+      payload.parentsContactedAt = checklist.value.parentsContactedAt || null;
+      payload.parentsContactedSuccessful =
+        checklist.value.parentsContactedSuccessful === ''
+          ? null
+          : (checklist.value.parentsContactedSuccessful === 'true');
+      payload.firstServiceAt = checklist.value.firstServiceAt || null;
+    }
+    if (showContinuationServicesChecklist.value) {
+      const cont = contSvcPayload();
+      if (!cont?.plan) {
+        alert('Select a fall confirmation / continuation option.');
+        return;
+      }
+      if (
+        ['not_continue_school', 'unable_to_contact_parent', 'other'].includes(cont.plan)
+        && !String(cont.privateComment || '').trim()
+      ) {
+        alert('A private comment for admin/support is required.');
+        return;
+      }
+      payload.continuationServices = cont;
+    }
     const r = await api.put(`/clients/${props.client.id}/compliance-checklist`, payload);
     const c = r.data || {};
     const who = c.checklist_updated_by_name || null;
@@ -7762,6 +7783,16 @@ watch(
   background: var(--bg-alt, #f8fafc);
   display: grid;
   gap: 10px;
+}
+.checklist-fall-banner {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 13px;
+  line-height: 1.45;
 }
 .continuation-checklist-label {
   font-size: 12px;

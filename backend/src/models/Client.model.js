@@ -254,7 +254,9 @@ class Client {
       insurance_type_id,
       skills,
       client_type,
-      includeSensitive = true
+      includeSensitive = true,
+      created_via_dev_fill,
+      exclude_compliance_archived = true
     } = options;
 
     const values = [];
@@ -368,6 +370,16 @@ class Client {
     if (clientTypes.length) {
       query += ` AND c.client_type IN (${clientTypes.map(() => '?').join(',')})`;
       values.push(...clientTypes);
+    }
+
+    if (created_via_dev_fill === true || created_via_dev_fill === 1 || created_via_dev_fill === '1') {
+      query += ' AND c.created_via_dev_fill = 1';
+    } else if (created_via_dev_fill === false || created_via_dev_fill === 0 || created_via_dev_fill === '0') {
+      query += ' AND (c.created_via_dev_fill = 0 OR c.created_via_dev_fill IS NULL)';
+    }
+
+    if (exclude_compliance_archived) {
+      query += ' AND c.compliance_archived_at IS NULL';
     }
 
     query += ' ORDER BY c.submission_date DESC, c.created_at DESC';

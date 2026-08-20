@@ -65,7 +65,7 @@
     </template>
     <template #header-right-extra>
       <button
-        v-if="canBypassIntakeRequired && isOfficeInDepthIntake && step >= 1 && step < 3"
+        v-if="canUseDevFill && isOfficeInDepthIntake && step >= 1 && step < 3"
         class="btn btn-secondary btn-sm"
         type="button"
         @click="fillExample"
@@ -83,7 +83,7 @@
         <button type="button" class="intake-inline-error-dismiss" @click="error = ''">&#10005;</button>
       </div>
       <button
-        v-if="canBypassIntakeRequired && !(isJobApplication && step === -1) && !(isOfficeInDepthIntake && step >= 0.5)"
+        v-if="canUseDevFill && !(isJobApplication && step === -1) && !(isOfficeInDepthIntake && step >= 0.5)"
         class="btn btn-secondary btn-sm dev-fill-button"
         type="button"
         @click="fillExample"
@@ -334,7 +334,7 @@
         :contact-phone="splashContactPhone"
         :contact-tel="splashContactTel"
         :contact-email="splashContactEmail"
-        :can-dev-fill="canBypassIntakeRequired"
+        :can-dev-fill="canUseDevFill"
         @support="openSplashSupportModal"
         @dev-fill="fillExample"
       >
@@ -3697,7 +3697,30 @@ const canBypassIntakeRequired = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['admin', 'super_admin', 'support', 'staff'].includes(role);
 });
+
+const intakeAgencyId = computed(() => Number(link.value?.agency_id || link.value?.organization_id || 0) || null);
+
+const canUseDevFill = computed(() => {
+  if (!authStore.isAuthenticated) return false;
+  const user = authStore.user;
+  const role = String(user?.role || '').toLowerCase();
+  if (!['admin', 'super_admin', 'support', 'staff'].includes(role)) return false;
+  if (role === 'super_admin') return true;
+  const agencyId = intakeAgencyId.value;
+  if (!agencyId) return false;
+  const lists = [user?.agencyIds, user?.agencies, user?.agencyId];
+  try {
+    const stored = JSON.parse(localStorage.getItem('userAgencies') || 'null');
+    if (stored) lists.push(stored);
+  } catch { /* ignore */ }
+  return lists.some((list) =>
+    Array.isArray(list)
+      ? list.some((a) => Number(a?.id ?? a) === agencyId)
+      : Number(list) === agencyId
+  );
+});
 const isAssistedIntakeSession = computed(() => canBypassIntakeRequired.value);
+const devFillUsed = ref(false);
 
 const showFullPageLoading = computed(() =>
   loading.value
@@ -8179,6 +8202,7 @@ const fillDevOtherGuardian = () => {
 };
 
 const fillExample = () => {
+  devFillUsed.value = true;
   const first = pickDev(DEV_FIRST_NAMES);
   const last = pickDev(DEV_LAST_NAMES);
   const childFirst = pickDev(DEV_FIRST_NAMES.filter((n) => n !== first));
@@ -10432,6 +10456,7 @@ const finalizePacket = async () => {
       submissionId: submissionId.value,
       sessionToken: activeSessionToken || null,
       organizationId: organizationId.value,
+      createdViaDevFill: devFillUsed.value && canUseDevFill.value,
       coGuardianToken: String(route.query.coGuardian || '').trim() || null,
       clients: buildClientPayloads(),
       guardian: {

@@ -200,6 +200,11 @@
             {{ ws.label }}
           </option>
         </select>
+        <select v-model="devFillFilter" @change="applyFilters" class="filter-select">
+          <option value="">All records</option>
+          <option value="only">Dev Fill only</option>
+          <option value="exclude">Hide Dev Fill</option>
+        </select>
         <div v-if="showSchoolSearch" class="school-search">
           <input
             v-model="schoolSearchQuery"
@@ -406,6 +411,15 @@
             <button class="btn btn-danger btn-sm" type="button" :disabled="bulkWorking" @click="bulkArchive">
               Archive
             </button>
+            <button
+              v-if="selectedDevFillCount > 0"
+              class="btn btn-danger btn-sm"
+              type="button"
+              :disabled="bulkWorking"
+              @click="openBulkDeleteDevFillModal"
+            >
+              Delete Dev Fill ({{ selectedDevFillCount }})
+            </button>
           </div>
         </div>
       </div>
@@ -562,6 +576,7 @@
             <td v-if="columnPrefs.insurance">{{ client.insurance_type_label || '-' }}</td>
             <td v-if="columnPrefs.lastActivity">{{ formatDate(client.last_activity_at) || '-' }}</td>
             <td v-if="canBackofficeEdit" class="select-cell" @click.stop>
+              <span v-if="Number(client.created_via_dev_fill)" class="cm-dev-fill-badge" title="Created via Dev Fill">Dev Fill</span>
               <label class="cm-demo-check" title="Demo/test clients stay off official documents">
                 <input
                   type="checkbox"
@@ -976,6 +991,42 @@
             @click="executeDeleteImported"
           >
             {{ deleteImportedWorking ? 'Deleting…' : 'Delete imported clients' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bulk Dev Fill delete modal -->
+    <div v-if="showBulkDeleteDevFillModal" class="modal-overlay" @click.self="closeBulkDeleteDevFillModal">
+      <div class="modal-content" style="max-width: 560px;" @click.stop>
+        <h3>Delete {{ selectedDevFillCount }} Dev Fill client{{ selectedDevFillCount === 1 ? '' : 's' }}</h3>
+        <p class="muted" style="margin-top: 8px;">
+          Dev Fill records can be permanently removed. Real (non–Dev Fill) clients must be compliance-archived instead.
+        </p>
+        <div v-if="bulkDeleteDevFillPreview?.requiresConfirmation" class="warning-box" style="margin-top: 12px;">
+          <strong>Affiliated records found.</strong>
+          <p style="margin: 8px 0 0;">Some selected clients have linked guardians or siblings. Confirm to delete all related Dev Fill records together.</p>
+          <ul style="margin: 8px 0 0 18px;">
+            <li v-for="p in bulkDeleteDevFillPreview.previews" :key="p.client.id">
+              {{ p.client.label }}
+              <span v-if="p.guardians?.length"> — {{ p.guardians.length }} guardian(s)</span>
+            </li>
+          </ul>
+          <label style="display: flex; gap: 8px; margin-top: 10px; align-items: flex-start;">
+            <input v-model="bulkDeleteDevFillConfirmCascade" type="checkbox" />
+            <span>Delete all related Dev Fill guardians and clients</span>
+          </label>
+        </div>
+        <div v-if="bulkDeleteDevFillError" class="error" style="margin-top: 10px;">{{ bulkDeleteDevFillError }}</div>
+        <div class="modal-actions" style="margin-top: 14px;">
+          <button type="button" class="btn btn-secondary" :disabled="bulkDeleteDevFillWorking" @click="closeBulkDeleteDevFillModal">Cancel</button>
+          <button
+            type="button"
+            class="btn btn-danger"
+            :disabled="bulkDeleteDevFillWorking || (bulkDeleteDevFillPreview?.requiresConfirmation && !bulkDeleteDevFillConfirmCascade)"
+            @click="confirmBulkDeleteDevFill"
+          >
+            {{ bulkDeleteDevFillWorking ? 'Deleting…' : 'Permanently delete' }}
           </button>
         </div>
       </div>
@@ -1487,6 +1538,7 @@ const error = ref('');
 const searchQuery = ref('');
 const clientStatusFilter = ref('');
 const workflowStatusFilter = ref('');
+const devFillFilter = ref('');
 const organizationFilter = ref('');
 const providerFilter = ref('');
 const skillsOnly = ref(false);
@@ -1764,6 +1816,19 @@ const serverTotal = ref(0);
 // Bulk selection + actions
 const selectedIds = ref(new Set());
 const bulkWorking = ref(false);
+const showBulkDeleteDevFillModal = ref(false);
+const bulkDeleteDevFillWorking = ref(false);
+const bulkDeleteDevFillError = ref('');
+const bulkDeleteDevFillPreview = ref(null);
+const bulkDeleteDevFillConfirmCascade = ref(false);
+
+const selectedDevFillCount = computed(() => {
+  const ids = [...selectedIds.value];
+  return ids.filter((id) => {
+    const c = clients.value.find((row) => Number(row.id) === Number(id));
+    return c && Number(c.created_via_dev_fill) === 1;
+  }).length;
+});
 const bulkAffiliationId = ref('');
 const bulkClientStatusId = ref('');
 const bulkPromoteYear = ref('');
@@ -2192,6 +2257,8 @@ const fetchClients = async () => {
     params.append('includeArchived', 'false');
     if (clientStatusFilter.value) params.append('client_status_id', clientStatusFilter.value);
     if (workflowStatusFilter.value) params.append('status', workflowStatusFilter.value);
+    if (devFillFilter.value === 'only') params.append('dev_fill', 'only');
+    if (devFillFilter.value === 'exclude') params.append('dev_fill', 'exclude');
     if (organizationFilter.value) params.append('organization_id', organizationFilter.value);
     if (providerFilter.value) params.append('provider_id', providerFilter.value);
     const parsed = parseClientManagementSearch(searchQuery.value, {
@@ -2673,6 +2740,58 @@ const bulkArchive = async () => {
   await runBulk((id) => api.put(`/clients/${id}/status`, { status: 'ARCHIVED' }));
 };
 
+const openBulkDeleteDevFillModal = async () => {
+  bulkDeleteDevFillError.value = '';
+  bulkDeleteDevFillConfirmCascade.value = false;
+  bulkDeleteDevFillPreview.value = null;
+  const devFillIds = [...selectedIds.value].filter((id) => {
+    const c = clients.value.find((row) => Number(row.id) === Number(id));
+    return c && Number(c.created_via_dev_fill) === 1;
+  });
+  if (!devFillIds.length) return;
+  try {
+    const { data } = await api.post('/clients/bulk/delete-preview', { clientIds: devFillIds });
+    bulkDeleteDevFillPreview.value = data;
+  } catch (err) {
+    bulkDeleteDevFillError.value = err?.response?.data?.error?.message || 'Could not load delete preview';
+  }
+  showBulkDeleteDevFillModal.value = true;
+};
+
+const closeBulkDeleteDevFillModal = () => {
+  if (bulkDeleteDevFillWorking.value) return;
+  showBulkDeleteDevFillModal.value = false;
+};
+
+const confirmBulkDeleteDevFill = async () => {
+  const devFillIds = [...selectedIds.value].filter((id) => {
+    const c = clients.value.find((row) => Number(row.id) === Number(id));
+    return c && Number(c.created_via_dev_fill) === 1;
+  });
+  if (!devFillIds.length) return;
+  bulkDeleteDevFillWorking.value = true;
+  bulkDeleteDevFillError.value = '';
+  try {
+    await api.post('/clients/bulk/delete-dev-fill', {
+      clientIds: devFillIds,
+      confirmCascade: bulkDeleteDevFillConfirmCascade.value
+    });
+    selectedIds.value = new Set();
+    closeBulkDeleteDevFillModal();
+    await fetchClients();
+  } catch (err) {
+    const code = err?.response?.data?.error?.code;
+    if (code === 'AFFILIATED_DELETE_CONFIRMATION_REQUIRED') {
+      bulkDeleteDevFillPreview.value = err?.response?.data?.error?.preview || bulkDeleteDevFillPreview.value;
+      bulkDeleteDevFillError.value = err?.response?.data?.error?.message || 'Confirmation required';
+    } else {
+      bulkDeleteDevFillError.value = err?.response?.data?.error?.message || 'Failed to delete Dev Fill clients';
+    }
+  } finally {
+    bulkDeleteDevFillWorking.value = false;
+  }
+};
+
 const bulkMoveAffiliation = async () => {
   const orgId = bulkAffiliationId.value ? parseInt(String(bulkAffiliationId.value), 10) : null;
   if (!orgId) return;
@@ -2690,6 +2809,7 @@ const handlePlatformTenantChange = async () => {
   providerFilter.value = '';
   clientStatusFilter.value = '';
   workflowStatusFilter.value = '';
+  devFillFilter.value = '';
   schoolSearchQuery.value = '';
   schoolSearchOpen.value = false;
   currentPage.value = 1;
@@ -4209,5 +4329,17 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   margin-top: 4px;
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.cm-dev-fill-badge {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
 }
 </style>

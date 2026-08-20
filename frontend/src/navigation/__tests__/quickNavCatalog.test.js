@@ -119,6 +119,33 @@ describe('quickNavCatalog', () => {
     expect(loc).toEqual({ name: 'MyLearning' });
   });
 
+  it('escalations quick nav for admin and support only', () => {
+    const admin = getAccessibleQuickNavEntries(
+      buildQuickNavContext({ user: { role: 'admin', capabilities: {} } })
+    );
+    expect(admin.some((e) => e.id === 'admin-escalations')).toBe(true);
+
+    const support = getAccessibleQuickNavEntries(
+      buildQuickNavContext({ user: { role: 'support', capabilities: {} } })
+    );
+    expect(support.some((e) => e.id === 'admin-escalations')).toBe(true);
+
+    const provider = getAccessibleQuickNavEntries(providerCtx());
+    expect(provider.some((e) => e.id === 'admin-escalations')).toBe(false);
+
+    const { flat } = searchQuickNav(
+      'escalations',
+      buildQuickNavContext({ user: { role: 'admin', capabilities: {} } })
+    );
+    expect(flat[0]?.id).toBe('admin-escalations');
+
+    const loc = resolveQuickNavLocation(
+      { kind: 'path', path: '/admin/escalations' },
+      { orgSlug: 'itsco' }
+    );
+    expect(loc).toBe('/itsco/admin/escalations');
+  });
+
   it('resolves Tasks quick nav to org-scoped or flat tasks path', () => {
     const flat = resolveQuickNavRoute(
       { kind: 'path', path: '/tasks' },

@@ -72,18 +72,20 @@
 
     <template v-else-if="phase === 'quick'">
       <div class="ai-join-stage">
-      <div v-if="canEditLanding" class="ai-join-devfill">
-        <template v-if="!editingSidebar">
-          <button type="button" @click="startEditSidebar">Edit side panel</button>
+      <div v-if="canEditLanding || canDevFill" class="ai-join-devfill">
+        <template v-if="canEditLanding">
+          <template v-if="!editingSidebar">
+            <button type="button" @click="startEditSidebar">Edit side panel</button>
+          </template>
+          <template v-else>
+            <button type="button" @click="cancelEditSidebar">Cancel</button>
+            <button type="button" :disabled="savingSidebar" @click="saveSidebarSteps">
+              {{ savingSidebar ? 'Saving…' : 'Save side panel' }}
+            </button>
+          </template>
         </template>
-        <template v-else>
-          <button type="button" @click="cancelEditSidebar">Cancel</button>
-          <button type="button" :disabled="savingSidebar" @click="saveSidebarSteps">
-            {{ savingSidebar ? 'Saving…' : 'Save side panel' }}
-          </button>
-        </template>
-        <button type="button" @click="devFillQuick">Dev Fill</button>
-        <label v-if="isCounselingJoin" class="ai-join-choose-toggle">
+        <button v-if="canDevFill" type="button" @click="devFillQuick">Dev Fill</button>
+        <label v-if="isCounselingJoin && canEditLanding" class="ai-join-choose-toggle">
           <input type="checkbox" :checked="showChooseProvider" :disabled="savingChooseToggle" @change="toggleChooseProvider" />
           Show Choose a provider
         </label>
@@ -864,6 +866,28 @@ const canEditLanding = computed(() => {
   );
 });
 
+const canDevFill = computed(() => {
+  if (!authStore.isAuthenticated) return false;
+  const user = authStore.user;
+  const role = String(user?.role || '').toLowerCase();
+  if (!['admin', 'super_admin', 'support', 'staff'].includes(role)) return false;
+  if (role === 'super_admin') return true;
+  const agencyId = Number(config.value?.agency?.id || 0);
+  if (!agencyId) return false;
+  const lists = [user?.agencyIds, user?.agencies, user?.agencyId];
+  try {
+    const stored = JSON.parse(localStorage.getItem('userAgencies') || 'null');
+    if (stored) lists.push(stored);
+  } catch { /* ignore */ }
+  return lists.some((list) =>
+    Array.isArray(list)
+      ? list.some((a) => Number(a?.id ?? a) === agencyId)
+      : Number(list) === agencyId
+  );
+});
+
+const devFillUsed = ref(false);
+
 function openJoinSupport() {
   if (!agencySlug.value) return;
   router.push(`/${encodeURIComponent(agencySlug.value)}/support?topic=intake_join`);
@@ -1001,6 +1025,7 @@ const DEV_FILL_PEOPLE = [
 ];
 
 function devFillQuick() {
+  devFillUsed.value = true;
   const person = DEV_FILL_PEOPLE[Math.floor(Math.random() * DEV_FILL_PEOPLE.length)];
   const stamp = Math.floor(Math.random() * 90) + 10;
   form.whoFor = form.whoFor || 'myself';
@@ -1212,6 +1237,7 @@ async function submitQuick() {
 
     const { data } = await api.post(`/public/adaptive-intake/${agencySlug.value}/quick`, {
       serviceType: serviceType.value || config.value?.activeService?.serviceType || null,
+      createdViaDevFill: devFillUsed.value && canDevFill.value,
       whoFor: form.whoFor,
       respondent: {
         ...form.respondent,
