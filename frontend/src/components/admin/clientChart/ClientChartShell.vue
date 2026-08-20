@@ -92,29 +92,29 @@ defineEmits(['close', 'update:activeTab', 'update:activeSub', 'alert-click']);
 .cc-subnav {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 8px 16px 4px;
+  gap: 4px 18px;
+  padding: 10px 16px 0;
   border-bottom: 1px solid var(--border, #e2e8f0);
-  background: var(--bg-alt, #f8fafc);
+  background: var(--bg, #fff);
 }
 .cc-subnav__btn {
-  border: 1px solid transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--text-secondary, #64748b);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 650;
-  padding: 6px 10px;
-  border-radius: 999px;
+  padding: 8px 2px 10px;
+  border-radius: 0;
   cursor: pointer;
 }
 .cc-subnav__btn:hover {
-  background: var(--bg, #fff);
   color: var(--text-primary, #0f172a);
 }
 .cc-subnav__btn--active {
-  background: var(--bg, #fff);
-  border-color: var(--border, #e2e8f0);
+  background: transparent;
+  border-bottom-color: var(--primary, #166534);
   color: var(--primary, #166534);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  box-shadow: none;
 }
 </style>

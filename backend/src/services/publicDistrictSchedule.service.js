@@ -10,10 +10,9 @@ import {
 import { buildPublicDistrictScheduleUrl } from '../utils/publicPortalUrl.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import {
-  slugifyDistrictName,
-  normalizeDistrictName,
   resolveCanonicalDistrict,
-  mergeDistrictRows
+  mergeDistrictRows,
+  districtNameMatchKeys
 } from '../utils/districtSlug.shared.js';
 
 const WEEKDAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -52,57 +51,103 @@ export async function ensureAgencyDistrictsSynced(agencyId) {
     [aid, aid]
   );
 
-  const names = new Set((rows || []).map((r) => normalizeDistrictName(r.district_name)));
-  if (!names.size) return;
+  const canonicalGroups = new Map();
+  for (const row of rows || []) {
+    const group = resolveCanonicalDistrict(row.district_name);
+    if (!canonicalGroups.has(group.canonicalSlug)) {
+      canonicalGroups.set(group.canonicalSlug, group);
+    }
+  }
+  if (!canonicalGroups.size) return;
 
-  for (const name of names) {
-    let slug = slugifyDistrictName(name);
-    const [existingSlug] = await pool.execute(
-      `SELECT id FROM agency_districts WHERE agency_id = ? AND slug = ? LIMIT 1`,
-      [aid, slug]
+  const districtIdByCanonicalSlug = new Map();
+  const [existingRows] = await pool.execute(
+    `SELECT id, name, slug FROM agency_districts WHERE agency_id = ?`,
+    [aid]
+  );
+
+  for (const group of canonicalGroups.values()) {
+    const matching = (existingRows || []).filter((row) =>
+      resolveCanonicalDistrict(row.slug || row.name).canonicalSlug === group.canonicalSlug
     );
-    if (existingSlug?.[0]?.id) {
-      await pool.execute(
-        `UPDATE agency_districts SET name = ? WHERE id = ?`,
-        [name, existingSlug[0].id]
+    const canonicalRow = matching.find((row) =>
+      String(row.slug || '').toLowerCase() === group.canonicalSlug
+    );
+    let keeper = canonicalRow || matching[0] || null;
+
+    if (keeper) {
+      const [slugOwnerRows] = await pool.execute(
+        `SELECT id FROM agency_districts
+         WHERE agency_id = ? AND slug = ? AND id <> ?
+         LIMIT 1`,
+        [aid, group.canonicalSlug, keeper.id]
       );
+      const slugOwner = slugOwnerRows?.[0];
+      if (slugOwner?.id) {
+        for (const dup of matching) {
+          if (Number(dup.id) !== Number(slugOwner.id)) {
+            await pool.execute(`DELETE FROM agency_districts WHERE id = ?`, [dup.id]);
+          }
+        }
+        keeper = slugOwner;
+      } else {
+        await pool.execute(
+          `UPDATE agency_districts SET name = ?, slug = ? WHERE id = ?`,
+          [group.canonicalName, group.canonicalSlug, keeper.id]
+        );
+        for (const dup of matching) {
+          if (Number(dup.id) !== Number(keeper.id)) {
+            await pool.execute(`DELETE FROM agency_districts WHERE id = ?`, [dup.id]);
+          }
+        }
+      }
+      districtIdByCanonicalSlug.set(group.canonicalSlug, Number(keeper.id));
       continue;
     }
-    const [nameRow] = await pool.execute(
-      `SELECT id, slug FROM agency_districts WHERE agency_id = ? AND name = ? LIMIT 1`,
-      [aid, name]
-    );
-    if (nameRow?.[0]?.id) {
-      await pool.execute(`UPDATE agency_districts SET slug = ? WHERE id = ?`, [slug, nameRow[0].id]);
-      continue;
-    }
-    let attempt = slug;
+
+    let attempt = group.canonicalSlug;
     let n = 2;
     while (true) {
       try {
-        await pool.execute(
+        const [result] = await pool.execute(
           `INSERT INTO agency_districts (agency_id, name, slug) VALUES (?, ?, ?)`,
-          [aid, name, attempt]
+          [aid, group.canonicalName, attempt]
         );
+        districtIdByCanonicalSlug.set(group.canonicalSlug, Number(result.insertId));
         break;
       } catch (err) {
         if (err?.code !== 'ER_DUP_ENTRY') throw err;
-        attempt = `${slug}-${n}`;
+        const [ownerRows] = await pool.execute(
+          `SELECT id FROM agency_districts WHERE agency_id = ? AND slug = ? LIMIT 1`,
+          [aid, attempt]
+        );
+        if (ownerRows?.[0]?.id) {
+          districtIdByCanonicalSlug.set(group.canonicalSlug, Number(ownerRows[0].id));
+          break;
+        }
+        attempt = `${group.canonicalSlug}-${n}`;
         n += 1;
       }
     }
   }
 
-  await pool.execute(
-    `UPDATE school_profiles sp
+  const [schoolRows] = await pool.execute(
+    `SELECT sp.school_organization_id, TRIM(sp.district_name) AS district_name
+     FROM school_profiles sp
      INNER JOIN (${affiliatedSchoolIdsSubquery()}) aff ON aff.school_id = sp.school_organization_id
-     INNER JOIN agency_districts ad
-       ON ad.agency_id = ?
-      AND ad.name COLLATE utf8mb4_unicode_ci = TRIM(sp.district_name) COLLATE utf8mb4_unicode_ci
-     SET sp.district_id = ad.id
      WHERE sp.district_name IS NOT NULL AND TRIM(sp.district_name) <> ''`,
-    [aid, aid, aid]
+    [aid, aid]
   );
+
+  for (const school of schoolRows || []) {
+    const group = resolveCanonicalDistrict(school.district_name);
+    const districtId = districtIdByCanonicalSlug.get(group.canonicalSlug);
+    if (!districtId) continue;
+    await pool.execute(
+      `UPDATE school_profiles SET district_id = ? WHERE school_organization_id = ?`,
+      [districtId, school.school_organization_id]
+    );
+  }
 }
 
 export async function listDistrictScheduleLinks(agencyId, req = null) {
@@ -236,7 +281,8 @@ export async function getPublicDistrictSchedule(agencySlug, districtSlug, req = 
   const placeholders = affiliatedIds.map(() => '?').join(', ');
   const districtPlaceholders = matchingIds.map(() => '?').join(', ');
   const [schoolRows] = await pool.execute(
-    `SELECT org.id, org.name, org.slug, org.portal_url, org.logo_path, org.logo_url, org.city, org.state
+    `SELECT org.id, org.name, org.slug, org.portal_url, org.logo_path, org.logo_url, org.city, org.state,
+            TRIM(sp.district_name) AS district_name
      FROM agencies org
      INNER JOIN school_profiles sp ON sp.school_organization_id = org.id
      WHERE sp.district_id IN (${districtPlaceholders})
@@ -246,9 +292,35 @@ export async function getPublicDistrictSchedule(agencySlug, districtSlug, req = 
     [...matchingIds, ...affiliatedIds]
   );
 
+  const matchKeys = new Set(districtNameMatchKeys(canonical.canonicalSlug));
+  const includedIds = new Set((schoolRows || []).map((row) => Number(row.id)));
+  let extraSchoolRows = [];
+  if (matchKeys.size) {
+    const [nameMatchedRows] = await pool.execute(
+      `SELECT org.id, org.name, org.slug, org.portal_url, org.logo_path, org.logo_url, org.city, org.state,
+              TRIM(sp.district_name) AS district_name
+       FROM agencies org
+       INNER JOIN school_profiles sp ON sp.school_organization_id = org.id
+       WHERE org.id IN (${placeholders})
+         AND sp.district_name IS NOT NULL
+         AND TRIM(sp.district_name) <> ''
+         AND (org.is_active = TRUE OR org.is_active IS NULL)
+       ORDER BY org.name ASC`,
+      affiliatedIds
+    );
+    extraSchoolRows = (nameMatchedRows || []).filter((row) => {
+      const id = Number(row.id);
+      if (!id || includedIds.has(id)) return false;
+      const keys = districtNameMatchKeys(row.district_name);
+      return keys.some((key) => matchKeys.has(key));
+    });
+  }
+
+  const allSchoolRows = [...(schoolRows || []), ...extraSchoolRows];
+
   const schools = [];
   const schoolById = new Map();
-  for (const row of schoolRows || []) {
+  for (const row of allSchoolRows || []) {
     const schoolSlug = String(row.slug || row.portal_url || '').trim().toLowerCase();
     if (DEMO_SCHOOL_SLUGS.has(schoolSlug) || DEMO_SCHOOL_NAME_RE.test(String(row.name || ''))) continue;
     const school = {

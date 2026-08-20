@@ -78,14 +78,14 @@ export function recordsSubnav({
   canViewBilling = false
 } = {}) {
   const items = [
-    { id: 'overview', label: 'Record Overview' },
-    { id: 'clinical-notes', label: 'Clinical Notes' },
-    { id: 'treatment-plans', label: 'Treatment Plans' },
+    { id: 'overview', label: 'Overview' },
+    { id: 'clinical-notes', label: 'Clinical notes' },
+    { id: 'treatment-plans', label: 'Treatment plans' },
     { id: 'documents', label: 'Documents' }
   ];
-  if (canViewBilling) items.push({ id: 'billing', label: 'Billing & Claims' });
+  if (canViewBilling) items.push({ id: 'billing', label: 'Billing & claims' });
   items.push({ id: 'authorizations', label: 'Authorizations' });
-  items.push({ id: 'audit', label: 'Audit Trail' });
+  items.push({ id: 'audit', label: 'Audit trail' });
   // Keep clinical / medical gates for callers that still check flags; Clinical Notes always listed.
   void canViewClinical;
   void canViewMedicalRecord;

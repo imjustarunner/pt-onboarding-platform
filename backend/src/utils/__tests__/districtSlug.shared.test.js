@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   resolveCanonicalDistrict,
-  mergeDistrictRows
+  mergeDistrictRows,
+  districtNameMatchKeys
 } from '../districtSlug.shared.js';
 
 test('D11 aliases collapse to one public slug', () => {
@@ -13,6 +14,12 @@ test('D11 aliases collapse to one public slug', () => {
   assert.equal(b.canonicalSlug, a.canonicalSlug);
   assert.equal(c.canonicalSlug, a.canonicalSlug);
   assert.equal(a.canonicalName, 'Colorado Springs School District 11');
+});
+
+test('district name aliases collapse for school matching', () => {
+  const keys = districtNameMatchKeys('D11');
+  assert.ok(keys.includes('district 11'));
+  assert.ok(keys.includes('colorado springs school district 11'));
 });
 
 test('mergeDistrictRows combines D11 variants and sums school counts', () => {

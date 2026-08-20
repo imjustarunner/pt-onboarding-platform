@@ -17,4 +17,5 @@ test('public path maps to a share-preview page key', () => {
   assert.equal(pathToSharePageKey('/nlu/tutors'), 'tutors');
   assert.equal(pathToSharePageKey('/nlu/find-tutor'), 'tutors');
   assert.equal(pathToSharePageKey('/join/nlu/tutoring'), 'tutoring');
+  assert.equal(pathToSharePageKey('/district-schedule/colorado-springs-school-district-11'), 'district_schedule');
 });

@@ -65,6 +65,15 @@ export function resolveCanonicalDistrict(nameOrSlug) {
   };
 }
 
+export function districtNameMatchKeys(nameOrSlug) {
+  const group = resolveCanonicalDistrict(nameOrSlug);
+  const keys = new Set();
+  keys.add(aliasKey(group.canonicalName));
+  keys.add(aliasKey(group.canonicalSlug));
+  for (const alias of group.aliases || []) keys.add(aliasKey(alias));
+  return [...keys];
+}
+
 export function mergeDistrictRows(rows) {
   const bySlug = new Map();
   for (const row of rows || []) {

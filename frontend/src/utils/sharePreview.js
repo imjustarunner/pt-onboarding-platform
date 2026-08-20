@@ -85,6 +85,12 @@ function pageCopy(pathname) {
       description: 'Start intake or join a program.'
     };
   }
+  if (p.includes('/district-schedule')) {
+    return {
+      page: 'District schedule',
+      description: 'Schools, providers, and on-site days for your district.'
+    };
+  }
   if (p.includes('/careers')) {
     return { page: 'Careers', description: 'Explore open roles and how to apply.' };
   }

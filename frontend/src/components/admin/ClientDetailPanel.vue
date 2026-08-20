@@ -170,16 +170,20 @@
           class="detail-section"
         >
           <ClientRecordsOverview
-            :can-view-clinical="isClinicalLikeClientType
-              && ['provider', 'provider_plus', 'admin', 'super_admin', 'support', 'staff'].includes(roleNorm)"
-            :can-view-medical-record="canViewMedicalRecord"
+            :client-id="client.id"
+            :client="client"
+            :agency-id="client.agency_id || selectedAgencyId"
             :can-view-billing="(canViewClientBillingImport || learningBillingEnabledForClient)
               && !['provider', 'provider_plus'].includes(roleNorm)"
             :can-manage-school-roi="canManageSchoolRoi"
             :packages-enabled="practitionerPackagesEnabledForClient"
             :phi-banner="['admin', 'super_admin', 'support', 'staff'].includes(roleNorm)"
+            :unsigned-notes-count="unsignedNotesCount"
+            :alerts="overviewAlertItems"
             @navigate="goChartSub"
             @navigate-secondary="goChartSub"
+            @open-document="openChartDocument"
+            @alert-click="onOverviewAlertClick"
           />
         </div>
 
