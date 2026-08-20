@@ -523,12 +523,16 @@
         <!-- Forgot Password Modal -->
         <div v-if="showForgotPasswordMessage" class="modal-overlay" @click.self="closeRecoveryModals">
           <div class="modal">
-            <h3>Reset your password</h3>
-            <p class="modal-subtitle">Enter the email you use to sign in. We'll email you a reset link.</p>
+            <h3>{{ isSchoolPortalOrg ? 'Set your password' : 'Reset your password' }}</h3>
+            <p class="modal-subtitle">
+              {{ isSchoolPortalOrg
+                ? 'Enter the email on your school staff account. If you have never logged in or your temporary password expired, we will email you a link to set your password.'
+                : 'Enter the email you use to sign in. We\'ll email you a reset link.' }}
+            </p>
             <form @submit.prevent="submitForgotPassword" class="modal-form">
               <div class="form-group">
                 <label for="forgotEmail">Email</label>
-                <input id="forgotEmail" v-model="forgotPasswordEmail" type="email" required placeholder="name@company.com" />
+                <input id="forgotEmail" v-model="forgotPasswordEmail" type="email" required :placeholder="isSchoolPortalOrg ? 'name@yourschool.edu' : 'name@company.com'" />
               </div>
               <div v-if="canShowCurrentEmployeeRescue" class="employee-rescue">
                 <button
@@ -552,7 +556,7 @@
                 <p class="debug-note">This only appears outside production, when email sending is skipped or misconfigured.</p>
               </div>
               <button type="submit" class="btn btn-primary" :disabled="recoveryLoading">
-                {{ recoveryLoading ? 'Sending…' : 'Send reset link' }}
+                {{ recoveryLoading ? 'Sending…' : (isSchoolPortalOrg ? 'Send set-password link' : 'Send reset link') }}
               </button>
               <button type="button" class="btn btn-secondary" @click="closeRecoveryModals" :disabled="recoveryLoading">Cancel</button>
             </form>

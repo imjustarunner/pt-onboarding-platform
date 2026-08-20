@@ -22,6 +22,13 @@ import { verifyRecaptchaV3 } from '../services/captcha.service.js';
 import { SUPPORT_TICKET_SOURCE_KEYS, normalizeSupportTicketSourceKey } from '../constants/supportTicketSources.js';
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import { isSstcInviteOnlyMemberSignup } from '../utils/sstcInviteOnly.js';
+import {
+  NON_AGENCY_RECOVERY_ROLES,
+  EXTERNAL_PORTAL_PASSWORD_ROLES,
+  userNeedsFirstPasswordSet,
+  statusAfterExternalPortalPasswordSet,
+  isPasswordResetTokenPurpose
+} from '../utils/schoolStaffPasswordRecovery.js';
 
 const buildPayrollCaps = buildAgencyAccessCaps;
 
@@ -582,6 +589,16 @@ export const login = async (req, res, next) => {
     
     // Block PENDING_SETUP users who haven't set password yet
     if (userStatus === 'PENDING_SETUP' && (!user.password_hash || user.password_hash === null)) {
+      const roleNormSetup = String(user?.role || '').trim().toLowerCase();
+      if (roleNormSetup === 'school_staff') {
+        return res.status(403).json({
+          error: {
+            message: 'Please set your password first. Click Forgot Password, enter the email on your school staff account, and use the link we send you.',
+            requiresSetup: true,
+            useForgotPassword: true
+          }
+        });
+      }
       return res.status(403).json({ 
         error: { 
           message: 'Please complete your account setup first. Use the passwordless login link sent to your email.',
@@ -635,6 +652,16 @@ export const login = async (req, res, next) => {
     const hasTempHash = !!user.temporary_password_hash;
 
     if (!hasPasswordHash && !hasTempHash) {
+      const roleNormNoPw = String(user?.role || '').trim().toLowerCase();
+      if (roleNormNoPw === 'school_staff') {
+        return res.status(401).json({
+          error: {
+            message: 'Please set your password first. Click Forgot Password, enter the email on your school staff account, and use the link we send you.',
+            requiresSetup: true,
+            useForgotPassword: true
+          }
+        });
+      }
       return res.status(401).json({
         error: {
           message: 'Please complete your account setup first. Please contact your administrator for your temporary password.',
@@ -728,6 +755,21 @@ export const login = async (req, res, next) => {
         }
       } catch {
         // best-effort — do not swallow the 401
+      }
+      const roleNormFail = String(user?.role || '').trim().toLowerCase();
+      if (
+        roleNormFail === 'school_staff' &&
+        hasTempHash &&
+        user.temporary_password_expires_at &&
+        new Date(user.temporary_password_expires_at).getTime() < (Date.now() - 60 * 1000)
+      ) {
+        return res.status(401).json({
+          error: {
+            message: 'Your temporary password has expired. Click Forgot Password, enter your email, and set a new password.',
+            temporaryPasswordExpired: true,
+            useForgotPassword: true
+          }
+        });
       }
       return res.status(401).json({ error: { message: 'Invalid email or password' } });
     }
@@ -2552,7 +2594,25 @@ const normalizeOrgSlug = (value) => {
   return v || null;
 };
 
-const NON_AGENCY_RECOVERY_ROLES = new Set(['school_staff', 'client_guardian', 'guardian', 'client']);
+/**
+ * School staff / guardians should not land in employee PREHIRE after setting a password.
+ * Promote PENDING_SETUP / PREHIRE_OPEN → ACTIVE_EMPLOYEE once a real password exists.
+ */
+const activateExternalPortalUserAfterPasswordSet = async (user) => {
+  const nextStatus = statusAfterExternalPortalPasswordSet(user);
+  if (!nextStatus) return user;
+  try {
+    await User.updateStatus(user.id, nextStatus, user.id);
+  } catch (e) {
+    console.error('[auth] activate after password set failed', e?.message || e);
+  }
+  try {
+    await pool.execute('UPDATE users SET is_active = TRUE WHERE id = ?', [user.id]);
+  } catch {
+    // ignore missing is_active or similar
+  }
+  return (await User.findById(user.id)) || user;
+};
 
 const getClientIpAddress = (req) => {
   const forwarded = req.headers['x-forwarded-for'];
@@ -2921,16 +2981,19 @@ export const requestPasswordReset = async (req, res, next) => {
       });
     }
 
-    // If this user is under Workspace-only policy for the requested org, do not issue reset tokens.
-    // Keep response generic to avoid account/policy enumeration.
-    try {
-      const agency = await resolvePrimaryAgencyForUser(user.id, orgSlug);
-      const featureFlags = parseFeatureFlags(agency?.feature_flags ?? null);
-      if (isWorkspaceEligibleForSso({ user, identifier: requestedEmail, featureFlags })) {
-        return safeGenericRecoveryResponse(res);
+    // Soft block for Google Workspace SSO users: they should use Google Sign-In.
+    // External portal roles (school_staff, guardians) always keep password recovery —
+    // they are never Workspace employees even when the parent agency has SSO enabled.
+    if (!NON_AGENCY_RECOVERY_ROLES.has(roleNorm)) {
+      try {
+        const agency = await resolvePrimaryAgencyForUser(user.id, orgSlug);
+        const featureFlags = parseFeatureFlags(agency?.feature_flags ?? null);
+        if (isWorkspaceEligibleForSso({ user, identifier: requestedEmail, featureFlags })) {
+          return safeGenericRecoveryResponse(res);
+        }
+      } catch {
+        // best-effort; continue with normal flow
       }
-    } catch {
-      // best-effort; continue with normal flow
     }
 
     // Generate token (single-use) with purpose 'reset'
@@ -2943,12 +3006,15 @@ export const requestPasswordReset = async (req, res, next) => {
       tokenResult.token
     );
 
-    // Best-effort template support (falls back to simple text)
-    let subject = 'Reset your password';
+    // First-time / expired-temp school staff: copy says "set" rather than only "reset"
+    const firstSet = userNeedsFirstPasswordSet(user);
+    let subject = firstSet ? 'Set your password' : 'Reset your password';
     let body = [
-      'We received a request to reset your password.',
+      firstSet
+        ? 'Use this link to set a password for your account so you can sign in.'
+        : 'We received a request to reset your password.',
       '',
-      `Reset your password using this link (expires in ${expiresInHours} hours):`,
+      `${firstSet ? 'Set your password' : 'Reset your password'} using this link (expires in ${expiresInHours} hours):`,
       resetLink,
       '',
       RECOVERY_JUNK_NOTICE,
@@ -2956,8 +3022,10 @@ export const requestPasswordReset = async (req, res, next) => {
       'If you did not request this, you can ignore this email.'
     ].join('\n');
     let html = [
-      '<p>We received a request to reset your password.</p>',
-      `<p><a href="${resetLink}">Reset your password</a> (expires in ${expiresInHours} hours)</p>`,
+      `<p>${firstSet
+        ? 'Use this link to set a password for your account so you can sign in.'
+        : 'We received a request to reset your password.'}</p>`,
+      `<p><a href="${resetLink}">${firstSet ? 'Set your password' : 'Reset your password'}</a> (expires in ${expiresInHours} hours)</p>`,
       `<p><strong>${RECOVERY_JUNK_NOTICE}</strong></p>`,
       '<p>If you did not request this, you can ignore this email.</p>'
     ].join('');
@@ -3235,7 +3303,9 @@ export const resetPasswordWithToken = async (req, res, next) => {
       return res.status(401).json({ error: { message: 'Invalid or expired reset link' } });
     }
 
-    if (user.passwordless_token_purpose !== 'reset') {
+    // Accept purpose 'reset'. Also allow null/undefined when the purpose column is missing
+    // (older DBs) so Forgot Password still works. Reject explicit 'setup' tokens here.
+    if (!isPasswordResetTokenPurpose(user.passwordless_token_purpose)) {
       return res.status(400).json({ error: { message: 'This link is not a password reset link' } });
     }
 
@@ -3254,12 +3324,14 @@ export const resetPasswordWithToken = async (req, res, next) => {
       });
     }
 
-    // Set new password (overwrites old password hash)
+    // Set new password (overwrites old password hash and clears temporary password)
     await User.changePassword(user.id, password);
+
+    // School staff / guardians: leave PENDING_SETUP (or accidental PREHIRE) and become active
+    let updatedUser = await activateExternalPortalUserAfterPasswordSet(user);
 
     // Best-effort: ensure user is active after reset
     try {
-      const pool = (await import('../config/database.js')).default;
       await pool.execute('UPDATE users SET is_active = TRUE WHERE id = ?', [user.id]);
     } catch (e) {
       // ignore
@@ -3268,12 +3340,21 @@ export const resetPasswordWithToken = async (req, res, next) => {
     // Invalidate the token so it cannot be reused
     await User.markTokenAsUsed(user.id);
 
+    // Refresh after activation + token clear
+    updatedUser = (await User.findById(user.id)) || updatedUser || user;
+
     // Generate session ID
     const sessionId = crypto.randomUUID();
 
     // Generate JWT token for session
     const jwtToken = jwt.sign(
-      { id: user.id, email: user.username || user.email, role: user.role, status: user.status, sessionId },
+      {
+        id: updatedUser.id,
+        email: updatedUser.username || updatedUser.email,
+        role: updatedUser.role,
+        status: updatedUser.status,
+        sessionId
+      },
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
     );
@@ -3282,15 +3363,15 @@ export const resetPasswordWithToken = async (req, res, next) => {
     const cookieOptions = config.authCookie.set();
     res.cookie('authToken', jwtToken, cookieOptions);
 
-    const userAgencies = await User.getAgencies(user.id);
+    const userAgencies = await User.getAgencies(updatedUser.id);
 
     ActivityLogService.logActivity({
       actionType: 'login',
-      userId: user.id,
+      userId: updatedUser.id,
       sessionId,
       metadata: {
-        email: user.username || user.email,
-        role: user.role,
+        email: updatedUser.username || updatedUser.email,
+        role: updatedUser.role,
         loginType: 'reset_password'
       }
     }, req);
@@ -3299,9 +3380,9 @@ export const resetPasswordWithToken = async (req, res, next) => {
     setTimeout(async () => {
       try {
         const NotificationService = (await import('../services/notification.service.js')).default;
-        const mainAgencyId = await NotificationService.getMainAgencyIdForUser(user.id);
+        const mainAgencyId = await NotificationService.getMainAgencyIdForUser(updatedUser.id);
         if (mainAgencyId) {
-          NotificationService.createUserLoginNotification(user.id, mainAgencyId).catch(err => {
+          NotificationService.createUserLoginNotification(updatedUser.id, mainAgencyId).catch(err => {
             console.error('Failed to create user login notification:', err);
           });
         }
@@ -3309,8 +3390,6 @@ export const resetPasswordWithToken = async (req, res, next) => {
         console.error('Failed to create login notifications:', err);
       }
     }, 0);
-
-    const updatedUser = await User.findById(user.id);
 
     res.json({
       token: jwtToken,
@@ -3380,9 +3459,11 @@ export const initialSetup = async (req, res, next) => {
     await User.changePassword(user.id, password);
 
     // Update status when password is first set.
-    // Guardians should immediately become fully active in guardian portal.
+    // Guardians and school staff become fully active in their portals.
+    // Agency employees move into the pre-hire flow.
     if (user.status === 'PENDING_SETUP') {
-      const nextStatus = String(user.role || '').toLowerCase() === 'client_guardian'
+      const roleNorm = String(user.role || '').toLowerCase();
+      const nextStatus = EXTERNAL_PORTAL_PASSWORD_ROLES.has(roleNorm)
         ? 'ACTIVE_EMPLOYEE'
         : 'PREHIRE_OPEN';
       await User.updateStatus(user.id, nextStatus, user.id);

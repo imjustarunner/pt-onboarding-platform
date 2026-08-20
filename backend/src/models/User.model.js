@@ -148,30 +148,41 @@ class User {
       console.warn('Could not check for email columns:', err.message);
     }
     
-    // Check if username column exists before querying it
+    // Check if username / personal_email columns exist before querying them
     let hasUsernameColumn = false;
+    let hasPersonalEmailColumn = false;
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
-      const [usernameColumns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'username'",
+      const [extraColumns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('username', 'personal_email')",
         [dbName]
       );
-      hasUsernameColumn = usernameColumns.length > 0;
+      const names = new Set((extraColumns || []).map((c) => c.COLUMN_NAME));
+      hasUsernameColumn = names.has('username');
+      hasPersonalEmailColumn = names.has('personal_email');
     } catch (err) {
-      // If we can't check, assume it doesn't exist
-      console.warn('Could not check for username column:', err.message);
+      // If we can't check, assume they don't exist
+      console.warn('Could not check for username/personal_email columns:', err.message);
     }
     
+    // Match email, work_email, username, and personal_email so school staff (and others)
+    // can use Forgot Password with any address stored on their account.
+    const whereParts = [
+      'LOWER(TRIM(email)) = ?',
+      'LOWER(TRIM(work_email)) = ?'
+    ];
+    const whereParams = [normalized, normalized];
     if (hasUsernameColumn) {
-      // Use LOWER(TRIM()) for case-insensitive matching; handles legacy data with different casing/whitespace
-      query += ' FROM users WHERE LOWER(TRIM(email)) = ? OR LOWER(TRIM(work_email)) = ? OR LOWER(TRIM(username)) = ?';
-      const [rows] = await pool.execute(query, [normalized, normalized, normalized]);
-      if (rows[0]) return rows[0];
-    } else {
-      query += ' FROM users WHERE LOWER(TRIM(email)) = ? OR LOWER(TRIM(work_email)) = ?';
-      const [rows] = await pool.execute(query, [normalized, normalized]);
-      if (rows[0]) return rows[0];
+      whereParts.push('LOWER(TRIM(username)) = ?');
+      whereParams.push(normalized);
     }
+    if (hasPersonalEmailColumn) {
+      whereParts.push('LOWER(TRIM(personal_email)) = ?');
+      whereParams.push(normalized);
+    }
+    query += ` FROM users WHERE ${whereParts.join(' OR ')}`;
+    const [rows] = await pool.execute(query, whereParams);
+    if (rows[0]) return rows[0];
 
     // Fallback: allow additional login emails (aliases) when table exists.
     // This supports users linked to multiple agencies/brandings but sharing one account.
