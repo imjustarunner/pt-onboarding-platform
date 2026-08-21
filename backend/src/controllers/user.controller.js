@@ -1351,6 +1351,7 @@ export const aiQueryUsers = async (req, res, next) => {
         const preferred = (userAgencies || []).find((a) => Number(a.is_default) === 1);
         if (preferred?.id) resolvedAgencyId = Number(preferred.id);
       }
+    }
 
     // Provider-index path (field-aware): requires agencyId context.
     if (looksLikeProviderMatchQuery) {
