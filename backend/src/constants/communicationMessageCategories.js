@@ -7,6 +7,9 @@ import { buildQualityIssueSqlClause } from '../services/communicationQualitySql.
 export const COMMUNICATION_MESSAGE_CATEGORIES = [
   { key: 'roi', label: 'School ROI signing', group: 'School' },
   { key: 'roi_completion', label: 'School ROI completion', group: 'School' },
+  { key: 'enrollment_packet', label: 'Enrollment packet status', group: 'School' },
+  { key: 'ready_schedule', label: 'Ready to schedule', group: 'School' },
+  { key: 'expiring_bg', label: 'Expiring Background', group: 'Compliance' },
   { key: 'applications', label: 'Job applications', group: 'Hiring' },
   { key: 'onboarding', label: 'Onboarding & welcome', group: 'Hiring' },
   { key: 'intake', label: 'Intake & paperwork', group: 'Clients' },
@@ -37,6 +40,34 @@ export function appendCategoryFilter(category, where) {
     where.push(`uc.template_type = 'school_roi_signer_completion'`);
     return;
   }
+  if (cat === 'enrollment_packet') {
+    where.push(`(
+      uc.template_type = 'school_enrollment_packet_status'
+      OR uc.subject LIKE '%Digital Enrollment Packet%'
+      OR uc.subject LIKE '%Paper Enrollment Packet%'
+      OR uc.subject = 'Portal Document'
+    )`);
+    return;
+  }
+  if (cat === 'ready_schedule') {
+    where.push(`(
+      uc.template_type = 'school_ready_to_schedule_digest'
+      OR uc.subject LIKE '%Ready to Schedule%'
+    )`);
+    return;
+  }
+  if (cat === 'expiring_bg') {
+    where.push(`(
+      uc.template_type IN ('expiring_background', 'background_check_scheduled_admin')
+      OR uc.subject = 'Expiring Background'
+      OR uc.subject = 'Background check scheduled'
+    )`);
+    return;
+  }
+  if (cat === 'client') {
+    where.push(`uc.template_type IN ('client_assigned', 'school_portal_message', 'client_renewal')`);
+    return;
+  }
   if (cat === 'applications') {
     where.push(`(
       uc.template_type = 'job_application_received'
@@ -52,10 +83,6 @@ export function appendCategoryFilter(category, where) {
   }
   if (cat === 'intake') {
     where.push(`uc.template_type IN ('intake', 'intake_packet_completion')`);
-    return;
-  }
-  if (cat === 'client') {
-    where.push(`uc.template_type IN ('client_assigned', 'school_portal_message')`);
     return;
   }
   if (cat === 'events') {

@@ -36,7 +36,7 @@
       </div>
     </div>
 
-    <div v-if="selectedIds.size" class="roster-bulk">
+    <div v-if="!viewOnly && selectedIds.size" class="roster-bulk">
       <span>{{ selectedIds.size }} selected</span>
       <select v-model="bulkField" class="filter-select">
         <option value="">Set column…</option>
@@ -83,7 +83,7 @@
       <table class="roster-table">
         <thead>
           <tr>
-            <th class="col-check sticky-col">
+            <th v-if="!viewOnly" class="col-check sticky-col">
               <input type="checkbox" :checked="allVisibleSelected" @change="toggleSelectAll" />
             </th>
             <th class="col-name sticky-col sticky-name sortable" @click="toggleSort('name')">
@@ -101,7 +101,7 @@
         </thead>
         <tbody>
           <tr v-for="row in visibleRows" :key="row.id" :class="{ selected: selectedIds.has(row.id) }">
-            <td class="col-check sticky-col">
+            <td v-if="!viewOnly" class="col-check sticky-col">
               <input type="checkbox" :checked="selectedIds.has(row.id)" @change="toggleRow(row.id, $event.target.checked)" />
             </td>
             <td class="col-name sticky-col sticky-name">
@@ -113,28 +113,28 @@
                 <div class="file-cell">
                   <span v-if="fileName(row, f)" class="file-name" :title="fileName(row, f)">{{ fileName(row, f) }}</span>
                   <span v-else class="muted">None</span>
-                  <label class="btn btn-secondary btn-sm file-btn">
+                  <label v-if="!viewOnly" class="btn btn-secondary btn-sm file-btn">
                     Upload
                     <input type="file" hidden @change="onFile(row, f, $event)" />
                   </label>
                 </div>
               </template>
               <input
-                v-else-if="f.editable !== false && (f.type === 'text' || f.type === 'url')"
+                v-else-if="!viewOnly && f.editable !== false && (f.type === 'text' || f.type === 'url')"
                 class="cell-input"
                 type="text"
                 :value="cellValue(row, f)"
                 @change="onText(row, f, $event.target.value)"
               />
               <input
-                v-else-if="f.editable !== false && f.type === 'date'"
+                v-else-if="!viewOnly && f.editable !== false && f.type === 'date'"
                 class="cell-input"
                 type="date"
                 :value="cellValue(row, f)"
                 @change="onText(row, f, $event.target.value)"
               />
               <select
-                v-else-if="f.editable !== false && f.type === 'select'"
+                v-else-if="!viewOnly && f.editable !== false && f.type === 'select'"
                 class="cell-input"
                 :value="cellValue(row, f)"
                 @change="onText(row, f, $event.target.value)"
@@ -143,7 +143,7 @@
                 <option v-for="opt in optionsFor(f)" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
               </select>
               <input
-                v-else-if="f.editable !== false && f.type === 'boolean'"
+                v-else-if="!viewOnly && f.editable !== false && f.type === 'boolean'"
                 type="checkbox"
                 :checked="!!cellValue(row, f)"
                 @change="onText(row, f, $event.target.checked)"
@@ -183,7 +183,7 @@
             </td>
           </tr>
           <tr v-if="!visibleRows.length">
-            <td :colspan="2 + selectedFields.length" class="muted empty">No matching people.</td>
+            <td :colspan="(viewOnly ? 1 : 2) + selectedFields.length" class="muted empty">No matching people.</td>
           </tr>
         </tbody>
       </table>
@@ -203,7 +203,9 @@ const props = defineProps({
   extraRole: { type: String, default: '' },
   canArchive: { type: Boolean, default: false },
   canDelete: { type: Boolean, default: false },
-  profileBase: { type: String, default: '/admin/users' }
+  profileBase: { type: String, default: '/admin/users' },
+  /** Same column catalog/sort as roster editor; cells are display-only. */
+  viewOnly: { type: Boolean, default: false }
 });
 
 const maxColumns = 10;

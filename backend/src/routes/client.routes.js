@@ -113,6 +113,11 @@ import {
   patchClientDemo,
   bulkPatchDemo as bulkPatchClientDemo
 } from '../controllers/identityHygiene.controller.js';
+import {
+  listClientRenewals,
+  createClientRenewal,
+  sendClientRenewal
+} from '../controllers/clientRenewal.controller.js';
 
 const router = express.Router();
 
@@ -290,6 +295,9 @@ router.post('/:id/school-roi-signing-link', issueClientSchoolRoiSigningLink);
 router.post('/:id/school-roi-signing-link/copied', trackClientSchoolRoiSigningLinkCopied);
 router.post('/:id/school-roi-signing-text', sendClientSchoolRoiSigningText);
 router.post('/:id/school-roi-signing-email', sendClientSchoolRoiSigningEmail);
+router.get('/:id/renewals', requireBackofficeAdmin, listClientRenewals);
+router.post('/:id/renewals', requireBackofficeAdmin, createClientRenewal);
+router.post('/:id/renewals/:renewalId/send', requireBackofficeAdmin, sendClientRenewal);
 router.post(
   '/:id/guardians',
   requireBackofficeAdmin,

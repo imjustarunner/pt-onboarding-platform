@@ -405,14 +405,14 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
       const [pRows] = await pool.query(
         `SELECT
            SUM(CASE WHEN delivery_status IN ('pending') THEN 1 ELSE 0 END) AS pending_cnt,
-           SUM(CASE WHEN delivery_status IN ('failed', 'bounced', 'undelivered') THEN 1 ELSE 0 END) AS failed_cnt,
+           SUM(CASE WHEN delivery_status IN ('failed', 'bounced', 'undelivered', 'skipped') THEN 1 ELSE 0 END) AS failed_cnt,
            SUM(CASE WHEN delivery_status IN ('sent', 'delivered')
-                      AND created_at > DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS sent_cnt,
+                      AND generated_at > DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS sent_cnt,
            SUM(CASE WHEN delivery_status IN ('sent', 'delivered') THEN 1 ELSE 0 END) AS sent_total_cnt,
            SUM(CASE WHEN channel = 'email'
                       AND delivery_status IN ('sent', 'delivered') THEN 1 ELSE 0 END) AS sent_email_total_cnt,
            SUM(CASE WHEN delivery_status = 'delivered'
-                      AND created_at > DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS delivered_cnt
+                      AND generated_at > DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS delivered_cnt
          FROM user_communications
          WHERE agency_id IN (${placeholders})`,
         agencyIds
@@ -432,26 +432,26 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
         templateType: r.template_type || null,
         userId: r.user_id || null,
         clientId: r.client_id || null,
-        occurredAt: r.sent_at || r.created_at
+        occurredAt: r.sent_at || r.generated_at
       });
 
       const [pendList] = await pool.query(
-        `SELECT id, user_id, client_id, subject, recipient_address, delivery_status, channel, template_type, created_at, sent_at
+        `SELECT id, user_id, client_id, subject, recipient_address, delivery_status, channel, template_type, generated_at, sent_at
          FROM user_communications
          WHERE agency_id IN (${placeholders})
-           AND delivery_status IN ('pending', 'failed', 'bounced', 'undelivered')
-         ORDER BY created_at DESC
+           AND delivery_status IN ('pending', 'failed', 'bounced', 'undelivered', 'skipped')
+         ORDER BY generated_at DESC
          LIMIT 8`,
         agencyIds
       );
       engagementPending = (pendList || []).map(mapEngagementRow);
 
       const [sentList] = await pool.query(
-        `SELECT id, user_id, client_id, subject, recipient_address, delivery_status, channel, template_type, created_at, sent_at
+        `SELECT id, user_id, client_id, subject, recipient_address, delivery_status, channel, template_type, generated_at, sent_at
          FROM user_communications
          WHERE agency_id IN (${placeholders})
            AND delivery_status IN ('sent', 'delivered')
-         ORDER BY COALESCE(sent_at, created_at) DESC
+         ORDER BY COALESCE(sent_at, generated_at) DESC
          LIMIT 8`,
         agencyIds
       );

@@ -882,6 +882,20 @@
                       </div>
 
                       <button
+                        v-if="canEditUser && editingAgencyAssignments && !Number(agency.is_default)"
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="settingDefaultAgencyId === agency.id"
+                        @click="setDefaultAgency(agency.id)"
+                      >
+                        {{ settingDefaultAgencyId === agency.id ? '…' : 'Set default' }}
+                      </button>
+                      <span
+                        v-else-if="Number(agency.is_default)"
+                        class="muted"
+                        style="font-size: 12px; font-weight: 700; color: #0f766e;"
+                      >Default</span>
+                      <button
                         v-if="canEditUser && editingAgencyAssignments"
                         @click="removeAgency(agency.id)"
                         class="btn btn-danger btn-sm"
@@ -941,23 +955,32 @@
                   </div>
                   
                   <div v-if="canEditUser" class="add-agency-section">
-                    <select v-model="selectedAgencyId" class="agency-select">
-                      <option value="">Select an organization...</option>
-                      <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
-                        {{ agency.name }}
-                        <span v-if="agency.organization_type">({{ agency.organization_type }})</span>
+                    <div class="agency-multi-select" style="max-height: 160px; overflow: auto; border: 1px solid var(--border, #e2e8f0); border-radius: 8px; padding: 8px; min-width: 260px;">
+                      <label
+                        v-for="agency in availableAgencies"
+                        :key="agency.id"
+                        style="display:flex; gap:8px; align-items:center; margin-bottom: 4px; font-size: 13px;"
+                      >
+                        <input type="checkbox" :value="agency.id" v-model="selectedAgencyIds" />
+                        <span>{{ agency.name }}<span v-if="agency.organization_type" class="muted"> ({{ agency.organization_type }})</span></span>
+                      </label>
+                    </div>
+                    <select v-model="defaultAgencyIdDraft" class="agency-select" style="min-width: 200px;">
+                      <option value="">Default agency (optional)</option>
+                      <option
+                        v-for="agency in agenciesEligibleAsDefault"
+                        :key="`def-${agency.id}`"
+                        :value="String(agency.id)"
+                      >
+                        Default: {{ agency.name }}
                       </option>
                     </select>
-                    <input
-                      v-if="selectedAgencyAllowsAlias"
-                      v-model="newAgencyLoginEmail"
-                      class="agency-select"
-                      style="min-width: 260px;"
-                      placeholder="Optional login email alias (agencies only)"
-                      :disabled="!selectedAgencyId || assigningAgency"
-                    />
-                    <button @click="addAgency" class="btn btn-primary btn-sm" :disabled="!selectedAgencyId || assigningAgency">
-                      {{ assigningAgency ? 'Assigning...' : 'Assign' }}
+                    <button
+                      @click="addAgencies"
+                      class="btn btn-primary btn-sm"
+                      :disabled="!selectedAgencyIds.length || assigningAgency"
+                    >
+                      {{ assigningAgency ? 'Assigning...' : `Assign (${selectedAgencyIds.length || 0})` }}
                     </button>
                   </div>
                   <div v-else class="muted" style="font-size: 12px;">
@@ -4936,6 +4959,9 @@ const availableAgencies = ref([]);
 const availableAgenciesReady = ref(false);
 let fetchAvailableAgenciesInflight = null;
 const selectedAgencyId = ref('');
+const selectedAgencyIds = ref([]);
+const defaultAgencyIdDraft = ref('');
+const settingDefaultAgencyId = ref(null);
 const assigningAgency = ref(false);
 const officeAssignmentsLoading = ref(false);
 const officeAssignmentsError = ref('');
@@ -6485,6 +6511,54 @@ const addAgency = async () => {
     alert(error.value);
   } finally {
     assigningAgency.value = false;
+  }
+};
+
+const agenciesEligibleAsDefault = computed(() => {
+  const selected = new Set((selectedAgencyIds.value || []).map((id) => Number(id)));
+  const fromUser = (userAgencies.value || []).filter(
+    (a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency' || !a?.organization_type
+  );
+  const fromAvailable = (availableAgencies.value || []).filter((a) => selected.has(Number(a.id)));
+  const byId = new Map();
+  for (const a of [...fromUser, ...fromAvailable]) {
+    if (a?.id) byId.set(Number(a.id), a);
+  }
+  return Array.from(byId.values());
+});
+
+const addAgencies = async () => {
+  const ids = (selectedAgencyIds.value || []).map((x) => parseInt(x, 10)).filter((n) => n > 0);
+  if (!ids.length) return;
+  try {
+    assigningAgency.value = true;
+    await api.post('/users/assign/agency', {
+      userId: userId.value,
+      agencyIds: ids,
+      defaultAgencyId: defaultAgencyIdDraft.value ? parseInt(defaultAgencyIdDraft.value, 10) : undefined
+    });
+    await refreshUserOrgAssignments();
+    selectedAgencyIds.value = [];
+    defaultAgencyIdDraft.value = '';
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to assign agencies';
+    alert(error.value);
+  } finally {
+    assigningAgency.value = false;
+  }
+};
+
+const setDefaultAgency = async (agencyId) => {
+  const aid = parseInt(agencyId, 10);
+  if (!aid || !userId.value) return;
+  settingDefaultAgencyId.value = aid;
+  try {
+    await api.put(`/users/${userId.value}/default-agency`, { agencyId: aid });
+    await refreshUserOrgAssignments();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to set default agency');
+  } finally {
+    settingDefaultAgencyId.value = null;
   }
 };
 

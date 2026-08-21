@@ -735,6 +735,18 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/client-renewal/:token',
+    name: 'PublicClientRenewal',
+    component: () => import('../views/public/PublicClientRenewalView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/client-renewal/:token',
+    name: 'OrganizationPublicClientRenewal',
+    component: () => import('../views/public/PublicClientRenewalView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
     path: '/client-action/:token',
     name: 'ProviderActionPublic',
     component: () => import('../views/public/ProviderActionPublicView.vue'),

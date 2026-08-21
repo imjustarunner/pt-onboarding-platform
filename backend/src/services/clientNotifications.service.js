@@ -4,6 +4,9 @@ import { createClientOnboardingTaskForProvider } from './clientOnboardingTask.se
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityResolver.service.js';
+import CommunicationLoggingService from './communicationLogging.service.js';
+import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import Agency from '../models/Agency.model.js';
 
 async function alreadyNotified({ agencyId, userId, type, relatedEntityId }) {
   const [rows] = await pool.execute(
@@ -80,7 +83,26 @@ async function getSchoolItscoEmail(schoolOrganizationId) {
   }
 }
 
-const DEFAULT_SCHOOL_INTAKE_FROM_NAME = 'ITSCO - School Intake';
+async function getSchoolDisplayName(schoolOrganizationId) {
+  const sid = Number(schoolOrganizationId || 0);
+  if (!sid) return 'School';
+  try {
+    const [rows] = await pool.execute(
+      `SELECT TRIM(a.name) AS agency_name
+       FROM agencies a
+       WHERE a.id = ?
+       LIMIT 1`,
+      [sid]
+    );
+    const raw = String(rows?.[0]?.agency_name || '').trim();
+    if (!raw || isTestOrPlaceholderSenderDisplayName(raw)) return 'School';
+    return raw;
+  } catch {
+    return 'School';
+  }
+}
+
+const SCHOOLS_REPLY_TO = 'schools@itsco.health';
 
 function isTestOrPlaceholderSenderDisplayName(name) {
   const n = String(name || '').trim().toLowerCase();
@@ -94,24 +116,41 @@ function isTestOrPlaceholderSenderDisplayName(name) {
   );
 }
 
-async function getSchoolIntakeEmailFromDisplayName(schoolOrganizationId) {
-  const sid = Number(schoolOrganizationId || 0);
-  if (!sid) return DEFAULT_SCHOOL_INTAKE_FROM_NAME;
+async function logSchoolStatusEmailSkip({
+  agencyId = null,
+  clientId = null,
+  schoolOrganizationId = null,
+  to = null,
+  subject = null,
+  reason = null
+} = {}) {
   try {
-    const [rows] = await pool.execute(
-      `SELECT TRIM(a.name) AS agency_name, TRIM(sp.district_name) AS district_name
-       FROM agencies a
-       LEFT JOIN school_profiles sp ON sp.school_organization_id = a.id
-       WHERE a.id = ?
-       LIMIT 1`,
-      [sid]
-    );
-    const row = rows?.[0] || {};
-    const raw = String(row.agency_name || row.district_name || '').trim();
-    if (!raw || isTestOrPlaceholderSenderDisplayName(raw)) return DEFAULT_SCHOOL_INTAKE_FROM_NAME;
-    return `${raw} - School Intake`;
+    await CommunicationLoggingService.logGeneratedCommunication({
+      userId: null,
+      clientId: clientId || null,
+      agencyId: agencyId || null,
+      templateType: 'school_enrollment_packet_status',
+      templateId: null,
+      subject: subject || 'School enrollment packet status (not sent)',
+      body: String(reason || 'not sent'),
+      generatedByUserId: null,
+      channel: 'email',
+      recipientAddress: to || null,
+      metadata: {
+        schoolOrganizationId: schoolOrganizationId || null,
+        skipReason: reason || 'unknown'
+      }
+    }).then(async (comm) => {
+      if (!comm?.id) return;
+      await pool.execute(
+        `UPDATE user_communications
+         SET delivery_status = 'failed', error_message = ?
+         WHERE id = ?`,
+        [String(reason || 'not sent').slice(0, 500), comm.id]
+      ).catch(() => {});
+    });
   } catch {
-    return DEFAULT_SCHOOL_INTAKE_FROM_NAME;
+    // best-effort diagnostics
   }
 }
 
@@ -178,73 +217,158 @@ async function sendSchoolIntakeStatusEmail({
   agencyId,
   mode,
   clientInitials,
-  schoolStaffName
+  schoolStaffName,
+  clientId = null
 }) {
   const sid = Number(schoolOrganizationId || 0);
-  if (!sid) return false;
-  const to = await getSchoolItscoEmail(sid);
-  if (!to) return false;
-  const senderIdentityId = await resolveIntakeStatusSenderIdentityId({ agencyId });
-  if (!senderIdentityId) return false;
+  const aid = Number(agencyId || 0) || null;
+  const isPaper = String(mode || '').toLowerCase() === 'paper_upload';
+  const schoolName = sid ? await getSchoolDisplayName(sid) : 'School';
 
   const initialsRaw = String(clientInitials || '').trim();
   const hasKnownInitials = !!initialsRaw && initialsRaw.toUpperCase() !== 'TBD';
   const initials = hasKnownInitials ? initialsRaw : null;
   const staff = String(schoolStaffName || '').trim();
-  const includePaperStaffSentence = mode === 'paper_upload' && !!initials && !!staff;
 
-  let subject = '';
-  let text = '';
-  if (mode === 'paper_upload') {
-    subject = 'Portal Document';
-    text = [
-      'Hello,',
-      '',
-      includePaperStaffSentence
-        ? `A new paper packet has been uploaded into our system by ${staff} for the client ${initials}. Please login at app.ITSCO.health to view the client's status. Our team has been notified and they will be working on getting them ready to go!`
-        : (
-            initials
-              ? `A new paper packet has been uploaded into our system for the client ${initials}. Please login at app.ITSCO.health to view the client's status. Our team has been notified and they will be working on getting them ready to go!`
-              : `A new paper packet has been uploaded into our system for a new client intake. Please login at app.ITSCO.health to view the client's status. Our team has been notified and they will be working on getting them ready to go!`
-          ),
-      '',
-      'Thank you,',
-      '',
-      'ITSCO Support'
-    ].join('\n');
-  } else {
-    subject = 'Portal Document';
-    text = [
-      'Hello,',
-      '',
-      (
-        initials
-          ? `A new digital intake packet/form has been submitted for the client with the initials of ${initials}. Please login at app.ITSCO.health to view the client's status. Our team has been notified and they will be working on getting them ready to go!`
-          : `A new digital intake packet/form has been submitted for a new client intake. Please login at app.ITSCO.health to view the client's status. Our team has been notified and they will be working on getting them ready to go!`
-      ),
-      '',
-      'Thank you,',
-      '',
-      'ITSCO Support'
-    ].join('\n');
+  const subject = isPaper
+    ? `${schoolName} - Paper Enrollment Packet Uploaded`
+    : `${schoolName} - Digital Enrollment Packet`;
+
+  if (!sid) {
+    await logSchoolStatusEmailSkip({
+      agencyId: aid,
+      clientId,
+      subject,
+      reason: 'Missing school organization id'
+    });
+    return false;
   }
-  const html = text
-    .split('\n')
-    .map((line) => (line ? `<p>${line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>` : '<p>&nbsp;</p>'))
-    .join('');
 
-  const fromDisplayNameOverride = await getSchoolIntakeEmailFromDisplayName(sid);
+  const to = await getSchoolItscoEmail(sid);
+  if (!to) {
+    await logSchoolStatusEmailSkip({
+      agencyId: aid,
+      clientId,
+      schoolOrganizationId: sid,
+      subject,
+      reason: `No school ITSCO group email (school_profiles.itsco_email) for school #${sid}`
+    });
+    return false;
+  }
 
-  await sendEmailFromIdentity({
-    senderIdentityId,
-    to,
-    subject,
-    text,
-    html,
-    source: 'auto',
-    fromDisplayNameOverride
-  });
-  return true;
+  const senderIdentityId = await resolveIntakeStatusSenderIdentityId({ agencyId: aid });
+  if (!senderIdentityId) {
+    await logSchoolStatusEmailSkip({
+      agencyId: aid,
+      clientId,
+      schoolOrganizationId: sid,
+      to,
+      subject,
+      reason: 'No notifications@itsco.health sender identity configured'
+    });
+    return false;
+  }
+
+  let portalUrl = 'https://app.itsco.health';
+  try {
+    const agency = aid ? await Agency.findById(aid) : null;
+    portalUrl = buildPublicAppUrl(agency || { slug: 'itsco' }, '') || portalUrl;
+  } catch {
+    // keep default
+  }
+  const loginUrl = portalUrl.replace(/\/$/, '') + '/login';
+
+  const packetLabel = isPaper ? 'Paper Enrollment Packet' : 'Digital Enrollment Packet';
+  const supportTeam = `${schoolName} - Support Team`;
+
+  const lead = isPaper
+    ? (
+        initials && staff
+          ? `A new ${packetLabel} has been uploaded into our system by ${staff} for the client with initials ${initials}.`
+          : initials
+            ? `A new ${packetLabel} has been uploaded into our system for the client with initials ${initials}.`
+            : `A new ${packetLabel} has been uploaded into our system for a new client.`
+      )
+    : (
+        initials
+          ? `A new ${packetLabel} has been submitted for the client with initials ${initials}.`
+          : `A new ${packetLabel} has been submitted for a new client.`
+      );
+
+  const text = [
+    'Hello,',
+    '',
+    lead,
+    '',
+    'Our team has been notified and we are working on getting this client onboarded and ready for scheduling. Once our team has completed our steps and we assign a clinician, you will receive an email that the client is ready to schedule. If they are waitlisted, you will also be notified ASAP with the waitlist reason.',
+    '',
+    `You can view this client's status in the school portal anytime:`,
+    loginUrl,
+    '',
+    'Thank you,',
+    supportTeam,
+    '',
+    'Questions? Reply to this email or contact schools@ITSCO.health.'
+  ].join('\n');
+
+  const esc = (s) => String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  const html = `
+    <div style="font-family: Arial, Helvetica, sans-serif; line-height: 1.55; color: #1a1a1a; max-width: 640px;">
+      <p>Hello,</p>
+      <p>${esc(lead)}</p>
+      <p>Our team has been notified and we are working on getting this client onboarded and ready for scheduling. Once our team has completed our steps and we assign a clinician, you will receive an email that the client is ready to schedule. If they are waitlisted, you will also be notified ASAP with the waitlist reason.</p>
+      <p><a href="${esc(loginUrl)}" style="display:inline-block;padding:10px 16px;background:#1f6b4a;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Open school portal</a></p>
+      <p style="font-size:13px;color:#555;">Or visit <a href="${esc(loginUrl)}">${esc(loginUrl)}</a></p>
+      <p>Thank you,<br/><strong>${esc(supportTeam)}</strong></p>
+      <p style="font-size:12px;color:#666;">Questions? Reply to this email or contact <a href="mailto:schools@ITSCO.health">schools@ITSCO.health</a>.</p>
+    </div>
+  `.trim();
+
+  const fromDisplayNameOverride = isPaper
+    ? `${schoolName} - Paper Enrollment Packet Uploaded`
+    : `${schoolName} - Digital Enrollment Packet`;
+
+  try {
+    const result = await sendEmailFromIdentity({
+      senderIdentityId,
+      to,
+      subject,
+      text,
+      html,
+      source: 'auto',
+      agencyId: aid,
+      clientId: clientId || null,
+      templateType: 'school_enrollment_packet_status',
+      fromDisplayNameOverride,
+      replyToOverride: SCHOOLS_REPLY_TO,
+      linkUrl: loginUrl
+    });
+    if (result?.skipped || result?.blocked) {
+      console.warn('[schoolEnrollmentPacketStatus] send skipped/blocked', {
+        schoolOrganizationId: sid,
+        clientId,
+        reason: result.reason || result.qualityFlags
+      });
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[schoolEnrollmentPacketStatus] send failed', err?.message || err);
+    await logSchoolStatusEmailSkip({
+      agencyId: aid,
+      clientId,
+      schoolOrganizationId: sid,
+      to,
+      subject,
+      reason: String(err?.message || err || 'send failed').slice(0, 500)
+    });
+    return false;
+  }
 }
 
 function buildChecklistDetails({
@@ -369,6 +493,28 @@ export async function notifyClinicalSafetyAlert({
   }).catch(() => null);
 }
 
+/** Skip school status email if we already sent one for this client recently. */
+async function alreadySentSchoolEnrollmentPacketEmail({ agencyId, clientId }) {
+  const aid = Number(agencyId || 0);
+  const cid = Number(clientId || 0);
+  if (!aid || !cid) return false;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id FROM user_communications
+       WHERE agency_id = ?
+         AND client_id = ?
+         AND template_type = 'school_enrollment_packet_status'
+         AND delivery_status IN ('sent', 'delivered', 'pending')
+         AND generated_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+       LIMIT 1`,
+      [aid, cid]
+    );
+    return !!rows[0]?.id;
+  } catch {
+    return false;
+  }
+}
+
 export async function notifyNewPacketUploaded({
   agencyId,
   schoolOrganizationId,
@@ -379,38 +525,46 @@ export async function notifyNewPacketUploaded({
   schoolStaffName = null
 }) {
   if (!agencyId || !clientId) return;
-  if (await alreadyNotifiedNewPacketUploadedAgencyWide({ agencyId, clientId })) return;
 
-  const title = 'New packet uploaded';
-  const message = `A new packet was uploaded for client ${clientNameOrIdentifier || `ID ${clientId}`}.`;
+  const alreadyNotified = await alreadyNotifiedNewPacketUploadedAgencyWide({ agencyId, clientId });
+  if (!alreadyNotified) {
+    const title = 'New packet uploaded';
+    const message = `A new packet was uploaded for client ${clientNameOrIdentifier || `ID ${clientId}`}.`;
 
-  await createNotificationAndDispatch({
-    type: 'new_packet_uploaded',
-    severity: 'warning',
-    title,
-    message,
-    audienceJson: {
-      admin: true,
-      clinicalPracticeAssistant: true,
-      schoolStaff: false,
-      supervisor: false,
-      provider: false
-    },
-    userId: null,
-    agencyId,
-    relatedEntityType: 'client',
-    relatedEntityId: clientId,
-    actorSource: 'System'
-  }).catch(() => null);
+    await createNotificationAndDispatch({
+      type: 'new_packet_uploaded',
+      severity: 'warning',
+      title,
+      message,
+      audienceJson: {
+        admin: true,
+        clinicalPracticeAssistant: true,
+        schoolStaff: false,
+        supervisor: false,
+        provider: false
+      },
+      userId: null,
+      agencyId,
+      relatedEntityType: 'client',
+      relatedEntityId: clientId,
+      actorSource: 'System'
+    }).catch(() => null);
+  }
 
-  // School-facing status email (uses editable sender identity: notifications@itsco.health).
-  await sendSchoolIntakeStatusEmail({
-    schoolOrganizationId,
-    agencyId,
-    mode,
-    clientInitials,
-    schoolStaffName
-  }).catch(() => null);
+  // School email is independent of in-app notification idempotency so a prior silent
+  // failure can still be diagnosed / retried until a successful/pending send exists.
+  if (!(await alreadySentSchoolEnrollmentPacketEmail({ agencyId, clientId }))) {
+    await sendSchoolIntakeStatusEmail({
+      schoolOrganizationId,
+      agencyId,
+      mode,
+      clientInitials,
+      schoolStaffName,
+      clientId
+    }).catch((err) => {
+      console.error('[notifyNewPacketUploaded] school status email error', err?.message || err);
+    });
+  }
 }
 
 /** Resolve recipient user IDs for a company-event registration notification.

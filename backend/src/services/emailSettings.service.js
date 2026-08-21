@@ -77,6 +77,10 @@ export async function emailRequiresAdminApproval({
   triggerKey = null,
   usedFallbackSender = false
 } = {}) {
+  // Compliance Expiring Background must send immediately (no approval queue).
+  const ttNorm = String(templateType || '').trim().toLowerCase();
+  if (ttNorm === 'expiring_background') return false;
+
   if (usedFallbackSender) return true;
 
   if (isSchoolRoiEmailTemplate(templateType)) {

@@ -91,6 +91,7 @@ import providerUpdateRoutes from './routes/providerUpdate.routes.js';
 import providerActionRoutes from './routes/providerAction.routes.js';
 import publicProviderActionRoutes from './routes/publicProviderAction.routes.js';
 import publicProviderYearUpdateRoutes from './routes/publicProviderYearUpdate.routes.js';
+import publicClientRenewalRoutes from './routes/publicClientRenewal.routes.js';
 import publicProviderUpdateRoutes from './routes/publicProviderUpdate.routes.js';
 import publicAdminUpdateRoutes from './routes/publicAdminUpdate.routes.js';
 import adminUpdateMeRoutes from './routes/adminUpdate.routes.js';
@@ -704,6 +705,7 @@ app.use('/api/public/school-events', publicSchoolEventsKioskRoutes);
 app.use('/api/public/school-reinit', publicSchoolReinitRoutes);
 app.use('/api/public/school-onboarding', publicSchoolOnboardingRoutes);
 app.use('/api/public/provider-year-update', publicProviderYearUpdateRoutes);
+app.use('/api/public/client-renewal', publicClientRenewalRoutes);
 app.use('/api/public/provider-update', publicProviderUpdateRoutes);
 app.use('/api/public/provider-action', publicProviderActionRoutes);
 app.use('/api/public/admin-updates', publicAdminUpdateRoutes);
@@ -1889,6 +1891,24 @@ if (!isBootstrap) {
   };
   scheduleUnfinishedEnrollmentReminders();
   setInterval(scheduleUnfinishedEnrollmentReminders, 60 * 60 * 1000);
+
+  // School Ready-to-Schedule digests (Mon/Wed/Fri ~10:00 America/Denver)
+  const scheduleReadyToScheduleDigests = async () => {
+    try {
+      const { runReadyToScheduleDigestTick } = await import('./services/schoolReadyScheduleDigest.service.js');
+      await runReadyToScheduleDigestTick();
+    } catch (error) {
+      const msg = String(error?.message || '');
+      const missing = error?.code === 'ER_NO_SUCH_TABLE' || msg.includes('school_ready_schedule_digest');
+      if (missing) {
+        console.warn('Ready-to-schedule digest table not found. Run migration 1270_school_ready_schedule_digests.sql');
+      } else {
+        console.error('Error in ready-to-schedule digest scheduler:', error);
+      }
+    }
+  };
+  scheduleReadyToScheduleDigests();
+  setInterval(scheduleReadyToScheduleDigests, 5 * 60 * 1000);
 
   // Daily digest emails (runs every 15 minutes; respects per-user time + opt-in)
   const scheduleDailyDigest = async () => {

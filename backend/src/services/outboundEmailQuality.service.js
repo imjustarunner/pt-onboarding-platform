@@ -217,10 +217,14 @@ function buildCommunicationListFilters({
     statusList = ['sent', 'delivered', 'failed', 'pending', 'bounced', 'undelivered'];
   } else if (statusNorm === 'sent') {
     statusList = ['sent', 'delivered'];
+  } else if (statusNorm === 'failed') {
+    // Include gate-skips so Forgot Password / auto sends that never left the building
+    // are visible under Failed (they used to be invisible because status=skipped).
+    statusList = ['failed', 'bounced', 'undelivered', 'skipped'];
   } else if (statusNorm) {
     statusList = [statusNorm];
   } else {
-    statusList = ['pending', 'failed', 'bounced', 'undelivered'];
+    statusList = ['pending', 'failed', 'bounced', 'undelivered', 'skipped'];
   }
 
   const statusPlaceholders = statusList.map(() => '?').join(',');

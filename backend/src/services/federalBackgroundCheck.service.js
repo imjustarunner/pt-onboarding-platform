@@ -229,6 +229,74 @@ export async function setExpirationYearsForAgency(agencyId, years) {
 }
 
 /**
+ * When scheduled_at <= today, promote it to completed_at (the new BG/fingerprint date),
+ * clear scheduled_at, recompute expires_at, and mirror EAV fields.
+ */
+export async function promoteScheduledFederalBackgroundChecks({ asOf = null } = {}) {
+  const todayYmd = toYmd(asOf || new Date());
+  if (!todayYmd) return { promoted: 0 };
+
+  const [defs] = await pool.execute(
+    `SELECT id FROM lifecycle_checklist_definitions
+     WHERE item_key = ? AND agency_id IS NULL LIMIT 1`,
+    [FEDERAL_BG_ITEM_KEY]
+  );
+  const definitionId = defs?.[0]?.id;
+  if (!definitionId) return { promoted: 0 };
+
+  const [rows] = await pool.execute(
+    `SELECT user_id, scheduled_at
+     FROM user_lifecycle_checklist_items
+     WHERE definition_id = ?
+       AND scheduled_at IS NOT NULL
+       AND scheduled_at <= ?`,
+    [definitionId, todayYmd]
+  );
+
+  let promoted = 0;
+  for (const row of rows || []) {
+    const uid = Number(row.user_id);
+    const scheduledYmd = toYmd(row.scheduled_at);
+    if (!uid || !scheduledYmd) continue;
+    try {
+      await pool.execute(
+        `UPDATE user_lifecycle_checklist_items
+         SET is_completed = 1,
+             completed_at = ?,
+             scheduled_at = NULL,
+             completion_method = COALESCE(completion_method, 'scheduled_promote'),
+             manually_overridden = 0
+         WHERE user_id = ? AND definition_id = ?`,
+        [`${scheduledYmd} 00:00:00`, uid, definitionId]
+      );
+      await syncFederalBackgroundExpiration(uid);
+      await mirrorBackgroundCheckInfoFields(uid, {
+        completed: true,
+        completedAt: scheduledYmd
+      });
+      // Also mirror fingerprint date when the field exists
+      const [fpDefs] = await pool.execute(
+        `SELECT id FROM user_info_field_definitions
+         WHERE field_key = 'provider_fingerprint_date' AND agency_id IS NULL
+         LIMIT 1`
+      );
+      if (fpDefs?.[0]?.id) {
+        await pool.execute(
+          `INSERT INTO user_info_values (user_id, field_definition_id, value)
+           VALUES (?, ?, ?)
+           ON DUPLICATE KEY UPDATE value = VALUES(value)`,
+          [uid, fpDefs[0].id, scheduledYmd]
+        );
+      }
+      promoted += 1;
+    } catch (err) {
+      console.error('[federalBG] promote scheduled failed', uid, err?.message || err);
+    }
+  }
+  return { promoted };
+}
+
+/**
  * Mirror completion date into provider_background_check_date / status EAV for consistency.
  */
 export async function mirrorBackgroundCheckInfoFields(userId, { completed, completedAt } = {}) {

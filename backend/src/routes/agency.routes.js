@@ -641,6 +641,24 @@ router.get('/:id/notification-preferences', authenticate, requireBackofficeAdmin
 router.put('/:id/notification-preferences', authenticate, requireBackofficeAdmin, updateAgencyNotificationPreferences);
 router.get('/:id/notification-sender', authenticate, requireSuperAdmin, getAgencyNotificationSender);
 router.put('/:id/notification-sender', authenticate, requireSuperAdmin, putAgencyNotificationSender);
+router.get('/:id/district-background-processes', authenticate, requireBackofficeAdmin, async (req, res, next) => {
+  try {
+    const { getDistrictBackgroundProcesses } = await import('../controllers/districtBackgroundProcess.controller.js');
+    req.params.agencyId = req.params.id;
+    return getDistrictBackgroundProcesses(req, res, next);
+  } catch (e) {
+    next(e);
+  }
+});
+router.put('/:id/district-background-processes', authenticate, requireBackofficeAdmin, async (req, res, next) => {
+  try {
+    const { putDistrictBackgroundProcess } = await import('../controllers/districtBackgroundProcess.controller.js');
+    req.params.agencyId = req.params.id;
+    return putDistrictBackgroundProcess(req, res, next);
+  } catch (e) {
+    next(e);
+  }
+});
 
 // Program reminder schedules
 router.get('/:id/program-reminders', authenticate, requireBackofficeAdmin, listProgramReminderSchedules);

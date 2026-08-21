@@ -613,7 +613,7 @@ class User {
         GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') as agencies,
         GROUP_CONCAT(DISTINCT a.id ORDER BY a.id SEPARATOR ',') as agency_ids
       FROM users u
-      LEFT JOIN user_agencies ua ON u.id = ua.user_id
+      LEFT JOIN user_agencies ua ON u.id = ua.user_id AND (ua.is_active = TRUE OR ua.is_active IS NULL)
       LEFT JOIN agencies a ON ua.agency_id = a.id
     `;
     if (!includeArchived) {
@@ -1881,13 +1881,14 @@ class User {
     // Best-effort: include membership fields from user_agencies.
     try {
       const [uaCols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('has_payroll_access','has_billing_access','h0032_requires_manual_minutes','is_active','club_role','supervision_is_prelicensed','supervision_is_compensable','supervision_start_date','supervision_start_individual_hours','supervision_start_group_hours','agency_role','agency_position','include_on_disclosure')"
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('has_payroll_access','has_billing_access','h0032_requires_manual_minutes','is_active','is_default','club_role','supervision_is_prelicensed','supervision_is_compensable','supervision_start_date','supervision_start_individual_hours','supervision_start_group_hours','agency_role','agency_position','include_on_disclosure')"
       );
       const names = (uaCols || []).map((c) => c.COLUMN_NAME);
       hasPayrollAccess = names.includes('has_payroll_access');
       hasBillingAccess = names.includes('has_billing_access');
       hasH0032ManualMinutes = names.includes('h0032_requires_manual_minutes');
       var hasIsActive = names.includes('is_active'); // eslint-disable-line no-var
+      var hasIsDefault = names.includes('is_default'); // eslint-disable-line no-var
       var hasClubRole = names.includes('club_role'); // eslint-disable-line no-var
       // Prelicensed supervision settings
       var hasSupervisionPrelicensed = names.includes('supervision_is_prelicensed'); // eslint-disable-line no-var
@@ -1903,6 +1904,7 @@ class User {
       hasBillingAccess = false;
       hasH0032ManualMinutes = false;
       var hasIsActive = false; // eslint-disable-line no-var
+      var hasIsDefault = false; // eslint-disable-line no-var
       var hasClubRole = false; // eslint-disable-line no-var
       // Prelicensed supervision settings
       var hasSupervisionPrelicensed = false; // eslint-disable-line no-var
@@ -1933,6 +1935,7 @@ class User {
       hasPayrollAccess ? 'ua.has_payroll_access' : null,
       hasBillingAccess ? 'ua.has_billing_access' : null,
       hasH0032ManualMinutes ? 'ua.h0032_requires_manual_minutes' : null,
+      hasIsDefault ? 'ua.is_default' : null,
       hasClubRole ? 'ua.club_role' : null,
       hasSupervisionPrelicensed ? 'ua.supervision_is_prelicensed' : null,
       hasSupervisionCompensable ? 'ua.supervision_is_compensable' : null,
@@ -2153,6 +2156,30 @@ class User {
         [active ? 1 : 0, userId, agencyId]
       );
       return this.getAgencyMembership(userId, agencyId);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Mark one agency as the user's default (clears others). Pass agencyId null to clear. */
+  static async setDefaultAgency(userId, agencyId) {
+    const uid = Number(userId);
+    if (!Number.isInteger(uid) || uid <= 0) return null;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME = 'is_default'"
+      );
+      if (!cols?.length) return null;
+      await pool.execute(`UPDATE user_agencies SET is_default = 0 WHERE user_id = ?`, [uid]);
+      const aid = Number(agencyId);
+      if (Number.isInteger(aid) && aid > 0) {
+        await pool.execute(
+          `UPDATE user_agencies SET is_default = 1 WHERE user_id = ? AND agency_id = ?`,
+          [uid, aid]
+        );
+      }
+      invalidateUserAgenciesCache(uid);
+      return this.getAgencyMembership(uid, aid);
     } catch {
       return null;
     }

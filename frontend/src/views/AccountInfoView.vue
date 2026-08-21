@@ -49,6 +49,58 @@
         </div>
       </div>
 
+      <div v-if="bgExpiration && (bgExpiration.expiresAt || bgExpiration.completedAt || bgExpiration.districts?.length)" class="info-section">
+        <div class="section-header">
+          <h2 style="margin: 0;">Federal Background / Fingerprint Check</h2>
+        </div>
+        <p class="hint" style="margin-top: 8px;">
+          <span v-if="bgExpiration.fingerprintDate">
+            Fingerprint date: <strong>{{ formatBgDate(bgExpiration.fingerprintDate) }}</strong>
+            <span v-if="bgExpiration.completedAt || bgExpiration.expiresAt"> · </span>
+          </span>
+          <span v-if="bgExpiration.completedAt">
+            Background check date: <strong>{{ formatBgDate(bgExpiration.completedAt) }}</strong>
+          </span>
+          <span v-if="bgExpiration.expiresAt">
+            <span v-if="bgExpiration.completedAt || bgExpiration.fingerprintDate"> · </span>
+            Expiration: <strong>{{ formatBgDate(bgExpiration.expiresAt) }}</strong>
+            <span class="hint"> (auto-calculated)</span>
+          </span>
+        </p>
+        <ul v-if="bgExpiration.districts?.length" style="margin: 8px 0 0; padding-left: 18px;">
+          <li v-for="d in bgExpiration.districts" :key="d.district_name">
+            {{ d.district_name }}<span v-if="d.school_name"> ({{ d.school_name }})</span>
+            <span v-if="bgExpiration.expiresAt"> — expires {{ formatBgDate(bgExpiration.expiresAt) }}</span>
+          </li>
+        </ul>
+        <div class="bg-schedule-row" style="margin-top: 14px; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;">
+          <label style="display: flex; flex-direction: column; gap: 4px; font-size: 13px;">
+            <span>Scheduled renewal date</span>
+            <input
+              v-model="bgScheduledDraft"
+              type="date"
+              style="padding: 7px 10px; border: 1px solid var(--border, #e2e8f0); border-radius: 7px; font-size: 13px;"
+            />
+          </label>
+          <button
+            type="button"
+            class="btn btn-primary btn-compact"
+            :disabled="bgScheduleSaving || !bgScheduledDraft"
+            @click="saveBgScheduledDate"
+          >
+            {{ bgScheduleSaving ? 'Saving…' : 'Save scheduled date' }}
+          </button>
+          <span v-if="bgExpiration.scheduledAt" class="hint" style="align-self: center;">
+            Current scheduled: {{ formatBgDate(bgExpiration.scheduledAt) }}
+          </span>
+        </div>
+        <p class="hint" style="margin-top: 8px;">
+          Enter the date your background/fingerprint check is scheduled. Compliance is notified. After that date passes, it becomes your background check date and expiration updates automatically.
+        </p>
+        <p v-if="bgScheduleError" class="error" style="margin-top: 6px;">{{ bgScheduleError }}</p>
+        <p v-if="bgScheduleSaved" class="hint" style="margin-top: 6px; color: #065f46;">Scheduled date saved. Admin notified.</p>
+      </div>
+
       <!-- Photo Album (SSTC self-service) -->
       <div v-if="isSsc" class="info-section">
         <div class="section-header">
@@ -1372,6 +1424,39 @@ const deleteAlbumPhoto = async (photo) => {
 };
 
 const loading = ref(true);
+const bgExpiration = ref(null);
+const bgScheduledDraft = ref('');
+const bgScheduleSaving = ref(false);
+const bgScheduleError = ref('');
+const bgScheduleSaved = ref(false);
+
+function formatBgDate(raw) {
+  const s = String(raw || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return String(raw || '');
+  const [y, m, d] = s.split('-');
+  return `${m}/${d}/${y}`;
+}
+
+async function saveBgScheduledDate() {
+  bgScheduleError.value = '';
+  bgScheduleSaved.value = false;
+  if (!bgScheduledDraft.value) {
+    bgScheduleError.value = 'Pick a scheduled date';
+    return;
+  }
+  bgScheduleSaving.value = true;
+  try {
+    const res = await api.put('/users/me/background-scheduled', {
+      scheduledAt: bgScheduledDraft.value
+    });
+    bgExpiration.value = res.data || bgExpiration.value;
+    bgScheduleSaved.value = true;
+  } catch (err) {
+    bgScheduleError.value = err.response?.data?.error?.message || 'Failed to save scheduled date';
+  } finally {
+    bgScheduleSaving.value = false;
+  }
+}
 const error = ref('');
 const accountInfo = ref({ 
   loginEmail: '', 
@@ -2101,6 +2186,14 @@ const fetchAccountInfo = async () => {
       loadUserTimezone().catch(() => {});
       loadReferralLink().catch(() => {});
     }
+    api.get('/users/me/background-expiration', { skipGlobalLoading: true })
+      .then((res) => {
+        bgExpiration.value = res.data || null;
+        bgScheduledDraft.value = String(res.data?.scheduledAt || '').slice(0, 10);
+        bgScheduleSaved.value = false;
+        bgScheduleError.value = '';
+      })
+      .catch(() => { bgExpiration.value = null; });
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load account information';
   } finally {

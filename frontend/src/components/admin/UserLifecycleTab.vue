@@ -511,6 +511,16 @@
                         title="Date background check renewal is scheduled"
                       />
                     </label>
+                    <button
+                      v-if="!viewOnly && (item.itemKey === 'background_check_complete' || item.isExpirationRow)"
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      style="margin-left: 6px;"
+                      title="View / edit district background check process quoted in Compliance emails"
+                      @click.stop="openDistrictBgProcessModal"
+                    >
+                      District process
+                    </button>
                   </span>
                   <span v-if="group.category === 'compliance_documents'" class="lc-item-doc">
                     <!-- Signed document from onboarding flow -->
@@ -810,6 +820,39 @@
       style="display:none;"
       @change="onAttachmentFileSelected"
     />
+
+    <div v-if="districtBgModalOpen" class="lc-modal-backdrop" @click.self="districtBgModalOpen = false">
+      <div class="lc-modal" role="dialog" aria-label="District background check process">
+        <header class="lc-modal-h">
+          <h3>District background check process</h3>
+          <button type="button" class="btn btn-secondary btn-sm" @click="districtBgModalOpen = false">Close</button>
+        </header>
+        <p class="lc-hint">Quoted in Compliance “Expiring Background” emails for districts this person is assigned to.</p>
+        <div v-if="districtBgLoading" class="muted">Loading…</div>
+        <div v-else-if="!districtBgRows.length" class="muted">No school districts found for this user.</div>
+        <div v-else class="lc-district-bg-list">
+          <div v-for="row in districtBgRows" :key="row.district_name" class="lc-district-bg-row">
+            <strong>{{ row.district_name }}</strong>
+            <textarea
+              v-model="row.process_text"
+              rows="5"
+              class="lc-notes-area"
+              placeholder="Step-by-step background / fingerprint process for this district…"
+            />
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="districtBgSaving === row.district_name"
+              @click="saveDistrictBgProcess(row)"
+            >
+              {{ districtBgSaving === row.district_name ? 'Saving…' : 'Save' }}
+            </button>
+          </div>
+        </div>
+        <p v-if="districtBgError" class="lc-save-error">{{ districtBgError }}</p>
+        <p v-if="districtBgSaved" class="lc-save-confirm">Saved.</p>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -846,6 +889,51 @@ const expSettingOpen = ref(false);
 const expSettingSaving = ref(false);
 const expSettingSaved = ref(false);
 const expSettingError = ref('');
+const districtBgModalOpen = ref(false);
+const districtBgLoading = ref(false);
+const districtBgRows = ref([]);
+const districtBgSaving = ref('');
+const districtBgError = ref('');
+const districtBgSaved = ref(false);
+
+async function openDistrictBgProcessModal() {
+  districtBgModalOpen.value = true;
+  districtBgError.value = '';
+  districtBgSaved.value = false;
+  districtBgLoading.value = true;
+  try {
+    const res = await api.get(`/users/${props.userId}/district-background-processes`, {
+      params: { agencyId: props.agencyId || undefined }
+    });
+    districtBgRows.value = Array.isArray(res.data?.districts) ? res.data.districts : [];
+  } catch (e) {
+    districtBgError.value = e?.response?.data?.error?.message || 'Failed to load district processes';
+    districtBgRows.value = [];
+  } finally {
+    districtBgLoading.value = false;
+  }
+}
+
+async function saveDistrictBgProcess(row) {
+  if (!props.agencyId) {
+    districtBgError.value = 'Select an agency to save district process text';
+    return;
+  }
+  districtBgSaving.value = row.district_name;
+  districtBgError.value = '';
+  districtBgSaved.value = false;
+  try {
+    await api.put(`/agencies/${props.agencyId}/district-background-processes`, {
+      districtName: row.district_name,
+      processText: row.process_text || ''
+    });
+    districtBgSaved.value = true;
+  } catch (e) {
+    districtBgError.value = e?.response?.data?.error?.message || 'Save failed';
+  } finally {
+    districtBgSaving.value = '';
+  }
+}
 
 const datesForm = ref({
   offer_accepted_date: null,
@@ -1779,4 +1867,17 @@ watch(() => props.userId, () => {
 /* Loading / error */
 .lc-loading { padding: 40px; text-align: center; color: #9ca3af; }
 .lc-error { padding: 16px; background: #fee2e2; color: #991b1b; border-radius: 6px; }
+
+.lc-modal-backdrop {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45);
+  display: flex; align-items: center; justify-content: center; z-index: 80; padding: 16px;
+}
+.lc-modal {
+  background: #fff; border-radius: 10px; max-width: 640px; width: 100%;
+  max-height: 85vh; overflow: auto; padding: 16px 18px; box-shadow: 0 12px 40px rgba(0,0,0,.2);
+}
+.lc-modal-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.lc-modal-h h3 { margin: 0; font-size: 1.05rem; }
+.lc-district-bg-list { display: flex; flex-direction: column; gap: 14px; margin-top: 10px; }
+.lc-district-bg-row { display: flex; flex-direction: column; gap: 6px; }
 </style>

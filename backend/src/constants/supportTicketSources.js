@@ -8,7 +8,8 @@ export const SUPPORT_TICKET_SOURCE_KEYS = Object.freeze({
   GUARDIAN_TEMP_PASSWORD: 'guardian_temp_password',
   GUARDIAN_ACCESS_TOKEN: 'guardian_access_token',
   PUBLIC_AGENCY_SUPPORT: 'public_agency_support',
-  PREHIRE_PORTAL_CHAT: 'prehire_portal_chat'
+  PREHIRE_PORTAL_CHAT: 'prehire_portal_chat',
+  CLIENT_RENEWAL: 'client_renewal'
 });
 
 export function normalizeSupportTicketSourceKey(value) {
@@ -29,7 +30,8 @@ export function supportTicketSourceLabel(value) {
     [SUPPORT_TICKET_SOURCE_KEYS.GUARDIAN_TEMP_PASSWORD]: 'Guardian temporary password',
     [SUPPORT_TICKET_SOURCE_KEYS.GUARDIAN_ACCESS_TOKEN]: 'Guardian access token',
     [SUPPORT_TICKET_SOURCE_KEYS.PUBLIC_AGENCY_SUPPORT]: 'Public agency support',
-    [SUPPORT_TICKET_SOURCE_KEYS.PREHIRE_PORTAL_CHAT]: 'Pre-hire portal chat'
+    [SUPPORT_TICKET_SOURCE_KEYS.PREHIRE_PORTAL_CHAT]: 'Pre-hire portal chat',
+    [SUPPORT_TICKET_SOURCE_KEYS.CLIENT_RENEWAL]: 'Client renewal hub'
   };
   return labels[key] || key;
 }

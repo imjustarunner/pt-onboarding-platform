@@ -322,37 +322,46 @@
             </div>
           </div>
 
-          <div class="users-table" :class="{ 'users-table--expanded': userTableExpanded, 'users-table--roster': rosterEditorMode }" data-tour="users-table">
+          <div class="users-table" :class="{ 'users-table--expanded': userTableExpanded, 'users-table--roster': rosterEditorMode || columnViewMode }" data-tour="users-table">
             <div class="users-table-toolbar" data-tour="users-table-toolbar">
-              <span class="um-found-count">{{ rosterEditorMode ? 'Roster editor' : `${directoryResultCount} found` }}</span>
+              <span class="um-found-count">{{ rosterEditorMode ? 'Roster editor' : columnViewMode ? 'Column view' : `${directoryResultCount} found` }}</span>
               <button
                 v-if="!isSscSstcTenant"
                 type="button"
                 class="btn btn-secondary btn-sm"
                 :class="{ active: rosterEditorMode }"
-                @click="rosterEditorMode = !rosterEditorMode"
+                @click="toggleRosterEditor"
               >
                 {{ rosterEditorMode ? 'List view' : 'Roster editor' }}
               </button>
-              <button v-if="!rosterEditorMode" type="button" class="btn btn-secondary btn-sm" @click="userTableExpanded = !userTableExpanded">
-                {{ userTableExpanded ? 'Collapse columns' : 'Columns' }}
+              <button
+                v-if="!rosterEditorMode && !isSscSstcTenant"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :class="{ active: columnViewMode }"
+                @click="toggleColumnView"
+              >
+                {{ columnViewMode ? 'List view' : 'Columns' }}
               </button>
               <span class="muted users-table-toolbar-hint">
-                {{ rosterEditorMode ? 'Pick up to 10 fields, edit down the column, sort, and bulk-fill.' : 'When expanded, scroll horizontally to see all columns.' }}
+                <template v-if="rosterEditorMode">Pick up to 10 fields, edit down the column, sort, and bulk-fill.</template>
+                <template v-else-if="columnViewMode">Same columns as Roster editor — view and sort only (no edits).</template>
+                <template v-else>Open Columns to pick the same fields as Roster editor (view-only).</template>
               </span>
             </div>
 
             <UserSmartGrid
-              v-if="rosterEditorMode && !isSscSstcTenant"
-              :key="directoryPersona"
+              v-if="(rosterEditorMode || columnViewMode) && !isSscSstcTenant"
+              :key="`${directoryPersona}-${rosterEditorMode ? 'edit' : 'view'}`"
               :persona="directoryPersona"
               :agency-id="agencySort"
               :organization-id="organizationSort"
               :role-filter="directoryPersona === 'school_staff' ? 'school_staff' : roleSort"
               :extra-role="userTypeFilter"
-              :can-archive="isSuperAdmin"
-              :can-delete="isSuperAdmin"
+              :can-archive="rosterEditorMode && isSuperAdmin"
+              :can-delete="rosterEditorMode && isSuperAdmin"
               :profile-base="rosterProfileBase"
+              :view-only="columnViewMode && !rosterEditorMode"
             />
 
             <!-- Employees / School staff / Guardians / SSTC members. -->
@@ -851,9 +860,9 @@
               </div>
 
               <div class="form-group">
-                <label>{{ isSscSstcTenant ? 'Club *' : 'Agency *' }}</label>
+                <label>{{ isSscSstcTenant ? 'Club *' : 'Agencies *' }}</label>
                 <select
-                  v-if="shouldPickAgencyForUserCreate && !isSscSstcTenant"
+                  v-if="shouldPickAgencyForUserCreate && !isSscSstcTenant && parentAgenciesForUserCreate.length <= 1"
                   v-model="userForm.primaryAgencyId"
                   class="form-select"
                   required
@@ -863,11 +872,39 @@
                     {{ agency.name }}
                   </option>
                 </select>
+                <div
+                  v-else-if="shouldPickAgencyForUserCreate && !isSscSstcTenant"
+                  class="agency-selector"
+                  style="max-height: 180px; overflow:auto; border: 1px solid var(--border); border-radius: 8px; padding: 10px;"
+                >
+                  <div v-for="agency in parentAgenciesForUserCreate" :key="agency.id" class="agency-checkbox" style="margin-bottom: 6px;">
+                    <label style="display:flex; gap:10px; align-items:center;">
+                      <input
+                        type="checkbox"
+                        :value="String(agency.id)"
+                        v-model="userForm.agencyIds"
+                        @change="onCreateAgencyIdsChanged"
+                      />
+                      <span style="flex:1;">{{ agency.name }}</span>
+                      <label v-if="userForm.agencyIds.includes(String(agency.id))" style="display:flex; gap:4px; align-items:center; font-size:12px;">
+                        <input
+                          type="radio"
+                          name="defaultAgencyCreate"
+                          :value="String(agency.id)"
+                          v-model="userForm.primaryAgencyId"
+                        />
+                        Default
+                      </label>
+                    </label>
+                  </div>
+                </div>
                 <div v-else class="muted" style="padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;">
                   {{ parentAgenciesForUserCreate[0]?.name || 'Agency' }}
                 </div>
                 <small class="form-help">
-                  {{ shouldPickAgencyForUserCreate && !isSscSstcTenant ? agencyHelpText : (isSscSstcTenant ? 'This member will be created under your club.' : 'This user will be created under your agency.') }}
+                  {{ shouldPickAgencyForUserCreate && !isSscSstcTenant
+                    ? 'Select one or more agencies. Mark a Default for directory filters and new-client handling.'
+                    : (isSscSstcTenant ? 'This member will be created under your club.' : 'This user will be created under your agency.') }}
                 </small>
               </div>
 
@@ -1964,6 +2001,15 @@ const DIRECTORY_PERSONAS = ['employees', 'applicants', 'school_staff', 'guardian
 const directoryPersona = ref('employees');
 const identityReviewMode = ref(null);
 const rosterEditorMode = ref(false);
+const columnViewMode = ref(false);
+function toggleRosterEditor() {
+  rosterEditorMode.value = !rosterEditorMode.value;
+  if (rosterEditorMode.value) columnViewMode.value = false;
+}
+function toggleColumnView() {
+  columnViewMode.value = !columnViewMode.value;
+  if (columnViewMode.value) rosterEditorMode.value = false;
+}
 const rosterProfileBase = computed(() => {
   const slug = String(route.params.organizationSlug || '').trim();
   return slug ? `/${slug}/admin/users` : '/admin/users';
@@ -2595,6 +2641,17 @@ const loadAffiliatedOrgsForUserCreate = async () => {
     affiliatedOrgsForUserCreate.value = [];
   } finally {
     affiliatedOrgsLoading.value = false;
+  }
+};
+
+const onCreateAgencyIdsChanged = () => {
+  const ids = (userForm.value.agencyIds || []).map(String);
+  if (!ids.length) {
+    userForm.value.primaryAgencyId = '';
+    return;
+  }
+  if (!ids.includes(String(userForm.value.primaryAgencyId || ''))) {
+    userForm.value.primaryAgencyId = ids[0];
   }
 };
 
@@ -3253,11 +3310,18 @@ const saveUser = async () => {
         fetchUsers();
       } else {
         // Create user (password is auto-generated, not sent)
+        const selectedAgencyIds = (userForm.value.agencyIds || [])
+          .map((v) => parseInt(String(v), 10))
+          .filter((n) => Number.isFinite(n) && n > 0);
         const primaryAgencyId = parseInt(userForm.value.primaryAgencyId, 10);
+        const agencyIdsForCreate = selectedAgencyIds.length
+          ? selectedAgencyIds
+          : (!isNaN(primaryAgencyId) ? [primaryAgencyId] : []);
         createData = {
           lastName: userForm.value.lastName?.trim() || '',
           role: userForm.value.role || 'provider',
-          agencyIds: !isNaN(primaryAgencyId) ? [primaryAgencyId] : []
+          agencyIds: agencyIdsForCreate,
+          defaultAgencyId: !isNaN(primaryAgencyId) ? primaryAgencyId : agencyIdsForCreate[0] || null
         };
 
         const orgIds2 = (userForm.value.organizationIds || [])

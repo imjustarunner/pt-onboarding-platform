@@ -3199,6 +3199,27 @@ async function resolveIntakeExistingClientAttach({ link, intakeData, payload, su
     returningMatchInitials: '',
     mergePatch: {}
   };
+
+  // Client Renewal full-packet links: always attach to the locked existing client.
+  try {
+    const { findRenewalByPacketPublicKey } = await import('../services/clientRenewal.service.js');
+    const renewal = await findRenewalByPacketPublicKey(link?.public_key);
+    if (renewal?.client_id) {
+      const existingClient = await Client.findById(renewal.client_id, { includeSensitive: true });
+      if (existingClient?.id) {
+        return {
+          attachClientId: Number(existingClient.id),
+          attachSource: 'client_renewal',
+          agencyIdResolved: Number(renewal.agency_id) || Number(existingClient.agency_id) || null,
+          returningMatchInitials: String(existingClient.initials || '').trim(),
+          mergePatch: {}
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('[publicIntake] client renewal packet lookup failed', e?.message || e);
+  }
+
   if (!link?.create_client) return empty;
 
   const submissionPatient = intakeData?.responses?.submission || {};
@@ -8227,7 +8248,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           // submission. See DIGITAL_FORMS_INTAKE_CONTRACT.md §11.
           const submittedClients = Array.isArray(req.body?.clients) ? req.body.clients : [];
           let newSiblings = [];
-          if (submittedClients.length > 1) {
+          if (submittedClients.length > 1 && attachInfo.attachSource !== 'client_renewal') {
             try {
               const siblingResult = await PublicIntakeClientService.createAdditionalSiblingClients({
                 link,
@@ -10052,7 +10073,7 @@ export const submitPublicIntake = async (req, res, next) => {
           // DIGITAL_FORMS_INTAKE_CONTRACT.md §11.
           const submittedClients = Array.isArray(req.body?.clients) ? req.body.clients : [];
           let newSiblings = [];
-          if (submittedClients.length > 1) {
+          if (submittedClients.length > 1 && attachInfo.attachSource !== 'client_renewal') {
             try {
               const siblingResult = await PublicIntakeClientService.createAdditionalSiblingClients({
                 link,

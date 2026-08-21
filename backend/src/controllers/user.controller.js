@@ -476,7 +476,7 @@ export const getAllUsers = async (req, res, next) => {
               GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') as agencies,
               GROUP_CONCAT(DISTINCT a.id ORDER BY a.id SEPARATOR ',') as agency_ids
             FROM users u
-            INNER JOIN user_agencies ua ON u.id = ua.user_id
+            INNER JOIN user_agencies ua ON u.id = ua.user_id AND (ua.is_active = TRUE OR ua.is_active IS NULL)
             LEFT JOIN agencies a ON ua.agency_id = a.id
             WHERE u.id IN (${placeholders})
           `;
@@ -534,10 +534,15 @@ export const getAllUsers = async (req, res, next) => {
             GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') as agencies,
             GROUP_CONCAT(DISTINCT a.id ORDER BY a.id SEPARATOR ',') as agency_ids
           FROM users u
-          INNER JOIN user_agencies ua ON u.id = ua.user_id
+          INNER JOIN user_agencies ua_match
+            ON ua_match.user_id = u.id
+           AND (ua_match.is_active = TRUE OR ua_match.is_active IS NULL)
+           AND ua_match.agency_id IN (${agencyIds.map(() => '?').join(',')})
+          LEFT JOIN user_agencies ua
+            ON ua.user_id = u.id
+           AND (ua.is_active = TRUE OR ua.is_active IS NULL)
           LEFT JOIN agencies a ON ua.agency_id = a.id
-          WHERE ua.agency_id IN (${agencyIds.map(() => '?').join(',')})
-          AND u.role IN ('staff', 'provider', 'school_staff', 'facilitator', 'intern')
+          WHERE u.role IN ('staff', 'provider', 'school_staff', 'facilitator', 'intern')
         `;
         
         if (!includeArchived) {
@@ -647,9 +652,15 @@ export const getAllUsers = async (req, res, next) => {
             GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') as agencies,
             GROUP_CONCAT(DISTINCT a.id ORDER BY a.id SEPARATOR ',') as agency_ids
           FROM users u
-          INNER JOIN user_agencies ua ON u.id = ua.user_id
+          INNER JOIN user_agencies ua_match
+            ON ua_match.user_id = u.id
+           AND (ua_match.is_active = TRUE OR ua_match.is_active IS NULL)
+           AND ua_match.agency_id IN (${agencyIds.map(() => '?').join(',')})
+          LEFT JOIN user_agencies ua
+            ON ua.user_id = u.id
+           AND (ua.is_active = TRUE OR ua.is_active IS NULL)
           LEFT JOIN agencies a ON ua.agency_id = a.id
-          WHERE ua.agency_id IN (${agencyIds.map(() => '?').join(',')})
+          WHERE 1=1
         `;
         
         const queryParams = [...agencyIds];
@@ -1336,7 +1347,10 @@ export const aiQueryUsers = async (req, res, next) => {
       whereParts.push(`ua.agency_id IN (${agencyIds.map(() => '?').join(',')})`);
       params.push(...agencyIds);
       if (!resolvedAgencyId && agencyIds.length === 1) resolvedAgencyId = agencyIds[0];
-    }
+      if (!resolvedAgencyId) {
+        const preferred = (userAgencies || []).find((a) => Number(a.is_default) === 1);
+        if (preferred?.id) resolvedAgencyId = Number(preferred.id);
+      }
 
     // Provider-index path (field-aware): requires agencyId context.
     if (looksLikeProviderMatchQuery) {
@@ -8677,29 +8691,68 @@ export const getSupervisionPrelicensedClassification = async (req, res, next) =>
 
 export const assignUserToAgency = async (req, res, next) => {
   try {
-    const { userId, agencyId } = req.body;
+    const { userId, agencyId, agencyIds, isDefault, defaultAgencyId } = req.body;
     
     // Only admins/super_admins can assign users
     if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
-    
-    await User.assignToAgency(userId, agencyId);
-    try {
-      const aid = parseInt(agencyId, 10);
-      if (aid) {
+
+    const uid = parseInt(userId, 10);
+    if (!uid) {
+      return res.status(400).json({ error: { message: 'userId is required' } });
+    }
+
+    const ids = Array.isArray(agencyIds)
+      ? agencyIds.map((x) => parseInt(x, 10)).filter((n) => Number.isInteger(n) && n > 0)
+      : [];
+    const single = parseInt(agencyId, 10);
+    if (Number.isInteger(single) && single > 0 && !ids.includes(single)) ids.push(single);
+    if (!ids.length) {
+      return res.status(400).json({ error: { message: 'agencyId or agencyIds required' } });
+    }
+
+    for (const aid of ids) {
+      await User.assignToAgency(uid, aid, { isActive: true });
+      try {
         await AdminAuditLog.logAction({
           actionType: 'user_assigned_to_agency',
           actorUserId: req.user.id,
-          targetUserId: parseInt(userId, 10),
+          targetUserId: uid,
           agencyId: aid,
           metadata: null
         });
+      } catch (e) {
+        console.warn('Admin audit log failed:', e?.message || e);
       }
-    } catch (e) {
-      console.warn('Admin audit log failed:', e?.message || e);
     }
-    res.json({ message: 'User assigned to agency successfully' });
+
+    const defaultId = parseInt(defaultAgencyId ?? (isDefault ? agencyId : 0), 10);
+    if (Number.isInteger(defaultId) && defaultId > 0 && ids.includes(defaultId)) {
+      await User.setDefaultAgency(uid, defaultId);
+    } else if (ids.length === 1 && (isDefault === true || defaultAgencyId == null)) {
+      // First sole assignment: make it default if user has no default yet
+      const agencies = await User.getAgencies(uid);
+      const hasDefault = (agencies || []).some((a) => Number(a.is_default) === 1);
+      if (!hasDefault) await User.setDefaultAgency(uid, ids[0]);
+    }
+
+    res.json({ message: 'User assigned to agency successfully', agencyIds: ids });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const setUserDefaultAgency = async (req, res, next) => {
+  try {
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    const uid = parseInt(req.params.id, 10);
+    const agencyId = req.body?.agencyId != null ? parseInt(req.body.agencyId, 10) : null;
+    if (!uid) return res.status(400).json({ error: { message: 'Invalid user id' } });
+    const membership = await User.setDefaultAgency(uid, agencyId || null);
+    res.json({ ok: true, membership, agencyId: agencyId || null });
   } catch (error) {
     next(error);
   }

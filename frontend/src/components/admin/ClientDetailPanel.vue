@@ -890,12 +890,13 @@
               </header>
               <div class="ov-card-body">
                 <div class="ov-cta-row">
-                  <button type="button" class="btn btn-secondary btn-sm" @click="goChartSub('school-roi')">
-                    Open School ROI Access
-                  </button>
                   <span class="hint" style="margin: 0;">
-                    Send signing links, notify guardians, and manage school-staff portal access for this client’s school.
+                    Status for affiliated school:
+                    <strong>{{ schoolRoiStatusLabel }}</strong>
                   </span>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="goChartSub('school-roi')">
+                    Manage staff access
+                  </button>
                 </div>
               </div>
             </section>
@@ -950,6 +951,14 @@
                   <button type="button" class="cdp-btn-soft" @click="goChartSub('messages')">
                     Send secure message
                   </button>
+                  <button
+                    v-if="canEditAccount"
+                    type="button"
+                    class="cdp-btn-soft"
+                    @click="clientRenewalModalOpen = true"
+                  >
+                    Client Renewal
+                  </button>
                   <button type="button" class="cdp-btn-soft" @click="goChartSub('phi')">
                     Upload document
                   </button>
@@ -958,6 +967,16 @@
             </aside>
           </div>
         </div>
+
+        <ClientRenewalPushModal
+          :open="clientRenewalModalOpen"
+          :client-id="client?.id"
+          :agency-id="client?.agency_id"
+          :roi-expires-at="client?.roi_expires_at"
+          :disclosure-status="clientDisclosureStatus"
+          @close="clientRenewalModalOpen = false"
+          @sent="onClientRenewalSent"
+        />
 
         <!-- Skill Builders program (skills clients — integrated groups/events; see docs/SKILL_BUILDERS_PROGRAM_AND_AFFILIATIONS.md) -->
         <div v-if="showPanel('skill-builders')" class="detail-section">
@@ -2248,6 +2267,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import ClientSchoolRoiAccessTab from './ClientSchoolRoiAccessTab.vue';
+import ClientRenewalPushModal from './ClientRenewalPushModal.vue';
 import ClientCommunicationsTab from './ClientCommunicationsTab.vue';
 import GuardianBillingTab from '../guardian/GuardianBillingTab.vue';
 import PractitionerClientPackagesTab from './PractitionerClientPackagesTab.vue';
@@ -2273,6 +2293,7 @@ import {
 } from '../../utils/clientGrade.js';
 import { assignedDayDisplay, displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
 import { isContinuationServicesSeason, isReturningSchoolClient } from '../../utils/clientOnboardingSummary.js';
+import { schoolRoiSimpleStatus } from '../../utils/clientManagementVisuals.js';
 import AssignDayModal from '../school/AssignDayModal.vue';
 import PostListingModal from '../clientExchange/PostListingModal.vue';
 import { canSeeClientExchangeNav } from '../../utils/clientExchangeNav.js';
@@ -2576,6 +2597,26 @@ const statusValue = ref(null);
 const availableProviders = ref([]); // used by other tabs (e.g., assignments) and legacy helpers
 const skillsValue = ref(false);
 const editingOverview = ref(false);
+const clientRenewalModalOpen = ref(false);
+const clientDisclosureStatus = ref('');
+
+function onClientRenewalSent() {
+  // keep modal open briefly so success message is visible
+}
+
+async function loadClientDisclosureStatus() {
+  const id = Number(props.client?.id || 0);
+  if (!id) {
+    clientDisclosureStatus.value = '';
+    return;
+  }
+  try {
+    const res = await api.get(`/clients/${id}/disclosure`, { skipGlobalLoading: true });
+    clientDisclosureStatus.value = String(res.data?.status || res.data?.disclosure?.status || '');
+  } catch {
+    clientDisclosureStatus.value = '';
+  }
+}
 const savingOverview = ref(false);
 const overviewForm = ref({
   full_name: '',
@@ -3032,6 +3073,13 @@ const clientQualifiesForSchoolRoiTab = computed(
 const canManageSchoolRoi = computed(
   () => isBackofficeRole.value && hasAgencyAccess.value && clientQualifiesForSchoolRoiTab.value
 );
+
+const schoolRoiStatusLabel = computed(() => {
+  const s = schoolRoiSimpleStatus(props.client?.roi_expires_at);
+  if (s === 'active') return 'Active';
+  if (s === 'expired') return 'Expired';
+  return 'None';
+});
 
 const canViewClientBillingImport = computed(() => {
   if (!isClinicalLikeClientType.value) return false;
@@ -4992,6 +5040,7 @@ watch(() => props.client, async () => {
   await fetchAccess();
   await refreshOverviewProviders();
   await fetchAdminNote();
+  loadClientDisclosureStatus().catch(() => {});
   if (activeTab.value === 'clinical') {
     fetchBillingDiagnoses();
   }

@@ -20,6 +20,9 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   school_roi_signer_completion: ['school_intake', 'intake'],
   school_roi_release: ['school_intake', 'intake'],
   smart_school_roi: ['school_intake', 'intake'],
+  school_enrollment_packet_status: ['school_intake', 'notifications'],
+  school_ready_to_schedule_digest: ['school_intake', 'notifications'],
+  client_renewal: ['schools', 'school_intake'],
   intake: ['school_intake', 'intake'],
   intake_summary_pdf_copy: ['school_intake', 'intake', 'notifications'],
   co_guardian_invite: ['school_intake', 'intake', 'notifications'],
@@ -37,7 +40,9 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   provider_update_invite: ['people_operations', 'people_ops', 'po', 'notifications'],
   admin_update: ['notifications'],
   compliance_digest: ['compliance'],
-  psychotherapy_threshold: ['compliance', 'notifications']
+  psychotherapy_threshold: ['compliance', 'notifications'],
+  expiring_background: ['compliance', 'notifications'],
+  background_check_scheduled_admin: ['compliance', 'notifications']
 };
 
 export function preferredIdentityKeysForTemplateType(templateType) {

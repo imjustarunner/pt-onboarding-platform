@@ -213,6 +213,25 @@ class BackgroundCheckWatchdogService {
     } catch {
       // Table/column may not exist until migration 1089 runs
     }
+
+    // 4) Promote scheduled BG dates that have arrived → completed_at + auto expiration
+    try {
+      const { promoteScheduledFederalBackgroundChecks } = await import('./federalBackgroundCheck.service.js');
+      await promoteScheduledFederalBackgroundChecks();
+    } catch (err) {
+      console.error('[BackgroundCheckWatchdog] promote scheduled BG failed', err?.message || err);
+    }
+
+    // 5) Compliance “Expiring Background” ladder (90d / 30d / 7d / expired)
+    try {
+      const { runExpiringBackgroundComplianceEmails } = await import('./expiringBackgroundCompliance.service.js');
+      await runExpiringBackgroundComplianceEmails();
+    } catch (err) {
+      const msg = String(err?.message || '');
+      if (!msg.includes('expiring_background_email_log') && err?.code !== 'ER_NO_SUCH_TABLE') {
+        console.error('[BackgroundCheckWatchdog] expiring background emails failed', err?.message || err);
+      }
+    }
   }
 }
 

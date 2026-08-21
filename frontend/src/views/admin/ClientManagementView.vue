@@ -535,7 +535,7 @@
             </td>
             <td v-if="columnPrefs.affiliation">
               <a
-                v-if="client.organization_slug"
+                v-if="client.organization_slug && affiliationDisplayLabel(client) !== 'Office'"
                 :href="`/${client.organization_slug}/dashboard`"
                 target="_blank"
                 rel="noopener"
@@ -543,10 +543,10 @@
                 :style="getAffiliationBadgeStyle(client)"
                 @click.stop
               >
-                {{ client.organization_name || '-' }}
+                {{ affiliationDisplayLabel(client) }}
               </a>
               <span v-else class="cm-affiliation-badge" :style="getAffiliationBadgeStyle(client)">
-                {{ client.organization_name || '-' }}
+                {{ affiliationDisplayLabel(client) }}
               </span>
             </td>
             <td
@@ -1178,7 +1178,7 @@
               </div>
               <div class="cm-drawer-row">
                 <span class="cm-drawer-dt">Affiliation</span>
-                <span class="cm-drawer-dd">{{ quickViewClient.organization_name || '—' }}</span>
+                <span class="cm-drawer-dd">{{ affiliationDisplayLabel(quickViewClient) }}</span>
               </div>
               <div class="cm-drawer-row">
                 <span class="cm-drawer-dt">Since</span>
@@ -1305,6 +1305,7 @@ import { canSeeClientExchangeNav, clientExchangePath } from '../../utils/clientE
 import {
   rowAccentStyle,
   affiliationBadgeStyle,
+  affiliationDisplayLabel,
   initialsStyle,
   statusPillStyle,
   documentStatusTone,
@@ -2935,9 +2936,6 @@ const openClientDetail = (client) => {
   router.push({ path });
 };
 
-const dupesModalOpen = ref(false);
-const dupesMatches = ref([]);
-const dupesForNewClient = ref(null);
 const dupesCanForceCreate = ref(false);
 
 const openDupesModal = (matches, { canForceCreate = false } = {}) => {

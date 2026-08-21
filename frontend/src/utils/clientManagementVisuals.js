@@ -48,6 +48,37 @@ export function affiliationBadgeStyle(client, { platformMode = false } = {}) {
   };
 }
 
+/**
+ * Display label for Affiliation column / badges.
+ * ITSCO (and similar) office clients show "Office" instead of the agency org name.
+ */
+export function affiliationDisplayLabel(client) {
+  const name = String(client?.organization_name || '').trim();
+  const type = String(client?.organization_type || client?.agency_organization_type || '').toLowerCase();
+  const orgId = Number(client?.organization_id || 0);
+  const agencyId = Number(client?.agency_id || 0);
+  const clientType = String(client?.client_type || '').toLowerCase();
+
+  const looksOffice =
+    type === 'office'
+    || (orgId > 0 && agencyId > 0 && orgId === agencyId && ['agency', 'clinical', ''].includes(type))
+    || clientType === 'clinical'
+    || (/^itsco$/i.test(name) && type !== 'school')
+    || (/\boffice\b/i.test(name) && !/\bschool\b/i.test(name));
+
+  if (looksOffice) return 'Office';
+  return name || '—';
+}
+
+/** Simplified Smart School ROI status for renewal / chart surfaces. */
+export function schoolRoiSimpleStatus(roiExpiresAt) {
+  if (roiExpiresAt == null || roiExpiresAt === '') return 'none';
+  const ymd = String(roiExpiresAt).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return 'none';
+  const todayYmd = new Date().toISOString().slice(0, 10);
+  return ymd < todayYmd ? 'expired' : 'active';
+}
+
 export function initialsStyle(client, { platformMode = false } = {}) {
   const key = platformMode ? tenantVisualKey(client) : providerVisualKey(client);
   const hue = hashHue(key);

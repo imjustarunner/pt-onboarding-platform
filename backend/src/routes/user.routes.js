@@ -1,5 +1,5 @@
 import express from 'express';
-import { getCurrentUser, getAllUsers, getGuardianUsers, getGuardianLinkedClients, getGuardianEvents, getGuardiansBulkDeletePreview, bulkDeleteGuardians, aiQueryUsers, getUserById, getUserStravaConnection, updateUser, updateUserStatus, requireSkillBuilderConfirmNextLogin, getUserAgencies, getSuperviseePortalSlugs, getProvidersForSupport, getAffiliatedPortals, assignUserToAgency, removeUserFromAgency, setUserAgencyPayrollAccess, setUserAgencyBillingAccess, setUserAgencyDepartmentAccess, getUserDepartmentAccess, setUserAgencyH0032Mode, setUserAgencyMembershipRole, setUserAgencySupervisionPrelicensed, getSupervisionPrelicensedClassification, generateInvitationToken, generateTemporaryPassword, setCustomTemporaryPassword, resetPasswordlessToken, sendInitialSetupLink, resendSetupLink, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, getProfileOverview, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, setStaffInactive, restoreUser, deleteUser, deleteMe, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee, getUserLoginEmailAliases, addUserLoginEmailAlias, removeUserLoginEmailAlias, getUserScheduleSummary, listUserMeetingCandidates, createUserMeetingInviteGroup, updateUserMeetingInviteGroupMembers, listUserVirtualSessionClients, createUserScheduleEvent, getUserScheduleEventNotificationPlan, updateUserScheduleEvent, deleteUserScheduleEvent, getUserGoogleEvent, patchUserGoogleEvent, deleteUserGoogleEvent, getUserExternalCalendars, createUserExternalCalendar, addUserExternalCalendarFeed, patchUserExternalCalendar, patchUserExternalCalendarFeed, setSsoPasswordOverride } from '../controllers/user.controller.js';
+import { getCurrentUser, getAllUsers, getGuardianUsers, getGuardianLinkedClients, getGuardianEvents, getGuardiansBulkDeletePreview, bulkDeleteGuardians, aiQueryUsers, getUserById, getUserStravaConnection, updateUser, updateUserStatus, requireSkillBuilderConfirmNextLogin, getUserAgencies, getSuperviseePortalSlugs, getProvidersForSupport, getAffiliatedPortals, assignUserToAgency, setUserDefaultAgency, removeUserFromAgency, setUserAgencyPayrollAccess, setUserAgencyBillingAccess, setUserAgencyDepartmentAccess, getUserDepartmentAccess, setUserAgencyH0032Mode, setUserAgencyMembershipRole, setUserAgencySupervisionPrelicensed, getSupervisionPrelicensedClassification, generateInvitationToken, generateTemporaryPassword, setCustomTemporaryPassword, resetPasswordlessToken, sendInitialSetupLink, resendSetupLink, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, getProfileOverview, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, setStaffInactive, restoreUser, deleteUser, deleteMe, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee, getUserLoginEmailAliases, addUserLoginEmailAlias, removeUserLoginEmailAlias, getUserScheduleSummary, listUserMeetingCandidates, createUserMeetingInviteGroup, updateUserMeetingInviteGroupMembers, listUserVirtualSessionClients, createUserScheduleEvent, getUserScheduleEventNotificationPlan, updateUserScheduleEvent, deleteUserScheduleEvent, getUserGoogleEvent, patchUserGoogleEvent, deleteUserGoogleEvent, getUserExternalCalendars, createUserExternalCalendar, addUserExternalCalendarFeed, patchUserExternalCalendar, patchUserExternalCalendarFeed, setSsoPasswordOverride } from '../controllers/user.controller.js';
 import {
   getPeopleDuplicates,
   getPeopleTests,
@@ -59,6 +59,11 @@ import {
   getFederalBackgroundExpirationYears,
   updateFederalBackgroundExpirationYears,
 } from '../controllers/lifecycle.controller.js';
+import {
+  getMyBackgroundExpiration,
+  putMyBackgroundScheduledDate,
+  getUserDistrictBackgroundProcesses
+} from '../controllers/districtBackgroundProcess.controller.js';
 
 const router = express.Router();
 
@@ -67,6 +72,8 @@ router.delete('/me', authenticate, deleteMe);
 router.get('/me/agencies', authenticate, getUserAgencies);
 router.get('/me/supervisee-portal-slugs', authenticate, getSuperviseePortalSlugs);
 router.get('/me/providers-for-support', authenticate, getProvidersForSupport);
+router.get('/me/background-expiration', authenticate, getMyBackgroundExpiration);
+router.put('/me/background-scheduled', authenticate, putMyBackgroundScheduledDate);
 router.get('/', authenticate, requireAdmin, getAllUsers);
 router.get('/grid/fields', authenticate, requireBackofficeAdmin, getUserGridFields);
 router.get('/grid', authenticate, requireBackofficeAdmin, getUserGrid);
@@ -138,6 +145,7 @@ router.delete('/:id/photos/:photoId/flag', authenticate, unflagUserPhoto);
 router.delete('/:id/photos/:photoId/moderate', authenticate, moderateRemovePhoto);
 
 router.post('/assign/agency', authenticate, requireBackofficeAdmin, assignUserToAgency);
+router.put('/:id/default-agency', authenticate, requireBackofficeAdmin, setUserDefaultAgency);
 router.post('/remove/agency', authenticate, requireBackofficeAdmin, removeUserFromAgency);
 router.put('/:id/payroll-access', authenticate, requireBackofficeAdmin, setUserAgencyPayrollAccess);
 router.put('/:id/billing-access', authenticate, requireBackofficeAdmin, setUserAgencyBillingAccess);
@@ -184,6 +192,7 @@ router.get('/:id/onboarding-document', authenticate, getOnboardingDocument);
 // Lifecycle tab routes (admin, support, super_admin + hiring-capable staff)
 // Lifecycle: backoffice admins + clinical practice assistants
 router.get('/:id/lifecycle', authenticate, requireBackofficeAdminOrCpa, getUserLifecycle);
+router.get('/:id/district-background-processes', authenticate, requireBackofficeAdminOrCpa, getUserDistrictBackgroundProcesses);
 router.patch('/:id/lifecycle/dates', authenticate, requireBackofficeAdminOrCpa, updateLifecycleDates);
 router.patch('/:id/lifecycle/credentials', authenticate, requireBackofficeAdminOrCpa, updateLifecycleCredentials);
 router.patch('/:id/lifecycle/separation', authenticate, requireBackofficeAdminOrCpa, updateSeparationInfo);

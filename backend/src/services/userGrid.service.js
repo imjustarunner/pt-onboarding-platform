@@ -143,7 +143,7 @@ async function listBaseUsers({ reqUser, agencyId, organizationId, persona, inclu
       GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') AS agencies,
       GROUP_CONCAT(DISTINCT a.id ORDER BY a.id SEPARATOR ',') AS agency_ids
     FROM users u
-    LEFT JOIN user_agencies ua ON ua.user_id = u.id
+    LEFT JOIN user_agencies ua ON ua.user_id = u.id AND (ua.is_active = TRUE OR ua.is_active IS NULL)
     LEFT JOIN agencies a ON a.id = ua.agency_id
     WHERE 1=1
   `;
@@ -161,7 +161,9 @@ async function listBaseUsers({ reqUser, agencyId, organizationId, persona, inclu
   if (Array.isArray(scopeIds)) {
     sql += ` AND EXISTS (
       SELECT 1 FROM user_agencies ua_scope
-      WHERE ua_scope.user_id = u.id AND ua_scope.agency_id IN (${scopeIds.map(() => '?').join(',')})
+      WHERE ua_scope.user_id = u.id
+        AND (ua_scope.is_active = TRUE OR ua_scope.is_active IS NULL)
+        AND ua_scope.agency_id IN (${scopeIds.map(() => '?').join(',')})
     )`;
     params.push(...scopeIds);
   }
@@ -187,6 +189,7 @@ async function enrichRows(rows, fields, { agencyId }) {
 
   const needUserCols = fields.filter((f) => USER_COL_BY_KEY[f.key] && f.key !== 'email' && f.key !== 'status' && f.key !== 'role' && f.key !== 'created_at');
   const needInfo = fields.filter((f) => f.source === 'info' || f.source === 'lifecycle');
+  const needChecklist = fields.filter((f) => f.source === 'lifecycle_checklist');
   const needLogin = fields.some((f) => f.key === 'last_login');
   const needSchools = fields.some((f) => f.key === 'schools' || f.key === 'districts');
   const needPayrollAccess = fields.some((f) => f.source === 'agency_flag');
@@ -246,6 +249,31 @@ async function enrichRows(rows, fields, { agencyId }) {
           let row = latest.get(`${uid}:${f.infoKey}`);
           if (!row && f.key === 'date_of_birth') row = latest.get(`${uid}:provider_birthdate`);
           bag[f.key] = toYmd(row?.value || '');
+        }
+      }
+    });
+  }
+
+  if (needChecklist.length) {
+    const itemKeys = [...new Set(needChecklist.map((f) => f.checklistKey).filter(Boolean))];
+    await loadMapInChunks(ids, async (group) => {
+      const [rows] = await pool.execute(
+        `SELECT ulci.user_id, lcd.item_key, ulci.completed_at, ulci.expires_at
+           FROM user_lifecycle_checklist_items ulci
+           JOIN lifecycle_checklist_definitions lcd ON lcd.id = ulci.definition_id
+          WHERE ulci.user_id IN (${group.map(() => '?').join(',')})
+            AND lcd.item_key IN (${itemKeys.map(() => '?').join(',')})`,
+        [...group, ...itemKeys]
+      );
+      const byUserKey = new Map();
+      for (const row of rows || []) {
+        byUserKey.set(`${row.user_id}:${row.item_key}`, row);
+      }
+      for (const f of needChecklist) {
+        for (const uid of group) {
+          const row = byUserKey.get(`${uid}:${f.checklistKey}`);
+          const raw = f.checklistField === 'expires_at' ? row?.expires_at : row?.completed_at;
+          ensure(uid)[f.key] = toYmd(raw || '');
         }
       }
     });

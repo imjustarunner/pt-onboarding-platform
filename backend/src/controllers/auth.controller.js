@@ -3012,7 +3012,8 @@ export const requestPasswordReset = async (req, res, next) => {
       }
     }
 
-    // Generate token (single-use) with purpose 'reset'
+    // Generate token (single-use) with purpose 'reset' — replaces any prior setup/reset token.
+    // Works whether the account has a lasting password, temporary password, or neither.
     const expiresInHours = 48;
     const tokenResult = await User.generatePasswordlessToken(user.id, expiresInHours, 'reset');
 
@@ -3070,6 +3071,10 @@ export const requestPasswordReset = async (req, res, next) => {
     const to = pickRecoveryRecipientEmail(user, requestedEmail);
     if (!to) return safeGenericRecoveryResponse(res);
 
+    const isDemoRedirect =
+      looksLikeTestInboxRedirectAddress(to) ||
+      (await shouldRedirectHogwartsOutboundEmail(to).catch(() => false));
+
     // Log + send email (best-effort logging; public endpoint may not have generated_by_user_id)
     let comm = null;
     try {
@@ -3082,7 +3087,8 @@ export const requestPasswordReset = async (req, res, next) => {
         body,
         generatedByUserId: null,
         channel: 'email',
-        recipientAddress: to
+        recipientAddress: to,
+        metadata: isDemoRedirect ? { demoOrFakeRecipient: true } : null
       });
     } catch {
       comm = null;
@@ -3090,13 +3096,15 @@ export const requestPasswordReset = async (req, res, next) => {
 
     let sendResult = null;
     try {
+      // User-initiated Forgot Password — treat as manual so platform "manual_only"
+      // / notifications-disabled gates do not silently skip recovery mail.
       sendResult = await sendRecoveryEmail({
         agencyId: agency?.id || null,
         to,
         subject,
         text: body,
         html,
-        source: 'auto',
+        source: 'manual',
         userId: user.id,
         existingCommunicationId: comm?.id || null
       });
@@ -3123,7 +3131,6 @@ export const requestPasswordReset = async (req, res, next) => {
     }
 
     if (comm?.id && (sendResult?.skipped || sendResult?.blocked || sendResult?.queued)) {
-      const status = sendResult.skipped ? 'skipped' : sendResult.blocked ? 'failed' : 'pending';
       const errMsg = String(
         sendResult.reason ||
           (Array.isArray(sendResult.qualityFlags)
@@ -3131,16 +3138,32 @@ export const requestPasswordReset = async (req, res, next) => {
             : '') ||
           (sendResult.queued ? 'pending approval' : 'not sent')
       ).slice(0, 500);
+      // Surface skips as failed so Automation Failed KPI/list show them.
       await pool
         .execute(
-          `UPDATE user_communications SET delivery_status = ?, error_message = COALESCE(?, error_message) WHERE id = ?`,
-          [status, errMsg || null, comm.id]
+          `UPDATE user_communications SET delivery_status = 'failed', error_message = COALESCE(?, error_message) WHERE id = ?`,
+          [errMsg || 'not sent', comm.id]
         )
         .catch(() => {});
     } else if (comm?.id && sendResult?.id) {
       await CommunicationLoggingService.markAsSent(comm.id, sendResult.id, {
         fromEmail: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || null
       }).catch(() => {});
+      // Demo/fake addresses redirect to testing@ — still show under Failed so QA can see the attempt.
+      if (isDemoRedirect) {
+        await pool
+          .execute(
+            `UPDATE user_communications
+             SET delivery_status = 'failed',
+                 error_message = ?
+             WHERE id = ?`,
+            [
+              'Demo/fake recipient — message redirected to testing@itsco.health (check testing inbox)',
+              comm.id
+            ]
+          )
+          .catch(() => {});
+      }
     }
 
     if (process.env.NODE_ENV !== 'production' && (sendResult?.skipped || sendResult?.reason)) {
@@ -4324,7 +4347,7 @@ export const register = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
 
-    const { email, firstName, lastName, role, phoneNumber, agencyIds, organizationIds, personalEmail, billingAcknowledged, hasProviderAccess } = req.body;
+    const { email, firstName, lastName, role, phoneNumber, agencyIds, organizationIds, personalEmail, billingAcknowledged, hasProviderAccess, defaultAgencyId } = req.body;
 
     // Historically, this endpoint used `personalEmail` as the login identifier.
     // Frontend/user-manager often sends `email` instead. Support both.
@@ -4521,6 +4544,16 @@ export const register = async (req, res, next) => {
             stack: err.stack
           });
           // Continue with other agencies even if one fails
+        }
+      }
+
+      const preferredDefault = parseInt(defaultAgencyId, 10);
+      if (Number.isInteger(preferredDefault) && preferredDefault > 0 && assignedAgencyIds.includes(preferredDefault)) {
+        await User.setDefaultAgency(user.id, preferredDefault).catch(() => null);
+      } else if (Array.isArray(agencyIds) && agencyIds.length) {
+        const firstAgency = parseInt(agencyIds[0], 10);
+        if (Number.isInteger(firstAgency) && firstAgency > 0 && assignedAgencyIds.includes(firstAgency)) {
+          await User.setDefaultAgency(user.id, firstAgency).catch(() => null);
         }
       }
     } else {

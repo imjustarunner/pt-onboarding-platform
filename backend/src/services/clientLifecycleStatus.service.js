@@ -92,7 +92,8 @@ export async function setClientLifecycleStatus({
   if (!cid || !key) return { changed: false };
 
   const [rows] = await pool.execute(
-    `SELECT c.id, c.agency_id, c.client_status_id, cs.status_key AS client_status_key
+    `SELECT c.id, c.agency_id, c.organization_id, c.client_status_id, c.initials,
+            c.identifier_code, c.full_name, cs.status_key AS client_status_key
      FROM clients c
      LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
      WHERE c.id = ?
@@ -144,6 +145,21 @@ export async function setClientLifecycleStatus({
     to_value: String(statusId),
     note: note || `Lifecycle status → ${key}`
   }).catch(() => {});
+
+  if (key === LIFECYCLE_STATUS_KEYS.READY_TO_SCHEDULE) {
+    try {
+      const { enqueueReadyToScheduleDigest } = await import('./schoolReadyScheduleDigest.service.js');
+      await enqueueReadyToScheduleDigest({
+        agencyId: client.agency_id,
+        schoolOrganizationId: client.organization_id,
+        clientId: cid,
+        clientInitials: client.initials || null,
+        clientLabel: client.identifier_code || client.full_name || client.initials || null
+      });
+    } catch (err) {
+      console.error('[clientLifecycleStatus] ready-to-schedule digest enqueue failed', err?.message || err);
+    }
+  }
 
   return { changed: true, statusKey: key, statusId };
 }
