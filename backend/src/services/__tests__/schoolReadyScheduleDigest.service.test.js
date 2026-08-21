@@ -1,14 +1,9 @@
 import assert from 'node:assert/strict';
 import {
   getReadyScheduleDigestWindow,
-  isReadyScheduleDigestSendSlot
+  isReadyScheduleDigestSendSlot,
+  buildDigestCopy
 } from '../schoolReadyScheduleDigest.service.js';
-
-function denverDate({ y, m, d, h = 12, min = 0 }) {
-  // Construct an instant that is that Denver wall time via Intl offset probe
-  const guess = new Date(Date.UTC(y, m - 1, d, h + 6, min)); // MT ≈ UTC-6/7
-  return guess;
-}
 
 // Wednesday before 10am → Wednesday window
 {
@@ -32,6 +27,33 @@ function denverDate({ y, m, d, h = 12, min = 0 }) {
   assert.equal(isReadyScheduleDigestSendSlot(inSlot), true);
   const outSlot = new Date('2026-08-19T18:00:00.000Z');
   assert.equal(isReadyScheduleDigestSendSlot(outSlot), false);
+}
+
+// Digest copy separates Ready to Schedule and Waitlist
+{
+  const copy = buildDigestCopy({
+    schoolName: 'Columbia',
+    items: [
+      { client_id: 1, client_initials: 'ABC', item_category: 'ready_to_schedule' },
+      { client_id: 2, client_initials: 'DEF', item_category: 'waitlist', waitlist_reason: 'No clinician day' }
+    ]
+  });
+  assert.equal(copy.subject, 'Columbia - Ready to Schedule & Waitlist');
+  assert.match(copy.text, /ready to schedule:/i);
+  assert.match(copy.text, /on the waitlist:/i);
+  assert.match(copy.text, /No clinician day/);
+  assert.match(copy.text, /Thank you,\n\nSchool support team/);
+  assert.equal(copy.readyCount, 1);
+  assert.equal(copy.waitlistCount, 1);
+}
+
+{
+  const waitOnly = buildDigestCopy({
+    schoolName: 'Columbia',
+    items: [{ client_id: 3, client_initials: 'GHI', item_category: 'waitlist' }]
+  });
+  assert.equal(waitOnly.subject, 'Columbia - Waitlist');
+  assert.doesNotMatch(waitOnly.text, /ready to schedule:/i);
 }
 
 console.log('schoolReadyScheduleDigest.service.test.js: ok');

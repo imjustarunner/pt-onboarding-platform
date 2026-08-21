@@ -1,16 +1,18 @@
 /**
- * School Ready-to-Schedule digests.
+ * School status digests (Ready to Schedule + Waitlist).
  *
  * Send windows (America/Denver):
  *   - Monday 10:00 → covers Fri 10:01 → Mon 09:59
  *   - Wednesday 10:00 → covers Mon 10:01 → Wed 09:59
  *   - Friday 10:00 → covers Wed 10:01 → Fri 09:59
  *
+ * Only clients marked ready_to_schedule or waitlist are included.
  * While the window is open, a pending draft in Automations is updated as each
- * client is marked Ready to Schedule.
+ * client is marked into either category.
  */
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
+import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import CommunicationLoggingService from './communicationLogging.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityResolver.service.js';
@@ -19,6 +21,9 @@ import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 const TZ = 'America/Denver';
 const SCHOOLS_REPLY_TO = 'schools@itsco.health';
 const TEMPLATE_TYPE = 'school_ready_to_schedule_digest';
+const SUPPORT_TEAM = 'School support team';
+export const DIGEST_CATEGORY_READY = 'ready_to_schedule';
+export const DIGEST_CATEGORY_WAITLIST = 'waitlist';
 
 function denverParts(date = new Date()) {
   const fmt = new Intl.DateTimeFormat('en-US', {
@@ -53,7 +58,6 @@ export function getReadyScheduleDigestWindow(now = new Date()) {
   const minutesNow = p.hour * 60 + p.minute;
   const sendMinute = 10 * 60;
 
-  // Find next Mon(1)/Wed(3)/Fri(5) where local time is still before 10:00, else jump ahead.
   for (let dayOffset = 0; dayOffset <= 8; dayOffset += 1) {
     const probe = new Date(now.getTime() + dayOffset * 24 * 60 * 60 * 1000);
     const cp = denverParts(probe);
@@ -84,6 +88,12 @@ export function isReadyScheduleDigestSendSlot(now = new Date()) {
   return p.hour === 10 && p.minute < 15;
 }
 
+function normalizeDigestCategory(category) {
+  const c = String(category || '').trim().toLowerCase();
+  if (c === DIGEST_CATEGORY_WAITLIST || c === 'waitlisted') return DIGEST_CATEGORY_WAITLIST;
+  return DIGEST_CATEGORY_READY;
+}
+
 async function getSchoolItscoEmail(schoolOrganizationId) {
   const sid = Number(schoolOrganizationId || 0);
   if (!sid) return null;
@@ -101,80 +111,158 @@ async function getSchoolName(schoolOrganizationId) {
   return String(rows?.[0]?.name || 'School').trim() || 'School';
 }
 
-async function resolveNotificationsIdentityId(agencyId) {
+async function resolveDigestSender({ agencyId } = {}) {
   const aid = Number(agencyId || 0) || null;
   const notificationsEmail = 'notifications@itsco.health';
+  let fromIdentity = null;
   if (aid) {
-    const agencyOnly = await resolvePreferredSenderIdentityForAgency({
+    fromIdentity = await resolvePreferredSenderIdentityForAgency({
       agencyId: aid,
       preferredKeys: ['school_intake', 'notifications', 'intake', 'system'],
       includePlatformDefaults: false,
       onlyActive: true
     });
-    if (Number(agencyOnly?.id || 0)) {
-      const fe = String(agencyOnly.from_email || '').trim().toLowerCase();
-      if (fe === notificationsEmail) return Number(agencyOnly.id);
+    if (fromIdentity) {
+      const fe = String(fromIdentity.from_email || '').trim().toLowerCase();
+      if (fe !== notificationsEmail) {
+        const list = await EmailSenderIdentity.list({
+          agencyId: aid,
+          includePlatformDefaults: false,
+          onlyActive: true
+        });
+        fromIdentity = (list || []).find(
+          (row) => String(row?.from_email || '').trim().toLowerCase() === notificationsEmail
+        ) || fromIdentity;
+      }
     }
   }
-  return null;
+  if (!Number(fromIdentity?.id || 0)) return null;
+
+  const hasSig = !!(
+    String(fromIdentity.signature_image_path || '').trim()
+    || String(fromIdentity.signature_image_url || '').trim()
+  );
+  let signatureIdentityId = null;
+  if (!hasSig && aid) {
+    const list = await EmailSenderIdentity.list({
+      agencyId: aid,
+      includePlatformDefaults: false,
+      onlyActive: true
+    });
+    const schools = (list || []).find((row) =>
+      String(row?.identity_key || '').trim().toLowerCase() === 'schools'
+      || String(row?.from_email || '').trim().toLowerCase() === 'schools@itsco.health'
+    );
+    signatureIdentityId = Number(schools?.id || 0) || null;
+    if (signatureIdentityId === Number(fromIdentity.id)) signatureIdentityId = null;
+  }
+  return {
+    senderIdentityId: Number(fromIdentity.id),
+    signatureIdentityId
+  };
 }
 
-function buildDigestCopy({ schoolName, items }) {
-  const list = (items || []).filter(Boolean);
-  const n = list.length;
-  const subject = `${schoolName} - Ready to Schedule`;
-  const verb = n === 1 ? 'The following client is ready to schedule:' : 'The following clients are ready to schedule:';
-  const lines = list.map((it) => {
-    const initials = String(it.client_initials || '').trim();
-    const label = String(it.client_label || '').trim();
-    if (initials && label && !label.includes(initials)) return `• ${initials} — ${label}`;
-    if (initials) return `• ${initials}`;
-    if (label) return `• ${label}`;
-    return `• Client #${it.client_id}`;
-  });
+function formatClientBullet(it) {
+  const initials = String(it.client_initials || '').trim();
+  const label = String(it.client_label || '').trim();
+  const reason = String(it.waitlist_reason || '').trim();
+  let base = null;
+  if (initials && label && !label.includes(initials)) base = `${initials} — ${label}`;
+  else if (initials) base = initials;
+  else if (label) base = label;
+  else base = `Client #${it.client_id}`;
+  if (reason) return `• ${base} (Reason: ${reason})`;
+  return `• ${base}`;
+}
 
-  const text = [
-    'Hello,',
-    '',
-    verb,
-    '',
-    ...lines,
-    '',
-    'Please log in to the school portal to review status and coordinate scheduling.',
+export function buildDigestCopy({ schoolName, items }) {
+  const list = (items || []).filter(Boolean);
+  const readyItems = list.filter((it) => normalizeDigestCategory(it.item_category) === DIGEST_CATEGORY_READY);
+  const waitlistItems = list.filter((it) => normalizeDigestCategory(it.item_category) === DIGEST_CATEGORY_WAITLIST);
+  const readyCount = readyItems.length;
+  const waitlistCount = waitlistItems.length;
+  const count = readyCount + waitlistCount;
+
+  let subject;
+  if (readyCount && waitlistCount) subject = `${schoolName} - Ready to Schedule & Waitlist`;
+  else if (waitlistCount) subject = `${schoolName} - Waitlist`;
+  else subject = `${schoolName} - Ready to Schedule`;
+
+  const readyVerb = readyCount === 1
+    ? 'The following client is ready to schedule:'
+    : 'The following clients are ready to schedule:';
+  const waitVerb = waitlistCount === 1
+    ? 'The following client is on the waitlist:'
+    : 'The following clients are on the waitlist:';
+
+  const readyLines = readyItems.map(formatClientBullet);
+  const waitLines = waitlistItems.map(formatClientBullet);
+
+  const textParts = ['Hello,', ''];
+  if (readyCount) {
+    textParts.push(readyVerb, '', ...readyLines, '');
+  }
+  if (waitlistCount) {
+    textParts.push(waitVerb, '', ...waitLines, '');
+  }
+  textParts.push(
+    'Please log in to the school portal to review status and coordinate next steps.',
     '',
     'Thank you,',
-    `${schoolName} - Support Team`,
+    '',
+    SUPPORT_TEAM,
     '',
     'Questions? Reply to this email or contact schools@ITSCO.health.'
-  ].join('\n');
+  );
+  const text = textParts.join('\n');
 
   const esc = (s) => String(s || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
+  const sectionHtml = (title, lines) => {
+    if (!lines.length) return '';
+    return `
+      <p><strong>${esc(title)}</strong></p>
+      <ul>${lines.map((l) => `<li>${esc(l.replace(/^•\s*/, ''))}</li>`).join('')}</ul>
+    `;
+  };
+
   const html = `
     <div style="font-family: Arial, Helvetica, sans-serif; line-height: 1.55; color: #1a1a1a; max-width: 640px;">
       <p>Hello,</p>
-      <p><strong>${esc(verb)}</strong></p>
-      <ul>${lines.map((l) => `<li>${esc(l.replace(/^•\s*/, ''))}</li>`).join('')}</ul>
-      <p>Please log in to the school portal to review status and coordinate scheduling.</p>
-      <p>Thank you,<br/><strong>${esc(`${schoolName} - Support Team`)}</strong></p>
+      ${sectionHtml(readyVerb, readyLines)}
+      ${sectionHtml(waitVerb, waitLines)}
+      <p>Please log in to the school portal to review status and coordinate next steps.</p>
+      <p>Thank you,</p>
+      <p style="margin-top: 12px;"><strong>${esc(SUPPORT_TEAM)}</strong></p>
       <p style="font-size:12px;color:#666;">Questions? Reply to this email or contact <a href="mailto:schools@ITSCO.health">schools@ITSCO.health</a>.</p>
     </div>
   `.trim();
 
-  return { subject, text, html, count: n };
+  return { subject, text, html, count, readyCount, waitlistCount };
 }
 
 async function loadWindowItems({ schoolOrganizationId, windowKey }) {
   const [rows] = await pool.execute(
-    `SELECT id, client_id, client_initials, client_label, marked_ready_at, digest_communication_id
+    `SELECT id, client_id, client_initials, client_label, item_category, waitlist_reason,
+            marked_ready_at, digest_communication_id
      FROM school_ready_schedule_digest_items
      WHERE school_organization_id = ?
        AND window_key = ?
-     ORDER BY marked_ready_at ASC, id ASC`,
-    [schoolOrganizationId, windowKey]
+       AND item_category IN (?, ?)
+     ORDER BY
+       CASE WHEN item_category = ? THEN 0 ELSE 1 END,
+       marked_ready_at ASC,
+       id ASC`,
+    [
+      schoolOrganizationId,
+      windowKey,
+      DIGEST_CATEGORY_READY,
+      DIGEST_CATEGORY_WAITLIST,
+      DIGEST_CATEGORY_READY
+    ]
   );
   return rows || [];
 }
@@ -190,11 +278,12 @@ async function upsertPendingDigestDraft({
 }) {
   const schoolName = await getSchoolName(schoolOrganizationId);
   const to = await getSchoolItscoEmail(schoolOrganizationId);
-  const { subject, text, html, count } = buildDigestCopy({ schoolName, items });
+  const { subject, text, html, count, readyCount, waitlistCount } = buildDigestCopy({ schoolName, items });
   if (!count) return null;
 
   const existingCommId = Number(items.find((i) => i.digest_communication_id)?.digest_communication_id || 0) || null;
   let commId = existingCommId;
+  const draftNote = `Draft digest — sends ${windowKey} (~10:00 MT). ${readyCount} ready, ${waitlistCount} waitlist.`;
 
   if (commId) {
     await pool.execute(
@@ -210,12 +299,14 @@ async function upsertPendingDigestDraft({
         subject,
         html || text,
         to || null,
-        `Draft digest — sends ${windowKey} (~10:00 MT). ${count} client(s) ready.`,
+        draftNote,
         JSON.stringify({
           templateType: TEMPLATE_TYPE,
           windowKey,
           schoolOrganizationId,
           clientIds: items.map((i) => i.client_id),
+          readyCount,
+          waitlistCount,
           draft: true
         }),
         commId
@@ -237,6 +328,8 @@ async function upsertPendingDigestDraft({
         windowKey,
         schoolOrganizationId,
         clientIds: items.map((i) => i.client_id),
+        readyCount,
+        waitlistCount,
         draft: true
       }
     });
@@ -247,7 +340,7 @@ async function upsertPendingDigestDraft({
          SET delivery_status = 'pending',
              error_message = ?
          WHERE id = ?`,
-        [`Draft digest — sends ${windowKey} (~10:00 MT). ${count} client(s) ready.`, commId]
+        [draftNote, commId]
       ).catch(() => {});
     }
   }
@@ -262,33 +355,43 @@ async function upsertPendingDigestDraft({
     ).catch(() => {});
   }
 
-  return { commId, subject, text, html, to, schoolName, count };
+  return { commId, subject, text, html, to, schoolName, count, readyCount, waitlistCount };
 }
 
 /**
- * Record a client marked Ready to Schedule into the next digest window + refresh draft.
+ * Record a client marked Ready to Schedule or Waitlist into the next digest window + refresh draft.
+ * Only these two categories are emailed.
  */
 export async function enqueueReadyToScheduleDigest({
   agencyId,
   schoolOrganizationId,
   clientId,
   clientInitials = null,
-  clientLabel = null
+  clientLabel = null,
+  category = DIGEST_CATEGORY_READY,
+  waitlistReason = null
 }) {
   const aid = Number(agencyId || 0);
   const sid = Number(schoolOrganizationId || 0);
   const cid = Number(clientId || 0);
   if (!aid || !sid || !cid) return null;
 
+  const itemCategory = normalizeDigestCategory(category);
   const { windowKey } = getReadyScheduleDigestWindow(new Date());
+  const reason = itemCategory === DIGEST_CATEGORY_WAITLIST
+    ? (waitlistReason ? String(waitlistReason).slice(0, 500) : null)
+    : null;
 
   await pool.execute(
     `INSERT INTO school_ready_schedule_digest_items
-       (agency_id, school_organization_id, client_id, client_initials, client_label, window_key)
-     VALUES (?, ?, ?, ?, ?, ?)
+       (agency_id, school_organization_id, client_id, client_initials, client_label,
+        item_category, waitlist_reason, window_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        client_initials = COALESCE(VALUES(client_initials), client_initials),
        client_label = COALESCE(VALUES(client_label), client_label),
+       item_category = VALUES(item_category),
+       waitlist_reason = VALUES(waitlist_reason),
        marked_ready_at = CURRENT_TIMESTAMP`,
     [
       aid,
@@ -296,6 +399,8 @@ export async function enqueueReadyToScheduleDigest({
       cid,
       clientInitials ? String(clientInitials).slice(0, 32) : null,
       clientLabel ? String(clientLabel).slice(0, 255) : null,
+      itemCategory,
+      reason,
       windowKey
     ]
   );
@@ -306,6 +411,14 @@ export async function enqueueReadyToScheduleDigest({
     schoolOrganizationId: sid,
     windowKey,
     items
+  });
+}
+
+/** Alias for waitlist enqueue — same Mon/Wed/Fri digest, Waitlist section. */
+export async function enqueueWaitlistDigest(params = {}) {
+  return enqueueReadyToScheduleDigest({
+    ...params,
+    category: DIGEST_CATEGORY_WAITLIST
   });
 }
 
@@ -332,8 +445,8 @@ async function sendDigestForSchoolWindow({ agencyId, schoolOrganizationId, windo
     return { sent: false, reason: 'no_recipient' };
   }
 
-  const senderIdentityId = await resolveNotificationsIdentityId(agencyId);
-  if (!senderIdentityId) {
+  const sender = await resolveDigestSender({ agencyId });
+  if (!sender?.senderIdentityId) {
     if (draft.commId) {
       await pool.execute(
         `UPDATE user_communications
@@ -354,8 +467,14 @@ async function sendDigestForSchoolWindow({ agencyId, schoolOrganizationId, windo
     // keep default
   }
 
+  const fromLabel = draft.readyCount && draft.waitlistCount
+    ? `${draft.schoolName} - Ready to Schedule & Waitlist`
+    : draft.waitlistCount
+      ? `${draft.schoolName} - Waitlist`
+      : `${draft.schoolName} - Ready to Schedule`;
+
   const result = await sendEmailFromIdentity({
-    senderIdentityId,
+    senderIdentityId: sender.senderIdentityId,
     to: draft.to,
     subject: draft.subject,
     text: `${draft.text}\n\nPortal: ${portalUrl}`,
@@ -363,8 +482,9 @@ async function sendDigestForSchoolWindow({ agencyId, schoolOrganizationId, windo
     source: 'auto',
     agencyId,
     templateType: TEMPLATE_TYPE,
-    fromDisplayNameOverride: `${draft.schoolName} - Support Team`,
+    fromDisplayNameOverride: fromLabel,
     replyToOverride: SCHOOLS_REPLY_TO,
+    signatureIdentityId: sender.signatureIdentityId,
     existingCommunicationId: draft.commId || null,
     linkUrl: portalUrl
   });
@@ -390,14 +510,14 @@ export async function runReadyToScheduleDigestTick(now = new Date()) {
   const [groups] = await pool.execute(
     `SELECT DISTINCT agency_id, school_organization_id
      FROM school_ready_schedule_digest_items
-     WHERE window_key = ?`,
-    [windowKey]
+     WHERE window_key = ?
+       AND item_category IN (?, ?)`,
+    [windowKey, DIGEST_CATEGORY_READY, DIGEST_CATEGORY_WAITLIST]
   );
 
   const results = [];
   for (const g of groups || []) {
     try {
-      // Skip if already sent
       const [sentCheck] = await pool.execute(
         `SELECT uc.id
          FROM school_ready_schedule_digest_items i
@@ -430,5 +550,9 @@ export default {
   getReadyScheduleDigestWindow,
   isReadyScheduleDigestSendSlot,
   enqueueReadyToScheduleDigest,
-  runReadyToScheduleDigestTick
+  enqueueWaitlistDigest,
+  runReadyToScheduleDigestTick,
+  buildDigestCopy,
+  DIGEST_CATEGORY_READY,
+  DIGEST_CATEGORY_WAITLIST
 };

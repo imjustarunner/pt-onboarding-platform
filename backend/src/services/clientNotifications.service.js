@@ -298,7 +298,7 @@ async function sendSchoolIntakeStatusEmail({
   const loginUrl = portalUrl.replace(/\/$/, '') + '/login';
 
   const packetLabel = isPaper ? 'Paper Enrollment Packet' : 'Digital Enrollment Packet';
-  const supportTeam = `${schoolName} - Support Team`;
+  const supportTeam = 'School support team';
 
   const lead = isPaper
     ? (
@@ -319,12 +319,13 @@ async function sendSchoolIntakeStatusEmail({
     '',
     lead,
     '',
-    'Our team has been notified and we are working on getting this client onboarded and ready for scheduling. Once our team has completed our steps and we assign a clinician, you will receive an email that the client is ready to schedule. If they are waitlisted, you will also be notified ASAP with the waitlist reason.',
+    'Our team has been notified and we are working on getting this client onboarded and ready for scheduling. Once our team has completed our steps and we assign a clinician, you will receive an email that the client is ready to schedule. If they are waitlisted, you will also be notified on that same status digest with the waitlist reason.',
     '',
     `You can view this client's status in the school portal anytime:`,
     loginUrl,
     '',
     'Thank you,',
+    '',
     supportTeam,
     '',
     'Questions? Reply to this email or contact schools@ITSCO.health.'
@@ -340,10 +341,11 @@ async function sendSchoolIntakeStatusEmail({
     <div style="font-family: Arial, Helvetica, sans-serif; line-height: 1.55; color: #1a1a1a; max-width: 640px;">
       <p>Hello,</p>
       <p>${esc(lead)}</p>
-      <p>Our team has been notified and we are working on getting this client onboarded and ready for scheduling. Once our team has completed our steps and we assign a clinician, you will receive an email that the client is ready to schedule. If they are waitlisted, you will also be notified ASAP with the waitlist reason.</p>
+      <p>Our team has been notified and we are working on getting this client onboarded and ready for scheduling. Once our team has completed our steps and we assign a clinician, you will receive an email that the client is ready to schedule. If they are waitlisted, you will also be notified on that same status digest with the waitlist reason.</p>
       <p><a href="${esc(loginUrl)}" style="display:inline-block;padding:10px 16px;background:#1f6b4a;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Open school portal</a></p>
       <p style="font-size:13px;color:#555;">Or visit <a href="${esc(loginUrl)}">${esc(loginUrl)}</a></p>
-      <p>Thank you,<br/><strong>${esc(supportTeam)}</strong></p>
+      <p>Thank you,</p>
+      <p style="margin-top: 12px;"><strong>${esc(supportTeam)}</strong></p>
       <p style="font-size:12px;color:#666;">Questions? Reply to this email or contact <a href="mailto:schools@ITSCO.health">schools@ITSCO.health</a>.</p>
     </div>
   `.trim();

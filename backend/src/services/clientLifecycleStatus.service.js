@@ -146,18 +146,46 @@ export async function setClientLifecycleStatus({
     note: note || `Lifecycle status → ${key}`
   }).catch(() => {});
 
-  if (key === LIFECYCLE_STATUS_KEYS.READY_TO_SCHEDULE) {
+  if (key === LIFECYCLE_STATUS_KEYS.READY_TO_SCHEDULE || key === LIFECYCLE_STATUS_KEYS.WAITLIST) {
     try {
-      const { enqueueReadyToScheduleDigest } = await import('./schoolReadyScheduleDigest.service.js');
+      const {
+        enqueueReadyToScheduleDigest,
+        DIGEST_CATEGORY_READY,
+        DIGEST_CATEGORY_WAITLIST
+      } = await import('./schoolReadyScheduleDigest.service.js');
+      const isWaitlist = key === LIFECYCLE_STATUS_KEYS.WAITLIST;
+      let waitlistReason = null;
+      if (isWaitlist) {
+        const noteText = String(note || '').trim();
+        if (/^waitlisted:\s*/i.test(noteText)) {
+          waitlistReason = noteText.replace(/^waitlisted:\s*/i, '').slice(0, 500);
+        } else if (noteText) {
+          waitlistReason = noteText.slice(0, 500);
+        }
+        try {
+          const intake = client.agency_intake_json
+            ? (typeof client.agency_intake_json === 'string'
+              ? JSON.parse(client.agency_intake_json)
+              : client.agency_intake_json)
+            : null;
+          if (!waitlistReason && intake?.waitlistReason) {
+            waitlistReason = String(intake.waitlistReason).slice(0, 500);
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
       await enqueueReadyToScheduleDigest({
         agencyId: client.agency_id,
         schoolOrganizationId: client.organization_id,
         clientId: cid,
         clientInitials: client.initials || null,
-        clientLabel: client.identifier_code || client.full_name || client.initials || null
+        clientLabel: client.identifier_code || client.full_name || client.initials || null,
+        category: isWaitlist ? DIGEST_CATEGORY_WAITLIST : DIGEST_CATEGORY_READY,
+        waitlistReason
       });
     } catch (err) {
-      console.error('[clientLifecycleStatus] ready-to-schedule digest enqueue failed', err?.message || err);
+      console.error('[clientLifecycleStatus] school status digest enqueue failed', err?.message || err);
     }
   }
 

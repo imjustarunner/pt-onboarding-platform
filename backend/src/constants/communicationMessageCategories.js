@@ -8,7 +8,7 @@ export const COMMUNICATION_MESSAGE_CATEGORIES = [
   { key: 'roi', label: 'School ROI signing', group: 'School' },
   { key: 'roi_completion', label: 'School ROI completion', group: 'School' },
   { key: 'enrollment_packet', label: 'Enrollment packet status', group: 'School' },
-  { key: 'ready_schedule', label: 'Ready to schedule', group: 'School' },
+  { key: 'ready_schedule', label: 'Ready to schedule & waitlist', group: 'School' },
   { key: 'expiring_bg', label: 'Expiring Background', group: 'Compliance' },
   { key: 'applications', label: 'Job applications', group: 'Hiring' },
   { key: 'onboarding', label: 'Onboarding & welcome', group: 'Hiring' },
@@ -53,6 +53,7 @@ export function appendCategoryFilter(category, where) {
     where.push(`(
       uc.template_type = 'school_ready_to_schedule_digest'
       OR uc.subject LIKE '%Ready to Schedule%'
+      OR uc.subject LIKE '% - Waitlist'
     )`);
     return;
   }
