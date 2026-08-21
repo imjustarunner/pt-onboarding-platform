@@ -2645,16 +2645,9 @@ const isLocalDevRecoveryRequest = (req) => {
 
 const verifyRecoveryCaptcha = async ({ req, expectedAction }) => {
   const captchaToken = String(req.body?.captchaToken || '').trim();
-  if (!isRecaptchaConfigured()) {
-    // In environments without captcha config, do not block recovery.
-    return { ok: true };
-  }
-  if (!captchaToken) {
-    // Local dev often has backend recaptcha keys but no frontend VITE_* build vars.
-    if (config.nodeEnv !== 'production' || isLocalDevRecoveryRequest(req)) {
-      return { ok: true, reason: 'captcha_optional' };
-    }
-    return { ok: false, reason: 'missing_token' };
+  // Public login / local often have no recaptcha UI. Never block password recovery on a missing token.
+  if (!captchaToken || !isRecaptchaConfigured()) {
+    return { ok: true, reason: captchaToken ? 'captcha_not_configured' : 'captcha_optional' };
   }
   const verification = await verifyRecaptchaV3({
     token: captchaToken,
@@ -2662,11 +2655,16 @@ const verifyRecoveryCaptcha = async ({ req, expectedAction }) => {
     expectedAction,
     userAgent: req.get('user-agent')
   });
-  if (!verification.ok) return verification;
+  // Soft-fail: bad tokens must not silently swallow recovery (same UX as missing token).
+  if (!verification.ok) {
+    console.warn('[auth] recovery captcha soft-fail', verification.reason || verification);
+    return { ok: true, reason: 'captcha_soft_fail', captcha: verification };
+  }
   const minScoreRaw = process.env.RECAPTCHA_MIN_SCORE_LOGIN_RECOVERY ?? config.recaptcha?.minScore ?? 0.3;
   const minScore = Number.isFinite(Number(minScoreRaw)) ? Number(minScoreRaw) : 0.3;
   if (verification.score !== null && verification.score < minScore && config.nodeEnv === 'production') {
-    return { ok: false, reason: 'low_score', score: verification.score, minScore };
+    console.warn('[auth] recovery captcha low score soft-fail', { score: verification.score, minScore });
+    return { ok: true, reason: 'captcha_low_score_soft_fail', score: verification.score };
   }
   return verification;
 };
@@ -3003,7 +3001,8 @@ export const getRecoveryStatus = async (req, res, next) => {
         configured: captchaConfigured,
         siteKey: captchaConfigured ? (config.recaptcha?.siteKey || null) : null,
         useEnterprise: !!(config.recaptcha?.enterpriseApiKey || config.recaptcha?.enterpriseProjectId),
-        required: captchaConfigured && config.nodeEnv === 'production' && !isLocalDevRecoveryRequest(req)
+        // Optional enrichment only — missing tokens must not block Forgot Password.
+        required: false
       }
     });
   } catch (e) {
@@ -3013,222 +3012,41 @@ export const getRecoveryStatus = async (req, res, next) => {
 
 /**
  * Public endpoint: request a password reset email.
- * Always returns a generic success response to avoid revealing whether an email exists.
+ * Delegates to passwordRecovery.service (first-principles recovery rules).
+ * Captcha is intentionally not required — public/local login often have no recaptcha.
  */
 export const requestPasswordReset = async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      // Keep response generic; do not leak validation details to attackers.
       return safeGenericRecoveryResponse(res);
     }
 
-    const emailRaw = req.body?.email;
+    const requestedEmail = String(req.body?.email || '').trim().toLowerCase();
     const orgSlug = normalizeOrgSlug(req.body?.organizationSlug || req.body?.orgSlug);
-    const requestedEmail = String(emailRaw || '').trim().toLowerCase();
     if (!requestedEmail) return safeGenericRecoveryResponse(res);
 
-    const captcha = await verifyRecoveryCaptcha({ req, expectedAction: 'login_password_reset' });
-    if (!captcha.ok) return safeGenericRecoveryResponse(res);
+    const includeDebug =
+      process.env.NODE_ENV !== 'production' || isLocalDevRecoveryRequest(req);
 
-    const user = await User.findByEmail(requestedEmail).catch(() => null);
-    if (!user?.id) return safeGenericRecoveryResponse(res);
+    const { requestPasswordRecoveryEmail } = await import('../services/passwordRecovery.service.js');
+    const result = await requestPasswordRecoveryEmail({
+      email: requestedEmail,
+      organizationSlug: orgSlug,
+      req,
+      includeDebug
+    });
 
-    const roleNorm = String(user?.role || '').trim().toLowerCase();
-    // External portals + demo/fake provider emails (redirected to testing@itsco.health).
-    // Real agency providers still use Workspace SSO — silent no-op for those.
-    const isTestInboxRecipient =
-      looksLikeTestInboxRedirectAddress(requestedEmail) ||
-      (await shouldRedirectHogwartsOutboundEmail(requestedEmail).catch(() => false));
-    if (!NON_AGENCY_RECOVERY_ROLES.has(roleNorm) && !isTestInboxRecipient) {
-      return safeGenericRecoveryResponse(res);
-    }
-
-    if ((roleNorm === 'client_guardian' || roleNorm === 'guardian') && guardianNeedsIssuedPassword(user)) {
-      try {
-        await fileGuardianTempPasswordTicket({ user, req, orgSlug });
-      } catch (e) {
-        console.error('[auth] guardian password reset ticket failed', e?.message || e);
-      }
-      return safeGenericRecoveryResponse(res, {
-        recoveryMode: 'ticket',
-        message: 'If this is a parent or guardian login that still needs an access token, we notified the care team. Password reset email is only sent when the account already has a password.'
-      });
-    }
-
-    // Soft block for Google Workspace SSO users: they should use Google Sign-In.
-    // External portal roles and demo/fake test accounts keep password recovery.
-    if (!NON_AGENCY_RECOVERY_ROLES.has(roleNorm) && !isTestInboxRecipient) {
-      try {
-        const agency = await resolvePrimaryAgencyForUser(user.id, orgSlug);
-        const featureFlags = parseFeatureFlags(agency?.feature_flags ?? null);
-        if (isWorkspaceEligibleForSso({ user, identifier: requestedEmail, featureFlags })) {
-          return safeGenericRecoveryResponse(res);
-        }
-      } catch {
-        // best-effort; continue with normal flow
-      }
-    }
-
-    // Generate token (single-use) with purpose 'reset' — replaces any prior setup/reset token.
-    // Works whether the account has a lasting password, temporary password, or neither.
-    const expiresInHours = 48;
-    const tokenResult = await User.generatePasswordlessToken(user.id, expiresInHours, 'reset');
-
-    const agency = await resolvePrimaryAgencyForUser(user.id, orgSlug);
-    const resetLink = EmailTemplateService.buildResetTokenLink(
-      agency || { portal_url: orgSlug, slug: orgSlug },
-      tokenResult.token
-    );
-
-    // First-time / expired-temp school staff: copy says "set" rather than only "reset"
-    const firstSet = userNeedsFirstPasswordSet(user);
-    let subject = firstSet ? 'Set your password' : 'Reset your password';
-    let body = [
-      firstSet
-        ? 'Use this link to set a password for your account so you can sign in.'
-        : 'We received a request to reset your password.',
-      '',
-      `${firstSet ? 'Set your password' : 'Reset your password'} using this link (expires in ${expiresInHours} hours):`,
-      resetLink,
-      '',
-      RECOVERY_JUNK_NOTICE,
-      '',
-      'If you did not request this, you can ignore this email.'
-    ].join('\n');
-    let html = [
-      `<p>${firstSet
-        ? 'Use this link to set a password for your account so you can sign in.'
-        : 'We received a request to reset your password.'}</p>`,
-      `<p><a href="${resetLink}">${firstSet ? 'Set your password' : 'Reset your password'}</a> (expires in ${expiresInHours} hours)</p>`,
-      `<p><strong>${RECOVERY_JUNK_NOTICE}</strong></p>`,
-      '<p>If you did not request this, you can ignore this email.</p>'
-    ].join('');
-    try {
-      const template = await EmailTemplateService.getTemplateForAgency(agency?.id || null, 'password_reset');
-      if (template?.body) {
-        const params = await EmailTemplateService.collectParameters(user, agency, {
-          passwordlessToken: tokenResult.token,
-          senderName: 'System'
-        });
-        const rendered = EmailTemplateService.renderTemplate(template, params);
-        subject = rendered.subject || subject;
-        body = rendered.body || body;
-        if (!String(body).includes('Junk')) {
-          body = `${body}\n\n${RECOVERY_JUNK_NOTICE}`;
-        }
-        html = `<pre style="font-family:inherit;white-space:pre-wrap;">${String(body)
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')}</pre>`;
-      }
-    } catch {
-      // ignore
-    }
-
-    const to = pickRecoveryRecipientEmail(user, requestedEmail);
-    if (!to) return safeGenericRecoveryResponse(res);
-
-    const isDemoRedirect =
-      looksLikeTestInboxRedirectAddress(to) ||
-      (await shouldRedirectHogwartsOutboundEmail(to).catch(() => false));
-
-    // Log + send email (best-effort logging; public endpoint may not have generated_by_user_id)
-    let comm = null;
-    try {
-      comm = await CommunicationLoggingService.logGeneratedCommunication({
-        userId: user.id,
-        agencyId: agency?.id || null,
-        templateType: 'password_reset',
-        templateId: null,
-        subject,
-        body,
-        generatedByUserId: null,
-        channel: 'email',
-        recipientAddress: to,
-        metadata: isDemoRedirect ? { demoOrFakeRecipient: true } : null
-      });
-    } catch {
-      comm = null;
-    }
-
-    let sendResult = null;
-    try {
-      // User-initiated Forgot Password — treat as manual so platform "manual_only"
-      // / notifications-disabled gates do not silently skip recovery mail.
-      sendResult = await sendRecoveryEmail({
-        agencyId: agency?.id || null,
-        to,
-        subject,
-        text: body,
-        html,
-        source: 'manual',
-        userId: user.id,
-        existingCommunicationId: comm?.id || null
-      });
-    } catch (e) {
-      if (comm?.id) {
-        await pool
-          .execute(
-            `UPDATE user_communications SET delivery_status = 'failed', error_message = ? WHERE id = ?`,
-            [String(e?.message || 'send failed').slice(0, 500), comm.id]
-          )
-          .catch(() => {});
-      }
-      // In production: still keep response generic.
-      if (process.env.NODE_ENV !== 'production') {
-        return safeGenericRecoveryResponse(res, {
-          debug: {
-            emailConfigured: EmailService.isConfigured(),
-            resetLink,
-            error: String(e?.message || e)
-          }
-        });
-      }
-      return safeGenericRecoveryResponse(res);
-    }
-
-    if (comm?.id && (sendResult?.skipped || sendResult?.blocked || sendResult?.queued)) {
-      const errMsg = String(
-        sendResult.reason ||
-          (Array.isArray(sendResult.qualityFlags)
-            ? sendResult.qualityFlags.map((f) => f.message || f.code).join('; ')
-            : '') ||
-          (sendResult.queued ? 'pending approval' : 'not sent')
-      ).slice(0, 500);
-      // Surface skips as failed so Automation Failed KPI/list show them.
-      await pool
-        .execute(
-          `UPDATE user_communications SET delivery_status = 'failed', error_message = COALESCE(?, error_message) WHERE id = ?`,
-          [errMsg || 'not sent', comm.id]
-        )
-        .catch(() => {});
-    } else if (comm?.id && sendResult?.id) {
-      await CommunicationLoggingService.markAsSent(comm.id, sendResult.id, {
-        fromEmail: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || null
-      }).catch(() => {});
-      // Demo/fake addresses redirect to testing@ — still show under Failed so QA can see the attempt.
-      if (isDemoRedirect) {
-        await pool
-          .execute(
-            `UPDATE user_communications
-             SET delivery_status = 'failed',
-                 error_message = ?
-             WHERE id = ?`,
-            [
-              'Demo/fake recipient — message redirected to testing@itsco.health (check testing inbox)',
-              comm.id
-            ]
-          )
-          .catch(() => {});
-      }
-    }
-
-    if (process.env.NODE_ENV !== 'production' && (sendResult?.skipped || sendResult?.reason)) {
+    if (includeDebug) {
       return safeGenericRecoveryResponse(res, {
         debug: {
-          resetLink,
-          sendResult
+          outcome: result.outcome,
+          communicationId: result.communicationId || null,
+          deliveryStatus: result.deliveryStatus || null,
+          resetLink: result.resetLink || null,
+          sendResult: result.sendResult || null,
+          error: result.error || null,
+          emailConfigured: EmailService.isConfigured()
         }
       });
     }

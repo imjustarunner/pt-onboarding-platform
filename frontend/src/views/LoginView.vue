@@ -550,10 +550,16 @@
                 <strong>Check Junk / Spam.</strong>
                 This email often lands there. Open Junk, move the message to Inbox if you find it, and mark the sender as safe so future messages are delivered.
               </div>
-              <div v-if="recoveryDebug?.resetLink" class="debug">
-                <p><strong>Dev test link:</strong></p>
-                <a :href="recoveryDebug.resetLink" target="_blank" rel="noopener noreferrer">{{ recoveryDebug.resetLink }}</a>
-                <p class="debug-note">This only appears outside production, when email sending is skipped or misconfigured.</p>
+              <div v-if="recoveryDebug" class="debug">
+                <p><strong>Local recovery debug</strong></p>
+                <p v-if="recoveryDebug.outcome">Outcome: {{ recoveryDebug.outcome }}</p>
+                <p v-if="recoveryDebug.deliveryStatus">Delivery: {{ recoveryDebug.deliveryStatus }}</p>
+                <p v-if="recoveryDebug.communicationId">Communication #{{ recoveryDebug.communicationId }}</p>
+                <p v-if="recoveryDebug.error">Error: {{ recoveryDebug.error }}</p>
+                <template v-if="recoveryDebug.resetLink">
+                  <p><strong>Dev test link:</strong></p>
+                  <a :href="recoveryDebug.resetLink" target="_blank" rel="noopener noreferrer">{{ recoveryDebug.resetLink }}</a>
+                </template>
               </div>
               <button
                 type="submit"
@@ -1953,7 +1959,6 @@ const showForgotPassword = () => {
   recoveryDebug.value = null;
   const u = String(username.value || '').trim();
   forgotPasswordEmail.value = u.includes('@') ? u : '';
-  bootstrapRecoveryRecaptcha().catch(() => {});
 };
 
 const showForgotUsername = () => {
@@ -2047,23 +2052,17 @@ const submitForgotPassword = async () => {
   recoverySuccess.value = '';
   recoveryDebug.value = null;
   try {
-    await bootstrapRecoveryRecaptcha();
-    const captchaToken = await getLoginRecoveryCaptchaToken('login_password_reset');
-    if (recoveryRecaptchaRequired.value && !captchaToken) {
-      recoveryError.value = 'Security verification did not complete. Please refresh and try again.';
-      return;
-    }
+    // No captcha on forgot password — public/local login do not use it, and
+    // waiting on Enterprise script load was hanging the button with no feedback.
     const resp = await api.post('/auth/request-password-reset', {
       email: String(forgotPasswordEmail.value || '').trim(),
-      organizationSlug: loginSlug.value || undefined,
-      captchaToken: captchaToken || undefined
+      organizationSlug: loginSlug.value || undefined
     }, { skipGlobalLoading: true, skipAuthRedirect: true });
 
     recoverySuccess.value = resp?.data?.message || 'If the email matches an account, you will receive a reset link shortly.';
     recoveryDebug.value = resp?.data?.debug || null;
     startForgotPasswordCooldown();
   } catch (e) {
-    // Keep UX generic to avoid account enumeration
     recoverySuccess.value = 'If the email matches an account, you will receive a reset link shortly.';
     recoveryDebug.value = e?.response?.data?.debug || null;
     startForgotPasswordCooldown();

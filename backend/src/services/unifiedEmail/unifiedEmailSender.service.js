@@ -73,7 +73,7 @@ function applySenderSignatureBlock({ identity, text = null, html = null }) {
 
   const alt = String(identity?.signature_alt_text || identity?.display_name || 'Signature').trim() || 'Signature';
   const label = String(identity?.display_name || '').trim();
-  const textOut = `${String(text || '').trim()}\n\n${label ? `${label}\n` : ''}[Signature image attached: ${imageUrl}]`.trim();
+  const textOut = `${String(text || '').trim()}\n\n${label ? `${label}\n` : ''}[Signature image: ${imageUrl}]`.trim();
 
   const imageBlock = `
     <div style="margin-top: 14px;">
@@ -637,7 +637,13 @@ export async function sendEmailFromIdentity({
     templateType: templateType || 'identity_send',
     clientId
   });
-  if (!quality.ok) {
+  const ttForQuality = String(templateType || 'identity_send').trim().toLowerCase();
+  const skipQualityForLoginRecovery = [
+    'password_reset',
+    'admin_initiated_password_reset',
+    'school_staff_account_recovery'
+  ].includes(ttForQuality);
+  if (!quality.ok && !skipQualityForLoginRecovery) {
     return blockSendForQualityIssues({
       flags: quality.flags,
       to,
