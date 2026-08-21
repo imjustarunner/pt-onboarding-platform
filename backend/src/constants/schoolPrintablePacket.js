@@ -64,7 +64,7 @@ export function buildVirtualPrintablePacketDocument({
     id: SCHOOL_PRINTABLE_PACKET_VIRTUAL_DOC_ID,
     school_organization_id: Number(schoolOrganizationId || 0) || null,
     kind: 'system_printable_packet',
-    title: `${schoolName} — School Packet (Smart)`,
+    title: `${schoolName} — Enrollment Packet (Smart)`,
     category_key: 'referral_packet',
     file_path: null,
     link_url: null,

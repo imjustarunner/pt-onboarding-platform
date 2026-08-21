@@ -74,7 +74,13 @@ import {
   requestBaseUrl
 } from '../services/publicFormBranding.service.js';
 import { hydrateOfficeQuestionnaireSteps } from '../utils/officeQuestionnaireSteps.js';
-import { linkLooksLikeOfficeIntake } from '../utils/officeIntakeLink.js';
+import { linkLooksLikeOfficeIntake, isNonClientIntakeFormType } from '../utils/officeIntakeLink.js';
+import {
+  applyReminderConsent,
+  purgeUnfinishedEnrollmentDraft,
+  purgeByDeletionToken,
+  REMINDER_DECLINE_TTL_MS
+} from '../services/intakeUnfinishedReminder.service.js';
 import { buildPsc17Fields, buildStandardQuestionnaireFields } from '../data/validatedClinicalScreens.en.js';
 
 /** Fetch the Stripe Connect account ID for an agency (null if not connected). */
@@ -1770,12 +1776,28 @@ const ensureGuardianAccountLinkedForClient = async ({ clientId, profile = {}, ac
   }
   return guardianUser;
 };
-const BASE_CONSENT_TTL_MS = 24 * 60 * 60 * 1000; // private return token lasts 24 hours
+const BASE_CONSENT_TTL_MS = 24 * 60 * 60 * 1000; // legacy / non-enrollment private return token
 const PER_PAGE_TTL_MS = 0;
+
+/** School or office full enrollment packets (not job/medical/registration/ROI/etc.). */
+const isEnrollmentReminderLink = (link) => {
+  if (!link) return false;
+  const formType = String(link.form_type || 'intake').trim().toLowerCase();
+  if (isNonClientIntakeFormType(formType)) return false;
+  const scope = String(link.scope_type || '').toLowerCase();
+  if (scope === 'school' || scope === 'program') {
+    return formType === 'intake' || Number(link.inherits_school_master || 0) === 1;
+  }
+  return linkLooksLikeOfficeIntake(link);
+};
 
 const isSubmissionExpired = (submission, { templatesCount = 0 } = {}) => {
   if (!submission) return false;
   if (String(submission.status || '').toLowerCase() === 'submitted') return false;
+  if (submission.draft_expires_at) {
+    const exp = new Date(submission.draft_expires_at).getTime();
+    if (!Number.isNaN(exp)) return Date.now() > exp;
+  }
   const base = submission.consent_given_at || submission.created_at;
   if (!base) return false;
   const startedAt = new Date(base).getTime();
@@ -1785,14 +1807,55 @@ const isSubmissionExpired = (submission, { templatesCount = 0 } = {}) => {
   return Date.now() - startedAt > ttl;
 };
 
-const deleteSubmissionData = async (submissionId) => {
+const deleteSubmissionData = async (submissionId, { reason = 'draft_expired' } = {}) => {
   const id = Number(submissionId || 0);
   if (!id) return;
   try {
+    const purged = await purgeUnfinishedEnrollmentDraft({
+      submissionId: id,
+      reason,
+      notifyAdmins: false
+    });
+    if (purged?.ok || purged?.reason === 'not_found' || purged?.reason === 'already_submitted') {
+      return;
+    }
     await IntakeSubmission.deleteById(id);
   } catch (err) {
     console.warn('[publicIntake] expired draft delete failed', { submissionId: id, message: err?.message });
+    try {
+      await IntakeSubmission.deleteById(id);
+    } catch {
+      /* ignore */
+    }
   }
+};
+
+const buildDeleteDataHtml = ({ publicKey, token = '', success = false, error = null } = {}) => {
+  const safeKey = escapeHtml(publicKey);
+  const safeToken = escapeHtml(token);
+  const title = success
+    ? 'Your data has been deleted'
+    : (error ? 'Unable to delete data' : 'Delete your enrollment form data');
+  const body = success
+    ? '<p>Your unfinished enrollment form and any saved answers have been permanently deleted. No further reminder emails will be sent.</p>'
+    : (error
+      ? `<p>${escapeHtml(error)}</p><p>If you continue to need help, contact the organization that sent you this form.</p>`
+      : `<p>This will permanently delete your unfinished enrollment form and stop reminder emails. This cannot be undone.</p>
+    <form method="POST" action="/api/public-intake/${safeKey}/delete-data" style="margin-top:24px;">
+      <input type="hidden" name="token" value="${safeToken}" />
+      <button type="submit" style="background:#7f1d1d;color:#fff;border:0;padding:12px 18px;border-radius:999px;font-weight:700;cursor:pointer;">
+        Stop notifying me and delete all my data forever
+      </button>
+    </form>`);
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>${title}</title>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;line-height:1.55;color:#10231f;max-width:560px;margin:48px auto;padding:0 20px;background:#f7faf8;}
+  h1{font-size:1.4rem;margin:0 0 12px;}
+  .card{background:#fff;border:1px solid #d7e3dc;border-radius:16px;padding:24px;}
+</style></head>
+<body><div class="card"><h1>${title}</h1>${body}</div></body></html>`;
 };
 
 const isOptionalPublicField = (def) => {
@@ -5949,11 +6012,16 @@ export const createPublicIntakeSession = async (req, res, next) => {
     }
 
     const templates = await loadAllowedTemplates(link);
-    const ttlMs = BASE_CONSENT_TTL_MS + Math.max(0, Number(templates.length || 0)) * PER_PAGE_TTL_MS;
+    const enrollmentPacket = isEnrollmentReminderLink(link);
+    // Enrollment: decline-safe 12h until reminder consent answers; non-enrollment keeps legacy 24h.
+    const ttlMs = enrollmentPacket
+      ? REMINDER_DECLINE_TTL_MS
+      : (BASE_CONSENT_TTL_MS + Math.max(0, Number(templates.length || 0)) * PER_PAGE_TTL_MS);
     const retentionExpiresAt = new Date(Date.now() + ttlMs);
+    const draftExpiresAt = enrollmentPacket ? retentionExpiresAt : null;
     const sessionToken = crypto.randomBytes(18).toString('hex');
 
-    const submission = await IntakeSubmission.create({
+    let submission = await IntakeSubmission.create({
       intakeLinkId: link.id,
       status: 'started',
       sessionToken,
@@ -5962,6 +6030,13 @@ export const createPublicIntakeSession = async (req, res, next) => {
       retentionExpiresAt,
       clientId: issuedRoiLink?.client_id || null
     });
+
+    if (draftExpiresAt && submission?.id) {
+      submission = await IntakeSubmission.updateById(submission.id, {
+        draft_expires_at: draftExpiresAt,
+        retention_expires_at: retentionExpiresAt
+      }) || submission;
+    }
 
     if (issuedRoiLink?.id) {
       await ClientSchoolRoiSigningLink.markStarted({
@@ -5991,8 +6066,164 @@ export const createPublicIntakeSession = async (req, res, next) => {
       sessionToken,
       submissionId: submission?.id || null,
       expiresAt: retentionExpiresAt?.toISOString?.() || null,
-      expiresInHours: 24
+      expiresInHours: enrollmentPacket ? 12 : 24,
+      reminderConsentRequired: enrollmentPacket
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const postPublicIntakeReminderConsent = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+    const publicKey = String(req.params.publicKey || '').trim();
+    const sessionToken = String(req.body?.sessionToken || '').trim();
+    const consentStatusRaw = String(req.body?.consentStatus || '').trim().toLowerCase();
+    if (!sessionToken) {
+      return res.status(400).json({ error: { message: 'sessionToken is required' } });
+    }
+    if (consentStatusRaw !== 'agreed' && consentStatusRaw !== 'declined') {
+      return res.status(400).json({ error: { message: 'consentStatus must be agreed or declined' } });
+    }
+    const { link } = await resolvePublicIntakeContext(publicKey);
+    if (!link) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    if (!isEnrollmentReminderLink(link)) {
+      return res.status(400).json({ error: { message: 'Reminder consent is not used for this form type' } });
+    }
+    const submission = await IntakeSubmission.findBySessionToken(sessionToken);
+    if (!submission || submission.intake_link_id !== link.id) {
+      return res.status(404).json({ error: { message: 'Intake session not found' } });
+    }
+    if (String(submission.status || '').toLowerCase() === 'submitted') {
+      return res.status(400).json({ error: { message: 'This form is already submitted' } });
+    }
+    if (isSubmissionExpired(submission)) {
+      await deleteSubmissionData(submission.id);
+      return res.status(410).json({ error: { message: 'This session has expired. Please start a new intake.' } });
+    }
+
+    const firstName = String(req.body?.firstName || '').trim();
+    const email = String(req.body?.email || '').trim();
+    if (consentStatusRaw === 'agreed') {
+      if (!firstName) {
+        return res.status(400).json({ error: { message: 'firstName is required to agree to reminders' } });
+      }
+      if (!email || !email.includes('@')) {
+        return res.status(400).json({ error: { message: 'A valid email is required to agree to reminders' } });
+      }
+    }
+
+    let schoolOrganizationId = Number(req.body?.schoolOrganizationId || 0) || null;
+    if (!schoolOrganizationId) {
+      const scope = String(link.scope_type || '').toLowerCase();
+      if (scope === 'school' || scope === 'program') {
+        schoolOrganizationId = Number(link.organization_id || 0) || null;
+      }
+    }
+
+    const result = await applyReminderConsent({
+      submissionId: submission.id,
+      consentStatus: consentStatusRaw,
+      firstName: firstName || null,
+      email: email || null,
+      schoolOrganizationId
+    });
+
+    const payload = {
+      consentStatus: result.consentStatus,
+      draftExpiresAt: result.draftExpiresAt?.toISOString?.() || null
+    };
+    if (result.consentStatus === 'agreed' && result.rawDeletionToken) {
+      payload.deletionToken = result.rawDeletionToken;
+    }
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPublicIntakeDeleteDataPage = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const token = String(req.query?.token || '').trim();
+    if (!publicKey) {
+      return res.status(404).type('html').send(buildDeleteDataHtml({
+        publicKey: '',
+        error: 'This delete link is invalid.'
+      }));
+    }
+    if (!token) {
+      return res.status(400).type('html').send(buildDeleteDataHtml({
+        publicKey,
+        error: 'A deletion token is required. Open the link from your reminder email.'
+      }));
+    }
+    res.type('html').send(buildDeleteDataHtml({ publicKey, token }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const postPublicIntakeDeleteData = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const token = String(req.body?.token || req.query?.token || '').trim();
+    const wantsJson = String(req.get('accept') || '').includes('application/json')
+      || String(req.query?.format || '').toLowerCase() === 'json';
+    if (!publicKey || !token) {
+      if (wantsJson) {
+        return res.status(400).json({ error: { message: 'token is required' } });
+      }
+      return res.status(400).type('html').send(buildDeleteDataHtml({
+        publicKey,
+        error: 'A deletion token is required.'
+      }));
+    }
+    const result = await purgeByDeletionToken({ publicKey, rawToken: token });
+    if (!result?.ok) {
+      const message = result?.reason === 'not_found'
+        ? 'This delete link is invalid or has already been used.'
+        : 'Unable to delete this form data.';
+      if (wantsJson) {
+        return res.status(404).json({ error: { message } });
+      }
+      return res.status(404).type('html').send(buildDeleteDataHtml({ publicKey, error: message }));
+    }
+    if (wantsJson) {
+      return res.json({ ok: true });
+    }
+    res.type('html').send(buildDeleteDataHtml({ publicKey, success: true }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deletePublicIntakeSession = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const sessionToken = String(req.body?.sessionToken || req.query?.sessionToken || '').trim();
+    if (!sessionToken) {
+      return res.status(400).json({ error: { message: 'sessionToken is required' } });
+    }
+    const { link } = await resolvePublicIntakeContext(publicKey);
+    if (!link) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const submission = await IntakeSubmission.findBySessionToken(sessionToken);
+    if (!submission || submission.intake_link_id !== link.id) {
+      return res.status(404).json({ error: { message: 'Intake session not found' } });
+    }
+    if (String(submission.status || '').toLowerCase() === 'submitted') {
+      return res.status(400).json({ error: { message: 'Completed submissions cannot be deleted from this link' } });
+    }
+    await deleteSubmissionData(submission.id, { reason: 'user_cancel' });
+    res.json({ ok: true });
   } catch (error) {
     next(error);
   }
@@ -6065,7 +6296,11 @@ export const getPublicIntakeProgress = async (req, res, next) => {
     res.json({
       submissionId: submission.id,
       status: submission.status,
-      intakeData: submission.intake_data || null
+      intakeData: submission.intake_data || null,
+      reminderConsentStatus: submission.reminder_consent_status || null,
+      draftExpiresAt: submission.draft_expires_at
+        ? new Date(submission.draft_expires_at).toISOString()
+        : null
     });
   } catch (error) {
     next(error);
@@ -7952,6 +8187,23 @@ export const finalizePublicIntake = async (req, res, next) => {
       if (attachInfo.attachClientId) {
         const existingClient = await Client.findById(attachInfo.attachClientId, { includeSensitive: true });
         if (existingClient?.id) {
+          // Mirror bulk import: if the matched client was archived, restore to PENDING_REVIEW before attach.
+          if (String(existingClient.status || '').toUpperCase() === 'ARCHIVED') {
+            try {
+              await Client.updateStatus(existingClient.id, 'PENDING_REVIEW', null, 'Unarchived via enrollment packet match');
+              existingClient.status = 'PENDING_REVIEW';
+              console.info('[publicIntake] unarchived matched client before attach (school-roi flow)', {
+                submissionId,
+                clientId: existingClient.id,
+                matchSource: attachInfo.attachSource
+              });
+            } catch (unarchiveErr) {
+              console.warn('[publicIntake] failed to unarchive matched client before attach (school-roi flow)', {
+                clientId: existingClient.id,
+                message: unarchiveErr?.message || unarchiveErr
+              });
+            }
+          }
           // Returning-family-with-new-sibling support. resolveIntakeExistingClientAttach
           // only inspects payload.clients[0] when deciding whether to attach to a
           // returning client, so any additional siblings the parent submitted in the
@@ -9764,6 +10016,23 @@ export const submitPublicIntake = async (req, res, next) => {
       if (attachInfo.attachClientId) {
         const existingClient = await Client.findById(attachInfo.attachClientId, { includeSensitive: true });
         if (existingClient?.id) {
+          // Mirror bulk import: if the matched client was archived, restore to PENDING_REVIEW before attach.
+          if (String(existingClient.status || '').toUpperCase() === 'ARCHIVED') {
+            try {
+              await Client.updateStatus(existingClient.id, 'PENDING_REVIEW', null, 'Unarchived via enrollment packet match');
+              existingClient.status = 'PENDING_REVIEW';
+              console.info('[publicIntake] unarchived matched client before attach (registration flow)', {
+                submissionId,
+                clientId: existingClient.id,
+                matchSource: attachInfo.attachSource
+              });
+            } catch (unarchiveErr) {
+              console.warn('[publicIntake] failed to unarchive matched client before attach (registration flow)', {
+                clientId: existingClient.id,
+                message: unarchiveErr?.message || unarchiveErr
+              });
+            }
+          }
           // See the school-ROI flow's matched-attach branch for the full
           // rationale and history (Carter/Carmen Bleem report, sub 300
           // Client1 Example matched + Client Example2 dropped). In the

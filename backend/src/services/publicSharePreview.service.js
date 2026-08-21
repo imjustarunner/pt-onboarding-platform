@@ -38,7 +38,8 @@ const PAGE_KEYS = new Set([
   'counseling',
   'coaching',
   'tutoring',
-  'tutors'
+  'tutors',
+  'bookclub'
 ]);
 
 const DEFAULT_IMAGES = {

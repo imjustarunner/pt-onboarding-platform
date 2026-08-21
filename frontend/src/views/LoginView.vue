@@ -300,22 +300,22 @@
           class="staff-intake-panel staff-intake-panel--standalone"
           aria-labelledby="staff-intake-heading"
         >
-          <h3 id="staff-intake-heading" class="staff-intake-panel__title">Family digital referral packet</h3>
+          <h3 id="staff-intake-heading" class="staff-intake-panel__title">Family Digital Enrollment Packet</h3>
           <p class="staff-intake-panel__lead">
-            Share this School Referral Packet link or QR with families — no sign-in required here.
+            Share this Digital Enrollment Packet link or QR with families — no sign-in required here.
             Once they open the link, they can switch from English to Spanish.
           </p>
-          <div v-if="staffIntakeLoading" class="staff-intake-panel__muted">Loading referral packet…</div>
+          <div v-if="staffIntakeLoading" class="staff-intake-panel__muted">Loading enrollment packet…</div>
           <p v-else-if="staffIntakeError" class="staff-intake-panel__err">{{ staffIntakeError }}</p>
           <div v-else class="staff-intake-grid staff-intake-grid--single">
             <div v-if="staffIntakeMaster" class="staff-intake-card">
               <img
                 v-if="staffIntakeQrDisplay"
                 :src="staffIntakeQrDisplay"
-                alt="QR code — family digital referral packet"
+                alt="QR code — family Digital Enrollment Packet"
                 class="staff-intake-card__qr"
               />
-              <p class="staff-intake-card__title">School Referral Packet</p>
+              <p class="staff-intake-card__title">Digital Enrollment Packet</p>
               <p class="staff-intake-card__note">
                 Open the link, then change English to Spanish at the top of the form if needed.
               </p>
@@ -354,7 +354,7 @@
               v-else
               class="staff-intake-panel__empty"
             >
-              No active School Referral Packet is configured yet. Your administrator can publish the master packet under Digital Forms for this school.
+              No active Digital Enrollment Packet is configured yet. Your administrator can publish the master packet under Digital Forms for this school.
             </p>
           </div>
         </section>

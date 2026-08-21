@@ -46,7 +46,7 @@
           <tbody>
             <tr v-for="l in intakeLinks" :key="l.id">
               <td>
-                <strong>{{ l.title || `Form #${l.id}` }}</strong>
+                <strong>{{ displayDigitalFormTitle(l) }}</strong>
                 <div class="muted" style="font-size: 12px; margin-top: 2px;">
                   <span>{{ intakeLinkUrlFor(l) || '—' }}</span>
                 </div>
@@ -84,7 +84,7 @@
         <ul v-else class="digital-form-list">
           <li v-for="l in primaryDigitalFormLinks" :key="l.id" class="digital-form-row">
             <div class="digital-form-row-main">
-              <strong>{{ l.title || `Form #${l.id}` }}</strong>
+              <strong>{{ displayDigitalFormTitle(l) }}</strong>
               <span v-if="l.linked_es_form_id" class="lang-badge lang-badge-bilingual">EN &amp; ES</span>
               <span v-else class="lang-badge" :class="`lang-badge-${langCodeOf(l)}`">{{ langCodeOf(l).toUpperCase() }}</span>
               <div class="muted" style="font-size: 12px; margin-top: 2px;">
@@ -670,6 +670,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../../services/api';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
 import { buildPublicIntakeUrl } from '../../../utils/publicIntakeUrl';
+import { localizePublicIntakeTitle } from '../../../utils/publicIntakeTitle.js';
 import { buildPublicSchoolPrintablePacketUrl } from '../../../utils/publicSchoolPrintablePacketUrl';
 import QRCode from 'qrcode';
 import { useAuthStore } from '../../../store/auth';
@@ -812,6 +813,11 @@ const sortedDigitalFormLinks = computed(() => {
 const primaryDigitalFormLinks = computed(() =>
   sortedDigitalFormLinks.value.filter((l) => langCodeOf(l) !== 'es')
 );
+
+function displayDigitalFormTitle(link) {
+  const fallback = link?.id != null ? `Form #${link.id}` : 'Form';
+  return localizePublicIntakeTitle(link?.title || fallback, langCodeOf(link) || 'en');
+}
 
 // ── Year-based library filters ────────────────────────────────────────────────
 const currentYearDocs = computed(() =>
@@ -1012,7 +1018,7 @@ const printPrintablePacketLocale = async (locale) => {
     const url = URL.createObjectURL(blob);
     openPrintWindow({
       url,
-      title: locale === 'es' ? 'Paquete de Referencia Escolar' : 'School Referral Packet',
+      title: locale === 'es' ? 'Paquete de inscripción escolar' : 'Enrollment Packet',
       existingWindow: popup
     });
     window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
@@ -1083,7 +1089,7 @@ const printSmartPacket = async (d) => {
     const url = URL.createObjectURL(blob);
     openPrintWindow({
       url,
-      title: d?.title || 'School Referral Packet',
+      title: d?.title || 'Enrollment Packet',
       existingWindow: popup
     });
     window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
@@ -1303,7 +1309,7 @@ const copyIntakeLink = async (link) => {
 const openIntakeQr = async (link) => {
   const url = intakeLinkUrlFor(link);
   if (!url) return;
-  qrModalTitle.value = String(link?.title || '').trim() || `Form #${link?.id || ''}`;
+  qrModalTitle.value = displayDigitalFormTitle(link);
   qrModalUrl.value = url;
   qrModalDataUrl.value = '';
   qrModalOpen.value = true;

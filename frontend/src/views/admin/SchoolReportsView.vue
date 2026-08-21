@@ -11,6 +11,9 @@
         </p>
       </div>
       <div class="header-actions">
+        <router-link class="btn btn-secondary link-btn" :to="unfinishedFormsTo">
+          Unfinished Digital Forms
+        </router-link>
         <select
           v-if="agencies.length > 1"
           v-model.number="agencyId"
@@ -230,6 +233,14 @@ const hubTo = computed(() => {
   return slug ? `/${slug}/school-operations` : '/school-operations';
 });
 
+const unfinishedFormsTo = computed(() => {
+  const slug = route.params.organizationSlug;
+  const path = slug
+    ? `/${slug}/admin/unfinished-digital-forms`
+    : '/admin/unfinished-digital-forms';
+  return { path, query: { scope: 'school' } };
+});
+
 const yearOptions = computed(() => {
   const fromApi = snapshot.value?.availableYears || [];
   const fallback = buildSchoolYearPickerOptions(new Date(), 3);
@@ -415,6 +426,12 @@ h1 {
 }
 .btn { cursor: pointer; }
 .btn:disabled { opacity: 0.6; cursor: default; }
+.link-btn {
+  text-decoration: none;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+}
 .error-banner {
   background: #fef2f2;
   color: #991b1b;

@@ -4,7 +4,7 @@
       <div>
         <h1>Master Counseling Digital Form</h1>
         <p class="muted msf-sub">
-          Counseling in-office intake used by Join → In-Depth Intake Packet. Separate from school referral masters
+          Counseling in-office intake used by Join → Client Enrollment Packet. Separate from school referral masters
           and from Master Tutoring — no school ROI step. Edit EN/ES here; the published shell updates live for Join.
         </p>
       </div>

@@ -431,7 +431,7 @@ const saveOk = ref('');
 const holdEditClosed = ref(false);
 const selectedBlock = ref('');
 const viewportWidth = ref(typeof window === 'undefined' ? 1200 : window.innerWidth);
-const skipDesktopLayout = computed(() => !editing.value && viewportWidth.value <= 860);
+const skipDesktopLayout = computed(() => !editing.value && viewportWidth.value <= 1100);
 const draft = reactive(blankDraft());
 let dragState = null;
 let resizeState = null;
@@ -610,8 +610,13 @@ function blockStyle(key) {
   }
   const pos = activeLayout.value.positions?.[key] || { x: 0, y: 0 };
   const sizes = activeLayout.value.sizes || {};
+  // In view mode, keep Need Help in normal rail flow so saved editor offsets
+  // cannot slide it up over the logo / "You're Not Alone" stack.
+  const applyTransform = editing.value || key !== 'help';
   const style = {
-    transform: `translate(${Number(pos.x) || 0}px, ${Number(pos.y) || 0}px)`,
+    ...(applyTransform
+      ? { transform: `translate(${Number(pos.x) || 0}px, ${Number(pos.y) || 0}px)` }
+      : {}),
     ...alignBlockStyle(blockAlign(key))
   };
   if (key === 'cards') {
@@ -960,6 +965,17 @@ async function saveEdit() {
   z-index: 3;
 }
 
+.ajl:not(.ajl--editing) .ajl-rail {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.72) 0%,
+    rgba(255, 255, 255, 0.55) 55%,
+    rgba(255, 255, 255, 0.4) 100%
+  );
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
 .ajl-rail--editing {
   outline: 1px dashed rgba(29, 78, 216, 0.35);
   outline-offset: -4px;
@@ -1048,11 +1064,15 @@ async function saveEdit() {
 }
 
 .ajl-help {
-  margin-top: auto;
-  border: 1px solid rgba(18, 60, 109, 0.16);
-  background: rgba(255, 255, 255, 0.55);
-  border-radius: 12px;
-  padding: 0.75rem 0.8rem;
+  margin-top: 0;
+  text-align: left;
+  border: 1px solid rgba(18, 60, 109, 0.14);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 16px;
+  padding: 0.85rem 0.95rem;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
 }
 
 .ajl-help h2 {
@@ -1256,6 +1276,25 @@ async function saveEdit() {
   text-align: inherit;
 }
 
+/* Always keep welcome copy readable over dark/busy scenic photos */
+.ajl:not(.ajl--editing) .ajl-block--overlay {
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 18px;
+  padding: 0.55rem 0.95rem 0.7rem;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+}
+
+.ajl:not(.ajl--editing) .ajl-block--overlay .ajl-glad {
+  margin-bottom: 0.15rem;
+}
+
+.ajl:not(.ajl--editing) .ajl-block--overlay .ajl-lead {
+  margin-bottom: 0.15rem;
+}
+
 .ajl-cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1263,10 +1302,6 @@ async function saveEdit() {
   width: 100%;
   min-height: 100%;
   align-items: stretch;
-  text-align: left;
-}
-
-.ajl-help {
   text-align: left;
 }
 
@@ -1529,6 +1564,33 @@ async function saveEdit() {
   .ajl-cards {
     grid-template-columns: 1fr;
   }
+  .ajl:not(.ajl--editing) .ajl-block {
+    transform: none !important;
+    width: auto;
+    max-width: 100%;
+  }
+  .ajl:not(.ajl--editing) .ajl-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+  .ajl:not(.ajl--editing) .ajl-brand-stack {
+    position: relative;
+    z-index: 1;
+    flex: none;
+  }
+  .ajl:not(.ajl--editing) .ajl-block--help {
+    position: relative;
+    z-index: 3;
+    margin-top: 0.5rem;
+    flex: none;
+    width: 100% !important;
+    max-width: 100%;
+  }
+  .ajl:not(.ajl--editing) .ajl-help {
+    width: 100%;
+    background: #fff;
+  }
 }
 
 @media (max-width: 960px) {
@@ -1536,11 +1598,6 @@ async function saveEdit() {
     overflow-x: hidden;
     overflow-y: auto;
     min-height: 100dvh;
-  }
-  .ajl:not(.ajl--editing) .ajl-block {
-    transform: none !important;
-    width: auto;
-    max-width: 100%;
   }
 }
 
@@ -1604,6 +1661,11 @@ async function saveEdit() {
   }
   .ajl-card {
     min-width: 0;
+  }
+  .ajl:not(.ajl--editing) .ajl-block--overlay {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
   }
 }
 </style>

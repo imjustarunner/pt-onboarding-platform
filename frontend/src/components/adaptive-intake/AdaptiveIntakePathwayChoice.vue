@@ -22,7 +22,7 @@
         <ul v-if="quick.bullets?.length" class="ai-pathway-card-list">
           <li v-for="(b, i) in quick.bullets" :key="i">{{ b }}</li>
         </ul>
-        <span class="ai-pathway-card-cta">{{ quick.cta || 'Start Quick Intake →' }}</span>
+        <span class="ai-pathway-card-cta">{{ quick.cta || 'Start Form →' }}</span>
         <span v-if="quick.footer" class="ai-pathway-card-footer">{{ quick.footer }}</span>
       </button>
 
@@ -44,7 +44,7 @@
         <ul v-if="full.bullets?.length" class="ai-pathway-card-list">
           <li v-for="(b, i) in full.bullets" :key="i">{{ b }}</li>
         </ul>
-        <span class="ai-pathway-card-cta">{{ full.enabled ? (full.cta || 'Start Full Intake →') : (full.disabledReason || 'Not available yet') }}</span>
+        <span class="ai-pathway-card-cta">{{ full.enabled ? (full.cta || 'Start Full Enrollment Packet →') : (full.disabledReason || 'Not available yet') }}</span>
         <span v-if="full.footer" class="ai-pathway-card-footer">{{ full.footer }}</span>
       </button>
     </div>
@@ -63,25 +63,25 @@ const props = defineProps({
   quick: {
     type: Object,
     default: () => ({
-      title: 'Quick Prospective',
+      title: 'Initial Interest Form',
       tagline: 'A short form to get you started.',
       description: 'Perfect if you are exploring services and want our team to follow up.',
-      duration: '~ 5–10 min',
+      duration: '1–5 min',
       bullets: ['Basic contact information', 'Reason for seeking support', 'Preferred communication'],
-      cta: 'Start Quick Intake →',
-      footer: 'You can add more details later.'
+      cta: 'Start Form →',
+      footer: 'You will complete the full client enrollment packet at a later time.'
     })
   },
   full: {
     type: Object,
     default: () => ({
-      title: 'In-Depth Intake Packet',
+      title: 'Client Enrollment Packet',
       tagline: 'A comprehensive intake experience.',
       description: 'Best when you are ready to provide full information for personalized care.',
-      duration: '~ 25–35 min',
+      duration: '10–20 min',
       bullets: ['All basic information', 'Detailed history & concerns', 'Documents & signatures'],
-      cta: 'Start Full Intake →',
-      footer: 'More complete = better personalized care.',
+      cta: 'Start Full Enrollment Packet →',
+      footer: 'Following the completion, you will be ready to begin services with a provider.',
       enabled: true
     })
   }

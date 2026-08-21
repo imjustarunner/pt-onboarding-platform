@@ -41,13 +41,18 @@ export function ensureSpanishClarificationFirst(steps, languageCode = 'en') {
   return list;
 }
 
-/** Drop leftover "(English)" / "(ES)" tags and use Spanish packet naming when locale is es. */
+/** Drop leftover "(English)" / "(ES)" tags and use enrollment packet naming when locale is es. */
 export function localizeSchoolReferralPacketTitle(title, languageCode = 'en') {
   const raw = String(title || '').trim();
   const stripped = raw.replace(/\s*\((English|EN|ES|Español|Spanish)\)\s*$/i, '').trim() || raw;
-  if (langCode(languageCode) !== 'es') return stripped;
+  if (langCode(languageCode) !== 'es') {
+    if (/school referral|referral packet|smart school|school referral master/i.test(stripped)) {
+      return 'Digital Enrollment Packet';
+    }
+    return stripped;
+  }
   if (/school referral|referral packet|smart school|school referral master/i.test(stripped)) {
-    return 'Paquete digital de referidos escolares';
+    return 'Paquete digital de inscripción escolar';
   }
   return stripped;
 }

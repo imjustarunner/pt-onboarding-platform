@@ -1162,6 +1162,7 @@ export const createClient = async (req, res, next) => {
       primary_parent_language,
       skills
     } = req.body;
+    const forceCreate = req.body?.forceCreate === true || req.body?.force_create === true;
 
     const userId = req.user.id;
     const userRole = req.user.role;
@@ -1310,8 +1311,8 @@ export const createClient = async (req, res, next) => {
     const warnings = [];
     let warningMeta = null;
 
-    // Check for an existing client with the same initials at the same school (agency-scoped).
-    // This is a warning only (we still allow creating a new client).
+    // Exact match-key (agency + org + initials): block create when ONLY archived
+    // matches exist unless forceCreate is set. Mixed/active matches stay warnings.
     // IMPORTANT: preserve user-entered casing in storage/display, but use uppercase for matching/dedup checks.
     const initialsForSave = String(initials || '').trim();
     const normalizedInitials = initialsForSave.toUpperCase();
@@ -1321,11 +1322,72 @@ export const createClient = async (req, res, next) => {
       });
     }
     try {
-      const existingByMatchKey = await Client.findByMatchKey(parsedAgencyId, parsedOrganizationId, normalizedInitials);
-      if (existingByMatchKey?.id) {
+      const [matchKeyRows] = await pool.execute(
+        `SELECT
+           c.id AS client_id,
+           c.status AS client_status_workflow,
+           c.client_status_id AS client_status_id,
+           cs.label AS client_status_label,
+           cs.status_key AS client_status_key,
+           c.organization_id,
+           org.name AS organization_name,
+           org.slug AS organization_slug,
+           c.provider_id,
+           CONCAT(p.first_name, ' ', p.last_name) AS provider_name,
+           c.agency_id,
+           a.name AS agency_name
+         FROM clients c
+         LEFT JOIN agencies org ON c.organization_id = org.id
+         LEFT JOIN agencies a ON c.agency_id = a.id
+         LEFT JOIN users p ON c.provider_id = p.id
+         LEFT JOIN client_statuses cs ON c.client_status_id = cs.id
+         WHERE c.agency_id = ?
+           AND c.organization_id = ?
+           AND UPPER(c.initials) = ?
+         ORDER BY c.id DESC
+         LIMIT 20`,
+        [parsedAgencyId, parsedOrganizationId, normalizedInitials]
+      );
+      const matchKeyMatches = (matchKeyRows || []).map((r) => ({
+        clientId: Number(r.client_id),
+        workflowStatus: r.client_status_workflow || null,
+        clientStatusId: r.client_status_id || null,
+        clientStatusLabel: r.client_status_label || null,
+        clientStatusKey: r.client_status_key || null,
+        organizationId: r.organization_id || null,
+        organizationName: r.organization_name || null,
+        organizationSlug: r.organization_slug || null,
+        providerId: r.provider_id || null,
+        providerName: r.provider_name || null,
+        agencyId: r.agency_id || null,
+        agencyName: r.agency_name || null
+      }));
+      if (matchKeyMatches.length > 0) {
+        const activeMatch = matchKeyMatches.find((m) => String(m.workflowStatus || '').toUpperCase() !== 'ARCHIVED');
+        const archivedOnly = !activeMatch;
+        if (archivedOnly && !forceCreate) {
+          const errorMeta = {
+            matches: matchKeyMatches,
+            canUnarchive: true,
+            code: 'ARCHIVED_MATCH'
+          };
+          return res.status(409).json({
+            error: {
+              message: `A client with initials "${normalizedInitials}" already exists at this school but is archived. Unarchive it instead of creating a duplicate.`,
+              errorMeta
+            },
+            errorMeta
+          });
+        }
         warnings.push(
-          `A client with initials "${normalizedInitials}" already exists at this school (clientId ${existingByMatchKey.id}).`
+          `A client with initials "${normalizedInitials}" already exists at this school (clientId ${matchKeyMatches[0].clientId}).`
         );
+        if (archivedOnly) {
+          warningMeta = { matches: matchKeyMatches, canUnarchive: true, code: 'ARCHIVED_MATCH' };
+        } else if (!warningMeta) {
+          const archived = matchKeyMatches.find((m) => String(m.workflowStatus || '').toUpperCase() === 'ARCHIVED');
+          warningMeta = { matches: matchKeyMatches, canUnarchive: !!archived };
+        }
       }
     } catch {
       // ignore (best-effort)
@@ -2323,9 +2385,7 @@ export const unarchiveClient = async (req, res, next) => {
     const { id } = req.params;
     const userId = req.user.id;
     const userRole = req.user.role;
-
-    const currentClient = await Client.findById(id, { includeSensitive: true });
-    if (!currentClient) return res.status(404).json({ error: { message: 'Client not found' } });
+    const clientId = parseInt(id, 10);
 
     // Permission: only admin/staff/support/super_admin can unarchive.
     const roleNorm = String(userRole || '').toLowerCase();
@@ -2333,6 +2393,13 @@ export const unarchiveClient = async (req, res, next) => {
     if (!canUnarchive) {
       return res.status(403).json({ error: { message: 'Only admin/staff can unarchive clients' } });
     }
+
+    const access = await ensureAgencyAccessToClient({ userId, role: roleNorm, clientId });
+    if (!access.ok) {
+      return res.status(access.status || 403).json({ error: { message: access.message || 'Access denied' } });
+    }
+    const currentClient = access.client;
+    if (!currentClient) return res.status(404).json({ error: { message: 'Client not found' } });
 
     const isArchived = String(currentClient.status || '').toUpperCase() === 'ARCHIVED';
     if (!isArchived) {
@@ -2342,7 +2409,7 @@ export const unarchiveClient = async (req, res, next) => {
     const nextOrgId = req.body?.organization_id ? parseInt(req.body.organization_id, 10) : null;
     const nextProviderId = req.body?.provider_id === null ? null : (req.body?.provider_id ? parseInt(req.body.provider_id, 10) : undefined);
 
-    // Unarchive + optional reassignment.
+    // Unarchive + optional reassignment. Status stays PENDING_REVIEW for staff review.
     await Client.updateStatus(id, 'PENDING_REVIEW', userId, 'Unarchived');
     if (nextOrgId || nextProviderId !== undefined) {
       const patch = {};
@@ -2351,6 +2418,7 @@ export const unarchiveClient = async (req, res, next) => {
       await Client.update(id, patch, userId);
     }
 
+    logClientAccess(req, clientId, 'client_unarchived').catch(() => {});
     const updated = await Client.findById(id, { includeSensitive: true });
     res.json(updated);
   } catch (e) {

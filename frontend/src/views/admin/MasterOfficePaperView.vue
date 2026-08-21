@@ -25,7 +25,7 @@
           :aria-selected="variant === 'self'"
           @click="variant = 'self'"
         >
-          Client Intake Packet
+          Client Enrollment Packet
         </button>
         <button
           type="button"
@@ -35,14 +35,14 @@
           :aria-selected="variant === 'parent'"
           @click="variant = 'parent'"
         >
-          Parent/Guardian Intake Packet
+          Parent/Guardian Enrollment Packet
         </button>
       </div>
       <OfficePacketTemplateEditor
         :key="variant"
         :agency-id="agencyId"
         :variant="variant"
-        :title="variant === 'parent' ? 'Parent/Guardian Intake Packet' : 'Client Intake Packet'"
+        :title="variant === 'parent' ? 'Parent/Guardian Enrollment Packet' : 'Client Enrollment Packet'"
       />
     </template>
   </div>

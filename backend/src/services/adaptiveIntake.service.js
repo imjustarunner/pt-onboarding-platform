@@ -449,20 +449,20 @@ function defaultJoinLanding(vertical, agencyName) {
     sendMessage: 'Send Us a Message',
     slogan: 'Better Days Start Here.',
     welcomeSubtitle: `Choose the type of intake that works best for you with ${org}. You can always add more details later.`,
-    quickTitle: 'Quick Prospective',
+    quickTitle: 'Initial Interest Form',
     quickTagline: 'A short form to get you started.',
     quickDescription: 'Perfect if you are exploring services and want our team to follow up.',
-    quickDuration: '5–10 min',
+    quickDuration: '1–5 min',
     quickBullets: ['Basic contact information', 'Reason for seeking support', 'Preferred communication method'],
-    quickCta: 'Start Quick Intake →',
-    quickFooter: 'You can add more details later.',
-    fullTitle: 'In-Depth Intake Packet',
+    quickCta: 'Start Form →',
+    quickFooter: 'You will complete the full client enrollment packet at a later time.',
+    fullTitle: 'Client Enrollment Packet',
     fullTagline: 'A comprehensive intake experience.',
     fullDescription: 'Best when you are ready to provide full information for personalized care.',
-    fullDuration: '25–35 min',
+    fullDuration: '10–20 min',
     fullBullets: ['All basic information', 'Detailed history & concerns', 'Documents & signatures'],
-    fullCta: 'Start Full Intake →',
-    fullFooter: 'More complete = better personalized care.'
+    fullCta: 'Start Full Enrollment Packet →',
+    fullFooter: 'Following the completion, you will be ready to begin services with a provider.'
   };
   if (vertical === 'life_coach') {
     return {
@@ -557,6 +557,29 @@ function mergeJoinLandingCopy(vertical, agencyRow, activeService) {
   if (merged.showChooseProvider == null) merged.showChooseProvider = false;
   if (/non-?judgmental/i.test(String(merged.value1 || ''))) {
     merged.value1 = 'Supportive & Welcoming';
+  }
+  // Office pathway card copy refresh (keep custom agency wording if they changed these).
+  const pathwayCopyRefresh = {
+    quickTitle: [['Quick Prospective', 'Initial Interest Form']],
+    quickDuration: [['5–10 min', '1–5 min'], ['5-10 min', '1–5 min'], ['~ 5–10 min', '1–5 min']],
+    quickCta: [['Start Quick Intake →', 'Start Form →'], ['Start Quick Intake ->', 'Start Form →']],
+    quickFooter: [['You can add more details later.', 'You will complete the full client enrollment packet at a later time.']],
+    fullTitle: [['In-Depth Intake Packet', 'Client Enrollment Packet']],
+    fullCta: [
+      ['Start Full Intake →', 'Start Full Enrollment Packet →'],
+      ['Start Full Intake ->', 'Start Full Enrollment Packet →']
+    ],
+    fullDuration: [['25–35 min', '10–20 min'], ['25-35 min', '10–20 min'], ['~ 25–35 min', '10–20 min']],
+    fullFooter: [['More complete = better personalized care.', 'Following the completion, you will be ready to begin services with a provider.']]
+  };
+  for (const [field, pairs] of Object.entries(pathwayCopyRefresh)) {
+    const current = String(merged[field] || '').trim();
+    for (const [from, to] of pairs) {
+      if (current === from) {
+        merged[field] = to;
+        break;
+      }
+    }
   }
   return merged;
 }

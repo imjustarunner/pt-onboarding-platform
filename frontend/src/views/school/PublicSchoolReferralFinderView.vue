@@ -3,7 +3,7 @@
     <header class="srf-header">
       <div class="srf-brand">
         <img v-if="headerLogo" :src="headerLogo" alt="" class="srf-brand-logo" />
-        <span class="srf-brand-title">School Referral Packet</span>
+        <span class="srf-brand-title">Digital Enrollment Packet</span>
       </div>
       <div class="srf-header-actions">
         <button type="button" class="srf-link-btn" @click="openSupportModal('help')">
@@ -16,7 +16,7 @@
     <section class="srf-hero">
       <div class="srf-hero-copy">
         <h1>Find Your School</h1>
-        <p>Search for your school to begin a referral packet.</p>
+        <p>Search for your school to begin a Digital Enrollment Packet.</p>
         <div class="srf-search-wrap">
           <span class="srf-search-icon" aria-hidden="true">⌕</span>
           <input

@@ -261,11 +261,52 @@
           </div>
 
           <DigitalFormActions
+            v-if="!showReminderConsentGate"
             :primary-label="beginIntakeButtonText"
             :primary-disabled="loading || (requiresCaptchaAtStart && (!showRecaptchaWidget || !captchaToken)) || consentLoading"
             :hint="t('pressEnterToContinue')"
             @primary="beginIntakeSession"
           />
+          <section
+            v-else
+            class="reminder-consent-panel"
+            aria-labelledby="reminder-consent-title"
+          >
+            <h2 id="reminder-consent-title" class="reminder-consent-title">{{ t('reminderConsentTitle') }}</h2>
+            <p class="reminder-consent-lead">{{ t('reminderConsentLead') }}</p>
+            <div class="form-grid reminder-consent-fields">
+              <div class="form-group">
+                <label>{{ t('reminderConsentFirstName') }} <span class="required-indicator">*</span></label>
+                <input v-model="reminderFirstName" type="text" autocomplete="given-name" />
+              </div>
+              <div class="form-group">
+                <label>{{ t('reminderConsentEmail') }} <span class="required-indicator">*</span></label>
+                <input v-model="reminderEmail" type="email" autocomplete="email" />
+              </div>
+            </div>
+            <button
+              type="button"
+              class="reminder-consent-more"
+              @click="reminderMoreInfoOpen = !reminderMoreInfoOpen"
+            >{{ t('reminderConsentMoreInfo') }}</button>
+            <p v-if="reminderMoreInfoOpen" class="reminder-consent-more-body">{{ t('reminderConsentMoreInfoBody') }}</p>
+            <p v-if="reminderConsentError" class="error" style="margin-top: 8px;">{{ reminderConsentError }}</p>
+            <div class="reminder-consent-actions">
+              <button
+                type="button"
+                class="btn btn-primary"
+                :disabled="reminderConsentLoading"
+                @click="submitEnrollmentReminderConsent('agreed')"
+              >{{ reminderConsentLoading ? t('reminderConsentSaving') : t('reminderConsentAgree') }}</button>
+              <button
+                type="button"
+                class="btn btn-outline"
+                :disabled="reminderConsentLoading"
+                @click="submitEnrollmentReminderConsent('declined')"
+              >{{ t('reminderConsentDecline') }}</button>
+            </div>
+            <p class="muted reminder-consent-decline-hint">{{ t('reminderConsentDeclineHint') }}</p>
+          </section>
           <div v-if="isSchoolScopedIntake" class="df-cover-secondary-actions">
             <button type="button" class="btn btn-secondary df-not-my-school" @click="goToSchoolReferralFinder">
               {{ t('notYourSchool') }}
@@ -569,14 +610,46 @@
               </div>
             </div>
           </div>
+          <section
+            v-if="needsEnrollmentReminderConsent && !reminderConsentStatus"
+            class="reminder-consent-panel reminder-consent-panel--office"
+            aria-labelledby="office-reminder-consent-title"
+          >
+            <h2 id="office-reminder-consent-title" class="reminder-consent-title">{{ t('reminderConsentTitle') }}</h2>
+            <p class="reminder-consent-lead">{{ t('reminderConsentLead') }}</p>
+            <button
+              type="button"
+              class="reminder-consent-more"
+              @click="reminderMoreInfoOpen = !reminderMoreInfoOpen"
+            >{{ t('reminderConsentMoreInfo') }}</button>
+            <p v-if="reminderMoreInfoOpen" class="reminder-consent-more-body">{{ t('reminderConsentMoreInfoBody') }}</p>
+            <p class="muted reminder-consent-decline-hint">{{ t('reminderConsentDeclineHint') }}</p>
+            <div class="reminder-consent-actions">
+              <button
+                type="button"
+                class="btn btn-primary"
+                :class="{ 'btn--selected': reminderChoice === 'agreed' }"
+                :disabled="reminderConsentLoading"
+                @click="reminderChoice = 'agreed'"
+              >{{ t('reminderConsentAgree') }}</button>
+              <button
+                type="button"
+                class="btn btn-outline"
+                :class="{ 'btn--selected': reminderChoice === 'declined' }"
+                :disabled="reminderConsentLoading"
+                @click="reminderChoice = 'declined'"
+              >{{ t('reminderConsentDecline') }}</button>
+            </div>
+            <p v-if="reminderConsentError" class="error" style="margin-top: 8px;">{{ reminderConsentError }}</p>
+          </section>
           <p v-if="whoForError" class="error" style="margin: 0 0 8px;">{{ whoForError }}</p>
           <button
             type="button"
             class="df-btn df-btn-primary intake-start-continue"
-            :disabled="consentLoading"
+            :disabled="consentLoading || reminderConsentLoading"
             @click="continueWhoFor"
           >
-            {{ consentLoading ? t('saving') : t('continueToIntakePacket') }}
+            {{ consentLoading || reminderConsentLoading ? t('saving') : t('continueToIntakePacket') }}
             <span aria-hidden="true"> →</span>
           </button>
           <p class="intake-start-support">
@@ -2813,11 +2886,11 @@ const JobLandingIcon = {
 
 const INTAKE_TRANSLATIONS = {
   en: {
-    beginSubtitle: 'Begin to start a secure intake session. This link creates a unique session for each person.',
+    beginSubtitle: 'Begin to start a secure Digital Enrollment Packet. This link creates a unique session for each person.',
     beginSubtitleSmartRoi: 'Begin to start a secure school release session. This link creates a unique signing session for each person.',
     beginSubtitleJob: 'Start your job application. This link creates a unique session for your application.',
     beginSubtitleMedical: 'Request your medical records. This link creates a unique session for your request.',
-    beginIntake: 'Begin intake',
+    beginIntake: 'Begin enrollment',
     beginIntakeSmartRoi: 'Begin release',
     beginIntakeRegistration: 'Begin registration',
     beginIntakeJob: 'Start job application',
@@ -2832,6 +2905,18 @@ const INTAKE_TRANSLATIONS = {
     digitalIntakeRegistration: 'Smart Registration',
     welcome: 'Welcome',
     formTimeLimit: 'This form must be completed within 1 hour. Each new page adds 5 minutes. In-progress answers are saved in this browser session for up to 1 hour in case you accidentally navigate away.',
+    reminderConsentTitle: 'Unfinished form reminders',
+    reminderConsentLead: 'If you need to leave and come back, we can email you a private link to finish this enrollment form.',
+    reminderConsentFirstName: 'First name',
+    reminderConsentEmail: 'Email for reminders',
+    reminderConsentAgree: 'Agree',
+    reminderConsentDecline: 'I do not agree',
+    reminderConsentMoreInfo: 'More info',
+    reminderConsentMoreInfoBody: 'If you agree, we may send up to three reminder emails over seven days with a secure link to continue. Your encrypted draft is kept for up to 10 days, then permanently deleted. A unique deletion link is included so you can stop reminders and erase your data anytime. If you do not agree, your encrypted session lasts 12 hours with no reminder emails, then all unfinished information is permanently deleted.',
+    reminderConsentDeclineHint: 'If you do not agree, please close this page. You may still continue — your session will expire in 12 hours with no reminder emails.',
+    reminderConsentRequired: 'Please choose Agree or I do not agree to continue.',
+    reminderConsentAgreeNeedsContact: 'Enter your first name and email to Agree.',
+    reminderConsentSaving: 'Saving preference…',
     previous: 'Previous',
     next: 'Next',
     back: '← Back',
@@ -2938,7 +3023,7 @@ const INTAKE_TRANSLATIONS = {
     chooseWhoForToContinue: 'Please choose whether you are completing this for yourself or someone else.',
     letsStartWithBasics: "Let's start with some basics.",
     letsGetIntakeStarted: "Let's get your intake started",
-    letsGetIntakeStartedLead: 'This secure intake packet helps our care team understand your needs and prepare the best support for you. You can save your progress anytime.',
+    letsGetIntakeStartedLead: 'This secure enrollment packet helps our care team understand your needs and prepare the best support for you. You can save your progress anytime.',
     yourFamily: 'Your family',
     hipaaProtected: 'HIPAA Protected',
     hipaaProtectedDetail: 'Your health information is kept safe and confidential.',
@@ -2976,7 +3061,7 @@ const INTAKE_TRANSLATIONS = {
     expectSaveReturn: 'Save and return anytime',
     dateOfBirth: 'Date of birth',
     yourPhone: 'Phone number',
-    inDepthIntakePacket: 'In-Depth Intake Packet',
+    inDepthIntakePacket: 'Client Enrollment Packet',
     whyWeAsk: 'Why we ask',
     whyWeAskWhoFor: 'So we can prepare the right packet — your answers stay private either way.',
     whyWeAskBasics: 'Just the essentials so we can reach you and match the right care.',
@@ -3185,20 +3270,32 @@ const INTAKE_TRANSLATIONS = {
     digitalIntakeJob: 'Solicitud de Empleo',
     digitalIntakeMedical: 'Solicitud de Registros Médicos',
     digitalIntakeRegistration: 'Registro Inteligente',
-    beginSubtitle: 'Comience para iniciar una sesión de admisión segura. Este enlace crea una sesión única para cada persona.',
+    beginSubtitle: 'Comience para iniciar un Paquete digital de inscripción seguro. Este enlace crea una sesión única para cada persona.',
     beginSubtitleSmartRoi: 'Comience para iniciar una sesión segura de autorización escolar. Este enlace crea una sesión única de firma para cada persona.',
     beginSubtitleJob: 'Comience su solicitud de empleo. Este enlace crea una sesión única para su solicitud.',
     beginSubtitleMedical: 'Solicite sus registros médicos. Este enlace crea una sesión única para su solicitud.',
     beginSubtitleRegistration: 'Regístrese para un programa, clase o evento desde este enlace seguro. Algunos enlaces permiten elegir entre varias opciones.',
     beginSubtitleProgramEnrollment:
       'Inscríbase en un programa o servicio individual desde este enlace seguro. Esto es para convertirse en cliente — no para inscribirse en una clase grupal o un evento con fecha, a menos que su proveedor lo haya incluido aquí.',
-    beginIntake: 'Comenzar admisión',
+    beginIntake: 'Comenzar inscripción',
     beginIntakeSmartRoi: 'Comenzar autorización',
     beginIntakeRegistration: 'Comenzar registro',
     beginIntakeJob: 'Comenzar solicitud de empleo',
     beginIntakeMedical: 'Comenzar solicitud de registros médicos',
     welcome: 'Bienvenido',
     formTimeLimit: 'Este formulario debe completarse en 1 hora. Cada página nueva agrega 5 minutos. Las respuestas en progreso se guardan en esta sesión del navegador por hasta 1 hora por si sale accidentalmente.',
+    reminderConsentTitle: 'Recordatorios de formulario incompleto',
+    reminderConsentLead: 'Si necesita salir y volver, podemos enviarle por correo un enlace privado para terminar este formulario de inscripción.',
+    reminderConsentFirstName: 'Nombre',
+    reminderConsentEmail: 'Correo para recordatorios',
+    reminderConsentAgree: 'Acepto',
+    reminderConsentDecline: 'No acepto',
+    reminderConsentMoreInfo: 'Más información',
+    reminderConsentMoreInfoBody: 'Si acepta, podemos enviar hasta tres recordatorios en siete días con un enlace seguro para continuar. Su borrador cifrado se guarda hasta 10 días y luego se elimina de forma permanente. Se incluye un enlace único de eliminación para detener los recordatorios y borrar sus datos en cualquier momento. Si no acepta, su sesión cifrada dura 12 horas sin correos de recordatorio; después se elimina toda la información incompleta.',
+    reminderConsentDeclineHint: 'Si no acepta, cierre esta página. Aun así puede continuar: su sesión expirará en 12 horas sin correos de recordatorio.',
+    reminderConsentRequired: 'Elija Acepto o No acepto para continuar.',
+    reminderConsentAgreeNeedsContact: 'Ingrese su nombre y correo para aceptar.',
+    reminderConsentSaving: 'Guardando preferencia…',
     previous: 'Anterior',
     next: 'Siguiente',
     back: '← Atrás',
@@ -3305,7 +3402,7 @@ const INTAKE_TRANSLATIONS = {
     chooseWhoForToContinue: 'Elija si lo completa para usted o para otra persona.',
     letsStartWithBasics: 'Empecemos con lo básico.',
     letsGetIntakeStarted: 'Empecemos su admisión',
-    letsGetIntakeStartedLead: 'Este paquete seguro de admisión ayuda a nuestro equipo a entender sus necesidades y preparar el mejor apoyo. Puede guardar su progreso en cualquier momento.',
+    letsGetIntakeStartedLead: 'Este paquete seguro de inscripción ayuda a nuestro equipo a entender sus necesidades y preparar el mejor apoyo. Puede guardar su progreso en cualquier momento.',
     yourFamily: 'Su familia',
     hipaaProtected: 'Protegido por HIPAA',
     hipaaProtectedDetail: 'Su información de salud se mantiene segura y confidencial.',
@@ -3343,7 +3440,7 @@ const INTAKE_TRANSLATIONS = {
     expectSaveReturn: 'Guarde y vuelva cuando quiera',
     dateOfBirth: 'Fecha de nacimiento',
     yourPhone: 'Número de teléfono',
-    inDepthIntakePacket: 'Paquete de admisión completa',
+    inDepthIntakePacket: 'Paquete de inscripción de clientes',
     whyWeAsk: 'Por qué lo preguntamos',
     whyWeAskWhoFor: 'Así preparamos el paquete correcto. Sus respuestas se mantienen privadas.',
     whyWeAskBasics: 'Solo lo esencial para poder contactarle y asignar el cuidado adecuado.',
@@ -4738,6 +4835,34 @@ const isOfficeInDepthIntake = computed(() => {
   if (isSchoolScopedIntake.value) return false;
   return linkLooksLikeOfficeIntake(link.value);
 });
+
+/** School enrollment or office in-depth — not job/medical/registration/ROI/quick forms. */
+const needsEnrollmentReminderConsent = computed(() => {
+  if (!link.value) return false;
+  const ft = formTypeKey.value;
+  if (
+    ft === 'job_application'
+    || ft === 'medical_records_request'
+    || ft === 'smart_registration'
+    || ft === 'smart_school_roi'
+    || ft === 'smart_disclosure'
+    || ft === 'internal_preferences'
+    || ft === 'life_balance_wheel'
+  ) {
+    return false;
+  }
+  return isSchoolScopedIntake.value || isOfficeInDepthIntake.value;
+});
+
+const showReminderConsentGate = ref(false);
+const reminderConsentStatus = ref('');
+const reminderChoice = ref('');
+const reminderConsentLoading = ref(false);
+const reminderConsentError = ref('');
+const reminderMoreInfoOpen = ref(false);
+const reminderFirstName = ref('');
+const reminderEmail = ref('');
+const reminderDeletionToken = ref('');
 
 const joinThemeUrl = ref(JOIN_BOOT_THEME_URL);
 const officeQuestionnaireBgUrl = ref('');
@@ -6644,16 +6769,49 @@ async function continueWhoFor() {
     return;
   }
   whoForError.value = '';
+  const ensureReminderThenContinue = async () => {
+    if (needsEnrollmentReminderConsent.value && !reminderConsentStatus.value) {
+      const choice = String(reminderChoice.value || '').toLowerCase();
+      if (choice !== 'agreed' && choice !== 'declined') {
+        reminderConsentError.value = t('reminderConsentRequired');
+        whoForError.value = t('reminderConsentRequired');
+        consentLoading.value = false;
+        return false;
+      }
+      if (choice === 'agreed') {
+        const firstName = String(guardianFirstName.value || '').trim();
+        const email = String(guardianEmail.value || '').trim();
+        if (!firstName || !email || !email.includes('@')) {
+          reminderConsentError.value = t('reminderConsentAgreeNeedsContact');
+          whoForError.value = t('reminderConsentAgreeNeedsContact');
+          consentLoading.value = false;
+          return false;
+        }
+      }
+      reminderConsentLoading.value = true;
+      try {
+        await postReminderConsent(choice);
+      } catch (e) {
+        whoForError.value = e?.response?.data?.error?.message || t('unableToStartSession');
+        consentLoading.value = false;
+        reminderConsentLoading.value = false;
+        return false;
+      }
+      reminderConsentLoading.value = false;
+    }
+    applyStarterDataAndContinue();
+    return true;
+  };
   if (!sessionToken.value) {
     consentLoading.value = true;
     createIntakeSession()
-      .then((ok) => {
+      .then(async (ok) => {
         if (!ok) {
           whoForError.value = beginError.value || t('unableToStartSession');
           consentLoading.value = false;
           return;
         }
-        applyStarterDataAndContinue();
+        await ensureReminderThenContinue();
       })
       .catch((e) => {
         whoForError.value = e?.response?.data?.error?.message || t('unableToStartSession');
@@ -6661,7 +6819,8 @@ async function continueWhoFor() {
       });
     return;
   }
-  applyStarterDataAndContinue();
+  consentLoading.value = true;
+  await ensureReminderThenContinue();
 }
 
 async function applyCoGuardianInviteFromQuery() {
@@ -7233,6 +7392,11 @@ const restoreServerProgress = async () => {
     });
     if (data?.alreadyCompleted) return false;
     if (data?.submissionId) submissionId.value = data.submissionId;
+    if (data?.reminderConsentStatus) {
+      reminderConsentStatus.value = String(data.reminderConsentStatus);
+      reminderChoice.value = reminderConsentStatus.value;
+      showReminderConsentGate.value = false;
+    }
     const intakeData = data?.intakeData && typeof data.intakeData === 'object' ? data.intakeData : null;
     if (!intakeData) return false;
     const snapshot = intakeData.progressSnapshot && typeof intakeData.progressSnapshot === 'object'
@@ -10685,6 +10849,14 @@ const resetIntakeState = () => {
   clearCaptchaState();
   captchaWidgetFailed.value = false;
   sessionToken.value = '';
+  showReminderConsentGate.value = false;
+  reminderConsentStatus.value = '';
+  reminderChoice.value = '';
+  reminderConsentError.value = '';
+  reminderMoreInfoOpen.value = false;
+  reminderFirstName.value = '';
+  reminderEmail.value = '';
+  reminderDeletionToken.value = '';
   router.replace({ query: { ...route.query, session: undefined } }).catch(() => {});
   currentDocIndex.value = 0;
   currentFlowIndex.value = 0;
@@ -10692,9 +10864,20 @@ const resetIntakeState = () => {
   Object.keys(fieldValuesByTemplate || {}).forEach((k) => delete fieldValuesByTemplate[k]);
 };
 
-const cancelIntake = () => {
+const cancelIntake = async () => {
   const ok = window.confirm(t('cancelDeleteConfirm'));
   if (!ok) return;
+  const token = String(sessionToken.value || '').trim();
+  if (token) {
+    try {
+      await api.delete(`/public-intake/${publicKey}/session`, {
+        data: { sessionToken: token },
+        skipGlobalLoading: true
+      });
+    } catch {
+      /* local clear still proceeds */
+    }
+  }
   clearPersistedDraft();
   resetIntakeState();
 };
@@ -11896,9 +12079,80 @@ async function createIntakeSession() {
     return false;
   }
   sessionToken.value = token;
+  if (resp.data?.submissionId) submissionId.value = resp.data.submissionId;
   await router.replace({ query: { ...route.query, session: token } });
   await resetRecaptchaWidget();
   return true;
+}
+
+async function postReminderConsent(consentStatus) {
+  const token = String(sessionToken.value || '').trim();
+  if (!token) throw new Error(t('unableToStartSession'));
+  const firstName = String(
+    reminderFirstName.value || guardianFirstName.value || ''
+  ).trim();
+  const email = String(reminderEmail.value || guardianEmail.value || '').trim();
+  const schoolOrganizationId = isSchoolScopedIntake.value
+    ? (Number(link.value?.organization_id || organizationInfo.value?.id || 0) || undefined)
+    : undefined;
+  const { data } = await api.post(
+    `/public-intake/${publicKey}/reminder-consent`,
+    {
+      sessionToken: token,
+      consentStatus,
+      firstName: firstName || undefined,
+      email: email || undefined,
+      schoolOrganizationId
+    },
+    { skipGlobalLoading: true }
+  );
+  reminderConsentStatus.value = String(data?.consentStatus || consentStatus);
+  reminderChoice.value = reminderConsentStatus.value;
+  if (data?.deletionToken) reminderDeletionToken.value = String(data.deletionToken);
+  showReminderConsentGate.value = false;
+  reminderConsentError.value = '';
+  return data;
+}
+
+async function submitEnrollmentReminderConsent(consentStatus) {
+  if (reminderConsentLoading.value) return;
+  reminderConsentError.value = '';
+  const status = String(consentStatus || '').toLowerCase() === 'agreed' ? 'agreed' : 'declined';
+  if (status === 'agreed') {
+    const firstName = String(reminderFirstName.value || guardianFirstName.value || '').trim();
+    const email = String(reminderEmail.value || guardianEmail.value || '').trim();
+    if (!firstName || !email || !email.includes('@')) {
+      reminderConsentError.value = t('reminderConsentAgreeNeedsContact');
+      return;
+    }
+    if (!guardianFirstName.value && firstName) guardianFirstName.value = firstName;
+    if (!guardianEmail.value && email) guardianEmail.value = email;
+  }
+  reminderConsentLoading.value = true;
+  consentLoading.value = true;
+  try {
+    if (!sessionToken.value) {
+      const started = await createIntakeSession();
+      if (!started) {
+        reminderConsentError.value = beginError.value || t('unableToStartSession');
+        return;
+      }
+    }
+    await postReminderConsent(status);
+    if (!skipBrandingIntro.value && introScreens.value.length) {
+      step.value = 0;
+      introIndex.value = 0;
+    } else {
+      goToFirstFormStep();
+    }
+    initializeFieldValues();
+    await loadPdfPreview();
+  } catch (e) {
+    reminderConsentError.value = e.response?.data?.error?.message || t('unableToStartSession');
+  } finally {
+    reminderConsentLoading.value = false;
+    consentLoading.value = false;
+  }
 }
 
 const beginIntakeSession = async () => {
@@ -11908,6 +12162,16 @@ const beginIntakeSession = async () => {
     beginError.value = '';
     const started = await createIntakeSession();
     if (!started) return;
+    if (needsEnrollmentReminderConsent.value && !reminderConsentStatus.value) {
+      if (guardianFirstName.value && !reminderFirstName.value) {
+        reminderFirstName.value = guardianFirstName.value;
+      }
+      if (guardianEmail.value && !reminderEmail.value) {
+        reminderEmail.value = guardianEmail.value;
+      }
+      showReminderConsentGate.value = true;
+      return;
+    }
     if (!skipBrandingIntro.value && introScreens.value.length) {
       step.value = 0;
       introIndex.value = 0;
@@ -12046,6 +12310,14 @@ onMounted(async () => {
   if (!restoredDraft && !skipBrandingIntro.value && introScreens.value.length && !looksLikeOfficeIntake.value) {
     step.value = 0;
     introIndex.value = 0;
+  }
+  if (
+    needsEnrollmentReminderConsent.value
+    && !reminderConsentStatus.value
+    && isSchoolScopedIntake.value
+  ) {
+    showReminderConsentGate.value = true;
+    step.value = -1;
   }
   initializeFieldValues();
   await loadPdfPreview();
@@ -14689,6 +14961,13 @@ onBeforeUnmount(() => {
   max-width: min(46rem, 100%);
   margin-bottom: 0.45rem;
   z-index: 3;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 16px;
+  padding: 0.45rem 0.85rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
 }
 
 .intake-start-block {
@@ -15799,5 +16078,63 @@ onBeforeUnmount(() => {
     font-size: 16px;
     max-width: 100%;
   }
+}
+
+.reminder-consent-panel {
+  margin-top: 1.25rem;
+  padding: 1.15rem 1.1rem;
+  border: 1px solid rgba(16, 35, 31, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
+  text-align: left;
+}
+.reminder-consent-panel--office {
+  margin: 0 0 1rem;
+}
+.reminder-consent-title {
+  margin: 0 0 0.4rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #10231f;
+}
+.reminder-consent-lead {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #334155;
+}
+.reminder-consent-fields {
+  margin-bottom: 0.75rem;
+}
+.reminder-consent-more {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: #1f6b4a;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.reminder-consent-more-body {
+  margin: 0.55rem 0 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: #475569;
+}
+.reminder-consent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+.reminder-consent-actions .btn--selected {
+  outline: 2px solid #1f6b4a;
+  outline-offset: 2px;
+}
+.reminder-consent-decline-hint {
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
 }
 </style>

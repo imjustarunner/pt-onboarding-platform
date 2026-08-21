@@ -9,10 +9,10 @@ describe('officePacketTemplateDefault', () => {
     const self = defaultOfficePacketHtml('self', 'en');
     const parent = defaultOfficePacketHtml('parent', 'en');
 
-    expect(self).toMatch(/Client Intake Packet/);
-    expect(parent).toMatch(/Parent\/Guardian Intake Packet/);
-    expect(self).not.toMatch(/Parent\/Guardian Intake Packet/);
-    expect(parent).not.toMatch(/Client Intake Packet/);
+    expect(self).toMatch(/Client Enrollment Packet/);
+    expect(parent).toMatch(/Parent\/Guardian Enrollment Packet/);
+    expect(self).not.toMatch(/Parent\/Guardian Enrollment Packet/);
+    expect(parent).not.toMatch(/Client Enrollment Packet/);
 
     for (const html of [self, parent]) {
       expect(html).toMatch(/CLIENT RIGHTS/i);
@@ -33,8 +33,8 @@ describe('officePacketTemplateDefault', () => {
   it('builds Spanish packets with the matching legal headings', () => {
     const self = defaultOfficePacketHtml('self', 'es');
     const parent = defaultOfficePacketHtml('parent', 'es');
-    expect(self).toMatch(/Paquete de Ingreso del Cliente/);
-    expect(parent).toMatch(/Paquete de Ingreso para Padre\/Tutor/);
+    expect(self).toMatch(/Paquete de Inscripción del Cliente/);
+    expect(parent).toMatch(/Paquete de Inscripción para Padre\/Tutor/);
     expect(parent).toMatch(/CONSENTIMIENTO DE MENOR/i);
     expect(self).not.toMatch(/CONSENTIMIENTO DE MENOR/i);
     for (const html of [self, parent]) {

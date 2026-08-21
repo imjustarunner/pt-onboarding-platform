@@ -56,6 +56,10 @@ const WATERMARK_CANDIDATES = [
   path.join(BRAND_FALLBACK_ROOT_LEGACY, 'ITSCOpnginvisiblebackgroundBW.png')
 ];
 const COVER_PAGE_CANDIDATES = [
+  path.join(BRAND_DIR, 'NewITSCOPacketCover.jpg'),
+  path.join(BRAND_DIR, 'ITSCOEnrollmentPacketCover.jpg'),
+  path.join(BRAND_FALLBACK_ROOT, 'NewITSCOPacketCover.jpg'),
+  path.join(BRAND_FALLBACK_ROOT, 'ITSCOEnrollmentPacketCover.jpg'),
   path.join(BRAND_DIR, 'ITSCOSchoolPacketCover.png'),
   path.join(BRAND_FALLBACK_ROOT, 'ITSCOSchoolPacketCover.png'),
   path.join(BRAND_DIR, 'cover-page.png'),
@@ -128,7 +132,13 @@ function watermarkDataUrl() {
 }
 
 function coverPageDataUrl() {
-  return firstExistingDataUrl(COVER_PAGE_CANDIDATES, 'image/png');
+  for (const filePath of COVER_PAGE_CANDIDATES) {
+    if (!fs.existsSync(filePath)) continue;
+    const ext = String(path.extname(filePath) || '').toLowerCase();
+    const mime = (ext === '.jpg' || ext === '.jpeg') ? 'image/jpeg' : 'image/png';
+    return fileToDataUrl(filePath, mime);
+  }
+  return null;
 }
 
 function escapeHtml(value) {
@@ -405,13 +415,13 @@ function buildCoverPageHtml(packetContext = {}) {
   if (!cover) {
     return `
       <section class="packet-cover packet-cover-fallback">
-        <h1 class="cover-page-title">${escapeHtml(schoolName)} School Packet</h1>
+        <h1 class="cover-page-title">${escapeHtml(schoolName)} Enrollment Packet</h1>
       </section>
     `;
   }
   return `
     <section class="packet-cover packet-cover-designed">
-      <img class="cover-photo" src="${cover}" alt="${escapeHtml(schoolName)} school packet cover" />
+      <img class="cover-photo" src="${cover}" alt="${escapeHtml(schoolName)} enrollment packet cover" />
       <p class="cover-school-caption">${escapeHtml(schoolName)}</p>
     </section>
   `;
@@ -934,7 +944,7 @@ function wrapPacketHtmlDocument(schoolName, innerHtml, brand = null) {
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>${escapeHtml(schoolName || 'School')} School Packet</title>
+    <title>${escapeHtml(schoolName || 'School')} Enrollment Packet</title>
     <style>
 ${buildPacketStyleBlock(brand)}
     </style>
@@ -1023,7 +1033,7 @@ async function embedImageFromDataUrl(pdfDoc, dataUrl) {
 
 function coverTitleText(packetContext = {}) {
   const schoolName = String(packetContext?.organization?.name || 'School').trim() || 'School';
-  return `${schoolName} School Packet`
+  return `${schoolName} Enrollment Packet`
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^\x20-\x7E]/g, '');
@@ -1134,7 +1144,7 @@ export async function getSchoolPrintablePacketAvailability(organizationId) {
     available: true,
     version: Number(template?.version || 1),
     packetVersionLabel: SCHOOL_PRINTABLE_PACKET_VERSION,
-    title: `${String(organization.name || 'School').trim()} — School Packet (Smart)`,
+    title: `${String(organization.name || 'School').trim()} — Enrollment Packet (Smart)`,
     updatedAt: template?.updated_at
       ? new Date(template.updated_at).toISOString()
       : new Date().toISOString()

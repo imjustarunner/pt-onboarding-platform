@@ -101,19 +101,22 @@ export function isItscoPacketChromeAgency(agency = {}) {
 
 function itscoCoverDataUrl(packetKind = 'office') {
   const kind = String(packetKind || 'office').trim().toLowerCase();
-  const preferred = kind === 'school'
+  // Shared enrollment cover first; then legacy school/office-specific covers.
+  const preferred = ['NewITSCOPacketCover.jpg', 'ITSCOEnrollmentPacketCover.jpg'];
+  const kindFallback = kind === 'school'
     ? ['ITSCOSchoolPacketCover.png']
     : ['ITSCOOfficePacketCover.png'];
   const fallbacks = ['ITSCOCoverPacket.png', 'cover-page.png'];
-  const names = [...preferred, ...fallbacks];
+  const names = [...preferred, ...kindFallback, ...fallbacks];
   const dirs = [BRAND_DIR, ITSCO_PRINTING_DIR, ITSCO_PRINTING_DIR_DOCKER, BRAND_FALLBACK_ROOT_LEGACY];
-  const candidates = [];
   for (const name of names) {
     for (const dir of dirs) {
-      candidates.push(path.join(dir, name));
+      const filePath = path.join(dir, name);
+      const url = fileToDataUrl(filePath, mimeFromPath(filePath));
+      if (url) return url;
     }
   }
-  return firstExistingDataUrl(candidates, 'image/png');
+  return null;
 }
 
 function itscoHeaderLogoDataUrl() {

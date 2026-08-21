@@ -59,6 +59,32 @@
   color: #123c6d;
 }
 
+/* Readable form surface over scenic photos (all scenic intakes, not only join) */
+.df-page--scenic-side .df-shell--intake-stepper .df-main {
+  position: relative;
+}
+
+.df-page--scenic-side .df-shell--intake-stepper .df-main::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(252, 251, 248, 0.96) 0%,
+    rgba(252, 251, 248, 0.92) 55%,
+    rgba(252, 251, 248, 0.86) 100%
+  );
+}
+
+.df-page--scenic-side .df-shell--intake-stepper .df-main-header,
+.df-page--scenic-side .df-shell--intake-stepper .df-main-body,
+.df-page--scenic-side .df-shell--intake-stepper .df-main-footer {
+  position: relative;
+  z-index: 1;
+}
+
 .df-page--scenic-side .df-shell--intake-stepper .df-sidebar-contact,
 .df-page--scenic-side .df-shell--intake-stepper .ai-security-badge.ai-security-badge--sidebar {
   width: 100%;
@@ -233,11 +259,26 @@
   z-index: 0;
   background: linear-gradient(
     90deg,
-    rgba(250, 252, 248, 0.98) 0%,
-    rgba(250, 252, 248, 0.9) 45%,
-    rgba(250, 252, 248, 0.35) 75%,
-    rgba(250, 252, 248, 0.1) 100%
+    rgba(252, 251, 248, 0.98) 0%,
+    rgba(252, 251, 248, 0.94) 42%,
+    rgba(252, 251, 248, 0.88) 72%,
+    rgba(252, 251, 248, 0.78) 100%
   );
+}
+
+/* Keep question panels fully fogged even when the photo peeks through */
+.ai-shell-host--join-flow.df-page--scenic-side .df-main-body,
+.ai-shell-host--join-flow.df-page--scenic-side .ai-join-sheet,
+.ai-shell-host--join-flow.df-page--scenic-side .ai-join-panel,
+.ai-shell-host--join-flow.df-page--scenic-side .ai-layout-main {
+  position: relative;
+  z-index: 1;
+}
+
+.ai-shell-host--join-flow.df-page--scenic-side .ai-page-title,
+.ai-shell-host--join-flow.df-page--scenic-side .ai-page-lead,
+.ai-shell-host--join-flow.df-page--scenic-side .ai-join-eyebrow {
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
 .ai-shell-host--join-flow.df-page--scenic-side .df-shell {
@@ -286,7 +327,7 @@
   margin: 0 auto;
   padding: clamp(1.5rem, 3vw, 2.75rem);
   border-radius: 28px;
-  background: rgba(252, 251, 248, 0.94);
+  background: rgba(252, 251, 248, 0.97);
   border: 1px solid rgba(27, 61, 47, 0.08);
   box-shadow:
     0 1px 2px rgba(15, 23, 42, 0.04),

@@ -56,10 +56,17 @@ describe('ensureSpanishClarificationFirst', () => {
 });
 
 describe('localizeSchoolReferralPacketTitle', () => {
-  it('uses Spanish packet naming and drops (English)', () => {
+  it('maps English school referral titles to Digital Enrollment Packet', () => {
+    assert.equal(
+      localizeSchoolReferralPacketTitle('Smart School Referral Packet (English)', 'en'),
+      'Digital Enrollment Packet'
+    );
+  });
+
+  it('uses Spanish enrollment packet naming and drops (English)', () => {
     assert.equal(
       localizeSchoolReferralPacketTitle('Smart School Referral Packet (English)', 'es'),
-      'Paquete digital de referidos escolares'
+      'Paquete digital de inscripción escolar'
     );
   });
 });

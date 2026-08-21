@@ -2,7 +2,7 @@
   <div class="srh-page">
     <header class="srh-header">
       <div>
-        <h1>School Referral Hub</h1>
+        <h1>Digital Enrollment Hub</h1>
         <p class="muted srh-sub">
           Edit the agency printable packet (EN/ES) and manage each school’s shareable digital + printable links.
           The questionnaire itself lives on Master School Form (agency-wide, live inheritance).
@@ -18,7 +18,7 @@
         <div class="srh-card-head">
           <h2>Public school finder</h2>
           <p class="muted">
-            Share this link or QR so families can find their school and start the referral packet.
+            Share this link or QR so families can find their school and start the Digital Enrollment Packet.
             Each school still uses its own intake link (with captcha / session protections).
           </p>
         </div>
@@ -200,7 +200,7 @@ function printPublicFinderQr() {
       img { width: 280px; height: 280px; }
       .url { margin-top: 12px; font-size: 12px; word-break: break-all; color: #334155; }
     </style></head><body>
-      <h1>School Referral Packet</h1>
+      <h1>Digital Enrollment Packet</h1>
       <p>Scan to find your school</p>
       <img src="${publicFinderQrDataUrl.value}" alt="QR" />
       <div class="url">${publicFinderUrl.value}</div>

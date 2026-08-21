@@ -557,6 +557,19 @@ const allSections = computed(() => [
         tour: null,
         show: canSeeSchoolOpsContent.value,
         count: 0
+      },
+      {
+        id: 'unfinished-digital-forms-school',
+        title: 'Unfinished Digital Forms',
+        shortDesc: 'School enrollment packets still in progress.',
+        desc: 'See unfinished school Digital Enrollment Packets, reminder stages, and draft expiry windows.',
+        cta: 'Open →',
+        to: orgTo('/admin/unfinished-digital-forms?scope=school'),
+        tone: 'teal',
+        icon: icon.docs || icon.chart,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: 0
       }
     ].filter((c) => c.show)
   },

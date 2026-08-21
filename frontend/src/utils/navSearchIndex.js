@@ -291,6 +291,20 @@ export const NAV_SEARCH_INDEX = [
     keywords: ['school reports', 'caseload reports', 'provider day', 'unassigned clients', 'district counts', 'slots', 'sessions seen'],
     desc: 'Year-scoped school reports: assignment buckets, students seen, sessions, and provider slots.'
   },
+  {
+    title: 'Unfinished Digital Forms',
+    section: 'School Ops › School Reports',
+    path: '/admin/unfinished-digital-forms',
+    keywords: [
+      'unfinished digital forms',
+      'enrollment packet',
+      'incomplete intake',
+      'reminder sequence',
+      'draft expiry',
+      'office enrollment'
+    ],
+    desc: 'Active unfinished school and office enrollment packets with reminder timeline and CSV export.'
+  },
 
   // Caseloads & Staffing
   {
@@ -677,14 +691,14 @@ export const NAV_SEARCH_INDEX = [
     title: 'Master Counseling Digital Form',
     section: 'Clients & Guardians',
     path: '/admin/master-office-form',
-    keywords: ['master counseling form', 'master office form', 'office intake', 'in-depth intake', 'join packet', 'documents and forms'],
-    desc: 'Counseling digital intake master used by Join In-Depth Intake Packet.'
+    keywords: ['master counseling form', 'master office form', 'office intake', 'client enrollment', 'join packet', 'documents and forms'],
+    desc: 'Counseling digital intake master used by Join Client Enrollment Packet.'
   },
   {
     title: 'Master Counseling Paper',
     section: 'Clients & Guardians',
     path: '/admin/master-office-paper',
-    keywords: ['master counseling paper', 'master office paper', 'printable office packet', 'in-depth intake packet', 'documents and forms'],
+    keywords: ['master counseling paper', 'master office paper', 'printable office packet', 'client enrollment packet', 'documents and forms'],
     desc: 'Editable branded printable counseling intake packet for staff downloads.'
   },
   {

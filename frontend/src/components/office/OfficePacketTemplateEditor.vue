@@ -113,7 +113,7 @@ import HtmlDocumentBuilder from '../documents/HtmlDocumentBuilder.vue';
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },
   initialLocale: { type: String, default: 'en' },
-  title: { type: String, default: 'Client Intake Packet' },
+  title: { type: String, default: 'Client Enrollment Packet' },
   variant: { type: String, default: 'self' }
 });
 

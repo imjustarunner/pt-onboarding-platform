@@ -1032,10 +1032,10 @@
       </div>
     </div>
 
-    <!-- Duplicate initials modal -->
+    <!-- Duplicate / archived client modal -->
     <div v-if="dupesModalOpen" class="modal-overlay" @click.self="closeDupesModal">
       <div class="modal-content" @click.stop style="max-width: 860px;">
-        <h3>Similar client code found</h3>
+        <h3>{{ dupesCanForceCreate ? 'Archived client found' : 'Similar client code found' }}</h3>
         <p style="margin-top: 6px; color: var(--text-secondary);">
           We found one or more clients with the same code in the database. If it’s the same student, unarchive instead of creating a duplicate.
         </p>
@@ -1066,7 +1066,7 @@
                     :disabled="String(m.workflowStatus || '').toUpperCase() !== 'ARCHIVED'"
                     @click="unarchiveMatch(m)"
                   >
-                    Unarchive
+                    Unarchive and Reactivate
                   </button>
                 </td>
               </tr>
@@ -1076,6 +1076,15 @@
 
         <div class="modal-actions" style="margin-top: 14px;">
           <button type="button" class="btn btn-secondary" @click="closeDupesModal">Close</button>
+          <button
+            v-if="dupesCanForceCreate"
+            type="button"
+            class="btn btn-primary"
+            :disabled="creating"
+            @click="createClientAnyway"
+          >
+            {{ creating ? 'Creating…' : 'Create new anyway' }}
+          </button>
         </div>
       </div>
     </div>
@@ -2926,7 +2935,19 @@ const openClientDetail = (client) => {
   router.push({ path });
 };
 
-const createClient = async () => {
+const dupesModalOpen = ref(false);
+const dupesMatches = ref([]);
+const dupesForNewClient = ref(null);
+const dupesCanForceCreate = ref(false);
+
+const openDupesModal = (matches, { canForceCreate = false } = {}) => {
+  dupesMatches.value = Array.isArray(matches) ? matches : [];
+  dupesForNewClient.value = { ...newClient.value };
+  dupesCanForceCreate.value = !!canForceCreate;
+  dupesModalOpen.value = true;
+};
+
+const createClient = async ({ forceCreate = false } = {}) => {
   try {
     creating.value = true;
     error.value = '';
@@ -2955,13 +2976,20 @@ const createClient = async () => {
       provider_id: null,
       service_day: null,
       agency_id: agencyId,
-      source: 'ADMIN_CREATED'
+      source: 'ADMIN_CREATED',
+      ...(forceCreate ? { forceCreate: true } : {})
     };
 
     const resp = await api.post('/clients', payload);
     const created = resp.data || null;
+    const warningMeta = created?.warningMeta || null;
+    const archivedMatches = Array.isArray(warningMeta?.matches)
+      ? warningMeta.matches.filter((m) => String(m?.workflowStatus || '').toUpperCase() === 'ARCHIVED')
+      : [];
+    const shouldOfferUnarchive = !forceCreate && !!(warningMeta?.canUnarchive || archivedMatches.length);
+
     const warnings = Array.isArray(created?.warnings) ? created.warnings : [];
-    if (warnings.length > 0) {
+    if (warnings.length > 0 && !shouldOfferUnarchive) {
       // Non-blocking warnings (duplicates, etc.)
       alert(`Client created with warnings:\n- ${warnings.join('\n- ')}`);
     }
@@ -3002,21 +3030,33 @@ const createClient = async () => {
     }
 
     await fetchClients();
+    if (shouldOfferUnarchive) {
+      // Client already created; offer unarchive of archived matches (no second create).
+      openDupesModal(warningMeta.matches || archivedMatches, { canForceCreate: false });
+      showCreateModal.value = false;
+      return;
+    }
+    closeDupesModal();
     closeCreateModal();
   } catch (err) {
     console.error('Failed to create client:', err);
     const status = err.response?.status;
-    const meta = err.response?.data?.error?.errorMeta || null;
+    const data = err.response?.data || {};
+    const meta = data?.errorMeta || data?.error?.errorMeta || null;
     if (status === 409 && meta?.matches && Array.isArray(meta.matches)) {
-      dupesMatches.value = meta.matches;
-      dupesForNewClient.value = { ...newClient.value };
-      dupesModalOpen.value = true;
+      openDupesModal(meta.matches, {
+        canForceCreate: !!meta.canUnarchive || meta.code === 'ARCHIVED_MATCH'
+      });
       return;
     }
-    error.value = err.response?.data?.error?.message || 'Failed to create client';
+    error.value = data?.error?.message || data?.error || 'Failed to create client';
   } finally {
     creating.value = false;
   }
+};
+
+const createClientAnyway = async () => {
+  await createClient({ forceCreate: true });
 };
 
 const closeCreateModal = () => {
@@ -3048,6 +3088,7 @@ const closeDupesModal = () => {
   dupesModalOpen.value = false;
   dupesMatches.value = [];
   dupesForNewClient.value = null;
+  dupesCanForceCreate.value = false;
 };
 
 const unarchiveMatch = async (m) => {

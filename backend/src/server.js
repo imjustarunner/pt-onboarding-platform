@@ -157,6 +157,7 @@ import faqRoutes from './routes/faq.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import schoolCoverageRoutes from './routes/schoolCoverage.routes.js';
 import schoolReportsRoutes from './routes/schoolReports.routes.js';
+import unfinishedDigitalFormsRoutes from './routes/unfinishedDigitalForms.routes.js';
 import officeSettingsRoutes from './routes/officeSettings.routes.js';
 import officeSlotActionsRoutes from './routes/officeSlotActions.routes.js';
 import officeReviewRoutes from './routes/officeReview.routes.js';
@@ -948,6 +949,7 @@ app.use('/api/faqs', faqRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/school-coverage', schoolCoverageRoutes);
 app.use('/api/school-reports', schoolReportsRoutes);
+app.use('/api/unfinished-digital-forms', unfinishedDigitalFormsRoutes);
 app.use('/api/phi-documents', phiDocumentsRoutes);
 
 // Error handling middleware
@@ -1867,6 +1869,26 @@ if (!isBootstrap) {
   };
   scheduleHiringReferenceReminders();
   setInterval(scheduleHiringReferenceReminders, 60 * 60 * 1000);
+
+  // Unfinished enrollment form reminders + draft expiry purge (hourly)
+  const scheduleUnfinishedEnrollmentReminders = async () => {
+    try {
+      const { runUnfinishedEnrollmentReminderTick } = await import('./services/intakeUnfinishedReminder.service.js');
+      await runUnfinishedEnrollmentReminderTick();
+    } catch (error) {
+      const msg = String(error?.message || '');
+      const missing = error?.code === 'ER_NO_SUCH_TABLE'
+        || msg.includes('unfinished_form_reminder')
+        || msg.includes('draft_expires_at');
+      if (missing) {
+        console.warn('Unfinished enrollment reminder tables/columns not found. Run migration 1269_unfinished_digital_form_reminders.sql');
+      } else {
+        console.error('Error in unfinished enrollment reminder scheduler:', error);
+      }
+    }
+  };
+  scheduleUnfinishedEnrollmentReminders();
+  setInterval(scheduleUnfinishedEnrollmentReminders, 60 * 60 * 1000);
 
   // Daily digest emails (runs every 15 minutes; respects per-user time + opt-in)
   const scheduleDailyDigest = async () => {

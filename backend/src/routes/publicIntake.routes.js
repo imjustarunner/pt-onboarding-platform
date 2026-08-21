@@ -37,7 +37,11 @@ import {
   identifyPreferencesUser,
   savePreferencesUser,
   getPublicRegistrationReceipt,
-  getPublicLinkedTranslation
+  getPublicLinkedTranslation,
+  postPublicIntakeReminderConsent,
+  getPublicIntakeDeleteDataPage,
+  postPublicIntakeDeleteData,
+  deletePublicIntakeSession
 } from '../controllers/publicIntake.controller.js';
 import { downloadPublicIntakeSummaryPdf, emailPublicIntakeSummaryPdf, viewPublicIntakeSummaryHtml, getPublicIntakeSummaryPdfEmailTemplate, putPublicIntakeSummaryPdfEmailTemplate } from '../controllers/intakeSummaryPdf.controller.js';
 
@@ -61,6 +65,26 @@ router.post(
   ],
   createPublicIntakeSession
 );
+router.delete(
+  '/:publicKey/session',
+  [
+    body('sessionToken').optional().isString()
+  ],
+  deletePublicIntakeSession
+);
+router.post(
+  '/:publicKey/reminder-consent',
+  [
+    body('sessionToken').notEmpty().withMessage('sessionToken is required'),
+    body('consentStatus').isIn(['agreed', 'declined']).withMessage('consentStatus must be agreed or declined'),
+    body('firstName').optional({ nullable: true }).isString(),
+    body('email').optional({ nullable: true }).isString(),
+    body('schoolOrganizationId').optional({ nullable: true }).isInt()
+  ],
+  postPublicIntakeReminderConsent
+);
+router.get('/:publicKey/delete-data', getPublicIntakeDeleteDataPage);
+router.post('/:publicKey/delete-data', postPublicIntakeDeleteData);
 router.get('/:publicKey/account-lookup', lookupPublicRegistrationAccount);
 router.get('/:publicKey/registration-catalog', getPublicIntakeRegistrationCatalog);
 router.post('/:publicKey/match-client', matchPublicIntakeClient);

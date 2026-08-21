@@ -55,7 +55,7 @@ test('builds virtual library document metadata with template version', () => {
   });
   assert.equal(doc.kind, 'system_printable_packet');
   assert.match(doc.title, /Springfield High/);
-  assert.match(doc.title, /School Packet/);
+  assert.match(doc.title, /Enrollment Packet/);
   assert.doesNotMatch(doc.title, /Blank Referral Packet/i);
   assert.equal(doc.packet_version, '3');
   assert.equal(doc.packet_content_version, SCHOOL_PRINTABLE_PACKET_VERSION);
@@ -186,7 +186,7 @@ test('merges live tokens into agency template HTML with cover and fonts', () => 
   assert.match(html, /packet-cover/);
   assert.match(html, /cover-photo|cover-title/);
   assert.match(html, /object-fit:\s*cover/);
-  assert.match(html, /Springfield High School Packet/);
+  assert.match(html, /Springfield High Enrollment Packet/);
   assert.doesNotMatch(html, /BLANK SCHOOL PACKET/);
   assert.match(html, /Comfortaa/);
   assert.match(html, /Anton/);

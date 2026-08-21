@@ -133,6 +133,9 @@ function pageCopy(pathname) {
       description: 'Schools, providers, and on-site days for your district.'
     };
   }
+  if (p.includes('/bookclub') || p.includes('/book-club')) {
+    return { page: 'Book Club', description: 'Join the ITSCO Book Club and see current reads.' };
+  }
   if (p.includes('/careers')) {
     return { page: 'Careers', description: 'Explore open roles and how to apply.' };
   }

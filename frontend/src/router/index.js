@@ -2025,6 +2025,17 @@ const routes = [
     }
   },
   {
+    path: '/:organizationSlug/admin/unfinished-digital-forms',
+    name: 'OrganizationUnfinishedDigitalForms',
+    component: () => import('../views/admin/UnfinishedDigitalFormsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/admin/school-onboarding',
     name: 'OrganizationSchoolOnboardingAdmin',
     component: () => import('../views/admin/SchoolOnboardingAdminView.vue'),
@@ -3391,6 +3402,16 @@ const routes = [
     path: '/admin/school-reports',
     name: 'SchoolReports',
     component: () => import('../views/admin/SchoolReportsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true
+    }
+  },
+  {
+    path: '/admin/unfinished-digital-forms',
+    name: 'UnfinishedDigitalForms',
+    component: () => import('../views/admin/UnfinishedDigitalFormsView.vue'),
     meta: {
       requiresAuth: true,
       requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],

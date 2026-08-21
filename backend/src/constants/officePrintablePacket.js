@@ -17,7 +17,7 @@ export function officePacketTitle(variant, locale = 'en') {
   const isParent = normalizeOfficePacketVariant(variant) === OFFICE_PACKET_VARIANTS.PARENT;
   const isEs = String(locale || 'en').toLowerCase().startsWith('es');
   if (isParent) {
-    return isEs ? 'Paquete de Ingreso para Padre/Tutor' : 'Parent/Guardian Intake Packet';
+    return isEs ? 'Paquete de Inscripción para Padre/Tutor' : 'Parent/Guardian Enrollment Packet';
   }
-  return isEs ? 'Paquete de Ingreso del Cliente' : 'Client Intake Packet';
+  return isEs ? 'Paquete de Inscripción del Cliente' : 'Client Enrollment Packet';
 }

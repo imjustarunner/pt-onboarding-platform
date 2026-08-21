@@ -22,6 +22,8 @@ test('public path maps to a share-preview page key', () => {
   assert.equal(pathToSharePageKey('/nlu/find-tutor'), 'tutors');
   assert.equal(pathToSharePageKey('/join/nlu/tutoring'), 'tutoring');
   assert.equal(pathToSharePageKey('/district-schedule/colorado-springs-school-district-11'), 'district_schedule');
+  assert.equal(pathToSharePageKey('/itsco/bookclub'), 'bookclub');
+  assert.equal(pathToSharePageKey('/itsco/book-club'), 'bookclub');
 });
 
 test('portal slug is extracted from PTHQ share paths', () => {
@@ -30,6 +32,7 @@ test('portal slug is extracted from PTHQ share paths', () => {
   assert.equal(resolvePortalSlugFromSharePath('/careers/nlu'), 'nlu');
   assert.equal(resolvePortalSlugFromSharePath('/nlu/join/counseling'), 'nlu');
   assert.equal(resolvePortalSlugFromSharePath('/careers/itsco'), 'itsco');
+  assert.equal(resolvePortalSlugFromSharePath('/itsco/bookclub'), 'itsco');
   assert.equal(resolvePortalSlugFromSharePath('/support'), '');
   assert.equal(resolvePortalSlugFromSharePath('/join/counseling'), '');
 });
@@ -40,4 +43,5 @@ test('NLU counseling/tutoring SMS assets resolve from tenant key', () => {
   assert.match(tenantSmsImage('nlu', 'careers'), /NLUCareers/);
   assert.match(tenantSmsImage('nextleveluplcc', 'counseling'), /NLUCounseling/);
   assert.match(tenantSmsImage('itsco', 'careers'), /ITSCOCareers/);
+  assert.match(tenantSmsImage('itsco', 'bookclub'), /bookclub\.png/);
 });

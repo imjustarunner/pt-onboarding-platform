@@ -60,7 +60,8 @@ const ITSCO_SMS = {
   terms: sms('ITSCO', 'ITSCOTermsandConditions.png'),
   privacy: sms('ITSCO', 'ITSCOPrivacyPolicy.png'),
   login: sms('ITSCO', 'ITSCOLogin.png'),
-  district_schedule: sms('ITSCO', 'District11.png')
+  district_schedule: sms('ITSCO', 'District11.png'),
+  bookclub: sms('ITSCO', 'bookclub.png')
 };
 
 const NLU_SMS = {
@@ -314,7 +315,8 @@ const SHARE_PATH_RESERVED = new Set([
   'find-provider', 'events', 'open-events', 'providers', 'terms',
   'privacy', 'privacypolicy', 'policy-and-services', 'tutors', 'portal',
   'registration-receipt', 'preferences-form', 'passwordless-login',
-  'reset-password', 'change-password', 'intake', 'kiosk', 'schools', 'logout'
+  'reset-password', 'change-password', 'intake', 'kiosk', 'schools', 'logout',
+  'bookclub', 'book-club'
 ]);
 
 /**
@@ -359,6 +361,7 @@ export function pathToSharePageKey(pathname = '', serviceType = '') {
   if (p.includes('/login')) return 'login';
   if (p.includes('/find-provider') || /\/providers(\/|$)/.test(p)) return 'providers';
   if (p.includes('/district-schedule')) return 'district_schedule';
+  if (p.includes('/bookclub') || p.includes('/book-club')) return 'bookclub';
   if (p.includes('/open-events') || p.endsWith('/events') || p.includes('/events')) return 'events';
   if (p.includes('/find-tutor') || p.includes('/tutors')) return 'tutors';
   if (p.includes('/find-coach')) return 'coaching';
