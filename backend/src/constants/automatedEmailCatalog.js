@@ -42,7 +42,16 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   compliance_digest: ['compliance'],
   psychotherapy_threshold: ['compliance', 'notifications'],
   expiring_background: ['compliance', 'notifications'],
-  background_check_scheduled_admin: ['compliance', 'notifications']
+  background_check_scheduled_admin: ['compliance', 'notifications'],
+  client_assigned: ['notifications', 'people_operations', 'support'],
+  client_terminated: ['notifications', 'people_operations', 'support'],
+  client_checklist_updated: ['notifications', 'support'],
+  meeting_join_reminder: ['notifications', 'support', 'technology'],
+  meeting_invited: ['notifications', 'support'],
+  meeting_cancelled: ['notifications', 'support'],
+  program_reminder: ['notifications', 'people_operations'],
+  shift_calloff_need_coverage: ['notifications', 'people_operations'],
+  daily_digest: ['notifications', 'people_operations']
 };
 
 export function preferredIdentityKeysForTemplateType(templateType) {
@@ -52,6 +61,17 @@ export function preferredIdentityKeysForTemplateType(templateType) {
     return PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE[key];
   }
   if (key.startsWith('trigger:')) return [];
+  return [];
+}
+
+/** Preferred From mailboxes for trigger-based notification sends. */
+export function preferredIdentityKeysForOutboundSend({ templateType = null, triggerKey = null } = {}) {
+  const fromTemplate = preferredIdentityKeysForTemplateType(templateType);
+  if (fromTemplate.length) return fromTemplate;
+  const fromTrigger = preferredIdentityKeysForTemplateType(triggerKey);
+  if (fromTrigger.length) return fromTrigger;
+  const tk = String(triggerKey || '').trim().toLowerCase();
+  if (tk) return ['notifications', 'support', 'people_operations'];
   return [];
 }
 

@@ -15,6 +15,7 @@ import {
   scanStoredCommunicationQuality
 } from '../outboundEmailQuality.service.js';
 import { buildFallbackSenderMetadata } from '../../constants/automatedEmailCatalog.js';
+import { resolveSenderIdentityForSend } from '../emailSenderIdentityResolver.service.js';
 import { rewriteHogwartsOutboundRecipient, buildTestInboxRedirectMetadata } from '../../utils/hogwartsTestEmail.js';
 
 async function canSendEmail({ source, agencyId } = {}) {
@@ -273,7 +274,7 @@ function injectTrackingPixel(html, token) {
   return `${html}${pixel}`;
 }
 
-async function resolveTriggerDeliveryConfig({ agencyId, triggerKey }) {
+async function resolveTriggerDeliveryConfig({ agencyId, triggerKey, templateType = null }) {
   const a = Number(agencyId);
   const key = String(triggerKey || '').trim();
   if (!a) throw new Error('agencyId is required');
@@ -292,7 +293,16 @@ async function resolveTriggerDeliveryConfig({ agencyId, triggerKey }) {
       ? s.senderIdentityId
       : (trigger.defaultSenderIdentityId || null);
 
-  const identity = senderIdentityId ? await EmailSenderIdentity.findById(senderIdentityId) : null;
+  let identity = senderIdentityId ? await EmailSenderIdentity.findById(senderIdentityId) : null;
+  if (!identity?.id) {
+    const resolved = await resolveSenderIdentityForSend({
+      agencyId: a,
+      templateType: templateType || key,
+      triggerKey: key
+    });
+    identity = resolved?.identity || null;
+  }
+
   const subjectOverride = s?.subjectOverride ? String(s.subjectOverride).trim() : null;
   const requireApproval = !!s?.requireApproval;
   return { identity, subjectOverride, requireApproval, setting: s, trigger };
@@ -383,7 +393,11 @@ export async function sendNotificationEmail({
     }
   }
 
-  const delivery = await resolveTriggerDeliveryConfig({ agencyId, triggerKey });
+  const delivery = await resolveTriggerDeliveryConfig({
+    agencyId,
+    triggerKey,
+    templateType: templateType || triggerKey
+  });
   let identity = delivery.identity;
   let usedFallbackSender = false;
   if (!identity) {

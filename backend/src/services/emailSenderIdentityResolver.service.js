@@ -2,7 +2,7 @@ import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import NotificationTrigger from '../models/NotificationTrigger.model.js';
 import AgencyNotificationTriggerSetting from '../models/AgencyNotificationTriggerSetting.model.js';
 import { getAgencyEmailSettings } from './emailSettings.service.js';
-import { preferredIdentityKeysForTemplateType } from '../constants/automatedEmailCatalog.js';
+import { preferredIdentityKeysForOutboundSend } from '../constants/automatedEmailCatalog.js';
 
 function normalizeKey(value) {
   return String(value || '').trim().toLowerCase();
@@ -151,7 +151,7 @@ export async function resolveSenderIdentityForSend({
   const aid = Number(agencyId || 0) || null;
   const keys = (preferredKeys && preferredKeys.length)
     ? preferredKeys
-    : preferredIdentityKeysForTemplateType(templateType);
+    : preferredIdentityKeysForOutboundSend({ templateType, triggerKey });
 
   const configuredId = await resolveConfiguredSenderIdentityId({
     agencyId: aid,
