@@ -1,6 +1,7 @@
 import {
   EMAIL_AI_POLICY_MODES,
   extractClientReferenceHeuristic,
+  extractClientReferencesHeuristic,
   isSenderAllowedForPolicy,
   isStatusIntentHeuristic,
   matchSchoolClient,
@@ -30,6 +31,25 @@ describe('inboundEmailPolicy.service', () => {
       subject: 'Status update',
       bodyText: 'Can I get a status on Destiny Roberts?'
     })).toBe('Destiny Roberts');
+  });
+
+  test('extracts multiple truncated names from a roster-style list', () => {
+    const refs = extractClientReferencesHeuristic({
+      subject: 'Status request — Russell',
+      bodyText: `Hi team,\nNeed status on these:\n* Jazmine Sant*\n* Aedan Raymo*\n* Margaret Blo*\nThanks`
+    });
+    expect(refs).toEqual(expect.arrayContaining(['Jazmine Sant', 'Aedan Raymo', 'Margaret Blo']));
+    expect(refs.length).toBeGreaterThanOrEqual(3);
+  });
+
+  test('matches truncated name via derived 6-letter initials', () => {
+    const clients = [
+      { id: 11, full_name: 'Jazmine Santiago', first_name: 'Jazmine', last_name: 'Santiago', initials: 'JAZSAN' },
+      { id: 12, full_name: 'Aedan Raymond', first_name: 'Aedan', last_name: 'Raymond', initials: 'AEDRAY' }
+    ];
+    const hit = matchSchoolClient({ query: 'Jazmine Sant', clients });
+    expect(hit.match?.id).toBe(11);
+    expect(hit.confidence).toBeGreaterThanOrEqual(0.8);
   });
 
   test('matches school client and detects ambiguity', () => {

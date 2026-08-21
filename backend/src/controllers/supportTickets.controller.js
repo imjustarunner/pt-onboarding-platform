@@ -53,7 +53,7 @@ import {
   createPromptNoteFromRejection,
   listActivePromptNotes
 } from '../services/schoolSupportReplyLearning.service.js';
-import { buildManualDraftSources, parseDraftSourcesFromTicket } from '../utils/schoolSupportDraftSources.shared.js';
+import { buildManualDraftSources, parseDraftSourcesFromTicket, parseMetadataJson } from '../utils/schoolSupportDraftSources.shared.js';
 import { persistTicketDraftSources } from '../services/schoolSupportDraftSources.service.js';
 import {
   buildAndPersistResponsePlanForTicket,
@@ -3821,6 +3821,98 @@ export const dismissSupportTicketResponsePlan = async (req, res, next) => {
     const plan = await dismissResponsePlanForTicket(ticketId);
     res.json({ responsePlan: plan });
   } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/support-tickets/:id/link-client
+ * Link a client to this ticket. Optionally add (or reactivate) an affiliation
+ * at the ticket's school so returning students appear on the Russell roster.
+ * Body: { clientId, addToSchool?: boolean, makePrimary?: boolean }
+ */
+export const linkSupportTicketClient = async (req, res, next) => {
+  try {
+    if (!isAgencyAdminUser(req) && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only admin/support can link clients' } });
+    }
+    const ticketId = parseInt(req.params.id, 10);
+    const clientId = Number(req.body?.clientId || req.body?.client_id || 0);
+    const addToSchool = req.body?.addToSchool === true || req.body?.add_to_school === true;
+    const makePrimary = req.body?.makePrimary === true || req.body?.make_primary === true;
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+
+    const loaded = await loadTicketForActionAccess(req, ticketId);
+    if (!loaded.ok) return res.status(loaded.status).json({ error: { message: loaded.message } });
+    const ticket = loaded.ticket;
+
+    // Verify client belongs to the same agency.
+    const [clientRows] = await pool.execute(
+      `SELECT id, agency_id, full_name, initials, organization_id
+       FROM clients WHERE id = ? LIMIT 1`,
+      [clientId]
+    );
+    const clientRow = clientRows?.[0];
+    if (!clientRow) return res.status(404).json({ error: { message: 'Client not found' } });
+    if (
+      Number(ticket.agency_id) > 0
+      && Number(clientRow.agency_id) > 0
+      && Number(ticket.agency_id) !== Number(clientRow.agency_id)
+      && String(req.user?.role || '').toLowerCase() !== 'super_admin'
+    ) {
+      return res.status(403).json({ error: { message: 'Client is not in this agency' } });
+    }
+
+    let affiliation = null;
+    if (addToSchool && Number(ticket.school_organization_id) > 0) {
+      const { addClientSchoolAffiliation } = await import(
+        '../services/unifiedEmail/crossSchoolClientMatch.service.js'
+      );
+      affiliation = await addClientSchoolAffiliation({
+        clientId,
+        schoolOrganizationId: ticket.school_organization_id,
+        makePrimary,
+        actorUserId: req.user?.id || null
+      });
+    }
+
+    await pool.execute(
+      `UPDATE support_tickets SET client_id = ? WHERE id = ?`,
+      [clientId, ticketId]
+    );
+
+    // Clear match-candidate noise now that a client is linked.
+    try {
+      const meta = parseMetadataJson(ticket.ai_draft_metadata_json) || {};
+      meta.linkedClientId = clientId;
+      meta.linkedAt = new Date().toISOString();
+      meta.linkedByUserId = req.user?.id || null;
+      meta.addToSchool = addToSchool;
+      meta.matchReason = 'manual_link';
+      await pool.execute(
+        `UPDATE support_tickets SET ai_draft_metadata_json = ? WHERE id = ?`,
+        [JSON.stringify(meta), ticketId]
+      );
+    } catch { /* ignore */ }
+
+    const responsePlan = (await buildAndPersistResponsePlanForTicket(ticketId).catch(() => null))?.plan || null;
+
+    res.json({
+      ok: true,
+      clientId,
+      affiliation,
+      responsePlan,
+      client: {
+        id: clientRow.id,
+        fullName: clientRow.full_name,
+        initials: clientRow.initials
+      }
+    });
+  } catch (e) {
+    if (e?.status || e?.statusCode) {
+      return res.status(e.status || e.statusCode).json({ error: { message: e.message } });
+    }
     next(e);
   }
 };

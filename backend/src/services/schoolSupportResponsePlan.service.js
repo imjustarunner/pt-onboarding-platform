@@ -136,7 +136,7 @@ export async function buildAndPersistResponsePlanForTicket(ticketId, { proposedB
   const ticket = rows?.[0] || null;
   if (!ticket) return { plan: null, skipped: 'ticket_not_found' };
 
-  const metadata = parseMetadataJson(ticket.ai_draft_metadata_json);
+  const metadata = parseMetadataJson(ticket.ai_draft_metadata_json) || {};
   let client = null;
   if (ticket.client_id) {
     try {
@@ -146,16 +146,98 @@ export async function buildAndPersistResponsePlanForTicket(ticketId, { proposedB
     }
   }
 
+  // When the ticket has no linked client, re-run agency-wide name/initials matching
+  // (including prior schools) and persist candidates so the Match step can offer
+  // "add to this school" for returning students.
+  let workingMeta = { ...metadata };
+  if (!ticket.client_id && Number(ticket.agency_id) > 0) {
+    try {
+      const { rematchTicketClientsAcrossSchools } = await import(
+        './unifiedEmail/crossSchoolClientMatch.service.js'
+      );
+      let schoolName = workingMeta.targetSchoolName || null;
+      if (!schoolName && ticket.school_organization_id) {
+        try {
+          const [orgRows] = await pool.execute(
+            `SELECT name FROM agencies WHERE id = ? LIMIT 1`,
+            [ticket.school_organization_id]
+          );
+          schoolName = orgRows?.[0]?.name || null;
+        } catch { /* ignore */ }
+      }
+      const rematch = await rematchTicketClientsAcrossSchools({
+        agencyId: ticket.agency_id,
+        schoolOrganizationId: ticket.school_organization_id,
+        schoolName,
+        subject: ticket.subject || '',
+        bodyText: ticket.question || ticket.body_text || ticket.description || '',
+        existingExtracted: workingMeta.extractedClientReference || null
+      });
+
+      workingMeta = {
+        ...workingMeta,
+        targetSchoolName: schoolName,
+        extractedClientReference: rematch.primaryReference || workingMeta.extractedClientReference || null,
+        extractedClientReferences: rematch.extractedReferences || [],
+        matchReason: rematch.reason || workingMeta.matchReason || null,
+        matchConfidence: rematch.confidence || 0,
+        matchCandidates: (rematch.candidates || []).map((c) => ({
+          clientId: c.clientId,
+          fullName: c.fullName,
+          initials: c.initials,
+          identifierCode: c.identifierCode,
+          score: c.score,
+          reason: c.reason,
+          atTargetSchool: c.atTargetSchool,
+          priorSchoolName: c.priorSchoolName,
+          needsSchoolTransfer: c.needsSchoolTransfer,
+          organizationId: c.organizationId,
+          targetSchoolName: c.targetSchoolName || schoolName,
+          query: c.query
+        }))
+      };
+
+      // Auto-link only when there's a strong unique match already at this school.
+      if (
+        rematch.match?.clientId
+        && rematch.match.atTargetSchool
+        && rematch.confidence >= 0.85
+        && rematch.reason !== 'ambiguous'
+      ) {
+        await pool.execute(
+          `UPDATE support_tickets SET client_id = ? WHERE id = ? AND client_id IS NULL`,
+          [rematch.match.clientId, tid]
+        ).catch(() => {});
+        ticket.client_id = rematch.match.clientId;
+        try {
+          client = await Client.findById(rematch.match.clientId, { includeSensitive: false });
+        } catch {
+          client = null;
+        }
+      }
+
+      // Persist updated metadata so Refresh/UI see the candidates.
+      try {
+        await pool.execute(
+          `UPDATE support_tickets SET ai_draft_metadata_json = ? WHERE id = ?`,
+          [JSON.stringify(workingMeta), tid]
+        );
+      } catch { /* ignore */ }
+    } catch (err) {
+      console.warn('[response-plan] cross-school rematch failed:', err?.message || err);
+    }
+  }
+
   const checklistItems = await loadChecklistItems({
     clientId: ticket.client_id,
     agencyId: ticket.agency_id,
-    metadata
+    metadata: workingMeta
   });
   const actionItems = await listTicketActionItems(tid);
   const built = buildResponsePlan({
     ticket,
     client,
-    metadata,
+    metadata: workingMeta,
     checklistItems,
     actionItems
   });

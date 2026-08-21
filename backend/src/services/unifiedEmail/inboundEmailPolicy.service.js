@@ -42,25 +42,129 @@ export function isStatusIntentHeuristic({ subject, bodyText }) {
   return patterns.some((re) => re.test(text));
 }
 
-export function extractClientReferenceHeuristic({ subject, bodyText }) {
-  const text = normalizeSpace(`${subject || ''} ${bodyText || ''}`);
-  if (!text) return null;
+const STOP_NAME_PHRASES = new Set([
+  'status update',
+  'status request',
+  'thank you',
+  'good morning',
+  'good afternoon',
+  'dear team',
+  'hello team',
+  'please advise',
+  'can you',
+  'would you',
+  'let me know',
+  'request',
+  'these',
+  'those',
+  'them',
+  'student',
+  'students',
+  'client',
+  'clients',
+  'update',
+  'russell',
+  'thanks',
+  'please',
+  'hello',
+  'hi team'
+]);
 
+function cleanExtractedName(raw) {
+  let s = normalizeSpace(String(raw || '').replace(/[*_]+/g, ' ').replace(/\s+/g, ' '));
+  // Strip trailing em-dash school tags: "request — Russell"
+  s = s.replace(/\s+[—–-]\s+.*$/, '').trim();
+  s = s.replace(/[?.!,;:]+$/g, '').trim();
+  if (!s) return null;
+  if (STOP_NAME_PHRASES.has(s.toLowerCase())) return null;
+  // Require at least a first + last token (or a compact initials-like token).
+  const parts = s.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) {
+    const compact = normalizeAlphaNum(parts[0]);
+    if (compact.length < 4 || compact.length > 12) return null;
+    // Single token must look like a name/initials blob, not a common word
+    if (STOP_NAME_PHRASES.has(parts[0].toLowerCase())) return null;
+    return s;
+  }
+  if (parts.length > 4) return null;
+  // Drop leading greetings / labels
+  if (/^(re|fw|fwd|status|update|regarding|need|please)$/i.test(parts[0])) return null;
+  // Each name token should start with a letter and look name-like
+  if (!parts.every((p) => /^[A-Za-z][A-Za-z'.\-]*$/.test(p))) return null;
+  return s;
+}
+
+/**
+ * Extract one or more likely client name references from a status email.
+ * Supports:
+ *  - "status on Destiny Roberts"
+ *  - Bullet / starred privacy-truncated lists: "* Jazmine Sant*" / "• Aedan Raymo"
+ *  - Capitalized First Last phrases
+ */
+export function extractClientReferencesHeuristic({ subject, bodyText }) {
+  const rawBody = String(bodyText || '');
+  const rawSubject = String(subject || '');
+  const found = [];
+  const seen = new Set();
+
+  const push = (raw) => {
+    const cleaned = cleanExtractedName(raw);
+    if (!cleaned) return;
+    const key = normalizeAlphaNum(cleaned);
+    if (!key || key.length < 4 || seen.has(key)) return;
+    seen.add(key);
+    found.push(cleaned);
+  };
+
+  // 1) Explicit status phrasing — require "on/for/update on" so "Status request" does not match
+  const text = normalizeSpace(`${rawSubject} ${rawBody}`);
   const patterns = [
-    /status(?:\s+on|\s+for|\s+update on)?\s+([A-Za-z][A-Za-z0-9'.\- ]{1,40})\??/i,
-    /when is\s+([A-Za-z][A-Za-z0-9'.\- ]{1,40})\s+going to be ready\??/i,
-    /where are we at with\s+([A-Za-z][A-Za-z0-9'.\- ]{1,40})\??/i
+    /status(?:\s+update)?\s+(?:on|for)\s+([A-Za-z][A-Za-z0-9'.\- ]{1,40})\??/gi,
+    /when is\s+([A-Za-z][A-Za-z0-9'.\- ]{1,40})\s+going to be ready\??/gi,
+    /where are we at with\s+([A-Za-z][A-Za-z0-9'.\- ]{1,40})\??/gi,
+    /(?:update)\s+(?:for|on)\s+([A-Za-z][A-Za-z0-9'.\- ]{1,40})\??/gi
   ];
   for (const pattern of patterns) {
-    const m = text.match(pattern);
-    if (m?.[1]) return normalizeSpace(m[1]);
+    let m;
+    while ((m = pattern.exec(text)) !== null) {
+      push(m[1]);
+    }
   }
 
-  const tokens = tokenize(text);
-  const caps = text.match(/\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){0,2}\b/g) || [];
-  if (caps.length) return normalizeSpace(caps[caps.length - 1]);
-  if (tokens.length) return normalizeSpace(tokens.slice(-2).join(' '));
-  return null;
+  // 2) Line / bullet list of names (common in school roster emails)
+  const lines = rawBody.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = String(line || '').trim();
+    if (!trimmed) continue;
+    const bullet = trimmed.match(/^(?:[-*•]|\d+[.)])\s*([A-Za-z][A-Za-z'.\-]*(?:\s+[A-Za-z][A-Za-z'.\-]*){0,3})\s*\*?$/);
+    if (bullet?.[1]) {
+      push(bullet[1]);
+      continue;
+    }
+    // Privacy-truncated trailing asterisks: "Jazmine Sant*"
+    const starred = trimmed.match(/^[*•\-\d.)\s]*([A-Z][a-z]{1,}(?:\s+[A-Z][a-z]{1,}){0,2})\*+\s*$/);
+    if (starred?.[1]) push(starred[1]);
+  }
+
+  // 3) Fallback: capitalized First Last phrases (require 2+ tokens)
+  if (!found.length) {
+    const caps = text.match(/\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){1,2}\b/g) || [];
+    for (const cap of caps) push(cap);
+  }
+
+  // 4) Last resort: last two tokens of the whole text if they look like a name
+  if (!found.length) {
+    const tokens = tokenize(text);
+    if (tokens.length >= 2) push(tokens.slice(-2).join(' '));
+  }
+
+  return found;
+}
+
+/** Back-compat: first extracted reference, or null. */
+export function extractClientReferenceHeuristic({ subject, bodyText }) {
+  const refs = extractClientReferencesHeuristic({ subject, bodyText });
+  return refs[0] || null;
 }
 
 function buildClientSearchKeys(client) {
@@ -106,6 +210,21 @@ function scoreClientMatch(query, client) {
   if (!qNorm) return { score: 0, reason: 'empty_query' };
 
   const keys = buildClientSearchKeys(client);
+  // Also score against initials derived from the query itself (handles truncated
+  // last names like "Jazmine Sant" → JAZSAN matching stored "Jazmine Santiago").
+  try {
+    // Lazy import avoided — derive inline to keep this module free of circular deps.
+    const parts = q.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const take3 = (token) => String(token || '').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase();
+      const derived = `${take3(parts[0])}${take3(parts[parts.length - 1])}`;
+      if (derived.length === 6) {
+        keys.push(derived);
+        keys.push(derived.toLowerCase());
+      }
+    }
+  } catch { /* ignore */ }
+
   let best = 0;
   let reason = 'none';
   for (const key of keys) {
@@ -116,6 +235,14 @@ function scoreClientMatch(query, client) {
     if (keyNorm.includes(qNorm) || qNorm.includes(keyNorm)) {
       best = Math.max(best, 0.9);
       reason = 'substring';
+    }
+    // Exact initials match (6-letter school initials)
+    if (keyNorm.length === 6 && qNorm.length >= 4 && (keyNorm === qNorm || keyNorm.startsWith(qNorm) || qNorm.startsWith(keyNorm))) {
+      const initialsBoost = keyNorm === qNorm ? 0.98 : 0.88;
+      if (initialsBoost > best) {
+        best = initialsBoost;
+        reason = 'initials';
+      }
     }
     const prefixMatch = keyNorm.startsWith(qNorm) || qNorm.startsWith(keyNorm);
     if (prefixMatch) {

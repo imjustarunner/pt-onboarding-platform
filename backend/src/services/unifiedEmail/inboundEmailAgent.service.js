@@ -1004,9 +1004,75 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       const clients = statusAllowed
         ? await listSchoolClientsForStatusReply({ schoolOrganizationId: schoolContext.schoolOrganizationId })
         : [];
-      const match = statusAllowed && intent.isStatusIntent
+      let match = statusAllowed && intent.isStatusIntent
         ? matchSchoolClient({ query: intent.clientReference, clients })
         : { match: null, confidence: 0, reason: 'not_status_intent', candidates: [] };
+
+      // If the student isn't on this school's roster yet, search the agency
+      // (prior schools) by name/initials so staff can add them to Russell.
+      let crossSchoolCandidates = [];
+      if (
+        statusAllowed
+        && intent.isStatusIntent
+        && !match.match
+        && (intent.clientReference || true)
+      ) {
+        try {
+          const { rematchTicketClientsAcrossSchools } = await import('./crossSchoolClientMatch.service.js');
+          const rematch = await rematchTicketClientsAcrossSchools({
+            agencyId,
+            schoolOrganizationId: schoolContext.schoolOrganizationId,
+            schoolName: schoolContext.schoolName,
+            subject,
+            bodyText,
+            existingExtracted: intent.clientReference || null
+          });
+          crossSchoolCandidates = rematch.candidates || [];
+          if (rematch.primaryReference && !intent.clientReference) {
+            intent.clientReference = rematch.primaryReference;
+          }
+          // Auto-link only when already affiliated at this school with high confidence.
+          if (rematch.match?.atTargetSchool && rematch.confidence >= 0.85) {
+            const schoolClients = clients.length
+              ? clients
+              : await listSchoolClientsForStatusReply({ schoolOrganizationId: schoolContext.schoolOrganizationId });
+            const found = schoolClients.find((c) => Number(c.id) === Number(rematch.match.clientId));
+            if (found) {
+              match = {
+                match: found,
+                confidence: rematch.confidence,
+                reason: rematch.reason || 'cross_school_at_target',
+                candidates: rematch.candidates.slice(0, 3).map((c) => ({
+                  client: { id: c.clientId, initials: c.initials, full_name: c.fullName, identifier_code: c.identifierCode },
+                  score: c.score,
+                  reason: c.reason
+                }))
+              };
+            }
+          } else if (crossSchoolCandidates.length && (!match.candidates || !match.candidates.length)) {
+            match = {
+              match: null,
+              confidence: rematch.confidence || 0,
+              reason: rematch.reason || 'prior_school_candidates',
+              candidates: crossSchoolCandidates.slice(0, 3).map((c) => ({
+                client: {
+                  id: c.clientId,
+                  initials: c.initials,
+                  full_name: c.fullName,
+                  identifier_code: c.identifierCode,
+                  at_target_school: c.atTargetSchool,
+                  priorSchoolName: c.priorSchoolName,
+                  organization_name: c.priorSchoolName
+                },
+                score: c.score,
+                reason: c.reason
+              }))
+            };
+          }
+        } catch (err) {
+          console.warn('[inbound] cross-school rematch failed:', err?.message || err);
+        }
+      }
 
       let draftResponse = null;
       let draftSources = [];
@@ -1110,8 +1176,16 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
             clientId: c?.client?.id || null,
             initials: c?.client?.initials || null,
             identifierCode: c?.client?.identifier_code || null,
-            score: c?.score || 0
+            fullName: c?.client?.full_name || null,
+            score: c?.score || 0,
+            reason: c?.reason || null,
+            atTargetSchool: Boolean(c?.client?.at_target_school),
+            priorSchoolName: c?.client?.priorSchoolName || c?.client?.organization_name || null,
+            needsSchoolTransfer: c?.client?.at_target_school === false
+              || Boolean(c?.client?.priorSchoolName && !c?.client?.at_target_school),
+            targetSchoolName: schoolContext.schoolName || null
           })),
+          targetSchoolName: schoolContext.schoolName || null,
           checklistItems: (checklistItems || []).map((item) => ({
             statusKey: item.statusKey,
             label: item.label,

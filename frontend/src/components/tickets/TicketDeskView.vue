@@ -412,7 +412,40 @@
                         </div>
                         <span class="response-plan-step-status">{{ responsePlanStepStatusLabel(step.status) }}</span>
                       </div>
-                      <div v-if="step.type === 'draft_reply' && step.status === 'ready'" class="response-plan-step-actions">
+                      <div v-if="step.type === 'match_client' && step.status === 'blocked' && matchStepCandidates(step).length" class="response-plan-step-actions match-candidates">
+                        <div
+                          v-for="cand in matchStepCandidates(step)"
+                          :key="`match-cand-${cand.clientId}`"
+                          class="match-candidate-row"
+                        >
+                          <div class="match-candidate-info">
+                            <strong>{{ cand.fullName || cand.initials || `Client #${cand.clientId}` }}</strong>
+                            <span v-if="cand.initials" class="muted"> · {{ cand.initials }}</span>
+                            <span v-if="cand.priorSchoolName" class="match-prior"> · was at {{ cand.priorSchoolName }}</span>
+                            <span v-else-if="cand.atTargetSchool" class="match-at-school"> · already at this school</span>
+                          </div>
+                          <div class="match-candidate-btns">
+                            <button
+                              v-if="cand.needsSchoolTransfer || cand.priorSchoolName"
+                              type="button"
+                              class="btn btn-primary btn-xs"
+                              :disabled="linkingClientId === cand.clientId"
+                              @click="linkTicketClient(cand, { addToSchool: true })"
+                            >
+                              {{ linkingClientId === cand.clientId ? 'Linking…' : `Add to ${cand.targetSchoolName || step.targetSchoolName || 'school'} & link` }}
+                            </button>
+                            <button
+                              type="button"
+                              class="btn btn-secondary btn-xs"
+                              :disabled="linkingClientId === cand.clientId"
+                              @click="linkTicketClient(cand, { addToSchool: false })"
+                            >
+                              {{ linkingClientId === cand.clientId ? 'Linking…' : 'Link only' }}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div v-else-if="step.type === 'draft_reply' && step.status === 'ready'" class="response-plan-step-actions">
                         <button
                           v-if="selected.ai_draft_response"
                           type="button"
@@ -1041,6 +1074,45 @@ const responsePlan = ref(null);
 const responsePlanLoading = ref(false);
 const responsePlanCollapsed = ref(false);
 const responsePlanDismissed = ref(false);
+const linkingClientId = ref(null);
+
+function matchStepCandidates(step) {
+  const list = Array.isArray(step?.candidates) ? step.candidates : [];
+  return list.filter((c) => Number(c?.clientId || 0) > 0).slice(0, 5);
+}
+
+async function linkTicketClient(cand, { addToSchool = false } = {}) {
+  const ticketId = Number(selected.value?.id || 0);
+  const clientId = Number(cand?.clientId || 0);
+  if (!ticketId || !clientId || linkingClientId.value) return;
+  linkingClientId.value = clientId;
+  actionError.value = '';
+  try {
+    const r = await api.post(
+      `/support-tickets/${ticketId}/link-client`,
+      { clientId, addToSchool },
+      { skipGlobalLoading: true }
+    );
+    if (selected.value) {
+      selected.value = {
+        ...selected.value,
+        client_id: clientId,
+        client_initials: r.data?.client?.initials || cand.initials || selected.value.client_initials,
+        client_full_name: r.data?.client?.fullName || cand.fullName || selected.value.client_full_name
+      };
+    }
+    if (r.data?.responsePlan) {
+      responsePlan.value = r.data.responsePlan;
+      responsePlanDismissed.value = false;
+    } else {
+      await refreshResponsePlan();
+    }
+  } catch (e) {
+    actionError.value = e?.response?.data?.error?.message || e?.message || 'Failed to link client';
+  } finally {
+    linkingClientId.value = null;
+  }
+}
 const composerEl = ref(null);
 const suggestingActions = ref(false);
 const actionBusyId = ref(null);
@@ -2684,6 +2756,35 @@ defineExpose({ loadAll, clearSelection });
   gap: 8px;
   margin-top: 6px;
   margin-left: 32px;
+}
+.response-plan-step-actions.match-candidates {
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+.match-candidate-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.match-candidate-info {
+  font-size: 12px;
+  line-height: 1.35;
+  flex: 1;
+  min-width: 140px;
+}
+.match-prior { color: #b45309; }
+.match-at-school { color: #166534; }
+.match-candidate-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .promote-library-check {
   display: flex;

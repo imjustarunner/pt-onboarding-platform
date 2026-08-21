@@ -96,8 +96,32 @@ function buildMatchClientStep({ ticket, client, metadata }) {
   }
 
   const extracted = metadata?.extractedClientReference || null;
+  const extractedList = Array.isArray(metadata?.extractedClientReferences)
+    ? metadata.extractedClientReferences
+    : (extracted ? [extracted] : []);
   const matchReason = metadata?.matchReason || null;
   const candidates = Array.isArray(metadata?.matchCandidates) ? metadata.matchCandidates : [];
+  const priorSchoolCandidates = candidates.filter((c) => c?.needsSchoolTransfer || c?.priorSchoolName);
+  const schoolName = metadata?.targetSchoolName || ticket?.school_name || 'this school';
+
+  if (priorSchoolCandidates.length) {
+    const top = priorSchoolCandidates[0];
+    const label = top.fullName || top.initials || `Client #${top.clientId}`;
+    const prior = top.priorSchoolName ? ` (was at ${top.priorSchoolName})` : '';
+    return {
+      step: 0,
+      type: RESPONSE_PLAN_STEP_TYPES.MATCH_CLIENT,
+      title: 'Match client',
+      detail: `Found ${label}${prior} — add to ${schoolName}?`,
+      status: RESPONSE_PLAN_STEP_STATUS.BLOCKED,
+      candidateCount: candidates.length,
+      candidates,
+      extractedReferences: extractedList,
+      needsSchoolTransfer: true,
+      targetSchoolName: schoolName
+    };
+  }
+
   if (matchReason === 'ambiguous' || candidates.length > 1) {
     return {
       step: 0,
@@ -107,17 +131,39 @@ function buildMatchClientStep({ ticket, client, metadata }) {
         ? `Ambiguous match for "${extracted}" — review candidates`
         : 'Multiple possible client matches',
       status: RESPONSE_PLAN_STEP_STATUS.BLOCKED,
-      candidateCount: candidates.length
+      candidateCount: candidates.length,
+      candidates,
+      extractedReferences: extractedList
     };
   }
 
-  if (extracted) {
+  if (candidates.length === 1) {
+    const top = candidates[0];
+    const label = top.fullName || top.initials || `Client #${top.clientId}`;
     return {
       step: 0,
       type: RESPONSE_PLAN_STEP_TYPES.MATCH_CLIENT,
       title: 'Match client',
-      detail: `Could not match "${extracted}" — link client manually`,
-      status: RESPONSE_PLAN_STEP_STATUS.BLOCKED
+      detail: `Likely match: ${label} — confirm to link`,
+      status: RESPONSE_PLAN_STEP_STATUS.BLOCKED,
+      candidateCount: 1,
+      candidates,
+      extractedReferences: extractedList
+    };
+  }
+
+  if (extracted || extractedList.length) {
+    const shown = extractedList.length > 1
+      ? extractedList.slice(0, 3).join(', ')
+      : (extracted || extractedList[0]);
+    return {
+      step: 0,
+      type: RESPONSE_PLAN_STEP_TYPES.MATCH_CLIENT,
+      title: 'Match client',
+      detail: `Could not match "${shown}" — link client manually`,
+      status: RESPONSE_PLAN_STEP_STATUS.BLOCKED,
+      extractedReferences: extractedList,
+      candidates: []
     };
   }
 
@@ -126,7 +172,9 @@ function buildMatchClientStep({ ticket, client, metadata }) {
     type: RESPONSE_PLAN_STEP_TYPES.MATCH_CLIENT,
     title: 'Match client',
     detail: 'No client linked to this ticket yet',
-    status: RESPONSE_PLAN_STEP_STATUS.BLOCKED
+    status: RESPONSE_PLAN_STEP_STATUS.BLOCKED,
+    candidates: [],
+    extractedReferences: []
   };
 }
 
