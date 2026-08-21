@@ -5030,6 +5030,8 @@ const organizationDisplayName = computed(() => {
   return official || organizationName.value;
 });
 
+const schoolName = computed(() => organizationDisplayName.value || organizationName.value || '');
+
 const schoolLogoUrl = computed(() => {
   const org = organizationStore.currentOrganization;
   const raw = org?.logo_path || org?.logo_url || null;

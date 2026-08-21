@@ -3912,7 +3912,7 @@ export const listTestAccounts = async (req, res, next) => {
     const actorOnRoster = await isActiveDemoTestAccountUser(actor.id);
     const actorGroup = await getTestAccountGroup(actor.id);
     if (!actorIsAdmin && !actorOnRoster) {
-      return res.status(403).json({ error: { message: 'Test account switching is not available for this user' } });
+      return res.json({ accounts: [], canSwitch: false, returnAccount: null });
     }
 
     const [rows] = await pool.execute(

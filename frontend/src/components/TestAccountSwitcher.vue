@@ -102,7 +102,6 @@ const isAdminLike = computed(() => role.value === 'admin' || role.value === 'sup
 const visible = computed(() => {
   if (!authStore.user?.id) return false;
   if (isAdminLike.value) return true;
-  if (props.forceCheck) return canSwitch.value || !loadedOnce.value;
   return canSwitch.value;
 });
 
@@ -174,7 +173,7 @@ const loadAccounts = async () => {
     const status = error?.response?.status;
     if (status === 403 || status === 404) {
       accounts.value = [];
-    returnAccount.value = null;
+      returnAccount.value = null;
       canSwitch.value = isAdminLike.value;
       if (!isAdminLike.value) loadError.value = '';
     } else {
@@ -282,15 +281,17 @@ const returnToOriginal = async () => {
 };
 
 watch(
-  () => authStore.user?.id,
-  async (id) => {
+  () => [authStore.user?.id, props.forceCheck],
+  async ([id]) => {
     loadedOnce.value = false;
     accounts.value = [];
     returnAccount.value = null;
     canSwitch.value = false;
     closeMenu();
     if (!id) return;
-    await loadAccounts();
+    if (isAdminLike.value || props.forceCheck) {
+      await loadAccounts();
+    }
   },
   { immediate: true }
 );
