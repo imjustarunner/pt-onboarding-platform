@@ -746,10 +746,17 @@ export async function sendEmailFromIdentity({
   }
 
   const resolvedTemplateType = templateType || 'identity_send';
-  // Internal testing inbox redirects must not sit in the approval queue.
+  const ttNorm = String(resolvedTemplateType).trim().toLowerCase();
+  const isLoginRecoveryEmail = [
+    'password_reset',
+    'admin_initiated_password_reset',
+    'school_staff_account_recovery'
+  ].includes(ttNorm);
+  // Internal testing inbox redirects and login recovery must not sit in the approval queue.
   const needsApproval =
     !redirected.redirected &&
     !existingCommunicationId &&
+    !isLoginRecoveryEmail &&
     comm?.id &&
     (await emailRequiresAdminApproval({
       agencyId: identity?.agency_id,

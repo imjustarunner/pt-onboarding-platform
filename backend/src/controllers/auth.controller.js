@@ -2625,7 +2625,23 @@ const getClientIpAddress = (req) => {
   return String(req.ip || req.connection?.remoteAddress || '').trim();
 };
 
-const isRecaptchaConfigured = () => !!(config.recaptcha?.secretKey || config.recaptcha?.enterpriseApiKey);
+const isRecaptchaConfigured = () => !!(
+  config.recaptcha?.secretKey
+  || config.recaptcha?.enterpriseApiKey
+  || (config.recaptcha?.enterpriseProjectId
+    && (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GOOGLE_CLOUD_PROJECT || process.env.PROJECT_ID))
+);
+
+const isLocalDevRecoveryRequest = (req) => {
+  const host = String(req.get('host') || '').toLowerCase();
+  const ip = String(req.ip || req.connection?.remoteAddress || '').replace(/^::ffff:/, '');
+  return (
+    host.startsWith('localhost')
+    || host.startsWith('127.0.0.1')
+    || ip === '127.0.0.1'
+    || ip === '::1'
+  );
+};
 
 const verifyRecoveryCaptcha = async ({ req, expectedAction }) => {
   const captchaToken = String(req.body?.captchaToken || '').trim();
@@ -2634,6 +2650,10 @@ const verifyRecoveryCaptcha = async ({ req, expectedAction }) => {
     return { ok: true };
   }
   if (!captchaToken) {
+    // Local dev often has backend recaptcha keys but no frontend VITE_* build vars.
+    if (config.nodeEnv !== 'production' || isLocalDevRecoveryRequest(req)) {
+      return { ok: true, reason: 'captcha_optional' };
+    }
     return { ok: false, reason: 'missing_token' };
   }
   const verification = await verifyRecaptchaV3({
@@ -2800,12 +2820,43 @@ const getOrgAdminEmail = (agency) => {
 
 const RECOVERY_JUNK_NOTICE = 'Important: this message often lands in Junk or Spam. Please check Junk, move it to Inbox if you find it there, and mark the sender as safe so you do not miss future messages from us.';
 
-const resolveRecoverySenderIdentity = async (agencyId) => {
-  return await resolveSenderIdentityForSend({
-    agencyId: agencyId ? Number(agencyId) : null,
-    templateType: 'password_reset',
-    preferredKeys: ['technology', 'login_recovery', 'notifications']
-  });
+const resolveRecoverySenderIdentity = async (agencyId, userId = null) => {
+  const candidateAgencyIds = [];
+  const addCandidate = (id) => {
+    const n = Number(id || 0);
+    if (Number.isFinite(n) && n > 0 && !candidateAgencyIds.includes(n)) candidateAgencyIds.push(n);
+  };
+
+  addCandidate(agencyId);
+  if (agencyId) {
+    try {
+      const OrganizationAffiliation = (await import('../models/OrganizationAffiliation.model.js')).default;
+      const parentId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(Number(agencyId));
+      addCandidate(parentId);
+    } catch {
+      /* best effort */
+    }
+  }
+  if (userId) {
+    try {
+      const agencies = await User.getAgencies(userId);
+      for (const a of agencies || []) addCandidate(a?.id);
+    } catch {
+      /* best effort */
+    }
+  }
+  addCandidate(process.env.SCHOOL_INTAKE_REVIEW_AGENCY_ID || process.env.ITSCO_AGENCY_ID || 2);
+
+  for (const aid of candidateAgencyIds) {
+    const resolved = await resolveSenderIdentityForSend({
+      agencyId: aid,
+      templateType: 'password_reset',
+      preferredKeys: ['technology', 'login_recovery', 'notifications']
+    });
+    if (resolved?.identity?.id) return resolved;
+  }
+
+  return { identity: null, usedFallback: true, resolution: 'none' };
 };
 
 /** Platform-level email (Summit Stats Team Challenge). Uses same sender identity as ROI intake when platform agency is configured. */
@@ -2858,7 +2909,7 @@ const sendRecoveryEmail = async ({
   userId = null,
   existingCommunicationId = null
 }) => {
-  const resolved = await resolveRecoverySenderIdentity(agencyId);
+  const resolved = await resolveRecoverySenderIdentity(agencyId, userId);
   if (resolved?.identity?.id) {
     return await sendEmailFromIdentity({
       senderIdentityId: resolved.identity.id,
@@ -2943,10 +2994,17 @@ const notifyCurrentEmployeeRescue = async ({
 export const getRecoveryStatus = async (req, res, next) => {
   try {
     const sendingMode = await EmailService.getSendingMode().catch(() => 'unknown');
+    const captchaConfigured = isRecaptchaConfigured();
     res.json({
       ok: true,
       emailConfigured: EmailService.isConfigured(),
-      sendingMode
+      sendingMode,
+      recaptcha: {
+        configured: captchaConfigured,
+        siteKey: captchaConfigured ? (config.recaptcha?.siteKey || null) : null,
+        useEnterprise: !!(config.recaptcha?.enterpriseApiKey || config.recaptcha?.enterpriseProjectId),
+        required: captchaConfigured && config.nodeEnv === 'production' && !isLocalDevRecoveryRequest(req)
+      }
     });
   } catch (e) {
     next(e);

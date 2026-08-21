@@ -716,6 +716,11 @@ import {
   getPrimarySchoolStaffPortalSlug
 } from '../utils/schoolStaffPortal.js';
 import { buildFancyQrDataUrl } from '../utils/fancyQr.js';
+import {
+  getLoginRecoveryCaptchaToken,
+  isLoginRecoveryRecaptchaConfigured,
+  setLoginRecoveryRecaptchaConfig
+} from '../utils/loginRecoveryRecaptcha.js';
 
 // Removed hardcoded credentials for security
 const router = useRouter();
@@ -1948,6 +1953,7 @@ const showForgotPassword = () => {
   recoveryDebug.value = null;
   const u = String(username.value || '').trim();
   forgotPasswordEmail.value = u.includes('@') ? u : '';
+  bootstrapRecoveryRecaptcha().catch(() => {});
 };
 
 const showForgotUsername = () => {
@@ -1987,12 +1993,39 @@ const showGuardianTempPasswordHelp = () => {
   forgotPasswordEmail.value = u.includes('@') ? u : forgotPasswordEmail.value;
 };
 
+const recoveryRecaptchaRequired = ref(false);
+let recoveryRecaptchaBootstrapped = false;
+
+const bootstrapRecoveryRecaptcha = async () => {
+  if (recoveryRecaptchaBootstrapped && isLoginRecoveryRecaptchaConfigured()) return;
+  try {
+    const resp = await api.get('/auth/recovery-status', { skipGlobalLoading: true, skipAuthRedirect: true });
+    const rc = resp?.data?.recaptcha;
+    recoveryRecaptchaRequired.value = !!rc?.required;
+    if (rc?.siteKey) {
+      setLoginRecoveryRecaptchaConfig({
+        siteKey: rc.siteKey,
+        useEnterprise: rc.useEnterprise === true
+      });
+    }
+  } catch {
+    recoveryRecaptchaRequired.value = false;
+  } finally {
+    recoveryRecaptchaBootstrapped = true;
+  }
+};
+
 const submitGuardianTempPasswordHelp = async () => {
   recoveryLoading.value = true;
   recoveryError.value = '';
   recoverySuccess.value = '';
   try {
-    const captchaToken = await getRecoveryCaptchaToken('login_password_reset');
+    await bootstrapRecoveryRecaptcha();
+    const captchaToken = await getLoginRecoveryCaptchaToken('login_password_reset');
+    if (recoveryRecaptchaRequired.value && !captchaToken) {
+      recoveryError.value = 'Security verification did not complete. Please refresh and try again.';
+      return;
+    }
     const resp = await api.post('/auth/request-guardian-temp-password', {
       email: String(forgotPasswordEmail.value || '').trim(),
       organizationSlug: loginSlug.value || undefined,
@@ -2007,51 +2040,6 @@ const submitGuardianTempPasswordHelp = async () => {
   }
 };
 
-const recoveryRecaptchaSiteKey = String(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '').trim();
-let recoveryRecaptchaLoadPromise = null;
-const loadRecoveryRecaptcha = async () => {
-  if (!recoveryRecaptchaSiteKey) return null;
-  if (window.grecaptcha?.execute || window.grecaptcha?.enterprise?.execute) return window.grecaptcha;
-  if (!recoveryRecaptchaLoadPromise) {
-    recoveryRecaptchaLoadPromise = new Promise((resolve, reject) => {
-      const existing = document.querySelector('script[data-login-recaptcha="true"]');
-      if (existing) {
-        existing.addEventListener('load', () => resolve(window.grecaptcha), { once: true });
-        existing.addEventListener('error', () => reject(new Error('Failed to load reCAPTCHA')), { once: true });
-        return;
-      }
-      const script = document.createElement('script');
-      script.src = `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(recoveryRecaptchaSiteKey)}`;
-      script.async = true;
-      script.defer = true;
-      script.setAttribute('data-login-recaptcha', 'true');
-      script.onload = () => resolve(window.grecaptcha);
-      script.onerror = () => reject(new Error('Failed to load reCAPTCHA'));
-      document.head.appendChild(script);
-    });
-  }
-  return recoveryRecaptchaLoadPromise;
-};
-
-const getRecoveryCaptchaToken = async (action) => {
-  if (!recoveryRecaptchaSiteKey) return '';
-  try {
-    const grecaptcha = await loadRecoveryRecaptcha();
-    if (!grecaptcha) return '';
-    const enterpriseExecute = grecaptcha?.enterprise?.execute;
-    if (typeof enterpriseExecute === 'function') {
-      return await enterpriseExecute(recoveryRecaptchaSiteKey, { action });
-    }
-    const execute = grecaptcha?.execute;
-    if (typeof execute === 'function') {
-      return await execute(recoveryRecaptchaSiteKey, { action });
-    }
-    return '';
-  } catch {
-    return '';
-  }
-};
-
 const submitForgotPassword = async () => {
   if (forgotPasswordCooldownRemaining.value > 0) return;
   recoveryLoading.value = true;
@@ -2059,7 +2047,12 @@ const submitForgotPassword = async () => {
   recoverySuccess.value = '';
   recoveryDebug.value = null;
   try {
-    const captchaToken = await getRecoveryCaptchaToken('login_password_reset');
+    await bootstrapRecoveryRecaptcha();
+    const captchaToken = await getLoginRecoveryCaptchaToken('login_password_reset');
+    if (recoveryRecaptchaRequired.value && !captchaToken) {
+      recoveryError.value = 'Security verification did not complete. Please refresh and try again.';
+      return;
+    }
     const resp = await api.post('/auth/request-password-reset', {
       email: String(forgotPasswordEmail.value || '').trim(),
       organizationSlug: loginSlug.value || undefined,
@@ -2129,7 +2122,12 @@ const submitForgotUsername = async () => {
   recoverySuccess.value = '';
   recoveryDebug.value = null;
   try {
-    const captchaToken = await getRecoveryCaptchaToken('login_recover_username');
+    await bootstrapRecoveryRecaptcha();
+    const captchaToken = await getLoginRecoveryCaptchaToken('login_recover_username');
+    if (recoveryRecaptchaRequired.value && !captchaToken) {
+      recoveryError.value = 'Security verification did not complete. Please refresh and try again.';
+      return;
+    }
     const resp = await api.post('/auth/recover-username', {
       firstName: String(recoverFirstName.value || '').trim(),
       lastName: String(recoverLastName.value || '').trim(),

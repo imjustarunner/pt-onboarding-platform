@@ -77,9 +77,12 @@ export async function emailRequiresAdminApproval({
   triggerKey = null,
   usedFallbackSender = false
 } = {}) {
-  // Compliance Expiring Background must send immediately (no approval queue).
+  // Transactional login recovery must send immediately (no approval queue).
   const ttNorm = String(templateType || '').trim().toLowerCase();
   if (ttNorm === 'expiring_background') return false;
+  if (['password_reset', 'admin_initiated_password_reset', 'school_staff_account_recovery'].includes(ttNorm)) {
+    return false;
+  }
 
   if (usedFallbackSender) return true;
 
