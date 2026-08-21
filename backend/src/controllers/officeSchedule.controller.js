@@ -2021,6 +2021,85 @@ export const refreshEhrAssignedRoomBookings = async (req, res, next) => {
  *  - AVAILABLE with a pre-forfeit warning already sent (forfeit_warning — act within 14 days)
  *  - TEMPORARY assignment nearing end with extensions remaining (temporary_expiring)
  */
+export const getMyOpenForBookingReview = async (req, res, next) => {
+  try {
+    const uid = req.user.id;
+    let rows = [];
+    try {
+      const [r] = await pool.query(
+        `SELECT osa.id AS standing_assignment_id,
+                osa.office_location_id,
+                osa.room_id,
+                osa.weekday,
+                osa.hour,
+                osa.assigned_frequency,
+                osa.availability_mode,
+                osa.available_since_date,
+                osa.created_at,
+                osa.temporary_until_date,
+                osa.temporary_extension_count,
+                ol.name AS office_name,
+                ol.timezone AS office_timezone,
+                r.name AS room_name,
+                r.label AS room_label
+         FROM office_standing_assignments osa
+         JOIN office_locations ol ON ol.id = osa.office_location_id
+         JOIN office_rooms r ON r.id = osa.room_id
+         WHERE osa.provider_id = ?
+           AND osa.is_active = TRUE
+           AND EXISTS (
+             SELECT 1 FROM office_location_agencies ola
+             JOIN user_agencies ua ON ua.agency_id = ola.agency_id AND ua.user_id = ?
+             WHERE ola.office_location_id = osa.office_location_id
+           )
+           AND (
+             (osa.availability_mode = 'AVAILABLE' AND NOT EXISTS (
+               SELECT 1 FROM office_booking_plans bp
+               WHERE bp.standing_assignment_id = osa.id AND bp.is_active = TRUE
+                 AND (bp.active_until_date IS NULL OR bp.active_until_date >= CURDATE())
+             ))
+             OR
+             (osa.availability_mode = 'TEMPORARY'
+               AND osa.temporary_until_date IS NOT NULL
+               AND osa.temporary_until_date <= DATE_ADD(CURDATE(), INTERVAL 14 DAY))
+           )
+         ORDER BY osa.weekday ASC, osa.hour ASC
+         LIMIT 80`,
+        [uid, uid]
+      );
+      rows = r || [];
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') {
+        return res.json({ items: [], reason: 'tables_missing' });
+      }
+      throw e;
+    }
+
+    const weekdayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const items = (rows || []).map((row) => {
+      const mode = String(row.availability_mode || '').toUpperCase();
+      const wd = Number(row.weekday);
+      const hour = Number(row.hour);
+      const needsOpen = mode === 'AVAILABLE' || mode === 'TEMPORARY';
+      return {
+        id: Number(row.standing_assignment_id),
+        standingAssignmentId: Number(row.standing_assignment_id),
+        officeLocationId: Number(row.office_location_id),
+        roomId: Number(row.room_id),
+        title: `${String(row.office_name || 'Office').trim()} · ${String(row.room_label || row.room_name || 'Room').trim()}`,
+        when: `${weekdayNames[wd] || `Day ${wd}`} · ${hour}:00 · ${String(row.assigned_frequency || 'WEEKLY').toUpperCase()}`,
+        availabilityMode: mode,
+        needsOpen,
+        reason: mode === 'TEMPORARY' ? 'temporary_expiring' : 'needs_open_for_booking'
+      };
+    });
+
+    res.json({ items, reason: 'ok' });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const getMyMandatoryOfficeReview = async (req, res, next) => {
   try {
     // Retired: blocking provider splash was unreliable; admin review handles stale slots instead.

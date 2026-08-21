@@ -10,6 +10,7 @@ import {
   getWeeklyGrid,
   refreshEhrAssignedRoomBookings,
   getMyMandatoryOfficeReview,
+  getMyOpenForBookingReview,
   createOfficeBookingRequest,
   listPendingOfficeBookingRequests,
   getPendingOfficeQueueSummary,
@@ -56,6 +57,8 @@ router.use(authenticate);
 
 // Retired provider blocking gate — endpoint kept for compatibility; always returns empty.
 router.get('/me/mandatory-review', getMyMandatoryOfficeReview);
+// Non-blocking review list for Provider Update / office schedule check-ins.
+router.get('/me/open-for-booking-review', getMyOpenForBookingReview);
 
 // Locations + rooms (read)
 router.get('/locations', listLocations);

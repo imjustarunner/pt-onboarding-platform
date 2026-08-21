@@ -29,4 +29,26 @@ describe('sharePreview', () => {
     expect(next).toContain('og:site_name" content="ITSCO"');
     expect(next).not.toContain('<title>Portal</title>');
   });
+
+  it('gives PTHQ /join/nlu/counseling Next Level Up title (not PlotTwist HQ)', () => {
+    const meta = buildShareMeta({
+      host: 'plottwisthq.com',
+      path: '/join/nlu/counseling',
+      proto: 'https'
+    });
+    expect(meta.name).toBe('Next Level Up');
+    expect(meta.title).toMatch(/Next Level Up/);
+    expect(meta.title).toMatch(/Counseling/);
+    expect(meta.image).toContain('path=%2Fjoin%2Fnlu%2Fcounseling');
+  });
+
+  it('gives PTHQ /careers/nlu Next Level Up careers title', () => {
+    const meta = buildShareMeta({
+      host: 'plottwisthq.com',
+      path: '/careers/nlu',
+      proto: 'https'
+    });
+    expect(meta.name).toBe('Next Level Up');
+    expect(meta.title).toMatch(/Careers/);
+  });
 });

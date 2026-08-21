@@ -49,6 +49,15 @@
         <span class="sph-card-cta">Open settings →</span>
       </router-link>
 
+      <router-link class="sph-card sph-card--settings" :to="toProviderUpdate">
+        <div class="sph-card-icon" aria-hidden="true">✅</div>
+        <h2 class="sph-card-title">Provider Update</h2>
+        <p class="sph-card-desc muted">
+          Modular staff updates with section toggles, People Ops email, Workplace Handbook, time tracking, and payroll submit.
+        </p>
+        <span class="sph-card-cta">Open Provider Update →</span>
+      </router-link>
+
       <router-link class="sph-card" :to="toSchoolOnboarding">
         <div class="sph-card-icon" aria-hidden="true">🚀</div>
         <h2 class="sph-card-title">School Onboarding</h2>
@@ -76,6 +85,7 @@ const toOverview = computed(() => `${orgPrefix.value}/admin/schools/overview?org
 const toAllPortals = computed(() => `${orgPrefix.value}/admin/school-portals`);
 const toYearUpdateSettings = computed(() => `${orgPrefix.value}/admin/schools/overview?orgType=school&yearUpdate=1`);
 const toProviderYearUpdate = computed(() => `${orgPrefix.value}/admin/provider-year-update`);
+const toProviderUpdate = computed(() => `${orgPrefix.value}/admin/provider-update`);
 const toSchoolOnboarding = computed(() => `${orgPrefix.value}/admin/schools/overview?orgType=school&onboarding=1`);
 </script>
 

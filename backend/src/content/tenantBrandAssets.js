@@ -305,6 +305,41 @@ export function tenantSmsImage(slugOrHost, pageKey) {
   return '';
 }
 
+/** Path segments that are never a portal/agency slug. */
+const SHARE_PATH_RESERVED = new Set([
+  'login', 'admin', 'dashboard', 'api', 'assets', 'branding', 'uploads', 'static',
+  'join', 'office-intake', 'careers', 'support', 'public', 'i', 'book',
+  'counseling', 'tutoring', 'coaching', 'consulting', 'school-referral',
+  'district-schedule', 'find-tutor', 'find-counselor', 'find-coach',
+  'find-provider', 'events', 'open-events', 'providers', 'terms',
+  'privacy', 'privacypolicy', 'policy-and-services', 'tutors', 'portal',
+  'registration-receipt', 'preferences-form', 'passwordless-login',
+  'reset-password', 'change-password', 'intake', 'kiosk', 'schools', 'logout'
+]);
+
+/**
+ * Portal slug from a public share URL path on platform hosts.
+ * /join/nlu/counseling → nlu
+ * /careers/nlu → nlu
+ * /nlu/join/counseling → nlu
+ * /support (custom domain, no slug) → ''
+ */
+export function resolvePortalSlugFromSharePath(pathname = '') {
+  const parts = String(pathname || '')
+    .split('?')[0]
+    .split('/')
+    .filter(Boolean)
+    .map((p) => String(p).trim().toLowerCase());
+  if (!parts.length) return '';
+  const [a, b] = parts;
+  if (a === 'join' || a === 'office-intake' || a === 'careers' || a === 'support') {
+    if (b && !SHARE_PATH_RESERVED.has(b) && !/^\d+$/.test(b)) return b;
+    return '';
+  }
+  if (SHARE_PATH_RESERVED.has(a) || /^\d+$/.test(a)) return '';
+  return a;
+}
+
 const JOIN_SERVICE_RE = /(?:^|\/)join\/(?:[^/]+\/)?(counseling|tutoring|coaching|consulting)(?:\/|$)/;
 
 export function pathToSharePageKey(pathname = '', serviceType = '') {

@@ -120,6 +120,13 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Launch and track provider year-update campaigns.'
   },
   {
+    title: 'Provider Update',
+    section: 'Workforce Ops › Staff & Scheduling',
+    path: '/admin/provider-update',
+    keywords: ['provider update', 'handbook', 'people ops', 'workplace handbook', 'staff update'],
+    desc: 'Modular Provider Update pushes, handbook, export, and payroll submit.'
+  },
+  {
     title: 'Provider Availability',
     section: 'Workforce Ops › Staff & Scheduling',
     path: '/admin/provider-availability',
@@ -306,6 +313,13 @@ export const NAV_SEARCH_INDEX = [
     path: '/admin/provider-year-update',
     keywords: ['provider fall update', 'annual update', 'fall update', 'provider campaign', 'year update'],
     desc: 'Launch and track provider year-update campaigns across schools.'
+  },
+  {
+    title: 'Provider Update',
+    section: 'School Ops › Caseloads & Staffing',
+    path: '/admin/provider-update',
+    keywords: ['provider update', 'handbook', 'workplace handbook', 'people ops'],
+    desc: 'Modular Provider Update pushes with section toggles and payroll submit.'
   },
   {
     title: 'Collaborative Year Update',

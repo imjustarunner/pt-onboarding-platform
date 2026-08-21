@@ -758,6 +758,19 @@ const routes = [
     component: () => import('../views/public/ProviderYearUpdatePublicView.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
   },
+
+  {
+    path: '/provider-update/:token',
+    name: 'ProviderUpdatePublic',
+    component: () => import('../views/public/ProviderUpdatePublicView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/provider-update/:token',
+    name: 'OrganizationProviderUpdatePublic',
+    component: () => import('../views/public/ProviderUpdatePublicView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
   {
     path: '/admin-update/:token',
     name: 'AdminUpdatePublic',
@@ -1988,6 +2001,18 @@ const routes = [
       organizationSlug: true
     }
   },
+
+  {
+    path: '/:organizationSlug/admin/provider-update',
+    name: 'OrganizationProviderUpdateAdmin',
+    component: () => import('../views/admin/ProviderUpdateAdminView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true,
+      organizationSlug: true
+    }
+  },
   {
     path: '/:organizationSlug/admin/school-reports',
     name: 'OrganizationSchoolReports',
@@ -2810,6 +2835,46 @@ const routes = [
       ]
     }
   },
+
+  {
+    path: '/provider/update',
+    name: 'ProviderUpdateFlow',
+    component: () => import('../views/provider/ProviderUpdateFlowView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: [
+        'provider',
+        'provider_plus',
+        'intern',
+        'intern_plus',
+        'admin',
+        'super_admin',
+        'support',
+        'clinical_practice_assistant',
+        'supervisor'
+      ]
+    }
+  },
+  {
+    path: '/:organizationSlug/provider/update',
+    name: 'OrganizationProviderUpdateFlow',
+    component: () => import('../views/provider/ProviderUpdateFlowView.vue'),
+    meta: {
+      requiresAuth: true,
+      organizationSlug: true,
+      requiresRole: [
+        'provider',
+        'provider_plus',
+        'intern',
+        'intern_plus',
+        'admin',
+        'super_admin',
+        'support',
+        'clinical_practice_assistant',
+        'supervisor'
+      ]
+    }
+  },
   {
     path: '/operations-dashboard',
     name: 'OperationsDashboard',
@@ -3305,6 +3370,17 @@ const routes = [
     path: '/admin/provider-year-update',
     name: 'ProviderYearUpdateAdmin',
     component: () => import('../views/admin/ProviderYearUpdateAdminView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],
+      allowSubCoordinator: true
+    }
+  },
+
+  {
+    path: '/admin/provider-update',
+    name: 'ProviderUpdateAdmin',
+    component: () => import('../views/admin/ProviderUpdateAdminView.vue'),
     meta: {
       requiresAuth: true,
       requiresRole: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant'],

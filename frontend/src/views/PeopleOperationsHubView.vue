@@ -751,10 +751,23 @@ const allSections = computed(() => [
   {
     id: 'policies',
     label: 'Policies & Acknowledgements',
-    desc: 'Policy attestations (coming soon).',
+    desc: 'Workplace Handbook and policy attestations.',
     tone: 'indigo',
     icon: icon.policy,
     cards: [
+      {
+        id: 'workplace-handbook',
+        title: 'Workplace Handbook',
+        shortDesc: 'Edit and publish the in-app handbook.',
+        desc: 'Manage Workplace Handbook versions and Provider Update handbook section from Provider Update admin.',
+        cta: 'Open →',
+        to: orgTo('/admin/provider-update'),
+        tone: 'indigo',
+        icon: icon.policy,
+        tour: null,
+        show: true,
+        count: 0
+      },
       {
         id: 'policies-soon',
         title: 'Policies & Acknowledgements',

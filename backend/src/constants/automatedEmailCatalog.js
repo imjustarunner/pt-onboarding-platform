@@ -30,6 +30,7 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   hiring_references: ['hiring_references', 'notifications'],
   pre_hire_admin_review_access: ['people_operations', 'job_applications', 'notifications'],
   prehire_new_tasks: ['people_operations', 'job_applications', 'notifications'],
+  provider_update_invite: ['people_operations', 'people_ops', 'po', 'notifications'],
   admin_update: ['notifications'],
   compliance_digest: ['compliance'],
   psychotherapy_threshold: ['compliance', 'notifications']

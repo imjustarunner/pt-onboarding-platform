@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pathToSharePageKey } from '../../content/tenantBrandAssets.js';
+import {
+  pathToSharePageKey,
+  resolvePortalSlugFromSharePath,
+  tenantSmsImage
+} from '../../content/tenantBrandAssets.js';
 
 test('public path maps to a share-preview page key', () => {
   assert.equal(pathToSharePageKey('/support'), 'support');
@@ -18,4 +22,22 @@ test('public path maps to a share-preview page key', () => {
   assert.equal(pathToSharePageKey('/nlu/find-tutor'), 'tutors');
   assert.equal(pathToSharePageKey('/join/nlu/tutoring'), 'tutoring');
   assert.equal(pathToSharePageKey('/district-schedule/colorado-springs-school-district-11'), 'district_schedule');
+});
+
+test('portal slug is extracted from PTHQ share paths', () => {
+  assert.equal(resolvePortalSlugFromSharePath('/join/nlu/counseling'), 'nlu');
+  assert.equal(resolvePortalSlugFromSharePath('/join/nlu/tutoring'), 'nlu');
+  assert.equal(resolvePortalSlugFromSharePath('/careers/nlu'), 'nlu');
+  assert.equal(resolvePortalSlugFromSharePath('/nlu/join/counseling'), 'nlu');
+  assert.equal(resolvePortalSlugFromSharePath('/careers/itsco'), 'itsco');
+  assert.equal(resolvePortalSlugFromSharePath('/support'), '');
+  assert.equal(resolvePortalSlugFromSharePath('/join/counseling'), '');
+});
+
+test('NLU counseling/tutoring SMS assets resolve from tenant key', () => {
+  assert.match(tenantSmsImage('nlu', 'counseling'), /NLUCounseling/);
+  assert.match(tenantSmsImage('nlu', 'tutoring'), /NLUTutoring/);
+  assert.match(tenantSmsImage('nlu', 'careers'), /NLUCareers/);
+  assert.match(tenantSmsImage('nextleveluplcc', 'counseling'), /NLUCounseling/);
+  assert.match(tenantSmsImage('itsco', 'careers'), /ITSCOCareers/);
 });

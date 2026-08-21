@@ -65,10 +65,46 @@ const TENANTS = {
 const DEFAULT_IMAGE = '/branding/plottwisthq-platform-bg.png';
 const DEFAULT_DESC = 'Care, scheduling, billing, and support.';
 
+/** When host is plottwisthq.com, resolve tenant from path slug (/join/nlu/…, /careers/nlu). */
+const PATH_TENANTS = {
+  itsco: { name: 'ITSCO', description: 'Counseling, support, and care with ITSCO.' },
+  nlu: { name: 'Next Level Up', description: 'Learning, support, and programs with Next Level Up.' },
+  nextlevelup: { name: 'Next Level Up', description: 'Learning, support, and programs with Next Level Up.' },
+  nextleveluplcc: { name: 'Next Level Up', description: 'Learning, support, and programs with Next Level Up.' },
+  newlife: { name: 'Next Level Up', description: 'Learning, support, and programs with Next Level Up.' },
+  mh4kidz: { name: 'MH4Kidz', description: 'Care, scheduling, and support.' },
+  innerstrength: { name: 'The Inner Strength Institute', description: 'Care, scheduling, and support.' },
+  theinnerstrengthinstitute: { name: 'The Inner Strength Institute', description: 'Care, scheduling, and support.' },
+  riserevive: { name: 'Rise Revive Co', description: 'Care, scheduling, and support.' },
+  risereviveco: { name: 'Rise Revive Co', description: 'Care, scheduling, and support.' },
+  plottwistco: { name: 'Plot Twist Co', description: 'Care, scheduling, and support.' }
+};
+
 export const DEFAULT_OG_IMAGE_PLACEHOLDER = 'https://plottwisthq.com/api/public/share-preview/image';
 
 function normHost(host) {
   return String(host || '').split(',')[0].trim().toLowerCase().replace(/:\d+$/, '');
+}
+
+function resolvePathTenantSlug(pathname = '') {
+  const parts = String(pathname || '')
+    .split('?')[0]
+    .split('/')
+    .filter(Boolean)
+    .map((p) => p.toLowerCase());
+  if (!parts.length) return '';
+  const reserved = new Set([
+    'login', 'admin', 'dashboard', 'api', 'assets', 'branding', 'join', 'office-intake',
+    'careers', 'support', 'public', 'book', 'counseling', 'tutoring', 'coaching',
+    'consulting', 'school-referral', 'district-schedule', 'find-tutor', 'find-counselor',
+    'find-coach', 'find-provider', 'events', 'providers', 'terms', 'privacy', 'tutors', 'portal'
+  ]);
+  const [a, b] = parts;
+  if (a === 'join' || a === 'office-intake' || a === 'careers' || a === 'support') {
+    return b && !reserved.has(b) ? b : '';
+  }
+  if (reserved.has(a)) return '';
+  return a;
 }
 
 function pageCopy(pathname) {
@@ -78,6 +114,12 @@ function pageCopy(pathname) {
       page: 'Support and contact',
       description: 'Call, text, or send a message. We are here to help.'
     };
+  }
+  if (/\/join\/[^/]+\/counseling|join_counseling|\/counseling/.test(p) && p.includes('join')) {
+    return { page: 'Counseling', description: 'Start counseling intake or join a counseling program.' };
+  }
+  if (/\/join\/[^/]+\/tutoring|join_tutoring|\/tutoring/.test(p) && p.includes('join')) {
+    return { page: 'Tutoring', description: 'Start tutoring intake or join a tutoring program.' };
   }
   if (p.includes('/join') || p.includes('/office-intake') || p.includes('/intake')) {
     return {
@@ -113,11 +155,17 @@ function guessTenantName(host) {
 
 export function buildShareMeta({ host, path, proto = 'https' } = {}) {
   const hostname = normHost(host);
-  const tenant = TENANTS[hostname] || {
-    name: guessTenantName(hostname),
-    image: DEFAULT_IMAGE,
-    description: DEFAULT_DESC
-  };
+  const pathSlug = resolvePathTenantSlug(path);
+  const pathTenant = PATH_TENANTS[pathSlug] || null;
+  const hostTenant = TENANTS[hostname] || null;
+  const isPlatformHost = hostname === 'plottwisthq.com' || hostname === 'www.plottwisthq.com' || !hostname;
+  const tenant = (isPlatformHost && pathTenant)
+    ? pathTenant
+    : (hostTenant || {
+      name: guessTenantName(hostname),
+      image: DEFAULT_IMAGE,
+      description: DEFAULT_DESC
+    });
   const page = pageCopy(path);
   const name = tenant.name;
   const title = page.page ? `${name} · ${page.page}` : name;

@@ -485,6 +485,19 @@ const allSections = computed(() => [
         count: 0
       },
       {
+        id: 'provider-update',
+        title: 'Provider Update',
+        shortDesc: 'Modular staff updates & handbook.',
+        desc: 'Toggleable Provider Update pushes, Workplace Handbook, time tracking, and payroll submit.',
+        cta: 'Open →',
+        to: orgTo('/admin/provider-update'),
+        tone: 'green',
+        icon: icon.year,
+        tour: null,
+        show: canSeeSchoolOpsContent.value,
+        count: 0
+      },
+      {
         id: 'collaborative-year-update',
         title: 'Collaborative Year Update',
         shortDesc: 'Track school progress and scores.',

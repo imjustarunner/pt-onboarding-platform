@@ -574,7 +574,8 @@ export async function sendEmailFromIdentity({
   jobDescriptionId = null,
   existingCommunicationId = null,
   usedFallbackSender = false,
-  fallbackReason = null
+  fallbackReason = null,
+  replyToOverride = null
 }) {
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
@@ -608,7 +609,7 @@ export async function sendEmailFromIdentity({
   const overrideName = String(fromDisplayNameOverride || '').trim();
   const effectiveDisplayName = overrideName || identity.display_name;
   const from = pickFromHeader({ displayName: effectiveDisplayName, fromEmail: identity.from_email });
-  const replyTo = identity.reply_to || null;
+  const replyTo = String(replyToOverride || '').trim() || identity.reply_to || null;
   const identityForSignature =
     overrideName ? { ...identity, display_name: effectiveDisplayName } : identity;
   const signedContent = applySenderSignatureBlock({ identity: identityForSignature, text, html });

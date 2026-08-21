@@ -7,6 +7,7 @@ import {
   HOST_TO_TENANT,
   normalizeTenantBrandKey,
   pathToSharePageKey,
+  resolvePortalSlugFromSharePath,
   tenantSmsImage
 } from '../content/tenantBrandAssets.js';
 
@@ -99,8 +100,9 @@ function publicUrlFromStored(imagePath) {
   return url;
 }
 
-async function resolveAgencyFromHostOrSlug({ host, agencySlug }) {
-  const slug = String(agencySlug || '').trim();
+async function resolveAgencyFromHostOrSlug({ host, agencySlug, pathname } = {}) {
+  let slug = String(agencySlug || '').trim();
+  if (!slug && pathname) slug = resolvePortalSlugFromSharePath(pathname);
   if (slug) {
     return (await Agency.findByPortalUrl(slug)) || (await Agency.findBySlug(slug));
   }
@@ -109,9 +111,11 @@ async function resolveAgencyFromHostOrSlug({ host, agencySlug }) {
   return Agency.findByCustomDomain(hostname);
 }
 
-function defaultImageForHost(host, pageKey = 'home', agency = null) {
+function defaultImageForHost(host, pageKey = 'home', agency = null, pathSlug = '') {
   const hostname = normHost(host);
-  const tenant = normalizeTenantBrandKey(agency?.slug || agency?.portal_url || HOST_TO_TENANT[hostname] || hostname);
+  const tenant = normalizeTenantBrandKey(
+    agency?.slug || agency?.portal_url || pathSlug || HOST_TO_TENANT[hostname] || hostname
+  );
   const sms = tenantSmsImage(tenant, pageKey)
     || (pageKey !== 'join' && pageKey !== 'home' ? tenantSmsImage(tenant, 'join') : '')
     || tenantSmsImage(tenant, 'support');
@@ -136,16 +140,22 @@ export function absoluteShareImageUrl(req, pathname = '/') {
 }
 
 export async function getSharePreviewState({ host, agencySlug, page, pathname } = {}) {
-  const agency = await resolveAgencyFromHostOrSlug({ host, agencySlug });
+  const pathSlug = resolvePortalSlugFromSharePath(pathname);
+  const agency = await resolveAgencyFromHostOrSlug({
+    host,
+    agencySlug: agencySlug || pathSlug || undefined,
+    pathname
+  });
   const pageKey = normalizeSharePage(page, pathname);
   const pages = agency ? parsePublicShare(agency.theme_settings) : {};
   const custom = pages[pageKey] || null;
-  const imagePath = custom?.imagePath || defaultImageForHost(host, pageKey, agency);
+  const imagePath = custom?.imagePath || defaultImageForHost(host, pageKey, agency, pathSlug);
   return {
     page: pageKey,
     imageUrl: publicUrlFromStored(imagePath) || imagePath,
     custom: Boolean(custom?.imagePath),
     updatedAt: custom?.updatedAt || null,
+    agencySlug: agency?.portal_url || agency?.slug || pathSlug || null,
     spec: SHARE_IMAGE_SPEC
   };
 }
@@ -167,7 +177,7 @@ export async function saveSharePreviewImage({ agencySlug, page, pathname, file, 
     err.status = 403;
     throw err;
   }
-  const agency = await resolveAgencyFromHostOrSlug({ host, agencySlug });
+  const agency = await resolveAgencyFromHostOrSlug({ host, agencySlug, pathname });
   if (!agency) {
     const err = new Error('Organization not found');
     err.status = 404;
@@ -209,7 +219,7 @@ export async function clearSharePreviewImage({ agencySlug, page, pathname, user,
     err.status = 403;
     throw err;
   }
-  const agency = await resolveAgencyFromHostOrSlug({ host, agencySlug });
+  const agency = await resolveAgencyFromHostOrSlug({ host, agencySlug, pathname });
   if (!agency) {
     const err = new Error('Organization not found');
     err.status = 404;

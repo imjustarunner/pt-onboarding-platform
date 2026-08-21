@@ -547,6 +547,17 @@ function buildAppEntries() {
       rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
     },
     {
+      id: 'admin-provider-update',
+      routeName: 'ProviderUpdateAdmin',
+      label: 'Provider Update',
+      description: 'Modular provider update pushes, handbook, and payroll time submit.',
+      group: 'admin',
+      keywords: ['provider update', 'handbook', 'people ops', 'workplace handbook', 'staff update'],
+      kind: 'path',
+      path: '/admin/provider-update',
+      rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
+    },
+    {
       id: 'admin-caseload-hub-schools-staff',
       routeName: 'CaseloadHubSchoolsStaff',
       label: 'School Management',

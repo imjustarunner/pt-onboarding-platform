@@ -188,6 +188,21 @@ export const AUTOMATED_EMAIL_CATALOG = [
     preferredKeys: ['notifications']
   },
   {
+    key: 'provider_update_invite',
+    kind: 'template',
+    category: 'People Operations',
+    label: 'Provider Update invite',
+    description: 'Magic-link email inviting providers to complete a modular Provider Update push. From People Ops; Reply-To technology@itsco.health.',
+    trigger: 'Admin sends a Provider Update push from Provider Update admin.',
+    triggerKind: 'Immediate · Staff action',
+    sourceLinks: [
+      { label: 'Provider Update', path: '/admin/provider-update' }
+    ],
+    preferredKeys: ['people_operations', 'people_ops', 'po', 'notifications'],
+    recommendedFromHint: 'For ITSCO use po@itsco.health (People Operations). Reply-To is set to technology@itsco.health.',
+    junkMailNote: true
+  },
+  {
     key: 'default',
     kind: 'template',
     category: 'Defaults',
