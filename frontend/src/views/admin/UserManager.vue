@@ -154,6 +154,7 @@
             <div class="filter-label">Directory</div>
             <div class="type-filter-row um-persona-row">
               <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: directoryPersona === 'employees' }" @click="setDirectoryPersona('employees')">Employees</button>
+              <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: directoryPersona === 'applicants' }" @click="setDirectoryPersona('applicants')">Applicants</button>
               <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: directoryPersona === 'school_staff' }" @click="setDirectoryPersona('school_staff')">School staff</button>
               <button type="button" class="btn btn-secondary btn-sm type-filter-btn" :class="{ active: directoryPersona === 'guardians' }" @click="setDirectoryPersona('guardians')">Guardians</button>
             </div>
@@ -1959,7 +1960,7 @@ const showBulkAssignModal = ref(false);
 const editingUser = ref(null);
 const saving = ref(false);
 /** Directory personas: employees (default) | school_staff | guardians */
-const DIRECTORY_PERSONAS = ['employees', 'school_staff', 'guardians'];
+const DIRECTORY_PERSONAS = ['employees', 'applicants', 'school_staff', 'guardians'];
 const directoryPersona = ref('employees');
 const identityReviewMode = ref(null);
 const rosterEditorMode = ref(false);
@@ -2342,6 +2343,7 @@ const directoryPersonaLabel = computed(() => {
   if (isSscSstcTenant.value) return 'Members';
   if (directoryPersona.value === 'school_staff') return 'School staff';
   if (directoryPersona.value === 'guardians') return 'Guardians';
+  if (directoryPersona.value === 'applicants') return 'Applicants';
   return 'Employees';
 });
 
@@ -2364,6 +2366,11 @@ const setDirectoryPersona = (persona) => {
     roleSort.value = '';
     userTypeFilter.value = '';
     statusSort.value = '';
+  }
+  if (next === 'applicants') {
+    roleSort.value = '';
+    userTypeFilter.value = '';
+    statusSort.value = 'PROSPECTIVE';
   }
   if (next === 'employees' && !statusSort.value) {
     statusSort.value = 'ACTIVE_EMPLOYEE';
@@ -4051,6 +4058,12 @@ const sortedUsers = computed(() => {
         const r = String(u?.role || '').toLowerCase();
         return r !== 'school_staff' && r !== 'kiosk' && r !== 'client_guardian';
       });
+    } else if (directoryPersona.value === 'applicants') {
+      filtered = filtered.filter((u) => {
+        const r = String(u?.role || '').toLowerCase();
+        if (r === 'school_staff' || r === 'kiosk' || r === 'client_guardian') return false;
+        return String(u?.status || '').toUpperCase() === 'PROSPECTIVE';
+      });
     } else if (directoryPersona.value === 'guardians') {
       filtered = filtered.filter((u) => String(u?.role || '').toLowerCase() === 'client_guardian');
     } else {
@@ -4481,6 +4494,8 @@ onMounted(async () => {
   const personaFromQuery = String(route.query.persona || '').toLowerCase();
   if (personaFromQuery === 'school_staff') {
     setDirectoryPersona('school_staff');
+  } else if (personaFromQuery === 'applicants') {
+    setDirectoryPersona('applicants');
   }
   // Pre-filter from query params (e.g. ?filter=dormant from dashboard badges)
   if (route.query.filter === 'dormant') {

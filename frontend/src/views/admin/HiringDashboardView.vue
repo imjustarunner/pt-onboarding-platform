@@ -22,7 +22,7 @@
           Refresh
         </button>
         <button type="button" class="btn btn-primary" @click="goApplicants()">
-          View applicants
+          View applications
         </button>
       </div>
     </div>
@@ -41,7 +41,7 @@
       <button type="button" class="hd-kpi" @click="goApplicants()">
         <div class="hd-kpi-icon" aria-hidden="true">👥</div>
         <div class="hd-kpi-body">
-          <div class="hd-kpi-label">Total Applicants</div>
+          <div class="hd-kpi-label">Total Applications</div>
           <div class="hd-kpi-value">{{ loading ? '—' : stats.totalApplicants }}</div>
           <div class="hd-kpi-meta">Active pipeline</div>
         </div>
@@ -120,7 +120,7 @@
       <section class="hd-card">
         <div class="hd-card-head">
           <h3>Pipeline Snapshot</h3>
-          <button type="button" class="linkish" @click="goApplicants()">View applicants</button>
+          <button type="button" class="linkish" @click="goApplicants()">View applications</button>
         </div>
         <div v-if="loading" class="hd-muted">Loading pipeline…</div>
         <div v-else class="hd-pipeline">

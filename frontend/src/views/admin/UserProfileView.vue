@@ -1368,6 +1368,44 @@
             </template>
 
 
+            <template #application-history>
+              <AccountDashboardCard
+                v-if="canViewApplicationHistory"
+                section-id="application-history"
+                title="Applications"
+                subtitle="Job application history for this account."
+                :can-edit="false"
+              >
+                <div v-if="jobApplicationsLoading" class="loading">Loading applications…</div>
+                <div v-else-if="jobApplicationsError" class="error">{{ jobApplicationsError }}</div>
+                <div v-else-if="!(jobApplications || []).length" class="empty-state">
+                  <p>No submitted job applications on file.</p>
+                </div>
+                <ul v-else class="profile-application-history">
+                  <li v-for="app in jobApplications" :key="app.submissionId" class="profile-application-item">
+                    <div class="profile-application-head">
+                      <strong>{{ app.jobTitle || 'Job application' }}</strong>
+                      <span class="muted">{{ formatJobApplicationWhen(app.submittedAt) }}</span>
+                    </div>
+                    <p v-if="app.coverLetterPreview" class="muted profile-application-preview">{{ app.coverLetterPreview }}</p>
+                    <div class="muted profile-application-meta">
+                      <span v-if="app.hasPdf">PDF on file</span>
+                      <span v-if="app.intakeSummary?.referenceCount != null">
+                        {{ app.intakeSummary.referenceCount }} reference{{ Number(app.intakeSummary.referenceCount) === 1 ? '' : 's' }}
+                      </span>
+                      <router-link
+                        v-if="canOpenHiringApplications"
+                        class="profile-application-link"
+                        :to="applicationsBoardLink"
+                      >
+                        Open in Applications
+                      </router-link>
+                    </div>
+                  </li>
+                </ul>
+              </AccountDashboardCard>
+            </template>
+
             <template #building-offices>
               <AccountDashboardCard v-if="canManageAssignments && showAdditionalAccountSections" section-id="building-offices" title="Assigned Building Offices" subtitle="Office links for scheduling and school mileage mapping." :can-edit="canEditUser">
                 <div v-if="officeAssignmentsLoading" class="loading">Loading office assignments…</div>
@@ -3248,6 +3286,76 @@ const isSscMemberProfileMode = computed(() => {
   return isSscSstcTenant.value && !isViewingGuardian.value;
 });
 
+const canOpenHiringApplications = computed(() => {
+  const u = authStore.user;
+  if (!u) return false;
+  const caps = u.capabilities || {};
+  return !!(
+    caps.canManageHiring
+    || u.has_hiring_access === 1
+    || u.has_hiring_access === '1'
+    || u.has_hiring_access === true
+    || ['admin', 'super_admin'].includes(String(u.role || '').toLowerCase())
+  );
+});
+
+const canViewApplicationHistory = computed(() => {
+  if (isViewingGuardian.value || isSscMemberProfileMode.value) return false;
+  return canOpenHiringApplications.value;
+});
+
+const jobApplications = ref([]);
+const jobApplicationsLoading = ref(false);
+const jobApplicationsError = ref('');
+
+const applicationsBoardLink = computed(() => {
+  const orgSlug = String(route.params.organizationSlug || '').trim();
+  const base = orgSlug
+    ? `/${orgSlug}/admin/hiring/applicants`
+    : '/admin/hiring/applicants';
+  return { path: base, query: { candidateId: String(userId.value || '') } };
+});
+
+const formatJobApplicationWhen = (raw) => {
+  if (!raw) return '';
+  try {
+    return new Date(raw).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  } catch {
+    return '';
+  }
+};
+
+const loadJobApplications = async () => {
+  if (!canViewApplicationHistory.value || !userId.value) {
+    jobApplications.value = [];
+    return;
+  }
+  jobApplicationsLoading.value = true;
+  jobApplicationsError.value = '';
+  try {
+    const agencyId = Number(agencyStore.currentAgency?.id || 0) || undefined;
+    const r = await api.get(`/hiring/candidates/${userId.value}/applications`, {
+      params: agencyId ? { agencyId } : {},
+      skipGlobalLoading: true
+    });
+    jobApplications.value = Array.isArray(r.data?.applications) ? r.data.applications : [];
+  } catch (e) {
+    jobApplications.value = [];
+    const status = Number(e?.response?.status || 0);
+    if (status && status !== 403 && status !== 404) {
+      jobApplicationsError.value = e?.response?.data?.error?.message || 'Failed to load applications.';
+    }
+  } finally {
+    jobApplicationsLoading.value = false;
+  }
+};
+
 const selectedClubIdForMemberProfile = computed(() => {
   const q = Number(route.query?.clubId || 0);
   if (Number.isFinite(q) && q > 0) return q;
@@ -4804,6 +4912,16 @@ watch(guardianClientQuery, (q) => {
 watch(selectedSchoolAffiliationId, async () => {
   await loadSchoolAssignments();
 });
+
+watch(
+  [activeTab, userId, canViewApplicationHistory],
+  ([tab]) => {
+    if (tab === 'account' && canViewApplicationHistory.value) {
+      void loadJobApplications();
+    }
+  },
+  { immediate: true }
+);
 
 const showTempPasswordModal = ref(false);
 const generatingTempPassword = ref(false);
@@ -6949,7 +7067,8 @@ provide(USER_ACCOUNT_CONTEXT_KEY, {
   openExternalCalendarsModal,
   isFullyLicensedForCredentialing,
   licenseCredentialSummary,
-  refreshLicenseCredentialSummary: fetchLicenseCredentialSummary
+  refreshLicenseCredentialSummary: fetchLicenseCredentialSummary,
+  canViewApplicationHistory
 });
 
 const markComplete = async () => {
@@ -8319,6 +8438,50 @@ onUnmounted(() => {
   margin-top: 10px;
   gap: 24px;
   align-items: start;
+}
+
+.profile-application-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.profile-application-item {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--bg-alt, #f8fafc);
+}
+
+.profile-application-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+.profile-application-preview {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+
+.profile-application-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 12px;
+  align-items: center;
+}
+
+.profile-application-link {
+  color: var(--primary, #2563eb);
+  text-decoration: none;
+  font-weight: 600;
 }
 
 .account-main {

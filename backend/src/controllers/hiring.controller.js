@@ -40,6 +40,10 @@ import {
   parseJobDescriptionSections,
   sanitizeJobDescriptionSections
 } from '../utils/jobDescriptionSectionsSanitize.js';
+import {
+  listJobApplicationsForUser,
+  resolveOrCreateJobApplicantUser
+} from '../services/jobApplicantUser.service.js';
 
 function parseIntParam(v) {
   const n = parseInt(v, 10);
@@ -387,6 +391,8 @@ export const listCandidates = async (req, res, next) => {
         hp.job_description_id,
         jd.title AS job_title,
         COALESCE(email_dupe.cnt, 0) AS duplicate_application_count,
+        COALESCE(app_hist.cnt, 0) AS application_count,
+        app_hist.latest_submitted_at AS latest_application_at,
         hp.created_at AS hiring_created_at,
         hp.updated_at AS hiring_updated_at
         __VIEW_COLS__
@@ -402,6 +408,19 @@ export const listCandidates = async (req, res, next) => {
         )
       LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id
       __VIEW_JOIN__
+      LEFT JOIN (
+        SELECT
+          s.guardian_user_id AS user_id,
+          COUNT(*) AS cnt,
+          MAX(COALESCE(s.submitted_at, s.created_at)) AS latest_submitted_at
+        FROM intake_submissions s
+        JOIN intake_links il ON il.id = s.intake_link_id
+        WHERE LOWER(COALESCE(il.form_type, '')) = 'job_application'
+          AND LOWER(COALESCE(s.status, '')) = 'submitted'
+          AND il.organization_id = ?
+          AND s.guardian_user_id IS NOT NULL
+        GROUP BY s.guardian_user_id
+      ) app_hist ON app_hist.user_id = u.id
       LEFT JOIN (
         SELECT
           ua2.agency_id,
@@ -428,6 +447,8 @@ export const listCandidates = async (req, res, next) => {
 
     let rows;
     try {
+      // params: agencyId (ua join), viewerId (view join), agencyId (app_hist), ...filters
+      const execParams = [agencyId, viewerId, agencyId, ...params.slice(2)];
       const sql = selectCore
         .replace('__VIEW_COLS__', `, (hcv.first_viewed_at IS NULL) AS is_new_for_me, hcv.first_viewed_at AS hiring_first_viewed_at`)
         .replace(
@@ -435,14 +456,43 @@ export const listCandidates = async (req, res, next) => {
           `LEFT JOIN hiring_candidate_views hcv
             ON hcv.agency_id = ua.agency_id AND hcv.candidate_user_id = u.id AND hcv.viewer_user_id = ?`
         );
-      const exec = await pool.execute(sql, params);
+      const exec = await pool.execute(sql, execParams);
       rows = exec[0];
     } catch (e) {
       if (e?.code === 'ER_NO_SUCH_TABLE' && String(e?.message || '').includes('hiring_candidate_views')) {
         const sqlLegacy = selectCore.replace('__VIEW_COLS__', '').replace('__VIEW_JOIN__', '');
-        const legacyParams = [agencyId, ...params.slice(2)];
+        const legacyParams = [agencyId, agencyId, ...params.slice(2)];
         const execLegacy = await pool.execute(sqlLegacy, legacyParams);
         rows = execLegacy[0];
+      } else if (e?.code === 'ER_BAD_FIELD_ERROR' || (e?.code === 'ER_NO_SUCH_TABLE' && String(e?.message || '').includes('intake_'))) {
+        // Fallback without application history join (older DBs / missing intake tables).
+        const selectFallback = selectCore
+          .replace(/COALESCE\(app_hist\.cnt, 0\) AS application_count,\s*/g, '')
+          .replace(/app_hist\.latest_submitted_at AS latest_application_at,\s*/g, '')
+          .replace(
+            /LEFT JOIN \(\s*SELECT[\s\S]*?\) app_hist ON app_hist\.user_id = u\.id\s*/g,
+            ''
+          );
+        try {
+          const sql = selectFallback
+            .replace('__VIEW_COLS__', `, (hcv.first_viewed_at IS NULL) AS is_new_for_me, hcv.first_viewed_at AS hiring_first_viewed_at`)
+            .replace(
+              '__VIEW_JOIN__',
+              `LEFT JOIN hiring_candidate_views hcv
+                ON hcv.agency_id = ua.agency_id AND hcv.candidate_user_id = u.id AND hcv.viewer_user_id = ?`
+            );
+          const exec = await pool.execute(sql, [agencyId, viewerId, ...params.slice(2)]);
+          rows = exec[0];
+        } catch (e2) {
+          if (e2?.code === 'ER_NO_SUCH_TABLE' && String(e2?.message || '').includes('hiring_candidate_views')) {
+            const sqlLegacy = selectFallback.replace('__VIEW_COLS__', '').replace('__VIEW_JOIN__', '');
+            const legacyParams = [agencyId, ...params.slice(2)];
+            const execLegacy = await pool.execute(sqlLegacy, legacyParams);
+            rows = execLegacy[0];
+          } else {
+            throw e2;
+          }
+        }
       } else {
         throw e;
       }
@@ -876,20 +926,15 @@ export const createCandidate = async (req, res, next) => {
       }
     }
 
-    // Create candidate user record (internal-only stage).
-    const user = await User.create({
+    // Create or reuse candidate user record (allows re-apply for prior/archived/current employees).
+    const { user, reused, wasArchived } = await resolveOrCreateJobApplicantUser({
       email: personalEmail,
-      passwordHash: null,
       firstName,
       lastName,
       phoneNumber,
-      personalEmail,
-      role,
-      status: 'PROSPECTIVE'
+      agencyId,
+      role
     });
-
-    // Associate candidate to the agency for access scoping.
-    await User.assignToAgency(user.id, agencyId);
 
     const profile = await HiringProfile.upsert({
       candidateUserId: user.id,
@@ -900,9 +945,11 @@ export const createCandidate = async (req, res, next) => {
       coverLetterText: coverLetterText || null
     });
 
-    res.status(201).json({
+    res.status(reused ? 200 : 201).json({
       user,
-      profile
+      profile,
+      reusedExistingAccount: !!reused,
+      unarchivedForApplication: !!wasArchived
     });
   } catch (e) {
     next(e);
@@ -1042,6 +1089,7 @@ export const getCandidate = async (req, res, next) => {
 
     const hiringProfileId = profile?.id != null ? parseInt(profile.id, 10) : null;
     const myTimeCapsules = await listMySealedCapsulesForProfile(hiringProfileId, req.user.id);
+    const applications = await listJobApplicationsForUser(candidateUserId, { agencyId, limit: 50 });
 
     res.json({
       user,
@@ -1062,8 +1110,27 @@ export const getCandidate = async (req, res, next) => {
       reviews,
       myTimeCapsules,
       latestResearch,
-      latestPreScreen
+      latestPreScreen,
+      applications
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listCandidateApplications = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const applications = await listJobApplicationsForUser(candidateUserId, { agencyId, limit: 100 });
+    res.json({ applications });
   } catch (e) {
     next(e);
   }

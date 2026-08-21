@@ -81,6 +81,7 @@ import {
   purgeByDeletionToken,
   REMINDER_DECLINE_TTL_MS
 } from '../services/intakeUnfinishedReminder.service.js';
+import { resolveOrCreateJobApplicantUser } from '../services/jobApplicantUser.service.js';
 import { buildPsc17Fields, buildStandardQuestionnaireFields } from '../data/validatedClinicalScreens.en.js';
 
 /** Fetch the Stripe Connect account ID for an agency (null if not connected). */
@@ -7284,17 +7285,19 @@ export const finalizePublicIntake = async (req, res, next) => {
         referencesConsentJson
       } = jobAppCtx;
 
-      const user = await User.create({
+      const {
+        user,
+        reused: reusedApplicant,
+        wasArchived: unarchivedForApplication,
+        isCurrentEmployee
+      } = await resolveOrCreateJobApplicantUser({
         email: gEmail,
-        passwordHash: null,
         firstName: gFirst,
         lastName: gLast,
         phoneNumber: gPhone || null,
-        personalEmail: gEmail,
-        role: 'provider',
-        status: 'PROSPECTIVE'
+        agencyId,
+        role: 'provider'
       });
-      await User.assignToAgency(user.id, agencyId);
 
       let jobDescriptionId = link.job_description_id ? parseInt(link.job_description_id, 10) : null;
       if (!jobDescriptionId) {
@@ -7500,8 +7503,10 @@ export const finalizePublicIntake = async (req, res, next) => {
         await Notification.create({
           type: 'new_job_application_submitted',
           severity: 'info',
-          title: 'New applicant submitted',
-          message: `${jobTitle}: ${gFirst} ${gLast} submitted a new application.`,
+          title: reusedApplicant ? 'New application submitted' : 'New applicant submitted',
+          message: reusedApplicant
+            ? `${jobTitle}: ${gFirst} ${gLast} submitted another application${unarchivedForApplication ? ' (unarchived)' : ''}${isCurrentEmployee ? ' (existing employee)' : ''}.`
+            : `${jobTitle}: ${gFirst} ${gLast} submitted a new application.`,
           audienceJson: {
             admin: true,
             support: true,
@@ -7523,6 +7528,8 @@ export const finalizePublicIntake = async (req, res, next) => {
         submission: await IntakeSubmission.findById(submissionId),
         jobApplicationSubmitted: true,
         candidateId: user.id,
+        reusedExistingAccount: !!reusedApplicant,
+        unarchivedForApplication: !!unarchivedForApplication,
         downloadUrl: applicationDownloadUrl,
         clientBundles: []
       });

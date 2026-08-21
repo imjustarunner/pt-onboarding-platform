@@ -564,6 +564,11 @@
             <slot name="status-management" />
           </div>
 
+          <!-- Job application history -->
+          <div id="application-history">
+            <slot name="application-history" />
+          </div>
+
           <!-- Workspace & Security slot -->
           <div id="workspace-security">
             <slot name="workspace-security" />
@@ -937,11 +942,20 @@ const navItems = computed(() => {
     { id: 'access-permissions', label: 'Access & Permissions' },
     { id: 'feature-access', label: 'Feature Access' },
     { id: 'status-management', label: 'Status Management' },
+    { id: 'application-history', label: 'Applications' },
     { id: 'workspace-security', label: 'Workspace & Security' },
     { id: 'public-profile', label: 'Public Provider Profile' }
   ];
-  if (!isSchoolStaffProfile.value) return items;
-  return items.filter((item) => showAccountSection(item.id));
+  if (!isSchoolStaffProfile.value) {
+    return items.filter((item) => {
+      if (item.id === 'application-history') return !!ctx.canViewApplicationHistory;
+      return true;
+    });
+  }
+  return items.filter((item) => {
+    if (item.id === 'application-history') return !!ctx.canViewApplicationHistory;
+    return showAccountSection(item.id);
+  });
 });
 
 const completionPct = computed(() => {

@@ -159,7 +159,8 @@ export const COMMAND_SURFACES = {
       'outreach',
       'staffing',
       'addendum',
-      'year update'
+      'year update',
+      'materials'
     ],
     askExamples: [
       'Show coverage needs',

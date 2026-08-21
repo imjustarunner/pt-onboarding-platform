@@ -458,7 +458,7 @@
           <tr>
             <th>Job</th>
             <th>Status</th>
-            <th>Applicants</th>
+            <th>Applications</th>
             <th>Posted</th>
             <th>Deadline</th>
             <th>Location</th>
@@ -496,7 +496,7 @@
                 <button class="btn btn-secondary btn-sm" @click="toggleActive(row)">
                   {{ row.isActive ? 'Deactivate' : 'Activate' }}
                 </button>
-                <button class="btn btn-secondary btn-sm" @click="openApplicants(row)">View applicants</button>
+                <button class="btn btn-secondary btn-sm" @click="openApplicants(row)">View applications</button>
                 <button class="btn btn-secondary btn-sm" @click="openForm(row)">
                   {{ row.linkId ? 'Form' : 'Create form' }}
                 </button>

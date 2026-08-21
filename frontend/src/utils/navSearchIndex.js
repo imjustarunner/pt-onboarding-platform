@@ -343,6 +343,25 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Track school progress, scores, and addendums. Push updates to all affiliated schools.'
   },
   {
+    title: 'Materials Requests',
+    section: 'School Ops › Caseloads & Staffing',
+    path: '/admin/materials-requests',
+    keywords: [
+      'materials requests',
+      'materials',
+      'packets',
+      'paper packets',
+      'trifold',
+      'carts',
+      'shirts',
+      'delivery',
+      'fulfillment',
+      'inventory',
+      'onboarding materials'
+    ],
+    desc: 'See onboarding, collaborative update, and provider fall-update materials in one place. Assign, check off, and issue carts/shirts/bags from inventory.'
+  },
+  {
     title: 'Approve School Requests',
     section: 'School Ops › Caseloads & Staffing',
     path: '/admin/school-approvals',
@@ -547,11 +566,18 @@ export const NAV_SEARCH_INDEX = [
     desc: 'Hiring overview with pipeline stats and upcoming interviews.'
   },
   {
-    title: 'Applicants',
+    title: 'Applications',
     section: 'People Ops › Hiring',
     path: '/admin/hiring/applicants',
-    keywords: ['applicants', 'hiring', 'applications', 'candidates', 'job applications'],
-    desc: 'Hiring pipeline and applicant management.'
+    keywords: ['applications', 'applicants', 'hiring', 'candidates', 'job applications', 'reapply'],
+    desc: 'Hiring pipeline and job application management.'
+  },
+  {
+    title: 'Applicants (Users)',
+    section: 'People Ops › Users',
+    path: '/admin/users?persona=applicants',
+    keywords: ['applicants', 'prospective', 'applicant users', 'candidate users', 'users applicants'],
+    desc: 'Find applicant accounts in the Users directory.'
   },
   {
     title: 'Interview Hub',

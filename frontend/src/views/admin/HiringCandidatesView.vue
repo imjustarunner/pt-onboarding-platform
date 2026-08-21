@@ -2,8 +2,8 @@
   <div class="container hiring-root">
     <div class="header" data-tour="hiring-header">
       <div>
-        <h2 data-tour="hiring-title">Applicants</h2>
-        <div class="subtle">Review, sort, and move candidates through hiring</div>
+        <h2 data-tour="hiring-title">Applications</h2>
+        <div class="subtle">Review applications and move candidates through hiring</div>
       </div>
       <div class="header-actions" data-tour="hiring-actions">
         <div v-if="canChooseAgency" class="agency-picker" data-tour="hiring-agency-picker">
@@ -16,7 +16,7 @@
         </div>
         <button class="btn btn-secondary" @click="router.push(orgPath('/admin/hiring'))">Hiring Dashboard</button>
         <button class="btn btn-secondary" @click="refresh" :disabled="loading">Refresh</button>
-        <button class="btn btn-primary" @click="openCreate">New applicant</button>
+        <button class="btn btn-primary" @click="openCreate">New application</button>
         <span v-if="newForMeInView > 0" class="pill unread-pill">
           {{ newForMeInView }} new for you
         </span>
@@ -69,14 +69,14 @@
           </button>
         </div>
 
-        <div v-if="loading" class="loading">Loading applicants…</div>
+        <div v-if="loading" class="loading">Loading applications…</div>
         <div v-else class="list" data-tour="hiring-candidates-list">
           <button
             v-for="c in filteredCandidates"
             :key="c.id"
             class="list-item modern-row"
             data-tour="hiring-candidate-row"
-            :class="{ active: selectedId === c.id, 'list-item-duplicate': Number(c.duplicate_application_count || 0) > 1 }"
+            :class="{ active: selectedId === c.id, 'list-item-duplicate': Number(c.duplicate_application_count || 0) > 1 || Number(c.application_count || 0) > 1 }"
             @click="selectCandidate(c.id)"
           >
             <div class="row-avatar">{{ candidateInitials(c) }}</div>
@@ -89,18 +89,19 @@
                 <span v-if="c.is_new_for_me" class="pill pill-new">New</span>
                 <span v-if="c.job_title" class="muted small">{{ c.job_title }}</span>
                 <span v-if="appliedAtLabel(c)" class="muted small applied-at">{{ appliedAtLabel(c) }}</span>
-                <span v-if="Number(c.duplicate_application_count || 0) > 1" class="pill pill-duplicate">Repeat</span>
+                <span v-if="Number(c.application_count || 0) > 1" class="pill pill-duplicate">{{ c.application_count }} apps</span>
+                <span v-else-if="Number(c.duplicate_application_count || 0) > 1" class="pill pill-duplicate">Repeat</span>
               </div>
             </div>
           </button>
 
-          <div v-if="filteredCandidates.length === 0" class="empty">No applicants found.</div>
+          <div v-if="filteredCandidates.length === 0" class="empty">No applications found.</div>
         </div>
       </div>
 
       <div class="panel detail-panel" data-tour="hiring-detail-panel">
         <div v-if="!selectedId" class="empty detail-empty">
-          <h3>Select an applicant</h3>
+          <h3>Select an application</h3>
           <p class="muted">Choose someone from the list to open their overview, resume, interviews, and notes.</p>
         </div>
 
@@ -270,6 +271,31 @@
               <div class="kv">
                 <div class="k">Fluent languages</div>
                 <div class="v">{{ fluentLanguagesDisplay }}</div>
+              </div>
+
+              <div class="kv application-history-block">
+                <div class="k">Application history</div>
+                <div class="v">
+                  <div v-if="!(detail.applications || []).length" class="muted small">No submitted applications on file yet.</div>
+                  <ul v-else class="application-history-list">
+                    <li v-for="app in detail.applications" :key="app.submissionId" class="application-history-item">
+                      <div class="application-history-title">
+                        <strong>{{ app.jobTitle || 'Job application' }}</strong>
+                        <span class="muted small">{{ formatApplicationWhen(app.submittedAt) }}</span>
+                      </div>
+                      <div v-if="app.coverLetterPreview" class="muted small application-history-preview">
+                        {{ app.coverLetterPreview }}
+                      </div>
+                      <div class="application-history-meta muted small">
+                        <span v-if="app.hasPdf">PDF on file</span>
+                        <span v-if="app.intakeSummary?.referenceCount != null">
+                          {{ app.intakeSummary.referenceCount }} reference{{ Number(app.intakeSummary.referenceCount) === 1 ? '' : 's' }}
+                        </span>
+                        <span>Submission #{{ app.submissionId }}</span>
+                      </div>
+                    </li>
+                  </ul>
+                </div>
               </div>
             </div>
 
@@ -825,7 +851,7 @@ const stageTabs = computed(() => {
   const offered = Number(sc.offered || 0);
   const total = Number(dashboardStats.value?.totalApplicants || applied + review + interview + offered + Number(sc.other || 0));
   return [
-    { key: 'all', label: 'All Applicants', count: total },
+    { key: 'all', label: 'All Applications', count: total },
     { key: 'review', label: 'Review', count: review },
     { key: 'interview', label: 'Interview', count: interview },
     { key: 'offered', label: 'Offered', count: offered }
@@ -1074,8 +1100,23 @@ const formatActivityWhen = (raw) => {
   }
 };
 
+const formatApplicationWhen = (raw) => {
+  if (!raw) return '';
+  try {
+    return new Date(raw).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  } catch {
+    return '';
+  }
+};
+
 const appliedAtLabel = (row) => {
-  const raw = row?.hiring_created_at;
+  const raw = row?.latest_application_at || row?.hiring_updated_at || row?.hiring_created_at;
   if (!raw) return '';
   try {
     const d = new Date(raw);
@@ -1160,7 +1201,7 @@ const deletingApplicant = ref(false);
 const markNotHired = async () => {
   if (!selectedId.value || !effectiveAgencyId.value) return;
   // eslint-disable-next-line no-alert
-  const ok = confirm('Mark this applicant as not hired? They will be removed from Applicants and available under the Not hired list.');
+  const ok = confirm('Mark this applicant as not hired? They will be removed from Applications and available under the Not hired list.');
   if (!ok) return;
   try {
     markingNotHired.value = true;
@@ -2981,6 +3022,36 @@ onUnmounted(() => {
   gap: 10px;
   padding: 8px 0;
   border-bottom: 1px dashed #e5e7eb;
+}
+.application-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.application-history-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #f9fafb;
+}
+.application-history-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.application-history-preview {
+  margin-top: 6px;
+}
+.application-history-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
 }
 .k {
   color: #6b7280;

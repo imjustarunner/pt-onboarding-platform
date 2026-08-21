@@ -5,8 +5,8 @@ export default {
     {
       element: '[data-tour="hiring-title"]',
       popover: {
-        title: 'Applicants (Hiring)',
-        description: 'Manage prospective candidates: review profile/resume, add notes, assign tasks, and promote to start onboarding.',
+        title: 'Applications (Hiring)',
+        description: 'Manage job applications: review profile/resume, add notes, assign tasks, and promote to start onboarding.',
         side: 'bottom',
         align: 'start'
       }
@@ -15,7 +15,7 @@ export default {
       element: '[data-tour="hiring-actions"]',
       popover: {
         title: 'Agency + actions',
-        description: 'Choose an agency (if available), refresh, or create a new applicant.',
+        description: 'Choose an agency (if available), refresh, or create a new application.',
         side: 'bottom',
         align: 'end'
       }
@@ -23,8 +23,8 @@ export default {
     {
       element: '[data-tour="hiring-candidates-list"]',
       popover: {
-        title: 'Applicants list',
-        description: 'Search and select an applicant to load their detail panel.',
+        title: 'Applications list',
+        description: 'Search and select an application to load their detail panel.',
         side: 'right',
         align: 'start'
       }
@@ -32,8 +32,8 @@ export default {
     {
       element: '[data-tour="hiring-detail-panel"]',
       popover: {
-        title: 'Applicant details',
-        description: 'Details load here for the selected applicant.',
+        title: 'Application details',
+        description: 'Details load here for the selected application.',
         side: 'left',
         align: 'start'
       }

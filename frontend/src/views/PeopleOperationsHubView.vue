@@ -320,7 +320,7 @@
               :to="orgTo('/admin/hiring/applicants')"
               class="hub-quick-link"
             >
-              <span>Applicants</span>
+              <span>Applications</span>
               <span v-if="applicationsPending > 0" class="hub-quick-badge">{{ applicationsPending }}</span>
             </router-link>
             <router-link
@@ -616,9 +616,9 @@ const allSections = computed(() => [
       },
       {
         id: 'applicants',
-        title: 'Applicants',
-        shortDesc: 'Pipeline and candidate records.',
-        desc: 'Review applicants and manage the hiring pipeline.',
+        title: 'Applications',
+        shortDesc: 'Pipeline and application records.',
+        desc: 'Review applications and manage the hiring pipeline.',
         cta: applicationsPending.value > 0 ? `Review ${applicationsPending.value} →` : 'Open →',
         to: orgTo('/admin/hiring/applicants'),
         tone: 'amber',

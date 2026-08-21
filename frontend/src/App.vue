@@ -364,7 +364,7 @@
                 :to="orgTo('/admin/hiring/applicants')"
                 @click="closeMobileMenu"
               >
-                Applicants
+                Applications
               </router-link>
               <router-link
                 v-if="canSeePayrollTopNavLink"
@@ -1361,7 +1361,7 @@
               :to="orgTo('/admin/hiring/applicants')"
               @click="closeMobileMenu"
               class="mobile-nav-link"
-            >Applicants</router-link>
+            >Applications</router-link>
             <router-link
               v-if="canSeePayrollTopNavLink"
               :to="orgTo('/admin/payroll')"
@@ -2052,7 +2052,7 @@
           <button type="button" class="hiring-toast" @click="goToApplicantsFromToast()">
             <span class="hiring-toast-icon" aria-hidden="true">📋</span>
             <span>
-              <strong>{{ applicantsToastCount }}</strong> applicant{{ applicantsToastCount !== 1 ? 's' : '' }}
+              <strong>{{ applicantsToastCount }}</strong> application{{ applicantsToastCount !== 1 ? 's' : '' }}
               <span v-if="applicantsToastNames.length" class="hiring-toast-names">
                 — {{ applicantsToastNames.slice(0, 3).join(', ') }}{{ applicantsToastNames.length > 3 ? ` +${applicantsToastNames.length - 3} more` : '' }}
               </span>

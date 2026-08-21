@@ -547,6 +547,30 @@ function buildAppEntries() {
       rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
     },
     {
+      id: 'admin-materials-requests',
+      routeName: 'MaterialsRequests',
+      label: 'Materials Requests',
+      description: 'Packets, carts, shirts, and delivery — onboarding, collaborative update, and provider fall-update materials.',
+      group: 'admin',
+      keywords: [
+        'materials',
+        'materials requests',
+        'packets',
+        'paper packets',
+        'trifold',
+        'carts',
+        'shirts',
+        'delivery',
+        'fulfillment',
+        'inventory',
+        'onboarding materials',
+        'school cart'
+      ],
+      kind: 'path',
+      path: '/admin/materials-requests',
+      rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
+    },
+    {
       id: 'admin-provider-update',
       routeName: 'ProviderUpdateAdmin',
       label: 'Provider Update',
@@ -660,12 +684,12 @@ function buildAppEntries() {
     {
       id: 'admin-hiring',
       routeName: 'HiringCandidates',
-      label: 'Hiring',
-      description: 'Candidates and hiring pipeline.',
+      label: 'Applications',
+      description: 'Job applications and hiring pipeline.',
       group: 'admin',
-      keywords: ['hiring', 'candidates', 'applicants', 'hire'],
+      keywords: ['hiring', 'candidates', 'applicants', 'applications', 'hire'],
       kind: 'path',
-      path: '/admin/hiring-candidates',
+      path: '/admin/hiring/applicants',
       rolesAny: ['admin', 'super_admin'],
       requires: ['canManageHiring']
     },

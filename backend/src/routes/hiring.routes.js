@@ -13,6 +13,7 @@ import {
   deleteJobDescription,
   viewJobDescriptionFile,
   getCandidate,
+  listCandidateApplications,
   createCandidateNote,
   listCandidateResumes,
   uploadCandidateResume,
@@ -131,6 +132,7 @@ router.put('/job-descriptions/:jobDescriptionId', upload.fields([{ name: 'file',
 router.delete('/job-descriptions/:jobDescriptionId', deleteJobDescription);
 router.get('/job-descriptions/:jobDescriptionId/view', viewJobDescriptionFile);
 router.get('/candidates/:userId', getCandidate);
+router.get('/candidates/:userId/applications', listCandidateApplications);
 router.patch('/candidates/:userId/interview', patchCandidateInterview);
 router.get('/candidates/:userId/reference-requests', listCandidateReferenceRequests);
 router.get('/candidates/:userId/reference-activity', listCandidateReferenceActivity);
