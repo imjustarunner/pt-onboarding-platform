@@ -80,7 +80,14 @@ export async function emailRequiresAdminApproval({
   // Transactional login recovery must send immediately (no approval queue).
   const ttNorm = String(templateType || '').trim().toLowerCase();
   if (ttNorm === 'expiring_background') return false;
-  if (['password_reset', 'admin_initiated_password_reset', 'school_staff_account_recovery'].includes(ttNorm)) {
+  if ([
+    'password_reset',
+    'admin_initiated_password_reset',
+    'school_staff_account_recovery',
+    // School group confirmation emails must send immediately on packet submit/upload.
+    'school_enrollment_packet_status',
+    'school_ready_to_schedule_digest'
+  ].includes(ttNorm)) {
     return false;
   }
 

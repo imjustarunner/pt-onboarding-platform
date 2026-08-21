@@ -111,18 +111,22 @@ export async function resolvePreferredSenderIdentityForAgency({
   includePlatformDefaults = true,
   onlyActive = true
 } = {}) {
-  const configured = await resolveConfiguredSenderIdentity({
+  // Do NOT call resolveConfiguredSenderIdentity here — that helper falls back to
+  // this function and would recurse forever when no explicit sender is configured.
+  const configuredId = await resolveConfiguredSenderIdentityId({
     agencyId,
     templateType,
     triggerKey,
-    preferredKeys,
-    includePlatformDefaults,
-    onlyActive
+    includeAgencyDefault: true
   });
-  if (configured?.id) return configured;
+  if (configuredId) {
+    const identity = await EmailSenderIdentity.findById(configuredId);
+    if (identity && (onlyActive ? identity.is_active !== 0 && identity.is_active !== false : true)) {
+      return identity;
+    }
+  }
 
   const aid = Number(agencyId || 0) || null;
-  if (!aid && aid !== null) return null;
   const list = await EmailSenderIdentity.list({
     agencyId: aid,
     includePlatformDefaults,

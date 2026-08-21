@@ -589,7 +589,9 @@ export async function sendEmailFromIdentity({
   existingCommunicationId = null,
   usedFallbackSender = false,
   fallbackReason = null,
-  replyToOverride = null
+  replyToOverride = null,
+  /** Optional identity whose signature image is used when the From mailbox has none. */
+  signatureIdentityId = null
 }) {
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
@@ -624,8 +626,19 @@ export async function sendEmailFromIdentity({
   const effectiveDisplayName = overrideName || identity.display_name;
   const from = pickFromHeader({ displayName: effectiveDisplayName, fromEmail: identity.from_email });
   const replyTo = String(replyToOverride || '').trim() || identity.reply_to || null;
-  const identityForSignature =
-    overrideName ? { ...identity, display_name: effectiveDisplayName } : identity;
+  let signatureSource = identity;
+  const sigId = Number(signatureIdentityId || 0);
+  if (sigId && sigId !== Number(identity.id)) {
+    const sigIdentity = await EmailSenderIdentity.findById(sigId).catch(() => null);
+    if (sigIdentity) signatureSource = sigIdentity;
+  }
+  const identityForSignature = {
+    ...signatureSource,
+    display_name: effectiveDisplayName || signatureSource.display_name,
+    // Keep From mailbox fields for logging; signature art comes from signatureSource.
+    from_email: identity.from_email,
+    reply_to: replyTo || signatureSource.reply_to || identity.reply_to
+  };
   const signedContent = applySenderSignatureBlock({ identity: identityForSignature, text, html });
 
   const quality = validateOutboundEmailQuality({
