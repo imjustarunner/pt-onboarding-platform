@@ -4492,6 +4492,9 @@ const syncFromQuery = () => {
       router.replace({ query: { ...route.query, tab: 'my', my: 'account' } });
     } else {
       myTab.value = qMy;
+      activeTab.value = 'my';
+      previousContentTab.value = 'my';
+      selectedRailCardId.value = 'my';
     }
   }
 

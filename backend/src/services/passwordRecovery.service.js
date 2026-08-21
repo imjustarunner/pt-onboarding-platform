@@ -193,7 +193,8 @@ async function buildMessage({ user, agency, orgSlug, token }) {
     if (template?.body) {
       const params = await EmailTemplateService.collectParameters(user, agency, {
         passwordlessToken: token,
-        senderName: 'System'
+        senderName: 'System',
+        keepPortalLoginLink: true
       });
       const rendered = EmailTemplateService.renderTemplate(template, params);
       subject = rendered.subject || subject;

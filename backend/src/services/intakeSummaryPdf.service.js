@@ -291,6 +291,7 @@ async function embedPngFromDataUrl(pdfDoc, dataUrl) {
 }
 
 async function renderCoverOnlyPdf(spec = {}) {
+  if (spec.skipCoverPage) return null;
   const coverUrl = spec.coverImageUrl
     || spec.brand?.coverDataUrl
     || (!spec.brand || spec.brand.useItscoChrome ? coverPageDataUrl() : null);
@@ -348,12 +349,14 @@ async function renderCompletedIntakePdf(spec = {}) {
   const contentBottom = 44;
   const maxWidth = pageW - side * 2;
   const versionLabel = String(spec.packetVersionLabel || spec.brand?.versionLabel || OFFICE_PRINTABLE_PACKET_VERSION);
-  const cover = await embedPngFromDataUrl(
-    pdfDoc,
-    spec.coverImageUrl
-      || spec.brand?.coverDataUrl
-      || (!spec.brand || spec.brand.useItscoChrome ? coverPageDataUrl() : null)
-  );
+  const cover = spec.skipCoverPage
+    ? null
+    : await embedPngFromDataUrl(
+      pdfDoc,
+      spec.coverImageUrl
+        || spec.brand?.coverDataUrl
+        || (!spec.brand || spec.brand.useItscoChrome ? coverPageDataUrl() : null)
+    );
   if (cover) {
     const coverPage = pdfDoc.addPage([pageW, pageH]);
     drawFullBleedCoverImage(coverPage, cover, pageW, pageH);

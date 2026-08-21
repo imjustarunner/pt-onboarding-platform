@@ -72,6 +72,14 @@ describe('quickNavCatalog', () => {
     expect(admin.some((e) => e.id === 'admin-payroll')).toBe(true);
   });
 
+  it('credentialing fuzzy-matches admin Credentialing feature', () => {
+    const { flat } = searchQuickNav(
+      'credentialing',
+      buildQuickNavContext({ user: { role: 'super_admin', capabilities: {} } })
+    );
+    expect(flat.some((r) => r.id === 'admin-credentialing' && r.label === 'Credentialing')).toBe(true);
+  });
+
   it('resolveQuickNavLocation deep-links My Account payroll', () => {
     const loc = resolveQuickNavLocation(
       { kind: 'dashboard', tab: 'my', my: 'payroll' },

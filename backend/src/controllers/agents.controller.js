@@ -420,7 +420,7 @@ async function detectExplicitIntent({ prompt, allowedToolNames, context, forceCa
         'SkillBuildersProgramsEvents',
         'ProviderDirectory',
         'NoteAid',
-        'ComplianceCorner',
+        'AgencyCredentialing',
         'PresenceTeamBoard',
         'ModuleManager',
         'TrainingKnowledgeBase'

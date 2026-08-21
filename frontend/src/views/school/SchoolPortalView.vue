@@ -2064,22 +2064,6 @@
       @close="closeTicketModal"
     />
 
-    <ComplianceCornerModal
-      v-if="showComplianceCorner && organizationId"
-      :school-organization-id="organizationId"
-      @close="showComplianceCorner = false"
-    />
-
-    <button
-      v-if="canUseComplianceCorner"
-      class="compliance-corner-btn"
-      type="button"
-      title="Compliance Corner"
-      @click="showComplianceCorner = true"
-    >
-      CC
-    </button>
-
     <ReferralUpload
       v-if="showUploadModal"
       :organization-slug="organizationSlug"
@@ -2603,7 +2587,6 @@ import SchoolPortalMessagesPanel from '../../components/school/redesign/SchoolPo
 import PublicDocumentsPanel from '../../components/school/redesign/PublicDocumentsPanel.vue';
 import SchoolMyDocumentsPanel from '../../components/school/redesign/SchoolMyDocumentsPanel.vue';
 import SchoolNotificationsPanel from '../../components/school/redesign/SchoolNotificationsPanel.vue';
-import ComplianceCornerModal from '../../components/school/redesign/ComplianceCornerModal.vue';
 import FaqPanel from '../../components/school/redesign/FaqPanel.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import OrganizationSettingsModal from '../../components/school/OrganizationSettingsModal.vue';
@@ -2924,7 +2907,6 @@ const showTicketModal = ref(false);
 const ticketModalClient = ref(null);
 const ticketModalTicketId = ref(null);
 const ticketModalMessageId = ref(null);
-const showComplianceCorner = ref(false);
 const showUploadModal = ref(false);
 const comingSoonKey = ref(''); // 'parent_qr' | 'parent_sign' | 'packet_upload'
 const showSchoolSettings = ref(false);
@@ -3768,7 +3750,6 @@ const portalAdminDashboardPath = computed(() => {
   if (roleNorm.value === 'super_admin' || roleNorm.value === 'superadmin') return '/admin';
   return '/admin-dashboard';
 });
-const canUseComplianceCorner = computed(() => ['super_admin', 'admin'].includes(roleNorm.value));
 // Days / Providers stay available for providers. Supervisor privileges must not block
 // those panels — the only school-portal restriction for providers is own-client roster.
 const canAccessSchedulingPanels = computed(() => true);
@@ -6426,26 +6407,6 @@ watch(() => store.selectedWeekday, async (weekday) => {
 /* legacy header tokens kept for any remaining nested use */
 .portal-header {
   display: none;
-}
-
-.compliance-corner-btn {
-  position: fixed;
-  right: 22px;
-  bottom: 22px;
-  width: 52px;
-  height: 52px;
-  border-radius: 999px;
-  border: none;
-  background: #0f172a;
-  color: #fff;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.35);
-  cursor: pointer;
-  z-index: 1150;
-}
-.compliance-corner-btn:hover {
-  background: #111827;
 }
 
 .portal-banner {

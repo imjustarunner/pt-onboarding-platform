@@ -809,6 +809,7 @@ export function buildCompletedIntakeRecord({
 
   return {
     title: isJobApplication ? 'Completed job application' : 'Completed intake packet',
+    skipCoverPage: isJobApplication,
     kicker: 'For your records',
     agencyName: agencyDisplayName(agency) || String(link?.title || 'Intake').trim(),
     brandLogoUrl: String(brandLogoUrl || '').trim(),

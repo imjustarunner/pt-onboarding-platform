@@ -212,9 +212,12 @@ class EmailTemplateService {
       parameters.PORTAL_LOGIN_LINK = this.buildPortalLoginLink(agencyForUrls);
     }
 
-    // Reset token link
+    // Reset token link (one-time set/reset password).
     if (passwordlessToken && agencyForUrls) {
       parameters.RESET_TOKEN_LINK = this.buildResetTokenLink(agencyForUrls, passwordlessToken);
+      // Welcome / pre-hire templates use PORTAL_LOGIN_LINK as the only magic link.
+      // Password-reset templates also show Portal / login URL separately — pass
+      // keepPortalLoginLink: true so PORTAL_LOGIN_LINK stays the tenant login page.
       if (!keepPortalLoginLink) {
         parameters.PORTAL_LOGIN_LINK = parameters.RESET_TOKEN_LINK;
       }

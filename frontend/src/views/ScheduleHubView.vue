@@ -991,19 +991,6 @@ const allSections = computed(() => [
         count: 0
       },
       {
-        id: 'compliance-corner',
-        title: 'Compliance Corner',
-        shortDesc: 'School compliance inquiry tools.',
-        desc: 'Compliance inquiry tools including pending school clients and access logs.',
-        cta: 'Open →',
-        to: orgTo('/admin/compliance-corner'),
-        tone: 'blue',
-        icon: icon.shield,
-        tour: null,
-        show: isTrueAdmin.value && !isAffiliationContext.value,
-        count: 0
-      },
-      {
         id: 'audit-center',
         title: 'Audit Center',
         shortDesc: 'Immutable audit and activity logs.',

@@ -2,6 +2,11 @@
  * Heuristics for sandbox / demo tenants (Demo ITSCO, demo tutors, etc.).
  * Used to avoid snapping real admins onto demo branding when they have production access.
  */
+export function isLikelyDemoSlug(slug) {
+  const hay = String(slug || '').toLowerCase();
+  return ['demo', 'fake', 'sandbox', 'training', 'sample', 'test'].some((k) => hay.includes(k));
+}
+
 export function isLikelyDemoTenant(org) {
   const hay = [
     org?.name,

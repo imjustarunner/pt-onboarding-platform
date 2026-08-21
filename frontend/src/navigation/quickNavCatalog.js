@@ -8,6 +8,7 @@
 
 import { ACCOUNT_SECTIONS } from '../config/accountDisplaySections.js';
 import { isSupervisor } from '../utils/helpers.js';
+import { resolveOrgSlugForNavigation } from '../utils/router.js';
 import { surfaceBoostForQuickNavEntry } from '../utils/resolveCommandSurface.js';
 
 export const QUICK_NAV_GROUP_ORDER = [
@@ -690,7 +691,7 @@ function buildAppEntries() {
       keywords: ['hiring', 'candidates', 'applicants', 'applications', 'hire'],
       kind: 'path',
       path: '/admin/hiring/applicants',
-      rolesAny: ['admin', 'super_admin'],
+      rolesAny: ['admin', 'super_admin', 'support'],
       requires: ['canManageHiring']
     },
     {
@@ -738,15 +739,16 @@ function buildAppEntries() {
       rolesAny: ['admin', 'super_admin', 'support']
     },
     {
-      id: 'admin-compliance',
-      routeName: 'ComplianceCorner',
-      label: 'Compliance Corner',
-      description: 'HIPAA and compliance resources.',
+      id: 'admin-credentialing',
+      routeName: 'AgencyCredentialing',
+      label: 'Credentialing',
+      description: 'Agency group NPIs and provider credentialing — licenses, payers, and CSV export.',
       group: 'admin',
-      keywords: ['compliance', 'hipaa', 'compliance corner'],
+      keywords: ['credentialing', 'credentialling', 'credentials', 'licenses', 'npi', 'payer credentialing'],
       kind: 'path',
-      path: '/admin/compliance-corner',
-      rolesAny: ['admin', 'super_admin']
+      path: '/admin/credentialing',
+      rolesAny: ['admin', 'support', 'staff', 'super_admin'],
+      requires: ['canManageCredentialing']
     },
     {
       id: 'admin-presence',
@@ -834,7 +836,8 @@ export function buildQuickNavContext(opts = {}) {
     showLearning: !isClubContext && !isSchoolStaff,
     canManagePayroll: !!caps.canManagePayroll || isTrueAdmin,
     canManageHiring: !!caps.canManageHiring || isTrueAdmin,
-    canAccessOutreach: !!caps.canAccessOutreach || isTrueAdmin
+    canAccessOutreach: !!caps.canAccessOutreach || isTrueAdmin,
+    canManageCredentialing: !!caps.canManageCredentialing || isTrueAdmin
   };
 }
 
@@ -868,6 +871,7 @@ function entryVisible(entry, ctx) {
       if (key === 'canManagePayroll' && !ctx.canManagePayroll) return false;
       if (key === 'canManageHiring' && !ctx.canManageHiring) return false;
       if (key === 'canAccessOutreach' && !ctx.canAccessOutreach) return false;
+      if (key === 'canManageCredentialing' && !ctx.canManageCredentialing) return false;
     }
   }
 
@@ -999,7 +1003,15 @@ export function resolveQuickNavLocation(entry, { currentPath, orgSlug, currentQu
   if (entry.kind === 'path' && entry.path) {
     const raw = String(entry.path);
     const [pathname, search = ''] = raw.split('?');
-    const slug = String(orgSlug || '').trim();
+    const adminPath = pathname.startsWith('/admin');
+    const routeSlug = String(orgSlug || '').trim();
+    let slug = routeSlug;
+    if (adminPath) {
+      slug = resolveOrgSlugForNavigation({
+        orgSlug: routeSlug || undefined,
+        preferNonDemo: true
+      });
+    }
     const path = slug ? `/${slug}${pathname}` : pathname;
     if (!search) return path;
     const query = Object.fromEntries(new URLSearchParams(search));

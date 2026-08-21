@@ -597,6 +597,7 @@ import { computed, defineComponent, h, onMounted, ref, watch, nextTick } from 'v
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { isFullyLicensedCredentialText } from '../../utils/credentialNormalization.js';
 import CredentialingTimeline from '../../components/admin/CredentialingTimeline.vue';
@@ -634,6 +635,7 @@ const EditableCell = defineComponent({
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
 
 const orgTo = (path) => {
   const slug = route.params.organizationSlug;
@@ -644,6 +646,21 @@ const orgTo = (path) => {
 const agencies = computed(() =>
   (agencyStore.userAgencies || []).filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency')
 );
+
+function resolveDefaultCredentialingAgencyId() {
+  const list = agencies.value || [];
+  if (!list.length) return null;
+  const credIds = (authStore.user?.credentialingAgencyIds || [])
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+  const currentId = Number(agencyStore.currentAgency?.id || 0);
+  if (currentId && list.some((a) => Number(a.id) === currentId)) return currentId;
+  if (credIds.length) {
+    const match = list.find((a) => credIds.includes(Number(a.id)));
+    if (match) return Number(match.id);
+  }
+  return Number(list[0]?.id || 0) || null;
+}
 const selectedAgencyId = ref(null);
 
 const loading = ref(false);
@@ -1380,7 +1397,7 @@ watch(
 onMounted(async () => {
   await agencyStore.fetchUserAgencies();
   if (!selectedAgencyId.value && agencies.value.length) {
-    selectedAgencyId.value = agencies.value[0].id;
+    selectedAgencyId.value = resolveDefaultCredentialingAgencyId();
   }
   await applyRoutePanelPrefs();
   if (viewMode.value === 'by_insurance' && selectedAgencyId.value) {

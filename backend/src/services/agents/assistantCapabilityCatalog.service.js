@@ -470,7 +470,7 @@ export function resolveNavigateRouteNameFromPrompt(promptLower) {
   // Prefer more specific intents first.
   // Keep in sync with frontend `quickNavCatalog.js` account + app destinations.
   if (/\b(note ?aid|note generator|clinical note|generate note)\b/.test(s)) return 'NoteAid';
-  if (/\b(compliance corner|compliance|hipaa)\b/.test(s)) return 'ComplianceCorner';
+  if (/\b(credentialing|credentialling|agency credentialing|provider credentialing)\b/.test(s)) return 'AgencyCredentialing';
   if (/\b(presence|team board|who is in|who's in)\b/.test(s)) return 'PresenceTeamBoard';
   if (/\b(audit center|audit log|audit activity)\b/.test(s)) return 'AuditCenter';
   if (/\b(email settings|auto email|automated email|sender identity|from address)\b/.test(s)) return 'AutomatedEmailSettings';

@@ -3296,9 +3296,8 @@ const routes = [
   },
   {
     path: '/admin/compliance-corner',
-    name: 'ComplianceCorner',
-    component: () => import('../views/admin/ComplianceCornerView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'super_admin'] }
+    redirect: '/workforce-operations',
+    meta: { requiresAuth: true }
   },
   {
     path: '/admin/presence',

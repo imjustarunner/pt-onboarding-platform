@@ -11,6 +11,7 @@
  */
 
 import { surfaceBoostForNavItem } from './resolveCommandSurface.js';
+import { resolveOrgSlugForNavigation } from './router.js';
 
 export const NAV_SEARCH_INDEX = [
   // ─── Workforce Operations Hub ────────────────────────────────────────────────
@@ -191,7 +192,7 @@ export const NAV_SEARCH_INDEX = [
     title: 'Credentialing',
     section: 'Workforce Ops › Compliance & Oversight',
     path: '/admin/credentialing',
-    keywords: ['credentialing', 'credentials', 'licenses', 'verification', 'certifications'],
+    keywords: ['credentialing', 'credentialling', 'credentials', 'licenses', 'verification', 'certifications', 'npi'],
     desc: 'Agency credentialing workflows, licenses, and verifications.'
   },
   {
@@ -221,13 +222,6 @@ export const NAV_SEARCH_INDEX = [
     path: '/admin/psychotherapy-compliance',
     keywords: ['psychotherapy', 'compliance', 'cpt', 'billing compliance', 'therapy compliance'],
     desc: 'Psychotherapy CPT compliance tracking and uploads.'
-  },
-  {
-    title: 'Compliance Corner',
-    section: 'Workforce Ops › Compliance & Oversight',
-    path: '/admin/compliance-corner',
-    keywords: ['compliance corner', 'compliance', 'pending clients', 'access logs', 'inquiry'],
-    desc: 'Compliance inquiry tools including pending clients and access logs.'
   },
   {
     title: 'Audit Center',
@@ -839,23 +833,28 @@ export function searchNav(query, { orgSlug = null, surface = null, limit = 12 } 
       if (!score) return null;
       score += surfaceBoostForNavItem(item, surface);
 
-      let fullPath;
-      if (item.publicPath && orgSlug) {
-        if (item.publicPath === 'careers') fullPath = `/careers/${orgSlug}`;
-        else if (item.publicPath === 'join') fullPath = `/join/${orgSlug}`;
-        else if (item.publicPath === 'office-intake') fullPath = `/office-intake/${orgSlug}`;
-        else fullPath = item.path;
-      } else {
-        const prefix = orgSlug ? `/${orgSlug}` : '';
-        fullPath = `${prefix}${item.path}`;
-      }
-
-      return { ...item, score, fullPath };
+      let fullPath = buildNavFullPath(item, orgSlug);
     })
     .filter(Boolean)
     .sort((a, b) => b.score - a.score);
 
   return scored.slice(0, limit);
+}
+
+function buildNavFullPath(item, orgSlug) {
+  if (item.publicPath && orgSlug) {
+    if (item.publicPath === 'careers') return `/careers/${orgSlug}`;
+    if (item.publicPath === 'join') return `/join/${orgSlug}`;
+    if (item.publicPath === 'office-intake') return `/office-intake/${orgSlug}`;
+    return item.path;
+  }
+  const adminPath = String(item.path || '').startsWith('/admin');
+  const prefixSlug = resolveOrgSlugForNavigation({
+    orgSlug,
+    preferNonDemo: adminPath
+  });
+  const prefix = prefixSlug ? `/${prefixSlug}` : '';
+  return `${prefix}${item.path}`;
 }
 
 /**
@@ -867,16 +866,7 @@ export function listNavForSurface(surface, { orgSlug = null, limit = 10 } = {}) 
     .map((item) => {
       const boost = surfaceBoostForNavItem(item, surface);
       if (!boost) return null;
-      let fullPath;
-      if (item.publicPath && orgSlug) {
-        if (item.publicPath === 'careers') fullPath = `/careers/${orgSlug}`;
-        else if (item.publicPath === 'join') fullPath = `/join/${orgSlug}`;
-        else if (item.publicPath === 'office-intake') fullPath = `/office-intake/${orgSlug}`;
-        else fullPath = item.path;
-      } else {
-        const prefix = orgSlug ? `/${orgSlug}` : '';
-        fullPath = `${prefix}${item.path}`;
-      }
+      const fullPath = buildNavFullPath(item, orgSlug);
       return { ...item, score: boost, fullPath };
     })
     .filter(Boolean)

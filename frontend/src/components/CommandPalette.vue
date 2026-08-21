@@ -219,7 +219,7 @@ import {
   resolveQuickNavRoute,
   searchQuickNav
 } from '../navigation/quickNavCatalog';
-import { getMyDashboardPath } from '../utils/router';
+import { getMyDashboardPath, resolveAssistantNavigationPath } from '../utils/router';
 import { isSupervisor } from '../utils/helpers';
 import { resolveCommandSurface } from '../utils/resolveCommandSurface';
 import {
@@ -441,12 +441,7 @@ function backToPicker() {
 }
 
 function dashboardPath() {
-  const slug =
-    route.params?.organizationSlug ||
-    agencyStore.currentAgency?.slug ||
-    agencyStore.currentAgency?.portal_url ||
-    null;
-  return getMyDashboardPath({ orgSlug: slug });
+  return getMyDashboardPath({ preferNonDemo: true });
 }
 
 async function goNav(item) {
@@ -463,15 +458,20 @@ async function goNav(item) {
     path = typeof loc === 'string' ? loc : loc.path;
     if (typeof loc === 'object' && loc.path) {
       closePalette();
-      await router.push(loc);
-      recordNavSelection({ path: loc.path, title: item.label, section: item.description });
+      const target = {
+        ...loc,
+        path: resolveAssistantNavigationPath(loc.path, { orgSlug: orgSlug.value || undefined })
+      };
+      await router.push(target);
+      recordNavSelection({ path: target.path, title: item.label, section: item.description });
       return;
     }
   }
   if (!path) return;
   closePalette();
-  await router.push(path);
-  recordNavSelection({ path, title: item.label, section: item.description || item.groupLabel });
+  const resolvedPath = resolveAssistantNavigationPath(path, { orgSlug: orgSlug.value || undefined });
+  await router.push(resolvedPath);
+  recordNavSelection({ path: resolvedPath, title: item.label, section: item.description || item.groupLabel });
 }
 
 function goNavRecent(item) {

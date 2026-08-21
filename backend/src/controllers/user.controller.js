@@ -9705,7 +9705,8 @@ export const sendResetPasswordLink = async (req, res, next) => {
           if (template?.body) {
             const params = await EmailTemplateService.collectParameters(user, agency, {
               passwordlessToken: tokenResult.token,
-              senderName: req.user.first_name || req.user.email || 'Admin'
+              senderName: req.user.first_name || req.user.email || 'Admin',
+              keepPortalLoginLink: true
             });
             const rendered = EmailTemplateService.renderTemplate(template, params);
             subject = rendered.subject || subject;

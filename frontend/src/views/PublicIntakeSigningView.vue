@@ -2530,7 +2530,9 @@
         <div v-if="!isMultiChildPostSubmit" class="intake-download-panel">
           <div class="intake-download-meta">
             <p class="muted" style="margin: 0;">{{ t('packetRecordLead') }}</p>
-            <p v-if="downloadUrl" class="muted" style="margin: 6px 0 0;">{{ t('signedFormsReady') }}</p>
+            <p v-if="downloadUrl" class="muted" style="margin: 6px 0 0;">
+              {{ jobApplicationSubmitted ? t('applicationCopyReady') : t('signedFormsReady') }}
+            </p>
           </div>
           <div class="actions intake-download-actions">
             <a
@@ -2976,6 +2978,8 @@ const INTAKE_TRANSLATIONS = {
     viewPacketNow: 'View your packet',
     packetRecordLead: 'View or print your branded packet now — it includes your answers, signatures, approvals, and electronic signature details.',
     downloadSignedForms: 'Signed form copies',
+    signedFormsReady: 'Your signed forms are ready to view or download.',
+    applicationCopyReady: 'Your application copy is ready to view or download.',
     packetViewTemporary: 'View or print your branded packet now — it includes your answers, signatures, approvals, and electronic signature details.',
     packetPdfStillPreparing: 'Signed legal form copies are still being prepared and will be emailed when ready.',
     downloadPackets: 'Download packets',
@@ -3355,6 +3359,8 @@ const INTAKE_TRANSLATIONS = {
     viewPacketNow: 'Ver su paquete',
     packetRecordLead: 'Vea o imprima su paquete con marca ahora: incluye sus respuestas, firmas, aprobaciones y los datos de la firma electrónica.',
     downloadSignedForms: 'Copias de formularios firmados',
+    signedFormsReady: 'Sus formularios firmados están listos para ver o descargar.',
+    applicationCopyReady: 'Su copia de la solicitud está lista para ver o descargar.',
     packetViewTemporary: 'Vea o imprima su paquete con marca ahora: incluye sus respuestas, firmas, aprobaciones y los datos de la firma electrónica.',
     packetPdfStillPreparing: 'Las copias legales firmadas se siguen preparando y se enviarán por correo cuando estén listas.',
     downloadPackets: 'Descargar paquetes',

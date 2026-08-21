@@ -201,7 +201,7 @@ const NAVIGATION_ROUTE_WHITELIST = {
   EscalationsDesk: { path: '/admin/escalations', roles: ['admin', 'super_admin', 'support'] },
   AutomatedEmailSettings: { path: '/admin/email-settings', roles: ['admin', 'super_admin', 'support'] },
   NoteAid: { path: '/admin/note-aid', roles: ['admin', 'support', 'staff', 'provider', 'super_admin'] },
-  ComplianceCorner: { path: '/admin/compliance-corner', roles: ['admin', 'super_admin'] },
+  AgencyCredentialing: { path: '/admin/credentialing', roles: ['admin', 'support', 'staff', 'super_admin'] },
   PresenceTeamBoard: { path: '/admin/presence', roles: ['admin', 'super_admin'] },
   AdminPayroll: { path: '/admin/payroll', roles: ['admin', 'super_admin', 'support', 'staff'] },
   GearInventory: { path: '/admin/gear-inventory', roles: ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'] },

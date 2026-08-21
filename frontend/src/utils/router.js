@@ -17,7 +17,13 @@ import { isPractitionerOrgType } from './practitionerVertical.js';
 import { isBookClubAgency, getBookClubParentSlug } from './bookClubAgency.js';
 import { getCurrentPortalSlugFromHostCache } from './loginRedirect.js';
 import { guessPortalSlugFromHostname } from './orgScopedPath.js';
-import { isLikelyDemoTenant, pickFirstNonDemoTenant, pickOrgSlug } from './demoTenant.js';
+import {
+  isLikelyDemoTenant,
+  pickFirstNonDemoTenant,
+  pickOrgSlug,
+  resolvePreferredAgencySlug,
+  isLikelyDemoSlug
+} from './demoTenant.js';
 
 function hostImpliedPortalSlug() {
   try {
@@ -310,7 +316,7 @@ export function getDashboardRoute() {
  * Unlike getDashboardRoute(), this always targets the tabbed dashboard shell.
  */
 export function getMyDashboardPath(opts = {}) {
-  const slug = resolveOrgSlugForNavigation(opts);
+  const slug = resolveOrgSlugForNavigation({ preferNonDemo: true, ...opts });
   return slug ? `/${slug}/dashboard` : '/dashboard';
 }
 
@@ -318,30 +324,42 @@ export function getMyDashboardPath(opts = {}) {
  * Best-effort portal slug for assistant / quick-nav navigation.
  */
 export function resolveOrgSlugForNavigation(opts = {}) {
-  let slug = String(opts.orgSlug || '').trim();
-  if (slug) return slug;
+  const routeSlug = String(opts.orgSlug || '').trim();
+  const preferNonDemo = opts.preferNonDemo === true;
+
+  if (routeSlug && !preferNonDemo) return routeSlug;
+  if (routeSlug && preferNonDemo && !isLikelyDemoSlug(routeSlug)) return routeSlug;
 
   const organizationStore = useOrganizationStore();
   const agencyStore = useAgencyStore();
   const authStore = useAuthStore();
 
-  slug = String(
+  const user = authStore.user;
+  const fromUser = user?.agencies || [];
+  const fromStore = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
+  const orgs = fromUser.length > 0 ? fromUser : (Array.isArray(fromStore) ? fromStore : []);
+
+  if (preferNonDemo) {
+    const preferred = pickFirstNonDemoTenant(orgs);
+    if (preferred) return pickOrgSlug(preferred);
+  }
+
+  const resolved = resolvePreferredAgencySlug(agencyStore.currentAgency, orgs, routeSlug);
+  if (resolved) return resolved;
+
+  const contextSlug = String(
     organizationStore.organizationContext?.slug ||
       agencyStore.currentAgency?.slug ||
       agencyStore.currentAgency?.portal_url ||
       agencyStore.currentAgency?.portalUrl ||
       ''
   ).trim();
-  if (slug && !isLikelyDemoTenant(agencyStore.currentAgency)) return slug;
+  if (contextSlug && !isLikelyDemoTenant(agencyStore.currentAgency)) return contextSlug;
 
-  const user = authStore.user;
-  const fromUser = user?.agencies || [];
-  const fromStore = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
-  const orgs = fromUser.length > 0 ? fromUser : (Array.isArray(fromStore) ? fromStore : []);
   const preferred = pickFirstNonDemoTenant(orgs);
   if (preferred) return pickOrgSlug(preferred);
 
-  if (slug) return slug;
+  if (contextSlug) return contextSlug;
 
   if (Array.isArray(orgs) && orgs.length === 1) {
     return String(orgs[0]?.slug || orgs[0]?.portal_url || orgs[0]?.portalUrl || '').trim();
@@ -356,12 +374,13 @@ export function resolveAssistantNavigationPath(to, opts = {}) {
   const raw = String(to || '').trim();
   if (!raw) return raw;
 
-  const slug = resolveOrgSlugForNavigation(opts);
-  if (!slug) return raw;
-
   const qIndex = raw.indexOf('?');
   const pathname = qIndex >= 0 ? raw.slice(0, qIndex) : raw;
   const search = qIndex >= 0 ? raw.slice(qIndex) : '';
+
+  const preferNonDemo = opts.preferNonDemo === true || pathname.startsWith('/admin');
+  const slug = resolveOrgSlugForNavigation({ ...opts, preferNonDemo });
+  if (!slug) return raw;
 
   let path = pathname;
   if (path === '/dashboard' || path.startsWith('/dashboard/')) {
