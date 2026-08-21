@@ -67,6 +67,26 @@
         >
           {{ clientLabelMode === 'full_name' ? 'Show initials' : 'Show full names' }}
         </button>
+        <div
+          v-if="activeSection === 'all'"
+          class="pct-columns-control"
+          @keydown.escape="allColumnsOpen = false"
+        >
+          <button
+            class="pct-btn pct-btn--ghost"
+            type="button"
+            :aria-expanded="allColumnsOpen"
+            @click="allColumnsOpen = !allColumnsOpen"
+          >
+            Columns
+          </button>
+          <div v-if="allColumnsOpen" class="pct-columns-menu" @click.stop>
+            <label v-for="col in ALL_CLIENT_OPTIONAL_COLUMNS" :key="col.key" class="pct-columns-item">
+              <input v-model="allColumnPrefs[col.key]" type="checkbox" />
+              <span>{{ col.label }}</span>
+            </label>
+          </div>
+        </div>
         <button
           class="pct-btn pct-btn--primary"
           type="button"
@@ -86,40 +106,105 @@
       <template v-if="activeSection === 'all'">
         <div v-if="error" class="error">{{ error }}</div>
         <div v-if="officeError" class="error">{{ officeError }}</div>
-        <div v-else-if="!loading && !officeLoading && combinedClientsList.length === 0" class="muted empty-state">
+        <div v-else-if="!loading && !officeLoading && sortedCombinedClientsList.length === 0" class="muted empty-state">
           No clients assigned to this provider yet.
         </div>
         <div v-else class="office-clients-table-wrap">
           <table class="office-clients-table">
             <thead>
               <tr>
-                <th>Client</th>
-                <th>Setting</th>
-                <th>School</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Sessions (FY)</th>
-                <th>Since</th>
+                <th
+                  class="pct-sortable"
+                  :aria-sort="allAriaSortFor('client')"
+                  @click="toggleAllColumnSort('client')"
+                >
+                  Client
+                  <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('client') }}</span>
+                </th>
+                <th
+                  v-if="allColumnPrefs.setting"
+                  class="pct-sortable"
+                  :aria-sort="allAriaSortFor('setting')"
+                  @click="toggleAllColumnSort('setting')"
+                >
+                  Setting
+                  <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('setting') }}</span>
+                </th>
+                <th
+                  v-if="allColumnPrefs.school"
+                  class="pct-sortable"
+                  :aria-sort="allAriaSortFor('school')"
+                  @click="toggleAllColumnSort('school')"
+                >
+                  School
+                  <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('school') }}</span>
+                </th>
+                <th
+                  v-if="allColumnPrefs.type"
+                  class="pct-sortable"
+                  :aria-sort="allAriaSortFor('type')"
+                  @click="toggleAllColumnSort('type')"
+                >
+                  Type
+                  <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('type') }}</span>
+                </th>
+                <th
+                  v-if="allColumnPrefs.insurance"
+                  class="pct-sortable"
+                  :aria-sort="allAriaSortFor('insurance')"
+                  @click="toggleAllColumnSort('insurance')"
+                >
+                  Insurance Type
+                  <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('insurance') }}</span>
+                </th>
+                <th
+                  v-if="allColumnPrefs.status"
+                  class="pct-sortable"
+                  :aria-sort="allAriaSortFor('status')"
+                  @click="toggleAllColumnSort('status')"
+                >
+                  Status
+                  <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('status') }}</span>
+                </th>
+                <th
+                  v-if="allColumnPrefs.sessions"
+                  class="pct-sortable"
+                  :aria-sort="allAriaSortFor('sessions')"
+                  @click="toggleAllColumnSort('sessions')"
+                >
+                  Sessions (FY)
+                  <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('sessions') }}</span>
+                </th>
+                <th
+                  v-if="allColumnPrefs.since"
+                  class="pct-sortable"
+                  :aria-sort="allAriaSortFor('since')"
+                  @click="toggleAllColumnSort('since')"
+                >
+                  Since
+                  <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('since') }}</span>
+                </th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="c in combinedClientsList" :key="c.id" :class="{ 'is-terminated': isTerminatedClient(c) }">
+              <tr v-for="c in sortedCombinedClientsList" :key="c.id" :class="{ 'is-terminated': isTerminatedClient(c) }">
                 <td>
                   <button
                     type="button"
                     class="pct-client-link"
                     :title="officeHoverTitle(c)"
-                    @click="openClientProfile(c, combinedClientsList)"
+                    @click="openClientProfile(c, sortedCombinedClientsList)"
                   >
                     {{ formatOfficeClientLabel(c) }}
                   </button>
                 </td>
-                <td>{{ c.setting || '—' }}</td>
-                <td>{{ c.schoolName || '—' }}</td>
-                <td>{{ formatClientTypeLabel(c) }}</td>
-                <td>{{ officeStatusLabel(c) }}</td>
-                <td>{{ officeSessionTotal(c) }}</td>
-                <td>{{ formatSinceDate(c.submission_date) }}</td>
+                <td v-if="allColumnPrefs.setting">{{ c.setting || '—' }}</td>
+                <td v-if="allColumnPrefs.school">{{ c.schoolName || '—' }}</td>
+                <td v-if="allColumnPrefs.type">{{ formatClientTypeLabel(c) }}</td>
+                <td v-if="allColumnPrefs.insurance">{{ formatInsuranceTypeLabel(c) }}</td>
+                <td v-if="allColumnPrefs.status">{{ officeStatusLabel(c) }}</td>
+                <td v-if="allColumnPrefs.sessions">{{ officeSessionTotal(c) }}</td>
+                <td v-if="allColumnPrefs.since">{{ formatSinceDate(c.submission_date) }}</td>
               </tr>
             </tbody>
           </table>
@@ -337,7 +422,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
@@ -578,7 +663,117 @@ const combinedClientsList = computed(() => {
   }
 
   for (const c of byId.values()) rows.push(c);
-  return rows.sort((a, b) => formatOfficeClientLabel(a).localeCompare(formatOfficeClientLabel(b)));
+  return rows;
+});
+
+const ALL_CLIENT_OPTIONAL_COLUMNS = [
+  { key: 'setting', label: 'Setting' },
+  { key: 'school', label: 'School' },
+  { key: 'type', label: 'Type' },
+  { key: 'insurance', label: 'Insurance Type' },
+  { key: 'status', label: 'Status' },
+  { key: 'sessions', label: 'Sessions (FY)' },
+  { key: 'since', label: 'Since' },
+];
+
+const allColumnsOpen = ref(false);
+const allColumnPrefs = ref({
+  setting: true,
+  school: true,
+  type: true,
+  insurance: true,
+  status: true,
+  sessions: false,
+  since: false,
+});
+const allSortBy = ref('client');
+const allSortDir = ref('asc');
+
+const allColumnsStorageKey = computed(
+  () => `provider_all_clients_columns_v1_${authStore.user?.id || 'anon'}`
+);
+
+function loadAllColumnPrefs() {
+  try {
+    const raw = window.localStorage.getItem(allColumnsStorageKey.value);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      allColumnPrefs.value = { ...allColumnPrefs.value, ...parsed };
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+watch(
+  allColumnPrefs,
+  (v) => {
+    try {
+      window.localStorage.setItem(allColumnsStorageKey.value, JSON.stringify(v));
+    } catch {
+      /* ignore */
+    }
+  },
+  { deep: true }
+);
+
+function allAriaSortFor(field) {
+  if (allSortBy.value !== field) return 'none';
+  return allSortDir.value === 'asc' ? 'ascending' : 'descending';
+}
+
+function allSortIndicatorFor(field) {
+  if (allSortBy.value !== field) return '↕';
+  return allSortDir.value === 'asc' ? '▲' : '▼';
+}
+
+function toggleAllColumnSort(field) {
+  if (allSortBy.value === field) {
+    allSortDir.value = allSortDir.value === 'asc' ? 'desc' : 'asc';
+    return;
+  }
+  allSortBy.value = field;
+  allSortDir.value = field === 'sessions' || field === 'since' ? 'desc' : 'asc';
+}
+
+function allClientSortValue(c, field) {
+  if (field === 'client') return formatOfficeClientLabel(c);
+  if (field === 'setting') return String(c?.setting || '');
+  if (field === 'school') return String(c?.schoolName || c?.organization_name || '');
+  if (field === 'type') return formatClientTypeLabel(c);
+  if (field === 'insurance') return formatInsuranceTypeLabel(c);
+  if (field === 'status') return officeStatusLabel(c);
+  if (field === 'sessions') {
+    const m = sessionTotalsByClientId.value;
+    if (!m || !c?.id) return -1;
+    const rec = m[String(c.id)] || m[Number(c.id)];
+    const t = Number(rec?.total);
+    return Number.isFinite(t) ? t : -1;
+  }
+  if (field === 'since') {
+    const d = c?.submission_date ? new Date(c.submission_date).getTime() : 0;
+    return Number.isFinite(d) ? d : 0;
+  }
+  return '';
+}
+
+const sortedCombinedClientsList = computed(() => {
+  const field = allSortBy.value;
+  const dir = allSortDir.value === 'desc' ? -1 : 1;
+  const rows = [...(combinedClientsList.value || [])];
+  rows.sort((a, b) => {
+    const av = allClientSortValue(a, field);
+    const bv = allClientSortValue(b, field);
+    if (typeof av === 'number' && typeof bv === 'number') {
+      if (av === bv) return formatOfficeClientLabel(a).localeCompare(formatOfficeClientLabel(b));
+      return (av - bv) * dir;
+    }
+    const cmp = String(av).localeCompare(String(bv), undefined, { sensitivity: 'base' });
+    if (cmp !== 0) return cmp * dir;
+    return formatOfficeClientLabel(a).localeCompare(formatOfficeClientLabel(b));
+  });
+  return rows;
 });
 
 const schoolClientsForGrid = computed(() => {
@@ -824,6 +1019,9 @@ const formatClientTypeLabel = (c) => {
   return t ? t.replace(/_/g, ' ') : '—';
 };
 
+const formatInsuranceTypeLabel = (c) =>
+  String(c?.insurance_type_label || c?.primary_insurer_name || '').trim() || '—';
+
 const loadBillingPosFlags = async () => {
   if (!agencyId.value || !currentUserId.value) {
     billingPosByClientId.value = {};
@@ -969,10 +1167,16 @@ async function refreshSchoolAffiliatedClientIds() {
 const loadSchools = async () => {
   if (!agencyId.value || !currentUserId.value) return;
   const params = { agencyId: agencyId.value };
-  const r = props.profileEmbed
-    ? await api.get(`/payroll/users/${currentUserId.value}/assigned-schools`, { params })
-    : await api.get('/payroll/me/assigned-schools', { params });
-  schools.value = Array.isArray(r.data) ? r.data : [];
+  try {
+    const r = props.profileEmbed
+      ? await api.get(`/payroll/users/${currentUserId.value}/assigned-schools`, { params })
+      : await api.get('/payroll/me/assigned-schools', { params });
+    schools.value = Array.isArray(r.data) ? r.data : [];
+  } catch (e) {
+    schools.value = [];
+    // Surface on All/School views; office clients can still load via /clients.
+    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load assigned schools';
+  }
   if (!selectedSchoolOrgId.value) {
     selectedSchoolOrgId.value = 'all';
   }
@@ -1126,11 +1330,16 @@ onMounted(() => {
   } catch {
     /* ignore */
   }
+  loadAllColumnPrefs();
   const fromQuery = normalizeSection(
     route.query.clients || props.initialSection || (props.profileEmbed ? 'all' : 'school')
   );
   activeSection.value = fromQuery;
   load();
+});
+
+onUnmounted(() => {
+  allColumnsOpen.value = false;
 });
 
 watch(() => agencyId.value, load);
@@ -1380,6 +1589,50 @@ watch(skillBuildersOnlyFilter, async () => {
 
 .pct-btn--ghost:hover:not(:disabled) {
   background: #f9fafb;
+}
+
+.pct-columns-control {
+  position: relative;
+}
+
+.pct-columns-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  background: #fff;
+  border: 1px solid var(--pct-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  padding: 10px 12px;
+  min-width: 200px;
+}
+
+.pct-columns-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: #111827;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.pct-sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.pct-sortable:hover {
+  color: var(--pct-green);
+}
+
+.pct-sort-indicator {
+  display: inline-block;
+  margin-left: 0.25rem;
+  font-size: 0.65rem;
+  opacity: 0.7;
 }
 
 .pct-btn--primary {

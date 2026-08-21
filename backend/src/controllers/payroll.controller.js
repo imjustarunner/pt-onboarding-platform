@@ -15627,23 +15627,78 @@ export const listUserAssignedSchoolsForPayroll = async (req, res, next) => {
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!targetUserId) return res.status(400).json({ error: { message: 'userId is required' } });
-    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    if (!req.user?.id) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    // Caseload / profile Clients tab needs assigned schools without payroll permission.
+    // Allow: self, payroll managers, or agency backoffice roles who can view the user profile.
+    const isSelf = Number(req.user.id) === Number(targetUserId);
+    if (!isSelf) {
+      const role = String(req.user.role || '').toLowerCase();
+      const canViewCaseload =
+        role === 'super_admin' ||
+        role === 'admin' ||
+        role === 'assistant_admin' ||
+        role === 'support' ||
+        role === 'clinical_practice_assistant';
+      const resolvedAgencyId = await resolvePayrollAgencyId(agencyId);
+      const hasPayroll = await canManagePayrollForAgency({
+        userId: req.user.id,
+        role: req.user.role,
+        agencyId: resolvedAgencyId
+      });
+      if (!hasPayroll && !canViewCaseload) {
+        return res.status(403).json({ error: { message: 'Payroll access required' } });
+      }
+      if (!hasPayroll && role !== 'super_admin') {
+        const inAgency = await userHasAgencyAccess({ userId: req.user.id, agencyId });
+        if (!inAgency) {
+          return res.status(403).json({ error: { message: 'Access denied' } });
+        }
+      }
+    }
     if (!(await requireTargetUserInAgency({ res, agencyId, targetUserId }))) return;
 
+    // Same union as listMyAssignedSchoolsForPayroll so profile embed matches provider view.
     const [schools] = await pool.execute(
-      `SELECT DISTINCT
-              psa.school_organization_id AS schoolOrganizationId,
-              s.name AS name
-       FROM provider_school_assignments psa
-       JOIN agencies s ON s.id = psa.school_organization_id
-       JOIN organization_affiliations oa
-         ON oa.organization_id = psa.school_organization_id
-        AND oa.agency_id = ?
-        AND oa.is_active = TRUE
-       WHERE psa.provider_user_id = ?
-         AND psa.is_active = TRUE
-       ORDER BY s.name ASC`,
-      [agencyId, targetUserId]
+      `SELECT DISTINCT schoolOrganizationId, name FROM (
+         SELECT psa.school_organization_id AS schoolOrganizationId, s.name AS name
+         FROM provider_school_assignments psa
+         JOIN agencies s ON s.id = psa.school_organization_id
+         JOIN organization_affiliations oa
+           ON oa.organization_id = psa.school_organization_id
+          AND oa.agency_id = ?
+          AND oa.is_active = TRUE
+         WHERE psa.provider_user_id = ?
+           AND psa.is_active = TRUE
+         UNION
+         SELECT cpa.organization_id AS schoolOrganizationId, s.name AS name
+         FROM client_provider_assignments cpa
+         JOIN agencies s ON s.id = cpa.organization_id
+         JOIN organization_affiliations oa
+           ON oa.organization_id = cpa.organization_id
+          AND oa.agency_id = ?
+          AND oa.is_active = TRUE
+         WHERE cpa.provider_user_id = ?
+           AND cpa.is_active = TRUE
+           AND s.organization_type = 'school'
+         UNION
+         SELECT ua.agency_id AS schoolOrganizationId, s.name AS name
+         FROM user_agencies ua
+         JOIN agencies s ON s.id = ua.agency_id
+         WHERE ua.user_id = ?
+           AND s.organization_type = 'school'
+           AND (
+             ua.agency_id = ?
+             OR EXISTS (
+               SELECT 1 FROM organization_affiliations oa2
+               WHERE oa2.organization_id = ua.agency_id
+                 AND oa2.agency_id = ?
+                 AND oa2.is_active = TRUE
+             )
+           )
+       ) AS combined
+       ORDER BY name ASC`,
+      [agencyId, targetUserId, agencyId, targetUserId, targetUserId, agencyId, agencyId]
     );
 
     res.json(schools || []);

@@ -555,8 +555,12 @@
                 <a :href="recoveryDebug.resetLink" target="_blank" rel="noopener noreferrer">{{ recoveryDebug.resetLink }}</a>
                 <p class="debug-note">This only appears outside production, when email sending is skipped or misconfigured.</p>
               </div>
-              <button type="submit" class="btn btn-primary" :disabled="recoveryLoading">
-                {{ recoveryLoading ? 'Sending…' : (isSchoolPortalOrg ? 'Send set-password link' : 'Send reset link') }}
+              <button
+                type="submit"
+                class="btn btn-primary"
+                :disabled="recoveryLoading || forgotPasswordCooldownRemaining > 0"
+              >
+                {{ forgotPasswordSubmitLabel }}
               </button>
               <button type="button" class="btn btn-secondary" @click="closeRecoveryModals" :disabled="recoveryLoading">Cancel</button>
             </form>
@@ -665,7 +669,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
@@ -1413,6 +1417,9 @@ const recoveryError = ref('');
 const recoverySuccess = ref('');
 const recoveryDebug = ref(null);
 const forgotPasswordEmail = ref('');
+const FORGOT_PASSWORD_COOLDOWN_MS = 90_000;
+const forgotPasswordCooldownRemaining = ref(0);
+let forgotPasswordCooldownTimer = null;
 const recoverFirstName = ref('');
 const recoverLastName = ref('');
 const recoverRole = ref('');
@@ -1901,6 +1908,37 @@ const handleLogin = async () => {
   loading.value = false;
 };
 
+const clearForgotPasswordCooldownTimer = () => {
+  if (forgotPasswordCooldownTimer) {
+    clearInterval(forgotPasswordCooldownTimer);
+    forgotPasswordCooldownTimer = null;
+  }
+};
+
+const startForgotPasswordCooldown = () => {
+  clearForgotPasswordCooldownTimer();
+  const endsAt = Date.now() + FORGOT_PASSWORD_COOLDOWN_MS;
+  const tick = () => {
+    const left = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+    forgotPasswordCooldownRemaining.value = left;
+    if (left <= 0) clearForgotPasswordCooldownTimer();
+  };
+  tick();
+  forgotPasswordCooldownTimer = setInterval(tick, 250);
+};
+
+const forgotPasswordSubmitLabel = computed(() => {
+  if (recoveryLoading.value) return 'Sending…';
+  if (forgotPasswordCooldownRemaining.value > 0) {
+    return `Sent (${forgotPasswordCooldownRemaining.value}s)`;
+  }
+  return isSchoolPortalOrg.value ? 'Send set-password link' : 'Send reset link';
+});
+
+onUnmounted(() => {
+  clearForgotPasswordCooldownTimer();
+});
+
 const showForgotPassword = () => {
   showForgotPasswordMessage.value = true;
   showGuardianTempPasswordMessage.value = false;
@@ -1936,6 +1974,7 @@ const closeRecoveryModals = () => {
   recoveryError.value = '';
   recoverySuccess.value = '';
   recoveryDebug.value = null;
+  // Keep cooldown running so reopening the modal still enforces the wait.
 };
 
 const showGuardianTempPasswordHelp = () => {
@@ -2014,6 +2053,7 @@ const getRecoveryCaptchaToken = async (action) => {
 };
 
 const submitForgotPassword = async () => {
+  if (forgotPasswordCooldownRemaining.value > 0) return;
   recoveryLoading.value = true;
   recoveryError.value = '';
   recoverySuccess.value = '';
@@ -2028,10 +2068,12 @@ const submitForgotPassword = async () => {
 
     recoverySuccess.value = resp?.data?.message || 'If the email matches an account, you will receive a reset link shortly.';
     recoveryDebug.value = resp?.data?.debug || null;
+    startForgotPasswordCooldown();
   } catch (e) {
     // Keep UX generic to avoid account enumeration
     recoverySuccess.value = 'If the email matches an account, you will receive a reset link shortly.';
     recoveryDebug.value = e?.response?.data?.debug || null;
+    startForgotPasswordCooldown();
   } finally {
     recoveryLoading.value = false;
   }
