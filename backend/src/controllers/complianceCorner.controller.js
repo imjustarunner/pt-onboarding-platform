@@ -14,6 +14,9 @@ import {
   SCHOOL_STAFF_WAIVER_TASK_TITLE,
   SCHOOL_STAFF_WAIVER_TEMPLATE_NAME
 } from '../services/schoolStaffWaiver.service.js';
+import {
+  computeRenewalFlagsForClients
+} from '../services/clientRenewalFlags.service.js';
 
 async function resolveActiveAgencyIdForOrg(orgId) {
   return (
@@ -444,12 +447,50 @@ export const listRoiRenewalCandidates = async (req, res, next) => {
       if (!includeActive && roi.state === 'active') continue;
       results.push({
         ...row,
+        id: Number(row.client_id),
         roi_state: roi.state,
         days_until_expiration: roi.daysUntilExpiration,
         roi_expires_at_ymd: formatYmd(row.roi_expires_at),
         guardian_email: primaryGuardian?.email || null,
         guardian_name: [primaryGuardian?.first_name, primaryGuardian?.last_name].filter(Boolean).join(' ').trim() || null
       });
+    }
+
+    try {
+      const flagSource = results.map((r) => ({
+        id: Number(r.client_id),
+        organization_id: r.organization_id,
+        school_year: null,
+        roi_expires_at: r.roi_expires_at,
+        needs_full_packet_renewal: r.needs_full_packet_renewal
+      }));
+      // Load school_year + reactivation bit for flag accuracy
+      if (flagSource.length) {
+        const ids = flagSource.map((r) => r.id);
+        const placeholders = ids.map(() => '?').join(',');
+        const [extra] = await pool.execute(
+          `SELECT id, school_year, needs_full_packet_renewal, organization_id, roi_expires_at
+           FROM clients WHERE id IN (${placeholders})`,
+          ids
+        );
+        const byId = new Map((extra || []).map((e) => [Number(e.id), e]));
+        for (const r of flagSource) {
+          const e = byId.get(r.id);
+          if (e) {
+            r.school_year = e.school_year;
+            r.needs_full_packet_renewal = e.needs_full_packet_renewal;
+            r.organization_id = e.organization_id;
+            r.roi_expires_at = e.roi_expires_at;
+          }
+        }
+      }
+      const flagsById = await computeRenewalFlagsForClients(flagSource);
+      for (let i = 0; i < results.length; i += 1) {
+        const cid = Number(results[i].client_id);
+        results[i].renewalFlags = flagsById.get(cid) || null;
+      }
+    } catch (e) {
+      console.warn('[listRoiRenewalCandidates] renewalFlags failed', e?.message || e);
     }
 
     results.sort((a, b) => {

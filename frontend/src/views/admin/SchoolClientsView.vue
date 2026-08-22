@@ -120,6 +120,15 @@
           {{ roiBulkBusy ? 'Queueing emails…' : `Renew ROI Email (${filteredRows.length})` }}
         </button>
         <button
+          v-if="viewMode === 'roi' && canSeeRenewalFlags"
+          class="btn btn-primary btn-sm"
+          type="button"
+          :disabled="hubRenewalBusy || selectedRoiIds.size === 0"
+          @click="pushSelectedClientRenewals"
+        >
+          {{ hubRenewalBusy ? 'Pushing…' : `Push Client Renewal (${selectedRoiIds.size || 0})` }}
+        </button>
+        <button
           v-if="viewMode === 'roi'"
           class="btn btn-secondary btn-sm"
           type="button"
@@ -137,6 +146,13 @@
         <table class="table">
           <thead>
             <tr>
+              <th v-if="viewMode === 'roi' && canSeeRenewalFlags" style="width: 34px;">
+                <input
+                  type="checkbox"
+                  :checked="allRoiPageSelected"
+                  @change="toggleSelectAllRoi($event)"
+                />
+              </th>
               <th>School</th>
               <th>Client</th>
               <th>Provider</th>
@@ -147,12 +163,14 @@
               <th v-if="viewMode === 'roi'">ROI Expiration</th>
               <th v-if="viewMode === 'roi'">Days Left</th>
               <th v-if="viewMode === 'roi'">Guardian Email</th>
+              <th v-if="viewMode === 'roi' && canSeeRenewalFlags">Renewal</th>
+              <th v-if="viewMode === 'roi' && canSeeRenewalFlags">Actions</th>
             </tr>
           </thead>
           <tbody>
             <template v-for="g in schoolGroups" :key="`g-${g.organizationId}`">
               <tr v-if="groupBySchool" class="group-row" @click="toggleSchool(g.organizationId)">
-                <td colspan="7">
+                <td :colspan="tableColspan">
                   <div class="group-row-inner">
                     <button class="group-toggle" type="button" @click.stop="toggleSchool(g.organizationId)">
                       <span class="caret" :class="{ open: isSchoolExpanded(g.organizationId) }">▸</span>
@@ -173,6 +191,13 @@
                 :key="`${r.client_id}-${r.provider_user_id}-${r.organization_id}`"
                 :class="viewMode === 'roi' ? roiRowClass(r.days_until_expiration) : ''"
               >
+                <td v-if="viewMode === 'roi' && canSeeRenewalFlags">
+                  <input
+                    type="checkbox"
+                    :checked="selectedRoiIds.has(Number(r.client_id))"
+                    @change="toggleRoiSelected(Number(r.client_id))"
+                  />
+                </td>
                 <td>{{ r.organization_name || '—' }}</td>
                 <td>
                   <button
@@ -195,11 +220,23 @@
                   {{ formatRoiDays(r.days_until_expiration, r.roi_state) }}
                 </td>
                 <td v-if="viewMode === 'roi'">{{ r.guardian_email || '—' }}</td>
+                <td v-if="viewMode === 'roi' && canSeeRenewalFlags">
+                  <RenewalFlagsChips :flags="r.renewalFlags" compact />
+                </td>
+                <td v-if="viewMode === 'roi' && canSeeRenewalFlags">
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    @click="openClientRenewal(r)"
+                  >
+                    Renew
+                  </button>
+                </td>
               </tr>
             </template>
 
             <tr v-if="schoolGroups.length === 0">
-              <td colspan="7" class="muted">
+              <td :colspan="tableColspan" class="muted">
                 {{ viewMode === 'pending' ? 'No pending school clients match your filters.' : 'No ROI renewals match your filters.' }}
               </td>
             </tr>
@@ -333,6 +370,20 @@
       @close="closeClientDetail"
       @updated="handleClientUpdated"
     />
+
+    <ClientRenewalPushModal
+      v-if="renewalModalRow?.client_id"
+      :open="renewalModalOpen"
+      :client-id="renewalModalRow.client_id"
+      :agency-id="activeAgencyId"
+      :roi-expires-at="renewalModalRow.roi_expires_at_ymd || renewalModalRow.roi_expires_at"
+      :school-name="renewalModalRow.organization_name || ''"
+      :guardian-email="renewalModalRow.guardian_email || ''"
+      :client-initials="renewalModalRow.client_initials || ''"
+      :initial-options="renewalModalRow.renewalFlags?.recommended || null"
+      @close="closeClientRenewal"
+      @sent="() => { closeClientRenewal(); reload(); }"
+    />
   </div>
 </template>
 
@@ -342,9 +393,16 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
+import ClientRenewalPushModal from '../../components/admin/ClientRenewalPushModal.vue';
+import RenewalFlagsChips from '../../components/admin/RenewalFlagsChips.vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+
+const canSeeRenewalFlags = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'admin', 'support'].includes(r);
+});
 
 const loading = ref(false);
 const error = ref('');
@@ -356,6 +414,10 @@ const viewMode = ref('pending'); // pending | roi
 const groupBySchool = ref(true);
 const roiDaysWindow = ref(30);
 const roiBulkBusy = ref(false);
+const hubRenewalBusy = ref(false);
+const selectedRoiIds = ref(new Set());
+const renewalModalOpen = ref(false);
+const renewalModalRow = ref(null);
 const providerNotifyBusy = ref(false);
 const clientLabelMode = ref('codes'); // 'codes' | 'initials'
 const waiverModalOpen = ref(false);
@@ -773,6 +835,7 @@ const reload = async () => {
 
 const setViewMode = (nextMode) => {
   viewMode.value = nextMode === 'roi' ? 'roi' : 'pending';
+  selectedRoiIds.value = new Set();
   reload();
 };
 
@@ -793,6 +856,75 @@ const sendBulkRoiRenewals = async () => {
     roiBulkBusy.value = false;
   }
 };
+
+const tableColspan = computed(() => {
+  if (viewMode.value === 'pending') return 7;
+  return canSeeRenewalFlags.value ? 9 : 6;
+});
+
+const allRoiPageSelected = computed(() => {
+  const ids = (filteredRows.value || []).map((r) => Number(r.client_id)).filter((id) => id > 0);
+  if (!ids.length) return false;
+  return ids.every((id) => selectedRoiIds.value.has(id));
+});
+
+function toggleRoiSelected(clientId) {
+  const id = Number(clientId || 0);
+  if (!id) return;
+  const next = new Set(selectedRoiIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selectedRoiIds.value = next;
+}
+
+function toggleSelectAllRoi(event) {
+  const on = !!event?.target?.checked;
+  if (!on) {
+    selectedRoiIds.value = new Set();
+    return;
+  }
+  selectedRoiIds.value = new Set(
+    (filteredRows.value || []).map((r) => Number(r.client_id)).filter((id) => id > 0)
+  );
+}
+
+function openClientRenewal(row) {
+  renewalModalRow.value = row || null;
+  renewalModalOpen.value = true;
+}
+
+function closeClientRenewal() {
+  renewalModalOpen.value = false;
+  renewalModalRow.value = null;
+}
+
+async function pushSelectedClientRenewals() {
+  const ids = [...selectedRoiIds.value];
+  if (!ids.length || !canSeeRenewalFlags.value) return;
+  const proceed = window.confirm(
+    `Push Client Renewal hubs for ${ids.length} selected client(s)? New tokens will be created and emails sent using recommended options.`
+  );
+  if (!proceed) return;
+  try {
+    hubRenewalBusy.value = true;
+    error.value = '';
+    const resp = await api.post('/clients/bulk/renewals', {
+      clientIds: ids,
+      send: true,
+      useRecommended: true,
+      agencyId: activeAgencyId.value
+    });
+    const ok = Number(resp.data?.successCount || 0);
+    const fail = Number(resp.data?.failureCount || 0);
+    window.alert(`Renewal push complete: ${ok} sent, ${fail} failed.`);
+    selectedRoiIds.value = new Set();
+    await reloadRoi();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to push Client Renewals';
+  } finally {
+    hubRenewalBusy.value = false;
+  }
+}
 
 const sendProviderRoiReminder = async () => {
   if (!activeAgencyId.value || filteredRows.value.length === 0) return;

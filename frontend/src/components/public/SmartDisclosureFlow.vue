@@ -114,6 +114,20 @@
           'He leido y entiendo esta declaracion de divulgacion, incluidas las credenciales y el estado regulatorio de los proveedores listados.'
         ) }}
       </p>
+      <div v-if="!isEmbeddedMode" class="signer-fields">
+        <label>
+          {{ tr('Your first name', 'Su nombre') }}
+          <input v-model="signerFirstName" type="text" autocomplete="given-name" required />
+        </label>
+        <label>
+          {{ tr('Your last name', 'Su apellido') }}
+          <input v-model="signerLastName" type="text" autocomplete="family-name" required />
+        </label>
+        <label>
+          {{ tr('Your email', 'Su correo') }}
+          <input v-model="signerEmail" type="email" autocomplete="email" required />
+        </label>
+      </div>
       <label class="ack-checkbox" :class="{ 'required-highlight': !acknowledged }">
         <input v-model="acknowledged" type="checkbox" />
         <span>
@@ -125,7 +139,7 @@
       </label>
       <div class="actions">
         <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
-        <button type="button" class="btn btn-primary" :disabled="!acknowledged" @click="goNext">
+        <button type="button" class="btn btn-primary" :disabled="!canContinueFromAcknowledge" @click="goNext">
           {{ tr('Continue', 'Continuar') }}
         </button>
       </div>
@@ -140,6 +154,21 @@
           'Aplique su firma guardada para completar esta divulgacion, o dibuje una nueva.'
         ) }}
       </p>
+
+      <div v-if="!isEmbeddedMode" class="signer-fields">
+        <label>
+          {{ tr('Your first name', 'Su nombre') }}
+          <input v-model="signerFirstName" type="text" autocomplete="given-name" required />
+        </label>
+        <label>
+          {{ tr('Your last name', 'Su apellido') }}
+          <input v-model="signerLastName" type="text" autocomplete="family-name" required />
+        </label>
+        <label>
+          {{ tr('Your email', 'Su correo') }}
+          <input v-model="signerEmail" type="email" autocomplete="email" required />
+        </label>
+      </div>
 
       <div v-if="signatureData && !forceResign" class="applied-sig">
         <div class="applied-sig-check">✓ {{ tr('Signature saved', 'Firma guardada') }}</div>
@@ -277,11 +306,82 @@ const stageIndex = ref(0);
 const localSubmissionId = ref(props.submissionId || null);
 const signatureData = ref('');
 const forceResign = ref(false);
-const downloadUrl = ref('');
-const submitting = ref(false);
 const acknowledged = ref(false);
+const submitting = ref(false);
 const error = ref('');
+const downloadUrl = ref('');
+const signerFirstName = ref('');
+const signerLastName = ref('');
+const signerEmail = ref('');
 
+watch(
+  () => props.disclosureContext?.signerPrefill,
+  (prefill) => {
+    if (!prefill || typeof prefill !== 'object') return;
+    if (!signerFirstName.value && prefill.firstName) signerFirstName.value = String(prefill.firstName);
+    if (!signerLastName.value && prefill.lastName) signerLastName.value = String(prefill.lastName);
+    if (!signerEmail.value && prefill.email) signerEmail.value = String(prefill.email);
+  },
+  { immediate: true }
+);
+
+const canContinueFromAcknowledge = computed(() => {
+  if (!acknowledged.value) return false;
+  if (isEmbeddedMode.value) return true;
+  return !!String(signerFirstName.value || '').trim()
+    && !!String(signerLastName.value || '').trim()
+    && String(signerEmail.value || '').includes('@');
+});
+
+const buildDisclosurePayload = () => ({
+  acknowledged: !!acknowledged.value,
+  signatureData: signatureData.value || null,
+  locale: resolvedLocale.value,
+  contentHash: props.disclosureContext?.contentHash || props.disclosureContext?.content_hash || null,
+  signerName: [signerFirstName.value, signerLastName.value].filter(Boolean).join(' ').trim() || null,
+  signerEmail: String(signerEmail.value || '').trim() || null,
+  providers: providers.value.map((p) => ({
+    id: p.id || p.userId || p.user_id || null,
+    fullName: providerDisplayName(p),
+    category: normalizeCategory(p.category || p.licenseCategory || p.credentialCategory),
+    credentialFingerprint: p.credentialFingerprint || p.credential_fingerprint || null,
+    licenseNumber: p.licenseNumber || p.license_number || null,
+    education: p.education || null,
+    regulatoryBoard: p.regulatoryBoard || p.specificRegulatoryBoard || null
+  })),
+  businessEntity: businessEntityBlock.value
+    ? {
+        name: businessEntityBlock.value.name || null,
+        address: businessEntityBlock.value.address || null
+      }
+    : null
+});
+
+const buildSubmissionPayload = () => {
+  const client = props.disclosureContext?.client || props.boundClient || {};
+  const clientId = client.id || client.client_id || null;
+  const clientFullName = client.fullName || client.full_name || '';
+  const firstName = String(signerFirstName.value || '').trim();
+  const lastName = String(signerLastName.value || '').trim();
+  const email = String(signerEmail.value || '').trim();
+  const signerName = [firstName, lastName].filter(Boolean).join(' ').trim();
+  return {
+    sessionToken: props.sessionToken || null,
+    signerName: signerName || null,
+    signerEmail: email || null,
+    guardian: {
+      firstName: firstName || null,
+      lastName: lastName || null,
+      email: email || null
+    },
+    intakeData: {
+      smartDisclosure: buildDisclosurePayload(),
+      clients: clientId || clientFullName
+        ? [{ id: clientId, fullName: clientFullName || null }]
+        : []
+    }
+  };
+};
 const resolvedLocale = computed(() => {
   const code = String(
     props.locale
@@ -458,6 +558,13 @@ const goNext = () => {
     error.value = tr('Please acknowledge the disclosure to continue.', 'Reconozca la divulgacion para continuar.');
     return;
   }
+  if (stage.value === 'acknowledge' && !isEmbeddedMode.value && !canContinueFromAcknowledge.value) {
+    error.value = tr(
+      'Please enter your name and email to continue.',
+      'Ingrese su nombre y correo para continuar.'
+    );
+    return;
+  }
   if (stage.value === 'sign') {
     submitDisclosure();
     return;
@@ -513,45 +620,6 @@ watch(
   { immediate: true }
 );
 
-const buildDisclosurePayload = () => ({
-  acknowledged: !!acknowledged.value,
-  signatureData: signatureData.value || null,
-  locale: resolvedLocale.value,
-  contentHash: props.disclosureContext?.contentHash || props.disclosureContext?.content_hash || null,
-  providers: providers.value.map((p) => ({
-    id: p.id || p.userId || p.user_id || null,
-    fullName: providerDisplayName(p),
-    category: normalizeCategory(p.category || p.licenseCategory || p.credentialCategory),
-    credentialFingerprint: p.credentialFingerprint || p.credential_fingerprint || null,
-    licenseNumber: p.licenseNumber || p.license_number || null,
-    education: p.education || null,
-    regulatoryBoard: p.regulatoryBoard || p.specificRegulatoryBoard || null
-  })),
-  businessEntity: businessEntityBlock.value
-    ? {
-        name: businessEntityBlock.value.name || null,
-        address: businessEntityBlock.value.address || null
-      }
-    : null
-});
-
-const buildSubmissionPayload = () => {
-  const client = props.disclosureContext?.client || props.boundClient || {};
-  const clientId = client.id || client.client_id || null;
-  const fullName = client.fullName || client.full_name || '';
-  return {
-    sessionToken: props.sessionToken || null,
-    signerName: fullName || null,
-    signerEmail: '',
-    intakeData: {
-      smartDisclosure: buildDisclosurePayload(),
-      clients: clientId || fullName
-        ? [{ id: clientId, fullName: fullName || null }]
-        : []
-    }
-  };
-};
-
 const withRequestTimeout = (promise, ms = 30000) =>
   Promise.race([
     promise,
@@ -564,6 +632,18 @@ const submitDisclosure = async () => {
   if (!acknowledged.value) {
     error.value = tr('Please acknowledge the disclosure to continue.', 'Reconozca la divulgacion para continuar.');
     return;
+  }
+  if (!isEmbeddedMode.value) {
+    const firstName = String(signerFirstName.value || '').trim();
+    const lastName = String(signerLastName.value || '').trim();
+    const email = String(signerEmail.value || '').trim();
+    if (!firstName || !lastName || !email.includes('@')) {
+      error.value = tr(
+        'Please enter your name and email before completing the disclosure.',
+        'Ingrese su nombre y correo antes de completar la divulgacion.'
+      );
+      return;
+    }
   }
   if (!signatureData.value) {
     error.value = tr('Please save your signature before submitting.', 'Guarde su firma antes de enviar.');
@@ -739,6 +819,40 @@ const submitDisclosure = async () => {
   font-weight: 600;
   color: var(--text-primary);
   margin-right: 4px;
+}
+
+.signer-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 14px 0 4px;
+}
+.signer-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #334155;
+}
+.signer-fields label:last-child {
+  grid-column: 1 / -1;
+}
+.signer-fields input {
+  font: inherit;
+  font-weight: 500;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+}
+@media (max-width: 560px) {
+  .signer-fields {
+    grid-template-columns: 1fr;
+  }
+  .signer-fields label:last-child {
+    grid-column: auto;
+  }
 }
 
 .ack-checkbox {

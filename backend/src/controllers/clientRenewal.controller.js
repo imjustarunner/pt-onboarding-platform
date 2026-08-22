@@ -46,6 +46,39 @@ export async function listClientRenewals(req, res, next) {
   }
 }
 
+/** POST /api/clients/:id/renewals/preview — draft + email/interface preview, no send */
+export async function previewClientRenewal(req, res, next) {
+  try {
+    const clientId = Number(req.params.id || 0);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+    if (!isBackofficeManager(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Backoffice access required' } });
+    }
+    const access = await requireManagedClient(req, clientId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const agencyId = Number(req.body?.agencyId || access.client.agency_id || 0);
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+
+    const preview = await ClientRenewal.previewRenewal({
+      agencyId,
+      clientId,
+      options: req.body || {},
+      actorUserId: req.user?.id || null
+    });
+    res.status(201).json({ ok: true, ...preview });
+  } catch (e) {
+    if (e?.status) {
+      return res.status(e.status).json({
+        error: { message: e.message, qualityFlags: e.qualityFlags || undefined }
+      });
+    }
+    next(e);
+  }
+}
+
 /** POST /api/clients/:id/renewals */
 export async function createClientRenewal(req, res, next) {
   try {

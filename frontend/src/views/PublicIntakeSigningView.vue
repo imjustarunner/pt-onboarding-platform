@@ -2890,10 +2890,12 @@ const INTAKE_TRANSLATIONS = {
   en: {
     beginSubtitle: 'Begin to start a secure Digital Enrollment Packet. This link creates a unique session for each person.',
     beginSubtitleSmartRoi: 'Begin to start a secure school release session. This link creates a unique signing session for each person.',
+    beginSubtitleSmartDisclosure: 'Review and sign the Smart Disclosure for the current care team. This is not a full enrollment packet.',
     beginSubtitleJob: 'Start your job application. This link creates a unique session for your application.',
     beginSubtitleMedical: 'Request your medical records. This link creates a unique session for your request.',
     beginIntake: 'Begin enrollment',
     beginIntakeSmartRoi: 'Begin release',
+    beginIntakeSmartDisclosure: 'Begin disclosure',
     beginIntakeRegistration: 'Begin registration',
     beginIntakeJob: 'Start job application',
     beginIntakeMedical: 'Start medical records request',
@@ -2901,10 +2903,12 @@ const INTAKE_TRANSLATIONS = {
     loadingLinkJob: 'Loading job application...',
     loadingLinkMedical: 'Loading medical records request...',
     loadingLinkRegistration: 'Loading registration...',
+    loadingLinkDisclosure: 'Loading disclosure...',
     digitalIntake: 'Digital Intake',
     digitalIntakeJob: 'Job Application',
     digitalIntakeMedical: 'Medical Records Request',
     digitalIntakeRegistration: 'Smart Registration',
+    digitalIntakeDisclosure: 'Smart Disclosure',
     welcome: 'Welcome',
     formTimeLimit: 'This form must be completed within 1 hour. Each new page adds 5 minutes. In-progress answers are saved in this browser session for up to 1 hour in case you accidentally navigate away.',
     reminderConsentTitle: 'Unfinished form reminders',
@@ -3276,6 +3280,7 @@ const INTAKE_TRANSLATIONS = {
     digitalIntakeRegistration: 'Registro Inteligente',
     beginSubtitle: 'Comience para iniciar un Paquete digital de inscripción seguro. Este enlace crea una sesión única para cada persona.',
     beginSubtitleSmartRoi: 'Comience para iniciar una sesión segura de autorización escolar. Este enlace crea una sesión única de firma para cada persona.',
+    beginSubtitleSmartDisclosure: 'Revise y firme la Declaración de Divulgación del equipo de cuidado actual. Esto no es un paquete de inscripción completo.',
     beginSubtitleJob: 'Comience su solicitud de empleo. Este enlace crea una sesión única para su solicitud.',
     beginSubtitleMedical: 'Solicite sus registros médicos. Este enlace crea una sesión única para su solicitud.',
     beginSubtitleRegistration: 'Regístrese para un programa, clase o evento desde este enlace seguro. Algunos enlaces permiten elegir entre varias opciones.',
@@ -3283,9 +3288,12 @@ const INTAKE_TRANSLATIONS = {
       'Inscríbase en un programa o servicio individual desde este enlace seguro. Esto es para convertirse en cliente — no para inscribirse en una clase grupal o un evento con fecha, a menos que su proveedor lo haya incluido aquí.',
     beginIntake: 'Comenzar inscripción',
     beginIntakeSmartRoi: 'Comenzar autorización',
+    beginIntakeSmartDisclosure: 'Comenzar divulgación',
     beginIntakeRegistration: 'Comenzar registro',
     beginIntakeJob: 'Comenzar solicitud de empleo',
     beginIntakeMedical: 'Comenzar solicitud de registros médicos',
+    loadingLinkDisclosure: 'Cargando divulgación...',
+    digitalIntakeDisclosure: 'Declaración de Divulgación',
     welcome: 'Bienvenido',
     formTimeLimit: 'Este formulario debe completarse en 1 hora. Cada página nueva agrega 5 minutos. Las respuestas en progreso se guardan en esta sesión del navegador por hasta 1 hora por si sale accidentalmente.',
     reminderConsentTitle: 'Recordatorios de formulario incompleto',
@@ -4291,6 +4299,7 @@ const isProgramEnrollmentIntake = computed(() => {
 });
 const beginSubtitleText = computed(() => {
   if (formTypeKey.value === 'smart_school_roi') return t('beginSubtitleSmartRoi');
+  if (formTypeKey.value === 'smart_disclosure') return t('beginSubtitleSmartDisclosure');
   const custom = publicIntakeDescription(customMessages.value?.beginSubtitle, '');
   if (custom) return custom;
   if (formTypeKey.value === 'smart_registration' && isProgramEnrollmentIntake.value) {
@@ -4341,6 +4350,7 @@ function goToFirstFormStep() {
 }
 const beginIntakeButtonText = computed(() => {
   if (formTypeKey.value === 'smart_school_roi') return t('beginIntakeSmartRoi');
+  if (formTypeKey.value === 'smart_disclosure') return t('beginIntakeSmartDisclosure');
   const custom = customMessages.value?.beginIntake;
   if (custom && String(custom).trim()) return String(custom).trim();
   if (formTypeKey.value === 'smart_registration') return t('beginIntakeRegistration');
@@ -4352,6 +4362,7 @@ const loadingText = computed(() => {
   if (formTypeKey.value === 'job_application') return t('loadingLinkJob');
   if (formTypeKey.value === 'medical_records_request') return t('loadingLinkMedical');
   if (formTypeKey.value === 'smart_registration') return t('loadingLinkRegistration');
+  if (formTypeKey.value === 'smart_disclosure') return t('loadingLinkDisclosure');
   return t('loadingLink');
 });
 const defaultTitle = computed(() => {

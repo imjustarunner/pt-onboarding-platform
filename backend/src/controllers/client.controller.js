@@ -51,6 +51,12 @@ import {
   permanentDeleteDevFillClient
 } from '../services/devFill.service.js';
 import { supervisorCanAccessClientInOrg } from '../utils/supervisorSchoolAccess.js';
+import {
+  attachRenewalFlagsToClients,
+  computeRenewalFlagsForClients,
+  filterClientsByRenewalFlag
+} from '../services/clientRenewalFlags.service.js';
+import * as ClientRenewal from '../services/clientRenewal.service.js';
 
 const INSURANCE_CARD_SLOTS = new Set(['primary_front', 'primary_back', 'secondary_front', 'secondary_back']);
 
@@ -785,6 +791,21 @@ export const getClients = async (req, res, next) => {
         if (av > bv) return sortAsc ? 1 : -1;
         return sortAsc ? -1 : 1;
       });
+    }
+
+    const renewalRole = String(userRole || '').toLowerCase();
+    const canSeeRenewalFlags = ['super_admin', 'admin', 'support', 'staff'].includes(renewalRole);
+    const renewalFlagFilter = String(req.query.renewalFlag || req.query.renewal_flag || '').trim();
+    if (canSeeRenewalFlags && Array.isArray(out) && out.length) {
+      try {
+        const flagsById = await computeRenewalFlagsForClients(out);
+        out = attachRenewalFlagsToClients(out, flagsById);
+        if (renewalFlagFilter) {
+          out = filterClientsByRenewalFlag(out, renewalFlagFilter);
+        }
+      } catch (e) {
+        console.warn('[getClients] renewalFlags failed', e?.message || e);
+      }
     }
 
     if (!shouldPaginate) {
@@ -2082,6 +2103,135 @@ function bumpGrade(raw) {
 }
 
 /**
+ * Bulk create (+ optional send) Client Renewal hubs.
+ * POST /api/clients/bulk/renewals
+ * body: { clientIds, send?, useRecommended?, options?, agencyId? }
+ */
+export const bulkCreateClientRenewals = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const roleNorm = String(req.user.role || '').toLowerCase();
+    const canManage = ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm);
+    if (!canManage) {
+      return res.status(403).json({ error: { message: 'Backoffice access required' } });
+    }
+
+    const ids = Array.isArray(req.body?.clientIds) ? req.body.clientIds : [];
+    const clientIds = [...new Set(ids.map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n > 0))];
+    if (!clientIds.length) {
+      return res.status(400).json({ error: { message: 'clientIds is required' } });
+    }
+    if (clientIds.length > 50) {
+      return res.status(400).json({ error: { message: 'Maximum 50 clients per bulk renewal push' } });
+    }
+
+    const send = req.body?.send === true || req.body?.send === 'true' || req.body?.send === 1;
+    const useRecommended = req.body?.useRecommended !== false && req.body?.useRecommended !== 'false';
+    const bodyOptions = req.body?.options && typeof req.body.options === 'object' ? req.body.options : {};
+
+    let allowedAgencyIds = null;
+    if (roleNorm !== 'super_admin') {
+      const userAgencies = await User.getAgencies(userId);
+      allowedAgencyIds = new Set((userAgencies || []).map((a) => Number(a?.id)).filter(Boolean));
+    }
+
+    const placeholders = clientIds.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT id, agency_id, organization_id, school_year, roi_expires_at, needs_full_packet_renewal, status
+       FROM clients
+       WHERE id IN (${placeholders})`,
+      clientIds
+    );
+    const byId = new Map((rows || []).map((r) => [Number(r.id), r]));
+    const flagsById = await computeRenewalFlagsForClients(rows || []);
+
+    const results = [];
+    for (const clientId of clientIds) {
+      const client = byId.get(clientId);
+      if (!client) {
+        results.push({ clientId, ok: false, error: 'not_found' });
+        continue;
+      }
+      if (String(client.status || '').toUpperCase() === 'ARCHIVED') {
+        results.push({ clientId, ok: false, error: 'archived' });
+        continue;
+      }
+      if (allowedAgencyIds && !allowedAgencyIds.has(Number(client.agency_id))) {
+        results.push({ clientId, ok: false, error: 'no_access' });
+        continue;
+      }
+
+      const flags = flagsById.get(clientId);
+      let options;
+      if (useRecommended && flags?.recommended) {
+        options = {
+          verifyContact: !!flags.recommended.verifyContact,
+          smartRoi: !!flags.recommended.smartRoi,
+          smartDisclosure: !!flags.recommended.smartDisclosure,
+          fullPacket: !!flags.recommended.fullPacket,
+          packetMode: flags.recommended.packetMode || 'school'
+        };
+      } else {
+        options = {
+          verifyContact: bodyOptions.verifyContact ?? bodyOptions.option_verify_contact ?? true,
+          smartRoi: bodyOptions.smartRoi ?? bodyOptions.option_smart_roi ?? false,
+          smartDisclosure: bodyOptions.smartDisclosure ?? bodyOptions.option_smart_disclosure ?? false,
+          fullPacket: bodyOptions.fullPacket ?? bodyOptions.option_full_packet ?? false,
+          packetMode: bodyOptions.packetMode || bodyOptions.packet_mode || 'school'
+        };
+      }
+
+      if (!options.verifyContact && !options.smartRoi && !options.smartDisclosure && !options.fullPacket) {
+        options.verifyContact = true;
+        options.smartRoi = true;
+      }
+
+      try {
+        const agencyId = Number(req.body?.agencyId || client.agency_id || 0);
+        let renewal = await ClientRenewal.createRenewal({
+          agencyId,
+          clientId,
+          options,
+          actorUserId: userId
+        });
+        if (send) {
+          renewal = await ClientRenewal.sendRenewal(renewal.id, { actorUserId: userId });
+        } else {
+          renewal = await ClientRenewal.ensureRenewalStepLinks(renewal.id, { actorUserId: userId });
+        }
+        results.push({
+          clientId,
+          ok: true,
+          renewalId: renewal?.id || null,
+          publicToken: renewal?.public_token || null,
+          status: renewal?.status || null,
+          options,
+          renewalFlags: flags || null
+        });
+      } catch (e) {
+        results.push({
+          clientId,
+          ok: false,
+          error: e?.message || 'renewal_failed'
+        });
+      }
+    }
+
+    const okCount = results.filter((r) => r.ok).length;
+    res.status(200).json({
+      ok: true,
+      sent: send,
+      count: results.length,
+      successCount: okCount,
+      failureCount: results.length - okCount,
+      results
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
  * Bulk ADD clients to a school year (does not switch/replace clients.school_year).
  * Prior year stays on the client; target year is added via client_school_years.
  * POST /api/clients/bulk/promote-school-year
@@ -2411,12 +2561,10 @@ export const unarchiveClient = async (req, res, next) => {
 
     // Unarchive + optional reassignment. Status stays PENDING_REVIEW for staff review.
     await Client.updateStatus(id, 'PENDING_REVIEW', userId, 'Unarchived');
-    if (nextOrgId || nextProviderId !== undefined) {
-      const patch = {};
-      if (nextOrgId) patch.organization_id = nextOrgId;
-      if (nextProviderId !== undefined) patch.provider_id = nextProviderId;
-      await Client.update(id, patch, userId);
-    }
+    const postUnarchivePatch = { needs_full_packet_renewal: 1 };
+    if (nextOrgId) postUnarchivePatch.organization_id = nextOrgId;
+    if (nextProviderId !== undefined) postUnarchivePatch.provider_id = nextProviderId;
+    await Client.update(id, postUnarchivePatch, userId);
 
     logClientAccess(req, clientId, 'client_unarchived').catch(() => {});
     const updated = await Client.findById(id, { includeSensitive: true });

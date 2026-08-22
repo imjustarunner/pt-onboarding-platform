@@ -2697,10 +2697,25 @@ const resolvePublicIntakeContext = async (publicKey) => {
   if (!key) return { link: null, issuedRoiLink: null, boundClient: null };
   const directLink = await IntakeLink.findByPublicKey(key);
   if (directLink) {
+    let boundClient = null;
+    // Client Renewal disclosure/packet links should bind the existing client (no new enrollment).
+    try {
+      const { findRenewalByDisclosurePublicKey, findRenewalByPacketPublicKey } = await import(
+        '../services/clientRenewal.service.js'
+      );
+      const renewal =
+        (isSmartDisclosureForm(directLink) ? await findRenewalByDisclosurePublicKey(key) : null)
+        || await findRenewalByPacketPublicKey(key);
+      if (renewal?.client_id) {
+        boundClient = await Client.findById(renewal.client_id, { includeSensitive: true });
+      }
+    } catch {
+      boundClient = null;
+    }
     return {
       link: directLink,
       issuedRoiLink: null,
-      boundClient: null
+      boundClient
     };
   }
   const issuedRoiLink = await ClientSchoolRoiSigningLink.findByPublicKey(key);
@@ -5428,9 +5443,13 @@ export const getPublicIntakeLink = async (req, res, next) => {
     // Live-inherit agency school digital form master onto school shells.
     // Locale comes from ?locale= so EN/ES masters swap on the same public URL
     // (no live translate-strings, no retired per-school Spanish copy).
+    // Never inherit onto standalone Smart Disclosure / ROI / non-enrollment forms.
     if (
       String(link.scope_type || '').toLowerCase() === 'school'
       && String(link.form_type || 'intake').toLowerCase() === 'intake'
+      && !isSmartDisclosureForm(link)
+      && !isSmartSchoolRoiForm(link)
+      && !isNonClientIntakeFormType(link.form_type)
       && (Number(link.inherits_school_master || 0) === 1 || agency?.id)
     ) {
       try {
@@ -7144,6 +7163,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       hasProgrammedSchoolRoiStep(link)
       && req.body?.intakeData?.smartSchoolRoi
     );
+    const isStandaloneSmartDisclosure = isSmartDisclosureForm(link);
     if (isSubmissionExpired(submission, { templatesCount: allAllowedTemplates.length })) {
       await deleteSubmissionData(submissionId);
       return res.status(410).json({ error: { message: 'This intake session has expired. Please restart the intake.' } });
@@ -7235,7 +7255,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       }
     }
 
-    if (link.create_client && !isEmbeddedSmartRoiFinalize) {
+    if (link.create_client && !isEmbeddedSmartRoiFinalize && !isStandaloneSmartDisclosure) {
       const rawClients = Array.isArray(req.body?.clients) && req.body.clients.length
         ? req.body.clients
         : (req.body?.client ? [req.body.client] : []);
@@ -7243,7 +7263,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'Client full name is required.' } });
       }
     }
-    if (!isEmbeddedSmartRoiFinalize) {
+    if (!isEmbeddedSmartRoiFinalize && !isStandaloneSmartDisclosure) {
       const gEmail = String(req.body?.guardian?.email || '').trim();
       const gFirst = String(req.body?.guardian?.firstName || '').trim();
       const gLast = String(req.body?.guardian?.lastName || '').trim();
@@ -7255,6 +7275,18 @@ export const finalizePublicIntake = async (req, res, next) => {
         if (!gEmail || !gFirst) {
           return res.status(400).json({ error: { message: 'Guardian name and email are required.' } });
         }
+      }
+    } else if (isStandaloneSmartDisclosure) {
+      const g = req.body?.guardian || {};
+      const signerName = String(
+        req.body?.signerName
+        || [g.firstName, g.lastName].filter(Boolean).join(' ')
+        || g.firstName
+        || ''
+      ).trim();
+      const signerEmail = String(req.body?.signerEmail || g.email || '').trim();
+      if (!signerName || !signerEmail || !signerEmail.includes('@')) {
+        return res.status(400).json({ error: { message: 'Signer name and email are required.' } });
       }
     }
 
@@ -9988,8 +10020,9 @@ export const submitPublicIntake = async (req, res, next) => {
       hasProgrammedSchoolRoiStep(link)
       && req.body?.intakeData?.smartSchoolRoi
     );
+    const isStandaloneSmartDisclosure = isSmartDisclosureForm(link);
 
-    if (link.create_client && !isEmbeddedSmartRoiFinalize) {
+    if (link.create_client && !isEmbeddedSmartRoiFinalize && !isStandaloneSmartDisclosure) {
       const rawClients = Array.isArray(req.body?.clients) && req.body.clients.length
         ? req.body.clients
         : (req.body?.client ? [req.body.client] : []);
@@ -9997,11 +10030,23 @@ export const submitPublicIntake = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'Client full name is required.' } });
       }
     }
-    if (!isEmbeddedSmartRoiFinalize) {
+    if (!isEmbeddedSmartRoiFinalize && !isStandaloneSmartDisclosure) {
       const gEmail = String(req.body?.guardian?.email || '').trim();
       const gFirst = String(req.body?.guardian?.firstName || '').trim();
       if (!gEmail || !gFirst) {
         return res.status(400).json({ error: { message: 'Guardian name and email are required.' } });
+      }
+    } else if (isStandaloneSmartDisclosure) {
+      const g = req.body?.guardian || {};
+      const signerName = String(
+        req.body?.signerName
+        || [g.firstName, g.lastName].filter(Boolean).join(' ')
+        || g.firstName
+        || ''
+      ).trim();
+      const signerEmail = String(req.body?.signerEmail || g.email || '').trim();
+      if (!signerName || !signerEmail || !signerEmail.includes('@')) {
+        return res.status(400).json({ error: { message: 'Signer name and email are required.' } });
       }
     }
 

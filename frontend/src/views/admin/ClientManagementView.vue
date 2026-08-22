@@ -205,6 +205,20 @@
           <option value="only">Dev Fill only</option>
           <option value="exclude">Hide Dev Fill</option>
         </select>
+        <select
+          v-if="canSeeRenewalFlags"
+          v-model="renewalFlagFilter"
+          @change="applyFilters"
+          class="filter-select"
+          aria-label="Renewal need"
+        >
+          <option value="">All renewal needs</option>
+          <option value="any">Any renewal flag</option>
+          <option value="expired_roi">Expired ROI</option>
+          <option value="school_transfer">School transfer</option>
+          <option value="staff_roi_gap">Staff ROI gap</option>
+          <option value="reactivated">Needs full packet</option>
+        </select>
         <div v-if="showSchoolSearch" class="school-search">
           <input
             v-model="schoolSearchQuery"
@@ -305,6 +319,10 @@
             <label class="columns-item">
               <input type="checkbox" v-model="columnPrefs.lastActivity" />
               <span>Last Activity</span>
+            </label>
+            <label v-if="canSeeRenewalFlags" class="columns-item">
+              <input type="checkbox" v-model="columnPrefs.renewal" />
+              <span>Renewal</span>
             </label>
           </div>
         </div>
@@ -408,6 +426,15 @@
           </div>
 
           <div class="bulk-group">
+            <button
+              v-if="canSeeRenewalFlags"
+              class="btn btn-primary btn-sm"
+              type="button"
+              :disabled="bulkWorking || bulkRenewalBusy"
+              @click="bulkPushRenewals"
+            >
+              {{ bulkRenewalBusy ? 'Pushing…' : 'Push renewal' }}
+            </button>
             <button class="btn btn-danger btn-sm" type="button" :disabled="bulkWorking" @click="bulkArchive">
               Archive
             </button>
@@ -497,6 +524,7 @@
               Last Activity
               <span class="cm-sort-indicator" aria-hidden="true">{{ sortIndicatorFor('last_activity_at') }}</span>
             </th>
+            <th v-if="canSeeRenewalFlags && columnPrefs.renewal">Renewal</th>
             <th v-if="canBackofficeEdit">Demo</th>
             <th>Actions</th>
           </tr>
@@ -575,6 +603,18 @@
             </td>
             <td v-if="columnPrefs.insurance">{{ client.insurance_type_label || '-' }}</td>
             <td v-if="columnPrefs.lastActivity">{{ formatDate(client.last_activity_at) || '-' }}</td>
+            <td v-if="canSeeRenewalFlags && columnPrefs.renewal" class="renewal-cell" @click.stop>
+              <RenewalFlagsChips :flags="client.renewalFlags" />
+              <button
+                v-if="client.renewalFlags?.any"
+                type="button"
+                class="btn btn-primary btn-sm"
+                style="margin-top: 6px;"
+                @click.stop="openClientRenewal(client)"
+              >
+                Renew
+              </button>
+            </td>
             <td v-if="canBackofficeEdit" class="select-cell" @click.stop>
               <span v-if="Number(client.created_via_dev_fill)" class="cm-dev-fill-badge" title="Created via Dev Fill">Dev Fill</span>
               <label class="cm-demo-check" title="Demo/test clients stay off official documents">
@@ -589,6 +629,15 @@
             <td class="actions-cell" @click.stop @mouseenter="quickViewClient = null; clearTimeout(_hoverOpenTimer)">
               <button @click.stop="openQuickView(client)" class="btn btn-primary btn-sm cm-view-btn" title="Quick preview">
                 Preview
+              </button>
+              <button
+                v-if="canSeeRenewalFlags"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                title="Client Renewal"
+                @click.stop="openClientRenewal(client)"
+              >
+                Renew
               </button>
               <button
                 v-if="canBackofficeEdit"
@@ -1283,6 +1332,20 @@
       @changed="fetchClients"
     />
 
+    <ClientRenewalPushModal
+      v-if="renewalModalClient?.id"
+      :open="renewalModalOpen"
+      :client-id="renewalModalClient.id"
+      :agency-id="renewalModalClient.agency_id"
+      :roi-expires-at="renewalModalClient.roi_expires_at"
+      :school-name="renewalModalClient.organization_name || ''"
+      :agency-name="renewalModalClient.agency_name || 'ITSCO'"
+      :client-initials="renewalModalClient.initials || ''"
+      :initial-options="renewalModalClient.renewalFlags?.recommended || null"
+      @close="closeClientRenewal"
+      @sent="() => { closeClientRenewal(); fetchClients(); }"
+    />
+
   </div>
 </template>
 
@@ -1315,6 +1378,8 @@ import {
   colorFromHue
 } from '../../utils/clientManagementVisuals.js';
 import { parseClientManagementSearch, matchesParsedSearch, SEARCH_HINTS } from '../../utils/clientManagementSearch.js';
+import ClientRenewalPushModal from '../../components/admin/ClientRenewalPushModal.vue';
+import RenewalFlagsChips from '../../components/admin/RenewalFlagsChips.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -1498,6 +1563,54 @@ const canBackofficeEdit = computed(() => {
   return ['super_admin', 'admin', 'support', 'staff'].includes(r);
 });
 
+/** Renewal flags + push: admin / super_admin / support (not staff/providers). */
+const canSeeRenewalFlags = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'admin', 'support'].includes(r);
+});
+
+const renewalFlagFilter = ref('');
+const renewalModalOpen = ref(false);
+const renewalModalClient = ref(null);
+const bulkRenewalBusy = ref(false);
+
+function openClientRenewal(client) {
+  renewalModalClient.value = client || null;
+  renewalModalOpen.value = true;
+}
+
+function closeClientRenewal() {
+  renewalModalOpen.value = false;
+  renewalModalClient.value = null;
+}
+
+async function bulkPushRenewals() {
+  const ids = Array.from(selectedIds.value || []);
+  if (!ids.length || !canSeeRenewalFlags.value) return;
+  const flagged = clients.value.filter((c) => ids.includes(c.id) && c.renewalFlags?.any);
+  const msg = flagged.length
+    ? `Push Client Renewal for ${ids.length} selected client(s)?\n${flagged.length} have renewal flags; options will follow each client’s recommendations (new hub tokens).`
+    : `Push Client Renewal for ${ids.length} selected client(s)? Recommended options will be used when available.`;
+  if (!window.confirm(msg)) return;
+  bulkRenewalBusy.value = true;
+  try {
+    const resp = await api.post('/clients/bulk/renewals', {
+      clientIds: ids,
+      send: true,
+      useRecommended: true
+    });
+    const ok = Number(resp.data?.successCount || 0);
+    const fail = Number(resp.data?.failureCount || 0);
+    window.alert(`Renewal push complete: ${ok} sent, ${fail} failed.`);
+    selectedIds.value = new Set();
+    await fetchClients();
+  } catch (e) {
+    window.alert(e?.response?.data?.error?.message || e?.message || 'Bulk renewal failed');
+  } finally {
+    bulkRenewalBusy.value = false;
+  }
+}
+
 const schoolOverviewLink = computed(() => {
   const slug = route.params?.organizationSlug;
   const base = typeof slug === 'string' && slug ? `/${slug}/admin/schools/overview` : '/admin/schools/overview';
@@ -1514,7 +1627,8 @@ const columnPrefs = ref({
   submissionDate: true,
   paperwork: false,
   insurance: true,
-  lastActivity: true
+  lastActivity: true,
+  renewal: true
 });
 
 const loadColumnPrefs = () => {
@@ -2281,6 +2395,9 @@ const fetchClients = async () => {
     const searchForApi = parsed.freeText || (searchQuery.value.includes(':') ? '' : searchQuery.value);
     if (searchForApi) params.append('search', searchForApi);
     if (skillsOnly.value) params.append('skills', 'true');
+    if (canSeeRenewalFlags.value && renewalFlagFilter.value) {
+      params.append('renewalFlag', renewalFlagFilter.value);
+    }
     if (usingServerPagination.value) {
       params.append('paginate', 'true');
       params.append('page', String(currentPage.value));

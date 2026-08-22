@@ -722,6 +722,30 @@ export async function buildSmartDisclosureContext({
     copy, businessEntity, providers: providers.map((p) => p.credentialFingerprint)
   })).digest('hex').slice(0, 40);
 
+  let signerPrefill = null;
+  if (boundClient?.id) {
+    try {
+      const ClientGuardianIntakeProfile = (await import('../models/ClientGuardianIntakeProfile.model.js')).default;
+      const ClientGuardian = (await import('../models/ClientGuardian.model.js')).default;
+      const profile = await ClientGuardianIntakeProfile.findByClientId(boundClient.id);
+      const guardians = await ClientGuardian.listForClient(boundClient.id);
+      const g = (guardians || []).find((row) => String(row?.email || '').includes('@')) || guardians?.[0] || null;
+      const firstName = profile?.firstName || g?.first_name || null;
+      const lastName = profile?.lastName || g?.last_name || null;
+      const email = profile?.email || g?.email || null;
+      if (firstName || lastName || email) {
+        signerPrefill = {
+          firstName: firstName || '',
+          lastName: lastName || '',
+          email: email || '',
+          fullName: [firstName, lastName].filter(Boolean).join(' ').trim() || null
+        };
+      }
+    } catch {
+      signerPrefill = null;
+    }
+  }
+
   return {
     enabled: true,
     locale: loc,
@@ -732,6 +756,7 @@ export async function buildSmartDisclosureContext({
       id: Number(boundClient.id),
       fullName: boundClient.full_name || boundClient.fullName || null
     } : null,
+    signerPrefill,
     businessEntity,
     copy,
     providers,

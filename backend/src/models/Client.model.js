@@ -536,6 +536,7 @@ class Client {
       'address_state',
       'address_zip',
       'paper_packet_staff_roi_pending',
+      'needs_full_packet_renewal',
       'onboarding_docs_json',
       'staff_onboarding_completed_at',
       'staff_onboarding_completed_by_user_id',
@@ -561,6 +562,7 @@ class Client {
           field === 'skill_builders_intake_complete' ||
           field === 'skill_builders_treatment_plan_complete' ||
           field === 'paper_packet_staff_roi_pending' ||
+          field === 'needs_full_packet_renewal' ||
           field === 'disclosure_required' ||
           field === 'is_demo'
         ) {

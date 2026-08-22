@@ -13,6 +13,7 @@ import {
   unarchiveClient,
   terminateClient,
   bulkPromoteSchoolYear,
+  bulkCreateClientRenewals,
   rolloverSchoolYear,
   assignProvider,
   deleteBulkImportedClients,
@@ -117,6 +118,7 @@ import {
 } from '../controllers/identityHygiene.controller.js';
 import {
   listClientRenewals,
+  previewClientRenewal,
   createClientRenewal,
   sendClientRenewal
 } from '../controllers/clientRenewal.controller.js';
@@ -148,6 +150,7 @@ router.delete('/bulk-import', deleteBulkImportedClients);
 // Bulk actions
 router.post('/bulk/promote-school-year', bulkPromoteSchoolYear);
 router.post('/bulk/rollover-school-year', rolloverSchoolYear);
+router.post('/bulk/renewals', requireBackofficeAdmin, bulkCreateClientRenewals);
 
 // Get client detail
 router.get('/:id', getClientById);
@@ -300,6 +303,7 @@ router.post('/:id/school-roi-signing-link/copied', trackClientSchoolRoiSigningLi
 router.post('/:id/school-roi-signing-text', sendClientSchoolRoiSigningText);
 router.post('/:id/school-roi-signing-email', sendClientSchoolRoiSigningEmail);
 router.get('/:id/renewals', requireBackofficeAdmin, listClientRenewals);
+router.post('/:id/renewals/preview', requireBackofficeAdmin, previewClientRenewal);
 router.post('/:id/renewals', requireBackofficeAdmin, createClientRenewal);
 router.post('/:id/renewals/:renewalId/send', requireBackofficeAdmin, sendClientRenewal);
 router.post(

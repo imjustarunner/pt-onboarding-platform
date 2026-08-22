@@ -1,127 +1,181 @@
 <template>
-  <div class="cr-hub" :style="brandStyle">
-    <header class="cr-hub__hero">
-      <div v-if="branding?.logoUrl" class="cr-hub__logo-wrap">
-        <img :src="branding.logoUrl" alt="" class="cr-hub__logo" />
-      </div>
-      <p class="cr-hub__brand">{{ branding?.organizationName || branding?.agencyName || 'Client Renewal' }}</p>
-      <h1>{{ schoolName || 'Action needed' }}</h1>
-      <p v-if="clientInitials" class="cr-hub__sub">For participant {{ clientInitials }}</p>
-      <p class="cr-hub__sub">Please complete the items below. Your information stays private.</p>
-    </header>
-
-    <div v-if="loading" class="cr-hub__msg">Loading…</div>
-    <div v-else-if="fatalError" class="cr-hub__msg cr-hub__msg--err">{{ fatalError }}</div>
-    <div v-else-if="optedOut" class="cr-hub__msg">
+  <div class="cr-page" :style="brandStyle">
+    <div v-if="loading" class="cr-page__state">Loading…</div>
+    <div v-else-if="fatalError" class="cr-page__state cr-page__state--err">{{ fatalError }}</div>
+    <div v-else-if="optedOut" class="cr-page__state">
       You’re opted out of platform emails for this account. No further renewal messages will be sent.
     </div>
-    <div v-else-if="completed" class="cr-hub__msg">Thank you — this renewal is complete.</div>
+    <div v-else-if="completed && !hasOpenSteps" class="cr-page__state">
+      Thank you — this renewal is complete.
+    </div>
 
-    <template v-else>
-      <section class="cr-hub__cards">
-        <article v-if="options.verifyContact" class="cr-card" :class="{ 'is-done': progress.verifyContactDone }">
-          <header>
-            <h2>Verify contact info</h2>
-            <span v-if="progress.verifyContactDone" class="cr-pill">Done</span>
-          </header>
-          <form v-if="!progress.verifyContactDone" class="cr-form" @submit.prevent="saveContact">
-            <label>Email <input v-model="contact.email" type="email" required /></label>
-            <label>Phone <input v-model="contact.phone" type="tel" /></label>
-            <label>First name <input v-model="contact.firstName" type="text" /></label>
-            <label>Last name <input v-model="contact.lastName" type="text" /></label>
-            <button type="submit" class="btn btn-primary" :disabled="savingContact">
-              {{ savingContact ? 'Saving…' : 'Confirm contact' }}
-            </button>
-            <p v-if="contactError" class="err">{{ contactError }}</p>
-          </form>
-        </article>
+    <div v-else class="cr-shell">
+      <aside class="cr-side">
+        <div class="cr-side__brand">
+          <img v-if="branding?.logoUrl" :src="branding.logoUrl" alt="" class="cr-side__logo" />
+          <p class="cr-side__agency">{{ agencyLabel }}</p>
+          <p v-if="schoolName" class="cr-side__school">Supporting {{ schoolName }}</p>
+        </div>
 
-        <article v-if="options.smartRoi" class="cr-card" :class="{ 'is-done': progress.smartRoiDone }">
-          <header>
-            <h2>Smart School ROI</h2>
-            <span v-if="recommended.smartRoi" class="cr-pill cr-pill--rec">Recommended</span>
-            <span v-if="progress.smartRoiDone" class="cr-pill">Done</span>
-          </header>
-          <p>Sign a new release of information for the school team.</p>
-          <a
-            v-if="stepLinks.smartRoi"
-            class="btn btn-primary"
-            :href="stepLinks.smartRoi"
-            target="_blank"
-            rel="noopener"
-            @click="markStep('smart_roi')"
-          >Open ROI form</a>
-          <p v-else class="err">Signing link unavailable — contact support.</p>
-        </article>
+        <h1 class="cr-side__title">Client Renewal</h1>
+        <p class="cr-side__lead">Let’s keep your information up to date.</p>
+        <p class="cr-side__copy">
+          To ensure we continue to serve you well at {{ schoolName || 'your school' }}, please complete
+          the following steps. This process typically takes just a few minutes.
+        </p>
+        <p v-if="clientInitials" class="cr-side__participant">For participant {{ clientInitials }}</p>
 
-        <article v-if="options.smartDisclosure" class="cr-card" :class="{ 'is-done': progress.smartDisclosureDone }">
-          <header>
-            <h2>Smart Disclosure</h2>
-            <span v-if="recommended.smartDisclosure" class="cr-pill cr-pill--rec">Recommended</span>
-            <span v-if="progress.smartDisclosureDone" class="cr-pill">Done</span>
-          </header>
-          <p>Review and acknowledge the disclosure statement.</p>
-          <a
-            v-if="stepLinks.smartDisclosure"
-            class="btn btn-primary"
-            :href="stepLinks.smartDisclosure"
-            target="_blank"
-            rel="noopener"
-            @click="markStep('smart_disclosure')"
-          >Open Disclosure</a>
-          <p v-else class="err">Signing link unavailable — contact support.</p>
-        </article>
+        <div class="cr-secure">
+          <div class="cr-secure__icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              <path d="M9 12l2 2 4-4" />
+            </svg>
+          </div>
+          <div>
+            <strong>Your information is secure</strong>
+            <p>Your privacy and security are important to us. All documents are stored securely.</p>
+          </div>
+        </div>
 
-        <article v-if="options.fullPacket" class="cr-card" :class="{ 'is-done': progress.fullPacketDone }">
-          <header>
-            <h2>Full enrollment packet</h2>
-            <span v-if="progress.fullPacketDone" class="cr-pill">Done</span>
-          </header>
-          <p>
-            Complete the {{ options.packetMode === 'office' ? 'office' : 'school' }} renewal packet.
-            This updates the existing client record — it does not create a new one.
-          </p>
-          <a
-            v-if="stepLinks.fullPacket"
-            class="btn btn-primary"
-            :href="stepLinks.fullPacket"
-            target="_blank"
-            rel="noopener"
-            @click="markStep('full_packet')"
-          >Open packet</a>
-          <p v-else class="err">Packet link unavailable — contact support.</p>
-        </article>
-      </section>
-
-      <aside class="cr-hub__aside">
-        <section class="cr-support">
+        <section class="cr-help">
           <h2>Need help?</h2>
-          <form @submit.prevent="submitTicket">
+          <p v-if="supportEmail">
+            <a :href="`mailto:${supportEmail}`">{{ supportEmail }}</a>
+          </p>
+          <form class="cr-help__form" @submit.prevent="submitTicket">
             <label>Subject <input v-model="ticket.subject" type="text" maxlength="255" /></label>
-            <label>Message <textarea v-model="ticket.message" rows="4" required maxlength="4000" /></label>
-            <button type="submit" class="btn btn-secondary" :disabled="ticketSending">
+            <label>Message <textarea v-model="ticket.message" rows="3" required maxlength="4000" /></label>
+            <button type="submit" class="cr-btn cr-btn--ghost" :disabled="ticketSending">
               {{ ticketSending ? 'Submitting…' : 'Submit support ticket' }}
             </button>
             <p v-if="ticketError" class="err">{{ ticketError }}</p>
             <p v-if="ticketOk" class="ok">Ticket submitted.</p>
           </form>
-        </section>
-
-        <section class="cr-optout">
-          <h2>No longer interested?</h2>
-          <p>Stop platform emails and remove this contact from automated messages.</p>
-          <button type="button" class="btn btn-danger-outline" :disabled="optingOut" @click="doOptOut">
+          <button type="button" class="cr-optout-link" :disabled="optingOut" @click="doOptOut">
             {{ optingOut ? 'Updating…' : 'Remove my contact / stop emails' }}
           </button>
           <p v-if="optOutError" class="err">{{ optOutError }}</p>
         </section>
       </aside>
-    </template>
+
+      <main class="cr-main">
+        <p class="cr-main__kicker">Step-by-step</p>
+        <h2 class="cr-main__heading">Please complete all steps below.</h2>
+
+        <ol class="cr-steps">
+          <li
+            v-for="(step, idx) in visibleSteps"
+            :key="step.key"
+            class="cr-step"
+            :class="{
+              'is-done': step.done,
+              'is-active': activeStepKey === step.key,
+              [`cr-step--${step.tone}`]: true
+            }"
+          >
+            <div class="cr-step__rail">
+              <span class="cr-step__num">{{ step.done ? '✓' : idx + 1 }}</span>
+            </div>
+            <div class="cr-step__body">
+              <div class="cr-step__head">
+                <h3>{{ step.title }}</h3>
+                <span v-if="step.done" class="cr-pill">Done</span>
+                <span v-else-if="step.recommended" class="cr-pill cr-pill--rec">Recommended</span>
+              </div>
+              <p>{{ step.description }}</p>
+
+              <form
+                v-if="step.key === 'verify' && !step.done && expandedStep === 'verify'"
+                class="cr-form"
+                @submit.prevent="saveContact"
+              >
+                <label>First name <input v-model="contact.firstName" type="text" required /></label>
+                <label>Last name <input v-model="contact.lastName" type="text" required /></label>
+                <label>Email <input v-model="contact.email" type="email" required /></label>
+                <label>Phone <input v-model="contact.phone" type="tel" /></label>
+                <label>
+                  Relationship to student
+                  <select v-model="contact.relationship" required>
+                    <option value="">Select…</option>
+                    <option value="Parent">Parent</option>
+                    <option value="Guardian">Guardian</option>
+                    <option value="Grandparent">Grandparent</option>
+                    <option value="Foster parent">Foster parent</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </label>
+                <label>Your date of birth <input v-model="contact.dateOfBirth" type="date" /></label>
+                <label>
+                  Preferred language
+                  <select v-model="contact.primaryLanguage">
+                    <option value="">Select…</option>
+                    <option value="English">English</option>
+                    <option value="Spanish">Spanish</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </label>
+                <label>Mailing street <input v-model="contact.addressStreet" type="text" /></label>
+                <label>Apt / unit <input v-model="contact.addressApt" type="text" /></label>
+                <div class="cr-form__row">
+                  <label>City <input v-model="contact.addressCity" type="text" /></label>
+                  <label>State <input v-model="contact.addressState" type="text" maxlength="2" /></label>
+                  <label>ZIP <input v-model="contact.addressZip" type="text" maxlength="10" /></label>
+                </div>
+                <button type="submit" class="cr-btn" :class="`cr-btn--${step.tone}`" :disabled="savingContact">
+                  {{ savingContact ? 'Saving…' : 'Confirm contact' }}
+                </button>
+                <p v-if="contactError" class="err">{{ contactError }}</p>
+              </form>
+
+              <button
+                v-else-if="step.key === 'verify' && !step.done"
+                type="button"
+                class="cr-btn"
+                :class="`cr-btn--${step.tone}`"
+                @click="expandedStep = 'verify'"
+              >
+                Review &amp; Confirm →
+              </button>
+
+              <a
+                v-else-if="step.href && !step.done"
+                class="cr-btn"
+                :class="`cr-btn--${step.tone}`"
+                :href="step.href"
+                target="_blank"
+                rel="noopener"
+              >
+                {{ step.cta }}
+              </a>
+              <p v-if="step.href && !step.done" class="hint-inline">
+                After you finish signing, return to this page — Done updates when the signature is saved.
+              </p>
+              <p v-else-if="!step.done && step.needsLink" class="err">
+                Signing link unavailable — contact support.
+              </p>
+            </div>
+          </li>
+
+          <li class="cr-step cr-step--done-final">
+            <div class="cr-step__rail">
+              <span class="cr-step__num">✓</span>
+            </div>
+            <div class="cr-step__body">
+              <h3>All set!</h3>
+              <p>
+                Once all steps are complete, we’ll be notified and will be in touch if we need anything else.
+              </p>
+            </div>
+          </li>
+        </ol>
+      </main>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import axios from 'axios';
 
@@ -132,7 +186,9 @@ const loading = ref(true);
 const fatalError = ref('');
 const branding = ref(null);
 const schoolName = ref('');
+const agencyName = ref('');
 const clientInitials = ref('');
+const supportEmail = ref('support@itsco.health');
 const options = reactive({
   verifyContact: false,
   smartRoi: false,
@@ -148,7 +204,20 @@ const progress = reactive({
   fullPacketDone: false
 });
 const stepLinks = reactive({ smartRoi: null, smartDisclosure: null, fullPacket: null });
-const contact = reactive({ email: '', phone: '', firstName: '', lastName: '' });
+const contact = reactive({
+  email: '',
+  phone: '',
+  firstName: '',
+  lastName: '',
+  relationship: '',
+  dateOfBirth: '',
+  primaryLanguage: '',
+  addressStreet: '',
+  addressApt: '',
+  addressCity: '',
+  addressState: '',
+  addressZip: ''
+});
 const savingContact = ref(false);
 const contactError = ref('');
 const optedOut = ref(false);
@@ -160,10 +229,90 @@ const ticketSending = ref(false);
 const ticketError = ref('');
 const ticketOk = ref(false);
 const supportPath = ref('');
+const expandedStep = ref('');
 
 const brandStyle = computed(() => {
-  const primary = branding.value?.primaryColor || '#0f766e';
-  return { '--cr-primary': primary };
+  const primary = branding.value?.primaryColor || '#0f4c81';
+  const accent = branding.value?.accentColor || '#0f766e';
+  const gold = '#b08d57';
+  return {
+    '--cr-primary': primary,
+    '--cr-accent': accent,
+    '--cr-gold': gold
+  };
+});
+
+const agencyLabel = computed(
+  () =>
+    String(agencyName.value || branding.value?.agencyName || branding.value?.organizationName || 'ITSCO').trim()
+    || 'ITSCO'
+);
+
+const visibleSteps = computed(() => {
+  const steps = [];
+  if (options.verifyContact) {
+    steps.push({
+      key: 'verify',
+      markKey: 'verify_contact',
+      title: 'Verify Your Information',
+      description:
+        'Please review and confirm your contact information, relationship, and mailing address to ensure everything is accurate and up to date.',
+      done: progress.verifyContactDone,
+      tone: 'navy',
+      cta: 'Review & Confirm →'
+    });
+  }
+  if (options.smartRoi) {
+    steps.push({
+      key: 'roi',
+      markKey: 'smart_roi',
+      title: 'Sign Updated Smart School ROI',
+      description:
+        'Please review and electronically sign the updated Smart School Release of Information (ROI).',
+      done: progress.smartRoiDone,
+      recommended: recommended.smartRoi,
+      href: stepLinks.smartRoi,
+      needsLink: true,
+      tone: 'teal',
+      cta: 'Review & Sign →'
+    });
+  }
+  if (options.smartDisclosure) {
+    steps.push({
+      key: 'disclosure',
+      markKey: 'smart_disclosure',
+      title: 'Sign Updated Smart Disclosure',
+      description: 'Please review and electronically sign the updated Smart Disclosure.',
+      done: progress.smartDisclosureDone,
+      recommended: recommended.smartDisclosure,
+      href: stepLinks.smartDisclosure,
+      needsLink: true,
+      tone: 'gold',
+      cta: 'Review & Sign →'
+    });
+  }
+  if (options.fullPacket) {
+    const mode = options.packetMode === 'office' ? 'office' : 'school';
+    steps.push({
+      key: 'packet',
+      markKey: 'full_packet',
+      title: 'Complete Enrollment Packet Renewal',
+      description: `Please complete the ${mode} enrollment packet renewal. This updates the existing client record.`,
+      done: progress.fullPacketDone,
+      href: stepLinks.fullPacket,
+      needsLink: true,
+      tone: 'navy',
+      cta: 'Open Packet →'
+    });
+  }
+  return steps;
+});
+
+const hasOpenSteps = computed(() => visibleSteps.value.some((s) => !s.done));
+
+const activeStepKey = computed(() => {
+  const next = visibleSteps.value.find((s) => !s.done);
+  return next?.key || '';
 });
 
 const apiBase = '/api/public/client-renewal';
@@ -171,7 +320,9 @@ const apiBase = '/api/public/client-renewal';
 function applyPayload(data) {
   branding.value = data.branding || null;
   schoolName.value = data.schoolName || '';
+  agencyName.value = data.agencyName || data.branding?.agencyName || '';
   clientInitials.value = data.clientInitials || '';
+  supportEmail.value = data.supportEmail || 'support@itsco.health';
   Object.assign(options, data.options || {});
   Object.assign(recommended, data.recommended || {});
   Object.assign(progress, data.progress || {});
@@ -182,6 +333,16 @@ function applyPayload(data) {
     contact.phone = data.contactPrefill.phone || '';
     contact.firstName = data.contactPrefill.firstName || '';
     contact.lastName = data.contactPrefill.lastName || '';
+    contact.relationship = data.contactPrefill.relationship || '';
+    contact.dateOfBirth = data.contactPrefill.dateOfBirth
+      ? String(data.contactPrefill.dateOfBirth).slice(0, 10)
+      : '';
+    contact.primaryLanguage = data.contactPrefill.primaryLanguage || '';
+    contact.addressStreet = data.contactPrefill.addressStreet || '';
+    contact.addressApt = data.contactPrefill.addressApt || '';
+    contact.addressCity = data.contactPrefill.addressCity || '';
+    contact.addressState = data.contactPrefill.addressState || '';
+    contact.addressZip = data.contactPrefill.addressZip || '';
   }
   const st = String(data.status || '');
   optedOut.value = st === 'opted_out';
@@ -212,12 +373,19 @@ async function saveContact() {
       email: contact.email,
       phone: contact.phone,
       firstName: contact.firstName,
-      lastName: contact.lastName
+      lastName: contact.lastName,
+      relationship: contact.relationship,
+      dateOfBirth: contact.dateOfBirth,
+      primaryLanguage: contact.primaryLanguage,
+      addressStreet: contact.addressStreet,
+      addressApt: contact.addressApt,
+      addressCity: contact.addressCity,
+      addressState: contact.addressState,
+      addressZip: contact.addressZip
     });
-    if (res.data?.renewal || res.data?.progress) {
-      applyPayload({ ...res.data, ...(res.data.renewal ? await refreshQuiet() : res.data) });
-    }
+    applyPayload(res.data || {});
     progress.verifyContactDone = true;
+    expandedStep.value = '';
   } catch (e) {
     contactError.value = e?.response?.data?.error?.message || 'Could not save contact';
   } finally {
@@ -235,12 +403,9 @@ async function refreshQuiet() {
   }
 }
 
-async function markStep(step) {
-  try {
-    await axios.post(`${apiBase}/${encodeURIComponent(token.value)}/mark-step`, { step });
-    await refreshQuiet();
-  } catch {
-    // non-blocking — form open is the main action
+function onVisibility() {
+  if (document.visibilityState === 'visible') {
+    refreshQuiet();
   }
 }
 
@@ -262,13 +427,12 @@ async function submitTicket() {
   ticketOk.value = false;
   ticketSending.value = true;
   try {
-    await axios.post(supportPath.value.startsWith('http')
-      ? supportPath.value
-      : supportPath.value,
-    {
+    await axios.post(supportPath.value, {
       subject: ticket.subject,
       message: ticket.message,
-      question: ticket.message
+      question: ticket.message,
+      email: contact.email || undefined,
+      name: [contact.firstName, contact.lastName].filter(Boolean).join(' ') || undefined
     });
     ticketOk.value = true;
     ticket.message = '';
@@ -279,60 +443,223 @@ async function submitTicket() {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  load();
+  document.addEventListener('visibilitychange', onVisibility);
+  window.addEventListener('focus', refreshQuiet);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', onVisibility);
+  window.removeEventListener('focus', refreshQuiet);
+});
 </script>
 
 <style scoped>
-.cr-hub {
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Source+Sans+3:wght@400;600;700&display=swap');
+
+.cr-page {
   min-height: 100vh;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--cr-primary, #0f766e) 12%, #f8fafc), #f1f5f9 40%, #fff);
-  padding: 28px 16px 64px;
-  color: #0f172a;
-  font-family: "Source Sans 3", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--cr-primary) 12%, #fff), transparent 40%),
+    linear-gradient(135deg, #f4f7fb 0%, #eef2f6 45%, #f7f4ef 100%);
+  color: #152238;
+  font-family: 'Source Sans 3', 'Segoe UI', sans-serif;
 }
-.cr-hub__hero {
-  max-width: 920px;
-  margin: 0 auto 28px;
+.cr-page__state {
+  max-width: 640px;
+  margin: 48px auto;
+  padding: 24px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(21, 34, 56, 0.08);
+}
+.cr-page__state--err { color: #b91c1c; }
+.cr-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+}
+.cr-side {
+  background: #fff;
+  padding: 36px 32px 48px;
+  border-right: 1px solid #e5e9f0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cr-side__logo {
+  max-height: 56px;
+  max-width: 180px;
+  object-fit: contain;
+  margin-bottom: 8px;
+}
+.cr-side__agency {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cr-gold);
+}
+.cr-side__school {
+  margin: 0;
+  color: #5b6b7c;
+  font-size: 0.95rem;
+}
+.cr-side__title {
+  margin: 18px 0 0;
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: clamp(2.4rem, 4vw, 3.2rem);
+  line-height: 1.05;
+  color: var(--cr-primary);
+  border-bottom: 2px solid var(--cr-gold);
+  padding-bottom: 10px;
+  width: fit-content;
+}
+.cr-side__lead {
+  margin: 8px 0 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #1b2a3a;
+}
+.cr-side__copy,
+.cr-side__participant {
+  margin: 0;
+  color: #5b6b7c;
+  line-height: 1.55;
+}
+.cr-secure {
+  display: flex;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 14px;
+  background: #f3f5f8;
+  border-radius: 10px;
+}
+.cr-secure__icon {
+  color: var(--cr-primary);
+  flex: 0 0 auto;
+}
+.cr-secure strong { display: block; margin-bottom: 4px; }
+.cr-secure p { margin: 0; font-size: 0.92rem; color: #5b6b7c; }
+.cr-help {
+  margin-top: auto;
+  padding-top: 18px;
+  border-top: 1px solid #e5e9f0;
+}
+.cr-help h2 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+.cr-help a { color: var(--cr-primary); }
+.cr-help__form {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.cr-help__form label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.cr-help__form input,
+.cr-help__form textarea,
+.cr-form input {
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font: inherit;
+}
+.cr-optout-link {
+  margin-top: 12px;
+  background: none;
+  border: none;
+  color: #b91c1c;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
   text-align: left;
 }
-.cr-hub__logo { max-height: 56px; max-width: 200px; object-fit: contain; }
-.cr-hub__brand {
-  font-size: 1.75rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  margin: 12px 0 4px;
-  color: var(--cr-primary, #0f766e);
+.cr-main {
+  padding: 40px 36px 64px;
 }
-.cr-hub__hero h1 {
-  font-size: clamp(1.6rem, 3vw, 2.2rem);
-  margin: 0 0 8px;
+.cr-main__kicker {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.78rem;
   font-weight: 700;
+  color: #6b7c8f;
 }
-.cr-hub__sub { margin: 0 0 4px; color: #475569; }
-.cr-hub__msg {
-  max-width: 640px;
-  margin: 24px auto;
-  padding: 20px;
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+.cr-main__heading {
+  margin: 6px 0 28px;
+  font-size: 1.35rem;
+  color: #1b2a3a;
 }
-.cr-hub__msg--err { color: #b91c1c; }
-.cr-hub__cards, .cr-hub__aside {
-  max-width: 920px;
-  margin: 0 auto;
+.cr-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
 }
-.cr-hub__cards { display: grid; gap: 14px; margin-bottom: 20px; }
-.cr-card {
-  background: #fff;
-  border-radius: 12px;
+.cr-step {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 16px;
+  position: relative;
+  padding-bottom: 28px;
+}
+.cr-step:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 21px;
+  top: 44px;
+  bottom: 0;
+  width: 2px;
+  background: #d7deea;
+}
+.cr-step__num {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #fff;
+  background: var(--cr-primary);
+}
+.cr-step--teal .cr-step__num { background: var(--cr-accent); }
+.cr-step--gold .cr-step__num { background: var(--cr-gold); }
+.cr-step.is-done .cr-step__num,
+.cr-step--done-final .cr-step__num {
+  background: #94a3b8;
+}
+.cr-step__body {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid #e5e9f0;
+  border-radius: 14px;
   padding: 16px 18px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
-  border: 1px solid #e2e8f0;
 }
-.cr-card.is-done { opacity: 0.85; border-color: #a7f3d0; }
-.cr-card header { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.cr-card h2 { margin: 0; font-size: 1.1rem; flex: 1; }
+.cr-step__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cr-step__head h3,
+.cr-step__body h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.cr-step__body p {
+  margin: 8px 0 0;
+  color: #5b6b7c;
+  line-height: 1.5;
+}
 .cr-pill {
   font-size: 11px;
   font-weight: 700;
@@ -342,61 +669,62 @@ onMounted(load);
   border-radius: 999px;
 }
 .cr-pill--rec { background: #ffedd5; color: #9a3412; }
-.cr-form { display: grid; gap: 8px; margin-top: 10px; max-width: 420px; }
-.cr-form label, .cr-support label, .cr-optout label {
+.cr-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  max-width: 480px;
+}
+.cr-form__row {
+  display: grid;
+  grid-template-columns: 1.4fr 0.6fr 0.8fr;
+  gap: 8px;
+}
+.cr-form label {
   display: grid;
   gap: 4px;
   font-size: 13px;
 }
-.cr-form input, .cr-support input, .cr-support textarea {
+.cr-form select {
   padding: 8px 10px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   font: inherit;
+  background: #fff;
 }
-.btn {
+.hint-inline {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #64748b;
+}
+.cr-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 9px 14px;
-  border-radius: 8px;
+  margin-top: 12px;
+  padding: 10px 16px;
   border: none;
-  font-weight: 600;
+  border-radius: 8px;
+  font-weight: 700;
   cursor: pointer;
   text-decoration: none;
-  font-size: 14px;
+  color: #fff;
   width: fit-content;
+  background: var(--cr-primary);
 }
-.btn-primary { background: var(--cr-primary, #0f766e); color: #fff; }
-.btn-secondary { background: #e2e8f0; color: #0f172a; }
-.btn-danger-outline {
-  background: transparent;
-  border: 1px solid #fca5a5;
-  color: #b91c1c;
+.cr-btn--navy { background: var(--cr-primary); }
+.cr-btn--teal { background: var(--cr-accent); }
+.cr-btn--gold { background: var(--cr-gold); }
+.cr-btn--ghost {
+  background: #e8eef5;
+  color: #1b2a3a;
 }
-.cr-aside { display: grid; gap: 14px; }
-.cr-hub__aside { display: grid; gap: 14px; margin-top: 8px; }
-.cr-support, .cr-optout {
-  background: #fff;
-  border-radius: 12px;
-  padding: 16px 18px;
-  border: 1px solid #e2e8f0;
-}
-.cr-support form { display: grid; gap: 8px; }
 .err { color: #b91c1c; font-size: 13px; margin: 6px 0 0; }
 .ok { color: #047857; font-size: 13px; margin: 6px 0 0; }
-@media (min-width: 900px) {
-  .cr-hub {
-    display: grid;
-    grid-template-columns: 1fr 320px;
-    grid-template-rows: auto auto 1fr;
-    column-gap: 20px;
-    max-width: 1100px;
-    margin: 0 auto;
-  }
-  .cr-hub__hero { grid-column: 1 / -1; }
-  .cr-hub__cards { grid-column: 1; }
-  .cr-hub__aside { grid-column: 2; grid-row: 2 / span 2; align-self: start; }
-  .cr-hub__msg { grid-column: 1 / -1; }
+
+@media (max-width: 900px) {
+  .cr-shell { grid-template-columns: 1fr; }
+  .cr-side { border-right: none; border-bottom: 1px solid #e5e9f0; }
+  .cr-main { padding: 28px 18px 48px; }
 }
 </style>

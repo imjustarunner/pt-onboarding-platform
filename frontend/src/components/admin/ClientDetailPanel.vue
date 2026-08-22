@@ -1002,6 +1002,10 @@
           :agency-id="client?.agency_id"
           :roi-expires-at="client?.roi_expires_at"
           :disclosure-status="clientDisclosureStatus"
+          :school-name="client?.organization_name || schoolGlanceLabel || ''"
+          :agency-name="clientRenewalAgencyLabel"
+          :guardian-email="guardianIntakeEmail || ''"
+          :client-initials="client?.initials || ''"
           @close="clientRenewalModalOpen = false"
           @sent="onClientRenewalSent"
         />
@@ -2628,6 +2632,15 @@ const skillsValue = ref(false);
 const editingOverview = ref(false);
 const clientRenewalModalOpen = ref(false);
 const clientDisclosureStatus = ref('');
+
+const clientRenewalAgencyLabel = computed(() => {
+  const agencyId = Number(props.client?.agency_id || selectedAgencyId.value || 0);
+  const fromSwitchable = (switchableAgencies.value || []).find((a) => Number(a.id) === agencyId);
+  if (fromSwitchable?.name) return fromSwitchable.name;
+  const fromMine = (myAgencies.value || []).find((a) => Number(a.id) === agencyId);
+  if (fromMine?.name) return fromMine.name;
+  return 'ITSCO';
+});
 
 function onClientRenewalSent() {
   // keep modal open briefly so success message is visible
