@@ -751,6 +751,11 @@ const waitlistShowIntake = computed(() => {
   const key = String(props.client?.client_status_key || '').toLowerCase();
   return ['received', 'packet', 'pending_corrections', 'in_process'].includes(key) || !!props.client?.agency_intake_json;
 });
+const isWaitlistAssignmentMode = computed(() => {
+  if (props.actionKey === 'waitlist_resolution') return true;
+  if (props.actionKey === 'fall_reassignment' && agency.waitlisted) return true;
+  return String(props.client?.client_status_key || '').toLowerCase() === 'waitlist';
+});
 
 const isFallUpdate = computed(() =>
   props.actionKey === 'fall_confirmation'
@@ -800,7 +805,11 @@ const assignmentDayOptions = computed(() => {
   if (!pid) return [];
   const prov = assignmentProviderOptions.value.find((p) => Number(p.provider_user_id) === pid);
   const assignedDay = String(assignment.serviceDay || assignedDayLabel.value || '');
-  return (prov?.days || []).filter((d) => {
+  const days = prov?.days || [];
+  if (isWaitlistAssignmentMode.value) {
+    return days.filter((d) => String(d.day_of_week || ''));
+  }
+  return days.filter((d) => {
     const day = String(d.day_of_week || '');
     if (assignedDay && day === assignedDay) return true;
     const avail = d.slots_available;
@@ -811,18 +820,42 @@ const assignmentDayOptions = computed(() => {
 
 function providerOptionLabel(prov) {
   const name = [prov?.first_name, prov?.last_name].filter(Boolean).join(' ').trim();
-  const openDays = (prov?.days || []).filter((d) => Number(d.slots_available) > 0).length;
+  const allDays = (prov?.days || []).filter((d) => String(d.day_of_week || ''));
+  const openDays = allDays.filter((d) => {
+    const avail = d.slots_available;
+    return avail == null || Number(avail) > 0;
+  }).length;
+  if (isWaitlistAssignmentMode.value) {
+    if (prov?.schedule_inactive && !allDays.length) {
+      return `${name || `Provider ${prov?.provider_user_id}`} (schedule inactive — add day in Providers tab)`;
+    }
+    if (!allDays.length) {
+      return `${name || `Provider ${prov?.provider_user_id}`} (no schedule days)`;
+    }
+    if (!openDays) {
+      return `${name || `Provider ${prov?.provider_user_id}`} (no slots remaining)`;
+    }
+    return `${name || `Provider ${prov?.provider_user_id}`} (${openDays} day${openDays === 1 ? '' : 's'} with slots)`;
+  }
   if (prov?.schedule_inactive && !openDays) {
     return `${name || `Provider ${prov?.provider_user_id}`} (schedule inactive — add day in Providers tab)`;
   }
-  const suffix = openDays ? ` (${openDays} day${openDays === 1 ? '' : 's'} open)` : ' (no open days)';
+  const suffix = openDays ? ` (${openDays} day${openDays === 1 ? '' : 's'} open)` : ' (no slots remaining)';
   return `${name || `Provider ${prov?.provider_user_id}`}${suffix}`;
 }
 
 function dayOptionLabel(day) {
   const label = String(day?.day_of_week || '');
-  const open = day?.slots_available == null ? '' : ` · ${day.slots_available} open`;
   const hours = dayHours(day);
+  const avail = day?.slots_available;
+  if (isWaitlistAssignmentMode.value) {
+    if (avail != null && Number(avail) <= 0) {
+      return `${label}${hours ? ` (${hours})` : ''} · no slots remaining (+1 waitlist)`;
+    }
+    const open = avail == null ? '' : ` · ${avail} slot${Number(avail) === 1 ? '' : 's'} remaining`;
+    return `${label}${hours ? ` (${hours})` : ''}${open}`;
+  }
+  const open = avail == null ? '' : ` · ${avail} open`;
   return `${label}${hours ? ` (${hours})` : ''}${open}`;
 }
 
@@ -874,12 +907,14 @@ async function loadAssignmentOptions() {
             day_of_week: String(a.day_of_week || ''),
             slots_available: a.slots_available_calculated ?? a.slots_available,
             slots_total: a.slots_total,
+            waitlist_holds: Number(a.waitlist_holds || 0),
             start_time: a.start_time || null,
             end_time: a.end_time || null,
             is_active: a.is_active !== false
           }))
           .filter((d) => {
             if (!d.day_of_week) return false;
+            if (isWaitlistAssignmentMode.value) return d.is_active !== false;
             const avail = d.slots_available;
             if (avail == null) return d.is_active === false;
             return Number(avail) > 0;

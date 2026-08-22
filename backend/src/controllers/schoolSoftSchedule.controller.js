@@ -5,7 +5,7 @@ import Client from '../models/Client.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
-import { adjustProviderSlots } from '../services/providerSlots.service.js';
+import { adjustProviderSlots, clientStatusConsumesProviderSlot } from '../services/providerSlots.service.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
 import { enqueueD11ComplianceEnsure } from '../services/d11Compliance.service.js';
 import { bumpGradeCanonical } from '../utils/clientGrade.js';
@@ -1096,11 +1096,12 @@ async function loadCandidateProvidersForSchool(schoolId) {
   }
 }
 
-function filterWorkDaysForAssignment(workDays, assignedDays) {
+function filterWorkDaysForAssignment(workDays, assignedDays, { allowFullDays = false } = {}) {
   const assigned = new Set((assignedDays || []).map((d) => String(d)));
   return (workDays || []).filter((d) => {
     const day = String(d.day_of_week || '');
     if (assigned.has(day)) return true;
+    if (allowFullDays) return true;
     const avail = d.slots_available;
     if (avail == null) return false;
     return Number(avail) > 0;
@@ -1129,6 +1130,22 @@ export const getClientDayAssignmentContext = async (req, res, next) => {
     if (!affiliated.ok) {
       return res.status(404).json({ error: { message: 'Client is not affiliated with this school' } });
     }
+
+    let clientStatusKey = '';
+    try {
+      const [statusRows] = await pool.execute(
+        `SELECT cs.status_key
+         FROM clients c
+         LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+         WHERE c.id = ?
+         LIMIT 1`,
+        [clientId]
+      );
+      clientStatusKey = String(statusRows?.[0]?.status_key || '').toLowerCase();
+    } catch {
+      clientStatusKey = '';
+    }
+    const allowFullDaysForWaitlist = clientStatusKey === 'waitlist';
 
     const role = String(req.user?.role || '').toLowerCase();
     const selfProviderId = isSelfProviderRole(role) ? parseInt(req.user?.id, 10) : null;
@@ -1286,7 +1303,8 @@ export const getClientDayAssignmentContext = async (req, res, next) => {
           end_time: r.end_time || null,
           assigned: assignedDays.includes(String(r.day_of_week))
         })),
-        assignedDays
+        assignedDays,
+        { allowFullDays: allowFullDaysForWaitlist }
       );
 
       if (!workDays.length && !assignedDays.length) continue;
@@ -1377,6 +1395,22 @@ export const setClientAssignedDay = async (req, res, next) => {
 
     const actorUserId = req.user?.id || null;
 
+    let clientStatusKey = '';
+    try {
+      const [statusRows] = await connection.execute(
+        `SELECT cs.status_key
+         FROM clients c
+         LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+         WHERE c.id = ?
+         LIMIT 1`,
+        [clientId]
+      );
+      clientStatusKey = String(statusRows?.[0]?.status_key || '').toLowerCase();
+    } catch {
+      clientStatusKey = '';
+    }
+    const consumesSlot = clientStatusConsumesProviderSlot(clientStatusKey);
+
     if (assigned) {
       const onDay = await ensureProviderOnSchoolDay({
         schoolId,
@@ -1418,16 +1452,18 @@ export const setClientAssignedDay = async (req, res, next) => {
         // Idempotent: already assigned to this day.
       } else if (existing?.id) {
         // Reactivate a previously deactivated day row (avoids uniq_client_org_provider_day clash).
-        const take = await adjustProviderSlots(connection, {
-          providerUserId,
-          schoolId,
-          dayOfWeek: serviceDay,
-          delta: -1,
-          allowNegative: false
-        });
-        if (!take.ok) {
-          await connection.rollback();
-          return res.status(400).json({ error: { message: take.reason || 'No available slots for that day' } });
+        if (consumesSlot) {
+          const take = await adjustProviderSlots(connection, {
+            providerUserId,
+            schoolId,
+            dayOfWeek: serviceDay,
+            delta: -1,
+            allowNegative: false
+          });
+          if (!take.ok) {
+            await connection.rollback();
+            return res.status(400).json({ error: { message: take.reason || 'No slots remaining for that day' } });
+          }
         }
         await connection.execute(
           `UPDATE client_provider_assignments
@@ -1453,16 +1489,18 @@ export const setClientAssignedDay = async (req, res, next) => {
           nullDayRow = null;
         }
 
-        const take = await adjustProviderSlots(connection, {
-          providerUserId,
-          schoolId,
-          dayOfWeek: serviceDay,
-          delta: -1,
-          allowNegative: false
-        });
+        const take = consumesSlot
+          ? await adjustProviderSlots(connection, {
+            providerUserId,
+            schoolId,
+            dayOfWeek: serviceDay,
+            delta: -1,
+            allowNegative: false
+          })
+          : { ok: true };
         if (!take.ok) {
           await connection.rollback();
-          return res.status(400).json({ error: { message: take.reason || 'No available slots for that day' } });
+          return res.status(400).json({ error: { message: take.reason || 'No slots remaining for that day' } });
         }
 
         if (nullDayRow?.id) {
@@ -1506,12 +1544,14 @@ export const setClientAssignedDay = async (req, res, next) => {
         // ignore
       }
     } else if (existingActive && existing?.id) {
-      await adjustProviderSlots(connection, {
-        providerUserId,
-        schoolId,
-        dayOfWeek: serviceDay,
-        delta: +1
-      });
+      if (consumesSlot) {
+        await adjustProviderSlots(connection, {
+          providerUserId,
+          schoolId,
+          dayOfWeek: serviceDay,
+          delta: +1
+        });
+      }
       try {
         await connection.execute(
           `UPDATE soft_schedule_slots

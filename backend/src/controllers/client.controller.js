@@ -11,7 +11,7 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import pool from '../config/database.js';
 import StorageService from '../services/storage.service.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
-import { adjustProviderSlots } from '../services/providerSlots.service.js';
+import { adjustProviderSlots, clientStatusConsumesProviderSlot } from '../services/providerSlots.service.js';
 import { enqueueD11ComplianceEnsure } from '../services/d11Compliance.service.js';
 import { notifyClientBecameCurrent, notifyClientChecklistUpdated, notifyPaperworkReceived, notifyClientTerminated } from '../services/clientNotifications.service.js';
 import { createClientOnboardingTaskForProvider } from '../services/clientOnboardingTask.service.js';
@@ -7639,6 +7639,16 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
     try {
       await connection.beginTransaction();
       const client = access.client;
+      let clientStatusKey = String(client?.client_status_key || '').toLowerCase();
+      if (!clientStatusKey) {
+        const [statusRows] = await connection.execute(
+          `SELECT cs.status_key FROM clients c
+           LEFT JOIN client_statuses cs ON cs.id = c.client_status_id WHERE c.id = ? LIMIT 1`,
+          [clientId]
+        );
+        clientStatusKey = String(statusRows?.[0]?.status_key || '').toLowerCase();
+      }
+      const slotConsumingClient = clientStatusConsumesProviderSlot(clientStatusKey);
 
       // Ensure client is affiliated to this org
       const [affRows] = await connection.execute(
@@ -7698,8 +7708,8 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
 
       const wasActive = existingSameDay ? (existingSameDay.is_active === 1 || existingSameDay.is_active === true) : false;
       const oldDaySameRow = existingSameDay?.service_day ? String(existingSameDay.service_day) : null;
-      const oldConsumesSlot = wasActive && oldDaySameRow;
-      const newConsumesSlot = !!serviceDay;
+      const oldConsumesSlot = wasActive && oldDaySameRow && slotConsumingClient;
+      const newConsumesSlot = !!serviceDay && slotConsumingClient;
 
       const allowNegativeSlot =
         allowOverCapacityReq || (!!serviceDay && !existingSameDay && siblingCount > 0 && !moveSingleDayRow);

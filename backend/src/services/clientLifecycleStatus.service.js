@@ -146,6 +146,25 @@ export async function setClientLifecycleStatus({
     note: note || `Lifecycle status → ${key}`
   }).catch(() => {});
 
+  if (key === LIFECYCLE_STATUS_KEYS.WAITLIST && currentKey !== 'waitlist') {
+    try {
+      const { refundSlotsForClientEnteringWaitlist } = await import('./providerSlots.service.js');
+      await refundSlotsForClientEnteringWaitlist(cid, { organizationId: client.organization_id || null });
+    } catch (err) {
+      console.error('[clientLifecycleStatus] waitlist slot refund failed', err?.message || err);
+    }
+  } else if (currentKey === 'waitlist' && key !== 'waitlist') {
+    try {
+      const { takeSlotsForClientLeavingWaitlist } = await import('./providerSlots.service.js');
+      await takeSlotsForClientLeavingWaitlist(cid, {
+        organizationId: client.organization_id || null,
+        allowNegative: true
+      });
+    } catch (err) {
+      console.error('[clientLifecycleStatus] waitlist slot take failed', err?.message || err);
+    }
+  }
+
   if (key === LIFECYCLE_STATUS_KEYS.READY_TO_SCHEDULE || key === LIFECYCLE_STATUS_KEYS.WAITLIST) {
     try {
       const {

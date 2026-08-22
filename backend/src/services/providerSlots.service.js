@@ -2,6 +2,105 @@ import pool from '../config/database.js';
 
 const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
+/** Waitlisted clients hold a provider/day preference but do not consume caseload slots. */
+export function clientStatusConsumesProviderSlot(statusKey) {
+  return String(statusKey || '').toLowerCase() !== 'waitlist';
+}
+
+/** SQL fragment: only count CPA rows whose client is not waitlisted. */
+export const CPA_SLOT_CONSUMING_FILTER = `
+  AND NOT EXISTS (
+    SELECT 1 FROM clients c_slot
+    LEFT JOIN client_statuses cs_slot ON cs_slot.id = c_slot.client_status_id
+    WHERE c_slot.id = cpa.client_id
+      AND LOWER(COALESCE(cs_slot.status_key, '')) = 'waitlist'
+  )
+`;
+
+export async function adjustProviderSlotsPool(params) {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const result = await adjustProviderSlots(connection, params);
+    if (!result.ok) {
+      await connection.rollback();
+      return result;
+    }
+    await connection.commit();
+    return result;
+  } catch (e) {
+    try {
+      await connection.rollback();
+    } catch {
+      // ignore
+    }
+    throw e;
+  } finally {
+    connection.release();
+  }
+}
+
+/** When a client enters waitlist, release any slots their weekday assignments were holding. */
+export async function refundSlotsForClientEnteringWaitlist(clientId, { organizationId = null } = {}) {
+  const cid = Number(clientId || 0);
+  if (!cid) return;
+  const params = [cid];
+  let orgFilter = '';
+  if (organizationId) {
+    orgFilter = ' AND cpa.organization_id = ?';
+    params.push(Number(organizationId));
+  }
+  const [rows] = await pool.execute(
+    `SELECT cpa.organization_id, cpa.provider_user_id, cpa.service_day
+     FROM client_provider_assignments cpa
+     WHERE cpa.client_id = ? AND cpa.is_active = TRUE AND cpa.service_day IS NOT NULL
+     ${orgFilter}`,
+    params
+  );
+  for (const r of rows || []) {
+    const day = String(r.service_day || '').trim();
+    if (!allowedDays.includes(day)) continue;
+    await adjustProviderSlotsPool({
+      providerUserId: r.provider_user_id,
+      schoolId: r.organization_id,
+      dayOfWeek: day,
+      delta: +1
+    }).catch(() => {});
+  }
+}
+
+/** When a client leaves waitlist, take slots for active weekday assignments (may go over capacity). */
+export async function takeSlotsForClientLeavingWaitlist(clientId, { organizationId = null, allowNegative = true } = {}) {
+  const cid = Number(clientId || 0);
+  if (!cid) return { ok: true };
+  const params = [cid];
+  let orgFilter = '';
+  if (organizationId) {
+    orgFilter = ' AND cpa.organization_id = ?';
+    params.push(Number(organizationId));
+  }
+  const [rows] = await pool.execute(
+    `SELECT cpa.organization_id, cpa.provider_user_id, cpa.service_day
+     FROM client_provider_assignments cpa
+     WHERE cpa.client_id = ? AND cpa.is_active = TRUE AND cpa.service_day IS NOT NULL
+     ${orgFilter}`,
+    params
+  );
+  for (const r of rows || []) {
+    const day = String(r.service_day || '').trim();
+    if (!allowedDays.includes(day)) continue;
+    const take = await adjustProviderSlotsPool({
+      providerUserId: r.provider_user_id,
+      schoolId: r.organization_id,
+      dayOfWeek: day,
+      delta: -1,
+      allowNegative
+    });
+    if (!take.ok) return take;
+  }
+  return { ok: true };
+}
+
 /**
  * Zero slots_available for all provider_school_assignments when provider goes on leave.
  * Uses pool directly (no transaction required).
@@ -41,7 +140,8 @@ export async function reconcileSlotsForProviderReturningFromLeave(providerUserId
       const [cpaRows] = await pool.execute(
         `SELECT COUNT(*) AS cnt
          FROM client_provider_assignments cpa
-         WHERE cpa.organization_id = ? AND cpa.provider_user_id = ? AND cpa.is_active = TRUE AND cpa.service_day = ?`,
+         WHERE cpa.organization_id = ? AND cpa.provider_user_id = ? AND cpa.is_active = TRUE AND cpa.service_day = ?
+         ${CPA_SLOT_CONSUMING_FILTER}`,
         [orgId, uid, day]
       );
       used += Number(cpaRows?.[0]?.cnt || 0);
@@ -111,7 +211,8 @@ export async function adjustProviderSlots(connection, { providerUserId, schoolId
              WHERE cpa.organization_id = ?
                AND cpa.provider_user_id = ?
                AND cpa.is_active = TRUE
-               AND cpa.service_day = ?`,
+               AND cpa.service_day = ?
+             ${CPA_SLOT_CONSUMING_FILTER}`,
             [orgId, pid, day]
           );
           used += Number(cpaRows?.[0]?.cnt || 0);

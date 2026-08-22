@@ -442,6 +442,7 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
         const d = days.map(() => '?').join(',');
 
         const usedMap = new Map(); // "pid:day" -> used
+        const waitlistMap = new Map();
         const inc = (pid, day, delta) => {
           const key = `${Number(pid)}:${String(day)}`;
           usedMap.set(key, (usedMap.get(key) || 0) + Number(delta || 0));
@@ -455,10 +456,33 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
                AND cpa.is_active = TRUE
                AND cpa.provider_user_id IN (${p})
                AND cpa.service_day IN (${d})
+               AND NOT EXISTS (
+                 SELECT 1 FROM clients c_slot
+                 LEFT JOIN client_statuses cs_slot ON cs_slot.id = c_slot.client_status_id
+                 WHERE c_slot.id = cpa.client_id
+                   AND LOWER(COALESCE(cs_slot.status_key, '')) = 'waitlist'
+               )
              GROUP BY cpa.provider_user_id, cpa.service_day`,
             [orgId, ...providerIds, ...days]
           );
           for (const r of cpaCounts || []) inc(r.provider_user_id, r.service_day, r.cnt);
+
+          const [waitlistCounts] = await pool.execute(
+            `SELECT cpa.provider_user_id, cpa.service_day, COUNT(*) AS cnt
+             FROM client_provider_assignments cpa
+             JOIN clients c_slot ON c_slot.id = cpa.client_id
+             LEFT JOIN client_statuses cs_slot ON cs_slot.id = c_slot.client_status_id
+             WHERE cpa.organization_id = ?
+               AND cpa.is_active = TRUE
+               AND cpa.provider_user_id IN (${p})
+               AND cpa.service_day IN (${d})
+               AND LOWER(COALESCE(cs_slot.status_key, '')) = 'waitlist'
+             GROUP BY cpa.provider_user_id, cpa.service_day`,
+            [orgId, ...providerIds, ...days]
+          );
+          for (const r of waitlistCounts || []) {
+            waitlistMap.set(`${Number(r.provider_user_id)}:${String(r.service_day)}`, Number(r.cnt || 0));
+          }
 
           const [legacyCounts] = await pool.execute(
             `SELECT c.provider_id AS provider_user_id, c.service_day, COUNT(*) AS cnt
@@ -500,13 +524,16 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
           obj.assignments = (obj.assignments || []).map((a) => {
             const day = String(a.day_of_week || '');
             const used = usedMap.get(`${pid}:${day}`) || 0;
+            const waitlistHolds = waitlistMap.get(`${pid}:${day}`) || 0;
             const total = Number(a.slots_total);
             const totalOk = Number.isFinite(total) && total > 0;
-            const availCalc = totalOk ? Math.max(0, total - used) : null;
+            const availCalc = totalOk ? total - used : null;
             return {
               ...a,
               slots_used: used,
-              slots_available_calculated: availCalc
+              waitlist_holds: waitlistHolds,
+              slots_available_calculated: availCalc,
+              slots_over_capacity: totalOk && used >= total && waitlistHolds > 0
             };
           });
         }

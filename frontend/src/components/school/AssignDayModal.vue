@@ -35,7 +35,7 @@
             <div class="provider-heading">{{ providerDisplayName(prov) }}</div>
 
             <div v-if="!visibleWorkDays(prov).length" class="empty small">
-              No days with open slots at this school yet.
+              No days with slots remaining at this school yet.
             </div>
 
             <div v-else class="day-grid" role="group" :aria-label="`${providerDisplayName(prov)} work days`">
@@ -184,8 +184,15 @@ const dayHours = (day) => {
 
 const dayTitle = (day) => {
   const hours = dayHours(day);
-  const avail =
-    day?.slots_available == null ? '' : ` · ${day.slots_available} slot(s) available`;
+  const availNum = day?.slots_available == null ? null : Number(day.slots_available);
+  let avail = '';
+  if (availNum != null) {
+    if (isWaitlistClient.value && availNum <= 0) {
+      avail = ' · no slots remaining (+1 waitlist)';
+    } else {
+      avail = ` · ${availNum} slot(s) remaining`;
+    }
+  }
   return `${day.day_of_week}${hours ? ` ${hours}` : ''}${avail}`;
 };
 
@@ -200,11 +207,16 @@ const saveKey = (providerUserId, day) => `${providerUserId}:${day}`;
 
 const isAssigned = (prov, day) => (prov?.assigned_days || []).includes(String(day));
 
+const isWaitlistClient = computed(() =>
+  String(props.client?.client_status_key || '').toLowerCase() === 'waitlist'
+);
+
 const visibleWorkDays = (prov) => {
   const assigned = new Set((prov?.assigned_days || []).map((d) => String(d)));
   return (prov?.work_days || []).filter((d) => {
     const day = String(d.day_of_week || '');
     if (assigned.has(day)) return true;
+    if (isWaitlistClient.value) return true;
     const avail = d.slots_available;
     if (avail == null) return false;
     return Number(avail) > 0;
