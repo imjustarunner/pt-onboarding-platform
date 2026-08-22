@@ -38,6 +38,7 @@ import {
   extractSlotTotal,
   parseHoursRangeToTimes
 } from '../utils/schoolRequestNotes.util.js';
+import { resolveSchoolOrganizationIdForScheduleAdjustment } from '../utils/schoolScheduleAdjustmentResolve.util.js';
 import {
   applyProviderSchoolDayMove,
   demoteUnassignedClientsAfterDayMove,
@@ -3443,12 +3444,35 @@ export const listSchoolAvailabilityRequests = async (req, res, next) => {
          ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time ASC`,
         [r.id]
       );
+      const preferredSchoolOrgIds = (() => {
+        try {
+          const raw = r.preferred_school_org_ids_json;
+          if (!raw) return [];
+          if (Array.isArray(raw)) return raw;
+          return JSON.parse(raw);
+        } catch {
+          return [];
+        }
+      })();
+      const parsedNotes = parseSchoolRequestNotes(r.notes);
+      const primaryBlock = blockRows?.[0] || null;
+      let schoolOrganizationId = null;
+      if (String(r.request_kind || '') === 'schedule_adjustment') {
+        schoolOrganizationId = await resolveSchoolOrganizationIdForScheduleAdjustment({
+          agencyId,
+          providerUserId: r.provider_id,
+          dayOfWeek: parsedNotes.day || primaryBlock?.day_of_week || null,
+          preferredSchoolOrgIds,
+          schoolNameHint: parsedNotes.school || ''
+        });
+      }
       out.push({
         id: r.id,
         agencyId: r.agency_id,
         providerId: r.provider_id,
         providerName: `${r.provider_first_name || ''} ${r.provider_last_name || ''}`.trim(),
-        preferredSchoolOrgIds: r.preferred_school_org_ids_json ? JSON.parse(r.preferred_school_org_ids_json) : [],
+        preferredSchoolOrgIds,
+        schoolOrganizationId,
         notes: r.notes || '',
         requestKind: r.request_kind || 'additional_hours',
         status: r.status,
@@ -3691,25 +3715,23 @@ export const approveScheduleAdjustmentFromRequest = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Could not determine the requested school day' } });
     }
 
-    let schoolOrganizationId = null;
-    try {
-      const ids = reqRow.preferred_school_org_ids_json ? JSON.parse(reqRow.preferred_school_org_ids_json) : [];
-      schoolOrganizationId = Number(ids[0]) || null;
-    } catch {
-      schoolOrganizationId = null;
-    }
-
-    if (!schoolOrganizationId && parsedNotes.school) {
-      const [schRows] = await pool.execute(
-        `SELECT o.id
-         FROM organization_affiliations oa
-         INNER JOIN agencies o ON o.id = oa.organization_id
-         WHERE oa.agency_id = ? AND oa.is_active = TRUE AND LOWER(o.name) = LOWER(?)
-         LIMIT 1`,
-        [agencyId, parsedNotes.school]
-      );
-      schoolOrganizationId = schRows?.[0]?.id ? Number(schRows[0].id) : null;
-    }
+    let schoolOrganizationId = await resolveSchoolOrganizationIdForScheduleAdjustment({
+      agencyId,
+      providerUserId: reqRow.provider_id,
+      dayOfWeek: fromDay,
+      preferredSchoolOrgIds: (() => {
+        try {
+          const raw = reqRow.preferred_school_org_ids_json;
+          if (!raw) return [];
+          if (Array.isArray(raw)) return raw;
+          return JSON.parse(raw);
+        } catch {
+          return [];
+        }
+      })(),
+      schoolNameHint: parsedNotes.school || '',
+      explicitSchoolOrgId: req.body?.schoolOrganizationId
+    });
 
     if (!schoolOrganizationId) {
       return res.status(400).json({ error: { message: 'Could not determine school for this adjustment' } });

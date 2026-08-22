@@ -13,6 +13,10 @@ import {
   sqlUnicodeNe,
   sqlNonEmpty
 } from '../utils/mysqlCollation.js';
+import {
+  isSchoolAffiliatedClientRow,
+  resolveSchoolAffiliatedClientIds
+} from '../utils/schoolAffiliation.js';
 
 const ROLE_IS_SCHOOL_STAFF = sqlUnicodeLiteral("LOWER(COALESCE(u.role, ''))", 'school_staff');
 const STATUS_NOT_ARCHIVED = sqlUnicodeNe("UPPER(COALESCE(u.status, ''))", "'ARCHIVED'");
@@ -29,6 +33,24 @@ const SCHEDULER_CONTACT_EXISTS = `
     )
     AND COALESCE(sc.is_scheduler, 0) = 1`;
 
+/** Staff already on the ROI grant list (active or explicitly inactive) are not a gap. */
+const STAFF_ROI_GRANT_EXISTS = `
+  SELECT 1
+  FROM client_school_staff_roi_access a2
+  WHERE a2.client_id = c.id
+    AND a2.school_organization_id = c.organization_id
+    AND a2.school_staff_user_id = u.id`;
+
+const SCHOOL_ADMIN_CONTACT_EXISTS = `
+  SELECT 1
+  FROM school_contacts sc
+  WHERE sc.school_organization_id = ua.agency_id
+    AND (
+      (${sqlNonEmpty('u.email')} AND ${EMAIL_MATCH})
+      OR (${sqlNonEmpty('u.work_email')} AND ${WORK_EMAIL_MATCH})
+    )
+    AND COALESCE(sc.is_school_admin, 0) = 1`;
+
 function toBool(value) {
   return value === true || value === 1 || value === '1';
 }
@@ -39,7 +61,10 @@ function emptyFlags() {
     schoolTransfer: false,
     staffRoiGap: false,
     reactivatedNeedsPacket: false,
+    paperPacketRoiSetup: false,
+    paperPacketVisionReview: false,
     any: false,
+    needsClientRenewal: false,
     recommended: {
       verifyContact: true,
       smartRoi: false,
@@ -66,9 +91,14 @@ function finalizeFlags(partial) {
     expiredRoi: !!partial.expiredRoi,
     schoolTransfer: !!partial.schoolTransfer,
     staffRoiGap: !!partial.staffRoiGap,
-    reactivatedNeedsPacket: !!partial.reactivatedNeedsPacket
+    reactivatedNeedsPacket: !!partial.reactivatedNeedsPacket,
+    paperPacketRoiSetup: !!partial.paperPacketRoiSetup,
+    paperPacketVisionReview: !!partial.paperPacketVisionReview
   };
-  flags.any = flags.expiredRoi || flags.schoolTransfer || flags.staffRoiGap || flags.reactivatedNeedsPacket;
+  flags.any = flags.expiredRoi || flags.schoolTransfer || flags.staffRoiGap
+    || flags.reactivatedNeedsPacket || flags.paperPacketRoiSetup || flags.paperPacketVisionReview;
+  flags.needsClientRenewal = flags.expiredRoi || flags.schoolTransfer
+    || flags.staffRoiGap || flags.reactivatedNeedsPacket;
   flags.recommended = buildRecommended(flags);
   return flags;
 }
@@ -80,6 +110,12 @@ function matchesRenewalFlagFilter(flags, filterRaw) {
   if (filter === 'expired_roi' || filter === 'expired') return !!flags?.expiredRoi;
   if (filter === 'school_transfer' || filter === 'transfer') return !!flags?.schoolTransfer;
   if (filter === 'staff_roi_gap' || filter === 'staff_gap') return !!flags?.staffRoiGap;
+  if (filter === 'paper_packet_roi' || filter === 'paper_packet_roi_setup' || filter === 'set_staff_roi') {
+    return !!flags?.paperPacketRoiSetup || !!flags?.paperPacketVisionReview;
+  }
+  if (filter === 'paper_packet_vision_review' || filter === 'vision_review') {
+    return !!flags?.paperPacketVisionReview;
+  }
   if (filter === 'reactivated' || filter === 'reactivated_needs_packet' || filter === 'full_packet') {
     return !!flags?.reactivatedNeedsPacket;
   }
@@ -88,7 +124,7 @@ function matchesRenewalFlagFilter(flags, filterRaw) {
 
 /**
  * Batch-compute renewal flags for client rows (must include id, organization_id,
- * school_year, roi_expires_at, needs_full_packet_renewal when available).
+ * school_year, roi_expires_at, needs_full_packet_renewal, paper_packet_staff_roi_pending when available).
  */
 export async function computeRenewalFlagsForClients(clientRows = []) {
   const rows = Array.isArray(clientRows) ? clientRows : [];
@@ -101,22 +137,60 @@ export async function computeRenewalFlagsForClients(clientRows = []) {
       organization_id: Number(row.organization_id || 0) || null,
       school_year: normalizeSchoolYearLabel(row.school_year) || null,
       roi_expires_at: row.roi_expires_at ?? null,
-      needs_full_packet_renewal: toBool(row.needs_full_packet_renewal)
+      needs_full_packet_renewal: toBool(row.needs_full_packet_renewal),
+      paper_packet_staff_roi_pending: toBool(row.paper_packet_staff_roi_pending)
     });
   }
 
   const ids = [...byId.keys()];
   const result = new Map();
+  const schoolAffiliatedIds = await resolveSchoolAffiliatedClientIds(rows);
   for (const id of ids) {
     const c = byId.get(id);
+    const schoolAffiliated = schoolAffiliatedIds.has(id);
     result.set(id, {
-      expiredRoi: isRoiExpired(c.roi_expires_at),
+      expiredRoi: schoolAffiliated && isRoiExpired(c.roi_expires_at),
       schoolTransfer: false,
       staffRoiGap: false,
-      reactivatedNeedsPacket: c.needs_full_packet_renewal
+      reactivatedNeedsPacket: c.needs_full_packet_renewal,
+      paperPacketRoiSetup: schoolAffiliated && c.paper_packet_staff_roi_pending,
+      paperPacketVisionReview: false
     });
   }
   if (!ids.length) return result;
+
+  // Latest Vision eval per client (needs_review / failed → staff action, not Renew)
+  try {
+    const placeholdersVision = ids.map(() => '?').join(',');
+    const [evalRows] = await pool.execute(
+      `SELECT e.client_id, e.status
+       FROM client_paper_packet_vision_evals e
+       INNER JOIN (
+         SELECT client_id, MAX(id) AS max_id
+         FROM client_paper_packet_vision_evals
+         WHERE client_id IN (${placeholdersVision})
+         GROUP BY client_id
+       ) latest ON latest.max_id = e.id`,
+      ids
+    );
+    for (const r of evalRows || []) {
+      const cid = Number(r.client_id);
+      const status = String(r.status || '').toLowerCase();
+      if (!result.has(cid) || !schoolAffiliatedIds.has(cid)) continue;
+      if (status === 'needs_review' || status === 'failed') {
+        result.get(cid).paperPacketVisionReview = true;
+        // Prefer vision-review chip over generic setup when Vision already ran
+        result.get(cid).paperPacketRoiSetup = false;
+      } else if (status === 'applied') {
+        result.get(cid).paperPacketRoiSetup = false;
+        result.get(cid).paperPacketVisionReview = false;
+      }
+    }
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE') {
+      console.warn('[renewalFlags] vision eval lookup failed', e?.message || e);
+    }
+  }
 
   const currentYear = computeCurrentSchoolYearLabel();
   const priorYear = previousSchoolYearLabel(currentYear);
@@ -163,6 +237,7 @@ export async function computeRenewalFlagsForClients(clientRows = []) {
   }
 
   for (const id of ids) {
+    if (!schoolAffiliatedIds.has(id)) continue;
     const c = byId.get(id);
     const years = yearMembers.get(id) || new Set();
     if (c.school_year) years.add(c.school_year);
@@ -183,6 +258,7 @@ export async function computeRenewalFlagsForClients(clientRows = []) {
        FROM clients c
        WHERE c.id IN (${placeholders})
          AND c.organization_id IS NOT NULL
+         AND COALESCE(c.paper_packet_staff_roi_pending, 0) = 0
          AND EXISTS (
            SELECT 1
            FROM client_school_staff_roi_access a
@@ -199,14 +275,8 @@ export async function computeRenewalFlagsForClients(clientRows = []) {
              AND COALESCE(u.is_active, TRUE) = TRUE
              AND ${STATUS_NOT_ARCHIVED}
              AND NOT EXISTS (${SCHEDULER_CONTACT_EXISTS})
-             AND NOT EXISTS (
-               SELECT 1
-               FROM client_school_staff_roi_access a2
-               WHERE a2.client_id = c.id
-                 AND a2.school_organization_id = c.organization_id
-                 AND a2.school_staff_user_id = u.id
-                 AND COALESCE(a2.is_active, 0) = 1
-             )
+             AND NOT EXISTS (${SCHOOL_ADMIN_CONTACT_EXISTS})
+             AND NOT EXISTS (${STAFF_ROI_GRANT_EXISTS})
          )`,
       ids
     );
@@ -229,6 +299,7 @@ export async function computeRenewalFlagsForClients(clientRows = []) {
          FROM clients c
          WHERE c.id IN (${placeholders})
            AND c.organization_id IS NOT NULL
+           AND COALESCE(c.paper_packet_staff_roi_pending, 0) = 0
            AND EXISTS (
              SELECT 1
              FROM client_school_staff_roi_access a
@@ -250,7 +321,6 @@ export async function computeRenewalFlagsForClients(clientRows = []) {
                  WHERE a2.client_id = c.id
                    AND a2.school_organization_id = c.organization_id
                    AND a2.school_staff_user_id = u.id
-                   AND COALESCE(a2.is_active, 0) = 1
                )
            )`,
         ids
@@ -265,7 +335,10 @@ export async function computeRenewalFlagsForClients(clientRows = []) {
   }
 
   for (const id of staffGapIds) {
-    if (result.has(id)) result.get(id).staffRoiGap = true;
+    if (!result.has(id) || !schoolAffiliatedIds.has(id)) continue;
+    const partial = result.get(id);
+    if (partial.paperPacketRoiSetup) continue;
+    partial.staffRoiGap = true;
   }
 
   // Finalize recommended + any
@@ -278,11 +351,14 @@ export async function computeRenewalFlagsForClients(clientRows = []) {
 export function attachRenewalFlagsToClients(clients, flagsById) {
   return (clients || []).map((c) => {
     const id = Number(c?.id || 0);
+    const schoolAffiliated = isSchoolAffiliatedClientRow(c);
     const flags = flagsById?.get(id) || finalizeFlags({
-      expiredRoi: isRoiExpired(c?.roi_expires_at),
+      expiredRoi: schoolAffiliated && isRoiExpired(c?.roi_expires_at),
       schoolTransfer: false,
       staffRoiGap: false,
-      reactivatedNeedsPacket: toBool(c?.needs_full_packet_renewal)
+      reactivatedNeedsPacket: toBool(c?.needs_full_packet_renewal),
+      paperPacketRoiSetup: schoolAffiliated && toBool(c?.paper_packet_staff_roi_pending),
+      paperPacketVisionReview: false
     });
     return { ...c, renewalFlags: flags };
   });

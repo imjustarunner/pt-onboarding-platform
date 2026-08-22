@@ -649,15 +649,24 @@
                         @mouseenter="userPreferencesStore.navHoverMenusEnabled !== false && setDirectoryFlyout('clients')"
                         @mouseleave="userPreferencesStore.navHoverMenusEnabled !== false && setDirectoryFlyout(null)"
                       >
-                        <button
-                          type="button"
-                          class="nav-dropdown-group-trigger"
-                          :aria-expanded="directoryClientsNavExpanded ? 'true' : 'false'"
-                          @click.stop="setDirectoryFlyout(directoryClientsNavExpanded ? null : 'clients')"
-                        >
-                          <span>Clients</span>
-                          <span class="nav-dropdown-group-caret" :class="{ open: directoryClientsNavExpanded }" aria-hidden="true">▸</span>
-                        </button>
+                        <div class="nav-dropdown-group-trigger nav-dropdown-group-trigger-split directory-clients-trigger">
+                          <router-link
+                            v-if="canSeeClientsManagementNav"
+                            :to="orgTo('/admin/clients')"
+                            class="nav-dropdown-group-link"
+                            @click="closeAllNavMenus"
+                          >Clients</router-link>
+                          <span v-else class="nav-dropdown-group-link nav-dropdown-group-link-static">Clients</span>
+                          <button
+                            type="button"
+                            class="nav-dropdown-group-caret-btn"
+                            :aria-expanded="directoryClientsNavExpanded ? 'true' : 'false'"
+                            aria-label="Show client links"
+                            @click.stop="setDirectoryFlyout(directoryClientsNavExpanded ? null : 'clients')"
+                          >
+                            <span class="nav-dropdown-group-caret" :class="{ open: directoryClientsNavExpanded }" aria-hidden="true">▸</span>
+                          </button>
+                        </div>
                         <div v-show="directoryClientsNavExpanded" class="nav-dropdown-group-items">
                           <router-link
                             v-if="canSeeClientsManagementNav"
@@ -1629,28 +1638,29 @@
                   <router-link :to="orgTo('/admin/find-providers')" v-if="canSeeProviderBookingNav" @click="closeMobileMenu" class="mobile-nav-group-trigger">Provider Booking Interface</router-link>
                   <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-group-trigger">{{ isSscSstcTenant ? 'Members' : 'Users' }}</router-link>
                   <router-link :to="orgTo('/admin/guardians')" v-if="isAdmin && !isAffiliationContext" @click="closeMobileMenu" class="mobile-nav-group-trigger">Guardians</router-link>
-                  <div v-if="canSeeClientsNavGroup" class="directory-clients-flyout">
+                  <div v-if="canSeeClientsNavGroup" class="directory-clients-flyout mobile-clients-nav-split">
+                    <router-link
+                      v-if="canSeeClientsManagementNav"
+                      :to="orgTo('/admin/clients')"
+                      @click="closeMobileMenu"
+                      class="mobile-nav-group-trigger mobile-nav-group-link"
+                    >Clients</router-link>
+                    <span v-else class="mobile-nav-group-trigger mobile-nav-group-link-static">Clients</span>
                     <button
                       type="button"
-                      class="mobile-nav-group-trigger"
+                      class="mobile-nav-group-caret-btn"
                       :aria-expanded="directoryClientsNavExpanded ? 'true' : 'false'"
+                      aria-label="Show client links"
                       @click.stop="directoryClientsNavExpanded = !directoryClientsNavExpanded"
                     >
-                      <span>Clients</span>
                       <span class="mobile-nav-group-caret" :class="{ open: directoryClientsNavExpanded }" aria-hidden="true">▸</span>
                     </button>
                     <template v-if="directoryClientsNavExpanded">
                       <router-link
-                        v-if="canSeeClientsManagementNav"
-                        :to="orgTo('/admin/clients')"
-                        @click="closeMobileMenu"
-                        class="mobile-nav-link mobile-nav-sublink"
-                      >Client Management</router-link>
-                      <router-link
                         v-if="canSeeClientExchangeNavLink"
                         :to="orgTo('/client-exchange')"
                         @click="closeMobileMenu"
-                        class="mobile-nav-link mobile-nav-sublink"
+                        class="mobile-nav-link mobile-nav-sublink mobile-clients-sublink"
                       >Client Exchange</router-link>
                     </template>
                   </div>
@@ -7304,8 +7314,65 @@ onUnmounted(() => {
   padding: 0;
   margin: 0;
 }
-.nav-dropdown-menu-wide .directory-bottom-links > .directory-clients-flyout > .nav-dropdown-group-trigger {
+.nav-dropdown-menu-wide .directory-bottom-links > .directory-clients-flyout > .nav-dropdown-group-trigger,
+.nav-dropdown-menu-wide .directory-bottom-links > .directory-clients-flyout > .directory-clients-trigger {
   width: 100%;
+}
+.nav-dropdown-group-trigger-split,
+.directory-clients-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+.nav-dropdown-group-trigger-split:hover,
+.directory-clients-trigger:hover {
+  background: #f8fafc;
+}
+.nav-dropdown-group-link {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  color: var(--text-primary) !important;
+  text-decoration: none !important;
+  font: inherit;
+  font-weight: 400;
+  background: transparent !important;
+}
+.nav-dropdown-group-link-static {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+}
+.mobile-clients-nav-split {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.mobile-clients-sublink {
+  flex: 1 1 100%;
+  margin-left: 12px;
+}
+.mobile-nav-group-link {
+  flex: 1;
+  min-width: 0;
+  text-decoration: none !important;
+  color: inherit !important;
+}
+.mobile-nav-group-link-static {
+  flex: 1;
+  min-width: 0;
+}
+.mobile-nav-group-caret-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 8px;
+  margin: 0;
+  cursor: pointer;
+  color: inherit;
 }
 .nav-dropdown-menu-wide a.nav-dropdown-group-trigger {
   text-decoration: none;

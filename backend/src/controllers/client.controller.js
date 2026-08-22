@@ -2137,9 +2137,13 @@ export const bulkCreateClientRenewals = async (req, res, next) => {
 
     const placeholders = clientIds.map(() => '?').join(',');
     const [rows] = await pool.execute(
-      `SELECT id, agency_id, organization_id, school_year, roi_expires_at, needs_full_packet_renewal, status
-       FROM clients
-       WHERE id IN (${placeholders})`,
+      `SELECT c.id, c.agency_id, c.organization_id, c.school_year, c.roi_expires_at,
+              c.needs_full_packet_renewal, c.status, c.client_type,
+              c.paper_packet_staff_roi_pending,
+              org.organization_type, org.name AS organization_name
+       FROM clients c
+       LEFT JOIN agencies org ON org.id = c.organization_id
+       WHERE c.id IN (${placeholders})`,
       clientIds
     );
     const byId = new Map((rows || []).map((r) => [Number(r.id), r]));

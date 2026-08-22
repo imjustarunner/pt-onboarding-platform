@@ -15,6 +15,7 @@ import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
 import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
 import { resolvePaperworkStatusId, seedClientAffiliations, seedClientPaperworkItems } from '../utils/clientProvisioning.js';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
+import { schedulePaperPacketVisionEval } from '../services/paperPacketVision.service.js';
 
 // Configure multer for memory storage (files will be uploaded to GCS)
 const upload = multer({
@@ -385,6 +386,15 @@ export const submitReferralPacketDraft = async (req, res, next) => {
       uploaderUserId: String(req.user?.role || '').toLowerCase() === 'school_staff' ? uploaderId : null,
       actorUserId: req.user?.id || uploaderId,
       packetDate: submissionDate || new Date()
+    });
+
+    // Vision: version SoT + signatures + DENY → auto disclosure/ROI when confident.
+    schedulePaperPacketVisionEval({
+      clientId: client.id,
+      schoolOrganizationId: organization.id,
+      phiDocumentId: draft.phi_document_id || null,
+      actorUserId: req.user?.id || uploaderId,
+      locale: 'en'
     });
 
     await ClientStatusHistory.create({

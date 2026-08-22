@@ -13,8 +13,18 @@
     <span
       v-if="flags.staffRoiGap"
       class="renewal-flag renewal-flag--staff"
-      title="School staff not covered by current ROI grants — needs updated ROI"
+      title="School staff not covered by current ROI grants — push updated Smart School ROI"
     >Staff ROI gap</span>
+    <span
+      v-if="flags.paperPacketRoiSetup"
+      class="renewal-flag renewal-flag--setup"
+      title="Paper packet uploaded — set each staff member’s ROI access to match the signed form"
+    >Set staff ROI</span>
+    <span
+      v-if="flags.paperPacketVisionReview"
+      class="renewal-flag renewal-flag--vision"
+      title="Packet Vision could not auto-confirm version/signatures/DENY — review School ROI"
+    >Packet review</span>
     <span
       v-if="flags.reactivatedNeedsPacket"
       class="renewal-flag renewal-flag--packet"
@@ -40,7 +50,7 @@ defineProps({
   max-width: 220px;
 }
 .renewal-flags--compact {
-  max-width: 180px;
+  max-width: 100%;
 }
 .renewal-flag {
   display: inline-block;
@@ -65,6 +75,16 @@ defineProps({
   background: #fef3c7;
   color: #92400e;
   border: 1px solid #fde68a;
+}
+.renewal-flag--setup {
+  background: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+}
+.renewal-flag--vision {
+  background: #fce7f3;
+  color: #9d174d;
+  border: 1px solid #fbcfe8;
 }
 .renewal-flag--packet {
   background: #e0e7ff;

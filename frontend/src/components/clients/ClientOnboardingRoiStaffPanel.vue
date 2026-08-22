@@ -38,7 +38,13 @@
     </template>
 
     <template v-else>
-      <p v-if="paperPacketPending" class="roi-inline-notice">
+      <p v-if="visionNeedsReview" class="roi-inline-notice roi-inline-notice--warn">
+        Packet Vision needs review — confirm version/signatures/DENY, then set staff access and save.
+      </p>
+      <p v-else-if="visionApplied" class="roi-inline-notice roi-inline-notice--ok">
+        Packet Vision matched {{ visionLabel }} — staff ROI was auto-applied. Adjust only if needed.
+      </p>
+      <p v-else-if="paperPacketPending" class="roi-inline-notice">
         Paper packet uploaded — set each staff member’s access to match the signed form, then save.
       </p>
       <ClientOnboardingRoiExpiryEditor
@@ -174,6 +180,17 @@ const saveMsg = ref('');
 const rows = ref([]);
 const draftStates = ref({});
 const paperPacketPending = ref(false);
+const visionStatus = ref(null);
+const visionDetectedLabel = ref('');
+const visionNeedsReview = computed(() => {
+  const s = String(visionStatus.value || '');
+  return s === 'needs_review' || s === 'failed';
+});
+const visionApplied = computed(() => String(visionStatus.value || '') === 'applied');
+const visionLabel = computed(() => {
+  const label = String(visionDetectedLabel.value || '').trim();
+  return label ? `v${label}` : 'a packet version';
+});
 const localRoiExpiresAt = ref(null);
 
 const roiSelectOptions = SCHOOL_STAFF_ROI_SELECT_OPTIONS;
@@ -248,6 +265,8 @@ async function load({ quiet = false } = {}) {
     const { data } = await api.get(`/clients/${clientId}/school-roi-access`, { skipGlobalLoading: true });
     rows.value = Array.isArray(data?.staff) ? data.staff : [];
     paperPacketPending.value = data?.paper_packet_staff_roi_pending === true;
+    visionStatus.value = data?.paper_packet_vision?.status || null;
+    visionDetectedLabel.value = data?.paper_packet_vision?.detected_version_label || '';
     localRoiExpiresAt.value = data?.roi_expires_at || props.roiExpiresAt || null;
     draftStates.value = rows.value.reduce((acc, row) => {
       acc[row.school_staff_user_id] = normalizeState(row.access_level);
@@ -473,6 +492,16 @@ watch(() => props.stepDone, (done) => {
   border: 1px solid #fde68a;
   border-radius: 8px;
   padding: 8px 10px;
+}
+.roi-inline-notice--ok {
+  color: #065f46;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+.roi-inline-notice--warn {
+  color: #9d174d;
+  background: #fdf2f8;
+  border-color: #fbcfe8;
 }
 .roi-inline-table-wrap { overflow-x: auto; }
 .roi-inline-table {

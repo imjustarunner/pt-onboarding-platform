@@ -217,6 +217,7 @@
           <option value="expired_roi">Expired ROI</option>
           <option value="school_transfer">School transfer</option>
           <option value="staff_roi_gap">Staff ROI gap</option>
+          <option value="paper_packet_roi">Set staff ROI (paper packet)</option>
           <option value="reactivated">Needs full packet</option>
         </select>
         <div v-if="showSchoolSearch" class="school-search">
@@ -456,7 +457,7 @@
             <th style="width: 34px;">
               <input type="checkbox" :checked="allPageSelected" @change.stop="toggleSelectAllPage($event)" />
             </th>
-            <th class="cm-sortable" :aria-sort="ariaSortFor('initials')" @click="toggleColumnSort('initials')">
+            <th class="cm-sortable col-initials" :aria-sort="ariaSortFor('initials')" @click="toggleColumnSort('initials')">
               {{ clientDisplayLabel }}
               <span class="cm-sort-indicator" aria-hidden="true">{{ sortIndicatorFor('initials') }}</span>
             </th>
@@ -524,9 +525,9 @@
               Last Activity
               <span class="cm-sort-indicator" aria-hidden="true">{{ sortIndicatorFor('last_activity_at') }}</span>
             </th>
-            <th v-if="canSeeRenewalFlags && columnPrefs.renewal">Renewal</th>
-            <th v-if="canBackofficeEdit">Demo</th>
-            <th>Actions</th>
+            <th v-if="canSeeRenewalFlags && columnPrefs.renewal" class="col-renewal">Renewal</th>
+            <th v-if="canBackofficeEdit" class="col-demo">Demo</th>
+            <th class="col-actions">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -542,12 +543,12 @@
               <input type="checkbox" :checked="selectedIds.has(client.id)" @change.stop="toggleSelected(client.id)" />
             </td>
             <td
-              class="initials-cell"
-              @click.stop="pinClientPanel(client)"
+              class="initials-cell col-initials"
+              @click.stop="openClientDetail(client)"
               @mouseenter="scheduleQuickView(client)"
               @mouseleave="cancelQuickView"
               style="cursor:pointer;"
-              title="Hover: preview · Click: pin panel"
+              :title="`${getClientDisplay(client)} — open profile`"
             >
               <span class="cm-initials-badge" :style="getInitialsStyle(client)">{{ getClientDisplay(client) }}</span>
               <span
@@ -603,19 +604,26 @@
             </td>
             <td v-if="columnPrefs.insurance">{{ client.insurance_type_label || '-' }}</td>
             <td v-if="columnPrefs.lastActivity">{{ formatDate(client.last_activity_at) || '-' }}</td>
-            <td v-if="canSeeRenewalFlags && columnPrefs.renewal" class="renewal-cell" @click.stop>
-              <RenewalFlagsChips :flags="client.renewalFlags" />
+            <td v-if="canSeeRenewalFlags && columnPrefs.renewal" class="renewal-cell col-renewal" @click.stop>
+              <RenewalFlagsChips :flags="client.renewalFlags" compact />
               <button
-                v-if="client.renewalFlags?.any"
+                v-if="client.renewalFlags?.paperPacketRoiSetup || client.renewalFlags?.paperPacketVisionReview"
                 type="button"
-                class="btn btn-primary btn-sm"
-                style="margin-top: 6px;"
+                class="btn btn-secondary btn-xs cm-renewal-btn"
+                @click.stop="openClientRoiSetup(client)"
+              >
+                {{ client.renewalFlags?.paperPacketVisionReview ? 'Review' : 'Set ROI' }}
+              </button>
+              <button
+                v-else-if="client.renewalFlags?.needsClientRenewal"
+                type="button"
+                class="btn btn-primary btn-xs cm-renewal-btn"
                 @click.stop="openClientRenewal(client)"
               >
                 Renew
               </button>
             </td>
-            <td v-if="canBackofficeEdit" class="select-cell" @click.stop>
+            <td v-if="canBackofficeEdit" class="select-cell col-demo" @click.stop>
               <span v-if="Number(client.created_via_dev_fill)" class="cm-dev-fill-badge" title="Created via Dev Fill">Dev Fill</span>
               <label class="cm-demo-check" title="Demo/test clients stay off official documents">
                 <input
@@ -626,14 +634,14 @@
                 Demo
               </label>
             </td>
-            <td class="actions-cell" @click.stop @mouseenter="quickViewClient = null; clearTimeout(_hoverOpenTimer)">
-              <button @click.stop="openQuickView(client)" class="btn btn-primary btn-sm cm-view-btn" title="Quick preview">
+            <td class="actions-cell col-actions" @click.stop @mouseenter="quickViewClient = null; clearTimeout(_hoverOpenTimer)">
+              <button @click.stop="openQuickView(client)" class="btn btn-primary btn-xs cm-view-btn" title="Quick preview">
                 Preview
               </button>
               <button
-                v-if="canSeeRenewalFlags"
+                v-if="canSeeRenewalFlags && !columnPrefs.renewal"
                 type="button"
-                class="btn btn-secondary btn-sm"
+                class="btn btn-secondary btn-xs"
                 title="Client Renewal"
                 @click.stop="openClientRenewal(client)"
               >
@@ -1579,6 +1587,15 @@ function openClientRenewal(client) {
   renewalModalOpen.value = true;
 }
 
+function openClientRoiSetup(client) {
+  const id = Number(client?.id || 0);
+  if (!id) return;
+  closeClientPanel();
+  const orgSlug = String(route.params?.organizationSlug || '').trim();
+  const path = orgSlug ? `/${orgSlug}/admin/clients/${id}` : `/admin/clients/${id}`;
+  router.push({ path, query: { tab: 'school-roi' } });
+}
+
 function closeClientRenewal() {
   renewalModalOpen.value = false;
   renewalModalClient.value = null;
@@ -1587,7 +1604,7 @@ function closeClientRenewal() {
 async function bulkPushRenewals() {
   const ids = Array.from(selectedIds.value || []);
   if (!ids.length || !canSeeRenewalFlags.value) return;
-  const flagged = clients.value.filter((c) => ids.includes(c.id) && c.renewalFlags?.any);
+  const flagged = clients.value.filter((c) => ids.includes(c.id) && c.renewalFlags?.needsClientRenewal);
   const msg = flagged.length
     ? `Push Client Renewal for ${ids.length} selected client(s)?\n${flagged.length} have renewal flags; options will follow each client’s recommendations (new hub tokens).`
     : `Push Client Renewal for ${ids.length} selected client(s)? Recommended options will be used when available.`;
@@ -3927,13 +3944,23 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   background: var(--bg-alt);
 }
 
+.cm-clients-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
 .cm-clients-table th {
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #667085;
-  padding: 12px 14px;
+  padding: 10px 8px;
   user-select: none;
+}
+
+.cm-clients-table td {
+  padding: 10px 8px;
+  vertical-align: middle;
 }
 
 .cm-sortable {
@@ -3951,11 +3978,6 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   opacity: 0.7;
 }
 
-.cm-clients-table td {
-  padding: 12px 14px;
-  vertical-align: middle;
-}
-
 .cm-client-row {
   border-left: 4px solid transparent;
   background: linear-gradient(90deg, var(--cm-row-accent-soft, transparent) 0%, transparent 28%);
@@ -3965,14 +3987,76 @@ watch(() => currentPage.value, (newPage, oldPage) => {
   background: linear-gradient(90deg, var(--cm-row-accent-soft, var(--bg-alt)) 0%, var(--bg-alt) 28%);
 }
 
+.cm-clients-table .col-initials {
+  width: 17%;
+  max-width: 210px;
+}
+
+.cm-clients-table .col-renewal {
+  width: 108px;
+}
+
+.cm-clients-table .col-demo {
+  width: 58px;
+}
+
+.cm-clients-table .col-actions {
+  width: 118px;
+}
+
+.client-row .initials-cell {
+  font-weight: 600;
+  text-decoration: none;
+  overflow: hidden;
+}
+
 .cm-initials-badge {
   display: inline-flex;
   align-items: center;
-  padding: 6px 10px;
+  max-width: 100%;
+  padding: 4px 8px;
   border-radius: 999px;
   font-weight: 700;
-  font-size: 12px;
+  font-size: 11px;
   letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.renewal-cell {
+  min-width: 0;
+}
+
+.renewal-cell .renewal-flags {
+  max-width: 100%;
+}
+
+.cm-renewal-btn {
+  margin-top: 4px;
+  width: 100%;
+  max-width: 96px;
+}
+
+.btn-xs {
+  padding: 3px 7px;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.actions-cell {
+  white-space: nowrap;
+}
+
+.actions-cell .btn {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  font-size: 11px;
+}
+
+.actions-cell .btn + .btn {
+  margin-left: 4px;
 }
 .cm-dupe-chip {
   display: inline-flex;
@@ -4354,25 +4438,6 @@ watch(() => currentPage.value, (newPage, oldPage) => {
 
 .client-row:hover {
   background: var(--bg-alt);
-}
-
-.client-row .initials-cell {
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.actions-cell {
-  white-space: nowrap;
-}
-
-.actions-cell .btn {
-  width: auto;
-  flex: 0 0 auto;
-  padding: 4px 8px;
-}
-
-.actions-cell .btn + .btn {
-  margin-left: 6px;
 }
 
 .inline-select {

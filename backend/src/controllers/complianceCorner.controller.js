@@ -469,8 +469,12 @@ export const listRoiRenewalCandidates = async (req, res, next) => {
         const ids = flagSource.map((r) => r.id);
         const placeholders = ids.map(() => '?').join(',');
         const [extra] = await pool.execute(
-          `SELECT id, school_year, needs_full_packet_renewal, organization_id, roi_expires_at
-           FROM clients WHERE id IN (${placeholders})`,
+          `SELECT c.id, c.school_year, c.needs_full_packet_renewal, c.organization_id, c.roi_expires_at,
+                  c.client_type, c.agency_id, c.paper_packet_staff_roi_pending,
+                  org.organization_type, org.name AS organization_name
+           FROM clients c
+           LEFT JOIN agencies org ON org.id = c.organization_id
+           WHERE c.id IN (${placeholders})`,
           ids
         );
         const byId = new Map((extra || []).map((e) => [Number(e.id), e]));
@@ -481,6 +485,11 @@ export const listRoiRenewalCandidates = async (req, res, next) => {
             r.needs_full_packet_renewal = e.needs_full_packet_renewal;
             r.organization_id = e.organization_id;
             r.roi_expires_at = e.roi_expires_at;
+            r.client_type = e.client_type;
+            r.agency_id = e.agency_id;
+            r.organization_type = e.organization_type;
+            r.organization_name = e.organization_name;
+            r.paper_packet_staff_roi_pending = e.paper_packet_staff_roi_pending;
           }
         }
       }

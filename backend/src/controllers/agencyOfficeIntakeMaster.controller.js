@@ -16,6 +16,10 @@ import {
   packetBrandAssetColumn
 } from '../services/packetBrandChrome.service.js';
 import { OFFICE_PRINTABLE_PACKET_VERSION } from '../constants/officePrintablePacket.js';
+import {
+  invalidateAgencyPrintablePacketCaches,
+  warmAgencyPrintablePacketCaches
+} from '../services/schoolPrintablePacketCache.service.js';
 
 export const packetBrandUpload = multer({
   storage: multer.memoryStorage(),
@@ -223,6 +227,8 @@ export const putAgencyPacketBrandVersion = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'versionLabel is required' } });
     }
     await pool.execute(`UPDATE agencies SET packet_version_label = ? WHERE id = ?`, [label, aid]);
+    await invalidateAgencyPrintablePacketCaches(aid);
+    void warmAgencyPrintablePacketCaches(aid);
     res.json({ agencyId: aid, versionLabel: label });
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });

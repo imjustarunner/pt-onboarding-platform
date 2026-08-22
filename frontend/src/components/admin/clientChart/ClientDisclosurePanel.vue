@@ -60,6 +60,22 @@
 
       <!-- ── Three paper-packet compliance flags ─────────────────────────── -->
 
+      <!-- Vision auto-confirm / review -->
+      <div v-if="ppVisionOk" class="cdp-pp-flag cdp-pp-flag--ok">
+        <div class="cdp-pp-flag-icon">✓</div>
+        <div class="cdp-pp-flag-body">
+          <strong>{{ ppVisionOk.label }}</strong>
+          <p>{{ ppVisionOk.detail }}</p>
+        </div>
+      </div>
+      <div v-if="ppVisionReview" class="cdp-pp-flag cdp-pp-flag--warn">
+        <div class="cdp-pp-flag-icon">⚠</div>
+        <div class="cdp-pp-flag-body">
+          <strong>{{ ppVisionReview.label }}</strong>
+          <p>{{ ppVisionReview.detail }}</p>
+        </div>
+      </div>
+
       <!-- Flag 1: ROI expiration -->
       <div v-if="ppRoiFlag" class="cdp-pp-flag" :class="`cdp-pp-flag--${ppRoiFlag.severity}`">
         <div class="cdp-pp-flag-icon">{{ ppRoiFlag.severity === 'error' ? '⛔' : '⏰' }}</div>
@@ -406,6 +422,28 @@ const previewNote = computed(() =>
 );
 
 const paperPacketDisclosure = computed(() => disclosure.value?.paperPacketDisclosure || null);
+
+const ppVisionOk = computed(() => {
+  const ppd = paperPacketDisclosure.value;
+  if (!ppd?.disclosureConfirmedByVision) return null;
+  const label = ppd.visionDetectedVersionLabel || ppd.versionLabel || 'matched version';
+  return {
+    label: 'Paper packet disclosure confirmed',
+    detail: `Vision matched packet ${label}. Providers on that version are treated as acknowledged; no extra disclosure verification is required for this upload.`
+  };
+});
+
+const ppVisionReview = computed(() => {
+  const ppd = paperPacketDisclosure.value;
+  if (!ppd?.visionNeedsReview) return null;
+  const reasons = Array.isArray(ppd.visionReviewReasons) ? ppd.visionReviewReasons : [];
+  return {
+    label: 'Paper packet Vision needs review',
+    detail: reasons.length
+      ? `Could not auto-confirm: ${reasons.join(', ')}. Open School ROI to set access manually.`
+      : 'Could not auto-confirm version, signatures, or DENY boxes. Open School ROI to review.'
+  };
+});
 
 const ppRoiFlag = computed(() => {
   const ppd = paperPacketDisclosure.value;
@@ -818,6 +856,9 @@ onMounted(() => {
 }
 .cdp-pp-flag--warn  { background: #fffbeb; border: 1px solid #fbbf24; }
 .cdp-pp-flag--error { background: #fef2f2; border: 1px solid #fca5a5; }
+.cdp-pp-flag--ok { background: #ecfdf5; border: 1px solid #6ee7b7; }
+.cdp-pp-flag--ok .cdp-pp-flag-body strong { color: #065f46; }
+.cdp-pp-flag--ok .cdp-pp-flag-body p { color: #047857; margin: 3px 0; }
 .cdp-pp-flag--waived { background: #f0fdf4; border: 1px solid #86efac; }
 .cdp-pp-flag-icon { flex-shrink: 0; font-size: 18px; margin-top: 1px; }
 .cdp-pp-flag-body { font-size: 13px; line-height: 1.5; flex: 1; }

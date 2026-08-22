@@ -225,6 +225,15 @@
                 </td>
                 <td v-if="viewMode === 'roi' && canSeeRenewalFlags">
                   <button
+                    v-if="r.renewalFlags?.paperPacketRoiSetup || r.renewalFlags?.paperPacketVisionReview"
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    @click="openClientRoiSetup(r)"
+                  >
+                    {{ r.renewalFlags?.paperPacketVisionReview ? 'Review' : 'Set ROI' }}
+                  </button>
+                  <button
+                    v-else-if="r.renewalFlags?.needsClientRenewal"
                     type="button"
                     class="btn btn-primary btn-sm"
                     @click="openClientRenewal(r)"
@@ -367,6 +376,7 @@
       v-if="selectedClient"
       :key="String(selectedClient?.id || '')"
       :client="selectedClient"
+      :initial-tab="clientDetailInitialTab"
       @close="closeClientDetail"
       @updated="handleClientUpdated"
     />
@@ -430,6 +440,7 @@ const waiverSortKey = ref('flag');
 const waiverSortDir = ref('desc');
 const MIN_PENDING_DATE = '2026-02-01';
 const selectedClient = ref(null);
+const clientDetailInitialTab = ref('overview');
 const clientDetailLoading = ref(false);
 
 const filters = ref({
@@ -804,8 +815,14 @@ const openClientDetail = async (row) => {
   }
 };
 
+async function openClientRoiSetup(row) {
+  clientDetailInitialTab.value = 'school-roi';
+  await openClientDetail(row);
+}
+
 const closeClientDetail = () => {
   selectedClient.value = null;
+  clientDetailInitialTab.value = 'overview';
 };
 
 const handleClientUpdated = async () => {

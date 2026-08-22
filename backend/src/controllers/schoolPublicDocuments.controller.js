@@ -22,6 +22,7 @@ import {
 import {
   getOrCreateSchoolPrintablePacketPdf,
   warmSchoolPrintablePacketCache,
+  warmAgencyPrintablePacketCaches,
   invalidateAgencyPrintablePacketCaches
 } from '../services/schoolPrintablePacketCache.service.js';
 
@@ -598,7 +599,7 @@ export const updateSchoolPrintablePacketTemplate = async (req, res, next) => {
       locale
     });
     await invalidateAgencyPrintablePacketCaches(saved?.agencyId);
-    warmSchoolPrintablePacketCache(organizationId);
+    void warmAgencyPrintablePacketCaches(saved?.agencyId);
     res.json(saved);
   } catch (e) {
     if (e?.statusCode || e?.status) {

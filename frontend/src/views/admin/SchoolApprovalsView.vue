@@ -525,9 +525,25 @@ function summaryLine(r) {
 }
 
 function schoolNameFromIds(r) {
-  const id = Array.isArray(r.preferredSchoolOrgIds) ? r.preferredSchoolOrgIds[0] : null;
+  const id = Number(r?.schoolOrganizationId || 0)
+    || (Array.isArray(r.preferredSchoolOrgIds) ? Number(r.preferredSchoolOrgIds[0]) : 0);
   if (!id) return '';
   return schools.value.find((s) => Number(s.id) === Number(id))?.name || '';
+}
+
+function resolvedSchoolOrgIdForSelected() {
+  const r = selected.value;
+  if (!r) return null;
+  if (r.schoolOrganizationId) return Number(r.schoolOrganizationId);
+  const id = Array.isArray(r.preferredSchoolOrgIds) ? Number(r.preferredSchoolOrgIds[0]) : 0;
+  if (id) return id;
+  const school = adjustmentSchool.value;
+  const day = adjustmentDay.value;
+  const row = (schoolScheduleRows.value || []).find(
+    (s) => String(s.dayOfWeek || '') === String(day || '')
+      && (!school || String(s.schoolName || '').toLowerCase() === school.toLowerCase())
+  );
+  return row?.schoolOrganizationId ? Number(row.schoolOrganizationId) : null;
 }
 
 function formatWhen(v) {
@@ -624,8 +640,10 @@ async function approveAdjustment() {
   saving.value = true;
   error.value = '';
   try {
+    const schoolOrganizationId = resolvedSchoolOrgIdForSelected();
     await api.post(`/availability/admin/school-requests/${selected.value.id}/approve-adjustment`, {
-      agencyId: agencyId.value
+      agencyId: agencyId.value,
+      ...(schoolOrganizationId ? { schoolOrganizationId } : {})
     });
     await refresh();
   } catch (e) {

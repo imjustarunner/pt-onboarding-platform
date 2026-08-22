@@ -458,6 +458,14 @@ export const listClientSchoolRoiAccess = async (req, res, next) => {
     const availableRoiLinks = selection.availableLinks;
     const issuedRoiLink = await ClientSchoolRoiSigningLink.findForClient({ clientId, schoolOrganizationId });
 
+    let paperPacketVision = null;
+    try {
+      const { getLatestPaperPacketVisionEval } = await import('../services/paperPacketVision.service.js');
+      paperPacketVision = await getLatestPaperPacketVisionEval(clientId);
+    } catch {
+      paperPacketVision = null;
+    }
+
     res.json({
       client_id: clientId,
       school_organization_id: schoolOrganizationId,
@@ -469,6 +477,20 @@ export const listClientSchoolRoiAccess = async (req, res, next) => {
       roi_expired: isRoiExpired(client.roi_expires_at),
       paper_packet_staff_roi_pending: client.paper_packet_staff_roi_pending === 1
         || client.paper_packet_staff_roi_pending === true,
+      paper_packet_vision: paperPacketVision
+        ? {
+          status: paperPacketVision.status,
+          detected_version_label: paperPacketVision.detected_version_label,
+          matched_version_id: paperPacketVision.matched_version_id,
+          confidence: paperPacketVision.confidence,
+          roi_signature_detected: !!paperPacketVision.roi_signature_detected,
+          disclosure_signature_detected: !!paperPacketVision.disclosure_signature_detected,
+          deny_staff_user_ids: paperPacketVision.deny_staff_user_ids || [],
+          review_reasons: paperPacketVision.review_reasons || [],
+          applied_at: paperPacketVision.applied_at || null,
+          created_at: paperPacketVision.created_at || null
+        }
+        : null,
       staff,
       school_roi_signing: {
         available_links: availableRoiLinks,

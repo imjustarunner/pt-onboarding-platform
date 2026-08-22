@@ -6,7 +6,7 @@
  *
  *  1. roiRenewalNeeded   — ROI expires within 60 days OR is already expired (36-month term)
  *  2. disclosureUpdate   — A currently-assigned provider is not on the signed disclosure version
- *  3. newPacketNeeded    — A major document section changed since the signed version (tenths bump).
+ *  3. newPacketNeeded    — Agency major revision or disclosure template advanced since sign.
  *                          Admins can waive this flag with a written reason.
  *
  * Tracking start date for flags 2 and 3: 2026-08-20.
@@ -170,11 +170,32 @@ export async function checkPaperPacketDisclosureStatus(clientId) {
     newPacketWaivedReason: null,
     newPacketWaivedByUserId: null,
     requiresNewPacket: false,
-    allProvidersOnPacket: true
+    allProvidersOnPacket: true,
+    visionEvalStatus: null,
+    visionNeedsReview: false,
+    disclosureConfirmedByVision: false,
+    visionDetectedVersionLabel: null,
+    visionReviewReasons: []
   };
 
   const cid = Number(clientId || 0);
   if (!cid) return BASE;
+
+  let visionEval = null;
+  try {
+    const { getLatestPaperPacketVisionEval } = await import('./paperPacketVision.service.js');
+    visionEval = await getLatestPaperPacketVisionEval(cid);
+  } catch {
+    visionEval = null;
+  }
+  const visionMeta = {
+    visionEvalStatus: visionEval?.status || null,
+    visionNeedsReview: String(visionEval?.status || '') === 'needs_review'
+      || String(visionEval?.status || '') === 'failed',
+    disclosureConfirmedByVision: String(visionEval?.status || '') === 'applied',
+    visionDetectedVersionLabel: visionEval?.detected_version_label || null,
+    visionReviewReasons: Array.isArray(visionEval?.review_reasons) ? visionEval.review_reasons : []
+  };
 
   // ── Fetch client (ROI expiry + assigned providers) ────────────────────────
   let clientRow = null;
@@ -186,7 +207,7 @@ export async function checkPaperPacketDisclosureStatus(clientId) {
     );
     clientRow = rows?.[0] || null;
   } catch { /* ignore */ }
-  if (!clientRow) return BASE;
+  if (!clientRow) return { ...BASE, ...visionMeta };
 
   // ── Flag 1: ROI renewal ───────────────────────────────────────────────────
   let roiRenewalNeeded = false;
@@ -216,6 +237,9 @@ export async function checkPaperPacketDisclosureStatus(clientId) {
   if (!disclosure) {
     return {
       ...BASE,
+      ...visionMeta,
+      tracked: visionMeta.disclosureConfirmedByVision,
+      versionLabel: visionMeta.visionDetectedVersionLabel,
       roiRenewalNeeded,
       roiExpiresAt,
       roiExpiredDaysAgo,
@@ -238,6 +262,7 @@ export async function checkPaperPacketDisclosureStatus(clientId) {
   if (!confirmedAt || confirmedAt < PAPER_PACKET_TRACKING_START) {
     return {
       ...BASE,
+      ...visionMeta,
       tracked: true,
       versionLabel,
       confirmedAt,
@@ -306,8 +331,7 @@ export async function checkPaperPacketDisclosureStatus(clientId) {
     try {
       // Look up the tenths counter on both signed and current version.
       const [versionRows] = await pool.execute(
-        `SELECT id,
-                COALESCE(version_tenths, 0) AS version_tenths,
+        `SELECT id, version_major, version_minor,
                 COALESCE(template_version_snapshot, 1) AS template_version_snapshot
          FROM school_packet_org_versions
          WHERE id = ? OR (school_organization_id = ? AND locale = 'en')
@@ -322,11 +346,16 @@ export async function checkPaperPacketDisclosureStatus(clientId) {
       if (signedRow) templateVersionSnapshot = Number(signedRow.template_version_snapshot);
 
       if (signedRow && latestRow && signedRow.id !== latestRow.id) {
-        const signedTenths = Number(signedRow.version_tenths || 0);
-        const currentTenths = Number(latestRow.version_tenths || 0);
-        if (currentTenths > signedTenths) {
+        const signedMajor = Number(signedRow.version_major || 1);
+        const currentMajor = Number(latestRow.version_major || 1);
+        const signedTemplate = Number(signedRow.template_version_snapshot || 1);
+        const currentTemplate = Number(latestRow.template_version_snapshot || 1);
+        if (currentMajor > signedMajor) {
           newPacketNeeded = true;
-          newPacketReason = `A major document section was updated after v${versionLabel} was signed (template revision ${signedRow.template_version_snapshot} → ${latestRow.template_version_snapshot}). A new paper packet must be printed and signed.`;
+          newPacketReason = `A major document revision was published after v${versionLabel} was signed (generation ${signedMajor} → ${currentMajor}). A new paper packet must be printed and signed.`;
+        } else if (currentTemplate > signedTemplate) {
+          newPacketNeeded = true;
+          newPacketReason = `The disclosure packet was updated after v${versionLabel} was signed (template revision ${signedTemplate} → ${currentTemplate}). A new paper packet must be printed and signed.`;
         }
       }
     } catch { /* version columns may not exist yet */ }
@@ -354,6 +383,7 @@ export async function checkPaperPacketDisclosureStatus(clientId) {
     newPacketWaivedByUserId,
     // Legacy compat
     requiresNewPacket: disclosureUpdateNeeded || newPacketActive,
-    allProvidersOnPacket: !disclosureUpdateNeeded
+    allProvidersOnPacket: !disclosureUpdateNeeded,
+    ...visionMeta
   };
 }

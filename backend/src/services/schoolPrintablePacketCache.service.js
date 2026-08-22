@@ -11,6 +11,13 @@ import {
   schoolPrintablePacketContentHash
 } from './schoolPrintablePacket.service.js';
 import { normalizeLocale } from '../models/SchoolPacketTemplate.model.js';
+import {
+  canonicalSchoolPacketVersionLabel,
+  computeNextSchoolPacketVersion,
+  inferPacketChangeReason,
+  parseSchoolPacketVersionLabel,
+  resolveAgencyPacketMajorVersion
+} from '../utils/schoolPacketVersion.util.js';
 
 const inflight = new Map();
 
@@ -19,48 +26,7 @@ function cacheKey(schoolOrganizationId, locale) {
 }
 
 // ─── Per-school packet version helpers ───────────────────────────────────────
-
-/**
- * Build the human-readable version label from the three precision counters.
- *
- * The version is "{major}.{t}{h}{s}" where:
- *   t = tenths    → bumped when a major document section changes (template_version incremented)
- *   h = hundredths → bumped when the provider roster changes
- *   s = thousandths → bumped for school-staff changes and other minor edits
- *
- * Trailing zeros are stripped so the displayed label stays short:
- *   t=0 h=0 s=0  →  "1.0"
- *   t=0 h=2 s=0  →  "1.02"
- *   t=1 h=0 s=0  →  "1.1"
- *   t=1 h=2 s=3  →  "1.123"
- *
- * @param {number} major
- * @param {number} tenths
- * @param {number} hundredths
- * @param {number} thousandths
- */
-function buildVersionLabel(major, tenths = 0, hundredths = 0, thousandths = 0) {
-  // All zeroes → "1.0"
-  if (tenths === 0 && hundredths === 0 && thousandths === 0) return `${major}.0`;
-  // Build the fractional part as a 3-digit string then trim trailing zeros.
-  const frac = `${tenths}${hundredths}${thousandths}`.replace(/0+$/, '');
-  return `${major}.${frac}`;
-}
-
-/**
- * Determine which precision tier a change_reason belongs to.
- * Returns 'tenths' | 'hundredths' | 'thousandths'.
- */
-function changeReasonTier(reason) {
-  if (!reason) return 'thousandths';
-  const r = String(reason).toLowerCase();
-  if (r.includes('template') || r.includes('document') || r.includes('hipaa') || r.includes('content')) {
-    return 'tenths';
-  }
-  if (r.includes('provider')) return 'hundredths';
-  // staff_added, staff_removed, locale, or anything else
-  return 'thousandths';
-}
+// Labels: "{agencyMajor}.{schoolRevision}" — see schoolPacketVersion.util.js
 
 async function orgVersionsTableExists() {
   try {
@@ -89,16 +55,15 @@ async function columnExists(table, column) {
 
 /**
  * Returns (and creates if needed) a version row for this school/locale/hash combination.
- * When the hash is new, the appropriate precision counter is auto-incremented:
- *   - 'template'/'document'/etc  → tenths
- *   - 'provider_*'               → hundredths
- *   - everything else            → thousandths
+ * When the hash is new, version_minor increments for this school only.
+ * version_major follows agencies.packet_version_label (rare manual major bumps).
  * @param {number} schoolOrganizationId
  * @param {string} locale
  * @param {string} contentHash
  * @param {string|null} changeReason
  * @param {Array|null} providers  - provider objects from packetContext; persisted to providers_json
  * @param {number|null} templateVersionSnapshot - template_version active at render time
+ * @param {Array|null} staffRows - school staff from packetContext; persisted to staff_json
  */
 async function getOrCreateSchoolPacketVersion(
   schoolOrganizationId,
@@ -106,7 +71,9 @@ async function getOrCreateSchoolPacketVersion(
   contentHash,
   changeReason = null,
   providers = null,
-  templateVersionSnapshot = null
+  templateVersionSnapshot = null,
+  staffRows = null,
+  agencyMajorVersion = 1
 ) {
   const sid = Number(schoolOrganizationId || 0);
   const loc = normalizeLocale(locale);
@@ -122,11 +89,31 @@ async function getOrCreateSchoolPacketVersion(
     }))
   ) : null;
 
+  const staffJson = Array.isArray(staffRows) ? JSON.stringify(
+    staffRows.map((r) => {
+      const id = Number(r.school_staff_user_id || r.id || r.user_id || 0) || null;
+      const first = String(r.first_name || '').trim();
+      const last = String(r.last_name || '').trim();
+      const fullName = String(r.full_name || r.fullName || `${first} ${last}`).trim() || null;
+      return {
+        id,
+        schoolStaffUserId: id,
+        firstName: first || null,
+        lastName: last || null,
+        fullName,
+        email: String(r.email || '').trim() || null,
+        role: String(r.role_title || r.role || r.title || '').trim() || null
+      };
+    }).filter((s) => s.id)
+  ) : null;
+
+  const hasStaffCol = await columnExists('school_packet_org_versions', 'staff_json');
+
   try {
     // Fast path: hash already has a version row.
     const [existing] = await pool.execute(
-      `SELECT id, version_major, version_minor, version_tenths, version_hundredths, version_thousandths,
-              version_label, storage_path, providers_json
+      `SELECT id, version_major, version_minor, version_label, storage_path, providers_json
+              ${hasStaffCol ? ', staff_json' : ''}
        FROM school_packet_org_versions
        WHERE school_organization_id = ? AND locale = ? AND content_hash = ?
        LIMIT 1`,
@@ -141,15 +128,20 @@ async function getOrCreateSchoolPacketVersion(
         ).catch(() => { /* best-effort */ });
         existing[0].providers_json = providersJson;
       }
+      if (hasStaffCol && staffJson && !existing[0].staff_json) {
+        await pool.execute(
+          `UPDATE school_packet_org_versions SET staff_json = ? WHERE id = ?`,
+          [staffJson, existing[0].id]
+        ).catch(() => { /* best-effort */ });
+        existing[0].staff_json = staffJson;
+      }
       return existing[0];
     }
 
     // Get the latest version for this school to determine the next version counters.
     const [latestRows] = await pool.execute(
-      `SELECT version_major, version_minor,
-              COALESCE(version_tenths, 0)      AS version_tenths,
-              COALESCE(version_hundredths, 0)  AS version_hundredths,
-              COALESCE(version_thousandths, 0) AS version_thousandths
+      `SELECT version_major, version_minor, template_version_snapshot,
+              providers_json, staff_json
        FROM school_packet_org_versions
        WHERE school_organization_id = ? AND locale = ?
        ORDER BY version_major DESC, version_minor DESC
@@ -157,42 +149,46 @@ async function getOrCreateSchoolPacketVersion(
       [sid, loc]
     );
     const latest = latestRows[0] || null;
-    const newMajor = latest ? latest.version_major : 1;
-    const newMinor = latest ? (latest.version_minor + 1) : 0;
-
-    // Determine three-tier precision from change reason.
-    const tier = changeReasonTier(changeReason);
-    let newTenths = latest ? Number(latest.version_tenths) : 0;
-    let newHundredths = latest ? Number(latest.version_hundredths) : 0;
-    let newThousandths = latest ? Number(latest.version_thousandths) : 0;
-
-    if (!latest) {
-      // First version for this school — stays at 1.0
-    } else if (tier === 'tenths') {
-      newTenths += 1;
-      // Do NOT reset lower tiers: accumulated hundredths/thousandths remain in the label.
-    } else if (tier === 'hundredths') {
-      newHundredths += 1;
-    } else {
-      newThousandths += 1;
-    }
-
-    const label = buildVersionLabel(newMajor, newTenths, newHundredths, newThousandths);
+    const templateVer = Number(templateVersionSnapshot || 1) || 1;
+    const agencyMajor = Math.max(1, Number(agencyMajorVersion || 1));
+    const resolvedChangeReason = changeReason || inferPacketChangeReason({
+      latestRow: latest,
+      agencyMajorVersion: agencyMajor,
+      templateVersionSnapshot: templateVer,
+      providers,
+      staffRows
+    });
+    const { major: newMajor, minor: newMinor, label } = computeNextSchoolPacketVersion(
+      latest,
+      agencyMajor
+    );
 
     // Check whether the new columns exist (may not if migration 1262 hasn't run yet).
     const hasPrecisionCols = await columnExists('school_packet_org_versions', 'version_tenths');
 
-    if (hasPrecisionCols) {
+    if (hasPrecisionCols && hasStaffCol) {
+      await pool.execute(
+        `INSERT INTO school_packet_org_versions
+           (school_organization_id, locale, version_major, version_minor,
+            version_tenths, version_hundredths, version_thousandths,
+            version_label, content_hash, change_reason, providers_json, staff_json, template_version_snapshot)
+         VALUES (?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE id = id`,
+        [sid, loc, newMajor, newMinor,
+         label, contentHash, resolvedChangeReason || null, providersJson, staffJson,
+         templateVer]
+      );
+    } else if (hasPrecisionCols) {
       await pool.execute(
         `INSERT INTO school_packet_org_versions
            (school_organization_id, locale, version_major, version_minor,
             version_tenths, version_hundredths, version_thousandths,
             version_label, content_hash, change_reason, providers_json, template_version_snapshot)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE id = id`,
-        [sid, loc, newMajor, newMinor, newTenths, newHundredths, newThousandths,
-         label, contentHash, changeReason || null, providersJson,
-         templateVersionSnapshot || null]
+        [sid, loc, newMajor, newMinor,
+         label, contentHash, resolvedChangeReason || null, providersJson,
+         templateVer]
       );
     } else {
       // Fallback for pre-migration-1262 environments.
@@ -202,12 +198,13 @@ async function getOrCreateSchoolPacketVersion(
             version_label, content_hash, change_reason, providers_json)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE id = id`,
-        [sid, loc, newMajor, newMinor, label, contentHash, changeReason || null, providersJson]
+        [sid, loc, newMajor, newMinor, label, contentHash, resolvedChangeReason || null, providersJson]
       );
     }
 
     const [created] = await pool.execute(
       `SELECT id, version_major, version_minor, version_label, storage_path, providers_json
+              ${hasStaffCol ? ', staff_json' : ''}
        FROM school_packet_org_versions
        WHERE school_organization_id = ? AND locale = ? AND content_hash = ?
        LIMIT 1`,
@@ -267,15 +264,32 @@ export async function listSchoolPacketVersionHistory(schoolOrganizationId, local
 export async function findSchoolPacketVersionByLabel(schoolOrganizationId, locale, versionLabel) {
   const sid = Number(schoolOrganizationId || 0);
   const loc = normalizeLocale(locale || 'en');
-  const label = String(versionLabel || '').trim();
-  if (!sid || !label || !(await orgVersionsTableExists())) return null;
+  const raw = String(versionLabel || '').trim();
+  const canonical = canonicalSchoolPacketVersionLabel(raw);
+  const parsed = parseSchoolPacketVersionLabel(raw);
+  if (!sid || !raw || !(await orgVersionsTableExists())) return null;
   try {
+    const hasStaffCol = await columnExists('school_packet_org_versions', 'staff_json');
     const [rows] = await pool.execute(
       `SELECT id, version_major, version_minor, version_label, content_hash, providers_json, storage_path, created_at
+              ${hasStaffCol ? ', staff_json' : ''}
        FROM school_packet_org_versions
-       WHERE school_organization_id = ? AND locale = ? AND version_label = ?
+       WHERE school_organization_id = ? AND locale = ?
+         AND (
+           version_label = ?
+           OR version_label = ?
+           OR (? IS NOT NULL AND version_label = ?)
+           OR (? IS NOT NULL AND version_major = ? AND version_minor = ?)
+         )
+       ORDER BY id DESC
        LIMIT 1`,
-      [sid, loc, label]
+      [
+        sid, loc,
+        raw,
+        canonical || raw,
+        canonical, canonical,
+        parsed, parsed?.major ?? null, parsed?.minor ?? null
+      ]
     );
     return rows?.[0] || null;
   } catch (e) {
@@ -390,13 +404,16 @@ async function renderAndStore(schoolOrganizationId, locale) {
   // Resolve (or create) the per-school version for this exact content hash.
   // The label is stamped into the packet footer so the printed version label
   // precisely identifies which roster the family signed.
+  const agencyMajor = resolveAgencyPacketMajorVersion(packetContext.brand?.versionLabel);
   const versionRow = await getOrCreateSchoolPacketVersion(
     schoolOrganizationId,
     locale,
     contentHash,
     null,
     packetContext.providers || [],
-    Number(packetContext.version || 1) || null
+    Number(packetContext.version || 1) || null,
+    packetContext.staffRows || [],
+    agencyMajor
   );
   if (versionRow?.version_label) {
     packetContext.packetVersionLabel = versionRow.version_label;
@@ -448,6 +465,21 @@ export function warmSchoolPrintablePacketCache(schoolOrganizationId, locales = [
     void getOrCreateSchoolPrintablePacketPdf(sid, locale).catch((e) => {
       console.warn(`[printable-packet] warm ${sid}/${locale} failed:`, e.message);
     });
+  }
+}
+
+/** Regenerate cached PDFs (and version rows) for every school under an agency. */
+export async function warmAgencyPrintablePacketCaches(agencyId, locales = ['en', 'es']) {
+  const aid = Number(agencyId || 0);
+  if (!aid) return;
+  try {
+    const schools = await AgencySchool.listByAgency(aid);
+    for (const row of schools || []) {
+      const sid = Number(row.school_organization_id || 0);
+      if (sid > 0) warmSchoolPrintablePacketCache(sid, locales);
+    }
+  } catch (e) {
+    console.warn('[printable-packet] agency warm failed:', e?.message || e);
   }
 }
 

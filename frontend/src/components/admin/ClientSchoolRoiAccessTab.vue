@@ -43,7 +43,18 @@
       ROI is expired or missing. Referral documents are paused. Staff with ROI Active, ROI (Speak), or ROI All Active can still open the client for schedule, comments, and their own uploads.
     </div>
 
-    <div v-if="paperPacketStaffRoiPending" class="warning-card paper-packet-staff-notice">
+    <div v-if="paperPacketVisionApplied" class="success-card paper-packet-vision-notice">
+      <strong>Packet Vision matched {{ paperPacketVisionLabel }}.</strong>
+      Disclosure confirmed from this version; school staff ROI was auto-applied (DENY left inactive).
+    </div>
+
+    <div v-if="paperPacketVisionNeedsReview" class="warning-card paper-packet-staff-notice">
+      <strong>Packet Vision needs review.</strong>
+      {{ paperPacketVisionReviewSummary }}
+      Set staff ROI below to match the signed packet, then clear pending when done.
+    </div>
+
+    <div v-else-if="paperPacketStaffRoiPending" class="warning-card paper-packet-staff-notice">
       <strong>Paper packet uploaded.</strong>
       Set each school staff member’s ROI access below to match the signed paper packet (who may receive coordination vs. documents).
       Schedulers use scheduling-only portal access until configured here.
@@ -425,7 +436,37 @@ const savingUserId = ref(null);
 const roiExpiresAt = ref(null);
 const roiExpired = ref(false);
 const paperPacketStaffRoiPending = ref(false);
+const paperPacketVision = ref(null);
 const schoolName = ref('');
+
+const paperPacketVisionApplied = computed(() => String(paperPacketVision.value?.status || '') === 'applied');
+const paperPacketVisionNeedsReview = computed(() => {
+  const s = String(paperPacketVision.value?.status || '');
+  return s === 'needs_review' || s === 'failed';
+});
+const paperPacketVisionLabel = computed(() => {
+  const label = String(paperPacketVision.value?.detected_version_label || '').trim();
+  return label ? `v${label}` : 'a known packet version';
+});
+const paperPacketVisionReviewSummary = computed(() => {
+  const reasons = Array.isArray(paperPacketVision.value?.review_reasons)
+    ? paperPacketVision.value.review_reasons
+    : [];
+  if (!reasons.length) {
+    return 'Version, signatures, or DENY boxes could not be confirmed automatically.';
+  }
+  const map = {
+    version_label_not_detected: 'version label not found',
+    version_label_unmatched: 'version label did not match a school packet version',
+    roi_signature_missing: 'ROI signature missing or unclear',
+    disclosure_signature_missing: 'acknowledgement/disclosure signature missing or unclear',
+    deny_checkbox_ambiguous: 'DENY checkbox could not be mapped to staff',
+    version_staff_snapshot_empty: 'version has no staff snapshot',
+    vision_ocr_failed: 'Vision OCR failed',
+    apply_failed: 'auto-apply failed'
+  };
+  return reasons.map((r) => map[r] || r).join('; ') + '.';
+});
 const availableLinks = ref([]);
 const savedIntakeLinkId = ref('');
 const selectedIntakeLinkId = ref('');
@@ -654,6 +695,7 @@ const load = async () => {
     roiExpiresAt.value = null;
     roiExpired.value = false;
     paperPacketStaffRoiPending.value = false;
+    paperPacketVision.value = null;
     return;
   }
 
@@ -678,6 +720,7 @@ const load = async () => {
     roiExpiryDraft.value = normalizeDateInputValue(payload.roi_expires_at || null);
     roiExpired.value = payload.roi_expired !== false;
     paperPacketStaffRoiPending.value = payload.paper_packet_staff_roi_pending === true;
+    paperPacketVision.value = payload.paper_packet_vision || null;
     schoolName.value = payload.school_name || props.client?.organization_name || '—';
     draftStates.value = rows.value.reduce((acc, row) => {
       acc[row.school_staff_user_id] = normalizeState(row.access_level);
@@ -1121,6 +1164,17 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(245, 158, 11, 0.35);
   background: rgba(245, 158, 11, 0.08);
   color: #92400e;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.success-card {
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.08);
+  color: #065f46;
   border-radius: 12px;
   padding: 12px 14px;
   margin-bottom: 12px;
