@@ -85,6 +85,20 @@ function isSchoolLike(client) {
   return false;
 }
 
+/** Provider fall pushback still needs agency reassignment clearance before Ready to Schedule. */
+export function needsFallReassignmentClearance(client) {
+  if (!client) return false;
+  if (!isSchoolLike(client) && String(client?.client_type || '').toLowerCase() !== 'school') return false;
+  const statusKey = String(client?.client_status_key || '').toLowerCase();
+  if (statusKey === 'waitlist' || statusKey === 'terminated') return false;
+  if (!client?.fall_completed_at) return false;
+  const outcome = String(client?.fall_outcome || '').toLowerCase();
+  const removed = client?.fall_remove_from_assignment === 1 || client?.fall_remove_from_assignment === true;
+  if (!removed && outcome !== 'unable_to_reach' && outcome !== 'other_transfer') return false;
+  if (client?.agency_cleared_at) return false;
+  return true;
+}
+
 export function displaySchoolClientStatusLabel(client, now = new Date()) {
   if (!client) return '—';
   const key = String(client?.client_status_key || '').toLowerCase();
@@ -92,6 +106,15 @@ export function displaySchoolClientStatusLabel(client, now = new Date()) {
 
   if (!isSchoolLike(client) && !isLegacyCurrent(client)) {
     return catalogLabel || KEEP_KEY_LABELS[key] || catalogLabel || '—';
+  }
+
+  // Stored waitlist/terminated/etc. must not be remapped to fall-pending labels.
+  if (key === 'waitlist' || key === 'terminated' || key === 'archived') {
+    return KEEP_KEY_LABELS[key] || catalogLabel || '—';
+  }
+
+  if (needsFallReassignmentClearance(client)) {
+    return FALL_PENDING_LABEL;
   }
 
   const weekday = hasWeekday(client);

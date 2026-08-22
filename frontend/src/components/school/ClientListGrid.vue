@@ -188,11 +188,11 @@
         <table class="clients-table">
         <thead>
           <tr>
-            <th class="sortable" @click="toggleSort('initials')" role="button" tabindex="0">
+            <th class="sortable col-client" @click="toggleSort('initials')" role="button" tabindex="0">
               Client
               <span class="sort-indicator" v-if="sortKey === 'initials'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
-            <th class="sortable" data-tour="school-roster-waitlist" @click="toggleSort('status')" role="button" tabindex="0">
+            <th class="sortable col-status" data-tour="school-roster-waitlist" @click="toggleSort('status')" role="button" tabindex="0">
               Client Status
               <span class="sort-indicator" v-if="sortKey === 'status'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
@@ -216,7 +216,7 @@
               Readiness
               <span class="sort-indicator" v-if="sortKey === 'document_status'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
-            <th v-if="showLifecycleActionColumn" class="actions-col">
+            <th v-if="showLifecycleActionColumn" class="actions-col lifecycle-action-col">
               Action / Next Step
             </th>
             <th
@@ -295,7 +295,7 @@
             @keydown.enter.prevent="handleRowActivate(client)"
             @keydown.space.prevent="handleRowActivate(client)"
           >
-            <td class="initials-cell">
+            <td class="initials-cell col-client">
               <div class="client-label">
                 <button
                   class="initials initials-btn"
@@ -394,7 +394,7 @@
                 </button>
               </div>
             </td>
-            <td>
+            <td class="col-status">
               <div class="status-cell">
                 <span
                   :class="[
@@ -444,7 +444,7 @@
                 {{ formatOnboardingSummary(client) }}
               </button>
             </td>
-            <td v-if="showLifecycleActionColumn">
+            <td v-if="showLifecycleActionColumn" class="actions-col lifecycle-action-col">
               <div class="roster-action-stack">
               <button
                 v-if="lifecycleActionFor(client)"
@@ -733,7 +733,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, watch } from 'vue';
+import { computed, ref, onMounted, watch, inject } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import SchoolClientChatModal from './SchoolClientChatModal.vue';
@@ -872,6 +872,11 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['edit-client', 'update:statusFilterKey', 'update:actionFilterKey', 'update:needsAttentionCount', 'open-availability-request', 'open-profile']);
+
+const schoolRosterRefreshToken = inject('schoolRosterRefreshToken', null);
+const bumpPeerRosterRefresh = () => {
+  if (schoolRosterRefreshToken) schoolRosterRefreshToken.value += 1;
+};
 
 const clients = ref([]);
 const loading = ref(false);
@@ -1268,6 +1273,13 @@ const fetchClients = async () => {
   }
 };
 
+watch(
+  () => schoolRosterRefreshToken?.value,
+  () => {
+    if (schoolRosterRefreshToken && !useClientsOverride()) fetchClients();
+  }
+);
+
 const fetchEditPermissions = async () => {
   if (!props.organizationId) {
     canEditClients.value = false;
@@ -1481,6 +1493,7 @@ const onAssignDayUpdated = async ({ clientId, providers: providerList }) => {
   };
   apply(clients.value);
   if (Array.isArray(props.clientsOverride)) apply(props.clientsOverride);
+  bumpPeerRosterRefresh();
 };
 
 const NEWLY_ASSIGNED_DAYS = 7;
@@ -1595,7 +1608,19 @@ const fallHoverBody = (client) => {
 };
 
 const onLifecycleActionSaved = () => {
+  try {
+    const cid = lifecycleActionClient.value?.id;
+    if (cid) {
+      const key = String(cid);
+      const next = { ...(waitlistNoteByClientId.value || {}) };
+      delete next[key];
+      waitlistNoteByClientId.value = next;
+    }
+  } catch {
+    // ignore
+  }
   fetchClients();
+  bumpPeerRosterRefresh();
 };
 
 const roiStaffName = (row) => {
@@ -1756,7 +1781,7 @@ const sortValue = (client, key) => {
 const ACTION_FILTER_LABELS = {
   fall_confirmation: 'Fall confirmation',
   agency_insurance: 'Insurance clearance',
-  agency_intake: 'Agency intake',
+  agency_intake: 'Agency action items',
   new_client: 'New client',
   agency_clearance: 'Agency clearance',
   roi_followup: 'ROI follow-up',
@@ -2777,6 +2802,7 @@ onMounted(() => {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.8125rem; /* ~13px – compact row height */
+  table-layout: fixed;
 }
 
 .table-toolbar {
@@ -3279,6 +3305,27 @@ onMounted(() => {
 .actions-col {
   white-space: nowrap;
   min-width: 0;
+}
+
+.lifecycle-action-col {
+  width: 19%;
+  min-width: 210px;
+}
+
+.clients-table .col-client {
+  width: 8%;
+  max-width: 96px;
+}
+
+.clients-table .col-status {
+  width: 11%;
+  max-width: 138px;
+}
+
+.clients-table .lifecycle-action-col .roster-action-btn {
+  white-space: normal;
+  text-align: left;
+  max-width: 100%;
 }
 
 .roster-row-actions {

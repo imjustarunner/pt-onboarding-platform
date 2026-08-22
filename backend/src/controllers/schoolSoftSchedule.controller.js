@@ -361,11 +361,38 @@ async function promoteClientForAssignedDay({ clientId, actorUserId }) {
     console.warn('[softSchedule] ensure school year membership failed', e?.message || e);
   }
 
-  const { markClientReadyToSchedule } = await import('../services/clientLifecycleStatus.service.js');
-  const lifecycle = await markClientReadyToSchedule({
+  const schoolYear = computeCurrentSchoolYearLabel();
+  const [fallDispRows] = await pool.execute(
+    `SELECT fall_outcome, fall_completed_at, fall_remove_from_assignment, agency_cleared_at, agency_clearance_json
+     FROM client_year_dispositions
+     WHERE client_id = ? AND school_year = ?
+     LIMIT 1`,
+    [client.id, schoolYear]
+  );
+  const { needsFallReassignmentClearance } = await import('../utils/fallReadiness.js');
+  if (needsFallReassignmentClearance({ client, disposition: fallDispRows?.[0] || null })) {
+    const { setClientLifecycleStatus, LIFECYCLE_STATUS_KEYS } = await import('../services/clientLifecycleStatus.service.js');
+    await setClientLifecycleStatus({
+      clientId: client.id,
+      statusKey: LIFECYCLE_STATUS_KEYS.CONFIRMATION_PENDING,
+      actorUserId,
+      note: 'Assigned day — fall reassignment clearance still needed'
+    });
+    return {
+      school_year: patch.school_year || client.school_year || null,
+      grade: patch.grade !== undefined ? patch.grade : (client.grade || null),
+      client_status_key: 'confirmation_pending',
+      doc_compliance_ok: null,
+      doc_status_missing: [],
+      year_advanced: yearIsStale
+    };
+  }
+
+  const { reconcileSchoolClientStatus } = await import('../services/clientLifecycleStatus.service.js');
+  const lifecycle = await reconcileSchoolClientStatus({
     clientId: client.id,
     actorUserId,
-    note: 'Assigned day — Ready to Schedule'
+    note: 'Assigned day — provider + weekday reassigned'
   });
 
   return {
@@ -986,6 +1013,101 @@ export const moveSoftScheduleSlot = async (req, res, next) => {
 };
 
 /**
+ * School providers with at least one open slot day — used when the client has no
+ * provider assignment yet but staff need to pick one in the portal modal.
+ */
+async function loadCandidateProvidersForSchool(schoolId) {
+  const sid = parseInt(schoolId, 10);
+  if (!sid) return [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT psa.provider_user_id, u.first_name, u.last_name,
+              psa.day_of_week, psa.slots_available, psa.slots_total,
+              psa.start_time, psa.end_time, psa.is_active
+       FROM provider_school_assignments psa
+       JOIN users u ON u.id = psa.provider_user_id
+       JOIN user_agencies ua
+         ON ua.user_id = psa.provider_user_id
+        AND ua.agency_id = psa.school_organization_id
+       WHERE psa.school_organization_id = ?
+         AND (psa.is_active = TRUE OR psa.slots_available > 0)
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED', 'INACTIVE_EMPLOYEE', 'PROSPECTIVE')
+       ORDER BY u.last_name ASC, u.first_name ASC,
+         FIELD(psa.day_of_week, 'Monday','Tuesday','Wednesday','Thursday','Friday')`,
+      [sid]
+    );
+    const byProvider = new Map();
+    for (const row of rows || []) {
+      const pid = parseInt(row.provider_user_id, 10);
+      if (!pid) continue;
+      if (!byProvider.has(pid)) {
+        byProvider.set(pid, {
+          provider_user_id: pid,
+          first_name: row.first_name || '',
+          last_name: row.last_name || '',
+          assigned_days: [],
+          work_days: []
+        });
+      }
+      const day = String(row.day_of_week || '');
+      if (!day) continue;
+      const avail = row.slots_available == null ? null : Number(row.slots_available);
+      const active = row.is_active === true || row.is_active === 1;
+      if (!active && !(avail > 0)) continue;
+      const entry = byProvider.get(pid);
+      entry.work_days.push({
+        day_of_week: day,
+        slots_total: row.slots_total == null ? null : Number(row.slots_total),
+        slots_available: avail,
+        start_time: row.start_time || null,
+        end_time: row.end_time || null,
+        assigned: false
+      });
+    }
+
+    // Affiliated providers with no PSA rows at all.
+    const [affRows] = await pool.execute(
+      `SELECT DISTINCT u.id AS provider_user_id, u.first_name, u.last_name
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE (u.role IN ('provider', 'provider_plus', 'intern', 'intern_plus') OR u.has_provider_access = TRUE)
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED', 'INACTIVE_EMPLOYEE', 'PROSPECTIVE')`,
+      [sid]
+    );
+    for (const row of affRows || []) {
+      const pid = parseInt(row.provider_user_id, 10);
+      if (!pid || byProvider.has(pid)) continue;
+      byProvider.set(pid, {
+        provider_user_id: pid,
+        first_name: row.first_name || '',
+        last_name: row.last_name || '',
+        assigned_days: [],
+        work_days: []
+      });
+    }
+
+    return Array.from(byProvider.values());
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE')) return [];
+    throw e;
+  }
+}
+
+function filterWorkDaysForAssignment(workDays, assignedDays) {
+  const assigned = new Set((assignedDays || []).map((d) => String(d)));
+  return (workDays || []).filter((d) => {
+    const day = String(d.day_of_week || '');
+    if (assigned.has(day)) return true;
+    const avail = d.slots_available;
+    if (avail == null) return false;
+    return Number(avail) > 0;
+  });
+}
+
+/**
  * Context for roster "Assigned Day" editor.
  * Returns every assigned provider for the client (providers only see themselves).
  * GET /api/school-portal/:schoolId/clients/:clientId/day-assignment-context
@@ -1077,6 +1199,8 @@ export const getClientDayAssignmentContext = async (req, res, next) => {
     // Providers may only edit themselves.
     if (selfProviderId) {
       providerList = providerList.filter((p) => p.provider_user_id === selfProviderId);
+    } else if (!providerList.length) {
+      providerList = await loadCandidateProvidersForSchool(schoolId);
     }
 
     const providersOut = [];
@@ -1101,6 +1225,15 @@ export const getClientDayAssignmentContext = async (req, res, next) => {
       const assignedDays = Array.isArray(p.assigned_days) ? p.assigned_days : [];
 
       let effectiveWorkRows = workRows || [];
+      if (!effectiveWorkRows.length && Array.isArray(p.work_days) && p.work_days.length) {
+        effectiveWorkRows = p.work_days.map((d) => ({
+          day_of_week: String(d.day_of_week),
+          slots_total: d.slots_total == null ? null : Number(d.slots_total),
+          slots_available: d.slots_available == null ? null : Number(d.slots_available),
+          start_time: d.start_time || null,
+          end_time: d.end_time || null
+        }));
+      }
 
       // Fallback: if provider_school_assignments has no active rows for this provider at this
       // school (e.g. rows became inactive after a year rollover, or were never created for a
@@ -1144,14 +1277,19 @@ export const getClientDayAssignmentContext = async (req, res, next) => {
         effectiveWorkRows = psaInactive || [];
       }
 
-      const workDays = effectiveWorkRows.map((r) => ({
-        day_of_week: String(r.day_of_week),
-        slots_total: r.slots_total == null ? null : Number(r.slots_total),
-        slots_available: r.slots_available == null ? null : Number(r.slots_available),
-        start_time: r.start_time || null,
-        end_time: r.end_time || null,
-        assigned: assignedDays.includes(String(r.day_of_week))
-      }));
+      const workDays = filterWorkDaysForAssignment(
+        effectiveWorkRows.map((r) => ({
+          day_of_week: String(r.day_of_week),
+          slots_total: r.slots_total == null ? null : Number(r.slots_total),
+          slots_available: r.slots_available == null ? null : Number(r.slots_available),
+          start_time: r.start_time || null,
+          end_time: r.end_time || null,
+          assigned: assignedDays.includes(String(r.day_of_week))
+        })),
+        assignedDays
+      );
+
+      if (!workDays.length && !assignedDays.length) continue;
 
       providersOut.push({
         provider_user_id: p.provider_user_id,
@@ -1163,7 +1301,14 @@ export const getClientDayAssignmentContext = async (req, res, next) => {
     }
 
     if (!providersOut.length) {
-      return res.status(404).json({ error: { message: 'No editable providers found for this client' } });
+      return res.json({
+        client_id: clientId,
+        school_organization_id: schoolId,
+        providers: [],
+        provider: null,
+        work_days: [],
+        assigned_days: []
+      });
     }
 
     // Backward-compatible single-provider fields (first / focused provider).
@@ -1737,8 +1882,10 @@ export const listAddableSchoolProviders = async (req, res, next) => {
                 u.last_name,
                 u.email,
                 EXISTS(
-                  SELECT 1 FROM user_agencies ua_school
-                  WHERE ua_school.user_id = u.id AND ua_school.agency_id = ?
+                  SELECT 1 FROM provider_school_assignments psa
+                  WHERE psa.provider_user_id = u.id
+                    AND psa.school_organization_id = ?
+                    AND psa.is_active = TRUE
                 ) AS already_at_school
          FROM users u
          JOIN user_agencies ua_agency ON ua_agency.user_id = u.id AND ua_agency.agency_id = ?
@@ -1759,8 +1906,10 @@ export const listAddableSchoolProviders = async (req, res, next) => {
                 u.last_name,
                 u.email,
                 EXISTS(
-                  SELECT 1 FROM user_agencies ua_school
-                  WHERE ua_school.user_id = u.id AND ua_school.agency_id = ?
+                  SELECT 1 FROM provider_school_assignments psa
+                  WHERE psa.provider_user_id = u.id
+                    AND psa.school_organization_id = ?
+                    AND psa.is_active = TRUE
                 ) AS already_at_school
          FROM users u
          JOIN user_agencies ua_agency ON ua_agency.user_id = u.id AND ua_agency.agency_id = ?
@@ -1904,7 +2053,8 @@ export const addSchoolProviderWithSchedule = async (req, res, next) => {
     // Affiliate provider to school org.
     try {
       await pool.execute(
-        `INSERT INTO user_agencies (user_id, agency_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE user_id = user_id`,
+        `INSERT INTO user_agencies (user_id, agency_id, is_active) VALUES (?, ?, 1)
+         ON DUPLICATE KEY UPDATE is_active = 1`,
         [providerUserId, schoolOrgId]
       );
     } catch (e) {

@@ -34,13 +34,13 @@
           >
             <div class="provider-heading">{{ providerDisplayName(prov) }}</div>
 
-            <div v-if="!(prov.work_days || []).length" class="empty small">
-              No active work days at this school yet. Set their schedule first.
+            <div v-if="!visibleWorkDays(prov).length" class="empty small">
+              No days with open slots at this school yet.
             </div>
 
             <div v-else class="day-grid" role="group" :aria-label="`${providerDisplayName(prov)} work days`">
               <button
-                v-for="day in prov.work_days"
+                v-for="day in visibleWorkDays(prov)"
                 :key="`${prov.provider_user_id}-${day.day_of_week}`"
                 type="button"
                 class="day-chip"
@@ -199,6 +199,17 @@ const formatSlotRange = (slot) => {
 const saveKey = (providerUserId, day) => `${providerUserId}:${day}`;
 
 const isAssigned = (prov, day) => (prov?.assigned_days || []).includes(String(day));
+
+const visibleWorkDays = (prov) => {
+  const assigned = new Set((prov?.assigned_days || []).map((d) => String(d)));
+  return (prov?.work_days || []).filter((d) => {
+    const day = String(d.day_of_week || '');
+    if (assigned.has(day)) return true;
+    const avail = d.slots_available;
+    if (avail == null) return false;
+    return Number(avail) > 0;
+  });
+};
 
 const slotIndexOf = (slot) => {
   const all = slotPrompt.value?._allSlots || [];

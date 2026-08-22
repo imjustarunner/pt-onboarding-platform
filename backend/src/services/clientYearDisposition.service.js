@@ -4,7 +4,10 @@
 import pool from '../config/database.js';
 import {
   LIFECYCLE_STATUS_KEYS,
-  setClientLifecycleStatus
+  setClientLifecycleStatus,
+  reconcileSchoolClientStatus,
+  clientHasWeekdayAssignment,
+  clientHasProvider
 } from './clientLifecycleStatus.service.js';
 import { applyFallContinuationSideEffects } from './fallContinuation.service.js';
 import { stampClientTerminationSchoolYear } from './clientTerminationSchoolYear.service.js';
@@ -13,10 +16,11 @@ import {
   upcomingSchoolYearLabel
 } from '../utils/schoolYearCalendar.js';
 import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
-import { continuingClientDisclosureAutoOk, continuingInsuranceOverrideActive } from '../utils/fallReadiness.js';
+import { continuingClientDisclosureAutoOk, continuingInsuranceOverrideActive, isReturningSchoolClient, needsFallReassignmentClearance, parseJsonMaybe } from '../utils/fallReadiness.js';
 import { deriveLifecycleAction } from '../utils/clientLifecycleAction.js';
 import { buildClientLifecycleHistory } from '../utils/clientLifecycleHistory.js';
-import { getAgencyIntake } from './clientAgencyIntake.service.js';
+import { getAgencyIntake, saveAgencyIntake } from './clientAgencyIntake.service.js';
+import Client from '../models/Client.model.js';
 
 const SPRING_OUTCOMES = new Set(['returning', 'not_returning', 'unknown']);
 const FALL_OUTCOMES = new Set([
@@ -355,6 +359,239 @@ export async function saveAgencyClearance({
   }
 
   return getDisposition({ clientId, schoolYear: year });
+}
+
+/**
+ * Waitlist from fall reassignment (provider pushback) — does not clear agency_cleared_at;
+ * client moves to Waitlist and the fall reassignment action drops off the roster.
+ */
+export async function saveFallReassignmentWaitlist({
+  clientId,
+  schoolYear = null,
+  waitlistReason = '',
+  actorUserId = null
+}) {
+  const year = schoolYear || currentSchoolYearLabelFromCalendar();
+  const reason = String(waitlistReason || '').trim();
+
+  await setClientLifecycleStatus({
+    clientId,
+    statusKey: LIFECYCLE_STATUS_KEYS.WAITLIST,
+    actorUserId,
+    note: reason
+      ? `Waitlisted from fall reassignment: ${reason.slice(0, 500)}`
+      : 'Waitlisted from fall reassignment',
+    extraPatch: { waitlist_started_at: new Date() }
+  });
+
+  if (reason && actorUserId) {
+    const ClientNotes = (await import('../models/ClientNotes.model.js')).default;
+    await ClientNotes.upsertSharedSingletonByClientAndCategory({
+      clientId,
+      category: 'waitlist',
+      message: reason,
+      actorUserId
+    }).catch((err) => {
+      console.error('[saveFallReassignmentWaitlist] waitlist note upsert failed', err?.message || err);
+    });
+  }
+
+  return getDisposition({ clientId, schoolYear: year });
+}
+
+/**
+ * Update a waitlisted client: optional assignments (saved separately), reason, clearance,
+ * intake items, and optionally remove from waitlist.
+ */
+export async function saveWaitlistResolution({
+  clientId,
+  schoolYear = null,
+  waitlistReason,
+  removeFromWaitlist = false,
+  clearAllAndMarkActive = false,
+  clearance = null,
+  intake = null,
+  actorUserId = null
+}) {
+  const year = schoolYear || currentSchoolYearLabelFromCalendar();
+  const [rows] = await pool.execute(
+    `SELECT c.*, cs.status_key AS client_status_key
+     FROM clients c
+     LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+     WHERE c.id = ?
+     LIMIT 1`,
+    [clientId]
+  );
+  const client = rows?.[0];
+  if (!client) throw Object.assign(new Error('Client not found'), { status: 404 });
+  const statusKey = String(client.client_status_key || '').toLowerCase();
+  if (statusKey !== 'waitlist') {
+    throw Object.assign(new Error('Client is not on the waitlist'), { status: 400 });
+  }
+
+  const disp = await getDisposition({ clientId, schoolYear: year });
+  const reason = waitlistReason !== undefined ? String(waitlistReason || '').trim() : null;
+  const fallPending = needsFallReassignmentClearance({ client, disposition: disp });
+
+  if (reason !== null) {
+    const prev = parseJsonMaybe(client.agency_intake_json) || {};
+    const next = {
+      ...prev,
+      waitlistReason: reason,
+      waitlisted: !removeFromWaitlist,
+      updatedAt: new Date().toISOString(),
+      updatedByUserId: actorUserId || null
+    };
+    await Client.update(clientId, { agency_intake_json: JSON.stringify(next) }, actorUserId);
+    if (reason && actorUserId) {
+      const ClientNotes = (await import('../models/ClientNotes.model.js')).default;
+      await ClientNotes.upsertSharedSingletonByClientAndCategory({
+        clientId,
+        category: 'waitlist',
+        message: reason,
+        actorUserId
+      }).catch((err) => {
+        console.error('[saveWaitlistResolution] waitlist note upsert failed', err?.message || err);
+      });
+    }
+  }
+
+  if (!removeFromWaitlist && !clearAllAndMarkActive) {
+    return {
+      clientId,
+      statusKey: 'waitlist',
+      disposition: disp
+    };
+  }
+
+  if (clearAllAndMarkActive) {
+    const hasProvider = await clientHasProvider(clientId, client);
+    const hasWeekday = await clientHasWeekdayAssignment(clientId);
+    if (!hasProvider || !hasWeekday) {
+      throw Object.assign(
+        new Error('Assign a provider and weekday before using Clear all and mark active'),
+        { status: 400 }
+      );
+    }
+
+    const prev = parseJsonMaybe(client.agency_intake_json) || {};
+    const nextIntake = {
+      ...prev,
+      waitlisted: false,
+      waitlistReason: reason ?? prev.waitlistReason ?? '',
+      insuranceReviewed: true,
+      ehrTransferred: true,
+      paperComplete: true,
+      pendingCorrections: false,
+      agencyIntakeComplete: true,
+      updatedAt: new Date().toISOString(),
+      updatedByUserId: actorUserId || null
+    };
+    await Client.update(clientId, { agency_intake_json: JSON.stringify(nextIntake) }, actorUserId);
+    if (!client.staff_onboarding_completed_at) {
+      await Client.update(clientId, { staff_onboarding_completed_at: new Date() }, actorUserId);
+    }
+
+    await setClientLifecycleStatus({
+      clientId,
+      statusKey: LIFECYCLE_STATUS_KEYS.CONFIRMATION_PENDING,
+      actorUserId,
+      note: 'Clear all and mark active — removed from waitlist'
+    });
+
+    await saveAgencyClearance({
+      clientId,
+      agencyId: client.agency_id,
+      schoolYear: year,
+      clearance: { disclosureOk: true, insuranceOk: true },
+      actorUserId
+    });
+
+    const reconciled = await reconcileSchoolClientStatus({
+      clientId,
+      actorUserId,
+      note: 'Clear all and mark active — post-waitlist reconcile'
+    });
+
+    return {
+      clientId,
+      statusKey: reconciled?.statusKey || LIFECYCLE_STATUS_KEYS.READY_TO_SCHEDULE,
+      disposition: await getDisposition({ clientId, schoolYear: year })
+    };
+  }
+
+  const intakePayload = intake && typeof intake === 'object' ? intake : null;
+  const hasIntakePatch = intakePayload
+    && (intakePayload.insuranceReviewed !== undefined
+      || intakePayload.ehrTransferred !== undefined
+      || intakePayload.paperComplete !== undefined
+      || intakePayload.missingItems !== undefined);
+
+  if (hasIntakePatch) {
+    await saveAgencyIntake({
+      clientId,
+      payload: {
+        ...intakePayload,
+        waitlisted: false,
+        waitlistReason: reason ?? ''
+      },
+      actorUserId
+    });
+    const [reloaded] = await pool.execute(
+      `SELECT cs.status_key AS client_status_key FROM clients c
+       LEFT JOIN client_statuses cs ON cs.id = c.client_status_id WHERE c.id = ? LIMIT 1`,
+      [clientId]
+    );
+    const keyAfterIntake = String(reloaded?.[0]?.client_status_key || '').toLowerCase();
+    if (keyAfterIntake !== 'waitlist') {
+      if (fallPending && clearance?.disclosureOk && clearance?.insuranceOk) {
+        await saveAgencyClearance({
+          clientId,
+          agencyId: client.agency_id,
+          schoolYear: year,
+          clearance,
+          actorUserId
+        }).catch(() => {});
+      }
+      await reconcileSchoolClientStatus({ clientId, actorUserId, note: 'Post-waitlist reconcile' });
+      return {
+        clientId,
+        statusKey: keyAfterIntake,
+        disposition: await getDisposition({ clientId, schoolYear: year })
+      };
+    }
+  }
+
+  const returning = isReturningSchoolClient(client);
+  const stagingKey = returning ? LIFECYCLE_STATUS_KEYS.CONFIRMATION_PENDING : LIFECYCLE_STATUS_KEYS.IN_PROCESS;
+  await setClientLifecycleStatus({
+    clientId,
+    statusKey: stagingKey,
+    actorUserId,
+    note: reason ? `Removed from waitlist: ${reason.slice(0, 200)}` : 'Removed from waitlist'
+  });
+
+  if (clearance?.disclosureOk && clearance?.insuranceOk) {
+    await saveAgencyClearance({
+      clientId,
+      agencyId: client.agency_id,
+      schoolYear: year,
+      clearance,
+      actorUserId
+    });
+  }
+
+  const reconciled = await reconcileSchoolClientStatus({
+    clientId,
+    actorUserId,
+    note: 'Post-waitlist reconcile'
+  });
+
+  return {
+    clientId,
+    statusKey: reconciled?.statusKey || stagingKey,
+    disposition: await getDisposition({ clientId, schoolYear: year })
+  };
 }
 
 /**

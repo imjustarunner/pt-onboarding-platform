@@ -72,4 +72,34 @@ describe('resolveSchoolRosterDisplayStatus', () => {
     assert.equal(display.key, 'being_seen');
     assert.equal(display.label, 'Being Seen');
   });
+
+  it('shows Fall Confirmation Pending when fall reassignment clearance is still owed', () => {
+    const display = resolveSchoolRosterDisplayStatus({
+      client_type: 'school',
+      client_status_key: 'ready_to_schedule',
+      service_day: 'Monday',
+      provider_day_pairs: '595:Robin Williams:Monday',
+      fall_outcome: 'unable_to_reach',
+      fall_completed_at: '2026-08-13T00:00:00.000Z',
+      fall_remove_from_assignment: 1,
+      agency_cleared_at: null
+    });
+    assert.equal(display.key, 'confirmation_pending');
+    assert.equal(display.label, 'Fall Confirmation Pending');
+  });
+
+  it('keeps Waitlist even when fall reassignment disposition is still open', () => {
+    const display = resolveSchoolRosterDisplayStatus({
+      client_type: 'school',
+      client_status_key: 'waitlist',
+      client_status_label: 'Waitlist',
+      service_day: 'Monday',
+      fall_outcome: 'unable_to_reach',
+      fall_completed_at: '2026-08-13T00:00:00.000Z',
+      fall_remove_from_assignment: 1,
+      agency_cleared_at: null
+    });
+    assert.equal(display.key, 'waitlist');
+    assert.equal(display.label, 'Waitlist');
+  });
 });

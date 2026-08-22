@@ -377,7 +377,7 @@ function openAgencyIntake() {
   if (!selectedRow.value) return;
   lifecycleClient.value = selectedRow.value;
   lifecycleActionKey.value = 'agency_intake';
-  lifecycleActionLabel.value = 'Complete agency intake';
+  lifecycleActionLabel.value = 'Complete agency action items';
 }
 
 function openAgencyClearance() {

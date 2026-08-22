@@ -21,6 +21,7 @@ import {
   continuingInsuranceOverrideActive,
   isContinuingSchoolClient,
   isReturningSchoolClient,
+  needsFallReassignmentClearance,
   servicesConfirmedThisSchoolYear
 } from './fallReadiness.js';
 
@@ -116,7 +117,13 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
   const isAgency = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(role);
   const isProvider = ['provider', 'provider_plus', 'intern', 'intern_plus'].includes(role);
 
-  if (statusKey === 'terminated' || statusKey === 'waitlist') return null;
+  if (statusKey === 'terminated') return null;
+  if (statusKey === 'waitlist') {
+    if (isAgency) {
+      return { role: 'agency', actionKey: 'waitlist_resolution', label: 'Waitlist – Action Needed' };
+    }
+    return null;
+  }
 
   // Recommend/initiate terminate (or terminated fall plan) — drop agency clearance Actions
   if (truthy(continuation.recommendTerminate) || String(continuation.plan || '') === 'not_continue_school') {
@@ -133,11 +140,14 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
   }
 
   if (isAgency) {
+    if (needsFallReassignmentClearance({ client, disposition })) {
+      return { role: 'agency', actionKey: 'fall_reassignment', label: 'Fall reassignment – Action Needed' };
+    }
     if (needsSharedDayAssignmentAction(client)) {
       return { role: 'agency', actionKey: 'assign_day', label: 'Assign day – Action Needed' };
     }
     if (['received', 'packet', 'pending_corrections', 'in_process'].includes(statusKey)) {
-      return { role: 'agency', actionKey: 'agency_intake', label: 'Complete agency intake' };
+      return { role: 'agency', actionKey: 'agency_intake', label: 'Complete agency action items' };
     }
     if (agencyIntake.pendingCorrections === true) {
       return { role: 'agency', actionKey: 'agency_intake', label: 'Resolve corrections' };
@@ -172,7 +182,8 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
       });
       const insuranceOk = insuranceOverride
         || clearance.insuranceOk === true
-        || client?.insurance_cleared === true;
+        || client?.insurance_cleared === true
+        || agencyIntake.insuranceReviewed === true;
       const agencyCleared = disposition?.agency_cleared_at != null || clearance.agencyCleared === true;
 
       const needsClearanceGate = ['confirmed_returning', 'ready_to_schedule', 'scheduled', 'current', 'pending', 'onboarded'].includes(statusKey);
@@ -266,6 +277,7 @@ export function needsInsuranceClearance({ client, disposition = null, ignoreOver
     return false;
   }
   const clearance = parseJson(disposition?.agency_clearance_json) || parseJson(client?.agency_clearance_json) || {};
+  const agencyIntake = parseJson(client?.agency_intake_json) || {};
   if (disposition?.agency_cleared_at != null || clearance.agencyCleared === true) return false;
   const needsClearanceGate = [
     'confirmed_returning',
@@ -284,5 +296,9 @@ export function needsInsuranceClearance({ client, disposition = null, ignoreOver
     });
     if (insuranceOverride) return false;
   }
-  return !(clearance.insuranceOk === true || client?.insurance_cleared === true);
+  return !(
+    clearance.insuranceOk === true
+    || client?.insurance_cleared === true
+    || agencyIntake.insuranceReviewed === true
+  );
 }

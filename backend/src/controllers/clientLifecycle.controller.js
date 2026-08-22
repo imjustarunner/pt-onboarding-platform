@@ -10,6 +10,8 @@ import {
   saveSpringUpdate,
   saveFallConfirmation,
   saveAgencyClearance,
+  saveFallReassignmentWaitlist,
+  saveWaitlistResolution,
   noteRoiFollowup
 } from '../services/clientYearDisposition.service.js';
 import { markClientBeingSeen } from '../services/clientLifecycleStatus.service.js';
@@ -180,6 +182,53 @@ export async function putClientAgencyClearance(req, res, next) {
       actorUserId: req.user.id
     });
     res.json({ disposition: disp });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+}
+
+export async function putClientFallReassignment(req, res, next) {
+  try {
+    const client = await loadClientOr404(req.params.id);
+    await assertAgencyAccess(req, client);
+    if (!isAgencyRole(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Agency access required' } });
+    }
+    if (req.body?.waitlisted !== true) {
+      return res.status(400).json({ error: { message: 'waitlisted: true is required for this endpoint' } });
+    }
+    const disp = await saveFallReassignmentWaitlist({
+      clientId: client.id,
+      schoolYear: req.body?.schoolYear || currentSchoolYearLabelFromCalendar(),
+      waitlistReason: req.body?.waitlistReason || '',
+      actorUserId: req.user.id
+    });
+    res.json({ disposition: disp });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+}
+
+export async function putClientWaitlistResolution(req, res, next) {
+  try {
+    const client = await loadClientOr404(req.params.id);
+    await assertAgencyAccess(req, client);
+    if (!isAgencyRole(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Agency access required' } });
+    }
+    const result = await saveWaitlistResolution({
+      clientId: client.id,
+      schoolYear: req.body?.schoolYear || currentSchoolYearLabelFromCalendar(),
+      waitlistReason: req.body?.waitlistReason,
+      removeFromWaitlist: req.body?.removeFromWaitlist === true,
+      clearAllAndMarkActive: req.body?.clearAllAndMarkActive === true,
+      clearance: req.body?.clearance || null,
+      intake: req.body?.intake || null,
+      actorUserId: req.user.id
+    });
+    res.json(result);
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);

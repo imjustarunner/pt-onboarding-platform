@@ -5181,6 +5181,10 @@ const organizationId = computed(() => {
          null;
 });
 
+/** Bumped when any roster grid assigns a day / lifecycle action — keeps preview panes in sync. */
+const schoolRosterRefreshToken = ref(0);
+provide('schoolRosterRefreshToken', schoolRosterRefreshToken);
+
 function digitalFormsPulseStorageKey(orgId) {
   return `school-portal-digital-forms-pulse-dismissed:${orgId}`;
 }

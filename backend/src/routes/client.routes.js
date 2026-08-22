@@ -101,6 +101,8 @@ import {
   putClientSpringUpdate,
   putClientFallConfirmation,
   putClientAgencyClearance,
+  putClientFallReassignment,
+  putClientWaitlistResolution,
   putClientRoiFollowup,
   postConfirmServicesStarted
 } from '../controllers/clientLifecycle.controller.js';
@@ -244,6 +246,8 @@ router.get('/:id/year-disposition', getClientYearDisposition);
 router.get('/:id/lifecycle-history', getClientLifecycleHistoryHandler);
 router.put('/:id/spring-update', putClientSpringUpdate);
 router.put('/:id/fall-confirmation', putClientFallConfirmation);
+router.put('/:id/fall-reassignment', putClientFallReassignment);
+router.put('/:id/waitlist-resolution', putClientWaitlistResolution);
 router.put('/:id/agency-clearance', putClientAgencyClearance);
 router.put('/:id/roi-followup', putClientRoiFollowup);
 router.post('/:id/confirm-services-started', postConfirmServicesStarted);

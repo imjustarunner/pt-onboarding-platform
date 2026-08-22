@@ -3,7 +3,7 @@
  * Returning / leftover current rows show Fall Confirmation Pending (no weekday)
  * or Ready to Schedule (weekday assigned).
  */
-import { isReturningSchoolClient } from './fallReadiness.js';
+import { isReturningSchoolClient, needsFallReassignmentClearance } from './fallReadiness.js';
 import { isDateInCurrentSchoolYear } from './schoolYear.js';
 
 const KEEP_KEY_LABELS = {
@@ -61,6 +61,24 @@ export function resolveSchoolRosterDisplayStatus(client, now = new Date()) {
   const key = String(client?.client_status_key || '').toLowerCase();
   const catalogLabel = String(client?.client_status_label || '').trim();
   const weekday = hasWeekday(client);
+
+  // Stored catalog status wins — don't remap waitlist/terminated/etc. for fall display logic.
+  if (key === 'waitlist' || key === 'terminated' || key === 'archived') {
+    return { key, label: KEEP_KEY_LABELS[key] || catalogLabel || key };
+  }
+
+  if (needsFallReassignmentClearance({
+    client,
+    disposition: {
+      fall_completed_at: client?.fall_completed_at,
+      fall_outcome: client?.fall_outcome,
+      fall_remove_from_assignment: client?.fall_remove_from_assignment,
+      agency_cleared_at: client?.agency_cleared_at,
+      agency_clearance_json: client?.agency_clearance_json
+    }
+  })) {
+    return FALL_PENDING;
+  }
   const returning = isReturningSchoolClient({
     ...client,
     client_type: client?.client_type || 'school'

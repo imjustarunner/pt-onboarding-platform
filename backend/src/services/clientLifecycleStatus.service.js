@@ -9,7 +9,7 @@ import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { isPaperPacketClient } from '../utils/paperPacketClient.js';
 import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
 import { deriveLifecycleAction } from '../utils/clientLifecycleAction.js';
-import { isReturningSchoolClient, servicesConfirmedThisSchoolYear } from '../utils/fallReadiness.js';
+import { isReturningSchoolClient, needsFallReassignmentClearance, servicesConfirmedThisSchoolYear } from '../utils/fallReadiness.js';
 
 export { deriveLifecycleAction };
 
@@ -241,6 +241,22 @@ export async function reconcileSchoolClientStatus({ clientId, actorUserId = null
   // Provider + weekday bypasses fall/agency blocks → Ready to Schedule.
   // Keep Scheduled if already there; Being Seen is handled above.
   if (hasWeekday) {
+    const schoolYear = computeCurrentSchoolYearLabel();
+    const [fallDispRows] = await pool.execute(
+      `SELECT fall_outcome, fall_completed_at, fall_remove_from_assignment, agency_cleared_at, agency_clearance_json
+       FROM client_year_dispositions
+       WHERE client_id = ? AND school_year = ?
+       LIMIT 1`,
+      [cid, schoolYear]
+    );
+    if (needsFallReassignmentClearance({ client, disposition: fallDispRows?.[0] || null })) {
+      return setClientLifecycleStatus({
+        clientId: cid,
+        statusKey: LIFECYCLE_STATUS_KEYS.CONFIRMATION_PENDING,
+        actorUserId,
+        note: note || 'Fall pushback — agency reassignment clearance pending'
+      });
+    }
     if (currentKey === 'scheduled') {
       return { statusKey: 'scheduled', changed: false };
     }

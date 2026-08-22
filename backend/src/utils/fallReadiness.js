@@ -108,6 +108,32 @@ export function continuingClientDisclosureAutoOk(client) {
   return isContinuingSchoolClient(client);
 }
 
+/**
+ * Provider fall pushback (unable to reach / other + remove from assignment) needs agency
+ * to reassign provider/day and re-confirm disclosure + insurance before Ready to Schedule.
+ */
+export function needsFallReassignmentClearance({ client, disposition = null } = {}) {
+  if (String(client?.client_type || 'school').toLowerCase() !== 'school') return false;
+  const statusKey = String(client?.client_status_key || '').toLowerCase();
+  if (statusKey === 'waitlist' || statusKey === 'terminated') return false;
+  const disp = disposition || {};
+  if (!disp.fall_completed_at) return false;
+  const outcome = String(disp.fall_outcome || '').toLowerCase();
+  const removed = disp.fall_remove_from_assignment === 1 || disp.fall_remove_from_assignment === true;
+  if (!removed && outcome !== 'unable_to_reach' && outcome !== 'other_transfer') return false;
+  if (disp.agency_cleared_at != null) return false;
+  const raw = disp.agency_clearance_json;
+  if (raw) {
+    try {
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (parsed?.agencyCleared === true) return false;
+    } catch {
+      // ignore parse errors
+    }
+  }
+  return true;
+}
+
 /** Temporary: continuing clients are not blocked on insurance through 2026-08-16. */
 export const CONTINUING_INSURANCE_OVERRIDE_UNTIL_YMD = '2026-08-16';
 

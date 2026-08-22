@@ -224,21 +224,49 @@
               <span class="cdp-school-profile-kicker">School</span>
               <strong>{{ schoolGlanceLabel }}</strong>
             </div>
-            <div class="cdp-school-profile-item">
-              <span class="cdp-school-profile-kicker">Assigned day</span>
-              <strong>{{ assignedDayGlanceLabel }}</strong>
-            </div>
+            <template v-if="!showSchoolStripAssignmentEditor">
+              <div class="cdp-school-profile-item">
+                <span class="cdp-school-profile-kicker">Assigned day</span>
+                <strong>{{ assignedDayGlanceLabel }}</strong>
+              </div>
+            </template>
             <div class="cdp-school-profile-item">
               <span class="cdp-school-profile-kicker">Grade</span>
-              <strong>{{ formatGradeDisplay(client.grade) || '—' }}</strong>
+              <template v-if="editingOverview && canEditAccount">
+                <select v-model="overviewForm.grade" class="cdp-strip-input">
+                  <option value="">—</option>
+                  <option
+                    v-for="o in overviewGradeSelectOptions"
+                    :key="`${o.value}::${o.label}`"
+                    :value="o.value"
+                  >{{ o.label }}</option>
+                </select>
+              </template>
+              <strong v-else>{{ formatGradeDisplay(client.grade) || '—' }}</strong>
             </div>
             <div class="cdp-school-profile-item">
               <span class="cdp-school-profile-kicker">School year</span>
-              <strong>{{ client.school_year || '—' }}</strong>
+              <template v-if="editingOverview && canEditAccount">
+                <input v-model="overviewForm.school_year" class="cdp-strip-input" placeholder="2025-2026" />
+              </template>
+              <strong v-else>{{ client.school_year || '—' }}</strong>
             </div>
-            <div class="cdp-school-profile-item">
-              <span class="cdp-school-profile-kicker">Primary clinician</span>
-              <strong>{{ primaryProviderLabel }}</strong>
+            <template v-if="!showSchoolStripAssignmentEditor">
+              <div class="cdp-school-profile-item">
+                <span class="cdp-school-profile-kicker">Primary clinician</span>
+                <strong>{{ primaryProviderLabel }}</strong>
+              </div>
+            </template>
+            <div
+              v-if="showSchoolStripAssignmentEditor"
+              class="cdp-school-profile-item cdp-school-profile-item--assignment"
+            >
+              <SchoolClientAssignmentInline
+                :organization-id="schoolOrganizationId"
+                :client="client"
+                :initial-provider-user-id="assignDayProviderUserId"
+                @updated="onSchoolAssignmentUpdated"
+              />
             </div>
             <div class="cdp-school-profile-item">
               <span class="cdp-school-profile-kicker">Program</span>
@@ -2295,6 +2323,7 @@ import { assignedDayDisplay, displaySchoolClientStatusLabel } from '../../utils/
 import { isContinuationServicesSeason, isReturningSchoolClient } from '../../utils/clientOnboardingSummary.js';
 import { schoolRoiSimpleStatus } from '../../utils/clientManagementVisuals.js';
 import AssignDayModal from '../school/AssignDayModal.vue';
+import SchoolClientAssignmentInline from '../school/SchoolClientAssignmentInline.vue';
 import PostListingModal from '../clientExchange/PostListingModal.vue';
 import { canSeeClientExchangeNav } from '../../utils/clientExchangeNav.js';
 import { useClientDisplayMode } from '../../composables/useClientDisplayMode.js';
@@ -2759,6 +2788,12 @@ const canManageSchoolAssignments = computed(() => {
   if (props.canManageSchoolAssignments) return true;
   if (isBackofficeRole.value) return true;
   return isSelfProviderRole.value && viewerIsAssignedProvider.value;
+});
+const showSchoolStripAssignmentEditor = computed(() => {
+  if (!canManageSchoolAssignments.value || !schoolOrganizationId.value) return false;
+  if (editingOverview.value) return true;
+  const label = String(primaryProviderLabel.value || '').trim().toLowerCase();
+  return !label || label === 'not assigned' || label === '—';
 });
 const showAssignDayModal = ref(false);
 const lifecycleHistoryModal = ref({ client: null, actionKey: '', label: '', schoolYear: '' });
@@ -4050,6 +4085,8 @@ const saveSkills = async () => {
   }
 };
 
+const overviewStatusIdAtEditStart = ref('');
+
 const hydrateOverviewForm = () => {
   overviewForm.value.full_name = String(props.client?.full_name || '');
   overviewForm.value.initials = String(props.client?.initials || '');
@@ -4103,6 +4140,7 @@ const startEditOverview = async (scrollToFields = false) => {
   editingOverview.value = true;
   profileDetailsPulseHint.value = false;
   hydrateOverviewForm();
+  overviewStatusIdAtEditStart.value = overviewForm.value.client_status_id || '';
   loadOverviewOptions();
   fetchDocChecklist();
   if (scrollToFields) {
@@ -4141,7 +4179,6 @@ const saveOverview = async () => {
       full_name: isClinicalLikeClientType.value ? (String(overviewForm.value.full_name || '').trim() || null) : undefined,
       initials: String(overviewForm.value.initials || '').trim() || null,
       organization_id: overviewForm.value.organization_id ? Number(overviewForm.value.organization_id) : null,
-      client_status_id: overviewForm.value.client_status_id ? Number(overviewForm.value.client_status_id) : null,
       submission_date: overviewForm.value.submission_date ? String(overviewForm.value.submission_date) : null,
       insurance_type_id: overviewForm.value.insurance_type_id ? Number(overviewForm.value.insurance_type_id) : null,
       doc_date: overviewForm.value.doc_date ? String(overviewForm.value.doc_date) : null,
@@ -4164,6 +4201,13 @@ const saveOverview = async () => {
     };
     if (isTerminatedStatusSelected.value) {
       payload.termination_reason = String(overviewForm.value.termination_reason || '').trim();
+    }
+    const statusChanged = String(overviewForm.value.client_status_id || '')
+      !== String(overviewStatusIdAtEditStart.value || '');
+    if (statusChanged) {
+      payload.client_status_id = overviewForm.value.client_status_id
+        ? Number(overviewForm.value.client_status_id)
+        : null;
     }
     await api.put(`/clients/${props.client.id}`, payload);
     const refreshed = (await api.get(`/clients/${props.client.id}`)).data || null;
@@ -6325,6 +6369,21 @@ watch(
 }
 .cdp-school-profile-item--note {
   flex: 1 1 180px;
+}
+.cdp-school-profile-item--assignment {
+  flex: 1 1 100%;
+  min-width: min(100%, 420px);
+}
+.cdp-strip-input {
+  min-width: 88px;
+  max-width: 160px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #d7e0d9);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  background: #fff;
 }
 .cdp-school-profile-kicker {
   font-size: 11px;

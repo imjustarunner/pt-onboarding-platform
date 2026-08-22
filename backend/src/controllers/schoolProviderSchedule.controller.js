@@ -27,6 +27,61 @@ const normalizeDay = (d) => {
   return allowedDays.includes(s) ? s : null;
 };
 
+const PROVIDER_LIKE_SQL = `(u.role IN ('provider', 'provider_plus', 'intern', 'intern_plus')
+  OR u.has_provider_access = TRUE)`;
+const ACTIVE_USER_SQL = `(u.is_archived IS NULL OR u.is_archived = FALSE)
+  AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED', 'INACTIVE_EMPLOYEE', 'PROSPECTIVE')`;
+
+/**
+ * Providers affiliated to a school org via user_agencies who may lack active PSA rows
+ * (e.g. admin added affiliation without scheduling).
+ */
+async function fetchAffiliatedSchoolProviders(schoolOrgId) {
+  const sid = parseInt(schoolOrgId, 10);
+  if (!sid) return [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT u.id AS provider_user_id,
+              u.first_name,
+              u.last_name,
+              u.email,
+              COALESCE(u.provider_accepting_new_clients, TRUE) AS provider_accepting_new_clients,
+              COALESCE(u.provider_school_info_blurb, psp.school_info_blurb) AS school_info_blurb,
+              u.psychology_today_url
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       LEFT JOIN provider_school_profiles psp
+         ON psp.school_organization_id = ?
+        AND psp.provider_user_id = u.id
+       WHERE ${PROVIDER_LIKE_SQL}
+         AND ${ACTIVE_USER_SQL}
+       ORDER BY u.last_name ASC, u.first_name ASC`,
+      [sid, sid]
+    );
+    return rows || [];
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE') || msg.includes('Unknown column')) {
+      const [rows] = await pool.execute(
+        `SELECT DISTINCT u.id AS provider_user_id, u.first_name, u.last_name, u.email
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+         WHERE ${PROVIDER_LIKE_SQL}
+           AND ${ACTIVE_USER_SQL}
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [sid]
+      );
+      return (rows || []).map((r) => ({
+        ...r,
+        provider_accepting_new_clients: true,
+        school_info_blurb: null,
+        psychology_today_url: null
+      }));
+    }
+    throw e;
+  }
+}
+
 function isSelfProviderRole(role) {
   const r = String(role || '').toLowerCase();
   return (
@@ -501,6 +556,63 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
       }
     } catch {
       // ignore
+    }
+
+    // Affiliated providers without active schedule still appear (admin affiliation-only).
+    try {
+      const schoolOrgId = parseInt(schoolId, 10);
+      const affiliated = await fetchAffiliatedSchoolProviders(schoolOrgId);
+      for (const row of affiliated) {
+        const pid = Number(row.provider_user_id);
+        if (!pid || byProvider.has(pid)) continue;
+        byProvider.set(pid, {
+          provider_user_id: pid,
+          first_name: row.first_name,
+          last_name: row.last_name,
+          email: row.email,
+          accepting_new_clients: row.provider_accepting_new_clients !== false,
+          provider_accepting_new_clients: row.provider_accepting_new_clients !== false,
+          provider_accepting_new_clients_override: null,
+          profile_photo_url: null,
+          school_info_blurb: row.school_info_blurb || null,
+          psychology_today_url: row.psychology_today_url || null,
+          assignments: [],
+          schedule_inactive: true
+        });
+      }
+
+      // Surface inactive PSA rows on affiliated providers (reactivate via Add Provider).
+      const affiliatedIds = affiliated.map((r) => Number(r.provider_user_id)).filter(Boolean);
+      if (affiliatedIds.length) {
+        const placeholders = affiliatedIds.map(() => '?').join(',');
+        const [inactiveRows] = await pool.execute(
+          `SELECT provider_user_id, day_of_week, slots_total, slots_available, start_time, end_time
+           FROM provider_school_assignments
+           WHERE school_organization_id = ?
+             AND provider_user_id IN (${placeholders})
+             AND is_active = FALSE
+           ORDER BY FIELD(day_of_week, ${allowedDays.map(() => '?').join(',')})`,
+          [schoolOrgId, ...affiliatedIds, ...allowedDays]
+        );
+        for (const r of inactiveRows || []) {
+          const pid = Number(r.provider_user_id);
+          const obj = byProvider.get(pid);
+          if (!obj) continue;
+          obj.schedule_inactive = true;
+          obj.assignments.push({
+            day_of_week: r.day_of_week,
+            slots_total: r.slots_total,
+            slots_available: r.slots_available,
+            start_time: r.start_time,
+            end_time: r.end_time,
+            is_active: false,
+            accepting_new_clients_override: null,
+            accepting_new_clients_effective: obj.accepting_new_clients !== false
+          });
+        }
+      }
+    } catch {
+      // ignore — affiliated merge is best-effort
     }
 
     const providers = Array.from(byProvider.values());

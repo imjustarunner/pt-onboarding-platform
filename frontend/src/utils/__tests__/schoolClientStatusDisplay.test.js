@@ -39,6 +39,37 @@ describe('displaySchoolClientStatusLabel', () => {
     ).toBe('Ready to Schedule');
   });
 
+  it('shows Fall Confirmation Pending when fall reassignment clearance is still owed', () => {
+    expect(
+      displaySchoolClientStatusLabel({
+        client_type: 'school',
+        client_status_key: 'confirmation_pending',
+        organization_id: 10,
+        service_day: 'Monday',
+        fall_outcome: 'unable_to_reach',
+        fall_completed_at: '2026-08-13T00:00:00.000Z',
+        fall_remove_from_assignment: 1,
+        agency_cleared_at: null
+      })
+    ).toBe('Fall Confirmation Pending');
+  });
+
+  it('keeps Waitlist even when fall reassignment disposition is still open', () => {
+    expect(
+      displaySchoolClientStatusLabel({
+        client_type: 'school',
+        client_status_key: 'waitlist',
+        client_status_label: 'Waitlist',
+        organization_id: 10,
+        service_day: 'Monday',
+        fall_outcome: 'unable_to_reach',
+        fall_completed_at: '2026-08-13T00:00:00.000Z',
+        fall_remove_from_assignment: 1,
+        agency_cleared_at: null
+      })
+    ).toBe('Waitlist');
+  });
+
   it('does not remap new-client pending without returning signals', () => {
     const now = new Date('2026-08-13T12:00:00');
     expect(

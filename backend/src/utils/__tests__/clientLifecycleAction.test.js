@@ -343,4 +343,46 @@ describe('deriveLifecycleAction', () => {
     });
     assert.equal(providerAction?.actionKey, 'fall_confirmation');
   });
+
+  it('returns fall reassignment when provider pushed back and clearance pending', () => {
+    const action = deriveLifecycleAction({
+      client: {
+        client_status_key: 'ready_to_schedule',
+        client_type: 'school',
+        has_provider: true,
+        has_weekday: true,
+        service_day: 'Monday'
+      },
+      viewerRole: 'admin',
+      disposition: {
+        fall_outcome: 'unable_to_reach',
+        fall_completed_at: '2026-08-13T00:00:00.000Z',
+        fall_remove_from_assignment: 1,
+        agency_cleared_at: null
+      }
+    });
+    assert.equal(action?.actionKey, 'fall_reassignment');
+    assert.match(action?.label, /Fall reassignment/i);
+  });
+
+  it('skips insurance clearance when agency intake already reviewed insurance', () => {
+    const client = {
+      client_status_key: 'ready_to_schedule',
+      client_type: 'school',
+      disclosure_required: false,
+      agency_intake_json: { insuranceReviewed: true, ehrTransferred: true, agencyIntakeComplete: true }
+    };
+    assert.equal(needsInsuranceClearance({ client, ignoreOverride: true }), false);
+    const action = deriveLifecycleAction({ client, viewerRole: 'admin' });
+    assert.equal(action, null);
+  });
+
+  it('returns waitlist resolution for waitlisted agency users', () => {
+    const action = deriveLifecycleAction({
+      client: { client_status_key: 'waitlist', client_type: 'school' },
+      viewerRole: 'admin'
+    });
+    assert.equal(action?.actionKey, 'waitlist_resolution');
+    assert.match(action?.label, /Waitlist/i);
+  });
 });

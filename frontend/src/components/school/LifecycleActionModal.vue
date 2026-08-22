@@ -11,60 +11,438 @@
         <div v-else-if="error" class="error">{{ error }}</div>
 
         <!-- Agency new-client intake -->
-        <div v-else-if="actionKey === 'agency_intake'" class="form-grid">
-          <div class="form-group">
-            <label>Packet type</label>
-            <select v-model="agency.packetType" class="input">
-              <option value="">—</option>
-              <option value="digital">Digital</option>
-              <option value="paper">Paper</option>
-            </select>
+        <div v-else-if="actionKey === 'agency_intake'" class="lam-agency">
+          <div class="lam-status-list">
+            <div class="lam-status-item">
+              <span class="lam-status-icon" aria-hidden="true">📄</span>
+              <div class="lam-status-body">
+                <span class="lam-status-label">Packet</span>
+                <span class="lam-status-pill">{{ agencyDerived.packetTypeLabel || '—' }}</span>
+              </div>
+            </div>
+            <div class="lam-status-item">
+              <span class="lam-status-icon" aria-hidden="true">⏳</span>
+              <div class="lam-status-body">
+                <span class="lam-status-label">Intake status</span>
+                <span class="lam-status-pill" :class="agencyDerived.agencyIntakeComplete ? 'ok' : 'pending'">
+                  {{ agencyDerived.agencyIntakeComplete ? 'Complete' : 'In progress' }}
+                </span>
+              </div>
+            </div>
+            <div class="lam-status-item">
+              <span class="lam-status-icon" aria-hidden="true">👤</span>
+              <div class="lam-status-body">
+                <span class="lam-status-label">Provider assigned</span>
+                <span class="lam-status-pill" :class="agencyDerived.hasProvider ? 'ok' : 'warn'">
+                  {{ agencyDerived.hasProvider ? (agencyDerived.providerLabel || 'Yes') : 'Not yet assigned' }}
+                </span>
+              </div>
+            </div>
+            <div class="lam-status-item">
+              <span class="lam-status-icon" aria-hidden="true">📅</span>
+              <div class="lam-status-body">
+                <span class="lam-status-label">Assigned day</span>
+                <span class="lam-status-pill" :class="assignedDayLabel !== 'Not yet assigned' ? 'ok' : 'warn'">
+                  {{ assignedDayLabel }}
+                </span>
+              </div>
+            </div>
+            <div class="lam-status-item">
+              <span class="lam-status-icon" aria-hidden="true">🏳️</span>
+              <div class="lam-status-body">
+                <span class="lam-status-label">Waitlist status</span>
+                <span class="lam-status-pill" :class="agency.waitlisted ? 'waitlist' : 'neutral'">
+                  {{ agency.waitlisted ? 'Waitlisted' : 'Not waitlisted' }}
+                </span>
+              </div>
+            </div>
           </div>
-          <div v-if="agency.packetType === 'paper'" class="form-group">
-            <label>Paper packet complete?</label>
-            <select v-model="agency.paperComplete" class="input">
-              <option value="">—</option>
-              <option value="true">Yes — docs/signatures complete</option>
-              <option value="false">No — pending corrections</option>
-            </select>
-            <textarea
-              v-if="agency.paperComplete === 'false'"
-              v-model="agency.missingItemsText"
-              class="input textarea"
-              rows="3"
-              placeholder="Missing items (one per line)"
-            />
+
+          <p v-if="agencyDerived.pendingLabels?.length && !agency.waitlisted" class="lam-pending-note">
+            Still needed: {{ agencyDerived.pendingLabels.join(' · ') }}
+          </p>
+
+          <section class="lam-section">
+            <h4 class="lam-section-title">Required items</h4>
+            <div v-if="agencyDerived.isPaper" class="lam-check-card">
+              <label class="lam-check-row">
+                <input v-model="agency.paperComplete" type="checkbox" />
+                <span class="lam-check-copy">
+                  <strong>Paper packet complete</strong>
+                  <span class="lam-check-sub">Documents and signatures received</span>
+                </span>
+              </label>
+              <textarea
+                v-if="!agency.paperComplete"
+                v-model="agency.missingItemsText"
+                class="input textarea lam-missing"
+                rows="2"
+                placeholder="Missing items (one per line)"
+              />
+            </div>
+            <div class="lam-check-card">
+              <label class="lam-check-row">
+                <input v-model="agency.insuranceReviewed" type="checkbox" />
+                <span class="lam-check-copy">
+                  <strong>Insurance / eligibility reviewed</strong>
+                  <span class="lam-check-sub">Verify coverage and eligibility</span>
+                </span>
+              </label>
+            </div>
+            <div class="lam-check-card">
+              <label class="lam-check-row">
+                <input v-model="agency.ehrTransferred" type="checkbox" />
+                <span class="lam-check-copy">
+                  <strong>EHR transfer complete</strong>
+                  <span class="lam-check-sub">Confirm full EHR data transfer</span>
+                </span>
+              </label>
+            </div>
+          </section>
+
+          <section class="lam-section" :class="{ 'lam-section--muted': agency.waitlisted }">
+            <h4 class="lam-section-title">Assignments</h4>
+            <p class="lam-section-hint">
+              <template v-if="agency.waitlisted">
+                Waitlist is active — provider and day are optional. You can still note who or which day they are waiting for.
+              </template>
+              <template v-else>
+                Assign a provider and/or weekday. Only days with open slots at this school are shown.
+              </template>
+            </p>
+            <div v-if="loadingAssignmentOptions" class="muted">Loading providers…</div>
+            <div v-else-if="assignmentOptionsError" class="error">{{ assignmentOptionsError }}</div>
+            <div v-else-if="!assignmentProviderOptions.length" class="lam-section-hint warn">
+              No providers at this school yet. Open the <strong>Providers</strong> tab → Add Provider to affiliate
+              someone and set their day/slots.
+            </div>
+            <div v-else class="lam-assign-grid">
+              <div class="lam-assign-field">
+                <label :for="providerSelectId">Assign provider</label>
+                <select
+                  :id="providerSelectId"
+                  v-model="assignment.providerUserId"
+                  class="input"
+                  @change="onAssignmentProviderChange"
+                >
+                  <option value="">Select provider</option>
+                  <option
+                    v-for="prov in assignmentProviderOptions"
+                    :key="prov.provider_user_id"
+                    :value="String(prov.provider_user_id)"
+                  >
+                    {{ providerOptionLabel(prov) }}
+                  </option>
+                </select>
+              </div>
+              <div class="lam-assign-field">
+                <label :for="daySelectId">Assign day</label>
+                <select
+                  :id="daySelectId"
+                  v-model="assignment.serviceDay"
+                  class="input"
+                  :disabled="!assignment.providerUserId"
+                >
+                  <option value="">Select day</option>
+                  <option
+                    v-for="day in assignmentDayOptions"
+                    :key="day.day_of_week"
+                    :value="day.day_of_week"
+                  >
+                    {{ dayOptionLabel(day) }}
+                  </option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <section class="lam-section">
+            <h4 class="lam-section-title">Waitlist status</h4>
+            <div class="lam-check-card lam-check-card--waitlist">
+              <label class="lam-check-row">
+                <input v-model="agency.waitlisted" type="checkbox" @change="onWaitlistToggle" />
+                <span class="lam-check-copy">
+                  <strong>Waitlist (true barrier)</strong>
+                  <span class="lam-check-sub">
+                    Waitlist overrides provider/day requirements. A client may wait for a spot on a day,
+                    for a day with a provider, or without either.
+                  </span>
+                </span>
+              </label>
+              <input
+                v-if="agency.waitlisted"
+                v-model="agency.waitlistReason"
+                class="input"
+                placeholder="Waitlist reason (optional)"
+              />
+            </div>
+          </section>
+
+          <div class="lam-info-banner">
+            <span class="lam-info-icon" aria-hidden="true">ℹ️</span>
+            <p>
+              Action items depend on eligibility review and EHR transfer. Provider/day assignment and waitlist
+              are managed here — waitlist takes priority when checked.
+            </p>
           </div>
-          <div class="form-group">
-            <label class="check-row">
-              <input v-model="agency.insuranceReviewed" type="checkbox" />
-              <span>Insurance / eligibility reviewed</span>
+        </div>
+
+        <!-- Fall reassignment after provider pushback -->
+        <div v-else-if="actionKey === 'fall_reassignment'" class="lam-agency">
+          <p class="hint">
+            The provider sent this client back (unable to reach or similar). Reassign provider and day,
+            confirm disclosure and insurance, then the client moves to Ready to Schedule — or mark
+            waitlist if there is no slot yet. Schools still see Fall Confirmation Pending until
+            reassignment is complete (waitlist shows as Waitlist).
+          </p>
+
+          <section class="lam-section" :class="{ 'lam-section--muted': agency.waitlisted }">
+            <h4 class="lam-section-title">Assignments</h4>
+            <p class="lam-section-hint">
+              <template v-if="agency.waitlisted">
+                Waitlist is active — provider and day are optional. You can still note who or which day they are waiting for.
+              </template>
+              <template v-else>
+                Assign a provider and weekday. Only days with open slots at this school are shown.
+              </template>
+            </p>
+            <div v-if="loadingAssignmentOptions" class="muted">Loading providers…</div>
+            <div v-else-if="assignmentOptionsError" class="error">{{ assignmentOptionsError }}</div>
+            <div v-else-if="!assignmentProviderOptions.length" class="lam-section-hint warn">
+              No providers at this school yet. Open the <strong>Providers</strong> tab → Add Provider.
+            </div>
+            <div v-else class="lam-assign-grid">
+              <div class="lam-assign-field">
+                <label :for="providerSelectId">Assign provider</label>
+                <select
+                  :id="providerSelectId"
+                  v-model="assignment.providerUserId"
+                  class="input"
+                  @change="onAssignmentProviderChange"
+                >
+                  <option value="">Select provider</option>
+                  <option
+                    v-for="prov in assignmentProviderOptions"
+                    :key="prov.provider_user_id"
+                    :value="String(prov.provider_user_id)"
+                  >
+                    {{ providerOptionLabel(prov) }}
+                  </option>
+                </select>
+              </div>
+              <div class="lam-assign-field">
+                <label :for="daySelectId">Assign day</label>
+                <select
+                  :id="daySelectId"
+                  v-model="assignment.serviceDay"
+                  class="input"
+                  :disabled="!assignment.providerUserId"
+                >
+                  <option value="">Select day</option>
+                  <option
+                    v-for="day in assignmentDayOptions"
+                    :key="day.day_of_week"
+                    :value="day.day_of_week"
+                  >
+                    {{ dayOptionLabel(day) }}
+                  </option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <section class="lam-section">
+            <h4 class="lam-section-title">Waitlist status</h4>
+            <div class="lam-check-card lam-check-card--waitlist">
+              <label class="lam-check-row">
+                <input v-model="agency.waitlisted" type="checkbox" @change="onWaitlistToggle" />
+                <span class="lam-check-copy">
+                  <strong>Waitlist (true barrier)</strong>
+                  <span class="lam-check-sub">
+                    Use when no provider/day slot is available yet. Waitlist overrides the reassignment
+                    requirements — optional provider/day notes who or what they are waiting for.
+                  </span>
+                </span>
+              </label>
+              <input
+                v-if="agency.waitlisted"
+                v-model="agency.waitlistReason"
+                class="input"
+                placeholder="Waitlist reason (optional)"
+              />
+            </div>
+          </section>
+
+          <section v-if="!agency.waitlisted" class="lam-section">
+            <h4 class="lam-section-title">Clearance</h4>
+            <label class="check-row" :class="{ muted: disclosurePrechecked }">
+              <input v-model="clearance.disclosureOk" type="checkbox" :disabled="disclosurePrechecked" />
+              <span>
+                Assigned provider on disclosure (or same provider as last year)
+                <template v-if="disclosurePrechecked"> — pre-checked for continuing clients</template>
+              </span>
             </label>
-          </div>
-          <div class="form-group">
             <label class="check-row">
-              <input v-model="agency.ehrTransferred" type="checkbox" />
-              <span>EHR transfer complete</span>
+              <input v-model="clearance.insuranceOk" type="checkbox" />
+              <span>Insurance / eligibility clear</span>
             </label>
-          </div>
-          <div class="form-group">
-            <label class="check-row">
-              <input v-model="agency.waitlisted" type="checkbox" />
-              <span>Waitlist (true barrier)</span>
-            </label>
+          </section>
+        </div>
+
+        <!-- Waitlist resolution -->
+        <div v-else-if="actionKey === 'waitlist_resolution'" class="lam-agency">
+          <p class="hint">
+            Client is waitlisted. Update the reason, assign provider/day if a slot opens, complete any
+            remaining clearance or intake steps, then remove from waitlist when ready — or save updates
+            while keeping them waitlisted.
+          </p>
+
+          <section class="lam-section">
+            <h4 class="lam-section-title">Waitlist reason</h4>
             <input
-              v-if="agency.waitlisted"
               v-model="agency.waitlistReason"
               class="input"
-              placeholder="Waitlist reason"
+              placeholder="Why are they waitlisted? (optional)"
             />
-          </div>
-          <div class="form-group">
-            <label class="check-row">
-              <input v-model="agency.agencyIntakeComplete" type="checkbox" />
-              <span>Agency intake complete (provider assigned + clear to schedule)</span>
+          </section>
+
+          <section class="lam-section">
+            <h4 class="lam-section-title">Assignments</h4>
+            <p class="lam-section-hint">
+              Optional while waitlisted — note who or which day they are waiting for, or assign when a slot opens.
+            </p>
+            <div v-if="loadingAssignmentOptions" class="muted">Loading providers…</div>
+            <div v-else-if="assignmentOptionsError" class="error">{{ assignmentOptionsError }}</div>
+            <div v-else-if="!assignmentProviderOptions.length" class="lam-section-hint warn">
+              No providers at this school yet. Open the <strong>Providers</strong> tab → Add Provider.
+            </div>
+            <div v-else class="lam-assign-grid">
+              <div class="lam-assign-field">
+                <label :for="providerSelectId">Assign provider</label>
+                <select
+                  :id="providerSelectId"
+                  v-model="assignment.providerUserId"
+                  class="input"
+                  @change="onAssignmentProviderChange"
+                >
+                  <option value="">Select provider</option>
+                  <option
+                    v-for="prov in assignmentProviderOptions"
+                    :key="prov.provider_user_id"
+                    :value="String(prov.provider_user_id)"
+                  >
+                    {{ providerOptionLabel(prov) }}
+                  </option>
+                </select>
+              </div>
+              <div class="lam-assign-field">
+                <label :for="daySelectId">Assign day</label>
+                <select
+                  :id="daySelectId"
+                  v-model="assignment.serviceDay"
+                  class="input"
+                  :disabled="!assignment.providerUserId"
+                >
+                  <option value="">Select day</option>
+                  <option
+                    v-for="day in assignmentDayOptions"
+                    :key="day.day_of_week"
+                    :value="day.day_of_week"
+                  >
+                    {{ dayOptionLabel(day) }}
+                  </option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <section v-if="waitlistShowIntake" class="lam-section">
+            <h4 class="lam-section-title">Agency intake items</h4>
+            <p v-if="agencyDerived.pendingLabels?.length" class="lam-pending-note">
+              Still needed: {{ agencyDerived.pendingLabels.join(' · ') }}
+            </p>
+            <div v-if="agencyDerived.isPaper" class="lam-check-card">
+              <label class="lam-check-row">
+                <input v-model="agency.paperComplete" type="checkbox" />
+                <span class="lam-check-copy">
+                  <strong>Paper packet complete</strong>
+                </span>
+              </label>
+            </div>
+            <div class="lam-check-card">
+              <label class="lam-check-row">
+                <input v-model="agency.insuranceReviewed" type="checkbox" />
+                <span class="lam-check-copy">
+                  <strong>Insurance / eligibility reviewed</strong>
+                </span>
+              </label>
+            </div>
+            <div class="lam-check-card">
+              <label class="lam-check-row">
+                <input v-model="agency.ehrTransferred" type="checkbox" />
+                <span class="lam-check-copy">
+                  <strong>EHR transfer complete</strong>
+                </span>
+              </label>
+            </div>
+          </section>
+
+          <section v-if="waitlistShowClearance" class="lam-section">
+            <h4 class="lam-section-title">Clearance</h4>
+            <p class="lam-section-hint">Required when removing from waitlist if fall reassignment clearance is still owed.</p>
+            <label class="check-row" :class="{ muted: disclosurePrechecked }">
+              <input v-model="clearance.disclosureOk" type="checkbox" :disabled="disclosurePrechecked" />
+              <span>
+                Assigned provider on disclosure (or same provider as last year)
+                <template v-if="disclosurePrechecked"> — pre-checked for continuing clients</template>
+              </span>
             </label>
-          </div>
+            <label class="check-row">
+              <input v-model="clearance.insuranceOk" type="checkbox" />
+              <span>Insurance / eligibility clear</span>
+            </label>
+          </section>
+
+          <section class="lam-section">
+            <h4 class="lam-section-title">Remove from waitlist</h4>
+            <div class="lam-check-card lam-check-card--waitlist">
+              <label class="lam-check-row">
+                <input
+                  v-model="waitlistRemoveFromWaitlist"
+                  type="checkbox"
+                  :disabled="waitlistClearAllAndMarkActive"
+                  @change="onWaitlistRemoveToggle"
+                />
+                <span class="lam-check-copy">
+                  <strong>Remove from waitlist</strong>
+                  <span class="lam-check-sub">
+                    Check when the barrier is resolved (or no longer applies). Client moves to the appropriate
+                    next status — Fall reassignment, Ready to Schedule, or intake in progress.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </section>
+
+          <section class="lam-section">
+            <h4 class="lam-section-title">Override</h4>
+            <div class="lam-check-card lam-check-card--force">
+              <label class="lam-check-row">
+                <input
+                  v-model="waitlistClearAllAndMarkActive"
+                  type="checkbox"
+                  @change="onWaitlistClearAllToggle"
+                />
+                <span class="lam-check-copy">
+                  <strong>Clear all and mark active</strong>
+                  <span class="lam-check-sub">
+                    Requires provider and day assigned above. Clears waitlist, marks intake and clearance complete,
+                    and pushes the client to Ready to Schedule when possible.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </section>
         </div>
 
         <!-- Agency clearance (returning) — disclosure + insurance gate Ready to Schedule -->
@@ -250,7 +628,7 @@
         <div v-if="saveError" class="error save-error">{{ saveError }}</div>
         <div class="actions">
           <button v-if="!viewOnly" class="btn btn-primary" type="button" :disabled="saving || loading" @click="save">
-            {{ saving ? 'Saving…' : (isFallUpdate ? 'Update' : 'Save') }}
+            {{ saving ? 'Saving…' : saveButtonLabel }}
           </button>
           <button class="btn btn-secondary" type="button" :disabled="saving" @click="$emit('close')">
             {{ viewOnly ? 'Close' : 'Cancel' }}
@@ -265,6 +643,7 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { needsFallReassignmentClearance } from '../../utils/schoolClientStatusDisplay.js';
 
 const props = defineProps({
   client: { type: Object, required: true },
@@ -289,15 +668,32 @@ const loadingWorkDays = ref(false);
 const workDaysError = ref('');
 
 const agency = reactive({
-  packetType: '',
-  paperComplete: '',
+  paperComplete: false,
   missingItemsText: '',
   insuranceReviewed: false,
   ehrTransferred: false,
   waitlisted: false,
-  waitlistReason: '',
-  agencyIntakeComplete: false
+  waitlistReason: ''
 });
+const agencyDerived = reactive({
+  packetType: '',
+  packetTypeLabel: '',
+  isPaper: false,
+  hasProvider: false,
+  providerLabel: '',
+  providerUserIds: [],
+  agencyIntakeComplete: false,
+  pendingLabels: []
+});
+const assignment = reactive({
+  providerUserId: '',
+  serviceDay: ''
+});
+const assignmentProviders = ref([]);
+const loadingAssignmentOptions = ref(false);
+const assignmentOptionsError = ref('');
+const providerSelectId = `lam-provider-${Math.random().toString(36).slice(2, 9)}`;
+const daySelectId = `lam-day-${Math.random().toString(36).slice(2, 9)}`;
 const clearance = reactive({
   disclosureOk: false,
   insuranceOk: false,
@@ -322,6 +718,39 @@ const fall = reactive({
   serviceDays: []
 });
 const services = reactive({ serviceDate: '' });
+const waitlistRemoveFromWaitlist = ref(false);
+const waitlistClearAllAndMarkActive = ref(false);
+
+const hasWaitlistAssignmentSelection = computed(() => {
+  const pid = Number(assignment.providerUserId || 0);
+  const day = String(assignment.serviceDay || '').trim();
+  if (pid && day && day.toLowerCase() !== 'unknown') return true;
+  const existingDay = String(props.client?.service_day || '').trim();
+  const hasDay = existingDay
+    && existingDay.toLowerCase() !== 'unknown'
+    && /(Monday|Tuesday|Wednesday|Thursday|Friday)/i.test(existingDay);
+  const hasProvider = Number(props.client?.provider_id) > 0
+    || String(props.client?.provider_ids || '').split(',').some((s) => parseInt(s, 10) > 0)
+    || !!String(props.client?.provider_name || '').trim();
+  return hasProvider && hasDay;
+});
+
+const waitlistClientShape = computed(() => ({
+  client_type: 'school',
+  organization_id: props.client?.organization_id,
+  client_status_key: props.client?.client_status_key,
+  fall_outcome: props.client?.fall_outcome,
+  fall_completed_at: props.client?.fall_completed_at,
+  fall_remove_from_assignment: props.client?.fall_remove_from_assignment,
+  agency_cleared_at: props.client?.agency_cleared_at
+}));
+const waitlistShowClearance = computed(() => needsFallReassignmentClearance(waitlistClientShape.value));
+const waitlistShowIntake = computed(() => {
+  if (agencyDerived.agencyIntakeComplete) return false;
+  if (agencyDerived.pendingLabels?.length) return true;
+  const key = String(props.client?.client_status_key || '').toLowerCase();
+  return ['received', 'packet', 'pending_corrections', 'in_process'].includes(key) || !!props.client?.agency_intake_json;
+});
 
 const isFallUpdate = computed(() =>
   props.actionKey === 'fall_confirmation'
@@ -331,14 +760,194 @@ const title = computed(() => {
   if (props.viewOnly) {
     if (props.actionKey === 'fall_confirmation') return 'View fall confirmation';
     if (props.actionKey === 'spring_update') return 'View spring update';
-    if (props.actionKey === 'agency_intake') return 'View agency intake';
+    if (props.actionKey === 'agency_intake') return 'View agency action items';
     return props.actionLabel || 'View submission';
   }
   if (props.actionKey === 'fall_confirmation' && isFallUpdate.value) {
     return props.actionLabel || 'Update fall confirmation';
   }
+  if (props.actionKey === 'agency_intake') {
+    return props.actionLabel || 'Complete agency action items';
+  }
+  if (props.actionKey === 'fall_reassignment') {
+    return props.actionLabel || 'Fall reassignment – Action Needed';
+  }
+  if (props.actionKey === 'waitlist_resolution') {
+    return props.actionLabel || 'Waitlist – Action Needed';
+  }
   return props.actionLabel || 'Next Step';
 });
+const saveButtonLabel = computed(() => {
+  if (props.actionKey === 'agency_intake') return 'Save updates';
+  if (isFallUpdate.value) return 'Update';
+  if (props.actionKey === 'waitlist_resolution' && waitlistClearAllAndMarkActive.value) {
+    return 'Clear all and mark active';
+  }
+  return 'Save';
+});
+const schoolOrganizationId = computed(() => Number(props.client?.organization_id || 0));
+const assignedDayLabel = computed(() => {
+  const day = String(props.client?.service_day || '').trim();
+  if (day && day.toLowerCase() !== 'unknown') return day;
+  const pairs = String(props.client?.provider_day_pairs || '');
+  const match = pairs.match(/:(Monday|Tuesday|Wednesday|Thursday|Friday)/i);
+  if (match?.[1]) return match[1];
+  return 'Not yet assigned';
+});
+const assignmentProviderOptions = computed(() => assignmentProviders.value || []);
+const assignmentDayOptions = computed(() => {
+  const pid = Number(assignment.providerUserId || 0);
+  if (!pid) return [];
+  const prov = assignmentProviderOptions.value.find((p) => Number(p.provider_user_id) === pid);
+  const assignedDay = String(assignment.serviceDay || assignedDayLabel.value || '');
+  return (prov?.days || []).filter((d) => {
+    const day = String(d.day_of_week || '');
+    if (assignedDay && day === assignedDay) return true;
+    const avail = d.slots_available;
+    if (avail == null) return false;
+    return Number(avail) > 0;
+  });
+});
+
+function providerOptionLabel(prov) {
+  const name = [prov?.first_name, prov?.last_name].filter(Boolean).join(' ').trim();
+  const openDays = (prov?.days || []).filter((d) => Number(d.slots_available) > 0).length;
+  if (prov?.schedule_inactive && !openDays) {
+    return `${name || `Provider ${prov?.provider_user_id}`} (schedule inactive — add day in Providers tab)`;
+  }
+  const suffix = openDays ? ` (${openDays} day${openDays === 1 ? '' : 's'} open)` : ' (no open days)';
+  return `${name || `Provider ${prov?.provider_user_id}`}${suffix}`;
+}
+
+function dayOptionLabel(day) {
+  const label = String(day?.day_of_week || '');
+  const open = day?.slots_available == null ? '' : ` · ${day.slots_available} open`;
+  const hours = dayHours(day);
+  return `${label}${hours ? ` (${hours})` : ''}${open}`;
+}
+
+function onAssignmentProviderChange() {
+  const allowed = new Set(assignmentDayOptions.value.map((d) => String(d.day_of_week)));
+  if (assignment.serviceDay && !allowed.has(String(assignment.serviceDay))) {
+    assignment.serviceDay = '';
+  }
+}
+
+function onWaitlistToggle() {
+  if (agency.waitlisted) return;
+  // Keep selections when un-waitlisting so staff can finish assignment.
+}
+
+function onWaitlistClearAllToggle() {
+  if (waitlistClearAllAndMarkActive.value) {
+    waitlistRemoveFromWaitlist.value = true;
+    clearance.disclosureOk = true;
+    clearance.insuranceOk = true;
+    agency.insuranceReviewed = true;
+    agency.ehrTransferred = true;
+    if (agencyDerived.isPaper) agency.paperComplete = true;
+  }
+}
+
+function onWaitlistRemoveToggle() {
+  if (waitlistRemoveFromWaitlist.value) {
+    waitlistClearAllAndMarkActive.value = false;
+  }
+}
+
+async function loadAssignmentOptions() {
+  const orgId = schoolOrganizationId.value;
+  if (!orgId) {
+    assignmentProviders.value = [];
+    assignmentOptionsError.value = 'School context missing — cannot load providers.';
+    return;
+  }
+  loadingAssignmentOptions.value = true;
+  assignmentOptionsError.value = '';
+  try {
+    const r = await api.get(`/school-portal/${orgId}/providers/scheduling`, { skipGlobalLoading: true });
+    const list = Array.isArray(r.data) ? r.data : [];
+    assignmentProviders.value = list
+      .map((prov) => {
+        const days = (Array.isArray(prov?.assignments) ? prov.assignments : [])
+          .map((a) => ({
+            day_of_week: String(a.day_of_week || ''),
+            slots_available: a.slots_available_calculated ?? a.slots_available,
+            slots_total: a.slots_total,
+            start_time: a.start_time || null,
+            end_time: a.end_time || null,
+            is_active: a.is_active !== false
+          }))
+          .filter((d) => {
+            if (!d.day_of_week) return false;
+            const avail = d.slots_available;
+            if (avail == null) return d.is_active === false;
+            return Number(avail) > 0;
+          });
+        return {
+          provider_user_id: Number(prov.provider_user_id),
+          first_name: prov.first_name || '',
+          last_name: prov.last_name || '',
+          schedule_inactive: !!prov.schedule_inactive,
+          days
+        };
+      })
+      .filter((p) => p.provider_user_id)
+      .sort((a, b) =>
+        String(a?.last_name || '').localeCompare(String(b?.last_name || ''))
+        || String(a?.first_name || '').localeCompare(String(b?.first_name || ''))
+      );
+    if (!assignmentProviders.value.length) {
+      assignmentOptionsError.value = 'No providers affiliated with this school yet. Add a provider from the Providers tab first.';
+    }
+    syncAssignmentSelections();
+  } catch (e) {
+    assignmentProviders.value = [];
+    assignmentOptionsError.value = e?.response?.data?.error?.message || 'Failed to load school providers';
+  } finally {
+    loadingAssignmentOptions.value = false;
+  }
+}
+
+function syncAssignmentSelections() {
+  const currentProvider = Number(assignment.providerUserId || 0);
+  const hintIds = [
+    Number(props.client?.provider_id || 0),
+    ...(Array.isArray(agencyDerived.providerUserIds) ? agencyDerived.providerUserIds : [])
+  ].filter((n) => n > 0);
+  if (!currentProvider && hintIds.length) {
+    const match = hintIds.find((id) => assignmentProviderOptions.value.some((p) => Number(p.provider_user_id) === id));
+    if (match) assignment.providerUserId = String(match);
+  }
+  const day = String(props.client?.service_day || '').trim();
+  if (!assignment.serviceDay && day && day.toLowerCase() !== 'unknown') {
+    assignment.serviceDay = day;
+  }
+  onAssignmentProviderChange();
+}
+
+async function saveAgencyAssignments(clientId) {
+  const orgId = schoolOrganizationId.value;
+  const providerId = Number(assignment.providerUserId || 0);
+  const serviceDay = String(assignment.serviceDay || '').trim();
+  if (!orgId || !providerId) return;
+
+  if (serviceDay) {
+    await api.post(
+      `/school-portal/${orgId}/clients/${clientId}/assigned-day`,
+      { providerUserId: providerId, serviceDay, assigned: true },
+      { skipGlobalLoading: true }
+    );
+    return;
+  }
+
+  await api.post(`/clients/${clientId}/provider-assignments`, {
+    organization_id: orgId,
+    provider_user_id: providerId,
+    service_day: 'Unknown',
+    is_primary: true
+  });
+}
 const clientId = computed(() => Number(props.client?.id || 0));
 const actorId = computed(() => Number(props.actorUserId || authStore.user?.id || 0));
 function reqOpts(extra = {}) {
@@ -491,18 +1100,84 @@ onMounted(async () => {
   if (props.actionKey === 'agency_clearance' && disclosurePrechecked.value) {
     clearance.disclosureOk = true;
   }
+  if (props.actionKey === 'fall_reassignment') {
+    if (disclosurePrechecked.value) clearance.disclosureOk = true;
+    loading.value = true;
+    try {
+      await loadAssignmentOptions();
+      syncAssignmentSelections();
+    } catch (e) {
+      error.value = e.response?.data?.error?.message || 'Failed to load reassignment options';
+    } finally {
+      loading.value = false;
+    }
+  }
+  if (props.actionKey === 'waitlist_resolution') {
+    if (disclosurePrechecked.value) clearance.disclosureOk = true;
+    loading.value = true;
+    try {
+      const orgId = schoolOrganizationId.value;
+      if (orgId) {
+        try {
+          const { data: noteData } = await api.get(
+            `/school-portal/${orgId}/clients/${clientId.value}/waitlist-note`,
+            { skipGlobalLoading: true }
+          );
+          agency.waitlistReason = String(noteData?.message || noteData?.note || '').trim();
+        } catch {
+          // ignore missing note
+        }
+      }
+      try {
+        const { data } = await api.get(`/clients/${clientId.value}/agency-intake`);
+        const intake = data?.intake || {};
+        const derived = data?.derived || {};
+        agencyDerived.packetType = derived.packetType || intake.packetType || '';
+        agencyDerived.packetTypeLabel = derived.packetTypeLabel || '';
+        agencyDerived.isPaper = !!derived.isPaper;
+        agencyDerived.hasProvider = !!derived.hasProvider;
+        agencyDerived.providerLabel = derived.providerLabel || '';
+        agencyDerived.agencyIntakeComplete = !!derived.agencyIntakeComplete;
+        agencyDerived.pendingLabels = Array.isArray(derived.pendingLabels) ? derived.pendingLabels : [];
+        agency.paperComplete = derived.paperComplete === true || intake.paperComplete === true;
+        agency.insuranceReviewed = !!intake.insuranceReviewed;
+        agency.ehrTransferred = !!intake.ehrTransferred;
+        if (!agency.waitlistReason) agency.waitlistReason = intake.waitlistReason || '';
+      } catch {
+        // intake optional for returning-client waitlists
+      }
+      await loadAssignmentOptions();
+      syncAssignmentSelections();
+    } catch (e) {
+      error.value = e.response?.data?.error?.message || 'Failed to load waitlist details';
+    } finally {
+      loading.value = false;
+    }
+  }
   if (props.actionKey === 'agency_intake') {
     loading.value = true;
     try {
       const { data } = await api.get(`/clients/${clientId.value}/agency-intake`);
       const intake = data?.intake || {};
-      agency.packetType = intake.packetType || '';
-      agency.paperComplete =
-        intake.paperComplete === true ? 'true' : intake.paperComplete === false ? 'false' : '';
+      const derived = data?.derived || {};
+      agencyDerived.packetType = derived.packetType || intake.packetType || '';
+      agencyDerived.packetTypeLabel = derived.packetTypeLabel || '';
+      agencyDerived.isPaper = !!derived.isPaper;
+      agencyDerived.hasProvider = !!derived.hasProvider;
+      agencyDerived.providerLabel = derived.providerLabel || '';
+      agencyDerived.providerUserIds = String(props.client?.provider_ids || '')
+        .split(',')
+        .map((s) => parseInt(s, 10))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      agencyDerived.agencyIntakeComplete = !!derived.agencyIntakeComplete;
+      agencyDerived.pendingLabels = Array.isArray(derived.pendingLabels) ? derived.pendingLabels : [];
+      agency.paperComplete = derived.paperComplete === true || intake.paperComplete === true;
       agency.missingItemsText = Array.isArray(intake.missingItems) ? intake.missingItems.join('\n') : '';
       agency.insuranceReviewed = !!intake.insuranceReviewed;
       agency.ehrTransferred = !!intake.ehrTransferred;
-      agency.agencyIntakeComplete = !!intake.agencyIntakeComplete;
+      agency.waitlisted = !!derived.waitlisted || String(data?.clientStatusKey || '').toLowerCase() === 'waitlist';
+      agency.waitlistReason = intake.waitlistReason || '';
+      await loadAssignmentOptions();
     } catch (e) {
       error.value = e.response?.data?.error?.message || 'Failed to load agency intake';
     } finally {
@@ -587,9 +1262,19 @@ async function save() {
   try {
     const id = clientId.value;
     if (props.actionKey === 'agency_intake') {
+      if (
+        !agency.waitlisted
+        && !agencyDerived.hasProvider
+        && !Number(assignment.providerUserId || 0)
+      ) {
+        await revealSaveError('Select a provider, assign a day, or mark waitlist before saving.');
+        return;
+      }
+      if (Number(assignment.providerUserId || 0)) {
+        await saveAgencyAssignments(id);
+      }
       await api.put(`/clients/${id}/agency-intake`, {
-        packetType: agency.packetType || null,
-        paperComplete: agency.paperComplete === '' ? null : agency.paperComplete === 'true',
+        paperComplete: agencyDerived.isPaper ? !!agency.paperComplete : true,
         missingItems: String(agency.missingItemsText || '')
           .split('\n')
           .map((s) => s.trim())
@@ -597,9 +1282,76 @@ async function save() {
         insuranceReviewed: !!agency.insuranceReviewed,
         ehrTransferred: !!agency.ehrTransferred,
         waitlisted: !!agency.waitlisted,
-        waitlistReason: agency.waitlistReason || '',
-        agencyIntakeComplete: !!agency.agencyIntakeComplete
+        waitlistReason: agency.waitlistReason || ''
       });
+    } else if (props.actionKey === 'fall_reassignment') {
+      if (agency.waitlisted) {
+        if (Number(assignment.providerUserId || 0)) {
+          await saveAgencyAssignments(id);
+        }
+        await api.put(`/clients/${id}/fall-reassignment`, {
+          waitlisted: true,
+          waitlistReason: agency.waitlistReason || ''
+        });
+      } else {
+        if (!Number(assignment.providerUserId || 0) || !String(assignment.serviceDay || '').trim()) {
+          await revealSaveError('Select a provider and assign a day, or mark waitlist before saving.');
+          return;
+        }
+        if (!clearance.disclosureOk || !clearance.insuranceOk) {
+          await revealSaveError('Disclosure and insurance checks are required');
+          return;
+        }
+        await saveAgencyAssignments(id);
+        await api.put(`/clients/${id}/agency-clearance`, {
+          clearance: {
+            disclosureOk: !!clearance.disclosureOk,
+            insuranceOk: !!clearance.insuranceOk
+          }
+        });
+      }
+    } else if (props.actionKey === 'waitlist_resolution') {
+      if (waitlistClearAllAndMarkActive.value) {
+        if (!hasWaitlistAssignmentSelection.value) {
+          await revealSaveError('Select a provider and assign a day before using Clear all and mark active.');
+          return;
+        }
+        await saveAgencyAssignments(id);
+        await api.put(`/clients/${id}/waitlist-resolution`, {
+          waitlistReason: agency.waitlistReason || '',
+          removeFromWaitlist: true,
+          clearAllAndMarkActive: true
+        });
+      } else {
+        if (waitlistRemoveFromWaitlist.value && waitlistShowClearance.value) {
+          if (!clearance.disclosureOk || !clearance.insuranceOk) {
+            await revealSaveError('Disclosure and insurance checks are required when removing from waitlist with fall reassignment still owed.');
+            return;
+          }
+        }
+        if (Number(assignment.providerUserId || 0)) {
+          await saveAgencyAssignments(id);
+        }
+        const intakePatch = waitlistShowIntake.value
+          ? {
+              insuranceReviewed: !!agency.insuranceReviewed,
+              ehrTransferred: !!agency.ehrTransferred,
+              paperComplete: agencyDerived.isPaper ? !!agency.paperComplete : undefined,
+              missingItems: String(agency.missingItemsText || '')
+                .split('\n')
+                .map((s) => s.trim())
+                .filter(Boolean)
+            }
+          : null;
+        await api.put(`/clients/${id}/waitlist-resolution`, {
+          waitlistReason: agency.waitlistReason || '',
+          removeFromWaitlist: !!waitlistRemoveFromWaitlist.value,
+          clearance: waitlistShowClearance.value
+            ? { disclosureOk: !!clearance.disclosureOk, insuranceOk: !!clearance.insuranceOk }
+            : null,
+          intake: intakePatch
+        });
+      }
     } else if (props.actionKey === 'agency_clearance') {
       if (!clearance.disclosureOk || !clearance.insuranceOk) {
         await revealSaveError('Disclosure and insurance checks are required');
@@ -704,7 +1456,7 @@ async function save() {
 .modal {
   background: #fff;
   border-radius: 12px;
-  width: min(560px, 100%);
+  width: min(620px, 100%);
   max-height: min(90vh, calc(100dvh - 32px));
   display: flex;
   flex-direction: column;
@@ -795,10 +1547,203 @@ async function save() {
   border-radius: 10px;
   background: #fffbeb;
 }
+.status-card {
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f9fafb;
+  display: grid;
+  gap: 8px;
+}
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 14px;
+}
+.status-label {
+  color: #4b5563;
+  font-weight: 600;
+}
+.status-value {
+  color: #111827;
+  text-align: right;
+}
+.status-value.ok { color: #166534; font-weight: 600; }
+.status-value.pending { color: #92400e; font-weight: 600; }
 .lam-fields {
   border: 0;
   padding: 0;
   margin: 0;
   min-width: 0;
+}
+
+/* Agency action items modal */
+.lam-agency {
+  display: grid;
+  gap: 18px;
+}
+.lam-status-list {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.lam-status-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.lam-status-icon {
+  width: 28px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.lam-status-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+.lam-status-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+.lam-status-pill {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  color: #374151;
+  white-space: nowrap;
+}
+.lam-status-pill.ok {
+  background: #dcfce7;
+  color: #166534;
+}
+.lam-status-pill.pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+.lam-status-pill.warn {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.lam-status-pill.waitlist {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+.lam-status-pill.neutral {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+.lam-pending-note {
+  margin: 0;
+  font-size: 12px;
+  color: #92400e;
+}
+.lam-section {
+  display: grid;
+  gap: 10px;
+}
+.lam-section--muted {
+  opacity: 0.92;
+}
+.lam-section-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: #111827;
+}
+.lam-section-hint {
+  margin: 0;
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.45;
+}
+.lam-section-hint.warn {
+  color: #92400e;
+}
+.lam-check-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fff;
+  display: grid;
+  gap: 8px;
+}
+.lam-check-card--waitlist {
+  border-color: #ddd6fe;
+  background: #faf5ff;
+}
+.lam-check-card--force {
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+.lam-check-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+.lam-check-copy {
+  display: grid;
+  gap: 2px;
+}
+.lam-check-copy strong {
+  font-size: 14px;
+  color: #111827;
+}
+.lam-check-sub {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.4;
+}
+.lam-missing {
+  margin-top: 4px;
+}
+.lam-assign-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.lam-assign-field {
+  display: grid;
+  gap: 6px;
+}
+.lam-assign-field label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #4b5563;
+}
+.lam-info-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+.lam-info-banner p {
+  margin: 0;
+  font-size: 12px;
+  color: #1e40af;
+  line-height: 1.45;
+}
+.lam-info-icon {
+  flex-shrink: 0;
+}
+@media (max-width: 520px) {
+  .lam-assign-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

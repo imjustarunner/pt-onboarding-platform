@@ -2764,6 +2764,46 @@ export const updateClient = async (req, res, next) => {
       const newStatusRow = (statusRows || []).find((r) => parseInt(r?.id, 10) === requestedStatusId) || null;
       const newKey = String(newStatusRow?.status_key || '').toLowerCase();
       const newLabel = String(newStatusRow?.label || '').toLowerCase();
+      const currentStatusId = parseInt(currentClient.client_status_id || 0, 10);
+      const fallPendingKeys = new Set([
+        'confirmation_pending',
+        'unable_to_reach',
+        'other_transfer',
+        'continuation_unknown',
+        'returning'
+      ]);
+      if (
+        fallPendingKeys.has(newKey)
+        && requestedStatusId !== currentStatusId
+        && String(currentClient.client_type || '').toLowerCase() === 'school'
+      ) {
+        try {
+          const { clientHasWeekdayAssignment, clientHasProvider } = await import(
+            '../services/clientLifecycleStatus.service.js'
+          );
+          const { needsFallReassignmentClearance } = await import('../utils/fallReadiness.js');
+          const { computeCurrentSchoolYearLabel } = await import('../utils/schoolYear.js');
+          const hasWeekday = await clientHasWeekdayAssignment(parseInt(id, 10));
+          const hasProvider = await clientHasProvider(parseInt(id, 10), currentClient);
+          if (hasWeekday && hasProvider) {
+            const year = computeCurrentSchoolYearLabel();
+            const [dispRows] = await pool.execute(
+              `SELECT fall_outcome, fall_completed_at, fall_remove_from_assignment, agency_cleared_at, agency_clearance_json
+               FROM client_year_dispositions WHERE client_id = ? AND school_year = ? LIMIT 1`,
+              [parseInt(id, 10), year]
+            );
+            const stillNeedsFallReassignment = needsFallReassignmentClearance({
+              client: currentClient,
+              disposition: dispRows?.[0] || null
+            });
+            if (!stillNeedsFallReassignment) {
+              delete req.body.client_status_id;
+            }
+          }
+        } catch {
+          // best-effort only
+        }
+      }
       const isTerminated = newKey === 'terminated' || newLabel.includes('terminated');
       if (isTerminated) {
         const reason = String(req.body.termination_reason || '').trim();

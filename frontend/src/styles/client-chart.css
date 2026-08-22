@@ -392,6 +392,15 @@
   border: 1px solid color-mix(in srgb, var(--cc-accent) 12%, var(--cc-border));
 }
 
+.client-chart.modal-content.large .cc-surface {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+
 .cdp-page-shell {
   width: 100%;
   min-height: 100%;

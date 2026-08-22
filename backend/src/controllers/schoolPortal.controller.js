@@ -174,10 +174,16 @@ function rosterLifecycleClientShape(client) {
   };
 }
 
-function rosterDisplayStatus(client) {
+function rosterDisplayStatus(client, disposition = null) {
+  const disp = disposition || {};
   return resolveSchoolRosterDisplayStatus({
     ...client,
-    client_type: client?.client_type || 'school'
+    client_type: client?.client_type || 'school',
+    fall_outcome: disp.fall_outcome ?? client?.fall_outcome ?? null,
+    fall_completed_at: disp.fall_completed_at ?? client?.fall_completed_at ?? null,
+    fall_remove_from_assignment: disp.fall_remove_from_assignment ?? client?.fall_remove_from_assignment ?? null,
+    agency_cleared_at: disp.agency_cleared_at ?? client?.agency_cleared_at ?? null,
+    agency_clearance_json: disp.agency_clearance_json ?? client?.agency_clearance_json ?? null
   });
 }
 
@@ -193,6 +199,8 @@ function rosterLifecycleFields(client, { viewerRole, disposition }) {
     provider_action_key: providerAction?.actionKey || null,
     fall_outcome: disposition?.fall_outcome || null,
     fall_completed_at: disposition?.fall_completed_at || null,
+    fall_remove_from_assignment: disposition?.fall_remove_from_assignment ?? null,
+    agency_cleared_at: disposition?.agency_cleared_at ?? null,
     spring_outcome: disposition?.spring_outcome || null,
     spring_completed_at: disposition?.spring_completed_at || null,
     needs_insurance_clearance: needsInsuranceClearance({
@@ -1283,7 +1291,8 @@ export const getSchoolClients = async (req, res, next) => {
         if (ids.length) {
           const placeholders = ids.map(() => '?').join(',');
           const [dispRows] = await pool.execute(
-            `SELECT client_id, agency_cleared_at, agency_clearance_json, fall_outcome, spring_outcome, fall_completed_at, spring_completed_at
+            `SELECT client_id, agency_cleared_at, agency_clearance_json, fall_outcome, spring_outcome,
+                    fall_completed_at, spring_completed_at, fall_remove_from_assignment
              FROM client_year_dispositions
              WHERE school_year = ?
                AND client_id IN (${placeholders})`,
@@ -1309,7 +1318,8 @@ export const getSchoolClients = async (req, res, next) => {
             school_portal_force_code: false,
             school_portal_gray: false
           };
-      const displayStatus = rosterDisplayStatus(client);
+      const disp = dispositionByClientId.get(clientId) || null;
+      const displayStatus = rosterDisplayStatus(client, disp);
       const isLimitedSchoolStaff = String(schoolStaffAccessMeta.school_staff_effective_access_state || '').toLowerCase() === 'limited';
       const openTicketCount = isLimitedSchoolStaff
         ? (limitedOwnOpenTicketsByClientId.get(clientId) || 0)
@@ -2065,7 +2075,8 @@ export const getProviderMyRoster = async (req, res, next) => {
       if (ids.length) {
         const placeholders = ids.map(() => '?').join(',');
         const [dispRows] = await pool.execute(
-          `SELECT client_id, agency_cleared_at, agency_clearance_json, fall_outcome, spring_outcome, fall_completed_at, spring_completed_at
+          `SELECT client_id, agency_cleared_at, agency_clearance_json, fall_outcome, spring_outcome,
+                  fall_completed_at, spring_completed_at, fall_remove_from_assignment
            FROM client_year_dispositions
            WHERE school_year = ?
              AND client_id IN (${placeholders})`,
@@ -2102,7 +2113,8 @@ export const getProviderMyRoster = async (req, res, next) => {
       const compliancePending = (isPendingStatus && !isCurrentByDates)
         || (isNewClientChecklist && missingChecklist.length > 0);
       const compliancePendingWithContinuation = compliancePending;
-      const displayStatus = rosterDisplayStatus(client);
+      const disp = dispositionByClientId.get(clientId) || null;
+      const displayStatus = rosterDisplayStatus(client, disp);
       return {
         id: client.id,
         organization_id: orgId,
@@ -5431,20 +5443,51 @@ export const getClientWaitlistNote = async (req, res, next) => {
     }
 
     const note = await ClientNotes.findLatestSharedByClientAndCategory(clientId, 'waitlist');
-    if (!note) return res.json({ note: null });
+    if (note) {
+      logClientAccess(req, clientId, 'school_portal_waitlist_viewed').catch(() => {});
 
-    logClientAccess(req, clientId, 'school_portal_waitlist_viewed').catch(() => {});
+      return res.json({
+        note: {
+          id: note.id,
+          message: note.message || '',
+          created_at: note.created_at || null,
+          author_id: note.author_id || null,
+          author_name: note.author_name || null,
+          category: note.category || 'waitlist'
+        }
+      });
+    }
 
-    res.json({
-      note: {
-        id: note.id,
-        message: note.message || '',
-        created_at: note.created_at || null,
-        author_id: note.author_id || null,
-        author_name: note.author_name || null,
-        category: note.category || 'waitlist'
-      }
-    });
+    // Fallback: reason captured during agency intake before a shared note existed.
+    const [clientRows] = await pool.execute(
+      `SELECT agency_intake_json FROM clients WHERE id = ? LIMIT 1`,
+      [clientId]
+    );
+    let intakeReason = '';
+    try {
+      const raw = clientRows?.[0]?.agency_intake_json;
+      const intake = raw
+        ? (typeof raw === 'string' ? JSON.parse(raw) : raw)
+        : null;
+      intakeReason = String(intake?.waitlistReason || '').trim();
+    } catch {
+      intakeReason = '';
+    }
+    if (intakeReason) {
+      logClientAccess(req, clientId, 'school_portal_waitlist_viewed').catch(() => {});
+      return res.json({
+        note: {
+          id: null,
+          message: intakeReason,
+          created_at: null,
+          author_id: null,
+          author_name: null,
+          category: 'waitlist'
+        }
+      });
+    }
+
+    return res.json({ note: null });
   } catch (e) {
     next(e);
   }
