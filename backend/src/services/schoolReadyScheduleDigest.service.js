@@ -166,13 +166,110 @@ function formatClientBullet(it) {
   const initials = String(it.client_initials || '').trim();
   const label = String(it.client_label || '').trim();
   const reason = String(it.waitlist_reason || '').trim();
+  const isWaitlist = normalizeDigestCategory(it.item_category) === DIGEST_CATEGORY_WAITLIST;
+  const cleared = Number(it.cleared_from_waitlist || 0) === 1;
+  const assignment = String(it.assignment_summary || '').trim()
+    || formatAssignmentSummary([
+      { providerName: it.provider_name, serviceDay: it.service_day }
+    ].filter((a) => a.providerName || a.serviceDay));
+  const movedAt = formatStatusDate(it.marked_ready_at);
+
   let base = null;
   if (initials && label && !label.includes(initials)) base = `${initials} — ${label}`;
   else if (initials) base = initials;
   else if (label) base = label;
   else base = `Client #${it.client_id}`;
-  if (reason) return `• ${base} (Reason: ${reason})`;
-  return `• ${base}`;
+
+  const details = [];
+  if (isWaitlist) {
+    if (assignment) {
+      details.push(assignment);
+      details.push('Waitlisted until the waitlist clears; if a day is listed, typically until a slot opens on that day');
+    }
+    if (reason) details.push(`Reason: ${reason}`);
+  } else {
+    if (cleared) details.push('Removed from the waitlist');
+    if (assignment) details.push(assignment);
+  }
+
+  const main = details.length ? `• ${base} — ${details.join(' · ')}` : `• ${base}`;
+  if (!movedAt) return { main, meta: null };
+  const metaLabel = isWaitlist ? 'Moved to waitlist' : 'Moved to Ready for Schedule';
+  return { main, meta: `${metaLabel}: ${movedAt}` };
+}
+
+function formatAssignmentSummary(assignments = []) {
+  const parts = (assignments || [])
+    .map((a) => {
+      const name = String(a.providerName || '').trim();
+      const day = String(a.serviceDay || '').trim();
+      if (name && day) return `${name} · ${day}`;
+      if (name) return name;
+      if (day) return `Day: ${day}`;
+      return null;
+    })
+    .filter(Boolean);
+  return parts.length ? parts.join('; ') : null;
+}
+
+function formatStatusDate(value) {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ,
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  }).format(d);
+}
+
+const DIGEST_DISCLAIMERS = [
+  'This is a digest/summary email sent three days a week (Monday, Wednesday, and Friday). It is not a real-time alert for every status change.',
+  '“Ready for Schedule” refers to soft scheduling in the app. Scheduling may be done by any staff member, including the assigned provider. It is not a requirement that soft scheduling be used if you already communicate with the provider or assign/schedule the client another way.'
+];
+
+/**
+ * Load active provider + weekday assignments for digest lines.
+ */
+export async function loadClientAssignmentSnapshot(clientId) {
+  const cid = Number(clientId || 0);
+  if (!cid) {
+    return { providerName: null, serviceDay: null, assignmentSummary: null };
+  }
+  const [rows] = await pool.execute(
+    `SELECT cpa.service_day,
+            TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) AS provider_name
+     FROM client_provider_assignments cpa
+     LEFT JOIN users u ON u.id = cpa.provider_user_id
+     WHERE cpa.client_id = ?
+       AND cpa.is_active = TRUE
+     ORDER BY
+       FIELD(cpa.service_day, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'),
+       cpa.id ASC`,
+    [cid]
+  );
+  const assignments = (rows || []).map((r) => ({
+    providerName: String(r.provider_name || '').trim() || null,
+    serviceDay: (() => {
+      const day = String(r.service_day || '').trim();
+      if (!day || day.toLowerCase() === 'unknown') return null;
+      if (!['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day)) return null;
+      return day;
+    })()
+  })).filter((a) => a.providerName || a.serviceDay);
+
+  if (!assignments.length) {
+    return { providerName: null, serviceDay: null, assignmentSummary: null };
+  }
+
+  const names = [...new Set(assignments.map((a) => a.providerName).filter(Boolean))];
+  const days = [...new Set(assignments.map((a) => a.serviceDay).filter(Boolean))];
+  return {
+    providerName: names.length ? names.join(', ').slice(0, 255) : null,
+    serviceDay: days.length ? days.join(', ').slice(0, 64) : null,
+    assignmentSummary: formatAssignmentSummary(assignments)?.slice(0, 500) || null
+  };
 }
 
 export function buildDigestCopy({ schoolName, items }) {
@@ -189,24 +286,39 @@ export function buildDigestCopy({ schoolName, items }) {
   else subject = `${schoolName} - Ready to Schedule`;
 
   const readyVerb = readyCount === 1
-    ? 'The following client is ready to schedule:'
-    : 'The following clients are ready to schedule:';
+    ? 'The following client is ready for soft scheduling:'
+    : 'The following clients are ready for soft scheduling:';
   const waitVerb = waitlistCount === 1
     ? 'The following client is on the waitlist:'
     : 'The following clients are on the waitlist:';
 
-  const readyLines = readyItems.map(formatClientBullet);
-  const waitLines = waitlistItems.map(formatClientBullet);
+  const readyBullets = readyItems.map(formatClientBullet);
+  const waitBullets = waitlistItems.map(formatClientBullet);
 
-  const textParts = ['Hello,', ''];
+  const textParts = [
+    'Hello,',
+    '',
+    'This is your Mon/Wed/Fri school status digest.'
+  ];
   if (readyCount) {
-    textParts.push(readyVerb, '', ...readyLines, '');
+    textParts.push('', readyVerb, '');
+    for (const b of readyBullets) {
+      textParts.push(b.main);
+      if (b.meta) textParts.push(`  ${b.meta}`);
+    }
   }
   if (waitlistCount) {
-    textParts.push(waitVerb, '', ...waitLines, '');
+    textParts.push('', waitVerb, '');
+    for (const b of waitBullets) {
+      textParts.push(b.main);
+      if (b.meta) textParts.push(`  ${b.meta}`);
+    }
   }
   textParts.push(
+    '',
     'Please log in to the school portal to review status and coordinate next steps.',
+    '',
+    ...DIGEST_DISCLAIMERS.map((d) => `Note: ${d}`),
     '',
     'Thank you,',
     '',
@@ -221,20 +333,31 @@ export function buildDigestCopy({ schoolName, items }) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  const sectionHtml = (title, lines) => {
-    if (!lines.length) return '';
+  const sectionHtml = (title, bullets) => {
+    if (!bullets.length) return '';
     return `
       <p><strong>${esc(title)}</strong></p>
-      <ul>${lines.map((l) => `<li>${esc(l.replace(/^•\s*/, ''))}</li>`).join('')}</ul>
+      <ul style="padding-left:18px;">
+        ${bullets.map((b) => `
+          <li style="margin-bottom:10px;">
+            <div>${esc(b.main.replace(/^•\s*/, ''))}</div>
+            ${b.meta ? `<div style="font-size:11px;color:#6b7280;margin-top:2px;">${esc(b.meta)}</div>` : ''}
+          </li>
+        `).join('')}
+      </ul>
     `;
   };
 
   const html = `
     <div style="font-family: Arial, Helvetica, sans-serif; line-height: 1.55; color: #1a1a1a; max-width: 640px;">
       <p>Hello,</p>
-      ${sectionHtml(readyVerb, readyLines)}
-      ${sectionHtml(waitVerb, waitLines)}
+      <p>This is your Mon/Wed/Fri school status digest.</p>
+      ${sectionHtml(readyVerb, readyBullets)}
+      ${sectionHtml(waitVerb, waitBullets)}
       <p>Please log in to the school portal to review status and coordinate next steps.</p>
+      <div style="margin:16px 0;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;">
+        ${DIGEST_DISCLAIMERS.map((d) => `<p style="margin:0 0 8px;font-size:12px;color:#475569;">${esc(d)}</p>`).join('')}
+      </div>
       <p>Thank you,</p>
       <p style="margin-top: 12px;"><strong>${esc(SUPPORT_TEAM)}</strong></p>
       <p style="font-size:12px;color:#666;">Questions? Reply to this email or contact <a href="mailto:schools@ITSCO.health">schools@ITSCO.health</a>.</p>
@@ -247,6 +370,7 @@ export function buildDigestCopy({ schoolName, items }) {
 async function loadWindowItems({ schoolOrganizationId, windowKey }) {
   const [rows] = await pool.execute(
     `SELECT id, client_id, client_initials, client_label, item_category, waitlist_reason,
+            provider_name, service_day, assignment_summary, cleared_from_waitlist,
             marked_ready_at, digest_communication_id
      FROM school_ready_schedule_digest_items
      WHERE school_organization_id = ?
@@ -369,7 +493,9 @@ export async function enqueueReadyToScheduleDigest({
   clientInitials = null,
   clientLabel = null,
   category = DIGEST_CATEGORY_READY,
-  waitlistReason = null
+  waitlistReason = null,
+  clearedFromWaitlist = false,
+  statusChangedAt = null
 }) {
   const aid = Number(agencyId || 0);
   const sid = Number(schoolOrganizationId || 0);
@@ -381,18 +507,35 @@ export async function enqueueReadyToScheduleDigest({
   const reason = itemCategory === DIGEST_CATEGORY_WAITLIST
     ? (waitlistReason ? String(waitlistReason).slice(0, 500) : null)
     : null;
+  const cleared = itemCategory === DIGEST_CATEGORY_READY && clearedFromWaitlist === true ? 1 : 0;
+  const assignment = await loadClientAssignmentSnapshot(cid);
+  const markedAt = statusChangedAt
+    ? (statusChangedAt instanceof Date ? statusChangedAt : new Date(statusChangedAt))
+    : new Date();
+  const markedAtSql = Number.isNaN(markedAt.getTime())
+    ? new Date()
+    : markedAt;
 
   await pool.execute(
     `INSERT INTO school_ready_schedule_digest_items
        (agency_id, school_organization_id, client_id, client_initials, client_label,
-        item_category, waitlist_reason, window_key)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        item_category, waitlist_reason, provider_name, service_day, assignment_summary,
+        cleared_from_waitlist, window_key, marked_ready_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        client_initials = COALESCE(VALUES(client_initials), client_initials),
        client_label = COALESCE(VALUES(client_label), client_label),
-       item_category = VALUES(item_category),
        waitlist_reason = VALUES(waitlist_reason),
-       marked_ready_at = CURRENT_TIMESTAMP`,
+       provider_name = VALUES(provider_name),
+       service_day = VALUES(service_day),
+       assignment_summary = VALUES(assignment_summary),
+       cleared_from_waitlist = VALUES(cleared_from_waitlist),
+       marked_ready_at = IF(
+         item_category <> VALUES(item_category),
+         VALUES(marked_ready_at),
+         marked_ready_at
+       ),
+       item_category = VALUES(item_category)`,
     [
       aid,
       sid,
@@ -401,7 +544,12 @@ export async function enqueueReadyToScheduleDigest({
       clientLabel ? String(clientLabel).slice(0, 255) : null,
       itemCategory,
       reason,
-      windowKey
+      assignment.providerName,
+      assignment.serviceDay,
+      assignment.assignmentSummary,
+      cleared,
+      windowKey,
+      markedAtSql
     ]
   );
 
@@ -553,6 +701,7 @@ export default {
   enqueueWaitlistDigest,
   runReadyToScheduleDigestTick,
   buildDigestCopy,
+  loadClientAssignmentSnapshot,
   DIGEST_CATEGORY_READY,
   DIGEST_CATEGORY_WAITLIST
 };

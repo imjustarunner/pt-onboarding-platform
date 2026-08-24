@@ -93,7 +93,8 @@ export async function setClientLifecycleStatus({
 
   const [rows] = await pool.execute(
     `SELECT c.id, c.agency_id, c.organization_id, c.client_status_id, c.initials,
-            c.identifier_code, c.full_name, cs.status_key AS client_status_key
+            c.identifier_code, c.full_name, c.agency_intake_json, c.waitlist_started_at,
+            cs.status_key AS client_status_key
      FROM clients c
      LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
      WHERE c.id = ?
@@ -201,7 +202,11 @@ export async function setClientLifecycleStatus({
         clientInitials: client.initials || null,
         clientLabel: client.identifier_code || client.full_name || client.initials || null,
         category: isWaitlist ? DIGEST_CATEGORY_WAITLIST : DIGEST_CATEGORY_READY,
-        waitlistReason
+        waitlistReason,
+        clearedFromWaitlist: !isWaitlist && currentKey === 'waitlist',
+        statusChangedAt: isWaitlist
+          ? (client.waitlist_started_at || new Date())
+          : new Date()
       });
     } catch (err) {
       console.error('[clientLifecycleStatus] school status digest enqueue failed', err?.message || err);
