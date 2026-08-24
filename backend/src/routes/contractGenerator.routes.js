@@ -2,6 +2,9 @@ import express from 'express';
 import { authenticate, requireCapability } from '../middleware/auth.middleware.js';
 import {
   getContractLibrary,
+  getCandidateWizardContextHandler,
+  listContractCandidates,
+  inferContractCompensation,
   postContractTemplate,
   patchContractTemplate,
   postContractClause,
@@ -18,6 +21,9 @@ router.use(authenticate);
 router.use(requireCapability('canManageHiring'));
 
 router.get('/library', getContractLibrary);
+router.get('/candidates', listContractCandidates);
+router.get('/infer-compensation', inferContractCompensation);
+router.get('/candidates/:userId/wizard-context', getCandidateWizardContextHandler);
 router.post('/templates', postContractTemplate);
 router.patch('/templates/:id', patchContractTemplate);
 router.post('/clauses', postContractClause);

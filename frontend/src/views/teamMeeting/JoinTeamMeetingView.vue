@@ -281,7 +281,7 @@
           </section>
         </div>
         <aside v-if="resolvedEventId && !isInLobby && canSeeFullWorkspace && !videoFullscreen" class="join-workspace">
-          <div v-if="workspaceBannerVisible && !isInterviewMeeting" class="join-workspace__banner">
+          <div v-if="workspaceBannerVisible && !isInterviewMeeting && !isEvaluationMeeting" class="join-workspace__banner">
             <span class="join-workspace__lock" aria-hidden="true">🔒</span>
             <p>
               {{ workspaceBannerText }}
@@ -301,6 +301,55 @@
               :dark="true"
               @guest-access-ended="onGuestAccessEndedByInterviewer"
             />
+            <section v-if="showAttendanceTab" class="join-stack-section">
+              <MeetingAttendancePanel
+                ref="attendancePanelRef"
+                :event-id="resolvedEventId"
+                :live-poll="true"
+                :tracking-enabled="isAttendanceTrackingActive"
+                :raised-hands="raisedHandCount"
+                :raised-hand-names="raisedHandNames"
+                :muted-names="mutedParticipantNames"
+                :dark="true"
+                @tracking-status="onAttendanceTrackingStatus"
+              />
+            </section>
+            <section v-if="showNotesTab" class="join-stack-section">
+              <MeetingNotesPanel
+                :event-id="resolvedEventId"
+                :live-capturing="transcriptCapturing"
+                :live-hint="transcriptHint"
+                :live-preview="transcriptLivePreview"
+                :auto-refresh="true"
+                :can-control-transcript="isAdminMeeting || isHost"
+                :can-stop-transcript="isHost"
+                :paused="transcriptPaused"
+                :room-stopped="transcriptRoomStopped"
+                :stop-meta="transcriptStopMeta"
+                @pause="onTranscriptPause"
+                @resume="onTranscriptResume"
+                @stop="onTranscriptStop"
+                @control="onTranscriptControlApi"
+              />
+            </section>
+          </div>
+
+          <div v-else-if="isEvaluationMeeting" class="join-workspace__body join-workspace__body--stack">
+            <section class="join-stack-section join-stack-section--eval">
+              <div v-if="evaluationLoading" class="join-eval-msg">Loading evaluation…</div>
+              <div v-else-if="evaluationError" class="join-eval-msg join-eval-msg--error">{{ evaluationError }}</div>
+              <EmployeeEvaluationWorkspace
+                v-else-if="evaluationBundle || evaluationCycleId"
+                :key="evaluationCycleId || evaluationBundle?.cycle?.id"
+                :bundle="evaluationBundle"
+                :cycle-id="evaluationCycleId"
+                :agency-id="agencyStore.currentAgency?.id || authStore.user?.agencyId || null"
+                :mode="evaluationWorkspaceMode"
+                compact
+                @updated="onEvaluationUpdated"
+              />
+              <div v-else class="join-eval-msg">No evaluation cycle is linked to this meeting yet.</div>
+            </section>
             <section v-if="showAttendanceTab" class="join-stack-section">
               <MeetingAttendancePanel
                 ref="attendancePanelRef"
@@ -535,6 +584,7 @@ import MeetingLiveActivityPanel from '../../components/meetings/MeetingLiveActiv
 import MeetingSessionExitPanel from '../../components/meetings/MeetingSessionExitPanel.vue';
 import InterviewLiveWorkspace from '../../components/hiring/InterviewLiveWorkspace.vue';
 import InterviewEndedGuestPanel from '../../components/hiring/InterviewEndedGuestPanel.vue';
+import EmployeeEvaluationWorkspace from '../../components/evaluations/EmployeeEvaluationWorkspace.vue';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import api from '../../services/api';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath';
@@ -695,7 +745,7 @@ const isAttendanceTrackingActive = computed(() => {
   const kind = String(meetingKind.value || '').toUpperCase();
   if (kind === 'HUDDLE') return true;
   const subtype = String(meetingSubtype.value || '').toLowerCase();
-  if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview') return true;
+  if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation') return true;
   return attendanceTrackingEnabled.value;
 });
 
@@ -703,7 +753,7 @@ const isAttendanceTrackingActive = computed(() => {
 const isAutoTranscriptKind = computed(() => {
   const kind = String(meetingKind.value || '').toUpperCase();
   const subtype = String(meetingSubtype.value || '').toLowerCase();
-  return kind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview';
+  return kind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation';
 });
 
 const transcriptEnabled = computed(() => (
@@ -785,11 +835,85 @@ watch(videoFullscreen, (on) => {
 
 const isAdminMeeting = computed(() => String(meetingSubtype.value || '').toLowerCase() === 'admin');
 const isInterviewMeeting = computed(() => String(meetingSubtype.value || '').toLowerCase() === 'interview');
+const isEvaluationMeeting = computed(() => String(meetingSubtype.value || '').toLowerCase() === 'evaluation');
 const isHuddle = computed(() => String(meetingKind.value || '').toUpperCase() === 'HUDDLE');
 /** 2+ invitees → group (3+ people). Solo/1:1 stay individual. */
 const isMultiParticipant = computed(() => Number(bookedParticipantCount.value || 0) >= 2);
 const isGroupHuddle = computed(() => isHuddle.value && isMultiParticipant.value);
 const isIndividualHuddle = computed(() => isHuddle.value && !isMultiParticipant.value);
+
+const evaluationBundle = ref(null);
+const evaluationLoading = ref(false);
+const evaluationError = ref('');
+const evaluationCycleId = computed(() => Number(evaluationBundle.value?.cycle?.id || 0) || null);
+
+const evaluationWorkspaceMode = computed(() => {
+  const empId = Number(
+    evaluationBundle.value?.cycle?.employee_user_id
+    || evaluationBundle.value?.cycle?.employeeUserId
+    || 0
+  );
+  const me = Number(authStore.user?.id || 0);
+  if (empId && me && empId === me) {
+    const status = String(evaluationBundle.value?.cycle?.status || '').toLowerCase();
+    if (['scheduled', 'in_progress'].includes(status)) return 'employee';
+    return 'readonly';
+  }
+  if (
+    isHost.value
+    || authStore.user?.capabilities?.canManageHiring === true
+    || FULL_WORKSPACE_ROLES.has(actorRole.value)
+  ) {
+    return 'admin';
+  }
+  return 'readonly';
+});
+
+function onEvaluationUpdated(bundle) {
+  if (bundle?.cycle) evaluationBundle.value = bundle;
+}
+
+async function loadEvaluationCycleForEvent(eventId) {
+  const eid = Number(eventId || 0);
+  if (!eid || !isEvaluationMeeting.value) {
+    evaluationBundle.value = null;
+    evaluationError.value = '';
+    return;
+  }
+  evaluationLoading.value = true;
+  evaluationError.value = '';
+  try {
+    const { data } = await api.get(`/evaluations/events/${eid}/cycle`, {
+      skipGlobalLoading: true,
+      skipAuthRedirect: true
+    });
+    evaluationBundle.value = data;
+  } catch (e) {
+    evaluationBundle.value = null;
+    const status = Number(e?.response?.status || 0);
+    if (status === 404) {
+      evaluationError.value = 'No evaluation is linked to this meeting yet.';
+    } else {
+      evaluationError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load evaluation';
+    }
+  } finally {
+    evaluationLoading.value = false;
+  }
+}
+
+watch(
+  () => [Number(resolvedEventId.value || 0), isEvaluationMeeting.value, isInLobby.value],
+  ([eid, isEval, lobby]) => {
+    if (!isEval || lobby || !eid) {
+      if (!isEval) {
+        evaluationBundle.value = null;
+        evaluationError.value = '';
+      }
+      return;
+    }
+    void loadEvaluationCycleForEvent(eid);
+  }
+);
 
 const displayMeetingTitle = computed(() => {
   const kind = String(meetingKind.value || '').toUpperCase();
@@ -798,6 +922,7 @@ const displayMeetingTitle = computed(() => {
   if (subtype === 'admin') return 'Admin Meeting';
   if (subtype === 'town_hall') return 'Town Hall';
   if (subtype === 'interview') return 'Interview';
+  if (subtype === 'evaluation') return 'Employee Evaluation';
   if (kind === 'TEAM_MEETING') return isMultiParticipant.value ? 'Group Meeting' : 'Meeting';
   return waitingMeetingTitle.value || 'Meeting';
 });
@@ -874,6 +999,12 @@ const canSeeFullWorkspace = computed(() => {
     if (FULL_WORKSPACE_ROLES.has(actorRole.value)) return true;
     return false;
   }
+  // Evaluation meetings: host, reviewers, and the evaluated employee all need the sidebar.
+  if (isEvaluationMeeting.value) {
+    if (authStore.user?.capabilities?.canManageHiring === true) return true;
+    if (FULL_WORKSPACE_ROLES.has(actorRole.value)) return true;
+    return !!Number(authStore.user?.id || 0);
+  }
   return FULL_WORKSPACE_ROLES.has(actorRole.value);
 });
 
@@ -909,7 +1040,7 @@ const showNotesTab = computed(() => {
   if (kind === 'HUDDLE') return true;
   if (kind !== 'TEAM_MEETING') return false;
   const subtype = String(meetingSubtype.value || '').toLowerCase();
-  if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview') return true;
+  if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation') return true;
   return attendanceTrackingEnabled.value;
 });
 
@@ -1791,7 +1922,7 @@ watch(
         skipAuthRedirect: true
       });
       const subtype = String(data?.meetingSubtype || 'general').toLowerCase();
-      meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview') ? subtype : 'general';
+      meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation') ? subtype : 'general';
       if (subtype === 'interview') tileFocus.value = 'remote';
       if (data?.kind) meetingKind.value = String(data.kind).toUpperCase();
       if (data?.attendanceTrackingEnabled != null) {
@@ -1805,7 +1936,7 @@ watch(
         return Number(p?.userId || p?.user_id || p?.id || 0) > 0;
       }).length;
     } catch {
-      if (String(meetingSubtype.value || '').toLowerCase() !== 'interview') {
+      if (String(meetingSubtype.value || '').toLowerCase() !== 'interview' && String(meetingSubtype.value || '').toLowerCase() !== 'evaluation') {
         meetingSubtype.value = 'general';
       }
     }
@@ -1818,7 +1949,7 @@ watch(
       if (att?.kind) meetingKind.value = String(att.kind).toUpperCase();
       if (att?.meetingSubtype) {
         const subtype = String(att.meetingSubtype).toLowerCase();
-        meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview')
+        meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation')
           ? subtype
           : meetingSubtype.value;
         if (subtype === 'interview') tileFocus.value = 'remote';
@@ -2391,6 +2522,19 @@ onUnmounted(() => {
   border-radius: 12px;
   padding: 12px;
   background: rgba(255, 255, 255, 0.03);
+}
+.join-stack-section--eval {
+  background: #f8fafc;
+  border-color: rgba(22, 101, 52, 0.25);
+  color: #111827;
+}
+.join-eval-msg {
+  font-size: 13px;
+  color: #6b7280;
+  padding: 8px 4px;
+}
+.join-eval-msg--error {
+  color: #b91c1c;
 }
 .join-workspace :deep(.meeting-agenda-panel),
 .join-workspace :deep(.mgap) {

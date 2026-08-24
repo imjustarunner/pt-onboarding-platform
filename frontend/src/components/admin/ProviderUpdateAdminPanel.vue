@@ -156,21 +156,35 @@
       <div class="attach glass-inset">
         <h3>Contract amendment plan</h3>
         <p class="hint">
-          Tie an amendment document template to an effective date. On send, selected providers get a signing task and
-          see the Amendments step (or only the people you pick below).
+          For the upcoming Provider Update, use <strong>Job description acknowledgment</strong> so each person
+          receives a personalized addendum with their Job Description clause (<code>JOB_DESC_JD_*</code>) and an
+          agreement to those duties. Legacy mode still supports a static document template ID.
         </p>
+        <label class="field">
+          <span>Amendment type</span>
+          <select v-model="draft.amendmentPlan.mode" class="input">
+            <option value="job_description_acknowledgment">Job description acknowledgment (per-person JD clause)</option>
+            <option value="document_template">Custom document template (legacy)</option>
+          </select>
+        </label>
         <div class="row wrap">
-          <label class="field grow">
-            <span>Document template ID</span>
-            <input v-model="draft.amendmentPlan.documentTemplateId" class="input" placeholder="e.g. template id" />
-          </label>
           <label class="field">
             <span>Effective date</span>
             <input v-model="draft.amendmentPlan.effectiveDate" type="date" class="input" />
           </label>
           <label class="field grow">
             <span>Title</span>
-            <input v-model="draft.amendmentPlan.title" class="input" placeholder="August 2026 amendment" />
+            <input v-model="draft.amendmentPlan.title" class="input" placeholder="August 2026 Job Description Acknowledgment" />
+          </label>
+        </div>
+        <p v-if="draft.amendmentPlan.mode === 'job_description_acknowledgment'" class="hint">
+          Uses contract config <code>itsco_job_description_acknowledgment_addendum</code> — resolves each employee’s JD
+          from their hiring profile or current title, then embeds the matching <code>JOB_DESC_JD_*</code> clause.
+        </p>
+        <div v-else class="row wrap">
+          <label class="field grow">
+            <span>Document template ID</span>
+            <input v-model="draft.amendmentPlan.documentTemplateId" class="input" placeholder="e.g. template id" />
           </label>
         </div>
         <label class="field">
@@ -385,6 +399,8 @@ const draft = reactive({
     client_fall_update: { mode: 'auto', userIds: [] }
   },
   amendmentPlan: {
+    mode: 'job_description_acknowledgment',
+    contractConfigSlug: 'itsco_job_description_acknowledgment_addendum',
     documentTemplateId: '',
     effectiveDate: '',
     title: ''
@@ -518,7 +534,13 @@ function startCompose() {
     amendments: { mode: 'all', userIds: [] },
     client_fall_update: { mode: 'auto', userIds: [] }
   };
-  draft.amendmentPlan = { documentTemplateId: '', effectiveDate: '', title: '' };
+  draft.amendmentPlan = {
+    mode: 'job_description_acknowledgment',
+    contractConfigSlug: 'itsco_job_description_acknowledgment_addendum',
+    documentTemplateId: '',
+    effectiveDate: '',
+    title: ''
+  };
   sendMode.value = 'all';
   selectedSendIds.value = [];
   tab.value = 'compose';
@@ -537,13 +559,31 @@ function pushPayload() {
       userIds: [...draft.audience.client_fall_update.userIds]
     }
   };
-  const plan = draft.amendmentPlan.documentTemplateId
-    ? {
+  const plan = (() => {
+    const mode = String(draft.amendmentPlan.mode || 'job_description_acknowledgment');
+    const effectiveDate = draft.amendmentPlan.effectiveDate || null;
+    const title = draft.amendmentPlan.title || (mode === 'job_description_acknowledgment'
+      ? 'Job Description Acknowledgment'
+      : 'Contract amendment');
+    if (!effectiveDate && mode !== 'job_description_acknowledgment' && !draft.amendmentPlan.documentTemplateId) {
+      return null;
+    }
+    if (mode === 'document_template') {
+      if (!draft.amendmentPlan.documentTemplateId) return null;
+      return {
+        mode: 'document_template',
         documentTemplateId: Number(draft.amendmentPlan.documentTemplateId) || draft.amendmentPlan.documentTemplateId,
-        effectiveDate: draft.amendmentPlan.effectiveDate || null,
-        title: draft.amendmentPlan.title || 'Contract amendment'
-      }
-    : null;
+        effectiveDate,
+        title
+      };
+    }
+    return {
+      mode: 'job_description_acknowledgment',
+      contractConfigSlug: draft.amendmentPlan.contractConfigSlug || 'itsco_job_description_acknowledgment_addendum',
+      effectiveDate,
+      title
+    };
+  })();
   return {
     agencyId: Number(props.agencyId),
     title: draft.title,

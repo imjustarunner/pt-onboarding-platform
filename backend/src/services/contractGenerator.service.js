@@ -4,10 +4,13 @@
 import pool from '../config/database.js';
 import {
   autofillTokensForCandidate,
-  renderContractHtml
+  renderContractHtml,
+  getAgencyBuilderDefaults,
+  inferCompensationFromCredential
 } from './contractMerge.service.js';
 import UserSpecificDocument from '../models/UserSpecificDocument.model.js';
 import TaskAssignmentService from './taskAssignment.service.js';
+import PayrollCompensationLevel, { COMPENSATION_CATEGORIES } from '../models/PayrollCompensationLevel.model.js';
 
 function parseJsonArray(value, fallback = []) {
   if (Array.isArray(value)) return value;
@@ -188,6 +191,135 @@ export async function updateConfig(agencyId, id, data) {
   return rows[0] || null;
 }
 
+export async function listContractBuilderCandidates(agencyId, { q = '', limit = 250 } = {}) {
+  const max = Math.min(Math.max(Number(limit) || 250, 1), 500);
+  const params = [agencyId];
+  let searchSql = '';
+  if (String(q || '').trim()) {
+    searchSql = ` AND (
+      u.first_name LIKE ?
+      OR u.last_name LIKE ?
+      OR u.email LIKE ?
+      OR u.personal_email LIKE ?
+      OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?
+    )`;
+    const like = `%${String(q).trim()}%`;
+    params.push(like, like, like, like, like);
+  }
+
+  const [rows] = await pool.execute(
+    `SELECT
+       u.id,
+       u.first_name,
+       u.last_name,
+       u.email,
+       u.personal_email,
+       u.status,
+       u.credential,
+       hp.stage,
+       hp.applied_role,
+       hp.job_description_id,
+       jd.title AS job_title,
+       jd.role_type AS job_role_type
+     FROM users u
+     INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+     LEFT JOIN hiring_profiles hp ON hp.id = (
+       SELECT hp_latest.id
+       FROM hiring_profiles hp_latest
+       WHERE hp_latest.candidate_user_id = u.id
+       ORDER BY hp_latest.updated_at DESC, hp_latest.id DESC
+       LIMIT 1
+     )
+     LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id
+     WHERE u.is_active = TRUE
+       AND u.role NOT IN ('client_guardian', 'client', 'guardian')
+       AND (
+         hp.candidate_user_id IS NOT NULL
+         OR u.status IN ('PROSPECTIVE', 'PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW')
+       )
+       AND (
+         hp.id IS NULL
+         OR LOWER(COALESCE(hp.stage, 'applied')) NOT IN ('not_hired')
+       )
+       ${searchSql}
+     ORDER BY u.last_name ASC, u.first_name ASC
+     LIMIT ${max}`,
+    params
+  );
+
+  return (rows || []).map((r) => ({
+    id: r.id,
+    firstName: r.first_name,
+    lastName: r.last_name,
+    email: r.personal_email || r.email,
+    status: r.status,
+    stage: r.stage,
+    credential: r.credential,
+    jobTitle: r.job_title || r.applied_role || null,
+    jobDescriptionId: r.job_description_id || null,
+    roleType: r.job_role_type || null,
+    label: `${r.first_name || ''} ${r.last_name || ''}`.trim()
+      + (r.job_title ? ` — ${r.job_title}` : '')
+  }));
+}
+
+export async function getCandidateWizardContext({
+  agencyId,
+  candidateUserId,
+  credentialOverride = null,
+  officeLocationId = null
+}) {
+  const [templates, configs, compensationLevels, agencyDefaults, tokens] = await Promise.all([
+    listTemplates(agencyId),
+    listConfigs(agencyId),
+    PayrollCompensationLevel.listForAgency(agencyId),
+    getAgencyBuilderDefaults(agencyId),
+    autofillTokensForCandidate({
+      agencyId,
+      candidateUserId,
+      credentialOverride,
+      officeLocationId
+    })
+  ]);
+
+  const jobDescClauses = (await listClauses(agencyId))
+    .filter((c) => String(c.clause_key || '').startsWith('JOB_DESC_'))
+    .map((c) => ({ key: c.clause_key, title: c.title }));
+
+  const defaultConfigId = tokens.DEFAULT_CONFIG_ID
+    ? Number(tokens.DEFAULT_CONFIG_ID)
+    : (configs[0]?.id || null);
+
+  const payInference = inferCompensationFromCredential({
+    credential: credentialOverride || tokens.CREDENTIAL,
+    jobTitle: tokens.JOB_TITLE,
+    role: tokens.ROLE_TYPE
+  });
+
+  return {
+    templates,
+    configs,
+    compensationLevels: compensationLevels.filter((r) => r.label || r.direct_rate != null || r.indirect_rate != null || r.ffs_rate != null),
+    compensationCategories: COMPENSATION_CATEGORIES,
+    jobDescClauses,
+    agency: agencyDefaults.agency,
+    offices: agencyDefaults.offices,
+    credentialOptions: agencyDefaults.credentialOptions,
+    tokens,
+    payInference,
+    suggested: {
+      templateId: templates[0]?.id || null,
+      configId: defaultConfigId,
+      compensationCategory: Number(tokens.COMPENSATION_CATEGORY) || payInference.compensationCategory || 3,
+      compensationLevel: Number(tokens.COMPENSATION_LEVEL) || payInference.compensationLevel || 1,
+      jobDescClauseKey: tokens.JOB_DESC_CLAUSE_KEY || 'JOB_DESC_LPC',
+      credential: tokens.CREDENTIAL || '',
+      credentialKey: tokens.CREDENTIAL_KEY || payInference.credentialKey || '',
+      officeLocationId: tokens.ASSIGNED_OFFICE_ID ? Number(tokens.ASSIGNED_OFFICE_ID) : null
+    }
+  };
+}
+
 export async function previewCandidateContract({
   agencyId,
   candidateUserId,
@@ -195,9 +327,17 @@ export async function previewCandidateContract({
   templateId,
   tokens = {},
   compensationCategory,
-  compensationLevel
+  compensationLevel,
+  jobDescClauseKey,
+  credentialOverride = null,
+  officeLocationId = null
 }) {
-  const autofill = await autofillTokensForCandidate({ agencyId, candidateUserId });
+  const autofill = await autofillTokensForCandidate({
+    agencyId,
+    candidateUserId,
+    credentialOverride,
+    officeLocationId
+  });
   const merged = { ...autofill, ...tokens };
   const rendered = await renderContractHtml({
     agencyId,
@@ -205,7 +345,8 @@ export async function previewCandidateContract({
     templateId,
     tokens: merged,
     compensationCategory: compensationCategory || Number(merged.COMPENSATION_CATEGORY),
-    compensationLevel: compensationLevel || Number(merged.COMPENSATION_LEVEL)
+    compensationLevel: compensationLevel || Number(merged.COMPENSATION_LEVEL),
+    jobDescClauseKey: jobDescClauseKey || merged.JOB_DESC_CLAUSE_KEY
   });
   return { ...rendered, tokens: merged };
 }
@@ -218,8 +359,14 @@ export async function generateAndAssignCandidateContract({
   tokens = {},
   compensationCategory,
   compensationLevel,
+  jobDescClauseKey,
+  credentialOverride = null,
+  officeLocationId = null,
   createdByUserId,
-  title
+  title,
+  taskDescription = 'Please review and sign your employment agreement.',
+  documentDescription = 'Generated employment contract',
+  taskMetadata = {}
 }) {
   const preview = await previewCandidateContract({
     agencyId,
@@ -228,7 +375,10 @@ export async function generateAndAssignCandidateContract({
     templateId,
     tokens,
     compensationCategory,
-    compensationLevel
+    compensationLevel,
+    jobDescClauseKey,
+    credentialOverride,
+    officeLocationId
   });
 
   const docName = title || `Employment Agreement — ${preview.tokens.EMPLOYEE_FULL_NAME || 'Candidate'}`;
@@ -236,7 +386,7 @@ export async function generateAndAssignCandidateContract({
     userId: candidateUserId,
     taskId: null,
     name: docName,
-    description: 'Generated employment contract',
+    description: documentDescription,
     templateType: 'html',
     htmlContent: preview.html,
     documentActionType: 'signature',
@@ -246,16 +396,22 @@ export async function generateAndAssignCandidateContract({
     createdByUserId
   });
 
+  const baseMetadata = {
+    contractGeneration: true,
+    contractConfigId: configId,
+    jobDescClauseKey: jobDescClauseKey || preview.tokens?.JOB_DESC_CLAUSE_KEY || null,
+    jobDescriptionId: preview.tokens?.JOB_DESCRIPTION_ID || null
+  };
   const task = await TaskAssignmentService.assignDocumentTask({
     title: docName,
-    description: 'Please review and sign your employment agreement.',
+    description: taskDescription,
     userSpecificDocumentId: usd.id,
     assignedByUserId: createdByUserId,
     assignedToUserId: candidateUserId,
     assignedToAgencyId: agencyId,
     documentActionType: 'signature',
     isRequired: true,
-    metadata: { prehire: true, contractGeneration: true, contractConfigId: configId }
+    metadata: { ...baseMetadata, ...taskMetadata }
   });
 
   // Link task onto the user-specific document
@@ -306,5 +462,7 @@ export default {
   createConfig,
   updateConfig,
   previewCandidateContract,
-  generateAndAssignCandidateContract
+  generateAndAssignCandidateContract,
+  getCandidateWizardContext,
+  listContractBuilderCandidates
 };

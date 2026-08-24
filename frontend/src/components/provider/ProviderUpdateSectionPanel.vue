@@ -183,10 +183,25 @@
         <strong>{{ amendmentPlan?.title || 'Contract amendment' }}</strong>
         <span v-if="amendmentPlan?.effectiveDate" class="muted"> · effective {{ amendmentPlan.effectiveDate }}</span>
       </p>
-      <p class="muted">
-        Review and sign any assigned amendment documents. Your People Ops team may have attached a plan for a specific
-        effective date.
+      <p v-if="resolvedJobDescription?.jobTitle" class="muted">
+        Your role: <strong>{{ resolvedJobDescription.jobTitle }}</strong>
+        <span v-if="resolvedJobDescription.jobDescClauseKey" class="muted">
+          · clause {{ resolvedJobDescription.jobDescClauseKey }}
+        </span>
       </p>
+      <p class="muted">
+        Review and sign your assigned amendment in My Documents. Job description acknowledgments include your
+        position’s duty clause and require your agreement to those responsibilities.
+      </p>
+      <ul v-if="amendmentTasks.length" class="amendment-task-list">
+        <li v-for="task in amendmentTasks" :key="task.id">
+          <span>{{ task.title }}</span>
+          <span class="badge" :class="task.status === 'completed' ? 'ok' : 'pending'">
+            {{ task.status === 'completed' ? 'Signed' : 'Pending signature' }}
+          </span>
+        </li>
+      </ul>
+      <p v-else class="muted">No amendment document is assigned yet — check back after People Ops sends the update.</p>
       <a class="pu-btn" :href="linkHref" target="_blank" rel="noopener">Open My Documents →</a>
       <label class="field">
         <span>Notes (optional)</span>
@@ -196,10 +211,10 @@
         <button
           type="button"
           class="pu-btn primary"
-          :disabled="saving"
+          :disabled="saving || (amendmentTasks.length && !allAmendmentsSigned)"
           @click="markComplete({ note: linkNote, amendmentPlan })"
         >
-          Mark amendments reviewed
+          {{ allAmendmentsSigned || !amendmentTasks.length ? 'Mark amendments reviewed' : 'Sign documents first' }}
         </button>
       </div>
     </div>
@@ -311,6 +326,13 @@ const fallClients = ref([]);
 const fallLoading = ref(false);
 
 const amendmentPlan = computed(() => props.recipient?.amendmentPlan || props.section?.data?.amendmentPlan || null);
+const amendmentTasks = computed(() => props.recipient?.amendmentTasks || []);
+const resolvedJobDescription = computed(() => props.recipient?.resolvedJobDescription || null);
+const allAmendmentsSigned = computed(() => {
+  const tasks = amendmentTasks.value || [];
+  if (!tasks.length) return true;
+  return tasks.every((t) => String(t.status || '').toLowerCase() === 'completed');
+});
 
 const isLink = computed(() =>
   ['training_ack', 'pay_portal'].includes(props.section.key)
@@ -493,6 +515,19 @@ onMounted(async () => {
 }
 .pu-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .fall-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.65rem; }
+.amendment-task-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.amendment-task-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+.badge.pending { background: #fef3c7; color: #92400e; }
+.badge.ok { background: #dcfce7; color: #166534; }
 .fall-list li {
   display: flex;
   justify-content: space-between;

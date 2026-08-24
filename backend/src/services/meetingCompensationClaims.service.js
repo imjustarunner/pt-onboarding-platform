@@ -69,7 +69,7 @@ function buildPlatformLabel(event) {
 
 export function normalizeMeetingSubtype(value) {
   const subtype = String(value || 'general').trim().toLowerCase();
-  if (subtype === 'admin' || subtype === 'town_hall') return subtype;
+  if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'evaluation') return subtype;
   return 'general';
 }
 
@@ -78,7 +78,7 @@ export function isCompensationClaimMeeting(event) {
   if (kind === 'HUDDLE') return true;
   if (kind !== 'TEAM_MEETING') return false;
   const subtype = normalizeMeetingSubtype(event?.meeting_subtype ?? event?.meetingSubtype);
-  return subtype === 'admin' || subtype === 'town_hall';
+  return subtype === 'admin' || subtype === 'town_hall' || subtype === 'evaluation';
 }
 
 export function meetingTypeLabelForEvent(event) {
@@ -87,6 +87,7 @@ export function meetingTypeLabelForEvent(event) {
   const subtype = normalizeMeetingSubtype(event?.meeting_subtype ?? event?.meetingSubtype);
   if (subtype === 'admin') return 'Admin Meeting';
   if (subtype === 'town_hall') return 'Town Hall';
+  if (subtype === 'evaluation') return 'Employee Evaluation';
   return 'Team Meeting';
 }
 
@@ -452,7 +453,7 @@ export async function syncCompensationClaimsForAgencyInWindow(agencyId, periodSt
          UPPER(COALESCE(kind, '')) = 'HUDDLE'
          OR (
            UPPER(COALESCE(kind, '')) = 'TEAM_MEETING'
-           AND LOWER(COALESCE(meeting_subtype, 'general')) IN ('admin', 'town_hall')
+           AND LOWER(COALESCE(meeting_subtype, 'general')) IN ('admin', 'town_hall', 'evaluation')
          )
        )
        AND (

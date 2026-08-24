@@ -151,10 +151,19 @@
           >
             Town Hall
           </option>
+          <option
+            v-if="showMeetingSubtype && (canSetEvaluationSubtype || meetingSubtype === 'evaluation')"
+            value="evaluation"
+          >
+            Employee Evaluation
+          </option>
         </select>
         <p v-if="meetingKind === 'huddle'" class="muted">
           Agency-internal huddle. Solo / 1:1 includes goals (like individual supervision); group huddles (2+ invitees) are agenda-only.
           No action items. Host (CPA / Provider Plus) is paid at the Individual Meeting rate when they have one; attendees use MEETING time.
+        </p>
+        <p v-else-if="meetingSubtype === 'evaluation'" class="muted">
+          Semi-annual employee self-assessment meeting. Invite exactly one employee; attendance pays at the Support Activity (MEETING) rate.
         </p>
         <p v-else-if="!canSetAdminSubtype && showMeetingSubtype" class="muted">
           Only admin, support, or super admin can create Admin Meetings or Town Halls.
@@ -433,6 +442,7 @@ const props = defineProps({
   showMeetingSubtype: { type: Boolean, default: false },
   meetingSubtype: { type: String, default: 'general' },
   canSetAdminSubtype: { type: Boolean, default: false },
+  canSetEvaluationSubtype: { type: Boolean, default: false },
   /** agency_meeting | huddle */
   meetingKind: { type: String, default: 'agency_meeting' },
   showHuddleOption: { type: Boolean, default: false },
@@ -481,6 +491,7 @@ const typeSelectValue = computed(() => (
 const typeSelectLocked = computed(() => (
   props.meetingKind !== 'huddle'
   && !props.canSetAdminSubtype
+  && !props.canSetEvaluationSubtype
   && props.meetingSubtype === 'general'
   && !props.showHuddleOption
 ));
@@ -494,7 +505,7 @@ function onTypeSelectChange(value) {
     return;
   }
   emit('update:meetingKind', 'agency_meeting');
-  emit('update:meetingSubtype', (v === 'admin' || v === 'town_hall') ? v : 'general');
+  emit('update:meetingSubtype', (v === 'admin' || v === 'town_hall' || v === 'evaluation') ? v : 'general');
 }
 
 function moveInList(list, idx, delta) {

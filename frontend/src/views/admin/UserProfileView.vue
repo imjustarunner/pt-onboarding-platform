@@ -2438,6 +2438,22 @@
           :user-role-label="userRoleLabelForDocs"
         />
 
+        <div
+          v-if="activeTab === 'evaluations' && !isViewingGuardian && !isViewingSchoolStaff && !isSscMemberProfileMode"
+          class="tab-panel"
+        >
+          <h2>Employee Evaluations</h2>
+          <p class="section-description" style="margin-top: -6px;">
+            Semiannual self-assessment cycles, template preview, and admin review.
+          </p>
+          <AdminUserEvaluationsPanel
+            v-if="profileOverviewAgencyId && userId"
+            :agency-id="Number(profileOverviewAgencyId)"
+            :user-id="Number(userId)"
+          />
+          <p v-else class="hint">Agency context is required to load evaluations.</p>
+        </div>
+
         <UserAdminDocsTab
           v-if="activeTab === 'admin_docs'"
           :userId="userId"
@@ -2861,6 +2877,7 @@ import UserAdminDocsTab from '../../components/admin/UserAdminDocsTab.vue';
 import UserActivityLogTab from '../../components/admin/UserActivityLogTab.vue';
 import UserPayrollTab from '../../components/admin/UserPayrollTab.vue';
 import UserDepartmentTab from '../../components/admin/UserDepartmentTab.vue';
+import AdminUserEvaluationsPanel from '../../components/evaluations/AdminUserEvaluationsPanel.vue';
 import UserSupervisionTab from '../../components/admin/UserSupervisionTab.vue';
 import UserLifecycleTab from '../../components/admin/UserLifecycleTab.vue';
 import UserBenefitsTab from '../../components/admin/UserBenefitsTab.vue';
@@ -4016,6 +4033,7 @@ const tabs = computed(() => {
     ...(canViewProviderInfo.value ? [{ id: 'schedule_availability', label: 'Schedule & Availability' }] : []),
     { id: 'training', label: 'Training' },
     { id: 'documents', label: 'Documents' },
+    { id: 'evaluations', label: 'Evaluations' },
     { id: 'communications', label: 'Communications' },
     ...(canViewAdminDocsTab.value ? [{ id: 'admin_docs', label: 'Admin Documentation' }] : []),
     { id: 'preferences', label: 'Preferences' }

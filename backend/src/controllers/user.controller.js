@@ -4788,7 +4788,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
         );
         const meetingSubtypeNorm = (() => {
           const subtype = String(r.meeting_subtype || 'general').trim().toLowerCase();
-          if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview') return subtype;
+          if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation') {
+            return subtype;
+          }
           return 'general';
         })();
         return {
@@ -4834,7 +4836,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           meetingSubtype: meetingSubtypeNorm,
           attendanceTrackingEnabled: (() => {
             if (kind === 'HUDDLE') return true;
-            if (meetingSubtypeNorm === 'admin' || meetingSubtypeNorm === 'town_hall' || meetingSubtypeNorm === 'interview') return true;
+            if (meetingSubtypeNorm === 'admin' || meetingSubtypeNorm === 'town_hall' || meetingSubtypeNorm === 'interview' || meetingSubtypeNorm === 'evaluation') return true;
             return Number(r.attendance_tracking_enabled || 0) === 1;
           })(),
           meetingCompletedAt,
@@ -6141,13 +6143,26 @@ export const createUserScheduleEvent = async (req, res, next) => {
       .trim()
       .toLowerCase();
     let meetingSubtype = 'general';
-    if (kind === 'TEAM_MEETING' && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall' || requestedSubtype === 'interview')) {
+    if (kind === 'TEAM_MEETING' && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall' || requestedSubtype === 'interview' || requestedSubtype === 'evaluation')) {
       if (requestedSubtype === 'interview') {
         const { getUserCapabilities } = await import('../utils/capabilities.js');
         const caps = getUserCapabilities(req.user, { effectiveRole: req.user?.effectiveRole });
         if (!caps?.canManageHiring && !canSetPrivilegedMeetingSubtype) {
           return res.status(403).json({
             error: { message: 'Only hiring-eligible staff can schedule Interview meetings.' }
+          });
+        }
+      } else if (requestedSubtype === 'evaluation') {
+        const { getUserCapabilities } = await import('../utils/capabilities.js');
+        const caps = getUserCapabilities(req.user, { effectiveRole: req.user?.effectiveRole });
+        if (!caps?.canManageHiring && !canSetPrivilegedMeetingSubtype) {
+          return res.status(403).json({
+            error: { message: 'Only hiring-eligible staff can schedule Employee Evaluation meetings.' }
+          });
+        }
+        if (attendeeUserIds.length !== 1) {
+          return res.status(400).json({
+            error: { message: 'Employee Evaluation meetings require exactly one employee attendee.' }
           });
         }
       } else if (!canSetPrivilegedMeetingSubtype) {
@@ -6160,9 +6175,9 @@ export const createUserScheduleEvent = async (req, res, next) => {
         });
       }
       meetingSubtype = requestedSubtype;
-    } else if (kind !== 'TEAM_MEETING' && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall' || requestedSubtype === 'interview')) {
+    } else if (kind !== 'TEAM_MEETING' && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall' || requestedSubtype === 'interview' || requestedSubtype === 'evaluation')) {
       return res.status(400).json({
-        error: { message: 'Admin Meeting, Town Hall, and Interview subtypes are only valid for team meetings.' }
+        error: { message: 'Admin Meeting, Town Hall, Interview, and Evaluation subtypes are only valid for team meetings.' }
       });
     }
     const wantsTrainingPay = req.body?.isTrainingPayEligible === true
@@ -6389,6 +6404,44 @@ export const createUserScheduleEvent = async (req, res, next) => {
           });
         } catch (payErr) {
           console.warn('[createUserScheduleEvent] training pay claim sync failed', payErr?.message || payErr);
+        }
+      }
+      if (saved?.id && meetingSubtype === 'evaluation') {
+        try {
+          const { createEvaluationCycle, currentEvaluationPeriod } = await import('../services/employeeEvaluation.service.js');
+          const periodYear = parseInt(req.body?.evaluationPeriodYear, 10)
+            || parseInt(req.body?.periodYear, 10)
+            || currentEvaluationPeriod().periodYear;
+          const periodHalf = String(req.body?.evaluationPeriodHalf || req.body?.periodHalf || currentEvaluationPeriod().periodHalf)
+            .trim()
+            .toUpperCase();
+          const employeeUserId = Number(attendeeUserIds[0] || 0);
+          if (employeeUserId && (periodHalf === 'H1' || periodHalf === 'H2')) {
+            await createEvaluationCycle({
+              agencyId,
+              employeeUserId,
+              initiatedByUserId: actorUserId,
+              periodYear,
+              periodHalf,
+              scheduleEventId: saved.id,
+              dueAt: storedEndAt || null
+            });
+          }
+        } catch (evalErr) {
+          if (evalErr?.status === 409 && evalErr?.cycleId) {
+            try {
+              const { linkCycleToEvent } = await import('../services/employeeEvaluation.service.js');
+              await linkCycleToEvent({
+                cycleId: evalErr.cycleId,
+                scheduleEventId: saved.id,
+                actorUserId
+              });
+            } catch (linkErr) {
+              console.warn('[createUserScheduleEvent] evaluation cycle link failed', linkErr?.message || linkErr);
+            }
+          } else {
+            console.warn('[createUserScheduleEvent] evaluation cycle create failed', evalErr?.message || evalErr);
+          }
         }
       }
     } catch (e) {
@@ -6771,9 +6824,9 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       const requestedSubtype = String(req.body?.meetingSubtype || req.body?.meeting_subtype || 'general')
         .trim()
         .toLowerCase();
-      if (kind !== 'TEAM_MEETING' && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall')) {
+      if (kind !== 'TEAM_MEETING' && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall' || requestedSubtype === 'interview' || requestedSubtype === 'evaluation')) {
         return res.status(400).json({
-          error: { message: 'Admin Meeting and Town Hall subtypes are only valid for team meetings.' }
+          error: { message: 'Admin Meeting, Town Hall, Interview, and Evaluation subtypes are only valid for team meetings.' }
         });
       }
       if (requestedSubtype === 'admin' || requestedSubtype === 'town_hall') {
@@ -6784,6 +6837,20 @@ export const updateUserScheduleEvent = async (req, res, next) => {
               message: requestedSubtype === 'town_hall'
                 ? 'Only admin, support, or super admin can set Town Hall subtype.'
                 : 'Only admin, support, or super admin can set Admin Meeting subtype.'
+            }
+          });
+        }
+        nextMeetingSubtype = requestedSubtype;
+      } else if (requestedSubtype === 'interview' || requestedSubtype === 'evaluation') {
+        const canSetPrivilegedMeetingSubtype = ['super_admin', 'superadmin', 'admin', 'support'].includes(actorRole);
+        const { getUserCapabilities } = await import('../utils/capabilities.js');
+        const caps = getUserCapabilities(req.user, { effectiveRole: req.user?.effectiveRole });
+        if (!caps?.canManageHiring && !canSetPrivilegedMeetingSubtype) {
+          return res.status(403).json({
+            error: {
+              message: requestedSubtype === 'evaluation'
+                ? 'Only hiring-eligible staff can set Employee Evaluation subtype.'
+                : 'Only hiring-eligible staff can set Interview subtype.'
             }
           });
         }

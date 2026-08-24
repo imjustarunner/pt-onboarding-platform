@@ -602,6 +602,32 @@
             </div>
             <JobDescriptionSectionsEditor v-model="editForm.descriptionSections" />
           </div>
+          <div v-if="editingRow?.id" class="application-page-config eval-rubric-panel">
+            <div class="config-header">
+              <h4>Evaluation rubric</h4>
+              <span class="muted small">Semiannual employee self-assessment template for this role.</span>
+            </div>
+            <div v-if="evalTemplatesLoading" class="muted small">Loading templates…</div>
+            <div v-else-if="evalTemplatesError" class="error-text">{{ evalTemplatesError }}</div>
+            <ul v-else-if="evalTemplates.length" class="eval-rubric-list">
+              <li v-for="t in evalTemplates" :key="t.templateId || t.attachmentId || t.slug">
+                <strong>{{ t.name || t.slug }}</strong>
+                <span v-if="t.version != null" class="muted small"> · v{{ t.version }}</span>
+                <span v-if="t.isPrimary" class="eval-pill">Primary</span>
+                <span v-if="t.isSupervisorRubric" class="eval-pill">Supervisor</span>
+              </li>
+            </ul>
+            <p v-else class="muted small">No evaluation template attached yet.</p>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              style="margin-top: 8px;"
+              :disabled="evalTemplatesGenerating || !effectiveAgencyId"
+              @click="generateEvalTemplate"
+            >
+              {{ evalTemplatesGenerating ? 'Generating…' : 'Generate from responsibilities' }}
+            </button>
+          </div>
           <div class="application-page-config">
             <div class="config-header">
               <h4>Application landing page</h4>
@@ -940,6 +966,10 @@ const editForm = ref({
   file: null
 });
 const editingRow = ref(null);
+const evalTemplates = ref([]);
+const evalTemplatesLoading = ref(false);
+const evalTemplatesGenerating = ref(false);
+const evalTemplatesError = ref('');
 const jobFileRef = ref(null);
 const editFileRef = ref(null);
 const agencyHeroFileRef = ref(null);
@@ -1292,9 +1322,12 @@ const openEdit = (row) => {
   if (editFileRef.value) editFileRef.value.value = '';
   if (editHeroFileRef.value) editHeroFileRef.value.value = '';
   if (editIconFileRef.value) editIconFileRef.value.value = '';
+  void loadEvalTemplates(row?.id);
 };
 const closeEdit = () => {
   editingRow.value = null;
+  evalTemplates.value = [];
+  evalTemplatesError.value = '';
   editForm.value = {
     title: '',
     descriptionText: '',
@@ -1315,6 +1348,43 @@ const closeEdit = () => {
     file: null
   };
 };
+
+async function loadEvalTemplates(jobId) {
+  const id = Number(jobId || 0);
+  const agencyId = Number(effectiveAgencyId.value || 0);
+  evalTemplates.value = [];
+  evalTemplatesError.value = '';
+  if (!id || !agencyId) return;
+  evalTemplatesLoading.value = true;
+  try {
+    const { data } = await api.get(`/evaluations/jobs/${id}/templates`, { params: { agencyId } });
+    evalTemplates.value = Array.isArray(data?.templates) ? data.templates : [];
+  } catch (e) {
+    evalTemplatesError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load evaluation templates';
+  } finally {
+    evalTemplatesLoading.value = false;
+  }
+}
+
+async function generateEvalTemplate() {
+  const id = Number(editingRow.value?.id || 0);
+  const agencyId = Number(effectiveAgencyId.value || 0);
+  if (!id || !agencyId) return;
+  evalTemplatesGenerating.value = true;
+  evalTemplatesError.value = '';
+  try {
+    const { data } = await api.post(
+      `/evaluations/jobs/${id}/generate-template`,
+      null,
+      { params: { agencyId } }
+    );
+    evalTemplates.value = Array.isArray(data?.templates) ? data.templates : [];
+  } catch (e) {
+    evalTemplatesError.value = e?.response?.data?.error?.message || e?.message || 'Failed to generate template';
+  } finally {
+    evalTemplatesGenerating.value = false;
+  }
+}
 
 const saveEdit = async () => {
   if (!editingRow.value?.id || !effectiveAgencyId.value) return;
@@ -1550,6 +1620,19 @@ onMounted(async () => {
 .tag-chip { display: inline-flex; align-items: center; gap: 4px; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; border-radius: 99px; font-size: 12px; padding: 2px 8px; }
 .tag-chip button { background: none; border: none; cursor: pointer; color: inherit; font-size: 11px; padding: 0 2px; }
 .tag-input { max-width: 320px; }
+.eval-rubric-panel { margin-top: 14px; }
+.eval-rubric-list { margin: 6px 0 0; padding-left: 18px; }
+.eval-pill {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #166534;
+}
+.error-text { color: #b91c1c; font-size: 13px; }
 @media (max-width: 900px) {
   .form-grid { grid-template-columns: 1fr; }
   .display-card-grid,

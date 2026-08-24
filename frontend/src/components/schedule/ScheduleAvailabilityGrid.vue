@@ -2003,6 +2003,7 @@
             :show-training-pay-option="showMeetingTrainingPayOption && editorMeetingKind !== 'huddle'"
             :show-meeting-subtype="editorMeetingKind === 'agency_meeting' || String(editingScheduleStackItem?.eventKind || '').toUpperCase() === 'TEAM_MEETING'"
             :can-set-admin-subtype="canSetAdminMeetingSubtype"
+            :can-set-evaluation-subtype="canSetEvaluationMeetingSubtype"
             :participants-required="editorMeetingKind !== 'huddle'"
             :video-configured="scheduleVideoConfigured"
             :show-virtual-options="false"
@@ -3779,7 +3780,7 @@
               <select
                 v-model="meetingSubtype"
                 class="input"
-                :disabled="!canSetAdminMeetingSubtype && !canSetInterviewMeetingSubtype && meetingSubtype === 'general'"
+                :disabled="!canSetAdminMeetingSubtype && !canSetInterviewMeetingSubtype && !canSetEvaluationMeetingSubtype && meetingSubtype === 'general'"
               >
                 <option value="general">General team meeting</option>
                 <option v-if="canSetAdminMeetingSubtype || meetingSubtype === 'admin'" value="admin">
@@ -3791,12 +3792,38 @@
                 <option v-if="canSetInterviewMeetingSubtype || meetingSubtype === 'interview'" value="interview">
                   Interview
                 </option>
+                <option v-if="canSetEvaluationMeetingSubtype || meetingSubtype === 'evaluation'" value="evaluation">
+                  Employee Evaluation
+                </option>
               </select>
-              <div v-if="!canSetAdminMeetingSubtype && !canSetInterviewMeetingSubtype" class="muted nr-help" style="margin-top: 4px;">
+              <div v-if="!canSetAdminMeetingSubtype && !canSetInterviewMeetingSubtype && !canSetEvaluationMeetingSubtype" class="muted nr-help" style="margin-top: 4px;">
                 Only admin, support, or super admin can create Admin Meetings or Town Halls. Others may still be invited.
               </div>
               <div v-else-if="meetingSubtype === 'interview'" class="muted nr-help" style="margin-top: 4px;">
                 Interview meetings use the Interview Hub workspace (no goals/actions). Prefer scheduling from Interview Hub for invites and scorecards.
+              </div>
+              <div v-else-if="meetingSubtype === 'evaluation'" class="nr-eval-panel" style="margin-top: 8px;">
+                <div class="muted nr-help" style="margin-bottom: 6px;">
+                  Invite exactly one employee. Creates their H1/H2 self-evaluation assignment and pays attendance at Support Activity.
+                </div>
+                <label class="lbl">Evaluation period</label>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <select v-model="evaluationPeriodHalf" class="input" style="max-width:100px;">
+                    <option value="H1">H1</option>
+                    <option value="H2">H2</option>
+                  </select>
+                  <input
+                    v-model.number="evaluationPeriodYear"
+                    class="input"
+                    type="number"
+                    min="2020"
+                    max="2100"
+                    style="max-width:110px;"
+                  />
+                </div>
+                <div v-if="evaluationRubricPreview.length" class="muted nr-help" style="margin-top:6px;">
+                  Rubrics: {{ evaluationRubricPreview.map((t) => t.name).join(', ') }}
+                </div>
               </div>
             </div>
 
@@ -8658,7 +8685,7 @@ const huddleHostRoleKey = computed(() => {
 });
 const canMarkMeetingTrainingPay = computed(() => TRAINING_PAY_HOST_ROLES.has(bookingTargetRoleKey.value));
 const meetingIsTrainingPayEligible = ref(false);
-/** general | admin | town_hall | interview — privileged subtypes for admin/support; interview also for hiring */
+/** general | admin | town_hall | interview | evaluation — privileged subtypes for admin/support; interview/evaluation also for hiring */
 const meetingSubtype = ref('general');
 const canSetAdminMeetingSubtype = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -8668,9 +8695,19 @@ const canSetInterviewMeetingSubtype = computed(() => {
   if (canSetAdminMeetingSubtype.value) return true;
   return authStore.user?.capabilities?.canManageHiring === true;
 });
+const canSetEvaluationMeetingSubtype = computed(() => {
+  if (canSetAdminMeetingSubtype.value) return true;
+  return authStore.user?.capabilities?.canManageHiring === true;
+});
+const evaluationPeriodHalf = ref((() => {
+  const m = new Date().getMonth() + 1;
+  return m <= 6 ? 'H1' : 'H2';
+})());
+const evaluationPeriodYear = ref(new Date().getFullYear());
+const evaluationRubricPreview = ref([]);
 function normalizeMeetingSubtype(value) {
   const subtype = String(value || 'general').trim().toLowerCase();
-  if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview') return subtype;
+  if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation') return subtype;
   return 'general';
 }
 function meetingSubtypeForCreatePayload() {
@@ -8678,8 +8715,28 @@ function meetingSubtypeForCreatePayload() {
   if (subtype === 'interview') {
     return canSetInterviewMeetingSubtype.value ? 'interview' : 'general';
   }
+  if (subtype === 'evaluation') {
+    return canSetEvaluationMeetingSubtype.value ? 'evaluation' : 'general';
+  }
   if (!canSetAdminMeetingSubtype.value) return 'general';
   return subtype;
+}
+
+async function refreshEvaluationRubricPreview() {
+  evaluationRubricPreview.value = [];
+  if (normalizeMeetingSubtype(meetingSubtype.value) !== 'evaluation') return;
+  const agencyId = Number(agencyStore.currentAgencyId || authStore.user?.agencyId || 0);
+  const ids = Array.isArray(selectedMeetingParticipantIds.value)
+    ? selectedMeetingParticipantIds.value
+    : [];
+  const uid = Number(ids[0] || 0);
+  if (!agencyId || !uid) return;
+  try {
+    const { data } = await api.get(`/evaluations/employees/${uid}/preview`, { params: { agencyId } });
+    evaluationRubricPreview.value = Array.isArray(data?.templates) ? data.templates : [];
+  } catch {
+    evaluationRubricPreview.value = [];
+  }
 }
 /** Hide Admin Time checkbox for Huddles — Huddle kind itself initiates Individual Meeting pay. */
 const showMeetingTrainingPayOption = computed(() => (
@@ -10016,6 +10073,7 @@ const meetingTypeDisplayLabel = (ev) => {
     if (subtype === 'admin') return 'Admin Meeting';
     if (subtype === 'town_hall') return 'Town Hall';
     if (subtype === 'interview') return 'Interview';
+    if (subtype === 'evaluation') return 'Employee Evaluation';
     return multi ? 'Group Meeting' : 'Meeting';
   }
   return null;
@@ -10027,7 +10085,7 @@ const meetingWhoLabelForGrid = (ev, typePrefix) => {
   if (count > MEETING_NAME_GRID_MAX) return `${count} people`;
   if (names.length) return names.join(', ');
   const raw = String(ev?.title || '').trim();
-  if (raw && raw !== typePrefix && !/^(huddle|group huddle|meeting|group meeting|admin meeting|town hall)$/i.test(raw)) {
+  if (raw && raw !== typePrefix && !/^(huddle|group huddle|meeting|group meeting|admin meeting|town hall|interview|employee evaluation)$/i.test(raw)) {
     return raw;
   }
   return '';
@@ -13133,8 +13191,8 @@ const editorWorkspaceTabs = computed(() => {
   if (editorIsMeeting.value && Number(scheduleEventEditId.value || 0) > 0) {
     const eventKind = String(editingScheduleStackItem.value?.eventKind || '').toUpperCase();
     const subtype = normalizeMeetingSubtype(meetingSubtype.value || editingScheduleStackItem.value?.meetingSubtype);
-    // Interview meetings stay basic on the schedule (no agenda/goals/actions).
-    if (subtype !== 'interview') {
+    // Interview / Evaluation meetings stay basic on the schedule (no agenda/goals/actions).
+    if (subtype !== 'interview' && subtype !== 'evaluation') {
       // Individual huddle (solo/1:1): agenda + goals. Group huddle: agenda only. Team meetings: all three.
       if (eventKind === 'HUDDLE' && isIndividualHuddleEditor.value) {
         tabs.splice(1, 0,
@@ -13155,8 +13213,9 @@ const editorWorkspaceTabs = computed(() => {
       || subtype === 'admin'
       || subtype === 'town_hall'
       || subtype === 'interview'
+      || subtype === 'evaluation'
       || !!editingScheduleStackItem.value?.attendanceTrackingEnabled;
-    const showComp = eventKind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall';
+    const showComp = eventKind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall' || subtype === 'evaluation';
     tabs.push({
       id: 'attendance',
       label: 'Attendance',
@@ -15678,7 +15737,7 @@ const canOpenMeetingAttendanceTab = computed(() => {
   if (!editorIsMeeting.value || !Number(scheduleEventEditId.value || 0)) return false;
   const eventKind = String(editingScheduleStackItem.value?.eventKind || '').toUpperCase();
   const subtype = normalizeMeetingSubtype(meetingSubtype.value || editingScheduleStackItem.value?.meetingSubtype);
-  if (eventKind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview') return true;
+  if (eventKind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation') return true;
   return !!editingScheduleStackItem.value?.attendanceTrackingEnabled;
 });
 const supervisionCanUseAllAgencies = computed(
@@ -16035,6 +16094,14 @@ const editorMeetingWaitingRoomEnabled = ref(true);
 const notifyMeetingParticipants = ref(true);
 const createGoalDraftItems = ref([]);
 const createActionDraftItems = ref([]);
+
+watch([meetingSubtype, selectedMeetingParticipantIds], () => {
+  if (normalizeMeetingSubtype(meetingSubtype.value) === 'evaluation') {
+    refreshEvaluationRubricPreview();
+  } else {
+    evaluationRubricPreview.value = [];
+  }
+});
 
 const scheduleVideoConfigured = computed(() => !!summary.value?.videoConfigured);
 
@@ -18614,6 +18681,11 @@ function meetingTypePalette(b, dark) {
         ? { fill: 'rgba(167, 139, 250, 0.48)', border: 'rgba(196, 181, 253, 0.95)', stripe: 'rgba(221, 214, 254, 0.98)', text: 'rgba(237, 233, 254, 0.98)' }
         : { fill: 'rgba(124, 58, 237, 0.26)', border: 'rgba(91, 33, 182, 0.58)', stripe: 'rgba(109, 40, 217, 0.92)', text: 'rgba(76, 29, 149, 0.98)' };
     }
+    if (subtype === 'evaluation') {
+      return dark
+        ? { fill: 'rgba(52, 211, 153, 0.42)', border: 'rgba(110, 231, 183, 0.92)', stripe: 'rgba(167, 243, 208, 0.96)', text: 'rgba(209, 250, 229, 0.98)' }
+        : { fill: 'rgba(16, 185, 129, 0.24)', border: 'rgba(4, 120, 87, 0.58)', stripe: 'rgba(5, 150, 105, 0.90)', text: 'rgba(6, 78, 59, 0.98)' };
+    }
     const isGroup = !!b?.isGroupMeeting || Number(b?.attendeeCount || 0) >= 2;
     if (isGroup) {
       // Group meeting — slightly stronger blue than solo meeting
@@ -20129,6 +20201,17 @@ const submitRequest = async () => {
       const meetingSubtypeForCreate = normalizedAction === 'agency_meeting'
         ? meetingSubtypeForCreatePayload()
         : 'general';
+      const evaluationCreateFields = meetingSubtypeForCreate === 'evaluation'
+        ? {
+            evaluationPeriodYear: Number(evaluationPeriodYear.value) || new Date().getFullYear(),
+            evaluationPeriodHalf: String(evaluationPeriodHalf.value || 'H1').toUpperCase() === 'H2' ? 'H2' : 'H1'
+          }
+        : {};
+      if (meetingSubtypeForCreate === 'evaluation' && meetingAttendeeUserIds.length !== 1) {
+        error.value = 'Employee Evaluation meetings require exactly one employee attendee.';
+        submitting.value = false;
+        return;
+      }
       if (scheduleEventAllDay.value || normalizedAction === 'schedule_hold_all_day') {
         const ranges = mergeSelectedSlotsByDay({
           dayName: dn,
@@ -20166,6 +20249,7 @@ const submitRequest = async () => {
                   allowLocalOnly: true,
                   isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
                   meetingSubtype: meetingSubtypeForCreate,
+                  ...evaluationCreateFields,
                   recurrenceSeriesId,
                   recurrenceFrequency: recurringRecurrences.includes(recurrence) ? recurrence : null,
                   recurrencePolicy,
@@ -20216,6 +20300,7 @@ const submitRequest = async () => {
                     allowLocalOnly: true,
                     isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
                     meetingSubtype: meetingSubtypeForCreate,
+                    ...evaluationCreateFields,
                     recurrenceSeriesId,
                     recurrenceFrequency: recurringRecurrences.includes(recurrence) ? recurrence : null,
                     recurrencePolicy,

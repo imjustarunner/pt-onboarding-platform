@@ -418,25 +418,38 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
     await ensureSectionRows(recipient.id, keysForRecipient.length ? keysForRecipient : enabledKeys);
 
     // Assign amendment document tasks when plan is attached and section is enabled for this user
-    if (
-      amendmentPlan?.documentTemplateId &&
-      keysForRecipient.includes('amendments')
-    ) {
+    if (keysForRecipient.includes('amendments') && amendmentPlan) {
       try {
-        const TaskAssignmentService = (await import('./taskAssignment.service.js')).default;
-        await TaskAssignmentService.assignDocumentTask({
-          documentTemplateId: Number(amendmentPlan.documentTemplateId),
-          assignedToUserId: Number(p.provider_user_id),
-          assignedByUserId: sentByUserId || null,
-          assignedToAgencyId: agencyId,
-          title: amendmentPlan.title || 'Contract amendment',
-          dueDate: amendmentPlan.effectiveDate || null,
-          metadata: {
-            source: 'provider_update',
+        const {
+          isJobDescriptionAcknowledgmentPlan,
+          assignJobDescriptionAcknowledgmentAmendment
+        } = await import('./providerUpdateAmendment.service.js');
+
+        if (isJobDescriptionAcknowledgmentPlan(amendmentPlan)) {
+          await assignJobDescriptionAcknowledgmentAmendment({
+            agencyId,
+            userId: Number(p.provider_user_id),
+            amendmentPlan,
             pushId,
-            effectiveDate: amendmentPlan.effectiveDate || null
-          }
-        });
+            createdByUserId: sentByUserId || null
+          });
+        } else if (amendmentPlan?.documentTemplateId) {
+          const TaskAssignmentService = (await import('./taskAssignment.service.js')).default;
+          await TaskAssignmentService.assignDocumentTask({
+            documentTemplateId: Number(amendmentPlan.documentTemplateId),
+            assignedToUserId: Number(p.provider_user_id),
+            assignedByUserId: sentByUserId || null,
+            assignedToAgencyId: agencyId,
+            title: amendmentPlan.title || 'Contract amendment',
+            dueDate: amendmentPlan.effectiveDate || null,
+            metadata: {
+              source: 'provider_update',
+              pushId,
+              effectiveDate: amendmentPlan.effectiveDate || null,
+              amendmentMode: 'document_template'
+            }
+          });
+        }
       } catch (e) {
         console.warn('[providerUpdate] amendment assign failed', e?.message || e);
       }
@@ -687,6 +700,32 @@ export async function getRecipientBundle(recipient) {
   } catch {
     agency = null;
   }
+
+  let amendmentTasks = [];
+  let resolvedJobDescription = null;
+  if (push?.amendment_plan_json) {
+    try {
+      const {
+        listAmendmentTasksForRecipient,
+        resolveJobDescriptionForUser,
+        isJobDescriptionAcknowledgmentPlan
+      } = await import('./providerUpdateAmendment.service.js');
+      amendmentTasks = await listAmendmentTasksForRecipient({
+        userId: recipient.provider_user_id,
+        pushId: recipient.push_id
+      });
+      if (isJobDescriptionAcknowledgmentPlan(push?.amendment_plan_json)) {
+        resolvedJobDescription = await resolveJobDescriptionForUser({
+          agencyId: recipient.agency_id,
+          userId: recipient.provider_user_id
+        });
+      }
+    } catch {
+      amendmentTasks = [];
+      resolvedJobDescription = null;
+    }
+  }
+
   return {
     recipient: {
       id: recipient.id,
@@ -702,7 +741,9 @@ export async function getRecipientBundle(recipient) {
       finalizedAt: recipient.finalized_at,
       lockedAt: recipient.locked_at,
       attachedAdminUpdateId: push?.attached_admin_update_id || null,
-      amendmentPlan: push?.amendment_plan_json || null
+      amendmentPlan: push?.amendment_plan_json || null,
+      amendmentTasks,
+      resolvedJobDescription
     },
     agency,
     sections: sectionList,

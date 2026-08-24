@@ -2675,6 +2675,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/employee-evaluations',
+    name: 'OrganizationEmployeeEvaluations',
+    component: () => import('../views/admin/EmployeeEvaluationsView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/interview-hub',
     name: 'OrganizationInterviewHub',
     component: () => import('../views/admin/InterviewHubView.vue'),
@@ -4157,6 +4163,12 @@ const routes = [
     path: '/admin/employee-relations',
     name: 'EmployeeRelations',
     component: () => import('../views/admin/EmployeeRelationsView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
+  },
+  {
+    path: '/admin/employee-evaluations',
+    name: 'EmployeeEvaluations',
+    component: () => import('../views/admin/EmployeeEvaluationsView.vue'),
     meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
   },
   {

@@ -652,6 +652,19 @@ const allSections = computed(() => [
         tour: 'people-ops-pre-hire',
         show: canManageHiring.value && hasHiringFeature.value,
         count: 0
+      },
+      {
+        id: 'contract-generator',
+        title: 'Contract Generator',
+        shortDesc: 'Employment agreements from clauses.',
+        desc: 'Build and assign employment contracts from editable clauses, configs, and pay levels.',
+        cta: 'Open →',
+        to: orgTo('/admin/contracts'),
+        tone: 'violet',
+        icon: icon.docs,
+        tour: 'people-ops-contract-generator',
+        show: canManageHiring.value && hasHiringFeature.value,
+        count: 0
       }
     ].filter((c) => c.show)
   },
@@ -699,6 +712,19 @@ const allSections = computed(() => [
         icon: icon.docs,
         tour: 'people-ops-documents',
         show: isAdmin.value && actorRole.value !== 'clinical_practice_assistant' && canSignDocuments.value,
+        count: 0
+      },
+      {
+        id: 'employee-evaluations',
+        title: 'Employee Evaluations',
+        shortDesc: 'Semiannual self-assessments.',
+        desc: 'Track scheduling, submissions, and reviews for H1/H2 employee evaluation cycles.',
+        cta: 'Open →',
+        to: orgTo('/admin/employee-evaluations'),
+        tone: 'teal',
+        icon: icon.progress,
+        tour: 'people-ops-employee-evaluations',
+        show: canManageHiring.value,
         count: 0
       }
     ].filter((c) => c.show)

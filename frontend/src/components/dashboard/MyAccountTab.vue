@@ -16,6 +16,14 @@
     <div v-show="activeSection === 'documents'" class="acct-hub__pane">
       <DocumentsTab @update-count="$emit('documents-count', $event)" />
     </div>
+    <div
+      v-if="flags.workforce"
+      v-show="activeSection === 'evaluations'"
+      class="acct-hub__pane"
+    >
+      <MyEvaluationsPanel v-if="agencyId" :agency-id="Number(agencyId)" />
+      <p v-else class="acct-hub__empty">Select an organization to view evaluations.</p>
+    </div>
     <div v-show="activeSection === 'life-balance'" class="acct-hub__pane">
       <MyLifeBalanceTab :agency-id="agencyId" :user-id="userId" />
     </div>
@@ -51,6 +59,7 @@ import AccountHubPanel from './AccountHubPanel.vue';
 import AccountInfoView from '../../views/AccountInfoView.vue';
 import CredentialsView from '../../views/CredentialsView.vue';
 import DocumentsTab from './DocumentsTab.vue';
+import MyEvaluationsPanel from '../evaluations/MyEvaluationsPanel.vue';
 import MyLifeBalanceTab from './MyLifeBalanceTab.vue';
 import MyPayrollTab from './MyPayrollTab.vue';
 import MyCompensationTab from './MyCompensationTab.vue';

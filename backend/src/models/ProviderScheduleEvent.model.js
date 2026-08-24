@@ -43,13 +43,19 @@ class ProviderScheduleEvent {
     const waitingRoomFlag = waitingRoomEnabled === false || waitingRoomEnabled === 0 ? 0 : 1;
     const requestedSubtype = String(meetingSubtype || '').trim().toLowerCase();
     const subtype = kindUpper === 'TEAM_MEETING'
-      && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall' || requestedSubtype === 'interview')
+      && (
+        requestedSubtype === 'admin'
+        || requestedSubtype === 'town_hall'
+        || requestedSubtype === 'interview'
+        || requestedSubtype === 'evaluation'
+      )
       ? requestedSubtype
       : 'general';
     const attendanceTrackingEnabled = kindUpper === 'HUDDLE'
       || subtype === 'admin'
       || subtype === 'town_hall'
       || subtype === 'interview'
+      || subtype === 'evaluation'
       ? 1
       : 0;
     const notifyFlag = notifyParticipants === false || notifyParticipants === 0 || notifyParticipants === '0' || notifyParticipants === 'false'
@@ -428,11 +434,20 @@ class ProviderScheduleEvent {
     }
     if (meetingSubtype !== undefined) {
       const requestedSubtype = String(meetingSubtype || '').trim().toLowerCase();
-      const nextSubtype = (requestedSubtype === 'admin' || requestedSubtype === 'town_hall')
+      const nextSubtype = (
+        requestedSubtype === 'admin'
+        || requestedSubtype === 'town_hall'
+        || requestedSubtype === 'interview'
+        || requestedSubtype === 'evaluation'
+      )
         ? requestedSubtype
         : 'general';
       sets.push('meeting_subtype = ?');
       params.push(nextSubtype);
+      if (nextSubtype === 'admin' || nextSubtype === 'town_hall' || nextSubtype === 'interview' || nextSubtype === 'evaluation') {
+        sets.push('attendance_tracking_enabled = ?');
+        params.push(1);
+      }
     }
     if (waitingRoomEnabled !== undefined) {
       sets.push('waiting_room_enabled = ?');
