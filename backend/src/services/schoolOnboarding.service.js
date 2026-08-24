@@ -10,7 +10,7 @@ import EmailTemplateService from './emailTemplate.service.js';
 import EmailService from './email.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityResolver.service.js';
-import { validatePasswordStrength } from '../utils/passwordValidation.js';
+import { validatePasswordStrength, checkPasswordBasics, MIN_PASSWORD_LENGTH } from '../utils/passwordValidation.js';
 import { ensureDigitalIntakeFormsForSchool } from './schoolOnboardingIntakeBootstrap.service.js';
 
 async function notifySchoolPortalOnboardingCompleted(invite) {
@@ -1019,8 +1019,9 @@ export async function setPassword(token, password, identity = {}) {
       throw Object.assign(new Error('School name does not match this invitation'), { status: 400 });
     }
   }
-  if (!password || password.length < 6) {
-    throw Object.assign(new Error('Password must be at least 6 characters'), { status: 400 });
+  const pwBasics = checkPasswordBasics(password);
+  if (!pwBasics.valid) {
+    throw Object.assign(new Error(pwBasics.message), { status: 400 });
   }
   const user = await User.findById(invite.primary_user_id);
   if (!user) throw Object.assign(new Error('User not found'), { status: 404 });
@@ -1115,11 +1116,19 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
   } else if (stepKey === 'school_staff') {
     const staff = Array.isArray(body.staff) ? body.staff : [];
     const sharedTempPassword = String(body.sharedTempPassword || body.temporaryPassword || '').trim();
-    if (staff.length && (!sharedTempPassword || sharedTempPassword.length < 6)) {
-      throw Object.assign(
-        new Error('A shared temporary password (at least 6 characters) is required for school staff accounts'),
-        { status: 400 }
-      );
+    if (staff.length) {
+      const sharedBasics = checkPasswordBasics(sharedTempPassword);
+      if (!sharedBasics.valid) {
+        throw Object.assign(
+          new Error(
+            sharedBasics.message.replace(
+              /^Password/,
+              `A shared temporary password (${MIN_PASSWORD_LENGTH}+ characters, letter and number)`
+            )
+          ),
+          { status: 400 }
+        );
+      }
     }
     if (sharedTempPassword) {
       const pwCheck = await validatePasswordStrength(sharedTempPassword, { accountId: 'school-staff' });

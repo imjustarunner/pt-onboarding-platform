@@ -13,6 +13,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { getUserCapabilities, buildAgencyAccessCaps } from '../utils/capabilities.js';
 import { calcPasswordExpiry } from '../utils/passwordPolicy.js';
+import { checkPasswordBasics } from '../utils/passwordValidation.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { sanitizePsychologyTodayUrl } from '../utils/psychologyTodayUrl.js';
 import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
@@ -9386,14 +9387,9 @@ export const setCustomTemporaryPassword = async (req, res, next) => {
     }
 
     const password = String(customPassword || '').trim();
-    if (!password || password.length < 6) {
-      return res.status(400).json({ error: { message: 'Temporary password must be at least 6 characters' } });
-    }
-    if (password.length > 128) {
-      return res.status(400).json({ error: { message: 'Temporary password must be no more than 128 characters' } });
-    }
-    if (!/[a-zA-Z]/.test(password)) {
-      return res.status(400).json({ error: { message: 'Temporary password must contain at least one letter (a–z or A–Z)' } });
+    const tempBasics = checkPasswordBasics(password);
+    if (!tempBasics.valid) {
+      return res.status(400).json({ error: { message: tempBasics.message.replace(/^Password/, 'Temporary password') } });
     }
 
     const finalExpiresInHours =
@@ -11833,16 +11829,11 @@ export const changePassword = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'You can only change your own password' } });
     }
 
-    if (!newPassword || newPassword.length < 6) {
-      return res.status(400).json({ error: { message: 'New password must be at least 6 characters' } });
-    }
-
-    if (newPassword.length > 128) {
-      return res.status(400).json({ error: { message: 'New password must be no more than 128 characters' } });
-    }
-
-    if (!/[a-zA-Z]/.test(newPassword)) {
-      return res.status(400).json({ error: { message: 'New password must contain at least one letter (a–z or A–Z)' } });
+    const newPwBasics = checkPasswordBasics(newPassword);
+    if (!newPwBasics.valid) {
+      return res.status(400).json({
+        error: { message: newPwBasics.message.replace(/^Password/, 'New password') }
+      });
     }
 
     // NOTE: `User.findById` may omit sensitive fields like password hashes.
@@ -11912,27 +11903,6 @@ export const changePassword = async (req, res, next) => {
       [userId]
     );
     const isFirstPasswordChange = parseInt(passwordChanges[0]?.count || 0) === 0;
-
-    // Max 1 password change per hour (enforced for self-service changes only)
-    if (userId === req.user.id) {
-      try {
-        const [recentChange] = await pool.execute(
-          "SELECT password_changed_at FROM users WHERE id = ? LIMIT 1",
-          [userId]
-        );
-        const lastChange = recentChange?.[0]?.password_changed_at;
-        if (lastChange) {
-          const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
-          if (new Date(lastChange) > hourAgo) {
-            return res.status(429).json({
-              error: { message: 'You may only change your password once per hour. Please try again later.' }
-            });
-          }
-        }
-      } catch {
-        // best-effort — do not block if column not available
-      }
-    }
 
     // Username similarity check
     const accountId = user.username || user.email;

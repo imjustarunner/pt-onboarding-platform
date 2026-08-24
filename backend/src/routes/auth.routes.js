@@ -1,5 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from '../utils/passwordValidation.js';
 import {
   login,
   identifyLogin,
@@ -193,9 +194,10 @@ router.post('/register', requireAdminOrFirstUser, validateRegister, register);
 router.post('/register-club-manager', signupLimiter, [
   body('email').isEmail().normalizeEmail(),
   body('password')
-    .isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
-    .isLength({ max: 128 }).withMessage('Password must be no more than 128 characters')
-    .matches(/[a-zA-Z]/).withMessage('Password must contain at least one letter (a–z or A–Z)'),
+    .isLength({ min: MIN_PASSWORD_LENGTH }).withMessage(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`)
+    .isLength({ max: MAX_PASSWORD_LENGTH }).withMessage(`Password must be no more than ${MAX_PASSWORD_LENGTH} characters`)
+    .matches(/[a-zA-Z]/).withMessage('Password must contain at least one letter (a–z or A–Z)')
+    .matches(/[0-9]/).withMessage('Password must contain at least one number (0–9)'),
   body('firstName').optional().trim().isString(),
   body('lastName').trim().notEmpty().withMessage('Last name is required'),
   body('portalSlug').optional().trim().isString()
@@ -205,9 +207,10 @@ router.post('/register-club-manager', signupLimiter, [
 router.post('/register-participant', signupLimiter, [
   body('email').isEmail().normalizeEmail(),
   body('password')
-    .isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
-    .isLength({ max: 128 }).withMessage('Password must be no more than 128 characters')
-    .matches(/[a-zA-Z]/).withMessage('Password must contain at least one letter (a–z or A–Z)'),
+    .isLength({ min: MIN_PASSWORD_LENGTH }).withMessage(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`)
+    .isLength({ max: MAX_PASSWORD_LENGTH }).withMessage(`Password must be no more than ${MAX_PASSWORD_LENGTH} characters`)
+    .matches(/[a-zA-Z]/).withMessage('Password must contain at least one letter (a–z or A–Z)')
+    .matches(/[0-9]/).withMessage('Password must contain at least one number (0–9)'),
   body('firstName').optional().trim().isString(),
   body('lastName').trim().notEmpty().withMessage('Last name is required'),
   body('portalSlug').optional().trim().isString()
@@ -267,9 +270,10 @@ router.get('/validate-setup-token/:token', validateSetupToken);
 router.post('/initial-setup/:token', [
   body('password')
     .notEmpty().withMessage('Password is required')
-    .isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
-    .isLength({ max: 128 }).withMessage('Password must be no more than 128 characters')
+    .isLength({ min: MIN_PASSWORD_LENGTH }).withMessage(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`)
+    .isLength({ max: MAX_PASSWORD_LENGTH }).withMessage(`Password must be no more than ${MAX_PASSWORD_LENGTH} characters`)
     .matches(/[a-zA-Z]/).withMessage('Password must contain at least one letter (a–z or A–Z)')
+    .matches(/[0-9]/).withMessage('Password must contain at least one number (0–9)')
 ], initialSetup);
 
 // Password reset routes (token-based, forces user to set a new password)
@@ -277,9 +281,10 @@ router.get('/validate-reset-token/:token', validateResetToken);
 router.post('/reset-password/:token', [
   body('password')
     .notEmpty().withMessage('Password is required')
-    .isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
-    .isLength({ max: 128 }).withMessage('Password must be no more than 128 characters')
+    .isLength({ min: MIN_PASSWORD_LENGTH }).withMessage(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`)
+    .isLength({ max: MAX_PASSWORD_LENGTH }).withMessage(`Password must be no more than ${MAX_PASSWORD_LENGTH} characters`)
     .matches(/[a-zA-Z]/).withMessage('Password must contain at least one letter (a–z or A–Z)')
+    .matches(/[0-9]/).withMessage('Password must contain at least one number (0–9)')
 ], resetPasswordWithToken);
 
 export default router;

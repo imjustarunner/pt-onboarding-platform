@@ -33,7 +33,7 @@
                   class="form-input"
                   :disabled="setting"
                   autocomplete="new-password"
-                  minlength="6"
+                  minlength="10"
                   maxlength="128"
                 />
                 <button type="button" class="toggle-vis" @click="showPassword = !showPassword" :aria-label="showPassword ? 'Hide password' : 'Show password'">
@@ -56,7 +56,7 @@
                   class="form-input"
                   :disabled="setting"
                   autocomplete="new-password"
-                  minlength="6"
+                  minlength="10"
                   maxlength="128"
                 />
                 <button type="button" class="toggle-vis" @click="showConfirm = !showConfirm" :aria-label="showConfirm ? 'Hide password' : 'Show password'">
@@ -90,6 +90,7 @@ import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
 import PasswordStrengthMeter from '../components/PasswordStrengthMeter.vue';
+import { checkPasswordBasics } from '../utils/passwordPolicy.js';
 import PasswordRecoveryBrand from '../components/PasswordRecoveryBrand.vue';
 import { completePasswordTokenLogin } from '../utils/completePasswordTokenLogin.js';
 
@@ -154,16 +155,9 @@ const handleSetup = async () => {
     setupError.value = passwordMismatch.value;
     return;
   }
-  if (password.value.length < 6) {
-    setupError.value = 'Password must be at least 6 characters';
-    return;
-  }
-  if (password.value.length > 128) {
-    setupError.value = 'Password must be no more than 128 characters';
-    return;
-  }
-  if (!/[a-zA-Z]/.test(password.value)) {
-    setupError.value = 'Password must contain at least one letter (a–z or A–Z)';
+  const basics = checkPasswordBasics(password.value);
+  if (!basics.valid) {
+    setupError.value = basics.message;
     return;
   }
 

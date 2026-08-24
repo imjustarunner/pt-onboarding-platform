@@ -8,6 +8,7 @@ import ActivityLogService from '../services/activityLog.service.js';
 import config from '../config/config.js';
 import { getUserCapabilities, buildAgencyAccessCaps } from '../utils/capabilities.js';
 import { calcPasswordExpiry } from '../utils/passwordPolicy.js';
+import { checkPasswordBasics } from '../utils/passwordValidation.js';
 import Agency from '../models/Agency.model.js';
 import { createSignedState as createGoogleState, verifySignedState as verifyGoogleState, exchangeCodeForTokens, getGoogleAuthorizeUrl, getGoogleOAuthClient } from '../services/googleOAuth.service.js';
 import EmailService from '../services/email.service.js';
@@ -3226,16 +3227,9 @@ export const resetPasswordWithToken = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Token is required' } });
     }
 
-    if (!password || password.length < 6) {
-      return res.status(400).json({ error: { message: 'Password must be at least 6 characters' } });
-    }
-
-    if (password.length > 128) {
-      return res.status(400).json({ error: { message: 'Password must be no more than 128 characters' } });
-    }
-
-    if (!/[a-zA-Z]/.test(password)) {
-      return res.status(400).json({ error: { message: 'Password must contain at least one letter (a–z or A–Z)' } });
+    const basics = checkPasswordBasics(password);
+    if (!basics.valid) {
+      return res.status(400).json({ error: { message: basics.message } });
     }
 
     const user = await User.validatePasswordlessToken(token);
@@ -3365,16 +3359,9 @@ export const initialSetup = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Token is required' } });
     }
 
-    if (!password || password.length < 6) {
-      return res.status(400).json({ error: { message: 'Password must be at least 6 characters' } });
-    }
-
-    if (password.length > 128) {
-      return res.status(400).json({ error: { message: 'Password must be no more than 128 characters' } });
-    }
-
-    if (!/[a-zA-Z]/.test(password)) {
-      return res.status(400).json({ error: { message: 'Password must contain at least one letter (a–z or A–Z)' } });
+    const basics = checkPasswordBasics(password);
+    if (!basics.valid) {
+      return res.status(400).json({ error: { message: basics.message } });
     }
 
     // Validate token
@@ -4585,8 +4572,9 @@ export const registerClubManager = async (req, res, next) => {
     if (!resolvedEmail) {
       return res.status(400).json({ error: { message: 'Email is required' } });
     }
-    if (!password || String(password).length < 6) {
-      return res.status(400).json({ error: { message: 'Password must be at least 6 characters' } });
+    const basics = checkPasswordBasics(password);
+    if (!basics.valid) {
+      return res.status(400).json({ error: { message: basics.message } });
     }
     if (!lastName || !String(lastName).trim()) {
       return res.status(400).json({ error: { message: 'Last name is required' } });
@@ -4702,8 +4690,9 @@ export const registerParticipant = async (req, res, next) => {
     if (!resolvedPhone) {
       return res.status(400).json({ error: { message: 'Phone number is required' } });
     }
-    if (!password || String(password).length < 6) {
-      return res.status(400).json({ error: { message: 'Password must be at least 6 characters' } });
+    const basics = checkPasswordBasics(password);
+    if (!basics.valid) {
+      return res.status(400).json({ error: { message: basics.message } });
     }
     if (!lastName || !String(lastName).trim()) {
       return res.status(400).json({ error: { message: 'Last name is required' } });

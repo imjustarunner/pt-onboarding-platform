@@ -32,7 +32,7 @@
                   class="form-input"
                   :disabled="saving"
                   autocomplete="current-password"
-                  minlength="6"
+                  minlength="10"
                   maxlength="128"
                 />
                 <button type="button" class="toggle-vis" @click="showCurrent = !showCurrent" :aria-label="showCurrent ? 'Hide password' : 'Show password'">
@@ -54,7 +54,7 @@
                   class="form-input"
                   :disabled="saving"
                   autocomplete="new-password"
-                  minlength="6"
+                  minlength="10"
                   maxlength="128"
                 />
                 <button type="button" class="toggle-vis" @click="showNew = !showNew" :aria-label="showNew ? 'Hide password' : 'Show password'">
@@ -77,7 +77,7 @@
                   class="form-input"
                   :disabled="saving"
                   autocomplete="new-password"
-                  minlength="6"
+                  minlength="10"
                   maxlength="128"
                 />
                 <button type="button" class="toggle-vis" @click="showConfirm = !showConfirm" :aria-label="showConfirm ? 'Hide password' : 'Show password'">
@@ -113,6 +113,7 @@ import api from '../services/api';
 import { getDashboardRoute } from '../utils/router';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
 import PasswordStrengthMeter from '../components/PasswordStrengthMeter.vue';
+import { checkPasswordBasics } from '../utils/passwordPolicy.js';
 
 const router = useRouter();
 const route = useRoute();
@@ -143,16 +144,9 @@ const handleChange = async () => {
     formError.value = passwordMismatch.value;
     return;
   }
-  if ((newPassword.value || '').length < 6) {
-    formError.value = 'New password must be at least 6 characters';
-    return;
-  }
-  if ((newPassword.value || '').length > 128) {
-    formError.value = 'New password must be no more than 128 characters';
-    return;
-  }
-  if (!/[a-zA-Z]/.test(newPassword.value)) {
-    formError.value = 'New password must contain at least one letter (a–z or A–Z)';
+  const basics = checkPasswordBasics(newPassword.value);
+  if (!basics.valid) {
+    formError.value = basics.message.replace(/^Password/, 'New password');
     return;
   }
 

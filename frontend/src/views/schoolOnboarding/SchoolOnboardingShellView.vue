@@ -642,11 +642,11 @@
               <div class="so-grid so-password-grid">
                 <label>
                   Your personal password
-                  <input v-model="password" type="password" minlength="6" autocomplete="new-password" />
+                  <input v-model="password" type="password" minlength="10" autocomplete="new-password" />
                 </label>
                 <label>
                   Confirm your personal password
-                  <input v-model="passwordConfirm" type="password" minlength="6" autocomplete="new-password" />
+                  <input v-model="passwordConfirm" type="password" minlength="10" autocomplete="new-password" />
                 </label>
               </div>
             </div>
@@ -701,6 +701,7 @@ import {
 } from '../../utils/schoolStaffTempPassword.js';
 import { buildOrgLoginPath } from '../../utils/orgLoginPath.js';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath.js';
+import { checkPasswordBasics } from '../../utils/passwordPolicy.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -1172,8 +1173,9 @@ async function ensurePasswordBeforeSubmit() {
     actionError.value = 'Passwords do not match';
     return false;
   }
-  if (!password.value || password.value.length < 6) {
-    actionError.value = 'Create a password with at least 6 characters before submitting';
+  const basics = checkPasswordBasics(password.value);
+  if (!basics.valid) {
+    actionError.value = basics.message;
     return false;
   }
   const res = await api.post(

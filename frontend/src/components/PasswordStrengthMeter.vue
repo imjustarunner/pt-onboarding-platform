@@ -14,15 +14,15 @@
     <ul class="req-list" aria-label="Password requirements">
       <li :class="{ met: hasMinLength, unmet: !hasMinLength }">
         <span class="req-icon" aria-hidden="true">{{ hasMinLength ? '✓' : '○' }}</span>
-        At least 6 characters
+        At least 10 characters
       </li>
       <li :class="{ met: hasLetter, unmet: !hasLetter }">
         <span class="req-icon" aria-hidden="true">{{ hasLetter ? '✓' : '○' }}</span>
         Contains a letter (a–z or A–Z)
       </li>
-      <li :class="{ met: hasNumber }">
+      <li :class="{ met: hasNumber, unmet: !hasNumber }">
         <span class="req-icon" aria-hidden="true">{{ hasNumber ? '✓' : '○' }}</span>
-        Contains a number <span class="optional-hint">(optional, strengthens password)</span>
+        Contains a number (0–9)
       </li>
       <li :class="{ met: hasSymbol }">
         <span class="req-icon" aria-hidden="true">{{ hasSymbol ? '✓' : '○' }}</span>
@@ -50,7 +50,7 @@ const props = defineProps({
   confirmPassword: { type: String, default: undefined }
 });
 
-const hasMinLength = computed(() => props.password.length >= 6);
+const hasMinLength = computed(() => props.password.length >= 10);
 const hasLetter    = computed(() => /[a-zA-Z]/.test(props.password));
 const hasNumber    = computed(() => /[0-9]/.test(props.password));
 const hasSymbol    = computed(() => /[~!@#$%^&*()\-_=+[\]{\\|};:'",.<>/?]/.test(props.password));
@@ -69,11 +69,11 @@ const passwordsMatch = computed(() =>
  *  4 = very strong
  */
 const score = computed(() => {
-  if (!hasMinLength.value || !hasLetter.value || isTooLong.value) return 0;
+  if (!hasMinLength.value || !hasLetter.value || !hasNumber.value || isTooLong.value) return 0;
   const len = props.password.length;
   let s = 0;
-  if (len >= 6)  s = 1;          // weak baseline
-  if (len >= 10) s = 2;          // fair
+  if (len >= 10) s = 1;          // weak baseline
+  if (len >= 12) s = 2;          // fair
   if (len >= 14 && (hasNumber.value || hasSymbol.value)) s = 3; // strong
   if (len >= 18 && hasNumber.value && (hasSymbol.value || hasMixedCase.value)) s = 4; // very strong
   return s;

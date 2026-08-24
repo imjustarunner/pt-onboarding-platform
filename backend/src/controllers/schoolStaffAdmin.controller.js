@@ -12,6 +12,7 @@ import {
   sqlUnicodeLiteral,
   sqlUnicodeNe
 } from '../utils/mysqlCollation.js';
+import { checkPasswordBasics } from '../utils/passwordValidation.js';
 
 const TEMP_PASSWORD_SET_ACTION_TYPES = [
   'school_staff_temporary_password_set',
@@ -478,11 +479,11 @@ export const bulkSetAgencySchoolStaffTemporaryPasswords = async (req, res, next)
     if (!temporaryPassword) {
       return res.status(400).json({ error: { message: 'Temporary password is required' } });
     }
-    if (temporaryPassword.length < 6) {
-      return res.status(400).json({ error: { message: 'Temporary password must be at least 6 characters' } });
-    }
-    if (temporaryPassword.length > 128) {
-      return res.status(400).json({ error: { message: 'Temporary password must be 128 characters or less' } });
+    const tempBasics = checkPasswordBasics(temporaryPassword);
+    if (!tempBasics.valid) {
+      return res.status(400).json({
+        error: { message: tempBasics.message.replace(/^Password/, 'Temporary password') }
+      });
     }
 
     const eligibleUserIds = await getEligibleSchoolStaffUserIdsForAgency(agencyId, userIds);
@@ -1072,11 +1073,11 @@ export const createSchoolStaffUserFromContact = async (req, res, next) => {
     if (!temporaryPassword) {
       return res.status(400).json({ error: { message: 'Temporary password is required' } });
     }
-    if (temporaryPassword.length < 6) {
-      return res.status(400).json({ error: { message: 'Temporary password must be at least 6 characters' } });
-    }
-    if (temporaryPassword.length > 128) {
-      return res.status(400).json({ error: { message: 'Temporary password must be 128 characters or less' } });
+    const tempBasics = checkPasswordBasics(temporaryPassword);
+    if (!tempBasics.valid) {
+      return res.status(400).json({
+        error: { message: tempBasics.message.replace(/^Password/, 'Temporary password') }
+      });
     }
 
     // If the user exists, it must already be a school_staff user.
@@ -1177,8 +1178,11 @@ export const activateSchoolStaffUser = async (req, res, next) => {
     const isScheduler = req.body?.isScheduler === true;
     let temporaryPassword = String(req.body?.temporaryPassword || '').trim();
     if (!temporaryPassword) temporaryPassword = await User.generateTemporaryPassword();
-    if (temporaryPassword.length < 6) {
-      return res.status(400).json({ error: { message: 'Temporary password must be at least 6 characters' } });
+    const tempBasics = checkPasswordBasics(temporaryPassword);
+    if (!tempBasics.valid) {
+      return res.status(400).json({
+        error: { message: tempBasics.message.replace(/^Password/, 'Temporary password') }
+      });
     }
 
     const email = normalizeEmail(user.email || user.work_email);

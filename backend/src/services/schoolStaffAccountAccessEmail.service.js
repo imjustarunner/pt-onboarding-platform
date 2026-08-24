@@ -7,6 +7,7 @@ import EmailTemplateService from './emailTemplate.service.js';
 import CommunicationLoggingService from './communicationLogging.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { resolveSenderIdentityForSend } from './emailSenderIdentityResolver.service.js';
+import { checkPasswordBasics, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from '../utils/passwordValidation.js';
 
 export const ACCOUNT_ACCESS_EMAIL_TYPES = {
   recovery: 'school_staff_account_recovery',
@@ -24,15 +25,16 @@ export function extractTempPasswordFromAccessEmailBody(body) {
   const labeled = text.match(/(?:temporary\s+password|temp\s+password|password)\s*:\s*([^\s\r\n]+)/i);
   if (labeled?.[1]) {
     const pwd = labeled[1].trim();
-    if (pwd.length >= 6 && pwd.length <= 128) return pwd;
+    if (pwd.length >= MIN_PASSWORD_LENGTH && pwd.length <= MAX_PASSWORD_LENGTH) return pwd;
   }
   return null;
 }
 
 function normalizeSharedTempPassword(value) {
   const pwd = String(value || '').trim();
-  if (!pwd || pwd.length < 6 || pwd.length > 128) return null;
-  return pwd;
+  if (!pwd) return null;
+  const basics = checkPasswordBasics(pwd);
+  return basics.valid ? pwd : null;
 }
 
 function resolveSharedTempPassword(send, overridePassword = null) {
