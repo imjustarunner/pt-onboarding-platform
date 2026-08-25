@@ -1,6 +1,6 @@
 <template>
   <div class="pds-page" :style="themeVars">
-    <header class="pds-header">
+    <header class="pds-header pds-no-print">
       <div class="pds-brand">
         <img v-if="headerLogo" :src="headerLogo" alt="" class="pds-brand-logo" />
         <div>
@@ -14,13 +14,29 @@
       <div class="pds-hero-row">
         <div>
           <h1>{{ pageTitle }}</h1>
-          <p v-if="districtName">{{ districtName }} — schools, providers, and on-site days</p>
-          <p v-else>Select a district to view provider schedules across all schools.</p>
+          <p v-if="districtName" class="pds-screen-only">
+            {{ districtName }} — schools, providers, and on-site days
+          </p>
+          <p v-else class="pds-screen-only">Select a district to view provider schedules across all schools.</p>
+          <p v-if="districtName" class="pds-print-only pds-print-sub">
+            Providers · on-site days · federal fingerprint expiration
+          </p>
         </div>
         <div v-if="districtSlug && schools.length" class="pds-toolbar pds-no-print">
+          <button
+            v-if="canHide && hiddenCount"
+            type="button"
+            class="pds-btn"
+            @click="clearAllHides"
+          >
+            Show all ({{ hiddenCount }})
+          </button>
           <button type="button" class="pds-btn" @click="printPage">Print</button>
         </div>
       </div>
+      <p v-if="canHide && districtSlug" class="pds-hide-hint pds-no-print">
+        Logged in: use Hide to remove a school or provider from this view and from print (testing). Does not change assignments.
+      </p>
     </section>
 
     <div v-if="loadError" class="pds-banner pds-banner-error">{{ loadError }}</div>
@@ -42,51 +58,108 @@
     </div>
 
     <div v-else class="pds-body">
-      <div v-if="!schools.length" class="pds-empty">No schools found for this district.</div>
-      <article v-for="school in schools" :key="school.id" class="pds-school-card">
-        <div class="pds-school-head">
-          <img v-if="school.logoUrl" :src="school.logoUrl" alt="" class="pds-school-logo" />
-          <div>
-            <h2>{{ school.name }}</h2>
-            <p v-if="schoolLocation(school)" class="pds-school-meta">{{ schoolLocation(school) }}</p>
-          </div>
-        </div>
+      <div v-if="!visibleSchools.length" class="pds-empty">
+        {{ schools.length ? 'All schools are hidden.' : 'No schools found for this district.' }}
+      </div>
 
-        <div v-if="!school.providers?.length" class="pds-muted">No providers scheduled yet.</div>
-        <div v-else class="pds-provider-list">
-          <div v-for="provider in school.providers" :key="provider.id" class="pds-provider-row">
-            <img
-              v-if="provider.photoUrl"
-              :src="provider.photoUrl"
-              alt=""
-              class="pds-provider-photo pds-screen-only"
-            />
-            <div v-else class="pds-provider-photo pds-provider-photo--fallback pds-screen-only">
-              {{ initials(provider.displayName) }}
-            </div>
-            <div class="pds-provider-main">
-              <strong>{{ provider.displayName }}</strong>
-              <div class="pds-day-chips">
+      <table v-if="visibleSchools.length" class="pds-table">
+        <thead>
+          <tr>
+            <th class="pds-col-school">School</th>
+            <th class="pds-col-provider">Provider</th>
+            <th class="pds-col-days">Days</th>
+            <th class="pds-col-bg">Fingerprint expires</th>
+            <th v-if="canHide" class="pds-col-actions pds-no-print"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <template v-for="school in visibleSchools" :key="school.id">
+            <tr
+              v-if="!visibleProviders(school).length"
+              class="pds-row pds-row--empty"
+            >
+              <td class="pds-col-school">
+                <div class="pds-school-cell">
+                  <span class="pds-school-name">{{ school.name }}</span>
+                  <button
+                    v-if="canHide"
+                    type="button"
+                    class="pds-hide-btn pds-no-print"
+                    title="Hide school"
+                    @click="hideSchool(school.id)"
+                  >
+                    Hide
+                  </button>
+                </div>
+              </td>
+              <td colspan="3" class="pds-muted">No providers scheduled</td>
+              <td v-if="canHide" class="pds-no-print"></td>
+            </tr>
+            <tr
+              v-for="(provider, idx) in visibleProviders(school)"
+              :key="`${school.id}-${provider.id}`"
+              class="pds-row"
+            >
+              <td class="pds-col-school">
+                <div v-if="idx === 0" class="pds-school-cell">
+                  <span class="pds-school-name">{{ school.name }}</span>
+                  <button
+                    v-if="canHide"
+                    type="button"
+                    class="pds-hide-btn pds-no-print"
+                    title="Hide school"
+                    @click="hideSchool(school.id)"
+                  >
+                    Hide
+                  </button>
+                </div>
+              </td>
+              <td class="pds-col-provider">{{ provider.displayName }}</td>
+              <td class="pds-col-days">{{ formatDays(provider.days) }}</td>
+              <td class="pds-col-bg" :class="bgExpiryClass(provider)">
+                {{ formatBgExpiry(provider) }}
                 <span
-                  v-for="day in provider.days"
-                  :key="day"
-                  class="pds-day-chip"
-                >{{ dayShort(day) }}</span>
-              </div>
-              <div
-                class="pds-bg-exp"
-                :class="bgExpiryClass(provider)"
-              >
-                Federal fingerprint expires:
-                <strong>{{ formatBgExpiry(provider) }}</strong>
-                <span v-if="provider.federalBackgroundStatusLabel" class="pds-bg-exp-status">
-                  ({{ provider.federalBackgroundStatusLabel }})
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </article>
+                  v-if="provider.federalBackgroundStatusLabel && provider.federalBackgroundExpiresAt"
+                  class="pds-bg-status pds-screen-only"
+                > · {{ provider.federalBackgroundStatusLabel }}</span>
+              </td>
+              <td v-if="canHide" class="pds-col-actions pds-no-print">
+                <button
+                  type="button"
+                  class="pds-hide-btn"
+                  title="Hide provider at this school"
+                  @click="hideProvider(school.id, provider.id)"
+                >
+                  Hide
+                </button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+
+      <div
+        v-if="canHide && (hiddenSchools.length || hiddenProviders.length)"
+        class="pds-hidden-panel pds-no-print"
+      >
+        <strong>Hidden</strong>
+        <ul v-if="hiddenSchools.length">
+          <li v-for="school in hiddenSchools" :key="`hs-${school.id}`">
+            School: {{ school.name }}
+            <button type="button" class="pds-link-btn" @click="unhideSchool(school.id)">Show</button>
+          </li>
+        </ul>
+        <ul v-if="hiddenProviders.length">
+          <li v-for="row in hiddenProviders" :key="`hp-${row.schoolId}-${row.providerId}`">
+            {{ row.providerName }} @ {{ row.schoolName }}
+            <button
+              type="button"
+              class="pds-link-btn"
+              @click="unhideProvider(row.schoolId, row.providerId)"
+            >Show</button>
+          </li>
+        </ul>
+      </div>
     </div>
   </div>
 </template>
@@ -97,10 +170,12 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { resolvePortalSlug } from '../../utils/orgScopedPath';
 import { useBrandingStore } from '../../store/branding';
+import { useAuthStore } from '../../store/auth';
 import schoolLogoGreen from '../../assets/schoolReferral/school-logo-green.png';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
+const authStore = useAuthStore();
 
 const agencySlug = computed(() =>
   resolvePortalSlug(route.params, brandingStore.portalHostPortalUrl)
@@ -113,7 +188,10 @@ const agency = ref(null);
 const district = ref(null);
 const districts = ref([]);
 const schools = ref([]);
+const hiddenSchoolIds = ref(new Set());
+const hiddenProviderKeys = ref(new Set());
 
+const canHide = computed(() => !!authStore.isAuthenticated);
 const agencyName = computed(() => agency.value?.name || 'School schedule');
 const districtName = computed(() => district.value?.name || '');
 const pageTitle = computed(() => districtName.value || 'Browse districts');
@@ -147,6 +225,116 @@ const headerLogo = computed(() => {
   return branding.value?.logoUrl || branding.value?.agencyLogoUrl || schoolLogoGreen;
 });
 
+const hideStorageKey = computed(() => {
+  const uid = authStore.user?.id || 'anon';
+  return `district-schedule-hide:${uid}:${agencySlug.value}:${districtSlug.value}`;
+});
+
+const visibleSchools = computed(() =>
+  (schools.value || []).filter((s) => !hiddenSchoolIds.value.has(Number(s.id)))
+);
+
+const hiddenSchools = computed(() =>
+  (schools.value || []).filter((s) => hiddenSchoolIds.value.has(Number(s.id)))
+);
+
+const hiddenProviders = computed(() => {
+  const out = [];
+  for (const school of schools.value || []) {
+    for (const provider of school.providers || []) {
+      const key = providerHideKey(school.id, provider.id);
+      if (!hiddenProviderKeys.value.has(key)) continue;
+      out.push({
+        schoolId: Number(school.id),
+        providerId: Number(provider.id),
+        schoolName: school.name,
+        providerName: provider.displayName
+      });
+    }
+  }
+  return out;
+});
+
+const hiddenCount = computed(() => hiddenSchools.value.length + hiddenProviders.value.length);
+
+function providerHideKey(schoolId, providerId) {
+  return `${Number(schoolId)}:${Number(providerId)}`;
+}
+
+function visibleProviders(school) {
+  return (school?.providers || []).filter(
+    (p) => !hiddenProviderKeys.value.has(providerHideKey(school.id, p.id))
+  );
+}
+
+function loadHideState() {
+  hiddenSchoolIds.value = new Set();
+  hiddenProviderKeys.value = new Set();
+  if (!canHide.value || !districtSlug.value) return;
+  try {
+    const raw = localStorage.getItem(hideStorageKey.value);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    hiddenSchoolIds.value = new Set(
+      (Array.isArray(parsed?.schools) ? parsed.schools : []).map(Number).filter(Boolean)
+    );
+    hiddenProviderKeys.value = new Set(
+      (Array.isArray(parsed?.providers) ? parsed.providers : []).map(String).filter(Boolean)
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function persistHideState() {
+  if (!canHide.value || !districtSlug.value) return;
+  try {
+    localStorage.setItem(
+      hideStorageKey.value,
+      JSON.stringify({
+        schools: [...hiddenSchoolIds.value],
+        providers: [...hiddenProviderKeys.value]
+      })
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function hideSchool(schoolId) {
+  const next = new Set(hiddenSchoolIds.value);
+  next.add(Number(schoolId));
+  hiddenSchoolIds.value = next;
+  persistHideState();
+}
+
+function unhideSchool(schoolId) {
+  const next = new Set(hiddenSchoolIds.value);
+  next.delete(Number(schoolId));
+  hiddenSchoolIds.value = next;
+  persistHideState();
+}
+
+function hideProvider(schoolId, providerId) {
+  const next = new Set(hiddenProviderKeys.value);
+  next.add(providerHideKey(schoolId, providerId));
+  hiddenProviderKeys.value = next;
+  persistHideState();
+}
+
+function unhideProvider(schoolId, providerId) {
+  const next = new Set(hiddenProviderKeys.value);
+  next.delete(providerHideKey(schoolId, providerId));
+  hiddenProviderKeys.value = next;
+  persistHideState();
+}
+
+function clearAllHides() {
+  hiddenSchoolIds.value = new Set();
+  hiddenProviderKeys.value = new Set();
+  persistHideState();
+}
+
 function districtRoute(slug) {
   if (route.meta?.flatDistrictSchedule) {
     return { name: 'FlatPublicDistrictSchedule', params: { districtSlug: slug } };
@@ -157,18 +345,10 @@ function districtRoute(slug) {
   };
 }
 
-function schoolLocation(school) {
-  return [school.city, school.state].filter(Boolean).join(', ');
-}
-
-function initials(name) {
-  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return '?';
-  return parts.slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('');
-}
-
-function dayShort(day) {
-  return String(day || '').slice(0, 3);
+function formatDays(days) {
+  const list = Array.isArray(days) ? days : [];
+  if (!list.length) return '—';
+  return list.map((d) => String(d || '').slice(0, 3)).join(', ');
 }
 
 function formatBgExpiry(provider) {
@@ -224,6 +404,7 @@ async function loadSchedule() {
     agency.value = res.data?.agency || null;
     district.value = res.data?.district || null;
     schools.value = Array.isArray(res.data?.schools) ? res.data.schools : [];
+    loadHideState();
   } catch (e) {
     loadError.value = e?.response?.data?.error?.message || 'Failed to load district schedule';
     schools.value = [];
@@ -244,6 +425,12 @@ async function load() {
 
 onMounted(load);
 watch([agencySlug, districtSlug], load);
+watch(
+  () => authStore.isAuthenticated,
+  () => {
+    if (districtSlug.value) loadHideState();
+  }
+);
 </script>
 
 <style scoped>
@@ -253,7 +440,7 @@ watch([agencySlug, districtSlug], load);
   color: var(--pds-text);
 }
 .pds-header {
-  padding: 1rem 1.25rem;
+  padding: 0.75rem 1.25rem;
   border-bottom: 1px solid var(--pds-border);
   background: #fff;
 }
@@ -265,25 +452,25 @@ watch([agencySlug, districtSlug], load);
   margin: 0 auto;
 }
 .pds-brand-logo {
-  width: 52px;
-  height: 52px;
+  width: 44px;
+  height: 44px;
   object-fit: contain;
 }
 .pds-brand-kicker {
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--pds-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .pds-brand-title {
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 700;
 }
 .pds-hero {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 1.5rem 1.25rem 0.75rem;
+  padding: 1rem 1.25rem 0.5rem;
 }
 .pds-hero-row {
   display: flex;
@@ -292,11 +479,17 @@ watch([agencySlug, districtSlug], load);
   gap: 1rem;
 }
 .pds-hero h1 {
-  margin: 0 0 0.35rem;
-  font-size: clamp(1.5rem, 3vw, 2rem);
+  margin: 0 0 0.25rem;
+  font-size: clamp(1.25rem, 2.5vw, 1.65rem);
 }
 .pds-hero p {
   margin: 0;
+  color: var(--pds-muted);
+  font-size: 0.9rem;
+}
+.pds-hide-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
   color: var(--pds-muted);
 }
 .pds-toolbar {
@@ -309,41 +502,18 @@ watch([agencySlug, districtSlug], load);
   background: #fff;
   color: var(--pds-text);
   border-radius: 8px;
-  padding: 0.45rem 0.85rem;
-  font-size: 0.9rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
 }
 .pds-btn:hover {
   border-color: var(--pds-primary);
 }
-.pds-bg-exp {
-  margin-top: 0.35rem;
-  font-size: 0.82rem;
-  color: var(--pds-muted);
-}
-.pds-bg-exp strong {
-  color: var(--pds-text);
-}
-.pds-bg-exp-status {
-  font-weight: 600;
-}
-.pds-bg-exp--bad {
-  color: #b91c1c;
-}
-.pds-bg-exp--bad strong {
-  color: #b91c1c;
-}
-.pds-bg-exp--warn {
-  color: #b45309;
-}
-.pds-bg-exp--warn strong {
-  color: #b45309;
-}
 .pds-body {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 0.75rem 1.25rem 2rem;
+  padding: 0.5rem 1.25rem 2rem;
 }
 .pds-district-grid {
   display: grid;
@@ -360,92 +530,112 @@ watch([agencySlug, districtSlug], load);
   background: #fff;
   color: inherit;
   text-decoration: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .pds-district-card:hover {
   border-color: var(--pds-primary);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
 }
 .pds-district-card span {
   font-size: 0.85rem;
   color: var(--pds-muted);
 }
-.pds-school-card {
-  margin-bottom: 1rem;
-  padding: 1rem 1.1rem;
-  border-radius: 16px;
-  border: 1px solid var(--pds-border);
+.pds-table {
+  width: 100%;
+  border-collapse: collapse;
   background: #fff;
-}
-.pds-school-head {
-  display: flex;
-  align-items: center;
-  gap: 0.85rem;
-  margin-bottom: 0.85rem;
-}
-.pds-school-logo {
-  width: 48px;
-  height: 48px;
+  border: 1px solid var(--pds-border);
   border-radius: 10px;
-  object-fit: contain;
+  overflow: hidden;
+  font-size: 0.9rem;
+}
+.pds-table th {
+  text-align: left;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--pds-muted);
+  font-weight: 700;
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid var(--pds-border);
   background: #f8fafc;
 }
-.pds-school-head h2 {
-  margin: 0;
-  font-size: 1.15rem;
+.pds-table td {
+  padding: 0.35rem 0.55rem;
+  border-bottom: 1px solid var(--pds-border);
+  vertical-align: middle;
 }
-.pds-school-meta {
-  margin: 0.15rem 0 0;
-  font-size: 0.85rem;
-  color: var(--pds-muted);
+.pds-row:last-child td {
+  border-bottom: none;
 }
-.pds-provider-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-}
-.pds-provider-row {
+.pds-school-cell {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.65rem 0.75rem;
-  border-radius: 12px;
-  background: var(--pds-primary-soft);
+  gap: 0.45rem;
 }
-.pds-provider-photo {
-  width: 44px;
-  height: 44px;
-  border-radius: 999px;
-  object-fit: cover;
-  flex-shrink: 0;
-}
-.pds-provider-photo--fallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--pds-primary);
-  color: #fff;
-  font-size: 0.85rem;
+.pds-school-name {
   font-weight: 700;
 }
-.pds-provider-main strong {
-  display: block;
-  margin-bottom: 0.25rem;
+.pds-col-days {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
-.pds-day-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+.pds-col-bg {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
-.pds-day-chip {
-  display: inline-flex;
-  padding: 0.15rem 0.45rem;
-  border-radius: 999px;
-  background: #fff;
-  border: 1px solid var(--pds-border);
-  font-size: 0.75rem;
+.pds-col-actions {
+  width: 1%;
+  white-space: nowrap;
+}
+.pds-bg-status {
+  color: var(--pds-muted);
+  font-size: 0.8rem;
+}
+.pds-bg-exp--bad {
+  color: #b91c1c;
   font-weight: 600;
-  color: var(--pds-secondary);
+}
+.pds-bg-exp--warn {
+  color: #b45309;
+  font-weight: 600;
+}
+.pds-hide-btn {
+  border: 1px solid var(--pds-border);
+  background: #fff;
+  color: var(--pds-muted);
+  border-radius: 6px;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.pds-hide-btn:hover {
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+.pds-hidden-panel {
+  margin-top: 1rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px dashed var(--pds-border);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 0.85rem;
+}
+.pds-hidden-panel ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+}
+.pds-hidden-panel li {
+  margin: 0.2rem 0;
+}
+.pds-link-btn {
+  border: none;
+  background: none;
+  color: var(--pds-primary);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 0.25rem;
+  font-size: inherit;
 }
 .pds-loading,
 .pds-empty,
@@ -463,60 +653,70 @@ watch([agencySlug, districtSlug], load);
   color: #b91c1c;
   border: 1px solid #fecaca;
 }
+.pds-print-only {
+  display: none;
+}
 
 @media print {
+  @page {
+    margin: 0.4in;
+  }
   .pds-no-print,
   .pds-screen-only {
     display: none !important;
   }
-  .pds-page,
-  .pds-header,
-  .pds-school-card,
-  .pds-provider-row,
-  .pds-day-chip {
-    background: #fff !important;
-    color: #000 !important;
-    box-shadow: none !important;
+  .pds-print-only {
+    display: block !important;
   }
   .pds-page {
     min-height: auto;
+    background: #fff !important;
+    color: #000 !important;
   }
-  .pds-header {
-    border-bottom: 1px solid #000;
-    padding: 0.5rem 0;
+  .pds-hero {
+    padding: 0 0 0.25rem;
   }
-  .pds-brand-logo {
-    display: none;
+  .pds-hero h1 {
+    font-size: 14pt;
+    margin: 0;
   }
-  .pds-brand-kicker,
-  .pds-brand-title,
-  .pds-hero p,
-  .pds-school-meta,
-  .pds-bg-exp,
-  .pds-muted,
-  .pds-empty {
+  .pds-print-sub {
+    font-size: 8pt;
     color: #333 !important;
+    margin: 0.1rem 0 0.35rem !important;
   }
-  .pds-school-card,
-  .pds-provider-row {
+  .pds-body {
+    max-width: none;
+    padding: 0;
+  }
+  .pds-table {
     border: 1px solid #000;
-    break-inside: avoid;
-    page-break-inside: avoid;
+    border-radius: 0;
+    font-size: 8.5pt;
   }
-  .pds-provider-row {
-    padding: 0.45rem 0.5rem;
+  .pds-table th {
+    background: #fff !important;
+    color: #000 !important;
+    border-bottom: 1px solid #000;
+    padding: 0.15rem 0.25rem;
+    font-size: 7.5pt;
   }
-  .pds-day-chip {
-    border: 1px solid #000;
-    padding: 0.1rem 0.35rem;
+  .pds-table td {
+    border-bottom: 1px solid #ccc;
+    padding: 0.12rem 0.25rem;
+    color: #000 !important;
+  }
+  .pds-school-name {
+    font-weight: 700;
   }
   .pds-bg-exp--bad,
   .pds-bg-exp--warn {
     color: #000 !important;
     font-weight: 700;
   }
-  .pds-body {
-    padding-top: 0;
+  .pds-muted,
+  .pds-empty {
+    color: #333 !important;
   }
 }
 </style>
