@@ -2561,6 +2561,7 @@ export const updateUser = async (req, res, next) => {
       isHourlyWorker,
       hasHiringAccess,
       hasOutreachAccess,
+      hasPlatformGearAccess,
       hasMedicalRecordsReleaseAccess,
       hasGamesAccess,
       externalBusyIcsUrl,
@@ -3093,6 +3094,12 @@ export const updateUser = async (req, res, next) => {
     // Hiring process access (applicants / prospective)
     if (hasHiringAccess !== undefined) updateData.hasHiringAccess = Boolean(hasHiringAccess);
     if (hasOutreachAccess !== undefined) updateData.hasOutreachAccess = Boolean(hasOutreachAccess);
+    if (hasPlatformGearAccess !== undefined) {
+      if (req.user.role !== 'super_admin') {
+        return res.status(403).json({ error: { message: 'Only super admins can grant platform Gear access' } });
+      }
+      updateData.hasPlatformGearAccess = Boolean(hasPlatformGearAccess);
+    }
 
     // Medical records release access (view/download ROI submissions in Submitted Documents)
     // Admins can grant for themselves or others; must be explicitly enabled; all changes audited.
@@ -10261,6 +10268,7 @@ export const getAccountInfo = async (req, res, next) => {
       hourly_dual_rate_enabled: !!(user.hourly_dual_rate_enabled === 1 || user.hourly_dual_rate_enabled === true || user.hourly_dual_rate_enabled === '1'),
       hasHiringAccess: !!(user.has_hiring_access === 1 || user.has_hiring_access === true || user.has_hiring_access === '1'),
       hasOutreachAccess: !!(user.has_outreach_access === 1 || user.has_outreach_access === true || user.has_outreach_access === '1'),
+      hasPlatformGearAccess: !!(user.has_platform_gear_access === 1 || user.has_platform_gear_access === true || user.has_platform_gear_access === '1'),
       hasMedicalRecordsReleaseAccess: !!(user.has_medical_records_release_access === 1 || user.has_medical_records_release_access === true || user.has_medical_records_release_access === '1'),
       hasGamesAccess: !!(user.has_games_access === 1 || user.has_games_access === true || user.has_games_access === '1'),
       companyCardEnabled: !!(user.company_card_enabled === 1 || user.company_card_enabled === true || user.company_card_enabled === '1'),
@@ -12291,6 +12299,7 @@ export const getProfileOverview = async (req, res, next) => {
       hourly_dual_rate_enabled: !!(user.hourly_dual_rate_enabled === 1 || user.hourly_dual_rate_enabled === true || user.hourly_dual_rate_enabled === '1'),
           hasHiringAccess: !!(user.has_hiring_access === 1 || user.has_hiring_access === true || user.has_hiring_access === '1'),
           hasOutreachAccess: !!(user.has_outreach_access === 1 || user.has_outreach_access === true || user.has_outreach_access === '1'),
+          hasPlatformGearAccess: !!(user.has_platform_gear_access === 1 || user.has_platform_gear_access === true || user.has_platform_gear_access === '1'),
         };
       } catch {
         return null;

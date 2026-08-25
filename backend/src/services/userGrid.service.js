@@ -40,6 +40,7 @@ const USER_COL_BY_KEY = {
   is_demo: 'is_demo',
   has_hiring_access: 'has_hiring_access',
   has_outreach_access: 'has_outreach_access',
+  has_platform_gear_access: 'has_platform_gear_access',
   has_games_access: 'has_games_access',
   has_supervisor_privileges: 'has_supervisor_privileges',
   has_provider_access: 'has_provider_access',

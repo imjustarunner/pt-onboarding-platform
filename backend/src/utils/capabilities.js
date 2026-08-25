@@ -196,6 +196,17 @@ export function getUserCapabilities(user, { effectiveRole } = {}) {
   const hasOutreachFlag = user?.has_outreach_access === true || user?.has_outreach_access === 1 || user?.has_outreach_access === '1';
   const canAccessOutreach = ['admin', 'super_admin', 'support'].includes(roleNorm) || hasOutreachFlag;
 
+  // Cross-tenant Gear / Equipment / Materials (all organization_type=agency tenants).
+  // Superadmin always has it; others need an explicit grant (users.has_platform_gear_access).
+  const hasPlatformGearFlag =
+    user?.has_platform_gear_access === true ||
+    user?.has_platform_gear_access === 1 ||
+    user?.has_platform_gear_access === '1' ||
+    user?.hasPlatformGearAccess === true ||
+    user?.hasPlatformGearAccess === 1 ||
+    user?.hasPlatformGearAccess === '1';
+  const canManagePlatformGear = roleNorm === 'super_admin' || hasPlatformGearFlag;
+
   // Summit Stats Team Challenge: Program Managers (admin/super_admin) and Team Managers (provider_plus)
   // can manage challenges. club_manager effectiveRole covers users in an affiliation club context.
   // provider_plus = Team Manager / Team Lead when assigned to a team.
@@ -210,6 +221,7 @@ export function getUserCapabilities(user, { effectiveRole } = {}) {
     canUseChat,
     canManageHiring,
     canAccessOutreach,
+    canManagePlatformGear,
     canManageChallenges
   };
 }

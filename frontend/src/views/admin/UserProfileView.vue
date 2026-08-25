@@ -3965,6 +3965,7 @@ const accountForm = ref({
   isHourlyWorker: false,
   hasHiringAccess: false,
   hasOutreachAccess: false,
+  hasPlatformGearAccess: false,
   hasMedicalRecordsReleaseAccess: false,
   hasGamesAccess: false,
   providerStartDate: ''
@@ -4846,6 +4847,10 @@ const showCredentialingAccessToggle = computed(() => {
   const role = String(user.value?.role || accountForm.value?.role || '').trim().toLowerCase();
   return role && role !== 'super_admin';
 });
+/** Cross-tenant Gear/Materials: only superadmins can grant. */
+const showPlatformGearAccessToggle = computed(() => {
+  return String(authStore.user?.role || '').toLowerCase() === 'super_admin';
+});
 
 // Watch for role changes to reset supervisor privileges if role becomes ineligible
 watch(() => accountForm.value.role, (newRole) => {
@@ -5676,6 +5681,7 @@ const fetchUser = async () => {
       isHourlyWorker: user.value?.is_hourly_worker === true || user.value?.is_hourly_worker === 1 || user.value?.is_hourly_worker === '1' || accountForm.value?.isHourlyWorker || false,
       hasHiringAccess: user.value?.has_hiring_access === true || user.value?.has_hiring_access === 1 || user.value?.has_hiring_access === '1' || accountForm.value?.hasHiringAccess || false,
       hasOutreachAccess: user.value?.has_outreach_access === true || user.value?.has_outreach_access === 1 || user.value?.has_outreach_access === '1' || accountForm.value?.hasOutreachAccess || false,
+      hasPlatformGearAccess: user.value?.has_platform_gear_access === true || user.value?.has_platform_gear_access === 1 || user.value?.has_platform_gear_access === '1' || accountForm.value?.hasPlatformGearAccess || false,
       hasMedicalRecordsReleaseAccess: user.value?.has_medical_records_release_access === true || user.value?.has_medical_records_release_access === 1 || user.value?.has_medical_records_release_access === '1' || accountForm.value?.hasMedicalRecordsReleaseAccess || false,
       hasGamesAccess: user.value?.has_games_access === true || user.value?.has_games_access === 1 || user.value?.has_games_access === '1' || accountForm.value?.hasGamesAccess || false,
       providerStartDate:
@@ -5799,6 +5805,9 @@ const fetchAccountInfo = async () => {
     }
     if (response.data?.hasOutreachAccess !== undefined) {
       accountForm.value.hasOutreachAccess = Boolean(response.data.hasOutreachAccess);
+    }
+    if (response.data?.hasPlatformGearAccess !== undefined) {
+      accountForm.value.hasPlatformGearAccess = Boolean(response.data.hasPlatformGearAccess);
     }
     if (response.data?.hasMedicalRecordsReleaseAccess !== undefined) {
       accountForm.value.hasMedicalRecordsReleaseAccess = Boolean(response.data.hasMedicalRecordsReleaseAccess);
@@ -6731,6 +6740,9 @@ const saveAccount = async (options = {}) => {
       credential: credentialText || null,
       role: accountForm.value.role
     };
+    if (showPlatformGearAccessToggle.value) {
+      updateData.hasPlatformGearAccess = Boolean(accountForm.value.hasPlatformGearAccess);
+    }
     let payloadToSave = updateData;
 
     if (canEditSkillBuilderCoordinatorAccess.value && !isSscMemberProfileMode.value) {
@@ -7153,6 +7165,7 @@ provide(USER_ACCOUNT_CONTEXT_KEY, {
   showBillingAccessToggle,
   showMarketingContactToggle,
   showCredentialingAccessToggle,
+  showPlatformGearAccessToggle,
   canToggleSupervisorPrivileges,
   canEditSkillBuilderCoordinatorAccess,
   canShowSkillBuildersSchoolProgramUserFields,

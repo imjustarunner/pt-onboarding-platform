@@ -54,26 +54,57 @@ const mapOwner = (row) => {
   };
 };
 
-async function accessibleAgencyIds(actor) {
+/** Tenant agencies only (exclude schools / programs / other sub-orgs). */
+async function listTenantAgencyIds() {
+  const [rows] = await pool.execute(
+    `SELECT id FROM agencies
+     WHERE LOWER(COALESCE(organization_type, 'agency')) = 'agency'
+     ORDER BY name ASC`
+  );
+  return (rows || []).map((r) => Number(r.id)).filter((n) => n > 0);
+}
+
+function isTruthyFlag(v) {
+  return v === true || v === 1 || v === '1';
+}
+
+async function actorCanManagePlatformGear(actor) {
   const role = String(actor?.role || '').toLowerCase();
-  if (role === 'super_admin') {
-    const [rows] = await pool.execute(
-      `SELECT id FROM agencies ORDER BY name ASC`
-    );
-    return (rows || []).map((r) => Number(r.id)).filter((n) => n > 0);
+  if (role === 'super_admin') return true;
+  const caps = actor?.capabilities || {};
+  if (caps.canManagePlatformGear === true) return true;
+  if (isTruthyFlag(actor?.has_platform_gear_access) || isTruthyFlag(actor?.hasPlatformGearAccess)) {
+    return true;
   }
+  // JWT req.user often lacks preference flags — load from DB.
+  const uid = Number(actor?.id || 0);
+  if (!uid) return false;
+  try {
+    const user = await User.findById(uid);
+    return isTruthyFlag(user?.has_platform_gear_access);
+  } catch {
+    return false;
+  }
+}
+
+async function accessibleAgencyIds(actor) {
+  const tenants = await listTenantAgencyIds();
+  if (await actorCanManagePlatformGear(actor)) return tenants;
+
   const agencies = await User.getAgencies(actor?.id);
-  return (agencies || []).map((a) => Number(a.id)).filter((n) => n > 0);
+  const memberIds = new Set(
+    (agencies || []).map((a) => Number(a.id)).filter((n) => n > 0)
+  );
+  // Membership ∩ tenant agencies only (no schools/sub-orgs in Gear).
+  return tenants.filter((id) => memberIds.has(id));
 }
 
 async function assertAgencyAccess(actor, agencyId) {
   const aid = Number(agencyId || 0);
   if (!aid) throw Object.assign(new Error('Agency ID required'), { status: 400 });
-  const role = String(actor?.role || '').toLowerCase();
-  if (role === 'super_admin') return aid;
   const ids = await accessibleAgencyIds(actor);
   if (!ids.includes(aid)) {
-    throw Object.assign(new Error('You do not have access to this agency'), { status: 403 });
+    throw Object.assign(new Error('You do not have Gear access to this tenant agency'), { status: 403 });
   }
   return aid;
 }
@@ -951,13 +982,18 @@ export async function listAccessibleAgencies(actor) {
   if (!ids.length) return [];
   const ph = ids.map(() => '?').join(',');
   const [rows] = await pool.execute(
-    `SELECT id, name, slug, portal_url FROM agencies WHERE id IN (${ph}) ORDER BY name ASC`,
+    `SELECT id, name, slug, portal_url, organization_type
+     FROM agencies
+     WHERE id IN (${ph})
+       AND LOWER(COALESCE(organization_type, 'agency')) = 'agency'
+     ORDER BY name ASC`,
     ids
   );
   return (rows || []).map((r) => ({
     id: r.id,
     name: r.name,
-    slug: r.slug || r.portal_url || null
+    slug: r.slug || r.portal_url || null,
+    organizationType: r.organization_type || 'agency'
   }));
 }
 

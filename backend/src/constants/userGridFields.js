@@ -79,6 +79,7 @@ export const USER_GRID_FIELDS = [
   { key: 'has_billing_access', label: 'Billing access', group: 'Permissions', type: 'boolean', source: 'agency_flag', editable: true, sortable: true },
   { key: 'has_hiring_access', label: 'Hiring access', group: 'Permissions', type: 'boolean', source: 'user', userField: 'hasHiringAccess', editable: true, sortable: true },
   { key: 'has_outreach_access', label: 'Outreach access', group: 'Permissions', type: 'boolean', source: 'user', userField: 'hasOutreachAccess', editable: true, sortable: true },
+  { key: 'has_platform_gear_access', label: 'Platform Gear access', group: 'Permissions', type: 'boolean', source: 'user', userField: 'hasPlatformGearAccess', editable: true, sortable: true },
   { key: 'has_credentialing_access', label: 'Credentialing access', group: 'Permissions', type: 'boolean', source: 'agency_flag', editable: true, sortable: true },
   { key: 'has_games_access', label: 'Games access', group: 'Permissions', type: 'boolean', source: 'user', userField: 'hasGamesAccess', editable: true, sortable: true },
   { key: 'has_supervisor_privileges', label: 'Supervisor privileges', group: 'Permissions', type: 'boolean', source: 'user', userField: 'hasSupervisorPrivileges', editable: true, sortable: true },
