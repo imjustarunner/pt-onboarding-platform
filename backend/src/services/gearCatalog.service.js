@@ -76,7 +76,7 @@ function isTruthyFlag(v) {
   return v === true || v === 1 || v === '1';
 }
 
-async function actorCanManagePlatformGear(actor) {
+export async function actorCanManagePlatformGear(actor) {
   const role = String(actor?.role || '').toLowerCase();
   if (role === 'super_admin') return true;
   const caps = actor?.capabilities || {};
@@ -95,7 +95,7 @@ async function actorCanManagePlatformGear(actor) {
   }
 }
 
-async function accessibleAgencyIds(actor) {
+export async function accessibleAgencyIds(actor) {
   const tenants = await listTenantAgencyIds();
   if (await actorCanManagePlatformGear(actor)) return tenants;
 
@@ -107,7 +107,7 @@ async function accessibleAgencyIds(actor) {
   return tenants.filter((id) => memberIds.has(id));
 }
 
-async function assertAgencyAccess(actor, agencyId) {
+export async function assertAgencyAccess(actor, agencyId) {
   const aid = Number(agencyId || 0);
   if (!aid) throw Object.assign(new Error('Agency ID required'), { status: 400 });
   const ids = await accessibleAgencyIds(actor);
@@ -216,6 +216,16 @@ async function fetchCatalogRow(id) {
   return row || null;
 }
 
+function parseStringListJson(raw) {
+  if (!raw) return [];
+  let parsed = raw;
+  if (typeof raw === 'string') {
+    try { parsed = JSON.parse(raw); } catch { return []; }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.map((s) => String(s || '').trim()).filter(Boolean);
+}
+
 function mapCatalogBase(row) {
   if (!row) return null;
   const isGendered = !!row.is_gendered;
@@ -232,6 +242,8 @@ function mapCatalogBase(row) {
     isGendered,
     sizeOptions: sizes.sizeOptions,
     sizeOptionsByGender: sizes.sizeOptionsByGender,
+    variantColors: parseStringListJson(row.variant_colors_json),
+    variantDecorations: parseStringListJson(row.variant_decorations_json),
     lifecycleItemKey: row.lifecycle_item_key || null,
     defaultLowStockThreshold: Number(row.default_low_stock_threshold ?? 2),
     allowManualLow: row.allow_manual_low !== 0,
@@ -667,9 +679,10 @@ export async function createCatalogItem(actor, body = {}) {
     const [result] = await pool.execute(
       `INSERT INTO gear_catalog_items
          (name, description, sku, unit, category, stock_mode, tracking_mode, size_options_json,
+          variant_colors_json, variant_decorations_json,
           is_gendered, lifecycle_item_key, default_low_stock_threshold, allow_manual_low,
           is_active, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
       [
         name,
         body.description ? String(body.description).trim() : null,
@@ -679,6 +692,12 @@ export async function createCatalogItem(actor, body = {}) {
         stockMode,
         trackingMode,
         sizeOptionsJson,
+        JSON.stringify(Array.isArray(body.variantColors) ? body.variantColors : []),
+        JSON.stringify(
+          Array.isArray(body.variantDecorations) && body.variantDecorations.length
+            ? body.variantDecorations
+            : ['Embroidered', 'Screened', 'Plain']
+        ),
         isGendered ? 1 : 0,
         body.lifecycleItemKey ? String(body.lifecycleItemKey).trim() : null,
         Number(body.defaultLowStockThreshold ?? 2),
@@ -774,6 +793,15 @@ export async function updateCatalogItem(actor, catalogItemId, body = {}) {
   }
   if (body.allowManualLow !== undefined) set('allow_manual_low', body.allowManualLow ? 1 : 0);
   if (body.isActive !== undefined) set('is_active', body.isActive ? 1 : 0);
+  if (body.variantColors !== undefined) {
+    set('variant_colors_json', JSON.stringify(Array.isArray(body.variantColors) ? body.variantColors : []));
+  }
+  if (body.variantDecorations !== undefined) {
+    set(
+      'variant_decorations_json',
+      JSON.stringify(Array.isArray(body.variantDecorations) ? body.variantDecorations : [])
+    );
+  }
 
   if (fields.length) {
     values.push(Number(catalogItemId));
@@ -920,7 +948,7 @@ export async function markAgencyLow(actor, catalogItemId, agencyId, { low = true
   );
   if (!enroll) throw Object.assign(new Error('Agency not enrolled for this item'), { status: 404 });
 
-  if (!catalog.allow_manual_low && low) {
+  if (!catalog.allow_manual_low && low && String(catalog.stock_mode) === 'MANUAL_LOW') {
     throw Object.assign(new Error('Manual low stock is not enabled for this item'), { status: 400 });
   }
 
@@ -1135,6 +1163,9 @@ export async function listAgencyUsersForPicker(actor, agencyId) {
      JOIN user_agencies ua ON ua.user_id = u.id
      WHERE ua.agency_id = ?
        AND (u.is_active = 1 OR u.is_active IS NULL)
+       AND (u.is_archived = 0 OR u.is_archived IS NULL OR u.is_archived = FALSE)
+       AND (u.status IS NULL OR u.status NOT IN ('terminated', 'archived', 'inactive'))
+       AND u.terminated_at IS NULL
      ORDER BY u.last_name ASC, u.first_name ASC
      LIMIT 500`,
     [aid]
@@ -1143,6 +1174,8 @@ export async function listAgencyUsersForPicker(actor, agencyId) {
     id: u.id,
     firstName: u.first_name,
     lastName: u.last_name,
+    first_name: u.first_name,
+    last_name: u.last_name,
     name: [u.first_name, u.last_name].filter(Boolean).join(' ').trim(),
     email: u.email,
     phone: u.phone || null,

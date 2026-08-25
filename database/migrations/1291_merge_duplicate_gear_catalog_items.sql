@@ -1,5 +1,6 @@
 -- Migration 1291: Merge duplicate gear catalog items that share the same name
 -- (e.g. two "Tote Bag" rows → one shared type with multiple agency enrollments)
+-- Note: image merge avoids MySQL "can't specify target table for update in FROM clause"
 
 -- Prefer the lowest catalog id as the survivor for each normalized name
 UPDATE gear_item_types t
@@ -13,8 +14,11 @@ INNER JOIN (
 ) d ON LOWER(TRIM(lose.name)) = d.nkey AND lose.id <> d.keep_id
 SET t.catalog_item_id = d.keep_id;
 
--- Move images onto the survivor (ignore if already present)
-UPDATE gear_catalog_images img
+-- Move images onto the survivor via temp map (MySQL-safe)
+DROP TEMPORARY TABLE IF EXISTS tmp_gear_catalog_image_moves;
+CREATE TEMPORARY TABLE tmp_gear_catalog_image_moves AS
+SELECT img.id AS image_id, d.keep_id
+FROM gear_catalog_images img
 INNER JOIN gear_catalog_items lose ON lose.id = img.catalog_item_id
 INNER JOIN (
   SELECT LOWER(TRIM(name)) AS nkey, MIN(id) AS keep_id
@@ -23,12 +27,17 @@ INNER JOIN (
   GROUP BY LOWER(TRIM(name))
   HAVING COUNT(*) > 1
 ) d ON LOWER(TRIM(lose.name)) = d.nkey AND lose.id <> d.keep_id
-SET img.catalog_item_id = d.keep_id
 WHERE NOT EXISTS (
   SELECT 1 FROM gear_catalog_images keep_img
   WHERE keep_img.catalog_item_id = d.keep_id
     AND keep_img.file_path = img.file_path
 );
+
+UPDATE gear_catalog_images img
+INNER JOIN tmp_gear_catalog_image_moves m ON m.image_id = img.id
+SET img.catalog_item_id = m.keep_id;
+
+DROP TEMPORARY TABLE IF EXISTS tmp_gear_catalog_image_moves;
 
 -- Re-point enrollments that don't collide
 UPDATE gear_catalog_agency ca

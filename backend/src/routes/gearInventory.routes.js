@@ -1,5 +1,6 @@
 import express from 'express';
 import { authenticate, requireAgencyAdminOrOperationsLead } from '../middleware/auth.middleware.js';
+import { actorCanManagePlatformGear } from '../services/gearCatalog.service.js';
 import {
   getGearSummary,
   listGearTypes,
@@ -32,6 +33,13 @@ import {
   listCatalogAgencies,
   listCatalogAgencyUsers,
   catalogImageUpload,
+  listGearPackages,
+  getGearPackage,
+  createGearPackage,
+  updateGearPackage,
+  deleteGearPackage,
+  previewGearPackageIssue,
+  issueGearPackage,
 } from '../controllers/gearInventory.controller.js';
 
 const router = express.Router();
@@ -50,6 +58,16 @@ const requireCatalogAccess = (req, res, next) => {
   ];
   if (allowed.includes(role)) return next();
   return res.status(403).json({ error: { message: 'Admin access required for Gear & Materials catalog' } });
+};
+
+/** Agency inventory routes: agency admin/ops lead, or platform gear managers. */
+const requireGearAgencyAccess = async (req, res, next) => {
+  try {
+    if (await actorCanManagePlatformGear(req.user)) return next();
+    return requireAgencyAdminOrOperationsLead(req, res, next);
+  } catch (err) {
+    return next(err);
+  }
 };
 
 // Multi-agency catalog (must be registered before /:agencyId routes)
@@ -73,27 +91,36 @@ router.post('/catalog/:catalogItemId/mark-low', requireCatalogAccess, markCatalo
 router.post('/catalog/:catalogItemId/clear-low', requireCatalogAccess, clearCatalogLow);
 router.post('/catalog/:catalogItemId/send', requireCatalogAccess, sendCatalogItem);
 
+// Packages (kits)
+router.get('/packages', requireCatalogAccess, listGearPackages);
+router.post('/packages', requireCatalogAccess, createGearPackage);
+router.get('/packages/:packageId', requireCatalogAccess, getGearPackage);
+router.patch('/packages/:packageId', requireCatalogAccess, updateGearPackage);
+router.delete('/packages/:packageId', requireCatalogAccess, deleteGearPackage);
+router.post('/packages/:packageId/preview-issue', requireCatalogAccess, previewGearPackageIssue);
+router.post('/packages/:packageId/issue', requireCatalogAccess, issueGearPackage);
+
 // Agency-scoped inventory (lifecycle + legacy)
-router.get('/:agencyId/summary', requireAgencyAdminOrOperationsLead, getGearSummary);
-router.get('/:agencyId/types', requireAgencyAdminOrOperationsLead, listGearTypes);
-router.post('/:agencyId/types', requireAgencyAdminOrOperationsLead, createGearType);
-router.patch('/:agencyId/types/:typeId', requireAgencyAdminOrOperationsLead, updateGearType);
+router.get('/:agencyId/summary', requireGearAgencyAccess, getGearSummary);
+router.get('/:agencyId/types', requireGearAgencyAccess, listGearTypes);
+router.post('/:agencyId/types', requireGearAgencyAccess, createGearType);
+router.patch('/:agencyId/types/:typeId', requireGearAgencyAccess, updateGearType);
 
-router.get('/:agencyId/stock', requireAgencyAdminOrOperationsLead, listGearStock);
-router.post('/:agencyId/stock/adjust', requireAgencyAdminOrOperationsLead, adjustGearStock);
+router.get('/:agencyId/stock', requireGearAgencyAccess, listGearStock);
+router.post('/:agencyId/stock/adjust', requireGearAgencyAccess, adjustGearStock);
 
-router.get('/:agencyId/assets', requireAgencyAdminOrOperationsLead, listGearAssets);
-router.post('/:agencyId/assets', requireAgencyAdminOrOperationsLead, createGearAsset);
-router.patch('/:agencyId/assets/:assetId', requireAgencyAdminOrOperationsLead, updateGearAsset);
+router.get('/:agencyId/assets', requireGearAgencyAccess, listGearAssets);
+router.post('/:agencyId/assets', requireGearAgencyAccess, createGearAsset);
+router.patch('/:agencyId/assets/:assetId', requireGearAgencyAccess, updateGearAsset);
 
-router.get('/:agencyId/movements', requireAgencyAdminOrOperationsLead, listGearMovements);
+router.get('/:agencyId/movements', requireGearAgencyAccess, listGearMovements);
 
-router.get('/:agencyId/types/:typeId/issuable', requireAgencyAdminOrOperationsLead, listIssuableOptions);
+router.get('/:agencyId/types/:typeId/issuable', requireGearAgencyAccess, listIssuableOptions);
 
-router.get('/:agencyId/users/:userId/assignments', requireAgencyAdminOrOperationsLead, listUserGearAssignments);
-router.post('/:agencyId/users/:userId/issue', requireAgencyAdminOrOperationsLead, issueUserGear);
-router.post('/:agencyId/assignments/:assignmentId/return', requireAgencyAdminOrOperationsLead, returnUserGear);
-router.get('/:agencyId/users/:userId/preferences', requireAgencyAdminOrOperationsLead, getUserGearPreferences);
-router.put('/:agencyId/users/:userId/preferences', requireAgencyAdminOrOperationsLead, setUserGearPreferences);
+router.get('/:agencyId/users/:userId/assignments', requireGearAgencyAccess, listUserGearAssignments);
+router.post('/:agencyId/users/:userId/issue', requireGearAgencyAccess, issueUserGear);
+router.post('/:agencyId/assignments/:assignmentId/return', requireGearAgencyAccess, returnUserGear);
+router.get('/:agencyId/users/:userId/preferences', requireGearAgencyAccess, getUserGearPreferences);
+router.put('/:agencyId/users/:userId/preferences', requireGearAgencyAccess, setUserGearPreferences);
 
 export default router;

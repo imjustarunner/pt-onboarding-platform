@@ -1,5 +1,6 @@
 import * as gearInventory from '../services/gearInventory.service.js';
 import * as gearCatalog from '../services/gearCatalog.service.js';
+import * as gearPackages from '../services/gearPackages.service.js';
 import multer from 'multer';
 
 const upload = multer({
@@ -182,4 +183,38 @@ export const listCatalogAgencies = handle(async (req) =>
 
 export const listCatalogAgencyUsers = handle(async (req) =>
   gearCatalog.listAgencyUsersForPicker(req.user, req.params.agencyId)
+);
+
+export const listGearPackages = handle(async (req) =>
+  gearPackages.listPackages(req.user, {
+    agencyId: req.query.agencyId || null,
+    packageType: req.query.packageType || null,
+  })
+);
+
+export const getGearPackage = handle(async (req) =>
+  gearPackages.getPackage(req.user, req.params.packageId)
+);
+
+export const createGearPackage = handle(async (req) =>
+  gearPackages.createPackage(req.user, req.body || {})
+);
+
+export const updateGearPackage = handle(async (req) =>
+  gearPackages.updatePackage(req.user, req.params.packageId, req.body || {})
+);
+
+export const deleteGearPackage = handle(async (req) =>
+  gearPackages.deletePackage(req.user, req.params.packageId)
+);
+
+export const previewGearPackageIssue = handle(async (req) =>
+  gearPackages.previewPackageIssue(req.user, req.params.packageId, {
+    agencyId: req.body?.agencyId || req.query.agencyId,
+    userId: req.body?.userId || req.query.userId,
+  })
+);
+
+export const issueGearPackage = handle(async (req) =>
+  gearPackages.issuePackage(req.user, req.params.packageId, req.body || {})
 );

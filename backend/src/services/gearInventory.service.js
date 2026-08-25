@@ -130,12 +130,41 @@ const mapType = (row) => {
   };
 };
 
-const formatStockLabel = (gender, sizeLabel) => {
+const formatStockLabel = (gender, sizeLabel, color = '', decoration = '') => {
   const g = genderLabel(gender);
   const size = String(sizeLabel || '').trim();
-  if (g && size) return `${g} · ${size}`;
-  return size || g || '';
+  const parts = [];
+  if (g) parts.push(g);
+  if (size) parts.push(size);
+  const c = String(color || '').trim();
+  const d = String(decoration || '').trim();
+  if (c) parts.push(c);
+  if (d) parts.push(d);
+  return parts.join(' · ') || '';
 };
+
+/** Apparel size sort: XS → S → M → L → XL → 2XL… then numeric, then alpha. */
+export function sizeSortRank(sizeLabel) {
+  const raw = String(sizeLabel || '').trim().toUpperCase().replace(/\s+/g, '');
+  if (!raw) return 9999;
+  const named = {
+    XXS: 10, '2XS': 10,
+    XS: 20,
+    S: 30, SM: 30, SMALL: 30,
+    M: 40, MD: 40, MED: 40, MEDIUM: 40,
+    L: 50, LG: 50, LARGE: 50,
+    XL: 60, XLARGE: 60,
+    XXL: 70, '2XL': 70, '2X': 70,
+    XXXL: 80, '3XL': 80, '3X': 80,
+    '4XL': 90, '4X': 90,
+    '5XL': 100, '5X': 100,
+    OS: 200, 'ONE SIZE': 200, ONESIZE: 200,
+  };
+  if (named[raw] != null) return named[raw];
+  const m = raw.match(/^(\d+)/);
+  if (m) return 500 + Number(m[1]);
+  return 800 + raw.charCodeAt(0);
+}
 
 async function resolveAgencyId(raw) {
   const n = Number(raw || 0);
@@ -146,6 +175,8 @@ async function logMovement({
   agencyId,
   gearItemTypeId,
   sizeLabel = null,
+  color = null,
+  decoration = null,
   uniqueAssetId = null,
   userId = null,
   assignmentId = null,
@@ -156,13 +187,15 @@ async function logMovement({
 }) {
   await pool.execute(
     `INSERT INTO gear_stock_movements
-       (agency_id, gear_item_type_id, size_label, unique_asset_id, user_id, assignment_id,
+       (agency_id, gear_item_type_id, size_label, color, decoration, unique_asset_id, user_id, assignment_id,
         movement_type, quantity_delta, reason, created_by_user_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       agencyId,
       gearItemTypeId,
       sizeLabel,
+      color || null,
+      decoration || null,
       uniqueAssetId,
       userId,
       assignmentId,
@@ -473,7 +506,7 @@ export async function listStock(agencyId) {
      FROM gear_stock_levels s
      JOIN gear_item_types t ON t.id = s.gear_item_type_id
      WHERE s.agency_id = ? AND t.tracking_mode = 'SIZED_STOCK' AND t.is_active = 1
-     ORDER BY t.category, t.name, s.gender, s.size_label`,
+     ORDER BY t.category, t.name, s.gender, s.color, s.decoration, s.size_label`,
     [aid]
   );
   return (rows || []).map((r) => ({
@@ -485,19 +518,33 @@ export async function listStock(agencyId) {
     gender: r.gender || '',
     genderLabel: genderLabel(r.gender),
     sizeLabel: r.size_label,
-    displayLabel: formatStockLabel(r.gender, r.size_label),
+    color: r.color || '',
+    decoration: r.decoration || '',
+    displayLabel: formatStockLabel(r.gender, r.size_label, r.color, r.decoration),
     quantityOnHand: Number(r.quantity_on_hand || 0),
     lowStockThreshold: Number(r.low_stock_threshold ?? 2),
     isLow: Number(r.quantity_on_hand || 0) <= Number(r.low_stock_threshold ?? 2),
     isGendered: !!r.is_gendered,
+    sizeSortRank: sizeSortRank(r.size_label),
   }));
 }
 
-export async function adjustStock(agencyId, { gearItemTypeId, sizeLabel, gender = '', quantityOnHand, delta, reason }, actorUserId) {
+export async function adjustStock(agencyId, {
+  gearItemTypeId,
+  sizeLabel,
+  gender = '',
+  color = '',
+  decoration = '',
+  quantityOnHand,
+  delta,
+  reason,
+}, actorUserId) {
   const aid = await resolveAgencyId(agencyId);
   const tid = Number(gearItemTypeId || 0);
   const size = String(sizeLabel || '').trim();
   const genderKey = String(gender || '').trim().toLowerCase();
+  const colorKey = String(color || '').trim();
+  const decorationKey = String(decoration || '').trim();
   if (genderKey && !GEAR_GENDERS.includes(genderKey)) {
     throw Object.assign(new Error('Invalid gender'), { status: 400 });
   }
@@ -513,8 +560,10 @@ export async function adjustStock(agencyId, { gearItemTypeId, sizeLabel, gender 
   }
 
   const [[stock]] = await pool.execute(
-    `SELECT * FROM gear_stock_levels WHERE agency_id = ? AND gear_item_type_id = ? AND gender = ? AND size_label = ?`,
-    [aid, tid, genderKey, size]
+    `SELECT * FROM gear_stock_levels
+     WHERE agency_id = ? AND gear_item_type_id = ? AND gender = ? AND size_label = ?
+       AND color = ? AND decoration = ?`,
+    [aid, tid, genderKey, size, colorKey, decorationKey]
   );
 
   let nextQty;
@@ -529,9 +578,10 @@ export async function adjustStock(agencyId, { gearItemTypeId, sizeLabel, gender 
 
   if (!stock) {
     await pool.execute(
-      `INSERT INTO gear_stock_levels (agency_id, gear_item_type_id, gender, size_label, quantity_on_hand)
-       VALUES (?, ?, ?, ?, ?)`,
-      [aid, tid, genderKey, size, nextQty]
+      `INSERT INTO gear_stock_levels
+         (agency_id, gear_item_type_id, gender, size_label, color, decoration, quantity_on_hand)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [aid, tid, genderKey, size, colorKey, decorationKey, nextQty]
     );
   } else {
     await pool.execute(
@@ -540,13 +590,18 @@ export async function adjustStock(agencyId, { gearItemTypeId, sizeLabel, gender 
     );
   }
 
+  const variantBits = [genderKey ? genderLabel(genderKey) : '', colorKey, decorationKey].filter(Boolean).join(' · ');
   await logMovement({
     agencyId: aid,
     gearItemTypeId: tid,
     sizeLabel: size,
+    color: colorKey || null,
+    decoration: decorationKey || null,
     movementType: 'ADJUST',
     quantityDelta: qtyDelta,
-    reason: genderKey ? `${genderLabel(genderKey)} · ${reason || 'Stock adjustment'}` : (reason || 'Stock adjustment'),
+    reason: variantBits
+      ? `${variantBits} · ${reason || 'Stock adjustment'}`
+      : (reason || 'Stock adjustment'),
     createdByUserId: actorUserId,
   });
 
@@ -562,7 +617,14 @@ export async function adjustStock(agencyId, { gearItemTypeId, sizeLabel, gender 
     console.warn('[gearInventory] low-stock alert check failed:', e?.message || e);
   }
 
-  return { gearItemTypeId: tid, gender: genderKey, sizeLabel: size, quantityOnHand: nextQty };
+  return {
+    gearItemTypeId: tid,
+    gender: genderKey,
+    sizeLabel: size,
+    color: colorKey,
+    decoration: decorationKey,
+    quantityOnHand: nextQty,
+  };
 }
 
 export async function listAssets(agencyId, { gearItemTypeId = null, status = null } = {}) {
@@ -742,7 +804,9 @@ export async function listUserAssignments(agencyId, userId, { activeOnly = true 
     gender: r.gender || '',
     genderLabel: genderLabel(r.gender),
     sizeLabel: r.size_label,
-    displayLabel: r.asset_code || formatStockLabel(r.gender, r.size_label) || '—',
+    color: r.color || '',
+    decoration: r.decoration || '',
+    displayLabel: r.asset_code || formatStockLabel(r.gender, r.size_label, r.color, r.decoration) || '—',
     uniqueAssetId: r.unique_asset_id,
     assetCode: r.asset_code,
     issuedAt: r.issued_at,
@@ -756,6 +820,8 @@ export async function issueGear(agencyId, {
   gearItemTypeId,
   sizeLabel = null,
   gender = '',
+  color = '',
+  decoration = '',
   uniqueAssetId = null,
   notes = null,
 }, actorUserId) {
@@ -763,6 +829,8 @@ export async function issueGear(agencyId, {
   const uid = Number(userId || 0);
   const tid = Number(gearItemTypeId || 0);
   const genderKey = String(gender || '').trim().toLowerCase();
+  const colorKey = String(color || '').trim();
+  const decorationKey = String(decoration || '').trim();
   if (genderKey && !GEAR_GENDERS.includes(genderKey)) {
     throw Object.assign(new Error('Invalid gender'), { status: 400 });
   }
@@ -789,11 +857,12 @@ export async function issueGear(agencyId, {
       const [[stock]] = await conn.execute(
         `SELECT * FROM gear_stock_levels
          WHERE agency_id = ? AND gear_item_type_id = ? AND gender = ? AND size_label = ?
+           AND color = ? AND decoration = ?
          FOR UPDATE`,
-        [aid, tid, genderKey, size]
+        [aid, tid, genderKey, size, colorKey, decorationKey]
       );
       if (!stock || Number(stock.quantity_on_hand) < 1) {
-        const label = formatStockLabel(genderKey, size) || size;
+        const label = formatStockLabel(genderKey, size, colorKey, decorationKey) || size;
         throw Object.assign(new Error(`No stock available for ${label}`), { status: 400 });
       }
       await conn.execute(
@@ -821,21 +890,35 @@ export async function issueGear(agencyId, {
 
     const [assignResult] = await conn.execute(
       `INSERT INTO gear_assignments
-         (agency_id, user_id, gear_item_type_id, gender, size_label, unique_asset_id, issued_by_user_id, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [aid, uid, tid, genderKey, size, assetId, actorUserId || null, notes ? String(notes).trim() : null]
+         (agency_id, user_id, gear_item_type_id, gender, size_label, color, decoration,
+          unique_asset_id, issued_by_user_id, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        aid,
+        uid,
+        tid,
+        genderKey,
+        size,
+        colorKey,
+        decorationKey,
+        assetId,
+        actorUserId || null,
+        notes ? String(notes).trim() : null,
+      ]
     );
     const assignmentId = assignResult.insertId;
 
     await conn.execute(
       `INSERT INTO gear_stock_movements
-         (agency_id, gear_item_type_id, size_label, unique_asset_id, user_id, assignment_id,
+         (agency_id, gear_item_type_id, size_label, color, decoration, unique_asset_id, user_id, assignment_id,
           movement_type, quantity_delta, reason, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, 'ISSUE', ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ISSUE', ?, ?, ?)`,
       [
         aid,
         tid,
         size,
+        colorKey || null,
+        decorationKey || null,
         assetId,
         uid,
         assignmentId,
@@ -889,12 +972,42 @@ export async function returnGear(agencyId, assignmentId, actorUserId, { notes = 
     );
 
     if (assignment.tracking_mode === 'SIZED_STOCK' && assignment.size_label) {
-      await conn.execute(
-        `UPDATE gear_stock_levels
-         SET quantity_on_hand = quantity_on_hand + 1
-         WHERE agency_id = ? AND gear_item_type_id = ? AND gender = ? AND size_label = ?`,
-        [aid, assignment.gear_item_type_id, assignment.gender || '', assignment.size_label]
+      const colorKey = assignment.color || '';
+      const decorationKey = assignment.decoration || '';
+      const [[stock]] = await conn.execute(
+        `SELECT id FROM gear_stock_levels
+         WHERE agency_id = ? AND gear_item_type_id = ? AND gender = ? AND size_label = ?
+           AND color = ? AND decoration = ?
+         FOR UPDATE`,
+        [
+          aid,
+          assignment.gear_item_type_id,
+          assignment.gender || '',
+          assignment.size_label,
+          colorKey,
+          decorationKey,
+        ]
       );
+      if (stock) {
+        await conn.execute(
+          `UPDATE gear_stock_levels SET quantity_on_hand = quantity_on_hand + 1 WHERE id = ?`,
+          [stock.id]
+        );
+      } else {
+        await conn.execute(
+          `INSERT INTO gear_stock_levels
+             (agency_id, gear_item_type_id, gender, size_label, color, decoration, quantity_on_hand)
+           VALUES (?, ?, ?, ?, ?, ?, 1)`,
+          [
+            aid,
+            assignment.gear_item_type_id,
+            assignment.gender || '',
+            assignment.size_label,
+            colorKey,
+            decorationKey,
+          ]
+        );
+      }
     } else if (assignment.unique_asset_id) {
       await conn.execute(
         `UPDATE gear_unique_assets SET status = 'AVAILABLE' WHERE id = ? AND agency_id = ?`,
@@ -976,23 +1089,36 @@ export async function listIssuableStock(agencyId, gearItemTypeId) {
   if (!typeRow) throw Object.assign(new Error('Not found'), { status: 404 });
   if (typeRow.tracking_mode === 'SIZED_STOCK') {
     const [rows] = await pool.execute(
-      `SELECT gender, size_label, quantity_on_hand FROM gear_stock_levels
+      `SELECT gender, size_label, color, decoration, quantity_on_hand FROM gear_stock_levels
        WHERE agency_id = ? AND gear_item_type_id = ? AND quantity_on_hand > 0
-       ORDER BY gender, size_label`,
+       ORDER BY gender, color, decoration, size_label`,
       [aid, tid]
     );
     const sizes = (rows || []).map((r) => ({
       gender: r.gender || '',
       genderLabel: genderLabel(r.gender),
       sizeLabel: r.size_label,
-      displayLabel: formatStockLabel(r.gender, r.size_label),
+      color: r.color || '',
+      decoration: r.decoration || '',
+      displayLabel: formatStockLabel(r.gender, r.size_label, r.color, r.decoration),
       quantityOnHand: Number(r.quantity_on_hand || 0),
+      sizeSortRank: sizeSortRank(r.size_label),
     }));
+    sizes.sort((a, b) =>
+      String(a.gender).localeCompare(String(b.gender))
+      || String(a.color).localeCompare(String(b.color))
+      || String(a.decoration).localeCompare(String(b.decoration))
+      || a.sizeSortRank - b.sizeSortRank
+    );
     const genders = [...new Set(sizes.map((s) => s.gender).filter(Boolean))];
+    const colors = [...new Set(sizes.map((s) => s.color).filter(Boolean))];
+    const decorations = [...new Set(sizes.map((s) => s.decoration).filter(Boolean))];
     return {
       trackingMode: 'SIZED_STOCK',
       isGendered: !!typeRow.is_gendered,
       genders: genders.map((g) => ({ value: g, label: genderLabel(g) })),
+      colors,
+      decorations,
       sizes,
     };
   }
