@@ -59,7 +59,7 @@ router.get(
   apiLimiter,
   [
     query('agencyId').isInt({ min: 1 }),
-    query('days').optional().isInt({ min: 1, max: 30 }),
+    query('days').optional().isInt({ min: 1, max: 2555 }),
     query('archiveStatus').optional().isIn(['all', 'active', 'archived']),
     query('status').optional().isIn(['all', 'active', 'archived'])
   ],
