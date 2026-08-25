@@ -133,7 +133,7 @@ import {
   getSchoolEventsKioskSettings,
   rotateSchoolEventsKioskPin
 } from '../controllers/schoolPortalEvents.controller.js';
-import { listDistrictScheduleLinksForAgency } from '../controllers/schoolPortalDistrictSchedule.controller.js';
+import { listDistrictScheduleLinksForAgency, getDistrictScheduleVisibility, hideDistrictScheduleSchoolHandler, unhideDistrictScheduleSchoolHandler, hideDistrictScheduleProviderHandler, unhideDistrictScheduleProviderHandler, clearDistrictScheduleHidesHandler } from '../controllers/schoolPortalDistrictSchedule.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -141,6 +141,12 @@ const router = express.Router();
 // School portal routes (authenticated)
 // GET /api/school-portal/:organizationId/clients
 router.get('/district-schedule-links', authenticate, listDistrictScheduleLinksForAgency);
+router.get('/district-schedule-visibility', authenticate, getDistrictScheduleVisibility);
+router.post('/district-schedule-visibility/hide-school', authenticate, hideDistrictScheduleSchoolHandler);
+router.post('/district-schedule-visibility/unhide-school', authenticate, unhideDistrictScheduleSchoolHandler);
+router.post('/district-schedule-visibility/hide-provider', authenticate, hideDistrictScheduleProviderHandler);
+router.post('/district-schedule-visibility/unhide-provider', authenticate, unhideDistrictScheduleProviderHandler);
+router.post('/district-schedule-visibility/clear', authenticate, clearDistrictScheduleHidesHandler);
 router.get('/school-events/overview', authenticate, getSchoolEventsOverview);
 router.get('/school-events/school-year-coverage', authenticate, getSchoolYearCoverage);
 router.get('/school-events/districts', authenticate, listSchoolEventDistricts);

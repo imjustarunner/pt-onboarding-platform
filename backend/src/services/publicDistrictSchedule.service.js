@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
+import User from '../models/User.model.js';
 import config from '../config/config.js';
 import { listAffiliatedSchools } from './schoolCoverageMetrics.service.js';
 import {
@@ -329,10 +330,13 @@ export async function getPublicDistrictSchedule(agencySlug, districtSlug, req = 
   const affiliated = await listAffiliatedSchools(agency.id, { orgType: 'school' });
   const affiliatedIds = affiliated.map((s) => Number(s.id)).filter(Boolean);
   if (!affiliatedIds.length) {
+    const canManage = await actorCanManageDistrictScheduleVisibility(req?.user, agency.id);
     return {
       agency: { id: agency.id, name: agency.official_name || agency.name, slug: agency.slug || agency.portal_url, branding },
       district: { name: district.name, slug: district.slug },
       schools: [],
+      viewer: { canManageVisibility: canManage },
+      hidden: { schools: [], providers: [] },
       refreshedAt: new Date().toISOString()
     };
   }
@@ -477,6 +481,49 @@ export async function getPublicDistrictSchedule(agencySlug, districtSlug, req = 
     }
   }
 
+  const canManage = await actorCanManageDistrictScheduleVisibility(req?.user, agency.id);
+  const hides = await listDistrictScheduleHides(agency.id, district.slug);
+  const hiddenSchoolIds = new Set((hides.schools || []).map((s) => Number(s.schoolId)));
+  const hiddenProviderKeys = new Set(
+    (hides.providers || []).map((p) => `${Number(p.schoolId)}:${Number(p.providerId)}`)
+  );
+
+  // Always remove hidden entries from the public payload.
+  let visibleSchools = (schools || [])
+    .filter((s) => !hiddenSchoolIds.has(Number(s.id)))
+    .map((school) => ({
+      ...school,
+      providers: (school.providers || []).filter(
+        (p) => !hiddenProviderKeys.has(`${Number(school.id)}:${Number(p.id)}`)
+      ),
+    }));
+
+  // For managers, attach names for the hidden panel from the pre-filter snapshot.
+  const schoolNameById = new Map((schools || []).map((s) => [Number(s.id), s.name]));
+  const providerNameByKey = new Map();
+  for (const school of schools || []) {
+    for (const p of school.providers || []) {
+      providerNameByKey.set(`${Number(school.id)}:${Number(p.id)}`, p.displayName);
+    }
+  }
+  const hiddenForManager = canManage
+    ? {
+        schools: (hides.schools || []).map((s) => ({
+          schoolId: s.schoolId,
+          schoolName: s.schoolName || schoolNameById.get(s.schoolId) || `School #${s.schoolId}`,
+        })),
+        providers: (hides.providers || []).map((p) => ({
+          schoolId: p.schoolId,
+          schoolName: p.schoolName || schoolNameById.get(p.schoolId) || `School #${p.schoolId}`,
+          providerId: p.providerId,
+          providerName:
+            p.providerName
+            || providerNameByKey.get(`${p.schoolId}:${p.providerId}`)
+            || `Provider #${p.providerId}`,
+        })),
+      }
+    : { schools: [], providers: [] };
+
   return {
     agency: {
       id: agency.id,
@@ -488,7 +535,159 @@ export async function getPublicDistrictSchedule(agencySlug, districtSlug, req = 
       name: district.name,
       slug: district.slug
     },
-    schools,
+    schools: visibleSchools,
+    viewer: {
+      canManageVisibility: canManage,
+    },
+    hidden: hiddenForManager,
     refreshedAt: new Date().toISOString()
   };
 }
+
+async function actorCanManageDistrictScheduleVisibility(actor, agencyId) {
+  if (!actor?.id) return false;
+  const role = String(actor.role || '').toLowerCase();
+  if (role === 'super_admin') return true;
+  if (!['admin', 'support', 'staff'].includes(role)) return false;
+  const agencies = await User.getAgencies(actor.id);
+  return (agencies || []).some((a) => Number(a.id) === Number(agencyId));
+}
+
+export async function listDistrictScheduleHides(agencyId, districtSlug) {
+  const aid = Number(agencyId);
+  const slug = String(districtSlug || '').trim().toLowerCase();
+  if (!aid || !slug) return { schools: [], providers: [] };
+
+  const [schoolRows] = await pool.execute(
+    `SELECT h.school_organization_id AS school_id, org.name AS school_name
+     FROM district_schedule_hidden_schools h
+     LEFT JOIN agencies org ON org.id = h.school_organization_id
+     WHERE h.agency_id = ? AND h.district_slug = ?`,
+    [aid, slug]
+  );
+  const [providerRows] = await pool.execute(
+    `SELECT h.school_organization_id AS school_id,
+            h.provider_user_id AS provider_id,
+            org.name AS school_name,
+            TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) AS provider_name
+     FROM district_schedule_hidden_providers h
+     LEFT JOIN agencies org ON org.id = h.school_organization_id
+     LEFT JOIN users u ON u.id = h.provider_user_id
+     WHERE h.agency_id = ? AND h.district_slug = ?`,
+    [aid, slug]
+  );
+
+  return {
+    schools: (schoolRows || []).map((r) => ({
+      schoolId: Number(r.school_id),
+      schoolName: r.school_name || `School #${r.school_id}`,
+    })),
+    providers: (providerRows || []).map((r) => ({
+      schoolId: Number(r.school_id),
+      schoolName: r.school_name || `School #${r.school_id}`,
+      providerId: Number(r.provider_id),
+      providerName: String(r.provider_name || '').trim() || `Provider #${r.provider_id}`,
+    })),
+  };
+}
+
+export async function hideDistrictScheduleSchool(actor, { agencyId, districtSlug, schoolId }) {
+  const aid = Number(agencyId);
+  const sid = Number(schoolId);
+  const slug = String(districtSlug || '').trim().toLowerCase();
+  if (!aid || !sid || !slug) {
+    throw Object.assign(new Error('agencyId, districtSlug, and schoolId are required'), { status: 400 });
+  }
+  if (!(await actorCanManageDistrictScheduleVisibility(actor, aid))) {
+    throw Object.assign(new Error('Admin access required for this agency'), { status: 403 });
+  }
+  await pool.execute(
+    `INSERT INTO district_schedule_hidden_schools
+       (agency_id, district_slug, school_organization_id, hidden_by_user_id)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE hidden_by_user_id = VALUES(hidden_by_user_id)`,
+    [aid, slug, sid, actor?.id || null]
+  );
+  return listDistrictScheduleHides(aid, slug);
+}
+
+export async function unhideDistrictScheduleSchool(actor, { agencyId, districtSlug, schoolId }) {
+  const aid = Number(agencyId);
+  const sid = Number(schoolId);
+  const slug = String(districtSlug || '').trim().toLowerCase();
+  if (!aid || !sid || !slug) {
+    throw Object.assign(new Error('agencyId, districtSlug, and schoolId are required'), { status: 400 });
+  }
+  if (!(await actorCanManageDistrictScheduleVisibility(actor, aid))) {
+    throw Object.assign(new Error('Admin access required for this agency'), { status: 403 });
+  }
+  await pool.execute(
+    `DELETE FROM district_schedule_hidden_schools
+     WHERE agency_id = ? AND district_slug = ? AND school_organization_id = ?`,
+    [aid, slug, sid]
+  );
+  return listDistrictScheduleHides(aid, slug);
+}
+
+export async function hideDistrictScheduleProvider(actor, { agencyId, districtSlug, schoolId, providerId }) {
+  const aid = Number(agencyId);
+  const sid = Number(schoolId);
+  const pid = Number(providerId);
+  const slug = String(districtSlug || '').trim().toLowerCase();
+  if (!aid || !sid || !pid || !slug) {
+    throw Object.assign(new Error('agencyId, districtSlug, schoolId, and providerId are required'), { status: 400 });
+  }
+  if (!(await actorCanManageDistrictScheduleVisibility(actor, aid))) {
+    throw Object.assign(new Error('Admin access required for this agency'), { status: 403 });
+  }
+  await pool.execute(
+    `INSERT INTO district_schedule_hidden_providers
+       (agency_id, district_slug, school_organization_id, provider_user_id, hidden_by_user_id)
+     VALUES (?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE hidden_by_user_id = VALUES(hidden_by_user_id)`,
+    [aid, slug, sid, pid, actor?.id || null]
+  );
+  return listDistrictScheduleHides(aid, slug);
+}
+
+export async function unhideDistrictScheduleProvider(actor, { agencyId, districtSlug, schoolId, providerId }) {
+  const aid = Number(agencyId);
+  const sid = Number(schoolId);
+  const pid = Number(providerId);
+  const slug = String(districtSlug || '').trim().toLowerCase();
+  if (!aid || !sid || !pid || !slug) {
+    throw Object.assign(new Error('agencyId, districtSlug, schoolId, and providerId are required'), { status: 400 });
+  }
+  if (!(await actorCanManageDistrictScheduleVisibility(actor, aid))) {
+    throw Object.assign(new Error('Admin access required for this agency'), { status: 403 });
+  }
+  await pool.execute(
+    `DELETE FROM district_schedule_hidden_providers
+     WHERE agency_id = ? AND district_slug = ? AND school_organization_id = ?
+       AND provider_user_id = ?`,
+    [aid, slug, sid, pid]
+  );
+  return listDistrictScheduleHides(aid, slug);
+}
+
+export async function clearDistrictScheduleHides(actor, { agencyId, districtSlug }) {
+  const aid = Number(agencyId);
+  const slug = String(districtSlug || '').trim().toLowerCase();
+  if (!aid || !slug) {
+    throw Object.assign(new Error('agencyId and districtSlug are required'), { status: 400 });
+  }
+  if (!(await actorCanManageDistrictScheduleVisibility(actor, aid))) {
+    throw Object.assign(new Error('Admin access required for this agency'), { status: 403 });
+  }
+  await pool.execute(
+    `DELETE FROM district_schedule_hidden_schools WHERE agency_id = ? AND district_slug = ?`,
+    [aid, slug]
+  );
+  await pool.execute(
+    `DELETE FROM district_schedule_hidden_providers WHERE agency_id = ? AND district_slug = ?`,
+    [aid, slug]
+  );
+  return listDistrictScheduleHides(aid, slug);
+}
+
+export { actorCanManageDistrictScheduleVisibility };

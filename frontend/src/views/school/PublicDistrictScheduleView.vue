@@ -35,7 +35,7 @@
         </div>
       </div>
       <p v-if="canHide && districtSlug" class="pds-hide-hint pds-no-print">
-        Logged in: use Hide to remove a school or provider from this view and from print (testing). Does not change assignments.
+        Tenant admin: Hide removes a school or provider from this public district link for everyone (including print). Use Show all or Show to restore.
       </p>
     </section>
 
@@ -160,9 +160,9 @@
       >
         <strong>Hidden</strong>
         <ul v-if="hiddenSchools.length">
-          <li v-for="school in hiddenSchools" :key="`hs-${school.id}`">
-            School: {{ school.name }}
-            <button type="button" class="pds-link-btn" @click="unhideSchool(school.id)">Show</button>
+          <li v-for="school in hiddenSchools" :key="`hs-${school.id || school.schoolId}`">
+            School: {{ school.name || school.schoolName }}
+            <button type="button" class="pds-link-btn" @click="unhideSchool(school.id || school.schoolId)">Show</button>
           </li>
         </ul>
         <ul v-if="hiddenProviders.length">
@@ -204,10 +204,12 @@ const agency = ref(null);
 const district = ref(null);
 const districts = ref([]);
 const schools = ref([]);
-const hiddenSchoolIds = ref(new Set());
-const hiddenProviderKeys = ref(new Set());
+const canManageVisibility = ref(false);
+const serverHiddenSchools = ref([]);
+const serverHiddenProviders = ref([]);
+const hideBusy = ref(false);
 
-const canHide = computed(() => !!authStore.isAuthenticated);
+const canHide = computed(() => !!canManageVisibility.value);
 const agencyName = computed(() => agency.value?.name || 'School schedule');
 const districtName = computed(() => district.value?.name || '');
 const pageTitle = computed(() => districtName.value || 'Browse districts');
@@ -241,114 +243,125 @@ const headerLogo = computed(() => {
   return branding.value?.logoUrl || branding.value?.agencyLogoUrl || schoolLogoGreen;
 });
 
-const hideStorageKey = computed(() => {
-  const uid = authStore.user?.id || 'anon';
-  return `district-schedule-hide:${uid}:${agencySlug.value}:${districtSlug.value}`;
-});
-
-const visibleSchools = computed(() =>
-  (schools.value || []).filter((s) => !hiddenSchoolIds.value.has(Number(s.id)))
-);
+// Server already filters hidden schools/providers from `schools`.
+const visibleSchools = computed(() => schools.value || []);
 
 const hiddenSchools = computed(() =>
-  (schools.value || []).filter((s) => hiddenSchoolIds.value.has(Number(s.id)))
+  (serverHiddenSchools.value || []).map((s) => ({
+    id: s.schoolId,
+    schoolId: s.schoolId,
+    name: s.schoolName,
+    schoolName: s.schoolName,
+  }))
 );
 
-const hiddenProviders = computed(() => {
-  const out = [];
-  for (const school of schools.value || []) {
-    for (const provider of school.providers || []) {
-      const key = providerHideKey(school.id, provider.id);
-      if (!hiddenProviderKeys.value.has(key)) continue;
-      out.push({
-        schoolId: Number(school.id),
-        providerId: Number(provider.id),
-        schoolName: school.name,
-        providerName: provider.displayName
-      });
-    }
-  }
-  return out;
-});
+const hiddenProviders = computed(() => serverHiddenProviders.value || []);
 
 const hiddenCount = computed(() => hiddenSchools.value.length + hiddenProviders.value.length);
 
-function providerHideKey(schoolId, providerId) {
-  return `${Number(schoolId)}:${Number(providerId)}`;
+function applyHiddenPayload(hidden) {
+  serverHiddenSchools.value = Array.isArray(hidden?.schools) ? hidden.schools : [];
+  serverHiddenProviders.value = Array.isArray(hidden?.providers) ? hidden.providers : [];
 }
 
 function visibleProviders(school) {
-  return (school?.providers || []).filter(
-    (p) => !hiddenProviderKeys.value.has(providerHideKey(school.id, p.id))
-  );
+  return school?.providers || [];
 }
 
-function loadHideState() {
-  hiddenSchoolIds.value = new Set();
-  hiddenProviderKeys.value = new Set();
-  if (!canHide.value || !districtSlug.value) return;
+async function hideSchool(schoolId) {
+  if (!canHide.value || !agency.value?.id || hideBusy.value) return;
+  hideBusy.value = true;
+  loadError.value = '';
   try {
-    const raw = localStorage.getItem(hideStorageKey.value);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    hiddenSchoolIds.value = new Set(
-      (Array.isArray(parsed?.schools) ? parsed.schools : []).map(Number).filter(Boolean)
-    );
-    hiddenProviderKeys.value = new Set(
-      (Array.isArray(parsed?.providers) ? parsed.providers : []).map(String).filter(Boolean)
-    );
-  } catch {
-    /* ignore */
+    const res = await api.post('/school-portal/district-schedule-visibility/hide-school', {
+      agencyId: agency.value.id,
+      districtSlug: districtSlug.value,
+      schoolId: Number(schoolId),
+    });
+    applyHiddenPayload(res.data);
+    await loadDistrict({ quiet: true });
+  } catch (e) {
+    loadError.value = e?.response?.data?.error?.message || 'Failed to hide school';
+  } finally {
+    hideBusy.value = false;
   }
 }
 
-function persistHideState() {
-  if (!canHide.value || !districtSlug.value) return;
+async function unhideSchool(schoolId) {
+  if (!canHide.value || !agency.value?.id || hideBusy.value) return;
+  hideBusy.value = true;
+  loadError.value = '';
   try {
-    localStorage.setItem(
-      hideStorageKey.value,
-      JSON.stringify({
-        schools: [...hiddenSchoolIds.value],
-        providers: [...hiddenProviderKeys.value]
-      })
-    );
-  } catch {
-    /* ignore */
+    const res = await api.post('/school-portal/district-schedule-visibility/unhide-school', {
+      agencyId: agency.value.id,
+      districtSlug: districtSlug.value,
+      schoolId: Number(schoolId),
+    });
+    applyHiddenPayload(res.data);
+    await loadDistrict({ quiet: true });
+  } catch (e) {
+    loadError.value = e?.response?.data?.error?.message || 'Failed to show school';
+  } finally {
+    hideBusy.value = false;
   }
 }
 
-function hideSchool(schoolId) {
-  const next = new Set(hiddenSchoolIds.value);
-  next.add(Number(schoolId));
-  hiddenSchoolIds.value = next;
-  persistHideState();
+async function hideProvider(schoolId, providerId) {
+  if (!canHide.value || !agency.value?.id || hideBusy.value) return;
+  hideBusy.value = true;
+  loadError.value = '';
+  try {
+    const res = await api.post('/school-portal/district-schedule-visibility/hide-provider', {
+      agencyId: agency.value.id,
+      districtSlug: districtSlug.value,
+      schoolId: Number(schoolId),
+      providerId: Number(providerId),
+    });
+    applyHiddenPayload(res.data);
+    await loadDistrict({ quiet: true });
+  } catch (e) {
+    loadError.value = e?.response?.data?.error?.message || 'Failed to hide provider';
+  } finally {
+    hideBusy.value = false;
+  }
 }
 
-function unhideSchool(schoolId) {
-  const next = new Set(hiddenSchoolIds.value);
-  next.delete(Number(schoolId));
-  hiddenSchoolIds.value = next;
-  persistHideState();
+async function unhideProvider(schoolId, providerId) {
+  if (!canHide.value || !agency.value?.id || hideBusy.value) return;
+  hideBusy.value = true;
+  loadError.value = '';
+  try {
+    const res = await api.post('/school-portal/district-schedule-visibility/unhide-provider', {
+      agencyId: agency.value.id,
+      districtSlug: districtSlug.value,
+      schoolId: Number(schoolId),
+      providerId: Number(providerId),
+    });
+    applyHiddenPayload(res.data);
+    await loadDistrict({ quiet: true });
+  } catch (e) {
+    loadError.value = e?.response?.data?.error?.message || 'Failed to show provider';
+  } finally {
+    hideBusy.value = false;
+  }
 }
 
-function hideProvider(schoolId, providerId) {
-  const next = new Set(hiddenProviderKeys.value);
-  next.add(providerHideKey(schoolId, providerId));
-  hiddenProviderKeys.value = next;
-  persistHideState();
-}
-
-function unhideProvider(schoolId, providerId) {
-  const next = new Set(hiddenProviderKeys.value);
-  next.delete(providerHideKey(schoolId, providerId));
-  hiddenProviderKeys.value = next;
-  persistHideState();
-}
-
-function clearAllHides() {
-  hiddenSchoolIds.value = new Set();
-  hiddenProviderKeys.value = new Set();
-  persistHideState();
+async function clearAllHides() {
+  if (!canHide.value || !agency.value?.id || hideBusy.value) return;
+  hideBusy.value = true;
+  loadError.value = '';
+  try {
+    const res = await api.post('/school-portal/district-schedule-visibility/clear', {
+      agencyId: agency.value.id,
+      districtSlug: districtSlug.value,
+    });
+    applyHiddenPayload(res.data);
+    await loadDistrict({ quiet: true });
+  } catch (e) {
+    loadError.value = e?.response?.data?.error?.message || 'Failed to restore hidden items';
+  } finally {
+    hideBusy.value = false;
+  }
 }
 
 function districtRoute(slug) {
@@ -415,9 +428,11 @@ async function loadDirectory() {
   }
 }
 
-async function loadSchedule() {
-  loading.value = true;
-  loadError.value = '';
+async function loadSchedule({ quiet = false } = {}) {
+  if (!quiet) {
+    loading.value = true;
+    loadError.value = '';
+  }
   try {
     const res = await api.get(
       `/public/district-schedule/${encodeURIComponent(agencySlug.value)}/${encodeURIComponent(districtSlug.value)}`,
@@ -426,13 +441,22 @@ async function loadSchedule() {
     agency.value = res.data?.agency || null;
     district.value = res.data?.district || null;
     schools.value = Array.isArray(res.data?.schools) ? res.data.schools : [];
-    loadHideState();
+    canManageVisibility.value = !!res.data?.viewer?.canManageVisibility;
+    applyHiddenPayload(res.data?.hidden || { schools: [], providers: [] });
   } catch (e) {
     loadError.value = e?.response?.data?.error?.message || 'Failed to load district schedule';
-    schools.value = [];
+    if (!quiet) {
+      schools.value = [];
+      canManageVisibility.value = false;
+      applyHiddenPayload({ schools: [], providers: [] });
+    }
   } finally {
-    loading.value = false;
+    if (!quiet) loading.value = false;
   }
+}
+
+async function loadDistrict(opts) {
+  return loadSchedule(opts);
 }
 
 async function load() {
@@ -445,12 +469,22 @@ async function load() {
   else await loadDirectory();
 }
 
-onMounted(load);
+onMounted(async () => {
+  // Ensure auth store is hydrated so optional JWT is available for canManageVisibility.
+  try {
+    if (!authStore.user && localStorage.getItem('authToken')) {
+      await authStore.refreshUser?.();
+    }
+  } catch {
+    /* ignore */
+  }
+  await load();
+});
 watch([agencySlug, districtSlug], load);
 watch(
   () => authStore.isAuthenticated,
   () => {
-    if (districtSlug.value) loadHideState();
+    if (districtSlug.value) loadSchedule({ quiet: true });
   }
 );
 </script>
