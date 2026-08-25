@@ -122,7 +122,10 @@
                 <td>
                   <span class="gem-status" :class="item.status">{{ statusLabel(item.status) }}</span>
                 </td>
-                <td>{{ item.availableDisplay }}</td>
+                <td>
+                  <span>{{ item.availableDisplay }}</span>
+                  <div v-if="item.agencyCount > 1" class="muted gem-avail-sub">across agencies</div>
+                </td>
               </tr>
               <tr v-if="!items.length">
                 <td colspan="8" class="gem-empty-row">No catalog items yet. Add an item to get started.</td>
@@ -175,27 +178,38 @@
             <div><dt>Stock mode</dt><dd>{{ detail.stockModeLabel }}</dd></div>
           </dl>
 
-          <h3>Responsible by Agency</h3>
+          <h3>By Agency</h3>
+          <p class="gem-hint">Same item type across tenants — brand/stock and owners can differ per agency.</p>
           <div class="gem-agency-table">
             <div v-for="ag in detail.agencies" :key="ag.agencyId" class="gem-agency-row">
-              <div class="gem-agency-name">{{ ag.agencyName }}</div>
-              <select
-                class="gem-select gem-select--sm"
-                :value="ag.responsibleUserId || ''"
-                @change="onAssignOwner(ag.agencyId, $event.target.value)"
-              >
-                <option value="">Select person…</option>
-                <option
-                  v-for="u in usersByAgency[ag.agencyId] || []"
-                  :key="u.id"
-                  :value="u.id"
-                >{{ u.name }}</option>
-              </select>
+              <div class="gem-agency-top">
+                <div class="gem-agency-name">{{ ag.agencyName }}</div>
+                <span class="gem-status" :class="ag.status">{{ statusLabel(ag.status) }}</span>
+              </div>
+              <div class="gem-agency-stock">
+                <span class="muted">Available</span>
+                <strong>{{ ag.available ?? '—' }}</strong>
+              </div>
+              <label class="gem-agency-owner-label">
+                Responsible person
+                <select
+                  class="gem-select gem-select--sm"
+                  :value="ag.responsibleUserId || ''"
+                  @change="onAssignOwner(ag.agencyId, $event.target.value)"
+                >
+                  <option value="">Select person…</option>
+                  <option
+                    v-for="u in usersByAgency[ag.agencyId] || []"
+                    :key="u.id"
+                    :value="u.id"
+                  >{{ u.name }}</option>
+                </select>
+              </label>
               <div class="gem-agency-contact muted">
                 <span v-if="ag.owner?.email">{{ ag.owner.email }}</span>
                 <span v-if="ag.owner?.phone"> · {{ ag.owner.phone }}</span>
+                <span v-if="!ag.owner">Unassigned</span>
               </div>
-              <span class="gem-status" :class="ag.status">{{ statusLabel(ag.status) }}</span>
             </div>
           </div>
 
@@ -776,7 +790,7 @@ onMounted(reload);
 
 .gem-main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 46vw);
   gap: 16px;
   align-items: start;
 }
@@ -808,6 +822,7 @@ onMounted(reload);
 .gem-table tbody tr:hover, .gem-table tbody tr.selected { background: #f8fafc; }
 .gem-strong { font-weight: 700; }
 .muted { color: #64748b; }
+.gem-avail-sub { font-size: 0.7rem; margin-top: 2px; }
 
 .gem-thumb {
   width: 40px;
@@ -924,15 +939,36 @@ onMounted(reload);
   margin: 14px 0 8px;
   font-size: 0.95rem;
 }
-.gem-agency-table { display: grid; gap: 8px; }
+.gem-agency-table { display: grid; gap: 10px; }
 .gem-agency-row {
   border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 8px 10px;
+  border-radius: 12px;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+  background: #f8fafc;
+}
+.gem-agency-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.gem-agency-name { font-weight: 800; font-size: 0.92rem; }
+.gem-agency-stock {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.88rem;
+}
+.gem-agency-owner-label {
   display: grid;
   gap: 4px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #475569;
 }
-.gem-agency-name { font-weight: 700; font-size: 0.88rem; }
 .gem-hint { font-size: 0.82rem; color: #64748b; margin: 0 0 8px; line-height: 1.4; }
 .gem-activity { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
 .gem-activity li { font-size: 0.85rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 6px; }

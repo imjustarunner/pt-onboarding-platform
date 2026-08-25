@@ -348,6 +348,84 @@ export async function getCatalogSummary(actor) {
   };
 }
 
+/**
+ * Merge active catalog items that share the same normalized name into one shared type.
+ * Idempotent — safe to call on catalog list load.
+ */
+export async function mergeDuplicateCatalogItemsByName() {
+  const [groups] = await pool.execute(
+    `SELECT LOWER(TRIM(name)) AS nkey, MIN(id) AS keep_id, GROUP_CONCAT(id ORDER BY id) AS ids
+     FROM gear_catalog_items
+     WHERE is_active = 1
+     GROUP BY LOWER(TRIM(name))
+     HAVING COUNT(*) > 1`
+  );
+  if (!(groups || []).length) return { merged: 0 };
+
+  let merged = 0;
+  for (const g of groups) {
+    const keepId = Number(g.keep_id);
+    const ids = String(g.ids || '')
+      .split(',')
+      .map((x) => Number(x))
+      .filter((id) => id > 0 && id !== keepId);
+
+    for (const loseId of ids) {
+      const [enrolls] = await pool.execute(
+        `SELECT * FROM gear_catalog_agency WHERE catalog_item_id = ?`,
+        [loseId]
+      );
+      for (const e of enrolls || []) {
+        const [[existing]] = await pool.execute(
+          `SELECT id FROM gear_catalog_agency
+           WHERE catalog_item_id = ? AND agency_id = ? LIMIT 1`,
+          [keepId, e.agency_id]
+        );
+        if (existing?.id) {
+          await pool.execute(
+            `UPDATE gear_catalog_agency SET
+               gear_item_type_id = COALESCE(gear_item_type_id, ?),
+               responsible_user_id = COALESCE(responsible_user_id, ?),
+               manual_is_low = GREATEST(COALESCE(manual_is_low, 0), ?),
+               is_active = GREATEST(COALESCE(is_active, 0), ?),
+               low_stock_threshold = COALESCE(low_stock_threshold, ?)
+             WHERE id = ?`,
+            [
+              e.gear_item_type_id,
+              e.responsible_user_id,
+              e.manual_is_low ? 1 : 0,
+              e.is_active ? 1 : 0,
+              e.low_stock_threshold,
+              existing.id
+            ]
+          );
+          await pool.execute(`DELETE FROM gear_catalog_agency WHERE id = ?`, [e.id]);
+        } else {
+          await pool.execute(
+            `UPDATE gear_catalog_agency SET catalog_item_id = ? WHERE id = ?`,
+            [keepId, e.id]
+          );
+        }
+      }
+
+      await pool.execute(
+        `UPDATE gear_item_types SET catalog_item_id = ? WHERE catalog_item_id = ?`,
+        [keepId, loseId]
+      );
+      await pool.execute(
+        `UPDATE gear_catalog_images SET catalog_item_id = ? WHERE catalog_item_id = ?`,
+        [keepId, loseId]
+      );
+      await pool.execute(
+        `UPDATE gear_catalog_items SET is_active = 0 WHERE id = ?`,
+        [loseId]
+      );
+      merged += 1;
+    }
+  }
+  return { merged };
+}
+
 export async function listCatalog(actor, {
   agencyId = null,
   category = null,
@@ -356,6 +434,12 @@ export async function listCatalog(actor, {
   sort = 'type',
   includeInactive = false
 } = {}) {
+  try {
+    await mergeDuplicateCatalogItemsByName();
+  } catch (err) {
+    console.warn('[gearCatalog] merge duplicates failed:', err?.message || err);
+  }
+
   const agencyIds = await accessibleAgencyIds(actor);
   if (!agencyIds.length) return [];
 
@@ -568,30 +652,66 @@ export async function createCatalogItem(actor, body = {}) {
     ? JSON.stringify(body.sizeOptionsByGender || {})
     : JSON.stringify(Array.isArray(body.sizeOptions) ? body.sizeOptions : []);
 
-  const [result] = await pool.execute(
-    `INSERT INTO gear_catalog_items
-       (name, description, sku, unit, category, stock_mode, tracking_mode, size_options_json,
-        is_gendered, lifecycle_item_key, default_low_stock_threshold, allow_manual_low,
-        is_active, created_by_user_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-    [
-      name,
-      body.description ? String(body.description).trim() : null,
-      body.sku ? String(body.sku).trim().slice(0, 64) : null,
-      body.unit ? String(body.unit).trim().slice(0, 32) : 'Each',
-      category,
-      stockMode,
-      trackingMode,
-      sizeOptionsJson,
-      isGendered ? 1 : 0,
-      body.lifecycleItemKey ? String(body.lifecycleItemKey).trim() : null,
-      Number(body.defaultLowStockThreshold ?? 2),
-      body.allowManualLow === false ? 0 : 1,
-      actor?.id || null
-    ]
+  // Same item type across agencies: reuse existing catalog row by normalized name
+  const [[existingByName]] = await pool.execute(
+    `SELECT id FROM gear_catalog_items
+     WHERE is_active = 1 AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+     ORDER BY id ASC
+     LIMIT 1`,
+    [name]
   );
 
-  const catalogId = result.insertId;
+  let catalogId = existingByName?.id ? Number(existingByName.id) : null;
+
+  if (!catalogId) {
+    const [result] = await pool.execute(
+      `INSERT INTO gear_catalog_items
+         (name, description, sku, unit, category, stock_mode, tracking_mode, size_options_json,
+          is_gendered, lifecycle_item_key, default_low_stock_threshold, allow_manual_low,
+          is_active, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      [
+        name,
+        body.description ? String(body.description).trim() : null,
+        body.sku ? String(body.sku).trim().slice(0, 64) : null,
+        body.unit ? String(body.unit).trim().slice(0, 32) : 'Each',
+        category,
+        stockMode,
+        trackingMode,
+        sizeOptionsJson,
+        isGendered ? 1 : 0,
+        body.lifecycleItemKey ? String(body.lifecycleItemKey).trim() : null,
+        Number(body.defaultLowStockThreshold ?? 2),
+        body.allowManualLow === false ? 0 : 1,
+        actor?.id || null
+      ]
+    );
+    catalogId = result.insertId;
+  } else if (body.description || body.sku || body.unit || body.category || body.stockMode) {
+    // Lightly refresh shared metadata when reusing
+    await pool.execute(
+      `UPDATE gear_catalog_items
+       SET description = COALESCE(?, description),
+           sku = COALESCE(?, sku),
+           unit = COALESCE(?, unit),
+           category = ?,
+           stock_mode = ?,
+           tracking_mode = ?,
+           default_low_stock_threshold = COALESCE(?, default_low_stock_threshold)
+       WHERE id = ?`,
+      [
+        body.description ? String(body.description).trim() : null,
+        body.sku ? String(body.sku).trim().slice(0, 64) : null,
+        body.unit ? String(body.unit).trim().slice(0, 32) : null,
+        category,
+        stockMode,
+        trackingMode,
+        body.defaultLowStockThreshold != null ? Number(body.defaultLowStockThreshold) : null,
+        catalogId
+      ]
+    );
+  }
+
   const agencyIds = Array.isArray(body.agencyIds) ? body.agencyIds.map(Number).filter((n) => n > 0) : [];
   const catalog = await fetchCatalogRow(catalogId);
   const mapped = mapCatalogBase(catalog);
