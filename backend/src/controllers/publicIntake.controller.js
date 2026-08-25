@@ -11554,8 +11554,36 @@ export const getSchoolIntakeLink = async (req, res, next) => {
     }
     // Same scope rules as GET /school-portal/:organizationId/intake-links (affiliated digital forms card).
     const scopeType = orgType === 'program' ? 'program' : 'school';
-    const links = await IntakeLink.findByScope({ scopeType, organizationId: orgId, programId: null });
-    const activeLinks = (links || []).filter((l) => !!l?.is_active);
+    let links = await IntakeLink.findByScope({ scopeType, organizationId: orgId, programId: null });
+    let activeLinks = (links || []).filter((l) => !!l?.is_active);
+
+    // Schools added via Add School (no onboarding) never got EN/ES shells. Paper packets
+    // already use the agency master; seed inheriting digital shells from that master here.
+    if (!activeLinks.length && scopeType === 'school') {
+      try {
+        const agencyId =
+          (await AgencySchoolIntakeMaster.resolveParentAgencyIdForSchool(orgId)) ||
+          null;
+        if (agencyId) {
+          const { ensureDigitalIntakeFormsForSchool } = await import(
+            '../services/schoolOnboardingIntakeBootstrap.service.js'
+          );
+          await ensureDigitalIntakeFormsForSchool({
+            agencyId,
+            schoolOrganizationId: orgId,
+            schoolName: org.name,
+            createdByUserId: req.user?.id || null,
+            onlyIfMissing: true,
+            reuseSourcePublicKey: true
+          });
+          links = await IntakeLink.findByScope({ scopeType, organizationId: orgId, programId: null });
+          activeLinks = (links || []).filter((l) => !!l?.is_active);
+        }
+      } catch (e) {
+        console.warn('[getSchoolIntakeLink] auto-bootstrap failed:', e?.message || e);
+      }
+    }
+
     if (!activeLinks.length) return res.status(404).json({ error: { message: 'No intake link configured for school' } });
     const referralPool = activeLinks.filter((l) => {
       const ft = String(l?.form_type || 'intake').toLowerCase();

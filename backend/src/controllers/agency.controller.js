@@ -529,6 +529,27 @@ export const createAgency = async (req, res, next) => {
       }
     }
 
+    // Add School (and other non-onboarding creates) skip the invite flow that normally
+    // seeds EN/ES digital enrollment shells. Paper packets already use the agency master
+    // template; digital forms need per-school inheriting shells from that same master.
+    if (requestedType === 'school' && agency?.id && resolvedAffiliatedAgencyId) {
+      try {
+        const { ensureDigitalIntakeFormsForSchool } = await import(
+          '../services/schoolOnboardingIntakeBootstrap.service.js'
+        );
+        await ensureDigitalIntakeFormsForSchool({
+          agencyId: resolvedAffiliatedAgencyId,
+          schoolOrganizationId: agency.id,
+          schoolName: agency.name || name,
+          createdByUserId: req.user?.id || null,
+          onlyIfMissing: true,
+          reuseSourcePublicKey: true
+        });
+      } catch (e) {
+        console.warn('[createAgency] school digital intake bootstrap failed:', e?.message || e);
+      }
+    }
+
     // If an admin (non-super-admin) created an organization, ensure they are assigned to it
     // so it shows up in their Organization Management list immediately.
     if (req.user?.role !== 'super_admin') {

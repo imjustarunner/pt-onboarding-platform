@@ -422,7 +422,7 @@ function buildCoverPageHtml(packetContext = {}) {
   return `
     <section class="packet-cover packet-cover-designed">
       <img class="cover-photo" src="${cover}" alt="${escapeHtml(schoolName)} enrollment packet cover" />
-      <p class="cover-school-caption">${escapeHtml(schoolName)}</p>
+      <p class="cover-school-caption"><span class="cover-school-caption-text">${escapeHtml(schoolName)} Enrollment Packet</span></p>
     </section>
   `;
 }
@@ -600,15 +600,21 @@ function buildPacketStyleBlock(brand = null) {
         position: absolute;
         left: 0;
         right: 0;
-        bottom: 0.35in;
+        bottom: 0.28in;
         margin: 0;
         text-align: center;
         font-family: ${bodyFont};
         font-weight: 700;
         font-size: 16px;
         letter-spacing: 0.04em;
+      }
+      .cover-school-caption-text {
+        display: inline-block;
+        max-width: 92%;
+        padding: 0.12in 0.22in;
         color: #fff;
-        text-shadow: 0 1px 4px rgba(0,0,0,0.55);
+        background: #000;
+        line-height: 1.25;
       }
       .cover-title {
         margin: 1in auto;
@@ -1060,9 +1066,23 @@ async function renderSchoolPacketCoverPdf(packetContext = {}) {
   if (cover) {
     drawFullBleedCoverImage(page, cover, pageW, pageH);
     const tw = font.widthOfTextAtSize(title, titleSize);
+    const padX = 14;
+    const padY = 8;
+    const barH = titleSize + padY * 2;
+    const barY = 18;
+    const barW = Math.min(pageW - 48, tw + padX * 2);
+    const barX = Math.max(24, (pageW - barW) / 2);
+    // White title sits over the light left side of the cover art — black bar keeps it readable.
+    page.drawRectangle({
+      x: barX,
+      y: barY,
+      width: barW,
+      height: barH,
+      color: rgb(0, 0, 0)
+    });
     page.drawText(title, {
       x: Math.max(24, (pageW - tw) / 2),
-      y: 28,
+      y: barY + padY,
       size: titleSize,
       font,
       color: rgb(1, 1, 1)

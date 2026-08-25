@@ -215,16 +215,45 @@ export const listSchoolPortalIntakeLinks = async (req, res, next) => {
 
     try {
       const activeClause = includeInactive ? '' : 'AND is_active = 1';
-      const [rows] = await pool.execute(
-        `SELECT id, public_key, title, description, language_code, scope_type, organization_id, program_id,
-                form_type, is_active, linked_es_form_id, created_at, updated_at
-         FROM intake_links
-         WHERE scope_type = ?
-           AND organization_id = ?
-           ${activeClause}
-         ORDER BY updated_at DESC, id DESC`,
-        [scopeType, sid]
-      );
+      const loadRows = async () => {
+        const [rows] = await pool.execute(
+          `SELECT id, public_key, title, description, language_code, scope_type, organization_id, program_id,
+                  form_type, is_active, linked_es_form_id, created_at, updated_at
+           FROM intake_links
+           WHERE scope_type = ?
+             AND organization_id = ?
+             ${activeClause}
+           ORDER BY updated_at DESC, id DESC`,
+          [scopeType, sid]
+        );
+        return rows || [];
+      };
+
+      let rows = await loadRows();
+
+      // Add School without onboarding leaves no digital shells; seed from agency master.
+      if (!rows.length && scopeType === 'school') {
+        try {
+          const agencyId = await resolveActiveAgencyIdForOrg(sid);
+          if (agencyId) {
+            const { ensureDigitalIntakeFormsForSchool } = await import(
+              '../services/schoolOnboardingIntakeBootstrap.service.js'
+            );
+            await ensureDigitalIntakeFormsForSchool({
+              agencyId,
+              schoolOrganizationId: sid,
+              schoolName: org?.name,
+              createdByUserId: req.user?.id || null,
+              onlyIfMissing: true,
+              reuseSourcePublicKey: true
+            });
+            rows = await loadRows();
+          }
+        } catch (e) {
+          console.warn('[listSchoolPortalIntakeLinks] auto-bootstrap failed:', e?.message || e);
+        }
+      }
+
       res.json({
         scopeType,
         organizationId: sid,
@@ -370,9 +399,8 @@ export const createSchoolPortalIntakeLink = async (req, res, next) => {
 
     // Ensure agency master exists so this shell resolves live content immediately.
     try {
-      const AgencySchool = (await import('../models/AgencySchool.model.js')).default;
       const AgencySchoolIntakeMaster = (await import('../models/AgencySchoolIntakeMaster.model.js')).default;
-      const agencyId = await AgencySchool.getActiveAgencyIdForSchool(sid);
+      const agencyId = await resolveActiveAgencyIdForOrg(sid);
       if (agencyId) {
         await AgencySchoolIntakeMaster.getOrCreateForAgency(agencyId, {
           languageCode,
