@@ -59,33 +59,46 @@ async function resolveAccessibleAgencyIds(reqUser, requestedAgencyId = null) {
   return agencyIds;
 }
 
+function isMissingColumnError(err) {
+  return err?.code === 'ER_BAD_FIELD_ERROR' || /unknown column/i.test(String(err?.message || err?.sqlMessage || ''));
+}
+
 async function loadNoteStatusBySession(sessionIds = []) {
   const ids = [...new Set((sessionIds || []).map((id) => Number(id)).filter((id) => id > 0))];
   const map = new Map();
   if (!ids.length) return map;
   const placeholders = ids.map(() => '?').join(', ');
-  try {
-    const [rows] = await clinicalPool.execute(
-      `SELECT id, clinical_session_id, title, provider_signed_at, created_at
-       FROM clinical_notes
-       WHERE clinical_session_id IN (${placeholders}) AND is_deleted = 0
-       ORDER BY created_at DESC`,
-      ids
-    );
-    for (const note of rows || []) {
-      const sid = Number(note.clinical_session_id || 0);
-      if (!sid || map.has(sid)) continue;
-      let noteStatus = 'none';
-      if (note.provider_signed_at) noteStatus = 'signed';
-      else if (note.id) noteStatus = 'draft';
-      map.set(sid, {
-        clinicalNoteId: Number(note.id),
-        noteStatus,
-        noteTitle: note.title || null
-      });
+  const noteQueries = [
+    `SELECT id, clinical_session_id, title, provider_signed_at, created_at
+     FROM clinical_notes
+     WHERE clinical_session_id IN (${placeholders}) AND is_deleted = 0
+     ORDER BY created_at DESC`,
+    `SELECT id, clinical_session_id, title, created_at
+     FROM clinical_notes
+     WHERE clinical_session_id IN (${placeholders}) AND is_deleted = 0
+     ORDER BY created_at DESC`
+  ];
+  for (const sql of noteQueries) {
+    try {
+      const [rows] = await clinicalPool.execute(sql, ids);
+      for (const note of rows || []) {
+        const sid = Number(note.clinical_session_id || 0);
+        if (!sid || map.has(sid)) continue;
+        let noteStatus = 'none';
+        if (note.provider_signed_at) noteStatus = 'signed';
+        else if (note.id) noteStatus = 'draft';
+        map.set(sid, {
+          clinicalNoteId: Number(note.id),
+          noteStatus,
+          noteTitle: note.title || null
+        });
+      }
+      return map;
+    } catch (e) {
+      if (isClinicalDbConnectionError(e)) return map;
+      if (isMissingColumnError(e)) continue;
+      throw e;
     }
-  } catch (e) {
-    if (!isClinicalDbConnectionError(e)) throw e;
   }
   return map;
 }
@@ -189,76 +202,120 @@ async function listSessionsFromClinicalDb({
   lim
 }) {
   const agencyPh = agencyIds.map(() => '?').join(', ');
-  const params = [...agencyIds];
-  let sql = `
-    SELECT cs.id AS clinical_session_id,
-           cs.agency_id,
-           cs.client_id,
-           cs.office_event_id,
-           cs.billing_encounter_id,
-           cs.provider_user_id,
-           cs.rendering_provider_user_id,
-           cs.service_code,
-           cs.effective_service_code,
-           cs.scheduled_start_at,
-           cs.scheduled_end_at,
-           cs.encounter_status
-    FROM clinical_sessions cs
-    WHERE cs.agency_id IN (${agencyPh})
-  `;
-  if (cid) {
-    sql += ' AND cs.client_id = ?';
-    params.push(cid);
-  }
-  if (pid) {
-    sql += ' AND (cs.provider_user_id = ? OR cs.rendering_provider_user_id = ?)';
-    params.push(pid, pid);
-  }
-  if (from) {
-    sql += ' AND DATE(cs.scheduled_start_at) >= ?';
-    params.push(from);
-  }
-  if (to) {
-    sql += ' AND DATE(cs.scheduled_start_at) <= ?';
-    params.push(to);
-  }
-  sql += ` ORDER BY cs.scheduled_start_at DESC, cs.id DESC LIMIT ${lim * 3}`;
+  const baseParams = [...agencyIds];
+  if (cid) baseParams.push(cid);
+  if (from) baseParams.push(from);
+  if (to) baseParams.push(to);
 
-  try {
-    const [rows] = await clinicalPool.execute(sql, params);
-    return { sessions: rows || [], clinicalUnavailable: false };
-  } catch (e) {
-    if (e?.code === 'ER_BAD_FIELD_ERROR') {
-      const fallbackSql = `
-        SELECT cs.id AS clinical_session_id,
-               cs.agency_id,
-               cs.client_id,
-               cs.office_event_id,
-               NULL AS billing_encounter_id,
-               cs.provider_user_id,
-               cs.rendering_provider_user_id,
-               cs.service_code,
-               NULL AS effective_service_code,
-               cs.scheduled_start_at,
-               cs.scheduled_end_at,
-               cs.encounter_status
-        FROM clinical_sessions cs
-        WHERE cs.agency_id IN (${agencyPh})
-        ${cid ? ' AND cs.client_id = ?' : ''}
-        ${pid ? ' AND (cs.provider_user_id = ? OR cs.rendering_provider_user_id = ?)' : ''}
-        ${from ? ' AND DATE(cs.scheduled_start_at) >= ?' : ''}
-        ${to ? ' AND DATE(cs.scheduled_start_at) <= ?' : ''}
-        ORDER BY cs.scheduled_start_at DESC, cs.id DESC
-        LIMIT ${lim * 3}
-      `;
-      const [rows] = await clinicalPool.execute(fallbackSql, params);
+  const variants = [
+    {
+      select: `
+        cs.id AS clinical_session_id,
+        cs.agency_id,
+        cs.client_id,
+        cs.office_event_id,
+        cs.billing_encounter_id,
+        cs.provider_user_id,
+        cs.rendering_provider_user_id,
+        cs.service_code,
+        cs.effective_service_code,
+        cs.scheduled_start_at,
+        cs.scheduled_end_at,
+        cs.encounter_status`,
+      providerSql: pid ? ' AND (cs.provider_user_id = ? OR cs.rendering_provider_user_id = ?)' : '',
+      providerParams: pid ? [pid, pid] : []
+    },
+    {
+      select: `
+        cs.id AS clinical_session_id,
+        cs.agency_id,
+        cs.client_id,
+        cs.office_event_id,
+        NULL AS billing_encounter_id,
+        cs.provider_user_id,
+        cs.rendering_provider_user_id,
+        cs.service_code,
+        NULL AS effective_service_code,
+        cs.scheduled_start_at,
+        cs.scheduled_end_at,
+        cs.encounter_status`,
+      providerSql: pid ? ' AND (cs.provider_user_id = ? OR cs.rendering_provider_user_id = ?)' : '',
+      providerParams: pid ? [pid, pid] : []
+    },
+    {
+      select: `
+        cs.id AS clinical_session_id,
+        cs.agency_id,
+        cs.client_id,
+        cs.office_event_id,
+        NULL AS billing_encounter_id,
+        cs.provider_user_id,
+        NULL AS rendering_provider_user_id,
+        cs.service_code,
+        NULL AS effective_service_code,
+        cs.scheduled_start_at,
+        cs.scheduled_end_at,
+        NULL AS encounter_status`,
+      providerSql: pid ? ' AND cs.provider_user_id = ?' : '',
+      providerParams: pid ? [pid] : []
+    },
+    {
+      select: `
+        cs.id AS clinical_session_id,
+        cs.agency_id,
+        cs.client_id,
+        cs.office_event_id,
+        NULL AS billing_encounter_id,
+        cs.provider_user_id,
+        NULL AS rendering_provider_user_id,
+        NULL AS service_code,
+        NULL AS effective_service_code,
+        cs.scheduled_start_at,
+        cs.scheduled_end_at,
+        NULL AS encounter_status`,
+      providerSql: pid ? ' AND cs.provider_user_id = ?' : '',
+      providerParams: pid ? [pid] : []
+    }
+  ];
+
+  const filterSql = [
+    cid ? ' AND cs.client_id = ?' : '',
+    from ? ' AND DATE(cs.scheduled_start_at) >= ?' : '',
+    to ? ' AND DATE(cs.scheduled_start_at) <= ?' : ''
+  ].join('');
+  const fetchLimit = lim * 3;
+
+  let lastError = null;
+  for (const variant of variants) {
+    const params = [...baseParams, ...variant.providerParams];
+    const sql = `
+      SELECT ${variant.select}
+      FROM clinical_sessions cs
+      WHERE cs.agency_id IN (${agencyPh})
+      ${filterSql}
+      ${variant.providerSql}
+      ORDER BY cs.scheduled_start_at DESC, cs.id DESC
+      LIMIT ${fetchLimit}
+    `;
+    try {
+      const [rows] = await clinicalPool.execute(sql, params);
       return { sessions: rows || [], clinicalUnavailable: false };
+    } catch (e) {
+      lastError = e;
+      if (isClinicalDbConnectionError(e)) {
+        return { sessions: [], clinicalUnavailable: true };
+      }
+      if (isMissingColumnError(e)) continue;
+      throw e;
     }
-    if (isClinicalDbConnectionError(e)) {
-      return { sessions: [], clinicalUnavailable: true };
-    }
-    throw e;
   }
+
+  if (lastError && isMissingColumnError(lastError)) {
+    console.warn('[documentationQueue] clinical_sessions schema behind migrations; using main DB fallback');
+    return { sessions: [], clinicalUnavailable: true };
+  }
+  if (lastError) throw lastError;
+  return { sessions: [], clinicalUnavailable: false };
 }
 
 async function listSessionsFromMainDb({
