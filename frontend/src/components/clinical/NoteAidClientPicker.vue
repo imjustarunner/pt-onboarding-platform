@@ -51,6 +51,16 @@
           <span>{{ displayInitials(c) || '—' }}</span>
         </button>
       </li>
+      <li class="na-client-create-row">
+        <button
+          type="button"
+          class="na-link-btn na-link-btn--sm"
+          :disabled="disabled"
+          @click="emit('create-request', { query, agencyId: filterAgencyId })"
+        >
+          Create new client…
+        </button>
+      </li>
     </ul>
     <p v-else-if="open && query.trim() && !loading && !results.length" class="na-field-hint">
       No clients matched.
@@ -302,6 +312,10 @@ onBeforeUnmount(() => {
   color: #64748b;
   font-size: 0.82rem;
   white-space: nowrap;
+}
+.na-client-create-row {
+  border-top: 1px solid #e2e8f0;
+  padding: 6px 10px 8px;
 }
 .na-field-hint {
   margin: 6px 0 0;

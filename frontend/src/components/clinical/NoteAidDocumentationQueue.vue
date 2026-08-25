@@ -62,6 +62,10 @@
         Pick client first
       </button>
     </div>
+    <p class="na-doc-queue-create-hint muted">
+      Session already happened but the person isn’t in the chart yet? Pick client first, then use
+      <strong>Create client</strong> under Client Initials.
+    </p>
   </section>
 </template>
 
@@ -255,6 +259,10 @@ defineExpose({ load });
   gap: 10px;
   margin-top: 12px;
   align-items: center;
+}
+.na-doc-queue-create-hint {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
 }
 .error { color: #b91c1c; font-size: 0.85rem; }
 </style>

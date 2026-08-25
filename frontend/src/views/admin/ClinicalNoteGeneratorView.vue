@@ -174,22 +174,32 @@
                   placeholder="e.g., A.M."
                 />
                 <div
-                  v-if="initialsMatchSuggestions.length && !selectedClientId"
+                  v-if="showInitialsCreateActions && !selectedClientId"
                   class="na-initials-match"
                 >
-                  <p class="na-field-hint">Possible client match — link only if correct:</p>
-                  <button
-                    v-for="c in initialsMatchSuggestions"
-                    :key="`${c.agencyId}-${c.id}`"
-                    type="button"
-                    class="na-initials-match-btn"
-                    @click="onClientPicked(c)"
-                  >
-                    Link this note to <strong>{{ clientDisplayName(c) || c.initials }}</strong>
-                    <em v-if="clientTenantLabel(c, agencyLookup)"> · {{ clientTenantLabel(c, agencyLookup) }}</em>?
-                  </button>
+                  <template v-if="initialsMatchSuggestions.length">
+                    <p class="na-field-hint">Possible client match — link only if correct:</p>
+                    <button
+                      v-for="c in initialsMatchSuggestions"
+                      :key="`${c.agencyId}-${c.id}`"
+                      type="button"
+                      class="na-initials-match-btn"
+                      @click="onClientPicked(c)"
+                    >
+                      Link this note to <strong>{{ clientDisplayName(c) || c.initials }}</strong>
+                      <em v-if="clientTenantLabel(c, agencyLookup)"> · {{ clientTenantLabel(c, agencyLookup) }}</em>?
+                    </button>
+                  </template>
+                  <p v-else class="na-field-hint">
+                    No existing client matched these initials.
+                  </p>
                   <div class="na-initials-match-actions">
-                    <button type="button" class="na-link-btn na-link-btn--sm" @click="initialsMatchDismissed = true; initialsMatchSuggestions = []">
+                    <button
+                      v-if="initialsMatchSuggestions.length"
+                      type="button"
+                      class="na-link-btn na-link-btn--sm"
+                      @click="initialsMatchDismissed = true; initialsMatchSuggestions = []"
+                    >
                       Keep unlinked
                     </button>
                     <button type="button" class="na-link-btn na-link-btn--sm" @click="openCreateClientModal({ initials })">
@@ -792,7 +802,15 @@ const showIntakeImportReview = ref(false);
 const createClientDefaults = reactive({ initials: '', name: '', agencyId: null });
 const initialsMatchSuggestions = ref([]);
 const initialsMatchDismissed = ref(false);
+const initialsMatchSearched = ref(false);
 let initialsMatchTimer = null;
+const showInitialsCreateActions = computed(() => {
+  const typed = String(initials.value || '').trim();
+  return !selectedClientId.value
+    && !initialsMatchDismissed.value
+    && typed.length >= 2
+    && initialsMatchSearched.value;
+});
 const latestTreatmentPlan = ref(null);
 const chartDiagnoses = ref([]);
 const chartObjectiveRatings = ref([]);
@@ -2807,6 +2825,7 @@ async function searchInitialsMatches() {
   const typed = String(initials.value || '').trim();
   if (selectedClientId.value || initialsMatchDismissed.value || typed.length < 2) {
     initialsMatchSuggestions.value = [];
+    initialsMatchSearched.value = false;
     return;
   }
   try {
@@ -2823,11 +2842,14 @@ async function searchInitialsMatches() {
       .slice(0, 5);
   } catch {
     initialsMatchSuggestions.value = [];
+  } finally {
+    initialsMatchSearched.value = true;
   }
 }
 
 watch(initials, () => {
   initialsMatchDismissed.value = false;
+  initialsMatchSearched.value = false;
   if (initialsMatchTimer) clearTimeout(initialsMatchTimer);
   initialsMatchTimer = setTimeout(searchInitialsMatches, 280);
 });
