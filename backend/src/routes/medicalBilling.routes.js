@@ -18,6 +18,7 @@ const reportsGate = [...masterGate, requireMedicalBillingReportAccess];
 import {
   getMedicalBillingStatus,
   saveTreatmentPlanToChart,
+  parseTreatmentPlanImport,
   listClientChart,
   createObjectiveRating,
   listClientObjectiveRatings,
@@ -70,6 +71,18 @@ router.post(
     body('goals').optional().isArray()
   ],
   saveTreatmentPlanToChart
+);
+
+router.post(
+  '/treatment-plans/parse',
+  requireClinicalChart,
+  [
+    body('agencyId').isInt({ min: 1 }),
+    body('clientId').isInt({ min: 1 }),
+    body('text').optional().isString(),
+    body('planText').optional().isString()
+  ],
+  parseTreatmentPlanImport
 );
 
 router.get(

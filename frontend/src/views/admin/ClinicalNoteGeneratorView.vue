@@ -86,10 +86,12 @@
             <div class="na-library-client-bar">
               <NoteAidClientPicker
                 v-model="selectedClientId"
-                :agency-id="currentAgencyId"
+                :agency-id="noteAidAgencyId || currentAgencyId"
                 :selected-client="selectedClient"
+                :search-all-tenants="true"
                 @select="onClientPicked"
                 @clear="onClientCleared"
+                @create-request="openCreateClientModal"
               />
               <NoteAidClientContextPanel
                 :client-id="effectiveClientId"
@@ -104,6 +106,8 @@
                 @open-updater="openTreatmentPlanUpdater"
                 @use-intake="useIntakeToInformPlan"
                 @open-chart-intake="openClientChartIntake"
+                @import-plan="showPlanImportReview = true"
+                @import-intake="showIntakeImportReview = true"
               />
             </div>
           </template>
@@ -121,6 +125,16 @@
           </div>
           <button type="button" class="na-change-aid" @click="changeNoteAid">Change tool</button>
         </div>
+
+        <NoteAidDocumentationQueue
+          v-if="needsSessionPicker && progressEntryMode === 'appointment'"
+          :agency-id="noteAidAgencyId || currentAgencyId"
+          :client-id="selectedClientId"
+          :active="needsSessionPicker"
+          @select="onDocumentationQueueSelect"
+          @continue-unlinked="continueUnlinkedProgress"
+          @client-first="pickClientFirstProgress"
+        />
 
         <section class="na-config" :class="{ 'na-config--summary': showConfigSummary }">
           <div v-if="showConfigSummary" class="na-config-summary">
@@ -159,13 +173,42 @@
                   maxlength="16"
                   placeholder="e.g., A.M."
                 />
+                <div
+                  v-if="initialsMatchSuggestions.length && !selectedClientId"
+                  class="na-initials-match"
+                >
+                  <p class="na-field-hint">Possible client match — link only if correct:</p>
+                  <button
+                    v-for="c in initialsMatchSuggestions"
+                    :key="`${c.agencyId}-${c.id}`"
+                    type="button"
+                    class="na-initials-match-btn"
+                    @click="onClientPicked(c)"
+                  >
+                    Link this note to <strong>{{ clientDisplayName(c) || c.initials }}</strong>
+                    <em v-if="clientTenantLabel(c, agencyLookup)"> · {{ clientTenantLabel(c, agencyLookup) }}</em>?
+                  </button>
+                  <div class="na-initials-match-actions">
+                    <button type="button" class="na-link-btn na-link-btn--sm" @click="initialsMatchDismissed = true; initialsMatchSuggestions = []">
+                      Keep unlinked
+                    </button>
+                    <button type="button" class="na-link-btn na-link-btn--sm" @click="openCreateClientModal({ initials })">
+                      Create client
+                    </button>
+                  </div>
+                </div>
                 <NoteAidClientPicker
                   v-model="selectedClientId"
-                  :agency-id="currentAgencyId"
+                  :agency-id="noteAidAgencyId || currentAgencyId"
                   :selected-client="selectedClient"
+                  :search-all-tenants="true"
                   @select="onClientPicked"
                   @clear="onClientCleared"
+                  @create-request="openCreateClientModal"
                 />
+                <p v-if="progressEntryMode === 'unlinked'" class="na-field-hint">
+                  Unlinked note — date and initials only (not attached to a chart session).
+                </p>
               </div>
             </div>
 
@@ -517,21 +560,52 @@
       </button>
     </div>
 
+    <NoteAidCreateClientModal
+      :open="showCreateClientModal"
+      :default-agency-id="createClientDefaults.agencyId"
+      :default-initials="createClientDefaults.initials"
+      :default-name="createClientDefaults.name"
+      @close="showCreateClientModal = false"
+      @created="onMinimalClientCreated"
+    />
+    <NoteAidClientSetupDrawer
+      :open="showClientSetupDrawer"
+      :client="selectedClient"
+      @close="showClientSetupDrawer = false"
+      @skip="showClientSetupDrawer = false"
+      @import-plan="showClientSetupDrawer = false; showPlanImportReview = true"
+      @import-intake="showClientSetupDrawer = false; showIntakeImportReview = true"
+    />
+    <NoteAidTreatmentPlanImportReview
+      v-if="effectiveClientId && noteAidAgencyId"
+      :open="showPlanImportReview"
+      :agency-id="noteAidAgencyId"
+      :client-id="effectiveClientId"
+      :initial-text="pastedPlanText"
+      @close="showPlanImportReview = false"
+      @saved="onPlanImportSaved"
+    />
+    <NoteAidIntakeImportReview
+      v-if="effectiveClientId"
+      :open="showIntakeImportReview"
+      :client-id="effectiveClientId"
+      :initial-text="intakeSummary"
+      @close="showIntakeImportReview = false"
+      @finalized="onIntakeImportFinalized"
+    />
+
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import { useAgencyStore } from '../../store/agency';
-import { useAuthStore } from '../../store/auth';
-import { useRoute, useRouter } from 'vue-router';
-import api from '../../services/api';
-import ClinicalArtifactRetentionPanel from '../../components/clinical/ClinicalArtifactRetentionPanel.vue';
-import NoteAidLibraryPanel from '../../components/clinical/NoteAidLibraryPanel.vue';
-import ClinicalNoteLibrarySidebar from '../../components/clinical/ClinicalNoteLibrarySidebar.vue';
 import NoteAidClientPicker from '../../components/clinical/NoteAidClientPicker.vue';
 import NoteAidObjectiveRatings from '../../components/clinical/NoteAidObjectiveRatings.vue';
 import NoteAidClientContextPanel from '../../components/clinical/NoteAidClientContextPanel.vue';
+import NoteAidCreateClientModal from '../../components/clinical/NoteAidCreateClientModal.vue';
+import NoteAidClientSetupDrawer from '../../components/clinical/NoteAidClientSetupDrawer.vue';
+import NoteAidDocumentationQueue from '../../components/clinical/NoteAidDocumentationQueue.vue';
+import NoteAidTreatmentPlanImportReview from '../../components/clinical/NoteAidTreatmentPlanImportReview.vue';
+import NoteAidIntakeImportReview from '../../components/clinical/NoteAidIntakeImportReview.vue';
 import {
   buildDisplaySections,
   extractSections,
@@ -545,7 +619,11 @@ import {
   buildObjectiveRatingsContextText,
   buildTreatmentPlanContextText,
   buildUpdaterPrefillDocument,
-  clientDisplayInitials
+  clientDisplayInitials,
+  clientDisplayName,
+  clientTenantLabel,
+  initialsLikelyMatch,
+  normalizeNoteAidClientRow
 } from '../../utils/noteAidTreatmentHelpers.js';
 import { toDateOfService } from '../../utils/noteAidLaunch.js';
 import { ensureHourlySessionForNoteAid } from '../../utils/noteAidIndirectSession.js';
@@ -561,6 +639,14 @@ import {
 } from '../../config/noteAidWorkspace.js';
 import { rememberRecentAid } from '../../utils/noteAidLibraryPrefs.js';
 import { isClinicalChartEnabled, parseAgencyFeatureFlags } from '../../config/medicalBillingAccess.js';
+import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
+import { useRoute, useRouter } from 'vue-router';
+import api from '../../services/api';
+import ClinicalArtifactRetentionPanel from '../../components/clinical/ClinicalArtifactRetentionPanel.vue';
+import NoteAidLibraryPanel from '../../components/clinical/NoteAidLibraryPanel.vue';
+import ClinicalNoteLibrarySidebar from '../../components/clinical/ClinicalNoteLibrarySidebar.vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -696,6 +782,17 @@ const dateOfService = ref('');
 const initials = ref('');
 const selectedClientId = ref(null);
 const selectedClient = ref(null);
+const selectedQueueAgencyId = ref(null);
+const showProgressSessionPicker = ref(true);
+const progressEntryMode = ref('appointment'); // appointment | client | unlinked
+const showCreateClientModal = ref(false);
+const showClientSetupDrawer = ref(false);
+const showPlanImportReview = ref(false);
+const showIntakeImportReview = ref(false);
+const createClientDefaults = reactive({ initials: '', name: '', agencyId: null });
+const initialsMatchSuggestions = ref([]);
+const initialsMatchDismissed = ref(false);
+let initialsMatchTimer = null;
 const latestTreatmentPlan = ref(null);
 const chartDiagnoses = ref([]);
 const chartObjectiveRatings = ref([]);
@@ -709,6 +806,33 @@ const renewalSuggestReason = ref('');
 const loadingIntake = ref(false);
 const intakeError = ref('');
 const intakeSummary = ref('');
+
+/** Tenant context for the selected client (may differ from workspace agency). */
+const noteAidAgencyId = computed(() => {
+  const fromClient = Number(
+    selectedClient.value?.agency_id || selectedClient.value?.agencyId || 0
+  );
+  if (fromClient) return fromClient;
+  const fromQueue = Number(selectedQueueAgencyId.value || 0);
+  if (fromQueue) return fromQueue;
+  return Number(currentAgencyId.value || 0) || null;
+});
+const agencyLookup = computed(() => {
+  const map = {};
+  for (const a of agencyStore.userAgencies || []) {
+    const id = Number(a?.id || 0);
+    if (id) map[id] = a.name || a.organization_name || `Tenant #${id}`;
+  }
+  return map;
+});
+const isProgressAid = computed(() => aidKind(selectedAid.value) === 'progress');
+const needsSessionPicker = computed(() => {
+  if (!isProgressAid.value) return false;
+  if (!showProgressSessionPicker.value) return false;
+  if (bookingContext.value?.clinicalSessionId || bookingContext.value?.officeEventId) return false;
+  if (progressEntryMode.value === 'unlinked') return false;
+  return true;
+});
 const inputText = ref('');
 const includeInteractiveComplexity = ref(false);
 const inputMode = ref('type'); // type | speak
@@ -1042,6 +1166,12 @@ function changeNoteAid() {
 
 watch(selectedAidId, (aidId) => {
   const aid = findNoteAidById(aidId)?.aid;
+  if (aidKind(aid) === 'progress') {
+    const hasSession = !!(bookingContext.value?.clinicalSessionId || bookingContext.value?.officeEventId);
+    showProgressSessionPicker.value = !hasSession && progressEntryMode.value === 'appointment';
+  } else {
+    showProgressSessionPicker.value = false;
+  }
   if (!aid) return;
   if (aid.autoSelect) {
     autoSelectCode.value = true;
@@ -2241,9 +2371,9 @@ const ensureClinicalSessionForApproval = async () => {
   const existingSessionId = Number(bookingContext.value?.clinicalSessionId || 0);
   if (existingSessionId) return existingSessionId;
 
-  const agencyId = Number(currentAgencyId.value || 0);
+  const agencyId = Number(noteAidAgencyId.value || currentAgencyId.value || 0);
   const officeEventId = Number(bookingContext.value.officeEventId || 0);
-  const clientId = Number(bookingContext.value.clientId || 0);
+  const clientId = Number(bookingContext.value.clientId || selectedClientId.value || 0);
   if (!agencyId || !officeEventId || !clientId) {
     throw new Error('Missing appointment context (agencyId, officeEventId, or clientId). Open Note Aid from a booked schedule slot or a billing medical-record session.');
   }
@@ -2344,7 +2474,7 @@ const saveTreatmentPlanToChart = async () => {
       throw new Error('No Goal/Objective panels found to save.');
     }
     await api.post('/medical-billing/treatment-plans', {
-      agencyId: currentAgencyId.value,
+      agencyId: noteAidAgencyId.value || currentAgencyId.value,
       clientId,
       officeEventId: bookingContext.value?.officeEventId || null,
       clinicalSessionId: bookingContext.value?.clinicalSessionId || null,
@@ -2514,7 +2644,7 @@ const resetClientClinicalContext = () => {
 
 const loadClientTreatmentPlan = async (clientId) => {
   const cid = Number(clientId || 0);
-  const aid = Number(currentAgencyId.value || 0);
+  const aid = Number(noteAidAgencyId.value || currentAgencyId.value || 0);
   if (!cid || !aid) {
     latestTreatmentPlan.value = null;
     chartDiagnoses.value = [];
@@ -2554,21 +2684,34 @@ const loadClientIntakeSummary = async (clientId) => {
   intakeError.value = '';
   try {
     const res = await api.get(`/clients/${cid}/records-copy-blocks`, { skipGlobalLoading: true });
-    const blocks = res?.data?.blocks || res?.data || [];
-    if (Array.isArray(blocks) && blocks.length) {
-      intakeSummary.value = blocks
-        .map((b) => {
-          const title = b.title || b.label || b.name || '';
-          const text = b.text || b.content || b.body || '';
-          return [title, text].filter(Boolean).join('\n');
-        })
+    const data = res?.data || {};
+    // API returns { demographics, clinicalDeidentified, intakeNarrative } — not blocks[]
+    if (data.demographics || data.clinicalDeidentified || data.intakeNarrative) {
+      intakeSummary.value = [
+        data.demographics ? `Demographics\n${data.demographics}` : '',
+        data.clinicalDeidentified ? `Clinical (de-identified)\n${data.clinicalDeidentified}` : '',
+        data.intakeNarrative ? `Intake narrative\n${data.intakeNarrative}` : ''
+      ]
         .filter(Boolean)
         .join('\n\n')
         .slice(0, 6000);
-    } else if (typeof res?.data?.text === 'string') {
-      intakeSummary.value = res.data.text.slice(0, 6000);
     } else {
-      intakeSummary.value = '';
+      const blocks = data.blocks || (Array.isArray(data) ? data : []);
+      if (Array.isArray(blocks) && blocks.length) {
+        intakeSummary.value = blocks
+          .map((b) => {
+            const title = b.title || b.label || b.name || '';
+            const text = b.text || b.content || b.body || '';
+            return [title, text].filter(Boolean).join('\n');
+          })
+          .filter(Boolean)
+          .join('\n\n')
+          .slice(0, 6000);
+      } else if (typeof data.text === 'string') {
+        intakeSummary.value = data.text.slice(0, 6000);
+      } else {
+        intakeSummary.value = '';
+      }
     }
   } catch (e) {
     intakeSummary.value = '';
@@ -2579,10 +2722,14 @@ const loadClientIntakeSummary = async (clientId) => {
 };
 
 const onClientPicked = async (client) => {
-  selectedClient.value = client || null;
-  selectedClientId.value = Number(client?.id || 0) || null;
-  const init = clientDisplayInitials(client);
+  const normalized = normalizeNoteAidClientRow(client, agencyLookup.value) || client;
+  selectedClient.value = normalized || null;
+  selectedClientId.value = Number(normalized?.id || 0) || null;
+  selectedQueueAgencyId.value = Number(normalized?.agency_id || normalized?.agencyId || 0) || null;
+  const init = clientDisplayInitials(normalized);
   if (init) initials.value = init;
+  initialsMatchSuggestions.value = [];
+  initialsMatchDismissed.value = true;
   resetClientClinicalContext();
   await Promise.all([
     loadClientTreatmentPlan(selectedClientId.value),
@@ -2593,7 +2740,110 @@ const onClientPicked = async (client) => {
 const onClientCleared = () => {
   selectedClient.value = null;
   selectedClientId.value = null;
+  selectedQueueAgencyId.value = null;
   resetClientClinicalContext();
+};
+
+const openCreateClientModal = (opts = {}) => {
+  createClientDefaults.initials = String(opts.initials || initials.value || '').trim();
+  createClientDefaults.name = String(opts.name || opts.query || '').trim();
+  createClientDefaults.agencyId = Number(opts.agencyId || noteAidAgencyId.value || currentAgencyId.value || 0) || null;
+  showCreateClientModal.value = true;
+};
+
+const onMinimalClientCreated = async (client) => {
+  showCreateClientModal.value = false;
+  await onClientPicked(client);
+  showClientSetupDrawer.value = true;
+};
+
+const onDocumentationQueueSelect = async (row) => {
+  if (!row) return;
+  showProgressSessionPicker.value = false;
+  progressEntryMode.value = 'appointment';
+  selectedQueueAgencyId.value = Number(row.agencyId || 0) || null;
+  dateOfService.value = row.dateOfService || dateOfService.value;
+  if (row.serviceCode) selectedServiceCode.value = String(row.serviceCode).toUpperCase();
+  if (row.clientInitials) initials.value = row.clientInitials;
+  selectedClientId.value = Number(row.clientId || 0) || null;
+  selectedClient.value = normalizeNoteAidClientRow(
+    {
+      id: row.clientId,
+      agency_id: row.agencyId,
+      agency_name: row.agencyName,
+      full_name: row.clientName,
+      initials: row.clientInitials
+    },
+    agencyLookup.value
+  );
+  // Keep URL/query in sync for approve-to-clinical-record
+  const nextQuery = {
+    ...route.query,
+    clientId: String(row.clientId),
+    clinicalSessionId: String(row.clinicalSessionId),
+    dateOfService: row.dateOfService || undefined,
+    serviceCode: row.serviceCode || undefined
+  };
+  if (row.officeEventId) nextQuery.officeEventId = String(row.officeEventId);
+  router.replace({ query: nextQuery }).catch(() => {});
+  resetClientClinicalContext();
+  await Promise.all([
+    loadClientTreatmentPlan(selectedClientId.value),
+    loadClientIntakeSummary(selectedClientId.value)
+  ]);
+};
+
+const continueUnlinkedProgress = () => {
+  progressEntryMode.value = 'unlinked';
+  showProgressSessionPicker.value = false;
+};
+
+const pickClientFirstProgress = () => {
+  progressEntryMode.value = 'client';
+  showProgressSessionPicker.value = false;
+};
+
+async function searchInitialsMatches() {
+  const typed = String(initials.value || '').trim();
+  if (selectedClientId.value || initialsMatchDismissed.value || typed.length < 2) {
+    initialsMatchSuggestions.value = [];
+    return;
+  }
+  try {
+    const res = await api.get('/clients', {
+      params: { search: typed, per_page: 12, page: 1 },
+      skipGlobalLoading: true
+    });
+    const rows = Array.isArray(res?.data)
+      ? res.data
+      : res?.data?.clients || res?.data?.items || [];
+    initialsMatchSuggestions.value = rows
+      .map((r) => normalizeNoteAidClientRow(r, agencyLookup.value))
+      .filter((c) => c && initialsLikelyMatch(typed, c))
+      .slice(0, 5);
+  } catch {
+    initialsMatchSuggestions.value = [];
+  }
+}
+
+watch(initials, () => {
+  initialsMatchDismissed.value = false;
+  if (initialsMatchTimer) clearTimeout(initialsMatchTimer);
+  initialsMatchTimer = setTimeout(searchInitialsMatches, 280);
+});
+
+const onPlanImportSaved = async (plan) => {
+  showPlanImportReview.value = false;
+  if (plan) latestTreatmentPlan.value = plan;
+  await loadClientTreatmentPlan(effectiveClientId.value);
+};
+
+const onIntakeImportFinalized = async () => {
+  showIntakeImportReview.value = false;
+  await Promise.all([
+    loadClientIntakeSummary(effectiveClientId.value),
+    loadClientTreatmentPlan(effectiveClientId.value)
+  ]);
 };
 
 const onObjectiveImproved = () => {
@@ -2676,7 +2926,7 @@ const openClientChartIntake = () => {
 
 const persistSessionObjectiveRatings = async () => {
   const cid = Number(effectiveClientId.value || 0);
-  const aid = Number(currentAgencyId.value || 0);
+  const aid = Number(noteAidAgencyId.value || currentAgencyId.value || 0);
   const ratings = Array.isArray(sessionObjectiveRatings.value) ? sessionObjectiveRatings.value : [];
   if (!cid || !aid || !ratings.length) return;
   let anyImproved = false;
@@ -3700,6 +3950,38 @@ onBeforeUnmount(() => {
   font-size: 0.75rem;
   color: var(--na-muted);
   margin-bottom: 4px;
+}
+
+.na-initials-match {
+  margin: 8px 0;
+  padding: 10px;
+  border: 1px solid #99f6e4;
+  border-radius: 10px;
+  background: #f0fdfa;
+}
+.na-initials-match-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid #ccfbf1;
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 6px 0;
+  cursor: pointer;
+  font: inherit;
+}
+.na-initials-match-btn:hover { border-color: #14b8a6; }
+.na-initials-match-btn em {
+  font-style: normal;
+  color: #0f766e;
+  font-weight: 600;
+}
+.na-initials-match-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
 }
 
 .na-input,

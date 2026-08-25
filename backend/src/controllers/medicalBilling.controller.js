@@ -10,6 +10,7 @@ import ClinicalTreatmentObjectiveRating, {
 } from '../models/clinical/ClinicalTreatmentObjectiveRating.model.js';
 import {
   upsertPrimaryClinicalDiagnosis,
+  upsertClinicalDiagnosis,
   getPrimaryClinicalDiagnosis,
   attachDiagnosisToTreatmentPlan,
   attachDiagnosisToClinicalNote
@@ -147,6 +148,7 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
       clinicalSessionId: clinicalSessionId || null,
       clinicalNoteId: parseIntValue(req.body.clinicalNoteId),
       title: String(req.body.title || 'Treatment Plan').trim(),
+      effectiveDate: req.body.effectiveDate || req.body.effective_date || null,
       dischargePlan: req.body.dischargePlan ? String(req.body.dischargePlan) : null,
       sourceToolId: req.body.sourceToolId ? String(req.body.sourceToolId) : null,
       createdByUserId: req.user.id,
@@ -161,6 +163,10 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
           objectiveText: String(o.objectiveText || o.text || ''),
           scaleCurrent: o.scaleCurrent ?? null,
           scaleTarget: o.scaleTarget ?? null,
+          scaleDirection:
+            o.scaleDirection === 'increase' || o.scaleDirection === 'decrease'
+              ? o.scaleDirection
+              : null,
           measurementMethod: o.measurementMethod || null
         }))
       }))
@@ -174,7 +180,60 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
       });
     }
 
-    return res.status(201).json({ plan, primaryDiagnosisId: primaryDiagnosisId || null });
+    // Ordered multi-diagnosis list from import review
+    const planDxList = Array.isArray(req.body.diagnoses) ? req.body.diagnoses : [];
+    if (plan?.id && planDxList.length) {
+      const linked = [];
+      for (let i = 0; i < planDxList.length; i += 1) {
+        const d = planDxList[i];
+        const code = String(d.icd10Code || d.icd10_code || '').trim();
+        if (!code) continue;
+        const makePrimary = i === 0 || d.isPrimary === true;
+        const diagnosisId = await upsertClinicalDiagnosis({
+          agencyId,
+          clientId,
+          icd10Code: code,
+          description: d.description || null,
+          justification: d.justification || diagnosticJustification,
+          createdByUserId: req.user.id,
+          clinicalSessionId: clinicalSessionId || null,
+          setPrimary: makePrimary
+        });
+        linked.push({
+          diagnosisId,
+          sortOrder: i + 1,
+          isPrimary: makePrimary,
+          justification: d.justification || null
+        });
+      }
+      if (linked.length) {
+        await ClinicalTreatmentPlan.replacePlanDiagnoses({
+          planId: plan.id,
+          diagnoses: linked,
+          primaryDiagnosisId: linked.find((x) => x.isPrimary)?.diagnosisId || primaryDiagnosisId
+        });
+      }
+    }
+
+    const refreshed = plan?.id ? await ClinicalTreatmentPlan.findById(plan.id) : plan;
+    return res.status(201).json({ plan: refreshed, primaryDiagnosisId: primaryDiagnosisId || null });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/** Parse pasted treatment plan text into a review model (no persistence). */
+export const parseTreatmentPlanImport = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.body.agencyId);
+    const clientId = parseIntValue(req.body.clientId);
+    if (!agencyId || !clientId) {
+      return res.status(400).json({ error: { message: 'agencyId and clientId are required' } });
+    }
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const { parseTreatmentPlanText } = await import('../services/treatmentPlanImport.service.js');
+    const parsed = parseTreatmentPlanText(req.body.text || req.body.planText || '');
+    return res.json({ parsed });
   } catch (e) {
     next(e);
   }

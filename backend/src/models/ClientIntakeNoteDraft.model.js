@@ -135,6 +135,51 @@ class ClientIntakeNoteDraft {
     );
     return this.findById(iid);
   }
+  static async updateContent({
+    draftId,
+    noteBodyEnc = undefined,
+    noteSectionsJsonEnc = undefined,
+    sessionContextEnc = undefined,
+    suggestedDxJson = undefined,
+    confirmedDxJson = undefined,
+    status = undefined
+  }) {
+    const iid = safeInt(draftId);
+    if (!iid) throw new Error('Invalid draftId');
+    const sets = [];
+    const vals = [];
+    if (noteBodyEnc !== undefined) {
+      sets.push('note_body_enc = ?');
+      vals.push(noteBodyEnc ?? '');
+    }
+    if (noteSectionsJsonEnc !== undefined) {
+      sets.push('note_sections_json_enc = ?');
+      vals.push(noteSectionsJsonEnc ?? null);
+    }
+    if (sessionContextEnc !== undefined) {
+      sets.push('session_context_enc = ?');
+      vals.push(sessionContextEnc ?? null);
+    }
+    if (suggestedDxJson !== undefined) {
+      sets.push('suggested_dx_json = ?');
+      vals.push(suggestedDxJson ?? null);
+    }
+    if (confirmedDxJson !== undefined) {
+      sets.push('confirmed_dx_json = ?');
+      vals.push(confirmedDxJson ?? null);
+    }
+    if (status !== undefined && VALID_STATUSES.has(status)) {
+      sets.push('status = ?');
+      vals.push(status);
+    }
+    if (!sets.length) return this.findById(iid);
+    vals.push(iid);
+    await pool.execute(
+      `UPDATE client_intake_note_drafts SET ${sets.join(', ')} WHERE id = ?`,
+      vals
+    );
+    return this.findById(iid);
+  }
 }
 
 export default ClientIntakeNoteDraft;

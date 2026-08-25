@@ -56,10 +56,10 @@
         <button type="button" class="cdp-btn-soft" @click="openNoteAidUpdater">Open updater</button>
       </div>
 
-      <div v-if="activeDiagnoses.length" class="ctp-dx">
+      <div v-if="planDiagnosesDisplay.length" class="ctp-dx">
         <strong>Diagnosis on file</strong>
         <ul>
-              <li v-for="d in activeDiagnoses" :key="d.id || d.icd10_code">
+              <li v-for="d in planDiagnosesDisplay" :key="d.id || d.icd10_code || d.diagnosis_id">
                 <code>{{ d.icd10_code }}</code>
                 {{ d.description || '' }}
                 <em v-if="d.is_primary">primary</em>
@@ -67,6 +67,10 @@
               </li>
             </ul>
           </div>
+
+      <p v-if="detailPlan?.effective_date" class="muted tiny">
+        Plan date: {{ formatWhen(detailPlan.effective_date) }}
+      </p>
 
       <div v-if="structuredGoals.length" class="ctp-goals">
         <article v-for="g in structuredGoals" :key="g.id" class="ctp-goal">
@@ -86,7 +90,9 @@
             </div>
             <div class="ctp-obj__scale">
               <span>Current <strong>{{ o.scale_current ?? '—' }}</strong></span>
+              <span aria-hidden="true">→</span>
               <span>Goal <strong class="ctp-goal-num">{{ o.scale_target ?? '—' }}</strong></span>
+              <em v-if="o.scale_direction" class="ctp-dir">{{ o.scale_direction }}</em>
               <span v-if="o.measurement_method" class="muted">{{ o.measurement_method }}</span>
             </div>
             <div v-if="timelineFor(o.id).length" class="ctp-timeline">
@@ -156,6 +162,22 @@ const structuredGoals = computed(() => activePlanGoals(detailPlan.value));
 const activeDiagnoses = computed(() =>
   (diagnoses.value || []).filter((d) => d && (d.is_active == null || Number(d.is_active) === 1))
 );
+
+const planDiagnosesDisplay = computed(() => {
+  const fromPlan = Array.isArray(detailPlan.value?.planDiagnoses)
+    ? detailPlan.value.planDiagnoses
+    : [];
+  if (fromPlan.length) {
+    return fromPlan.map((d) => ({
+      id: d.id || d.diagnosis_id,
+      icd10_code: d.icd10_code,
+      description: d.description,
+      is_primary: d.is_primary,
+      justification: d.justification
+    }));
+  }
+  return activeDiagnoses.value;
+});
 
 const dischargePlan = computed(() =>
   String(detailPlan.value?.discharge_plan || detailPlan.value?.dischargePlan || '').trim()
@@ -381,6 +403,13 @@ watch(() => [props.clientId, props.agencyId], load);
   color: #334155;
 }
 .ctp-goal-num { color: #15803d; }
+.ctp-dir {
+  font-style: normal;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #0f766e;
+  text-transform: uppercase;
+}
 .ctp-timeline {
   margin-top: 10px;
   padding-top: 8px;

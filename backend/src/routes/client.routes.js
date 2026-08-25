@@ -92,7 +92,9 @@ import {
   generateClientIntakeNote,
   confirmClientIntakeDiagnosis,
   finalizeClientIntakeNote,
-  getClientRecordsCopyBlocks
+  getClientRecordsCopyBlocks,
+  importClientIntakeNote,
+  updateClientIntakeNoteSections
 } from '../controllers/clientIntakeNote.controller.js';
 import {
   getClientAgencyIntake,
@@ -267,6 +269,8 @@ router.post('/:id/onboarding/complete-staff', postCompleteStaffOnboarding);
 // Intake note pipeline (90791 / H0031 AI-assisted drafting)
 router.get('/:id/intake-note', getClientIntakeNote);
 router.post('/:id/intake-note/generate', generateClientIntakeNote);
+router.post('/:id/intake-note/import', importClientIntakeNote);
+router.patch('/:id/intake-note/:draftId/sections', updateClientIntakeNoteSections);
 router.post('/:id/intake-note/:draftId/diagnosis', confirmClientIntakeDiagnosis);
 router.post('/:id/intake-note/:draftId/finalize', finalizeClientIntakeNote);
 

@@ -614,9 +614,29 @@ export const getClients = async (req, res, next) => {
     }
 
     // Remove duplicates (in case a client appears in multiple agencies - shouldn't happen but safety)
-    const uniqueClients = Array.from(
+    let uniqueClients = Array.from(
       new Map(allClients.map(c => [c.id, c])).values()
     );
+
+    // Attach tenant display name for multi-tenant pickers (Note Aid, etc.)
+    try {
+      if (agencyIds.length) {
+        const ph = agencyIds.map(() => '?').join(',');
+        const [aRows] = await pool.execute(
+          `SELECT id, name FROM agencies WHERE id IN (${ph})`,
+          agencyIds
+        );
+        const agencyNameById = new Map(
+          (aRows || []).map((a) => [Number(a.id), a.name || null])
+        );
+        uniqueClients = uniqueClients.map((c) => ({
+          ...c,
+          agency_name: c.agency_name || agencyNameById.get(Number(c.agency_id)) || null
+        }));
+      }
+    } catch (e) {
+      console.warn('[getClients] agency_name enrichment failed', e?.message || e);
+    }
 
     // When filtering by provider_id (e.g. profile Clients tab), include CPA assignments for staff viewers.
     let providerScopedClients = uniqueClients;

@@ -55,6 +55,9 @@
           <button type="button" class="na-btn-outline" @click="$emit('open-updater')">
             Open treatment plan updater
           </button>
+          <button type="button" class="na-btn-outline" @click="$emit('import-plan')">
+            Import treatment plan
+          </button>
         </div>
       </template>
     </template>
@@ -80,7 +83,10 @@
           >
             Use intake to inform plan
           </button>
-          <button type="button" class="na-btn-outline" @click="$emit('open-chart-intake')">
+          <button type="button" class="na-btn-outline" @click="$emit('import-intake')">
+            Import intake
+          </button>
+          <button type="button" class="na-link-btn" @click="$emit('open-chart-intake')">
             Open chart intake
           </button>
         </div>
@@ -104,7 +110,7 @@ const props = defineProps({
   primaryDiagnosis: { type: Object, default: null }
 });
 
-defineEmits(['update:pastedPlanText', 'open-updater', 'use-intake', 'open-chart-intake']);
+defineEmits(['update:pastedPlanText', 'open-updater', 'use-intake', 'open-chart-intake', 'import-plan', 'import-intake']);
 
 const tab = ref('goals');
 

@@ -37,6 +37,14 @@
           {{ busy && busyAction === 'generate' ? 'Generating…' : (draft ? 'Regenerate draft' : 'Generate draft') }}
         </button>
         <button
+          type="button"
+          class="cdp-btn-soft"
+          :disabled="busy || draft?.status === 'final'"
+          @click="showImport = true"
+        >
+          Import pasted intake
+        </button>
+        <button
           v-if="draft?.sections?.length"
           type="button"
           class="cdp-btn-soft"
@@ -45,6 +53,14 @@
           Copy all sections
         </button>
       </div>
+
+      <NoteAidIntakeImportReview
+        v-if="Number(clientId || 0)"
+        :open="showImport"
+        :client-id="Number(clientId)"
+        @close="showImport = false"
+        @finalized="onImportFinalized"
+      />
 
       <section v-if="draft?.suggestedDiagnosis || draft?.confirmedDiagnosis" class="cin-dx">
         <h4>Diagnosis</h4>
@@ -144,6 +160,7 @@ import { useRouter } from 'vue-router';
 import api from '../../../services/api';
 import { useAgencyStore } from '../../../store/agency';
 import { treatmentPlanUpdaterQuery, noteAidPath } from '../../../utils/noteAidLaunch.js';
+import NoteAidIntakeImportReview from '../../clinical/NoteAidIntakeImportReview.vue';
 
 const props = defineProps({
   clientId: { type: [Number, String], required: true },
@@ -163,10 +180,15 @@ const error = ref('');
 const draft = ref(null);
 const treatmentPlan = ref(null);
 const showDxEdit = ref(false);
+const showImport = ref(false);
 const sessionContext = ref('');
 const dxEdit = ref({ code: '', description: '', justification: '', comment: '' });
 const copyFlash = ref('');
 
+async function onImportFinalized() {
+  showImport.value = false;
+  await load();
+}
 const statusLabel = computed(() => {
   const s = String(draft.value?.status || 'none');
   const map = {

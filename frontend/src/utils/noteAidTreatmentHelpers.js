@@ -181,9 +181,62 @@ export function clientDisplayInitials(client) {
 
 export function clientDisplayName(client) {
   if (!client) return '';
+  const fullName = String(client.full_name || client.fullName || '').trim();
+  if (fullName) return fullName;
   const first = String(client.first_name || client.firstName || '').trim();
   const last = String(client.last_name || client.lastName || '').trim();
   const full = `${first} ${last}`.trim();
   if (full) return full;
   return String(client.display_name || client.name || client.preferred_name || '').trim();
+}
+
+/** Tenant label for multi-tenant client pickers. */
+export function clientTenantLabel(client, agencyLookup = {}) {
+  if (!client) return '';
+  const fromRow = String(
+    client.agency_name || client.agencyName || client.organization_name || client.organizationName || ''
+  ).trim();
+  if (fromRow) return fromRow;
+  const aid = Number(client.agency_id || client.agencyId || 0);
+  if (aid && agencyLookup[aid]) return String(agencyLookup[aid]);
+  return aid ? `Tenant #${aid}` : '';
+}
+
+/**
+ * Normalize a client list row for Note Aid pickers.
+ */
+export function normalizeNoteAidClientRow(row, agencyLookup = {}) {
+  if (!row) return null;
+  const id = Number(row.id || row.clientId || 0);
+  if (!id) return null;
+  const agencyId = Number(row.agency_id || row.agencyId || 0) || null;
+  return {
+    ...row,
+    id,
+    clientId: id,
+    agencyId,
+    agency_id: agencyId,
+    full_name: row.full_name || row.fullName || clientDisplayName(row) || null,
+    initials: clientDisplayInitials(row),
+    agency_name: clientTenantLabel(row, agencyLookup) || null,
+    organization_id: Number(row.organization_id || row.organizationId || agencyId || 0) || null
+  };
+}
+
+/**
+ * Fuzzy initials match: compare normalized letters only (ignore punctuation/spaces/case).
+ */
+export function normalizeInitialsKey(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 16);
+}
+
+export function initialsLikelyMatch(typed, client) {
+  const a = normalizeInitialsKey(typed);
+  if (!a || a.length < 2) return false;
+  const b = normalizeInitialsKey(clientDisplayInitials(client) || client?.initials);
+  if (!b) return false;
+  return a === b || b.startsWith(a) || a.startsWith(b);
 }

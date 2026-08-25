@@ -14,7 +14,8 @@ class ClinicalTreatmentPlan {
     createdByUserId,
     goals = [],
     primaryDiagnosisId = null,
-    diagnosticJustification = null
+    diagnosticJustification = null,
+    effectiveDate = null
   }) {
     const conn = await clinicalPool.getConnection();
     try {
@@ -23,15 +24,16 @@ class ClinicalTreatmentPlan {
       try {
         const [result] = await conn.execute(
           `INSERT INTO clinical_treatment_plans
-           (agency_id, client_id, clinical_session_id, clinical_note_id, title, status, discharge_plan,
+           (agency_id, client_id, clinical_session_id, clinical_note_id, title, effective_date, status, discharge_plan,
             source_tool_id, created_by_user_id, primary_diagnosis_id, diagnostic_justification)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             agencyId,
             clientId,
             clinicalSessionId,
             clinicalNoteId,
             title,
+            effectiveDate || null,
             status,
             dischargePlan,
             sourceToolId,
@@ -43,23 +45,47 @@ class ClinicalTreatmentPlan {
         planId = result.insertId;
       } catch (e) {
         if (e.code !== 'ER_BAD_FIELD_ERROR') throw e;
-        const [result] = await conn.execute(
-          `INSERT INTO clinical_treatment_plans
-           (agency_id, client_id, clinical_session_id, clinical_note_id, title, status, discharge_plan, source_tool_id, created_by_user_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            agencyId,
-            clientId,
-            clinicalSessionId,
-            clinicalNoteId,
-            title,
-            status,
-            dischargePlan,
-            sourceToolId,
-            createdByUserId
-          ]
-        );
-        planId = result.insertId;
+        try {
+          const [result] = await conn.execute(
+            `INSERT INTO clinical_treatment_plans
+             (agency_id, client_id, clinical_session_id, clinical_note_id, title, status, discharge_plan,
+              source_tool_id, created_by_user_id, primary_diagnosis_id, diagnostic_justification)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              agencyId,
+              clientId,
+              clinicalSessionId,
+              clinicalNoteId,
+              title,
+              status,
+              dischargePlan,
+              sourceToolId,
+              createdByUserId,
+              primaryDiagnosisId || null,
+              diagnosticJustification || null
+            ]
+          );
+          planId = result.insertId;
+        } catch (e2) {
+          if (e2.code !== 'ER_BAD_FIELD_ERROR') throw e2;
+          const [result] = await conn.execute(
+            `INSERT INTO clinical_treatment_plans
+             (agency_id, client_id, clinical_session_id, clinical_note_id, title, status, discharge_plan, source_tool_id, created_by_user_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              agencyId,
+              clientId,
+              clinicalSessionId,
+              clinicalNoteId,
+              title,
+              status,
+              dischargePlan,
+              sourceToolId,
+              createdByUserId
+            ]
+          );
+          planId = result.insertId;
+        }
       }
       for (const g of goals || []) {
         const goalText = g.goalText || '';
@@ -86,19 +112,38 @@ class ClinicalTreatmentPlan {
         }
         for (const o of g.objectives || []) {
           const objectiveText = o.objectiveText || '';
-          const [oRes] = await conn.execute(
-            `INSERT INTO clinical_treatment_plan_objectives
-             (goal_id, objective_index, objective_text, scale_current, scale_target, measurement_method)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [
-              goalId,
-              o.objectiveIndex || 1,
-              objectiveText,
-              o.scaleCurrent ?? null,
-              o.scaleTarget ?? null,
-              o.measurementMethod || null
-            ]
-          );
+          let oRes;
+          try {
+            [oRes] = await conn.execute(
+              `INSERT INTO clinical_treatment_plan_objectives
+               (goal_id, objective_index, objective_text, scale_current, scale_target, scale_direction, measurement_method)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              [
+                goalId,
+                o.objectiveIndex || 1,
+                objectiveText,
+                o.scaleCurrent ?? null,
+                o.scaleTarget ?? null,
+                o.scaleDirection === 'increase' || o.scaleDirection === 'decrease' ? o.scaleDirection : null,
+                o.measurementMethod || null
+              ]
+            );
+          } catch (objErr) {
+            if (objErr.code !== 'ER_BAD_FIELD_ERROR') throw objErr;
+            [oRes] = await conn.execute(
+              `INSERT INTO clinical_treatment_plan_objectives
+               (goal_id, objective_index, objective_text, scale_current, scale_target, measurement_method)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+              [
+                goalId,
+                o.objectiveIndex || 1,
+                objectiveText,
+                o.scaleCurrent ?? null,
+                o.scaleTarget ?? null,
+                o.measurementMethod || null
+              ]
+            );
+          }
           try {
             await conn.execute(
               `UPDATE clinical_treatment_plan_objectives
@@ -144,20 +189,105 @@ class ClinicalTreatmentPlan {
       );
       outGoals.push({ ...g, objectives: objs || [] });
     }
-    return { ...plan, goals: outGoals };
+    let planDiagnoses = [];
+    try {
+      const [dxRows] = await clinicalPool.execute(
+        `SELECT pd.id, pd.treatment_plan_id, pd.diagnosis_id, pd.sort_order, pd.is_primary, pd.justification,
+                d.icd10_code, d.description
+         FROM clinical_treatment_plan_diagnoses pd
+         INNER JOIN clinical_diagnoses d ON d.id = pd.diagnosis_id
+         WHERE pd.treatment_plan_id = ?
+         ORDER BY pd.sort_order ASC, pd.id ASC`,
+        [id]
+      );
+      planDiagnoses = dxRows || [];
+    } catch (e) {
+      if (e.code !== 'ER_NO_SUCH_TABLE' && e.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    }
+    return { ...plan, goals: outGoals, planDiagnoses };
   }
 
   static async listByClient({ agencyId, clientId }) {
-    const [rows] = await clinicalPool.execute(
-      `SELECT id, agency_id, client_id, clinical_session_id, clinical_note_id, title, status, source_tool_id, created_at, updated_at
-       FROM clinical_treatment_plans
-       WHERE agency_id = ? AND client_id = ?
-       ORDER BY created_at DESC`,
-      [agencyId, clientId]
-    );
-    return rows || [];
+    try {
+      const [rows] = await clinicalPool.execute(
+        `SELECT id, agency_id, client_id, clinical_session_id, clinical_note_id, title, effective_date,
+                status, source_tool_id, primary_diagnosis_id, created_at, updated_at
+         FROM clinical_treatment_plans
+         WHERE agency_id = ? AND client_id = ?
+         ORDER BY COALESCE(effective_date, DATE(created_at)) DESC, created_at DESC`,
+        [agencyId, clientId]
+      );
+      return rows || [];
+    } catch (e) {
+      if (e.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [rows] = await clinicalPool.execute(
+        `SELECT id, agency_id, client_id, clinical_session_id, clinical_note_id, title, status, source_tool_id, created_at, updated_at
+         FROM clinical_treatment_plans
+         WHERE agency_id = ? AND client_id = ?
+         ORDER BY created_at DESC`,
+        [agencyId, clientId]
+      );
+      return rows || [];
+    }
   }
 
+  /**
+   * Replace ordered diagnosis links for a plan. Keeps primary_diagnosis_id in sync.
+   */
+  static async replacePlanDiagnoses({
+    planId,
+    diagnoses = [],
+    primaryDiagnosisId = null
+  }) {
+    const pid = Number(planId || 0);
+    if (!pid) return [];
+    const conn = await clinicalPool.getConnection();
+    try {
+      await conn.beginTransaction();
+      try {
+        await conn.execute(`DELETE FROM clinical_treatment_plan_diagnoses WHERE treatment_plan_id = ?`, [pid]);
+        let primaryId = Number(primaryDiagnosisId || 0) || null;
+        for (let i = 0; i < (diagnoses || []).length; i += 1) {
+          const d = diagnoses[i];
+          const diagnosisId = Number(d.diagnosisId || d.diagnosis_id || d.id || 0);
+          if (!diagnosisId) continue;
+          const isPrimary = d.isPrimary === true || d.is_primary === true || d.isPrimary === 1 || Number(d.is_primary) === 1
+            || (!primaryId && i === 0);
+          if (isPrimary) primaryId = diagnosisId;
+          await conn.execute(
+            `INSERT INTO clinical_treatment_plan_diagnoses
+             (treatment_plan_id, diagnosis_id, sort_order, is_primary, justification)
+             VALUES (?, ?, ?, ?, ?)`,
+            [
+              pid,
+              diagnosisId,
+              Number(d.sortOrder || d.sort_order || i + 1),
+              isPrimary ? 1 : 0,
+              d.justification ? String(d.justification) : null
+            ]
+          );
+        }
+        if (primaryId) {
+          try {
+            await conn.execute(
+              `UPDATE clinical_treatment_plans SET primary_diagnosis_id = ? WHERE id = ?`,
+              [primaryId, pid]
+            );
+          } catch {
+            // column may be missing pre-006
+          }
+        }
+        await conn.commit();
+      } catch (e) {
+        await conn.rollback();
+        if (e.code === 'ER_NO_SUCH_TABLE') return [];
+        throw e;
+      }
+      return this.findById(pid);
+    } finally {
+      conn.release();
+    }
+  }
   /**
    * Identity-lock amend:
    * - scale_target / projected_completion / measurement_method only → update in place

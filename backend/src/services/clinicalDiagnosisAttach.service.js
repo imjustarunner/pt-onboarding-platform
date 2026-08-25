@@ -6,10 +6,11 @@ function safeInt(v) {
 }
 
 /**
- * Upsert a primary clinical diagnosis for a client (demotes other primaries).
- * Returns the diagnosis row id.
+ * Upsert a clinical diagnosis for a client.
+ * When setPrimary is true, demotes other primaries and marks this one primary.
+ * When false, leaves existing primary flags alone (and inserts with is_primary=0).
  */
-export async function upsertPrimaryClinicalDiagnosis({
+export async function upsertClinicalDiagnosis({
   agencyId,
   clientId,
   icd10Code,
@@ -17,7 +18,8 @@ export async function upsertPrimaryClinicalDiagnosis({
   justification = null,
   createdByUserId,
   clinicalSessionId = null,
-  clinicalNoteId = null
+  clinicalNoteId = null,
+  setPrimary = false
 }) {
   const agency = safeInt(agencyId);
   const client = safeInt(clientId);
@@ -31,15 +33,15 @@ export async function upsertPrimaryClinicalDiagnosis({
   try {
     await conn.beginTransaction();
 
-    // Demote existing primaries for this client
-    await conn.execute(
-      `UPDATE clinical_diagnoses
-       SET is_primary = 0
-       WHERE agency_id = ? AND client_id = ? AND is_primary = 1 AND is_active = 1`,
-      [agency, client]
-    );
+    if (setPrimary) {
+      await conn.execute(
+        `UPDATE clinical_diagnoses
+         SET is_primary = 0
+         WHERE agency_id = ? AND client_id = ? AND is_primary = 1 AND is_active = 1`,
+        [agency, client]
+      );
+    }
 
-    // Prefer reactivating / updating matching active code
     const [existing] = await conn.execute(
       `SELECT id FROM clinical_diagnoses
        WHERE agency_id = ? AND client_id = ? AND icd10_code = ? AND is_active = 1
@@ -49,13 +51,14 @@ export async function upsertPrimaryClinicalDiagnosis({
     );
 
     let diagnosisId = existing?.[0]?.id || null;
+    const primaryFlag = setPrimary ? 1 : 0;
     if (diagnosisId) {
       try {
         await conn.execute(
           `UPDATE clinical_diagnoses
            SET description = COALESCE(?, description),
                justification = COALESCE(?, justification),
-               is_primary = 1,
+               is_primary = CASE WHEN ? = 1 THEN 1 ELSE is_primary END,
                is_active = 1,
                clinical_session_id = COALESCE(?, clinical_session_id),
                clinical_note_id = COALESCE(?, clinical_note_id)
@@ -63,21 +66,21 @@ export async function upsertPrimaryClinicalDiagnosis({
           [
             description ? String(description).slice(0, 500) : null,
             justification ? String(justification) : null,
+            primaryFlag,
             safeInt(clinicalSessionId),
             safeInt(clinicalNoteId),
             diagnosisId
           ]
         );
       } catch (e) {
-        // justification column may not exist yet
         if (e.code === 'ER_BAD_FIELD_ERROR') {
           await conn.execute(
             `UPDATE clinical_diagnoses
              SET description = COALESCE(?, description),
-                 is_primary = 1,
+                 is_primary = CASE WHEN ? = 1 THEN 1 ELSE is_primary END,
                  is_active = 1
              WHERE id = ?`,
-            [description ? String(description).slice(0, 500) : null, diagnosisId]
+            [description ? String(description).slice(0, 500) : null, primaryFlag, diagnosisId]
           );
         } else {
           throw e;
@@ -89,7 +92,7 @@ export async function upsertPrimaryClinicalDiagnosis({
           `INSERT INTO clinical_diagnoses
            (agency_id, client_id, clinical_session_id, clinical_note_id, icd10_code, description,
             justification, is_primary, is_active, created_by_user_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
           [
             agency,
             client,
@@ -98,6 +101,7 @@ export async function upsertPrimaryClinicalDiagnosis({
             code,
             description ? String(description).slice(0, 500) : null,
             justification ? String(justification) : null,
+            primaryFlag,
             actor
           ]
         );
@@ -108,7 +112,7 @@ export async function upsertPrimaryClinicalDiagnosis({
             `INSERT INTO clinical_diagnoses
              (agency_id, client_id, clinical_session_id, clinical_note_id, icd10_code, description,
               is_primary, is_active, created_by_user_id)
-             VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
             [
               agency,
               client,
@@ -116,6 +120,7 @@ export async function upsertPrimaryClinicalDiagnosis({
               safeInt(clinicalNoteId),
               code,
               description ? String(description).slice(0, 500) : null,
+              primaryFlag,
               actor
             ]
           );
@@ -134,6 +139,14 @@ export async function upsertPrimaryClinicalDiagnosis({
   } finally {
     conn.release();
   }
+}
+
+/**
+ * Upsert a primary clinical diagnosis for a client (demotes other primaries).
+ * Returns the diagnosis row id.
+ */
+export async function upsertPrimaryClinicalDiagnosis(args) {
+  return upsertClinicalDiagnosis({ ...args, setPrimary: true });
 }
 
 export async function getPrimaryClinicalDiagnosis({ agencyId, clientId }) {
@@ -201,6 +214,7 @@ export async function attachDiagnosisToClinicalNote({
 }
 
 export default {
+  upsertClinicalDiagnosis,
   upsertPrimaryClinicalDiagnosis,
   getPrimaryClinicalDiagnosis,
   attachDiagnosisToTreatmentPlan,

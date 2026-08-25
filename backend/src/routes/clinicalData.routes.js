@@ -10,12 +10,31 @@ import {
   softDeleteClinicalRecord,
   restoreClinicalRecord,
   setClinicalRecordLegalHold,
-  releaseClinicalRecordLegalHold
+  releaseClinicalRecordLegalHold,
+  listDocumentationQueue
 } from '../controllers/clinicalData.controller.js';
 
 const router = express.Router();
 
 router.use(authenticate, requireActiveStatus);
+
+router.get(
+  '/documentation-queue',
+  [
+    query('agencyId').optional().isInt({ min: 1 }),
+    query('agency_id').optional().isInt({ min: 1 }),
+    query('clientId').optional().isInt({ min: 1 }),
+    query('client_id').optional().isInt({ min: 1 }),
+    query('providerUserId').optional().isInt({ min: 1 }),
+    query('noteStatus').optional().isIn(['none', 'draft', 'signed', 'undocumented', 'all']),
+    query('note_status').optional().isIn(['none', 'draft', 'signed', 'undocumented', 'all']),
+    query('fromDos').optional().isString(),
+    query('toDos').optional().isString(),
+    query('search').optional().isString(),
+    query('limit').optional().isInt({ min: 1, max: 300 })
+  ],
+  listDocumentationQueue
+);
 
 router.post(
   '/sessions/bootstrap',

@@ -602,6 +602,18 @@ class OfficeEvent {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
       // Pre-migration fallback: keep existing row untouched.
     }
+    // Keep unified appointments aligned with office_events clinical session linkage.
+    try {
+      await pool.execute(
+        `UPDATE appointments
+         SET clinical_session_id = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE office_event_id = ?`,
+        [clinicalSessionId, eventId]
+      );
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    }
     return await this.findById(eventId);
   }
 

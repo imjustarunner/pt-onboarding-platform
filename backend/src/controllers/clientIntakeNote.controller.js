@@ -1297,3 +1297,165 @@ function parseSections(text) {
   flush();
   return Object.keys(sections).length ? sections : null;
 }
+
+/**
+ * POST /clients/:id/intake-note/import
+ * Parse pasted intake text into a reviewable draft (sections preserved).
+ * Body: { text, sections?, diagnosis?, serviceCode?, sessionContext? }
+ */
+export const importClientIntakeNote = async (req, res, next) => {
+  try {
+    const clientId = safeInt(req.params.id);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const access = await ensureClientAccess({ userId: req.user.id, role: req.user.role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const agencyId = safeInt(access.client?.agency_id);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Client has no agency' } });
+
+    const { parseIntakeSections } = await import('../services/intakeImport.service.js');
+    const rawText = String(req.body?.text || req.body?.intakeText || '').trim();
+    let sectionsInput = Array.isArray(req.body?.sections) ? req.body.sections : null;
+    if (!sectionsInput) {
+      const parsed = parseIntakeSections(rawText);
+      sectionsInput = parsed.sections;
+    }
+
+    const normalizedSections = (sectionsInput || []).map((sec, index) => ({
+      key: String(sec.key || sec.title || sec.label || `section_${index + 1}`),
+      label: String(sec.title || sec.label || sec.key || `Section ${index + 1}`),
+      body: String(sec.content || sec.body || '').trim(),
+      order: Number(sec.order || index + 1)
+    })).filter((s) => s.body);
+
+    const noteBody = normalizedSections
+      .map((s) => `${s.label}\n${s.body}`)
+      .join('\n\n')
+      .slice(0, 50000);
+
+    let diagnosis = req.body?.diagnosis || null;
+    if (!diagnosis) {
+      diagnosis = extractSuggestedDiagnosis(rawText || noteBody);
+    }
+    if (diagnosis && !diagnosis.code && diagnosis.icd10Code) {
+      diagnosis = {
+        code: diagnosis.icd10Code,
+        description: diagnosis.description || '',
+        justification: diagnosis.justification || ''
+      };
+    }
+
+    const serviceCode = String(req.body?.serviceCode || '90791').trim().toUpperCase();
+    const toolId = serviceCode === 'H0031' ? 'clinical_h0031_intake' : 'clinical_90791_intake_plan';
+
+    const status = diagnosis?.code ? 'ready' : 'diagnosis_pending';
+    const noteBodyEnc = maybeEncryptNotePayload(noteBody);
+    const noteSectionsJsonEnc = maybeEncryptNotePayload(JSON.stringify(normalizedSections));
+    const sessionContextEnc = req.body?.sessionContext
+      ? maybeEncryptNotePayload(JSON.stringify(req.body.sessionContext))
+      : null;
+
+    const draft = await ClientIntakeNoteDraft.create({
+      agencyId,
+      clientId,
+      providerUserId: req.user.id,
+      serviceCode: ['90791', 'H0031'].includes(serviceCode) ? serviceCode : '90791',
+      toolId,
+      status,
+      scrubbedInputEnc: maybeEncryptNotePayload(rawText.slice(0, 20000)),
+      noteBodyEnc,
+      noteSectionsJsonEnc,
+      sessionContextEnc,
+      suggestedDxJson: diagnosis ? JSON.stringify(diagnosis) : null
+    });
+
+    if (diagnosis?.code && status === 'ready') {
+      await ClientIntakeNoteDraft.updateStatus({
+        draftId: draft.id,
+        status: 'ready',
+        diagnosisAction: 'confirmed',
+        confirmedDxJson: JSON.stringify(diagnosis)
+      });
+    }
+
+    const refreshed = await ClientIntakeNoteDraft.findById(draft.id);
+    return res.status(201).json({
+      draft: formatDraftResponse(refreshed),
+      parsed: { sections: normalizedSections, diagnosis }
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * PATCH /clients/:id/intake-note/:draftId/sections
+ * Update reviewed sections / diagnosis before finalize.
+ */
+export const updateClientIntakeNoteSections = async (req, res, next) => {
+  try {
+    const clientId = safeInt(req.params.id);
+    const draftId = safeInt(req.params.draftId);
+    if (!clientId || !draftId) {
+      return res.status(400).json({ error: { message: 'Invalid client id or draftId' } });
+    }
+
+    const access = await ensureClientAccess({ userId: req.user.id, role: req.user.role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const agencyId = safeInt(access.client?.agency_id);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Client has no agency' } });
+
+    const draft = await ClientIntakeNoteDraft.findForClient({ draftId, clientId, agencyId });
+    if (!draft) return res.status(404).json({ error: { message: 'Draft not found' } });
+    if (draft.status === 'final') {
+      return res.status(409).json({ error: { message: 'Intake note is already finalized' } });
+    }
+
+    const sectionsInput = Array.isArray(req.body?.sections) ? req.body.sections : null;
+    let noteBodyEnc;
+    let noteSectionsJsonEnc;
+    if (sectionsInput) {
+      const normalizedSections = sectionsInput.map((sec, index) => ({
+        key: String(sec.key || sec.title || sec.label || `section_${index + 1}`),
+        label: String(sec.title || sec.label || sec.key || `Section ${index + 1}`),
+        body: String(sec.content || sec.body || '').trim(),
+        order: Number(sec.order || index + 1)
+      })).filter((s) => s.body);
+      const noteBody = normalizedSections
+        .map((s) => `${s.label}\n${s.body}`)
+        .join('\n\n')
+        .slice(0, 50000);
+      noteBodyEnc = maybeEncryptNotePayload(noteBody);
+      noteSectionsJsonEnc = maybeEncryptNotePayload(JSON.stringify(normalizedSections));
+    }
+
+    let confirmedDxJson;
+    let status;
+    if (req.body?.diagnosis) {
+      const d = req.body.diagnosis;
+      const diagnosis = {
+        code: String(d.code || d.icd10Code || d.icd10_code || '').trim(),
+        description: String(d.description || '').trim(),
+        justification: String(d.justification || '').trim()
+      };
+      if (diagnosis.code) {
+        confirmedDxJson = JSON.stringify(diagnosis);
+        status = 'ready';
+      }
+    }
+
+    const updated = await ClientIntakeNoteDraft.updateContent({
+      draftId,
+      noteBodyEnc,
+      noteSectionsJsonEnc,
+      confirmedDxJson,
+      status
+    });
+
+    return res.json({ draft: formatDraftResponse(updated) });
+  } catch (e) {
+    next(e);
+  }
+};

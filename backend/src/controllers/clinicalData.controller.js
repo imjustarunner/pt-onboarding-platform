@@ -549,3 +549,39 @@ export const releaseClinicalRecordLegalHold = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /clinical-data/documentation-queue
+ * Appointment/session rows missing a signed note, across affiliated tenants.
+ */
+export const listDocumentationQueue = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', details: errors.array() } });
+    }
+    const { listDocumentationQueue: listQueue } = await import('../services/documentationQueue.service.js');
+    const agencyId = parseIntValue(req.query.agencyId || req.query.agency_id);
+    if (agencyId) {
+      await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    }
+    const items = await listQueue({
+      reqUser: req.user,
+      agencyId,
+      clientId: parseIntValue(req.query.clientId || req.query.client_id),
+      providerUserId: parseIntValue(req.query.providerUserId || req.query.provider_user_id),
+      fromDos: req.query.fromDos || req.query.from_dos || null,
+      toDos: req.query.toDos || req.query.to_dos || null,
+      noteStatus: String(req.query.noteStatus || req.query.note_status || 'undocumented'),
+      search: String(req.query.search || req.query.q || ''),
+      limit: parseIntValue(req.query.limit) || 100
+    });
+    return res.json({ items, count: items.length });
+  } catch (error) {
+    if (error?.status === 403) {
+      return res.status(403).json({ error: { message: error.message } });
+    }
+    if (handleSchemaError(error, res)) return;
+    next(error);
+  }
+};
+
