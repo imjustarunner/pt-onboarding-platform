@@ -25,11 +25,15 @@
     </div>
 
     <p v-if="error" class="error">{{ error }}</p>
+    <p v-else-if="clinicalUnavailable && !items.length" class="na-doc-queue-hint">
+      Clinical note database is unavailable — showing schedule and billing sessions when possible.
+      You can still continue unlinked or pick a client below.
+    </p>
     <p v-else-if="loading && !items.length" class="muted">Loading documentation queue…</p>
     <p v-else-if="!items.length" class="muted">No undocumented sessions found for this filter.</p>
 
     <ul v-else class="na-doc-queue-list">
-      <li v-for="row in items" :key="row.clinicalSessionId">
+      <li v-for="row in items" :key="rowKey(row)">
         <button type="button" class="na-doc-queue-row" @click="emit('select', row)">
           <span class="na-doc-queue-main">
             <strong>{{ row.clientName || row.clientInitials || `Client #${row.clientId}` }}</strong>
@@ -72,6 +76,7 @@ const agencyStore = useAgencyStore();
 const items = ref([]);
 const loading = ref(false);
 const error = ref('');
+const clinicalUnavailable = ref(false);
 const search = ref('');
 const tenantFilter = ref('');
 let debounceTimer = null;
@@ -88,10 +93,15 @@ function statusLabel(st) {
   return 'No note';
 }
 
+function rowKey(row) {
+  return row.clinicalSessionId || row.officeEventId || row.billingEncounterId || `${row.clientId}-${row.dateOfService}`;
+}
+
 async function load() {
   if (!props.active) return;
   loading.value = true;
   error.value = '';
+  clinicalUnavailable.value = false;
   try {
     const params = {
       noteStatus: 'undocumented',
@@ -107,8 +117,9 @@ async function load() {
       skipGlobalLoading: true
     });
     items.value = Array.isArray(res?.data?.items) ? res.data.items : [];
+    clinicalUnavailable.value = !!res?.data?.clinicalUnavailable;
   } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Could not load queue';
+    error.value = e.response?.data?.error?.message || 'Could not load documentation queue';
     items.value = [];
   } finally {
     loading.value = false;
@@ -155,6 +166,15 @@ defineExpose({ load });
   font-size: 0.98rem;
 }
 .muted { color: #64748b; font-size: 0.82rem; margin: 0; }
+.na-doc-queue-hint {
+  margin: 8px 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 0.82rem;
+}
 .na-doc-queue-filters {
   display: grid;
   grid-template-columns: minmax(120px, 180px) 1fr;

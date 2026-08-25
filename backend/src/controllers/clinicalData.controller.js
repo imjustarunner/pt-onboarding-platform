@@ -564,7 +564,7 @@ export const listDocumentationQueue = async (req, res, next) => {
     if (agencyId) {
       await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
     }
-    const items = await listQueue({
+    const { items, clinicalUnavailable } = await listQueue({
       reqUser: req.user,
       agencyId,
       clientId: parseIntValue(req.query.clientId || req.query.client_id),
@@ -575,7 +575,7 @@ export const listDocumentationQueue = async (req, res, next) => {
       search: String(req.query.search || req.query.q || ''),
       limit: parseIntValue(req.query.limit) || 100
     });
-    return res.json({ items, count: items.length });
+    return res.json({ items, count: items.length, clinicalUnavailable: !!clinicalUnavailable });
   } catch (error) {
     if (error?.status === 403) {
       return res.status(403).json({ error: { message: error.message } });

@@ -1,7 +1,32 @@
 import mysql from 'mysql2/promise';
 
+function resolveClinicalHost() {
+  const mainHost = String(process.env.DB_HOST || 'localhost').trim();
+  const clinicalHostRaw = process.env.CLINICAL_DB_HOST
+    ? String(process.env.CLINICAL_DB_HOST).trim()
+    : '';
+
+  if (clinicalHostRaw) {
+    const clinicalLower = clinicalHostRaw.toLowerCase();
+    const clinicalIsLoopback =
+      clinicalLower === 'localhost' || clinicalLower === '127.0.0.1' || clinicalLower === '::1';
+    const mainIsSocket = mainHost.startsWith('/cloudsql/') || mainHost.startsWith('/');
+    const mainIsRemote =
+      mainIsSocket || (mainHost !== 'localhost' && mainHost !== '127.0.0.1' && mainHost !== '::1');
+    // Common deploy misconfig: CLINICAL_DB_HOST=127.0.0.1 while main DB uses Cloud SQL socket/host.
+    if (clinicalIsLoopback && mainIsRemote) {
+      console.warn(
+        '[clinicalDatabase] CLINICAL_DB_HOST points at loopback but DB_HOST is remote — using DB_HOST for clinical plane'
+      );
+      return mainHost;
+    }
+    return clinicalHostRaw;
+  }
+  return mainHost;
+}
+
 function resolvePoolConfig() {
-  const host = process.env.CLINICAL_DB_HOST || process.env.DB_HOST || 'localhost';
+  const host = resolveClinicalHost();
   const isUnixSocket = host.startsWith('/cloudsql/') || host.startsWith('/');
 
   const cfg = {
@@ -12,13 +37,13 @@ function resolvePoolConfig() {
     connectionLimit: parseInt(process.env.CLINICAL_DB_CONNECTION_LIMIT || '10', 10),
     maxIdle: parseInt(process.env.CLINICAL_DB_MAX_IDLE || '5', 10),
     idleTimeout: parseInt(process.env.CLINICAL_DB_IDLE_TIMEOUT_MS || '60000', 10),
-    // See database.js — prevent global prepared-statement exhaustion.
     maxPreparedStatements: parseInt(process.env.CLINICAL_DB_MAX_PREPARED_STATEMENTS || '200', 10),
     queueLimit: 0,
     connectTimeout: 60000,
     timezone: '+00:00',
     enableKeepAlive: true,
-    keepAliveInitialDelay: 0
+    keepAliveInitialDelay: 0,
+    charset: 'utf8mb4_unicode_ci'
   };
 
   if (isUnixSocket) {
@@ -42,4 +67,3 @@ clinicalPool.on('error', (err) => {
 });
 
 export default clinicalPool;
-

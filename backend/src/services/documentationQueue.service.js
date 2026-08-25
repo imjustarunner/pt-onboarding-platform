@@ -2,6 +2,7 @@ import clinicalPool from '../config/clinicalDatabase.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
+import { enrichEncountersWithNoteSummary } from './billingEncounterClinical.service.js';
 
 function parseIntValue(v) {
   const n = Number(v);
@@ -18,6 +19,22 @@ function toDateOnly(value) {
   const d = new Date(s);
   if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
   return null;
+}
+
+export function isClinicalDbConnectionError(err) {
+  const code = String(err?.code || err?.errno || '').trim();
+  const msg = String(err?.message || err?.sqlMessage || '').toLowerCase();
+  return (
+    code === 'ECONNREFUSED'
+    || code === 'ER_ACCESS_DENIED_ERROR'
+    || code === 'ER_ACCESS_DENIED'
+    || code === 'ENOTFOUND'
+    || code === 'ETIMEDOUT'
+    || code === 'PROTOCOL_CONNECTION_LOST'
+    || code === 'ER_BAD_DB_ERROR'
+    || msg.includes('connect econnrefused')
+    || msg.includes('access denied')
+  );
 }
 
 async function resolveAccessibleAgencyIds(reqUser, requestedAgencyId = null) {
@@ -47,24 +64,28 @@ async function loadNoteStatusBySession(sessionIds = []) {
   const map = new Map();
   if (!ids.length) return map;
   const placeholders = ids.map(() => '?').join(', ');
-  const [rows] = await clinicalPool.execute(
-    `SELECT id, clinical_session_id, title, provider_signed_at, created_at
-     FROM clinical_notes
-     WHERE clinical_session_id IN (${placeholders}) AND is_deleted = 0
-     ORDER BY created_at DESC`,
-    ids
-  );
-  for (const note of rows || []) {
-    const sid = Number(note.clinical_session_id || 0);
-    if (!sid || map.has(sid)) continue;
-    let noteStatus = 'none';
-    if (note.provider_signed_at) noteStatus = 'signed';
-    else if (note.id) noteStatus = 'draft';
-    map.set(sid, {
-      clinicalNoteId: Number(note.id),
-      noteStatus,
-      noteTitle: note.title || null
-    });
+  try {
+    const [rows] = await clinicalPool.execute(
+      `SELECT id, clinical_session_id, title, provider_signed_at, created_at
+       FROM clinical_notes
+       WHERE clinical_session_id IN (${placeholders}) AND is_deleted = 0
+       ORDER BY created_at DESC`,
+      ids
+    );
+    for (const note of rows || []) {
+      const sid = Number(note.clinical_session_id || 0);
+      if (!sid || map.has(sid)) continue;
+      let noteStatus = 'none';
+      if (note.provider_signed_at) noteStatus = 'signed';
+      else if (note.id) noteStatus = 'draft';
+      map.set(sid, {
+        clinicalNoteId: Number(note.id),
+        noteStatus,
+        noteTitle: note.title || null
+      });
+    }
+  } catch (e) {
+    if (!isClinicalDbConnectionError(e)) throw e;
   }
   return map;
 }
@@ -123,7 +144,7 @@ async function hydrateMainDbContext(rows = []) {
       );
       for (const e of eRows || []) eventsById.set(Number(e.id), e);
     } catch {
-      // office_events.service_code may vary by migration
+      // optional columns vary by migration
     }
   }
   if (billingIds.length) {
@@ -149,31 +170,24 @@ function providerDisplayName(user) {
   return name || null;
 }
 
-/**
- * List sessions needing documentation across the user's affiliated tenants.
- * Dual-DB: clinical_sessions/notes in clinical DB; clients/events in main DB.
- */
-export async function listDocumentationQueue({
-  reqUser,
-  agencyId = null,
-  clientId = null,
-  providerUserId = null,
-  fromDos = null,
-  toDos = null,
-  noteStatus = 'undocumented',
-  search = '',
-  limit = 100
-} = {}) {
-  const agencyIds = await resolveAccessibleAgencyIds(reqUser, agencyId);
-  if (!agencyIds.length) return [];
+function sessionRowKey(row) {
+  const sid = Number(row.clinical_session_id || 0);
+  if (sid) return `s:${sid}`;
+  const eid = Number(row.office_event_id || 0);
+  if (eid) return `e:${eid}`;
+  const bid = Number(row.billing_encounter_id || 0);
+  if (bid) return `b:${bid}`;
+  return `x:${row.client_id}:${row.scheduled_start_at}`;
+}
 
-  const lim = Math.min(Math.max(Number(limit) || 100, 1), 300);
-  const cid = parseIntValue(clientId);
-  const pid = parseIntValue(providerUserId);
-  const from = toDateOnly(fromDos);
-  const to = toDateOnly(toDos);
-  const q = String(search || '').trim().toLowerCase();
-
+async function listSessionsFromClinicalDb({
+  agencyIds,
+  cid,
+  pid,
+  from,
+  to,
+  lim
+}) {
   const agencyPh = agencyIds.map(() => '?').join(', ');
   const params = [...agencyIds];
   let sql = `
@@ -208,16 +222,13 @@ export async function listDocumentationQueue({
     sql += ' AND DATE(cs.scheduled_start_at) <= ?';
     params.push(to);
   }
-  sql += ' ORDER BY cs.scheduled_start_at DESC, cs.id DESC LIMIT ?';
-  params.push(lim * 3); // over-fetch before note-status filter
+  sql += ` ORDER BY cs.scheduled_start_at DESC, cs.id DESC LIMIT ${lim * 3}`;
 
-  let sessions = [];
   try {
     const [rows] = await clinicalPool.execute(sql, params);
-    sessions = rows || [];
+    return { sessions: rows || [], clinicalUnavailable: false };
   } catch (e) {
     if (e?.code === 'ER_BAD_FIELD_ERROR') {
-      // Older clinical schema without billing_encounter_id / effective_service_code
       const fallbackSql = `
         SELECT cs.id AS clinical_session_id,
                cs.agency_id,
@@ -238,24 +249,151 @@ export async function listDocumentationQueue({
         ${from ? ' AND DATE(cs.scheduled_start_at) >= ?' : ''}
         ${to ? ' AND DATE(cs.scheduled_start_at) <= ?' : ''}
         ORDER BY cs.scheduled_start_at DESC, cs.id DESC
-        LIMIT ?
+        LIMIT ${lim * 3}
       `;
       const [rows] = await clinicalPool.execute(fallbackSql, params);
-      sessions = rows || [];
-    } else {
-      throw e;
+      return { sessions: rows || [], clinicalUnavailable: false };
     }
+    if (isClinicalDbConnectionError(e)) {
+      return { sessions: [], clinicalUnavailable: true };
+    }
+    throw e;
+  }
+}
+
+async function listSessionsFromMainDb({
+  agencyIds,
+  cid,
+  pid,
+  from,
+  to,
+  lim
+}) {
+  const agencyPh = agencyIds.map(() => '?').join(', ');
+  const fetchLimit = lim * 3;
+  const rows = [];
+  const seen = new Set();
+
+  const pushRow = (row) => {
+    const key = sessionRowKey(row);
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push(row);
+  };
+
+  const eventParams = [...agencyIds];
+  let eventSql = `
+    SELECT oe.clinical_session_id,
+           oe.id AS office_event_id,
+           NULL AS billing_encounter_id,
+           c.agency_id,
+           oe.client_id,
+           COALESCE(oe.booked_provider_id, oe.assigned_provider_id) AS provider_user_id,
+           NULL AS rendering_provider_user_id,
+           oe.service_code,
+           NULL AS effective_service_code,
+           oe.start_at AS scheduled_start_at,
+           oe.end_at AS scheduled_end_at,
+           oe.status AS encounter_status
+    FROM office_events oe
+    INNER JOIN clients c ON c.id = oe.client_id
+    WHERE c.agency_id IN (${agencyPh})
+      AND oe.client_id IS NOT NULL
+      AND UPPER(COALESCE(oe.status, '')) NOT IN ('CANCELLED', 'CANCELED', 'RELEASED')
+  `;
+  if (cid) {
+    eventSql += ' AND oe.client_id = ?';
+    eventParams.push(cid);
+  }
+  if (pid) {
+    eventSql += ' AND (oe.booked_provider_id = ? OR oe.assigned_provider_id = ?)';
+    eventParams.push(pid, pid);
+  }
+  if (from) {
+    eventSql += ' AND DATE(oe.start_at) >= ?';
+    eventParams.push(from);
+  }
+  if (to) {
+    eventSql += ' AND DATE(oe.start_at) <= ?';
+    eventParams.push(to);
+  }
+  eventSql += ` ORDER BY oe.start_at DESC LIMIT ${fetchLimit}`;
+
+  try {
+    const [eventRows] = await pool.execute(eventSql, eventParams);
+    for (const r of eventRows || []) pushRow(r);
+  } catch (e) {
+    console.warn('[documentationQueue] office_events fallback failed:', e?.message || e);
   }
 
-  const noteMap = await loadNoteStatusBySession(sessions.map((s) => s.clinical_session_id));
-  const hydrated = await hydrateMainDbContext(sessions);
+  const billingParams = [...agencyIds];
+  let billingSql = `
+    SELECT be.clinical_session_id,
+           NULL AS office_event_id,
+           be.id AS billing_encounter_id,
+           be.agency_id,
+           be.client_id,
+           be.provider_user_id,
+           NULL AS rendering_provider_user_id,
+           be.service_code,
+           NULL AS effective_service_code,
+           be.service_date AS scheduled_start_at,
+           NULL AS scheduled_end_at,
+           NULL AS encounter_status
+    FROM billing_encounters be
+    WHERE be.agency_id IN (${agencyPh})
+  `;
+  if (cid) {
+    billingSql += ' AND be.client_id = ?';
+    billingParams.push(cid);
+  }
+  if (pid) {
+    billingSql += ' AND be.provider_user_id = ?';
+    billingParams.push(pid);
+  }
+  if (from) {
+    billingSql += ' AND be.service_date >= ?';
+    billingParams.push(from);
+  }
+  if (to) {
+    billingSql += ' AND be.service_date <= ?';
+    billingParams.push(to);
+  }
+  billingSql += ` ORDER BY be.service_date DESC, be.id DESC LIMIT ${fetchLimit}`;
 
-  const statusFilter = String(noteStatus || 'undocumented').toLowerCase();
+  try {
+    const [billingRows] = await pool.execute(billingSql, billingParams);
+    for (const r of billingRows || []) pushRow(r);
+  } catch (e) {
+    console.warn('[documentationQueue] billing_encounters fallback failed:', e?.message || e);
+  }
+
+  rows.sort((a, b) => {
+    const da = toDateOnly(a.scheduled_start_at) || '';
+    const db = toDateOnly(b.scheduled_start_at) || '';
+    if (da !== db) return da < db ? 1 : -1;
+    return 0;
+  });
+
+  return rows.slice(0, fetchLimit);
+}
+
+function buildQueueItems({
+  sessions,
+  noteMap,
+  hydrated,
+  statusFilter,
+  q,
+  lim
+}) {
   const out = [];
 
   for (const s of sessions) {
-    const sid = Number(s.clinical_session_id);
-    const note = noteMap.get(sid) || { clinicalNoteId: null, noteStatus: 'none', noteTitle: null };
+    const sid = Number(s.clinical_session_id || 0);
+    const note = sid
+      ? (noteMap.get(sid) || { clinicalNoteId: null, noteStatus: 'none', noteTitle: null })
+      : { clinicalNoteId: null, noteStatus: 'none', noteTitle: null };
+
     if (statusFilter === 'undocumented') {
       if (note.noteStatus === 'signed') continue;
     } else if (statusFilter !== 'all' && note.noteStatus !== statusFilter) {
@@ -272,10 +410,10 @@ export async function listDocumentationQueue({
       : null;
 
     const dateOfService =
-      toDateOnly(s.scheduled_start_at) ||
-      toDateOnly(event?.start_at) ||
-      toDateOnly(billing?.service_date) ||
-      null;
+      toDateOnly(s.scheduled_start_at)
+      || toDateOnly(event?.start_at)
+      || toDateOnly(billing?.service_date)
+      || null;
 
     const serviceCode = String(
       s.effective_service_code || s.service_code || event?.service_code || billing?.service_code || ''
@@ -303,7 +441,7 @@ export async function listDocumentationQueue({
     }
 
     out.push({
-      clinicalSessionId: sid,
+      clinicalSessionId: sid || null,
       officeEventId: Number(s.office_event_id || 0) || null,
       billingEncounterId: Number(s.billing_encounter_id || 0) || null,
       agencyId: Number(s.agency_id),
@@ -326,7 +464,6 @@ export async function listDocumentationQueue({
     if (out.length >= lim) break;
   }
 
-  // Default: missing notes first, then by DOS ascending (oldest undocumented first)
   out.sort((a, b) => {
     const rank = (st) => (st === 'none' ? 0 : st === 'draft' ? 1 : 2);
     const r = rank(a.noteStatus) - rank(b.noteStatus);
@@ -334,10 +471,106 @@ export async function listDocumentationQueue({
     const da = a.dateOfService || '';
     const db = b.dateOfService || '';
     if (da !== db) return da < db ? -1 : 1;
-    return Number(a.clinicalSessionId) - Number(b.clinicalSessionId);
+    return Number(a.clinicalSessionId || a.officeEventId || 0)
+      - Number(b.clinicalSessionId || b.officeEventId || 0);
   });
 
   return out;
 }
 
-export default { listDocumentationQueue };
+/**
+ * List sessions needing documentation across the user's affiliated tenants.
+ */
+export async function listDocumentationQueue({
+  reqUser,
+  agencyId = null,
+  clientId = null,
+  providerUserId = null,
+  fromDos = null,
+  toDos = null,
+  noteStatus = 'undocumented',
+  search = '',
+  limit = 100
+} = {}) {
+  const agencyIds = await resolveAccessibleAgencyIds(reqUser, agencyId);
+  if (!agencyIds.length) return { items: [], clinicalUnavailable: false };
+
+  const lim = Math.min(Math.max(Number(limit) || 100, 1), 300);
+  const cid = parseIntValue(clientId);
+  const pid = parseIntValue(providerUserId);
+  const from = toDateOnly(fromDos);
+  const to = toDateOnly(toDos);
+  const q = String(search || '').trim().toLowerCase();
+  const statusFilter = String(noteStatus || 'undocumented').toLowerCase();
+
+  let sessions = [];
+  let clinicalUnavailable = false;
+
+  const clinicalResult = await listSessionsFromClinicalDb({
+    agencyIds,
+    cid,
+    pid,
+    from,
+    to,
+    lim
+  });
+  sessions = clinicalResult.sessions;
+  clinicalUnavailable = clinicalResult.clinicalUnavailable;
+
+  if (!sessions.length && clinicalUnavailable) {
+    sessions = await listSessionsFromMainDb({ agencyIds, cid, pid, from, to, lim });
+  }
+
+  // When clinical DB works but returned nothing, still merge main-DB appointments for coverage.
+  if (!clinicalUnavailable && !sessions.length) {
+    sessions = await listSessionsFromMainDb({ agencyIds, cid, pid, from, to, lim });
+  }
+
+  const noteMap = await loadNoteStatusBySession(
+    sessions.map((s) => s.clinical_session_id || s.clinicalSessionId).filter(Boolean)
+  );
+
+  // Enrich billing-style rows when clinical DB is reachable.
+  if (!clinicalUnavailable) {
+    try {
+      const withSessionIds = sessions.filter((s) => Number(s.clinical_session_id || 0) > 0);
+      if (withSessionIds.length) {
+        const enriched = await enrichEncountersWithNoteSummary(
+          withSessionIds.map((s) => ({
+            clinical_session_id: s.clinical_session_id,
+            id: s.billing_encounter_id || s.office_event_id
+          }))
+        );
+        for (const row of enriched) {
+          const sid = Number(row.clinical_session_id || 0);
+          if (!sid || noteMap.has(sid)) continue;
+          noteMap.set(sid, {
+            clinicalNoteId: row.clinical_note_id || null,
+            noteStatus: row.note_status || 'none',
+            noteTitle: row.note_title || null
+          });
+        }
+      }
+    } catch (e) {
+      if (!isClinicalDbConnectionError(e)) {
+        console.warn('[documentationQueue] note enrichment failed:', e?.message || e);
+      } else {
+        clinicalUnavailable = true;
+      }
+    }
+  }
+
+  const hydrated = await hydrateMainDbContext(sessions);
+  const items = buildQueueItems({
+    sessions,
+    noteMap,
+    hydrated,
+    statusFilter,
+    q,
+    lim
+  });
+
+  return { items, clinicalUnavailable };
+}
+
+export default { listDocumentationQueue, isClinicalDbConnectionError };
