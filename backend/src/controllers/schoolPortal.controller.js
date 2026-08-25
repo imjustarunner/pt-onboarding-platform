@@ -2091,6 +2091,7 @@ export const getProviderMyRoster = async (req, res, next) => {
     }
     await attachRosterSearchFields(clients);
     let restrictedClients = clients.map((client) => {
+      const clientId = Number(client.id);
       const firstServiceAt = client.first_service_at ? new Date(client.first_service_at) : null;
       const firstServicePassed = firstServiceAt && firstServiceAt.getTime() <= today.getTime();
       const statusKey = String(client?.client_status_key || '').toLowerCase();
