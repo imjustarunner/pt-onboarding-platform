@@ -51,7 +51,7 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api.js';
 import JobDescriptionSections from '../../components/careers/JobDescriptionSections.vue';
 import { ensurePortalSlugResolved, resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath.js';
-import { useBrandingStore } from '../../stores/branding.js';
+import { useBrandingStore } from '../../store/branding.js';
 
 const route = useRoute();
 const brandingStore = useBrandingStore();
