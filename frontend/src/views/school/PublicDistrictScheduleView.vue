@@ -80,6 +80,12 @@
             >
               <td class="pds-col-school">
                 <div class="pds-school-cell">
+                  <img
+                    v-if="school.logoUrl"
+                    :src="school.logoUrl"
+                    alt=""
+                    class="pds-school-logo pds-screen-only"
+                  />
                   <span class="pds-school-name">{{ school.name }}</span>
                   <button
                     v-if="canHide"
@@ -92,7 +98,9 @@
                   </button>
                 </div>
               </td>
-              <td colspan="3" class="pds-muted">No providers scheduled</td>
+              <td class="pds-muted">No providers</td>
+              <td class="pds-muted">—</td>
+              <td class="pds-muted">—</td>
               <td v-if="canHide" class="pds-no-print"></td>
             </tr>
             <tr
@@ -102,6 +110,12 @@
             >
               <td class="pds-col-school">
                 <div v-if="idx === 0" class="pds-school-cell">
+                  <img
+                    v-if="school.logoUrl"
+                    :src="school.logoUrl"
+                    alt=""
+                    class="pds-school-logo pds-screen-only"
+                  />
                   <span class="pds-school-name">{{ school.name }}</span>
                   <button
                     v-if="canHide"
@@ -115,7 +129,9 @@
                 </div>
               </td>
               <td class="pds-col-provider">{{ provider.displayName }}</td>
-              <td class="pds-col-days">{{ formatDays(provider.days) }}</td>
+              <td class="pds-col-days" :class="{ 'pds-muted': !hasDays(provider) }">
+                {{ formatDays(provider.days) }}
+              </td>
               <td class="pds-col-bg" :class="bgExpiryClass(provider)">
                 {{ formatBgExpiry(provider) }}
                 <span
@@ -345,10 +361,16 @@ function districtRoute(slug) {
   };
 }
 
+function hasDays(provider) {
+  return Array.isArray(provider?.days) && provider.days.some((d) => String(d || '').trim());
+}
+
 function formatDays(days) {
-  const list = Array.isArray(days) ? days : [];
-  if (!list.length) return '—';
-  return list.map((d) => String(d || '').slice(0, 3)).join(', ');
+  const list = (Array.isArray(days) ? days : [])
+    .map((d) => String(d || '').trim())
+    .filter(Boolean);
+  if (!list.length) return 'No days';
+  return list.map((d) => d.slice(0, 3)).join(', ');
 }
 
 function formatBgExpiry(provider) {
@@ -570,6 +592,14 @@ watch(
   display: flex;
   align-items: center;
   gap: 0.45rem;
+}
+.pds-school-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: contain;
+  background: #f8fafc;
+  flex-shrink: 0;
 }
 .pds-school-name {
   font-weight: 700;

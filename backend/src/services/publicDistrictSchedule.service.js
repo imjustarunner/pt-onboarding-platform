@@ -435,7 +435,9 @@ export async function getPublicDistrictSchedule(agencySlug, districtSlug, req = 
         });
       }
       const day = String(row.day_of_week || '').trim();
-      if (day && !pmap.get(uid).days.includes(day)) {
+      // Keep Mon–Fri only; Unknown/blank stays as an empty days list so the
+      // provider still appears as “assigned, no days”.
+      if (WEEKDAY_ORDER.includes(day) && !pmap.get(uid).days.includes(day)) {
         pmap.get(uid).days.push(day);
       }
     }
@@ -443,12 +445,18 @@ export async function getPublicDistrictSchedule(agencySlug, districtSlug, req = 
     for (const school of schools) {
       const pmap = providerMapBySchool.get(school.id);
       if (!pmap) continue;
+      // Include every assigned provider, including those with no weekday yet.
       school.providers = [...pmap.values()]
         .map((p) => ({
           ...p,
           days: WEEKDAY_ORDER.filter((d) => p.days.includes(d))
         }))
-        .sort((a, b) => a.displayName.localeCompare(b.displayName));
+        .sort((a, b) => {
+          const aDays = a.days.length ? 0 : 1;
+          const bDays = b.days.length ? 0 : 1;
+          if (aDays !== bDays) return aDays - bDays;
+          return a.displayName.localeCompare(b.displayName);
+        });
     }
 
     const allProviderIds = schools.flatMap((school) =>
