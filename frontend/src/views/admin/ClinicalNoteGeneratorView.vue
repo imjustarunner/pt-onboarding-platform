@@ -96,75 +96,108 @@
           <button type="button" class="na-change-aid" @click="changeNoteAid">Change tool</button>
         </div>
 
-        <section class="na-config">
-          <div class="na-step">
-            <div class="na-step-num">1</div>
-            <div class="na-step-body">
-              <label class="na-label">Date of Service</label>
-              <input v-model="dateOfService" type="date" class="na-input" />
+        <section class="na-config" :class="{ 'na-config--summary': showConfigSummary }">
+          <div v-if="showConfigSummary" class="na-config-summary">
+            <div class="na-config-summary-chips">
+              <span class="na-chip"><em>1</em> {{ dateOfService || '—' }}</span>
+              <span class="na-chip"><em>2</em> {{ initials || '—' }}</span>
+              <span class="na-chip"><em>3</em> {{ configOptionsSummary }}</span>
             </div>
+            <button type="button" class="na-link-btn" @click="configExpanded = true">Edit</button>
           </div>
-
-          <div class="na-step">
-            <div class="na-step-num">2</div>
-            <div class="na-step-body">
-              <label class="na-label">Client Initials</label>
-              <input v-model="initials" type="text" class="na-input" maxlength="16" placeholder="e.g., A.M." />
-            </div>
-          </div>
-
-          <div class="na-step">
-            <div class="na-step-num">3</div>
-            <div class="na-step-body">
-              <label class="na-label">Options</label>
-              <label v-if="showInteractiveComplexityOption" class="na-toggle-row">
-                <span>Include Interactive Complexity</span>
-                <span class="na-switch" :class="{ on: includeInteractiveComplexity }">
-                  <input v-model="includeInteractiveComplexity" type="checkbox" />
-                  <span class="na-switch-thumb" />
-                </span>
-              </label>
-              <p v-else class="na-field-hint">Interactive Complexity is only available on progress notes.</p>
-              <div v-if="showBillingCodePicker" style="margin-top: 10px;">
-                <span class="na-field-hint">Billing code (optional override)</span>
-                <select
-                  v-model="selectedServiceCode"
-                  class="na-input"
-                  :disabled="autoSelectCode || forceAutoSelect"
-                >
-                  <option value="">Use aid default</option>
-                  <option
-                    v-for="opt in noteTypeOptions"
-                    :key="opt.value"
-                    :value="opt.value"
-                  >{{ opt.label }}</option>
-                  <option v-if="canUseOtherCode" value="__other__">Other (enter code)</option>
-                </select>
+          <template v-else>
+            <div class="na-step">
+              <div class="na-step-num">1</div>
+              <div class="na-step-body">
+                <label class="na-label" for="na-dos">Date of Service</label>
                 <input
-                  v-if="selectedServiceCode === '__other__'"
-                  v-model="otherServiceCode"
+                  id="na-dos"
+                  ref="dateOfServiceInputEl"
+                  v-model="dateOfService"
+                  type="date"
                   class="na-input"
-                  style="margin-top: 8px;"
-                  placeholder="e.g., 90834"
                 />
               </div>
-              <label
-                v-if="showAutoSelectCodeOption"
-                class="na-check"
-                style="margin-top: 8px;"
-              >
-                <input v-model="autoSelectCode" type="checkbox" :disabled="forceAutoSelect || selectedAidForcesAutoSelect" />
-                <span>Let AI choose the best code</span>
-              </label>
-              <div v-if="showProgramDropdown" style="margin-top: 10px;">
-                <span class="na-field-hint">Program (H2014 only)</span>
-                <select v-model="selectedProgramId" class="na-input">
-                  <option value="">No program</option>
-                  <option v-for="p in programs" :key="p.id" :value="String(p.id)">{{ formatProgramLabel(p) }}</option>
-                </select>
+            </div>
+
+            <div class="na-step">
+              <div class="na-step-num">2</div>
+              <div class="na-step-body">
+                <label class="na-label" for="na-initials">Client Initials</label>
+                <input
+                  id="na-initials"
+                  ref="initialsInputEl"
+                  v-model="initials"
+                  type="text"
+                  class="na-input"
+                  maxlength="16"
+                  placeholder="e.g., A.M."
+                />
               </div>
             </div>
-          </div>
+
+            <div class="na-step">
+              <div class="na-step-num">3</div>
+              <div class="na-step-body">
+                <div class="na-step-head-row">
+                  <label class="na-label">Options</label>
+                  <button
+                    v-if="configReadyForCollapse"
+                    type="button"
+                    class="na-link-btn na-link-btn--sm"
+                    @click="configExpanded = false"
+                  >
+                    Collapse
+                  </button>
+                </div>
+                <label v-if="showInteractiveComplexityOption" class="na-toggle-row">
+                  <span>Include Interactive Complexity</span>
+                  <span class="na-switch" :class="{ on: includeInteractiveComplexity }">
+                    <input v-model="includeInteractiveComplexity" type="checkbox" />
+                    <span class="na-switch-thumb" />
+                  </span>
+                </label>
+                <p v-else class="na-field-hint">Interactive Complexity is only available on progress notes.</p>
+                <div v-if="showBillingCodePicker" class="na-options-block">
+                  <span class="na-field-hint">Billing code (optional override)</span>
+                  <select
+                    v-model="selectedServiceCode"
+                    class="na-input"
+                    :disabled="autoSelectCode || forceAutoSelect"
+                  >
+                    <option value="">Use aid default</option>
+                    <option
+                      v-for="opt in noteTypeOptions"
+                      :key="opt.value"
+                      :value="opt.value"
+                    >{{ opt.label }}</option>
+                    <option v-if="canUseOtherCode" value="__other__">Other (enter code)</option>
+                  </select>
+                  <input
+                    v-if="selectedServiceCode === '__other__'"
+                    v-model="otherServiceCode"
+                    class="na-input"
+                    style="margin-top: 6px;"
+                    placeholder="e.g., 90834"
+                  />
+                </div>
+                <label
+                  v-if="showAutoSelectCodeOption"
+                  class="na-check na-options-block"
+                >
+                  <input v-model="autoSelectCode" type="checkbox" :disabled="forceAutoSelect || selectedAidForcesAutoSelect" />
+                  <span>Let AI choose the best code</span>
+                </label>
+                <div v-if="showProgramDropdown" class="na-options-block">
+                  <span class="na-field-hint">Program (H2014 only)</span>
+                  <select v-model="selectedProgramId" class="na-input">
+                    <option value="">No program</option>
+                    <option v-for="p in programs" :key="p.id" :value="String(p.id)">{{ formatProgramLabel(p) }}</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </template>
         </section>
 
         <section class="na-input-panel">
@@ -198,14 +231,20 @@
           />
 
           <div v-if="inputMode === 'speak'" class="na-speak-tools">
-            <div class="na-actions">
-              <button class="btn btn-secondary" type="button" :disabled="recordingBusy" @click="toggleRecording">
+            <div class="na-speak-actions">
+              <button
+                class="na-speak-btn"
+                :class="{ 'na-speak-btn--recording': recording }"
+                type="button"
+                :disabled="recordingBusy"
+                @click="toggleRecording"
+              >
                 {{ recording ? 'Stop recording' : 'Record dictation' }}
               </button>
-              <button class="btn btn-secondary" type="button" :disabled="!audioBlob || recording" @click="clearAudio">
+              <button class="na-speak-btn" type="button" :disabled="!audioBlob || recording" @click="clearAudio">
                 Clear recording
               </button>
-              <button class="btn btn-secondary" type="button" :disabled="!canServerTranscribe" @click="transcribeAudioServer">
+              <button class="na-speak-btn" type="button" :disabled="!canServerTranscribe" @click="transcribeAudioServer">
                 {{ serverTranscribing ? 'Transcribing…' : 'Transcribe (server)' }}
               </button>
             </div>
@@ -293,13 +332,16 @@
             </div>
           </div>
 
-          <div class="field" style="margin-bottom: 12px;">
-            <label class="na-field-hint">Retry instruction (optional)</label>
+          <div class="field na-revision-field">
+            <label class="na-revision-label" for="na-revision">
+              Add additional content / make changes / update instructions
+            </label>
             <textarea
+              id="na-revision"
               v-model="revisionInstruction"
-              class="na-textarea"
+              class="na-textarea na-textarea--compact"
               rows="2"
-              placeholder="Tell Note Aid what to revise while keeping the same transcript…"
+              placeholder="Tell Note Aid what to add or revise while keeping the same transcript…"
             />
           </div>
 
@@ -335,11 +377,11 @@
             </button>
             <button
               type="button"
-              class="na-link-btn"
+              class="na-btn-outline"
               :disabled="generating || !String(inputText || '').trim()"
               @click="generateNote"
             >
-              {{ generating ? 'Regenerating…' : 'Retry with same transcript' }}
+              {{ regenerateButtonLabel }}
             </button>
           </div>
           <div class="na-feedback">
@@ -366,11 +408,43 @@
       </main>
     </div>
 
+    <div
+      v-if="canUseTool && !showLibraryPanel"
+      class="na-fab-wrap"
+      @keydown.escape="newNoteMenuOpen = false"
+    >
+      <div v-if="newNoteMenuOpen" class="na-fab-menu" role="menu" aria-label="Start a new note">
+        <button type="button" role="menuitem" @click="startNewNoteSameDate">
+          <strong>Same date</strong>
+          <span>Keep date &amp; service — choose client initials</span>
+        </button>
+        <button type="button" role="menuitem" @click="startNewNoteSameClient">
+          <strong>Same client</strong>
+          <span>Keep client &amp; service — choose a new date</span>
+        </button>
+        <button type="button" role="menuitem" @click="startNewNoteDifferentService">
+          <strong>Different service</strong>
+          <span>Keep date &amp; client — pick a new note aid</span>
+        </button>
+      </div>
+      <button
+        type="button"
+        class="na-fab"
+        :aria-expanded="newNoteMenuOpen ? 'true' : 'false'"
+        aria-haspopup="menu"
+        :title="newNoteMenuOpen ? 'Close new note options' : 'Start new note'"
+        @click="newNoteMenuOpen = !newNoteMenuOpen"
+      >
+        <span aria-hidden="true">{{ newNoteMenuOpen ? '×' : '+' }}</span>
+        <span class="sr-only">{{ newNoteMenuOpen ? 'Close' : 'Start new note' }}</span>
+      </button>
+    </div>
+
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { useRoute, useRouter } from 'vue-router';
@@ -600,6 +674,10 @@ const copied = ref(false);
 const copiedSectionId = ref('');
 let copiedSectionTimer = null;
 const revisionInstruction = ref('');
+const newNoteMenuOpen = ref(false);
+const configExpanded = ref(true);
+const dateOfServiceInputEl = ref(null);
+const initialsInputEl = ref(null);
 const approvalMessage = ref('');
 const approvalError = ref('');
 const approvingNote = ref(false);
@@ -918,6 +996,9 @@ const applyTherapyContextPrefill = () => {
     inputText.value = lines.join('\n');
   }
   therapyPrefillApplied.value = true;
+  if (String(dateOfService.value || '').trim() && String(initials.value || '').trim()) {
+    configExpanded.value = false;
+  }
 };
 
 const applyBookingContextPrefill = () => {
@@ -1199,6 +1280,33 @@ const noteTypeDisplayLabel = computed(() => {
 });
 
 const isCurrentDraftArchived = computed(() => !!currentDraftArchivedAt.value);
+
+const configReadyForCollapse = computed(() => {
+  return !!(String(dateOfService.value || '').trim() && String(initials.value || '').trim());
+});
+
+const showConfigSummary = computed(() => configReadyForCollapse.value && !configExpanded.value);
+
+const configOptionsSummary = computed(() => {
+  const bits = [];
+  if (includeInteractiveComplexity.value && showInteractiveComplexityOption.value) {
+    bits.push('Interactive Complexity');
+  }
+  if (autoSelectCode.value || forceAutoSelect.value || selectedAidForcesAutoSelect.value) {
+    bits.push('AI code');
+  } else if (noteTypeDisplayLabel.value) {
+    bits.push(noteTypeDisplayLabel.value);
+  }
+  return bits.length ? bits.join(' · ') : 'Options';
+});
+
+const hasRevisionAdditions = computed(() => !!String(revisionInstruction.value || '').trim());
+
+const regenerateButtonLabel = computed(() => {
+  if (generating.value) return 'Regenerating…';
+  if (hasRevisionAdditions.value) return 'Regenerate with new additions';
+  return 'Regenerate note';
+});
 
 const filteredSidebarDrafts = computed(() => {
   const q = String(draftSearch.value || '').trim().toLowerCase();
@@ -1927,6 +2035,7 @@ const generateNote = async () => {
     currentDraftArchivedAt.value = null;
     approvalMessage.value = '';
     archiveMessage.value = '';
+    if (configReadyForCollapse.value) configExpanded.value = false;
 
     await loadRecent();
   } catch (e) {
@@ -2201,6 +2310,72 @@ const startNewNote = () => {
   generateError.value = '';
   sidebarTab.value = 'active';
   openDateGroups.value = { [todayIsoDate()]: true };
+  configExpanded.value = true;
+  newNoteMenuOpen.value = false;
+};
+
+const clearGeneratedWorkspace = () => {
+  draftId.value = null;
+  currentDraftArchivedAt.value = null;
+  currentDraftCreatedAt.value = null;
+  lastSavedAt.value = '';
+  inputText.value = '';
+  outputObj.value = null;
+  revisionInstruction.value = '';
+  clearAudio();
+  transcriptSource.value = '';
+  liveTranscript.value = '';
+  approvalMessage.value = '';
+  approvalError.value = '';
+  archiveMessage.value = '';
+  generateError.value = '';
+  inputMode.value = 'type';
+  sidebarTab.value = 'active';
+};
+
+const focusConfigField = async (which) => {
+  configExpanded.value = true;
+  await nextTick();
+  const el = which === 'date' ? dateOfServiceInputEl.value : initialsInputEl.value;
+  if (el && typeof el.focus === 'function') el.focus();
+};
+
+/** Keep date + service; user picks client initials. */
+const startNewNoteSameDate = async () => {
+  const keepDate = String(dateOfService.value || '').trim() || todayIsoDate();
+  clearGeneratedWorkspace();
+  dateOfService.value = keepDate;
+  initials.value = '';
+  newNoteMenuOpen.value = false;
+  await focusConfigField('initials');
+};
+
+/** Keep client + service; user picks a new date. */
+const startNewNoteSameClient = async () => {
+  const keepInitials = String(initials.value || '').trim();
+  clearGeneratedWorkspace();
+  initials.value = keepInitials;
+  dateOfService.value = '';
+  newNoteMenuOpen.value = false;
+  await focusConfigField('date');
+};
+
+/** Keep date + client; return to service / note-aid chooser. */
+const startNewNoteDifferentService = () => {
+  const keepDate = String(dateOfService.value || '').trim() || todayIsoDate();
+  const keepInitials = String(initials.value || '').trim();
+  clearGeneratedWorkspace();
+  dateOfService.value = keepDate;
+  initials.value = keepInitials;
+  selectedAidId.value = '';
+  selectedNoteCategory.value = '';
+  selectedServiceCode.value = '';
+  otherServiceCode.value = '';
+  selectedProgramId.value = '';
+  autoSelectCode.value = false;
+  includeInteractiveComplexity.value = false;
+  configExpanded.value = true;
+  newNoteMenuOpen.value = false;
 };
 
 const loadDraftIntoWorkspace = (d) => {
@@ -2259,6 +2434,10 @@ const loadDraftIntoWorkspace = (d) => {
   const dayKey = draftCreatedKey(d.created_at);
   openDateGroups.value = { ...openDateGroups.value, [dayKey]: true };
   archiveMessage.value = '';
+  configExpanded.value = !(
+    String(dateOfService.value || '').trim() && String(initials.value || '').trim()
+  );
+  newNoteMenuOpen.value = false;
 };
 
 const archiveCurrentDraft = async () => {
@@ -2912,36 +3091,103 @@ onBeforeUnmount(() => {
 .na-config {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin: 14px 0;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.na-config--summary {
+  grid-template-columns: 1fr;
+}
+
+.na-config-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: white;
+  border: 1px solid var(--na-border);
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+
+.na-config-summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.na-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--na-text);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.na-chip em {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--na-teal-soft);
+  color: var(--na-teal-dark);
+  font-style: normal;
+  font-size: 0.7rem;
+  font-weight: 800;
+  flex-shrink: 0;
 }
 
 .na-step {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
   background: white;
   border: 1px solid var(--na-border);
-  border-radius: 14px;
-  padding: 14px;
+  border-radius: 10px;
+  padding: 8px 10px;
 }
 
 .na-step-num {
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   border-radius: 999px;
   background: var(--na-teal-soft);
   color: var(--na-teal-dark);
   display: grid;
   place-items: center;
   font-weight: 800;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
+  margin-top: 2px;
+}
+
+.na-step-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.na-step-head-row .na-label {
+  margin-bottom: 0;
 }
 
 .na-label {
   display: block;
   font-weight: 700;
-  margin-bottom: 8px;
+  font-size: 0.8rem;
+  margin-bottom: 4px;
+}
+
+.na-options-block {
+  margin-top: 6px;
 }
 
 .na-field-hint {
@@ -2955,16 +3201,80 @@ onBeforeUnmount(() => {
 .na-textarea {
   width: 100%;
   border: 1px solid var(--na-border);
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 8px;
+  padding: 7px 10px;
   font: inherit;
   background: white;
+  color: var(--na-text);
 }
 
 .na-textarea {
   resize: vertical;
   min-height: 140px;
   line-height: 1.45;
+}
+
+.na-textarea--compact {
+  min-height: 64px;
+}
+
+.na-revision-field {
+  margin: 12px 0;
+}
+
+.na-revision-label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--na-text);
+  margin-bottom: 6px;
+  line-height: 1.35;
+}
+
+.na-speak-tools {
+  margin-top: 8px;
+}
+
+.na-speak-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.na-speak-btn {
+  border: 1.5px solid var(--na-teal);
+  background: #fff;
+  color: var(--na-teal-dark);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.na-speak-btn:hover:not(:disabled) {
+  background: var(--na-teal-soft);
+}
+
+.na-speak-btn--recording {
+  background: #b91c1c;
+  border-color: #b91c1c;
+  color: #fff;
+}
+
+.na-speak-btn--recording:hover:not(:disabled) {
+  background: #991b1b;
+}
+
+.na-speak-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  color: #334155;
+  border-color: #94a3b8;
+  background: #f8fafc;
 }
 
 .na-date-grid {
@@ -2986,6 +3296,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   font-weight: 600;
+  font-size: 0.85rem;
 }
 
 .na-switch {
@@ -2998,6 +3309,7 @@ onBeforeUnmount(() => {
   align-items: center;
   padding: 3px;
   transition: background 0.15s ease;
+  flex-shrink: 0;
 }
 
 .na-switch.on {
@@ -3103,6 +3415,108 @@ onBeforeUnmount(() => {
   font-weight: 600;
   cursor: pointer;
   padding: 8px 4px;
+  flex-shrink: 0;
+}
+
+.na-link-btn--sm {
+  padding: 2px 4px;
+  font-size: 0.78rem;
+}
+
+.na-link-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.na-fab-wrap {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.na-fab-wrap > * {
+  pointer-events: auto;
+}
+
+.na-fab {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: var(--na-teal);
+  color: #fff;
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(15, 118, 110, 0.35);
+  display: grid;
+  place-items: center;
+}
+
+.na-fab:hover {
+  background: var(--na-teal-dark);
+}
+
+.na-fab-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 260px;
+  max-width: min(340px, calc(100vw - 40px));
+  padding: 8px;
+  background: #fff;
+  border: 1px solid var(--na-border);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+}
+
+.na-fab-menu button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  border: none;
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--na-text);
+}
+
+.na-fab-menu button:hover {
+  background: var(--na-teal-soft);
+}
+
+.na-fab-menu strong {
+  font-size: 0.9rem;
+  color: var(--na-teal-dark);
+}
+
+.na-fab-menu span {
+  font-size: 0.75rem;
+  color: var(--na-muted);
+  line-height: 1.35;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .na-output-head {
@@ -3334,6 +3748,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   border: 1px solid var(--na-border);
   background: white;
+  color: var(--na-text);
 }
 
 .btn-primary,
@@ -3345,6 +3760,8 @@ onBeforeUnmount(() => {
 
 .btn-secondary {
   background: white;
+  color: var(--na-text);
+  border-color: #94a3b8;
 }
 
 .btn-sm {
