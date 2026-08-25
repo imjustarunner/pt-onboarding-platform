@@ -2,6 +2,7 @@ import {
   listOutreachSchools,
   getOutreachSchool,
   updateOutreachSchool,
+  createOutreachLocation,
   logOutreachActivity,
   updateOutreachActivity,
   getOutreachSummary,
@@ -10,6 +11,8 @@ import {
   sendOutreachSchoolOnboarding,
   addOutreachSchoolNote,
   addOutreachSchoolContact,
+  updateOutreachSchoolContact,
+  deleteOutreachSchoolContact,
   previewTripStops,
   listOutreachTrips,
   getOutreachTrip,
@@ -57,6 +60,7 @@ export const listSchools = async (req, res, next) => {
       district: req.query.district,
       stage: req.query.stage,
       level: req.query.level,
+      locationType: req.query.locationType || req.query.location_type || req.query.type,
       q: req.query.q,
       needsAddress: req.query.needsAddress || req.query.needs_address,
       charterOnly: req.query.charterOnly === 'true' || req.query.charter === '1' || req.query.charter === 'true',
@@ -125,6 +129,17 @@ export const patchSchool = async (req, res, next) => {
     const school = await updateOutreachSchool(agencyId, schoolId, req.body || {});
     if (!school) return res.status(404).json({ error: { message: 'School not found' } });
     res.json({ school });
+  } catch (err) {
+    handleServiceError(res, err);
+  }
+};
+
+export const createSchool = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFrom(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const school = await createOutreachLocation(agencyId, req.body || {});
+    res.status(201).json({ school });
   } catch (err) {
     handleServiceError(res, err);
   }
@@ -301,6 +316,36 @@ export const addSchoolContact = async (req, res, next) => {
     if (!agencyId || !schoolId) return res.status(400).json({ error: { message: 'agencyId and school id are required' } });
     const school = await addOutreachSchoolContact(agencyId, schoolId, req.body || {}, req.user?.id);
     res.status(201).json({ school });
+  } catch (err) {
+    handleServiceError(res, err);
+  }
+};
+
+export const patchSchoolContact = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFrom(req);
+    const schoolId = Number(req.params.id || 0);
+    const contactId = Number(req.params.contactId || 0);
+    if (!agencyId || !schoolId || !contactId) {
+      return res.status(400).json({ error: { message: 'agencyId, school id, and contact id are required' } });
+    }
+    const school = await updateOutreachSchoolContact(agencyId, schoolId, contactId, req.body || {});
+    res.json({ school });
+  } catch (err) {
+    handleServiceError(res, err);
+  }
+};
+
+export const removeSchoolContact = async (req, res, next) => {
+  try {
+    const agencyId = agencyIdFrom(req);
+    const schoolId = Number(req.params.id || 0);
+    const contactId = Number(req.params.contactId || 0);
+    if (!agencyId || !schoolId || !contactId) {
+      return res.status(400).json({ error: { message: 'agencyId, school id, and contact id are required' } });
+    }
+    const school = await deleteOutreachSchoolContact(agencyId, schoolId, contactId);
+    res.json({ school });
   } catch (err) {
     handleServiceError(res, err);
   }

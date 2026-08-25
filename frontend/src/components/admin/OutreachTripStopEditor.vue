@@ -58,6 +58,7 @@
               <th>Role</th>
               <th>Phone</th>
               <th>Email</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -69,6 +70,10 @@
               <td>{{ c.title || '—' }}</td>
               <td>{{ c.phone || '—' }}</td>
               <td class="otse-email">{{ c.email || '—' }}</td>
+              <td class="otse-contact-actions">
+                <button type="button" class="btn-link" :disabled="disabled || saving" @click="startEditContact(c)">Edit</button>
+                <button type="button" class="btn-link otse-danger" :disabled="disabled || saving" @click="$emit('delete-contact', c.id)">Delete</button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -79,7 +84,10 @@
         <input v-model="contactForm.title" type="text" placeholder="Role" />
         <input v-model="contactForm.phone" type="tel" placeholder="Phone" />
         <input v-model="contactForm.email" type="email" placeholder="Email" />
-        <button type="submit" class="btn btn-secondary btn-sm" :disabled="saving">+ Add contact</button>
+        <button type="submit" class="btn btn-secondary btn-sm" :disabled="saving || disabled">
+          {{ editingContactId ? 'Save' : '+ Add contact' }}
+        </button>
+        <button v-if="editingContactId" type="button" class="btn-link" :disabled="saving" @click="cancelEditContact">Cancel</button>
       </form>
     </div>
 
@@ -197,7 +205,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 
 const props = defineProps({
   school: { type: Object, default: null },
@@ -223,11 +231,14 @@ const emit = defineEmits([
   'open-full',
   'set-attendance',
   'add-contact',
+  'update-contact',
+  'delete-contact',
   'save-note',
   'create-task'
 ]);
 
 const contactForm = reactive({ full_name: '', title: '', phone: '', email: '' });
+const editingContactId = ref(null);
 const convForm = reactive({ spoken_with_name: '', summary: '', details: '' });
 const followForm = reactive({ needed: true, follow_up_at: '', body: '' });
 const taskForm = reactive({ title: '', description: '', dueDate: '', assignedToUserId: '' });
@@ -236,10 +247,7 @@ const noteForm = reactive({ body: '' });
 watch(
   () => props.school?.id,
   () => {
-    contactForm.full_name = '';
-    contactForm.title = '';
-    contactForm.phone = '';
-    contactForm.email = '';
+    cancelEditContact();
     convForm.spoken_with_name = '';
     convForm.summary = '';
     convForm.details = '';
@@ -278,20 +286,44 @@ const tripScope = () => ({
   trip_stop_id: props.tripStopId ? Number(props.tripStopId) : null
 });
 
-const submitContact = () => {
-  const name = String(contactForm.full_name || '').trim();
-  if (!name) return;
-  emit('add-contact', {
-    full_name: name,
-    title: contactForm.title || null,
-    phone: contactForm.phone || null,
-    email: contactForm.email || null,
-    is_primary: false
-  });
+const cancelEditContact = () => {
+  editingContactId.value = null;
   contactForm.full_name = '';
   contactForm.title = '';
   contactForm.phone = '';
   contactForm.email = '';
+};
+
+const startEditContact = (c) => {
+  if (!c?.id) return;
+  editingContactId.value = c.id;
+  contactForm.full_name = c.full_name || '';
+  contactForm.title = c.title || '';
+  contactForm.phone = c.phone || '';
+  contactForm.email = c.email || '';
+};
+
+const submitContact = () => {
+  const name = String(contactForm.full_name || '').trim();
+  if (!name) return;
+  if (editingContactId.value) {
+    emit('update-contact', {
+      contactId: editingContactId.value,
+      full_name: name,
+      title: contactForm.title || null,
+      phone: contactForm.phone || null,
+      email: contactForm.email || null
+    });
+  } else {
+    emit('add-contact', {
+      full_name: name,
+      title: contactForm.title || null,
+      phone: contactForm.phone || null,
+      email: contactForm.email || null,
+      is_primary: false
+    });
+  }
+  cancelEditContact();
 };
 
 const submitConversation = () => {
@@ -441,6 +473,9 @@ const submitGeneralNote = () => {
   word-break: break-word;
 }
 .otse-email { word-break: break-all; }
+.otse-contact-actions { white-space: nowrap; }
+.otse-contact-actions .btn-link { margin-left: 6px; }
+.otse-danger { color: #b91c1c !important; }
 .otse-inline-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));

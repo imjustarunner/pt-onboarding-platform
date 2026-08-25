@@ -7,6 +7,7 @@ import {
   getSummary,
   getSchool,
   patchSchool,
+  createSchool,
   createActivity,
   patchActivity,
   getTimeline,
@@ -18,6 +19,8 @@ import {
   sendSchoolOnboarding,
   addSchoolNote,
   addSchoolContact,
+  patchSchoolContact,
+  removeSchoolContact,
   previewTrip,
   listTrips,
   getTrip,
@@ -38,6 +41,7 @@ router.use(authenticate, requireCapability('canAccessOutreach'));
 router.get('/task-list', getTaskList);
 router.get('/assignable-users', getAssignableUsers);
 router.get('/schools', listSchools);
+router.post('/schools', createSchool);
 router.post('/schools/geocode', geocodeSchoolAddresses);
 router.post('/schools/:id/lookup-address', lookupSchoolAddress);
 router.get('/summary', getSummary);
@@ -59,6 +63,8 @@ router.get('/schools/:id/onboarding', listSchoolOnboarding);
 router.post('/schools/:id/onboarding', sendSchoolOnboarding);
 router.post('/schools/:id/notes', addSchoolNote);
 router.post('/schools/:id/contacts', addSchoolContact);
+router.patch('/schools/:id/contacts/:contactId', patchSchoolContact);
+router.delete('/schools/:id/contacts/:contactId', removeSchoolContact);
 router.get('/schools/:id', getSchool);
 router.patch('/schools/:id', patchSchool);
 router.post('/schools/:id/activities', createActivity);

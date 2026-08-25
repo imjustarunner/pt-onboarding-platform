@@ -3,7 +3,7 @@
     <header class="ohub-header">
       <div>
         <h1>Outreach Hub</h1>
-        <p class="ohub-sub">Track school contacts, visits, and partnership status across Denver, Aurora, Pueblo, and Fort Collins.</p>
+        <p class="ohub-sub">Track schools, practices, and places of business — contacts, visits, and partnership status.</p>
       </div>
       <div class="ohub-header-actions">
         <button
@@ -88,9 +88,13 @@
 
     <template v-if="viewMode === 'tracker' || viewMode === 'trips'">
       <div v-if="viewMode === 'tracker'" class="ohub-filters">
-        <input v-model="filters.q" class="ohub-search" type="search" placeholder="Search schools…" @input="debouncedReload" />
+        <input v-model="filters.q" class="ohub-search" type="search" placeholder="Search locations…" @input="debouncedReload" />
+        <select v-model="filters.locationType" @change="reload">
+          <option value="">All types</option>
+          <option v-for="lt in locationTypeOptions" :key="lt.id" :value="lt.id">{{ lt.label }}</option>
+        </select>
         <select v-model="filters.district" @change="reload">
-          <option value="">All districts</option>
+          <option value="">All districts / groups</option>
           <option v-for="d in districts" :key="d" :value="d">{{ d }}</option>
         </select>
         <select v-model="filters.level" @change="reload">
@@ -114,9 +118,44 @@
           Charter only
         </label>
         <button v-if="hasFilters" type="button" class="btn-link" @click="clearFilters">Clear filters</button>
+        <button type="button" class="btn-link" @click="showAddLocation = !showAddLocation">
+          {{ showAddLocation ? 'Hide add form' : 'Add practice / business' }}
+        </button>
         <button type="button" class="btn-link" @click="showImport = !showImport">
           {{ showImport ? 'Hide import' : 'Import DPS history' }}
         </button>
+      </div>
+      <div v-if="viewMode === 'tracker' && showAddLocation" class="ohub-import">
+        <p class="ohub-muted">Add a practice, clinic, or place of business to the outreach directory.</p>
+        <form class="ohub-add-location" @submit.prevent="submitNewLocation">
+          <label class="ohub-field">
+            <span>Type</span>
+            <select v-model="newLocationForm.location_type" required>
+              <option value="practice">Practice</option>
+              <option value="business">Place of business</option>
+              <option value="school">School</option>
+            </select>
+          </label>
+          <label class="ohub-field">
+            <span>Name</span>
+            <input v-model="newLocationForm.name" type="text" required maxlength="255" placeholder="Practice or business name" />
+          </label>
+          <label class="ohub-field">
+            <span>City</span>
+            <input v-model="newLocationForm.city" type="text" maxlength="128" placeholder="Denver" />
+          </label>
+          <label class="ohub-field">
+            <span>Address</span>
+            <input v-model="newLocationForm.address" type="text" maxlength="255" placeholder="Street, city, state, ZIP" />
+          </label>
+          <label class="ohub-field">
+            <span>Group / district (optional)</span>
+            <input v-model="newLocationForm.district_name" type="text" maxlength="255" placeholder="Private practice, Places of business…" />
+          </label>
+          <button type="submit" class="btn btn-primary" :disabled="newLocationSaving">
+            {{ newLocationSaving ? 'Adding…' : 'Add location' }}
+          </button>
+        </form>
       </div>
       <div v-if="viewMode === 'tracker' && showImport" class="ohub-import">
         <p class="ohub-muted">
@@ -199,10 +238,43 @@
 
       <div :class="viewMode === 'tracker' ? 'ohub-body' : 'ohub-trip-layout'">
         <div v-if="viewMode === 'tracker'" class="ohub-table-wrap">
+          <div v-if="selectedLocationCount" class="ohub-bulk-bar">
+            <span class="ohub-bulk-count">{{ selectedLocationCount }} selected</span>
+            <button type="button" class="btn btn-primary btn-sm" @click="startTripFromSelection">
+              {{ selectedLocationCount === 1 ? 'Start new trip with this location' : `Start new trip with ${selectedLocationCount} locations` }}
+            </button>
+            <label class="ohub-bulk-add">
+              <span class="ohub-sr-only">Add to planned trip</span>
+              <select v-model="addToTripId" :disabled="!plannedTrips.length || tripBulkSaving">
+                <option value="">{{ plannedTrips.length ? 'Add to planned trip…' : 'No planned trips yet' }}</option>
+                <option v-for="t in plannedTrips" :key="t.id" :value="String(t.id)">
+                  {{ t.title }}{{ t.planned_date ? ` · ${formatDate(t.planned_date)}` : '' }}
+                </option>
+              </select>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="!addToTripId || tripBulkSaving"
+                @click="addSelectionToPlannedTrip"
+              >{{ tripBulkSaving ? 'Adding…' : 'Add' }}</button>
+            </label>
+            <button type="button" class="btn-link" @click="clearLocationSelection">Clear</button>
+          </div>
           <table class="ohub-table">
             <thead>
               <tr>
-                <th class="sortable" @click="setSort('school')">School <span v-if="sortKey === 'school'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span></th>
+                <th class="ohub-check-col">
+                  <input
+                    type="checkbox"
+                    :checked="allVisibleSelected"
+                    :indeterminate.prop="someVisibleSelected && !allVisibleSelected"
+                    title="Select all visible"
+                    @change="toggleSelectAllVisible($event.target.checked)"
+                    @click.stop
+                  />
+                </th>
+                <th class="sortable" @click="setSort('school')">Location <span v-if="sortKey === 'school'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span></th>
+                <th>Type</th>
                 <th class="sortable" @click="setSort('level')">Level <span v-if="sortKey === 'level'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span></th>
                 <th class="sortable" @click="setSort('district')">District <span v-if="sortKey === 'district'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span></th>
                 <th class="sortable" @click="setSort('stage')">Stage <span v-if="sortKey === 'stage'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span></th>
@@ -214,9 +286,16 @@
               <tr
                 v-for="row in schools"
                 :key="row.id"
-                :class="{ selected: selectedId === row.id }"
+                :class="{ selected: selectedId === row.id, checked: isLocationSelected(row.id) }"
                 @click="selectSchool(row.id)"
               >
+                <td class="ohub-check-col" @click.stop>
+                  <input
+                    type="checkbox"
+                    :checked="isLocationSelected(row.id)"
+                    @change="toggleLocationSelected(row.id, $event.target.checked)"
+                  />
+                </td>
                 <td>
                   <strong>{{ row.name }}</strong>
                   <span v-if="row.is_charter" class="ohub-charter">Charter</span>
@@ -226,6 +305,7 @@
                   </div>
                   <div v-if="row.search_aliases" class="ohub-muted">Also {{ (row.search_aliases || '').split(' | ').join(', ') }}</div>
                 </td>
+                <td><span class="ohub-type-badge" :data-type="row.location_type || 'school'">{{ locationTypeLabel(row.location_type) }}</span></td>
                 <td>{{ levelLabel(row.school_level) }}</td>
                 <td>{{ shortDistrict(row.district_name) }}</td>
                 <td><span class="ohub-stage" :class="row.outreach_stage">{{ stageLabel(row.outreach_stage) }}</span></td>
@@ -233,10 +313,10 @@
                 <td>{{ row.visit_count || 0 }}</td>
               </tr>
               <tr v-if="listLoading">
-                <td colspan="6" class="ohub-muted ohub-empty">Updating list…</td>
+                <td colspan="8" class="ohub-muted ohub-empty">Updating list…</td>
               </tr>
               <tr v-else-if="!schools.length">
-                <td colspan="6" class="ohub-empty">No schools match these filters.</td>
+                <td colspan="8" class="ohub-empty">No locations match these filters.</td>
               </tr>
             </tbody>
           </table>
@@ -483,6 +563,8 @@
           @open-full="openFullSchoolFromTrip"
           @set-attendance="(status) => activeTripStopContext.stop && setStopAttendance(activeTripStopContext.stop, status)"
           @add-contact="onTripEditorAddContact"
+          @update-contact="onTripEditorUpdateContact"
+          @delete-contact="onTripEditorDeleteContact"
           @save-note="onTripEditorSaveNote"
           @create-task="onTripEditorCreateTask"
         />
@@ -491,6 +573,7 @@
           <div class="ohub-detail-head">
             <div>
               <h2>{{ selected.name }}</h2>
+              <span class="ohub-type-badge" :data-type="selected.location_type || 'school'">{{ locationTypeLabel(selected.location_type) }}</span>
               <span class="ohub-stage" :class="selected.outreach_stage">{{ stageLabel(selected.outreach_stage) }}</span>
             </div>
             <div class="ohub-detail-head-actions">
@@ -510,7 +593,7 @@
             <button type="button" :class="{ active: panelTab === 'tasks' }" @click="panelTab = 'tasks'">Tasks</button>
             <button type="button" :class="{ active: panelTab === 'contacts' }" @click="panelTab = 'contacts'">Contacts</button>
             <button type="button" :class="{ active: panelTab === 'history' }" @click="panelTab = 'history'">Activity</button>
-            <button type="button" :class="{ active: panelTab === 'onboarding' }" @click="panelTab = 'onboarding'">Onboarding</button>
+            <button type="button" :class="{ active: panelTab === 'onboarding' }" @click="panelTab = 'onboarding'" v-if="(selected.location_type || 'school') === 'school'">Onboarding</button>
           </div>
 
           <template v-if="panelTab === 'overview'">
@@ -566,7 +649,9 @@
                 <div><dt>Partner school</dt><dd>{{ selected.linked_organization_id ? 'Yes — already in our caseload' : 'Not yet' }}</dd></div>
                 <div><dt>Primary contact</dt><dd>{{ selected.primary_contact_name || '—' }}<template v-if="selected.primary_contact_email"><br><a :href="`mailto:${selected.primary_contact_email}`">{{ selected.primary_contact_email }}</a></template></dd></div>
               </dl>
-              <button v-if="viewMode !== 'trips'" type="button" class="btn btn-secondary" @click="startTripFromSchool(selected)">Plan trip from this school</button>
+              <button v-if="viewMode !== 'trips'" type="button" class="btn btn-secondary" @click="startTripFromSchool(selected)">
+                Start new trip with this location
+              </button>
             </section>
 
             <section class="ohub-card ohub-card--next">
@@ -749,7 +834,7 @@
           </template>
 
           <template v-else-if="panelTab === 'contacts'">
-            <h3>Primary contact</h3>
+            <h3>{{ editingContactId ? 'Edit contact' : 'Add contact' }}</h3>
             <form class="ohub-log" @submit.prevent="submitContact">
               <label class="ohub-field">
                 <span>Name</span>
@@ -757,7 +842,7 @@
               </label>
               <label class="ohub-field">
                 <span>Title</span>
-                <input v-model="contactForm.title" type="text" placeholder="Counselor, principal…" />
+                <input v-model="contactForm.title" type="text" placeholder="Counselor, principal, owner…" />
               </label>
               <label class="ohub-field">
                 <span>Email</span>
@@ -771,18 +856,29 @@
                 <input v-model="contactForm.is_primary" type="checkbox" />
                 Primary contact (also adds them to Contacts)
               </label>
-              <button type="submit" class="btn btn-primary" :disabled="contactSaving">
-                {{ contactSaving ? 'Saving…' : 'Add contact' }}
-              </button>
+              <div class="ohub-log-actions">
+                <button v-if="editingContactId" type="button" class="btn btn-secondary" :disabled="contactSaving" @click="cancelEditContact">
+                  Cancel
+                </button>
+                <button type="submit" class="btn btn-primary" :disabled="contactSaving">
+                  {{ contactSaving ? 'Saving…' : (editingContactId ? 'Save changes' : 'Add contact') }}
+                </button>
+              </div>
             </form>
             <ul class="ohub-plain-list">
-              <li v-for="c in selected.contacts || []" :key="c.id">
-                <strong>{{ c.full_name }}</strong>
-                <span v-if="c.is_primary" class="ohub-stage partnered">Primary</span>
-                <div class="ohub-muted">
-                  {{ c.title || 'Contact' }}
-                  <template v-if="c.email"> · {{ c.email }}</template>
-                  <template v-if="c.phone"> · {{ c.phone }}</template>
+              <li v-for="c in selected.contacts || []" :key="c.id" class="ohub-contact-row">
+                <div>
+                  <strong>{{ c.full_name }}</strong>
+                  <span v-if="c.is_primary" class="ohub-stage partnered">Primary</span>
+                  <div class="ohub-muted">
+                    {{ c.title || 'Contact' }}
+                    <template v-if="c.email"> · {{ c.email }}</template>
+                    <template v-if="c.phone"> · {{ c.phone }}</template>
+                  </div>
+                </div>
+                <div class="ohub-contact-actions">
+                  <button type="button" class="btn-link" @click="startEditContact(c)">Edit</button>
+                  <button type="button" class="btn-link ohub-danger-link" :disabled="contactSaving" @click="deleteContact(c)">Delete</button>
                 </div>
               </li>
               <li v-if="!(selected.contacts || []).length" class="ohub-muted">No contacts on file yet.</li>
@@ -1170,6 +1266,11 @@ const contactTypes = [
   { id: 'phone', label: 'Phone' },
   { id: 'letter', label: 'Letter' }
 ];
+const locationTypeOptions = [
+  { id: 'school', label: 'Schools' },
+  { id: 'practice', label: 'Practices' },
+  { id: 'business', label: 'Places of business' }
+];
 const WINDCHIME_COORDS = { lat: 38.9246, lng: -104.8452 };
 
 const loading = ref(false);
@@ -1216,13 +1317,34 @@ const timeline = ref([]);
 const timelineType = ref('visit');
 const timelineFrom = ref('');
 const timelineTo = ref('');
-const filters = reactive({ q: '', district: '', level: '', stage: '', needsAddress: '', charterOnly: false });
+const filters = reactive({
+  q: '',
+  district: '',
+  level: '',
+  stage: '',
+  needsAddress: '',
+  charterOnly: false,
+  locationType: ''
+});
 const sortKey = ref('district');
 const sortDir = ref('asc');
 const noteForm = reactive({ body: '' });
 const noteSaving = ref(false);
 const contactForm = reactive({ full_name: '', email: '', phone: '', title: '', is_primary: true });
+const editingContactId = ref(null);
 const contactSaving = ref(false);
+const selectedLocationIds = ref(new Set());
+const addToTripId = ref('');
+const tripBulkSaving = ref(false);
+const showAddLocation = ref(false);
+const newLocationSaving = ref(false);
+const newLocationForm = reactive({
+  location_type: 'practice',
+  name: '',
+  city: '',
+  address: '',
+  district_name: ''
+});
 const trips = ref([]);
 const plannedTrips = computed(() =>
   trips.value.filter((t) => ['planned', 'in_progress'].includes(String(t?.status || '')))
@@ -1286,8 +1408,16 @@ const importSaving = ref(false);
 const districts = computed(() => (summary.value.by_district || []).map((d) => d.district));
 const districtCount = computed(() => districts.value.length);
 const hasFilters = computed(() => !!(
-  filters.q || filters.district || filters.level || filters.stage || filters.needsAddress || filters.charterOnly
+  filters.q || filters.district || filters.level || filters.stage || filters.needsAddress
+  || filters.charterOnly || filters.locationType
 ));
+const selectedLocationCount = computed(() => selectedLocationIds.value.size);
+const allVisibleSelected = computed(() =>
+  schools.value.length > 0 && schools.value.every((s) => selectedLocationIds.value.has(Number(s.id)))
+);
+const someVisibleSelected = computed(() =>
+  schools.value.some((s) => selectedLocationIds.value.has(Number(s.id)))
+);
 const orgPrefix = computed(() => {
   const slug = typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : '';
   return slug ? `/${slug}` : '';
@@ -1513,6 +1643,12 @@ const levelLabel = (level) => ({
 }[String(level || '')] || String(level || '—'));
 
 const stageLabel = (stage) => stageOptions.find((s) => s.id === stage)?.label || String(stage || '');
+const locationTypeLabel = (type) => {
+  const t = String(type || 'school').toLowerCase();
+  if (t === 'practice') return 'Practice';
+  if (t === 'business') return 'Business';
+  return 'School';
+};
 const shortDistrict = (name) => {
   const n = String(name || '');
   if (n.includes('Denver')) return 'DPS';
@@ -1563,6 +1699,7 @@ const clearFilters = () => {
   filters.stage = '';
   filters.needsAddress = '';
   filters.charterOnly = false;
+  filters.locationType = '';
   void reload();
 };
 
@@ -1608,6 +1745,7 @@ const reload = async () => {
     if (filters.district) params.district = filters.district;
     if (filters.level) params.level = filters.level;
     if (filters.stage) params.stage = filters.stage;
+    if (filters.locationType) params.locationType = filters.locationType;
     if (filters.needsAddress) params.needsAddress = filters.needsAddress;
     if (filters.charterOnly) params.charterOnly = 'true';
     if (sortKey.value) params.sort = sortKey.value;
@@ -1960,19 +2098,182 @@ const submitNote = async () => {
 const submitContact = async () => {
   if (!selectedId.value) return;
   contactSaving.value = true;
+  error.value = '';
   try {
-    const res = await api.post(`/outreach/schools/${selectedId.value}/contacts`, contactForm);
+    let res;
+    if (editingContactId.value) {
+      res = await api.patch(
+        `/outreach/schools/${selectedId.value}/contacts/${editingContactId.value}`,
+        { ...contactForm }
+      );
+    } else {
+      res = await api.post(`/outreach/schools/${selectedId.value}/contacts`, contactForm);
+    }
     selected.value = res.data?.school || selected.value;
-    contactForm.full_name = '';
-    contactForm.email = '';
-    contactForm.phone = '';
-    contactForm.title = '';
-    contactForm.is_primary = true;
+    cancelEditContact();
     await reload();
   } catch (err) {
     error.value = err.response?.data?.error?.message || err.message || 'Could not save contact.';
   } finally {
     contactSaving.value = false;
+  }
+};
+
+const cancelEditContact = () => {
+  editingContactId.value = null;
+  contactForm.full_name = '';
+  contactForm.email = '';
+  contactForm.phone = '';
+  contactForm.title = '';
+  contactForm.is_primary = true;
+};
+
+const startEditContact = (c) => {
+  if (!c?.id) return;
+  editingContactId.value = c.id;
+  contactForm.full_name = c.full_name || '';
+  contactForm.email = c.email || '';
+  contactForm.phone = c.phone || '';
+  contactForm.title = c.title || '';
+  contactForm.is_primary = Number(c.is_primary) === 1 || c.is_primary === true;
+  panelTab.value = 'contacts';
+};
+
+const deleteContact = async (c) => {
+  if (!selectedId.value || !c?.id) return;
+  if (!window.confirm(`Delete contact ${c.full_name || ''}?`)) return;
+  contactSaving.value = true;
+  error.value = '';
+  try {
+    const res = await api.delete(`/outreach/schools/${selectedId.value}/contacts/${c.id}`);
+    selected.value = res.data?.school || selected.value;
+    if (editingContactId.value === c.id) cancelEditContact();
+    await reload();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not delete contact.';
+  } finally {
+    contactSaving.value = false;
+  }
+};
+
+const submitNewLocation = async () => {
+  const name = String(newLocationForm.name || '').trim();
+  if (!name) return;
+  newLocationSaving.value = true;
+  error.value = '';
+  try {
+    const res = await api.post('/outreach/schools', {
+      location_type: newLocationForm.location_type,
+      name,
+      city: String(newLocationForm.city || '').trim() || null,
+      address: String(newLocationForm.address || '').trim() || null,
+      district_name: String(newLocationForm.district_name || '').trim() || null
+    });
+    newLocationForm.name = '';
+    newLocationForm.city = '';
+    newLocationForm.address = '';
+    newLocationForm.district_name = '';
+    showAddLocation.value = false;
+    await reload();
+    if (res.data?.school?.id) await selectSchool(res.data.school.id);
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not add location.';
+  } finally {
+    newLocationSaving.value = false;
+  }
+};
+
+const isLocationSelected = (id) => selectedLocationIds.value.has(Number(id));
+
+const toggleLocationSelected = (id, checked) => {
+  const next = new Set(selectedLocationIds.value);
+  const n = Number(id);
+  if (checked) next.add(n);
+  else next.delete(n);
+  selectedLocationIds.value = next;
+};
+
+const clearLocationSelection = () => {
+  selectedLocationIds.value = new Set();
+  addToTripId.value = '';
+};
+
+const toggleSelectAllVisible = (checked) => {
+  const next = new Set(selectedLocationIds.value);
+  for (const row of schools.value) {
+    if (checked) next.add(Number(row.id));
+    else next.delete(Number(row.id));
+  }
+  selectedLocationIds.value = next;
+};
+
+const selectedLocationRows = () => {
+  const ids = selectedLocationIds.value;
+  const fromList = schools.value.filter((s) => ids.has(Number(s.id)));
+  if (fromList.length === ids.size) return fromList;
+  // keep selection order by id insertion order when possible
+  return [...ids].map((id) =>
+    schools.value.find((s) => Number(s.id) === id)
+    || (selected.value && Number(selected.value.id) === id ? selected.value : null)
+  ).filter(Boolean);
+};
+
+const startTripFromSelection = async () => {
+  const rows = selectedLocationRows();
+  if (!rows.length) return;
+  openedTripId.value = null;
+  tripRouteEditing.value = false;
+  tripClosestToBoth.value = false;
+  viewMode.value = 'trips';
+  tripStops.value = rows.map((r) => ({ ...r }));
+  tripTitle.value = rows.length === 1
+    ? `Visit ${rows[0].name}`
+    : `Outreach trip (${rows.length} stops)`;
+  clearLocationSelection();
+  try {
+    await Promise.all([loadTripPreview(), loadTrips()]);
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not start trip.';
+  }
+};
+
+const addSelectionToPlannedTrip = async () => {
+  const tripId = Number(addToTripId.value || 0);
+  const rows = selectedLocationRows();
+  if (!tripId || !rows.length) return;
+  const trip = trips.value.find((t) => Number(t.id) === tripId);
+  if (!trip) {
+    error.value = 'Planned trip not found.';
+    return;
+  }
+  if (trip.status === 'completed') {
+    error.value = 'Completed trips cannot be edited.';
+    return;
+  }
+  const existing = (trip.stops || []).map((s) => Number(s.outreach_school_id)).filter(Boolean);
+  const addIds = rows.map((r) => Number(r.id)).filter((id) => id && !existing.includes(id));
+  if (!addIds.length) {
+    error.value = 'All selected locations are already on that trip.';
+    return;
+  }
+  tripBulkSaving.value = true;
+  error.value = '';
+  try {
+    const schoolIds = [...existing, ...addIds];
+    const res = await api.patch(`/outreach/trips/${tripId}`, { schoolIds });
+    const updated = res.data?.trip;
+    if (updated) {
+      trips.value = trips.value.map((t) => (Number(t.id) === Number(updated.id) ? updated : t));
+    } else {
+      await loadTrips();
+    }
+    clearLocationSelection();
+    viewMode.value = 'trips';
+    openedTripId.value = tripId;
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not add stops to trip.';
+  } finally {
+    tripBulkSaving.value = false;
   }
 };
 
@@ -2197,10 +2498,39 @@ const onTripEditorAddContact = async (payload) => {
   tripEditorSaving.value = true;
   error.value = '';
   try {
-    const res = await api.post(`/outreach/schools/${selectedId.value}/contacts`, payload, { skipGlobalLoading: true });
+    const res = await api.post(`/outreach/schools/${selectedId.value}/contacts`, payload);
     selected.value = res.data?.school || selected.value;
   } catch (err) {
-    error.value = err.response?.data?.error?.message || err.message || 'Could not add contact.';
+    error.value = err.response?.data?.error?.message || err.message || 'Could not save contact.';
+  } finally {
+    tripEditorSaving.value = false;
+  }
+};
+
+const onTripEditorUpdateContact = async ({ contactId, ...payload }) => {
+  if (!selectedId.value || !contactId) return;
+  tripEditorSaving.value = true;
+  error.value = '';
+  try {
+    const res = await api.patch(`/outreach/schools/${selectedId.value}/contacts/${contactId}`, payload);
+    selected.value = res.data?.school || selected.value;
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not update contact.';
+  } finally {
+    tripEditorSaving.value = false;
+  }
+};
+
+const onTripEditorDeleteContact = async (contactId) => {
+  if (!selectedId.value || !contactId) return;
+  if (!window.confirm('Delete this contact?')) return;
+  tripEditorSaving.value = true;
+  error.value = '';
+  try {
+    const res = await api.delete(`/outreach/schools/${selectedId.value}/contacts/${contactId}`);
+    selected.value = res.data?.school || selected.value;
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || err.message || 'Could not delete contact.';
   } finally {
     tripEditorSaving.value = false;
   }
@@ -2322,15 +2652,8 @@ const setStopAttendance = async (stop, status) => {
 
 const startTripFromSchool = async (row) => {
   if (!row?.id) return;
-  openedTripId.value = null;
-  tripClosestToBoth.value = false;
-  viewMode.value = 'trips';
-  tripStops.value = [row];
-  try {
-    await Promise.all([loadTripPreview(), loadTrips()]);
-  } catch (err) {
-    error.value = err.response?.data?.error?.message || err.message || 'Could not start trip.';
-  }
+  selectedLocationIds.value = new Set([Number(row.id)]);
+  await startTripFromSelection();
 };
 const removeTripStop = async (idx) => {
   tripStops.value = tripStops.value.filter((_, i) => i !== idx);
@@ -2488,6 +2811,7 @@ const openFollowUpSchools = () => {
   filters.level = '';
   filters.needsAddress = '';
   filters.charterOnly = false;
+  filters.locationType = '';
   void reload();
 };
 
@@ -2499,6 +2823,7 @@ const openMissingAddressSchools = () => {
   filters.level = '';
   filters.stage = '';
   filters.charterOnly = false;
+  filters.locationType = '';
   void reload();
 };
 
@@ -3175,6 +3500,59 @@ onMounted(async () => {
 .ohub-note-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
 .ohub-import-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #fef3c7; color: #92400e; }
 .ohub-import-badge.muted { background: #f1f5f9; color: #475569; }
+.ohub-bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 10px;
+}
+.ohub-bulk-count { font-weight: 700; color: #14532d; }
+.ohub-bulk-add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ohub-bulk-add select { min-width: 180px; }
+.ohub-check-col { width: 36px; text-align: center; }
+.ohub-table tr.checked { background: #f0fdf4; }
+.ohub-type-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  margin-right: 6px;
+}
+.ohub-type-badge[data-type='practice'] { background: #ede9fe; color: #5b21b6; }
+.ohub-type-badge[data-type='business'] { background: #e0f2fe; color: #0369a1; }
+.ohub-type-badge[data-type='school'] { background: #dcfce7; color: #166534; }
+.ohub-add-location {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+.ohub-contact-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+.ohub-contact-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.ohub-danger-link { color: #b91c1c !important; }
+.ohub-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
 .btn-link { background: none; border: 0; color: #14532d; font-weight: 700; cursor: pointer; }
 @media (max-width: 980px) {
   .ohub-body { grid-template-columns: 1fr; }

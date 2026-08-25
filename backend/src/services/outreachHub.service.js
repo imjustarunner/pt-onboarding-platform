@@ -52,12 +52,33 @@ const lastStaffContactSync = new Map();
 
 const CONTACT_TYPES = new Set(['email', 'letter', 'phone', 'visit']);
 
+const LOCATION_TYPES = new Set(['school', 'practice', 'business']);
+
+const LOCATION_TYPE_DISTRICT = {
+  school: null,
+  practice: 'Private practice',
+  business: 'Places of business'
+};
+
 export function isValidOutreachStage(v) {
   return STAGES.has(String(v || '').trim().toLowerCase());
 }
 
 export function isValidContactType(v) {
   return CONTACT_TYPES.has(String(v || '').trim().toLowerCase());
+}
+
+export function isValidLocationType(v) {
+  return LOCATION_TYPES.has(String(v || '').trim().toLowerCase());
+}
+
+function slugifyDirectoryKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'location';
 }
 
 function pickLinkedOrg(entry, orgs) {
@@ -267,6 +288,7 @@ function mapSchoolRow(row, activityCounts = null) {
     city: row.city,
     region: row.region,
     school_level: row.school_level,
+    location_type: row.location_type || 'school',
     address: row.address,
     lat: row.lat != null ? Number(row.lat) : null,
     lng: row.lng != null ? Number(row.lng) : null,
@@ -297,6 +319,7 @@ export async function listOutreachSchools(agencyId, filters = {}) {
   const district = String(filters.district || '').trim();
   const stage = String(filters.stage || '').trim().toLowerCase();
   const level = String(filters.level || '').trim().toLowerCase();
+  const locationType = String(filters.locationType || filters.location_type || filters.type || '').trim().toLowerCase();
   const q = String(filters.q || '').trim();
   const needsAddress = String(filters.needsAddress || filters.address || '').trim().toLowerCase();
   const charterOnly = filters.charterOnly === true
@@ -305,6 +328,10 @@ export async function listOutreachSchools(agencyId, filters = {}) {
     || filters.charterOnly === 'true'
     || String(filters.charter || '').trim().toLowerCase() === '1'
     || String(filters.charter || '').trim().toLowerCase() === 'true';
+  if (locationType && isValidLocationType(locationType)) {
+    where.push('s.location_type = ?');
+    params.push(locationType);
+  }
   if (district) {
     // D11 + charter: include CSI/"Charter" campuses in Colorado Springs alongside D11
     const isD11 = /colorado springs school district 11/i.test(district);
@@ -349,21 +376,44 @@ export async function listOutreachSchools(agencyId, filters = {}) {
     last_contact: `s.last_contact_at ${sortDir}, s.name ASC`,
     visits: `visit_count ${sortDir}, s.name ASC`
   }[sortKey] || `s.district_name ASC, s.name ASC`;
-  const [rows] = await pool.execute(
-    `SELECT
-       s.*,
-       SUM(a.contact_type = 'email') AS email_count,
-       SUM(a.contact_type = 'letter') AS letter_count,
-       SUM(a.contact_type = 'phone') AS phone_count,
-       SUM(a.contact_type = 'visit') AS visit_count
-     FROM outreach_schools s
-     LEFT JOIN outreach_activities a ON a.outreach_school_id = s.id
-     WHERE ${where.join(' AND ')}
-     GROUP BY s.id
-     ORDER BY ${sortSql}`,
-    params
-  );
-  return (rows || []).map((r) => mapSchoolRow(r));
+  try {
+    const [rows] = await pool.execute(
+      `SELECT
+         s.*,
+         SUM(a.contact_type = 'email') AS email_count,
+         SUM(a.contact_type = 'letter') AS letter_count,
+         SUM(a.contact_type = 'phone') AS phone_count,
+         SUM(a.contact_type = 'visit') AS visit_count
+       FROM outreach_schools s
+       LEFT JOIN outreach_activities a ON a.outreach_school_id = s.id
+       WHERE ${where.join(' AND ')}
+       GROUP BY s.id
+       ORDER BY ${sortSql}`,
+      params
+    );
+    return (rows || []).map((r) => mapSchoolRow(r));
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR' || !locationType) throw e;
+    // Pre-migration fallback: ignore location_type filter
+    const fallbackWhere = where.filter((w) => w !== 's.location_type = ?');
+    const fallbackParams = [...params];
+    if (locationType && isValidLocationType(locationType)) fallbackParams.splice(1, 1);
+    const [rows] = await pool.execute(
+      `SELECT
+         s.*,
+         SUM(a.contact_type = 'email') AS email_count,
+         SUM(a.contact_type = 'letter') AS letter_count,
+         SUM(a.contact_type = 'phone') AS phone_count,
+         SUM(a.contact_type = 'visit') AS visit_count
+       FROM outreach_schools s
+       LEFT JOIN outreach_activities a ON a.outreach_school_id = s.id
+       WHERE ${fallbackWhere.join(' AND ')}
+       GROUP BY s.id
+       ORDER BY ${sortSql}`,
+      fallbackParams
+    );
+    return (rows || []).map((r) => mapSchoolRow(r));
+  }
 }
 
 async function queryOutreachSchoolRows(agencyId, filters = {}) {
@@ -866,6 +916,12 @@ export async function updateOutreachSchool(agencyId, schoolId, patch = {}) {
       params.push(null);
     }
   }
+  if (patch.location_type != null || patch.locationType != null) {
+    const locationType = String(patch.location_type || patch.locationType || '').trim().toLowerCase();
+    if (!isValidLocationType(locationType)) throw new Error('Location type must be school, practice, or business');
+    fields.push('location_type = ?');
+    params.push(locationType);
+  }
   if (patch.next_follow_up_at !== undefined) {
     fields.push('next_follow_up_at = ?');
     params.push(patch.next_follow_up_at || null);
@@ -909,6 +965,80 @@ export async function updateOutreachSchool(agencyId, schoolId, patch = {}) {
     params
   );
   return getOutreachSchool(agencyId, schoolId);
+}
+
+export async function createOutreachLocation(agencyId, payload = {}) {
+  const id = Number(agencyId || 0);
+  if (!id) throw new Error('agencyId is required');
+  const locationType = String(payload.location_type || payload.locationType || 'practice').trim().toLowerCase();
+  if (!isValidLocationType(locationType)) throw new Error('Location type must be school, practice, or business');
+  const name = String(payload.name || '').trim();
+  if (!name) throw new Error('Name is required');
+  const city = String(payload.city || '').trim() || null;
+  const address = String(payload.address || '').trim() || null;
+  const region = String(payload.region || '').trim() || null;
+  const schoolLevel = String(payload.school_level || payload.schoolLevel || 'other').trim().toLowerCase() || 'other';
+  const districtName = String(payload.district_name || payload.districtName || '').trim()
+    || LOCATION_TYPE_DISTRICT[locationType]
+    || 'Other';
+  const stage = String(payload.outreach_stage || payload.outreachStage || 'not_started').trim().toLowerCase();
+  if (!isValidOutreachStage(stage)) throw new Error('Invalid outreach stage');
+
+  const baseKey = `${locationType}:${slugifyDirectoryKey(name)}`;
+  let directoryKey = baseKey;
+  for (let i = 0; i < 8; i += 1) {
+    const [dup] = await pool.execute(
+      `SELECT id FROM outreach_schools WHERE agency_id = ? AND directory_key = ? LIMIT 1`,
+      [id, directoryKey]
+    );
+    if (!dup?.length) break;
+    directoryKey = `${baseKey}-${Date.now().toString(36).slice(-4)}${i}`;
+  }
+
+  const addressStatus = address && /\d/.test(address) ? 'verified' : 'missing';
+  let result;
+  try {
+    [result] = await pool.execute(
+      `INSERT INTO outreach_schools (
+         agency_id, directory_key, name, district_name, city, region, school_level,
+         address, address_status, outreach_stage, location_type, is_charter
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [
+        id,
+        directoryKey.slice(0, 191),
+        name.slice(0, 255),
+        districtName.slice(0, 255),
+        city ? city.slice(0, 128) : null,
+        region ? region.slice(0, 128) : null,
+        schoolLevel.slice(0, 32),
+        address ? address.slice(0, 255) : null,
+        addressStatus,
+        stage,
+        locationType
+      ]
+    );
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    [result] = await pool.execute(
+      `INSERT INTO outreach_schools (
+         agency_id, directory_key, name, district_name, city, region, school_level,
+         address, address_status, outreach_stage, is_charter
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [
+        id,
+        directoryKey.slice(0, 191),
+        name.slice(0, 255),
+        districtName.slice(0, 255),
+        city ? city.slice(0, 128) : null,
+        region ? region.slice(0, 128) : null,
+        schoolLevel.slice(0, 32),
+        address ? address.slice(0, 255) : null,
+        addressStatus,
+        stage
+      ]
+    );
+  }
+  return getOutreachSchool(id, result.insertId);
 }
 
 export async function logOutreachActivity(agencyId, schoolId, payload, userId) {
@@ -1486,6 +1616,120 @@ export async function addOutreachSchoolContact(agencyId, schoolId, payload, user
         console.warn('[outreachHub] school_contacts sync skipped', e?.message);
       }
     }
+  }
+  return getOutreachSchool(agencyId, schoolId);
+}
+
+async function syncPrimaryContactFields(agencyId, schoolId) {
+  const [rows] = await pool.execute(
+    `SELECT full_name, email, phone, title, agency_contact_id
+     FROM outreach_school_contacts
+     WHERE outreach_school_id = ? AND agency_id = ? AND is_primary = 1
+     ORDER BY id DESC
+     LIMIT 1`,
+    [schoolId, agencyId]
+  );
+  const primary = rows?.[0] || null;
+  await pool.execute(
+    `UPDATE outreach_schools
+     SET primary_contact_name = ?, primary_contact_email = ?, primary_contact_phone = ?,
+         primary_contact_title = ?, agency_contact_id = ?
+     WHERE id = ? AND agency_id = ?`,
+    [
+      primary?.full_name || null,
+      primary?.email || null,
+      primary?.phone || null,
+      primary?.title || null,
+      primary?.agency_contact_id || null,
+      schoolId,
+      agencyId
+    ]
+  );
+}
+
+export async function updateOutreachSchoolContact(agencyId, schoolId, contactId, payload = {}) {
+  const school = await getOutreachSchool(agencyId, schoolId);
+  if (!school) throw new Error('School not found');
+  const cid = Number(contactId || 0);
+  if (!cid) throw new Error('Contact not found');
+  const [rows] = await pool.execute(
+    `SELECT * FROM outreach_school_contacts
+     WHERE id = ? AND outreach_school_id = ? AND agency_id = ?
+     LIMIT 1`,
+    [cid, schoolId, agencyId]
+  );
+  if (!rows?.[0]) throw new Error('Contact not found');
+
+  const fullName = payload.full_name !== undefined || payload.fullName !== undefined
+    ? String(payload.full_name || payload.fullName || '').trim()
+    : String(rows[0].full_name || '').trim();
+  if (!fullName) throw new Error('Contact name is required');
+  const email = payload.email !== undefined
+    ? (String(payload.email || '').trim().toLowerCase() || null)
+    : (rows[0].email || null);
+  const phone = payload.phone !== undefined
+    ? (String(payload.phone || '').trim() || null)
+    : (rows[0].phone || null);
+  const title = payload.title !== undefined
+    ? (String(payload.title || '').trim() || null)
+    : (rows[0].title || null);
+  const isPrimary = payload.is_primary !== undefined || payload.isPrimary !== undefined
+    ? (payload.is_primary === true || payload.isPrimary === true || payload.is_primary === 1 || payload.isPrimary === 1)
+    : Number(rows[0].is_primary) === 1;
+
+  if (isPrimary) {
+    await pool.execute(
+      `UPDATE outreach_school_contacts SET is_primary = 0 WHERE outreach_school_id = ? AND id <> ?`,
+      [schoolId, cid]
+    );
+  }
+
+  await pool.execute(
+    `UPDATE outreach_school_contacts
+     SET full_name = ?, email = ?, phone = ?, title = ?, is_primary = ?
+     WHERE id = ? AND outreach_school_id = ? AND agency_id = ?`,
+    [fullName, email, phone, title, isPrimary ? 1 : 0, cid, schoolId, agencyId]
+  );
+
+  if (isPrimary || Number(rows[0].is_primary) === 1) {
+    await syncPrimaryContactFields(agencyId, schoolId);
+  }
+  return getOutreachSchool(agencyId, schoolId);
+}
+
+export async function deleteOutreachSchoolContact(agencyId, schoolId, contactId) {
+  const school = await getOutreachSchool(agencyId, schoolId);
+  if (!school) throw new Error('School not found');
+  const cid = Number(contactId || 0);
+  if (!cid) throw new Error('Contact not found');
+  const [rows] = await pool.execute(
+    `SELECT id, is_primary FROM outreach_school_contacts
+     WHERE id = ? AND outreach_school_id = ? AND agency_id = ?
+     LIMIT 1`,
+    [cid, schoolId, agencyId]
+  );
+  if (!rows?.[0]) throw new Error('Contact not found');
+  const wasPrimary = Number(rows[0].is_primary) === 1;
+  await pool.execute(
+    `DELETE FROM outreach_school_contacts
+     WHERE id = ? AND outreach_school_id = ? AND agency_id = ?`,
+    [cid, schoolId, agencyId]
+  );
+  if (wasPrimary) {
+    const [next] = await pool.execute(
+      `SELECT id FROM outreach_school_contacts
+       WHERE outreach_school_id = ?
+       ORDER BY id ASC
+       LIMIT 1`,
+      [schoolId]
+    );
+    if (next?.[0]?.id) {
+      await pool.execute(
+        `UPDATE outreach_school_contacts SET is_primary = 1 WHERE id = ?`,
+        [next[0].id]
+      );
+    }
+    await syncPrimaryContactFields(agencyId, schoolId);
   }
   return getOutreachSchool(agencyId, schoolId);
 }
