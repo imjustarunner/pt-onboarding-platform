@@ -75,6 +75,11 @@
               <option value="none">--</option>
               <option value="call_only">Call Only</option>
               <option value="email_only">Email Only</option>
+              <option value="text_only">Text Only</option>
+              <option value="call_text">Call & Text</option>
+              <option value="call_email">Call & Email</option>
+              <option value="text_email">Text & Email</option>
+              <option value="call_text_email">Call, Text & Email</option>
             </select>
           </label>
         </div>

@@ -29,6 +29,10 @@ import { buildAgencyPromptGuardrailsBlock, listActivePromptNotes } from '../scho
 import {
   buildInboundStatusDraftSources
 } from '../../utils/schoolSupportDraftSources.shared.js';
+import {
+  handlePresenceTimeInbound,
+  isPresenceTimeIdentity
+} from '../presenceEmailInbound.service.js';
 
 function headerMap(headers = []) {
   const m = new Map();
@@ -781,6 +785,36 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     const agencyName = agency?.name || 'your organization';
 
     const bodyText = pickBodyText(payload);
+
+    // Presence Time mailbox (time@plottwistco.com) — status / planned-out for Team Board staff
+    if (isPresenceTimeIdentity(identity)) {
+      try {
+        const messageIdHeader = hdrs.get('message-id') || null;
+        const presenceResult = await handlePresenceTimeInbound({
+          fromEmail,
+          subject,
+          bodyText,
+          senderIdentityId,
+          messageIdHeader
+        });
+        if (presenceResult?.replied) results.replied += 1;
+        else results.ignored += 1;
+        await gmail.users.messages.modify({
+          userId: 'me',
+          id,
+          requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] }
+        });
+      } catch (presenceErr) {
+        console.error('[EmailAgent] Presence Time handler failed:', presenceErr);
+        results.needsHuman += 1;
+        await gmail.users.messages.modify({
+          userId: 'me',
+          id,
+          requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, needsHumanLabelId] }
+        });
+      }
+      continue;
+    }
 
     if (statusDraftsEnabled) {
       const schoolContext = await findSchoolContextByInboundAddresses({

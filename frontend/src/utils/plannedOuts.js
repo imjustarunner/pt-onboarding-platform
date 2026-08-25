@@ -110,6 +110,11 @@ export function formatContact(row) {
   const c = String(row?.contact_preference || 'none');
   if (c === 'call_only') return 'Call Only';
   if (c === 'email_only') return 'Email Only';
+  if (c === 'text_only') return 'Text Only';
+  if (c === 'call_text') return 'Call & Text';
+  if (c === 'call_email') return 'Call & Email';
+  if (c === 'text_email') return 'Text & Email';
+  if (c === 'call_text_email') return 'Call, Text & Email';
   return '--';
 }
 

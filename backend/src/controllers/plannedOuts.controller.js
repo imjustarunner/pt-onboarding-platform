@@ -92,6 +92,11 @@ function buildDescription(body) {
   const contact = String(body.contactPreference || 'none');
   if (contact === 'call_only') bits.push('Call Only');
   else if (contact === 'email_only') bits.push('Email Only');
+  else if (contact === 'text_only') bits.push('Text Only');
+  else if (contact === 'call_text') bits.push('Call & Text');
+  else if (contact === 'call_email') bits.push('Call & Email');
+  else if (contact === 'text_email') bits.push('Text & Email');
+  else if (contact === 'call_text_email') bits.push('Call, Text & Email');
   else bits.push('--');
   if (body.details) bits.push(String(body.details).trim());
   return bits.join(' | ');
@@ -169,7 +174,17 @@ function normalizePayload(body = {}, timeZone = DEFAULT_SCHEDULE_TZ) {
   const emergenciesRaw = String(body.emergencies || 'none').toLowerCase();
   const emergencies = ['okay', 'redirect', 'none'].includes(emergenciesRaw) ? emergenciesRaw : 'none';
   const contactRaw = String(body.contactPreference || body.contact_preference || 'none').toLowerCase();
-  const contactPreference = ['call_only', 'email_only', 'none'].includes(contactRaw) ? contactRaw : 'none';
+  const contactAllowed = [
+    'call_only',
+    'email_only',
+    'text_only',
+    'call_text',
+    'call_email',
+    'text_email',
+    'call_text_email',
+    'none'
+  ];
+  const contactPreference = contactAllowed.includes(contactRaw) ? contactRaw : 'none';
 
   return {
     spanType: allDay ? 'all_day' : spanType,
