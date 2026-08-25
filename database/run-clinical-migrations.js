@@ -1,25 +1,25 @@
 #!/usr/bin/env node
 /**
- * Migration Runner Script
- * 
- * This script runs database migrations in order.
- * It tracks which migrations have been run in a migrations_log table.
- * 
+ * Clinical database migration runner.
+ *
+ * Runs SQL files from database/clinical_migrations/ against the clinical DB
+ * connection (CLINICAL_DB_* env vars, falling back to main DB credentials).
+ *
  * Usage:
- *   node database/run-migrations.js [--dry-run] [--migration N] [--baseline-existing] [--unlog N]
- * 
+ *   node database/run-clinical-migrations.js [--dry-run] [--migration N] [--baseline-existing] [--unlog N]
+ *
  * Options:
  *   --dry-run: Show what would be run without executing
- *   --migration N: Run only migration N (e.g., --migration=091)
- *   --baseline-existing: Mark all current migration files as already run (safe bootstrap for legacy DBs)
- *   --unlog N: Remove migration N from migrations_log so it can be run again (e.g., --unlog=461)
- *   --force: With --migration N, run even if migrations_log marks it successful (re-executes SQL)
+ *   --migration N: Run only migration N (e.g., --migration=002)
+ *   --baseline-existing: Mark all current migration files as already run (legacy DB bootstrap)
+ *   --unlog N: Remove migration N from clinical_migrations_log so it can be run again
+ *   --force: With --migration N, run even if logged as successful
  */
 
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import pool from '../backend/src/config/database.js';
+import clinicalPool from '../backend/src/config/clinicalDatabase.js';
 import {
   isIgnorableSchemaError,
   splitSqlStatements,
@@ -29,87 +29,83 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
+const MIGRATIONS_DIR = path.join(__dirname, 'clinical_migrations');
+const MIGRATIONS_LOG_TABLE = 'clinical_migrations_log';
 
-// Create migrations log table if it doesn't exist
+function resolveClinicalDbLabel() {
+  return process.env.CLINICAL_DB_NAME || process.env.DB_NAME || 'onboarding_stage_clinical';
+}
+
 async function ensureMigrationsTable() {
-  await pool.execute(`
-    CREATE TABLE IF NOT EXISTS migrations_log (
+  await clinicalPool.execute(`
+    CREATE TABLE IF NOT EXISTS ${MIGRATIONS_LOG_TABLE} (
       id INT AUTO_INCREMENT PRIMARY KEY,
       migration_name VARCHAR(255) NOT NULL UNIQUE,
       executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       execution_time_ms INT,
       success BOOLEAN DEFAULT TRUE,
       error_message TEXT,
-      INDEX idx_migration_name (migration_name)
+      INDEX idx_clinical_migration_name (migration_name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 }
 
-// Get list of migration files sorted by number
 async function getMigrationFiles() {
   const files = await fs.readdir(MIGRATIONS_DIR);
   return files
-    .filter(file => file.endsWith('.sql'))
-    // Exclude consolidated/fresh snapshot files from normal migration flow.
-    .filter(file => file !== '000_consolidated_fresh_database.sql')
+    .filter((file) => file.endsWith('.sql'))
     .sort((a, b) => {
-      // Extract number from filename (e.g., "091_add_username_field.sql" -> 91)
-      const numA = parseInt(a.match(/^(\d+)/)?.[1] || '0');
-      const numB = parseInt(b.match(/^(\d+)/)?.[1] || '0');
+      const numA = parseInt(a.match(/^(\d+)/)?.[1] || '0', 10);
+      const numB = parseInt(b.match(/^(\d+)/)?.[1] || '0', 10);
       if (numA !== numB) return numA - numB;
-      // Tie-break by full filename so duplicate prefixes run deterministically.
       return a.localeCompare(b);
     });
 }
 
 async function getAppliedMigrationCount() {
-  const [rows] = await pool.execute(
-    'SELECT COUNT(*) AS cnt FROM migrations_log WHERE success = 1'
+  const [rows] = await clinicalPool.execute(
+    `SELECT COUNT(*) AS cnt FROM ${MIGRATIONS_LOG_TABLE} WHERE success = 1`
   );
   return Number(rows?.[0]?.cnt || 0);
 }
 
-async function hasExistingAppSchema() {
-  const [rows] = await pool.execute(`
+async function hasExistingClinicalSchema() {
+  const [rows] = await clinicalPool.execute(`
     SELECT COUNT(*) AS cnt
     FROM INFORMATION_SCHEMA.TABLES
     WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME IN ('users', 'agencies', 'organizations')
+      AND TABLE_NAME IN ('clinical_sessions', 'clinical_notes')
   `);
   return Number(rows?.[0]?.cnt || 0) > 0;
 }
 
-// Remove a migration from the log so it can be run again
 async function unlogMigration(migrationSpec) {
   const migrationFiles = await getMigrationFiles();
   const match = migrationFiles.find(
     (f) => f.startsWith(migrationSpec) || path.basename(f, '.sql') === migrationSpec
   );
   if (!match) {
-    throw new Error(`Migration not found: ${migrationSpec}`);
+    throw new Error(`Clinical migration not found: ${migrationSpec}`);
   }
   const migrationName = path.basename(match, '.sql');
-  const [result] = await pool.execute(
-    'DELETE FROM migrations_log WHERE migration_name = ?',
+  const [result] = await clinicalPool.execute(
+    `DELETE FROM ${MIGRATIONS_LOG_TABLE} WHERE migration_name = ?`,
     [migrationName]
   );
   return { migrationName, deleted: result.affectedRows };
 }
 
-// Check if migration has been run
 async function hasMigrationRun(migrationName) {
-  const [rows] = await pool.execute(
-    'SELECT success FROM migrations_log WHERE migration_name = ?',
+  const [rows] = await clinicalPool.execute(
+    `SELECT success FROM ${MIGRATIONS_LOG_TABLE} WHERE migration_name = ?`,
     [migrationName]
   );
   return rows.length > 0 && rows[0].success === 1;
 }
 
-// Record migration execution
 async function recordMigration(migrationName, success, executionTime, errorMessage = null) {
-  await pool.execute(
-    `INSERT INTO migrations_log (migration_name, execution_time_ms, success, error_message)
+  await clinicalPool.execute(
+    `INSERT INTO ${MIGRATIONS_LOG_TABLE} (migration_name, execution_time_ms, success, error_message)
      VALUES (?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        executed_at = CURRENT_TIMESTAMP,
@@ -125,8 +121,8 @@ async function runMigration(migrationFile, dryRun = false) {
   const migrationName = path.basename(migrationFile, '.sql');
   const sql = await fs.readFile(migrationPath, 'utf-8');
   const statements = splitSqlStatements(stripSqlLineComments(sql));
-  
-  console.log(`\n${dryRun ? '[DRY RUN] ' : ''}Running migration: ${migrationName}`);
+
+  console.log(`\n${dryRun ? '[DRY RUN] ' : ''}Running clinical migration: ${migrationName}`);
   console.log(`  File: ${migrationFile}`);
   console.log(`  Statements: ${statements.length}`);
 
@@ -136,25 +132,21 @@ async function runMigration(migrationFile, dryRun = false) {
       'Refusing to mark migration as successful.'
     );
   }
-  
+
   if (dryRun) {
     console.log(`  SQL preview (first 200 chars): ${sql.substring(0, 200)}...`);
     return { success: true, executionTime: 0 };
   }
-  
+
   const startTime = Date.now();
   let error = null;
 
   try {
-    // Execute each statement
     for (const statement of statements) {
       const s = statement.trim();
       if (!s) continue;
       try {
-        // Use text protocol for migration statements so MySQL control statements
-        // like PREPARE / EXECUTE work in environments where the prepared
-        // statement protocol rejects them.
-        await pool.query(s);
+        await clinicalPool.query(s);
       } catch (err) {
         if (isIgnorableSchemaError(err)) {
           console.log(`  ⚠️  Skipping statement (already applied): ${String(err?.message || err)}`);
@@ -163,7 +155,7 @@ async function runMigration(migrationFile, dryRun = false) {
         throw err;
       }
     }
-    
+
     const executionTime = Date.now() - startTime;
     await recordMigration(migrationName, true, executionTime);
     console.log(`  ✓ Success (${executionTime}ms)`);
@@ -177,12 +169,7 @@ async function runMigration(migrationFile, dryRun = false) {
   }
 }
 
-// Main function
 function parseSpecificMigrationArg(args) {
-  // Support:
-  //   --migration=439
-  //   --migration 439
-  // Prefer last non-empty value if repeated.
   let specific = null;
   for (let i = 0; i < args.length; i += 1) {
     const arg = String(args[i] || '');
@@ -201,7 +188,7 @@ function parseSpecificMigrationArg(args) {
 }
 
 function parseUnlogArg(args) {
-  for (let i = 0; i < args.length; i++) {
+  for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === '--unlog') {
       const value = String(args[i + 1] || '').trim();
@@ -229,17 +216,18 @@ async function main() {
       const { migrationName, deleted } = await unlogMigration(unlogSpec);
       console.log(
         deleted > 0
-          ? `✓ Removed ${migrationName} from migrations_log (${deleted} row(s) deleted)`
-          : `Migration ${migrationName} was not in migrations_log (nothing to remove)`
+          ? `✓ Removed ${migrationName} from ${MIGRATIONS_LOG_TABLE} (${deleted} row(s) deleted)`
+          : `Migration ${migrationName} was not in ${MIGRATIONS_LOG_TABLE} (nothing to remove)`
       );
       if (!specificMigration && !args.includes('--migration')) {
         process.exit(0);
       }
     }
 
-    console.log('Database Migration Runner');
-    console.log('========================');
-    console.log(`Database: ${process.env.DB_NAME || 'onboarding_stage'}`);
+    console.log('Clinical Database Migration Runner');
+    console.log('==================================');
+    console.log(`Database: ${resolveClinicalDbLabel()}`);
+    console.log(`Host: ${process.env.CLINICAL_DB_HOST || process.env.DB_HOST || 'localhost'}`);
     console.log(`Dry run: ${dryRun ? 'YES' : 'NO'}`);
     if (specificMigration) {
       console.log(`Specific migration: ${specificMigration}`);
@@ -253,12 +241,10 @@ async function main() {
     console.log('');
 
     const migrationFiles = await getMigrationFiles();
-    console.log(`Found ${migrationFiles.length} migration files`);
+    console.log(`Found ${migrationFiles.length} clinical migration files`);
 
-    // Explicit bootstrap mode: mark files as applied without executing SQL.
-    // Use this once for legacy databases that existed before migrations_log tracking.
     if (!dryRun && !specificMigration && baselineExisting) {
-      console.log('Bootstrapping migrations_log for existing database (no SQL execution)...');
+      console.log(`Bootstrapping ${MIGRATIONS_LOG_TABLE} for existing clinical database (no SQL execution)...`);
       for (const migrationFile of migrationFiles) {
         const migrationName = path.basename(migrationFile, '.sql');
         await recordMigration(migrationName, true, 0, null);
@@ -267,24 +253,21 @@ async function main() {
       process.exit(0);
     }
 
-    // Safety guard: if this is an existing DB but migration log is empty, do not replay
-    // all historical migrations unless user explicitly requested baseline bootstrapping.
     if (!dryRun && !specificMigration) {
       const appliedCount = await getAppliedMigrationCount();
-      const existingSchema = await hasExistingAppSchema();
+      const existingSchema = await hasExistingClinicalSchema();
       if (appliedCount === 0 && existingSchema && !baselineExisting) {
-        console.error('\nSafety stop: existing schema detected but migrations_log is empty.');
-        console.error('Running all migrations from the beginning could replay legacy data migrations.');
-        console.error('If this DB is already in use, run with --baseline-existing once, then run migrate again.\n');
+        console.error('\nSafety stop: clinical schema detected but clinical_migrations_log is empty.');
+        console.error('Running all clinical migrations from the beginning could replay legacy schema changes.');
+        console.error('If this DB is already in use, run with --baseline-existing once, then run migrate-clinical again.\n');
         process.exit(1);
       }
     }
-    
+
     if (specificMigration) {
-      // Run only specific migration
-      const migrationFile = migrationFiles.find(f => f.startsWith(specificMigration));
+      const migrationFile = migrationFiles.find((f) => f.startsWith(specificMigration));
       if (!migrationFile) {
-        console.error(`Migration ${specificMigration} not found`);
+        console.error(`Clinical migration ${specificMigration} not found`);
         process.exit(1);
       }
       const migrationName = path.basename(migrationFile, '.sql');
@@ -295,7 +278,6 @@ async function main() {
       const result = await runMigration(migrationFile, dryRun);
       process.exit(result.success ? 0 : 1);
     } else {
-      // Run all pending migrations
       const results = [];
       for (const migrationFile of migrationFiles) {
         const migrationName = path.basename(migrationFile, '.sql');
@@ -306,31 +288,31 @@ async function main() {
         const result = await runMigration(migrationFile, dryRun);
         results.push({ migration: migrationName, ...result });
         if (!result.success && !dryRun) {
-          console.error(`\nMigration failed. Stopping.`);
+          console.error('\nMigration failed. Stopping.');
           break;
         }
       }
-      
+
       const summary = {
         total: results.length,
-        successful: results.filter(r => r.success).length,
-        failed: results.filter(r => !r.success).length
+        successful: results.filter((r) => r.success).length,
+        failed: results.filter((r) => !r.success).length
       };
-      
-      console.log('\n========================');
-      console.log('Migration Summary');
-      console.log('========================');
+
+      console.log('\n==================================');
+      console.log('Clinical Migration Summary');
+      console.log('==================================');
       console.log(`Total: ${summary.total}`);
       console.log(`Successful: ${summary.successful}`);
       console.log(`Failed: ${summary.failed}`);
-      
+
       process.exit(summary.failed > 0 ? 1 : 0);
     }
   } catch (error) {
     console.error('Fatal error:', error);
     process.exit(1);
   } finally {
-    await pool.end();
+    await clinicalPool.end();
   }
 }
 

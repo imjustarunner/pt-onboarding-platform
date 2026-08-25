@@ -1,4 +1,13 @@
 import mysql from 'mysql2/promise';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Match database.js: load backend/.env when scripts run from repo root or backend/.
+dotenv.config();
+dotenv.config({ path: path.join(__dirname, '../../.env') });
 
 function resolveClinicalHost() {
   const mainHost = String(process.env.DB_HOST || 'localhost').trim();
@@ -32,7 +41,7 @@ function resolvePoolConfig() {
   const cfg = {
     user: process.env.CLINICAL_DB_USER || process.env.DB_USER || 'onboarding_user',
     password: process.env.CLINICAL_DB_PASSWORD || process.env.DB_PASSWORD || 'onboarding_pass',
-    database: process.env.CLINICAL_DB_NAME || 'onboarding_stage_clinical',
+    database: process.env.CLINICAL_DB_NAME || process.env.DB_NAME || 'onboarding_stage_clinical',
     waitForConnections: true,
     connectionLimit: parseInt(process.env.CLINICAL_DB_CONNECTION_LIMIT || '10', 10),
     maxIdle: parseInt(process.env.CLINICAL_DB_MAX_IDLE || '5', 10),

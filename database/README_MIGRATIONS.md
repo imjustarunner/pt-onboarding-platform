@@ -19,6 +19,32 @@ node database/run-migrations.js --dry-run
 node database/run-migrations.js --migration=091
 ```
 
+## Clinical database migrations
+
+Clinical PHI tables (`clinical_sessions`, `clinical_notes`, treatment plans, etc.) live in a
+**separate migration track** under `database/clinical_migrations/` (001–007). These are **not**
+included in `npm run migrate`.
+
+From `backend/`:
+
+```bash
+# Run all pending clinical migrations
+npm run migrate-clinical
+
+# Dry run
+npm run migrate-clinical-dry-run
+
+# Run one file (e.g. 002)
+npm run migrate-clinical-one -- --migration=002
+
+# Legacy DB already has clinical tables but no log table
+npm run migrate-clinical -- --baseline-existing
+```
+
+Uses `CLINICAL_DB_HOST`, `CLINICAL_DB_PORT`, `CLINICAL_DB_USER`, `CLINICAL_DB_PASSWORD`, and
+`CLINICAL_DB_NAME` (falls back to main `DB_*` vars when omitted). Progress is tracked in
+`clinical_migrations_log` on the clinical database.
+
 **Prerequisites:**
 - Node.js installed
 - Database connection configured via environment variables:

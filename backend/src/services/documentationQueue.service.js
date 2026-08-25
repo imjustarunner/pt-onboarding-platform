@@ -435,6 +435,34 @@ async function listSessionsFromMainDb({
   return rows.slice(0, fetchLimit);
 }
 
+function documentationQueueSearchHaystack({
+  clientName,
+  clientInitials,
+  agencyName,
+  serviceCode,
+  dateOfService,
+  clientId,
+  identifierCode
+} = {}) {
+  const parts = [
+    clientName,
+    clientInitials,
+    agencyName,
+    serviceCode,
+    dateOfService,
+    String(clientId || ''),
+    String(identifierCode || '')
+  ]
+    .filter(Boolean)
+    .map((s) => String(s).toLowerCase());
+  const dos = String(dateOfService || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dos)) {
+    const [, mm, dd] = dos.split('-');
+    parts.push(`${mm}-${dd}`, `${mm}/${dd}`);
+  }
+  return parts.join(' ');
+}
+
 function buildQueueItems({
   sessions,
   noteMap,
@@ -483,17 +511,15 @@ function buildQueueItems({
     const agencyName = String(agency?.name || '').trim() || null;
 
     if (q) {
-      const hay = [
+      const hay = documentationQueueSearchHaystack({
         clientName,
         clientInitials,
         agencyName,
         serviceCode,
-        String(s.client_id),
-        String(client?.identifier_code || '')
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
+        dateOfService,
+        clientId: s.client_id,
+        identifierCode: client?.identifier_code || ''
+      });
       if (!hay.includes(q)) continue;
     }
 
@@ -554,7 +580,7 @@ export async function listDocumentationQueue({
 
   const lim = Math.min(Math.max(Number(limit) || 100, 1), 300);
   const cid = parseIntValue(clientId);
-  const pid = parseIntValue(providerUserId);
+  const pid = parseIntValue(providerUserId) || parseIntValue(reqUser?.id);
   const from = toDateOnly(fromDos);
   const to = toDateOnly(toDos);
   const q = String(search || '').trim().toLowerCase();

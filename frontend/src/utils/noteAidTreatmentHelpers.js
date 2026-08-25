@@ -240,3 +240,55 @@ export function initialsLikelyMatch(typed, client) {
   if (!b) return false;
   return a === b || b.startsWith(a) || a.startsWith(b);
 }
+
+/** Tenant rows for Note Aid filters (memberships, or full catalog for super_admin). */
+export function noteAidTenantOptions(agencyStore, { role = '' } = {}) {
+  const roleNorm = String(role || '').toLowerCase();
+  const memberships = Array.isArray(agencyStore?.userAgencies) ? agencyStore.userAgencies : [];
+  const catalog = Array.isArray(agencyStore?.agencies) ? agencyStore.agencies : [];
+  const source = memberships.length
+    ? memberships
+    : roleNorm === 'super_admin'
+      ? catalog
+      : memberships;
+  const seen = new Set();
+  const out = [];
+  for (const a of source) {
+    const id = Number(a?.id || 0);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      name: a.name || a.organization_name || `Tenant #${id}`
+    });
+  }
+  return out.sort((x, y) => String(x.name).localeCompare(String(y.name)));
+}
+
+export function documentationQueueSearchHaystack({
+  clientName,
+  clientInitials,
+  agencyName,
+  serviceCode,
+  dateOfService,
+  clientId,
+  identifierCode
+} = {}) {
+  const parts = [
+    clientName,
+    clientInitials,
+    agencyName,
+    serviceCode,
+    dateOfService,
+    String(clientId || ''),
+    String(identifierCode || '')
+  ]
+    .filter(Boolean)
+    .map((s) => String(s).toLowerCase());
+  const dos = String(dateOfService || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dos)) {
+    const [, mm, dd] = dos.split('-');
+    parts.push(`${mm}-${dd}`, `${mm}/${dd}`);
+  }
+  return parts.join(' ');
+}

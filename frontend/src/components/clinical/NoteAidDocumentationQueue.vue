@@ -11,7 +11,12 @@
     </div>
 
     <div class="na-doc-queue-filters">
-      <select v-model="tenantFilter" class="na-input" @change="load">
+      <select
+        v-if="tenantOptions.length > 1"
+        v-model="tenantFilter"
+        class="na-input"
+        @change="load"
+      >
         <option value="">All tenants</option>
         <option v-for="t in tenantOptions" :key="t.id" :value="String(t.id)">{{ t.name }}</option>
       </select>
@@ -19,7 +24,8 @@
         v-model="search"
         type="search"
         class="na-input"
-        placeholder="Search name or initials…"
+        :class="{ 'na-doc-queue-search--wide': tenantOptions.length <= 1 }"
+        placeholder="Search name, initials, service, or date…"
         @input="onSearchInput"
       />
     </div>
@@ -63,6 +69,8 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
+import { noteAidTenantOptions } from '../../utils/noteAidTreatmentHelpers.js';
 
 const props = defineProps({
   agencyId: { type: [Number, String, null], default: null },
@@ -73,6 +81,7 @@ const props = defineProps({
 const emit = defineEmits(['select', 'continue-unlinked', 'client-first']);
 
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
 const items = ref([]);
 const loading = ref(false);
 const error = ref('');
@@ -82,10 +91,16 @@ const tenantFilter = ref('');
 let debounceTimer = null;
 
 const tenantOptions = computed(() =>
-  (agencyStore.userAgencies || [])
-    .map((a) => ({ id: Number(a.id), name: a.name || `Tenant #${a.id}` }))
-    .filter((t) => t.id > 0)
+  noteAidTenantOptions(agencyStore, { role: authStore.user?.role })
 );
+
+async function ensureTenantOptionsLoaded() {
+  await agencyStore.fetchUserAgencies();
+  const role = String(authStore.user?.role || '').toLowerCase();
+  if (role === 'super_admin' && !tenantOptions.value.length) {
+    await agencyStore.fetchAgencies();
+  }
+}
 
 function statusLabel(st) {
   if (st === 'draft') return 'Draft note';
@@ -111,6 +126,8 @@ async function load() {
     if (aid) params.agencyId = aid;
     const cid = Number(props.clientId || 0);
     if (cid) params.clientId = cid;
+    const providerId = Number(authStore.user?.id || 0);
+    if (providerId) params.providerUserId = providerId;
     if (String(search.value || '').trim()) params.search = String(search.value).trim();
     const res = await api.get('/clinical-data/documentation-queue', {
       params,
@@ -140,8 +157,9 @@ watch(
   { immediate: true }
 );
 
-onMounted(() => {
+onMounted(async () => {
   if (props.agencyId) tenantFilter.value = String(props.agencyId);
+  await ensureTenantOptionsLoaded();
 });
 
 defineExpose({ load });
@@ -180,6 +198,9 @@ defineExpose({ load });
   grid-template-columns: minmax(120px, 180px) 1fr;
   gap: 8px;
   margin: 12px 0;
+}
+.na-doc-queue-search--wide {
+  grid-column: 1 / -1;
 }
 .na-doc-queue-list {
   list-style: none;
