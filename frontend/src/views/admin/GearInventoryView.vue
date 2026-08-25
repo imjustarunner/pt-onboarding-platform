@@ -38,7 +38,7 @@
         <div class="gem-stat">
           <div class="gem-stat-value">{{ summary.agenciesManaged }}</div>
           <div class="gem-stat-label">Agencies Managed</div>
-          <div class="gem-stat-hint">Active agencies</div>
+          <div class="gem-stat-hint">Tenant agencies</div>
         </div>
       </section>
 
