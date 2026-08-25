@@ -18,6 +18,7 @@ import {
   viewPublicDisclosureHtml,
   listPublicOfficeIntakeProviders,
   listPublicCareers,
+  getPublicJobDescription,
   getPublicIntakeRegistrationCatalog,
   lookupPublicRegistrationAccount,
   matchPublicIntakeClient,
@@ -56,6 +57,8 @@ const router = express.Router();
 router.use(publicIntakeLimiter);
 
 router.get('/registration-receipt/:submissionId', getPublicRegistrationReceipt);
+router.get('/careers/:agencySlug/jobs/:jobId', getPublicJobDescription);
+router.get('/careers/jobs/:jobId', getPublicJobDescription);
 router.get('/careers/:agencySlug', listPublicCareers);
 router.get('/school/:organizationId', getSchoolIntakeLink);
 router.post(

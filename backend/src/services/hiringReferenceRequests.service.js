@@ -6,7 +6,6 @@ import Agency from '../models/Agency.model.js';
 import HiringReferenceRequest from '../models/HiringReferenceRequest.model.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { resolveHiringReferenceSenderIdentity } from './hiringReferenceIdentity.service.js';
-import StorageService from './storage.service.js';
 import EmailTemplateService from './emailTemplate.service.js';
 import {
   appendEmailOpenPixel,
@@ -616,31 +615,4 @@ export async function submitPublicReferenceForm(rawToken, body) {
   return { success: true };
 }
 
-export async function buildJobDescriptionAttachmentForEmail(jobDescription) {
-  if (!jobDescription) return null;
-  const title = String(jobDescription.title || 'Job description').trim() || 'Job description';
-  const path = String(jobDescription.storage_path || '').trim();
-  if (path) {
-    try {
-      const buf = await StorageService.readObject(path);
-      const orig = String(jobDescription.original_name || 'job-description.pdf').trim() || 'job-description.pdf';
-      const mime = String(jobDescription.mime_type || 'application/pdf').trim() || 'application/pdf';
-      return {
-        filename: orig,
-        contentType: mime,
-        contentBase64: Buffer.from(buf).toString('base64')
-      };
-    } catch {
-      // fall through to text excerpt
-    }
-  }
-  const text = String(jobDescription.description_text || '').trim();
-  if (!text) return null;
-  const snippet = text.slice(0, 12000);
-  const buf = Buffer.from(snippet, 'utf8');
-  return {
-    filename: `${title.replace(/[^\w\-]+/g, '_').slice(0, 80) || 'job'}-description.txt`,
-    contentType: 'text/plain; charset=utf-8',
-    contentBase64: buf.toString('base64')
-  };
-}
+export { buildJobDescriptionAttachmentForEmail } from './publicJobDescription.service.js';

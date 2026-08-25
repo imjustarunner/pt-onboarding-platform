@@ -115,7 +115,12 @@ import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity, logSkippedOrFailedEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import { resolveDevFillContext } from '../services/devFill.service.js';
-import { buildJobDescriptionAttachmentForEmail } from '../services/hiringReferenceRequests.service.js';
+import {
+  buildJobDescriptionAttachmentForEmail,
+  buildPublicJobDescriptionUrl,
+  getPublicJobDescriptionPayload,
+  peopleOperationsFromDisplayName
+} from '../services/publicJobDescription.service.js';
 import { resolveJobApplicationSenderIdentity } from '../services/hiringReferenceIdentity.service.js';
 import {
   pickPreferredSenderIdentity,
@@ -4746,27 +4751,36 @@ async function sendJobApplicationReceivedEmail({
     if (!identity?.id) return;
     const to = String(applicantUser?.email || applicantUser?.personal_email || '').trim();
     if (!to) return;
+    const agency = await Agency.findById(agencyId).catch(() => null);
     const title = String(jobTitle || 'your application').trim();
     const attachments = [];
     if (pdfBuffer) {
       attachments.push({
-        filename: 'application-summary.pdf',
+        filename: 'job-application-receipt.pdf',
         contentType: 'application/pdf',
         contentBase64: Buffer.from(pdfBuffer).toString('base64')
       });
     }
-    const jdAttach = await buildJobDescriptionAttachmentForEmail(jobDescription);
+    const jdAttach = await buildJobDescriptionAttachmentForEmail(jobDescription, { agency });
     if (jdAttach) attachments.push(jdAttach);
+    const jdPublicUrl = jobDescription?.id
+      ? buildPublicJobDescriptionUrl(agency, jobDescription.id)
+      : '';
     const name = `${String(applicantUser?.first_name || '').trim()} ${String(applicantUser?.last_name || '').trim()}`.trim() || 'Hello';
     const subject = `Application received — ${title}`;
+    const fromDisplay = peopleOperationsFromDisplayName(agency || {});
+    const replyTo = String(identity.reply_to || identity.from_email || '').trim() || null;
     const text = [
       `Hi ${name},`,
       '',
       'Thank you for applying. This message confirms we received your application materials.',
       '',
       jobDescription?.title ? `Role: ${jobDescription.title}` : '',
+      jdPublicUrl ? `Job description: ${jdPublicUrl}` : '',
       '',
-      attachments.length ? 'This email includes your application summary and job description materials as attachments.' : ''
+      attachments.length
+        ? 'This email includes your job application receipt and job description materials as attachments.'
+        : ''
     ]
       .filter(Boolean)
       .join('\n');
@@ -4774,7 +4788,8 @@ async function sendJobApplicationReceivedEmail({
       <p>Hi ${name},</p>
       <p>Thank you for applying. We received your application materials.</p>
       ${jobDescription?.title ? `<p><strong>Role:</strong> ${String(jobDescription.title).replace(/</g, '')}</p>` : ''}
-      <p style="color:#555;font-size:14px;">If attachments are missing, you can also download a copy from the confirmation page when available.</p>
+      ${jdPublicUrl ? `<p><strong>Job description:</strong> <a href="${jdPublicUrl}">${jdPublicUrl}</a></p>` : ''}
+      <p style="color:#555;font-size:14px;">Your job application receipt is attached for your records.</p>
     </div>`;
     await sendEmailFromIdentity({
       senderIdentityId: identity.id,
@@ -4785,9 +4800,11 @@ async function sendJobApplicationReceivedEmail({
       attachments: attachments.length ? attachments : null,
       source: 'auto',
       userId: applicantUser?.id || null,
-      templateType: 'job_application_received',
+      templateType: 'job_applications',
       intakeSubmissionId: submissionId || null,
-      jobDescriptionId: jobDescriptionId || jobDescription?.id || null
+      jobDescriptionId: jobDescriptionId || jobDescription?.id || null,
+      fromDisplayNameOverride: fromDisplay,
+      replyToOverride: replyTo
     });
   } catch {
     // best-effort
@@ -4989,7 +5006,8 @@ export const listPublicCareers = async (req, res, next) => {
     for (const job of jobs) {
       const source = (rows || []).find((r) => Number(r.id) === Number(job.jobId));
       const storagePath = String(source?.storage_path || '').trim();
-      if (!storagePath) continue;
+      // Prefer structured sections on the careers page; uploaded PDF only as fallback.
+      if (!storagePath || job.descriptionSections) continue;
       try {
         job.jobDescriptionFileUrl = await StorageService.getSignedUrl(storagePath, 30);
       } catch {
@@ -5009,6 +5027,25 @@ export const listPublicCareers = async (req, res, next) => {
       jobs
     });
   } catch (error) {
+    return next(error);
+  }
+};
+
+/**
+ * Permanent public job description page (readable even when the posting is closed).
+ * GET /public-intake/careers/:agencySlug/jobs/:jobId
+ * Also supports host-implied slug via query omit — use careers/jobs/:jobId with agency from job row.
+ */
+export const getPublicJobDescription = async (req, res, next) => {
+  try {
+    const agencySlug = String(req.params?.agencySlug || '').trim().toLowerCase() || null;
+    const jobId = Number(req.params?.jobId || 0);
+    const payload = await getPublicJobDescriptionPayload({ agencySlug, jobId });
+    return res.json(payload);
+  } catch (error) {
+    if (error?.status) {
+      return res.status(error.status).json({ error: { message: error.message } });
+    }
     return next(error);
   }
 };

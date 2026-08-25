@@ -7,7 +7,6 @@ import HiringInterviewArtifact from '../models/HiringInterviewArtifact.model.js'
 import HiringProfile from '../models/HiringProfile.model.js';
 import User from '../models/User.model.js';
 import GoogleCalendarService from './googleCalendar.service.js';
-import EmailService from './email.service.js';
 import { joinUrlForTeamMeeting } from '../utils/joinToken.js';
 import {
   isValidTimeZone,
@@ -22,6 +21,7 @@ import InterviewHubTemplate from '../models/InterviewHubTemplate.model.js';
 import InterviewHubJobQuestionSet from '../models/InterviewHubJobQuestionSet.model.js';
 import { isValidInterviewRoundKey } from '../constants/hiringInterviewRounds.js';
 import { buildHiringInterviewTitle } from '../utils/hiringInterviewTitle.js';
+import { sendHiringInterviewInviteEmail } from './hiringInterviewInviteEmail.service.js';
 
 /** Google Calendar event color: 3 = grape/purple (distinct from general meetings). */
 export const INTERVIEW_GOOGLE_COLOR_ID = '3';
@@ -145,14 +145,16 @@ export async function scheduleHiringInterview({
   }
 
   let jobTitle = String(jobTitleOverride || '').trim();
+  let resolvedJobDescriptionId = null;
   if (!jobTitle) {
     const jobDescriptionId = profileRow?.job_description_id
       ?? jobQuestionSet?.job_description_id
       ?? null;
     if (jobDescriptionId) {
+      resolvedJobDescriptionId = Number(jobDescriptionId);
       try {
         const [jobRows] = await pool.execute(
-          `SELECT title FROM job_descriptions WHERE id = ? LIMIT 1`,
+          `SELECT title FROM hiring_job_descriptions WHERE id = ? LIMIT 1`,
           [Number(jobDescriptionId)]
         );
         jobTitle = String(jobRows?.[0]?.title || '').trim();
@@ -160,6 +162,10 @@ export async function scheduleHiringInterview({
         jobTitle = '';
       }
     }
+  } else if (profileRow?.job_description_id) {
+    resolvedJobDescriptionId = Number(profileRow.job_description_id);
+  } else if (jobQuestionSet?.job_description_id) {
+    resolvedJobDescriptionId = Number(jobQuestionSet.job_description_id);
   }
   if (!jobTitle && profileRow?.applied_role) {
     jobTitle = String(profileRow.applied_role).trim();
@@ -367,17 +373,16 @@ export async function scheduleHiringInterview({
   if (sendInvites && candidate.email && publicJoinUrl) {
     try {
       const whenLabel = `${wallStart.replace('T', ' ')} (${tz})`;
-      await EmailService.sendEmail({
-        to: candidate.email,
-        subject: title,
-        html: `
-          <p>Hi ${candidate.first_name || candidateName},</p>
-          <p>You are invited to an interview.</p>
-          <p><strong>When:</strong> ${whenLabel}</p>
-          <p><strong>Join link:</strong> <a href="${publicJoinUrl}">${publicJoinUrl}</a></p>
-          <p>Please join a few minutes early. You will wait in a lobby until admitted.</p>
-        `,
-        text: `Hi ${candidate.first_name || candidateName},\n\nYou are invited to an interview.\nWhen: ${whenLabel}\nJoin: ${publicJoinUrl}\n`
+      const interviewerRows = (attendeeRows || []).filter((r) => interviewerIds.includes(Number(r.id)));
+      await sendHiringInterviewInviteEmail({
+        agencyId: agency,
+        candidate,
+        title,
+        whenLabel,
+        publicJoinUrl,
+        interviewerRows,
+        jobDescriptionId: resolvedJobDescriptionId,
+        jobTitle
       });
     } catch (e) {
       console.warn('[scheduleHiringInterview] candidate invite email failed:', e?.message || e);

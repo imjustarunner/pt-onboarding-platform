@@ -1,6 +1,6 @@
 import { google } from 'googleapis';
 import { getWorkspaceClientsForEmployee, logGoogleUnauthorizedHint } from './googleWorkspaceAuth.service.js';
-import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
+import { PLOTTWIST_HEADQUARTERS_NAME } from '../constants/platformBranding.js';
 import { base64UrlEncode, buildMimeMessage } from './unifiedEmail/mime.js';
 import { rewriteHogwartsOutboundRecipient } from '../utils/hogwartsTestEmail.js';
 
@@ -59,7 +59,7 @@ class GoogleWorkspaceEmailService {
     const fromDisplayName =
       fromName ||
       process.env.GOOGLE_WORKSPACE_FROM_NAME ||
-      (fromEmail === impersonate ? SUMMIT_STATS_TEAM_CHALLENGE_NAME : null);
+      (fromEmail === impersonate ? PLOTTWIST_HEADQUARTERS_NAME : null);
     const fromHeader = fromDisplayName ? `${fromDisplayName} <${fromEmail}>` : fromEmail;
 
     // Domain-wide delegation impersonation via JWT

@@ -29,8 +29,9 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   adaptive_full_intake_invite: ['intake', 'notifications'],
   guardian_portal_login_info: ['technology', 'login_recovery', 'notifications'],
   manual: ['notifications'],
-  job_applications: ['job_applications', 'people_operations', 'notifications'],
-  hiring_references: ['hiring_references', 'notifications'],
+  job_applications: ['people_operations', 'job_applications', 'notifications'],
+  hiring_interview_invite: ['people_operations', 'job_applications', 'notifications'],
+  hiring_references: ['hiring_references', 'people_operations', 'notifications'],
   enrollment_unfinished_reminder_24h: ['forms', 'intake', 'school_intake'],
   enrollment_unfinished_reminder_72h: ['forms', 'intake', 'school_intake'],
   enrollment_unfinished_reminder_7d: ['forms', 'intake', 'school_intake'],
@@ -70,9 +71,8 @@ export function preferredIdentityKeysForOutboundSend({ templateType = null, trig
   if (fromTemplate.length) return fromTemplate;
   const fromTrigger = preferredIdentityKeysForTemplateType(triggerKey);
   if (fromTrigger.length) return fromTrigger;
-  const tk = String(triggerKey || '').trim().toLowerCase();
-  if (tk) return ['notifications', 'support', 'people_operations'];
-  return [];
+  // Default: tenant notifications@ mailbox — not the platform ai@ bounce-back address.
+  return ['notifications', 'default_notifications', 'support', 'people_operations'];
 }
 
 export function identityKeyMatchesPreferred(identity, templateType) {

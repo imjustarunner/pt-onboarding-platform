@@ -775,7 +775,9 @@ export function buildCompletedIntakeRecord({
   }).filter(Boolean);
 
   const sections = [
-    contactRows.length ? { title: 'Who this packet is for', rows: contactRows } : null,
+    contactRows.length
+      ? { title: isJobApplication ? 'Applicant' : 'Who this packet is for', rows: contactRows }
+      : null,
     leftoverGuardian.length ? { title: isJobApplication ? 'Applicant details' : 'Parent / guardian', rows: leftoverGuardian } : null,
     commsBlock,
     reminderBlock,
@@ -808,10 +810,12 @@ export function buildCompletedIntakeRecord({
   ].filter(Boolean);
 
   return {
-    title: isJobApplication ? 'Completed job application' : 'Completed intake packet',
+    title: isJobApplication ? 'Job application receipt' : 'Completed intake packet',
     skipCoverPage: isJobApplication,
     kicker: 'For your records',
-    agencyName: agencyDisplayName(agency) || String(link?.title || 'Intake').trim(),
+    agencyName:
+      agencyDisplayName(agency)
+      || String(isJobApplication ? (link?.title || 'Application') : (link?.title || 'Intake')).trim(),
     brandLogoUrl: String(brandLogoUrl || '').trim(),
     packetVersionLabel: '1.0',
     metaLines: [
@@ -825,6 +829,8 @@ export function buildCompletedIntakeRecord({
       statement: ESIGN_STATEMENT,
       rows: esignRows
     },
-    footerNote: 'This branded packet is your copy of what you submitted, including answers, signatures, approvals, and electronic signature details. Signed legal form copies may also be emailed when they are ready. Keep this file private.'
+    footerNote: isJobApplication
+      ? 'This branded receipt is your copy of the job application you submitted, including your answers and any acknowledgments. Keep this file private.'
+      : 'This branded packet is your copy of what you submitted, including answers, signatures, approvals, and electronic signature details. Signed legal form copies may also be emailed when they are ready. Keep this file private.'
   };
 }
